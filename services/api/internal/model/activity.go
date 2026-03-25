@@ -1721,7 +1721,7 @@ type GearDocument struct {
 	ContentType      string    `json:"content_type"`
 	FileSizeBytes    int64     `json:"file_size_bytes"`
 	FileHash         *string   `json:"file_hash,omitempty"`
-	FileID           *string   `json:"file_id,omitempty"` // user_files registry ID (FileStore)
+	FileID           *string   `json:"file_id,omitempty"` // user_files registry ID (ShadowFS)
 	S3Bucket         string    `json:"-"`
 	S3Key            string    `json:"-"`
 	ExtractedText    *string   `json:"extracted_text,omitempty"`

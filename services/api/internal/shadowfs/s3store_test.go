@@ -1,4 +1,4 @@
-package filestore
+package shadowfs
 
 import (
 	"os"
@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// TODO: Add mock-based S3FileStore tests
-func TestS3FileStore_PutGet(t *testing.T) {
+// TODO: Add mock-based S3ShadowFS tests
+func TestS3ShadowFS_PutGet(t *testing.T) {
 	t.Skip("requires S3 mock — implement with mock S3 client")
 }
 

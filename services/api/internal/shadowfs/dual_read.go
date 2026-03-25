@@ -1,4 +1,4 @@
-package filestore
+package shadowfs
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 // available; callers that still have an S3Client should check for this prefix
 // and fall back to their own S3 read path. This keeps the helper free from an
 // S3Client dependency.
-func ResolveActivityFile(ctx context.Context, fs FileStore, pool *pgxpool.Pool, activityID, userID string) (io.ReadCloser, error) {
+func ResolveActivityFile(ctx context.Context, fs ShadowFS, pool *pgxpool.Pool, activityID, userID string) (io.ReadCloser, error) {
 	var fileID *string
 	var localPath *string
 	var s3Key *string
@@ -29,12 +29,12 @@ func ResolveActivityFile(ctx context.Context, fs FileStore, pool *pgxpool.Pool, 
 		return nil, fmt.Errorf("activity not found")
 	}
 
-	// New path: file_id → FileStore
+	// New path: file_id → ShadowFS
 	if fileID != nil && *fileID != "" {
 		return fs.Get(ctx, userID, *fileID)
 	}
 
-	// Legacy fallback: direct filesystem path from pre-FileStore era.
+	// Legacy fallback: direct filesystem path from pre-ShadowFS era.
 	// No validateLocalPath check — this column is dropped in migration 000233.
 	// Until then, the path was written by trusted server code (ShadowFS).
 	if localPath != nil && *localPath != "" {
@@ -68,7 +68,7 @@ var allowedMediaTables = map[string]bool{
 // never pass user-supplied strings here.
 //
 // Same "legacy_s3:<key>" sentinel convention as ResolveActivityFile applies.
-func ResolveMediaFile(ctx context.Context, fs FileStore, pool *pgxpool.Pool, tableName, fileIDColumn, s3KeyColumn, rowID, userID string) (io.ReadCloser, error) {
+func ResolveMediaFile(ctx context.Context, fs ShadowFS, pool *pgxpool.Pool, tableName, fileIDColumn, s3KeyColumn, rowID, userID string) (io.ReadCloser, error) {
 	if !allowedMediaTables[tableName] {
 		return nil, fmt.Errorf("invalid table name")
 	}

@@ -27,7 +27,7 @@ type Config struct {
 	HotfolderUserID  string // User ID that hotfolder imports are attributed to
 	MaxUploadSize    int64  // Maximum upload size in bytes (default 50 MB)
 
-	// FileStore (unified storage)
+	// ShadowFS (unified storage)
 	StorageBackend      string // "local" (default) or "s3"
 	LibraryBasePath     string // e.g. /data/library
 	LibraryKeepVersions int    // 0=delete, 1=keep last, -1=keep all

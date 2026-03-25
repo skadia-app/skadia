@@ -6,7 +6,6 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
@@ -19,8 +18,8 @@ type Handler struct {
 	DB             *database.DB
 	Storage        *storage.S3Client
 	Events         *event.Publisher
-	FileStore      filestore.FileStore      // nil when not yet initialized
-	ShadowFS *shadowfs.ShadowFSConfig // nil when shadow FS is not configured
+	ShadowFS       shadowfs.ShadowFS       // nil when not yet initialized
+	ShadowFSConfig *shadowfs.ShadowFSConfig // nil when shadow FS is not configured
 	WatcherManager *shadowfs.WatcherManager // nil when per-user hotfolder is not configured
 	Config         *HandlerConfig           // LLM/LiteLLM configuration
 	ImportService  *importer.Service        // shared post-processing pipeline
@@ -41,7 +40,7 @@ type HandlerConfig struct {
 	RoutingGraphPath    string        // path to binary graph file
 	RoutingTimeout      time.Duration // request timeout for route calculations (default 30s)
 	MaxUploadSize       int64         // maximum upload size in bytes
-	// FileStore — used by rename handlers and admin dashboard
+	// ShadowFS — used by rename handlers and admin dashboard
 	LibraryBasePath  string // e.g. /data/library (local backend only)
 	StorageBackend   string // "local" or "s3"
 	KeepVersions     int    // 0=delete, 1=keep last, -1=keep all

@@ -1,4 +1,4 @@
-// Deprecated: the shadowfs package is superseded by the Unified FileStore (internal/filestore).
+// Legacy ShadowFS functions retained for backward compatibility with the hotfolder watcher
 // All functions here are retained for backward compatibility with the hotfolder watcher
 // and the legacy rename handlers. Do not add new code to this package.
 package shadowfs
@@ -6,9 +6,6 @@ package shadowfs
 import (
 	"fmt"
 	"math"
-	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -24,16 +21,6 @@ type ActivityInfo struct {
 	ElapsedTimeS int
 	City         string
 	FileExt      string // e.g. "fit", "gpx", "tcx"
-}
-
-// illegalChars matches characters not allowed in file/directory names.
-var illegalChars = regexp.MustCompile(`[/\\:*?"<>|]`)
-
-// sanitize replaces illegal filesystem characters with underscores and trims whitespace.
-func sanitize(s string) string {
-	s = illegalChars.ReplaceAllString(s, "_")
-	s = strings.TrimSpace(s)
-	return s
 }
 
 // RenderPath takes an ActivityInfo and a schema template and returns the rendered
@@ -105,28 +92,7 @@ func RenderPath(info ActivityInfo, schema string) string {
 	return result
 }
 
-// ResolveCollision appends _1, _2 etc. to the file stem if a file already
-// exists at the given basePath + relativePath.
-func ResolveCollision(basePath, relativePath string) string {
-	full := filepath.Join(basePath, relativePath)
-	if _, err := os.Stat(full); os.IsNotExist(err) {
-		return relativePath
-	}
-
-	ext := filepath.Ext(relativePath)
-	stem := strings.TrimSuffix(relativePath, ext)
-
-	for i := 1; i < 1000; i++ {
-		candidate := fmt.Sprintf("%s_%d%s", stem, i, ext)
-		candidateFull := filepath.Join(basePath, candidate)
-		if _, err := os.Stat(candidateFull); os.IsNotExist(err) {
-			return candidate
-		}
-	}
-
-	// Extreme fallback: use activity ID in filename (should never happen)
-	return stem + "_overflow" + ext
-}
-
-// DefaultSchema is the default file naming schema.
+// LegacyDefaultSchema is the default file naming schema for the legacy ShadowFS.
+// Kept as a package-level const for backward compatibility (referenced by shadow-fs
+// settings handlers and hotfolder).
 const DefaultSchema = "{year}-{month}-{day}_{sport}_{subCategory}_{title}_{city}"

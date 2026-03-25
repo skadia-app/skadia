@@ -164,11 +164,11 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Files: original activity files, media, documents — via FileStore.
-	// Falls back to legacy ShadowFS walk when FileStore is not yet wired.
-	if h.FileStore != nil {
-		// New path: FileStore includes ALL files (local + S3).
-		if err := h.FileStore.StreamToZip(ctx, userID, zw); err != nil {
+	// Files: original activity files, media, documents — via ShadowFS.
+	// Falls back to legacy ShadowFS walk when ShadowFS is not yet wired.
+	if h.ShadowFS != nil {
+		// New path: ShadowFS includes ALL files (local + S3).
+		if err := h.ShadowFS.StreamToZip(ctx, userID, zw); err != nil {
 			slog.Error("data export: file store stream failed", "error", err)
 		}
 	} else if basePath := h.Config.ShadowFSBasePath; basePath != "" {

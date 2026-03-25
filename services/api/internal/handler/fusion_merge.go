@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/fusion"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -281,7 +281,7 @@ func (h *Handler) mergeGPSFromSource(ctx context.Context, targetID, sourceID str
 	return err
 }
 
-// fitLevelMerge lädt die Original-FIT-Dateien (via FileStore oder S3-Fallback),
+// fitLevelMerge lädt die Original-FIT-Dateien (via ShadowFS oder S3-Fallback),
 // führt sie auf Protokoll-Ebene zusammen und speichert die neue FIT-Datei zurück.
 // Unterstützt aktuell nur einen Source (den ersten in der Liste).
 func (h *Handler) fitLevelMerge(
@@ -291,8 +291,8 @@ func (h *Handler) fitLevelMerge(
 	fieldMap map[string]string,
 	activities map[string]*model.Activity,
 ) error {
-	if h.FileStore == nil && h.Storage == nil {
-		return fmt.Errorf("neither FileStore nor S3 storage configured")
+	if h.ShadowFS == nil && h.Storage == nil {
+		return fmt.Errorf("neither ShadowFS nor S3 storage configured")
 	}
 	if len(sourceIDs) == 0 {
 		return fmt.Errorf("no sources for FIT-level merge")
@@ -329,10 +329,10 @@ func (h *Handler) fitLevelMerge(
 
 	const maxFITSize = 50 * 1024 * 1024 // 50 MB
 
-	// readFITData liest eine FIT-Datei: erst via FileStore (wenn file_id bekannt),
+	// readFITData liest eine FIT-Datei: erst via ShadowFS (wenn file_id bekannt),
 	// dann via Legacy-S3 als Fallback.
 	readFITData := func(activityID, fileHash string) ([]byte, error) {
-		if h.FileStore != nil {
+		if h.ShadowFS != nil {
 			// Look up file_id for this activity from the DB.
 			var fileID string
 			_ = h.DB.Pool.QueryRow(ctx,
@@ -340,16 +340,16 @@ func (h *Handler) fitLevelMerge(
 				activityID, userID,
 			).Scan(&fileID)
 			if fileID != "" {
-				rc, getErr := h.FileStore.Get(ctx, userID, fileID)
+				rc, getErr := h.ShadowFS.Get(ctx, userID, fileID)
 				if getErr == nil {
 					defer rc.Close()
 					d, readErr := io.ReadAll(rc)
 					if readErr != nil {
-						return nil, fmt.Errorf("read FileStore entry %s: %w", fileID, readErr)
+						return nil, fmt.Errorf("read ShadowFS entry %s: %w", fileID, readErr)
 					}
 					return d, nil
 				}
-				slog.Warn("fusion-merge: FileStore.Get failed, falling back to S3",
+				slog.Warn("fusion-merge: ShadowFS.Get failed, falling back to S3",
 					"file_id", fileID, "error", getErr)
 			}
 		}
@@ -397,10 +397,10 @@ func (h *Handler) fitLevelMerge(
 	hashBytes := sha256.Sum256(result.Data)
 	newHash := hex.EncodeToString(hashBytes[:])
 
-	// Zusammengeführte FIT-Datei speichern: FileStore (preferred) oder S3 (fallback).
+	// Zusammengeführte FIT-Datei speichern: ShadowFS (preferred) oder S3 (fallback).
 	var mergedFileID string
-	if h.FileStore != nil {
-		rec, putErr := h.FileStore.Put(ctx, filestore.FileEntry{
+	if h.ShadowFS != nil {
+		rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
 			UserID:      userID,
 			FileType:    "activity",
 			ContentType: "application/octet-stream",
@@ -410,10 +410,10 @@ func (h *Handler) fitLevelMerge(
 			Tags:        map[string]string{"format": "fit", "source": "fusion_merge"},
 		}, bytes.NewReader(result.Data))
 		if putErr != nil {
-			return fmt.Errorf("FileStore.Put merged FIT: %w", putErr)
+			return fmt.Errorf("ShadowFS.Put merged FIT: %w", putErr)
 		}
 		mergedFileID = rec.ID
-		slog.Info("fusion-merge: FIT-level merge saved via FileStore",
+		slog.Info("fusion-merge: FIT-level merge saved via ShadowFS",
 			"target", targetID, "records", result.RecordCount, "file_id", mergedFileID)
 	} else {
 		const bucket = "skadia-originals"
@@ -425,7 +425,7 @@ func (h *Handler) fitLevelMerge(
 			"target", targetID, "records", result.RecordCount, "s3_key", mergedKey)
 	}
 
-	// file_hash (and file_id if FileStore) der Ziel-Aktivität aktualisieren.
+	// file_hash (and file_id if ShadowFS) der Ziel-Aktivität aktualisieren.
 	if mergedFileID != "" {
 		if _, execErr := h.DB.Pool.Exec(ctx,
 			`UPDATE activities SET file_hash = $2, file_id = $3, has_edits = true WHERE id = $1`,

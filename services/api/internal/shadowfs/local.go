@@ -1,4 +1,4 @@
-package filestore
+package shadowfs
 
 import (
 	"archive/zip"
@@ -22,8 +22,8 @@ const maxExportBytes int64 = 10 * 1024 * 1024 * 1024
 // maxRaceRetries is the number of O_EXCL race-condition retries for Put.
 const maxRaceRetries = 10
 
-// LocalFileStore implements FileStore backed by the local filesystem.
-type LocalFileStore struct {
+// LocalShadowFS implements ShadowFS backed by the local filesystem.
+type LocalShadowFS struct {
 	pool         *pgxpool.Pool
 	basePath     string
 	renderer     *SchemaRenderer
@@ -31,16 +31,16 @@ type LocalFileStore struct {
 	maxUserBytes int64
 }
 
-// NewLocalFileStore creates a new local filesystem file store.
-func NewLocalFileStore(pool *pgxpool.Pool, basePath string, renderer *SchemaRenderer, keepVersions int, maxUserBytes int64) (*LocalFileStore, error) {
+// NewLocalShadowFS creates a new local filesystem file store.
+func NewLocalShadowFS(pool *pgxpool.Pool, basePath string, renderer *SchemaRenderer, keepVersions int, maxUserBytes int64) (*LocalShadowFS, error) {
 	abs, err := filepath.Abs(basePath)
 	if err != nil {
-		return nil, fmt.Errorf("filestore: resolve basePath: %w", err)
+		return nil, fmt.Errorf("shadowfs: resolve basePath: %w", err)
 	}
 	if err := os.MkdirAll(abs, 0o755); err != nil {
-		return nil, fmt.Errorf("filestore: create basePath: %w", err)
+		return nil, fmt.Errorf("shadowfs: create basePath: %w", err)
 	}
-	return &LocalFileStore{
+	return &LocalShadowFS{
 		pool:         pool,
 		basePath:     abs,
 		renderer:     renderer,
@@ -50,16 +50,16 @@ func NewLocalFileStore(pool *pgxpool.Pool, basePath string, renderer *SchemaRend
 }
 
 // Put stores a file on disk and registers it in user_files.
-func (s *LocalFileStore) Put(ctx context.Context, entry FileEntry, data io.Reader) (FileRecord, error) {
+func (s *LocalShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (FileRecord, error) {
 	// Quota check.
 	// NOTE: Quota is a soft limit (TOCTOU race possible with concurrent uploads). Hard enforcement via Reconciliation job. This is by design — see Spec §15.2.
 	if s.maxUserBytes > 0 {
 		used, err := diskUsage(ctx, s.pool, entry.UserID)
 		if err != nil {
-			return FileRecord{}, fmt.Errorf("filestore: quota check: %w", err)
+			return FileRecord{}, fmt.Errorf("shadowfs: quota check: %w", err)
 		}
 		if used+entry.SizeBytes > s.maxUserBytes {
-			return FileRecord{}, fmt.Errorf("filestore: quota exceeded (used %d + %d > %d)", used, entry.SizeBytes, s.maxUserBytes)
+			return FileRecord{}, fmt.Errorf("shadowfs: quota exceeded (used %d + %d > %d)", used, entry.SizeBytes, s.maxUserBytes)
 		}
 	}
 
@@ -75,7 +75,7 @@ func (s *LocalFileStore) Put(ctx context.Context, entry FileEntry, data io.Reade
 	if entry.FileType == "edit" {
 		// Edit sidecars use a fixed ID-based path.
 		if entry.ParentID == nil {
-			return FileRecord{}, fmt.Errorf("filestore: edit sidecar requires ParentID")
+			return FileRecord{}, fmt.Errorf("shadowfs: edit sidecar requires ParentID")
 		}
 		relPath = filepath.Join(userDir, DirForType("edit"), *entry.ParentID+".json")
 	} else {
@@ -109,7 +109,7 @@ func (s *LocalFileStore) Put(ctx context.Context, entry FileEntry, data io.Reade
 
 	// Create parent directories.
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
-		return FileRecord{}, fmt.Errorf("filestore: mkdir: %w", err)
+		return FileRecord{}, fmt.Errorf("shadowfs: mkdir: %w", err)
 	}
 
 	// Write file with O_EXCL race retry (except edit sidecars which overwrite).
@@ -126,21 +126,21 @@ func (s *LocalFileStore) Put(ctx context.Context, entry FileEntry, data io.Reade
 				break
 			}
 			if !errors.Is(err, os.ErrExist) {
-				return FileRecord{}, fmt.Errorf("filestore: write: %w", err)
+				return FileRecord{}, fmt.Errorf("shadowfs: write: %w", err)
 			}
 			// Another process won the race — re-resolve collision.
 			relPath = ResolveCollision(s.basePath, relPath)
 			fullPath = filepath.Join(s.basePath, relPath)
 			if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
-				return FileRecord{}, fmt.Errorf("filestore: mkdir retry: %w", err)
+				return FileRecord{}, fmt.Errorf("shadowfs: mkdir retry: %w", err)
 			}
 			if attempt == maxRaceRetries-1 {
-				return FileRecord{}, fmt.Errorf("filestore: exhausted %d race retries", maxRaceRetries)
+				return FileRecord{}, fmt.Errorf("shadowfs: exhausted %d race retries", maxRaceRetries)
 			}
 		}
 	}
 	if err != nil {
-		return FileRecord{}, fmt.Errorf("filestore: write: %w", err)
+		return FileRecord{}, fmt.Errorf("shadowfs: write: %w", err)
 	}
 
 	// Content-type detection.
@@ -197,7 +197,7 @@ func (s *LocalFileStore) Put(ctx context.Context, entry FileEntry, data io.Reade
 	if err != nil {
 		// DB insert failed — clean up the file if we own it.
 		s.safeRemove(fullPath, relPath)
-		return FileRecord{}, fmt.Errorf("filestore: insert record: %w", err)
+		return FileRecord{}, fmt.Errorf("shadowfs: insert record: %w", err)
 	}
 
 	// Post-write quota check: catches cases where SizeBytes was 0 on entry.
@@ -206,7 +206,7 @@ func (s *LocalFileStore) Put(ctx context.Context, entry FileEntry, data io.Reade
 		if usage > s.maxUserBytes {
 			s.safeRemove(fullPath, relPath)
 			_, _ = s.pool.Exec(ctx, `DELETE FROM user_files WHERE id = $1`, rec.ID)
-			return FileRecord{}, fmt.Errorf("filestore: storage quota exceeded (post-write check)")
+			return FileRecord{}, fmt.Errorf("shadowfs: storage quota exceeded (post-write check)")
 		}
 	}
 
@@ -214,19 +214,19 @@ func (s *LocalFileStore) Put(ctx context.Context, entry FileEntry, data io.Reade
 }
 
 // Get returns an io.ReadCloser for the file identified by fileID.
-func (s *LocalFileStore) Get(ctx context.Context, userID, fileID string) (io.ReadCloser, error) {
+func (s *LocalShadowFS) Get(ctx context.Context, userID, fileID string) (io.ReadCloser, error) {
 	var storagePath, status string
 	err := s.pool.QueryRow(ctx,
 		`SELECT storage_path, status FROM user_files WHERE id = $1 AND user_id = $2`,
 		fileID, userID).Scan(&storagePath, &status)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("filestore: file not found")
+			return nil, fmt.Errorf("shadowfs: file not found")
 		}
-		return nil, fmt.Errorf("filestore: query: %w", err)
+		return nil, fmt.Errorf("shadowfs: query: %w", err)
 	}
 	if status == "purging" {
-		return nil, fmt.Errorf("filestore: file is being purged")
+		return nil, fmt.Errorf("shadowfs: file is being purged")
 	}
 
 	if err := s.validateLocalPath(storagePath); err != nil {
@@ -236,13 +236,13 @@ func (s *LocalFileStore) Get(ctx context.Context, userID, fileID string) (io.Rea
 	fullPath := filepath.Join(s.basePath, storagePath)
 	f, err := os.Open(fullPath)
 	if err != nil {
-		return nil, fmt.Errorf("filestore: open: %w", err)
+		return nil, fmt.Errorf("shadowfs: open: %w", err)
 	}
 	return f, nil
 }
 
 // Delete removes a file from disk and the registry.
-func (s *LocalFileStore) Delete(ctx context.Context, userID, fileID string) error {
+func (s *LocalShadowFS) Delete(ctx context.Context, userID, fileID string) error {
 	var storagePath, fileType string
 	var hasSidecar bool
 	err := s.pool.QueryRow(ctx,
@@ -250,9 +250,9 @@ func (s *LocalFileStore) Delete(ctx context.Context, userID, fileID string) erro
 		fileID, userID).Scan(&storagePath, &fileType, &hasSidecar)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("filestore: file not found")
+			return fmt.Errorf("shadowfs: file not found")
 		}
-		return fmt.Errorf("filestore: query: %w", err)
+		return fmt.Errorf("shadowfs: query: %w", err)
 	}
 
 	if err := s.validateLocalPath(storagePath); err != nil {
@@ -263,7 +263,7 @@ func (s *LocalFileStore) Delete(ctx context.Context, userID, fileID string) erro
 
 	// Remove the file.
 	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("filestore: remove: %w", err)
+		return fmt.Errorf("shadowfs: remove: %w", err)
 	}
 
 	// Remove file-type-specific sidecars.
@@ -276,25 +276,25 @@ func (s *LocalFileStore) Delete(ctx context.Context, userID, fileID string) erro
 	_, err = s.pool.Exec(ctx,
 		`DELETE FROM user_files WHERE id = $1 AND user_id = $2`, fileID, userID)
 	if err != nil {
-		return fmt.Errorf("filestore: delete record: %w", err)
+		return fmt.Errorf("shadowfs: delete record: %w", err)
 	}
 	return nil
 }
 
 // DeleteAllForUser removes all files for a user (GDPR purge).
-func (s *LocalFileStore) DeleteAllForUser(ctx context.Context, userID string) error {
+func (s *LocalShadowFS) DeleteAllForUser(ctx context.Context, userID string) error {
 	// Mark all files as purging.
 	_, err := s.pool.Exec(ctx,
 		`UPDATE user_files SET status = 'purging' WHERE user_id = $1`, userID)
 	if err != nil {
-		return fmt.Errorf("filestore: mark purging: %w", err)
+		return fmt.Errorf("shadowfs: mark purging: %w", err)
 	}
 
 	// Query all files for deletion.
 	rows, err := s.pool.Query(ctx,
 		`SELECT storage_path, file_type, has_sidecar FROM user_files WHERE user_id = $1`, userID)
 	if err != nil {
-		return fmt.Errorf("filestore: query files: %w", err)
+		return fmt.Errorf("shadowfs: query files: %w", err)
 	}
 	defer rows.Close()
 
@@ -302,23 +302,23 @@ func (s *LocalFileStore) DeleteAllForUser(ctx context.Context, userID string) er
 		var storagePath, fileType string
 		var hasSidecar bool
 		if err := rows.Scan(&storagePath, &fileType, &hasSidecar); err != nil {
-			slog.Error("filestore: scan file for deletion", "err", err)
+			slog.Error("shadowfs: scan file for deletion", "err", err)
 			continue
 		}
 
 		if err := s.validateLocalPath(storagePath); err != nil {
-			slog.Warn("filestore: skip invalid path during purge", "path", storagePath, "err", err)
+			slog.Warn("shadowfs: skip invalid path during purge", "path", storagePath, "err", err)
 			continue
 		}
 
 		fullPath := filepath.Join(s.basePath, storagePath)
 		if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
-			slog.Warn("filestore: remove file during purge", "path", fullPath, "err", err)
+			slog.Warn("shadowfs: remove file during purge", "path", fullPath, "err", err)
 		}
 		s.removeSidecars(fullPath, fileType, hasSidecar)
 	}
 	if err := rows.Err(); err != nil {
-		slog.Error("filestore: iterate files for deletion", "err", err)
+		slog.Error("shadowfs: iterate files for deletion", "err", err)
 	}
 
 	// Safety-net: remove the user directory entirely.
@@ -327,7 +327,7 @@ func (s *LocalFileStore) DeleteAllForUser(ctx context.Context, userID string) er
 		userFullPath := filepath.Join(s.basePath, userDir)
 		if err := s.validateLocalPath(userDir); err == nil {
 			if err := os.RemoveAll(userFullPath); err != nil {
-				slog.Warn("filestore: removeAll user dir", "path", userFullPath, "err", err)
+				slog.Warn("shadowfs: removeAll user dir", "path", userFullPath, "err", err)
 			}
 		}
 
@@ -335,39 +335,39 @@ func (s *LocalFileStore) DeleteAllForUser(ctx context.Context, userID string) er
 		for _, sub := range []string{"_cache", "_temp"} {
 			p := filepath.Join(s.basePath, userDir, sub)
 			if err := os.RemoveAll(p); err != nil && !os.IsNotExist(err) {
-				slog.Warn("filestore: remove cache/temp dir", "path", p, "err", err)
+				slog.Warn("shadowfs: remove cache/temp dir", "path", p, "err", err)
 			}
 		}
 	}
 
 	// Clean journal entries.
 	_, _ = s.pool.Exec(ctx,
-		`DELETE FROM migration_filestore_journal WHERE user_id = $1`, userID)
+		`DELETE FROM migration_shadowfs_journal WHERE user_id = $1`, userID)
 
 	// Delete all registry entries.
 	_, err = s.pool.Exec(ctx,
 		`DELETE FROM user_files WHERE user_id = $1`, userID)
 	if err != nil {
-		return fmt.Errorf("filestore: delete records: %w", err)
+		return fmt.Errorf("shadowfs: delete records: %w", err)
 	}
 	return nil
 }
 
 // List returns all file records for a user, optionally filtered by file type.
-func (s *LocalFileStore) List(ctx context.Context, userID string, fileType *string) ([]FileRecord, error) {
+func (s *LocalShadowFS) List(ctx context.Context, userID string, fileType *string) ([]FileRecord, error) {
 	return listRecords(ctx, s.pool, userID, fileType)
 }
 
 // DiskUsage returns total bytes used by a user.
-func (s *LocalFileStore) DiskUsage(ctx context.Context, userID string) (int64, error) {
+func (s *LocalShadowFS) DiskUsage(ctx context.Context, userID string) (int64, error) {
 	return diskUsage(ctx, s.pool, userID)
 }
 
 // StreamToZip writes all user files into a zip archive (GDPR export).
-func (s *LocalFileStore) StreamToZip(ctx context.Context, userID string, zw *zip.Writer) error {
+func (s *LocalShadowFS) StreamToZip(ctx context.Context, userID string, zw *zip.Writer) error {
 	records, err := listRecords(ctx, s.pool, userID, nil)
 	if err != nil {
-		return fmt.Errorf("filestore: list records for zip: %w", err)
+		return fmt.Errorf("shadowfs: list records for zip: %w", err)
 	}
 
 	userDir, err := s.getUserDir(ctx, userID)
@@ -391,7 +391,7 @@ func (s *LocalFileStore) StreamToZip(ctx context.Context, userID string, zw *zip
 
 		// ZIP Slip prevention.
 		if strings.Contains(zipPath, "..") {
-			slog.Warn("filestore: skip path with .. in zip", "path", zipPath)
+			slog.Warn("shadowfs: skip path with .. in zip", "path", zipPath)
 			continue
 		}
 
@@ -403,24 +403,24 @@ func (s *LocalFileStore) StreamToZip(ctx context.Context, userID string, zw *zip
 		// Check export size limit.
 		totalBytes += rec.SizeBytes
 		if totalBytes > maxExportBytes {
-			return fmt.Errorf("filestore: export exceeds %d byte limit", maxExportBytes)
+			return fmt.Errorf("shadowfs: export exceeds %d byte limit", maxExportBytes)
 		}
 
 		fullPath := filepath.Join(s.basePath, rec.StoragePath)
 		f, err := os.Open(fullPath)
 		if err != nil {
-			slog.Warn("filestore: skip missing file in zip", "path", fullPath, "err", err)
+			slog.Warn("shadowfs: skip missing file in zip", "path", fullPath, "err", err)
 			continue
 		}
 
 		w, err := zw.Create(zipPath)
 		if err != nil {
 			f.Close()
-			return fmt.Errorf("filestore: create zip entry: %w", err)
+			return fmt.Errorf("shadowfs: create zip entry: %w", err)
 		}
 		if _, err := io.Copy(w, f); err != nil {
 			f.Close()
-			return fmt.Errorf("filestore: write zip entry: %w", err)
+			return fmt.Errorf("shadowfs: write zip entry: %w", err)
 		}
 		f.Close()
 	}
@@ -428,7 +428,7 @@ func (s *LocalFileStore) StreamToZip(ctx context.Context, userID string, zw *zip
 }
 
 // Resolve returns metadata for serving a file.
-func (s *LocalFileStore) Resolve(ctx context.Context, userID, fileID string) (ResolvedFile, error) {
+func (s *LocalShadowFS) Resolve(ctx context.Context, userID, fileID string) (ResolvedFile, error) {
 	var storagePath, contentType, fileName string
 	var sizeBytes int64
 	err := s.pool.QueryRow(ctx,
@@ -437,9 +437,9 @@ func (s *LocalFileStore) Resolve(ctx context.Context, userID, fileID string) (Re
 		fileID, userID).Scan(&storagePath, &contentType, &fileName, &sizeBytes)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ResolvedFile{}, fmt.Errorf("filestore: file not found")
+			return ResolvedFile{}, fmt.Errorf("shadowfs: file not found")
 		}
-		return ResolvedFile{}, fmt.Errorf("filestore: query: %w", err)
+		return ResolvedFile{}, fmt.Errorf("shadowfs: query: %w", err)
 	}
 
 	if err := s.validateLocalPath(storagePath); err != nil {
@@ -457,7 +457,7 @@ func (s *LocalFileStore) Resolve(ctx context.Context, userID, fileID string) (Re
 }
 
 // Archive moves a file to the _archive/ directory with a version suffix.
-func (s *LocalFileStore) Archive(ctx context.Context, userID, fileID, replacedByID string) error {
+func (s *LocalShadowFS) Archive(ctx context.Context, userID, fileID, replacedByID string) error {
 	if s.keepVersions == 0 {
 		return s.Delete(ctx, userID, fileID)
 	}
@@ -468,9 +468,9 @@ func (s *LocalFileStore) Archive(ctx context.Context, userID, fileID, replacedBy
 		fileID, userID).Scan(&storagePath, &fileType)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("filestore: file not found")
+			return fmt.Errorf("shadowfs: file not found")
 		}
-		return fmt.Errorf("filestore: query: %w", err)
+		return fmt.Errorf("shadowfs: query: %w", err)
 	}
 
 	if err := s.validateLocalPath(storagePath); err != nil {
@@ -495,12 +495,12 @@ func (s *LocalFileStore) Archive(ctx context.Context, userID, fileID, replacedBy
 
 	// Create archive directory.
 	if err := os.MkdirAll(filepath.Dir(archiveFull), 0o755); err != nil {
-		return fmt.Errorf("filestore: mkdir archive: %w", err)
+		return fmt.Errorf("shadowfs: mkdir archive: %w", err)
 	}
 
 	// Move file.
 	if err := os.Rename(fullPath, archiveFull); err != nil {
-		return fmt.Errorf("filestore: rename to archive: %w", err)
+		return fmt.Errorf("shadowfs: rename to archive: %w", err)
 	}
 
 	// Clean empty source directories.
@@ -512,7 +512,7 @@ func (s *LocalFileStore) Archive(ctx context.Context, userID, fileID, replacedBy
 		WHERE id = $3 AND user_id = $4`,
 		archiveRel, replacedByID, fileID, userID)
 	if err != nil {
-		return fmt.Errorf("filestore: update archive record: %w", err)
+		return fmt.Errorf("shadowfs: update archive record: %w", err)
 	}
 	return nil
 }
@@ -520,15 +520,15 @@ func (s *LocalFileStore) Archive(ctx context.Context, userID, fileID, replacedBy
 // ---------- Helpers ----------
 
 // getUserDir returns the relative user directory (library_dir_name or UUID fallback).
-func (s *LocalFileStore) getUserDir(ctx context.Context, userID string) (string, error) {
+func (s *LocalShadowFS) getUserDir(ctx context.Context, userID string) (string, error) {
 	var dirName *string
 	err := s.pool.QueryRow(ctx,
 		`SELECT library_dir_name FROM users WHERE id = $1`, userID).Scan(&dirName)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", fmt.Errorf("filestore: user not found: %s", userID)
+			return "", fmt.Errorf("shadowfs: user not found: %s", userID)
 		}
-		return "", fmt.Errorf("filestore: query user: %w", err)
+		return "", fmt.Errorf("shadowfs: query user: %w", err)
 	}
 
 	name := userID
@@ -538,14 +538,14 @@ func (s *LocalFileStore) getUserDir(ctx context.Context, userID string) (string,
 
 	// Validate no path traversal in user dir name.
 	if strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
-		return "", fmt.Errorf("filestore: invalid library_dir_name: %q", name)
+		return "", fmt.Errorf("shadowfs: invalid library_dir_name: %q", name)
 	}
 	return name, nil
 }
 
 // getUserDirOrFallback returns the user directory, falling back to the userID itself
 // when the user row has already been deleted (e.g., during GDPR purge).
-func (s *LocalFileStore) getUserDirOrFallback(ctx context.Context, userID string) string {
+func (s *LocalShadowFS) getUserDirOrFallback(ctx context.Context, userID string) string {
 	dir, err := s.getUserDir(ctx, userID)
 	if err == nil {
 		return dir
@@ -555,25 +555,25 @@ func (s *LocalFileStore) getUserDirOrFallback(ctx context.Context, userID string
 }
 
 // validateLocalPath ensures the resolved path stays within basePath and is not a symlink escape.
-func (s *LocalFileStore) validateLocalPath(relPath string) error {
+func (s *LocalShadowFS) validateLocalPath(relPath string) error {
 	cleaned := filepath.Clean(relPath)
 	if strings.HasPrefix(cleaned, "..") || filepath.IsAbs(cleaned) {
-		return fmt.Errorf("filestore: path traversal blocked: %q", relPath)
+		return fmt.Errorf("shadowfs: path traversal blocked: %q", relPath)
 	}
 
 	fullPath := filepath.Join(s.basePath, cleaned)
 	if !strings.HasPrefix(fullPath, s.basePath+string(filepath.Separator)) && fullPath != s.basePath {
-		return fmt.Errorf("filestore: path escapes basePath: %q", relPath)
+		return fmt.Errorf("shadowfs: path escapes basePath: %q", relPath)
 	}
 
 	// Check symlinks on existing paths.
 	if _, err := os.Lstat(fullPath); err == nil {
 		real, err := filepath.EvalSymlinks(fullPath)
 		if err != nil {
-			return fmt.Errorf("filestore: eval symlinks: %w", err)
+			return fmt.Errorf("shadowfs: eval symlinks: %w", err)
 		}
 		if !strings.HasPrefix(real, s.basePath) {
-			return fmt.Errorf("filestore: symlink escapes basePath: %q -> %q", fullPath, real)
+			return fmt.Errorf("shadowfs: symlink escapes basePath: %q -> %q", fullPath, real)
 		}
 	} else {
 		// File doesn't exist yet — check parent directory.
@@ -581,10 +581,10 @@ func (s *LocalFileStore) validateLocalPath(relPath string) error {
 		if _, err := os.Lstat(parentDir); err == nil {
 			real, err := filepath.EvalSymlinks(parentDir)
 			if err != nil {
-				return fmt.Errorf("filestore: eval parent symlinks: %w", err)
+				return fmt.Errorf("shadowfs: eval parent symlinks: %w", err)
 			}
 			if !strings.HasPrefix(real, s.basePath) {
-				return fmt.Errorf("filestore: parent symlink escapes basePath: %q -> %q", parentDir, real)
+				return fmt.Errorf("shadowfs: parent symlink escapes basePath: %q -> %q", parentDir, real)
 			}
 		}
 	}
@@ -606,7 +606,7 @@ func cleanEmptyDirs(dir, stopAt string) {
 }
 
 // removeSidecars removes file-type-specific sidecar files.
-func (s *LocalFileStore) removeSidecars(fullPath, fileType string, hasSidecar bool) {
+func (s *LocalShadowFS) removeSidecars(fullPath, fileType string, hasSidecar bool) {
 	if !hasSidecar {
 		return
 	}
@@ -621,20 +621,20 @@ func (s *LocalFileStore) removeSidecars(fullPath, fileType string, hasSidecar bo
 	}
 	for _, p := range sidecarPaths {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-			slog.Warn("filestore: remove sidecar", "path", p, "err", err)
+			slog.Warn("shadowfs: remove sidecar", "path", p, "err", err)
 		}
 	}
 }
 
 // safeRemove removes a file only if it matches the expected relative path.
-func (s *LocalFileStore) safeRemove(fullPath, relPath string) {
+func (s *LocalShadowFS) safeRemove(fullPath, relPath string) {
 	// Double-check: only remove if the path is within basePath.
 	if err := s.validateLocalPath(relPath); err != nil {
-		slog.Warn("filestore: skip cleanup of invalid path", "path", relPath, "err", err)
+		slog.Warn("shadowfs: skip cleanup of invalid path", "path", relPath, "err", err)
 		return
 	}
 	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
-		slog.Warn("filestore: cleanup failed", "path", fullPath, "err", err)
+		slog.Warn("shadowfs: cleanup failed", "path", fullPath, "err", err)
 	}
 }
 
@@ -689,6 +689,6 @@ func writeFile(path string, data io.Reader, exclusive bool) (written int64, hash
 	return written, hashHex, first512, nil
 }
 
-// Ensure LocalFileStore implements FileStore at compile time.
-var _ FileStore = (*LocalFileStore)(nil)
+// Ensure LocalShadowFS implements ShadowFS at compile time.
+var _ ShadowFS = (*LocalShadowFS)(nil)
 

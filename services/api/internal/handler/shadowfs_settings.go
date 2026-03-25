@@ -14,7 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -55,7 +55,7 @@ func (h *Handler) GetFileSchemas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	renderer := filestore.NewSchemaRenderer()
+	renderer := shadowfs.NewSchemaRenderer()
 	type schemaEntry struct {
 		FileType string `json:"file_type"`
 		Schema   string `json:"schema"`
@@ -93,7 +93,7 @@ func (h *Handler) UpdateFileSchema(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	renderer := filestore.NewSchemaRenderer()
+	renderer := shadowfs.NewSchemaRenderer()
 	warnings, err := renderer.ValidateSchema(fileType, body.Schema)
 	if err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
@@ -235,7 +235,7 @@ func (h *Handler) PreviewFileRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	renderer := filestore.NewSchemaRenderer()
+	renderer := shadowfs.NewSchemaRenderer()
 	if _, err := renderer.ValidateSchema(fileType, body.Schema); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
@@ -275,7 +275,7 @@ func (h *Handler) PreviewFileRename(w http.ResponseWriter, r *http.Request) {
 	}
 	var pairs []renamePair
 
-	typeDirPrefix := filepath.Join(userDir, filestore.DirForType(fileType))
+	typeDirPrefix := filepath.Join(userDir, shadowfs.DirForType(fileType))
 
 	for rows.Next() {
 		var id, storagePath, fileName string
@@ -377,7 +377,7 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 	var existingCount int
 	if err := conn.QueryRow(ctx,
 		`SELECT COUNT(*) FROM background_jobs
-		 WHERE job_type = 'filestore_rename' AND user_id = $1 AND status = 'running'`,
+		 WHERE job_type = 'shadowfs_rename' AND user_id = $1 AND status = 'running'`,
 		userID,
 	).Scan(&existingCount); err != nil {
 		slog.Error("rename-execute: check existing job", "error", err)
@@ -393,7 +393,7 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 	var jobID string
 	if err := conn.QueryRow(ctx,
 		`INSERT INTO background_jobs (id, job_type, user_id, status, created_at)
-		 VALUES (gen_random_uuid(), 'filestore_rename', $1, 'running', NOW())
+		 VALUES (gen_random_uuid(), 'shadowfs_rename', $1, 'running', NOW())
 		 RETURNING id`,
 		userID,
 	).Scan(&jobID); err != nil {
@@ -407,7 +407,7 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 	)
 
 	// Fetch the current (already-saved) schema for this user+type.
-	renderer := filestore.NewSchemaRenderer()
+	renderer := shadowfs.NewSchemaRenderer()
 	schema := renderer.DefaultSchema(fileType)
 	var userSchema string
 	if scanErr := conn.QueryRow(ctx,
@@ -430,7 +430,7 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 	if libraryDirName != nil && *libraryDirName != "" {
 		userDir = *libraryDirName
 	}
-	typeDirPrefix := filepath.Join(userDir, filestore.DirForType(fileType))
+	typeDirPrefix := filepath.Join(userDir, shadowfs.DirForType(fileType))
 
 	// Query all active files not currently being renamed.
 	fileRows, queryErr := conn.Query(ctx,
@@ -520,7 +520,7 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Resolve collision so we never silently overwrite another file.
-		newRelPath = filestore.ResolveCollision(basePath, newRelPath)
+		newRelPath = shadowfs.ResolveCollision(basePath, newRelPath)
 
 		oldFullPath := filepath.Join(basePath, f.storagePath)
 		newFullPath := filepath.Join(basePath, newRelPath)

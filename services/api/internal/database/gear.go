@@ -1763,7 +1763,7 @@ func (db *DB) GetGearDocument(ctx context.Context, docID string) (*model.GearDoc
 
 // DeleteGearDocument deletes a gear document and returns its storage info.
 // Returns (bucket, s3Key, fileID, error). fileID is non-empty when the doc
-// was stored via the FileStore registry; bucket/s3Key are set for legacy S3 docs.
+// was stored via the ShadowFS registry; bucket/s3Key are set for legacy S3 docs.
 func (db *DB) DeleteGearDocument(ctx context.Context, docID string) (string, string, string, error) {
 	var bucket, key string
 	var fileID *string
@@ -1784,7 +1784,7 @@ func (db *DB) DeleteGearDocument(ctx context.Context, docID string) (string, str
 	return bucket, key, fid, nil
 }
 
-// UpdateGearDocumentFileID sets the file_id (FileStore registry ID) on a gear document.
+// UpdateGearDocumentFileID sets the file_id (ShadowFS registry ID) on a gear document.
 func (db *DB) UpdateGearDocumentFileID(ctx context.Context, docID, fileID string) error {
 	_, err := db.Pool.Exec(ctx,
 		`UPDATE gear_documents SET file_id = $1 WHERE id = $2`,
@@ -1794,7 +1794,7 @@ func (db *DB) UpdateGearDocumentFileID(ctx context.Context, docID, fileID string
 
 // ListGearDocumentFileIDsByGearID returns all (docID, fileID, s3Bucket, s3Key) tuples
 // for documents belonging to a gear item (directly or via its components).
-// Used by DeleteGear to clean up FileStore and S3 storage.
+// Used by DeleteGear to clean up ShadowFS and S3 storage.
 func (db *DB) ListGearDocumentFileIDsByGearID(ctx context.Context, gearID string) ([]struct {
 	DocID    string
 	FileID   string

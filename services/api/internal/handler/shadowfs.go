@@ -47,8 +47,8 @@ func (h *Handler) GetShadowFSSettingsCompat(w http.ResponseWriter, r *http.Reque
 	hotfolderEnabled, err := h.DB.GetUserHotfolderEnabled(r.Context(), userID)
 	if err != nil {
 		slog.Warn("shadow-fs compat: get hotfolder enabled failed, using env default", "error", err)
-		if h.ShadowFS != nil {
-			hotfolderEnabled = h.ShadowFS.HotfolderEnabled
+		if h.ShadowFSConfig != nil {
+			hotfolderEnabled = h.ShadowFSConfig.HotfolderEnabled
 		}
 	}
 
@@ -58,8 +58,8 @@ func (h *Handler) GetShadowFSSettingsCompat(w http.ResponseWriter, r *http.Reque
 	}
 	if h.WatcherManager != nil {
 		resp.HotfolderPath = h.WatcherManager.UserPath(userID)
-	} else if h.ShadowFS != nil {
-		resp.HotfolderPath = h.ShadowFS.HotfolderPath
+	} else if h.ShadowFSConfig != nil {
+		resp.HotfolderPath = h.ShadowFSConfig.HotfolderPath
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, resp)
@@ -67,7 +67,7 @@ func (h *Handler) GetShadowFSSettingsCompat(w http.ResponseWriter, r *http.Reque
 
 // UpdateShadowFSSettingsCompat is a backward-compatibility shim for PUT /settings/shadow-fs.
 // Schema changes are written directly to user_file_schemas for the "activity" file type.
-// HotfolderEnabled is still managed via the users table (no FileStore equivalent).
+// HotfolderEnabled is still managed via the users table (no ShadowFS equivalent).
 //
 // Deprecated: use PUT /settings/file-schemas/activity instead.
 func (h *Handler) UpdateShadowFSSettingsCompat(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +95,7 @@ func (h *Handler) UpdateShadowFSSettingsCompat(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	// Handle hotfolder toggle (no FileStore equivalent — still managed via users table).
+	// Handle hotfolder toggle (no ShadowFS equivalent — still managed via users table).
 	if req.HotfolderEnabled != nil {
 		currentEnabled, err := h.DB.GetUserHotfolderEnabled(r.Context(), userID)
 		if err != nil {
@@ -147,8 +147,8 @@ func (h *Handler) GetShadowFSSettings(w http.ResponseWriter, r *http.Request) {
 	hotfolderEnabled, err := h.DB.GetUserHotfolderEnabled(r.Context(), userID)
 	if err != nil {
 		slog.Warn("get hotfolder enabled failed, using env default", "error", err)
-		if h.ShadowFS != nil {
-			hotfolderEnabled = h.ShadowFS.HotfolderEnabled
+		if h.ShadowFSConfig != nil {
+			hotfolderEnabled = h.ShadowFSConfig.HotfolderEnabled
 		}
 	}
 
@@ -159,8 +159,8 @@ func (h *Handler) GetShadowFSSettings(w http.ResponseWriter, r *http.Request) {
 
 	if h.WatcherManager != nil {
 		resp.HotfolderPath = h.WatcherManager.UserPath(userID)
-	} else if h.ShadowFS != nil {
-		resp.HotfolderPath = h.ShadowFS.HotfolderPath
+	} else if h.ShadowFSConfig != nil {
+		resp.HotfolderPath = h.ShadowFSConfig.HotfolderPath
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, resp)
@@ -233,8 +233,8 @@ func (h *Handler) UpdateShadowFSSettings(w http.ResponseWriter, r *http.Request)
 	}
 	if h.WatcherManager != nil {
 		resp.HotfolderPath = h.WatcherManager.UserPath(userID)
-	} else if h.ShadowFS != nil {
-		resp.HotfolderPath = h.ShadowFS.HotfolderPath
+	} else if h.ShadowFSConfig != nil {
+		resp.HotfolderPath = h.ShadowFSConfig.HotfolderPath
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, resp)
@@ -252,7 +252,7 @@ func (h *Handler) PreviewRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.ShadowFS == nil {
+	if h.ShadowFSConfig == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "Not Configured", "shadow file system not enabled", r.URL.Path)
 		return
 	}
@@ -278,7 +278,7 @@ func (h *Handler) PreviewRename(w http.ResponseWriter, r *http.Request) {
 	for _, a := range activities {
 		info := activityToShadowInfo(a)
 		newPath := shadowfs.RenderPath(info, req.NewSchema)
-		newPath = shadowfs.ResolveCollision(h.ShadowFS.BasePath, newPath)
+		newPath = shadowfs.ResolveCollision(h.ShadowFSConfig.BasePath, newPath)
 
 		oldPath := ""
 		if a.LocalFilePath != nil {
@@ -307,7 +307,7 @@ func (h *Handler) ExecuteRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.ShadowFS == nil {
+	if h.ShadowFSConfig == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "Not Configured", "shadow file system not enabled", r.URL.Path)
 		return
 	}
@@ -317,7 +317,7 @@ func (h *Handler) ExecuteRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := shadowfs.ExecuteRename(h.ShadowFS.BasePath, items)
+	result := shadowfs.ExecuteRename(h.ShadowFSConfig.BasePath, items)
 
 	// Update local_file_path in DB for successfully renamed files
 	for _, item := range result.SucceededItems {
@@ -356,7 +356,7 @@ func (h *Handler) WriteShadowForActivity(ctx context.Context, userID, activityID
 	}
 
 	relPath := shadowfs.RenderPath(info, schema)
-	relPath = shadowfs.ResolveCollision(h.ShadowFS.BasePath, relPath)
+	relPath = shadowfs.ResolveCollision(h.ShadowFSConfig.BasePath, relPath)
 
 	metaBytes, err := shadowfs.BuildShadowMeta(
 		activityID, data.FileHash, data.OriginalName,
@@ -366,7 +366,7 @@ func (h *Handler) WriteShadowForActivity(ctx context.Context, userID, activityID
 		return err
 	}
 
-	if err := shadowfs.WriteShadowFile(h.ShadowFS.BasePath, relPath, fileBytes, metaBytes); err != nil {
+	if err := shadowfs.WriteShadowFile(h.ShadowFSConfig.BasePath, relPath, fileBytes, metaBytes); err != nil {
 		return err
 	}
 

@@ -1,4 +1,4 @@
-package filestore
+package shadowfs
 
 import (
 	"bytes"
@@ -11,17 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func testLocalStore(t *testing.T, pool *pgxpool.Pool) (*LocalFileStore, string) {
+func testLocalStore(t *testing.T, pool *pgxpool.Pool) (*LocalShadowFS, string) {
 	t.Helper()
 	dir := t.TempDir()
-	fs, err := NewLocalFileStore(pool, dir, NewSchemaRenderer(), 1, 0)
+	fs, err := NewLocalShadowFS(pool, dir, NewSchemaRenderer(), 1, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return fs, dir
 }
 
-func TestLocalFileStore_PutGetDelete(t *testing.T) {
+func TestLocalShadowFS_PutGetDelete(t *testing.T) {
 	if os.Getenv("DATABASE_URL") == "" {
 		t.Skip("DATABASE_URL not set")
 	}

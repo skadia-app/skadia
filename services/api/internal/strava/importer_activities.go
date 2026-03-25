@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -301,12 +301,12 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			if format == "fit" && params.ImportService != nil {
 				sessions, msParseErr := fitimport.ParseMultiSessionFIT(fileBytes, filename)
 				if msParseErr == nil && len(sessions) > 1 {
-					// Multi-session FIT: upload via FileStore (preferred) or legacy S3, then delegate.
+					// Multi-session FIT: upload via ShadowFS (preferred) or legacy S3, then delegate.
 					hash := sha256.Sum256(fileBytes)
 					msHash := hex.EncodeToString(hash[:])
 					var msFileID string
-					if params.FileStore != nil {
-						rec, putErr := params.FileStore.Put(ctx, filestore.FileEntry{
+					if params.ShadowFS != nil {
+						rec, putErr := params.ShadowFS.Put(ctx, shadowfs.FileEntry{
 							UserID:      params.UserID,
 							FileType:    "activity",
 							ContentType: "application/octet-stream",
@@ -319,7 +319,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 							},
 						}, bytes.NewReader(fileBytes))
 						if putErr != nil {
-							slog.Warn("strava activities: FileStore.Put multisport failed", "file", filename, "error", putErr)
+							slog.Warn("strava activities: ShadowFS.Put multisport failed", "file", filename, "error", putErr)
 						} else {
 							msFileID = rec.ID
 						}
@@ -424,15 +424,15 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			// Do not set FileFormat since we don't know it
 		}
 
-		// Upload original file via FileStore (preferred) or legacy S3
+		// Upload original file via ShadowFS (preferred) or legacy S3
 		var fileID string
 		if len(fileBytes) > 0 {
 			contentType := "application/octet-stream"
 			if format == "gpx" || format == "tcx" {
 				contentType = "application/xml"
 			}
-			if params.FileStore != nil {
-				rec, putErr := params.FileStore.Put(ctx, filestore.FileEntry{
+			if params.ShadowFS != nil {
+				rec, putErr := params.ShadowFS.Put(ctx, shadowfs.FileEntry{
 					UserID:      params.UserID,
 					FileType:    "activity",
 					ContentType: contentType,
@@ -445,7 +445,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 					},
 				}, bytes.NewReader(fileBytes))
 				if putErr != nil {
-					slog.Warn("strava activities: FileStore.Put failed", "file", filename, "error", putErr)
+					slog.Warn("strava activities: ShadowFS.Put failed", "file", filename, "error", putErr)
 				} else {
 					fileID = rec.ID
 				}
@@ -482,8 +482,8 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				data.FileHash = hashStr
 				data.FileFormat = "strava_csv"
 				format = "strava_csv"
-				if params.FileStore != nil {
-					rec, putErr := params.FileStore.Put(ctx, filestore.FileEntry{
+				if params.ShadowFS != nil {
+					rec, putErr := params.ShadowFS.Put(ctx, shadowfs.FileEntry{
 						UserID:      params.UserID,
 						FileType:    "activity",
 						ContentType: "application/json",
@@ -496,7 +496,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 						},
 					}, bytes.NewReader(jsonBytes))
 					if putErr != nil {
-						slog.Warn("strava activities: FileStore.Put for CSV-only failed", "error", putErr)
+						slog.Warn("strava activities: ShadowFS.Put for CSV-only failed", "error", putErr)
 					} else {
 						fileID = rec.ID
 					}

@@ -1,4 +1,4 @@
-package filestore
+package shadowfs
 
 import (
 	"context"
@@ -42,7 +42,7 @@ func NewMigrateJobWithLibrary(pool *pgxpool.Pool, basePath, shadowFSBase, s3Buck
 // Run executes the full registry population. It is idempotent: each row is
 // skipped when a journal entry with status='done' already exists.
 func (m *MigrateJob) Run(ctx context.Context, jobID string) error {
-	slog.Info("filestore migration: starting registry population", "job_id", jobID)
+	slog.Info("shadowfs migration: starting registry population", "job_id", jobID)
 
 	var totalMigrated int
 
@@ -63,9 +63,9 @@ func (m *MigrateJob) Run(ctx context.Context, jobID string) error {
 		n, err := s.fn(ctx)
 		totalMigrated += n
 		if err != nil {
-			slog.Error("filestore migration: step failed", "step", s.name, "error", err)
+			slog.Error("shadowfs migration: step failed", "step", s.name, "error", err)
 		} else {
-			slog.Info("filestore migration: step done", "step", s.name, "migrated", n)
+			slog.Info("shadowfs migration: step done", "step", s.name, "migrated", n)
 		}
 		// Update progress in background_jobs
 		m.pool.Exec(ctx, //nolint:errcheck
@@ -74,7 +74,7 @@ func (m *MigrateJob) Run(ctx context.Context, jobID string) error {
 		)
 	}
 
-	slog.Info("filestore migration: complete", "total_migrated", totalMigrated, "job_id", jobID)
+	slog.Info("shadowfs migration: complete", "total_migrated", totalMigrated, "job_id", jobID)
 	return nil
 }
 
@@ -100,7 +100,7 @@ func (m *MigrateJob) migrateActivities(ctx context.Context) (int, error) {
 			WHERE a.file_id IS NULL
 			  AND (a.local_file_path IS NOT NULL OR a.original_file_key IS NOT NULL)
 			  AND NOT EXISTS (
-			    SELECT 1 FROM migration_filestore_journal j
+			    SELECT 1 FROM migration_shadowfs_journal j
 			    WHERE j.source_table = 'activities' AND j.source_id = a.id AND j.status = 'done'
 			  )
 			ORDER BY a.id
@@ -135,7 +135,7 @@ func (m *MigrateJob) migrateActivities(ctx context.Context) (int, error) {
 				}
 				if _, statErr := os.Stat(absPath); statErr == nil {
 					if err := m.registerActivityLocal(ctx, r.id, r.userID, *r.localFilePath); err != nil {
-						slog.Warn("filestore migration: activities local failed", "id", r.id, "error", err)
+						slog.Warn("shadowfs migration: activities local failed", "id", r.id, "error", err)
 					} else {
 						migrated++
 					}
@@ -145,7 +145,7 @@ func (m *MigrateJob) migrateActivities(ctx context.Context) (int, error) {
 			// Fall back to S3 key.
 			if r.originalFileKey != nil && *r.originalFileKey != "" {
 				if err := m.registerActivityS3(ctx, r.id, r.userID, *r.originalFileKey); err != nil {
-					slog.Warn("filestore migration: activities s3 failed", "id", r.id, "error", err)
+					slog.Warn("shadowfs migration: activities s3 failed", "id", r.id, "error", err)
 				} else {
 					migrated++
 				}
@@ -190,7 +190,7 @@ func (m *MigrateJob) registerActivityLocal(ctx context.Context, id, userID, loca
 	}
 
 	if _, err = tx.Exec(ctx, `
-		INSERT INTO migration_filestore_journal (source_table, source_id, status, user_id, file_id, old_path)
+		INSERT INTO migration_shadowfs_journal (source_table, source_id, status, user_id, file_id, old_path)
 		VALUES ('activities', $1, 'done', $2, $3, $4)
 		ON CONFLICT (source_table, source_id, phase) DO UPDATE
 		    SET status = 'done', file_id = EXCLUDED.file_id`,
@@ -234,7 +234,7 @@ func (m *MigrateJob) registerActivityS3(ctx context.Context, id, userID, s3Key s
 	}
 
 	if _, err = tx.Exec(ctx, `
-		INSERT INTO migration_filestore_journal (source_table, source_id, status, user_id, file_id, old_path)
+		INSERT INTO migration_shadowfs_journal (source_table, source_id, status, user_id, file_id, old_path)
 		VALUES ('activities', $1, 'done', $2, $3, $4)
 		ON CONFLICT (source_table, source_id, phase) DO UPDATE
 		    SET status = 'done', file_id = EXCLUDED.file_id`,
@@ -266,7 +266,7 @@ func (m *MigrateJob) migrateActivityPhotos(ctx context.Context) (int, error) {
 			WHERE p.file_id IS NULL
 			  AND p.s3_key != ''
 			  AND NOT EXISTS (
-			    SELECT 1 FROM migration_filestore_journal j
+			    SELECT 1 FROM migration_shadowfs_journal j
 			    WHERE j.source_table = 'activity_photos' AND j.source_id = p.id AND j.status = 'done'
 			  )
 			ORDER BY p.id
@@ -295,7 +295,7 @@ func (m *MigrateJob) migrateActivityPhotos(ctx context.Context) (int, error) {
 		for _, r := range batch {
 			if err := m.registerS3File(ctx, "activity_photos", r.id, r.userID,
 				r.s3Key, "media", "file_id", "image/jpeg"); err != nil {
-				slog.Warn("filestore migration: activity_photos failed", "id", r.id, "error", err)
+				slog.Warn("shadowfs migration: activity_photos failed", "id", r.id, "error", err)
 			} else {
 				migrated++
 			}
@@ -329,7 +329,7 @@ func (m *MigrateJob) migrateGearDocuments(ctx context.Context) (int, error) {
 			WHERE d.file_id IS NULL
 			  AND d.s3_key != ''
 			  AND NOT EXISTS (
-			    SELECT 1 FROM migration_filestore_journal j
+			    SELECT 1 FROM migration_shadowfs_journal j
 			    WHERE j.source_table = 'gear_documents' AND j.source_id = d.id AND j.status = 'done'
 			  )
 			ORDER BY d.id
@@ -358,7 +358,7 @@ func (m *MigrateJob) migrateGearDocuments(ctx context.Context) (int, error) {
 		for _, r := range batch {
 			if err := m.registerS3File(ctx, "gear_documents", r.id, r.userID,
 				r.s3Key, "document", "file_id", "application/octet-stream"); err != nil {
-				slog.Warn("filestore migration: gear_documents failed", "id", r.id, "error", err)
+				slog.Warn("shadowfs migration: gear_documents failed", "id", r.id, "error", err)
 			} else {
 				migrated++
 			}
@@ -391,7 +391,7 @@ func (m *MigrateJob) migrateRoutePhotos(ctx context.Context) (int, error) {
 			WHERE p.file_id IS NULL
 			  AND p.s3_key != ''
 			  AND NOT EXISTS (
-			    SELECT 1 FROM migration_filestore_journal j
+			    SELECT 1 FROM migration_shadowfs_journal j
 			    WHERE j.source_table = 'route_photos' AND j.source_id = p.id AND j.status = 'done'
 			  )
 			ORDER BY p.id
@@ -420,7 +420,7 @@ func (m *MigrateJob) migrateRoutePhotos(ctx context.Context) (int, error) {
 		for _, r := range batch {
 			if err := m.registerS3File(ctx, "route_photos", r.id, r.userID,
 				r.s3Key, "media", "file_id", "image/jpeg"); err != nil {
-				slog.Warn("filestore migration: route_photos failed", "id", r.id, "error", err)
+				slog.Warn("shadowfs migration: route_photos failed", "id", r.id, "error", err)
 			} else {
 				migrated++
 			}
@@ -456,7 +456,7 @@ func (m *MigrateJob) migrateTags(ctx context.Context) (int, error) {
 			  AND t.cover_image_url IS NOT NULL
 			  AND t.cover_image_url != ''
 			  AND NOT EXISTS (
-			    SELECT 1 FROM migration_filestore_journal j
+			    SELECT 1 FROM migration_shadowfs_journal j
 			    WHERE j.source_table = 'tags' AND j.source_id = t.id AND j.status = 'done'
 			  )
 			ORDER BY t.id
@@ -492,7 +492,7 @@ func (m *MigrateJob) migrateTags(ctx context.Context) (int, error) {
 			}
 			if err := m.registerS3FileCol(ctx, "tags", r.id, r.userID,
 				s3Key, "media", "cover_file_id", "image/jpeg"); err != nil {
-				slog.Warn("filestore migration: tags cover failed", "id", r.id, "error", err)
+				slog.Warn("shadowfs migration: tags cover failed", "id", r.id, "error", err)
 			} else {
 				migrated++
 			}
@@ -526,7 +526,7 @@ func (m *MigrateJob) migrateCustomMapMarkers(ctx context.Context) (int, error) {
 			  AND mk.image_url IS NOT NULL
 			  AND mk.image_url != ''
 			  AND NOT EXISTS (
-			    SELECT 1 FROM migration_filestore_journal j
+			    SELECT 1 FROM migration_shadowfs_journal j
 			    WHERE j.source_table = 'custom_map_markers' AND j.source_id = mk.id AND j.status = 'done'
 			  )
 			ORDER BY mk.id
@@ -562,7 +562,7 @@ func (m *MigrateJob) migrateCustomMapMarkers(ctx context.Context) (int, error) {
 			}
 			if err := m.registerS3FileCol(ctx, "custom_map_markers", r.id, r.userID,
 				s3Key, "media", "image_file_id", "image/jpeg"); err != nil {
-				slog.Warn("filestore migration: custom_map_markers failed", "id", r.id, "error", err)
+				slog.Warn("shadowfs migration: custom_map_markers failed", "id", r.id, "error", err)
 			} else {
 				migrated++
 			}
@@ -630,7 +630,7 @@ func (m *MigrateJob) registerS3FileCol(
 	}
 
 	if _, err = tx.Exec(ctx, `
-		INSERT INTO migration_filestore_journal (source_table, source_id, status, user_id, file_id, old_path)
+		INSERT INTO migration_shadowfs_journal (source_table, source_id, status, user_id, file_id, old_path)
 		VALUES ($1, $2, 'done', $3, $4, $5)
 		ON CONFLICT (source_table, source_id, phase) DO UPDATE
 		    SET status = 'done', file_id = EXCLUDED.file_id`,
@@ -692,13 +692,13 @@ type moveEntry struct {
 // with phase='move' and status='done' are skipped on restart.
 func (m *MigrateJob) RunFileMove(ctx context.Context, jobID string) error {
 	if m.basePath == "" {
-		return fmt.Errorf("filestore migrate: basePath not configured")
+		return fmt.Errorf("shadowfs migrate: basePath not configured")
 	}
 	if m.renderer == nil {
-		return fmt.Errorf("filestore migrate: renderer not configured")
+		return fmt.Errorf("shadowfs migrate: renderer not configured")
 	}
 
-	slog.Info("filestore migrate: starting file move (Phase 2)", "job_id", jobID)
+	slog.Info("shadowfs migrate: starting file move (Phase 2)", "job_id", jobID)
 
 	// Count total files to move for progress tracking.
 	var total int64
@@ -706,17 +706,17 @@ func (m *MigrateJob) RunFileMove(ctx context.Context, jobID string) error {
 		SELECT COUNT(*) FROM user_files
 		WHERE storage_backend = 'local' AND status = 'active'
 		  AND NOT EXISTS (
-		    SELECT 1 FROM migration_filestore_journal j
+		    SELECT 1 FROM migration_shadowfs_journal j
 		    WHERE j.file_id = user_files.id AND j.phase = 'move' AND j.status = 'done'
 		  )`).Scan(&total)
 	if err != nil {
-		return fmt.Errorf("filestore migrate: count pending: %w", err)
+		return fmt.Errorf("shadowfs migrate: count pending: %w", err)
 	}
 
 	m.pool.Exec(ctx, //nolint:errcheck
 		`UPDATE background_jobs SET progress_total = $1 WHERE id = $2`, total, jobID)
 
-	slog.Info("filestore migrate: files to move", "total", total, "job_id", jobID)
+	slog.Info("shadowfs migrate: files to move", "total", total, "job_id", jobID)
 
 	const pageSize = 500
 	var moved, skipped, failed int
@@ -728,13 +728,13 @@ func (m *MigrateJob) RunFileMove(ctx context.Context, jobID string) error {
 			FROM user_files uf
 			WHERE uf.storage_backend = 'local' AND uf.status = 'active'
 			  AND NOT EXISTS (
-			    SELECT 1 FROM migration_filestore_journal j
+			    SELECT 1 FROM migration_shadowfs_journal j
 			    WHERE j.file_id = uf.id AND j.phase = 'move' AND j.status = 'done'
 			  )
 			ORDER BY uf.user_id, uf.id
 			LIMIT $1`, pageSize)
 		if err != nil {
-			return fmt.Errorf("filestore migrate: query batch: %w", err)
+			return fmt.Errorf("shadowfs migrate: query batch: %w", err)
 		}
 
 		var batch []moveEntry
@@ -743,13 +743,13 @@ func (m *MigrateJob) RunFileMove(ctx context.Context, jobID string) error {
 			if err := rows.Scan(&e.fileID, &e.userID, &e.fileType, &e.storagePath,
 				&e.fileName, &e.hasSidecar, &e.contentType); err != nil {
 				rows.Close()
-				return fmt.Errorf("filestore migrate: scan: %w", err)
+				return fmt.Errorf("shadowfs migrate: scan: %w", err)
 			}
 			batch = append(batch, e)
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
-			return fmt.Errorf("filestore migrate: rows: %w", err)
+			return fmt.Errorf("shadowfs migrate: rows: %w", err)
 		}
 		if len(batch) == 0 {
 			break
@@ -762,11 +762,11 @@ func (m *MigrateJob) RunFileMove(ctx context.Context, jobID string) error {
 
 			if err := m.moveOneFile(ctx, e); err != nil {
 				failed++
-				slog.Warn("filestore migrate: move failed",
+				slog.Warn("shadowfs migrate: move failed",
 					"file_id", e.fileID, "path", e.storagePath, "error", err)
 				// Record failure in journal for debugging; continue with next file.
 				m.pool.Exec(ctx, //nolint:errcheck
-					`INSERT INTO migration_filestore_journal (source_table, source_id, phase, status, user_id, file_id, old_path, error_msg)
+					`INSERT INTO migration_shadowfs_journal (source_table, source_id, phase, status, user_id, file_id, old_path, error_msg)
 					 VALUES ('user_files', $1::uuid, 'move', 'failed', $2, $3, $4, $5)
 					 ON CONFLICT (source_table, source_id, phase) DO UPDATE
 					     SET status = 'failed', error_msg = EXCLUDED.error_msg`,
@@ -781,7 +781,7 @@ func (m *MigrateJob) RunFileMove(ctx context.Context, jobID string) error {
 				int64(moved+skipped+failed), jobID)
 
 			if (moved+failed)%100 == 0 && (moved+failed) > 0 {
-				slog.Info("filestore migrate: progress",
+				slog.Info("shadowfs migrate: progress",
 					"moved", moved, "failed", failed, "job_id", jobID)
 			}
 		}
@@ -791,7 +791,7 @@ func (m *MigrateJob) RunFileMove(ctx context.Context, jobID string) error {
 		}
 	}
 
-	slog.Info("filestore migrate: file move complete",
+	slog.Info("shadowfs migrate: file move complete",
 		"moved", moved, "skipped", skipped, "failed", failed, "job_id", jobID)
 	return nil
 }
@@ -858,7 +858,7 @@ func (m *MigrateJob) moveOneFile(ctx context.Context, e moveEntry) error {
 			return fmt.Errorf("copy: %w", err)
 		}
 		if err := os.Remove(oldFull); err != nil && !os.IsNotExist(err) {
-			slog.Warn("filestore migrate: remove old after copy",
+			slog.Warn("shadowfs migrate: remove old after copy",
 				"path", oldFull, "error", err)
 		}
 	}
@@ -884,7 +884,7 @@ func (m *MigrateJob) moveOneFile(ctx context.Context, e moveEntry) error {
 // journalMoveDone records a completed move in the journal.
 func (m *MigrateJob) journalMoveDone(ctx context.Context, e moveEntry, oldPath, newPath string) error {
 	_, err := m.pool.Exec(ctx, `
-		INSERT INTO migration_filestore_journal (source_table, source_id, phase, status, user_id, file_id, old_path, new_path)
+		INSERT INTO migration_shadowfs_journal (source_table, source_id, phase, status, user_id, file_id, old_path, new_path)
 		VALUES ('user_files', $1::uuid, 'move', 'done', $2, $3, $4, $5)
 		ON CONFLICT (source_table, source_id, phase) DO UPDATE
 		    SET status = 'done', new_path = EXCLUDED.new_path`,
@@ -919,18 +919,18 @@ func (m *MigrateJob) moveSidecar(oldFull, newFull, fileType string) {
 			continue // sidecar doesn't exist
 		}
 		if err := os.MkdirAll(filepath.Dir(sc.new), 0o755); err != nil {
-			slog.Warn("filestore migrate: mkdir sidecar", "path", sc.new, "error", err)
+			slog.Warn("shadowfs migrate: mkdir sidecar", "path", sc.new, "error", err)
 			continue
 		}
 		if err := os.Rename(sc.old, sc.new); err != nil {
 			if isCrossDevice(err) || errors.Is(err, os.ErrInvalid) {
 				if cpErr := copyFile(sc.old, sc.new); cpErr != nil {
-					slog.Warn("filestore migrate: copy sidecar", "from", sc.old, "error", cpErr)
+					slog.Warn("shadowfs migrate: copy sidecar", "from", sc.old, "error", cpErr)
 					continue
 				}
 				os.Remove(sc.old) //nolint:errcheck
 			} else {
-				slog.Warn("filestore migrate: rename sidecar", "from", sc.old, "error", err)
+				slog.Warn("shadowfs migrate: rename sidecar", "from", sc.old, "error", err)
 			}
 		}
 	}
@@ -998,25 +998,25 @@ func (m *MigrateJob) getUserDir(ctx context.Context, userID string) (string, err
 // phase='move' and status='done', and moving files back to their old paths.
 func (m *MigrateJob) RunRollback(ctx context.Context, jobID string) error {
 	if m.basePath == "" {
-		return fmt.Errorf("filestore migrate: basePath not configured")
+		return fmt.Errorf("shadowfs migrate: basePath not configured")
 	}
 
-	slog.Info("filestore migrate: starting rollback", "job_id", jobID)
+	slog.Info("shadowfs migrate: starting rollback", "job_id", jobID)
 
 	var total int64
 	err := m.pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM migration_filestore_journal
+		SELECT COUNT(*) FROM migration_shadowfs_journal
 		WHERE phase = 'move' AND status = 'done'
 		  AND old_path IS NOT NULL AND new_path IS NOT NULL
 		  AND old_path != new_path`).Scan(&total)
 	if err != nil {
-		return fmt.Errorf("filestore migrate rollback: count: %w", err)
+		return fmt.Errorf("shadowfs migrate rollback: count: %w", err)
 	}
 
 	m.pool.Exec(ctx, //nolint:errcheck
 		`UPDATE background_jobs SET progress_total = $1 WHERE id = $2`, total, jobID)
 
-	slog.Info("filestore migrate: entries to rollback", "total", total, "job_id", jobID)
+	slog.Info("shadowfs migrate: entries to rollback", "total", total, "job_id", jobID)
 
 	const pageSize = 500
 	var rolled, failed int
@@ -1032,14 +1032,14 @@ func (m *MigrateJob) RunRollback(ctx context.Context, jobID string) error {
 
 		rows, err := m.pool.Query(ctx, `
 			SELECT source_id, file_id, user_id, old_path, new_path
-			FROM migration_filestore_journal
+			FROM migration_shadowfs_journal
 			WHERE phase = 'move' AND status = 'done'
 			  AND old_path IS NOT NULL AND new_path IS NOT NULL
 			  AND old_path != new_path
 			ORDER BY source_id
 			LIMIT $1`, pageSize)
 		if err != nil {
-			return fmt.Errorf("filestore migrate rollback: query: %w", err)
+			return fmt.Errorf("shadowfs migrate rollback: query: %w", err)
 		}
 
 		var batch []jEntry
@@ -1047,13 +1047,13 @@ func (m *MigrateJob) RunRollback(ctx context.Context, jobID string) error {
 			var j jEntry
 			if err := rows.Scan(&j.sourceID, &j.fileID, &j.userID, &j.oldPath, &j.newPath); err != nil {
 				rows.Close()
-				return fmt.Errorf("filestore migrate rollback: scan: %w", err)
+				return fmt.Errorf("shadowfs migrate rollback: scan: %w", err)
 			}
 			batch = append(batch, j)
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
-			return fmt.Errorf("filestore migrate rollback: rows: %w", err)
+			return fmt.Errorf("shadowfs migrate rollback: rows: %w", err)
 		}
 		if len(batch) == 0 {
 			break
@@ -1097,7 +1097,7 @@ func (m *MigrateJob) RunRollback(ctx context.Context, jobID string) error {
 
 			if moveErr != nil {
 				failed++
-				slog.Warn("filestore migrate rollback: move failed",
+				slog.Warn("shadowfs migrate rollback: move failed",
 					"file_id", j.fileID, "error", moveErr)
 				continue
 			}
@@ -1109,7 +1109,7 @@ func (m *MigrateJob) RunRollback(ctx context.Context, jobID string) error {
 
 			// Remove journal entry so it can be re-migrated.
 			m.pool.Exec(ctx, //nolint:errcheck
-				`DELETE FROM migration_filestore_journal
+				`DELETE FROM migration_shadowfs_journal
 				 WHERE source_table = 'user_files' AND source_id = $1::uuid AND phase = 'move'`,
 				j.sourceID)
 
@@ -1120,7 +1120,7 @@ func (m *MigrateJob) RunRollback(ctx context.Context, jobID string) error {
 				int64(rolled+failed), jobID)
 
 			if (rolled+failed)%100 == 0 && (rolled+failed) > 0 {
-				slog.Info("filestore migrate rollback: progress",
+				slog.Info("shadowfs migrate rollback: progress",
 					"rolled", rolled, "failed", failed, "job_id", jobID)
 			}
 		}
@@ -1130,7 +1130,7 @@ func (m *MigrateJob) RunRollback(ctx context.Context, jobID string) error {
 		}
 	}
 
-	slog.Info("filestore migrate: rollback complete",
+	slog.Info("shadowfs migrate: rollback complete",
 		"rolled", rolled, "failed", failed, "job_id", jobID)
 	return nil
 }

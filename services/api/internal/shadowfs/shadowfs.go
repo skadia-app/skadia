@@ -1,4 +1,4 @@
-package filestore
+package shadowfs
 
 import (
 	"archive/zip"
@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// FileStore is the unified storage abstraction for all user files.
-type FileStore interface {
+// ShadowFS is the unified storage abstraction for all user files.
+type ShadowFS interface {
 	Put(ctx context.Context, entry FileEntry, data io.Reader) (FileRecord, error)
 	Get(ctx context.Context, userID, fileID string) (io.ReadCloser, error)
 	Delete(ctx context.Context, userID, fileID string) error
