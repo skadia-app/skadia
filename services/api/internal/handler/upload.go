@@ -216,6 +216,15 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// For created/enriched/replaced: upload to FileStore (preferred) or S3 (legacy).
+		// Look up existing file_id before Put so we can archive it on replace/enrich.
+		var fitOldFileID string
+		if h.FileStore != nil && fitResult.Status != "created" {
+			_ = h.DB.Pool.QueryRow(r.Context(),
+				`SELECT COALESCE(file_id, '') FROM activities WHERE id = $1`,
+				fitResult.ActivityID,
+			).Scan(&fitOldFileID)
+		}
+
 		s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
 		var fitFileID string
 		if h.FileStore != nil {
@@ -242,6 +251,13 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			fitFileID = rec.ID
+			// Archive the old file now that the new one is stored.
+			// T31 (Reconciliation) will enforce retention limits.
+			if fitOldFileID != "" {
+				if archErr := h.FileStore.Archive(r.Context(), userID, fitOldFileID, fitFileID); archErr != nil {
+					slog.Warn("archive old activity file failed", "old_file_id", fitOldFileID, "new_file_id", fitFileID, "err", archErr)
+				}
+			}
 		} else if h.Storage != nil {
 			// Legacy S3 path (will be removed after migration)
 			if uploadErr := h.Storage.Upload(r.Context(), s3Key, decompressed, "application/octet-stream"); uploadErr != nil {
@@ -347,6 +363,15 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// For created/enriched/replaced: upload to FileStore (preferred) or Garage/S3 (legacy).
+	// Look up existing file_id before Put so we can archive it on replace/enrich.
+	var gpxOldFileID string
+	if h.FileStore != nil && gpxResult.Status != "created" {
+		_ = h.DB.Pool.QueryRow(r.Context(),
+			`SELECT COALESCE(file_id, '') FROM activities WHERE id = $1`,
+			gpxResult.ActivityID,
+		).Scan(&gpxOldFileID)
+	}
+
 	ext := format
 	if ext == "" {
 		ext = strings.TrimPrefix(filepath.Ext(filename), ".")
@@ -379,6 +404,13 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		gpxFileID = rec.ID
+		// Archive the old file now that the new one is stored.
+		// T31 (Reconciliation) will enforce retention limits.
+		if gpxOldFileID != "" {
+			if archErr := h.FileStore.Archive(r.Context(), userID, gpxOldFileID, gpxFileID); archErr != nil {
+				slog.Warn("archive old activity file failed", "old_file_id", gpxOldFileID, "new_file_id", gpxFileID, "err", archErr)
+			}
+		}
 	} else if h.Storage != nil {
 		// Legacy S3 path (will be removed after migration)
 		if err := h.Storage.Upload(r.Context(), s3Key, decompressed, contentType); err != nil {
