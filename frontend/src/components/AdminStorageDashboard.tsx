@@ -12,6 +12,7 @@ import {
   ChevronsUpDown,
   Archive,
   Layers,
+  RotateCcw,
 } from 'lucide-react'
 
 // ── i18n-ready labels ────────────────────────────────────────────────────────
@@ -50,8 +51,11 @@ const LABELS = {
     populateDesc: 'Befüllt user_files aus Legacy-Spalten (Phase 1 Migration)',
     migrate: 'Dateien migrieren',
     migrateDesc: 'Verschiebt Dateien in die neue Bibliotheksstruktur (Phase 2)',
-    sync: 'Abgleich starten',
-    syncDesc: 'Setzt Datei-Migrationsstatus zurück (Rollback)',
+    reconcile: 'Abgleich starten',
+    reconcileDesc: 'Prüft Konsistenz zwischen Dateisystem und user_files Registry',
+    rollback: 'Migration zurückrollen',
+    rollbackDesc: 'Verschiebt Dateien zurück in die ursprünglichen Speicherorte (Phase 2 Rollback)',
+    rollbackConfirm: 'Migration wirklich zurückrollen? Alle Phase-2-Verschiebungen werden rückgängig gemacht.',
     started: 'gestartet',
   },
   loading: 'Lade Speicher-Statistiken...',
@@ -162,6 +166,7 @@ export default function AdminStorageDashboard() {
   const { addToast } = useToast()
   const [sortKey, setSortKey] = useState<SortKey>('disk_usage_bytes')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [showRollbackConfirm, setShowRollbackConfirm] = useState(false)
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery<StorageDashboardData>({
     queryKey: ['admin-storage-dashboard'],
@@ -189,12 +194,24 @@ export default function AdminStorageDashboard() {
     },
   })
 
-  const rollbackMut = useMutation<ActionResponse>({
-    mutationFn: () => apiClient<ActionResponse>('/admin/storage/migrate/rollback', { method: 'POST' }),
+  const reconcileMut = useMutation<ActionResponse>({
+    mutationFn: () => apiClient<ActionResponse>('/admin/storage/reconcile', { method: 'POST' }),
     onSuccess: (res) => {
       addToast({ type: 'success', title: `Abgleich ${LABELS.actions.started}`, message: `Job: ${res.job_id ?? '—'}` })
     },
     onError: () => {
+      addToast({ type: 'error', title: 'Abgleich fehlgeschlagen', duration: 0 })
+    },
+  })
+
+  const rollbackMut = useMutation<ActionResponse>({
+    mutationFn: () => apiClient<ActionResponse>('/admin/storage/migrate/rollback', { method: 'POST' }),
+    onSuccess: (res) => {
+      setShowRollbackConfirm(false)
+      addToast({ type: 'success', title: `Rollback ${LABELS.actions.started}`, message: `Job: ${res.job_id ?? '—'}` })
+    },
+    onError: () => {
+      setShowRollbackConfirm(false)
       addToast({ type: 'error', title: 'Rollback fehlgeschlagen', duration: 0 })
     },
   })
@@ -408,7 +425,7 @@ export default function AdminStorageDashboard() {
         <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
           {LABELS.actions.heading}
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
 
           <div className="rounded-lg border border-neutral-100 dark:border-neutral-700 p-4 space-y-3">
             <div>
@@ -449,19 +466,62 @@ export default function AdminStorageDashboard() {
           <div className="rounded-lg border border-neutral-100 dark:border-neutral-700 p-4 space-y-3">
             <div>
               <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
-                {LABELS.actions.sync}
+                {LABELS.actions.reconcile}
               </p>
               <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                {LABELS.actions.syncDesc}
+                {LABELS.actions.reconcileDesc}
               </p>
             </div>
             <button
-              onClick={() => rollbackMut.mutate()}
-              disabled={rollbackMut.isPending}
+              onClick={() => reconcileMut.mutate()}
+              disabled={reconcileMut.isPending}
               className="w-full px-3 py-1.5 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
-              {rollbackMut.isPending ? 'Läuft...' : LABELS.actions.sync}
+              {reconcileMut.isPending ? 'Läuft...' : LABELS.actions.reconcile}
             </button>
+          </div>
+
+          <div className="rounded-lg border border-amber-100 dark:border-amber-900/40 p-4 space-y-3">
+            <div>
+              <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200 flex items-center gap-1.5">
+                <RotateCcw className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                {LABELS.actions.rollback}
+              </p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+                {LABELS.actions.rollbackDesc}
+              </p>
+            </div>
+            {showRollbackConfirm ? (
+              <div className="space-y-2">
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  {LABELS.actions.rollbackConfirm}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => rollbackMut.mutate()}
+                    disabled={rollbackMut.isPending}
+                    className="flex-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-500 hover:bg-amber-600 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    {rollbackMut.isPending ? 'Läuft...' : 'Bestätigen'}
+                  </button>
+                  <button
+                    onClick={() => setShowRollbackConfirm(false)}
+                    disabled={rollbackMut.isPending}
+                    className="flex-1 px-3 py-1.5 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    Abbrechen
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowRollbackConfirm(true)}
+                disabled={rollbackMut.isPending}
+                className="w-full px-3 py-1.5 rounded-lg text-sm font-medium border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {LABELS.actions.rollback}
+              </button>
+            )}
           </div>
 
         </div>

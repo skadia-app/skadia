@@ -110,9 +110,15 @@ func (h *Handler) StorageDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Use a symbolic label instead of the real container path (I9: avoid leaking internal paths).
+	basePath := "local"
+	if h.Config.StorageBackend == "s3" {
+		basePath = "s3"
+	}
+
 	httputil.WriteJSON(w, http.StatusOK, storageDashboardResponse{
 		Backend:      h.Config.StorageBackend,
-		BasePath:     h.Config.LibraryBasePath,
+		BasePath:     basePath,
 		KeepVersions: h.Config.KeepVersions,
 		SyncEnabled:  h.Config.SyncEnabled,
 		Users:        users,
@@ -127,6 +133,11 @@ func (h *Handler) StorageDashboard(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) StartRegistryPopulation(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+
+	if running, err := h.DB.HasRunningJobGlobal(r.Context(), "shadowfs_migration"); err == nil && running {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 
@@ -177,6 +188,11 @@ func (h *Handler) StartFileMigration(w http.ResponseWriter, r *http.Request) {
 	if h.Config.LibraryBasePath == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
 			"LIBRARY_BASE_PATH not configured", r.URL.Path)
+		return
+	}
+
+	if running, err := h.DB.HasRunningJobGlobal(r.Context(), "shadowfs_file_move"); err == nil && running {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 
@@ -231,6 +247,11 @@ func (h *Handler) StartReconciliation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if running, err := h.DB.HasRunningJobGlobal(r.Context(), "shadowfs_reconcile"); err == nil && running {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		return
+	}
+
 	jobID, err := h.DB.InsertBackgroundJob(
 		r.Context(),
 		userID,
@@ -280,6 +301,11 @@ func (h *Handler) StartFileMigrationRollback(w http.ResponseWriter, r *http.Requ
 	if h.Config.LibraryBasePath == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
 			"LIBRARY_BASE_PATH not configured", r.URL.Path)
+		return
+	}
+
+	if running, err := h.DB.HasRunningJobGlobal(r.Context(), "shadowfs_rollback"); err == nil && running {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 

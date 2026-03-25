@@ -3,7 +3,7 @@ package handler
 import (
 	"errors"
 	"fmt"
-	"hash/crc32"
+	"hash/fnv"
 	"io"
 	"log/slog"
 	"net/http"
@@ -183,6 +183,14 @@ func (h *Handler) UpdateLibraryDir(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Security checks
+	if strings.ContainsRune(name, 0) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid library_dir_name: contains null byte", r.URL.Path)
+		return
+	}
+	if len(name) > 100 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "library_dir_name exceeds maximum length of 100", r.URL.Path)
+		return
+	}
 	if strings.Contains(name, "/") || strings.Contains(name, "\\") ||
 		strings.Contains(name, "..") || name == "." ||
 		strings.HasPrefix(name, "_") {
@@ -365,7 +373,9 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Release()
 
-	lockKey := int64(crc32.ChecksumIEEE([]byte(userID + ":" + fileType)))
+	h64 := fnv.New64a()
+	h64.Write([]byte(userID + ":" + fileType)) //nolint:errcheck
+	lockKey := int64(h64.Sum64())
 	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, lockKey); err != nil {
 		slog.Error("rename-execute: advisory lock", "error", err, "user_id", userID)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
@@ -521,6 +531,12 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 
 		// Resolve collision so we never silently overwrite another file.
 		newRelPath = shadowfs.ResolveCollision(basePath, newRelPath)
+
+		// Security: validate new relative path for traversal and symlink escapes.
+		if err := shadowfs.ValidateRelPath(basePath, newRelPath); err != nil {
+			slog.Error("rename-execute: new path failed validation", "error", err, "rel", newRelPath)
+			continue
+		}
 
 		oldFullPath := filepath.Join(basePath, f.storagePath)
 		newFullPath := filepath.Join(basePath, newRelPath)

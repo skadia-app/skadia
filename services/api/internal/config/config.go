@@ -103,8 +103,8 @@ func Load() (*Config, error) {
 		StorageBackend:      getEnvDefault("STORAGE_BACKEND", "local"),
 		LibraryBasePath:     getEnvDefault("LIBRARY_BASE_PATH", "/data/library"),
 		LibraryKeepVersions: parseIntDefault(os.Getenv("LIBRARY_KEEP_VERSIONS"), 1),
-		LibrarySyncEnabled:  os.Getenv("LIBRARY_SYNC_ENABLED") != "false",
-		LibrarySyncAutoImport: os.Getenv("LIBRARY_SYNC_AUTO_IMPORT") != "false",
+		LibrarySyncEnabled:  os.Getenv("LIBRARY_SYNC_ENABLED") == "true",
+		LibrarySyncAutoImport: os.Getenv("LIBRARY_SYNC_AUTO_IMPORT") == "true",
 		MaxUserStorageBytes:   parseMaxStorageBytes(os.Getenv("MAX_USER_STORAGE_BYTES"), 50*1024*1024*1024),
 
 		// S3 with fallback to GARAGE_* for backward compatibility

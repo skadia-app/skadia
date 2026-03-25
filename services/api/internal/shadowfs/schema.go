@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 var illegalChars = regexp.MustCompile(`[/\\:*?"<>|{}]`)
@@ -46,7 +48,7 @@ func (r *SchemaRenderer) RenderPath(fileType, schema string, vars map[string]str
 		}
 		result = strings.ReplaceAll(result, "{"+key+"}", rendered)
 	}
-	for strings.Contains(result, "{") {
+	for i := 0; i < 20 && strings.Contains(result, "{"); i++ {
 		start := strings.Index(result, "{")
 		end := strings.Index(result, "}")
 		if end < 0 {
@@ -77,6 +79,9 @@ func (r *SchemaRenderer) ValidateSchema(fileType, schema string) (warnings []str
 	if strings.HasPrefix(schema, "/") {
 		return nil, fmt.Errorf("schema must not start with '/'")
 	}
+	if strings.Count(schema, "/") > 6 {
+		return nil, fmt.Errorf("schema exceeds maximum directory depth of 6")
+	}
 	maxVars := map[string]string{
 		"year": "2024", "month": "03", "day": "15", "time": "14-30",
 		"sport": strings.Repeat("x", 30), "subCategory": strings.Repeat("x", 30),
@@ -96,6 +101,7 @@ func (r *SchemaRenderer) ValidateSchema(fileType, schema string) (warnings []str
 }
 
 func sanitize(s string) string {
+	s = norm.NFC.String(s)
 	s = strings.ReplaceAll(s, "\x00", "")
 	s = illegalChars.ReplaceAllString(s, "_")
 	s = strings.ReplaceAll(s, "..", "_")
