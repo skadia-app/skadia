@@ -46,6 +46,8 @@ func (h *Handler) ChangeEmail(w http.ResponseWriter, r *http.Request) {
 		}
 		match, _ := argon2id.ComparePasswordAndHash(req.Password, *user.PasswordHash)
 		if !match {
+			h.DB.LogAuthEvent(r.Context(), userID, "password_verification_failed",
+				middleware.ClientIP(r), r.UserAgent(), map[string]string{"context": "change_email"})
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "wrong_password"})
 			return
 		}
@@ -129,6 +131,8 @@ func (h *Handler) ConfirmEmailChange(w http.ResponseWriter, r *http.Request) {
 	go h.DB.LogAuthEvent(h.shutdownCtx, userID.String(), "email_changed",
 		middleware.ClientIP(r), r.UserAgent(),
 		map[string]string{"old_email": oldEmail, "new_email": newEmail})
+
+	h.DB.RevokeAllUserTokens(r.Context(), userID.String())
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "email_changed"})
 }
