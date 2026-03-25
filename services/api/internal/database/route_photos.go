@@ -70,17 +70,18 @@ func (db *DB) InsertRoutePhoto(ctx context.Context, photo model.RoutePhoto) (mod
 
 // DeleteRoutePhoto deletes a route photo by ID. Only photos owned by userID and
 // belonging to the specified routeID can be deleted.
-// Returns the S3 keys so the caller can clean up storage.
-func (db *DB) DeleteRoutePhoto(ctx context.Context, photoID, userID, routeID string) (s3Key, s3KeyThumb string, s3KeyPreview *string, err error) {
+// Returns the S3 keys and the FileStore file_id (may be empty) so the caller
+// can clean up both storage backends.
+func (db *DB) DeleteRoutePhoto(ctx context.Context, photoID, userID, routeID string) (s3Key, s3KeyThumb string, s3KeyPreview *string, fileID string, err error) {
 	err = db.Pool.QueryRow(ctx, `
 		DELETE FROM route_photos
 		WHERE id = $1 AND user_id = $2 AND route_id = $3
-		RETURNING s3_key, s3_key_thumb, s3_key_preview
-	`, photoID, userID, routeID).Scan(&s3Key, &s3KeyThumb, &s3KeyPreview)
+		RETURNING s3_key, s3_key_thumb, s3_key_preview, COALESCE(file_id::text, '')
+	`, photoID, userID, routeID).Scan(&s3Key, &s3KeyThumb, &s3KeyPreview, &fileID)
 	if err != nil {
-		return "", "", nil, fmt.Errorf("delete route photo: %w", err)
+		return "", "", nil, "", fmt.Errorf("delete route photo: %w", err)
 	}
-	return s3Key, s3KeyThumb, s3KeyPreview, nil
+	return s3Key, s3KeyThumb, s3KeyPreview, fileID, nil
 }
 
 // ReorderRoutePhotos updates sort_order for the given photo IDs. The order of the

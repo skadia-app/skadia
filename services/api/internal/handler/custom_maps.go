@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -150,9 +152,25 @@ func (h *Handler) DeleteCustomMapMarker(w http.ResponseWriter, r *http.Request) 
 	}
 	mapID := chi.URLParam(r, "mapID")
 	markerID := chi.URLParam(r, "markerID")
+
+	// Resolve image_file_id before deletion so we can clean up FileStore.
+	var imageFileID string
+	_ = h.DB.Pool.QueryRow(r.Context(),
+		`SELECT COALESCE(image_file_id::text, '') FROM custom_map_markers WHERE id = $1 AND user_id = $2`,
+		markerID, userID,
+	).Scan(&imageFileID)
+
 	if err := h.DB.DeleteCustomMapMarker(r.Context(), markerID, mapID, userID); httputil.HandleDBErr(w, r, err, "marker not found") {
 		return
 	}
+
+	// Best-effort FileStore cleanup (marker image).
+	if imageFileID != "" && h.FileStore != nil {
+		if delErr := h.FileStore.Delete(r.Context(), userID, imageFileID); delErr != nil {
+			slog.Warn("delete marker: FileStore.Delete image failed", "marker_id", markerID, "file_id", imageFileID, "error", delErr)
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -229,10 +247,31 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 	s3Key := fmt.Sprintf("marker-images/%s/%s%s", userID, markerID, ext)
 	bucket := "skadia-media"
 
-	if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, fileCT); err != nil {
-		slog.Error("s3 upload marker image failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store marker image", r.URL.Path)
-		return
+	// FileStore path (preferred) — legacy S3 as fallback.
+	var imageFileID string
+	if h.FileStore != nil {
+		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+			UserID:      userID,
+			FileType:    "media",
+			ContentType: fileCT,
+			FileName:    header.Filename,
+			SizeBytes:   int64(len(data)),
+			ParentType:  func() *string { s := "marker"; return &s }(),
+			ParentID:    &markerID,
+			Tags:        map[string]string{"role": "marker_image"},
+		}, bytes.NewReader(data))
+		if putErr != nil {
+			slog.Error("filestore upload marker image failed", "error", putErr)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store marker image", r.URL.Path)
+			return
+		}
+		imageFileID = rec.ID
+	} else {
+		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, fileCT); err != nil {
+			slog.Error("s3 upload marker image failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store marker image", r.URL.Path)
+			return
+		}
 	}
 
 	imageURL := fmt.Sprintf("/api/v1/media/%s/%s", bucket, s3Key)
@@ -240,6 +279,16 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 	mk, err := h.DB.UpdateCustomMapMarker(r.Context(), markerID, mapID, userID, updateReq)
 	if httputil.HandleDBErr(w, r, err, "marker not found") {
 		return
+	}
+
+	// Link FileStore record to domain row.
+	if imageFileID != "" {
+		if _, dbErr := h.DB.Pool.Exec(r.Context(),
+			`UPDATE custom_map_markers SET image_file_id = $1 WHERE id = $2`,
+			imageFileID, markerID,
+		); dbErr != nil {
+			slog.Warn("custom_maps: set image_file_id failed", "marker_id", markerID, "error", dbErr)
+		}
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, mk)
