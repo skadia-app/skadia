@@ -324,6 +324,7 @@ func (w *LibraryWatcher) detectMove(ctx context.Context, userID, newRelPath, has
 		`SELECT id, storage_path FROM user_files
 		 WHERE user_id = $1 AND file_hash = $2 AND size_bytes = $3
 		   AND storage_backend = 'local' AND status = 'active'
+		 ORDER BY updated_at DESC
 		 LIMIT 1`,
 		userID, hash, size,
 	).Scan(&oldID, &oldPath)
@@ -463,6 +464,16 @@ func (w *LibraryWatcher) isIgnored(absPath string) bool {
 // checkPendingSizes re-checks files in pendingSizes that may now be stable.
 // Files whose source path no longer exists are removed from tracking.
 func (w *LibraryWatcher) checkPendingSizes(ctx context.Context) {
+	if len(w.pendingSizes) == 0 {
+		return
+	}
+
+	userDirs, err := w.listUserDirs(ctx)
+	if err != nil {
+		slog.Error("library-watcher: list user dirs in checkPendingSizes", "error", err)
+		return
+	}
+
 	for absPath := range w.pendingSizes {
 		info, err := os.Stat(absPath)
 		if err != nil {
@@ -484,10 +495,6 @@ func (w *LibraryWatcher) checkPendingSizes(ctx context.Context) {
 			continue
 		}
 
-		userDirs, err := w.listUserDirs(ctx)
-		if err != nil {
-			return
-		}
 		userID, ok := userDirs[parts[0]]
 		if !ok {
 			delete(w.pendingSizes, absPath)

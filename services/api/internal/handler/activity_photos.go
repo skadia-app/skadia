@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"strings"
 	"time"
@@ -986,6 +987,12 @@ func serveResolvedFile(w http.ResponseWriter, r *http.Request, resolved filestor
 		ct = "application/octet-stream"
 	}
 	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	disposition := "inline"
+	if !strings.HasPrefix(ct, "image/") && !strings.HasPrefix(ct, "video/") {
+		disposition = "attachment"
+	}
+	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": resolved.FileName}))
 
 	switch resolved.Type {
 	case "local":

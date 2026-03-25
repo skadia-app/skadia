@@ -196,6 +196,9 @@ func (s *S3FileStore) Put(ctx context.Context, entry FileEntry, data io.Reader) 
 				content_type, file_name, size_bytes, file_hash, parent_type, parent_id,
 				has_sidecar, status)
 			VALUES ($1, $2, $3, 's3', $4, $5, $6, $7, $8, $9, $10, $11, 'active')
+			ON CONFLICT (storage_backend, storage_path) DO UPDATE SET
+				size_bytes = EXCLUDED.size_bytes, file_hash = EXCLUDED.file_hash,
+				content_type = EXCLUDED.content_type, updated_at = NOW()
 			RETURNING id, user_id, file_type, storage_backend, storage_path, content_type,
 				file_name, size_bytes, file_hash, parent_type, parent_id, has_sidecar,
 				is_renaming, status, replaced_by, created_at, updated_at`,
@@ -224,15 +227,11 @@ func (s *S3FileStore) Put(ctx context.Context, entry FileEntry, data io.Reader) 
 // Get retrieves a file's contents from S3.
 func (s *S3FileStore) Get(ctx context.Context, userID, fileID string) (io.ReadCloser, error) {
 	var storagePath, fileType, status string
-	var dbUserID string
 	err := s.pool.QueryRow(ctx,
-		`SELECT user_id, storage_path, file_type, status FROM user_files WHERE id = $1`, fileID,
-	).Scan(&dbUserID, &storagePath, &fileType, &status)
+		`SELECT storage_path, file_type, status FROM user_files WHERE id = $1 AND user_id = $2`, fileID, userID,
+	).Scan(&storagePath, &fileType, &status)
 	if err != nil {
 		return nil, fmt.Errorf("file not found: %w", err)
-	}
-	if dbUserID != userID {
-		return nil, fmt.Errorf("file not found")
 	}
 	if status != "active" {
 		return nil, fmt.Errorf("file is %s", status)
@@ -253,15 +252,11 @@ func (s *S3FileStore) Get(ctx context.Context, userID, fileID string) (io.ReadCl
 func (s *S3FileStore) Delete(ctx context.Context, userID, fileID string) error {
 	var storagePath, fileType, fileName string
 	var hasSidecar bool
-	var dbUserID string
 	err := s.pool.QueryRow(ctx,
-		`SELECT user_id, storage_path, file_type, file_name, has_sidecar FROM user_files WHERE id = $1`, fileID,
-	).Scan(&dbUserID, &storagePath, &fileType, &fileName, &hasSidecar)
+		`SELECT storage_path, file_type, file_name, has_sidecar FROM user_files WHERE id = $1 AND user_id = $2`, fileID, userID,
+	).Scan(&storagePath, &fileType, &fileName, &hasSidecar)
 	if err != nil {
 		return fmt.Errorf("file not found: %w", err)
-	}
-	if dbUserID != userID {
-		return fmt.Errorf("file not found")
 	}
 
 	bucket := s.bucketFor(fileType)
@@ -417,16 +412,13 @@ func (s *S3FileStore) Resolve(ctx context.Context, userID, fileID string) (Resol
 		`SELECT id, user_id, file_type, storage_backend, storage_path, content_type,
 			file_name, size_bytes, file_hash, parent_type, parent_id, has_sidecar,
 			is_renaming, status, replaced_by, created_at, updated_at
-		FROM user_files WHERE id = $1`, fileID,
+		FROM user_files WHERE id = $1 AND user_id = $2`, fileID, userID,
 	).Scan(&rec.ID, &rec.UserID, &rec.FileType, &rec.StorageBackend, &rec.StoragePath,
 		&rec.ContentType, &rec.FileName, &rec.SizeBytes, &rec.FileHash, &rec.ParentType,
 		&rec.ParentID, &rec.HasSidecar, &rec.IsRenaming, &rec.Status, &rec.ReplacedBy,
 		&rec.CreatedAt, &rec.UpdatedAt)
 	if err != nil {
 		return ResolvedFile{}, fmt.Errorf("file not found: %w", err)
-	}
-	if rec.UserID != userID {
-		return ResolvedFile{}, fmt.Errorf("file not found")
 	}
 
 	bucket := s.bucketFor(rec.FileType)
@@ -540,6 +532,8 @@ func sidecarKeyFor(storagePath, fileType string) string {
 	}
 	return stem + ".meta"
 }
+
+var _ FileStore = (*S3FileStore)(nil)
 
 // sanitizeExt cleans a file extension, allowing only alphanumeric and dot.
 func sanitizeExt(ext string) string {
