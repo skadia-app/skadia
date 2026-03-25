@@ -93,6 +93,21 @@ func (h *Handler) DeleteImportQueueItem(w http.ResponseWriter, r *http.Request) 
 	}
 	id := chi.URLParam(r, "id")
 
+	// Clean up ShadowFS files stored in metadata before deleting the queue item.
+	if h.ShadowFS != nil {
+		item, itemErr := h.DB.GetImportQueueItem(r.Context(), id, userID)
+		if itemErr == nil && item != nil && item.Metadata != nil {
+			for _, metaKey := range []string{"file_store_id", "file_store_id_thumb"} {
+				if fileID, ok := item.Metadata[metaKey].(string); ok && fileID != "" {
+					if delErr := h.ShadowFS.Delete(r.Context(), userID, fileID); delErr != nil {
+						slog.Warn("delete import queue item: shadowfs delete failed",
+							"queue_id", id, "meta_key", metaKey, "file_id", fileID, "error", delErr)
+					}
+				}
+			}
+		}
+	}
+
 	if err := h.DB.DeleteImportQueueItem(r.Context(), id, userID); err != nil {
 		slog.Error("delete import queue item failed", "id", id, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete queue item", r.URL.Path)

@@ -12,8 +12,11 @@ package handler
 //   - Every operation also appends a record to the .edits.json sidecar in S3.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -24,6 +27,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/editor"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
 // ── Trim ──────────────────────────────────────────────────────────────────────
@@ -679,19 +683,42 @@ func (h *Handler) mergeActivityTags(ctx context.Context, targetID, sourceID, use
 
 // ── Sidecar helpers ───────────────────────────────────────────────────────────
 
-// appendSidecarEdits loads the existing S3 sidecar, appends the given edits, and saves it back.
-// Errors are logged as warnings (best-effort); the primary operation is not rolled back.
+// appendSidecarEdits loads the existing sidecar (ShadowFS preferred, legacy S3 as fallback),
+// appends the given edits, and saves it back. Errors are logged as warnings (best-effort).
 func (h *Handler) appendSidecarEdits(ctx context.Context, userID, activityID string, edits []editor.Edit) {
-	if h.Storage == nil {
+	if h.ShadowFS == nil && h.Storage == nil {
 		return
 	}
-	bucket := editorBucket()
-	key := editorKey(userID, activityID)
 
-	raw, _, err := h.Storage.DownloadFromBucket(ctx, bucket, key)
+	// ── Load existing sidecar ──────────────────────────────────────────────
+	var rawData []byte
+
+	// Try ShadowFS first (via sidecar_file_id on the activity).
+	var sidecarFileID string
+	_ = h.DB.Pool.QueryRow(ctx,
+		`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1`,
+		activityID,
+	).Scan(&sidecarFileID)
+
+	if sidecarFileID != "" && h.ShadowFS != nil {
+		rc, getErr := h.ShadowFS.Get(ctx, userID, sidecarFileID)
+		if getErr == nil {
+			rawData, _ = io.ReadAll(rc)
+			rc.Close()
+		}
+	}
+	if rawData == nil && h.Storage != nil {
+		bucket := editorBucket()
+		key := editorKey(userID, activityID)
+		downloaded, _, dlErr := h.Storage.DownloadFromBucket(ctx, bucket, key)
+		if dlErr == nil {
+			rawData = downloaded
+		}
+	}
+
 	var sidecar editor.EditSidecar
-	if err == nil {
-		if jsonErr := json.Unmarshal(raw, &sidecar); jsonErr != nil {
+	if rawData != nil {
+		if jsonErr := json.Unmarshal(rawData, &sidecar); jsonErr != nil {
 			sidecar = editor.EditSidecar{Version: 1, ActivityID: activityID}
 		}
 	} else {
@@ -710,10 +737,42 @@ func (h *Handler) appendSidecarEdits(ctx context.Context, userID, activityID str
 	}
 
 	data, _ := json.Marshal(&sidecar)
-	if uploadErr := h.Storage.UploadToBucket(ctx, bucket, key, data, "application/json"); uploadErr != nil {
-		slog.Warn("edit-ops: failed to update sidecar", "activity_id", activityID, "error", uploadErr)
-		return
+
+	// ── Save sidecar: ShadowFS preferred, legacy S3 as fallback ─────────
+	if h.ShadowFS != nil {
+		fileName := fmt.Sprintf("%s.edits.json", activityID)
+		rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
+			UserID:      userID,
+			FileType:    "edit",
+			ContentType: "application/json",
+			FileName:    fileName,
+			SizeBytes:   int64(len(data)),
+			ParentType:  func() *string { s := "activity"; return &s }(),
+			ParentID:    &activityID,
+		}, bytes.NewReader(data))
+		if putErr != nil {
+			slog.Warn("edit-ops: ShadowFS.Put sidecar failed", "activity_id", activityID, "error", putErr)
+		} else {
+			if _, dbErr := h.DB.Pool.Exec(ctx,
+				`UPDATE activities SET has_edits = true, sidecar_file_id = $1 WHERE id = $2`,
+				rec.ID, activityID,
+			); dbErr != nil {
+				slog.Warn("edit-ops: failed to set sidecar_file_id", "activity_id", activityID, "error", dbErr)
+			}
+			return
+		}
 	}
+
+	// Legacy S3 fallback.
+	if h.Storage != nil {
+		bucket := editorBucket()
+		key := editorKey(userID, activityID)
+		if uploadErr := h.Storage.UploadToBucket(ctx, bucket, key, data, "application/json"); uploadErr != nil {
+			slog.Warn("edit-ops: failed to update sidecar", "activity_id", activityID, "error", uploadErr)
+			return
+		}
+	}
+
 	// Ensure has_edits flag is set.
 	_, _ = h.DB.Pool.Exec(ctx, `UPDATE activities SET has_edits = true WHERE id = $1`, activityID)
 }
