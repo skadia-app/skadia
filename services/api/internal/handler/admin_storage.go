@@ -213,6 +213,58 @@ func (h *Handler) StartFileMigration(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// StartReconciliation triggers a one-off filestore reconciliation job that
+// checks consistency between the filesystem and the user_files registry.
+//
+// POST /api/v1/admin/storage/reconcile
+func (h *Handler) StartReconciliation(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	if h.Config.LibraryBasePath == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
+			"LIBRARY_BASE_PATH not configured", r.URL.Path)
+		return
+	}
+
+	jobID, err := h.DB.InsertBackgroundJob(
+		r.Context(),
+		userID,
+		"filestore_reconcile",
+		nil, nil,
+		9, // 9 checks
+	)
+	if err != nil {
+		slog.Error("admin: failed to insert filestore_reconcile job", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error",
+			"could not create job", r.URL.Path)
+		return
+	}
+
+	renderer := filestore.NewSchemaRenderer()
+	job := filestore.NewReconcileJob(h.DB.Pool, h.Config.LibraryBasePath, renderer, h.Config.KeepVersions)
+
+	db := h.DB
+	shutdown.Go(jobID, func(ctx context.Context) {
+		_, runErr := job.Run(ctx, func(current int) {
+			db.UpdateBackgroundJobProgress(ctx, jobID, int64(current)) //nolint:errcheck
+		})
+		if runErr != nil {
+			slog.Error("admin: filestore reconciliation failed", "job_id", jobID, "error", runErr)
+			db.CompleteBackgroundJob(ctx, jobID, true, runErr.Error()) //nolint:errcheck
+			return
+		}
+		db.CompleteBackgroundJob(ctx, jobID, false, "") //nolint:errcheck
+	})
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{
+		"status": "started",
+		"job_id": jobID,
+	})
+}
+
 // StartFileMigrationRollback triggers a background job that reverses Phase 2
 // file moves, restoring files to their original locations.
 //
