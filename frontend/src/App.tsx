@@ -8,6 +8,9 @@ import { ToastProvider } from '@/lib/toast'
 import { ModalProvider } from '@/lib/modal'
 import Layout from '@/components/Layout'
 import AuthGuard from '@/components/AuthGuard'
+import { AdminGuard } from '@/components/AdminGuard'
+import { MustChangePasswordGuard } from '@/components/MustChangePasswordGuard'
+import { UserProviderLayout } from '@/providers/UserProvider'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { ToastContainer } from '@/components/Toast'
 import { ModalContainer } from '@/components/Modal'
@@ -55,6 +58,8 @@ const ImportsPage = lazy(() => import('@/pages/ImportsPage'))
 const DeviceListPage = lazy(() => import('@/pages/DeviceListPage'))
 const DeviceDetailPage = lazy(() => import('@/pages/DeviceDetailPage'))
 const ManualActivityPage = lazy(() => import('@/pages/ManualActivityPage'))
+const AdminUsersPage = lazy(() => import('@/pages/admin/AdminUsersPage'))
+const AdminAuditLogPage = lazy(() => import('@/pages/admin/AdminAuditLogPage'))
 
 function ImportRedirect() {
   const [searchParams] = useSearchParams()
@@ -117,54 +122,64 @@ export default function App() {
 
                     {/* Protected routes */}
                     <Route element={<AuthGuard />}>
-                      <Route path="/" element={<Layout />}>
-                        <Route index element={<Navigate to="/dashboard" replace />} />
-                        <Route path="dashboard" element={<DashboardPage />} />
-                        <Route path="photos" element={<PhotoGalleryPage />} />
-                        <Route path="activities" element={<ActivitiesPage />} />
-                        <Route path="activities/manual" element={<ManualActivityPage />} />
-                        <Route path="activities/compare" element={<ActivityComparisonPage />} />
-                        <Route path="fusion" element={<FusionPage />} />
-                        <Route path="activities/:id" element={<ActivityDetailPage />} />
-                        <Route path="activities/:id/edit" element={<ActivityEditorPage />} />
-                        <Route path="map" element={<MapPage />} />
-                        <Route path="calendar" element={<CalendarPage />} />
-                        <Route path="health" element={<Navigate to="/analytics/health" replace />} />
-                        <Route path="analytics" element={<AnalyticsPage />}>
-                          <Route index element={<Navigate to="/analytics/training" replace />} />
-                          <Route path="training" element={<TrainingTab />} />
-                          <Route path="health" element={<HealthTab />} />
-                          <Route path="stats" element={<StatsTab />} />
-                          <Route path="insights" element={<InsightsTab />} />
+                      <Route element={<UserProviderLayout />}>
+                        <Route element={<MustChangePasswordGuard />}>
+                          <Route path="/" element={<Layout />}>
+                            <Route index element={<Navigate to="/dashboard" replace />} />
+                            <Route path="dashboard" element={<DashboardPage />} />
+                            <Route path="photos" element={<PhotoGalleryPage />} />
+                            <Route path="activities" element={<ActivitiesPage />} />
+                            <Route path="activities/manual" element={<ManualActivityPage />} />
+                            <Route path="activities/compare" element={<ActivityComparisonPage />} />
+                            <Route path="fusion" element={<FusionPage />} />
+                            <Route path="activities/:id" element={<ActivityDetailPage />} />
+                            <Route path="activities/:id/edit" element={<ActivityEditorPage />} />
+                            <Route path="map" element={<MapPage />} />
+                            <Route path="calendar" element={<CalendarPage />} />
+                            <Route path="health" element={<Navigate to="/analytics/health" replace />} />
+                            <Route path="analytics" element={<AnalyticsPage />}>
+                              <Route index element={<Navigate to="/analytics/training" replace />} />
+                              <Route path="training" element={<TrainingTab />} />
+                              <Route path="health" element={<HealthTab />} />
+                              <Route path="stats" element={<StatsTab />} />
+                              <Route path="insights" element={<InsightsTab />} />
+                            </Route>
+                            <Route path="chat" element={<ChatPage />} />
+                            <Route path="routes" element={<RoutesPage />} />
+                            <Route path="segments" element={<SegmentsPage />} />
+                            <Route path="segments/:id" element={<SegmentDetailPage />} />
+                            <Route path="workshop" element={<WorkshopPage />} />
+                            <Route path="workshop/reprocess" element={<WorkshopReprocessPage />} />
+                            <Route path="workshop/profile" element={<PhysiologicalProfilePage />} />
+                            <Route path="workshop/tags" element={<TagsPage />} />
+                            <Route path="gear" element={<GearPage />} />
+                            <Route path="gear/:id" element={<GearDetailPage />} />
+                            <Route path="hardware" element={<DeviceListPage />} />
+                            <Route path="hardware/:type" element={<DeviceListPage />} />
+                            <Route path="hardware/detail/:id" element={<DeviceDetailPage />} />
+                            <Route path="settings" element={<SettingsPage />} />
+                            <Route path="settings/privacy" element={<PrivacySettingsPage />} />
+                            <Route path="settings/enrichment" element={<Navigate to="/settings?tab=analysen" replace />} />
+                            <Route path="workshop/rules" element={<AutomationRulesPage />} />
+                            <Route path="workshop/document-review" element={<DocumentReviewPage />} />
+                            <Route path="workshop/summits" element={<SummitCollectionPage />} />
+                            <Route path="map/summits" element={<SummitCollectionPage defaultView="map" />} />
+                            <Route path="workshop/fusion" element={<FusionQueuePage />} />
+                            <Route path="workshop/import-queue" element={<ImportQueuePage />} />
+                            <Route path="settings/rules" element={<Navigate to="/workshop/rules" replace />} />
+                            <Route path="settings/tags" element={<TagsPage />} />
+                            <Route path="settings/import" element={<ImportPage />} />
+                            <Route path="import/url" element={<ImportRedirect />} />
+                            <Route path="queue" element={<Navigate to="/settings/import?tab=queue" replace />} />
+                            <Route path="imports" element={<ImportsPage />} />
+
+                            {/* Admin routes */}
+                            <Route element={<AdminGuard />}>
+                              <Route path="admin/users" element={<AdminUsersPage />} />
+                              <Route path="admin/audit-log" element={<AdminAuditLogPage />} />
+                            </Route>
+                          </Route>
                         </Route>
-                        <Route path="chat" element={<ChatPage />} />
-                        <Route path="routes" element={<RoutesPage />} />
-                        <Route path="segments" element={<SegmentsPage />} />
-                        <Route path="segments/:id" element={<SegmentDetailPage />} />
-                        <Route path="workshop" element={<WorkshopPage />} />
-                        <Route path="workshop/reprocess" element={<WorkshopReprocessPage />} />
-                        <Route path="workshop/profile" element={<PhysiologicalProfilePage />} />
-                        <Route path="workshop/tags" element={<TagsPage />} />
-                        <Route path="gear" element={<GearPage />} />
-                        <Route path="gear/:id" element={<GearDetailPage />} />
-                        <Route path="hardware" element={<DeviceListPage />} />
-                        <Route path="hardware/:type" element={<DeviceListPage />} />
-                        <Route path="hardware/detail/:id" element={<DeviceDetailPage />} />
-                        <Route path="settings" element={<SettingsPage />} />
-                        <Route path="settings/privacy" element={<PrivacySettingsPage />} />
-                        <Route path="settings/enrichment" element={<Navigate to="/settings?tab=analysen" replace />} />
-                        <Route path="workshop/rules" element={<AutomationRulesPage />} />
-                        <Route path="workshop/document-review" element={<DocumentReviewPage />} />
-                        <Route path="workshop/summits" element={<SummitCollectionPage />} />
-                        <Route path="map/summits" element={<SummitCollectionPage defaultView="map" />} />
-                        <Route path="workshop/fusion" element={<FusionQueuePage />} />
-                        <Route path="workshop/import-queue" element={<ImportQueuePage />} />
-                        <Route path="settings/rules" element={<Navigate to="/workshop/rules" replace />} />
-                        <Route path="settings/tags" element={<TagsPage />} />
-                        <Route path="settings/import" element={<ImportPage />} />
-                        <Route path="import/url" element={<ImportRedirect />} />
-                        <Route path="queue" element={<Navigate to="/settings/import?tab=queue" replace />} />
-                        <Route path="imports" element={<ImportsPage />} />
                       </Route>
                     </Route>
                   </Routes>

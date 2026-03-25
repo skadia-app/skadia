@@ -97,6 +97,24 @@ export async function logout(): Promise<void> {
   })
 }
 
+export interface MeData {
+  user_id: string
+  username: string
+  display_name?: string
+  email?: string
+  is_admin: boolean
+  email_verified: boolean
+  has_password: boolean
+  must_change_password: boolean
+  registration_source?: string
+}
+
+export async function getMe(): Promise<MeData> {
+  const res = await apiFetch('/api/v1/me')
+  if (!res.ok) throw new Error('Failed to fetch user')
+  return res.json() as Promise<MeData>
+}
+
 export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
   const res = await apiFetch(`${API_BASE}/auth/change-password`, {
     method: 'POST',

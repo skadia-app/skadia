@@ -440,6 +440,21 @@ func (db *DB) ClearPendingEmail(ctx context.Context, userID string) error {
 	return err
 }
 
+// CreateUserWithoutPassword creates a new user without a password (for admin invite flow).
+// The user must set a password via the reset-password token flow.
+func (db *DB) CreateUserWithoutPassword(ctx context.Context, email, username, registrationSrc string, ipAddress net.IP, isActive bool) (*model.User, error) {
+	u, err := scanUser(db.Pool.QueryRow(ctx,
+		`INSERT INTO users (username, email, registration_source, created_by_ip,
+			is_active, email_verified, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, false, NOW(), NOW())
+		 RETURNING `+allUserColumns,
+		username, email, registrationSrc, ipAddress, isActive))
+	if err != nil {
+		return nil, fmt.Errorf("create user without password: %w", err)
+	}
+	return u, nil
+}
+
 // CheckUsernameCollision returns true if a user with the given username already
 // exists, excluding the user identified by excludeUserID.
 func (db *DB) CheckUsernameCollision(ctx context.Context, username, excludeUserID string) (bool, error) {
