@@ -766,6 +766,7 @@ func main() {
 			r.Post("/routes/suggest", h.SuggestRoutes)
 			r.Get("/routing/status", h.RoutingGraphStatus)
 			r.Post("/routing/route-internal", h.RouteCalculate)
+			r.Get("/routing/profiles/{name}", h.HandleGetProfileDefaults)
 
 			// Planned Routes (CRUD)
 			r.Get("/routes", h.ListRoutes)
