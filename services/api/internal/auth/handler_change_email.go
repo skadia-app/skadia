@@ -117,12 +117,12 @@ func (h *Handler) ConfirmEmailChange(w http.ResponseWriter, r *http.Request) {
 	err = h.DB.Pool.QueryRow(r.Context(),
 		`WITH old AS (SELECT email FROM users WHERE id = $1)
 		 UPDATE users SET email = pending_email, pending_email = NULL, email_verified = true
-		 WHERE id = $1
+		 WHERE id = $1 AND pending_email IS NOT NULL
 		 RETURNING (SELECT email FROM old) AS old_email, email AS new_email`,
 		userID).Scan(&oldEmail, &newEmail)
 	if err != nil {
 		slog.Error("confirm-email-change: update email failed", "user_id", userID, "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		writeJSON(w, http.StatusOK, map[string]string{"error": "email_change_expired"})
 		return
 	}
 

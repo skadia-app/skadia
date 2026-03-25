@@ -16,6 +16,7 @@ type sessionEntry struct {
 	FamilyID  string    `json:"family_id"`
 	UserAgent *string   `json:"user_agent,omitempty"`
 	IPAddress string    `json:"ip_address"`
+	IsCurrent bool      `json:"is_current"`
 	CreatedAt time.Time `json:"created_at"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
@@ -24,6 +25,15 @@ type sessionEntry struct {
 // Returns only active (non-revoked, non-expired) sessions for the current user.
 func (h *Handler) ListMySessions(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
+
+	// Get current family_id from refresh token cookie
+	var currentFamilyID string
+	if cookie, err := r.Cookie("refresh_token"); err == nil && cookie.Value != "" {
+		hashedToken := HashToken(cookie.Value)
+		h.DB.Pool.QueryRow(r.Context(),
+			`SELECT family_id::text FROM refresh_tokens WHERE token_hash = $1 AND revoked = false`,
+			hashedToken).Scan(&currentFamilyID)
+	}
 
 	rows, err := h.DB.Pool.Query(r.Context(),
 		`SELECT family_id, user_agent, ip_address::text, created_at, expires_at
@@ -44,6 +54,7 @@ func (h *Handler) ListMySessions(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
+		s.IsCurrent = (s.FamilyID == currentFamilyID)
 		sessions = append(sessions, s)
 	}
 	if err := rows.Err(); err != nil {
