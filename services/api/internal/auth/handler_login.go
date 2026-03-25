@@ -145,13 +145,7 @@ func (h *Handler) authenticateUser(w http.ResponseWriter, r *http.Request, email
 		return nil
 	}
 
-	// 7. Email verified check (skip if no SMTP).
-	if h.Config.SMTPHost != "" && !user.EmailVerified {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "email_not_verified"})
-		return nil
-	}
-
-	// 8. Success — clear delays.
+	// 7. Success — clear delays.
 	if err := h.DB.UpdateLoginSuccess(r.Context(), user.ID); err != nil {
 		slog.Error("update login success failed", "error", err)
 	}

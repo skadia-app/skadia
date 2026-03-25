@@ -183,16 +183,11 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check is_active/email_verified (C6).
+	// Check is_active (C6).
 	if !user.IsActive {
 		h.socialError(w, r, "account_inactive")
 		return
 	}
-	if h.Config.SMTPHost != "" && !user.EmailVerified {
-		h.socialError(w, r, "email_not_verified")
-		return
-	}
-
 	// Update last login timestamp.
 	_ = h.DB.UpdateLoginSuccess(r.Context(), user.ID)
 

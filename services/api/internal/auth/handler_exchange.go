@@ -26,16 +26,11 @@ func (h *Handler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check is_active/email_verified after code consumption (C6).
+	// Check is_active after code consumption (C6).
 	user, err := h.DB.GetUserByID(r.Context(), userID.String())
 	if err != nil || !user.IsActive {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "account_inactive"})
 		return
 	}
-	if h.Config.SMTPHost != "" && !user.EmailVerified {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "email_not_verified"})
-		return
-	}
-
 	h.issueTokensAndRespond(w, r, user)
 }

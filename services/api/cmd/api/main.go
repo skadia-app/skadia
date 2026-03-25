@@ -330,6 +330,8 @@ func main() {
 			slog.Info("JWT auth enabled", "hs256", cfg.JWTSecret != "")
 		}
 
+		r.Use(middleware.RequirePasswordChanged())
+
 		r.Route("/api/v1", func(r chi.Router) {
 			// ── Admin routes (RequireAdmin) ──
 			r.Route("/admin", func(r chi.Router) {
