@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { useUser } from '@/providers/UserProvider'
 import OSMImportModal from '@/components/OSMImportModal'
 import { useAccentColor, ACCENT_PALETTE, DEFAULT_ACCENT_COLOR, deriveAccentEntry } from '@/lib/accentColor'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
@@ -56,6 +57,7 @@ const ANALYSIS_MODULES: AnalysisModule[] = [
 function AutomatischeAnalysenSection() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
+  const { isAdmin } = useUser()
 
   const { data: settings, isLoading, isError } = useQuery({
     queryKey: ['enrichment-settings'],
@@ -192,25 +194,27 @@ function AutomatischeAnalysenSection() {
         <Link to="/settings?tab=general" className="text-accent-DEFAULT hover:underline">Allgemein → Wetterdaten</Link>.
       </p>
 
-      {/* Backfill actions */}
-      <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800/60 space-y-3">
-        <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Neuberechnung</h3>
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={handleBackfillEnrichment}
-            disabled={backfillRunning}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {backfillRunning ? 'Läuft…' : 'Enrichment neu berechnen'}
-          </button>
+      {/* Backfill actions — admin only */}
+      {isAdmin && (
+        <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800/60 space-y-3">
+          <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Neuberechnung</h3>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={handleBackfillEnrichment}
+              disabled={backfillRunning}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {backfillRunning ? 'Läuft…' : 'Enrichment neu berechnen'}
+            </button>
+          </div>
+          {backfillResult && (
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              Ergebnis: {backfillResult.processed} verarbeitet, {backfillResult.errors} Fehler
+              {backfillResult.error_details && <span className="block text-red-500 dark:text-red-400 mt-0.5">{backfillResult.error_details}</span>}
+            </p>
+          )}
         </div>
-        {backfillResult && (
-          <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            Ergebnis: {backfillResult.processed} verarbeitet, {backfillResult.errors} Fehler
-            {backfillResult.error_details && <span className="block text-red-500 dark:text-red-400 mt-0.5">{backfillResult.error_details}</span>}
-          </p>
-        )}
-      </div>
+      )}
 
       <p className="text-xs text-neutral-400 dark:text-neutral-500 pt-1 border-t border-neutral-100 dark:border-neutral-800/60">
         Änderungen gelten für neue Aktivitäten sowie bei manueller Neuberechnung.
@@ -232,6 +236,7 @@ const PREVIEW_SIZE_OPTIONS = [
 function PhotoPreviewSection() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
+  const { isAdmin } = useUser()
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['enrichment-settings'],
@@ -366,23 +371,25 @@ function PhotoPreviewSection() {
         </div>
       </div>
 
-      <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60 space-y-3">
-        {[
-          { label: 'Vorschauen neu erstellen', onClick: handleRecompute, desc: 'Generiert Vorschau-Bilder für alle vorhandenen Fotos mit der aktuellen Einstellung neu.' },
-          { label: 'Bildsuche neu indexieren', onClick: handleRecomputeEmbeddings, desc: 'Berechnet KI-Embeddings für alle Fotos (ermöglicht semantische Suche nach Inhalt).' },
-        ].map(({ label, onClick, desc }) => (
-          <div key={label} className="flex items-center gap-3">
-            <button
-              onClick={onClick}
-              disabled={isLoading}
-              className="whitespace-nowrap px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[200px]"
-            >
-              {label}
-            </button>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">{desc}</p>
-          </div>
-        ))}
-      </div>
+      {isAdmin && (
+        <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60 space-y-3">
+          {[
+            { label: 'Vorschauen neu erstellen', onClick: handleRecompute, desc: 'Generiert Vorschau-Bilder für alle vorhandenen Fotos mit der aktuellen Einstellung neu.' },
+            { label: 'Bildsuche neu indexieren', onClick: handleRecomputeEmbeddings, desc: 'Berechnet KI-Embeddings für alle Fotos (ermöglicht semantische Suche nach Inhalt).' },
+          ].map(({ label, onClick, desc }) => (
+            <div key={label} className="flex items-center gap-3">
+              <button
+                onClick={onClick}
+                disabled={isLoading}
+                className="whitespace-nowrap px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[200px]"
+              >
+                {label}
+              </button>
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">{desc}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   )
 }
@@ -621,6 +628,7 @@ function NotificationSettingsSection() {
 export default function SettingsPage() {
   const queryClient = useQueryClient()
   const { accent, setAccent } = useAccentColor()
+  const { isAdmin } = useUser()
   const [renameOpen, setRenameOpen] = useState(false)
   const [schemaValue, setSchemaValue] = useState<string | null>(null)
   const [searchParams] = useSearchParams()
@@ -687,8 +695,8 @@ export default function SettingsPage() {
       {activeTab === 'analysen' && <AutomatischeAnalysenSection />}
 
       {activeTab === 'ai' && <>
-        <LLMSettingsPage />
-        <MLServiceSection />
+        {isAdmin && <LLMSettingsPage />}
+        {isAdmin && <MLServiceSection />}
         <NotificationSettingsSection />
         <ChatProfileSettings />
       </>}
@@ -889,7 +897,7 @@ export default function SettingsPage() {
       <HeatmapSettingsSection />
 
       {/* Lokale Karten & Geodaten */}
-      <LocalMapAndGeoSection />
+      {isAdmin && <LocalMapAndGeoSection />}
 
       <RenamePreview open={renameOpen} onClose={() => setRenameOpen(false)} schema={currentSchema} />
       </>}
@@ -1888,6 +1896,7 @@ function HeatmapSettingsSection() {
 function ImportSettingsSection() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
+  const { isAdmin } = useUser()
   const { data: settings } = useQuery({
     queryKey: ['import-settings'],
     queryFn: getImportSettings,
@@ -2111,19 +2120,21 @@ function ImportSettingsSection() {
         <p className="text-xs text-neutral-400 mt-1">Standard: 3 Bits</p>
       </div>
 
-      {/* pHash Backfill */}
-      <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handlePhashBackfill}
-            disabled={phashBackfillPending}
-            className="whitespace-nowrap px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[200px]"
-          >
-            {phashBackfillPending ? 'Startet…' : 'pHash neu berechnen'}
-          </button>
-          <p className="text-xs text-neutral-400 dark:text-neutral-500">Geschieht automatisch beim Import. Nur nötig für Fotos, die vor Einführung der Duplikatserkennung importiert wurden.</p>
+      {/* pHash Backfill — admin only */}
+      {isAdmin && (
+        <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handlePhashBackfill}
+              disabled={phashBackfillPending}
+              className="whitespace-nowrap px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[200px]"
+            >
+              {phashBackfillPending ? 'Startet…' : 'pHash neu berechnen'}
+            </button>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">Geschieht automatisch beim Import. Nur nötig für Fotos, die vor Einführung der Duplikatserkennung importiert wurden.</p>
+          </div>
         </div>
-      </div>
+      )}
     </section>
   )
 }
