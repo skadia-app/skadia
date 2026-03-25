@@ -143,7 +143,7 @@ func SelectCrossingSeedsSQL(ctx context.Context, pool *pgxpool.Pool,
 		)
 		SELECT osm_id, name, lat, lon, ele
 		FROM ranked WHERE rn = 1
-		ORDER BY lat_bin, lon_bin
+		ORDER BY major_roads DESC, ele DESC
 	`, west, south, east, north)
 	if err != nil {
 		return nil, err
