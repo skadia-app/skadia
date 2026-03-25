@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -29,8 +27,9 @@ func AllHealthTables() []string {
 
 // PurgeDeletedUsers finds users whose deleted_at is >30 days ago and purges them.
 // Intended to be called by a daily cleanup job.
-// s3Cleanup is an optional callback for S3 object cleanup; pass nil to skip.
-func (db *DB) PurgeDeletedUsers(ctx context.Context, shadowFSBasePath string, s3Cleanup func(userID string) error) error {
+// fileStoreCleanup is an optional callback that deletes all stored files for a user;
+// pass nil to skip external storage cleanup.
+func (db *DB) PurgeDeletedUsers(ctx context.Context, fileStoreCleanup func(ctx context.Context, userID string) error) error {
 	rows, err := db.Pool.Query(ctx,
 		`SELECT id FROM users WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '30 days'`)
 	if err != nil {
@@ -52,7 +51,7 @@ func (db *DB) PurgeDeletedUsers(ctx context.Context, shadowFSBasePath string, s3
 	}
 
 	for _, uid := range userIDs {
-		if err := db.DeleteUserData(ctx, uid, shadowFSBasePath, s3Cleanup); err != nil {
+		if err := db.DeleteUserData(ctx, uid, fileStoreCleanup); err != nil {
 			slog.Error("GDPR purge failed for user", "user_id", uid, "error", err)
 			// Continue with other users — don't let one failure block the rest.
 		}
@@ -70,9 +69,10 @@ func (db *DB) PurgeDeletedUsers(ctx context.Context, shadowFSBasePath string, s3
 //
 //	cascades to ~45 dependent tables via ON DELETE CASCADE.
 //
-// Phase 3: Best-effort external storage cleanup (ShadowFS on disk + optional S3).
-// s3Cleanup is an optional callback for S3 object cleanup; pass nil to skip.
-func (db *DB) DeleteUserData(ctx context.Context, userID, shadowFSBasePath string, s3Cleanup func(userID string) error) error {
+// Phase 3: Best-effort external storage cleanup via FileStore.
+// fileStoreCleanup is an optional callback that deletes all stored files for a user;
+// pass nil to skip external storage cleanup.
+func (db *DB) DeleteUserData(ctx context.Context, userID string, fileStoreCleanup func(ctx context.Context, userID string) error) error {
 	slog.Info("GDPR purge starting", "user_id", userID)
 
 	// Track purge in background_jobs for UI visibility.
@@ -209,20 +209,12 @@ func (db *DB) DeleteUserData(ctx context.Context, userID, shadowFSBasePath strin
 
 	// ---- Phase 3: External storage (best-effort, non-transactional) ----
 
-	// ShadowFS: data/shadowfs/{userID}/
-	if shadowFSBasePath != "" {
-		userShadowDir := filepath.Join(shadowFSBasePath, userID)
-		if err := os.RemoveAll(userShadowDir); err != nil {
-			slog.Warn("GDPR: remove ShadowFS failed", "path", userShadowDir, "error", err)
+	// FileStore cleanup: removes original FIT/GPX files, photos, documents, exports.
+	if fileStoreCleanup != nil {
+		if err := fileStoreCleanup(ctx, userID); err != nil {
+			slog.Warn("GDPR: file store cleanup failed", "user_id", userID, "error", err)
 		} else {
-			slog.Info("GDPR: removed ShadowFS", "path", userShadowDir)
-		}
-	}
-
-	// S3 object cleanup (activity photos, gear documents, exports).
-	if s3Cleanup != nil {
-		if err := s3Cleanup(userID); err != nil {
-			slog.Warn("GDPR: S3 cleanup failed", "user_id", userID, "error", err)
+			slog.Info("GDPR: file store cleanup complete", "user_id", userID)
 		}
 	}
 
