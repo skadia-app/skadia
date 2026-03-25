@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/fusion"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -278,8 +281,8 @@ func (h *Handler) mergeGPSFromSource(ctx context.Context, targetID, sourceID str
 	return err
 }
 
-// fitLevelMerge lädt die Original-FIT-Dateien aus S3, führt sie auf Protokoll-Ebene
-// zusammen und speichert die neue FIT-Datei zurück in S3.
+// fitLevelMerge lädt die Original-FIT-Dateien (via FileStore oder S3-Fallback),
+// führt sie auf Protokoll-Ebene zusammen und speichert die neue FIT-Datei zurück.
 // Unterstützt aktuell nur einen Source (den ersten in der Liste).
 func (h *Handler) fitLevelMerge(
 	ctx context.Context,
@@ -288,8 +291,8 @@ func (h *Handler) fitLevelMerge(
 	fieldMap map[string]string,
 	activities map[string]*model.Activity,
 ) error {
-	if h.Storage == nil {
-		return fmt.Errorf("S3 storage not configured")
+	if h.FileStore == nil && h.Storage == nil {
+		return fmt.Errorf("neither FileStore nor S3 storage configured")
 	}
 	if len(sourceIDs) == 0 {
 		return fmt.Errorf("no sources for FIT-level merge")
@@ -324,22 +327,56 @@ func (h *Handler) fitLevelMerge(
 			"used", sourceIDs[0], "ignored", sourceIDs[1:])
 	}
 
-	// Original-FIT-Dateien aus S3 laden.
-	const bucket = "skadia-originals"
 	const maxFITSize = 50 * 1024 * 1024 // 50 MB
-	targetKey := fmt.Sprintf("%s/%s.fit", userID, *target.FileHash)
-	sourceKey := fmt.Sprintf("%s/%s.fit", userID, *source.FileHash)
 
-	targetData, _, err := h.Storage.DownloadFromBucket(ctx, bucket, targetKey)
+	// readFITData liest eine FIT-Datei: erst via FileStore (wenn file_id bekannt),
+	// dann via Legacy-S3 als Fallback.
+	readFITData := func(activityID, fileHash string) ([]byte, error) {
+		if h.FileStore != nil {
+			// Look up file_id for this activity from the DB.
+			var fileID string
+			_ = h.DB.Pool.QueryRow(ctx,
+				`SELECT COALESCE(file_id::text, '') FROM activities WHERE id = $1 AND user_id = $2`,
+				activityID, userID,
+			).Scan(&fileID)
+			if fileID != "" {
+				rc, getErr := h.FileStore.Get(ctx, userID, fileID)
+				if getErr == nil {
+					defer rc.Close()
+					d, readErr := io.ReadAll(rc)
+					if readErr != nil {
+						return nil, fmt.Errorf("read FileStore entry %s: %w", fileID, readErr)
+					}
+					return d, nil
+				}
+				slog.Warn("fusion-merge: FileStore.Get failed, falling back to S3",
+					"file_id", fileID, "error", getErr)
+			}
+		}
+		// S3 fallback
+		if h.Storage == nil {
+			return nil, fmt.Errorf("no storage available for activity %s", activityID)
+		}
+		const bucket = "skadia-originals"
+		s3Key := fmt.Sprintf("%s/%s.fit", userID, fileHash)
+		data, _, err := h.Storage.DownloadFromBucket(ctx, bucket, s3Key)
+		if err != nil {
+			return nil, fmt.Errorf("download FIT from S3 (key=%s): %w", s3Key, err)
+		}
+		return data, nil
+	}
+
+	targetData, err := readFITData(targetID, *target.FileHash)
 	if err != nil {
-		return fmt.Errorf("download target FIT from S3: %w", err)
+		return fmt.Errorf("read target FIT: %w", err)
 	}
 	if len(targetData) > maxFITSize {
 		return fmt.Errorf("target FIT file too large: %d bytes (max %d)", len(targetData), maxFITSize)
 	}
-	sourceData, _, err := h.Storage.DownloadFromBucket(ctx, bucket, sourceKey)
+
+	sourceData, err := readFITData(sourceIDs[0], *source.FileHash)
 	if err != nil {
-		return fmt.Errorf("download source FIT from S3: %w", err)
+		return fmt.Errorf("read source FIT: %w", err)
 	}
 	if len(sourceData) > maxFITSize {
 		return fmt.Errorf("source FIT file too large: %d bytes (max %d)", len(sourceData), maxFITSize)
@@ -360,25 +397,50 @@ func (h *Handler) fitLevelMerge(
 	hashBytes := sha256.Sum256(result.Data)
 	newHash := hex.EncodeToString(hashBytes[:])
 
-	// Zusammengeführte FIT-Datei in S3 speichern.
-	mergedKey := fmt.Sprintf("%s/%s.fit", userID, newHash)
-	if err := h.Storage.UploadToBucket(ctx, bucket, mergedKey, result.Data, "application/octet-stream"); err != nil {
-		return fmt.Errorf("upload merged FIT to S3: %w", err)
+	// Zusammengeführte FIT-Datei speichern: FileStore (preferred) oder S3 (fallback).
+	var mergedFileID string
+	if h.FileStore != nil {
+		rec, putErr := h.FileStore.Put(ctx, filestore.FileEntry{
+			UserID:      userID,
+			FileType:    "activity",
+			ContentType: "application/octet-stream",
+			FileName:    fmt.Sprintf("%s.fit", newHash),
+			SizeBytes:   int64(len(result.Data)),
+			FileHash:    newHash,
+			Tags:        map[string]string{"format": "fit", "source": "fusion_merge"},
+		}, bytes.NewReader(result.Data))
+		if putErr != nil {
+			return fmt.Errorf("FileStore.Put merged FIT: %w", putErr)
+		}
+		mergedFileID = rec.ID
+		slog.Info("fusion-merge: FIT-level merge saved via FileStore",
+			"target", targetID, "records", result.RecordCount, "file_id", mergedFileID)
+	} else {
+		const bucket = "skadia-originals"
+		mergedKey := fmt.Sprintf("%s/%s.fit", userID, newHash)
+		if err := h.Storage.UploadToBucket(ctx, bucket, mergedKey, result.Data, "application/octet-stream"); err != nil {
+			return fmt.Errorf("upload merged FIT to S3: %w", err)
+		}
+		slog.Info("fusion-merge: FIT-level merge saved via S3",
+			"target", targetID, "records", result.RecordCount, "s3_key", mergedKey)
 	}
 
-	// file_hash der Ziel-Aktivität aktualisieren.
-	if _, err := h.DB.Pool.Exec(ctx,
-		`UPDATE activities SET file_hash = $2, has_edits = true WHERE id = $1`,
-		targetID, newHash,
-	); err != nil {
-		return fmt.Errorf("update file_hash: %w", err)
+	// file_hash (and file_id if FileStore) der Ziel-Aktivität aktualisieren.
+	if mergedFileID != "" {
+		if _, execErr := h.DB.Pool.Exec(ctx,
+			`UPDATE activities SET file_hash = $2, file_id = $3, has_edits = true WHERE id = $1`,
+			targetID, newHash, mergedFileID,
+		); execErr != nil {
+			return fmt.Errorf("update file_hash/file_id: %w", execErr)
+		}
+	} else {
+		if _, execErr := h.DB.Pool.Exec(ctx,
+			`UPDATE activities SET file_hash = $2, has_edits = true WHERE id = $1`,
+			targetID, newHash,
+		); execErr != nil {
+			return fmt.Errorf("update file_hash: %w", execErr)
+		}
 	}
-
-	slog.Info("fusion-merge: FIT-level merge saved",
-		"target", targetID,
-		"records", result.RecordCount,
-		"s3_key", mergedKey,
-	)
 
 	return nil
 }

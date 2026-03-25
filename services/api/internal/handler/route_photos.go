@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -175,19 +177,25 @@ func (h *Handler) DeleteRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bucket := mediaBucketName()
-	s3Key, s3KeyThumb, s3KeyPreview, err := h.DB.DeleteRoutePhoto(r.Context(), photoID, userID, routeID)
+	s3Key, s3KeyThumb, s3KeyPreview, fileID, err := h.DB.DeleteRoutePhoto(r.Context(), photoID, userID, routeID)
 	if err != nil {
 		slog.Error("delete route photo failed", "error", err)
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
 		return
 	}
 
-	_ = h.Storage.DeleteFromBucket(r.Context(), bucket, s3Key)
-	if s3KeyThumb != s3Key {
-		_ = h.Storage.DeleteFromBucket(r.Context(), bucket, s3KeyThumb)
-	}
-	if s3KeyPreview != nil && *s3KeyPreview != "" && *s3KeyPreview != s3Key {
-		_ = h.Storage.DeleteFromBucket(r.Context(), bucket, *s3KeyPreview)
+	if fileID != "" && h.FileStore != nil {
+		if delErr := h.FileStore.Delete(r.Context(), userID, fileID); delErr != nil {
+			slog.Warn("delete route photo: FileStore.Delete failed", "file_id", fileID, "error", delErr)
+		}
+	} else {
+		_ = h.Storage.DeleteFromBucket(r.Context(), bucket, s3Key)
+		if s3KeyThumb != s3Key {
+			_ = h.Storage.DeleteFromBucket(r.Context(), bucket, s3KeyThumb)
+		}
+		if s3KeyPreview != nil && *s3KeyPreview != "" && *s3KeyPreview != s3Key {
+			_ = h.Storage.DeleteFromBucket(r.Context(), bucket, *s3KeyPreview)
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)

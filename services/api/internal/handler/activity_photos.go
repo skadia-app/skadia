@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/event"
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -110,7 +111,31 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		// Higher-resolution variant replaced an existing photo.
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "replaced", "photo_id": result.PhotoID})
 	default:
-		// "created" — return the full photo record.
+		// "created" — register in FileStore (preferred) and return the full photo record.
+		if h.FileStore != nil {
+			actIDPtr := &activityID
+			rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+				UserID:      userID,
+				FileType:    "media",
+				ContentType: ct,
+				FileName:    header.Filename,
+				SizeBytes:   int64(len(data)),
+				ParentType:  func() *string { s := "activity"; return &s }(),
+				ParentID:    actIDPtr,
+			}, bytes.NewReader(data))
+			if putErr != nil {
+				slog.Warn("upload photo: FileStore.Put failed (non-fatal)", "error", putErr)
+			} else {
+				// Link file_id on the activity_photos row.
+				if _, execErr := h.DB.Pool.Exec(r.Context(),
+					`UPDATE activity_photos SET file_id = $1 WHERE id = $2 AND user_id = $3`,
+					rec.ID, result.PhotoID, userID,
+				); execErr != nil {
+					slog.Warn("upload photo: link file_id failed", "photo_id", result.PhotoID, "file_id", rec.ID, "error", execErr)
+				}
+			}
+		}
+
 		saved, err := h.DB.GetActivityPhoto(r.Context(), result.PhotoID, userID)
 		if err != nil {
 			slog.Error("upload photo: fetch saved photo failed", "photo_id", result.PhotoID, "error", err)
@@ -159,19 +184,46 @@ func (h *Handler) DeleteActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	photoID := chi.URLParam(r, "photoID")
-	bucket, key, keyThumb, keyPreview, err := h.DB.DeleteActivityPhoto(r.Context(), photoID, userID)
+	bucket, key, keyThumb, keyPreview, fileID, err := h.DB.DeleteActivityPhoto(r.Context(), photoID, userID)
 	if err != nil {
 		slog.Error("delete activity photo failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete photo", r.URL.Path)
 		return
 	}
-	_ = h.Storage.DeleteFromBucket(r.Context(), bucket, key)
-	if keyThumb != key {
-		_ = h.Storage.DeleteFromBucket(r.Context(), bucket, keyThumb)
+
+	// FileStore path (preferred): delete original + any registered sidecar for this photo.
+	if h.FileStore != nil && fileID != "" {
+		if delErr := h.FileStore.Delete(r.Context(), userID, fileID); delErr != nil {
+			slog.Warn("delete activity photo: FileStore.Delete failed", "file_id", fileID, "error", delErr)
+		}
+		// Delete any sidecar registered with parent_type='photo', parent_id=photoID.
+		if sidecarRows, listErr := h.DB.Pool.Query(r.Context(),
+			`SELECT id::text FROM user_files WHERE user_id = $1 AND parent_type = 'photo' AND parent_id = $2`,
+			userID, photoID,
+		); listErr == nil {
+			defer sidecarRows.Close()
+			for sidecarRows.Next() {
+				var sidecarID string
+				if scanErr := sidecarRows.Scan(&sidecarID); scanErr == nil && sidecarID != "" {
+					if delErr := h.FileStore.Delete(r.Context(), userID, sidecarID); delErr != nil {
+						slog.Warn("delete activity photo: FileStore.Delete sidecar failed", "sidecar_id", sidecarID, "error", delErr)
+					}
+				}
+			}
+		}
 	}
-	if keyPreview != "" && keyPreview != key {
-		_ = h.Storage.DeleteFromBucket(r.Context(), bucket, keyPreview)
+
+	// Legacy S3 fallback: runs when FileStore is nil or this photo has no file_id yet.
+	if h.FileStore == nil || fileID == "" {
+		_ = h.Storage.DeleteFromBucket(r.Context(), bucket, key)
+		if keyThumb != key {
+			_ = h.Storage.DeleteFromBucket(r.Context(), bucket, keyThumb)
+		}
+		if keyPreview != "" && keyPreview != key {
+			_ = h.Storage.DeleteFromBucket(r.Context(), bucket, keyPreview)
+		}
 	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -208,6 +260,18 @@ func (h *Handler) StreamActivityPhotoFull(w http.ResponseWriter, r *http.Request
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
 		return
 	}
+
+	// FileStore path (preferred): resolve via file_id when available.
+	if h.FileStore != nil && photo.FileID != nil && *photo.FileID != "" {
+		resolved, resolveErr := h.FileStore.Resolve(r.Context(), userID, *photo.FileID)
+		if resolveErr == nil {
+			serveResolvedFile(w, r, resolved)
+			return
+		}
+		slog.Warn("stream photo full: FileStore.Resolve failed, falling back to S3", "file_id", *photo.FileID, "error", resolveErr)
+	}
+
+	// Legacy S3 fallback.
 	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, photo.S3Key)
 	if err != nil {
 		slog.Error("s3 download photo failed", "error", err)
@@ -259,17 +323,18 @@ func (h *Handler) PatchActivityPhotoLocation(w http.ResponseWriter, r *http.Requ
 
 	// ShadowFS: write meta-sidecar when position was manually set.
 	if req.LocationSource == "manual" && photo.FileHash != nil {
-		h.writePhotoMetaSidecar(r.Context(), userID, *photo.FileHash, req)
+		h.writePhotoMetaSidecar(r.Context(), userID, photoID, *photo.FileHash, req)
 	}
 
 	setPhotoURLs(&photo)
 	httputil.WriteJSON(w, http.StatusOK, photo)
 }
 
-// writePhotoMetaSidecar writes a .meta.json sidecar to S3 (skadia-media bucket).
-// Path: activity-photos/{userID}/{hash}.meta.json
-// This follows the Shadow FS principle: originals stay untouched; annotations go in sidecars.
-func (h *Handler) writePhotoMetaSidecar(ctx context.Context, userID, fileHash string, req patchPhotoLocationRequest) {
+// writePhotoMetaSidecar writes a .meta.json sidecar for a photo.
+// FileStore path (preferred): registers the sidecar as a user_files entry with parent_type='photo'.
+// Legacy S3 fallback: writes to activity-photos/{userID}/{hash}.meta.json in the media bucket.
+// In both cases the original file remains untouched (Shadow FS principle).
+func (h *Handler) writePhotoMetaSidecar(ctx context.Context, userID, photoID, fileHash string, req patchPhotoLocationRequest) {
 	type metaSidecar struct {
 		Lat            *float64   `json:"lat"`
 		Lng            *float64   `json:"lng"`
@@ -286,21 +351,43 @@ func (h *Handler) writePhotoMetaSidecar(ctx context.Context, userID, fileHash st
 		UpdatedAt:      time.Now().UTC(),
 	}
 
-	data, err := json.Marshal(meta)
+	sidecarBytes, err := json.Marshal(meta)
 	if err != nil {
 		slog.Error("photo meta sidecar: marshal failed", "error", err)
 		return
 	}
 
-	bucket := mediaBucketName()
-	key := fmt.Sprintf("activity-photos/%s/%s.meta.json", userID, fileHash)
+	sidecarName := fileHash + ".meta.json"
 
-	if err := h.Storage.UploadToBucket(ctx, bucket, key, data, "application/json"); err != nil {
-		slog.Error("photo meta sidecar: upload failed", "bucket", bucket, "key", key, "error", err)
-		return
+	// FileStore path (preferred).
+	if h.FileStore != nil {
+		_, putErr := h.FileStore.Put(ctx, filestore.FileEntry{
+			UserID:      userID,
+			FileType:    "media",
+			ContentType: "application/json",
+			FileName:    sidecarName,
+			SizeBytes:   int64(len(sidecarBytes)),
+			ParentType:  func() *string { s := "photo"; return &s }(),
+			ParentID:    func() *string { s := photoID; return &s }(),
+			HasSidecar:  true,
+		}, bytes.NewReader(sidecarBytes))
+		if putErr != nil {
+			slog.Error("photo meta sidecar: FileStore.Put failed", "photo_id", photoID, "error", putErr)
+			// Fall through to S3 fallback below.
+		} else {
+			slog.Info("photo meta sidecar written via FileStore", "photo_id", photoID)
+			return
+		}
 	}
 
-	slog.Info("photo meta sidecar written", "bucket", bucket, "key", key)
+	// Legacy S3 fallback.
+	bucket := mediaBucketName()
+	key := fmt.Sprintf("activity-photos/%s/%s.meta.json", userID, fileHash)
+	if err := h.Storage.UploadToBucket(ctx, bucket, key, sidecarBytes, "application/json"); err != nil {
+		slog.Error("photo meta sidecar: S3 upload failed", "bucket", bucket, "key", key, "error", err)
+		return
+	}
+	slog.Info("photo meta sidecar written via S3", "bucket", bucket, "key", key)
 }
 
 func (h *Handler) StreamActivityPhotoPreview(w http.ResponseWriter, r *http.Request) {
@@ -314,7 +401,19 @@ func (h *Handler) StreamActivityPhotoPreview(w http.ResponseWriter, r *http.Requ
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
 		return
 	}
-	// Use preview key if available, otherwise fall back to original.
+
+	// Previews/thumbnails are regenerable cache stored in S3; serve them from S3 when available.
+	// When no S3 preview exists and FileStore has the original, serve that instead.
+	if photo.S3KeyPreview == "" && h.FileStore != nil && photo.FileID != nil && *photo.FileID != "" {
+		resolved, resolveErr := h.FileStore.Resolve(r.Context(), userID, *photo.FileID)
+		if resolveErr == nil {
+			serveResolvedFile(w, r, resolved)
+			return
+		}
+		slog.Warn("stream photo preview: FileStore.Resolve failed, falling back to S3", "file_id", *photo.FileID, "error", resolveErr)
+	}
+
+	// Use S3 preview key if available, otherwise fall back to original S3 key.
 	key := photo.S3KeyPreview
 	if key == "" {
 		key = photo.S3Key
@@ -850,4 +949,31 @@ func (h *Handler) interpolateFromTrack(ctx context.Context, activityID, userID s
 		return nil, nil
 	}
 	return sp.Lat, sp.Lng
+}
+
+// serveResolvedFile writes a ResolvedFile to the HTTP response.
+// For local backend: streams the file directly.
+// For S3 backend: redirects to the pre-signed URL (media) or proxies (non-media).
+func serveResolvedFile(w http.ResponseWriter, r *http.Request, resolved filestore.ResolvedFile) {
+	ct := resolved.ContentType
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+
+	switch resolved.Type {
+	case "local":
+		w.Header().Set("Content-Type", ct)
+		http.ServeFile(w, r, resolved.Path)
+	case "s3":
+		if strings.HasPrefix(ct, "image/") || strings.HasPrefix(ct, "video/") {
+			http.Redirect(w, r, resolved.URL, http.StatusTemporaryRedirect)
+		} else {
+			w.Header().Set("Content-Type", ct)
+			http.Redirect(w, r, resolved.URL, http.StatusTemporaryRedirect)
+		}
+	default:
+		w.Header().Set("Content-Type", ct)
+		http.Redirect(w, r, resolved.URL, http.StatusTemporaryRedirect)
+	}
 }

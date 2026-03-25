@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -176,15 +178,51 @@ func (h *Handler) autoAssignPhoto(
 	s3Key := fmt.Sprintf("activity-photos/%s/%s%s", userID, hash, ext)
 	s3KeyThumb := fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", userID, hash)
 
-	if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, ct); err != nil {
-		slog.Error("upload media: s3 upload photo failed", "error", err)
-		errMsg := "failed to store photo"
-		return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
-	}
-	if thumbData != nil {
-		_ = h.Storage.UploadToBucket(r.Context(), mediaBucket, s3KeyThumb, thumbData, "image/jpeg")
+	var photoFileID string
+	if h.FileStore != nil {
+		actParent := "activity"
+		actID := match.ID
+		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+			UserID:      userID,
+			FileType:    "media",
+			ContentType: ct,
+			FileName:    filename,
+			SizeBytes:   int64(len(data)),
+			FileHash:    hash,
+			ParentType:  &actParent,
+			ParentID:    &actID,
+		}, bytes.NewReader(data))
+		if putErr != nil {
+			slog.Error("upload media: FileStore.Put photo failed", "error", putErr)
+			errMsg := "failed to store photo"
+			return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
+		}
+		photoFileID = rec.ID
+		// Store thumbnail separately if available; ignore error (non-fatal)
+		if thumbData != nil {
+			thumbName := fmt.Sprintf("%s_thumb.jpg", hash)
+			_, _ = h.FileStore.Put(r.Context(), filestore.FileEntry{
+				UserID:      userID,
+				FileType:    "media",
+				ContentType: "image/jpeg",
+				FileName:    thumbName,
+				SizeBytes:   int64(len(thumbData)),
+				FileHash:    hash + "_thumb",
+				ParentType:  &actParent,
+				ParentID:    &actID,
+			}, bytes.NewReader(thumbData))
+		}
 	} else {
-		s3KeyThumb = s3Key
+		if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, ct); err != nil {
+			slog.Error("upload media: s3 upload photo failed", "error", err)
+			errMsg := "failed to store photo"
+			return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
+		}
+		if thumbData != nil {
+			_ = h.Storage.UploadToBucket(r.Context(), mediaBucket, s3KeyThumb, thumbData, "image/jpeg")
+		} else {
+			s3KeyThumb = s3Key
+		}
 	}
 
 	fileSize := int64(len(data))
@@ -192,6 +230,7 @@ func (h *Handler) autoAssignPhoto(
 	photo, err := h.DB.InsertActivityPhoto(r.Context(), model.ActivityPhoto{
 		UserID:           userID,
 		ActivityID:       &activityID,
+		FileID:           &photoFileID,
 		S3Bucket:         mediaBucket,
 		S3Key:            s3Key,
 		S3KeyThumb:       s3KeyThumb,
@@ -219,7 +258,8 @@ func (h *Handler) autoAssignPhoto(
 	}
 }
 
-// queueMediaFile stores the file in temp S3 and creates an import_queue entry.
+// queueMediaFile stores the file via FileStore (preferred) or temp S3 (fallback)
+// and creates an import_queue entry for manual review.
 func (h *Handler) queueMediaFile(
 	r *http.Request,
 	userID, filename, ct string,
@@ -227,7 +267,7 @@ func (h *Handler) queueMediaFile(
 	queueType string,
 	extraMeta map[string]any,
 ) mediaUploadResult {
-	// Determine extension for storage
+	// Determine extension for legacy S3 key
 	var ext string
 	if ct == "application/pdf" {
 		ext = ".pdf"
@@ -247,14 +287,39 @@ func (h *Handler) queueMediaFile(
 	tempBucket := mediaBucketName()
 	s3Key := fmt.Sprintf("media-temp/%s/%s%s", userID, hash, ext)
 
-	if err := h.Storage.UploadToBucket(r.Context(), tempBucket, s3Key, data, ct); err != nil {
-		slog.Error("upload media: s3 temp upload failed", "error", err)
-		errMsg := "failed to store file"
-		return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
+	// Upload via FileStore (preferred) or legacy S3 (fallback).
+	var queueFileID string
+	if h.FileStore != nil {
+		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+			UserID:      userID,
+			FileType:    "media",
+			ContentType: ct,
+			FileName:    filename,
+			SizeBytes:   int64(len(data)),
+			FileHash:    hash,
+			Tags:        map[string]string{"queue_type": queueType},
+		}, bytes.NewReader(data))
+		if putErr != nil {
+			slog.Error("upload media: FileStore.Put temp failed", "error", putErr)
+			errMsg := "failed to store file"
+			return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
+		}
+		queueFileID = rec.ID
+	} else {
+		if err := h.Storage.UploadToBucket(r.Context(), tempBucket, s3Key, data, ct); err != nil {
+			slog.Error("upload media: s3 temp upload failed", "error", err)
+			errMsg := "failed to store file"
+			return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
+		}
 	}
 
 	meta := map[string]any{}
-	maps.Copy(meta, extraMeta)
+	if extraMeta != nil {
+		maps.Copy(meta, extraMeta)
+	}
+	if queueFileID != "" {
+		meta["file_store_id"] = queueFileID
+	}
 
 	fileSize := int64(len(data))
 	qItem := database.ImportQueueItem{

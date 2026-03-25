@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
@@ -108,11 +110,30 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 	hashStr := hex.EncodeToString(hash[:])
 	s3Key := fmt.Sprintf("%s/%s.json", userID, hashStr)
 
-	// Upload JSON to S3.
-	if err := h.Storage.Upload(r.Context(), s3Key, jsonBytes, "application/json"); err != nil {
-		slog.Error("manual activity: S3 upload failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store activity file", r.URL.Path)
-		return
+	// Upload JSON via FileStore (preferred) or legacy S3 (fallback).
+	var manualFileID string
+	if h.FileStore != nil {
+		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+			UserID:      userID,
+			FileType:    "activity",
+			ContentType: "application/json",
+			FileName:    "manual.json",
+			SizeBytes:   int64(len(jsonBytes)),
+			FileHash:    hashStr,
+			Tags:        map[string]string{"format": "manual", "source": "manual"},
+		}, bytes.NewReader(jsonBytes))
+		if putErr != nil {
+			slog.Error("manual activity: FileStore.Put failed", "error", putErr)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store activity file", r.URL.Path)
+			return
+		}
+		manualFileID = rec.ID
+	} else {
+		if err := h.Storage.Upload(r.Context(), s3Key, jsonBytes, "application/json"); err != nil {
+			slog.Error("manual activity: S3 upload failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store activity file", r.URL.Path)
+			return
+		}
 	}
 
 	// Build ActivityData for InsertActivity.
@@ -198,10 +219,19 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Set S3 file info — separate sidecar key so meta doesn't overwrite the source file.
+	// Set file_id when FileStore was used; otherwise fall back to legacy S3 file info.
 	metaKey := s3Key + ".meta"
-	if err := h.DB.UpdateActivityFileInfo(r.Context(), activity.ID, "skadia-originals", s3Key, "manual", "manual.json", metaKey); err != nil {
-		slog.Warn("manual activity: update file info failed", "id", activity.ID, "error", err)
+	if manualFileID != "" {
+		if _, execErr := h.DB.Pool.Exec(r.Context(),
+			`UPDATE activities SET file_id = $1 WHERE id = $2 AND file_id IS NULL`,
+			manualFileID, activity.ID,
+		); execErr != nil {
+			slog.Warn("manual activity: set file_id failed", "id", activity.ID, "error", execErr)
+		}
+	} else {
+		if err := h.DB.UpdateActivityFileInfo(r.Context(), activity.ID, "skadia-originals", s3Key, "manual", "manual.json", metaKey); err != nil {
+			slog.Warn("manual activity: update file info failed", "id", activity.ID, "error", err)
+		}
 	}
 
 	// Stage 1 enrichment: asyncWeather=true, skipStreamEnrichment=true, skipGeo=true (no GPS).
