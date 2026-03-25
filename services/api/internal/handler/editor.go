@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/editor"
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -51,23 +54,42 @@ func (h *Handler) GetActivityEdits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := editorKey(userID, activityID)
-	data, _, err := h.Storage.DownloadFromBucket(r.Context(), editorBucket(), key)
-	if err != nil {
-		// No sidecar yet — return empty sidecar
-		empty := &editor.EditSidecar{
-			Version:    1,
-			ActivityID: activityID,
-			CreatedAt:  time.Now(),
-			UpdatedAt:  time.Now(),
-			Edits:      []editor.Edit{},
+	// Try FileStore first (if sidecar_file_id is set), then fall back to legacy S3.
+	var rawData []byte
+	var sidecarFileID string
+	_ = h.DB.Pool.QueryRow(r.Context(),
+		`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1`,
+		activityID,
+	).Scan(&sidecarFileID)
+
+	if sidecarFileID != "" && h.FileStore != nil {
+		rc, getErr := h.FileStore.Get(r.Context(), userID, sidecarFileID)
+		if getErr == nil {
+			rawData, _ = io.ReadAll(rc)
+			rc.Close()
 		}
-		httputil.WriteJSON(w, http.StatusOK, empty)
-		return
+	}
+	if rawData == nil {
+		// Legacy S3 path.
+		key := editorKey(userID, activityID)
+		downloaded, _, dlErr := h.Storage.DownloadFromBucket(r.Context(), editorBucket(), key)
+		if dlErr != nil {
+			// No sidecar yet — return empty sidecar
+			empty := &editor.EditSidecar{
+				Version:    1,
+				ActivityID: activityID,
+				CreatedAt:  time.Now(),
+				UpdatedAt:  time.Now(),
+				Edits:      []editor.Edit{},
+			}
+			httputil.WriteJSON(w, http.StatusOK, empty)
+			return
+		}
+		rawData = downloaded
 	}
 
 	var sidecar editor.EditSidecar
-	if err := json.Unmarshal(data, &sidecar); err != nil {
+	if err := json.Unmarshal(rawData, &sidecar); err != nil {
 		slog.Error("editor: unmarshal sidecar failed", "id", activityID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to parse edit sidecar", r.URL.Path)
 		return
@@ -120,20 +142,49 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := editorKey(userID, activityID)
-	if err := h.Storage.UploadToBucket(r.Context(), editorBucket(), key, raw, "application/json"); err != nil {
-		slog.Error("editor: upload sidecar failed", "id", activityID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store edit sidecar", r.URL.Path)
-		return
+	// FileStore path (preferred) — legacy S3 as fallback.
+	var sidecarFileID string
+	if h.FileStore != nil {
+		fileName := fmt.Sprintf("%s.edits.json", activityID)
+		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+			UserID:      userID,
+			FileType:    "edit",
+			ContentType: "application/json",
+			FileName:    fileName,
+			SizeBytes:   int64(len(raw)),
+			ParentType:  func() *string { s := "activity"; return &s }(),
+			ParentID:    &activityID,
+		}, bytes.NewReader(raw))
+		if putErr != nil {
+			slog.Error("editor: FileStore.Put sidecar failed", "id", activityID, "error", putErr)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store edit sidecar", r.URL.Path)
+			return
+		}
+		sidecarFileID = rec.ID
+	} else {
+		key := editorKey(userID, activityID)
+		if err := h.Storage.UploadToBucket(r.Context(), editorBucket(), key, raw, "application/json"); err != nil {
+			slog.Error("editor: upload sidecar failed", "id", activityID, "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store edit sidecar", r.URL.Path)
+			return
+		}
 	}
 
-	// Mark activity as having edits
+	// Mark activity as having edits and link sidecar file.
 	_, err = h.DB.Pool.Exec(r.Context(),
 		`UPDATE activities SET has_edits = true WHERE id = $1`,
 		activityID,
 	)
 	if err != nil {
 		slog.Warn("editor: failed to set has_edits flag", "id", activityID, "error", err)
+	}
+	if sidecarFileID != "" {
+		if _, dbErr := h.DB.Pool.Exec(r.Context(),
+			`UPDATE activities SET sidecar_file_id = $1 WHERE id = $2`,
+			sidecarFileID, activityID,
+		); dbErr != nil {
+			slog.Warn("editor: failed to set sidecar_file_id", "id", activityID, "error", dbErr)
+		}
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, &sidecar)
@@ -161,15 +212,28 @@ func (h *Handler) DeleteActivityEdits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := editorKey(userID, activityID)
-	// Best-effort delete from S3
-	if err := h.Storage.DeleteFromBucket(r.Context(), editorBucket(), key); err != nil {
-		slog.Warn("editor: s3 delete sidecar failed", "id", activityID, "error", err)
+	// Resolve sidecar_file_id for FileStore deletion (best-effort).
+	var sidecarFileID string
+	_ = h.DB.Pool.QueryRow(r.Context(),
+		`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1`,
+		activityID,
+	).Scan(&sidecarFileID)
+
+	// FileStore delete (preferred); legacy S3 delete as fallback.
+	if sidecarFileID != "" && h.FileStore != nil {
+		if delErr := h.FileStore.Delete(r.Context(), userID, sidecarFileID); delErr != nil {
+			slog.Warn("editor: FileStore.Delete sidecar failed", "id", activityID, "file_id", sidecarFileID, "error", delErr)
+		}
+	} else {
+		key := editorKey(userID, activityID)
+		if err := h.Storage.DeleteFromBucket(r.Context(), editorBucket(), key); err != nil {
+			slog.Warn("editor: s3 delete sidecar failed", "id", activityID, "error", err)
+		}
 	}
 
-	// Clear has_edits flag
+	// Clear has_edits flag and sidecar_file_id.
 	_, err = h.DB.Pool.Exec(r.Context(),
-		`UPDATE activities SET has_edits = false, edits_applied_at = NULL WHERE id = $1`,
+		`UPDATE activities SET has_edits = false, edits_applied_at = NULL, sidecar_file_id = NULL WHERE id = $1`,
 		activityID,
 	)
 	if err != nil {
@@ -330,18 +394,34 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Load the sidecar from S3
-	key := editorKey(userID, activityID)
-	data, _, sidecarErr := h.Storage.DownloadFromBucket(r.Context(), editorBucket(), key)
+	// 1. Load the sidecar — FileStore first, then legacy S3.
 	var sidecar editor.EditSidecar
 	hasSidecar := false
-	if sidecarErr == nil {
-		if err := json.Unmarshal(data, &sidecar); err != nil {
-			slog.Error("editor: unmarshal sidecar failed", "id", activityID, "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to parse edit sidecar", r.URL.Path)
-			return
+	{
+		var rawSidecar []byte
+		var sfID string
+		_ = h.DB.Pool.QueryRow(r.Context(),
+			`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1`,
+			activityID,
+		).Scan(&sfID)
+		if sfID != "" && h.FileStore != nil {
+			if rc, getErr := h.FileStore.Get(r.Context(), userID, sfID); getErr == nil {
+				rawSidecar, _ = io.ReadAll(rc)
+				rc.Close()
+			}
 		}
-		hasSidecar = len(sidecar.Edits) > 0
+		if rawSidecar == nil {
+			key := editorKey(userID, activityID)
+			rawSidecar, _, _ = h.Storage.DownloadFromBucket(r.Context(), editorBucket(), key)
+		}
+		if rawSidecar != nil {
+			if err := json.Unmarshal(rawSidecar, &sidecar); err != nil {
+				slog.Error("editor: unmarshal sidecar failed", "id", activityID, "error", err)
+				httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to parse edit sidecar", r.URL.Path)
+				return
+			}
+			hasSidecar = len(sidecar.Edits) > 0
+		}
 	}
 
 	// 2. Trigger a full recompute from original file (re-parse, re-insert streams)

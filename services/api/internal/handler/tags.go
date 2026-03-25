@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -202,6 +204,13 @@ func (h *Handler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 	}
 	tagID := chi.URLParam(r, "id")
 
+	// Resolve cover_file_id before deletion so we can clean up FileStore.
+	var coverFileID string
+	_ = h.DB.Pool.QueryRow(r.Context(),
+		`SELECT COALESCE(cover_file_id::text, '') FROM tags WHERE id = $1 AND user_id = $2`,
+		tagID, userID,
+	).Scan(&coverFileID)
+
 	if err := h.DB.DeleteTag(r.Context(), tagID, userID); err != nil {
 		if err.Error() == "tag not found" {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
@@ -210,6 +219,13 @@ func (h *Handler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 		slog.Error("delete tag failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete tag", r.URL.Path)
 		return
+	}
+
+	// Best-effort FileStore cleanup (cover image).
+	if coverFileID != "" && h.FileStore != nil {
+		if delErr := h.FileStore.Delete(r.Context(), userID, coverFileID); delErr != nil {
+			slog.Warn("delete tag: FileStore.Delete cover failed", "tag_id", tagID, "file_id", coverFileID, "error", delErr)
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -340,10 +356,31 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	s3Key := fmt.Sprintf("tag-covers/%s/%s%s", userID, tagID, ext)
 	bucket := "skadia-media"
 
-	if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, fileCT); err != nil {
-		slog.Error("s3 upload tag cover failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store cover image", r.URL.Path)
-		return
+	// FileStore path (preferred) — legacy S3 as fallback.
+	var coverFileID string
+	if h.FileStore != nil {
+		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+			UserID:      userID,
+			FileType:    "media",
+			ContentType: fileCT,
+			FileName:    header.Filename,
+			SizeBytes:   int64(len(data)),
+			ParentType:  func() *string { s := "tag"; return &s }(),
+			ParentID:    &tagID,
+			Tags:        map[string]string{"role": "cover"},
+		}, bytes.NewReader(data))
+		if putErr != nil {
+			slog.Error("filestore upload tag cover failed", "error", putErr)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store cover image", r.URL.Path)
+			return
+		}
+		coverFileID = rec.ID
+	} else {
+		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, fileCT); err != nil {
+			slog.Error("s3 upload tag cover failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store cover image", r.URL.Path)
+			return
+		}
 	}
 
 	// Thumbnail generieren (800×800 px, quadratisch).
@@ -368,6 +405,16 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 		slog.Error("update tag cover_image_url failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
 		return
+	}
+
+	// Link FileStore record to domain row.
+	if coverFileID != "" {
+		if _, dbErr := h.DB.Pool.Exec(r.Context(),
+			`UPDATE tags SET cover_file_id = $1 WHERE id = $2`,
+			coverFileID, tagID,
+		); dbErr != nil {
+			slog.Warn("tags: set cover_file_id failed", "tag_id", tagID, "error", dbErr)
+		}
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, updated)
@@ -397,22 +444,36 @@ func (h *Handler) ClearTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	const bucket = "skadia-media"
 	const ownPrefix = "/api/v1/media/" + bucket + "/tag-covers/"
 
-	// Thumb löschen (immer eigener Upload, da wir ihn selbst erstellt haben)
-	if tag.CoverImageThumbURL != nil && *tag.CoverImageThumbURL != "" {
-		thumbS3Key := strings.TrimPrefix(*tag.CoverImageThumbURL, "/api/v1/media/"+bucket+"/")
-		if thumbS3Key != *tag.CoverImageThumbURL { // Präfix war vorhanden
-			if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, thumbS3Key); delErr != nil {
-				slog.Warn("clear tag cover: delete thumb from S3 failed", "key", thumbS3Key, "error", delErr)
-				// nicht fatal
+	// Resolve FileStore file_id for deletion (best-effort).
+	var coverFileID string
+	_ = h.DB.Pool.QueryRow(r.Context(),
+		`SELECT COALESCE(cover_file_id::text, '') FROM tags WHERE id = $1 AND user_id = $2`,
+		tagID, userID,
+	).Scan(&coverFileID)
+
+	// FileStore delete (preferred); legacy S3 delete as fallback.
+	if coverFileID != "" && h.FileStore != nil {
+		if delErr := h.FileStore.Delete(r.Context(), userID, coverFileID); delErr != nil {
+			slog.Warn("clear tag cover: FileStore.Delete failed", "tag_id", tagID, "file_id", coverFileID, "error", delErr)
+		}
+	} else {
+		// Thumb löschen (immer eigener Upload, da wir ihn selbst erstellt haben)
+		if tag.CoverImageThumbURL != nil && *tag.CoverImageThumbURL != "" {
+			thumbS3Key := strings.TrimPrefix(*tag.CoverImageThumbURL, "/api/v1/media/"+bucket+"/")
+			if thumbS3Key != *tag.CoverImageThumbURL { // Präfix war vorhanden
+				if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, thumbS3Key); delErr != nil {
+					slog.Warn("clear tag cover: delete thumb from S3 failed", "key", thumbS3Key, "error", delErr)
+					// nicht fatal
+				}
 			}
 		}
-	}
 
-	// Original nur löschen wenn es unser eigener Upload ist (tag-covers/…)
-	if tag.CoverImageURL != nil && strings.HasPrefix(*tag.CoverImageURL, ownPrefix) {
-		origS3Key := strings.TrimPrefix(*tag.CoverImageURL, "/api/v1/media/"+bucket+"/")
-		if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, origS3Key); delErr != nil {
-			slog.Warn("clear tag cover: delete original from S3 failed", "key", origS3Key, "error", delErr)
+		// Original nur löschen wenn es unser eigener Upload ist (tag-covers/…)
+		if tag.CoverImageURL != nil && strings.HasPrefix(*tag.CoverImageURL, ownPrefix) {
+			origS3Key := strings.TrimPrefix(*tag.CoverImageURL, "/api/v1/media/"+bucket+"/")
+			if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, origS3Key); delErr != nil {
+				slog.Warn("clear tag cover: delete original from S3 failed", "key", origS3Key, "error", delErr)
+			}
 		}
 	}
 

@@ -98,7 +98,35 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	s3Key := fmt.Sprintf("route-photos/%s/%s/%s%s", userID, routeID, hash, ext)
 	s3KeyThumb := fmt.Sprintf("route-photos/%s/%s/%s_thumb.jpg", userID, routeID, hash)
 
-	// Track uploaded S3 keys for cleanup on failure.
+	// FileStore path for original (preferred) — legacy S3 as fallback.
+	var photoFileID string
+	var fsCleanup func()
+	if h.FileStore != nil {
+		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+			UserID:      userID,
+			FileType:    "media",
+			ContentType: ct,
+			FileName:    header.Filename,
+			SizeBytes:   int64(len(data)),
+			FileHash:    hash,
+			ParentType:  func() *string { s := "route"; return &s }(),
+			ParentID:    &routeID,
+			Tags:        map[string]string{"role": "photo"},
+		}, bytes.NewReader(data))
+		if putErr != nil {
+			slog.Error("filestore upload route photo failed", "error", putErr)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store photo", r.URL.Path)
+			return
+		}
+		photoFileID = rec.ID
+		fsCleanup = func() {
+			if delErr := h.FileStore.Delete(r.Context(), userID, photoFileID); delErr != nil {
+				slog.Warn("filestore orphan cleanup failed", "file_id", photoFileID, "error", delErr)
+			}
+		}
+	}
+
+	// Track uploaded S3 keys for cleanup on failure (legacy path).
 	var uploadedKeys []string
 	cleanupS3 := func() {
 		for _, key := range uploadedKeys {
@@ -107,16 +135,24 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-
-	// Upload original.
-	if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, ct); err != nil {
-		slog.Error("s3 upload route photo failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store photo", r.URL.Path)
-		return
+	cleanup := func() {
+		if fsCleanup != nil {
+			fsCleanup()
+		}
+		cleanupS3()
 	}
-	uploadedKeys = append(uploadedKeys, s3Key)
 
-	// Upload thumbnail.
+	if photoFileID == "" {
+		// Legacy S3 upload — FileStore not available.
+		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, ct); err != nil {
+			slog.Error("s3 upload route photo failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store photo", r.URL.Path)
+			return
+		}
+		uploadedKeys = append(uploadedKeys, s3Key)
+	}
+
+	// Upload thumbnail (always via S3 — thumbnails are not stored in FileStore).
 	if thumbData != nil {
 		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
 			slog.Warn("s3 upload route thumb failed", "error", err)
@@ -153,9 +189,19 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	saved, err := h.DB.InsertRoutePhoto(r.Context(), photo)
 	if err != nil {
 		slog.Error("insert route photo failed", "error", err)
-		cleanupS3()
+		cleanup()
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save photo", r.URL.Path)
 		return
+	}
+
+	// Link FileStore record to domain row.
+	if photoFileID != "" {
+		if _, dbErr := h.DB.Pool.Exec(r.Context(),
+			`UPDATE route_photos SET file_id = $1 WHERE id = $2`,
+			photoFileID, saved.ID,
+		); dbErr != nil {
+			slog.Warn("route_photos: set file_id failed", "photo_id", saved.ID, "error", dbErr)
+		}
 	}
 
 	httputil.WriteJSON(w, http.StatusCreated, saved)
