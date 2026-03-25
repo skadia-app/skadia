@@ -183,12 +183,12 @@ export default function AdminAuditLogPage() {
 
         {/* User search */}
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-neutral-500">Benutzer (UUID oder Name)</label>
+          <label className="text-xs font-medium text-neutral-500">Benutzer-ID (UUID)</label>
           <input
             type="text"
             value={filterUser}
             onChange={e => setFilterUser(e.target.value)}
-            placeholder="Benutzer suchen..."
+            placeholder="Benutzer-ID eingeben..."
             className="h-9 w-52 rounded border border-neutral-300 bg-white px-2 text-sm dark:border-neutral-600 dark:bg-neutral-800"
           />
         </div>

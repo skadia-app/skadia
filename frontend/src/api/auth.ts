@@ -209,7 +209,7 @@ export async function getAdminUsers(params: {
 }): Promise<AdminUsersResponse> {
   const sp = new URLSearchParams()
   if (params.search) sp.set('search', params.search)
-  if (params.status) sp.set('status', params.status)
+  sp.set('status', params.status ?? 'all')
   sp.set('limit', String(params.limit ?? 50))
   sp.set('offset', String(params.offset ?? 0))
   const res = await apiFetch(`/api/v1/admin/users?${sp}`)
@@ -241,7 +241,7 @@ export async function adminDeactivateUser(id: string): Promise<{ status: string 
 export async function adminResetPassword(
   id: string,
   data: { password?: string; send_email?: boolean },
-): Promise<{ status: string; temporary_password?: string }> {
+): Promise<{ status: string }> {
   const res = await apiFetch(`/api/v1/admin/users/${id}/reset-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -251,14 +251,14 @@ export async function adminResetPassword(
     const d = await res.json().catch(() => ({})) as { error?: string }
     throw new Error(d.error ?? 'Password reset failed')
   }
-  return res.json() as Promise<{ status: string; temporary_password?: string }>
+  return res.json() as Promise<{ status: string }>
 }
 
 export async function adminCreateUser(data: {
   email: string
   username: string
   password?: string
-}): Promise<{ id: string; status: string; temporary_password?: string }> {
+}): Promise<{ id: string; status: string; invite_sent?: boolean }> {
   const res = await apiFetch('/api/v1/admin/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -268,7 +268,7 @@ export async function adminCreateUser(data: {
     const d = await res.json().catch(() => ({})) as { error?: string }
     throw new Error(d.error ?? 'User creation failed')
   }
-  return res.json() as Promise<{ id: string; status: string; temporary_password?: string }>
+  return res.json() as Promise<{ id: string; status: string; invite_sent?: boolean }>
 }
 
 export async function getAdminUserSessions(id: string): Promise<{ sessions: AdminUserSession[] }> {
