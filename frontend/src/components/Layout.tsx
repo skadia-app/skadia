@@ -62,6 +62,8 @@ export default function Layout() {
           >
             {theme === 'light' ? <MoonIcon /> : <SunIcon />}
           </button>
+
+          <UserMenu />
         </div>
       </header>
 
