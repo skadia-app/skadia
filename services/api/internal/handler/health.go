@@ -6,6 +6,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
@@ -18,6 +19,7 @@ type Handler struct {
 	DB             *database.DB
 	Storage        *storage.S3Client
 	Events         *event.Publisher
+	FileStore      filestore.FileStore      // nil when not yet initialized
 	ShadowFS *shadowfs.ShadowFSConfig // nil when shadow FS is not configured
 	WatcherManager *shadowfs.WatcherManager // nil when per-user hotfolder is not configured
 	Config         *HandlerConfig           // LLM/LiteLLM configuration
