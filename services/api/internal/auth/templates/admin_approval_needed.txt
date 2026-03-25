@@ -1,0 +1,15 @@
+{{.AppName}} — Neue Registrierung wartet auf Freigabe
+
+Hallo Admin,
+
+ein neuer Nutzer hat sich bei {{.AppName}} registriert und wartet auf deine Freigabe:
+
+  Benutzername: {{.Username}}
+  E-Mail:       {{.Email}}
+
+Zur Nutzerverwaltung:
+
+{{.AdminURL}}
+
+---
+{{.AppName}} — {{.AppURL}}

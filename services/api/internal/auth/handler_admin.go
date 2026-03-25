@@ -1,21 +1,25 @@
 package auth
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // adminUserEntry is the JSON response shape for admin user listings.
 type adminUserEntry struct {
 	ID                 string     `json:"id"`
 	Username           string     `json:"username"`
+	DisplayName        *string    `json:"display_name,omitempty"`
 	Email              *string    `json:"email,omitempty"`
 	IsAdmin            bool       `json:"is_admin"`
 	IsActive           bool       `json:"is_active"`
@@ -23,6 +27,7 @@ type adminUserEntry struct {
 	RegistrationSource *string    `json:"registration_source,omitempty"`
 	LastLoginAt        *time.Time `json:"last_login_at,omitempty"`
 	CreatedAt          time.Time  `json:"created_at"`
+	DeletedAt          *time.Time `json:"deleted_at,omitempty"`
 }
 
 // AdminListUsers handles GET /admin/users — list all users with auth status.
@@ -40,19 +45,42 @@ func (h *Handler) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	search := r.URL.Query().Get("search")
+	status := r.URL.Query().Get("status")
+	if status == "" {
+		status = "active"
+	}
+
+	// Escape ILIKE special characters to prevent pattern injection.
+	escapedSearch := strings.NewReplacer("%", "\\%", "_", "\\_").Replace(search)
+
+	const whereClause = `($1 = '' OR username ILIKE '%' || $1 || '%'
+       OR email ILIKE '%' || $1 || '%'
+       OR display_name ILIKE '%' || $1 || '%')
+  AND (CASE $2
+       WHEN 'active'   THEN is_active = true  AND deleted_at IS NULL
+       WHEN 'inactive' THEN is_active = false AND deleted_at IS NULL
+       WHEN 'deleted'  THEN deleted_at IS NOT NULL
+       WHEN 'all'      THEN true
+       ELSE is_active = true AND deleted_at IS NULL END)`
+
 	// Get total count for pagination metadata.
 	var total int
-	if err := h.DB.Pool.QueryRow(r.Context(), `SELECT count(*) FROM users`).Scan(&total); err != nil {
+	countQuery := `SELECT count(*) FROM users WHERE ` + whereClause
+	if err := h.DB.Pool.QueryRow(r.Context(), countQuery, escapedSearch, status).Scan(&total); err != nil {
 		slog.Error("admin list users count failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
-	rows, err := h.DB.Pool.Query(r.Context(),
-		`SELECT id, username, email, is_admin, is_active, email_verified,
-		        registration_source, last_login_at, created_at
-		 FROM users ORDER BY created_at DESC
-		 LIMIT $1 OFFSET $2`, limit, offset)
+	query := `SELECT id, username, display_name, email, is_admin, is_active, email_verified,
+    registration_source, last_login_at, created_at, deleted_at
+FROM users
+WHERE ` + whereClause + `
+ORDER BY created_at DESC
+LIMIT $3 OFFSET $4`
+
+	rows, err := h.DB.Pool.Query(r.Context(), query, escapedSearch, status, limit, offset)
 	if err != nil {
 		slog.Error("admin list users failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
@@ -63,8 +91,8 @@ func (h *Handler) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 	users := make([]adminUserEntry, 0)
 	for rows.Next() {
 		var u adminUserEntry
-		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.IsAdmin, &u.IsActive,
-			&u.EmailVerified, &u.RegistrationSource, &u.LastLoginAt, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.IsAdmin, &u.IsActive,
+			&u.EmailVerified, &u.RegistrationSource, &u.LastLoginAt, &u.CreatedAt, &u.DeletedAt); err != nil {
 			slog.Error("admin list users scan failed", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
@@ -97,6 +125,11 @@ func (h *Handler) AdminActivateUser(w http.ResponseWriter, r *http.Request) {
 		slog.Error("admin activate user failed", "error", err, "user_id", userID)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
+	}
+
+	// Revoke existing tokens so fresh JWT claims are issued on next login.
+	if err := h.DB.RevokeAllUserTokens(r.Context(), userID); err != nil {
+		slog.Warn("admin activate: revoke tokens failed", "error", err, "user_id", userID)
 	}
 
 	adminID := middleware.GetUserID(r.Context())
@@ -215,4 +248,32 @@ func (h *Handler) AdminRevokeUserSessions(w http.ResponseWriter, r *http.Request
 	go h.DB.LogAuthEvent(h.shutdownCtx, adminID, "admin_revoke_sessions", middleware.ClientIP(r), r.UserAgent(), map[string]string{"target_user_id": userID})
 	slog.Info("admin revoked all sessions", "user_id", userID, "admin_id", adminID)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "sessions_revoked"})
+}
+
+// notifyAdminsNewRegistration emails all active admins about a pending approval request.
+// Must be called in a goroutine — uses context.Background() since the request context
+// is already cancelled by the time the goroutine runs.
+func (h *Handler) notifyAdminsNewRegistration(user *model.User) {
+	rows, err := h.DB.Pool.Query(context.Background(),
+		`SELECT email FROM users WHERE is_admin = true AND is_active = true AND email IS NOT NULL AND deleted_at IS NULL`)
+	if err != nil {
+		slog.Warn("notifyAdminsNewRegistration: query admins failed", "error", err)
+		return
+	}
+	defer rows.Close()
+
+	var admins []string
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err == nil {
+			admins = append(admins, email)
+		}
+	}
+
+	if user.Email == nil {
+		return
+	}
+	for _, email := range admins {
+		h.Mailer.SendAdminApprovalNeeded(email, user.Username, *user.Email)
+	}
 }

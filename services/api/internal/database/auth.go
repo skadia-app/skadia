@@ -206,6 +206,14 @@ func (db *DB) LogAuthEvent(ctx context.Context, userID, eventType, ipAddress, us
 
 // --- Cleanup ---
 
+// CompleteBackgroundJobByType marks all non-completed jobs of a given type for a user as completed.
+func (db *DB) CompleteBackgroundJobByType(ctx context.Context, jobType, userID string) {
+	db.Pool.Exec(ctx,
+		`UPDATE background_jobs SET status = 'completed', completed_at = NOW()
+         WHERE job_type = $1 AND user_id = $2 AND status != 'completed'`,
+		jobType, userID)
+}
+
 // CleanupExpiredTokens removes old tokens per retention policy.
 // CleanupExpiredTokens runs daily. Auth codes (30s TTL) and email tokens (1-24h TTL)
 // are functionally dead after expiry (checked at consumption time) but accumulate
