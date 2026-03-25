@@ -1,12 +1,66 @@
 package handler
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
+	"regexp"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
+
+// reUsername matches valid usernames: starts with alphanumeric, rest alphanumeric or underscore.
+var reUsername = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_]*$`)
+
+// UpdateMe handles PATCH /api/v1/me — updates username and/or display_name.
+func (h *Handler) UpdateMe(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Username    *string `json:"username,omitempty"`
+		DisplayName *string `json:"display_name,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid_request"}`, http.StatusBadRequest)
+		return
+	}
+
+	if req.Username != nil {
+		u := *req.Username
+		if len(u) < 3 || len(u) > 30 {
+			httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "username_invalid_length"})
+			return
+		}
+		if !reUsername.MatchString(u) {
+			httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "username_invalid_chars"})
+			return
+		}
+		exists, _ := h.DB.CheckUsernameCollision(r.Context(), u, userID)
+		if exists {
+			httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "username_taken"})
+			return
+		}
+	}
+
+	if req.DisplayName != nil && len(*req.DisplayName) > 100 {
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "display_name_too_long"})
+		return
+	}
+
+	if err := h.DB.UpdateAccountInfo(r.Context(), userID, req.Username, req.DisplayName); err != nil {
+		slog.Error("UpdateMe: update account info failed", "error", err)
+		httputil.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	h.DB.LogAuthEvent(r.Context(), userID, "profile_update", middleware.ClientIP(r), r.UserAgent(), nil)
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
 
 // GetMe returns the authenticated user's full profile.
 // GET /api/v1/me

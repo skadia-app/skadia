@@ -439,3 +439,26 @@ func (db *DB) ClearPendingEmail(ctx context.Context, userID string) error {
 		`UPDATE users SET pending_email = NULL WHERE id = $1`, userID)
 	return err
 }
+
+// CheckUsernameCollision returns true if a user with the given username already
+// exists, excluding the user identified by excludeUserID.
+func (db *DB) CheckUsernameCollision(ctx context.Context, username, excludeUserID string) (bool, error) {
+	var exists bool
+	err := db.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE username = $1 AND id != $2 AND deleted_at IS NULL)`,
+		username, excludeUserID).Scan(&exists)
+	return exists, err
+}
+
+// UpdateAccountInfo updates the username and/or display_name for a user.
+// Nil pointers leave the corresponding field unchanged (COALESCE semantics).
+func (db *DB) UpdateAccountInfo(ctx context.Context, userID string, username, displayName *string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE users SET
+			username     = COALESCE($1, username),
+			display_name = COALESCE($2, display_name),
+			updated_at   = NOW()
+		 WHERE id = $3 AND deleted_at IS NULL`,
+		username, displayName, userID)
+	return err
+}

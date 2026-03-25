@@ -15,5 +15,6 @@ func (h *Handler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"registration_mode": h.Config.RegistrationMode,
 		"social_providers":  providers,
+		"smtp_configured":   h.Config.SMTPHost != "",
 	})
 }
