@@ -1,0 +1,16 @@
+{{.AppName}} — Email-Adresse ändern
+
+Hallo {{.Username}},
+
+du hast eine Änderung deiner Email-Adresse bei {{.AppName}} angefordert.
+Bitte bestätige die neue Adresse über den folgenden Link:
+
+{{.ActionURL}}
+
+Dieser Link ist 24 Stunden gültig und kann nur einmal verwendet werden.
+
+Falls du keine Änderung deiner Email-Adresse angefordert hast, kannst du diese
+Email ignorieren. Deine aktuelle Email-Adresse bleibt unverändert.
+
+---
+{{.AppName}} — {{.AppURL}}

@@ -91,6 +91,31 @@ func (m *Mailer) SendResetEmail(to, username, token string) {
 	go m.send(to, fmt.Sprintf("[%s] Passwort zurücksetzen", m.appName), "reset_password", data)
 }
 
+// SendInviteEmail sends an invite email with a reset-password link so the
+// invited user can set their initial password. Called asynchronously.
+func (m *Mailer) SendInviteEmail(to, username, token string) {
+	data := emailData{
+		AppName:   m.appName,
+		AppURL:    m.frontendURL,
+		Username:  username,
+		ActionURL: fmt.Sprintf("%s/reset-password?token=%s", m.frontendURL, token),
+	}
+	go m.send(to, fmt.Sprintf("[%s] Einladung — Konto einrichten", m.appName), "invite_user", data)
+}
+
+// SendChangeEmailVerification sends a verification link for an email change request.
+// The link is sent to the NEW email address (not the old one).
+// Called synchronously — the caller wraps in a goroutine.
+func (m *Mailer) SendChangeEmailVerification(to, username, token string) {
+	data := emailData{
+		AppName:   m.appName,
+		AppURL:    m.frontendURL,
+		Username:  username,
+		ActionURL: fmt.Sprintf("%s/confirm-email-change?token=%s", m.frontendURL, token),
+	}
+	m.send(to, fmt.Sprintf("[%s] Email-Adresse bestätigen", m.appName), "change_email", data)
+}
+
 // SendAdminApprovalNeeded notifies an admin that a new registration is pending approval.
 func (m *Mailer) SendAdminApprovalNeeded(to, newUsername, newEmail string) {
 	data := adminApprovalData{
