@@ -255,6 +255,9 @@ func main() {
 				} else {
 					slog.Info("periodic token cleanup completed")
 				}
+				if err := db.PurgeDeletedUsers(ctx, cfg.ShadowFSBasePath); err != nil {
+					slog.Error("GDPR purge failed", "error", err)
+				}
 			case <-ctx.Done():
 				return
 			}
@@ -290,6 +293,8 @@ func main() {
 			Post("/reset-password", authHandler.ResetPassword)
 		r.With(middleware.RateLimitGeneric(authRL)).
 			Post("/confirm-email-change", authHandler.ConfirmEmailChange)
+		r.With(middleware.RateLimitGeneric(authRL)).
+			Post("/cancel-deletion", authHandler.CancelDeletion)
 		r.With(middleware.RateLimitGeneric(authRL)).
 			Post("/exchange-code", authHandler.ExchangeCode)
 		r.With(middleware.RateLimitLoginByIP(authRL)).
@@ -396,6 +401,7 @@ func main() {
 				r.Get("/users/{id}/sessions", authHandler.AdminListUserSessions)
 				r.Post("/users/{id}/revoke-sessions", authHandler.AdminRevokeUserSessions)
 				r.Get("/audit-log", authHandler.AdminAuditLog)
+				r.Post("/users/{id}/restore", authHandler.AdminRestoreUser)
 			})
 
 			// ── Regular authenticated routes ──
@@ -412,6 +418,10 @@ func main() {
 			r.With(middleware.RateLimitGeneric(authRL)).
 				With(middleware.RateLimitPerUser(authRL, "change-email:", 3.0/3600, 3)).
 				Post("/auth/change-email", authHandler.ChangeEmail)
+			r.With(middleware.RateLimitGeneric(authRL)).
+				Delete("/auth/account", authHandler.DeleteAccount)
+			r.With(middleware.RateLimitPerUser(authRL, "export:", 2.0/3600, 2)).
+				Get("/auth/data-export", authHandler.DataExport)
 
 			r.Post("/activities/upload", h.Upload)
 			r.Post("/activities/manual", h.CreateManualActivity)
