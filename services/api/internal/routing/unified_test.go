@@ -392,6 +392,35 @@ func TestBuildTrackIndex_RemainingCosts(t *testing.T) {
 	}
 }
 
+func TestExpandedFlag_PreventsCycle(t *testing.T) {
+	g := makeChainGraph(10)
+	reader := &SingleGraphReader{G: g, TileID: 0}
+
+	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "gravel"})
+
+	res, err := findRouteUnified(context.Background(), reader,
+		MakeGlobalNodeID(0, 0), MakeGlobalNodeID(0, 9),
+		cfg, 0, 0, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("findRouteUnified failed: %v", err)
+	}
+
+	for nodeID, ns := range res.state.nodes {
+		if !ns.Expanded {
+			t.Errorf("node %d not marked as Expanded", nodeID)
+		}
+	}
+
+	result := retrackUnified(reader, res.state,
+		MakeGlobalNodeID(0, 0), MakeGlobalNodeID(0, 9))
+	if result == nil {
+		t.Fatal("retrackUnified returned nil — broken parent chain")
+	}
+	if result.DistanceM < 800 || result.DistanceM > 1000 {
+		t.Errorf("unexpected distance: %.0f m (want ~900m for 9 edges × 100m)", result.DistanceM)
+	}
+}
+
 func TestFindRouteUnified_BasicRoute(t *testing.T) {
 	g := makePassableTestGraph() // 3 nodes, 2 edges, highway=track
 	reader := &SingleGraphReader{G: g, TileID: 0}

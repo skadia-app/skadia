@@ -28,6 +28,7 @@ type nodeState struct {
 	LastEdgeDX    float32   // R01: NORMALIZED direction vector from computeTurnCost
 	LastEdgeDY    float32   // R01: unit length for dot-product cosine in next expansion
 	LastWayClass  uint8     // WayClass of last edge (for initialcost tracking)
+	Expanded      bool      // Closed-set flag: prevents re-relaxation after expansion
 }
 
 // SparseRouterState uses a value-type map for unknown node counts.
@@ -118,6 +119,11 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 		if entry.Cost > ns.FrontierCost+0.001 {
 			continue
 		}
+
+		// Mark node as expanded (closed-set). Prevents parent-pointer cycles
+		// caused by hysteresis re-relaxation with high elevation costs.
+		ns.Expanded = true
+		state.nodes[entry.NodeID] = ns
 
 		// Reached destination — return result.
 		// totalCost = EffectiveCost (includes elevationCorrection) because
@@ -267,9 +273,13 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 
 			fCost := newEffective + passCoeff*h
 
-			// Dominance check: only update if new effective cost is strictly better
+			// Dominance check: only update if new effective cost is strictly better.
+			// pass1 (passCoeff=0, Dijkstra): also respect Expanded flag — once a node
+			// is in the closed set it cannot be re-relaxed (prevents parent-pointer cycles
+			// caused by hysteresis re-relaxation with high elevation costs, e.g. Gravel).
+			// pass0 (passCoeff>0, inadmissible A*): always allow re-relaxation.
 			tgtNS, exists := state.nodes[ev.Target]
-			if !exists || newEffective < tgtNS.EffectiveCost {
+			if !exists || (newEffective < tgtNS.EffectiveCost && (passCoeff > 0 || !tgtNS.Expanded)) {
 				state.nodes[ev.Target] = nodeState{
 					BestCost:      newCost,
 					EffectiveCost: newEffective,
