@@ -10,6 +10,7 @@ import (
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -1177,11 +1178,9 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 		}
 	}
 
-	// 2. No match — store in S3 and enqueue for manual review
+	// 2. No match — store and enqueue for manual review
 	hashArr := sha256.Sum256(photoBytes)
 	fileHash := hex.EncodeToString(hashArr[:])
-
-	s3Key := fmt.Sprintf("%s/%s/%s", importQueuePrefix, userID, fileHash)
 
 	// Determine content type
 	ct := meta.ContentType
@@ -1194,11 +1193,6 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 		if ct == "application/octet-stream" || ct == "application/zip" {
 			ct = contentTypeFromFilename(meta.OriginalFilename)
 		}
-	}
-
-	// Upload original to S3
-	if err := s.Storage.UploadToBucket(ctx, importQueueBucket, s3Key, photoBytes, ct); err != nil {
-		return nil, fmt.Errorf("s3 upload orphan photo: %w", err)
 	}
 
 	// Generate thumbnail (200px) for the queue preview
@@ -1218,23 +1212,66 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 		thumbData, _ = imageutil.Resize(photoBytes, 200, 200, 80)
 	}
 
-	s3KeyThumb := ""
-	if thumbData != nil {
-		thumbKey := fmt.Sprintf("%s/%s/%s_thumb.jpg", importQueuePrefix, userID, fileHash)
-		if err := s.Storage.UploadToBucket(ctx, importQueueBucket, thumbKey, thumbData, "image/jpeg"); err == nil {
-			s3KeyThumb = thumbKey
-		} else {
-			slog.Warn("importer: orphan thumb upload failed", "err", err)
-		}
-	}
-
 	fileSize := int64(len(photoBytes))
+	s3Key := fmt.Sprintf("%s/%s/%s", importQueuePrefix, userID, fileHash)
 	bucket := importQueueBucket
 	queueMeta := map[string]any{
 		"filename": meta.OriginalFilename,
 	}
-	if s3KeyThumb != "" {
-		queueMeta["s3_key_thumb"] = s3KeyThumb
+
+	if s.FileStore != nil {
+		// FileStore path: store original via FileStore (assigned to _temp internally).
+		rec, putErr := s.FileStore.Put(ctx, filestore.FileEntry{
+			UserID:      userID,
+			FileType:    "media",
+			ContentType: ct,
+			FileName:    meta.OriginalFilename,
+			SizeBytes:   fileSize,
+			FileHash:    fileHash,
+			Tags:        map[string]string{"queue_type": "image_no_match"},
+		}, bytes.NewReader(photoBytes))
+		if putErr != nil {
+			return nil, fmt.Errorf("filestore put orphan photo: %w", putErr)
+		}
+		queueMeta["file_store_id"] = rec.ID
+
+		// Store thumbnail via FileStore (best-effort).
+		if thumbData != nil {
+			thumbName := fileHash + "_thumb.jpg"
+			thumbRec, thumbErr := s.FileStore.Put(ctx, filestore.FileEntry{
+				UserID:      userID,
+				FileType:    "media",
+				ContentType: "image/jpeg",
+				FileName:    thumbName,
+				SizeBytes:   int64(len(thumbData)),
+				FileHash:    fileHash + "_thumb",
+				Tags:        map[string]string{"queue_type": "image_no_match_thumb"},
+			}, bytes.NewReader(thumbData))
+			if thumbErr == nil {
+				queueMeta["file_store_id_thumb"] = thumbRec.ID
+			} else {
+				slog.Warn("importer: orphan thumb FileStore.Put failed", "err", thumbErr)
+			}
+		}
+	} else if s.Storage != nil {
+		// Legacy S3 path.
+		if err := s.Storage.UploadToBucket(ctx, importQueueBucket, s3Key, photoBytes, ct); err != nil {
+			return nil, fmt.Errorf("s3 upload orphan photo: %w", err)
+		}
+		s3KeyThumb := ""
+		if thumbData != nil {
+			thumbKey := fmt.Sprintf("%s/%s/%s_thumb.jpg", importQueuePrefix, userID, fileHash)
+			if err := s.Storage.UploadToBucket(ctx, importQueueBucket, thumbKey, thumbData, "image/jpeg"); err == nil {
+				s3KeyThumb = thumbKey
+			} else {
+				slog.Warn("importer: orphan thumb upload failed", "err", err)
+			}
+		}
+		if s3KeyThumb != "" {
+			queueMeta["s3_key_thumb"] = s3KeyThumb
+		}
+	} else {
+		return nil, fmt.Errorf("no storage backend configured")
 	}
 
 	queueItem := database.ImportQueueItem{
@@ -1256,8 +1293,8 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 }
 
 // ResolveQueuedPhoto assigns a queued image_no_match item to a specific activity.
-// It loads the file from S3, runs ProcessPhoto, marks the queue item as resolved,
-// and cleans up the temporary S3 files.
+// It loads the file from FileStore or S3, runs ProcessPhoto, marks the queue item
+// as resolved, and cleans up the temporary files.
 func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, targetActivityID string) (*PhotoResult, error) {
 	// 1. Load and validate queue item
 	item, err := s.DB.GetImportQueueItem(ctx, queueEntryID, userID)
@@ -1269,17 +1306,35 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 	}
 	// Ownership already enforced by GetImportQueueItem (WHERE user_id = $2)
 
-	if item.S3Bucket == nil || item.S3Key == nil {
-		return nil, fmt.Errorf("queue item has no stored S3 file")
-	}
+	// 2. Load photo bytes — FileStore preferred, S3 as fallback.
+	var photoBytes []byte
+	ct := item.ContentType
 
-	// 2. Download from S3
-	photoBytes, ct, err := s.Storage.DownloadFromBucket(ctx, *item.S3Bucket, *item.S3Key)
-	if err != nil {
-		return nil, fmt.Errorf("s3 download queued photo: %w", err)
-	}
-	if ct == "" {
-		ct = item.ContentType
+	fileStoreID, hasFileStoreID := item.Metadata["file_store_id"].(string)
+	if hasFileStoreID && fileStoreID != "" && s.FileStore != nil {
+		rc, getErr := s.FileStore.Get(ctx, userID, fileStoreID)
+		if getErr != nil {
+			return nil, fmt.Errorf("filestore get queued photo: %w", getErr)
+		}
+		photoBytes, err = io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return nil, fmt.Errorf("filestore read queued photo: %w", err)
+		}
+	} else if s.Storage != nil {
+		if item.S3Bucket == nil || item.S3Key == nil {
+			return nil, fmt.Errorf("queue item has no stored file reference")
+		}
+		var dlCT string
+		photoBytes, dlCT, err = s.Storage.DownloadFromBucket(ctx, *item.S3Bucket, *item.S3Key)
+		if err != nil {
+			return nil, fmt.Errorf("s3 download queued photo: %w", err)
+		}
+		if dlCT != "" {
+			ct = dlCT
+		}
+	} else {
+		return nil, fmt.Errorf("no storage backend configured")
 	}
 
 	// 3. Process as a normal activity photo
@@ -1296,13 +1351,25 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 		return result, nil
 	}
 
-	// 4. Cleanup: mark resolved + delete S3 files
+	// 4. Cleanup: mark resolved + delete temp files
 	if resolveErr := s.DB.ResolveImportQueueItem(ctx, queueEntryID, userID); resolveErr != nil {
 		slog.Warn("importer: ResolveImportQueueItem failed", "id", queueEntryID, "err", resolveErr)
 	}
-	_ = s.Storage.DeleteFromBucket(ctx, *item.S3Bucket, *item.S3Key)
-	if thumbKey, ok := item.Metadata["s3_key_thumb"].(string); ok && thumbKey != "" {
-		_ = s.Storage.DeleteFromBucket(ctx, *item.S3Bucket, thumbKey)
+
+	if hasFileStoreID && fileStoreID != "" && s.FileStore != nil {
+		if delErr := s.FileStore.Delete(ctx, userID, fileStoreID); delErr != nil {
+			slog.Warn("importer: FileStore.Delete orphan photo failed", "id", fileStoreID, "err", delErr)
+		}
+		if thumbFileID, ok := item.Metadata["file_store_id_thumb"].(string); ok && thumbFileID != "" {
+			if delErr := s.FileStore.Delete(ctx, userID, thumbFileID); delErr != nil {
+				slog.Warn("importer: FileStore.Delete orphan thumb failed", "id", thumbFileID, "err", delErr)
+			}
+		}
+	} else if s.Storage != nil && item.S3Bucket != nil && item.S3Key != nil {
+		_ = s.Storage.DeleteFromBucket(ctx, *item.S3Bucket, *item.S3Key)
+		if thumbKey, ok := item.Metadata["s3_key_thumb"].(string); ok && thumbKey != "" {
+			_ = s.Storage.DeleteFromBucket(ctx, *item.S3Bucket, thumbKey)
+		}
 	}
 
 	return result, nil

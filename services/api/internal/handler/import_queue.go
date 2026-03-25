@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -140,7 +141,7 @@ func (h *Handler) AssignImportQueueItem(w http.ResponseWriter, r *http.Request) 
 }
 
 // GetImportQueueItemThumb handles GET /api/v1/import-queue/{id}/thumb
-// Returns the thumbnail image for a queued item stored in S3.
+// Returns the thumbnail image for a queued item stored in FileStore or S3.
 func (h *Handler) GetImportQueueItemThumb(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -154,6 +155,44 @@ func (h *Handler) GetImportQueueItemThumb(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// FileStore path: serve thumbnail from FileStore when file_store_id_thumb is set.
+	if h.FileStore != nil {
+		if thumbFileID, hasThumb := item.Metadata["file_store_id_thumb"].(string); hasThumb && thumbFileID != "" {
+			rc, getErr := h.FileStore.Get(r.Context(), userID, thumbFileID)
+			if getErr != nil {
+				slog.Error("get queue item thumb: FileStore.Get failed", "id", id, "file_id", thumbFileID, "error", getErr)
+				httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to retrieve thumbnail", r.URL.Path)
+				return
+			}
+			defer rc.Close()
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Header().Set("Cache-Control", "private, max-age=3600")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.Copy(w, rc)
+			return
+		}
+		// FileStore active but no thumb — check if there is at least the main file to serve as thumb.
+		if mainFileID, hasMain := item.Metadata["file_store_id"].(string); hasMain && mainFileID != "" {
+			rc, getErr := h.FileStore.Get(r.Context(), userID, mainFileID)
+			if getErr != nil {
+				slog.Error("get queue item thumb: FileStore.Get (main) failed", "id", id, "file_id", mainFileID, "error", getErr)
+				httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to retrieve thumbnail", r.URL.Path)
+				return
+			}
+			defer rc.Close()
+			ct := item.ContentType
+			if ct == "" {
+				ct = "image/jpeg"
+			}
+			w.Header().Set("Content-Type", ct)
+			w.Header().Set("Cache-Control", "private, max-age=3600")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.Copy(w, rc)
+			return
+		}
+	}
+
+	// Legacy S3 path.
 	thumbKey, ok := item.Metadata["s3_key_thumb"].(string)
 	if !ok || thumbKey == "" {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "no thumbnail available for this queue item", r.URL.Path)
