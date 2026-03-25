@@ -443,20 +443,20 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         <div className="flex items-center gap-2">
           {isZoomed && (
             <button onClick={handleResetZoom}
-              className="text-sm px-3 py-1 rounded-md bg-accent-100 text-orange-700 hover:bg-orange-200
+              className="cursor-pointer text-sm px-3 py-1 rounded-md bg-accent-100 text-orange-700 hover:bg-orange-200
                          dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50 transition-colors">
               ✕ Zoom zurücksetzen
             </button>
           )}
           <div className="flex rounded-lg border border-neutral-200 dark:border-neutral-700 overflow-hidden text-sm">
             <button onClick={() => switchXMode('distance')}
-              className={`px-3 py-1 transition-colors ${xMode === 'distance'
+              className={`cursor-pointer px-3 py-1 transition-colors ${xMode === 'distance'
                 ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900'
                 : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}`}>
               km
             </button>
             <button onClick={() => switchXMode('time')}
-              className={`px-3 py-1 transition-colors border-l border-neutral-200 dark:border-neutral-700 ${xMode === 'time'
+              className={`cursor-pointer px-3 py-1 transition-colors border-l border-neutral-200 dark:border-neutral-700 ${xMode === 'time'
                 ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900'
                 : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}`}>
               Zeit

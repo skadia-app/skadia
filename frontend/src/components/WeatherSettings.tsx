@@ -205,7 +205,7 @@ export function WeatherSettings() {
           role="switch"
           aria-checked={localPrefs?.auto_tags ?? true}
           onClick={() => update({ auto_tags: !(localPrefs?.auto_tags ?? true) })}
-          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+          className={`relative inline-flex h-6 w-11 cursor-pointer items-center rounded-full transition-colors ${
             (localPrefs?.auto_tags ?? true)
               ? 'bg-accent-DEFAULT'
               : 'bg-neutral-300 dark:bg-neutral-600'
@@ -213,7 +213,7 @@ export function WeatherSettings() {
         >
           <span
             className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-              (localPrefs?.auto_tags ?? true) ? 'translate-x-4.5' : 'translate-x-0.5'
+              (localPrefs?.auto_tags ?? true) ? 'translate-x-6' : 'translate-x-1'
             }`}
           />
         </button>

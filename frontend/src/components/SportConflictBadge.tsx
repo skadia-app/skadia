@@ -7,7 +7,7 @@ export default function SportConflictBadge({ onClick, className = '' }: SportCon
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500/20 text-amber-500 hover:bg-amber-500/30 transition-colors ${className}`}
+      className={`cursor-pointer inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500/20 text-amber-500 hover:bg-amber-500/30 transition-colors ${className}`}
       title="Sport-Typ-Konflikt — Klicken zum Auflösen"
     >
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">

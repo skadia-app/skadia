@@ -350,13 +350,13 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
           <button
             onClick={onReset}
             className="text-xs px-2.5 py-1 rounded-md border border-neutral-200 dark:border-neutral-700
-                       text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+                       text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
           >
             Zurücksetzen
           </button>
           <button
             onClick={onClose}
-            className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors p-1"
+            className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer transition-colors p-1"
             aria-label="Filter schließen"
           >
             ✕
@@ -642,7 +642,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
             />
             <button
               onClick={handleSavePreset}
-              className="text-xs px-2.5 py-1 rounded-md bg-[var(--color-accent-DEFAULT)] text-white font-medium hover:opacity-90 transition-opacity"
+              className="text-xs px-2.5 py-1 rounded-md bg-[var(--color-accent-DEFAULT)] text-white font-medium hover:opacity-90 cursor-pointer transition-opacity"
             >
               Speichern
             </button>
@@ -765,7 +765,7 @@ export default function AnalyticsPage() {
           ))}
           <button
             onClick={resetFilters}
-            className="text-xs text-neutral-400 hover:text-rose-500 transition-colors"
+            className="text-xs text-neutral-400 hover:text-rose-500 cursor-pointer transition-colors"
           >
             Alles löschen
           </button>

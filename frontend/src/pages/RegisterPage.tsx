@@ -138,10 +138,10 @@ export default function RegisterPage() {
           <button
             type="submit"
             disabled={loading || config === null}
-            className="w-full px-4 py-3 rounded-lg bg-neutral-900 dark:bg-neutral-100
+            className="w-full cursor-pointer px-4 py-3 rounded-lg bg-neutral-900 dark:bg-neutral-100
                        text-white dark:text-neutral-900 font-medium text-sm
                        hover:bg-neutral-800 dark:hover:bg-neutral-200
-                       transition-colors disabled:opacity-50"
+                       transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'Wird registriert…' : 'Registrieren'}
           </button>

@@ -102,7 +102,7 @@ export default function SummitMap({ summits, selectedSummit, onSelectSummit, onM
       {/* Maximize button */}
       <button
         onClick={onMaximize}
-        className="absolute top-3 left-3 z-10 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm
+        className="cursor-pointer absolute top-3 left-3 z-10 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm
                    rounded-lg p-1.5 shadow-sm hover:bg-white dark:hover:bg-neutral-700 transition-colors"
         title="Karte maximieren"
       >

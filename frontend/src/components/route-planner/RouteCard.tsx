@@ -233,7 +233,7 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
         <div className="absolute inset-0 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-black/20 dark:bg-black/40">
           <button
             onClick={handleOpenPlanner}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 text-xs font-medium shadow-md hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 text-xs font-medium shadow-md hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
             title="Im Planer öffnen"
           >
             <ArrowUpRight className="w-3.5 h-3.5" />
@@ -241,7 +241,7 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
           </button>
           <button
             onClick={handleExport}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 text-xs font-medium shadow-md hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 text-xs font-medium shadow-md hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
             title="GPX exportieren"
           >
             <Download className="w-3.5 h-3.5" />
@@ -278,7 +278,7 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
           <div className="relative flex-shrink-0" ref={menuRef}>
             <button
               onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }}
-              className="p-1 rounded-md text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+              className="p-1 rounded-md text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer"
               aria-label="Mehr Optionen"
             >
               <MoreVertical className="w-4 h-4" />
@@ -287,14 +287,14 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
               <div className="absolute right-0 top-full mt-1 z-50 min-w-[140px] rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-lg py-1">
                 <button
                   onClick={handleOpenPlanner}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
                 >
                   <ArrowUpRight className="w-3.5 h-3.5" />
                   Im Planer öffnen
                 </button>
                 <button
                   onClick={handleExport}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5" />
                   GPX exportieren
@@ -303,7 +303,7 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
                 <button
                   onClick={handleDelete}
                   disabled={deleteMutation.isPending}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   Löschen

@@ -13,6 +13,7 @@ import {
   type AdminUserSession,
 } from '@/api/auth'
 import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
+import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 import { useDebounce } from '@/lib/useDebounce'
 import { useToast } from '@/lib/toast'
 import { ModalShell } from '@/components/ui/ModalShell'
@@ -33,7 +34,7 @@ import {
 const STATUS_LABELS: Record<string, string> = {
   active: 'Aktiv',
   inactive: 'Inaktiv',
-  deleted: 'Geloescht',
+  deleted: 'Gelöscht',
   all: 'Alle',
 }
 
@@ -138,38 +139,38 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
 
         <div className="space-y-3">
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-neutral-500">E-Mail *</label>
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">E-Mail *</label>
             <input
               type="email"
               required
               value={email}
               onChange={e => setEmail(e.target.value)}
-              className="h-9 rounded border border-neutral-300 bg-white px-3 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+              className={AUTH_INPUT_CLASS}
               placeholder="benutzer@example.com"
             />
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-neutral-500">Benutzername *</label>
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Benutzername *</label>
             <input
               type="text"
               required
               value={username}
               onChange={e => setUsername(e.target.value)}
-              className="h-9 rounded border border-neutral-300 bg-white px-3 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+              className={AUTH_INPUT_CLASS}
               placeholder="benutzername"
             />
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-neutral-500">
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
               {smtpConfigured ? 'Passwort (optional)' : 'Passwort *'}
             </label>
             <input
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
-              className="h-9 rounded border border-neutral-300 bg-white px-3 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+              className={AUTH_INPUT_CLASS}
               placeholder={smtpConfigured ? 'Leer = Einladungs-Email wird gesendet' : 'Passwort ist erforderlich (kein SMTP konfiguriert)'}
               required={!smtpConfigured}
             />
@@ -181,14 +182,14 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
             type="button"
             onClick={onClose}
             disabled={mutation.isPending}
-            className="rounded border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+            className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
           >
             Abbrechen
           </button>
           <button
             type="submit"
             disabled={mutation.isPending || !email || !username}
-            className="flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="flex cursor-pointer items-center gap-2 rounded-lg bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             Erstellen
@@ -242,9 +243,9 @@ function ResetPasswordDialog({
         }}
         className="space-y-4"
       >
-        <h2 className="text-lg font-semibold">Passwort zuruecksetzen</h2>
+        <h2 className="text-lg font-semibold">Passwort zurücksetzen</h2>
         <p className="text-sm text-neutral-600 dark:text-neutral-400">
-          Passwort fuer <strong>{user.username}</strong> zuruecksetzen.
+          Passwort für <strong>{user.username}</strong> zurücksetzen.
         </p>
 
         <div className="space-y-2">
@@ -263,7 +264,7 @@ function ResetPasswordDialog({
               value={newPassword}
               onChange={e => setNewPassword(e.target.value)}
               placeholder="Neues Passwort (min. 10 Zeichen)"
-              className="mt-2 h-9 w-full rounded border border-neutral-300 bg-white px-3 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+              className={AUTH_INPUT_CLASS}
               required
               minLength={10}
             />
@@ -284,17 +285,17 @@ function ResetPasswordDialog({
             type="button"
             onClick={onClose}
             disabled={mutation.isPending}
-            className="rounded border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+            className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
           >
             Abbrechen
           </button>
           <button
             type="submit"
             disabled={mutation.isPending || (mode === 'set' && newPassword.length < 10)}
-            className="flex items-center gap-2 rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+            className="flex cursor-pointer items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Zuruecksetzen
+            Zurücksetzen
           </button>
         </div>
       </form>
@@ -355,7 +356,7 @@ function SessionsDialog({
             <button
               onClick={() => revokeMutation.mutate()}
               disabled={revokeMutation.isPending}
-              className="flex items-center gap-1.5 rounded bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              className="flex cursor-pointer items-center gap-1.5 rounded bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {revokeMutation.isPending ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -440,9 +441,9 @@ function SessionsDialog({
         <div className="flex justify-end">
           <button
             onClick={onClose}
-            className="rounded border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+            className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
           >
-            Schliessen
+            Schließen
           </button>
         </div>
       </div>
@@ -478,14 +479,14 @@ function ConfirmDialog({
           <button
             onClick={onClose}
             disabled={isPending}
-            className="rounded border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+            className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
           >
             Abbrechen
           </button>
           <button
             onClick={onConfirm}
             disabled={isPending}
-            className={`flex items-center gap-2 rounded px-4 py-2 text-sm font-medium text-white disabled:opacity-50 ${confirmClass ?? 'bg-red-600 hover:bg-red-700'}`}
+            className={`flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed ${confirmClass ?? 'bg-red-600 hover:bg-red-700'}`}
           >
             {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             {confirmLabel}
@@ -521,7 +522,7 @@ function UserActionsMenu({
     <div className="relative">
       <button
         onClick={() => setOpen(prev => !prev)}
-        className="rounded p-1.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+        className="cursor-pointer rounded p-1.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
         title="Aktionen"
       >
         <MoreHorizontal className="h-4 w-4" />
@@ -537,7 +538,7 @@ function UserActionsMenu({
                 {user.is_active ? (
                   <button
                     onClick={() => handleAction('deactivate')}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                    className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
                   >
                     <ShieldOff className="h-4 w-4 text-amber-500" />
                     Deaktivieren
@@ -545,7 +546,7 @@ function UserActionsMenu({
                 ) : (
                   <button
                     onClick={() => handleAction('activate')}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                    className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
                   >
                     <Shield className="h-4 w-4 text-green-500" />
                     Aktivieren
@@ -553,16 +554,16 @@ function UserActionsMenu({
                 )}
                 <button
                   onClick={() => handleAction('reset-password')}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 >
                   <KeyRound className="h-4 w-4 text-amber-500" />
-                  Passwort zuruecksetzen
+                  Passwort zurücksetzen
                 </button>
               </>
             )}
             <button
               onClick={() => handleAction('sessions')}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
               <Monitor className="h-4 w-4 text-blue-500" />
               Sitzungen anzeigen
@@ -570,7 +571,7 @@ function UserActionsMenu({
             {!isDeleted && (
               <button
                 onClick={() => handleAction('revoke-sessions')}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+                className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
               >
                 <Ban className="h-4 w-4" />
                 Alle Sitzungen widerrufen
@@ -736,7 +737,7 @@ export default function AdminUsersPage() {
         <h1 className="text-2xl font-bold">Benutzerverwaltung</h1>
         <button
           onClick={() => setShowCreateDialog(true)}
-          className="flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          className="flex cursor-pointer items-center gap-2 rounded-lg bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white hover:bg-accent-600 transition-colors"
         >
           <Plus className="h-4 w-4" />
           Benutzer erstellen
@@ -874,7 +875,7 @@ export default function AdminUsersPage() {
                     {formatTimestamp(user.created_at)}
                     {isDeleted && (
                       <div className="text-red-500 mt-0.5">
-                        Geloescht: {formatTimestamp(user.deleted_at)}
+                        Gelöscht: {formatTimestamp(user.deleted_at)}
                       </div>
                     )}
                   </td>
@@ -904,9 +905,9 @@ export default function AdminUsersPage() {
           <button
             onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
             disabled={offset === 0}
-            className="rounded border border-neutral-300 px-3 py-1 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-600 dark:hover:bg-neutral-800"
+            className="cursor-pointer rounded-lg border border-neutral-300 px-3 py-1 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-600 dark:hover:bg-neutral-800"
           >
-            Zurueck
+            Zurück
           </button>
           <span>
             Seite {currentPage} / {totalPages}
@@ -914,7 +915,7 @@ export default function AdminUsersPage() {
           <button
             onClick={() => setOffset(offset + PAGE_SIZE)}
             disabled={offset + PAGE_SIZE >= total}
-            className="rounded border border-neutral-300 px-3 py-1 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-600 dark:hover:bg-neutral-800"
+            className="cursor-pointer rounded-lg border border-neutral-300 px-3 py-1 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-600 dark:hover:bg-neutral-800"
           >
             Weiter
           </button>

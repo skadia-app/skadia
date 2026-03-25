@@ -240,7 +240,7 @@ function RouteCard({
             <button
               onClick={onEdit}
               title="Route bearbeiten"
-              className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-100/20 transition-colors"
+              className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-100/20 cursor-pointer transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -251,7 +251,7 @@ function RouteCard({
               onClick={onDuplicate}
               disabled={isDuplicating}
               title="Duplizieren"
-              className="p-1 rounded text-neutral-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors disabled:opacity-50"
+              className="p-1 rounded text-neutral-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer transition-colors disabled:opacity-50"
             >
               <svg className={`w-3.5 h-3.5 ${isDuplicating ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -261,7 +261,7 @@ function RouteCard({
             <button
               onClick={onExportGPX}
               title="GPX exportieren"
-              className="p-1 rounded text-neutral-400 hover:text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors"
+              className="p-1 rounded text-neutral-400 hover:text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 cursor-pointer transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -272,7 +272,7 @@ function RouteCard({
               onClick={onDelete}
               disabled={isDeleting}
               title="Löschen"
-              className="p-1 rounded text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+              className="p-1 rounded text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer transition-colors disabled:opacity-50"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -496,7 +496,7 @@ export default function RoutesPage() {
         <button
           onClick={handleNewRoute}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg
-                     bg-accent-DEFAULT text-white hover:bg-accent-600 transition-colors"
+                     bg-accent-DEFAULT text-white hover:bg-accent-600 cursor-pointer transition-colors"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -600,7 +600,7 @@ export default function RoutesPage() {
               <button
                 onClick={handleNewRoute}
                 className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg
-                           bg-accent-DEFAULT text-white hover:bg-accent-600 transition-colors"
+                           bg-accent-DEFAULT text-white hover:bg-accent-600 cursor-pointer transition-colors"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -633,7 +633,7 @@ export default function RoutesPage() {
         onClick={handleNewRoute}
         title="Neue Route planen"
         className="fixed bottom-6 right-6 sm:hidden z-40 w-14 h-14 rounded-full shadow-lg
-                   bg-accent-DEFAULT text-white hover:bg-accent-600 transition-colors
+                   bg-accent-DEFAULT text-white hover:bg-accent-600 cursor-pointer transition-colors
                    flex items-center justify-center"
       >
         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

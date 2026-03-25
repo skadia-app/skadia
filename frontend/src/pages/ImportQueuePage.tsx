@@ -80,7 +80,7 @@ function ActivitySearchModal({ onSelect, onClose }: ActivitySearchModalProps) {
               {activities.map((activity) => (
                 <li key={activity.id}>
                   <button
-                    className="w-full text-left px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+                    className="w-full text-left px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
                     onClick={() => onSelect(activity)}
                   >
                     <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">
@@ -104,7 +104,7 @@ function ActivitySearchModal({ onSelect, onClose }: ActivitySearchModalProps) {
             onClick={onClose}
             className="px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700
                        text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800
-                       transition-colors"
+                       cursor-pointer transition-colors"
           >
             Abbrechen
           </button>
@@ -212,7 +212,7 @@ function QueueCard({ item, onAssign, onDismiss, isAssigning, isDismissing }: Que
             disabled={isDismissing || isAssigning}
             className="px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700
                        text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800
-                       disabled:opacity-50 transition-colors"
+                       disabled:opacity-50 cursor-pointer transition-colors"
           >
             Verwerfen
           </button>

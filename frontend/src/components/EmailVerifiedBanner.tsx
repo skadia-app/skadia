@@ -37,7 +37,7 @@ export function EmailVerifiedBanner() {
         <button
           onClick={handleResend}
           disabled={sending}
-          className="underline hover:no-underline font-medium disabled:opacity-50"
+          className="cursor-pointer underline hover:no-underline font-medium disabled:opacity-50"
         >
           {sending ? STRINGS.sending : STRINGS.resend}
         </button>

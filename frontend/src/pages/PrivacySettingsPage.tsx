@@ -351,7 +351,7 @@ export default function PrivacySettingsPage() {
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Private Zonen</h1>
         <button
           onClick={handleNew}
-          className="bg-accent-DEFAULT hover:bg-accent-600 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          className="cursor-pointer bg-accent-DEFAULT hover:bg-accent-600 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
         >
           Neue Zone
         </button>
@@ -380,7 +380,7 @@ export default function PrivacySettingsPage() {
       ) : zones.length === 0 ? (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-8 text-center">
           <p className="text-neutral-500 dark:text-neutral-400 mb-4">Noch keine privaten Zonen definiert.</p>
-          <button onClick={handleNew} className="text-sm text-accent-DEFAULT hover:text-accent-600 font-medium transition-colors">
+          <button onClick={handleNew} className="cursor-pointer text-sm text-accent-DEFAULT hover:text-accent-600 font-medium transition-colors">
             Erste Zone erstellen
           </button>
         </div>

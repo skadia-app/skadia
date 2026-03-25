@@ -322,7 +322,7 @@ function RuleCard({
             {!rule.is_system && (
               <button
                 onClick={onDelete}
-                className="text-neutral-400 hover:text-rose-500 transition-colors"
+                className="text-neutral-400 hover:text-rose-500 cursor-pointer transition-colors"
                 title="Regel löschen"
               >
                 <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">

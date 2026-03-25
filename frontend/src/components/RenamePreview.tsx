@@ -46,7 +46,7 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
           </h2>
           <button
             onClick={handleClose}
-            className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+            className="cursor-pointer text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -135,7 +135,7 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
           {result ? (
             <button
               onClick={handleClose}
-              className="px-4 py-2 rounded-lg text-sm font-medium
+              className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium
                          bg-accent-DEFAULT hover:bg-accent-600 text-white transition-colors"
             >
               Schließen
@@ -148,7 +148,7 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
               <button
                 onClick={() => setConfirmOpen(false)}
                 disabled={renameMutation.isPending}
-                className="px-4 py-2 rounded-lg text-sm font-medium
+                className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium
                            border border-neutral-200 dark:border-neutral-700
                            text-neutral-600 dark:text-neutral-300
                            hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
@@ -158,7 +158,7 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
               <button
                 onClick={() => renameMutation.mutate(items ?? [])}
                 disabled={renameMutation.isPending}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-white
+                className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium text-white
                            bg-rose-500 hover:bg-rose-600
                            disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
@@ -169,7 +169,7 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
             <>
               <button
                 onClick={handleClose}
-                className="px-4 py-2 rounded-lg text-sm font-medium
+                className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium
                            border border-neutral-200 dark:border-neutral-700
                            text-neutral-600 dark:text-neutral-300
                            hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
@@ -179,7 +179,7 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
               <button
                 onClick={() => setConfirmOpen(true)}
                 disabled={!items || items.length === 0}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-white
+                className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium text-white
                            bg-accent-DEFAULT hover:bg-accent-600
                            disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >

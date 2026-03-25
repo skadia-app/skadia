@@ -465,7 +465,7 @@ export default function FusionPage() {
           <button
             onClick={handleExecute}
             disabled={!canExecute}
-            className="px-6 py-2.5 bg-accent-DEFAULT text-white rounded-lg font-medium text-sm hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="cursor-pointer px-6 py-2.5 bg-accent-DEFAULT text-white rounded-lg font-medium text-sm hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {isMerging ? 'Fusion läuft…' : 'Fusion ausführen'}
           </button>

@@ -669,7 +669,7 @@ export default function ActivityEditorPage() {
               disabled={isSavingMeta}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
                          bg-accent-DEFAULT text-white hover:bg-accent-600
-                         disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                         cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
             >
               <SaveIcon className="w-4 h-4" />
               {isSavingMeta ? 'Speichere...' : 'Speichern'}
@@ -797,7 +797,7 @@ export default function ActivityEditorPage() {
                            border border-neutral-200 dark:border-neutral-700
                            text-neutral-700 dark:text-neutral-300
                            hover:bg-neutral-100 dark:hover:bg-neutral-800
-                           disabled:opacity-50 disabled:cursor-not-allowed
+                           cursor-pointer disabled:cursor-not-allowed disabled:opacity-50
                            transition-colors"
               >
                 <HeartPulseIcon className="w-4 h-4 text-red-500" />
@@ -812,7 +812,7 @@ export default function ActivityEditorPage() {
                              border border-orange-300 dark:border-orange-700
                              text-orange-700 dark:text-orange-400
                              hover:bg-orange-50 dark:hover:bg-orange-900/20
-                             disabled:opacity-50 disabled:cursor-not-allowed
+                             cursor-pointer disabled:cursor-not-allowed disabled:opacity-50
                              transition-colors"
                 >
                   <CheckCircleIcon className="w-4 h-4" />
@@ -831,7 +831,7 @@ export default function ActivityEditorPage() {
                          border border-neutral-200 dark:border-neutral-700
                          text-neutral-700 dark:text-neutral-300
                          hover:bg-neutral-100 dark:hover:bg-neutral-800
-                         disabled:opacity-50 disabled:cursor-not-allowed
+                         cursor-pointer disabled:cursor-not-allowed disabled:opacity-50
                          transition-colors"
             >
               <MapPinIcon className="w-4 h-4 text-blue-500" />
@@ -857,7 +857,7 @@ export default function ActivityEditorPage() {
                              border border-orange-300 dark:border-orange-700
                              text-orange-700 dark:text-orange-400
                              hover:bg-orange-50 dark:hover:bg-orange-900/20
-                             disabled:opacity-50 disabled:cursor-not-allowed
+                             cursor-pointer disabled:cursor-not-allowed disabled:opacity-50
                              transition-colors"
                 >
                   <CheckCircleIcon className="w-4 h-4" />
@@ -879,7 +879,7 @@ export default function ActivityEditorPage() {
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
                          bg-accent-DEFAULT text-white
                          hover:bg-accent-600
-                         disabled:opacity-50 disabled:cursor-not-allowed
+                         cursor-pointer disabled:cursor-not-allowed disabled:opacity-50
                          transition-colors"
             >
               <SaveIcon className="w-4 h-4" />
@@ -896,7 +896,7 @@ export default function ActivityEditorPage() {
                          border border-neutral-200 dark:border-neutral-700
                          text-neutral-500 dark:text-neutral-400
                          hover:bg-neutral-100 dark:hover:bg-neutral-800
-                         disabled:opacity-50 disabled:cursor-not-allowed
+                         cursor-pointer disabled:cursor-not-allowed disabled:opacity-50
                          transition-colors"
             >
               <RotateCcwIcon className="w-4 h-4" />

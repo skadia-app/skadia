@@ -113,7 +113,7 @@ export default function SchemaEditor({ value, onChange, onSave, isSaving, isDirt
           <button
             onClick={onSave}
             disabled={!isDirty || isSaving}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white
+            className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium text-white
                        bg-accent-DEFAULT hover:bg-accent-600
                        disabled:opacity-40 disabled:cursor-not-allowed
                        transition-colors"

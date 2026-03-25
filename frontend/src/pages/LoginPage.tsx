@@ -105,10 +105,10 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full px-4 py-3 rounded-lg bg-neutral-900 dark:bg-neutral-100
+            className="w-full cursor-pointer px-4 py-3 rounded-lg bg-neutral-900 dark:bg-neutral-100
                        text-white dark:text-neutral-900 font-medium text-sm
                        hover:bg-neutral-800 dark:hover:bg-neutral-200
-                       transition-colors disabled:opacity-50"
+                       transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'Wird angemeldet…' : 'Anmelden'}
           </button>
@@ -135,7 +135,7 @@ export default function LoginPage() {
               {config!.social_providers.includes('strava') && (
                 <button
                   onClick={() => { window.location.href = `${API_BASE}/auth/social/strava` }}
-                  className="w-full px-4 py-3 rounded-lg border border-neutral-200 dark:border-neutral-700
+                  className="w-full cursor-pointer px-4 py-3 rounded-lg border border-neutral-200 dark:border-neutral-700
                              text-neutral-700 dark:text-neutral-300 text-sm font-medium
                              hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
                 >
@@ -145,7 +145,7 @@ export default function LoginPage() {
               {config!.social_providers.includes('google') && (
                 <button
                   onClick={() => { window.location.href = `${API_BASE}/auth/social/google` }}
-                  className="w-full px-4 py-3 rounded-lg border border-neutral-200 dark:border-neutral-700
+                  className="w-full cursor-pointer px-4 py-3 rounded-lg border border-neutral-200 dark:border-neutral-700
                              text-neutral-700 dark:text-neutral-300 text-sm font-medium
                              hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
                 >
@@ -171,7 +171,7 @@ export default function LoginPage() {
         {isDevAuth() && (
           <button
             onClick={handleDevLogin}
-            className="w-full px-4 py-3 rounded-lg border border-neutral-200 dark:border-neutral-700
+            className="w-full cursor-pointer px-4 py-3 rounded-lg border border-neutral-200 dark:border-neutral-700
                        text-neutral-600 dark:text-neutral-300 text-sm
                        hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
           >

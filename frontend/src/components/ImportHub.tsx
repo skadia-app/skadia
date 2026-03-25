@@ -211,7 +211,7 @@ function MediaSuccessPanel({ result, onReset, onGoToQueue }: {
           )}
           <button
             onClick={onGoToQueue}
-            className="text-xs text-accent-DEFAULT hover:underline"
+            className="cursor-pointer text-xs text-accent-DEFAULT hover:underline"
           >
             Warteschlange öffnen →
           </button>
@@ -219,7 +219,7 @@ function MediaSuccessPanel({ result, onReset, onGoToQueue }: {
       )}
       <button
         onClick={onReset}
-        className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+        className="cursor-pointer text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
       >
         Weitere hochladen
       </button>
@@ -251,7 +251,7 @@ function BatchResultsPanel({ results, onReset, onClose }: {
                       {' → '}
                       <button
                         onClick={() => onClose(`/activities/${entry.activity_id}`)}
-                        className="text-accent-DEFAULT hover:underline"
+                        className="cursor-pointer text-accent-DEFAULT hover:underline"
                       >
                         Aktivität öffnen
                       </button>
@@ -271,7 +271,7 @@ function BatchResultsPanel({ results, onReset, onClose }: {
                   {' – Fusionskandidat → '}
                   <button
                     onClick={() => onClose('/workshop/fusion')}
-                    className="text-accent-DEFAULT hover:underline"
+                    className="cursor-pointer text-accent-DEFAULT hover:underline"
                   >
                     Fusion
                   </button>
@@ -296,7 +296,7 @@ function BatchResultsPanel({ results, onReset, onClose }: {
       </div>
       <button
         onClick={onReset}
-        className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+        className="cursor-pointer text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
       >
         Weitere hochladen
       </button>
@@ -547,7 +547,7 @@ export default function ImportHub() {
             {queueCount > 0 && (
               <button
                 onClick={handleGoToQueue}
-                className="flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400 hover:underline"
+                className="cursor-pointer flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400 hover:underline"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block" />
                 {queueCount} in Warteschlange

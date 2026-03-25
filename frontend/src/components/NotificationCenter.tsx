@@ -120,7 +120,7 @@ export default function NotificationCenter() {
     <div ref={ref} className="relative">
       <button
         onClick={handleOpen}
-        className="relative p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+        className="cursor-pointer relative p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
         aria-label="Benachrichtigungen"
       >
         <Bell className="w-4 h-4" />
@@ -140,7 +140,7 @@ export default function NotificationCenter() {
               {unreadCount > 0 && (
                 <button
                   onClick={markAllRead}
-                  className="text-xs text-accent-DEFAULT hover:underline"
+                  className="cursor-pointer text-xs text-accent-DEFAULT hover:underline"
                 >
                   Alle gelesen
                 </button>
@@ -149,7 +149,7 @@ export default function NotificationCenter() {
               {notifications.length > 0 && (
                 <button
                   onClick={deleteAll}
-                  className="text-xs text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                  className="cursor-pointer text-xs text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
                   title="Alle löschen"
                 >
                   Alle löschen

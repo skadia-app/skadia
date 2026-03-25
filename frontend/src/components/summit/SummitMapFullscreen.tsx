@@ -100,7 +100,7 @@ export default function SummitMapFullscreen({
           </span>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+            className="cursor-pointer p-1 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
             title="Schließen"
           >
             <svg className="w-5 h-5 text-neutral-500" viewBox="0 0 20 20" fill="currentColor">

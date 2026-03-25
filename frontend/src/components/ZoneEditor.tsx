@@ -915,7 +915,7 @@ export default function ZoneEditor({
                 onClick={handleClosePolygon}
                 disabled={!canClosePolygon}
                 className="px-3 py-1.5 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-700
-                  text-neutral-700 dark:text-neutral-300 disabled:opacity-40 disabled:cursor-not-allowed
+                  text-neutral-700 dark:text-neutral-300 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed
                   hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
               >
                 Polygon schliessen
@@ -925,7 +925,7 @@ export default function ZoneEditor({
                 onClick={handleResetPolygon}
                 disabled={polygonPoints.length === 0}
                 className="px-3 py-1.5 rounded-lg text-sm font-medium border border-red-200 dark:border-red-900
-                  text-red-600 dark:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed
+                  text-red-600 dark:text-red-400 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed
                   hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
               >
                 Zurücksetzen
@@ -943,7 +943,7 @@ export default function ZoneEditor({
                     onClick={handleCloseHole}
                     disabled={currentHolePoints.length < 3}
                     className="px-3 py-1.5 rounded-lg text-sm font-medium border border-blue-300 dark:border-blue-700
-                      text-blue-700 dark:text-blue-300 disabled:opacity-40 disabled:cursor-not-allowed
+                      text-blue-700 dark:text-blue-300 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed
                       hover:bg-blue-50 dark:hover:bg-blue-950 transition-colors"
                   >
                     Ausschnitt schliessen
@@ -953,7 +953,7 @@ export default function ZoneEditor({
                     onClick={handleCancelHole}
                     className="px-3 py-1.5 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-700
                       text-neutral-600 dark:text-neutral-400
-                      hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+                      hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
                   >
                     Abbrechen
                   </button>
@@ -967,7 +967,7 @@ export default function ZoneEditor({
                   onClick={handleStartHole}
                   disabled={!canAddHole}
                   className="px-3 py-1.5 rounded-lg text-sm font-medium border border-blue-200 dark:border-blue-800
-                    text-blue-600 dark:text-blue-400 disabled:opacity-40 disabled:cursor-not-allowed
+                    text-blue-600 dark:text-blue-400 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed
                     hover:bg-blue-50 dark:hover:bg-blue-950 transition-colors"
                 >
                   + Ausschnitt hinzufügen
@@ -982,7 +982,7 @@ export default function ZoneEditor({
               onClick={handleResetPolygon}
               className="ml-auto px-3 py-1.5 rounded-lg text-sm font-medium border border-red-200 dark:border-red-900
                 text-red-600 dark:text-red-400
-                hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
+                hover:bg-red-50 dark:hover:bg-red-950 transition-colors cursor-pointer"
             >
               Zurücksetzen
             </button>

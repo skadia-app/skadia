@@ -36,7 +36,7 @@ export default function PipelinePanel({
           <button
             onClick={onStart}
             disabled={disabled || isPending}
-            className={`text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${btnClass}`}
+            className={`cursor-pointer text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${btnClass}`}
           >
             {isPending ? 'Läuft…' : buttonLabel}
           </button>

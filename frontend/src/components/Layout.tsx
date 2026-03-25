@@ -75,7 +75,7 @@ export default function Layout() {
           <button
             onClick={toggle}
             aria-label="Farbschema umschalten"
-            className="p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+            className="cursor-pointer p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
           >
             {theme === 'light' ? <MoonIcon /> : <SunIcon />}
           </button>

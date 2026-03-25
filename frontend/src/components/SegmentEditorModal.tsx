@@ -470,7 +470,7 @@ export default function SegmentEditorModal({
               </button>
             </>
           )}
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-100 text-lg leading-none">&#x2715;</button>
+          <button onClick={onClose} className="cursor-pointer text-neutral-400 hover:text-neutral-100 text-lg leading-none">&#x2715;</button>
         </div>
       </div>
 
@@ -577,11 +577,11 @@ export default function SegmentEditorModal({
 
           <div className="flex gap-2 justify-end pt-2">
             <button onClick={() => setPhase('edit')}
-              className="px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800">
+              className="cursor-pointer px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800">
               &#x2190; Zurück
             </button>
             <button onClick={handleSubmit} disabled={!segName.trim() || mutation.isPending}
-              className="px-4 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600 disabled:opacity-50">
+              className="cursor-pointer px-4 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed">
               {mutation.isPending ? 'Speichern...' : 'Segment speichern'}
             </button>
           </div>

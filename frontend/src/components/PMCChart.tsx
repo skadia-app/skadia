@@ -292,7 +292,7 @@ export default function PMCChart() {
         <div className="flex items-center gap-2">
           {isZoomed && (
             <button onClick={handleResetZoom}
-              className="text-sm px-3 py-1 rounded-md bg-accent-100 text-orange-700 hover:bg-orange-200
+              className="cursor-pointer text-sm px-3 py-1 rounded-md bg-accent-100 text-orange-700 hover:bg-orange-200
                          dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50 transition-colors">
               Zoom zurücksetzen
             </button>
@@ -305,8 +305,8 @@ export default function PMCChart() {
                 title={rangeTooltips[r]}
                 className={
                   r === range
-                    ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
-                    : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
+                    ? 'cursor-pointer px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
+                    : 'cursor-pointer px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
                 }
               >
                 {rangeLabels[r]}

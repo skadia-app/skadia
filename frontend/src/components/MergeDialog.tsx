@@ -10,6 +10,7 @@ import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { MergeComparisonTable } from '@/components/MergeComparisonTable'
 import { ModalShell } from '@/components/ui/ModalShell'
+import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 
 interface MergeDialogProps {
   activity: Activity
@@ -146,8 +147,7 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
                 setSearch(e.target.value)
                 setSelectedSourceId(null)
               }}
-              className="w-full px-3 py-2 border border-neutral-300 rounded-md dark:bg-neutral-900 dark:border-neutral-700 dark:text-neutral-50 focus:outline-none focus:ring-2 focus:ring-offset-0 text-sm"
-              style={{ '--tw-ring-color': accent.shade400 } as React.CSSProperties}
+              className={AUTH_INPUT_CLASS}
             />
 
             {/* Activity list */}
@@ -220,14 +220,14 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
         <div className="mt-6 flex gap-2 justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-md text-sm font-medium bg-neutral-200 hover:bg-neutral-300 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-900 dark:text-neutral-50"
+            className="cursor-pointer px-4 py-2 rounded-md text-sm font-medium bg-neutral-200 hover:bg-neutral-300 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-900 dark:text-neutral-50"
           >
             Abbrechen
           </button>
           <button
             onClick={() => mutation.mutate()}
             disabled={!isValid || mutation.isPending}
-            className="px-4 py-2 rounded-md text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
+            className="cursor-pointer px-4 py-2 rounded-md text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
             style={{ backgroundColor: accent.shade500 }}
           >
             {mutation.isPending ? 'Wird fusioniert…' : 'Fusionieren'}

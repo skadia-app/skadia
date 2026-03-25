@@ -134,7 +134,7 @@ function ProfileSection() {
         <button
           type="submit"
           disabled={mutation.isPending}
-          className="px-4 py-2 rounded-lg bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-sm font-medium hover:bg-neutral-800 dark:hover:bg-neutral-200 transition-colors disabled:opacity-50"
+          className="px-4 py-2 rounded-lg bg-accent-DEFAULT text-white text-sm font-medium hover:bg-accent-600 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {mutation.isPending ? 'Wird gespeichert...' : 'Speichern'}
         </button>
@@ -183,7 +183,7 @@ function EmailSection() {
         <span className="text-sm text-neutral-700 dark:text-neutral-300 font-mono">{user?.email ?? '-'}</span>
         <button
           onClick={() => setDialogOpen(true)}
-          className="px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+          className="px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
         >
           E-Mail ändern
         </button>
@@ -221,14 +221,14 @@ function EmailSection() {
               <button
                 type="button"
                 onClick={() => setDialogOpen(false)}
-                className="px-4 py-2 rounded-lg text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                className="px-4 py-2 rounded-lg text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
               >
                 Abbrechen
               </button>
               <button
                 type="submit"
                 disabled={mutation.isPending}
-                className="px-4 py-2 rounded-lg bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-sm font-medium hover:bg-neutral-800 dark:hover:bg-neutral-200 transition-colors disabled:opacity-50"
+                className="px-4 py-2 rounded-lg bg-accent-DEFAULT text-white text-sm font-medium hover:bg-accent-600 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {mutation.isPending ? 'Wird gesendet...' : 'Ändern'}
               </button>
@@ -342,7 +342,7 @@ function PasswordSection() {
         <button
           type="submit"
           disabled={mutation.isPending}
-          className="px-4 py-2 rounded-lg bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-sm font-medium hover:bg-neutral-800 dark:hover:bg-neutral-200 transition-colors disabled:opacity-50"
+          className="px-4 py-2 rounded-lg bg-accent-DEFAULT text-white text-sm font-medium hover:bg-accent-600 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {mutation.isPending ? 'Wird geändert...' : 'Passwort ändern'}
         </button>
@@ -434,7 +434,7 @@ function SessionsSection() {
                       {!s.is_current && (
                         <button
                           onClick={() => setRevokeTarget(s.family_id)}
-                          className="text-xs text-red-600 dark:text-red-400 hover:underline"
+                          className="text-xs text-red-600 dark:text-red-400 hover:underline cursor-pointer"
                         >
                           Beenden
                         </button>
@@ -449,7 +449,7 @@ function SessionsSection() {
           {otherSessions.length > 1 && (
             <button
               onClick={() => setRevokeTarget('all_others')}
-              className="px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+              className="px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
             >
               Alle anderen Sessions beenden
             </button>
@@ -467,14 +467,14 @@ function SessionsSection() {
           <div className="flex gap-3 justify-end">
             <button
               onClick={() => setRevokeTarget(null)}
-              className="px-4 py-2 rounded-lg text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+              className="px-4 py-2 rounded-lg text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
             >
               Abbrechen
             </button>
             <button
               onClick={() => revokeMut.mutate(revokeTarget)}
               disabled={revokeMut.isPending}
-              className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50"
+              className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {revokeMut.isPending ? 'Wird beendet...' : 'Session beenden'}
             </button>
@@ -494,14 +494,14 @@ function SessionsSection() {
           <div className="flex gap-3 justify-end">
             <button
               onClick={() => setRevokeTarget(null)}
-              className="px-4 py-2 rounded-lg text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+              className="px-4 py-2 rounded-lg text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
             >
               Abbrechen
             </button>
             <button
               onClick={handleRevokeAllOthers}
               disabled={revokingAll}
-              className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50"
+              className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {revokingAll ? 'Wird beendet...' : 'Alle beenden'}
             </button>
@@ -578,7 +578,7 @@ function DangerZoneSection() {
           <button
             onClick={handleExport}
             disabled={exporting}
-            className="px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {exporting ? 'Wird exportiert...' : 'Exportieren'}
           </button>
@@ -596,7 +596,7 @@ function DangerZoneSection() {
           </div>
           <button
             onClick={() => setDeleteDialogOpen(true)}
-            className="px-3 py-1.5 rounded-lg border border-red-300 dark:border-red-800 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+            className="px-3 py-1.5 rounded-lg border border-red-300 dark:border-red-800 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
           >
             Account löschen
           </button>
@@ -646,14 +646,14 @@ function DangerZoneSection() {
               <button
                 type="button"
                 onClick={() => setDeleteDialogOpen(false)}
-                className="px-4 py-2 rounded-lg text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                className="px-4 py-2 rounded-lg text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
               >
                 Abbrechen
               </button>
               <button
                 type="submit"
                 disabled={deleteMut.isPending || (!hasPassword && deleteConfirmation !== 'ACCOUNT LÖSCHEN')}
-                className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50"
+                className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {deleteMut.isPending ? 'Wird gelöscht...' : 'Unwiderruflich löschen'}
               </button>
