@@ -392,7 +392,7 @@ function ConfigPhase({ platform, scanResult, options, onChange, onStart }: Confi
       <button
         onClick={onStart}
         disabled={selectedCategories.length === 0}
-        className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
       >
         Import starten →
       </button>
@@ -882,7 +882,7 @@ function ImportPanel({
             <button
               onClick={handleAnalyse}
               disabled={scanning || !sourcePath.trim()}
-              className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
             >
               {scanning ? (
                 <>
@@ -1348,7 +1348,7 @@ function KomootImportPanel() {
               <button
                 onClick={handleLogin}
                 disabled={loginLoading || !email.trim() || !password}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
               >
                 {loginLoading ? (
                   <>
@@ -1364,7 +1364,7 @@ function KomootImportPanel() {
                 <button
                   onClick={handleScan}
                   disabled={scanLoading || loginLoading}
-                  className="px-4 py-2 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="px-4 py-2 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
                 >
                   {scanLoading ? 'Scanne…' : 'Gespeicherte Zugangsdaten nutzen'}
                 </button>
@@ -1378,7 +1378,7 @@ function KomootImportPanel() {
                 <button
                   onClick={handleDeleteCredentials}
                   disabled={deletingCredentials}
-                  className="text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50 transition-colors"
+                  className="text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50 cursor-pointer transition-colors"
                 >
                   {deletingCredentials ? 'Lösche…' : 'Löschen'}
                 </button>
@@ -1449,7 +1449,7 @@ function KomootImportPanel() {
             <button
               onClick={handleStartImport}
               disabled={!importRecorded && !importPlanned}
-              className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
             >
               Import starten →
             </button>

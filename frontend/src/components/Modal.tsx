@@ -197,14 +197,14 @@ function PromptModalItem({ config }: PromptModalItemProps) {
               config.onCancel?.()
             }}
             disabled={isLoading}
-            className="px-4 py-2 rounded-md font-medium text-sm transition-colors whitespace-nowrap disabled:cursor-not-allowed bg-neutral-200 hover:bg-neutral-300 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-900 dark:text-neutral-50 disabled:opacity-50"
+            className="cursor-pointer px-4 py-2 rounded-md font-medium text-sm transition-colors whitespace-nowrap disabled:cursor-not-allowed bg-neutral-200 hover:bg-neutral-300 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-900 dark:text-neutral-50 disabled:opacity-50"
           >
             Abbrechen
           </button>
           <button
             onClick={handleConfirm}
             disabled={isLoading}
-            className="px-4 py-2 rounded-md font-medium text-sm transition-colors whitespace-nowrap disabled:cursor-not-allowed text-white disabled:opacity-50 hover:opacity-90"
+            className="cursor-pointer px-4 py-2 rounded-md font-medium text-sm transition-colors whitespace-nowrap disabled:cursor-not-allowed text-white disabled:opacity-50 hover:opacity-90"
             style={{ backgroundColor: accent.shade500 }}
           >
             OK

@@ -278,7 +278,7 @@ function LLMRoleCard({ role, config, onSave }: {
                     <button
                       onClick={loadOllamaModels}
                       disabled={isLoadingModels}
-                      className="px-3 py-2 rounded-lg text-sm border border-neutral-200 dark:border-neutral-700
+                      className="cursor-pointer px-3 py-2 rounded-lg text-sm border border-neutral-200 dark:border-neutral-700
                                  text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800
                                  disabled:opacity-50 transition-colors whitespace-nowrap"
                     >
@@ -313,7 +313,7 @@ function LLMRoleCard({ role, config, onSave }: {
             <button
               onClick={runTest}
               disabled={isTesting || !needsURL}
-              className="px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700
+              className="cursor-pointer px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700
                          text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800
                          disabled:opacity-50 transition-colors"
             >

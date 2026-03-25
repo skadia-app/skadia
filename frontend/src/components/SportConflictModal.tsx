@@ -163,13 +163,13 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
           <button
             disabled={loading}
             onClick={() => handleResolve()}
-            className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+            className="cursor-pointer px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
           >
             Importierte Sportart behalten
           </button>
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+            className="cursor-pointer px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
           >
             Abbrechen
           </button>

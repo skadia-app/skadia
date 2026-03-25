@@ -172,7 +172,7 @@ function FeedView({
           <button
             onClick={onFetchNextPage}
             disabled={isFetchingNextPage}
-            className="px-4 py-2 text-sm rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 disabled:opacity-50 transition-colors"
+            className="px-4 py-2 text-sm rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 disabled:opacity-50 cursor-pointer transition-colors"
           >
             {isFetchingNextPage ? 'Lädt…' : 'Mehr laden'}
           </button>
@@ -415,7 +415,7 @@ function GalleryLightbox({
 
         <button
           onClick={onClose}
-          className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 transition-colors"
+          className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 cursor-pointer transition-colors"
           aria-label="Schließen"
         >
           <XIcon className="w-4 h-4" />

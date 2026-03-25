@@ -61,7 +61,7 @@ export default function RegionSelector({ regions, selected, onChange, showContin
       <div className="flex flex-wrap gap-1.5 mb-1">
         <button
           onClick={toggleAll}
-          className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+          className={`cursor-pointer px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
             allSelected
               ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
               : 'bg-white dark:bg-neutral-800 border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:border-accent-DEFAULT'
@@ -73,7 +73,7 @@ export default function RegionSelector({ regions, selected, onChange, showContin
           <button
             key={r.id}
             onClick={() => toggle(r.id)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+            className={`cursor-pointer px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
               selected.includes(r.id)
                 ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
                 : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-accent-DEFAULT'

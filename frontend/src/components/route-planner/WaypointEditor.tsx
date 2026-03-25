@@ -145,7 +145,7 @@ function SegmentConnector({ segment, onToggleMode }: SegmentConnectorProps) {
           className="flex items-center gap-1.5 px-2 py-0.5 rounded text-xs
             text-neutral-500 dark:text-neutral-400
             hover:bg-neutral-100 dark:hover:bg-neutral-800
-            transition-colors"
+            transition-colors cursor-pointer"
         >
           <ToggleIcon on={isRouted} />
           <span>{isOffroad ? 'Offroad' : isRouted ? 'Geroutet' : 'Direkt'}</span>
@@ -253,7 +253,7 @@ function WaypointRow({
         onClick={onDelete}
         title="Wegpunkt entfernen"
         className="shrink-0 p-1 rounded text-neutral-400 hover:text-red-500 dark:hover:text-red-400
-          hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+          hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors cursor-pointer"
       >
         <TrashIcon />
       </button>

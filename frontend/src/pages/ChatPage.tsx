@@ -416,7 +416,7 @@ export default function ChatPage() {
 
         <button
           onClick={handleNewSession}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-neutral-700 dark:text-neutral-300 flex-shrink-0"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors text-neutral-700 dark:text-neutral-300 flex-shrink-0"
         >
           <Plus className="w-3.5 h-3.5" />
           Neu

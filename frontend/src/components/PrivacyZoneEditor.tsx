@@ -807,14 +807,14 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
           <button
             onClick={handleClosePolygon}
             disabled={polygonPoints.length < 3 || polygonClosed}
-            className="px-3 py-1.5 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+            className="px-3 py-1.5 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
           >
             Polygon schliessen
           </button>
           <button
             onClick={handleResetPolygon}
             disabled={polygonPoints.length === 0}
-            className="px-3 py-1.5 rounded-lg text-sm font-medium border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
+            className="px-3 py-1.5 rounded-lg text-sm font-medium border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
           >
             Zurücksetzen
           </button>
@@ -924,13 +924,13 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         <button
           onClick={handleSave}
           disabled={!canSave || isSaving}
-          className="bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          className="bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
         >
           {isSaving ? 'Speichern...' : 'Speichern'}
         </button>
         <button
           onClick={onClose}
-          className="text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
+          className="text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors cursor-pointer"
         >
           Abbrechen
         </button>

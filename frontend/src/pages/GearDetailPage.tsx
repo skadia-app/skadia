@@ -356,7 +356,7 @@ function ComponentsList({ gearId, gearType, components }: {
                 <div>
                   <div className="flex items-center justify-between">
                     <button
-                      className="min-w-0 flex-1 text-left group"
+                      className="cursor-pointer min-w-0 flex-1 text-left group"
                       onClick={() => setExpandedId(expandedId === comp.id ? null : comp.id)}
                     >
                       <div className="flex items-center gap-2">

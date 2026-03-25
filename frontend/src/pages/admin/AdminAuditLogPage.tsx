@@ -218,13 +218,13 @@ export default function AdminAuditLogPage() {
         <div className="flex items-end gap-2">
           <button
             onClick={applyFilters}
-            className="h-9 rounded bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700"
+            className="h-9 cursor-pointer rounded bg-accent-DEFAULT px-4 text-sm font-medium text-white hover:bg-accent-600"
           >
             Filtern
           </button>
           <button
             onClick={resetFilters}
-            className="h-9 rounded border border-neutral-300 px-4 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+            className="h-9 cursor-pointer rounded border border-neutral-300 px-4 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
           >
             Zurücksetzen
           </button>

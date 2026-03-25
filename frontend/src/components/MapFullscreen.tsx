@@ -860,7 +860,7 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
             {isZoomed && (
               <button
                 onClick={handleResetZoom}
-                className="text-xs px-2.5 py-1 rounded-md bg-accent-100 text-orange-700 hover:bg-orange-200
+                className="cursor-pointer text-xs px-2.5 py-1 rounded-md bg-accent-100 text-orange-700 hover:bg-orange-200
                            dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50 transition-colors"
               >
                 Zoom zurücksetzen
@@ -871,7 +871,7 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
             <div className="flex rounded-md border border-neutral-300 dark:border-neutral-600 overflow-hidden text-xs">
               <button
                 onClick={() => switchXMode('distance')}
-                className={`px-2.5 py-0.5 transition-colors ${xMode === 'distance'
+                className={`cursor-pointer px-2.5 py-0.5 transition-colors ${xMode === 'distance'
                   ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900'
                   : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}`}
               >
@@ -879,7 +879,7 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
               </button>
               <button
                 onClick={() => switchXMode('time')}
-                className={`px-2.5 py-0.5 transition-colors border-l border-neutral-300 dark:border-neutral-600 ${xMode === 'time'
+                className={`cursor-pointer px-2.5 py-0.5 transition-colors border-l border-neutral-300 dark:border-neutral-600 ${xMode === 'time'
                   ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900'
                   : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}`}
               >

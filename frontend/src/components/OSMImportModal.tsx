@@ -127,7 +127,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="text-base font-semibold">OSM Import-Assistent</h2>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
+          <button onClick={onClose} className="cursor-pointer text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
             <X size={18} />
           </button>
         </div>
@@ -142,7 +142,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                 <button
                   key={c}
                   onClick={() => setActiveContinent(c)}
-                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  className={`cursor-pointer px-3 py-1 rounded-full text-xs font-medium transition-colors ${
                     activeContinent === c
                       ? 'bg-accent-DEFAULT text-white'
                       : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
@@ -165,7 +165,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                       key={r.id}
                       onClick={() => toggleRegion(r.id)}
                       title={`${formatSize(r.size_mb)}${large ? ' — Import kann mehrere Stunden dauern' : ''}`}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                      className={`cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                         selected
                           ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
                           : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-accent-DEFAULT'
@@ -192,7 +192,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                     ? setSelectedCategories([])
                     : setSelectedCategories(ALL_CATEGORIES.map(c => c.id))
                 }
-                className="text-xs text-accent-DEFAULT hover:underline"
+                className="cursor-pointer text-xs text-accent-DEFAULT hover:underline"
               >
                 {allSelected ? 'Alle abwählen' : 'Alle auswählen'}
               </button>
@@ -207,7 +207,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                     <h4 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">{group}</h4>
                     <button
                       type="button"
-                      className="text-xs text-accent-DEFAULT hover:text-accent-700"
+                      className="cursor-pointer text-xs text-accent-DEFAULT hover:text-accent-700"
                       onClick={() => selectGroup(group)}
                     >
                       {groupAllSelected ? 'Gruppe abwählen' : 'Alle'}
@@ -290,7 +290,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
             <button
               onClick={onClose}
               disabled={mutation.isPending}
-              className="px-4 py-2 rounded-lg text-sm font-medium border border-border text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 transition-colors"
+              className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium border border-border text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 transition-colors"
             >
               Abbrechen
             </button>

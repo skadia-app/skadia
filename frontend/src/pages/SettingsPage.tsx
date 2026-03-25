@@ -382,7 +382,7 @@ function PhotoPreviewSection() {
               <button
                 onClick={onClick}
                 disabled={isLoading}
-                className="whitespace-nowrap px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[200px]"
+                className="cursor-pointer whitespace-nowrap px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[200px]"
               >
                 {label}
               </button>
@@ -2132,7 +2132,7 @@ function ImportSettingsSection() {
             <button
               onClick={handlePhashBackfill}
               disabled={phashBackfillPending}
-              className="whitespace-nowrap px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[200px]"
+              className="cursor-pointer whitespace-nowrap px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[200px]"
             >
               {phashBackfillPending ? 'Startet…' : 'pHash neu berechnen'}
             </button>

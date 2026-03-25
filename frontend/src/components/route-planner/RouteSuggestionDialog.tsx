@@ -179,7 +179,7 @@ export default function RouteSuggestionDialog({
           </div>
           <button
             onClick={onClose}
-            className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 transition-colors"
+            className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 transition-colors cursor-pointer"
             aria-label="Dialog schließen"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -389,14 +389,14 @@ export default function RouteSuggestionDialog({
         <div className="shrink-0 px-5 py-4 border-t border-neutral-200 dark:border-neutral-800 flex gap-2 justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-md text-sm font-medium bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-900 dark:text-neutral-50 transition-colors"
+            className="px-4 py-2 rounded-md text-sm font-medium bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-900 dark:text-neutral-50 transition-colors cursor-pointer"
           >
             Abbrechen
           </button>
           <button
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending}
-            className="px-4 py-2 rounded-md text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity flex items-center gap-2"
+            className="px-4 py-2 rounded-md text-sm font-medium text-white disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed hover:opacity-90 transition-opacity flex items-center gap-2"
             style={{ backgroundColor: accent.shade500 }}
           >
             {mutation.isPending ? (

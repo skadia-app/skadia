@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { updateSegment, type Segment } from '@/api/segments'
 import { ModalShell } from '@/components/ui/ModalShell'
+import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 
 interface Props {
   segment: Segment
@@ -75,7 +76,7 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
           value={name}
           onChange={e => setName(e.target.value)}
           placeholder="Name *"
-          className="w-full border border-neutral-700 rounded-lg px-3 py-2 text-sm bg-neutral-800 text-neutral-100"
+          className={AUTH_INPUT_CLASS}
         />
 
         <textarea
@@ -83,7 +84,7 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
           onChange={e => setDescription(e.target.value)}
           placeholder="Beschreibung (optional)"
           rows={2}
-          className="w-full border border-neutral-700 rounded-lg px-3 py-2 text-sm bg-neutral-800 text-neutral-100"
+          className={`${AUTH_INPUT_CLASS} resize-none`}
         />
 
         {segment.segment_type === 'trail' && (
@@ -91,7 +92,7 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
             <select
               value={diffColor}
               onChange={e => setDiffColor(e.target.value)}
-              className="w-full border border-neutral-700 rounded-lg px-3 py-2 text-sm bg-neutral-800 text-neutral-100"
+              className={AUTH_INPUT_CLASS}
             >
               <option value="">Farbe — keine</option>
               <option value="blue">Blau (leicht)</option>
@@ -101,7 +102,7 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
             <select
               value={sacScale}
               onChange={e => setSacScale(e.target.value)}
-              className="w-full border border-neutral-700 rounded-lg px-3 py-2 text-sm bg-neutral-800 text-neutral-100"
+              className={AUTH_INPUT_CLASS}
             >
               <option value="">SAC-Skala — keine</option>
               {SAC_SCALES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -109,7 +110,7 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
             <select
               value={mtbScale}
               onChange={e => setMtbScale(e.target.value)}
-              className="w-full border border-neutral-700 rounded-lg px-3 py-2 text-sm bg-neutral-800 text-neutral-100"
+              className={AUTH_INPUT_CLASS}
             >
               <option value="">MTB-Skala — keine</option>
               {MTB_SCALES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -180,14 +181,14 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
         <div className="flex gap-2 justify-end">
           <button
             onClick={onClose}
-            className="px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800"
+            className="cursor-pointer px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800"
           >
             Abbrechen
           </button>
           <button
             onClick={() => mutation.mutate()}
             disabled={!name.trim() || mutation.isPending}
-            className="px-4 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600 disabled:opacity-50"
+            className="cursor-pointer px-4 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {mutation.isPending ? 'Speichern...' : 'Speichern'}
           </button>

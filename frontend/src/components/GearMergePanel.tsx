@@ -37,7 +37,7 @@ export default function GearMergePanel({ onClose }: { onClose: () => void }) {
     return (
       <div className="text-center py-8">
         <p className="text-neutral-500 dark:text-neutral-400 text-sm">Keine möglichen Duplikate gefunden.</p>
-        <button onClick={onClose} className="mt-4 text-sm text-accent-DEFAULT hover:text-accent-600 font-medium transition-colors">
+        <button onClick={onClose} className="cursor-pointer mt-4 text-sm text-accent-DEFAULT hover:text-accent-600 font-medium transition-colors">
           Schließen
         </button>
       </div>

@@ -383,7 +383,7 @@ export default function ChatProfileSettings() {
               <button
                 type="button"
                 onClick={handleResetToPreset}
-                className="text-xs text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+                className="cursor-pointer text-xs text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
                 title="Auf Preset-Standardwerte zurücksetzen"
               >
                 ↺

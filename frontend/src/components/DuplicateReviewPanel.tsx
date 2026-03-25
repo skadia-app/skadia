@@ -149,7 +149,7 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
       <div className="pt-2">
         <button
           onClick={onDone}
-          className="w-full border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 rounded-lg px-4 py-2 text-sm font-medium text-neutral-600 dark:text-neutral-400 transition-colors"
+          className="cursor-pointer w-full border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 rounded-lg px-4 py-2 text-sm font-medium text-neutral-600 dark:text-neutral-400 transition-colors"
         >
           {visible.length > 0 ? 'Restliche überspringen und weiter' : doneLabel}
         </button>

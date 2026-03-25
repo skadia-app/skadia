@@ -8,6 +8,7 @@ import {
 import { useToast } from '@/lib/toast'
 import type { GearDocument } from '@/api/types'
 import { ModalShell } from '@/components/ui/ModalShell'
+import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 
 interface Props {
   gearId: string
@@ -393,11 +394,11 @@ function UploadDialog({
           {/* Form fields */}
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
-              <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1 block">Typ</label>
+              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1 block">Typ</label>
               <select
                 value={docType}
                 onChange={e => setDocType(e.target.value)}
-                className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-DEFAULT,#F97316)]/40"
+                className={AUTH_INPUT_CLASS}
               >
                 <option value="receipt">Rechnung</option>
                 <option value="warranty">Garantie</option>
@@ -408,29 +409,29 @@ function UploadDialog({
             </div>
 
             <div className="col-span-2">
-              <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1 block">Titel (optional)</label>
+              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1 block">Titel (optional)</label>
               <input
                 type="text"
                 value={title}
                 onChange={e => setTitle(e.target.value)}
                 placeholder="z.B. Kaufbeleg Canyon Spectral"
-                className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-DEFAULT,#F97316)]/40"
+                className={AUTH_INPUT_CLASS}
               />
             </div>
 
             <div>
-              <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1 block">Datum (optional)</label>
+              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1 block">Datum (optional)</label>
               <input
                 type="date"
                 value={docDate}
                 onChange={e => setDocDate(e.target.value)}
-                className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-DEFAULT,#F97316)]/40"
+                className={AUTH_INPUT_CLASS}
               />
             </div>
 
             <div className="flex gap-2">
               <div className="flex-1">
-                <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1 block">Betrag</label>
+                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1 block">Betrag</label>
                 <input
                   type="number"
                   step="0.01"
@@ -438,15 +439,15 @@ function UploadDialog({
                   value={amount}
                   onChange={e => setAmount(e.target.value)}
                   placeholder="0,00"
-                  className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-DEFAULT,#F97316)]/40"
+                  className={AUTH_INPUT_CLASS}
                 />
               </div>
               <div className="w-20">
-                <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1 block">Währung</label>
+                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1 block">Währung</label>
                 <select
                   value={currency}
                   onChange={e => setCurrency(e.target.value)}
-                  className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-DEFAULT,#F97316)]/40"
+                  className={AUTH_INPUT_CLASS}
                 >
                   <option value="EUR">EUR</option>
                   <option value="USD">USD</option>

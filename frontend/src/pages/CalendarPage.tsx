@@ -377,14 +377,14 @@ export default function CalendarPage() {
               <button
                 onClick={goBack}
                 className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
-                           text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+                           text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
               >
                 ‹
               </button>
               <button
                 onClick={goForward}
                 className="px-2.5 py-1.5 text-xs rounded-md border border-neutral-200 dark:border-neutral-700
-                           text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+                           text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
               >
                 ›
               </button>
@@ -398,7 +398,7 @@ export default function CalendarPage() {
                   onClick={goPrevYear}
                   className="p-1.5 rounded-md border border-neutral-200 dark:border-neutral-700
                              text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700
-                             hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
+                             hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer transition-colors"
                   title="Vorheriges Jahr"
                 >
                   <ChevronLeft className="w-4 h-4" />

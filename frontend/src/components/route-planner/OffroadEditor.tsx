@@ -567,7 +567,7 @@ export default function OffroadEditor({
           aria-checked={smooth}
           onClick={handleToggleSmooth}
           className={[
-            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors cursor-pointer',
             smooth
               ? 'bg-orange-500 border-orange-500 text-white'
               : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800',
@@ -603,7 +603,7 @@ export default function OffroadEditor({
           onClick={handleUndoLast}
           disabled={controlPoints.length === 0}
           title="Letzten Punkt entfernen"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed transition-colors"
         >
           <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M3 8 L7 4 L7 6 C10 6 13 8 13 12" strokeLinecap="round" strokeLinejoin="round" />
@@ -618,7 +618,7 @@ export default function OffroadEditor({
           onClick={handleClearAll}
           disabled={controlPoints.length === 0}
           title="Alle Punkte löschen"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-red-200 dark:border-red-900 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-red-200 dark:border-red-900 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed transition-colors"
         >
           <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M4 4 L12 12 M12 4 L4 12" strokeLinecap="round" />

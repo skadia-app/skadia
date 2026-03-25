@@ -81,7 +81,7 @@ export default function DateRangePopover({
                         p-1 min-w-max">
           <button
             onClick={handleToday}
-            className="w-full px-3 py-1.5 text-xs text-left rounded transition-colors
+            className="cursor-pointer w-full px-3 py-1.5 text-xs text-left rounded transition-colors
                        text-neutral-700 dark:text-neutral-300
                        hover:bg-neutral-50 dark:hover:bg-neutral-800"
           >
@@ -89,7 +89,7 @@ export default function DateRangePopover({
           </button>
           <button
             onClick={handleNextWeek}
-            className="w-full px-3 py-1.5 text-xs text-left rounded transition-colors
+            className="cursor-pointer w-full px-3 py-1.5 text-xs text-left rounded transition-colors
                        text-neutral-700 dark:text-neutral-300
                        hover:bg-neutral-50 dark:hover:bg-neutral-800"
           >
@@ -97,7 +97,7 @@ export default function DateRangePopover({
           </button>
           <button
             onClick={handleLastWeek}
-            className="w-full px-3 py-1.5 text-xs text-left rounded transition-colors
+            className="cursor-pointer w-full px-3 py-1.5 text-xs text-left rounded transition-colors
                        text-neutral-700 dark:text-neutral-300
                        hover:bg-neutral-50 dark:hover:bg-neutral-800"
           >

@@ -57,7 +57,7 @@ export default function ChatInput({ onSend, disabled, placeholder = 'Frag mich e
       <button
         onClick={handleSend}
         disabled={disabled || !value.trim()}
-        className="p-2 rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 transition-colors flex-shrink-0"
+        className="cursor-pointer p-2 rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 transition-colors flex-shrink-0"
       >
         <SendHorizonal className="w-4 h-4" />
       </button>
