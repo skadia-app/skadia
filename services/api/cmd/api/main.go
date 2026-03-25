@@ -22,6 +22,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/handler"
 	analyticshandler "github.com/skadia-app/skadia/services/api/internal/handler/analytics"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -106,13 +107,40 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Ensure media bucket exists
-	mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
-	if mediaBucket == "" {
-		mediaBucket = "skadia-media"
+	// Ensure media bucket exists (only when using legacy S3/Garage directly)
+	if cfg.StorageBackend == "s3" {
+		mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
+		if mediaBucket == "" {
+			mediaBucket = "skadia-media"
+		}
+		if err := s3Client.EnsureBucket(ctx, mediaBucket); err != nil {
+			slog.Warn("could not ensure media bucket", "error", err)
+		}
 	}
-	if err := s3Client.EnsureBucket(ctx, mediaBucket); err != nil {
-		slog.Warn("could not ensure media bucket", "error", err)
+
+	// FileStore (unified storage)
+	var store filestore.FileStore
+	switch cfg.StorageBackend {
+	case "s3":
+		store = filestore.NewS3FileStore(db.Pool, filestore.S3Config{
+			Endpoint:       cfg.S3Endpoint,
+			AccessKey:      cfg.S3AccessKey,
+			SecretKey:      cfg.S3SecretKey,
+			Bucket:         cfg.S3Bucket,
+			Region:         cfg.S3Region,
+			ForcePathStyle: cfg.S3ForcePathStyle,
+			BucketActivity: cfg.S3BucketActivity,
+			BucketMedia:    cfg.S3BucketMedia,
+		}, cfg.LibraryKeepVersions, cfg.MaxUserStorageBytes)
+		slog.Info("filestore: S3 backend active", "bucket", cfg.S3Bucket)
+	default:
+		localStore, err := filestore.NewLocalFileStore(db.Pool, cfg.LibraryBasePath, filestore.NewSchemaRenderer(), cfg.LibraryKeepVersions, cfg.MaxUserStorageBytes)
+		if err != nil {
+			slog.Error("failed to create local FileStore", "error", err)
+			os.Exit(1)
+		}
+		store = localStore
+		slog.Info("filestore: local backend active", "path", cfg.LibraryBasePath)
 	}
 
 	// NATS (optional - log warning if unavailable)
@@ -164,6 +192,7 @@ func main() {
 		DB:            db,
 		Storage:       s3Client,
 		Events:        pub,
+		FileStore:     store,
 		ShadowFS: shadowFSCfg,
 		ImportService: importSvc,
 		Config: &handler.HandlerConfig{
