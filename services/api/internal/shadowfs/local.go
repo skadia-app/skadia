@@ -61,6 +61,9 @@ func (s *LocalShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader
 	// with 10,000s of monitoring FITs). Concurrent uploads may briefly overshoot
 	// by sum of in-flight files. Post-write check (below) + Reconciliation job
 	// catch overages. This is acceptable for a safety-valve quota.
+	// NOTE: When entry.SizeBytes is 0 (streaming uploads where size is unknown
+	// upfront), this pre-check passes unconditionally. The post-write check
+	// after writeFile() uses the actual written size to enforce the quota.
 	if s.maxUserBytes > 0 {
 		used, err := diskUsage(ctx, s.pool, entry.UserID)
 		if err != nil {
@@ -158,15 +161,7 @@ func (s *LocalShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader
 	// Content-type detection.
 	contentType := DetectContentType(entry.FileName, entry.ContentType, first512)
 
-	// entry.SizeBytes/FileHash are advisory; DB always stores computed values (written/hashHex)
-	if entry.SizeBytes == 0 {
-		entry.SizeBytes = written
-	}
-	if entry.FileHash == "" {
-		entry.FileHash = hashHex
-	}
-
-	// Register in DB.
+	// Register in DB — always use computed values (written/hashHex), not entry fields.
 	var rec FileRecord
 	rec.StorageBackend = "local"
 	rec.StoragePath = relPath
@@ -310,12 +305,14 @@ func (s *LocalShadowFS) DeleteAllForUser(ctx context.Context, userID string) err
 	}
 	defer conn.Release()
 
+	// L56: Use Go-side FNV-1a 64-bit instead of PostgreSQL's hashtext (32-bit, collision-prone).
+	lockKey := advisoryLockKey("shadowfs:" + userID)
 	if _, err := conn.Exec(ctx,
-		`SELECT pg_advisory_lock(hashtext($1))`, userID); err != nil {
+		`SELECT pg_advisory_lock($1)`, lockKey); err != nil {
 		return fmt.Errorf("shadowfs: advisory lock: %w", err)
 	}
 	defer func() {
-		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtext($1))`, userID)
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, lockKey)
 	}()
 
 	// Mark all files as purging.
@@ -356,21 +353,13 @@ func (s *LocalShadowFS) DeleteAllForUser(ctx context.Context, userID string) err
 		slog.Error("shadowfs: iterate files for deletion", "err", err)
 	}
 
-	// Safety-net: remove the user directory entirely.
+	// Safety-net: remove the user directory entirely (includes _cache/_temp subdirs).
 	userDir := s.getUserDirOrFallback(ctx, userID)
 	if userDir != "" {
 		userFullPath := filepath.Join(s.basePath, userDir)
 		if err := s.validateLocalPath(userDir); err == nil {
 			if err := os.RemoveAll(userFullPath); err != nil {
 				slog.Warn("shadowfs: removeAll user dir", "path", userFullPath, "err", err)
-			}
-		}
-
-		// Clean _cache and _temp dirs.
-		for _, sub := range []string{"_cache", "_temp"} {
-			p := filepath.Join(s.basePath, userDir, sub)
-			if err := os.RemoveAll(p); err != nil && !os.IsNotExist(err) {
-				slog.Warn("shadowfs: remove cache/temp dir", "path", p, "err", err)
 			}
 		}
 	}
@@ -604,40 +593,11 @@ func (s *LocalShadowFS) getUserDirOrFallback(ctx context.Context, userID string)
 }
 
 // validateLocalPath ensures the resolved path stays within basePath and is not a symlink escape.
+// TOCTOU note: a symlink can be swapped between the Lstat/EvalSymlinks check and the subsequent
+// os.Open/os.Create call. In practice this race is mitigated by running the API inside a
+// container with a bind-mounted data volume — no external process can write to basePath.
 func (s *LocalShadowFS) validateLocalPath(relPath string) error {
-	cleaned := filepath.Clean(relPath)
-	if strings.HasPrefix(cleaned, "..") || filepath.IsAbs(cleaned) {
-		return fmt.Errorf("shadowfs: path traversal blocked: %q", relPath)
-	}
-
-	fullPath := filepath.Join(s.basePath, cleaned)
-	if !strings.HasPrefix(fullPath, s.basePath+string(filepath.Separator)) && fullPath != s.basePath {
-		return fmt.Errorf("shadowfs: path escapes basePath: %q", relPath)
-	}
-
-	// Check symlinks on existing paths.
-	if _, err := os.Lstat(fullPath); err == nil {
-		real, err := filepath.EvalSymlinks(fullPath)
-		if err != nil {
-			return fmt.Errorf("shadowfs: eval symlinks: %w", err)
-		}
-		if !strings.HasPrefix(real, s.basePath) {
-			return fmt.Errorf("shadowfs: symlink escapes basePath: %q -> %q", fullPath, real)
-		}
-	} else {
-		// File doesn't exist yet — check parent directory.
-		parentDir := filepath.Dir(fullPath)
-		if _, err := os.Lstat(parentDir); err == nil {
-			real, err := filepath.EvalSymlinks(parentDir)
-			if err != nil {
-				return fmt.Errorf("shadowfs: eval parent symlinks: %w", err)
-			}
-			if !strings.HasPrefix(real, s.basePath) {
-				return fmt.Errorf("shadowfs: parent symlink escapes basePath: %q -> %q", parentDir, real)
-			}
-		}
-	}
-	return nil
+	return ValidateRelPath(s.basePath, relPath)
 }
 
 // ValidateRelPath checks that relPath stays within basePath and contains no

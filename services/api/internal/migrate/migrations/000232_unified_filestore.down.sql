@@ -1,6 +1,9 @@
 -- 000232_unified_filestore.down.sql
 
--- Reverse-copy activity schemas back to users.file_naming_schema
+-- Reverse-copy activity schemas back to users.file_naming_schema.
+-- NOTE: This roundtrip is lossy — schemas for media/document/health/route types
+-- are dropped, and the leading '/' strip (applied in the UP migration) is not reversed.
+-- Only use this rollback in dev/test environments, never on production data.
 UPDATE users SET file_naming_schema = (
     SELECT schema_template FROM user_file_schemas
     WHERE user_file_schemas.user_id = users.id AND file_type = 'activity'

@@ -164,6 +164,17 @@ func (m *MigrateJob) migrateActivities(ctx context.Context) (int, error) {
 }
 
 func (m *MigrateJob) registerActivityLocal(ctx context.Context, id, userID, localPath string) error {
+	// L42: Normalize storage_path to relative before storing.
+	// Legacy local_file_path may be absolute; user_files expects relative paths.
+	if m.shadowFSBase != "" && strings.HasPrefix(localPath, m.shadowFSBase) {
+		localPath = strings.TrimPrefix(localPath, m.shadowFSBase)
+		localPath = strings.TrimPrefix(localPath, "/")
+	}
+	if m.basePath != "" && strings.HasPrefix(localPath, m.basePath) {
+		localPath = strings.TrimPrefix(localPath, m.basePath)
+		localPath = strings.TrimPrefix(localPath, "/")
+	}
+
 	tx, err := m.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -306,7 +317,7 @@ func (m *MigrateJob) migrateActivityPhotos(ctx context.Context) (int, error) {
 		}
 
 		for _, r := range batch {
-			if err := m.registerS3File(ctx, "activity_photos", r.id, r.userID,
+			if err := m.registerS3FileCol(ctx,"activity_photos", r.id, r.userID,
 				r.s3Key, "media", "file_id", "image/jpeg"); err != nil {
 				slog.Warn("shadowfs migration: activity_photos failed", "id", r.id, "error", err)
 			} else {
@@ -369,7 +380,7 @@ func (m *MigrateJob) migrateGearDocuments(ctx context.Context) (int, error) {
 		}
 
 		for _, r := range batch {
-			if err := m.registerS3File(ctx, "gear_documents", r.id, r.userID,
+			if err := m.registerS3FileCol(ctx,"gear_documents", r.id, r.userID,
 				r.s3Key, "document", "file_id", "application/octet-stream"); err != nil {
 				slog.Warn("shadowfs migration: gear_documents failed", "id", r.id, "error", err)
 			} else {
@@ -431,7 +442,7 @@ func (m *MigrateJob) migrateRoutePhotos(ctx context.Context) (int, error) {
 		}
 
 		for _, r := range batch {
-			if err := m.registerS3File(ctx, "route_photos", r.id, r.userID,
+			if err := m.registerS3FileCol(ctx,"route_photos", r.id, r.userID,
 				r.s3Key, "media", "file_id", "image/jpeg"); err != nil {
 				slog.Warn("shadowfs migration: route_photos failed", "id", r.id, "error", err)
 			} else {
@@ -591,13 +602,23 @@ func (m *MigrateJob) migrateCustomMapMarkers(ctx context.Context) (int, error) {
 
 // ── shared helpers ────────────────────────────────────────────────────────────
 
-// registerS3File inserts a user_files row backed by S3 and links it via
-// file_id on the domain table. Uses "file_id" as the column name.
-func (m *MigrateJob) registerS3File(
-	ctx context.Context,
-	table, id, userID, s3Key, fileType, fileIDCol, contentType string,
-) error {
-	return m.registerS3FileCol(ctx, table, id, userID, s3Key, fileType, fileIDCol, contentType)
+// allowedMigrationTables is the set of domain tables that registerS3FileCol
+// may update. This prevents SQL injection if table/column values were ever
+// sourced from external input (defensive: currently all compile-time constants).
+var allowedMigrationTables = map[string]bool{
+	"activities":         true,
+	"activity_photos":    true,
+	"gear_documents":     true,
+	"route_photos":       true,
+	"tags":               true,
+	"custom_map_markers": true,
+}
+
+// allowedMigrationColumns is the set of columns that registerS3FileCol may SET.
+var allowedMigrationColumns = map[string]bool{
+	"file_id":       true,
+	"cover_file_id": true,
+	"image_file_id": true,
 }
 
 // registerS3FileCol handles the generic case for any domain table / column.
@@ -605,6 +626,14 @@ func (m *MigrateJob) registerS3FileCol(
 	ctx context.Context,
 	table, id, userID, s3Key, fileType, fileIDCol, contentType string,
 ) error {
+	// L6: Allowlist check to prevent SQL injection via table/column names.
+	if !allowedMigrationTables[table] {
+		return fmt.Errorf("disallowed migration table: %q", table)
+	}
+	if !allowedMigrationColumns[fileIDCol] {
+		return fmt.Errorf("disallowed migration column: %q", fileIDCol)
+	}
+
 	tx, err := m.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -675,6 +704,7 @@ func (m *MigrateJob) extractS3Key(url string) string {
 	if url == "" {
 		return ""
 	}
+	var key string
 	// Accept: "https://garage.example.com/skadia/media/abc.jpg"
 	//         "/skadia/media/abc.jpg"
 	//         "media/abc.jpg"
@@ -682,14 +712,21 @@ func (m *MigrateJob) extractS3Key(url string) string {
 	if m.s3Bucket != "" {
 		needle := "/" + m.s3Bucket + "/"
 		if idx := strings.Index(url, needle); idx >= 0 {
-			return url[idx+len(needle):]
+			key = url[idx+len(needle):]
 		}
 	}
-	// Bare key (no bucket prefix in URL): accept as-is if not a full HTTP URL.
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		return strings.TrimPrefix(url, "/")
+	if key == "" {
+		// Bare key (no bucket prefix in URL): accept as-is if not a full HTTP URL.
+		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+			key = strings.TrimPrefix(url, "/")
+		}
 	}
-	return ""
+	// Reject keys with path traversal components.
+	if key != "" && strings.Contains(key, "..") {
+		slog.Warn("shadowfs migration: rejecting S3 key with path traversal", "url", url, "key", key)
+		return ""
+	}
+	return key
 }
 
 // ── Phase 2: File Move ───────────────────────────────────────────────────────
@@ -718,7 +755,7 @@ func (m *MigrateJob) RunFileMove(ctx context.Context, jobID string) error {
 
 	slog.Info("shadowfs migrate: starting file move (Phase 2)", "job_id", jobID)
 
-	// H5: Recover any pending journal entries from a previous crashed run.
+	// Recover any pending journal entries from a previous crashed run.
 	if err := m.recoverPendingMoves(ctx); err != nil {
 		slog.Error("shadowfs migrate: recover pending moves failed", "error", err)
 		// Non-fatal: continue with the main migration.
@@ -858,7 +895,7 @@ func (m *MigrateJob) moveOneFile(ctx context.Context, e moveEntry) error {
 	oldFull := filepath.Join(m.basePath, e.storagePath)
 	newFull := filepath.Join(m.basePath, newRelPath)
 
-	// H5: Write a pending journal entry BEFORE the rename so that a crash between
+	// Write a pending journal entry BEFORE the rename so that a crash between
 	// rename and DB update can be recovered on restart.
 	// Verify old file exists first to avoid pointless journal writes.
 	if _, err := os.Stat(oldFull); err != nil {
@@ -891,6 +928,8 @@ func (m *MigrateJob) moveOneFile(ctx context.Context, e moveEntry) error {
 			return fmt.Errorf("rename: %w", err)
 		}
 		tmpPath := newFull + ".tmp"
+		// Remove stale .tmp from a previous crash so copyFile (O_EXCL) can succeed.
+		os.Remove(tmpPath) //nolint:errcheck
 		if err := copyFile(oldFull, tmpPath); err != nil {
 			return fmt.Errorf("copy: %w", err)
 		}
@@ -1059,13 +1098,15 @@ func (m *MigrateJob) buildTagsFromPath(storagePath, fileType string) map[string]
 	// Extract date components from paths like "username/activities/2025/03/15_14-30_running.fit"
 	parts := strings.Split(filepath.Clean(storagePath), string(filepath.Separator))
 
-	// Walk parts looking for 4-digit year.
+	// Walk parts looking for 4-digit year. Use the FIRST match to avoid
+	// overwriting with later year-like segments (e.g. directory UUIDs).
 	for i, p := range parts {
 		if len(p) == 4 && p >= "2000" && p <= "2099" {
 			tags["year"] = p
 			if i+1 < len(parts) && len(parts[i+1]) == 2 {
 				tags["month"] = parts[i+1]
 			}
+			break
 		}
 	}
 
@@ -1198,8 +1239,9 @@ func (m *MigrateJob) RunRollback(ctx context.Context, jobID string) error {
 					if !isCrossDevice(err) && !errors.Is(err, os.ErrInvalid) {
 						return err
 					}
-					// M22: Crash-safe cross-device copy via .tmp suffix.
+					// Crash-safe cross-device copy via .tmp suffix.
 					tmpPath := oldFull + ".tmp"
+					os.Remove(tmpPath) //nolint:errcheck — remove stale .tmp from previous crash
 					if err := copyFile(newFull, tmpPath); err != nil {
 						return err
 					}
@@ -1223,9 +1265,16 @@ func (m *MigrateJob) RunRollback(ctx context.Context, jobID string) error {
 			}
 
 			// Restore storage_path in user_files.
-			m.pool.Exec(ctx, //nolint:errcheck
+			if _, updateErr := m.pool.Exec(ctx,
 				`UPDATE user_files SET storage_path = $1, updated_at = NOW() WHERE id = $2`,
-				j.oldPath, j.fileID)
+				j.oldPath, j.fileID); updateErr != nil {
+				// Critical: file is physically at old path but registry still points to new path.
+				// Do NOT delete journal entry so recovery is still possible on retry.
+				slog.Error("shadowfs migrate rollback: failed to restore storage_path — journal preserved for retry",
+					"file_id", j.fileID, "error", updateErr)
+				failed++
+				continue
+			}
 
 			// Remove journal entry so it can be re-migrated.
 			m.pool.Exec(ctx, //nolint:errcheck

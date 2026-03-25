@@ -197,6 +197,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				meta := importer.ImportMetadata{
 					GarminActivityID: garminActivityID,
 					SourcePlatform:   "garmin",
+					ConflictStrategy: params.Options.ConflictStrategy,
 				}
 				msResult, msErr := params.ImportService.ProcessMultisport(ctx, params.UserID, sessions, fileBytes, hashStr, msFileID, "fit", ref.fileName, meta)
 				if msErr != nil {
@@ -265,7 +266,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		}
 		actResult, processErr := params.ImportService.ProcessActivity(ctx, params.UserID, data, fileBytes, meta)
 		if processErr != nil {
-			slog.Warn("garmin activities: ProcessActivity failed", "file", ref.fileName, "error", processErr)
+			slog.Error("garmin activities: ProcessActivity failed", "file", ref.fileName, "error", processErr)
 			result.Errors = append(result.Errors, fmt.Sprintf("process %s: %s", ref.fileName, processErr))
 			tracker.Error(ctx, processErr)
 			continue
@@ -282,13 +283,15 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		if format == "gpx" || format == "tcx" {
 			contentType = "application/xml"
 		}
+		// L34: Apply filepath.Base to prevent directory components in stored file names.
+		safeFileName := filepath.Base(ref.fileName)
 		var fileID string
 		if params.ShadowFS != nil {
 			rec, putErr := params.ShadowFS.Put(ctx, shadowfs.FileEntry{
 				UserID:      params.UserID,
 				FileType:    "activity",
 				ContentType: contentType,
-				FileName:    ref.fileName,
+				FileName:    safeFileName,
 				SizeBytes:   int64(len(fileBytes)),
 				FileHash:    hashStr,
 				Tags: map[string]string{
@@ -391,6 +394,9 @@ func readFileFromZipCached(cache map[string]*zip.ReadCloser, zipPath, fileName s
 		cache[zipPath] = zr
 	}
 
+	// M27: Cap per-entry reads to 500 MB to prevent zip-bomb OOM.
+	const maxZipEntryBytes = 500 << 20
+
 	for _, f := range zr.File {
 		if f.Name == fileName {
 			rc, err := f.Open()
@@ -398,9 +404,12 @@ func readFileFromZipCached(cache map[string]*zip.ReadCloser, zipPath, fileName s
 				return nil, fmt.Errorf("open file %s in zip: %w", fileName, err)
 			}
 			defer rc.Close()
-			data, err := io.ReadAll(rc)
+			data, err := io.ReadAll(io.LimitReader(rc, maxZipEntryBytes+1))
 			if err != nil {
 				return nil, fmt.Errorf("read file %s in zip: %w", fileName, err)
+			}
+			if len(data) > maxZipEntryBytes {
+				return nil, fmt.Errorf("file %s in zip exceeds %d byte limit", fileName, maxZipEntryBytes)
 			}
 			return data, nil
 		}
@@ -410,6 +419,9 @@ func readFileFromZipCached(cache map[string]*zip.ReadCloser, zipPath, fileName s
 
 // readFileFromZip extracts a single named file from a ZIP archive into memory.
 func readFileFromZip(zipPath, fileName string) ([]byte, error) {
+	// M27: Cap per-entry reads to 500 MB to prevent zip-bomb OOM.
+	const maxZipEntryBytes = 500 << 20
+
 	zr, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return nil, fmt.Errorf("open zip %s: %w", zipPath, err)
@@ -423,9 +435,12 @@ func readFileFromZip(zipPath, fileName string) ([]byte, error) {
 				return nil, fmt.Errorf("open file %s in zip: %w", fileName, err)
 			}
 			defer rc.Close()
-			data, err := io.ReadAll(rc)
+			data, err := io.ReadAll(io.LimitReader(rc, maxZipEntryBytes+1))
 			if err != nil {
 				return nil, fmt.Errorf("read file %s in zip: %w", fileName, err)
+			}
+			if len(data) > maxZipEntryBytes {
+				return nil, fmt.Errorf("file %s in zip exceeds %d byte limit", fileName, maxZipEntryBytes)
 			}
 			return data, nil
 		}

@@ -21,6 +21,23 @@ import (
 // ignoreTTL is the fixed duration a self-written path stays in the ignore list.
 const ignoreTTL = 10 * time.Minute
 
+// maxPendingSizes caps the pendingSizes map to prevent unbounded memory growth
+// when the watcher encounters a directory with a very large number of new files.
+const maxPendingSizes = 10_000
+
+// allowedExtensions is the set of activity file extensions that the watcher will
+// register as new files. Other files are ignored to prevent unrelated files
+// (logs, temp data, thumbnails) from polluting the user_files registry.
+var allowedExtensions = map[string]bool{
+	".fit":     true,
+	".gpx":     true,
+	".tcx":     true,
+	".gz":      true,
+	".fit.gz":  true,
+	".gpx.gz":  true,
+	".tcx.gz":  true,
+}
+
 // defaultInterval is the base polling interval.
 const defaultInterval = 60 * time.Second
 
@@ -78,7 +95,15 @@ func (w *LibraryWatcher) IgnorePath(path string) {
 }
 
 // Run starts the polling loop. It blocks until ctx is cancelled.
-// NOTE: The watcher is complementary to the Reconciliation job, not a replacement. The watcher detects real-time changes; the reconciler handles inconsistencies from crashes, manual edits, or missed events. Both are needed for full consistency.
+// NOTE: The watcher is complementary to the Reconciliation job, not a replacement.
+// The watcher detects real-time changes; the reconciler handles inconsistencies
+// from crashes, manual edits, or missed events. Both are needed for full consistency.
+//
+// The watcher uses directory mtime to detect changes, which on some
+// filesystems does not propagate when files in deep subdirectories change.
+// This is acceptable because the Reconciler performs periodic full-scans.
+// If sub-second detection of deep subdirectory changes becomes necessary,
+// consider adding an occasional forced full-scan (e.g. every 10th cycle).
 func (w *LibraryWatcher) Run(ctx context.Context) {
 	w.loadState()
 	slog.Info("library-watcher: started", "basePath", w.basePath, "interval", w.interval, "autoImport", w.autoImport)
@@ -140,7 +165,7 @@ func (w *LibraryWatcher) poll(ctx context.Context) {
 
 	if len(changedDirs) == 0 {
 		// Also check pending sizes even when no dir changed.
-		w.checkPendingSizes(ctx)
+		w.checkPendingSizes(ctx, userDirs)
 		w.saveState()
 		return
 	}
@@ -156,7 +181,8 @@ func (w *LibraryWatcher) poll(ctx context.Context) {
 	}
 
 	// Check pending sizes (files from previous cycles that need stability check).
-	w.checkPendingSizes(ctx)
+	// Reuse userDirs from poll() to avoid redundant DB query.
+	w.checkPendingSizes(ctx, userDirs)
 
 	w.saveState()
 }
@@ -259,6 +285,17 @@ func (w *LibraryWatcher) handleNewFile(ctx context.Context, absPath, relPath, us
 	// when the size is unchanged at the next poll cycle.
 	prevSize, pending := w.pendingSizes[absPath]
 	if !pending {
+		// Cap pendingSizes to prevent unbounded memory growth.
+		if len(w.pendingSizes) >= maxPendingSizes {
+			// Evict the oldest entry (arbitrary key — map iteration order is random,
+			// which is acceptable since all entries are equally stale).
+			for k := range w.pendingSizes {
+				slog.Warn("library-watcher: pendingSizes at capacity, evicting entry",
+					"evicted", k, "capacity", maxPendingSizes)
+				delete(w.pendingSizes, k)
+				break
+			}
+		}
 		// First time seeing this file — record and wait.
 		w.pendingSizes[absPath] = info.Size()
 		slog.Debug("library-watcher: new file detected, awaiting stability",
@@ -277,15 +314,17 @@ func (w *LibraryWatcher) handleNewFile(ctx context.Context, absPath, relPath, us
 	// Size is stable — process the file.
 	delete(w.pendingSizes, absPath)
 
-	// H8: Validate the path is not a symlink escaping the basePath.
+	// Validate the path is not a symlink escaping the basePath.
 	if err := validateWatcherPath(absPath, w.basePath); err != nil {
 		slog.Warn("library-watcher: path validation failed — skipping",
 			"path", absPath, "error", err)
 		return
 	}
 
-	// Attempt move/rename detection: check if any missing registered file
-	// has the same size and hash.
+	// Validate symlinks before hashing to prevent path traversal between
+	// detection and registry insertion. A minimal TOCTOU gap remains between
+	// validateWatcherPath and hashFile (both use the same path), but the
+	// registry INSERT uses ON CONFLICT to handle concurrent races safely.
 	hash, err := hashFile(absPath)
 	if err != nil {
 		slog.Warn("library-watcher: hash file failed", "error", err, "path", absPath)
@@ -313,6 +352,13 @@ func (w *LibraryWatcher) handleNewFile(ctx context.Context, absPath, relPath, us
 }
 
 // handleDeletedFile handles a file that is in the registry but missing from disk.
+//
+// Deleted-file detection in the watcher is complementary to the Reconciler
+// (checkDanglingRecords). The watcher provides near-real-time awareness of
+// disappeared files, while the Reconciler performs authoritative cleanup with
+// safety guards (>50% check, 1h grace period). The watcher intentionally does
+// NOT delete registry entries — it only logs, leaving the Reconciler to handle
+// actual cleanup to avoid race conditions with in-flight operations.
 func (w *LibraryWatcher) handleDeletedFile(_ context.Context, relPath string, rec registeredFile, userID string) {
 	// Check if the absolute path is in the ignore list (app may have moved it).
 	absPath := filepath.Join(w.basePath, relPath)
@@ -337,7 +383,7 @@ func (w *LibraryWatcher) detectMove(ctx context.Context, userID, newRelPath, has
 		userID, hash, size,
 	)
 	if err != nil {
-		return false, nil // No match — not a move.
+		return false, fmt.Errorf("query move candidates: %w", err)
 	}
 	defer rows.Close()
 
@@ -381,8 +427,24 @@ func (w *LibraryWatcher) detectMove(ctx context.Context, userID, newRelPath, has
 }
 
 // registerExternalFile inserts a new file record for an externally-added file.
+// Only files with allowed extensions (.fit, .gpx, .tcx, .gz) are registered.
 func (w *LibraryWatcher) registerExternalFile(ctx context.Context, relPath, userID string, info fs.FileInfo, hash string) {
 	fileName := filepath.Base(relPath)
+
+	// Extension whitelist: only register known activity file types.
+	lower := strings.ToLower(fileName)
+	allowed := false
+	for ext := range allowedExtensions {
+		if strings.HasSuffix(lower, ext) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		slog.Debug("library-watcher: skipping file with disallowed extension",
+			"path", relPath, "name", fileName)
+		return
+	}
 
 	// Read the first 512 bytes for magic-byte content-type detection.
 	// Fall back to extension-only if the file cannot be read.
@@ -503,18 +565,24 @@ func (w *LibraryWatcher) isIgnored(absPath string) bool {
 
 // checkPendingSizes re-checks files in pendingSizes that may now be stable.
 // Files whose source path no longer exists are removed from tracking.
-func (w *LibraryWatcher) checkPendingSizes(ctx context.Context) {
+// userDirs is passed from poll() to avoid a redundant listUserDirs DB call.
+func (w *LibraryWatcher) checkPendingSizes(ctx context.Context, userDirs map[string]string) {
 	if len(w.pendingSizes) == 0 {
 		return
 	}
 
-	userDirs, err := w.listUserDirs(ctx)
-	if err != nil {
-		slog.Error("library-watcher: list user dirs in checkPendingSizes", "error", err)
-		return
+	// Copy keys to a slice before iterating — handleNewFile mutates the
+	// map (deletes the entry on stable size), so ranging directly is unsafe.
+	keys := make([]string, 0, len(w.pendingSizes))
+	for absPath := range w.pendingSizes {
+		keys = append(keys, absPath)
 	}
 
-	for absPath := range w.pendingSizes {
+	for _, absPath := range keys {
+		if _, stillPending := w.pendingSizes[absPath]; !stillPending {
+			continue // already handled by handleNewFile in this loop
+		}
+
 		info, err := os.Stat(absPath)
 		if err != nil {
 			// File disappeared — stop tracking.
@@ -546,6 +614,10 @@ func (w *LibraryWatcher) checkPendingSizes(ctx context.Context) {
 }
 
 // adjustInterval adapts the polling interval based on recent activity.
+// NOTE: The interval is not reset eagerly after loadState(). If the persisted
+// lastChange is older than idleThreshold, the first adjustInterval call after
+// startup will immediately switch to idleInterval. This is intentional: a
+// restart after a long idle period should adopt the slower polling cadence.
 func (w *LibraryWatcher) adjustInterval(ticker *time.Ticker) {
 	var target time.Duration
 	if time.Since(w.lastChange) > idleThreshold {
@@ -593,6 +665,7 @@ func (w *LibraryWatcher) loadState() {
 }
 
 // saveState persists the mtime cache to disk.
+// Uses atomic write (.tmp + rename) to prevent corruption from crashes.
 func (w *LibraryWatcher) saveState() {
 	state := watcherState{
 		DirMtimes:  w.dirMtimes,
@@ -611,8 +684,15 @@ func (w *LibraryWatcher) saveState() {
 		return
 	}
 
-	if err := os.WriteFile(w.stateFile, data, 0o600); err != nil {
-		slog.Error("library-watcher: write state file", "error", err)
+	// Atomic write: write to .tmp, then rename.
+	tmpFile := w.stateFile + ".tmp"
+	if err := os.WriteFile(tmpFile, data, 0o600); err != nil {
+		slog.Error("library-watcher: write temp state file", "error", err)
+		return
+	}
+	if err := os.Rename(tmpFile, w.stateFile); err != nil {
+		slog.Error("library-watcher: rename state file", "error", err)
+		os.Remove(tmpFile) //nolint:errcheck
 	}
 }
 

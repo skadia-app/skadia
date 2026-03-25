@@ -2,9 +2,18 @@ package shadowfs
 
 import (
 	"context"
+	"hash/fnv"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// advisoryLockKey computes a 64-bit FNV-1a hash for use as a pg_advisory_lock key.
+// Replaces PostgreSQL's hashtext() which returns only 32 bits (collision-prone with UUIDs).
+func advisoryLockKey(s string) int64 {
+	h := fnv.New64a()
+	h.Write([]byte(s)) //nolint:errcheck
+	return int64(h.Sum64())
+}
 
 // listRecords queries user_files from the DB. Used by both backends.
 func listRecords(ctx context.Context, pool *pgxpool.Pool, userID string, fileType *string) ([]FileRecord, error) {

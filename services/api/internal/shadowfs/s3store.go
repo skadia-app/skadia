@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -22,6 +23,10 @@ import (
 )
 
 const (
+	// LIMITATION: S3ShadowFS.Put buffers the entire upload in memory (up to maxUploadBytes)
+	// because the AWS SDK PutObject requires a known Content-Length. For files approaching
+	// this limit, the API container needs at least 500 MB free heap. A future multipart-upload
+	// path would stream in 5 MB chunks. LocalShadowFS does not have this limitation.
 	maxUploadBytes = 500 << 20 // 500 MB
 	maxZipBytes    = 10 << 30  // 10 GB
 	presignExpiry  = 15 * time.Minute
@@ -115,12 +120,9 @@ func (s *S3ShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (
 		return FileRecord{}, fmt.Errorf("upload exceeds maximum size of %d bytes", maxUploadBytes)
 	}
 
-	// SHA256 hash.
+	// SHA256 hash — always use computed hash for DB storage, never trust caller-supplied entry.FileHash.
 	h := sha256.Sum256(buf)
 	hash := hex.EncodeToString(h[:])
-	if entry.FileHash == "" {
-		entry.FileHash = hash
-	}
 
 	// Edit sidecars require a ParentID.
 	if entry.FileType == "edit" && entry.ParentID == nil {
@@ -192,7 +194,7 @@ func (s *S3ShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (
 				file_name, size_bytes, file_hash, parent_type, parent_id, has_sidecar,
 				is_renaming, status, replaced_by, created_at, updated_at`,
 			fileID, entry.UserID, entry.FileType, s3Key, contentType,
-			entry.FileName, int64(len(buf)), entry.FileHash, entry.ParentType, entry.ParentID,
+			entry.FileName, int64(len(buf)), hash, entry.ParentType, entry.ParentID,
 			entry.HasSidecar,
 		).Scan(&rec.ID, &rec.UserID, &rec.FileType, &rec.StorageBackend, &rec.StoragePath,
 			&rec.ContentType, &rec.FileName, &rec.SizeBytes, &rec.FileHash, &rec.ParentType,
@@ -213,7 +215,7 @@ func (s *S3ShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (
 				file_name, size_bytes, file_hash, parent_type, parent_id, has_sidecar,
 				is_renaming, status, replaced_by, created_at, updated_at`,
 			fileID, entry.UserID, entry.FileType, s3Key, contentType,
-			entry.FileName, int64(len(buf)), entry.FileHash, entry.ParentType, entry.ParentID,
+			entry.FileName, int64(len(buf)), hash, entry.ParentType, entry.ParentID,
 			entry.HasSidecar,
 		).Scan(&rec.ID, &rec.UserID, &rec.FileType, &rec.StorageBackend, &rec.StoragePath,
 			&rec.ContentType, &rec.FileName, &rec.SizeBytes, &rec.FileHash, &rec.ParentType,
@@ -331,12 +333,14 @@ func (s *S3ShadowFS) DeleteAllForUser(ctx context.Context, userID string) error 
 	}
 	defer conn.Release()
 
+	// L56: Use Go-side FNV-1a 64-bit instead of PostgreSQL's hashtext (32-bit, collision-prone).
+	lockKey := advisoryLockKey("shadowfs:" + userID)
 	if _, err := conn.Exec(ctx,
-		`SELECT pg_advisory_lock(hashtext($1))`, userID); err != nil {
+		`SELECT pg_advisory_lock($1)`, lockKey); err != nil {
 		return fmt.Errorf("advisory lock: %w", err)
 	}
 	defer func() {
-		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtext($1))`, userID)
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, lockKey)
 	}()
 
 	// Mark all files as purging.
@@ -369,6 +373,10 @@ func (s *S3ShadowFS) DeleteAllForUser(ctx context.Context, userID string) error 
 			}
 		}
 	}
+
+	// Clean journal entries (parity with LocalShadowFS.DeleteAllForUser).
+	_, _ = conn.Exec(ctx,
+		`DELETE FROM migration_shadowfs_journal WHERE user_id = $1`, userID)
 
 	// Remove from DB.
 	_, err = conn.Exec(ctx,
@@ -530,12 +538,14 @@ func (s *S3ShadowFS) allBuckets() []string {
 }
 
 // deletePrefix deletes all objects under a prefix using batched DeleteObjects.
+// M32: Returns accumulated errors from partial batch failures instead of swallowing them.
 func (s *S3ShadowFS) deletePrefix(ctx context.Context, bucket, prefix string) error {
 	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(bucket),
 		Prefix: aws.String(prefix),
 	})
 
+	var errs []error
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
 		if err != nil {
@@ -555,7 +565,7 @@ func (s *S3ShadowFS) deletePrefix(ctx context.Context, bucket, prefix string) er
 				})
 			}
 
-			_, err := s.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+			out, err := s.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
 				Bucket: aws.String(bucket),
 				Delete: &s3types.Delete{
 					Objects: objects,
@@ -566,9 +576,20 @@ func (s *S3ShadowFS) deletePrefix(ctx context.Context, bucket, prefix string) er
 				slog.Error("batch delete failed",
 					"bucket", bucket, "prefix", prefix,
 					"batch_size", len(objects), "error", err)
+				errs = append(errs, err)
 				// Continue with remaining batches.
+			} else if out != nil && len(out.Errors) > 0 {
+				for _, e := range out.Errors {
+					slog.Error("s3 delete object error",
+						"bucket", bucket, "key", aws.ToString(e.Key),
+						"code", aws.ToString(e.Code), "message", aws.ToString(e.Message))
+					errs = append(errs, fmt.Errorf("s3 delete %s: %s", aws.ToString(e.Key), aws.ToString(e.Message)))
+				}
 			}
 		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("deletePrefix %s/%s: %d batch errors (first: %w)", bucket, prefix, len(errs), errs[0])
 	}
 	return nil
 }
@@ -601,10 +622,9 @@ func sanitizeExt(ext string) string {
 	var b strings.Builder
 	b.WriteByte('.')
 	for _, r := range ext[1:] {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-		} else if r >= 'A' && r <= 'Z' {
-			b.WriteRune(r + 32) // toLower
+		lower := unicode.ToLower(r)
+		if (lower >= 'a' && lower <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(lower)
 		}
 	}
 	if b.Len() == 1 {

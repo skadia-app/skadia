@@ -1764,24 +1764,31 @@ func (db *DB) GetGearDocument(ctx context.Context, docID string) (*model.GearDoc
 // DeleteGearDocument deletes a gear document and returns its storage info.
 // Returns (bucket, s3Key, fileID, error). fileID is non-empty when the doc
 // was stored via the ShadowFS registry; bucket/s3Key are set for legacy S3 docs.
-func (db *DB) DeleteGearDocument(ctx context.Context, docID, userID string) (string, string, string, error) {
-	var bucket, key string
-	var fileID *string
-	err := db.Pool.QueryRow(ctx,
-		`DELETE FROM gear_documents WHERE id = $1 AND user_id = $2 RETURNING s3_bucket, s3_key, file_id::text`,
+// DeleteGearDocument deletes a gear document and returns storage references for cleanup.
+// L39: Also returns s3_key_thumb so the caller can delete the thumbnail too.
+func (db *DB) DeleteGearDocument(ctx context.Context, docID, userID string) (bucket, key, thumbKey, fileID string, err error) {
+	var s3Bucket, s3Key string
+	var s3ThumbKey *string
+	var fID *string
+	err = db.Pool.QueryRow(ctx,
+		`DELETE FROM gear_documents WHERE id = $1 AND user_id = $2 RETURNING s3_bucket, s3_key, s3_key_thumb, file_id::text`,
 		docID, userID,
-	).Scan(&bucket, &key, &fileID)
+	).Scan(&s3Bucket, &s3Key, &s3ThumbKey, &fID)
 	if err == pgx.ErrNoRows {
-		return "", "", "", nil
+		return "", "", "", "", nil
 	}
 	if err != nil {
-		return "", "", "", fmt.Errorf("delete gear document: %w", err)
+		return "", "", "", "", fmt.Errorf("delete gear document: %w", err)
+	}
+	tk := ""
+	if s3ThumbKey != nil {
+		tk = *s3ThumbKey
 	}
 	fid := ""
-	if fileID != nil {
-		fid = *fileID
+	if fID != nil {
+		fid = *fID
 	}
-	return bucket, key, fid, nil
+	return s3Bucket, s3Key, tk, fid, nil
 }
 
 // UpdateGearDocumentFileID sets the file_id (ShadowFS registry ID) on a gear document.

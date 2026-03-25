@@ -280,6 +280,13 @@ func main() {
 			slog.Info("token cleanup completed at startup")
 		}
 
+		// M17: Run GDPR purge once at startup before entering the 24h ticker loop.
+		if err := db.PurgeDeletedUsers(ctx, func(ctx context.Context, userID string) error {
+			return store.DeleteAllForUser(ctx, userID)
+		}); err != nil {
+			slog.Error("startup GDPR purge failed", "error", err)
+		}
+
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 		for {

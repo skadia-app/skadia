@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/api/client'
 import { useToast } from '@/lib/toast'
 import {
@@ -26,7 +26,7 @@ const LABELS = {
     '-1': 'Alle behalten',
     '0': 'Löschen',
     '1': 'Letzte behalten',
-  } as Record<string, string>,
+  } satisfies Record<string, string>,
   syncEnabled: 'Sync aktiv',
   yes: 'Ja',
   no: 'Nein',
@@ -34,7 +34,6 @@ const LABELS = {
   backendS3: 'S3',
   usersTable: {
     heading: 'Speicherverbrauch pro Benutzer',
-    user: 'Benutzer',
     libraryDir: 'Verzeichnis',
     diskUsage: 'Aktiv',
     fileCount: 'Dateien',
@@ -49,18 +48,34 @@ const LABELS = {
     heading: 'Verwaltungsaktionen',
     populate: 'Registry befüllen',
     populateDesc: 'Befüllt user_files aus Legacy-Spalten (Phase 1 Migration)',
+    populateStarted: 'Registry befüllen gestartet',
+    populateRunning: 'Registry befüllen läuft bereits',
+    populateFailed: 'Registry befüllen fehlgeschlagen',
     migrate: 'Dateien migrieren',
     migrateDesc: 'Verschiebt Dateien in die neue Bibliotheksstruktur (Phase 2)',
+    migrateStarted: 'Dateien migrieren gestartet',
+    migrateRunning: 'Dateien migrieren läuft bereits',
+    migrateFailed: 'Migration fehlgeschlagen',
     reconcile: 'Abgleich starten',
     reconcileDesc: 'Prüft Konsistenz zwischen Dateisystem und user_files Registry',
+    reconcileStarted: 'Abgleich gestartet',
+    reconcileRunning: 'Abgleich läuft bereits',
+    reconcileFailed: 'Abgleich fehlgeschlagen',
     rollback: 'Migration zurückrollen',
     rollbackDesc: 'Verschiebt Dateien zurück in die ursprünglichen Speicherorte (Phase 2 Rollback)',
     rollbackConfirm: 'Migration wirklich zurückrollen? Alle Phase-2-Verschiebungen werden rückgängig gemacht.',
-    started: 'gestartet',
+    rollbackStarted: 'Rollback gestartet',
+    rollbackRunning: 'Rollback läuft bereits',
+    rollbackFailed: 'Rollback fehlgeschlagen',
+    sortBy: 'Sortieren nach',
   },
   loading: 'Lade Speicher-Statistiken...',
   error: 'Statistiken konnten nicht geladen werden.',
   refresh: 'Aktualisieren',
+  noUsers: 'Keine Benutzer gefunden',
+  rollbackConfirmButton: 'Bestätigen',
+  rollbackCancelButton: 'Abbrechen',
+  pendingLabel: 'Läuft...',
 }
 
 const FILE_TYPE_LABELS: Record<string, string> = {
@@ -104,7 +119,7 @@ type SortDir = 'asc' | 'desc'
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
+  if (bytes <= 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(1024))
   const val = bytes / Math.pow(1024, i)
@@ -147,6 +162,7 @@ function TypeCountCard({ type, count, maxCount }: { type: string; count: number;
           {FILE_TYPE_LABELS[type] ?? type}
         </span>
         <span className="tabular-nums font-medium text-neutral-900 dark:text-neutral-100">
+          {/* TODO(i18n): replace 'de-DE' with user locale */}
           {count.toLocaleString('de-DE')}
         </span>
       </div>
@@ -154,6 +170,11 @@ function TypeCountCard({ type, count, maxCount }: { type: string; count: number;
         <div
           className="h-full rounded-full bg-accent-DEFAULT transition-all duration-300"
           style={{ width: `${pct}%` }}
+          role="progressbar"
+          aria-valuenow={count}
+          aria-valuemin={0}
+          aria-valuemax={maxCount}
+          aria-label={FILE_TYPE_LABELS[type] ?? type}
         />
       </div>
     </div>
@@ -164,6 +185,7 @@ function TypeCountCard({ type, count, maxCount }: { type: string; count: number;
 
 export default function AdminStorageDashboard() {
   const { addToast } = useToast()
+  const queryClient = useQueryClient()
   const [sortKey, setSortKey] = useState<SortKey>('disk_usage_bytes')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [showRollbackConfirm, setShowRollbackConfirm] = useState(false)
@@ -174,63 +196,70 @@ export default function AdminStorageDashboard() {
     staleTime: 30_000,
   })
 
-  const populateMut = useMutation<ActionResponse>({
+  const populateMut = useMutation<ActionResponse, Error>({
     mutationFn: () => apiClient<ActionResponse>('/admin/storage/populate-registry', { method: 'POST' }),
     onSuccess: (res) => {
       if (res.status === 'already_running') {
-        addToast({ type: 'warning', title: 'Registry befüllen läuft bereits' })
+        addToast({ type: 'warning', title: LABELS.actions.populateRunning })
         return
       }
-      addToast({ type: 'success', title: `Registry befüllen ${LABELS.actions.started}`, message: `Job: ${res.job_id ?? '—'}` })
+      queryClient.invalidateQueries({ queryKey: ['admin-storage-dashboard'] })
+      addToast({ type: 'success', title: LABELS.actions.populateStarted, message: `Job: ${res.job_id ?? '—'}` })
     },
-    onError: () => {
-      addToast({ type: 'error', title: 'Registry befüllen fehlgeschlagen', duration: 0 })
+    onError: (err) => {
+      addToast({ type: 'error', title: LABELS.actions.populateFailed, message: err.message, duration: 0 })
     },
   })
 
-  const migrateMut = useMutation<ActionResponse>({
+  const migrateMut = useMutation<ActionResponse, Error>({
     mutationFn: () => apiClient<ActionResponse>('/admin/storage/migrate', { method: 'POST' }),
     onSuccess: (res) => {
       if (res.status === 'already_running') {
-        addToast({ type: 'warning', title: 'Dateien migrieren läuft bereits' })
+        addToast({ type: 'warning', title: LABELS.actions.migrateRunning })
         return
       }
-      addToast({ type: 'success', title: `Dateien migrieren ${LABELS.actions.started}`, message: `Job: ${res.job_id ?? '—'}` })
+      queryClient.invalidateQueries({ queryKey: ['admin-storage-dashboard'] })
+      addToast({ type: 'success', title: LABELS.actions.migrateStarted, message: `Job: ${res.job_id ?? '—'}` })
     },
-    onError: () => {
-      addToast({ type: 'error', title: 'Migration fehlgeschlagen', duration: 0 })
+    onError: (err) => {
+      addToast({ type: 'error', title: LABELS.actions.migrateFailed, message: err.message, duration: 0 })
     },
   })
 
-  const reconcileMut = useMutation<ActionResponse>({
+  const reconcileMut = useMutation<ActionResponse, Error>({
     mutationFn: () => apiClient<ActionResponse>('/admin/storage/reconcile', { method: 'POST' }),
     onSuccess: (res) => {
       if (res.status === 'already_running') {
-        addToast({ type: 'warning', title: 'Abgleich läuft bereits' })
+        addToast({ type: 'warning', title: LABELS.actions.reconcileRunning })
         return
       }
-      addToast({ type: 'success', title: `Abgleich ${LABELS.actions.started}`, message: `Job: ${res.job_id ?? '—'}` })
+      queryClient.invalidateQueries({ queryKey: ['admin-storage-dashboard'] })
+      addToast({ type: 'success', title: LABELS.actions.reconcileStarted, message: `Job: ${res.job_id ?? '—'}` })
     },
-    onError: () => {
-      addToast({ type: 'error', title: 'Abgleich fehlgeschlagen', duration: 0 })
+    onError: (err) => {
+      addToast({ type: 'error', title: LABELS.actions.reconcileFailed, message: err.message, duration: 0 })
     },
   })
 
-  const rollbackMut = useMutation<ActionResponse>({
+  const rollbackMut = useMutation<ActionResponse, Error>({
     mutationFn: () => apiClient<ActionResponse>('/admin/storage/migrate/rollback', { method: 'POST' }),
     onSuccess: (res) => {
       setShowRollbackConfirm(false)
       if (res.status === 'already_running') {
-        addToast({ type: 'warning', title: 'Rollback läuft bereits' })
+        addToast({ type: 'warning', title: LABELS.actions.rollbackRunning })
         return
       }
-      addToast({ type: 'success', title: `Rollback ${LABELS.actions.started}`, message: `Job: ${res.job_id ?? '—'}` })
+      queryClient.invalidateQueries({ queryKey: ['admin-storage-dashboard'] })
+      addToast({ type: 'success', title: LABELS.actions.rollbackStarted, message: `Job: ${res.job_id ?? '—'}` })
     },
-    onError: () => {
+    onError: (err) => {
       setShowRollbackConfirm(false)
-      addToast({ type: 'error', title: 'Rollback fehlgeschlagen', duration: 0 })
+      addToast({ type: 'error', title: LABELS.actions.rollbackFailed, message: err.message, duration: 0 })
     },
   })
+
+  const anyJobRunning =
+    populateMut.isPending || migrateMut.isPending || reconcileMut.isPending || rollbackMut.isPending
 
   function toggleSort(col: SortKey) {
     if (sortKey === col) {
@@ -334,37 +363,53 @@ export default function AdminStorageDashboard() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-neutral-500 dark:text-neutral-400 border-b border-neutral-100 dark:border-neutral-800">
-                  <th className="px-4 py-2 font-medium">
+                  <th
+                    className="px-4 py-2 font-medium"
+                    aria-sort={sortKey === 'library_dir' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  >
                     <button
                       className="flex items-center gap-1 cursor-pointer hover:text-neutral-700 dark:hover:text-neutral-200"
                       onClick={() => toggleSort('library_dir')}
+                      aria-label={`${LABELS.actions.sortBy} ${LABELS.usersTable.libraryDir}`}
                     >
                       {LABELS.usersTable.libraryDir}
                       <SortIcon col="library_dir" sortKey={sortKey} sortDir={sortDir} />
                     </button>
                   </th>
-                  <th className="px-4 py-2 font-medium text-right">
+                  <th
+                    className="px-4 py-2 font-medium text-right"
+                    aria-sort={sortKey === 'disk_usage_bytes' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  >
                     <button
                       className="flex items-center gap-1 cursor-pointer hover:text-neutral-700 dark:hover:text-neutral-200 ml-auto"
                       onClick={() => toggleSort('disk_usage_bytes')}
+                      aria-label={`${LABELS.actions.sortBy} ${LABELS.usersTable.diskUsage}`}
                     >
                       {LABELS.usersTable.diskUsage}
                       <SortIcon col="disk_usage_bytes" sortKey={sortKey} sortDir={sortDir} />
                     </button>
                   </th>
-                  <th className="px-4 py-2 font-medium text-right">
+                  <th
+                    className="px-4 py-2 font-medium text-right"
+                    aria-sort={sortKey === 'file_count' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  >
                     <button
                       className="flex items-center gap-1 cursor-pointer hover:text-neutral-700 dark:hover:text-neutral-200 ml-auto"
                       onClick={() => toggleSort('file_count')}
+                      aria-label={`${LABELS.actions.sortBy} ${LABELS.usersTable.fileCount}`}
                     >
                       {LABELS.usersTable.fileCount}
                       <SortIcon col="file_count" sortKey={sortKey} sortDir={sortDir} />
                     </button>
                   </th>
-                  <th className="px-4 py-2 font-medium text-right">
+                  <th
+                    className="px-4 py-2 font-medium text-right"
+                    aria-sort={sortKey === 'archive_size_bytes' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  >
                     <button
                       className="flex items-center gap-1 cursor-pointer hover:text-neutral-700 dark:hover:text-neutral-200 ml-auto"
                       onClick={() => toggleSort('archive_size_bytes')}
+                      aria-label={`${LABELS.actions.sortBy} ${LABELS.usersTable.archiveSize}`}
                     >
                       <Archive className="w-3 h-3" />
                       {LABELS.usersTable.archiveSize}
@@ -388,6 +433,7 @@ export default function AdminStorageDashboard() {
                         {formatBytes(user.disk_usage_bytes)}
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                        {/* TODO(i18n): replace 'de-DE' with user locale */}
                         {user.file_count.toLocaleString('de-DE')}
                       </td>
                       <td className="px-4 py-2.5 text-right">
@@ -396,7 +442,7 @@ export default function AdminStorageDashboard() {
                             ? 'text-amber-600 dark:text-amber-400 font-medium'
                             : 'text-neutral-700 dark:text-neutral-300'
                         }`}>
-                          {overLimit && <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-label={LABELS.archiveWarning} />}
+                          {overLimit && <AlertTriangle className="w-3.5 h-3.5 shrink-0" role="img" aria-label={LABELS.archiveWarning} />}
                           {formatBytes(user.archive_size_bytes)}
                         </span>
                       </td>
@@ -406,7 +452,7 @@ export default function AdminStorageDashboard() {
                 {sortedUsers.length === 0 && (
                   <tr>
                     <td colSpan={4} className="px-4 py-6 text-center text-sm text-neutral-400">
-                      Keine Benutzer gefunden
+                      {LABELS.noUsers}
                     </td>
                   </tr>
                 )}
@@ -454,10 +500,10 @@ export default function AdminStorageDashboard() {
             </div>
             <button
               onClick={() => populateMut.mutate()}
-              disabled={populateMut.isPending}
+              disabled={anyJobRunning}
               className="w-full px-3 py-1.5 rounded-lg text-sm font-medium bg-accent-DEFAULT hover:bg-accent-600 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
-              {populateMut.isPending ? 'Läuft...' : LABELS.actions.populate}
+              {populateMut.isPending ? LABELS.pendingLabel : LABELS.actions.populate}
             </button>
           </div>
 
@@ -472,10 +518,10 @@ export default function AdminStorageDashboard() {
             </div>
             <button
               onClick={() => migrateMut.mutate()}
-              disabled={migrateMut.isPending}
+              disabled={anyJobRunning}
               className="w-full px-3 py-1.5 rounded-lg text-sm font-medium bg-accent-DEFAULT hover:bg-accent-600 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
-              {migrateMut.isPending ? 'Läuft...' : LABELS.actions.migrate}
+              {migrateMut.isPending ? LABELS.pendingLabel : LABELS.actions.migrate}
             </button>
           </div>
 
@@ -490,10 +536,10 @@ export default function AdminStorageDashboard() {
             </div>
             <button
               onClick={() => reconcileMut.mutate()}
-              disabled={reconcileMut.isPending}
+              disabled={anyJobRunning}
               className="w-full px-3 py-1.5 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
-              {reconcileMut.isPending ? 'Läuft...' : LABELS.actions.reconcile}
+              {reconcileMut.isPending ? LABELS.pendingLabel : LABELS.actions.reconcile}
             </button>
           </div>
 
@@ -515,27 +561,27 @@ export default function AdminStorageDashboard() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => rollbackMut.mutate()}
-                    disabled={rollbackMut.isPending}
+                    disabled={anyJobRunning}
                     className="flex-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-500 hover:bg-amber-600 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                   >
-                    {rollbackMut.isPending ? 'Läuft...' : 'Bestätigen'}
+                    {rollbackMut.isPending ? LABELS.pendingLabel : LABELS.rollbackConfirmButton}
                   </button>
                   <button
                     onClick={() => setShowRollbackConfirm(false)}
-                    disabled={rollbackMut.isPending}
+                    disabled={anyJobRunning}
                     className="flex-1 px-3 py-1.5 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                   >
-                    Abbrechen
+                    {LABELS.rollbackCancelButton}
                   </button>
                 </div>
               </div>
             ) : (
               <button
                 onClick={() => setShowRollbackConfirm(true)}
-                disabled={rollbackMut.isPending}
+                disabled={anyJobRunning}
                 className="w-full px-3 py-1.5 rounded-lg text-sm font-medium border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
               >
-                {LABELS.actions.rollback}
+                {rollbackMut.isPending ? LABELS.pendingLabel : LABELS.actions.rollback}
               </button>
             )}
           </div>

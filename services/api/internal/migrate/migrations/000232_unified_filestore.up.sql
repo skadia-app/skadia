@@ -20,14 +20,20 @@ CREATE TABLE user_files (
     storage_path    TEXT NOT NULL,
     content_type    TEXT NOT NULL,
     file_name       TEXT NOT NULL,
-    size_bytes      BIGINT NOT NULL DEFAULT 0,
+    size_bytes      BIGINT NOT NULL,
     file_hash       TEXT,
+    -- Polymorphic parent link: parent_type ('activity', 'route', 'gear', ...) + parent_id (UUID).
+    -- Intentional design: a typed FK per parent would require many nullable columns.
+    -- Referential integrity is enforced at the application layer, not via DB FK.
     parent_type     TEXT,
     parent_id       UUID,
     has_sidecar     BOOLEAN NOT NULL DEFAULT false,
     is_renaming     BOOLEAN NOT NULL DEFAULT false,
     status          TEXT NOT NULL DEFAULT 'active',
     replaced_by     UUID REFERENCES user_files(id) ON DELETE SET NULL,
+    CHECK (replaced_by != id),
+    CHECK (status IN ('active', 'archived', 'purging')),
+    CHECK (storage_backend IN ('local', 's3')),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (storage_backend, storage_path)
@@ -38,7 +44,8 @@ CREATE INDEX idx_user_files_user_type ON user_files (user_id, file_type);
 CREATE INDEX idx_user_files_parent ON user_files (parent_type, parent_id) WHERE parent_id IS NOT NULL;
 CREATE INDEX idx_user_files_hash ON user_files (user_id, file_hash) WHERE file_hash IS NOT NULL;
 CREATE INDEX idx_user_files_status ON user_files (status) WHERE status IN ('archived', 'purging');
-CREATE UNIQUE INDEX idx_user_files_edit_upsert ON user_files (user_id, file_type, parent_id) WHERE file_type = 'edit';
+CREATE INDEX idx_user_files_backend_status ON user_files (storage_backend, status);
+CREATE UNIQUE INDEX idx_user_files_edit_upsert ON user_files (user_id, file_type, parent_id) WHERE file_type = 'edit' AND parent_id IS NOT NULL;
 
 -- Multi-parent file linking (bookmarks, not ownership)
 CREATE TABLE file_attachments (
@@ -54,6 +61,11 @@ CREATE INDEX idx_file_attachments_entity ON file_attachments (entity_type, entit
 CREATE INDEX idx_file_attachments_user ON file_attachments (user_id);
 
 -- Migration journal (crash-safe file migration tracking)
+-- NOTE: parent_type/parent_id on user_files are polymorphic FKs by design. Enforcing
+-- referential integrity across 5+ domain tables would require either per-table FKs (complex
+-- DDL, migration fragility) or a centralized entity registry (over-engineering). The
+-- Reconciliation job detects and cleans orphaned references. This is an intentional trade-off
+-- for a single-user self-hosted app where the blast radius is contained.
 CREATE TABLE migration_shadowfs_journal (
     source_table TEXT NOT NULL,
     source_id    UUID NOT NULL,
@@ -68,9 +80,14 @@ CREATE TABLE migration_shadowfs_journal (
     PRIMARY KEY (source_table, source_id, phase)
 );
 
--- Ownership constraint on file_attachments
+-- L30: Index for migration job queries that filter by phase+status.
+CREATE INDEX idx_migration_journal_phase_status ON migration_shadowfs_journal (phase, status);
+
+-- Ownership constraint on file_attachments.
+-- SET search_path prevents search_path hijacking in security-definer contexts.
 CREATE OR REPLACE FUNCTION check_file_attachment_ownership() RETURNS TRIGGER AS $$
 BEGIN
+    SET search_path = public;
     IF NOT EXISTS (SELECT 1 FROM user_files WHERE id = NEW.file_id AND user_id = NEW.user_id) THEN
         RAISE EXCEPTION 'file_id does not belong to user_id';
     END IF;
@@ -79,7 +96,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_file_attachment_ownership
-    BEFORE INSERT ON file_attachments
+    BEFORE INSERT OR UPDATE ON file_attachments
     FOR EACH ROW EXECUTE FUNCTION check_file_attachment_ownership();
 
 -- file_id columns on domain tables

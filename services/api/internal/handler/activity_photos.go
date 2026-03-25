@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -1057,7 +1058,18 @@ func serveResolvedFile(w http.ResponseWriter, r *http.Request, resolved shadowfs
 	switch resolved.Type {
 	case "local":
 		w.Header().Set("Content-Type", ct)
-		http.ServeFile(w, r, resolved.Path)
+		f, openErr := os.Open(resolved.Path)
+		if openErr != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
+		fi, _ := f.Stat()
+		modTime := time.Time{}
+		if fi != nil {
+			modTime = fi.ModTime()
+		}
+		http.ServeContent(w, r, resolved.FileName, modTime, f)
 	case "s3":
 		if strings.HasPrefix(ct, "image/") || strings.HasPrefix(ct, "video/") {
 			http.Redirect(w, r, resolved.URL, http.StatusTemporaryRedirect)

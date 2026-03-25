@@ -66,10 +66,16 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 
 	trk := gpx.Tracks[0]
 
+	// L35: Max 10M trackpoints to prevent OOM from malformed/malicious files.
+	const maxTrackpoints = 10_000_000
+
 	// Collect all points across segments
 	var allPoints []gpxPoint
 	for _, seg := range trk.Segments {
 		allPoints = append(allPoints, seg.Points...)
+		if len(allPoints) > maxTrackpoints {
+			return nil, fmt.Errorf("GPX file exceeds %d trackpoint limit", maxTrackpoints)
+		}
 	}
 
 	if len(allPoints) == 0 {

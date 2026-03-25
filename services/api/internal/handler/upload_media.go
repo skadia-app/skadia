@@ -198,20 +198,7 @@ func (h *Handler) autoAssignPhoto(
 			return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
 		}
 		photoFileID = rec.ID
-		// Store thumbnail separately if available; ignore error (non-fatal)
-		if thumbData != nil {
-			thumbName := fmt.Sprintf("%s_thumb.jpg", hash)
-			_, _ = h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
-				UserID:      userID,
-				FileType:    "media",
-				ContentType: "image/jpeg",
-				FileName:    thumbName,
-				SizeBytes:   int64(len(thumbData)),
-				FileHash:    hash + "_thumb",
-				ParentType:  &actParent,
-				ParentID:    &actID,
-			}, bytes.NewReader(thumbData))
-		}
+		// Thumbnail is stored after DB insert (see below) so we can use parent_type='photo'.
 	} else if h.Storage != nil {
 		if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, ct); err != nil {
 			slog.Error("upload media: s3 upload photo failed", "error", err)
@@ -249,7 +236,26 @@ func (h *Handler) autoAssignPhoto(
 		return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
 	}
 
-	_ = photo
+	// Store thumbnail in ShadowFS with parent_type='photo' (after insert so we have the photo ID).
+	if thumbData != nil && h.ShadowFS != nil && photo.ID != "" {
+		thumbName := fmt.Sprintf("%s_thumb.jpg", hash)
+		photoParent := "photo"
+		photoID := photo.ID
+		// FileHash uses a synthetic "hash_thumb" value (not a real SHA256 of the thumbnail
+		// data) because thumbnails are regenerable derivatives. The "_thumb" suffix makes
+		// the value deterministic and unique within the user_files registry.
+		_, _ = h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
+			UserID:      userID,
+			FileType:    "media",
+			ContentType: "image/jpeg",
+			FileName:    thumbName,
+			SizeBytes:   int64(len(thumbData)),
+			FileHash:    hash + "_thumb",
+			ParentType:  &photoParent,
+			ParentID:    &photoID,
+		}, bytes.NewReader(thumbData))
+	}
+
 	return mediaUploadResult{
 		Filename:      filename,
 		Status:        "assigned",

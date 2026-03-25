@@ -247,6 +247,15 @@ func (h *Handler) StartReconciliation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// L33: Reconcile only makes sense for local storage — it walks the local filesystem.
+	if h.Config.StorageBackend != "local" {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{
+			"status": "skipped",
+			"reason": "reconciliation only applies to storage_backend=local",
+		})
+		return
+	}
+
 	if running, err := h.DB.HasRunningJobGlobal(r.Context(), "shadowfs_reconcile"); err == nil && running {
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return

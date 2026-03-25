@@ -16,6 +16,11 @@ import (
 // ReconcileJob performs consistency checks between the filesystem and the
 // user_files registry. It is designed to be run periodically (daily cron)
 // or triggered manually via the admin API.
+//
+// L20: This reconciler only handles storage_backend='local'. An S3 reconciler
+// (comparing user_files rows with ListObjectsV2 output) is planned as future
+// work. Until then, S3 consistency relies on the atomic DB-first-then-S3
+// deletion pattern and manual cleanup via admin endpoints.
 type ReconcileJob struct {
 	pool         *pgxpool.Pool
 	basePath     string
@@ -107,7 +112,9 @@ func (j *ReconcileJob) Run(ctx context.Context, progressFn func(current int)) (R
 // 100k files, which is acceptable. For future large deployments (>100k files)
 // consider a batched/streaming approach (e.g., sort both sets and merge-scan).
 func (j *ReconcileJob) checkOrphanedFiles(ctx context.Context, r *ReconcileResult) error {
-	// Build a set of all known storage_paths from the registry.
+	// L11: Build a set of ALL known storage_paths (including archived) from the registry.
+	// Archived files have storage_paths pointing into _archive/ directories, and these
+	// must be in knownPaths so they are not flagged as orphans during the walk.
 	rows, err := j.pool.Query(ctx,
 		`SELECT storage_path FROM user_files WHERE storage_backend = 'local'`)
 	if err != nil {
@@ -146,7 +153,9 @@ func (j *ReconcileJob) checkOrphanedFiles(ctx context.Context, r *ReconcileResul
 		if d.IsDir() {
 			name := d.Name()
 			// Skip special directories — these are not tracked in user_files.
-			if name == "_temp" || name == "_cache" || name == "_archive" {
+			// L11: Do NOT skip _archive/ — archived files are tracked in user_files
+			// and must be included in orphan detection.
+			if name == "_temp" || name == "_cache" || name == "_edits" {
 				return fs.SkipDir
 			}
 			return nil
@@ -199,12 +208,14 @@ func (j *ReconcileJob) checkDanglingRecords(ctx context.Context, r *ReconcileRes
 		id, path, userID string
 	}
 	var toDelete []dangling
+	var scanned int
 
 	for rows.Next() {
 		var d dangling
 		if err := rows.Scan(&d.id, &d.path, &d.userID); err != nil {
 			return fmt.Errorf("scan record: %w", err)
 		}
+		scanned++
 		fullPath := filepath.Join(j.basePath, d.path)
 		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
 			toDelete = append(toDelete, d)
@@ -214,7 +225,12 @@ func (j *ReconcileJob) checkDanglingRecords(ctx context.Context, r *ReconcileRes
 		return fmt.Errorf("iterate records: %w", err)
 	}
 
-	// I12: Sanity check — if >50% of records appear dangling, something is wrong
+	if scanned > 100_000 {
+		slog.Warn("shadowfs reconcile: checkDanglingRecords scanned large number of records — consider batched approach",
+			"scanned", scanned, "dangling", len(toDelete))
+	}
+
+	// Sanity check — if >50% of records appear dangling, something is wrong
 	// (e.g. basePath mount missing). Skip deletion to prevent mass data loss.
 	var totalLocal int64
 	if countErr := j.pool.QueryRow(ctx,
@@ -288,9 +304,27 @@ func (j *ReconcileJob) checkSizeMismatches(ctx context.Context, r *ReconcileResu
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		// Also rehash: a size change means the old hash is stale. Without this,
+		// watcher move-detection (hash+size) produces false negatives.
+		fullPath := filepath.Join(j.basePath, m.path)
+		var newHash *string
+		if h, err := hashFile(fullPath); err == nil {
+			newHash = &h
+		} else {
+			slog.Warn("shadowfs reconcile: rehash failed for size mismatch",
+				"file_id", m.id, "path", m.path, "error", err)
+		}
 		slog.Warn("shadowfs reconcile: size mismatch, updating registry",
 			"file_id", m.id, "path", m.path, "db_size", m.dbSize, "disk_size", m.diskSize)
-		if _, err := j.pool.Exec(ctx,
+		if newHash != nil {
+			if _, err := j.pool.Exec(ctx,
+				`UPDATE user_files SET size_bytes = $1, file_hash = $2, updated_at = NOW() WHERE id = $3`,
+				m.diskSize, *newHash, m.id); err != nil {
+				slog.Error("shadowfs reconcile: failed to update size+hash",
+					"file_id", m.id, "error", err)
+				continue
+			}
+		} else if _, err := j.pool.Exec(ctx,
 			`UPDATE user_files SET size_bytes = $1, updated_at = NOW() WHERE id = $2`,
 			m.diskSize, m.id); err != nil {
 			slog.Error("shadowfs reconcile: failed to update size",
@@ -374,16 +408,26 @@ func (j *ReconcileJob) checkArchivedVersionCleanup(ctx context.Context, r *Recon
 
 		for _, e := range toRemove {
 			fullPath := filepath.Join(j.basePath, e.path)
-			if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
-				slog.Error("shadowfs reconcile: failed to remove archived file",
+
+			// M12: Validate path is not a symlink escaping basePath before removal.
+			if err := validateWatcherPath(fullPath, j.basePath); err != nil {
+				slog.Warn("shadowfs reconcile: archived file path validation failed — skipping",
 					"file_id", e.id, "path", fullPath, "error", err)
 				continue
 			}
+
+			// M42/L45: Delete DB record first, then file.
+			// A dangling file is safe (reconciler catches orphans);
+			// a dangling DB record pointing at a deleted file is worse.
 			if _, err := j.pool.Exec(ctx,
 				`DELETE FROM user_files WHERE id = $1`, e.id); err != nil {
 				slog.Error("shadowfs reconcile: failed to delete archive record",
 					"file_id", e.id, "error", err)
 				continue
+			}
+			if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
+				slog.Error("shadowfs reconcile: failed to remove archived file",
+					"file_id", e.id, "path", fullPath, "error", err)
 			}
 			cleanEmptyDirs(filepath.Dir(fullPath), j.basePath)
 			r.ArchivedCleaned++
@@ -427,9 +471,9 @@ func (j *ReconcileJob) checkTempCleanup(ctx context.Context, r *ReconcileResult)
 
 		// Check if this file is referenced by an active import_queue entry.
 		// import_queue only stores original_filename (no storage_path column),
-		// so we match by bare filename. This is safe-side behaviour: a false
-		// positive (same filename for a different user's temp file) causes us
-		// to skip deletion rather than risk removing a file still in use.
+		// so we match by bare filename. The match is NOT user-scoped: two users
+		// with identically-named temp files produce a false positive (we skip
+		// deletion). This is safe-side: conservative skip beats accidental removal.
 		// Future: add a storage_path column to import_queue for exact matching.
 		var exists bool
 		if err := j.pool.QueryRow(ctx,
@@ -444,6 +488,13 @@ func (j *ReconcileJob) checkTempCleanup(ctx context.Context, r *ReconcileResult)
 		}
 		if exists {
 			return nil // still referenced
+		}
+
+		// M12: Validate path is not a symlink escaping basePath before removal.
+		if err := validateWatcherPath(path, j.basePath); err != nil {
+			slog.Warn("shadowfs reconcile: temp file path validation failed — skipping",
+				"path", path, "error", err)
+			return nil
 		}
 
 		slog.Info("shadowfs reconcile: removing stale temp file",
@@ -583,10 +634,14 @@ func (j *ReconcileJob) checkRenameCleanup(ctx context.Context, r *ReconcileResul
 		}
 
 		ext := filepath.Ext(item.fileName)
-		// We don't have the full tags here, so render with empty tags.
-		// The rename handler should have stored the intended target in
-		// storage_path already — if the file is already there, finalize.
-		rendered := j.renderer.RenderPath(item.fileType, schema, nil, ext)
+		// Extract best-effort tags from the existing storage_path so that schema
+		// variables ({year}, {sport}, etc.) can be resolved. This may produce a
+		// different path than the original rename intent if the path structure
+		// doesn't match the schema. Case 1 handles "already at target"; Case 3
+		// handles "rename happened but DB not updated". Case 2 uses this as
+		// best-effort recovery for interrupted renames.
+		tags := extractTagsFromPath(item.storagePath, item.fileType)
+		rendered := j.renderer.RenderPath(item.fileType, schema, tags, ext)
 		targetRel := filepath.Join(item.userDir, DirForType(item.fileType), rendered)
 
 		currentFull := filepath.Join(j.basePath, item.storagePath)
@@ -616,7 +671,7 @@ func (j *ReconcileJob) checkRenameCleanup(ctx context.Context, r *ReconcileResul
 				continue
 			}
 
-			// M25: Store intended target in storage_path BEFORE rename so a crash
+			// Store intended target in storage_path BEFORE rename so a crash
 			// between rename and finalize can still be recovered (Case 3 catches it).
 			if _, err := j.pool.Exec(ctx,
 				`UPDATE user_files SET storage_path = $1, updated_at = NOW() WHERE id = $2`,
@@ -627,10 +682,13 @@ func (j *ReconcileJob) checkRenameCleanup(ctx context.Context, r *ReconcileResul
 			}
 
 			if err := os.Rename(currentFull, targetFull); err != nil {
-				// Revert storage_path on failure.
-				j.pool.Exec(ctx, //nolint:errcheck
+				// M43: Revert storage_path on failure and log revert errors.
+				if _, revertErr := j.pool.Exec(ctx,
 					`UPDATE user_files SET storage_path = $1, updated_at = NOW() WHERE id = $2`,
-					item.storagePath, item.id)
+					item.storagePath, item.id); revertErr != nil {
+					slog.Error("shadowfs reconcile: failed to revert storage_path after rename failure",
+						"file_id", item.id, "revert_error", revertErr)
+				}
 				slog.Error("shadowfs reconcile: rename retry failed",
 					"file_id", item.id, "from", currentFull, "to", targetFull, "error", err)
 				continue
@@ -703,4 +761,39 @@ func (j *ReconcileJob) checkArchiveWarnings(ctx context.Context, r *ReconcileRes
 		r.ArchiveWarnings = append(r.ArchiveWarnings, msg)
 	}
 	return rows.Err()
+}
+
+// extractTagsFromPath extracts best-effort schema variables from an existing storage path.
+// This allows RenderPath to resolve variables like {year}, {sport} during rename cleanup.
+func extractTagsFromPath(storagePath, fileType string) map[string]string {
+	tags := make(map[string]string)
+	parts := strings.Split(filepath.Clean(storagePath), string(filepath.Separator))
+
+	// Walk parts looking for 4-digit year (first match).
+	for i, p := range parts {
+		if len(p) == 4 && p >= "2000" && p <= "2099" {
+			tags["year"] = p
+			if i+1 < len(parts) && len(parts[i+1]) == 2 {
+				tags["month"] = parts[i+1]
+			}
+			break
+		}
+	}
+
+	// Extract sport/title from filename.
+	if len(parts) > 0 {
+		base := parts[len(parts)-1]
+		ext := filepath.Ext(base)
+		stem := strings.TrimSuffix(base, ext)
+		segments := strings.SplitN(stem, "_", 4)
+		if fileType == "activity" && len(segments) >= 3 {
+			tags["day"] = segments[0]
+			tags["time"] = segments[1]
+			tags["sport"] = segments[2]
+		} else {
+			tags["title"] = stem
+		}
+	}
+
+	return tags
 }

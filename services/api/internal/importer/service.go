@@ -294,7 +294,7 @@ func (s *Service) PostProcess(
 		isChild := activity != nil && activity.ParentID != nil
 		if s.ShadowFS != nil && fileID != "" && !isChild {
 			if _, execErr := s.DB.Pool.Exec(gCtx,
-				`UPDATE activities SET file_id = $1 WHERE id = $2 AND file_id IS NULL`,
+				`UPDATE activities SET file_id = $1 WHERE id = $2`,
 				fileID, activityID,
 			); execErr != nil {
 				slog.Error("set file_id failed", "error", execErr)
@@ -612,7 +612,7 @@ func (s *Service) ProcessMultisport(
 		// Link file_id on parent when ShadowFS is in use
 		if s.ShadowFS != nil && fileID != "" {
 			if _, execErr := s.DB.Pool.Exec(ctx,
-				`UPDATE activities SET file_id = $1 WHERE id = $2 AND file_id IS NULL`,
+				`UPDATE activities SET file_id = $1 WHERE id = $2`,
 				fileID, result.ParentID,
 			); execErr != nil {
 				slog.Warn("multisport: set parent file_id failed", "parent", result.ParentID, "err", execErr)

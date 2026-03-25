@@ -327,16 +327,20 @@ func (h *Handler) DeleteComponent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clean up ShadowFS files for component documents before DB delete.
-	if h.ShadowFS != nil {
-		docs, docsErr := h.DB.ListComponentDocuments(r.Context(), id)
-		if docsErr == nil {
-			for _, doc := range docs {
-				if doc.FileID != nil && *doc.FileID != "" {
-					if delErr := h.ShadowFS.Delete(r.Context(), userID, *doc.FileID); delErr != nil {
-						slog.Warn("delete component: shadowfs delete document failed",
-							"component_id", id, "doc_id", doc.ID, "file_id", *doc.FileID, "error", delErr)
-					}
+	// Clean up ShadowFS and legacy S3 files for component documents before DB delete.
+	docs, docsErr := h.DB.ListComponentDocuments(r.Context(), id)
+	if docsErr == nil {
+		for _, doc := range docs {
+			if doc.FileID != nil && *doc.FileID != "" && h.ShadowFS != nil {
+				if delErr := h.ShadowFS.Delete(r.Context(), userID, *doc.FileID); delErr != nil {
+					slog.Warn("delete component: shadowfs delete document failed",
+						"component_id", id, "doc_id", doc.ID, "file_id", *doc.FileID, "error", delErr)
+				}
+			}
+			if doc.S3Bucket != "" && doc.S3Key != "" && h.Storage != nil {
+				if delErr := h.Storage.DeleteFromBucket(r.Context(), doc.S3Bucket, doc.S3Key); delErr != nil {
+					slog.Warn("delete component: s3 delete document failed",
+						"component_id", id, "doc_id", doc.ID, "bucket", doc.S3Bucket, "key", doc.S3Key, "error", delErr)
 				}
 			}
 		}
@@ -1364,7 +1368,7 @@ func (h *Handler) DeleteGearDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bucket, key, fileID, err := h.DB.DeleteGearDocument(r.Context(), docID, userID)
+	bucket, key, thumbKey, fileID, err := h.DB.DeleteGearDocument(r.Context(), docID, userID)
 	if err != nil {
 		slog.Error("delete gear document failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to delete document", r.URL.Path)
@@ -1383,6 +1387,12 @@ func (h *Handler) DeleteGearDocument(w http.ResponseWriter, r *http.Request) {
 	} else if bucket != "" && h.Storage != nil {
 		if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, key); delErr != nil {
 			slog.Error("s3 delete failed", "bucket", bucket, "key", key, "error", delErr)
+		}
+		// L39: Also delete the thumbnail S3 object.
+		if thumbKey != "" {
+			if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, thumbKey); delErr != nil {
+				slog.Error("s3 delete thumb failed", "bucket", bucket, "key", thumbKey, "error", delErr)
+			}
 		}
 	}
 

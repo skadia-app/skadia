@@ -358,6 +358,18 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	s3Key := fmt.Sprintf("tag-covers/%s/%s%s", userID, tagID, ext)
 	bucket := "skadia-media"
 
+	// Delete old cover file before uploading the new one to avoid orphans.
+	var oldCoverFileID string
+	_ = h.DB.Pool.QueryRow(r.Context(),
+		`SELECT COALESCE(cover_file_id::text, '') FROM tags WHERE id = $1 AND user_id = $2`,
+		tagID, userID,
+	).Scan(&oldCoverFileID)
+	if oldCoverFileID != "" && h.ShadowFS != nil {
+		if delErr := h.ShadowFS.Delete(r.Context(), userID, oldCoverFileID); delErr != nil {
+			slog.Warn("upload tag cover: ShadowFS.Delete old cover failed", "tag_id", tagID, "file_id", oldCoverFileID, "error", delErr)
+		}
+	}
+
 	// ShadowFS path (preferred) — legacy S3 as fallback.
 	var coverFileID string
 	if h.ShadowFS != nil {

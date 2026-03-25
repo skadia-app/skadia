@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -11,10 +12,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
 // UploadRoutePhoto handles POST /api/v1/routes/{id}/photos
@@ -99,6 +100,9 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	s3KeyThumb := fmt.Sprintf("route-photos/%s/%s/%s_thumb.jpg", userID, routeID, hash)
 
 	// ShadowFS path for original (preferred) — legacy S3 as fallback.
+	// Capture context for cleanup closures — request context may be cancelled after response.
+	cleanupCtx := context.WithoutCancel(r.Context())
+
 	var photoFileID string
 	var fsCleanup func()
 	if h.ShadowFS != nil {
@@ -120,7 +124,7 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 		}
 		photoFileID = rec.ID
 		fsCleanup = func() {
-			if delErr := h.ShadowFS.Delete(r.Context(), userID, photoFileID); delErr != nil {
+			if delErr := h.ShadowFS.Delete(cleanupCtx, userID, photoFileID); delErr != nil {
 				slog.Warn("shadowfs orphan cleanup failed", "file_id", photoFileID, "error", delErr)
 			}
 		}
@@ -133,7 +137,7 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, key := range uploadedKeys {
-			if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, key); delErr != nil {
+			if delErr := h.Storage.DeleteFromBucket(cleanupCtx, bucket, key); delErr != nil {
 				slog.Warn("s3 orphan cleanup failed", "key", key, "error", delErr)
 			}
 		}

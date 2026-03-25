@@ -335,6 +335,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 					importMeta := importer.ImportMetadata{
 						StravaActivityID: stravaID,
 						SourcePlatform:   "strava",
+						ConflictStrategy: params.Options.ConflictStrategy,
 					}
 					_, msErr := params.ImportService.ProcessMultisport(
 						ctx, params.UserID, sessions, fileBytes, msHash,
@@ -598,8 +599,14 @@ func csvRowToMap(row []string, hdr map[string]int) map[string]string {
 // readStravaActivityFile reads and optionally decompresses an activity file.
 // Supported: .fit, .gpx, .fit.gz, .gpx.gz, .tcx, .tcx.gz
 func readStravaActivityFile(baseDir, relPath string) ([]byte, string, error) {
+	// M26: Path containment check — reject traversal attempts from CSV filenames.
 	fullPath := filepath.Join(baseDir, relPath)
-	raw, err := os.ReadFile(fullPath)
+	cleanFull := filepath.Clean(fullPath)
+	cleanBase := filepath.Clean(baseDir) + string(filepath.Separator)
+	if !strings.HasPrefix(cleanFull, cleanBase) {
+		return nil, "", fmt.Errorf("path traversal blocked: %q escapes base %q", relPath, baseDir)
+	}
+	raw, err := os.ReadFile(cleanFull)
 	if err != nil {
 		return nil, "", fmt.Errorf("read file %s: %w", fullPath, err)
 	}

@@ -119,6 +119,10 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	var totalHRTime float64
 	var maxHR int
 
+	// L35: Max 10M trackpoints to prevent OOM from malformed/malicious files.
+	const maxTrackpoints = 10_000_000
+	var totalPoints int
+
 	var streams []model.StreamPoint
 	var trackPoints []model.TrackPoint
 	var elevGain, elevLoss float64
@@ -132,6 +136,14 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	for _, lap := range act.Laps {
 		totalTime += lap.TotalTimeSeconds
 		totalDistance += lap.DistanceMeters
+
+		// Count trackpoints for limit check.
+		for _, track := range lap.Track {
+			totalPoints += len(track.Points)
+		}
+		if totalPoints > maxTrackpoints {
+			return nil, fmt.Errorf("TCX file exceeds %d trackpoint limit", maxTrackpoints)
+		}
 
 		if lap.AvgHR != nil && lap.TotalTimeSeconds > 0 {
 			totalHRWeighted += float64(lap.AvgHR.Value) * lap.TotalTimeSeconds

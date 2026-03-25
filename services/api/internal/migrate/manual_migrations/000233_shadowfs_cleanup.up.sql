@@ -16,7 +16,7 @@ BEGIN
             (SELECT COUNT(*) FROM activity_photos WHERE file_id IS NULL AND s3_key IS NOT NULL);
     END IF;
     -- Guard 3: Journal has pending/failed entries?
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'migration_shadowfs_journal') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'migration_shadowfs_journal' AND table_schema = 'public') THEN
         IF EXISTS (SELECT 1 FROM migration_shadowfs_journal WHERE status IN ('pending', 'failed')) THEN
             RAISE EXCEPTION 'shadowfs cleanup blocked: pending/failed entries remain in migration_shadowfs_journal';
         END IF;
@@ -87,5 +87,8 @@ ALTER TABLE users DROP COLUMN IF EXISTS file_naming_schema;
 ALTER TABLE import_queue DROP COLUMN IF EXISTS s3_bucket;
 ALTER TABLE import_queue DROP COLUMN IF EXISTS s3_key;
 
--- Drop migration journal now that cleanup is done
+-- Drop migration journal now that cleanup is done.
+-- NOTE: Down-migration (000232.down.sql) cannot reconstruct file_naming_schema values
+-- from user_file_schemas because the old schema stored a single string while the new
+-- model supports per-type schemas. This is an accepted lossy rollback.
 DROP TABLE IF EXISTS migration_shadowfs_journal;
