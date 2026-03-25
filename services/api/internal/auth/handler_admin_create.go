@@ -132,6 +132,9 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Admin explicitly provided the email — mark as verified immediately.
+		h.DB.Pool.Exec(r.Context(), `UPDATE users SET email_verified = true WHERE id = $1`, user.ID)
+
 		token, tokenErr := GenerateToken()
 		if tokenErr != nil {
 			slog.Error("admin create user: generate invite token failed", "error", tokenErr)

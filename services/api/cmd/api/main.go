@@ -255,7 +255,7 @@ func main() {
 				} else {
 					slog.Info("periodic token cleanup completed")
 				}
-				if err := db.PurgeDeletedUsers(ctx, cfg.ShadowFSBasePath); err != nil {
+				if err := db.PurgeDeletedUsers(ctx, cfg.ShadowFSBasePath, nil); err != nil {
 					slog.Error("GDPR purge failed", "error", err)
 				}
 			case <-ctx.Done():
