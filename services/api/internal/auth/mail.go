@@ -116,6 +116,18 @@ func (m *Mailer) SendChangeEmailVerification(to, username, token string) {
 	m.send(to, fmt.Sprintf("[%s] Email-Adresse bestätigen", m.appName), "change_email", data)
 }
 
+// SendDeletionEmail sends an account deletion confirmation with a cancel link.
+// Called asynchronously via goroutine by the caller.
+func (m *Mailer) SendDeletionEmail(to, username, cancelToken string) {
+	data := emailData{
+		AppName:   m.appName,
+		AppURL:    m.frontendURL,
+		Username:  username,
+		ActionURL: fmt.Sprintf("%s/cancel-deletion?token=%s", m.frontendURL, cancelToken),
+	}
+	m.send(to, fmt.Sprintf("[%s] Account-Löschung bestätigt", m.appName), "account_deletion", data)
+}
+
 // SendAdminApprovalNeeded notifies an admin that a new registration is pending approval.
 func (m *Mailer) SendAdminApprovalNeeded(to, newUsername, newEmail string) {
 	data := adminApprovalData{

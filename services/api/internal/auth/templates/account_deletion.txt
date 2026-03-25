@@ -1,0 +1,17 @@
+{{.AppName}} — Account-Löschung bestätigt
+
+Hallo {{.Username}},
+
+dein Account bei {{.AppName}} wird in 30 Tagen unwiderruflich gelöscht.
+Alle deine Aktivitäten, Gesundheitsdaten und Einstellungen werden dabei
+entfernt.
+
+Wenn du das rückgängig machen möchtest, klicke auf den folgenden Link:
+
+{{.ActionURL}}
+
+Wenn du die Löschung nicht abbrechen möchtest, musst du nichts weiter tun.
+Dein Account wird nach Ablauf der 30-Tage-Frist automatisch gelöscht.
+
+---
+{{.AppName}} — {{.AppURL}}
