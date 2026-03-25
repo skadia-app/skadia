@@ -24,6 +24,7 @@ __pycache__/
 
 # Go binaries
 services/api/api
+services/api/restore
 services/api/cmd/*/main
 *.exe
 

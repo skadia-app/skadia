@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
@@ -345,121 +347,176 @@ func restoreOne(
 		}
 	}
 
+	// subErr tracks whether any non-fatal sub-insert failed.
+	var subErr error
+
 	if activityID == "" {
-		// Neue Aktivität einfügen.
-		activity, insertErr := db.InsertActivity(ctx, userID, actData)
-		if insertErr != nil {
-			return "", fmt.Errorf("insert activity: %w", insertErr)
-		}
-		activityID = activity.ID
+		// Neue Aktivität + alle Sub-Daten in einer Transaktion einfügen.
+		var activity *model.Activity
+		txErr := pgx.BeginFunc(ctx, db.Pool, func(tx pgx.Tx) error {
+			var insertErr error
+			activity, insertErr = db.InsertActivity(ctx, userID, actData)
+			if insertErr != nil {
+				return fmt.Errorf("insert activity: %w", insertErr)
+			}
+			activityID = activity.ID
 
-		// Streams einfügen.
-		if len(actData.Streams) > 0 {
-			if err := db.InsertStreams(ctx, activityID, actData.Streams); err != nil {
-				slog.Warn("insert streams fehlgeschlagen", "id", activityID, "error", err)
+			// Streams einfügen.
+			if len(actData.Streams) > 0 {
+				if err := db.InsertStreams(ctx, activityID, actData.Streams); err != nil {
+					slog.Warn("insert streams fehlgeschlagen", "id", activityID, "error", err)
+					subErr = err
+				}
 			}
-		}
 
-		// Track einfügen.
-		if len(actData.TrackPoints) > 0 {
-			if err := db.InsertTrack(ctx, activityID, actData.TrackPoints); err != nil {
-				slog.Warn("insert track fehlgeschlagen", "id", activityID, "error", err)
+			// Track einfügen.
+			if len(actData.TrackPoints) > 0 {
+				if err := db.InsertTrack(ctx, activityID, actData.TrackPoints); err != nil {
+					slog.Warn("insert track fehlgeschlagen", "id", activityID, "error", err)
+					subErr = err
+				}
 			}
-		}
 
-		// R-R-Intervalle (FIT only).
-		if len(actData.RRIntervals) > 0 {
-			if err := db.InsertRRIntervals(ctx, activityID, actData.RRIntervals); err != nil {
-				slog.Warn("insert rr intervals fehlgeschlagen", "id", activityID, "error", err)
+			// R-R-Intervalle (FIT only).
+			if len(actData.RRIntervals) > 0 {
+				if err := db.InsertRRIntervals(ctx, activityID, actData.RRIntervals); err != nil {
+					slog.Warn("insert rr intervals fehlgeschlagen", "id", activityID, "error", err)
+					subErr = err
+				}
 			}
-		}
 
-		// Laps, Splits, Lengths, ClimbPro.
-		if len(actData.Laps) > 0 {
-			if err := db.InsertLaps(ctx, activityID, actData.Laps); err != nil {
-				slog.Warn("insert laps fehlgeschlagen", "id", activityID, "error", err)
+			// Laps, Splits, Lengths, ClimbPro.
+			if len(actData.Laps) > 0 {
+				if err := db.InsertLaps(ctx, activityID, actData.Laps); err != nil {
+					slog.Warn("insert laps fehlgeschlagen", "id", activityID, "error", err)
+					subErr = err
+				}
 			}
-		}
-		if len(actData.Splits) > 0 {
-			if err := db.InsertSplits(ctx, activityID, actData.Splits); err != nil {
-				slog.Warn("insert splits fehlgeschlagen", "id", activityID, "error", err)
+			if len(actData.Splits) > 0 {
+				if err := db.InsertSplits(ctx, activityID, actData.Splits); err != nil {
+					slog.Warn("insert splits fehlgeschlagen", "id", activityID, "error", err)
+					subErr = err
+				}
 			}
-		}
-		if len(actData.SplitSummaries) > 0 {
-			if err := db.InsertSplitSummaries(ctx, activityID, actData.SplitSummaries); err != nil {
-				slog.Warn("insert split summaries fehlgeschlagen", "id", activityID, "error", err)
+			if len(actData.SplitSummaries) > 0 {
+				if err := db.InsertSplitSummaries(ctx, activityID, actData.SplitSummaries); err != nil {
+					slog.Warn("insert split summaries fehlgeschlagen", "id", activityID, "error", err)
+					subErr = err
+				}
 			}
-		}
-		if len(actData.Lengths) > 0 {
-			if err := db.InsertLengths(ctx, activityID, actData.Lengths); err != nil {
-				slog.Warn("insert lengths fehlgeschlagen", "id", activityID, "error", err)
+			if len(actData.Lengths) > 0 {
+				if err := db.InsertLengths(ctx, activityID, actData.Lengths); err != nil {
+					slog.Warn("insert lengths fehlgeschlagen", "id", activityID, "error", err)
+					subErr = err
+				}
 			}
-		}
-		if len(actData.ClimbProEvents) > 0 {
-			if err := db.InsertClimbProEvents(ctx, activityID, actData.ClimbProEvents); err != nil {
-				slog.Warn("insert climb pro fehlgeschlagen", "id", activityID, "error", err)
+			if len(actData.ClimbProEvents) > 0 {
+				if err := db.InsertClimbProEvents(ctx, activityID, actData.ClimbProEvents); err != nil {
+					slog.Warn("insert climb pro fehlgeschlagen", "id", activityID, "error", err)
+					subErr = err
+				}
 			}
-		}
 
-		// Sensoren.
-		if len(actData.Sensors) > 0 {
-			if err := db.InsertSensors(ctx, activityID, actData.Sensors); err != nil {
-				slog.Warn("insert sensors fehlgeschlagen", "id", activityID, "error", err)
+			// Sensoren.
+			if len(actData.Sensors) > 0 {
+				if err := db.InsertSensors(ctx, activityID, actData.Sensors); err != nil {
+					slog.Warn("insert sensors fehlgeschlagen", "id", activityID, "error", err)
+					subErr = err
+				}
 			}
-		}
 
-		// Time-in-Zones.
-		if len(actData.TimeInZoneData) > 0 {
-			if err := db.SaveTimeInZones(ctx, activityID, nil, nil, actData.TimeInZoneData); err != nil {
-				slog.Warn("save time in zones fehlgeschlagen", "id", activityID, "error", err)
+			// Time-in-Zones.
+			if len(actData.TimeInZoneData) > 0 {
+				if err := db.SaveTimeInZones(ctx, activityID, nil, nil, actData.TimeInZoneData); err != nil {
+					slog.Warn("save time in zones fehlgeschlagen", "id", activityID, "error", err)
+					subErr = err
+				}
 			}
-		}
 
-		// Heatmap (skip for heatmap-excluded activities).
-		if len(actData.TrackPoints) >= 2 && !activity.ExcludeFromHeatmap {
-			var subTypePtr *string
-			if actData.SubType != "" {
-				subTypePtr = &actData.SubType
+			// Heatmap (skip for heatmap-excluded activities).
+			if len(actData.TrackPoints) >= 2 && !activity.ExcludeFromHeatmap {
+				var subTypePtr *string
+				if actData.SubType != "" {
+					subTypePtr = &actData.SubType
+				}
+				interval, _ := db.GetUserHeatmapInterval(ctx, userID)
+				if err := db.InsertHeatmapData(ctx, userID, activityID, actData.SportType, subTypePtr, actData.StartedAt, interval); err != nil {
+					slog.Warn("insert heatmap data fehlgeschlagen", "id", activityID, "error", err)
+					subErr = err
+				}
 			}
-			interval, _ := db.GetUserHeatmapInterval(ctx, userID)
-			if err := db.InsertHeatmapData(ctx, userID, activityID, actData.SportType, subTypePtr, actData.StartedAt, interval); err != nil {
-				slog.Warn("insert heatmap data fehlgeschlagen", "id", activityID, "error", err)
+
+			// Register file in user_files and link back to activity.file_id.
+			// ON CONFLICT: if the row already exists (idempotent re-run), still attempt
+			// to update activities.file_id so previously-missed links are repaired.
+			var fileID string
+			regErr := tx.QueryRow(ctx,
+				`INSERT INTO user_files
+					(user_id, file_type, storage_backend, storage_path, content_type,
+					 file_name, size_bytes, file_hash, parent_type, parent_id, has_sidecar, status)
+				VALUES ($1, 'activity', 'local', $2, $3, $4, $5, $6, 'activity', $7, true, 'active')
+				ON CONFLICT (storage_backend, storage_path) DO UPDATE
+					SET updated_at = user_files.updated_at
+				RETURNING id`,
+				userID,
+				relPath,
+				contentType,
+				filepath.Base(activityPath),
+				fileSize,
+				fileHash,
+				activityID,
+			).Scan(&fileID)
+			if regErr != nil {
+				return fmt.Errorf("user_files registrieren: %w", regErr)
+			}
+			if fileID != "" {
+				if _, err := tx.Exec(ctx,
+					`UPDATE activities SET file_id = $1 WHERE id = $2 AND file_id IS NULL`,
+					fileID, activityID,
+				); err != nil {
+					return fmt.Errorf("activities.file_id verknüpfen: %w", err)
+				}
+			}
+			return nil
+		})
+		if txErr != nil {
+			return "", txErr
+		}
+	} else {
+		// Für replace/enrich: user_files + file_id-Link außerhalb einer neuen Transaktion registrieren.
+		// (Die eigentliche Aktivitäts-Operation lief schon, hier nur noch Registry-Eintrag.)
+		var fileID string
+		regErr := db.Pool.QueryRow(ctx,
+			`INSERT INTO user_files
+				(user_id, file_type, storage_backend, storage_path, content_type,
+				 file_name, size_bytes, file_hash, parent_type, parent_id, has_sidecar, status)
+			VALUES ($1, 'activity', 'local', $2, $3, $4, $5, $6, 'activity', $7, true, 'active')
+			ON CONFLICT (storage_backend, storage_path) DO UPDATE
+				SET updated_at = user_files.updated_at
+			RETURNING id`,
+			userID,
+			relPath,
+			contentType,
+			filepath.Base(activityPath),
+			fileSize,
+			fileHash,
+			activityID,
+		).Scan(&fileID)
+		if regErr != nil {
+			slog.Warn("user_files Eintrag fehlgeschlagen", "path", relPath, "error", regErr)
+		} else if fileID != "" {
+			if _, err := db.Pool.Exec(ctx,
+				`UPDATE activities SET file_id = $1 WHERE id = $2 AND file_id IS NULL`,
+				fileID, activityID,
+			); err != nil {
+				slog.Warn("activities.file_id verknüpfen fehlgeschlagen",
+					"activity_id", activityID, "file_id", fileID, "error", err)
 			}
 		}
 	}
 
-	// Register file in user_files and link back to activity.file_id.
-	// ON CONFLICT: if the row already exists (idempotent re-run), still attempt
-	// to update activities.file_id so previously-missed links are repaired.
-	var fileID string
-	regErr := db.Pool.QueryRow(ctx,
-		`INSERT INTO user_files
-			(user_id, file_type, storage_backend, storage_path, content_type,
-			 file_name, size_bytes, file_hash, parent_type, parent_id, has_sidecar, status)
-		VALUES ($1, 'activity', 'local', $2, $3, $4, $5, $6, 'activity', $7, true, 'active')
-		ON CONFLICT (storage_backend, storage_path) DO UPDATE
-			SET updated_at = user_files.updated_at
-		RETURNING id`,
-		userID,
-		relPath,
-		contentType,
-		filepath.Base(activityPath),
-		fileSize,
-		fileHash,
-		activityID,
-	).Scan(&fileID)
-	if regErr != nil {
-		slog.Warn("user_files Eintrag fehlgeschlagen", "path", relPath, "error", regErr)
-	} else if fileID != "" {
-		// Link the activity to its file registry entry.
-		if _, err := db.Pool.Exec(ctx,
-			`UPDATE activities SET file_id = $1 WHERE id = $2 AND file_id IS NULL`,
-			fileID, activityID,
-		); err != nil {
-			slog.Warn("activities.file_id verknüpfen fehlgeschlagen",
-				"activity_id", activityID, "file_id", fileID, "error", err)
-		}
+	if subErr != nil {
+		return "PARTIAL", nil
 	}
-
 	return "OK", nil
 }

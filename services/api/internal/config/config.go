@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -178,13 +180,25 @@ func validateLibraryBasePath(p string) error {
 	if p == "" {
 		return fmt.Errorf("LIBRARY_BASE_PATH must not be empty")
 	}
+	// Canonicalize before any checks to defeat traversal like /data/../etc.
+	p = filepath.Clean(p)
 	if p[0] != '/' {
 		return fmt.Errorf("LIBRARY_BASE_PATH must be absolute, got %q", p)
 	}
-	for _, dangerous := range []string{"/", "/etc", "/var", "/usr", "/home"} {
+	blocked := []string{
+		"/", "/etc", "/var", "/usr", "/home",
+		"/tmp", "/proc", "/sys", "/dev", "/root",
+		"/bin", "/sbin", "/boot", "/run",
+	}
+	for _, dangerous := range blocked {
 		if p == dangerous {
 			return fmt.Errorf("LIBRARY_BASE_PATH must not be %q", dangerous)
 		}
+	}
+	// Require the path to be under /data/ or /srv/ to prevent accidental
+	// use of arbitrary system directories.
+	if !strings.HasPrefix(p, "/data/") && !strings.HasPrefix(p, "/srv/") {
+		return fmt.Errorf("LIBRARY_BASE_PATH must be under /data/ or /srv/, got %q", p)
 	}
 	return nil
 }
