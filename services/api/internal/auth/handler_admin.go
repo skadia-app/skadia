@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -323,6 +322,10 @@ func (h *Handler) AdminResetPassword(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "smtp_not_configured"})
 			return
 		}
+		if targetUser.Email == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user_has_no_email"})
+			return
+		}
 		token, err := GenerateToken()
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
@@ -331,10 +334,6 @@ func (h *Handler) AdminResetPassword(w http.ResponseWriter, r *http.Request) {
 		if err := h.DB.CreateEmailToken(r.Context(), uuid.MustParse(targetID),
 			HashToken(token), "reset", time.Now().Add(1*time.Hour)); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-			return
-		}
-		if targetUser.Email == nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user_has_no_email"})
 			return
 		}
 		go h.Mailer.SendResetEmail(*targetUser.Email, targetUser.Username, token)
@@ -400,10 +399,9 @@ func parseIntDefault(s string, def int) int {
 }
 
 // notifyAdminsNewRegistration emails all active admins about a pending approval request.
-// Must be called in a goroutine — uses context.Background() since the request context
-// is already cancelled by the time the goroutine runs.
+// Must be called in a goroutine — uses shutdownCtx so the query is cancelled on shutdown.
 func (h *Handler) notifyAdminsNewRegistration(user *model.User) {
-	rows, err := h.DB.Pool.Query(context.Background(),
+	rows, err := h.DB.Pool.Query(h.shutdownCtx,
 		`SELECT email FROM users WHERE is_admin = true AND is_active = true AND email IS NOT NULL AND deleted_at IS NULL`)
 	if err != nil {
 		slog.Warn("notifyAdminsNewRegistration: query admins failed", "error", err)
