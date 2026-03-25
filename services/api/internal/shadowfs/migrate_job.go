@@ -886,12 +886,17 @@ func (m *MigrateJob) moveOneFile(ctx context.Context, e moveEntry) error {
 
 	// Attempt atomic rename first.
 	if err := os.Rename(oldFull, newFull); err != nil {
-		// Cross-device: fall back to copy+delete.
+		// Cross-device: fall back to crash-safe copy+rename+delete (M22).
 		if !errors.Is(err, os.ErrInvalid) && !isCrossDevice(err) {
 			return fmt.Errorf("rename: %w", err)
 		}
-		if err := copyFile(oldFull, newFull); err != nil {
+		tmpPath := newFull + ".tmp"
+		if err := copyFile(oldFull, tmpPath); err != nil {
 			return fmt.Errorf("copy: %w", err)
+		}
+		if err := os.Rename(tmpPath, newFull); err != nil {
+			os.Remove(tmpPath) //nolint:errcheck
+			return fmt.Errorf("rename tmp to final: %w", err)
 		}
 		if err := os.Remove(oldFull); err != nil && !os.IsNotExist(err) {
 			slog.Warn("shadowfs migrate: remove old after copy",
@@ -915,6 +920,79 @@ func (m *MigrateJob) moveOneFile(ctx context.Context, e moveEntry) error {
 	cleanEmptyDirs(filepath.Dir(oldFull), m.basePath)
 
 	return m.journalMoveDone(ctx, e, e.storagePath, newRelPath)
+}
+
+// recoverPendingMoves handles journal entries with status='pending' left from
+// a previous crash. For each pending entry, it checks whether the file landed
+// at new_path or is still at old_path, and finalizes accordingly.
+func (m *MigrateJob) recoverPendingMoves(ctx context.Context) error {
+	rows, err := m.pool.Query(ctx, `
+		SELECT source_id, file_id, user_id, old_path, new_path
+		FROM migration_shadowfs_journal
+		WHERE phase = 'move' AND status = 'pending'
+		  AND old_path IS NOT NULL AND new_path IS NOT NULL`)
+	if err != nil {
+		return fmt.Errorf("query pending: %w", err)
+	}
+	defer rows.Close()
+
+	type pendingEntry struct {
+		sourceID, fileID, userID, oldPath, newPath string
+	}
+	var items []pendingEntry
+	for rows.Next() {
+		var p pendingEntry
+		if err := rows.Scan(&p.sourceID, &p.fileID, &p.userID, &p.oldPath, &p.newPath); err != nil {
+			return fmt.Errorf("scan pending: %w", err)
+		}
+		items = append(items, p)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, p := range items {
+		newFull := filepath.Join(m.basePath, p.newPath)
+		oldFull := filepath.Join(m.basePath, p.oldPath)
+
+		if _, err := os.Stat(newFull); err == nil {
+			// File at new location — finalize.
+			if _, err := m.pool.Exec(ctx,
+				`UPDATE user_files SET storage_path = $1, updated_at = NOW() WHERE id = $2`,
+				p.newPath, p.fileID); err != nil {
+				slog.Error("shadowfs migrate: recover pending — update path failed",
+					"file_id", p.fileID, "error", err)
+				continue
+			}
+			m.pool.Exec(ctx, //nolint:errcheck
+				`UPDATE migration_shadowfs_journal SET status = 'done'
+				 WHERE source_table = 'user_files' AND source_id = $1::uuid AND phase = 'move'`,
+				p.fileID)
+			slog.Info("shadowfs migrate: recovered pending move (file at new path)",
+				"file_id", p.fileID, "new_path", p.newPath)
+			continue
+		}
+
+		if _, err := os.Stat(oldFull); err == nil {
+			// File still at old location — clear pending so normal loop retries.
+			m.pool.Exec(ctx, //nolint:errcheck
+				`DELETE FROM migration_shadowfs_journal
+				 WHERE source_table = 'user_files' AND source_id = $1::uuid AND phase = 'move' AND status = 'pending'`,
+				p.fileID)
+			slog.Info("shadowfs migrate: recovered pending move (file still at old path, will retry)",
+				"file_id", p.fileID, "old_path", p.oldPath)
+			continue
+		}
+
+		// Neither location has the file — mark as failed.
+		slog.Warn("shadowfs migrate: recovered pending move — file missing at both paths",
+			"file_id", p.fileID, "old_path", p.oldPath, "new_path", p.newPath)
+		m.pool.Exec(ctx, //nolint:errcheck
+			`UPDATE migration_shadowfs_journal SET status = 'failed', error_msg = 'file missing at both paths after crash'
+			 WHERE source_table = 'user_files' AND source_id = $1::uuid AND phase = 'move'`,
+			p.fileID)
+	}
+	return nil
 }
 
 // journalMoveDone records a completed move in the journal.
@@ -1030,77 +1108,6 @@ func (m *MigrateJob) getUserDir(ctx context.Context, userID string) (string, err
 
 // ── Rollback ─────────────────────────────────────────────────────────────────
 
-// recoverPendingMoves re-applies any journal entries from a previous run that
-// were left in 'pending' state (e.g. due to a crash mid-migration). For each
-// such entry it retries the rename and on success marks the entry as 'done'.
-// Non-fatal errors are logged and skipped so the main migration can proceed.
-func (m *MigrateJob) recoverPendingMoves(ctx context.Context) error {
-	rows, err := m.pool.Query(ctx, `
-		SELECT file_id, user_id, old_path, new_path
-		FROM migration_shadowfs_journal
-		WHERE phase = 'move' AND status = 'pending'`)
-	if err != nil {
-		return fmt.Errorf("query pending moves: %w", err)
-	}
-	defer rows.Close()
-
-	type pendingMove struct {
-		fileID, userID, oldPath, newPath string
-	}
-	var items []pendingMove
-	for rows.Next() {
-		var p pendingMove
-		if err := rows.Scan(&p.fileID, &p.userID, &p.oldPath, &p.newPath); err != nil {
-			return fmt.Errorf("scan pending move: %w", err)
-		}
-		items = append(items, p)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate pending moves: %w", err)
-	}
-
-	if len(items) == 0 {
-		return nil
-	}
-	slog.Info("shadowfs migrate: recovering pending moves", "count", len(items))
-
-	for _, p := range items {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		oldFull := filepath.Join(m.basePath, p.oldPath)
-		newFull := filepath.Join(m.basePath, p.newPath)
-
-		// If new path already exists, the rename succeeded — just mark done.
-		if _, statErr := os.Stat(newFull); statErr == nil {
-			if _, execErr := m.pool.Exec(ctx, `
-				UPDATE migration_shadowfs_journal SET status = 'done'
-				WHERE file_id = $1 AND phase = 'move'`, p.fileID); execErr != nil {
-				slog.Error("shadowfs migrate: recover: mark done failed", "file_id", p.fileID, "error", execErr)
-			}
-			continue
-		}
-
-		if mkErr := os.MkdirAll(filepath.Dir(newFull), 0o755); mkErr != nil {
-			slog.Error("shadowfs migrate: recover: mkdir failed", "file_id", p.fileID, "error", mkErr)
-			continue
-		}
-		if renErr := os.Rename(oldFull, newFull); renErr != nil {
-			slog.Error("shadowfs migrate: recover: rename failed",
-				"file_id", p.fileID, "from", oldFull, "to", newFull, "error", renErr)
-			continue
-		}
-		if _, execErr := m.pool.Exec(ctx, `
-			UPDATE migration_shadowfs_journal SET status = 'done'
-			WHERE file_id = $1 AND phase = 'move'`, p.fileID); execErr != nil {
-			slog.Error("shadowfs migrate: recover: mark done failed", "file_id", p.fileID, "error", execErr)
-		}
-		slog.Info("shadowfs migrate: recovered pending move",
-			"file_id", p.fileID, "from", p.oldPath, "to", p.newPath)
-	}
-	return nil
-}
-
 // RunRollback reverses Phase 2 file moves by reading journal entries with
 // phase='move' and status='done', and moving files back to their old paths.
 func (m *MigrateJob) RunRollback(ctx context.Context, jobID string) error {
@@ -1191,8 +1198,14 @@ func (m *MigrateJob) RunRollback(ctx context.Context, jobID string) error {
 					if !isCrossDevice(err) && !errors.Is(err, os.ErrInvalid) {
 						return err
 					}
-					if err := copyFile(newFull, oldFull); err != nil {
+					// M22: Crash-safe cross-device copy via .tmp suffix.
+					tmpPath := oldFull + ".tmp"
+					if err := copyFile(newFull, tmpPath); err != nil {
 						return err
+					}
+					if err := os.Rename(tmpPath, oldFull); err != nil {
+						os.Remove(tmpPath) //nolint:errcheck
+						return fmt.Errorf("rename tmp to final: %w", err)
 					}
 					os.Remove(newFull) //nolint:errcheck
 				}

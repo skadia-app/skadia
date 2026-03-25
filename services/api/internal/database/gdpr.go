@@ -67,9 +67,20 @@ func (db *DB) PurgeDeletedUsers(ctx context.Context, storageCleanup func(ctx con
 //
 // Phase 2: Transactional delete of everything else. The final DELETE FROM users
 //
-//	cascades to ~45 dependent tables via ON DELETE CASCADE.
+//	cascades to ~45+ dependent tables via ON DELETE CASCADE, including:
+//	activities, gear, tags, activity_tags, activity_photos, privacy_zones,
+//	enrichment_settings, custom_maps, map_layers, heatmap_lines, pmc_daily,
+//	gear_rules, gear_auto_assign_rules, gear_documents, meta_files,
+//	garmin_import_jobs, garmin_import_mappings, strava_imports,
+//	import_queue, analytics_cache, segment_favorites, ml_settings,
+//	device_tokens, notifications, chat_threads, chat_messages,
+//	oauth_connections, refresh_tokens, email_tokens, auth_codes,
+//	auth_audit_log (SET NULL), activity_weather, activity_events,
+//	activity_sets, activity_laps, workouts, workout_steps, devices,
+//	route_photos, planned_routes (explicit), user_files, user_file_schemas,
+//	file_attachments, etc.
 //
-// Phase 3: Best-effort external storage cleanup via ShadowFS.
+// Phase 1.5: Best-effort external storage cleanup via ShadowFS.
 // storageCleanup is an optional callback that deletes all stored files for a user;
 // pass nil to skip external storage cleanup.
 func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup func(ctx context.Context, userID string) error) error {
@@ -173,11 +184,25 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	}
 
 	// Tables without CASCADE that need explicit deletion.
+
+	// user_daily_features: user_id without CASCADE.
+	if _, err := tx.Exec(ctx, `DELETE FROM user_daily_features WHERE user_id = $1`, userID); err != nil {
+		slog.Warn("GDPR: delete user_daily_features failed", "error", err)
+	}
+
+	// llm_user_config: user_id without CASCADE.
+	if _, err := tx.Exec(ctx, `DELETE FROM llm_user_config WHERE user_id = $1`, userID); err != nil {
+		slog.Warn("GDPR: delete llm_user_config failed", "error", err)
+	}
+
 	// segments: created_by REFERENCES users(id) — no CASCADE.
 	if _, err := tx.Exec(ctx, `DELETE FROM segments WHERE created_by = $1`, userID); err != nil {
 		markJobDone("failed", err.Error())
 		return fmt.Errorf("GDPR: delete segments: %w", err)
 	}
+
+	// Delete route_photos S3 objects BEFORE deleting planned_routes (which cascades to route_photos).
+	db.deleteRoutePhotoFiles(ctx, userID)
 
 	// planned_routes: user_id REFERENCES users(id) — no CASCADE.
 	if _, err := tx.Exec(ctx, `DELETE FROM planned_routes WHERE user_id = $1`, userID); err != nil {
@@ -199,15 +224,7 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 		slog.Warn("GDPR: delete background_jobs failed", "error", err)
 	}
 
-	// DELETE user — CASCADE handles ~30+ dependent tables:
-	// activities, gear, tags, activity_tags, activity_photos, privacy_zones,
-	// enrichment_settings, custom_maps, map_layers, heatmap_lines, pmc_daily,
-	// gear_rules, gear_auto_assign_rules, gear_documents, meta_files,
-	// garmin_import_jobs, garmin_import_mappings, strava_imports,
-	// import_queue, analytics_cache, segment_favorites, ml_settings,
-	// device_tokens, notifications, chat_threads, oauth_connections,
-	// refresh_tokens, email_tokens, auth_codes, auth_audit_log (SET NULL),
-	// activity_weather, activity_events, activity_sets, activity_laps, etc.
+	// DELETE user — CASCADE handles ~45+ dependent tables (see func doc comment).
 	if _, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
 		markJobDone("failed", err.Error())
 		return fmt.Errorf("GDPR: delete user: %w", err)
@@ -260,4 +277,53 @@ func (db *DB) getUserSegmentIDs(ctx context.Context, userID string) []string {
 		}
 	}
 	return ids
+}
+
+// deleteRoutePhotoFiles collects S3 keys from route_photos for the user and
+// deletes them via the ShadowFS user_files registry. This MUST be called
+// BEFORE planned_routes are deleted (which would CASCADE-delete route_photos).
+func (db *DB) deleteRoutePhotoFiles(ctx context.Context, userID string) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT rp.s3_key, rp.s3_key_thumb, rp.s3_key_preview
+		 FROM route_photos rp
+		 JOIN planned_routes pr ON pr.id = rp.route_id
+		 WHERE pr.user_id = $1 AND rp.s3_key != ''`, userID)
+	if err != nil {
+		slog.Warn("GDPR: query route_photos S3 keys failed", "user_id", userID, "error", err)
+		return
+	}
+	defer rows.Close()
+
+	var keys []string
+	for rows.Next() {
+		var key, thumb, preview string
+		if err := rows.Scan(&key, &thumb, &preview); err != nil {
+			continue
+		}
+		if key != "" {
+			keys = append(keys, key)
+		}
+		if thumb != "" {
+			keys = append(keys, thumb)
+		}
+		if preview != "" {
+			keys = append(keys, preview)
+		}
+	}
+	if len(keys) > 0 {
+		slog.Info("GDPR: route_photos S3 keys collected for deletion",
+			"user_id", userID, "count", len(keys))
+		// Delete corresponding user_files entries (ShadowFS registry).
+		// The storage cleanup callback (Phase 1.5) will handle actual S3 object deletion
+		// for files tracked in user_files. For legacy keys not yet in user_files,
+		// the S3 prefix-based purge in DeleteAllForUser covers them.
+		for _, k := range keys {
+			if _, err := db.Pool.Exec(ctx,
+				`DELETE FROM user_files WHERE user_id = $1 AND storage_path LIKE '%' || $2`,
+				userID, k); err != nil {
+				slog.Warn("GDPR: delete route_photo user_file failed",
+					"user_id", userID, "key", k, "error", err)
+			}
+		}
+	}
 }

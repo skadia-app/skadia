@@ -97,17 +97,23 @@ CREATE UNIQUE INDEX idx_users_library_dir_name ON users (library_dir_name) WHERE
 
 -- Migrate existing file_naming_schema to user_file_schemas
 -- LTRIM leading '/' — old default from migration 000009 has leading slash
+-- ON CONFLICT DO NOTHING makes these idempotent (safe to re-run).
 INSERT INTO user_file_schemas (user_id, file_type, schema_template)
 SELECT id, 'activity',
     COALESCE(LTRIM(NULLIF(file_naming_schema, ''), '/'), '{year}/{month}/{day}_{time}_{sport}')
-FROM users;
+FROM users
+ON CONFLICT (user_id, file_type) DO NOTHING;
 
 -- Insert default schemas for other types (all existing users)
 INSERT INTO user_file_schemas (user_id, file_type, schema_template)
-SELECT id, 'media', '{year}/{month}/{day}_{title}' FROM users;
+SELECT id, 'media', '{year}/{month}/{day}_{title}' FROM users
+ON CONFLICT (user_id, file_type) DO NOTHING;
 INSERT INTO user_file_schemas (user_id, file_type, schema_template)
-SELECT id, 'document', '{year}/{category}_{title}' FROM users;
+SELECT id, 'document', '{year}/{category}_{title}' FROM users
+ON CONFLICT (user_id, file_type) DO NOTHING;
 INSERT INTO user_file_schemas (user_id, file_type, schema_template)
-SELECT id, 'health', '{year}/{month}/{day}_{type}' FROM users;
+SELECT id, 'health', '{year}/{month}/{day}_{type}' FROM users
+ON CONFLICT (user_id, file_type) DO NOTHING;
 INSERT INTO user_file_schemas (user_id, file_type, schema_template)
-SELECT id, 'route', '{sport}/{title}' FROM users;
+SELECT id, 'route', '{sport}/{title}' FROM users
+ON CONFLICT (user_id, file_type) DO NOTHING;
