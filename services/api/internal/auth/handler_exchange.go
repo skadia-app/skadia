@@ -37,5 +37,5 @@ func (h *Handler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.issueTokensAndRespond(w, r, userID.String())
+	h.issueTokensAndRespond(w, r, user)
 }

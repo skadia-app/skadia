@@ -82,7 +82,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.issueTokensAndRespond(w, r, user.ID)
+	h.issueTokensAndRespond(w, r, user)
 }
 
 // authenticateUser validates email/password credentials with timing equalization.
@@ -164,9 +164,9 @@ func (h *Handler) authenticateUser(w http.ResponseWriter, r *http.Request, email
 
 // issueTokensAndRespond generates JWT + refresh token and writes the response.
 // Shared by login, social callback, and token exchange handlers.
-func (h *Handler) issueTokensAndRespond(w http.ResponseWriter, r *http.Request, userID string) {
+func (h *Handler) issueTokensAndRespond(w http.ResponseWriter, r *http.Request, user *model.User) {
 	// Issue JWT.
-	jwtToken, err := IssueJWT(userID, h.secret)
+	jwtToken, err := IssueJWT(user.ID, user.IsAdmin, user.EmailVerified, user.MustChangePassword, h.secret)
 	if err != nil {
 		slog.Error("issue JWT failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
@@ -190,7 +190,7 @@ func (h *Handler) issueTokensAndRespond(w http.ResponseWriter, r *http.Request, 
 	}
 	ip := net.ParseIP(middleware.ClientIP(r))
 
-	if err := h.DB.CreateRefreshToken(r.Context(), userID, familyID, tokenHash,
+	if err := h.DB.CreateRefreshToken(r.Context(), user.ID, familyID, tokenHash,
 		r.UserAgent(), ip, time.Now().Add(RefreshTokenExpiry)); err != nil {
 		slog.Error("create refresh token failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
@@ -208,7 +208,11 @@ func (h *Handler) issueTokensAndRespond(w http.ResponseWriter, r *http.Request, 
 		MaxAge:   RefreshCookieMaxAge,
 	})
 
-	writeJSON(w, http.StatusOK, map[string]string{"token": jwtToken})
+	resp := map[string]any{"token": jwtToken}
+	if user.MustChangePassword {
+		resp["must_change_password"] = true
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // writeJSON writes a JSON response with the given status code.

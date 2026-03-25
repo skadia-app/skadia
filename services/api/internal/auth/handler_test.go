@@ -628,7 +628,7 @@ func TestIssueJWTProducesToken(t *testing.T) {
 		secret[i] = byte(i)
 	}
 
-	token, err := IssueJWT("user-123", secret)
+	token, err := IssueJWT("user-123", false, true, false, secret)
 	if err != nil {
 		t.Fatalf("IssueJWT failed: %v", err)
 	}
@@ -647,8 +647,8 @@ func TestIssueJWTProducesToken(t *testing.T) {
 func TestIssueJWTDifferentUsers(t *testing.T) {
 	secret := make([]byte, 32)
 
-	t1, _ := IssueJWT("user-a", secret)
-	t2, _ := IssueJWT("user-b", secret)
+	t1, _ := IssueJWT("user-a", false, true, false, secret)
+	t2, _ := IssueJWT("user-b", false, true, false, secret)
 
 	if t1 == t2 {
 		t.Error("different users should produce different JWTs")

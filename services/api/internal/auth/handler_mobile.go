@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // MobileLogin handles POST /auth/mobile/login.
@@ -45,13 +46,13 @@ func (h *Handler) MobileLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.issueMobileTokens(w, r, user.ID)
+	h.issueMobileTokens(w, r, user)
 }
 
 // issueMobileTokens generates JWT + refresh token and writes both in the response body.
 // Used by mobile login and PKCE exchange handlers.
-func (h *Handler) issueMobileTokens(w http.ResponseWriter, r *http.Request, userID string) {
-	jwt, err := IssueJWT(userID, h.secret)
+func (h *Handler) issueMobileTokens(w http.ResponseWriter, r *http.Request, user *model.User) {
+	jwt, err := IssueJWT(user.ID, user.IsAdmin, user.EmailVerified, user.MustChangePassword, h.secret)
 	if err != nil {
 		slog.Error("issue JWT failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
@@ -74,17 +75,21 @@ func (h *Handler) issueMobileTokens(w http.ResponseWriter, r *http.Request, user
 	}
 	ip := net.ParseIP(middleware.ClientIP(r))
 
-	if err := h.DB.CreateRefreshToken(r.Context(), userID, familyID, tokenHash,
+	if err := h.DB.CreateRefreshToken(r.Context(), user.ID, familyID, tokenHash,
 		r.UserAgent(), ip, time.Now().Add(RefreshTokenExpiry)); err != nil {
 		slog.Error("create refresh token failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"token":              jwt,
+	resp := map[string]any{
+		"token":             jwt,
 		refreshTokenBodyKey: token,
-	})
+	}
+	if user.MustChangePassword {
+		resp["must_change_password"] = true
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // MobileRefresh handles POST /auth/mobile/refresh — atomic token rotation with body-based tokens.
@@ -133,7 +138,7 @@ func (h *Handler) MobileRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jwt, err := IssueJWT(userID.String(), h.secret)
+	jwt, err := IssueJWT(user.ID, user.IsAdmin, user.EmailVerified, user.MustChangePassword, h.secret)
 	if err != nil {
 		slog.Error("issue JWT on mobile refresh failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
@@ -197,7 +202,7 @@ func (h *Handler) MobileExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.issueMobileTokens(w, r, userID.String())
+	h.issueMobileTokens(w, r, user)
 }
 
 // computeS256Challenge computes the S256 PKCE code challenge.

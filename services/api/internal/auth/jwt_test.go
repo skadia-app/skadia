@@ -13,7 +13,7 @@ func TestIssueJWT_Roundtrip(t *testing.T) {
 	secret := make([]byte, 32)
 	rand.Read(secret)
 
-	tokenStr, err := IssueJWT("user-123", secret)
+	tokenStr, err := IssueJWT("user-123", false, true, false, secret)
 	if err != nil {
 		t.Fatalf("IssueJWT failed: %v", err)
 	}
@@ -54,8 +54,8 @@ func TestIssueJWT_Roundtrip(t *testing.T) {
 func TestIssueJWT_DifferentUsers(t *testing.T) {
 	secret := make([]byte, 32)
 	rand.Read(secret)
-	t1, _ := IssueJWT("user-1", secret)
-	t2, _ := IssueJWT("user-2", secret)
+	t1, _ := IssueJWT("user-1", false, true, false, secret)
+	t2, _ := IssueJWT("user-2", false, true, false, secret)
 	if t1 == t2 {
 		t.Error("different users should produce different JWTs")
 	}
