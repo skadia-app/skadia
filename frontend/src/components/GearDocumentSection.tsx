@@ -10,6 +10,8 @@ import type { GearDocument } from '@/api/types'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 
+const COMPACT_INPUT_CLASS = AUTH_INPUT_CLASS.replace('py-3', 'py-2')
+
 interface Props {
   gearId: string
 }
@@ -398,7 +400,7 @@ function UploadDialog({
               <select
                 value={docType}
                 onChange={e => setDocType(e.target.value)}
-                className={AUTH_INPUT_CLASS}
+                className={COMPACT_INPUT_CLASS}
               >
                 <option value="receipt">Rechnung</option>
                 <option value="warranty">Garantie</option>
@@ -415,7 +417,7 @@ function UploadDialog({
                 value={title}
                 onChange={e => setTitle(e.target.value)}
                 placeholder="z.B. Kaufbeleg Canyon Spectral"
-                className={AUTH_INPUT_CLASS}
+                className={COMPACT_INPUT_CLASS}
               />
             </div>
 
@@ -425,7 +427,7 @@ function UploadDialog({
                 type="date"
                 value={docDate}
                 onChange={e => setDocDate(e.target.value)}
-                className={AUTH_INPUT_CLASS}
+                className={COMPACT_INPUT_CLASS}
               />
             </div>
 
@@ -439,7 +441,7 @@ function UploadDialog({
                   value={amount}
                   onChange={e => setAmount(e.target.value)}
                   placeholder="0,00"
-                  className={AUTH_INPUT_CLASS}
+                  className={COMPACT_INPUT_CLASS}
                 />
               </div>
               <div className="w-20">
@@ -447,7 +449,7 @@ function UploadDialog({
                 <select
                   value={currency}
                   onChange={e => setCurrency(e.target.value)}
-                  className={AUTH_INPUT_CLASS}
+                  className={COMPACT_INPUT_CLASS}
                 >
                   <option value="EUR">EUR</option>
                   <option value="USD">USD</option>

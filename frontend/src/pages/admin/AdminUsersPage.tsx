@@ -264,7 +264,7 @@ function ResetPasswordDialog({
               value={newPassword}
               onChange={e => setNewPassword(e.target.value)}
               placeholder="Neues Passwort (min. 10 Zeichen)"
-              className={AUTH_INPUT_CLASS}
+              className={`${AUTH_INPUT_CLASS} mt-2`}
               required
               minLength={10}
             />

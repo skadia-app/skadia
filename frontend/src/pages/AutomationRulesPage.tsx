@@ -307,7 +307,7 @@ function RuleCard({
             {/* Toggle */}
             <button
               onClick={() => onToggle(!rule.is_active)}
-              className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0"
+              className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
               style={{ backgroundColor: rule.is_active ? '#f97316' : '#d4d4d4' }}
               role="switch"
               aria-checked={rule.is_active}

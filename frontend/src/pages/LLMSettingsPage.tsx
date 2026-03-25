@@ -199,7 +199,7 @@ function LLMRoleCard({ role, config, onSave }: {
         </div>
         <button
           onClick={() => setEnabled(!enabled)}
-          className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0"
+          className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
           style={{ backgroundColor: enabled ? 'var(--color-accent-DEFAULT)' : '#d4d4d4' }}
           role="switch"
           aria-checked={enabled}

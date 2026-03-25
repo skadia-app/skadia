@@ -871,7 +871,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
             role="switch"
             aria-checked={offsetPinEnabled}
             onClick={() => setOffsetPinEnabled(v => !v)}
-            className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0"
+            className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 cursor-pointer"
             style={{ backgroundColor: offsetPinEnabled ? '#3B82F6' : '#d4d4d4' }}
           >
             <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${offsetPinEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
