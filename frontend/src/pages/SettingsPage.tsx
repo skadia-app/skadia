@@ -23,8 +23,7 @@ import { fetchEnrichmentSettings, updateEnrichmentSettings, backfillEnrichment }
 import type { EnrichmentSettings } from '@/api/types'
 import { recomputePhotoPreviews, recomputePhotoEmbeddings, backfillPhash } from '@/api/activityPhotos'
 import { useToast } from '@/lib/toast'
-import SchemaEditor from '@/components/SchemaEditor'
-import RenamePreview from '@/components/RenamePreview'
+import FileSchemaSettings from '@/components/FileSchemaSettings'
 import LLMSettingsPage from './LLMSettingsPage'
 import ChatProfileSettings from '@/components/ChatProfileSettings'
 import { WeatherSettings } from '@/components/WeatherSettings'
@@ -604,8 +603,6 @@ export default function SettingsPage() {
   const queryClient = useQueryClient()
   const { accent, setAccent } = useAccentColor()
   const { isAdmin } = useUser()
-  const [renameOpen, setRenameOpen] = useState(false)
-  const [schemaValue, setSchemaValue] = useState<string | null>(null)
   const [searchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState<'general' | 'analysen' | 'ai' | 'konto'>(
     searchParams.get('tab') === 'ai' ? 'ai'
@@ -619,18 +616,6 @@ export default function SettingsPage() {
     queryFn: getShadowFSSettings,
   })
 
-
-  // Lokaler Schema-Wert oder vom Server
-  const currentSchema = schemaValue ?? settings?.schema ?? ''
-  const isDirty = schemaValue !== null && schemaValue !== settings?.schema
-
-  const updateMutation = useMutation({
-    mutationFn: updateShadowFSSettings,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['shadow-fs-settings'] })
-      setSchemaValue(null)
-    },
-  })
 
   const toggleMutation = useMutation({
     mutationFn: (enabled: boolean) => updateShadowFSSettings({ hotfolder_enabled: enabled }),
@@ -717,40 +702,7 @@ export default function SettingsPage() {
       <SportSettingsSection />
 
       {/* Dateiablage */}
-      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
-        <div>
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Dateiablage</h2>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Schema für die Ordnerstruktur im Shadow File System. Variablen werden durch Werte der jeweiligen Aktivität ersetzt.
-          </p>
-        </div>
-
-        <SchemaEditor
-          value={currentSchema}
-          onChange={setSchemaValue}
-          onSave={() => updateMutation.mutate({ schema: currentSchema })}
-          isSaving={updateMutation.isPending}
-          isDirty={isDirty}
-        />
-
-        {updateMutation.isError && (
-          <p className="text-sm text-rose-500">
-            Fehler beim Speichern: {updateMutation.error instanceof Error ? updateMutation.error.message : 'Unbekannt'}
-          </p>
-        )}
-
-        <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60">
-          <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-3">
-            Bestehende Dateien nach dem aktuellen Schema umbenennen und verschieben.
-          </p>
-          <button
-            onClick={() => setRenameOpen(true)}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors cursor-pointer"
-          >
-            Vorschau anzeigen
-          </button>
-        </div>
-      </section>
+      <FileSchemaSettings />
 
       {/* Hotfolder */}
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
@@ -870,7 +822,6 @@ export default function SettingsPage() {
       {/* Lokale Karten & Geodaten */}
       {isAdmin && <LocalMapAndGeoSection />}
 
-      <RenamePreview open={renameOpen} onClose={() => setRenameOpen(false)} schema={currentSchema} />
       </>}
     </div>
   )
