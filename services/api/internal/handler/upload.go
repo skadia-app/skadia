@@ -153,7 +153,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 
 			msResult, msErr := h.ImportService.ProcessMultisport(
 				r.Context(), userID, activities, decompressed, hashStr,
-				s3Key, format, filename,
+				msFileID, format, filename,
 				importer.ImportMetadata{SourcePlatform: "webui", ConflictStrategy: conflictStrategy},
 			)
 			if msErr != nil {
@@ -279,7 +279,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		h.postInsertActivity(r.Context(), userID, fitActivity, data, decompressed, s3Key, format, filename)
+		h.postInsertActivity(r.Context(), userID, fitActivity, data, fitFileID, format, filename)
 
 		tracker.Completed(r.Context(), fitResult.ActivityID)
 
@@ -426,7 +426,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	h.postInsertActivity(r.Context(), userID, gpxActivity, data, decompressed, s3Key, format, filename)
+	h.postInsertActivity(r.Context(), userID, gpxActivity, data, gpxFileID, format, filename)
 
 	tracker.Completed(r.Context(), gpxResult.ActivityID)
 
@@ -459,12 +459,11 @@ func (h *Handler) postInsertActivity(
 	userID string,
 	activity *model.Activity,
 	data *model.ActivityData,
-	fileBytes []byte,
-	s3Key string,
+	fileID string,
 	format string,
 	filename string,
 ) {
-	if err := h.ImportService.PostProcess(ctx, userID, activity.ID, data, fileBytes, s3Key, format, filename); err != nil {
+	if err := h.ImportService.PostProcess(ctx, userID, activity.ID, data, fileID, format, filename); err != nil {
 		slog.Error("post-process activity failed", "id", activity.ID, "error", err)
 	}
 }

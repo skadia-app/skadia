@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -404,22 +405,42 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			// Do not set FileFormat since we don't know it
 		}
 
-		// Upload original file to Garage (must happen before PostProcess which writes the sidecar)
-		var s3Key string
-		if len(fileBytes) > 0 && params.Storage != nil {
-			s3Key = fmt.Sprintf("%s/%s.%s", params.UserID, hashStr, format)
+		// Upload original file via FileStore (preferred) or legacy S3
+		var fileID string
+		if len(fileBytes) > 0 {
 			contentType := "application/octet-stream"
 			if format == "gpx" || format == "tcx" {
 				contentType = "application/xml"
 			}
-			if err := params.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
-				slog.Warn("strava activities: S3 upload failed", "file", filename, "error", err)
+			if params.FileStore != nil {
+				rec, putErr := params.FileStore.Put(ctx, filestore.FileEntry{
+					UserID:      params.UserID,
+					FileType:    "activity",
+					ContentType: contentType,
+					FileName:    filename,
+					SizeBytes:   int64(len(fileBytes)),
+					FileHash:    hashStr,
+					Tags: map[string]string{
+						"format": format,
+						"source": "strava",
+					},
+				}, bytes.NewReader(fileBytes))
+				if putErr != nil {
+					slog.Warn("strava activities: FileStore.Put failed", "file", filename, "error", putErr)
+				} else {
+					fileID = rec.ID
+				}
+			} else if params.Storage != nil {
+				s3Key := fmt.Sprintf("%s/%s.%s", params.UserID, hashStr, format)
+				if err := params.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
+					slog.Warn("strava activities: S3 upload failed", "file", filename, "error", err)
+				}
 			}
 		}
 
 		// CSV-only activity (no file in Strava export, e.g. manually created in Strava).
-		// Store the CSV row as a JSON source file so every activity has an S3 original.
-		if len(fileBytes) == 0 && params.Storage != nil {
+		// Store the CSV row as a JSON source file so every activity has a stored original.
+		if len(fileBytes) == 0 {
 			csvJSON := &sidecar.ManualActivityFile{
 				SchemaVersion:  3,
 				FileFormat:     "strava_csv",
@@ -442,10 +463,29 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				data.FileHash = hashStr
 				data.FileFormat = "strava_csv"
 				format = "strava_csv"
-				s3Key = fmt.Sprintf("%s/%s.json", params.UserID, hashStr)
-				if err := params.Storage.Upload(ctx, s3Key, jsonBytes, "application/json"); err != nil {
-					slog.Warn("strava activities: S3 upload for CSV-only failed", "error", err)
-					s3Key = ""
+				if params.FileStore != nil {
+					rec, putErr := params.FileStore.Put(ctx, filestore.FileEntry{
+						UserID:      params.UserID,
+						FileType:    "activity",
+						ContentType: "application/json",
+						FileName:    fmt.Sprintf("strava_%d.json", stravaID),
+						SizeBytes:   int64(len(jsonBytes)),
+						FileHash:    hashStr,
+						Tags: map[string]string{
+							"format": "strava_csv",
+							"source": "strava",
+						},
+					}, bytes.NewReader(jsonBytes))
+					if putErr != nil {
+						slog.Warn("strava activities: FileStore.Put for CSV-only failed", "error", putErr)
+					} else {
+						fileID = rec.ID
+					}
+				} else if params.Storage != nil {
+					s3Key := fmt.Sprintf("%s/%s.json", params.UserID, hashStr)
+					if err := params.Storage.Upload(ctx, s3Key, jsonBytes, "application/json"); err != nil {
+						slog.Warn("strava activities: S3 upload for CSV-only failed", "error", err)
+					}
 				}
 			}
 		}
@@ -475,8 +515,8 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			continue
 		}
 
-		// New activity inserted: run PostProcess (streams, track, heatmap, Stage 1, sidecar, NATS…)
-		if err := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileBytes, s3Key, format, filename); err != nil {
+		// New activity inserted: run PostProcess (streams, track, heatmap, Stage 1, NATS…)
+		if err := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileID, format, filename); err != nil {
 			slog.Warn("strava activities: PostProcess failed", "id", actResult.ActivityID, "error", err)
 		}
 		tracker.Completed(ctx, actResult.ActivityID)

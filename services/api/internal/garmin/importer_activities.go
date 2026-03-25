@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -260,20 +261,37 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			continue
 		}
 
-		// New activity inserted — upload to S3 then run post-processing
-		// (NATS events, Shadow FS, Segment matching, Lap detection, Heatmap, etc.)
-		s3Key := fmt.Sprintf("%s/%s.%s", params.UserID, hashStr, format)
+		// New activity inserted — store file via FileStore (preferred) or legacy S3
 		contentType := "application/octet-stream"
 		if format == "gpx" || format == "tcx" {
 			contentType = "application/xml"
 		}
-		if params.Storage != nil {
+		var fileID string
+		if params.FileStore != nil {
+			rec, putErr := params.FileStore.Put(ctx, filestore.FileEntry{
+				UserID:      params.UserID,
+				FileType:    "activity",
+				ContentType: contentType,
+				FileName:    ref.fileName,
+				SizeBytes:   int64(len(fileBytes)),
+				FileHash:    hashStr,
+				Tags: map[string]string{
+					"format": format,
+					"source": "garmin",
+				},
+			}, bytes.NewReader(fileBytes))
+			if putErr != nil {
+				slog.Warn("garmin activities: FileStore.Put failed", "file", ref.fileName, "error", putErr)
+			} else {
+				fileID = rec.ID
+			}
+		} else if params.Storage != nil {
+			s3Key := fmt.Sprintf("%s/%s.%s", params.UserID, hashStr, format)
 			if err := params.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
 				slog.Warn("garmin activities: S3 upload failed", "file", ref.fileName, "error", err)
-				// Continue — DB insert already done; post-processing still runs
 			}
 		}
-		if postErr := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileBytes, s3Key, format, ref.fileName); postErr != nil {
+		if postErr := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileID, format, ref.fileName); postErr != nil {
 			slog.Warn("garmin activities: PostProcess failed", "file", ref.fileName, "error", postErr)
 			// Non-fatal: activity is already stored
 		}

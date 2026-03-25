@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/garmin"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
@@ -96,16 +97,38 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		// ftype == 4 (activity) or unknown → continue to activity import
 	}
 
-	// 7. S3 upload (decompressed bytes, without .gz extension)
+	// 7. Store file via FileStore (preferred) or legacy S3
 	contentType := "application/octet-stream"
 	if format == "gpx" || format == "tcx" {
 		contentType = "application/xml"
 	}
-	s3Key := fmt.Sprintf("%s/%s.%s", userID, hashStr, format)
-	if err := h.Storage.Upload(ctx, s3Key, decompressed, contentType); err != nil {
-		importErr := fmt.Errorf("S3 upload: %w", err)
-		tracker.Error(ctx, importErr)
-		return importErr
+	var hotfolderFileID string
+	if h.FileStore != nil {
+		rec, putErr := h.FileStore.Put(ctx, filestore.FileEntry{
+			UserID:      userID,
+			FileType:    "activity",
+			ContentType: contentType,
+			FileName:    filename,
+			SizeBytes:   int64(len(decompressed)),
+			FileHash:    hashStr,
+			Tags: map[string]string{
+				"format": format,
+				"source": "hotfolder",
+			},
+		}, bytes.NewReader(decompressed))
+		if putErr != nil {
+			importErr := fmt.Errorf("FileStore upload: %w", putErr)
+			tracker.Error(ctx, importErr)
+			return importErr
+		}
+		hotfolderFileID = rec.ID
+	} else {
+		s3Key := fmt.Sprintf("%s/%s.%s", userID, hashStr, format)
+		if err := h.Storage.Upload(ctx, s3Key, decompressed, contentType); err != nil {
+			importErr := fmt.Errorf("S3 upload: %w", err)
+			tracker.Error(ctx, importErr)
+			return importErr
+		}
 	}
 
 	// 8. Get user's conflict strategy
@@ -120,7 +143,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		if multiErr == nil && len(sessions) >= 2 {
 			msResult, msErr := h.ImportService.ProcessMultisport(
 				ctx, userID, sessions, decompressed, hashStr,
-				s3Key, format, filename,
+				hotfolderFileID, format, filename,
 				importer.ImportMetadata{
 					SourcePlatform:   "hotfolder",
 					ConflictStrategy: conflictStrategy,
@@ -187,7 +210,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 
 	// 12. PostProcess for created/enriched/replaced (NOT skipped)
 	if result.Status == "created" || result.Status == "enriched" || result.Status == "replaced" {
-		if err := h.ImportService.PostProcess(ctx, userID, result.ActivityID, data, decompressed, s3Key, format, filename); err != nil {
+		if err := h.ImportService.PostProcess(ctx, userID, result.ActivityID, data, hotfolderFileID, format, filename); err != nil {
 			slog.Warn("hotfolder: PostProcess failed", "id", result.ActivityID, "file", filename, "error", err)
 		}
 		// Delete source file after successful import

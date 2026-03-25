@@ -299,6 +299,7 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 		params := komoot.KomootImportParams{
 			DB:            h.DB,
 			Storage:       h.Storage,
+			FileStore:     h.FileStore,
 			ImportService: h.ImportService,
 			UserID:        userID,
 			BatchID:       jobID,
