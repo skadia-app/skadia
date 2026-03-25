@@ -310,7 +310,7 @@ export default function RouteSuggestionDialog({
                 role="switch"
                 aria-checked={roundTrip}
                 onClick={() => setRoundTrip(v => !v)}
-                className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0"
+                className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 cursor-pointer"
                 style={{ backgroundColor: roundTrip ? accent.shade500 : undefined }}
                 data-state={roundTrip ? 'checked' : 'unchecked'}
               >
@@ -341,7 +341,7 @@ export default function RouteSuggestionDialog({
                 role="switch"
                 aria-checked={preferUnknown}
                 onClick={() => setPreferUnknown(v => !v)}
-                className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0"
+                className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 cursor-pointer"
                 style={{ backgroundColor: preferUnknown ? accent.shade500 : undefined }}
                 data-state={preferUnknown ? 'checked' : 'unchecked'}
               >

@@ -71,7 +71,7 @@ function ZoneListItem({
       {/* Toggle */}
       <button
         onClick={() => onToggle(zone)}
-        className={`relative w-10 h-6 rounded-full transition-colors flex-shrink-0 overflow-hidden p-0 ${zone.is_active ? 'bg-accent-DEFAULT' : 'bg-neutral-300 dark:bg-neutral-600'}`}
+        className={`relative w-10 h-6 rounded-full transition-colors flex-shrink-0 overflow-hidden p-0 cursor-pointer ${zone.is_active ? 'bg-accent-DEFAULT' : 'bg-neutral-300 dark:bg-neutral-600'}`}
         title={zone.is_active ? 'Deaktivieren' : 'Aktivieren'}
       >
         <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-[left] duration-200 ${zone.is_active ? 'left-[18px]' : 'left-0.5'}`} />
