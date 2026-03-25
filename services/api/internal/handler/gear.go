@@ -27,6 +27,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -146,6 +147,27 @@ func (h *Handler) DeleteGear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := chi.URLParam(r, "id")
+
+	// Clean up associated document files before deleting the gear row
+	// (ON DELETE CASCADE removes gear_documents rows; we must remove files first).
+	docEntries, listErr := h.DB.ListGearDocumentFileIDsByGearID(r.Context(), id)
+	if listErr != nil {
+		slog.Warn("delete gear: list document file ids failed", "gear_id", id, "error", listErr)
+	}
+	for _, e := range docEntries {
+		if h.FileStore != nil && e.FileID != "" {
+			if delErr := h.FileStore.Delete(r.Context(), userID, e.FileID); delErr != nil {
+				slog.Warn("delete gear: filestore delete document failed",
+					"gear_id", id, "file_id", e.FileID, "error", delErr)
+			}
+		} else if e.S3Bucket != "" && e.S3Key != "" {
+			// Legacy S3 fallback
+			if delErr := h.Storage.DeleteFromBucket(r.Context(), e.S3Bucket, e.S3Key); delErr != nil {
+				slog.Warn("delete gear: s3 delete document failed",
+					"gear_id", id, "bucket", e.S3Bucket, "key", e.S3Key, "error", delErr)
+			}
+		}
+	}
 
 	if err := h.DB.DeleteGear(r.Context(), userID, id); err != nil {
 		if err.Error() == "gear not found" {
@@ -882,20 +904,6 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// S3 key format: gear/{userID}/{gearID}/{hash}{ext}
-	mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
-	if mediaBucket == "" {
-		mediaBucket = "skadia-media"
-	}
-	s3Key := fmt.Sprintf("gear/%s/%s/%s%s", userID, gearID, hashStr, ext)
-
-	// Upload to S3
-	if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, contentType); err != nil {
-		slog.Error("s3 upload failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
-		return
-	}
-
 	docType := r.FormValue("doc_type")
 	if docType == "" {
 		if strings.HasPrefix(contentType, "image/") {
@@ -909,6 +917,46 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 	var titlePtr *string
 	if title != "" {
 		titlePtr = &title
+	}
+
+	// FileStore path (preferred) — fall back to legacy S3 when FileStore is not configured.
+	var docFileID string
+	mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
+	if mediaBucket == "" {
+		mediaBucket = "skadia-media"
+	}
+	s3Key := fmt.Sprintf("gear/%s/%s/%s%s", userID, gearID, hashStr, ext)
+
+	if h.FileStore != nil {
+		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+			UserID:      userID,
+			FileType:    "document",
+			ContentType: contentType,
+			FileName:    header.Filename,
+			SizeBytes:   int64(len(data)),
+			FileHash:    hashStr,
+			ParentType:  filestore.Ptr("gear"),
+			ParentID:    filestore.Ptr(gearID),
+			Tags: map[string]string{
+				"doc_type": docType,
+			},
+		}, bytes.NewReader(data))
+		if putErr != nil {
+			slog.Error("gear document: filestore put failed", "error", putErr)
+			httputil.WriteError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
+			return
+		}
+		docFileID = rec.ID
+		// Clear legacy S3 fields — file lives in FileStore only.
+		mediaBucket = ""
+		s3Key = ""
+	} else {
+		// Legacy S3 upload.
+		if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, contentType); err != nil {
+			slog.Error("s3 upload failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
+			return
+		}
 	}
 
 	doc := &model.GearDocument{
@@ -931,8 +979,17 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// PDF-Thumbnail generieren (best-effort)
-	if contentType == "application/pdf" {
+	// Persist the FileStore file_id on the row.
+	if docFileID != "" {
+		if setErr := h.DB.UpdateGearDocumentFileID(r.Context(), result.ID, docFileID); setErr != nil {
+			slog.Warn("gear document: failed to set file_id", "doc_id", result.ID, "file_id", docFileID, "error", setErr)
+		} else {
+			result.FileID = &docFileID
+		}
+	}
+
+	// PDF-Thumbnail generieren (best-effort, legacy S3 only — FileStore thumbs TBD)
+	if contentType == "application/pdf" && s3Key != "" {
 		if thumbData, err := generatePDFThumbnail(data, 400); err == nil {
 			thumbKey := fmt.Sprintf("gear/%s/%s/%s_thumb.jpg", userID, gearID, hashStr)
 			if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, thumbKey, thumbData, "image/jpeg"); err == nil {
@@ -1178,18 +1235,6 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
-	if mediaBucket == "" {
-		mediaBucket = "skadia-media"
-	}
-	s3Key := fmt.Sprintf("gear-component/%s/%s/%s%s", userID, componentID, hashStr, ext)
-
-	if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, contentType); err != nil {
-		slog.Error("s3 upload failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
-		return
-	}
-
 	docType := "photo"
 	if !strings.HasPrefix(contentType, "image/") {
 		docType = "other"
@@ -1198,6 +1243,46 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 	var titlePtr *string
 	if title != "" {
 		titlePtr = &title
+	}
+
+	// FileStore path (preferred) — fall back to legacy S3 when FileStore is not configured.
+	var compFileID string
+	mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
+	if mediaBucket == "" {
+		mediaBucket = "skadia-media"
+	}
+	s3Key := fmt.Sprintf("gear-component/%s/%s/%s%s", userID, componentID, hashStr, ext)
+
+	if h.FileStore != nil {
+		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+			UserID:      userID,
+			FileType:    "document",
+			ContentType: contentType,
+			FileName:    header.Filename,
+			SizeBytes:   int64(len(data)),
+			FileHash:    hashStr,
+			ParentType:  filestore.Ptr("gear_component"),
+			ParentID:    filestore.Ptr(componentID),
+			Tags: map[string]string{
+				"doc_type": docType,
+			},
+		}, bytes.NewReader(data))
+		if putErr != nil {
+			slog.Error("component document: filestore put failed", "error", putErr)
+			httputil.WriteError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
+			return
+		}
+		compFileID = rec.ID
+		// Clear legacy S3 fields — file lives in FileStore only.
+		mediaBucket = ""
+		s3Key = ""
+	} else {
+		// Legacy S3 upload.
+		if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, contentType); err != nil {
+			slog.Error("s3 upload failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
+			return
+		}
 	}
 
 	doc := &model.GearDocument{
@@ -1218,6 +1303,15 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 		slog.Error("insert component document failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to save document", r.URL.Path)
 		return
+	}
+
+	// Persist the FileStore file_id on the row.
+	if compFileID != "" {
+		if setErr := h.DB.UpdateGearDocumentFileID(r.Context(), result.ID, compFileID); setErr != nil {
+			slog.Warn("component document: failed to set file_id", "doc_id", result.ID, "file_id", compFileID, "error", setErr)
+		} else {
+			result.FileID = &compFileID
+		}
 	}
 
 	httputil.WriteJSON(w, http.StatusCreated, result)
@@ -1255,20 +1349,26 @@ func (h *Handler) DeleteGearDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bucket, key, err := h.DB.DeleteGearDocument(r.Context(), docID)
+	bucket, key, fileID, err := h.DB.DeleteGearDocument(r.Context(), docID)
 	if err != nil {
 		slog.Error("delete gear document failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to delete document", r.URL.Path)
 		return
 	}
-	if bucket == "" {
+	if bucket == "" && fileID == "" {
 		httputil.WriteError(w, http.StatusNotFound, "Not found", "Document not found", r.URL.Path)
 		return
 	}
 
-	// Delete from S3 (best-effort)
-	if err := h.Storage.DeleteFromBucket(r.Context(), bucket, key); err != nil {
-		slog.Error("s3 delete failed", "bucket", bucket, "key", key, "error", err)
+	// Delete from FileStore (preferred) or fall back to legacy S3 (best-effort).
+	if h.FileStore != nil && fileID != "" {
+		if delErr := h.FileStore.Delete(r.Context(), userID, fileID); delErr != nil {
+			slog.Error("filestore delete failed", "file_id", fileID, "error", delErr)
+		}
+	} else if bucket != "" {
+		if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, key); delErr != nil {
+			slog.Error("s3 delete failed", "bucket", bucket, "key", key, "error", delErr)
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -1296,20 +1396,34 @@ func (h *Handler) DownloadGearDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", doc.ContentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, doc.OriginalFilename))
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+
+	// Serve from FileStore when available; fall back to legacy S3.
+	if h.FileStore != nil && doc.FileID != nil && *doc.FileID != "" {
+		rc, getErr := h.FileStore.Get(r.Context(), userID, *doc.FileID)
+		if getErr != nil {
+			slog.Error("filestore get failed", "file_id", *doc.FileID, "error", getErr)
+			httputil.WriteError(w, http.StatusInternalServerError, "Download failed", "Failed to retrieve file", r.URL.Path)
+			return
+		}
+		defer rc.Close()
+		io.Copy(w, rc) //nolint:errcheck
+		return
+	}
+
+	// Legacy S3 download.
 	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), doc.S3Bucket, doc.S3Key)
 	if err != nil {
 		slog.Error("s3 download failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Download failed", "Failed to retrieve file", r.URL.Path)
 		return
 	}
-
-	if ct == "" {
-		ct = doc.ContentType
+	if ct != "" {
+		w.Header().Set("Content-Type", ct)
 	}
-	w.Header().Set("Content-Type", ct)
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, doc.OriginalFilename))
-	w.Header().Set("Cache-Control", "private, max-age=86400")
-	w.Write(data)
+	w.Write(data) //nolint:errcheck
 }
 
 // PatchGearReview updates the review status of a gear item.

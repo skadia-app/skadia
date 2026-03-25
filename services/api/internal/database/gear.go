@@ -1679,11 +1679,11 @@ func (db *DB) DeleteBikeSetup(ctx context.Context, id string) error {
 
 // --- Gear Documents ---
 
-const gearDocSelectCols = `id, user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, s3_bucket, s3_key, extracted_text, processing_status, created_at`
+const gearDocSelectCols = `id, user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, file_id, s3_bucket, s3_key, extracted_text, processing_status, created_at`
 
 func scanGearDocument(row pgx.Row) (*model.GearDocument, error) {
 	var d model.GearDocument
-	err := row.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.S3Bucket, &d.S3Key, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt)
+	err := row.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.S3Bucket, &d.S3Key, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -1720,7 +1720,7 @@ func (db *DB) ListGearDocuments(ctx context.Context, gearID string) ([]model.Gea
 	var docs []model.GearDocument
 	for rows.Next() {
 		var d model.GearDocument
-		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.S3Bucket, &d.S3Key, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.S3Bucket, &d.S3Key, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan gear document: %w", err)
 		}
 		docs = append(docs, d)
@@ -1743,7 +1743,7 @@ func (db *DB) ListComponentDocuments(ctx context.Context, componentID string) ([
 	var docs []model.GearDocument
 	for rows.Next() {
 		var d model.GearDocument
-		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.S3Bucket, &d.S3Key, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.S3Bucket, &d.S3Key, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan component document: %w", err)
 		}
 		docs = append(docs, d)
@@ -1761,16 +1761,82 @@ func (db *DB) GetGearDocument(ctx context.Context, docID string) (*model.GearDoc
 	return scanGearDocument(db.Pool.QueryRow(ctx, `SELECT `+gearDocSelectCols+` FROM gear_documents WHERE id = $1`, docID))
 }
 
-func (db *DB) DeleteGearDocument(ctx context.Context, docID string) (string, string, error) {
+// DeleteGearDocument deletes a gear document and returns its storage info.
+// Returns (bucket, s3Key, fileID, error). fileID is non-empty when the doc
+// was stored via the FileStore registry; bucket/s3Key are set for legacy S3 docs.
+func (db *DB) DeleteGearDocument(ctx context.Context, docID string) (string, string, string, error) {
 	var bucket, key string
-	err := db.Pool.QueryRow(ctx, `DELETE FROM gear_documents WHERE id = $1 RETURNING s3_bucket, s3_key`, docID).Scan(&bucket, &key)
+	var fileID *string
+	err := db.Pool.QueryRow(ctx,
+		`DELETE FROM gear_documents WHERE id = $1 RETURNING s3_bucket, s3_key, file_id::text`,
+		docID,
+	).Scan(&bucket, &key, &fileID)
 	if err == pgx.ErrNoRows {
-		return "", "", nil
+		return "", "", "", nil
 	}
 	if err != nil {
-		return "", "", fmt.Errorf("delete gear document: %w", err)
+		return "", "", "", fmt.Errorf("delete gear document: %w", err)
 	}
-	return bucket, key, nil
+	fid := ""
+	if fileID != nil {
+		fid = *fileID
+	}
+	return bucket, key, fid, nil
+}
+
+// UpdateGearDocumentFileID sets the file_id (FileStore registry ID) on a gear document.
+func (db *DB) UpdateGearDocumentFileID(ctx context.Context, docID, fileID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE gear_documents SET file_id = $1 WHERE id = $2`,
+		fileID, docID)
+	return err
+}
+
+// ListGearDocumentFileIDsByGearID returns all (docID, fileID, s3Bucket, s3Key) tuples
+// for documents belonging to a gear item (directly or via its components).
+// Used by DeleteGear to clean up FileStore and S3 storage.
+func (db *DB) ListGearDocumentFileIDsByGearID(ctx context.Context, gearID string) ([]struct {
+	DocID    string
+	FileID   string
+	S3Bucket string
+	S3Key    string
+}, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, COALESCE(file_id::text, ''), s3_bucket, s3_key
+		FROM gear_documents
+		WHERE gear_id = $1
+		   OR component_id IN (SELECT id FROM gear_components WHERE gear_id = $1)
+	`, gearID)
+	if err != nil {
+		return nil, fmt.Errorf("list gear document file ids: %w", err)
+	}
+	defer rows.Close()
+
+	type result struct {
+		DocID    string
+		FileID   string
+		S3Bucket string
+		S3Key    string
+	}
+	var results []struct {
+		DocID    string
+		FileID   string
+		S3Bucket string
+		S3Key    string
+	}
+	for rows.Next() {
+		var e result
+		if err := rows.Scan(&e.DocID, &e.FileID, &e.S3Bucket, &e.S3Key); err != nil {
+			return nil, fmt.Errorf("scan gear document file id: %w", err)
+		}
+		results = append(results, struct {
+			DocID    string
+			FileID   string
+			S3Bucket string
+			S3Key    string
+		}{e.DocID, e.FileID, e.S3Bucket, e.S3Key})
+	}
+	return results, rows.Err()
 }
 
 func (db *DB) GetGearDocumentsByGearIDs(ctx context.Context, gearIDs []string) (map[string]string, error) {
