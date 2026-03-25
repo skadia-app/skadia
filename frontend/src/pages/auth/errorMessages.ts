@@ -49,6 +49,32 @@ export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   invalid_user_id: 'Ungültige Benutzer-ID.', // context: admin endpoints with malformed user ID
   cannot_deactivate_self: 'Du kannst dein eigenes Konto nicht deaktivieren.', // context: admin self-deactivation guard
 
+  // Admin user management
+  admin_create_failed: 'Benutzer konnte nicht erstellt werden.', // context: admin create user endpoint
+  smtp_required_for_invite: 'Ohne SMTP-Konfiguration muss ein temporäres Passwort gesetzt werden.', // context: admin invite without SMTP
+  user_not_found: 'Benutzer nicht gefunden.', // context: admin user lookup
+  cannot_restore_purged: 'Grace Period abgelaufen — Daten wurden bereits gelöscht.', // context: GDPR purge completed
+  last_admin: 'Du bist der letzte Admin. Account-Löschung nicht möglich.', // context: last admin self-delete guard
+
+  // Account lifecycle
+  password_change_required: 'Bitte ändere dein Passwort bevor du fortfährst.', // context: must_change_password guard
+  email_change_token_expired: 'Der Bestätigungslink ist abgelaufen.', // context: change-email confirmation
+  deletion_scheduled: 'Dein Account wird in 30 Tagen gelöscht.', // context: GDPR soft-delete confirmation
+  deletion_cancelled: 'Deine Account-Löschung wurde abgebrochen.', // context: GDPR cancel deletion
+  account_already_deleted: 'Dieser Account ist bereits zur Löschung markiert.', // context: duplicate deletion request
+  account_inactive: 'Dein Account ist deaktiviert.', // context: deactivated account login attempt
+  export_already_running: 'Ein Datenexport läuft bereits.', // context: concurrent export request
+  server_busy: 'Server ist ausgelastet. Bitte versuche es später erneut.', // context: server overloaded
+  already_verified: 'Deine E-Mail-Adresse ist bereits bestätigt.', // context: re-verification attempt
+  smtp_not_configured: 'E-Mail-Versand ist nicht konfiguriert.', // context: email-dependent action without SMTP
+
+  // Profile validation
+  username_taken: 'Dieser Benutzername ist bereits vergeben.', // context: profile update / registration
+  display_name_too_long: 'Anzeigename darf maximal 100 Zeichen lang sein.', // context: profile update
+
+  // Account deletion
+  invalid_confirmation: 'Bestätigung ungültig. Bitte tippe "ACCOUNT LÖSCHEN" ein.', // context: OAuth-only account deletion
+
   // Generic
   too_many_requests: 'Zu viele Anfragen. Bitte warte einen Moment.', // context: rate limit hit
   internal_error: 'Ein interner Fehler ist aufgetreten.', // context: server error
