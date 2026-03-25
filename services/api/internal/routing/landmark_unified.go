@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -237,70 +238,92 @@ func RunUnifiedLandmarkPreprocessing(
 	var flankLandmarks []graph.LandmarkCandidate
 
 	if pool != nil && os.Getenv("LANDMARK_STRATEGY") != "legacy" {
-		south, west, north, east := BBoxFromTiles(tiles)
+		// Cluster-based seed selection: detect connected tile groups so that
+		// each geographic region (Europe, Peru, Nepal, ...) gets its own seeds.
+		// Without clustering, global median-split places all seeds in the
+		// largest region (Europe), leaving other regions without local flanks.
+		clusters := detectTileClusters(tiles)
+		seedSlots := allocateSeedSlots(clusters, 4)
 
-		// Crossing seed selection pipeline:
-		// 1. SQL: road-proximity ranking selects 4 seeds (1 per quadrant)
-		//    Passes near major roads are geographic bottlenecks (lowest ridge crossing).
-		//    Fallback: quadrants without road-adjacent passes use ele DESC.
-		// 2. Snap to graph via SpatialGrid (O(1) per seed)
-		// 3. Budget-Dijkstra + FindFlankLandmarks for each seed
-		//
-		// The flanks are in VALLEYS on both sides of the ridge — they help
-		// ALL route types (road cyclist, MTB, hiker, mountaineer), not just
-		// routes through the specific seed pass.
-		seeds, seedErr := SelectCrossingSeedsSQL(ctx, pool, west, south, east, north)
-		if seedErr != nil {
-			slog.Warn("crossing seed query failed, falling back", "error", seedErr)
-		} else if len(seeds) > 0 {
-			slog.Info("crossing seeds from DB (road-proximity ranked)", "count", len(seeds))
-			snappedSeeds := SnapOSMLandmarksToGraph(seeds, tileDir)
+		slog.Info("tile clusters detected", "clusters", len(clusters),
+			"slot_distribution", seedSlots)
 
-			if len(snappedSeeds) > 0 {
-				// Budget-Dijkstra + flank detection for each seed
-				setCfg := BuildLandmarkCostConfig(LandmarkCostConfigs[LandmarkSetD], BuildLandmarkEdgeCostClosure())
+		var allSeeds []OSMLandmark
+		var allSnapped []SnappedLandmark
 
-				for si, snap := range snappedSeeds {
-					if si >= len(seeds) {
-						break
-					}
-
-					seedTileID, seedLocalID := graph.SplitGlobalNodeID(snap.GlobalNodeID)
-					mapping := nodeMapping[seedTileID]
-					if mapping == nil || uint32(len(mapping)) <= seedLocalID {
-						slog.Warn("crossing seed not in mapping",
-							"name", seeds[si].Name, "ele", seeds[si].Ele)
-						continue
-					}
-					denseID := mapping[seedLocalID]
-
-					progressFn(fmt.Sprintf("flank dijkstra %d/%d", si+1, len(snappedSeeds)), si, len(snappedSeeds))
-					costs := landmarkBudgetDijkstraUnified(ctx, csr, denseID, setCfg, 50000)
-
-					slog.Info("crossing seed accepted",
-						"name", seeds[si].Name,
-						"ele", seeds[si].Ele,
-						"snap_m", snap.SnapDistM,
-						"lat", seeds[si].Lat, "lon", seeds[si].Lon)
-
-					flankA, flankB := FindFlankLandmarks(snap.LandmarkCandidate, costs, tiles, nodeMapping)
-					if flankA.GlobalNodeID != 0 {
-						flankLandmarks = append(flankLandmarks, flankA)
-						slog.Info("flank landmark found",
-							"seed_name", seeds[si].Name, "side", "A",
-							"lat", float64(flankA.Lat)/1e7, "lon", float64(flankA.Lon)/1e7,
-							"ele_m", float64(flankA.Ele)/10.0)
-					}
-					if flankB.GlobalNodeID != 0 {
-						flankLandmarks = append(flankLandmarks, flankB)
-						slog.Info("flank landmark found",
-							"seed_name", seeds[si].Name, "side", "B",
-							"lat", float64(flankB.Lat)/1e7, "lon", float64(flankB.Lon)/1e7,
-							"ele_m", float64(flankB.Ele)/10.0)
-					}
-				}
-				slog.Info("crossing seeds processed", "seeds", len(snappedSeeds), "flanks", len(flankLandmarks))
+		for ci, cluster := range clusters {
+			if seedSlots[ci] == 0 {
+				continue
 			}
+			south, west, north, east := BBoxFromTiles(cluster)
+
+			seeds, seedErr := SelectCrossingSeedsSQL(ctx, pool, west, south, east, north)
+			if seedErr != nil {
+				slog.Warn("crossing seed query failed for cluster", "cluster", ci, "error", seedErr)
+				continue
+			}
+			if len(seeds) == 0 {
+				continue
+			}
+
+			// Limit seeds to allocated slots for this cluster
+			if len(seeds) > seedSlots[ci] {
+				seeds = seeds[:seedSlots[ci]]
+			}
+
+			snapped := SnapOSMLandmarksToGraph(seeds, tileDir)
+			slog.Info("cluster seeds",
+				"cluster", ci, "tiles", len(cluster),
+				"seeds_from_db", len(seeds), "snapped", len(snapped))
+
+			allSeeds = append(allSeeds, seeds...)
+			allSnapped = append(allSnapped, snapped...)
+		}
+
+		if len(allSnapped) > 0 {
+			// Budget-Dijkstra + flank detection for each seed
+			setCfg := BuildLandmarkCostConfig(LandmarkCostConfigs[LandmarkSetD], BuildLandmarkEdgeCostClosure())
+
+			for si, snap := range allSnapped {
+				if si >= len(allSeeds) {
+					break
+				}
+
+				seedTileID, seedLocalID := graph.SplitGlobalNodeID(snap.GlobalNodeID)
+				mapping := nodeMapping[seedTileID]
+				if mapping == nil || uint32(len(mapping)) <= seedLocalID {
+					slog.Warn("crossing seed not in mapping",
+						"name", allSeeds[si].Name, "ele", allSeeds[si].Ele)
+					continue
+				}
+				denseID := mapping[seedLocalID]
+
+				progressFn(fmt.Sprintf("flank dijkstra %d/%d", si+1, len(allSnapped)), si, len(allSnapped))
+				costs := landmarkBudgetDijkstraUnified(ctx, csr, denseID, setCfg, 50000)
+
+				slog.Info("crossing seed accepted",
+					"name", allSeeds[si].Name,
+					"ele", allSeeds[si].Ele,
+					"snap_m", snap.SnapDistM,
+					"lat", allSeeds[si].Lat, "lon", allSeeds[si].Lon)
+
+				flankA, flankB := FindFlankLandmarks(snap.LandmarkCandidate, costs, tiles, nodeMapping)
+				if flankA.GlobalNodeID != 0 {
+					flankLandmarks = append(flankLandmarks, flankA)
+					slog.Info("flank landmark found",
+						"seed_name", allSeeds[si].Name, "side", "A",
+						"lat", float64(flankA.Lat)/1e7, "lon", float64(flankA.Lon)/1e7,
+						"ele_m", float64(flankA.Ele)/10.0)
+				}
+				if flankB.GlobalNodeID != 0 {
+					flankLandmarks = append(flankLandmarks, flankB)
+					slog.Info("flank landmark found",
+						"seed_name", allSeeds[si].Name, "side", "B",
+						"lat", float64(flankB.Lat)/1e7, "lon", float64(flankB.Lon)/1e7,
+						"ele_m", float64(flankB.Ele)/10.0)
+				}
+			}
+			slog.Info("crossing seeds processed", "seeds", len(allSnapped), "flanks", len(flankLandmarks))
 		}
 	}
 
@@ -472,4 +495,88 @@ func RunUnifiedLandmarkPreprocessing(
 		"totalElapsed", time.Since(t0).Round(time.Second),
 	)
 	return meta, nil
+}
+
+// detectTileClusters groups tiles into connected components using BFS on
+// the 1°×1° tile grid. Two tiles are connected if they share a border
+// (8-connectivity: horizontal, vertical, diagonal neighbors).
+// Returns one slice per cluster, sorted by cluster size descending.
+func detectTileClusters(tiles []graph.TileScanResult) [][]graph.TileScanResult {
+	tileIdx := make(map[uint32]int, len(tiles))
+	for i, t := range tiles {
+		tileIdx[t.TileID] = i
+	}
+
+	visited := make([]bool, len(tiles))
+	var clusters [][]graph.TileScanResult
+
+	for i := range tiles {
+		if visited[i] {
+			continue
+		}
+		var cluster []graph.TileScanResult
+		queue := []int{i}
+		visited[i] = true
+		for len(queue) > 0 {
+			idx := queue[0]
+			queue = queue[1:]
+			cluster = append(cluster, tiles[idx])
+
+			nids, ncount := graph.NeighborTileIDs(tiles[idx].TileID)
+			for ni := range ncount {
+				if nIdx, ok := tileIdx[nids[ni]]; ok && !visited[nIdx] {
+					visited[nIdx] = true
+					queue = append(queue, nIdx)
+				}
+			}
+		}
+		clusters = append(clusters, cluster)
+	}
+
+	// Sort clusters by size descending (largest region first)
+	slices.SortFunc(clusters, func(a, b []graph.TileScanResult) int {
+		return len(b) - len(a)
+	})
+	return clusters
+}
+
+// allocateSeedSlots distributes N seed slots across clusters.
+// Clusters with fewer than minTiles tiles are skipped (tiny islands, fragments).
+// Eligible clusters get at least 1 slot; remaining slots go to the largest.
+// Clusters are already sorted by size descending.
+func allocateSeedSlots(clusters [][]graph.TileScanResult, totalSlots int) []int {
+	const minTiles = 10 // skip tiny clusters (Azores=4, small islands)
+
+	slots := make([]int, len(clusters))
+
+	// Count eligible clusters
+	var eligible []int
+	for i, c := range clusters {
+		if len(c) >= minTiles {
+			eligible = append(eligible, i)
+		}
+	}
+	if len(eligible) == 0 {
+		// All clusters are tiny — give 1 slot to the largest
+		if len(clusters) > 0 {
+			slots[0] = min(totalSlots, 4)
+		}
+		return slots
+	}
+
+	// Give each eligible cluster 1 slot (up to totalSlots)
+	remaining := totalSlots
+	for _, i := range eligible {
+		if remaining <= 0 {
+			break
+		}
+		slots[i] = 1
+		remaining--
+	}
+
+	// Distribute remaining slots to the largest eligible cluster
+	if remaining > 0 && len(eligible) > 0 {
+		slots[eligible[0]] += remaining
+	}
+	return slots
 }
