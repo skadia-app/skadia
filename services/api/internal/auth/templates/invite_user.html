@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{.AppName}} — Einladung</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:40px 0;">
+  <tr>
+    <td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:8px;overflow:hidden;max-width:600px;width:100%;">
+        <tr>
+          <td style="background-color:#1a1a2e;padding:24px 32px;">
+            <span style="color:#ffffff;font-size:20px;font-weight:bold;">{{.AppName}}</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:32px;">
+            <h2 style="margin:0 0 16px 0;color:#1a1a2e;font-size:22px;">Willkommen bei {{.AppName}}</h2>
+            <p style="margin:0 0 16px 0;color:#444444;font-size:15px;line-height:1.6;">
+              Hallo {{.Username}},
+            </p>
+            <p style="margin:0 0 24px 0;color:#444444;font-size:15px;line-height:1.6;">
+              du wurdest zu {{.AppName}} eingeladen. Klicke auf den folgenden Button,
+              um dein Passwort festzulegen und dein Konto zu aktivieren:
+            </p>
+            <table cellpadding="0" cellspacing="0" style="margin:0 0 24px 0;">
+              <tr>
+                <td style="background-color:#2563eb;border-radius:6px;padding:12px 28px;">
+                  <a href="{{.ActionURL}}" style="color:#ffffff;text-decoration:none;font-size:15px;font-weight:bold;">
+                    Passwort festlegen
+                  </a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:0 0 8px 0;color:#666666;font-size:13px;line-height:1.5;">
+              Falls der Button nicht funktioniert, kopiere diesen Link in deinen Browser:
+            </p>
+            <p style="margin:0 0 24px 0;">
+              <a href="{{.ActionURL}}" style="color:#2563eb;font-size:13px;word-break:break-all;">{{.ActionURL}}</a>
+            </p>
+            <p style="margin:0;color:#888888;font-size:13px;line-height:1.5;">
+              Dieser Link ist 24 Stunden gueltig und kann nur einmal verwendet werden.
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#f4f4f4;padding:16px 32px;border-top:1px solid #e0e0e0;">
+            <p style="margin:0;color:#888888;font-size:12px;text-align:center;">
+              &copy; {{.AppName}} &mdash; <a href="{{.AppURL}}" style="color:#888888;">{{.AppURL}}</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

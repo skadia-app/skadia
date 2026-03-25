@@ -1,0 +1,13 @@
+{{.AppName}} — Einladung
+
+Hallo {{.Username}},
+
+du wurdest zu {{.AppName}} eingeladen. Verwende den folgenden Link,
+um dein Passwort festzulegen und dein Konto zu aktivieren:
+
+{{.ActionURL}}
+
+Dieser Link ist 24 Stunden gueltig und kann nur einmal verwendet werden.
+
+---
+{{.AppName}} — {{.AppURL}}
