@@ -7,27 +7,28 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
+
 func (db *DB) InsertActivityPhoto(ctx context.Context, p model.ActivityPhoto) (model.ActivityPhoto, error) {
 	var out model.ActivityPhoto
 	err := db.Pool.QueryRow(ctx, `
 		INSERT INTO activity_photos
-			(user_id, activity_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
+			(user_id, activity_id, file_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
 			 original_filename, content_type, file_size_bytes, file_hash,
 			 taken_at, lat, lng, location_source,
 			 is_video, duration_s, video_width, video_height,
 			 phash, width, height)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
-		RETURNING id, user_id, activity_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+		RETURNING id, user_id, activity_id, file_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
 		          original_filename, content_type, file_size_bytes, file_hash,
 		          taken_at, lat, lng, location_source, created_at,
 		          is_video, duration_s, video_width, video_height,
 		          phash, width, height
-	`, p.UserID, p.ActivityID, p.S3Bucket, p.S3Key, p.S3KeyThumb, p.S3KeyPreview,
+	`, p.UserID, p.ActivityID, p.FileID, p.S3Bucket, p.S3Key, p.S3KeyThumb, p.S3KeyPreview,
 		p.OriginalFilename, p.ContentType, p.FileSizeBytes, p.FileHash,
 		p.TakenAt, p.Lat, p.Lng, p.LocationSource,
 		p.IsVideo, p.DurationS, p.VideoWidth, p.VideoHeight,
 		p.PHash, p.Width, p.Height,
-	).Scan(&out.ID, &out.UserID, &out.ActivityID, &out.S3Bucket, &out.S3Key, &out.S3KeyThumb, &out.S3KeyPreview,
+	).Scan(&out.ID, &out.UserID, &out.ActivityID, &out.FileID, &out.S3Bucket, &out.S3Key, &out.S3KeyThumb, &out.S3KeyPreview,
 		&out.OriginalFilename, &out.ContentType, &out.FileSizeBytes, &out.FileHash,
 		&out.TakenAt, &out.Lat, &out.Lng, &out.LocationSource, &out.CreatedAt,
 		&out.IsVideo, &out.DurationS, &out.VideoWidth, &out.VideoHeight,
@@ -68,16 +69,22 @@ func (db *DB) ListActivityPhotos(ctx context.Context, activityID, userID string)
 
 func (db *DB) GetActivityPhoto(ctx context.Context, id, userID string) (model.ActivityPhoto, error) {
 	var p model.ActivityPhoto
+	var fileID string
 	err := db.Pool.QueryRow(ctx, `
-		SELECT id, user_id, activity_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
+		SELECT id, user_id, activity_id, COALESCE(file_id::text, ''),
+		       s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
 		       original_filename, content_type, file_size_bytes, file_hash,
 		       taken_at, lat, lng, location_source, created_at,
 		       is_video, duration_s, video_width, video_height
 		FROM activity_photos WHERE id = $1 AND user_id = $2
-	`, id, userID).Scan(&p.ID, &p.UserID, &p.ActivityID, &p.S3Bucket, &p.S3Key, &p.S3KeyThumb, &p.S3KeyPreview,
+	`, id, userID).Scan(&p.ID, &p.UserID, &p.ActivityID, &fileID,
+		&p.S3Bucket, &p.S3Key, &p.S3KeyThumb, &p.S3KeyPreview,
 		&p.OriginalFilename, &p.ContentType, &p.FileSizeBytes, &p.FileHash,
 		&p.TakenAt, &p.Lat, &p.Lng, &p.LocationSource, &p.CreatedAt,
 		&p.IsVideo, &p.DurationS, &p.VideoWidth, &p.VideoHeight)
+	if fileID != "" {
+		p.FileID = &fileID
+	}
 	return p, err
 }
 
@@ -99,11 +106,12 @@ func (db *DB) UpdateActivityPhotoLocation(ctx context.Context, id, userID string
 	return p, err
 }
 
-func (db *DB) DeleteActivityPhoto(ctx context.Context, id, userID string) (bucket, key, keyThumb, keyPreview string, err error) {
+func (db *DB) DeleteActivityPhoto(ctx context.Context, id, userID string) (bucket, key, keyThumb, keyPreview, fileID string, err error) {
 	err = db.Pool.QueryRow(ctx,
-		`DELETE FROM activity_photos WHERE id = $1 AND user_id = $2 RETURNING s3_bucket, s3_key, s3_key_thumb, COALESCE(s3_key_preview, '')`,
+		`DELETE FROM activity_photos WHERE id = $1 AND user_id = $2
+		 RETURNING s3_bucket, s3_key, s3_key_thumb, COALESCE(s3_key_preview, ''), COALESCE(file_id::text, '')`,
 		id, userID,
-	).Scan(&bucket, &key, &keyThumb, &keyPreview)
+	).Scan(&bucket, &key, &keyThumb, &keyPreview, &fileID)
 	return
 }
 

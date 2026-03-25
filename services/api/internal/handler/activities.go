@@ -328,6 +328,44 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("delete activity: filestore delete edit sidecar failed", "file_id", editFileID, "error", delErr)
 			}
 		}
+
+		// Delete FileStore records for all activity photos (originals + sidecars).
+		photoRows, photoQueryErr := h.DB.Pool.Query(r.Context(),
+			`SELECT COALESCE(file_id::text, '') FROM activity_photos
+			 WHERE activity_id = $1 AND user_id = $2 AND file_id IS NOT NULL`,
+			id, userID,
+		)
+		if photoQueryErr == nil {
+			defer photoRows.Close()
+			for photoRows.Next() {
+				var photoFileID string
+				if scanErr := photoRows.Scan(&photoFileID); scanErr == nil && photoFileID != "" {
+					if delErr := h.FileStore.Delete(r.Context(), userID, photoFileID); delErr != nil {
+						slog.Warn("delete activity: filestore delete photo failed", "file_id", photoFileID, "error", delErr)
+					}
+				}
+			}
+		}
+
+		// Delete sidecar FileStore records whose parent_type='photo' for photos of this activity.
+		sidecarRows, sidecarQueryErr := h.DB.Pool.Query(r.Context(),
+			`SELECT uf.id::text FROM user_files uf
+			 JOIN activity_photos ap ON ap.id::text = uf.parent_id
+			 WHERE ap.activity_id = $1 AND ap.user_id = $2
+			   AND uf.user_id = $2 AND uf.parent_type = 'photo'`,
+			id, userID,
+		)
+		if sidecarQueryErr == nil {
+			defer sidecarRows.Close()
+			for sidecarRows.Next() {
+				var sidecarID string
+				if scanErr := sidecarRows.Scan(&sidecarID); scanErr == nil && sidecarID != "" {
+					if delErr := h.FileStore.Delete(r.Context(), userID, sidecarID); delErr != nil {
+						slog.Warn("delete activity: filestore delete photo sidecar failed", "sidecar_id", sidecarID, "error", delErr)
+					}
+				}
+			}
+		}
 	}
 
 	if err := h.DB.DeleteActivity(r.Context(), userID, id); err != nil {
