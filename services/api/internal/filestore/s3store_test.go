@@ -33,7 +33,7 @@ func TestDetectContentType_Various(t *testing.T) {
 	}{
 		{"explicit wins", "test.txt", "application/json", nil, "application/json"},
 		{"extension", "photo.jpg", "", nil, "image/jpeg"},
-		{"magic bytes", "unknown", "", []byte{0x89, 0x50, 0x4E, 0x47}, "image/png"},
+		{"magic bytes", "unknown", "", []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}, "image/png"},
 		{"fallback", "unknown", "", nil, "application/octet-stream"},
 	}
 	for _, tt := range tests {
