@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getAdminUsers,
+  getAuthConfig,
   adminActivateUser,
   adminDeactivateUser,
   adminResetPassword,
@@ -98,6 +99,8 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const { addToast } = useToast()
+  const { data: authConfig } = useQuery({ queryKey: ['authConfig'], queryFn: getAuthConfig })
+  const smtpConfigured = authConfig?.smtp_configured ?? true
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -159,13 +162,16 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-neutral-500">Passwort (optional)</label>
+            <label className="text-xs font-medium text-neutral-500">
+              {smtpConfigured ? 'Passwort (optional)' : 'Passwort *'}
+            </label>
             <input
-              type="text"
+              type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
               className="h-9 rounded border border-neutral-300 bg-white px-3 text-sm dark:border-neutral-600 dark:bg-neutral-800"
-              placeholder="Leer = Einladungs-Email wird gesendet"
+              placeholder={smtpConfigured ? 'Leer = Einladungs-Email wird gesendet' : 'Passwort ist erforderlich (kein SMTP konfiguriert)'}
+              required={!smtpConfigured}
             />
           </div>
         </div>
@@ -253,7 +259,7 @@ function ResetPasswordDialog({
           </label>
           {mode === 'set' && (
             <input
-              type="text"
+              type="password"
               value={newPassword}
               onChange={e => setNewPassword(e.target.value)}
               placeholder="Neues Passwort (min. 10 Zeichen)"
@@ -394,7 +400,6 @@ function SessionsDialog({
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
                 {sessions.map(session => {
                   const expired = new Date(session.expires_at) < new Date()
-                  const isActive = !session.revoked && !expired
                   return (
                     <tr key={session.family_id} className="hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
                       <td className="px-3 py-2 text-neutral-800 dark:text-neutral-200" title={session.user_agent}>
@@ -423,7 +428,6 @@ function SessionsDialog({
                             Aktiv
                           </span>
                         )}
-                        {isActive ? null : null}
                       </td>
                     </tr>
                   )

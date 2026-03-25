@@ -357,6 +357,7 @@ function SessionsSection() {
   const { addToast } = useToast()
   const queryClient = useQueryClient()
   const [revokeTarget, setRevokeTarget] = useState<string | null>(null) // family_id or 'all_others'
+  const [revokingAll, setRevokingAll] = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: ['my-sessions'],
@@ -378,14 +379,19 @@ function SessionsSection() {
   })
 
   async function handleRevokeAllOthers() {
-    const sessions = data?.sessions ?? []
-    const others = sessions.filter(s => !s.is_current)
-    for (const s of others) {
-      await revokeSession(s.family_id).catch(() => {})
+    setRevokingAll(true)
+    try {
+      const sessions = data?.sessions ?? []
+      const others = sessions.filter(s => !s.is_current)
+      for (const s of others) {
+        await revokeSession(s.family_id).catch(() => {})
+      }
+      queryClient.invalidateQueries({ queryKey: ['my-sessions'] })
+      addToast({ type: 'success', title: `${others.length === 1 ? '1 Session' : `${others.length} Sessions`} beendet` })
+      setRevokeTarget(null)
+    } finally {
+      setRevokingAll(false)
     }
-    queryClient.invalidateQueries({ queryKey: ['my-sessions'] })
-    addToast({ type: 'success', title: `${others.length === 1 ? '1 Session' : `${others.length} Sessions`} beendet` })
-    setRevokeTarget(null)
   }
 
   const sessions: UserSession[] = data?.sessions ?? []
@@ -494,9 +500,10 @@ function SessionsSection() {
             </button>
             <button
               onClick={handleRevokeAllOthers}
-              className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors"
+              disabled={revokingAll}
+              className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50"
             >
-              Alle beenden
+              {revokingAll ? 'Wird beendet...' : 'Alle beenden'}
             </button>
           </div>
         </ModalShell>
