@@ -305,6 +305,31 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Clean up FileStore files before deleting the activity row.
+	if h.FileStore != nil {
+		var actFileID, editFileID string
+		_ = h.DB.Pool.QueryRow(r.Context(),
+			`SELECT COALESCE(file_id::text, '') FROM activities WHERE id = $1 AND user_id = $2`,
+			id, userID,
+		).Scan(&actFileID)
+		if actFileID != "" {
+			if delErr := h.FileStore.Delete(r.Context(), userID, actFileID); delErr != nil {
+				slog.Warn("delete activity: filestore delete failed", "file_id", actFileID, "error", delErr)
+			}
+		}
+
+		_ = h.DB.Pool.QueryRow(r.Context(),
+			`SELECT COALESCE(id::text, '') FROM user_files
+			 WHERE file_type = 'edit' AND parent_type = 'activity' AND parent_id = $1 AND user_id = $2`,
+			id, userID,
+		).Scan(&editFileID)
+		if editFileID != "" {
+			if delErr := h.FileStore.Delete(r.Context(), userID, editFileID); delErr != nil {
+				slog.Warn("delete activity: filestore delete edit sidecar failed", "file_id", editFileID, "error", delErr)
+			}
+		}
+	}
+
 	if err := h.DB.DeleteActivity(r.Context(), userID, id); err != nil {
 		if err.Error() == "activity not found" {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
