@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	// libraryBase is the root of the Unified FileStore library (data/library).
+	// libraryBase is the root of the Unified ShadowFS library (data/library).
 	// Each user has a sub-directory inside: data/library/{userDir}/activities/
 	libraryBase      = flag.String("library", "", "Library-Basisverzeichnis (data/library)")
 	dbURL            = flag.String("db-url", os.Getenv("DATABASE_URL"), "PostgreSQL Connection String")
@@ -136,7 +136,7 @@ func run(ctx context.Context) error {
 		}
 
 		// Detect content type from filename (avoid reading whole file just for MIME).
-		ct := filestore.DetectContentType(filepath.Base(activityPath), "", nil)
+		ct := shadowfs.DetectContentType(filepath.Base(activityPath), "", nil)
 
 		// Extract the first path component of relPath to identify the user directory.
 		// relPath is like "alice/activities/2024/01/2024-01-15.fit" — first component = "alice".

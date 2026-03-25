@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -179,10 +179,10 @@ func (h *Handler) autoAssignPhoto(
 	s3KeyThumb := fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", userID, hash)
 
 	var photoFileID string
-	if h.FileStore != nil {
+	if h.ShadowFS != nil {
 		actParent := "activity"
 		actID := match.ID
-		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
 			FileType:    "media",
 			ContentType: ct,
@@ -193,7 +193,7 @@ func (h *Handler) autoAssignPhoto(
 			ParentID:    &actID,
 		}, bytes.NewReader(data))
 		if putErr != nil {
-			slog.Error("upload media: FileStore.Put photo failed", "error", putErr)
+			slog.Error("upload media: ShadowFS.Put photo failed", "error", putErr)
 			errMsg := "failed to store photo"
 			return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
 		}
@@ -201,7 +201,7 @@ func (h *Handler) autoAssignPhoto(
 		// Store thumbnail separately if available; ignore error (non-fatal)
 		if thumbData != nil {
 			thumbName := fmt.Sprintf("%s_thumb.jpg", hash)
-			_, _ = h.FileStore.Put(r.Context(), filestore.FileEntry{
+			_, _ = h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 				UserID:      userID,
 				FileType:    "media",
 				ContentType: "image/jpeg",
@@ -258,7 +258,7 @@ func (h *Handler) autoAssignPhoto(
 	}
 }
 
-// queueMediaFile stores the file via FileStore (preferred) or temp S3 (fallback)
+// queueMediaFile stores the file via ShadowFS (preferred) or temp S3 (fallback)
 // and creates an import_queue entry for manual review.
 func (h *Handler) queueMediaFile(
 	r *http.Request,
@@ -287,10 +287,10 @@ func (h *Handler) queueMediaFile(
 	tempBucket := mediaBucketName()
 	s3Key := fmt.Sprintf("media-temp/%s/%s%s", userID, hash, ext)
 
-	// Upload via FileStore (preferred) or legacy S3 (fallback).
+	// Upload via ShadowFS (preferred) or legacy S3 (fallback).
 	var queueFileID string
-	if h.FileStore != nil {
-		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+	if h.ShadowFS != nil {
+		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
 			FileType:    "media",
 			ContentType: ct,
@@ -300,7 +300,7 @@ func (h *Handler) queueMediaFile(
 			Tags:        map[string]string{"queue_type": queueType},
 		}, bytes.NewReader(data))
 		if putErr != nil {
-			slog.Error("upload media: FileStore.Put temp failed", "error", putErr)
+			slog.Error("upload media: ShadowFS.Put temp failed", "error", putErr)
 			errMsg := "failed to store file"
 			return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
 		}

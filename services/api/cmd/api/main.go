@@ -22,7 +22,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/handler"
 	analyticshandler "github.com/skadia-app/skadia/services/api/internal/handler/analytics"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -119,11 +118,11 @@ func main() {
 		}
 	}
 
-	// FileStore (unified storage)
-	var store filestore.FileStore
+	// ShadowFS (unified storage)
+	var store shadowfs.ShadowFS
 	switch cfg.StorageBackend {
 	case "s3":
-		store = filestore.NewS3FileStore(db.Pool, filestore.S3Config{
+		store = shadowfs.NewS3ShadowFS(db.Pool, shadowfs.S3Config{
 			Endpoint:       cfg.S3Endpoint,
 			AccessKey:      cfg.S3AccessKey,
 			SecretKey:      cfg.S3SecretKey,
@@ -133,15 +132,15 @@ func main() {
 			BucketActivity: cfg.S3BucketActivity,
 			BucketMedia:    cfg.S3BucketMedia,
 		}, cfg.LibraryKeepVersions, cfg.MaxUserStorageBytes)
-		slog.Info("filestore: S3 backend active", "bucket", cfg.S3Bucket)
+		slog.Info("shadowfs: S3 backend active", "bucket", cfg.S3Bucket)
 	default:
-		localStore, err := filestore.NewLocalFileStore(db.Pool, cfg.LibraryBasePath, filestore.NewSchemaRenderer(), cfg.LibraryKeepVersions, cfg.MaxUserStorageBytes)
+		localStore, err := shadowfs.NewLocalShadowFS(db.Pool, cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), cfg.LibraryKeepVersions, cfg.MaxUserStorageBytes)
 		if err != nil {
-			slog.Error("failed to create local FileStore", "error", err)
+			slog.Error("failed to create local ShadowFS", "error", err)
 			os.Exit(1)
 		}
 		store = localStore
-		slog.Info("filestore: local backend active", "path", cfg.LibraryBasePath)
+		slog.Info("shadowfs: local backend active", "path", cfg.LibraryBasePath)
 	}
 
 	// NATS (optional - log warning if unavailable)
@@ -193,8 +192,8 @@ func main() {
 		DB:            db,
 		Storage:       s3Client,
 		Events:        pub,
-		FileStore:     store,
-		ShadowFS: shadowFSCfg,
+		ShadowFS:       store,
+		ShadowFSConfig: shadowFSCfg,
 		ImportService: importSvc,
 		Config: &handler.HandlerConfig{
 			LiteLLMConfigPath:   cfg.LiteLLMConfigPath,
@@ -264,11 +263,11 @@ func main() {
 	authMailer := auth.NewMailer(cfg)
 	authRL := middleware.NewRateLimiter(ctx)
 	authHandler := auth.NewHandler(db, cfg, authMailer, authRL, ctx)
-	authHandler.FileStore = store
+	authHandler.ShadowFS = store
 
 	// Library watcher (polling, local backend only)
 	if cfg.StorageBackend == "local" && cfg.LibrarySyncEnabled {
-		watcher := filestore.NewLibraryWatcher(db.Pool, cfg.LibraryBasePath, cfg.LibrarySyncAutoImport)
+		watcher := shadowfs.NewLibraryWatcher(db.Pool, cfg.LibraryBasePath, cfg.LibrarySyncAutoImport)
 		shutdown.Go("library-watcher", func(ctx context.Context) { watcher.Run(ctx) })
 	}
 
@@ -302,22 +301,22 @@ func main() {
 		}
 	})
 
-	// FileStore reconciliation (daily, graceful shutdown)
+	// ShadowFS reconciliation (daily, graceful shutdown)
 	if cfg.LibraryBasePath != "" {
-		reconcileRenderer := filestore.NewSchemaRenderer()
-		reconcileJob := filestore.NewReconcileJob(db.Pool, cfg.LibraryBasePath, reconcileRenderer, cfg.LibraryKeepVersions)
-		shutdown.Go("filestore-reconciliation", func(ctx context.Context) {
+		reconcileRenderer := shadowfs.NewSchemaRenderer()
+		reconcileJob := shadowfs.NewReconcileJob(db.Pool, cfg.LibraryBasePath, reconcileRenderer, cfg.LibraryKeepVersions)
+		shutdown.Go("shadowfs-reconciliation", func(ctx context.Context) {
 			ticker := time.NewTicker(24 * time.Hour)
 			defer ticker.Stop()
 			for {
 				select {
 				case <-ticker.C:
-					slog.Info("filestore reconcile: starting daily run")
+					slog.Info("shadowfs reconcile: starting daily run")
 					result, err := reconcileJob.Run(ctx, nil)
 					if err != nil {
-						slog.Error("filestore reconcile: daily run failed", "error", err)
+						slog.Error("shadowfs reconcile: daily run failed", "error", err)
 					} else {
-						slog.Info("filestore reconcile: daily run complete",
+						slog.Info("shadowfs reconcile: daily run complete",
 							"orphaned", result.OrphanedFiles,
 							"dangling", result.DanglingRecords,
 							"size_fixes", result.SizeMismatches,
@@ -492,7 +491,7 @@ func main() {
 				r.Get("/settings/ml", h.GetMLSystemSettings)
 				r.Put("/settings/ml/{key}", h.PutMLSystemSetting)
 
-				// FileStore registry, dashboard & migration
+				// ShadowFS registry, dashboard & migration
 				r.Get("/storage", h.StorageDashboard)
 				r.Post("/storage/populate-registry", h.StartRegistryPopulation)
 				r.Post("/storage/migrate", h.StartFileMigration)

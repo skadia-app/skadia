@@ -10,7 +10,7 @@ import (
 	"slices"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -32,7 +32,7 @@ func (i *ActivitiesImporter) Priority() int       { return 20 }
 type KomootImportParams struct {
 	DB            *database.DB
 	Storage       *storage.S3Client
-	FileStore     filestore.FileStore // nil when not configured
+	ShadowFS     shadowfs.ShadowFS // nil when not configured
 	ImportService *importer.Service   // centralised duplicate detection + insert
 	UserID        string
 	BatchID       string  // correlates all import_log entries for one import run
@@ -208,14 +208,14 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 
 		activityID := actResult.ActivityID
 
-		// Upload original file via FileStore (preferred) or legacy S3
+		// Upload original file via ShadowFS (preferred) or legacy S3
 		contentType := "application/octet-stream"
 		if format == "gpx" {
 			contentType = "application/xml"
 		}
 		var fileID string
-		if len(fileBytes) > 0 && p.FileStore != nil {
-			rec, putErr := p.FileStore.Put(ctx, filestore.FileEntry{
+		if len(fileBytes) > 0 && p.ShadowFS != nil {
+			rec, putErr := p.ShadowFS.Put(ctx, shadowfs.FileEntry{
 				UserID:      p.UserID,
 				FileType:    "activity",
 				ContentType: contentType,
@@ -228,7 +228,7 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 				},
 			}, bytes.NewReader(fileBytes))
 			if putErr != nil {
-				slog.Warn("komoot activities: FileStore.Put failed", "tour_id", tour.ID, "error", putErr)
+				slog.Warn("komoot activities: ShadowFS.Put failed", "tour_id", tour.ID, "error", putErr)
 			} else {
 				fileID = rec.ID
 			}

@@ -1,4 +1,4 @@
-package filestore
+package shadowfs
 
 import (
 	"archive/zip"
@@ -40,8 +40,8 @@ type S3Config struct {
 	BucketMedia    string
 }
 
-// S3FileStore implements FileStore using S3-compatible object storage.
-type S3FileStore struct {
+// S3ShadowFS implements ShadowFS using S3-compatible object storage.
+type S3ShadowFS struct {
 	pool           *pgxpool.Pool
 	client         *s3.Client
 	presigner      *s3.PresignClient
@@ -52,15 +52,15 @@ type S3FileStore struct {
 	maxUserBytes   int64
 }
 
-// NewS3FileStore creates an S3FileStore backed by an S3-compatible service.
-func NewS3FileStore(pool *pgxpool.Pool, cfg S3Config, keepVersions int, maxUserBytes int64) *S3FileStore {
+// NewS3ShadowFS creates an S3ShadowFS backed by an S3-compatible service.
+func NewS3ShadowFS(pool *pgxpool.Pool, cfg S3Config, keepVersions int, maxUserBytes int64) *S3ShadowFS {
 	client := s3.New(s3.Options{
 		BaseEndpoint: aws.String(cfg.Endpoint),
 		Region:       cfg.Region,
 		Credentials:  credentials.NewStaticCredentialsProvider(cfg.AccessKey, cfg.SecretKey, ""),
 		UsePathStyle: cfg.ForcePathStyle,
 	})
-	return &S3FileStore{
+	return &S3ShadowFS{
 		pool:           pool,
 		client:         client,
 		presigner:      s3.NewPresignClient(client),
@@ -73,7 +73,7 @@ func NewS3FileStore(pool *pgxpool.Pool, cfg S3Config, keepVersions int, maxUserB
 }
 
 // bucketFor returns the appropriate bucket for the given file type.
-func (s *S3FileStore) bucketFor(fileType string) string {
+func (s *S3ShadowFS) bucketFor(fileType string) string {
 	switch fileType {
 	case "activity", "health":
 		if s.bucketActivity != "" {
@@ -88,8 +88,8 @@ func (s *S3FileStore) bucketFor(fileType string) string {
 }
 
 // Put stores a file in S3 and registers it in user_files.
-// NOTE: S3FileStore buffers the entire file in memory (up to 500 MB). For streaming uploads, consider multipart upload in a future iteration. LocalFileStore streams to disk with minimal memory.
-func (s *S3FileStore) Put(ctx context.Context, entry FileEntry, data io.Reader) (FileRecord, error) {
+// NOTE: S3ShadowFS buffers the entire file in memory (up to 500 MB). For streaming uploads, consider multipart upload in a future iteration. LocalShadowFS streams to disk with minimal memory.
+func (s *S3ShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (FileRecord, error) {
 	// Validate file type.
 	if _, ok := fileTypeDirName[entry.FileType]; !ok {
 		return FileRecord{}, fmt.Errorf("unknown file type %q", entry.FileType)
@@ -227,7 +227,7 @@ func (s *S3FileStore) Put(ctx context.Context, entry FileEntry, data io.Reader) 
 }
 
 // Get retrieves a file's contents from S3.
-func (s *S3FileStore) Get(ctx context.Context, userID, fileID string) (io.ReadCloser, error) {
+func (s *S3ShadowFS) Get(ctx context.Context, userID, fileID string) (io.ReadCloser, error) {
 	var storagePath, fileType, status string
 	err := s.pool.QueryRow(ctx,
 		`SELECT storage_path, file_type, status FROM user_files WHERE id = $1 AND user_id = $2`, fileID, userID,
@@ -251,7 +251,7 @@ func (s *S3FileStore) Get(ctx context.Context, userID, fileID string) (io.ReadCl
 }
 
 // Delete removes a file from S3 and unregisters it.
-func (s *S3FileStore) Delete(ctx context.Context, userID, fileID string) error {
+func (s *S3ShadowFS) Delete(ctx context.Context, userID, fileID string) error {
 	var storagePath, fileType, fileName string
 	var hasSidecar bool
 	err := s.pool.QueryRow(ctx,
@@ -293,7 +293,7 @@ func (s *S3FileStore) Delete(ctx context.Context, userID, fileID string) error {
 }
 
 // DeleteAllForUser purges all files for a user across all configured buckets.
-func (s *S3FileStore) DeleteAllForUser(ctx context.Context, userID string) error {
+func (s *S3ShadowFS) DeleteAllForUser(ctx context.Context, userID string) error {
 	// Mark all files as purging.
 	_, err := s.pool.Exec(ctx,
 		`UPDATE user_files SET status = 'purging' WHERE user_id = $1`, userID)
@@ -329,17 +329,17 @@ func (s *S3FileStore) DeleteAllForUser(ctx context.Context, userID string) error
 }
 
 // List returns all file records for a user, optionally filtered by type.
-func (s *S3FileStore) List(ctx context.Context, userID string, fileType *string) ([]FileRecord, error) {
+func (s *S3ShadowFS) List(ctx context.Context, userID string, fileType *string) ([]FileRecord, error) {
 	return listRecords(ctx, s.pool, userID, fileType)
 }
 
 // DiskUsage returns the total bytes stored for a user.
-func (s *S3FileStore) DiskUsage(ctx context.Context, userID string) (int64, error) {
+func (s *S3ShadowFS) DiskUsage(ctx context.Context, userID string) (int64, error) {
 	return diskUsage(ctx, s.pool, userID)
 }
 
 // StreamToZip writes all active user files into a zip archive.
-func (s *S3FileStore) StreamToZip(ctx context.Context, userID string, zw *zip.Writer) error {
+func (s *S3ShadowFS) StreamToZip(ctx context.Context, userID string, zw *zip.Writer) error {
 	records, err := listRecords(ctx, s.pool, userID, nil)
 	if err != nil {
 		return fmt.Errorf("list records: %w", err)
@@ -408,7 +408,7 @@ func (s *S3FileStore) StreamToZip(ctx context.Context, userID string, zw *zip.Wr
 }
 
 // Resolve returns a pre-signed URL for direct access to the file.
-func (s *S3FileStore) Resolve(ctx context.Context, userID, fileID string) (ResolvedFile, error) {
+func (s *S3ShadowFS) Resolve(ctx context.Context, userID, fileID string) (ResolvedFile, error) {
 	var rec FileRecord
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, user_id, file_type, storage_backend, storage_path, content_type,
@@ -444,7 +444,7 @@ func (s *S3FileStore) Resolve(ctx context.Context, userID, fileID string) (Resol
 }
 
 // Archive marks a file as archived. For S3, this is metadata-only (no CopyObject).
-func (s *S3FileStore) Archive(ctx context.Context, userID, fileID, replacedByID string) error {
+func (s *S3ShadowFS) Archive(ctx context.Context, userID, fileID, replacedByID string) error {
 	if s.keepVersions == 0 {
 		return s.Delete(ctx, userID, fileID)
 	}
@@ -465,7 +465,7 @@ func (s *S3FileStore) Archive(ctx context.Context, userID, fileID, replacedByID 
 // --- helpers ---
 
 // allBuckets returns a deduplicated list of all configured buckets.
-func (s *S3FileStore) allBuckets() []string {
+func (s *S3ShadowFS) allBuckets() []string {
 	seen := map[string]bool{s.bucket: true}
 	buckets := []string{s.bucket}
 	for _, b := range []string{s.bucketActivity, s.bucketMedia} {
@@ -478,7 +478,7 @@ func (s *S3FileStore) allBuckets() []string {
 }
 
 // deletePrefix deletes all objects under a prefix using batched DeleteObjects.
-func (s *S3FileStore) deletePrefix(ctx context.Context, bucket, prefix string) error {
+func (s *S3ShadowFS) deletePrefix(ctx context.Context, bucket, prefix string) error {
 	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(bucket),
 		Prefix: aws.String(prefix),
@@ -535,7 +535,7 @@ func sidecarKeyFor(storagePath, fileType string) string {
 	return stem + ".meta"
 }
 
-var _ FileStore = (*S3FileStore)(nil)
+var _ ShadowFS = (*S3ShadowFS)(nil)
 
 // sanitizeExt cleans a file extension, allowing only alphanumeric and dot.
 func sanitizeExt(ext string) string {

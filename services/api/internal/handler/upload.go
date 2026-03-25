@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/garmin"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
@@ -121,11 +121,11 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			msTracker.Processing(r.Context())
 			msTracker.SetFileHash(r.Context(), hashStr)
 
-			// Upload file — FileStore path preferred; legacy S3 as fallback.
+			// Upload file — ShadowFS path preferred; legacy S3 as fallback.
 			s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
 			var msFileID string
-			if h.FileStore != nil {
-				rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+			if h.ShadowFS != nil {
+				rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 					UserID:      userID,
 					FileType:    "activity",
 					ContentType: "application/octet-stream",
@@ -135,8 +135,8 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 					Tags:        map[string]string{"format": format},
 				}, bytes.NewReader(decompressed))
 				if putErr != nil {
-					slog.Error("filestore upload for multisport failed", "error", putErr)
-					msTracker.Error(r.Context(), fmt.Errorf("FileStore upload: %w", putErr))
+					slog.Error("shadowfs upload for multisport failed", "error", putErr)
+					msTracker.Error(r.Context(), fmt.Errorf("ShadowFS upload: %w", putErr))
 					httputil.WriteError(w, http.StatusInternalServerError, "Upload Error", "failed to store file", r.URL.Path)
 					return
 				}
@@ -215,10 +215,10 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// For created/enriched/replaced: upload to FileStore (preferred) or S3 (legacy).
+		// For created/enriched/replaced: upload to ShadowFS (preferred) or S3 (legacy).
 		// Look up existing file_id before Put so we can archive it on replace/enrich.
 		var fitOldFileID string
-		if h.FileStore != nil && fitResult.Status != "created" {
+		if h.ShadowFS != nil && fitResult.Status != "created" {
 			_ = h.DB.Pool.QueryRow(r.Context(),
 				`SELECT COALESCE(file_id, '') FROM activities WHERE id = $1`,
 				fitResult.ActivityID,
@@ -227,8 +227,8 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 
 		s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
 		var fitFileID string
-		if h.FileStore != nil {
-			rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+		if h.ShadowFS != nil {
+			rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 				UserID:      userID,
 				FileType:    "activity",
 				ContentType: "application/octet-stream",
@@ -245,8 +245,8 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 				},
 			}, bytes.NewReader(decompressed))
 			if putErr != nil {
-				slog.Error("filestore upload failed", "error", putErr)
-				tracker.Error(r.Context(), fmt.Errorf("FileStore upload: %w", putErr))
+				slog.Error("shadowfs upload failed", "error", putErr)
+				tracker.Error(r.Context(), fmt.Errorf("ShadowFS upload: %w", putErr))
 				httputil.WriteError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
 				return
 			}
@@ -254,7 +254,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			// Archive the old file now that the new one is stored.
 			// T31 (Reconciliation) will enforce retention limits.
 			if fitOldFileID != "" {
-				if archErr := h.FileStore.Archive(r.Context(), userID, fitOldFileID, fitFileID); archErr != nil {
+				if archErr := h.ShadowFS.Archive(r.Context(), userID, fitOldFileID, fitFileID); archErr != nil {
 					slog.Warn("archive old activity file failed", "old_file_id", fitOldFileID, "new_file_id", fitFileID, "err", archErr)
 				}
 			}
@@ -362,10 +362,10 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// For created/enriched/replaced: upload to FileStore (preferred) or Garage/S3 (legacy).
+	// For created/enriched/replaced: upload to ShadowFS (preferred) or Garage/S3 (legacy).
 	// Look up existing file_id before Put so we can archive it on replace/enrich.
 	var gpxOldFileID string
-	if h.FileStore != nil && gpxResult.Status != "created" {
+	if h.ShadowFS != nil && gpxResult.Status != "created" {
 		_ = h.DB.Pool.QueryRow(r.Context(),
 			`SELECT COALESCE(file_id, '') FROM activities WHERE id = $1`,
 			gpxResult.ActivityID,
@@ -380,8 +380,8 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	contentType := "application/xml"
 
 	var gpxFileID string
-	if h.FileStore != nil {
-		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+	if h.ShadowFS != nil {
+		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
 			FileType:    "activity",
 			ContentType: contentType,
@@ -398,8 +398,8 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			},
 		}, bytes.NewReader(decompressed))
 		if putErr != nil {
-			slog.Error("filestore upload failed", "error", putErr)
-			tracker.Error(r.Context(), fmt.Errorf("FileStore upload: %w", putErr))
+			slog.Error("shadowfs upload failed", "error", putErr)
+			tracker.Error(r.Context(), fmt.Errorf("ShadowFS upload: %w", putErr))
 			httputil.WriteError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
 			return
 		}
@@ -407,7 +407,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		// Archive the old file now that the new one is stored.
 		// T31 (Reconciliation) will enforce retention limits.
 		if gpxOldFileID != "" {
-			if archErr := h.FileStore.Archive(r.Context(), userID, gpxOldFileID, gpxFileID); archErr != nil {
+			if archErr := h.ShadowFS.Archive(r.Context(), userID, gpxOldFileID, gpxFileID); archErr != nil {
 				slog.Warn("archive old activity file failed", "old_file_id", gpxOldFileID, "new_file_id", gpxFileID, "err", archErr)
 			}
 		}

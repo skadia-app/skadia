@@ -14,7 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/editor"
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -54,7 +54,7 @@ func (h *Handler) GetActivityEdits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Try FileStore first (if sidecar_file_id is set), then fall back to legacy S3.
+	// Try ShadowFS first (if sidecar_file_id is set), then fall back to legacy S3.
 	var rawData []byte
 	var sidecarFileID string
 	_ = h.DB.Pool.QueryRow(r.Context(),
@@ -62,8 +62,8 @@ func (h *Handler) GetActivityEdits(w http.ResponseWriter, r *http.Request) {
 		activityID,
 	).Scan(&sidecarFileID)
 
-	if sidecarFileID != "" && h.FileStore != nil {
-		rc, getErr := h.FileStore.Get(r.Context(), userID, sidecarFileID)
+	if sidecarFileID != "" && h.ShadowFS != nil {
+		rc, getErr := h.ShadowFS.Get(r.Context(), userID, sidecarFileID)
 		if getErr == nil {
 			rawData, _ = io.ReadAll(rc)
 			rc.Close()
@@ -142,11 +142,11 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// FileStore path (preferred) — legacy S3 as fallback.
+	// ShadowFS path (preferred) — legacy S3 as fallback.
 	var sidecarFileID string
-	if h.FileStore != nil {
+	if h.ShadowFS != nil {
 		fileName := fmt.Sprintf("%s.edits.json", activityID)
-		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
 			FileType:    "edit",
 			ContentType: "application/json",
@@ -156,7 +156,7 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 			ParentID:    &activityID,
 		}, bytes.NewReader(raw))
 		if putErr != nil {
-			slog.Error("editor: FileStore.Put sidecar failed", "id", activityID, "error", putErr)
+			slog.Error("editor: ShadowFS.Put sidecar failed", "id", activityID, "error", putErr)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store edit sidecar", r.URL.Path)
 			return
 		}
@@ -212,17 +212,17 @@ func (h *Handler) DeleteActivityEdits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve sidecar_file_id for FileStore deletion (best-effort).
+	// Resolve sidecar_file_id for ShadowFS deletion (best-effort).
 	var sidecarFileID string
 	_ = h.DB.Pool.QueryRow(r.Context(),
 		`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1`,
 		activityID,
 	).Scan(&sidecarFileID)
 
-	// FileStore delete (preferred); legacy S3 delete as fallback.
-	if sidecarFileID != "" && h.FileStore != nil {
-		if delErr := h.FileStore.Delete(r.Context(), userID, sidecarFileID); delErr != nil {
-			slog.Warn("editor: FileStore.Delete sidecar failed", "id", activityID, "file_id", sidecarFileID, "error", delErr)
+	// ShadowFS delete (preferred); legacy S3 delete as fallback.
+	if sidecarFileID != "" && h.ShadowFS != nil {
+		if delErr := h.ShadowFS.Delete(r.Context(), userID, sidecarFileID); delErr != nil {
+			slog.Warn("editor: ShadowFS.Delete sidecar failed", "id", activityID, "file_id", sidecarFileID, "error", delErr)
 		}
 	} else if h.Storage != nil {
 		key := editorKey(userID, activityID)
@@ -394,7 +394,7 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Load the sidecar — FileStore first, then legacy S3.
+	// 1. Load the sidecar — ShadowFS first, then legacy S3.
 	var sidecar editor.EditSidecar
 	hasSidecar := false
 	{
@@ -404,8 +404,8 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 			`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1`,
 			activityID,
 		).Scan(&sfID)
-		if sfID != "" && h.FileStore != nil {
-			if rc, getErr := h.FileStore.Get(r.Context(), userID, sfID); getErr == nil {
+		if sfID != "" && h.ShadowFS != nil {
+			if rc, getErr := h.ShadowFS.Get(r.Context(), userID, sfID); getErr == nil {
 				rawSidecar, _ = io.ReadAll(rc)
 				rc.Close()
 			}

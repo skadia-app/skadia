@@ -305,16 +305,16 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Clean up FileStore files before deleting the activity row.
-	if h.FileStore != nil {
+	// Clean up ShadowFS files before deleting the activity row.
+	if h.ShadowFS != nil {
 		var actFileID, editFileID string
 		_ = h.DB.Pool.QueryRow(r.Context(),
 			`SELECT COALESCE(file_id::text, '') FROM activities WHERE id = $1 AND user_id = $2`,
 			id, userID,
 		).Scan(&actFileID)
 		if actFileID != "" {
-			if delErr := h.FileStore.Delete(r.Context(), userID, actFileID); delErr != nil {
-				slog.Warn("delete activity: filestore delete failed", "file_id", actFileID, "error", delErr)
+			if delErr := h.ShadowFS.Delete(r.Context(), userID, actFileID); delErr != nil {
+				slog.Warn("delete activity: shadowfs delete failed", "file_id", actFileID, "error", delErr)
 			}
 		}
 
@@ -324,12 +324,12 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 			id, userID,
 		).Scan(&editFileID)
 		if editFileID != "" {
-			if delErr := h.FileStore.Delete(r.Context(), userID, editFileID); delErr != nil {
-				slog.Warn("delete activity: filestore delete edit sidecar failed", "file_id", editFileID, "error", delErr)
+			if delErr := h.ShadowFS.Delete(r.Context(), userID, editFileID); delErr != nil {
+				slog.Warn("delete activity: shadowfs delete edit sidecar failed", "file_id", editFileID, "error", delErr)
 			}
 		}
 
-		// Delete FileStore records for all activity photos (originals + sidecars).
+		// Delete ShadowFS records for all activity photos (originals + sidecars).
 		photoRows, photoQueryErr := h.DB.Pool.Query(r.Context(),
 			`SELECT COALESCE(file_id::text, '') FROM activity_photos
 			 WHERE activity_id = $1 AND user_id = $2 AND file_id IS NOT NULL`,
@@ -340,14 +340,14 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 			for photoRows.Next() {
 				var photoFileID string
 				if scanErr := photoRows.Scan(&photoFileID); scanErr == nil && photoFileID != "" {
-					if delErr := h.FileStore.Delete(r.Context(), userID, photoFileID); delErr != nil {
-						slog.Warn("delete activity: filestore delete photo failed", "file_id", photoFileID, "error", delErr)
+					if delErr := h.ShadowFS.Delete(r.Context(), userID, photoFileID); delErr != nil {
+						slog.Warn("delete activity: shadowfs delete photo failed", "file_id", photoFileID, "error", delErr)
 					}
 				}
 			}
 		}
 
-		// Delete sidecar FileStore records whose parent_type='photo' for photos of this activity.
+		// Delete sidecar ShadowFS records whose parent_type='photo' for photos of this activity.
 		sidecarRows, sidecarQueryErr := h.DB.Pool.Query(r.Context(),
 			`SELECT uf.id::text FROM user_files uf
 			 JOIN activity_photos ap ON ap.id::text = uf.parent_id
@@ -360,8 +360,8 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 			for sidecarRows.Next() {
 				var sidecarID string
 				if scanErr := sidecarRows.Scan(&sidecarID); scanErr == nil && sidecarID != "" {
-					if delErr := h.FileStore.Delete(r.Context(), userID, sidecarID); delErr != nil {
-						slog.Warn("delete activity: filestore delete photo sidecar failed", "sidecar_id", sidecarID, "error", delErr)
+					if delErr := h.ShadowFS.Delete(r.Context(), userID, sidecarID); delErr != nil {
+						slog.Warn("delete activity: shadowfs delete photo sidecar failed", "sidecar_id", sidecarID, "error", delErr)
 					}
 				}
 			}

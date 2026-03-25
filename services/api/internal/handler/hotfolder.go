@@ -11,7 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/garmin"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
@@ -97,14 +97,14 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		// ftype == 4 (activity) or unknown → continue to activity import
 	}
 
-	// 7. Store file via FileStore (preferred) or legacy S3
+	// 7. Store file via ShadowFS (preferred) or legacy S3
 	contentType := "application/octet-stream"
 	if format == "gpx" || format == "tcx" {
 		contentType = "application/xml"
 	}
 	var hotfolderFileID string
-	if h.FileStore != nil {
-		rec, putErr := h.FileStore.Put(ctx, filestore.FileEntry{
+	if h.ShadowFS != nil {
+		rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
 			UserID:      userID,
 			FileType:    "activity",
 			ContentType: contentType,
@@ -117,7 +117,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 			},
 		}, bytes.NewReader(decompressed))
 		if putErr != nil {
-			importErr := fmt.Errorf("FileStore upload: %w", putErr)
+			importErr := fmt.Errorf("ShadowFS upload: %w", putErr)
 			tracker.Error(ctx, importErr)
 			return importErr
 		}

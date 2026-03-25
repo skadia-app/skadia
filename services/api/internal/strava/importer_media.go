@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/importutil"
@@ -249,12 +249,12 @@ func (m *MediaImporter) legacyImportPhoto(
 	}
 
 	// --- Upload original photo ---
-	// FileStore (preferred): registers in user_files and sets file_id.
+	// ShadowFS (preferred): registers in user_files and sets file_id.
 	// Legacy S3 fallback: direct bucket upload, no registry entry.
 	var fileID *string
-	if params.FileStore != nil {
+	if params.ShadowFS != nil {
 		parentType := "activity"
-		rec, putErr := params.FileStore.Put(ctx, filestore.FileEntry{
+		rec, putErr := params.ShadowFS.Put(ctx, shadowfs.FileEntry{
 			UserID:      params.UserID,
 			FileType:    "media",
 			ContentType: contentType,
@@ -271,7 +271,7 @@ func (m *MediaImporter) legacyImportPhoto(
 			Tags: map[string]string{"source": "strava"},
 		}, bytes.NewReader(data))
 		if putErr != nil {
-			slog.Warn("strava media: FileStore.Put failed", "file", relPath, "error", putErr)
+			slog.Warn("strava media: ShadowFS.Put failed", "file", relPath, "error", putErr)
 			return false
 		}
 		fileID = &rec.ID
@@ -281,13 +281,13 @@ func (m *MediaImporter) legacyImportPhoto(
 			return false
 		}
 	} else {
-		// Neither FileStore nor Storage configured: cannot persist the photo.
+		// Neither ShadowFS nor Storage configured: cannot persist the photo.
 		slog.Warn("strava media: no storage backend configured, skipping", "file", relPath)
 		return false
 	}
 
-	// --- Upload thumb/preview (regenerable cache, S3 only, not in FileStore registry) ---
-	// If Storage is nil but FileStore exists, skip generation — they'll be regenerated on demand.
+	// --- Upload thumb/preview (regenerable cache, S3 only, not in ShadowFS registry) ---
+	// If Storage is nil but ShadowFS exists, skip generation — they'll be regenerated on demand.
 	if params.Storage != nil {
 		if thumbData != nil {
 			s3KeyThumb = fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", params.UserID, hash)

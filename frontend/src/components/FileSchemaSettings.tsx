@@ -6,7 +6,7 @@ import {
   getLibraryDir,
   updateLibraryDir,
   type FileType,
-} from '@/api/filestore'
+} from '@/api/shadowfs'
 import { useToast } from '@/lib/toast'
 
 // ── i18n strings (centralised) ─────────────────────────────────────────────

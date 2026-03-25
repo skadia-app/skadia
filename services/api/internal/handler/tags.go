@@ -17,7 +17,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -204,7 +204,7 @@ func (h *Handler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 	}
 	tagID := chi.URLParam(r, "id")
 
-	// Resolve cover_file_id before deletion so we can clean up FileStore.
+	// Resolve cover_file_id before deletion so we can clean up ShadowFS.
 	var coverFileID string
 	_ = h.DB.Pool.QueryRow(r.Context(),
 		`SELECT COALESCE(cover_file_id::text, '') FROM tags WHERE id = $1 AND user_id = $2`,
@@ -221,10 +221,10 @@ func (h *Handler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Best-effort FileStore cleanup (cover image).
-	if coverFileID != "" && h.FileStore != nil {
-		if delErr := h.FileStore.Delete(r.Context(), userID, coverFileID); delErr != nil {
-			slog.Warn("delete tag: FileStore.Delete cover failed", "tag_id", tagID, "file_id", coverFileID, "error", delErr)
+	// Best-effort ShadowFS cleanup (cover image).
+	if coverFileID != "" && h.ShadowFS != nil {
+		if delErr := h.ShadowFS.Delete(r.Context(), userID, coverFileID); delErr != nil {
+			slog.Warn("delete tag: ShadowFS.Delete cover failed", "tag_id", tagID, "file_id", coverFileID, "error", delErr)
 		}
 	}
 
@@ -358,10 +358,10 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	s3Key := fmt.Sprintf("tag-covers/%s/%s%s", userID, tagID, ext)
 	bucket := "skadia-media"
 
-	// FileStore path (preferred) — legacy S3 as fallback.
+	// ShadowFS path (preferred) — legacy S3 as fallback.
 	var coverFileID string
-	if h.FileStore != nil {
-		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+	if h.ShadowFS != nil {
+		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
 			FileType:    "media",
 			ContentType: fileCT,
@@ -372,7 +372,7 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 			Tags:        map[string]string{"role": "cover"},
 		}, bytes.NewReader(data))
 		if putErr != nil {
-			slog.Error("filestore upload tag cover failed", "error", putErr)
+			slog.Error("shadowfs upload tag cover failed", "error", putErr)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store cover image", r.URL.Path)
 			return
 		}
@@ -409,7 +409,7 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Link FileStore record to domain row.
+	// Link ShadowFS record to domain row.
 	if coverFileID != "" {
 		if _, dbErr := h.DB.Pool.Exec(r.Context(),
 			`UPDATE tags SET cover_file_id = $1 WHERE id = $2`,
@@ -446,17 +446,17 @@ func (h *Handler) ClearTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	const bucket = "skadia-media"
 	const ownPrefix = "/api/v1/media/" + bucket + "/tag-covers/"
 
-	// Resolve FileStore file_id for deletion (best-effort).
+	// Resolve ShadowFS file_id for deletion (best-effort).
 	var coverFileID string
 	_ = h.DB.Pool.QueryRow(r.Context(),
 		`SELECT COALESCE(cover_file_id::text, '') FROM tags WHERE id = $1 AND user_id = $2`,
 		tagID, userID,
 	).Scan(&coverFileID)
 
-	// FileStore delete (preferred); legacy S3 delete as fallback.
-	if coverFileID != "" && h.FileStore != nil {
-		if delErr := h.FileStore.Delete(r.Context(), userID, coverFileID); delErr != nil {
-			slog.Warn("clear tag cover: FileStore.Delete failed", "tag_id", tagID, "file_id", coverFileID, "error", delErr)
+	// ShadowFS delete (preferred); legacy S3 delete as fallback.
+	if coverFileID != "" && h.ShadowFS != nil {
+		if delErr := h.ShadowFS.Delete(r.Context(), userID, coverFileID); delErr != nil {
+			slog.Warn("clear tag cover: ShadowFS.Delete failed", "tag_id", tagID, "file_id", coverFileID, "error", delErr)
 		}
 	} else if h.Storage != nil {
 		// Thumb löschen (immer eigener Upload, da wir ihn selbst erstellt haben)

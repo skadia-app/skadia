@@ -1,4 +1,4 @@
-package filestore
+package shadowfs
 
 import (
 	"context"
@@ -73,9 +73,9 @@ func (j *ReconcileJob) Run(ctx context.Context, progressFn func(current int)) (R
 		if ctx.Err() != nil {
 			return result, ctx.Err()
 		}
-		slog.Info("filestore reconcile: running check", "check", c.name, "index", i+1)
+		slog.Info("shadowfs reconcile: running check", "check", c.name, "index", i+1)
 		if err := c.fn(ctx, &result); err != nil {
-			slog.Error("filestore reconcile: check failed", "check", c.name, "error", err)
+			slog.Error("shadowfs reconcile: check failed", "check", c.name, "error", err)
 			// Continue with remaining checks — partial results are better than none.
 		}
 		if progressFn != nil {
@@ -83,7 +83,7 @@ func (j *ReconcileJob) Run(ctx context.Context, progressFn func(current int)) (R
 		}
 	}
 
-	slog.Info("filestore reconcile: complete",
+	slog.Info("shadowfs reconcile: complete",
 		"orphaned_files", result.OrphanedFiles,
 		"dangling_records", result.DanglingRecords,
 		"size_mismatches", result.SizeMismatches,
@@ -162,7 +162,7 @@ func (j *ReconcileJob) checkOrphanedFiles(ctx context.Context, r *ReconcileResul
 			return nil // too recent — might be an in-flight write
 		}
 
-		slog.Warn("filestore reconcile: orphaned file (no registry entry)",
+		slog.Warn("shadowfs reconcile: orphaned file (no registry entry)",
 			"path", relPath, "size", info.Size(), "mtime", info.ModTime())
 		r.OrphanedFiles++
 		return nil
@@ -204,11 +204,11 @@ func (j *ReconcileJob) checkDanglingRecords(ctx context.Context, r *ReconcileRes
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		slog.Warn("filestore reconcile: dangling record (no physical file), deleting",
+		slog.Warn("shadowfs reconcile: dangling record (no physical file), deleting",
 			"file_id", d.id, "path", d.path, "user_id", d.userID)
 		if _, err := j.pool.Exec(ctx,
 			`DELETE FROM user_files WHERE id = $1`, d.id); err != nil {
-			slog.Error("filestore reconcile: failed to delete dangling record",
+			slog.Error("shadowfs reconcile: failed to delete dangling record",
 				"file_id", d.id, "error", err)
 			continue
 		}
@@ -259,12 +259,12 @@ func (j *ReconcileJob) checkSizeMismatches(ctx context.Context, r *ReconcileResu
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		slog.Warn("filestore reconcile: size mismatch, updating registry",
+		slog.Warn("shadowfs reconcile: size mismatch, updating registry",
 			"file_id", m.id, "path", m.path, "db_size", m.dbSize, "disk_size", m.diskSize)
 		if _, err := j.pool.Exec(ctx,
 			`UPDATE user_files SET size_bytes = $1, updated_at = NOW() WHERE id = $2`,
 			m.diskSize, m.id); err != nil {
-			slog.Error("filestore reconcile: failed to update size",
+			slog.Error("shadowfs reconcile: failed to update size",
 				"file_id", m.id, "error", err)
 			continue
 		}
@@ -324,7 +324,7 @@ func (j *ReconcileJob) checkArchivedVersionCleanup(ctx context.Context, r *Recon
 			LIMIT $4`,
 			g.userID, g.fileType, g.parentID, g.count-j.keepVersions)
 		if err != nil {
-			slog.Error("filestore reconcile: failed to query excess archives",
+			slog.Error("shadowfs reconcile: failed to query excess archives",
 				"user_id", g.userID, "error", err)
 			continue
 		}
@@ -336,7 +336,7 @@ func (j *ReconcileJob) checkArchivedVersionCleanup(ctx context.Context, r *Recon
 		for excess.Next() {
 			var e entry
 			if err := excess.Scan(&e.id, &e.path); err != nil {
-				slog.Error("filestore reconcile: scan excess archive", "error", err)
+				slog.Error("shadowfs reconcile: scan excess archive", "error", err)
 				continue
 			}
 			toRemove = append(toRemove, e)
@@ -346,13 +346,13 @@ func (j *ReconcileJob) checkArchivedVersionCleanup(ctx context.Context, r *Recon
 		for _, e := range toRemove {
 			fullPath := filepath.Join(j.basePath, e.path)
 			if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
-				slog.Error("filestore reconcile: failed to remove archived file",
+				slog.Error("shadowfs reconcile: failed to remove archived file",
 					"file_id", e.id, "path", fullPath, "error", err)
 				continue
 			}
 			if _, err := j.pool.Exec(ctx,
 				`DELETE FROM user_files WHERE id = $1`, e.id); err != nil {
-				slog.Error("filestore reconcile: failed to delete archive record",
+				slog.Error("shadowfs reconcile: failed to delete archive record",
 					"file_id", e.id, "error", err)
 				continue
 			}
@@ -405,7 +405,7 @@ func (j *ReconcileJob) checkTempCleanup(ctx context.Context, r *ReconcileResult)
 				WHERE status IN ('pending', 'processing')
 				  AND file_name = $1
 			)`, fileName).Scan(&exists); err != nil {
-			slog.Error("filestore reconcile: import_queue check failed",
+			slog.Error("shadowfs reconcile: import_queue check failed",
 				"file", fileName, "error", err)
 			return nil
 		}
@@ -413,10 +413,10 @@ func (j *ReconcileJob) checkTempCleanup(ctx context.Context, r *ReconcileResult)
 			return nil // still referenced
 		}
 
-		slog.Info("filestore reconcile: removing stale temp file",
+		slog.Info("shadowfs reconcile: removing stale temp file",
 			"path", relPath, "mtime", info.ModTime())
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			slog.Error("filestore reconcile: failed to remove temp file",
+			slog.Error("shadowfs reconcile: failed to remove temp file",
 				"path", path, "error", err)
 			return nil
 		}
@@ -447,7 +447,7 @@ func (j *ReconcileJob) checkDuplicatePaths(ctx context.Context, r *ReconcileResu
 		if err := rows.Scan(&path, &cnt); err != nil {
 			return fmt.Errorf("scan duplicate: %w", err)
 		}
-		slog.Warn("filestore reconcile: duplicate storage_path",
+		slog.Warn("shadowfs reconcile: duplicate storage_path",
 			"path", path, "count", cnt)
 		r.DuplicatePaths++
 	}
@@ -488,11 +488,11 @@ func (j *ReconcileJob) checkPurgingCleanup(ctx context.Context, r *ReconcileResu
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		slog.Info("filestore reconcile: cleaning purging record (file already deleted)",
+		slog.Info("shadowfs reconcile: cleaning purging record (file already deleted)",
 			"file_id", e.id, "path", e.path)
 		if _, err := j.pool.Exec(ctx,
 			`DELETE FROM user_files WHERE id = $1`, e.id); err != nil {
-			slog.Error("filestore reconcile: failed to delete purging record",
+			slog.Error("shadowfs reconcile: failed to delete purging record",
 				"file_id", e.id, "error", err)
 			continue
 		}
@@ -564,7 +564,7 @@ func (j *ReconcileJob) checkRenameCleanup(ctx context.Context, r *ReconcileResul
 			if _, err := j.pool.Exec(ctx,
 				`UPDATE user_files SET is_renaming = false, updated_at = NOW() WHERE id = $1`,
 				item.id); err != nil {
-				slog.Error("filestore reconcile: failed to finalize rename",
+				slog.Error("shadowfs reconcile: failed to finalize rename",
 					"file_id", item.id, "error", err)
 				continue
 			}
@@ -578,12 +578,12 @@ func (j *ReconcileJob) checkRenameCleanup(ctx context.Context, r *ReconcileResul
 			targetFull = filepath.Join(j.basePath, targetRel)
 
 			if err := os.MkdirAll(filepath.Dir(targetFull), 0o755); err != nil {
-				slog.Error("filestore reconcile: mkdir for rename retry",
+				slog.Error("shadowfs reconcile: mkdir for rename retry",
 					"file_id", item.id, "target", targetFull, "error", err)
 				continue
 			}
 			if err := os.Rename(currentFull, targetFull); err != nil {
-				slog.Error("filestore reconcile: rename retry failed",
+				slog.Error("shadowfs reconcile: rename retry failed",
 					"file_id", item.id, "from", currentFull, "to", targetFull, "error", err)
 				continue
 			}
@@ -591,11 +591,11 @@ func (j *ReconcileJob) checkRenameCleanup(ctx context.Context, r *ReconcileResul
 			if _, err := j.pool.Exec(ctx,
 				`UPDATE user_files SET storage_path = $1, is_renaming = false, updated_at = NOW()
 				 WHERE id = $2`, targetRel, item.id); err != nil {
-				slog.Error("filestore reconcile: failed to update renamed path",
+				slog.Error("shadowfs reconcile: failed to update renamed path",
 					"file_id", item.id, "error", err)
 				continue
 			}
-			slog.Info("filestore reconcile: rename retry succeeded",
+			slog.Info("shadowfs reconcile: rename retry succeeded",
 				"file_id", item.id, "from", item.storagePath, "to", targetRel)
 			r.RenameFixed++
 			continue
@@ -607,18 +607,18 @@ func (j *ReconcileJob) checkRenameCleanup(ctx context.Context, r *ReconcileResul
 			if _, err := j.pool.Exec(ctx,
 				`UPDATE user_files SET storage_path = $1, is_renaming = false, updated_at = NOW()
 				 WHERE id = $2`, targetRel, item.id); err != nil {
-				slog.Error("filestore reconcile: failed to finalize moved rename",
+				slog.Error("shadowfs reconcile: failed to finalize moved rename",
 					"file_id", item.id, "error", err)
 				continue
 			}
-			slog.Info("filestore reconcile: rename finalized (file already at target)",
+			slog.Info("shadowfs reconcile: rename finalized (file already at target)",
 				"file_id", item.id, "target", targetRel)
 			r.RenameFixed++
 			continue
 		}
 
 		// Both source and target missing — will be caught by check 2 (dangling records).
-		slog.Warn("filestore reconcile: renaming record with no file at source or target",
+		slog.Warn("shadowfs reconcile: renaming record with no file at source or target",
 			"file_id", item.id, "source", item.storagePath, "target", targetRel)
 	}
 	return nil
@@ -650,7 +650,7 @@ func (j *ReconcileJob) checkArchiveWarnings(ctx context.Context, r *ReconcileRes
 		}
 		mb := total / (1024 * 1024)
 		msg := fmt.Sprintf("user %s (%s): %d MB archived", username, userID, mb)
-		slog.Warn("filestore reconcile: large archive", "user_id", userID,
+		slog.Warn("shadowfs reconcile: large archive", "user_id", userID,
 			"username", username, "archive_mb", mb)
 		r.ArchiveWarnings = append(r.ArchiveWarnings, msg)
 	}

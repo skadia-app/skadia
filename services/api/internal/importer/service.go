@@ -23,7 +23,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -44,7 +44,7 @@ type SegmentMatcherFunc func(activityID, userID, sportType, subType string, gear
 type Service struct {
 	DB        *database.DB
 	Storage   *storage.S3Client
-	FileStore filestore.FileStore
+	ShadowFS shadowfs.ShadowFS
 	Events    *event.Publisher
 
 	// Callback for segment matching that lives in the handler package to
@@ -61,14 +61,14 @@ type Service struct {
 func NewService(
 	db *database.DB,
 	s3 *storage.S3Client,
-	store filestore.FileStore,
+	store shadowfs.ShadowFS,
 	events *event.Publisher,
 	segmentMatcher SegmentMatcherFunc,
 ) *Service {
 	return &Service{
 		DB:             db,
 		Storage:        s3,
-		FileStore:      store,
+		ShadowFS:      store,
 		Events:         events,
 		SegmentMatcher: segmentMatcher,
 	}
@@ -289,8 +289,8 @@ func (s *Service) PostProcess(
 
 	// Group D: file info + file_id linkage (parallel to everything else)
 	g.Go(func() error {
-		// Link file_id from FileStore.Put (set by caller) if not already set.
-		if s.FileStore != nil && fileID != "" {
+		// Link file_id from ShadowFS.Put (set by caller) if not already set.
+		if s.ShadowFS != nil && fileID != "" {
 			if _, execErr := s.DB.Pool.Exec(gCtx,
 				`UPDATE activities SET file_id = $1 WHERE id = $2 AND file_id IS NULL`,
 				fileID, activityID,
@@ -299,9 +299,9 @@ func (s *Service) PostProcess(
 			}
 		}
 
-		// Legacy S3 file info (kept until full migration to FileStore)
+		// Legacy S3 file info (kept until full migration to ShadowFS)
 		if s.Storage != nil && fileID == "" {
-			// When no FileStore record exists, we still update legacy S3 columns.
+			// When no ShadowFS record exists, we still update legacy S3 columns.
 			s3Key := fmt.Sprintf("%s/%s.%s", userID, data.FileHash, format)
 			metaKey := s3Key + ".meta"
 			bucket := "skadia-originals"
@@ -607,8 +607,8 @@ func (s *Service) ProcessMultisport(
 		// Parent already exists (re-import of same file)
 		result.ParentID = parentID
 		result.ParentCreated = false
-		// Link file_id on parent when FileStore is in use
-		if s.FileStore != nil && fileID != "" {
+		// Link file_id on parent when ShadowFS is in use
+		if s.ShadowFS != nil && fileID != "" {
 			if _, execErr := s.DB.Pool.Exec(ctx,
 				`UPDATE activities SET file_id = $1 WHERE id = $2 AND file_id IS NULL`,
 				fileID, result.ParentID,
@@ -631,8 +631,8 @@ func (s *Service) ProcessMultisport(
 		}
 		result.ParentID = parent.ID
 		result.ParentCreated = true
-		// Link file_id on parent when FileStore is in use
-		if s.FileStore != nil && fileID != "" {
+		// Link file_id on parent when ShadowFS is in use
+		if s.ShadowFS != nil && fileID != "" {
 			if _, execErr := s.DB.Pool.Exec(ctx,
 				`UPDATE activities SET file_id = $1 WHERE id = $2`,
 				fileID, result.ParentID,
@@ -1219,9 +1219,9 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 		"filename": meta.OriginalFilename,
 	}
 
-	if s.FileStore != nil {
-		// FileStore path: store original via FileStore (assigned to _temp internally).
-		rec, putErr := s.FileStore.Put(ctx, filestore.FileEntry{
+	if s.ShadowFS != nil {
+		// ShadowFS path: store original via ShadowFS (assigned to _temp internally).
+		rec, putErr := s.ShadowFS.Put(ctx, shadowfs.FileEntry{
 			UserID:      userID,
 			FileType:    "media",
 			ContentType: ct,
@@ -1231,14 +1231,14 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 			Tags:        map[string]string{"queue_type": "image_no_match"},
 		}, bytes.NewReader(photoBytes))
 		if putErr != nil {
-			return nil, fmt.Errorf("filestore put orphan photo: %w", putErr)
+			return nil, fmt.Errorf("shadowfs put orphan photo: %w", putErr)
 		}
 		queueMeta["file_store_id"] = rec.ID
 
-		// Store thumbnail via FileStore (best-effort).
+		// Store thumbnail via ShadowFS (best-effort).
 		if thumbData != nil {
 			thumbName := fileHash + "_thumb.jpg"
-			thumbRec, thumbErr := s.FileStore.Put(ctx, filestore.FileEntry{
+			thumbRec, thumbErr := s.ShadowFS.Put(ctx, shadowfs.FileEntry{
 				UserID:      userID,
 				FileType:    "media",
 				ContentType: "image/jpeg",
@@ -1250,7 +1250,7 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 			if thumbErr == nil {
 				queueMeta["file_store_id_thumb"] = thumbRec.ID
 			} else {
-				slog.Warn("importer: orphan thumb FileStore.Put failed", "err", thumbErr)
+				slog.Warn("importer: orphan thumb ShadowFS.Put failed", "err", thumbErr)
 			}
 		}
 	} else if s.Storage != nil {
@@ -1293,7 +1293,7 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 }
 
 // ResolveQueuedPhoto assigns a queued image_no_match item to a specific activity.
-// It loads the file from FileStore or S3, runs ProcessPhoto, marks the queue item
+// It loads the file from ShadowFS or S3, runs ProcessPhoto, marks the queue item
 // as resolved, and cleans up the temporary files.
 func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, targetActivityID string) (*PhotoResult, error) {
 	// 1. Load and validate queue item
@@ -1306,20 +1306,20 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 	}
 	// Ownership already enforced by GetImportQueueItem (WHERE user_id = $2)
 
-	// 2. Load photo bytes — FileStore preferred, S3 as fallback.
+	// 2. Load photo bytes — ShadowFS preferred, S3 as fallback.
 	var photoBytes []byte
 	ct := item.ContentType
 
-	fileStoreID, hasFileStoreID := item.Metadata["file_store_id"].(string)
-	if hasFileStoreID && fileStoreID != "" && s.FileStore != nil {
-		rc, getErr := s.FileStore.Get(ctx, userID, fileStoreID)
+	shadowFSID, hasShadowFSID := item.Metadata["file_store_id"].(string)
+	if hasShadowFSID && shadowFSID != "" && s.ShadowFS != nil {
+		rc, getErr := s.ShadowFS.Get(ctx, userID, shadowFSID)
 		if getErr != nil {
-			return nil, fmt.Errorf("filestore get queued photo: %w", getErr)
+			return nil, fmt.Errorf("shadowfs get queued photo: %w", getErr)
 		}
 		photoBytes, err = io.ReadAll(rc)
 		rc.Close()
 		if err != nil {
-			return nil, fmt.Errorf("filestore read queued photo: %w", err)
+			return nil, fmt.Errorf("shadowfs read queued photo: %w", err)
 		}
 	} else if s.Storage != nil {
 		if item.S3Bucket == nil || item.S3Key == nil {
@@ -1356,13 +1356,13 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 		slog.Warn("importer: ResolveImportQueueItem failed", "id", queueEntryID, "err", resolveErr)
 	}
 
-	if hasFileStoreID && fileStoreID != "" && s.FileStore != nil {
-		if delErr := s.FileStore.Delete(ctx, userID, fileStoreID); delErr != nil {
-			slog.Warn("importer: FileStore.Delete orphan photo failed", "id", fileStoreID, "err", delErr)
+	if hasShadowFSID && shadowFSID != "" && s.ShadowFS != nil {
+		if delErr := s.ShadowFS.Delete(ctx, userID, shadowFSID); delErr != nil {
+			slog.Warn("importer: ShadowFS.Delete orphan photo failed", "id", shadowFSID, "err", delErr)
 		}
 		if thumbFileID, ok := item.Metadata["file_store_id_thumb"].(string); ok && thumbFileID != "" {
-			if delErr := s.FileStore.Delete(ctx, userID, thumbFileID); delErr != nil {
-				slog.Warn("importer: FileStore.Delete orphan thumb failed", "id", thumbFileID, "err", delErr)
+			if delErr := s.ShadowFS.Delete(ctx, userID, thumbFileID); delErr != nil {
+				slog.Warn("importer: ShadowFS.Delete orphan thumb failed", "id", thumbFileID, "err", delErr)
 			}
 		}
 	} else if s.Storage != nil && item.S3Bucket != nil && item.S3Key != nil {

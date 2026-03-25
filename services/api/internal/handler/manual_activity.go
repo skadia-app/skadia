@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
@@ -110,10 +110,10 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 	hashStr := hex.EncodeToString(hash[:])
 	s3Key := fmt.Sprintf("%s/%s.json", userID, hashStr)
 
-	// Upload JSON via FileStore (preferred) or legacy S3 (fallback).
+	// Upload JSON via ShadowFS (preferred) or legacy S3 (fallback).
 	var manualFileID string
-	if h.FileStore != nil {
-		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+	if h.ShadowFS != nil {
+		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
 			FileType:    "activity",
 			ContentType: "application/json",
@@ -123,7 +123,7 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 			Tags:        map[string]string{"format": "manual", "source": "manual"},
 		}, bytes.NewReader(jsonBytes))
 		if putErr != nil {
-			slog.Error("manual activity: FileStore.Put failed", "error", putErr)
+			slog.Error("manual activity: ShadowFS.Put failed", "error", putErr)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store activity file", r.URL.Path)
 			return
 		}
@@ -219,7 +219,7 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Set file_id when FileStore was used; otherwise fall back to legacy S3 file info.
+	// Set file_id when ShadowFS was used; otherwise fall back to legacy S3 file info.
 	metaKey := s3Key + ".meta"
 	if manualFileID != "" {
 		if _, execErr := h.DB.Pool.Exec(r.Context(),

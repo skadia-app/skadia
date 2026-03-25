@@ -70,7 +70,7 @@ func (db *DB) InsertRoutePhoto(ctx context.Context, photo model.RoutePhoto) (mod
 
 // DeleteRoutePhoto deletes a route photo by ID. Only photos owned by userID and
 // belonging to the specified routeID can be deleted.
-// Returns the S3 keys and the FileStore file_id (may be empty) so the caller
+// Returns the S3 keys and the ShadowFS file_id (may be empty) so the caller
 // can clean up both storage backends.
 func (db *DB) DeleteRoutePhoto(ctx context.Context, photoID, userID, routeID string) (s3Key, s3KeyThumb string, s3KeyPreview *string, fileID string, err error) {
 	err = db.Pool.QueryRow(ctx, `

@@ -12,7 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -153,7 +153,7 @@ func (h *Handler) DeleteCustomMapMarker(w http.ResponseWriter, r *http.Request) 
 	mapID := chi.URLParam(r, "mapID")
 	markerID := chi.URLParam(r, "markerID")
 
-	// Resolve image_file_id before deletion so we can clean up FileStore.
+	// Resolve image_file_id before deletion so we can clean up ShadowFS.
 	var imageFileID string
 	_ = h.DB.Pool.QueryRow(r.Context(),
 		`SELECT COALESCE(image_file_id::text, '') FROM custom_map_markers WHERE id = $1 AND user_id = $2`,
@@ -164,10 +164,10 @@ func (h *Handler) DeleteCustomMapMarker(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Best-effort FileStore cleanup (marker image).
-	if imageFileID != "" && h.FileStore != nil {
-		if delErr := h.FileStore.Delete(r.Context(), userID, imageFileID); delErr != nil {
-			slog.Warn("delete marker: FileStore.Delete image failed", "marker_id", markerID, "file_id", imageFileID, "error", delErr)
+	// Best-effort ShadowFS cleanup (marker image).
+	if imageFileID != "" && h.ShadowFS != nil {
+		if delErr := h.ShadowFS.Delete(r.Context(), userID, imageFileID); delErr != nil {
+			slog.Warn("delete marker: ShadowFS.Delete image failed", "marker_id", markerID, "file_id", imageFileID, "error", delErr)
 		}
 	}
 
@@ -247,10 +247,10 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 	s3Key := fmt.Sprintf("marker-images/%s/%s%s", userID, markerID, ext)
 	bucket := "skadia-media"
 
-	// FileStore path (preferred) — legacy S3 as fallback.
+	// ShadowFS path (preferred) — legacy S3 as fallback.
 	var imageFileID string
-	if h.FileStore != nil {
-		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+	if h.ShadowFS != nil {
+		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
 			FileType:    "media",
 			ContentType: fileCT,
@@ -261,7 +261,7 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 			Tags:        map[string]string{"role": "marker_image"},
 		}, bytes.NewReader(data))
 		if putErr != nil {
-			slog.Error("filestore upload marker image failed", "error", putErr)
+			slog.Error("shadowfs upload marker image failed", "error", putErr)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store marker image", r.URL.Path)
 			return
 		}
@@ -281,7 +281,7 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Link FileStore record to domain row.
+	// Link ShadowFS record to domain row.
 	if imageFileID != "" {
 		if _, dbErr := h.DB.Pool.Exec(r.Context(),
 			`UPDATE custom_map_markers SET image_file_id = $1 WHERE id = $2`,

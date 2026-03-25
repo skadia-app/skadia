@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
@@ -31,7 +31,7 @@ type storageDashboardResponse struct {
 	TypeCounts   map[string]int64          `json:"type_counts"`
 }
 
-// StorageDashboard returns an overview of the unified FileStore state.
+// StorageDashboard returns an overview of the unified ShadowFS state.
 //
 // GET /api/v1/admin/storage
 func (h *Handler) StorageDashboard(w http.ResponseWriter, r *http.Request) {
@@ -133,12 +133,12 @@ func (h *Handler) StartRegistryPopulation(w http.ResponseWriter, r *http.Request
 	jobID, err := h.DB.InsertBackgroundJob(
 		r.Context(),
 		userID,
-		"filestore_migration",
+		"shadowfs_migration",
 		nil, nil,
 		0, // progress_total updated incrementally inside Run()
 	)
 	if err != nil {
-		slog.Error("admin: failed to insert filestore_migration job", "error", err)
+		slog.Error("admin: failed to insert shadowfs_migration job", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not create job", r.URL.Path)
 		return
 	}
@@ -146,12 +146,12 @@ func (h *Handler) StartRegistryPopulation(w http.ResponseWriter, r *http.Request
 	// LibraryBasePath serves as shadowFSBase for local-file path resolution.
 	// s3Bucket is left empty: the migration job derives S3 paths from stored
 	// keys directly; extractS3Key() handles bare keys without a bucket prefix.
-	job := filestore.NewMigrateJob(h.DB.Pool, h.Config.LibraryBasePath, "")
+	job := shadowfs.NewMigrateJob(h.DB.Pool, h.Config.LibraryBasePath, "")
 
 	db := h.DB
 	shutdown.Go(jobID, func(ctx context.Context) {
 		if runErr := job.Run(ctx, jobID); runErr != nil {
-			slog.Error("admin: filestore migration failed", "job_id", jobID, "error", runErr)
+			slog.Error("admin: shadowfs migration failed", "job_id", jobID, "error", runErr)
 			db.CompleteBackgroundJob(ctx, jobID, true, runErr.Error()) //nolint:errcheck
 			return
 		}
@@ -183,19 +183,19 @@ func (h *Handler) StartFileMigration(w http.ResponseWriter, r *http.Request) {
 	jobID, err := h.DB.InsertBackgroundJob(
 		r.Context(),
 		userID,
-		"filestore_file_move",
+		"shadowfs_file_move",
 		nil, nil,
 		0, // progress_total set inside RunFileMove
 	)
 	if err != nil {
-		slog.Error("admin: failed to insert filestore_file_move job", "error", err)
+		slog.Error("admin: failed to insert shadowfs_file_move job", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error",
 			"could not create job", r.URL.Path)
 		return
 	}
 
-	renderer := filestore.NewSchemaRenderer()
-	job := filestore.NewMigrateJobWithLibrary(
+	renderer := shadowfs.NewSchemaRenderer()
+	job := shadowfs.NewMigrateJobWithLibrary(
 		h.DB.Pool, h.Config.LibraryBasePath, h.Config.LibraryBasePath, "", renderer,
 	)
 
@@ -215,7 +215,7 @@ func (h *Handler) StartFileMigration(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// StartReconciliation triggers a one-off filestore reconciliation job that
+// StartReconciliation triggers a one-off shadowfs reconciliation job that
 // checks consistency between the filesystem and the user_files registry.
 //
 // POST /api/v1/admin/storage/reconcile
@@ -234,19 +234,19 @@ func (h *Handler) StartReconciliation(w http.ResponseWriter, r *http.Request) {
 	jobID, err := h.DB.InsertBackgroundJob(
 		r.Context(),
 		userID,
-		"filestore_reconcile",
+		"shadowfs_reconcile",
 		nil, nil,
 		9, // 9 checks
 	)
 	if err != nil {
-		slog.Error("admin: failed to insert filestore_reconcile job", "error", err)
+		slog.Error("admin: failed to insert shadowfs_reconcile job", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error",
 			"could not create job", r.URL.Path)
 		return
 	}
 
-	renderer := filestore.NewSchemaRenderer()
-	job := filestore.NewReconcileJob(h.DB.Pool, h.Config.LibraryBasePath, renderer, h.Config.KeepVersions)
+	renderer := shadowfs.NewSchemaRenderer()
+	job := shadowfs.NewReconcileJob(h.DB.Pool, h.Config.LibraryBasePath, renderer, h.Config.KeepVersions)
 
 	db := h.DB
 	shutdown.Go(jobID, func(ctx context.Context) {
@@ -254,7 +254,7 @@ func (h *Handler) StartReconciliation(w http.ResponseWriter, r *http.Request) {
 			db.UpdateBackgroundJobProgress(ctx, jobID, int64(current)) //nolint:errcheck
 		})
 		if runErr != nil {
-			slog.Error("admin: filestore reconciliation failed", "job_id", jobID, "error", runErr)
+			slog.Error("admin: shadowfs reconciliation failed", "job_id", jobID, "error", runErr)
 			db.CompleteBackgroundJob(ctx, jobID, true, runErr.Error()) //nolint:errcheck
 			return
 		}
@@ -286,19 +286,19 @@ func (h *Handler) StartFileMigrationRollback(w http.ResponseWriter, r *http.Requ
 	jobID, err := h.DB.InsertBackgroundJob(
 		r.Context(),
 		userID,
-		"filestore_rollback",
+		"shadowfs_rollback",
 		nil, nil,
 		0,
 	)
 	if err != nil {
-		slog.Error("admin: failed to insert filestore_rollback job", "error", err)
+		slog.Error("admin: failed to insert shadowfs_rollback job", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error",
 			"could not create job", r.URL.Path)
 		return
 	}
 
-	renderer := filestore.NewSchemaRenderer()
-	job := filestore.NewMigrateJobWithLibrary(
+	renderer := shadowfs.NewSchemaRenderer()
+	job := shadowfs.NewMigrateJobWithLibrary(
 		h.DB.Pool, h.Config.LibraryBasePath, h.Config.LibraryBasePath, "", renderer,
 	)
 

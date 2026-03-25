@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -165,10 +165,10 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				hashArr := sha256.Sum256(fileBytes)
 				hashStr := hex.EncodeToString(hashArr[:])
 				tracker.SetFileHash(ctx, hashStr)
-				// Upload file — FileStore path preferred; legacy S3 as fallback.
+				// Upload file — ShadowFS path preferred; legacy S3 as fallback.
 				var msFileID string
-				if params.FileStore != nil {
-					rec, putErr := params.FileStore.Put(ctx, filestore.FileEntry{
+				if params.ShadowFS != nil {
+					rec, putErr := params.ShadowFS.Put(ctx, shadowfs.FileEntry{
 						UserID:      params.UserID,
 						FileType:    "activity",
 						ContentType: "application/octet-stream",
@@ -181,7 +181,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 						},
 					}, bytes.NewReader(fileBytes))
 					if putErr != nil {
-						slog.Warn("garmin activities: FileStore.Put multisport failed", "file", ref.fileName, "error", putErr)
+						slog.Warn("garmin activities: ShadowFS.Put multisport failed", "file", ref.fileName, "error", putErr)
 					} else {
 						msFileID = rec.ID
 					}
@@ -280,14 +280,14 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			continue
 		}
 
-		// New activity inserted — store file via FileStore (preferred) or legacy S3
+		// New activity inserted — store file via ShadowFS (preferred) or legacy S3
 		contentType := "application/octet-stream"
 		if format == "gpx" || format == "tcx" {
 			contentType = "application/xml"
 		}
 		var fileID string
-		if params.FileStore != nil {
-			rec, putErr := params.FileStore.Put(ctx, filestore.FileEntry{
+		if params.ShadowFS != nil {
+			rec, putErr := params.ShadowFS.Put(ctx, shadowfs.FileEntry{
 				UserID:      params.UserID,
 				FileType:    "activity",
 				ContentType: contentType,
@@ -300,7 +300,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				},
 			}, bytes.NewReader(fileBytes))
 			if putErr != nil {
-				slog.Warn("garmin activities: FileStore.Put failed", "file", ref.fileName, "error", putErr)
+				slog.Warn("garmin activities: ShadowFS.Put failed", "file", ref.fileName, "error", putErr)
 			} else {
 				fileID = rec.ID
 			}

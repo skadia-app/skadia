@@ -27,7 +27,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -155,9 +155,9 @@ func (h *Handler) DeleteGear(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("delete gear: list document file ids failed", "gear_id", id, "error", listErr)
 	}
 	for _, e := range docEntries {
-		if h.FileStore != nil && e.FileID != "" {
-			if delErr := h.FileStore.Delete(r.Context(), userID, e.FileID); delErr != nil {
-				slog.Warn("delete gear: filestore delete document failed",
+		if h.ShadowFS != nil && e.FileID != "" {
+			if delErr := h.ShadowFS.Delete(r.Context(), userID, e.FileID); delErr != nil {
+				slog.Warn("delete gear: shadowfs delete document failed",
 					"gear_id", id, "file_id", e.FileID, "error", delErr)
 			}
 		} else if e.S3Bucket != "" && e.S3Key != "" && h.Storage != nil {
@@ -919,7 +919,7 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		titlePtr = &title
 	}
 
-	// FileStore path (preferred) — fall back to legacy S3 when FileStore is not configured.
+	// ShadowFS path (preferred) — fall back to legacy S3 when ShadowFS is not configured.
 	var docFileID string
 	mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
 	if mediaBucket == "" {
@@ -927,27 +927,27 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	s3Key := fmt.Sprintf("gear/%s/%s/%s%s", userID, gearID, hashStr, ext)
 
-	if h.FileStore != nil {
-		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+	if h.ShadowFS != nil {
+		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
 			FileType:    "document",
 			ContentType: contentType,
 			FileName:    header.Filename,
 			SizeBytes:   int64(len(data)),
 			FileHash:    hashStr,
-			ParentType:  filestore.Ptr("gear"),
-			ParentID:    filestore.Ptr(gearID),
+			ParentType:  shadowfs.Ptr("gear"),
+			ParentID:    shadowfs.Ptr(gearID),
 			Tags: map[string]string{
 				"doc_type": docType,
 			},
 		}, bytes.NewReader(data))
 		if putErr != nil {
-			slog.Error("gear document: filestore put failed", "error", putErr)
+			slog.Error("gear document: shadowfs put failed", "error", putErr)
 			httputil.WriteError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
 			return
 		}
 		docFileID = rec.ID
-		// Clear legacy S3 fields — file lives in FileStore only.
+		// Clear legacy S3 fields — file lives in ShadowFS only.
 		mediaBucket = ""
 		s3Key = ""
 	} else if h.Storage != nil {
@@ -979,7 +979,7 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Persist the FileStore file_id on the row.
+	// Persist the ShadowFS file_id on the row.
 	if docFileID != "" {
 		if setErr := h.DB.UpdateGearDocumentFileID(r.Context(), result.ID, docFileID); setErr != nil {
 			slog.Warn("gear document: failed to set file_id", "doc_id", result.ID, "file_id", docFileID, "error", setErr)
@@ -988,7 +988,7 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// PDF-Thumbnail generieren (best-effort, legacy S3 only — FileStore thumbs TBD)
+	// PDF-Thumbnail generieren (best-effort, legacy S3 only — ShadowFS thumbs TBD)
 	if h.Storage != nil && contentType == "application/pdf" && s3Key != "" {
 		if thumbData, err := generatePDFThumbnail(data, 400); err == nil {
 			thumbKey := fmt.Sprintf("gear/%s/%s/%s_thumb.jpg", userID, gearID, hashStr)
@@ -1245,7 +1245,7 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 		titlePtr = &title
 	}
 
-	// FileStore path (preferred) — fall back to legacy S3 when FileStore is not configured.
+	// ShadowFS path (preferred) — fall back to legacy S3 when ShadowFS is not configured.
 	var compFileID string
 	mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
 	if mediaBucket == "" {
@@ -1253,27 +1253,27 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 	}
 	s3Key := fmt.Sprintf("gear-component/%s/%s/%s%s", userID, componentID, hashStr, ext)
 
-	if h.FileStore != nil {
-		rec, putErr := h.FileStore.Put(r.Context(), filestore.FileEntry{
+	if h.ShadowFS != nil {
+		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
 			FileType:    "document",
 			ContentType: contentType,
 			FileName:    header.Filename,
 			SizeBytes:   int64(len(data)),
 			FileHash:    hashStr,
-			ParentType:  filestore.Ptr("gear_component"),
-			ParentID:    filestore.Ptr(componentID),
+			ParentType:  shadowfs.Ptr("gear_component"),
+			ParentID:    shadowfs.Ptr(componentID),
 			Tags: map[string]string{
 				"doc_type": docType,
 			},
 		}, bytes.NewReader(data))
 		if putErr != nil {
-			slog.Error("component document: filestore put failed", "error", putErr)
+			slog.Error("component document: shadowfs put failed", "error", putErr)
 			httputil.WriteError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
 			return
 		}
 		compFileID = rec.ID
-		// Clear legacy S3 fields — file lives in FileStore only.
+		// Clear legacy S3 fields — file lives in ShadowFS only.
 		mediaBucket = ""
 		s3Key = ""
 	} else if h.Storage != nil {
@@ -1305,7 +1305,7 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Persist the FileStore file_id on the row.
+	// Persist the ShadowFS file_id on the row.
 	if compFileID != "" {
 		if setErr := h.DB.UpdateGearDocumentFileID(r.Context(), result.ID, compFileID); setErr != nil {
 			slog.Warn("component document: failed to set file_id", "doc_id", result.ID, "file_id", compFileID, "error", setErr)
@@ -1360,10 +1360,10 @@ func (h *Handler) DeleteGearDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete from FileStore (preferred) or fall back to legacy S3 (best-effort).
-	if h.FileStore != nil && fileID != "" {
-		if delErr := h.FileStore.Delete(r.Context(), userID, fileID); delErr != nil {
-			slog.Error("filestore delete failed", "file_id", fileID, "error", delErr)
+	// Delete from ShadowFS (preferred) or fall back to legacy S3 (best-effort).
+	if h.ShadowFS != nil && fileID != "" {
+		if delErr := h.ShadowFS.Delete(r.Context(), userID, fileID); delErr != nil {
+			slog.Error("shadowfs delete failed", "file_id", fileID, "error", delErr)
 		}
 	} else if bucket != "" && h.Storage != nil {
 		if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, key); delErr != nil {
@@ -1400,11 +1400,11 @@ func (h *Handler) DownloadGearDocument(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, doc.OriginalFilename))
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 
-	// Serve from FileStore when available; fall back to legacy S3.
-	if h.FileStore != nil && doc.FileID != nil && *doc.FileID != "" {
-		rc, getErr := h.FileStore.Get(r.Context(), userID, *doc.FileID)
+	// Serve from ShadowFS when available; fall back to legacy S3.
+	if h.ShadowFS != nil && doc.FileID != nil && *doc.FileID != "" {
+		rc, getErr := h.ShadowFS.Get(r.Context(), userID, *doc.FileID)
 		if getErr != nil {
-			slog.Error("filestore get failed", "file_id", *doc.FileID, "error", getErr)
+			slog.Error("shadowfs get failed", "file_id", *doc.FileID, "error", getErr)
 			httputil.WriteError(w, http.StatusInternalServerError, "Download failed", "Failed to retrieve file", r.URL.Path)
 			return
 		}

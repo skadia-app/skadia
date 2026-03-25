@@ -1,0 +1,1 @@
+ALTER TABLE migration_filestore_journal RENAME TO migration_shadowfs_journal;

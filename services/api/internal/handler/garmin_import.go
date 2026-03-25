@@ -101,7 +101,7 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 			UserID:        userID,
 			DB:            h.DB,
 			Storage:       h.Storage,
-			FileStore:     h.FileStore,
+			ShadowFS:     h.ShadowFS,
 			ImportService: h.ImportService,
 			JobID:         jobID,
 			OnProgress: func(current, total int, msg string) {
@@ -178,7 +178,7 @@ func (h *Handler) UploadGarminZIP(w http.ResponseWriter, r *http.Request) {
 			UserID:        userID,
 			DB:            h.DB,
 			Storage:       h.Storage,
-			FileStore:     h.FileStore,
+			ShadowFS:     h.ShadowFS,
 			ImportService: h.ImportService,
 			JobID:         jobID,
 			OnProgress: func(current, total int, msg string) {

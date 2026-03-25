@@ -1,4 +1,4 @@
-// Deprecated: the shadowfs package is superseded by the Unified FileStore (internal/filestore).
+// Legacy ShadowFS functions retained for backward compatibility with the hotfolder watcher
 // All functions here are retained for backward compatibility with the hotfolder watcher
 // and the legacy rename handlers. Do not add new code to this package.
 package shadowfs
@@ -11,10 +11,10 @@ import (
 	"strings"
 )
 
-// ShadowFSConfig holds the configuration for the shadow file system.
+// ShadowFSConfig holds the configuration for the legacy shadow file system.
 type ShadowFSConfig struct {
-	BasePath       string
-	HotfolderPath  string
+	BasePath         string
+	HotfolderPath    string
 	HotfolderEnabled bool
 }
 
@@ -124,18 +124,6 @@ func DeleteShadowFile(basePath, relativePath string) error {
 	cleanEmptyDirs(filepath.Dir(fullPath), basePath)
 
 	return nil
-}
-
-// cleanEmptyDirs removes empty directories from dir up to (but not including) stopAt.
-func cleanEmptyDirs(dir, stopAt string) {
-	for dir != stopAt && dir != "." && dir != "/" {
-		entries, err := os.ReadDir(dir)
-		if err != nil || len(entries) > 0 {
-			break
-		}
-		os.Remove(dir)
-		dir = filepath.Dir(dir)
-	}
 }
 
 // BuildShadowMeta creates a JSON-encoded metadata blob for the shadow file.

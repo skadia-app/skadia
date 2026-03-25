@@ -76,14 +76,14 @@ func (h *Handler) ServeMedia(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// ServeFile serves a file from the FileStore.
+// ServeFile serves a file from the ShadowFS.
 // GET /api/v1/files/{fileID}
 func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
 	}
-	if h.FileStore == nil {
+	if h.ShadowFS == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "file storage not configured", r.URL.Path)
 		return
 	}
@@ -94,7 +94,7 @@ func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resolved, err := h.FileStore.Resolve(r.Context(), userID, fileID)
+	resolved, err := h.ShadowFS.Resolve(r.Context(), userID, fileID)
 	if err != nil {
 		slog.Error("file serve failed", "file_id", fileID, "error", err)
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "file not found", r.URL.Path)

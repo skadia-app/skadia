@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/skadia-app/skadia/services/api/internal/filestore"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -190,10 +190,10 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 			msTracker.Processing(ctx)
 			msTracker.SetFileHash(ctx, hashStr)
 
-			// Upload file — FileStore path preferred; legacy S3 as fallback.
+			// Upload file — ShadowFS path preferred; legacy S3 as fallback.
 			var msFileID string
-			if h.FileStore != nil {
-				rec, putErr := h.FileStore.Put(ctx, filestore.FileEntry{
+			if h.ShadowFS != nil {
+				rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
 					UserID:      userID,
 					FileType:    "activity",
 					ContentType: "application/octet-stream",
@@ -206,8 +206,8 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 					},
 				}, bytes.NewReader(fileBytes))
 				if putErr != nil {
-					slog.Error("import_url: FileStore.Put multisport failed", "error", putErr)
-					msTracker.Error(ctx, fmt.Errorf("FileStore upload: %w", putErr))
+					slog.Error("import_url: ShadowFS.Put multisport failed", "error", putErr)
+					msTracker.Error(ctx, fmt.Errorf("ShadowFS upload: %w", putErr))
 					return nil, &importError{importErrStorage, "failed to store file"}
 				}
 				msFileID = rec.ID
@@ -301,14 +301,14 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 		return &importBytesResult{Duplicate: true}, nil
 	}
 
-	// New activity created: store file via FileStore (preferred) or legacy S3, then PostProcess
+	// New activity created: store file via ShadowFS (preferred) or legacy S3, then PostProcess
 	contentType := "application/octet-stream"
 	if format == "gpx" || format == "tcx" {
 		contentType = "application/xml"
 	}
 	var fileID string
-	if h.FileStore != nil {
-		rec, putErr := h.FileStore.Put(ctx, filestore.FileEntry{
+	if h.ShadowFS != nil {
+		rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
 			UserID:      userID,
 			FileType:    "activity",
 			ContentType: contentType,
@@ -321,7 +321,7 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 			},
 		}, bytes.NewReader(fileBytes))
 		if putErr != nil {
-			slog.Error("import_url: FileStore.Put failed", "error", putErr)
+			slog.Error("import_url: ShadowFS.Put failed", "error", putErr)
 			tracker.Error(ctx, putErr)
 			return nil, &importError{importErrStorage, "failed to store file"}
 		}
