@@ -327,6 +327,21 @@ func (h *Handler) DeleteComponent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Clean up ShadowFS files for component documents before DB delete.
+	if h.ShadowFS != nil {
+		docs, docsErr := h.DB.ListComponentDocuments(r.Context(), id)
+		if docsErr == nil {
+			for _, doc := range docs {
+				if doc.FileID != nil && *doc.FileID != "" {
+					if delErr := h.ShadowFS.Delete(r.Context(), userID, *doc.FileID); delErr != nil {
+						slog.Warn("delete component: shadowfs delete document failed",
+							"component_id", id, "doc_id", doc.ID, "file_id", *doc.FileID, "error", delErr)
+					}
+				}
+			}
+		}
+	}
+
 	if err := h.DB.DeleteComponent(r.Context(), id); err != nil {
 		if err.Error() == "component not found" {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
@@ -1349,7 +1364,7 @@ func (h *Handler) DeleteGearDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bucket, key, fileID, err := h.DB.DeleteGearDocument(r.Context(), docID)
+	bucket, key, fileID, err := h.DB.DeleteGearDocument(r.Context(), docID, userID)
 	if err != nil {
 		slog.Error("delete gear document failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to delete document", r.URL.Path)

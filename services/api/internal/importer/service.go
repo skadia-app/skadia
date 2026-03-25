@@ -290,7 +290,9 @@ func (s *Service) PostProcess(
 	// Group D: file info + file_id linkage (parallel to everything else)
 	g.Go(func() error {
 		// Link file_id from ShadowFS.Put (set by caller) if not already set.
-		if s.ShadowFS != nil && fileID != "" {
+		// Multisport children must NOT get file_id — only the parent owns the file.
+		isChild := activity != nil && activity.ParentID != nil
+		if s.ShadowFS != nil && fileID != "" && !isChild {
 			if _, execErr := s.DB.Pool.Exec(gCtx,
 				`UPDATE activities SET file_id = $1 WHERE id = $2 AND file_id IS NULL`,
 				fileID, activityID,

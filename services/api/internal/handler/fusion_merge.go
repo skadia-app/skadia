@@ -528,6 +528,9 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Clean up ShadowFS files before deleting the fusion result.
+	h.cleanupActivityFiles(ctx, userID, id)
+
 	// Fusion-Ergebnis löschen.
 	if err := h.DB.DeleteActivity(ctx, userID, id); err != nil {
 		slog.Error("revert-fusion: delete result failed", "error", err)
