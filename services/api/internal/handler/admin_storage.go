@@ -1,3 +1,5 @@
+// All handlers in this file MUST be registered inside the admin middleware group.
+// They do NOT perform their own admin role check — they rely on RequireAdmin() middleware.
 package handler
 
 import (

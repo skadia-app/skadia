@@ -77,6 +77,7 @@ func (w *LibraryWatcher) IgnorePath(path string) {
 }
 
 // Run starts the polling loop. It blocks until ctx is cancelled.
+// NOTE: The watcher is complementary to the Reconciliation job, not a replacement. The watcher detects real-time changes; the reconciler handles inconsistencies from crashes, manual edits, or missed events. Both are needed for full consistency.
 func (w *LibraryWatcher) Run(ctx context.Context) {
 	w.loadState()
 	slog.Info("library-watcher: started", "basePath", w.basePath, "interval", w.interval, "autoImport", w.autoImport)

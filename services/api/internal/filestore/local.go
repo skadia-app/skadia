@@ -52,6 +52,7 @@ func NewLocalFileStore(pool *pgxpool.Pool, basePath string, renderer *SchemaRend
 // Put stores a file on disk and registers it in user_files.
 func (s *LocalFileStore) Put(ctx context.Context, entry FileEntry, data io.Reader) (FileRecord, error) {
 	// Quota check.
+	// NOTE: Quota is a soft limit (TOCTOU race possible with concurrent uploads). Hard enforcement via Reconciliation job. This is by design — see Spec §15.2.
 	if s.maxUserBytes > 0 {
 		used, err := diskUsage(ctx, s.pool, entry.UserID)
 		if err != nil {
@@ -79,6 +80,7 @@ func (s *LocalFileStore) Put(ctx context.Context, entry FileEntry, data io.Reade
 		relPath = filepath.Join(userDir, DirForType("edit"), *entry.ParentID+".json")
 	} else {
 		// Query user schema, fall back to default.
+		// TODO: Consider caching user schemas per-session for bulk imports (currently 1 query per Put)
 		schema := s.renderer.DefaultSchema(entry.FileType)
 		var userSchema string
 		err := s.pool.QueryRow(ctx,
@@ -679,7 +681,7 @@ func writeFile(path string, data io.Reader, exclusive bool) (written int64, hash
 			return 0, "", nil, copyErr
 		}
 		written += rest
-	} else if !errors.Is(readErr, io.EOF) && !errors.Is(readErr, io.ErrUnexpectedEOF) {
+	} else if !errors.Is(readErr, io.EOF) {
 		return 0, "", nil, readErr
 	}
 
