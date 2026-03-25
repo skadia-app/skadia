@@ -558,6 +558,11 @@ func main() {
 			r.Get("/settings/weather", h.GetWeatherSettings)
 			r.Patch("/settings/weather", h.UpdateWeatherSettings)
 
+			r.Get("/settings/file-schemas", h.GetFileSchemas)
+			r.Put("/settings/file-schemas/{type}", h.UpdateFileSchema)
+			r.Get("/settings/library-dir", h.GetLibraryDir)
+			r.Put("/settings/library-dir", h.UpdateLibraryDir)
+
 			r.Get("/capabilities", h.GetCapabilities)
 
 			r.Get("/gear", h.ListGear)
