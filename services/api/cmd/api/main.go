@@ -99,22 +99,22 @@ func main() {
 	// NOTE: Stale running jobs are handled later via h.ResumeInterruptedJobs
 	// after the Handler is fully initialised (needs DB + Handler for matching).
 
-	// S3 Storage (Garage) — only initialised when STORAGE_BACKEND=s3
+	// S3 Storage (Garage) — always initialised during migration period.
+	// Existing data (photos, thumbnails, originals) lives in Garage.
+	// Can be made conditional AFTER 000233 cleanup migration runs.
 	var s3Client *storage.S3Client
-	if cfg.StorageBackend == "s3" {
+	if cfg.GarageEndpoint != "" && cfg.GarageAccessKey != "" {
 		s3Client, err = storage.NewS3Client(ctx, cfg.GarageEndpoint, cfg.GarageAccessKey, cfg.GarageSecretKey, cfg.GarageBucket)
 		if err != nil {
-			slog.Error("failed to create S3 client", "error", err)
-			os.Exit(1)
-		}
-
-		// Ensure media bucket exists (only when using legacy S3/Garage directly)
-		mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
-		if mediaBucket == "" {
-			mediaBucket = "skadia-media"
-		}
-		if err := s3Client.EnsureBucket(ctx, mediaBucket); err != nil {
-			slog.Warn("could not ensure media bucket", "error", err)
+			slog.Warn("S3/Garage client failed — legacy media will be unavailable", "error", err)
+		} else {
+			mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
+			if mediaBucket == "" {
+				mediaBucket = "skadia-media"
+			}
+			if err := s3Client.EnsureBucket(ctx, mediaBucket); err != nil {
+				slog.Warn("could not ensure media bucket", "error", err)
+			}
 		}
 	}
 
