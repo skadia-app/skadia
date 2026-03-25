@@ -206,6 +206,8 @@ func main() {
 			RoutingGraphPath:    cfg.RoutingGraphPath,
 			RoutingTimeout:      parseDuration(os.Getenv("ROUTING_TIMEOUT"), 30*time.Second),
 			MaxUploadSize:       cfg.MaxUploadSize,
+			LibraryBasePath:     cfg.LibraryBasePath,
+			StorageBackend:      cfg.StorageBackend,
 		},
 	}
 
@@ -264,6 +266,7 @@ func main() {
 	authMailer := auth.NewMailer(cfg)
 	authRL := middleware.NewRateLimiter(ctx)
 	authHandler := auth.NewHandler(db, cfg, authMailer, authRL, ctx)
+	authHandler.FileStore = store
 
 	// Token cleanup (daily, graceful shutdown)
 	shutdown.Go("token-cleanup", func(ctx context.Context) {
@@ -284,7 +287,9 @@ func main() {
 				} else {
 					slog.Info("periodic token cleanup completed")
 				}
-				if err := db.PurgeDeletedUsers(ctx, cfg.ShadowFSBasePath, nil); err != nil {
+				if err := db.PurgeDeletedUsers(ctx, func(ctx context.Context, userID string) error {
+					return store.DeleteAllForUser(ctx, userID)
+				}); err != nil {
 					slog.Error("GDPR purge failed", "error", err)
 				}
 			case <-ctx.Done():
@@ -560,6 +565,8 @@ func main() {
 
 			r.Get("/settings/file-schemas", h.GetFileSchemas)
 			r.Put("/settings/file-schemas/{type}", h.UpdateFileSchema)
+			r.Post("/settings/file-schemas/{type}/rename-preview", h.PreviewFileRename)
+			r.Post("/settings/file-schemas/{type}/rename-execute", h.ExecuteFileRename)
 			r.Get("/settings/library-dir", h.GetLibraryDir)
 			r.Put("/settings/library-dir", h.UpdateLibraryDir)
 
