@@ -502,6 +502,9 @@ func profileHighwayCost(profile string, hw, tracktype, sf uint8) float32 {
 }
 
 func hikingHighwayCost(hw uint8) float32 {
+	// Hikers prefer paths/tracks (T1-T2). Roads and cycleways are unpleasant
+	// due to traffic, noise, and hard surfaces. BRouter hiking profiles use
+	// similar ratios (path=1.0, cycleway~1.5, primary~4.0).
 	switch hw {
 	case 16: // path
 		return 1.0
@@ -510,29 +513,29 @@ func hikingHighwayCost(hw uint8) float32 {
 	case 17: // footway
 		return 1.0
 	case 20: // steps
-		return 1.0
-	case 19: // bridleway
-		return 1.2
-	case 18: // cycleway
 		return 1.1
-	case 11, 12: // residential, living_street
-		return 1.1
-	case 13: // unclassified
-		return 1.1
-	case 14: // service
-		return 1.1
-	case 9, 10: // tertiary
-		return 1.2
-	case 7, 8: // secondary
-		return 1.5
-	case 5, 6: // primary
-		return 2.0
 	case 21: // pedestrian
 		return 1.0
 	case 22: // via_ferrata
 		return 1.2
-	default:
+	case 19: // bridleway
+		return 1.2
+	case 13: // unclassified
 		return 1.5
+	case 14: // service
+		return 1.5
+	case 18: // cycleway
+		return 1.8
+	case 11, 12: // residential, living_street
+		return 2.0
+	case 9, 10: // tertiary
+		return 2.5
+	case 7, 8: // secondary
+		return 3.5
+	case 5, 6: // primary
+		return 5.0
+	default:
+		return 2.0
 	}
 }
 
