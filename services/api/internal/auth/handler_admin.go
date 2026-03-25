@@ -336,6 +336,57 @@ func (h *Handler) AdminResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// AdminAuditLog handles GET /admin/audit-log — paginated, filtered auth audit log.
+func (h *Handler) AdminAuditLog(w http.ResponseWriter, r *http.Request) {
+	eventType := r.URL.Query().Get("event_type")
+	userID := r.URL.Query().Get("user_id")
+	limit := parseIntDefault(r.URL.Query().Get("limit"), 50)
+	offset := parseIntDefault(r.URL.Query().Get("offset"), 0)
+	if limit > 200 {
+		limit = 200
+	}
+
+	var from, to *time.Time
+	if v := r.URL.Query().Get("from"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_from_timestamp"})
+			return
+		}
+		from = &t
+	}
+	if v := r.URL.Query().Get("to"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_to_timestamp"})
+			return
+		}
+		to = &t
+	}
+
+	entries, total, err := h.DB.GetAuditLog(r.Context(), eventType, userID, from, to, limit, offset)
+	if err != nil {
+		slog.Error("admin audit log query failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"entries": entries,
+		"total":   total,
+		"limit":   limit,
+		"offset":  offset,
+	})
+}
+
+// parseIntDefault parses s as an integer, returning def on empty string or parse error.
+func parseIntDefault(s string, def int) int {
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return def
+	}
+	return v
+}
+
 // notifyAdminsNewRegistration emails all active admins about a pending approval request.
 // Must be called in a goroutine — uses context.Background() since the request context
 // is already cancelled by the time the goroutine runs.
