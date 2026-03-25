@@ -5,6 +5,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 export interface AuthConfig {
   registration_mode: 'invite' | 'open' | 'approval'
   social_providers: string[]
+  smtp_configured: boolean
 }
 
 export async function getAuthConfig(): Promise<AuthConfig> {
@@ -318,7 +319,7 @@ export async function revokeSession(familyId: string): Promise<{ status: string 
   return res.json() as Promise<{ status: string }>
 }
 
-export async function updateMe(data: { username?: string; display_name?: string }): Promise<MeData> {
+export async function updateMe(data: { username?: string; display_name?: string }): Promise<{ status: string }> {
   const res = await apiFetch('/api/v1/me', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -328,7 +329,7 @@ export async function updateMe(data: { username?: string; display_name?: string 
     const d = await res.json().catch(() => ({})) as { error?: string }
     throw new Error(d.error ?? 'Update failed')
   }
-  return res.json() as Promise<MeData>
+  return res.json() as Promise<{ status: string }>
 }
 
 export async function changeEmail(data: { new_email: string; password?: string }): Promise<{ status: string }> {

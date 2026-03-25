@@ -17,7 +17,7 @@ export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   password_compromised:
     'Dieses Passwort wurde in einem Datenleck gefunden. Bitte wähle ein anderes.', // context: HIBP check failed
   invalid_email: 'Bitte gib eine gültige E-Mail-Adresse ein.', // context: email format validation
-  username_invalid_length: 'Benutzername muss zwischen 2 und 100 Zeichen lang sein.', // context: registration
+  username_invalid_length: 'Benutzername muss zwischen 3 und 30 Zeichen lang sein.', // context: registration
   username_invalid_chars: 'Benutzername enthält ungültige Zeichen.', // context: registration
   email_and_password_required: 'E-Mail und Passwort sind erforderlich.', // context: login form empty fields
 
