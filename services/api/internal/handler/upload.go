@@ -164,16 +164,6 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 
 			msTracker.Completed(r.Context(), msResult.ParentID)
 
-			// Store file_id on parent activity when FileStore was used.
-			if msFileID != "" {
-				if _, execErr := h.DB.Pool.Exec(r.Context(),
-					`UPDATE activities SET file_id = $1 WHERE id = $2`,
-					msFileID, msResult.ParentID,
-				); execErr != nil {
-					slog.Warn("failed to set file_id on multisport parent", "parent_id", msResult.ParentID, "error", execErr)
-				}
-			}
-
 			// Return parent activity
 			parentAct, _ := h.DB.GetActivity(r.Context(), msResult.ParentID)
 			if parentAct != nil {
@@ -267,16 +257,6 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			tracker.Error(r.Context(), fmt.Errorf("failed to fetch inserted activity"))
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch inserted activity", r.URL.Path)
 			return
-		}
-
-		// Store file_id on activity when FileStore was used.
-		if fitFileID != "" {
-			if _, execErr := h.DB.Pool.Exec(r.Context(),
-				`UPDATE activities SET file_id = $1 WHERE id = $2`,
-				fitFileID, fitResult.ActivityID,
-			); execErr != nil {
-				slog.Warn("failed to set file_id on fit activity", "activity_id", fitResult.ActivityID, "error", execErr)
-			}
 		}
 
 		h.postInsertActivity(r.Context(), userID, fitActivity, data, fitFileID, format, filename)
@@ -414,16 +394,6 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		tracker.Error(r.Context(), fmt.Errorf("failed to fetch inserted activity"))
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch inserted activity", r.URL.Path)
 		return
-	}
-
-	// Store file_id on activity when FileStore was used.
-	if gpxFileID != "" {
-		if _, execErr := h.DB.Pool.Exec(r.Context(),
-			`UPDATE activities SET file_id = $1 WHERE id = $2`,
-			gpxFileID, gpxResult.ActivityID,
-		); execErr != nil {
-			slog.Warn("failed to set file_id on gpx/tcx activity", "activity_id", gpxResult.ActivityID, "error", execErr)
-		}
 	}
 
 	h.postInsertActivity(r.Context(), userID, gpxActivity, data, gpxFileID, format, filename)

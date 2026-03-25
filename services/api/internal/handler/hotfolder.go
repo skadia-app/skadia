@@ -122,7 +122,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 			return importErr
 		}
 		hotfolderFileID = rec.ID
-	} else {
+	} else if h.Storage != nil {
 		s3Key := fmt.Sprintf("%s/%s.%s", userID, hashStr, format)
 		if err := h.Storage.Upload(ctx, s3Key, decompressed, contentType); err != nil {
 			importErr := fmt.Errorf("S3 upload: %w", err)
