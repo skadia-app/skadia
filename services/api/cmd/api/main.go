@@ -394,9 +394,12 @@ func main() {
 			})
 
 			// ── Regular authenticated routes ──
-			r.Post("/auth/change-password", authHandler.ChangePassword)
-			r.Get("/auth/sessions", authHandler.ListMySessions)
-			r.Post("/auth/sessions/{familyId}/revoke", authHandler.RevokeSession)
+			r.With(middleware.RateLimitChangePassword(authRL)).
+				Post("/auth/change-password", authHandler.ChangePassword)
+			r.With(middleware.RateLimitGeneric(authRL)).
+				Get("/auth/sessions", authHandler.ListMySessions)
+			r.With(middleware.RateLimitGeneric(authRL)).
+				Post("/auth/sessions/{familyId}/revoke", authHandler.RevokeSession)
 			r.Post("/auth/link/{provider}", authHandler.LinkSocialAccount)
 			r.Delete("/auth/link/{provider}", authHandler.UnlinkSocialAccount)
 
