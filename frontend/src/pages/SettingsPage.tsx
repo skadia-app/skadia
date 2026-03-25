@@ -28,6 +28,7 @@ import LLMSettingsPage from './LLMSettingsPage'
 import ChatProfileSettings from '@/components/ChatProfileSettings'
 import { WeatherSettings } from '@/components/WeatherSettings'
 import AccountSettingsTab from '@/pages/settings/AccountSettingsTab'
+import AdminSettingsTab from '@/pages/settings/AdminSettingsTab'
 import Toggle from '@/components/Toggle'
 
 // Analysis module configuration — enrichment toggles for the Analysen tab.
@@ -604,10 +605,11 @@ export default function SettingsPage() {
   const { accent, setAccent } = useAccentColor()
   const { isAdmin } = useUser()
   const [searchParams] = useSearchParams()
-  const [activeTab, setActiveTab] = useState<'general' | 'analysen' | 'ai' | 'konto'>(
+  const [activeTab, setActiveTab] = useState<'general' | 'analysen' | 'ai' | 'konto' | 'admin'>(
     searchParams.get('tab') === 'ai' ? 'ai'
       : searchParams.get('tab') === 'analysen' ? 'analysen'
       : searchParams.get('tab') === 'konto' ? 'konto'
+      : searchParams.get('tab') === 'admin' ? 'admin'
       : 'general'
   )
 
@@ -633,13 +635,14 @@ export default function SettingsPage() {
       <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Einstellungen</h1>
 
       {/* Tab-Navigation */}
-      <div className="flex gap-1 p-1 bg-neutral-100 dark:bg-neutral-800/50 rounded-lg w-fit">
+      <div className="flex gap-1 p-1 bg-neutral-100 dark:bg-neutral-800/50 rounded-lg w-fit flex-wrap">
         {[
-          { id: 'general' as const,  label: 'Allgemein' },
-          { id: 'konto' as const,    label: 'Konto'     },
-          { id: 'analysen' as const, label: 'Analysen'  },
-          { id: 'ai' as const,       label: 'KI & ML'   },
-        ].map(tab => (
+          { id: 'general' as const,  label: 'Allgemein',   show: true      },
+          { id: 'konto' as const,    label: 'Konto',       show: true      },
+          { id: 'analysen' as const, label: 'Analysen',    show: true      },
+          { id: 'ai' as const,       label: 'KI & ML',     show: true      },
+          { id: 'admin' as const,    label: 'Admin',       show: isAdmin   },
+        ].filter(tab => tab.show).map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -655,6 +658,8 @@ export default function SettingsPage() {
       </div>
 
       {activeTab === 'konto' && <AccountSettingsTab />}
+
+      {activeTab === 'admin' && isAdmin && <AdminSettingsTab />}
 
       {activeTab === 'analysen' && <AutomatischeAnalysenSection />}
 
