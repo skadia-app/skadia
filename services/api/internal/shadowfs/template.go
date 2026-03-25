@@ -1,3 +1,6 @@
+// Deprecated: the shadowfs package is superseded by the Unified FileStore (internal/filestore).
+// All functions here are retained for backward compatibility with the hotfolder watcher
+// and the legacy rename handlers. Do not add new code to this package.
 package shadowfs
 
 import (
