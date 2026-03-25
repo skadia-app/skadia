@@ -4,6 +4,8 @@ import { useTheme } from '@/lib/theme'
 import ImportHub from '@/components/ImportHub'
 import ActiveJobsIndicator from '@/components/ActiveJobsIndicator'
 import NotificationCenter from '@/components/NotificationCenter'
+import { EmailVerifiedBanner } from '@/components/EmailVerifiedBanner'
+import UserMenu from '@/components/UserMenu'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -62,6 +64,8 @@ export default function Layout() {
           </button>
         </div>
       </header>
+
+      <EmailVerifiedBanner />
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-6">
         <Outlet />
