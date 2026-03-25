@@ -106,6 +106,7 @@ func (s *S3ShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (
 	}
 
 	// Read all data into buffer (capped at 500 MB).
+	// +1 so exactly maxUploadBytes is accepted, maxUploadBytes+1 is rejected
 	buf, err := io.ReadAll(io.LimitReader(data, maxUploadBytes+1))
 	if err != nil {
 		return FileRecord{}, fmt.Errorf("reading upload data: %w", err)
@@ -119,6 +120,11 @@ func (s *S3ShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (
 	hash := hex.EncodeToString(h[:])
 	if entry.FileHash == "" {
 		entry.FileHash = hash
+	}
+
+	// Edit sidecars require a ParentID.
+	if entry.FileType == "edit" && entry.ParentID == nil {
+		return FileRecord{}, fmt.Errorf("edit sidecar requires ParentID")
 	}
 
 	// Validate ParentID as UUID if set.
@@ -186,7 +192,7 @@ func (s *S3ShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (
 				file_name, size_bytes, file_hash, parent_type, parent_id, has_sidecar,
 				is_renaming, status, replaced_by, created_at, updated_at`,
 			fileID, entry.UserID, entry.FileType, s3Key, contentType,
-			entry.FileName, len(buf), entry.FileHash, entry.ParentType, entry.ParentID,
+			entry.FileName, int64(len(buf)), entry.FileHash, entry.ParentType, entry.ParentID,
 			entry.HasSidecar,
 		).Scan(&rec.ID, &rec.UserID, &rec.FileType, &rec.StorageBackend, &rec.StoragePath,
 			&rec.ContentType, &rec.FileName, &rec.SizeBytes, &rec.FileHash, &rec.ParentType,
@@ -205,7 +211,7 @@ func (s *S3ShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (
 				file_name, size_bytes, file_hash, parent_type, parent_id, has_sidecar,
 				is_renaming, status, replaced_by, created_at, updated_at`,
 			fileID, entry.UserID, entry.FileType, s3Key, contentType,
-			entry.FileName, len(buf), entry.FileHash, entry.ParentType, entry.ParentID,
+			entry.FileName, int64(len(buf)), entry.FileHash, entry.ParentType, entry.ParentID,
 			entry.HasSidecar,
 		).Scan(&rec.ID, &rec.UserID, &rec.FileType, &rec.StorageBackend, &rec.StoragePath,
 			&rec.ContentType, &rec.FileName, &rec.SizeBytes, &rec.FileHash, &rec.ParentType,
@@ -223,6 +229,23 @@ func (s *S3ShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (
 		return FileRecord{}, fmt.Errorf("db insert: %w", err)
 	}
 
+	// Post-write quota check: catches cases where SizeBytes was 0 on entry.
+	if s.maxUserBytes > 0 && int64(len(buf)) > 0 {
+		usage, qErr := diskUsage(ctx, s.pool, entry.UserID)
+		if qErr != nil {
+			slog.Warn("shadowfs: post-write quota check failed", "error", qErr)
+		}
+		if usage > s.maxUserBytes {
+			// Over quota — clean up S3 object and DB record.
+			_, _ = s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+				Bucket: aws.String(bucket),
+				Key:    aws.String(s3Key),
+			})
+			_, _ = s.pool.Exec(ctx, `DELETE FROM user_files WHERE id = $1`, rec.ID)
+			return FileRecord{}, fmt.Errorf("shadowfs: storage quota exceeded (post-write check)")
+		}
+	}
+
 	return rec, nil
 }
 
@@ -235,8 +258,8 @@ func (s *S3ShadowFS) Get(ctx context.Context, userID, fileID string) (io.ReadClo
 	if err != nil {
 		return nil, fmt.Errorf("file not found: %w", err)
 	}
-	if status != "active" {
-		return nil, fmt.Errorf("file is %s", status)
+	if status == "purging" {
+		return nil, fmt.Errorf("file is being purged")
 	}
 
 	bucket := s.bucketFor(fileType)
@@ -293,7 +316,17 @@ func (s *S3ShadowFS) Delete(ctx context.Context, userID, fileID string) error {
 }
 
 // DeleteAllForUser purges all files for a user across all configured buckets.
+// Acquires a per-user advisory lock to prevent races with concurrent uploads.
 func (s *S3ShadowFS) DeleteAllForUser(ctx context.Context, userID string) error {
+	// Advisory lock prevents concurrent uploads from creating files while we purge.
+	if _, err := s.pool.Exec(ctx,
+		`SELECT pg_advisory_lock(hashtext($1))`, userID); err != nil {
+		return fmt.Errorf("advisory lock: %w", err)
+	}
+	defer func() {
+		_, _ = s.pool.Exec(ctx, `SELECT pg_advisory_unlock(hashtext($1))`, userID)
+	}()
+
 	// Mark all files as purging.
 	_, err := s.pool.Exec(ctx,
 		`UPDATE user_files SET status = 'purging' WHERE user_id = $1`, userID)
@@ -352,30 +385,29 @@ func (s *S3ShadowFS) StreamToZip(ctx context.Context, userID string, zw *zip.Wri
 			continue
 		}
 
-		// ZIP Slip prevention.
-		cleanPath := filepath.Clean(rec.StoragePath)
-		if strings.HasPrefix(cleanPath, "..") || strings.HasPrefix(cleanPath, "/") {
-			slog.Warn("skipping suspicious path in zip", "path", rec.StoragePath)
-			continue
-		}
-
 		// 10 GB zip limit.
 		totalBytes += rec.SizeBytes
 		if totalBytes > maxZipBytes {
 			return fmt.Errorf("zip export exceeds %d byte limit", maxZipBytes)
 		}
 
-		// Determine zip entry path.
+		// Determine zip entry path: strip userID prefix FIRST, then prepend _archive/.
 		zipPath := rec.StoragePath
-		if rec.Status == "archived" {
-			zipPath = "_archive/" + zipPath
-		}
-		// Strip userID prefix from path for the zip.
 		if idx := strings.Index(zipPath, "/"); idx >= 0 {
 			candidate := zipPath[idx+1:]
 			if candidate != "" {
 				zipPath = candidate
 			}
+		}
+		if rec.Status == "archived" {
+			zipPath = "_archive/" + zipPath
+		}
+
+		// ZIP Slip prevention: Clean the path after building it.
+		zipPath = filepath.Clean(zipPath)
+		if strings.Contains(zipPath, "..") || strings.HasPrefix(zipPath, "/") {
+			slog.Warn("skipping suspicious path in zip", "path", rec.StoragePath)
+			continue
 		}
 
 		bucket := s.bucketFor(rec.FileType)
@@ -408,13 +440,15 @@ func (s *S3ShadowFS) StreamToZip(ctx context.Context, userID string, zw *zip.Wri
 }
 
 // Resolve returns a pre-signed URL for direct access to the file.
+// NOTE: Presigned URLs remain valid for up to 15 minutes after file/user deletion.
+// For sensitive types, use server-side proxy (ServeFile handler). This is industry-standard behavior.
 func (s *S3ShadowFS) Resolve(ctx context.Context, userID, fileID string) (ResolvedFile, error) {
 	var rec FileRecord
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, user_id, file_type, storage_backend, storage_path, content_type,
 			file_name, size_bytes, file_hash, parent_type, parent_id, has_sidecar,
 			is_renaming, status, replaced_by, created_at, updated_at
-		FROM user_files WHERE id = $1 AND user_id = $2`, fileID, userID,
+		FROM user_files WHERE id = $1 AND user_id = $2 AND status != 'purging'`, fileID, userID,
 	).Scan(&rec.ID, &rec.UserID, &rec.FileType, &rec.StorageBackend, &rec.StoragePath,
 		&rec.ContentType, &rec.FileName, &rec.SizeBytes, &rec.FileHash, &rec.ParentType,
 		&rec.ParentID, &rec.HasSidecar, &rec.IsRenaming, &rec.Status, &rec.ReplacedBy,
