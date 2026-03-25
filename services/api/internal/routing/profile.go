@@ -322,6 +322,58 @@ func buildEdgeCostClosure(p ProfileConfig) func(tags1, tags2 uint64) EdgeCostFac
 
 	wetWeather := derefBool(p.WetWeather)
 
+	// Pre-compute highway costs: [32]float32 indexed by highway enum (5-bit safe)
+	var hwCosts [32]float32
+	for hw := range 32 {
+		hwCosts[hw] = profileHighwayCostDefault(profile, uint8(hw), 0)
+	}
+
+	// Track grades: separate array for tracktype-dependent costs
+	var trackGradeCosts [6]float32
+	for tt := range 6 {
+		trackGradeCosts[tt] = profileHighwayCostDefault(profile, 15, uint8(tt))
+	}
+
+	// Apply user overrides with clamp [0.5, 50.0].
+	// Skip override if default is costBlocked (permanently blocked type — safety).
+	clampOverride := func(p *float32, indices ...int) {
+		if p == nil {
+			return
+		}
+		for _, i := range indices {
+			if hwCosts[i] >= costBlocked {
+				continue
+			}
+			hwCosts[i] = max(0.5, min(*p, 50.0))
+		}
+	}
+	clampOverride(p.PathCost, 16)
+	clampOverride(p.FootwayCost, 17)
+	clampOverride(p.CyclewayCost, 18)
+	clampOverride(p.BridlewayCost, 19)
+	clampOverride(p.PedestrianCost, 21)
+	clampOverride(p.ResidentialCost, 11, 12)
+	clampOverride(p.ServiceCost, 14)
+	clampOverride(p.UnclassifiedCost, 13)
+	clampOverride(p.TertiaryCost, 9, 10)
+	clampOverride(p.SecondaryCost, 7, 8)
+	clampOverride(p.PrimaryCost, 5, 6)
+
+	// Track overrides: TrackCost sets ONLY unknown grade (index 0)
+	clampTrack := func(p *float32, idx int) {
+		if p == nil || trackGradeCosts[idx] >= costBlocked {
+			return
+		}
+		trackGradeCosts[idx] = max(0.5, min(*p, 50.0))
+	}
+	clampTrack(p.TrackCost, 0)
+	clampTrack(p.TrackGrade1Cost, 1)
+	clampTrack(p.TrackGrade2Cost, 2)
+	clampTrack(p.TrackGrade3Cost, 3)
+
+	// Road profile: isPaved blocking stays in the closure (not configurable)
+	roadIsPavedBlock := profile == "road"
+
 	// Precompute SAC penalty table (indices 0-6; 0 = untagged)
 	var sacPenalty [7]float32
 	for s := range 7 {
@@ -394,8 +446,27 @@ func buildEdgeCostClosure(p ProfileConfig) func(tags1, tags2 uint64) EdgeCostFac
 		// --- Tracktype ---
 		tracktype := uint8(graph.DecodeField(tags1, 11, 3)) // bits 11-13
 
-		// --- Compute base costfactor ---
-		hwCF := profileHighwayCost(profile, hw, tracktype, sf)
+		// Road-profile: block unpaved residential/service/unclassified/track
+		// sf==0 (unknown surface) passes through — consistent with original roadHighwayCost
+		if roadIsPavedBlock {
+			isPaved := sf >= 1 && sf <= 7
+			if !isPaved && sf != 0 {
+				switch hw {
+				case 11, 12, 13, 14, 15:
+					return EdgeCostFactors{Flat: costBlocked}
+				}
+			}
+		}
+
+		// Pre-computed highway cost lookup (O(1), replaces profileHighwayCost switch)
+		var hwCF float32
+		if hw == 15 && tracktype <= 5 {
+			hwCF = trackGradeCosts[tracktype]
+		} else if int(hw) < len(hwCosts) {
+			hwCF = hwCosts[hw]
+		} else {
+			hwCF = 2.0 // unknown highway type fallback
+		}
 		if hwCF >= costBlocked {
 			return EdgeCostFactors{Flat: costBlocked}
 		}
@@ -516,7 +587,10 @@ func buildEdgeCostClosure(p ProfileConfig) func(tags1, tags2 uint64) EdgeCostFac
 
 // --- Profile-specific highway costs ---
 
-func profileHighwayCost(profile string, hw, tracktype, sf uint8) float32 {
+// profileHighwayCostDefault returns the built-in highway cost factor for a
+// profile/highway/tracktype combination. Called once per closure build (not hot path).
+// Road profile's isPaved logic is handled separately in the closure.
+func profileHighwayCostDefault(profile string, hw, tracktype uint8) float32 {
 	switch profile {
 	case "hiking":
 		return hikingHighwayCost(hw)
@@ -527,9 +601,46 @@ func profileHighwayCost(profile string, hw, tracktype, sf uint8) float32 {
 	case "gravel":
 		return gravelHighwayCost(hw, tracktype)
 	case "road":
-		return roadHighwayCost(hw, sf)
+		return roadHighwayCostDefault(hw)
 	default:
 		return hikingHighwayCost(hw)
+	}
+}
+
+// roadHighwayCostDefault returns the paved-surface cost for Road profile.
+// The isPaved blocking logic is handled at runtime in the closure, not here.
+func roadHighwayCostDefault(hw uint8) float32 {
+	switch hw {
+	case 18:
+		return 1.0 // cycleway
+	case 9, 10:
+		return 1.1 // tertiary
+	case 7, 8:
+		return 1.2 // secondary
+	case 11, 12:
+		return 1.3 // residential (paved)
+	case 13:
+		return 1.4 // unclassified (paved)
+	case 5, 6:
+		return 1.5 // primary
+	case 14:
+		return 1.8 // service (paved)
+	case 21:
+		return 8.0 // pedestrian
+	case 15:
+		return 4.0 // track (paved only)
+	case 16:
+		return costBlocked // path
+	case 17:
+		return costBlocked // footway
+	case 19:
+		return costBlocked // bridleway
+	case 20:
+		return costBlocked // steps
+	case 22:
+		return costBlocked // via_ferrata
+	default:
+		return 8.0
 	}
 }
 

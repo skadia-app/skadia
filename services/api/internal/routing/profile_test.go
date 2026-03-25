@@ -432,6 +432,60 @@ func TestMergeProfile_HighwayCostOverride(t *testing.T) {
 	}
 }
 
+func TestBuildEdgeCostClosure_DefaultIdentity(t *testing.T) {
+	for _, name := range []string{"trekking", "hiking", "mtb", "gravel", "road"} {
+		t.Run(name, func(t *testing.T) {
+			cfgBase, _ := BuildCostConfig(ProfileConfig{Profile: name})
+
+			p := ProfileConfig{Profile: name}
+			setIfNotBlocked := func(dst **float32, cost float32) {
+				if cost < costBlocked {
+					*dst = ptr32(cost)
+				}
+			}
+			setIfNotBlocked(&p.PathCost, profileHighwayCostDefault(name, 16, 0))
+			setIfNotBlocked(&p.CyclewayCost, profileHighwayCostDefault(name, 18, 0))
+			setIfNotBlocked(&p.PrimaryCost, profileHighwayCostDefault(name, 5, 0))
+			setIfNotBlocked(&p.SecondaryCost, profileHighwayCostDefault(name, 7, 0))
+			setIfNotBlocked(&p.TertiaryCost, profileHighwayCostDefault(name, 9, 0))
+			setIfNotBlocked(&p.ResidentialCost, profileHighwayCostDefault(name, 11, 0))
+			setIfNotBlocked(&p.UnclassifiedCost, profileHighwayCostDefault(name, 13, 0))
+			setIfNotBlocked(&p.ServiceCost, profileHighwayCostDefault(name, 14, 0))
+			setIfNotBlocked(&p.FootwayCost, profileHighwayCostDefault(name, 17, 0))
+			setIfNotBlocked(&p.BridlewayCost, profileHighwayCostDefault(name, 19, 0))
+			setIfNotBlocked(&p.PedestrianCost, profileHighwayCostDefault(name, 21, 0))
+			setIfNotBlocked(&p.TrackCost, profileHighwayCostDefault(name, 15, 0))
+			setIfNotBlocked(&p.TrackGrade1Cost, profileHighwayCostDefault(name, 15, 1))
+			setIfNotBlocked(&p.TrackGrade2Cost, profileHighwayCostDefault(name, 15, 2))
+			setIfNotBlocked(&p.TrackGrade3Cost, profileHighwayCostDefault(name, 15, 3))
+
+			cfgExplicit, _ := BuildCostConfig(p)
+
+			for _, hw := range []string{"path", "track", "cycleway", "primary", "secondary",
+				"tertiary", "residential", "service", "unclassified", "footway",
+				"bridleway", "pedestrian"} {
+				tags1 := encodeTags(hw, "")
+				ecfBase := cfgBase.EdgeCost(tags1, 0)
+				ecfExpl := cfgExplicit.EdgeCost(tags1, 0)
+				if ecfBase.Flat != ecfExpl.Flat {
+					t.Errorf("[%s] %s: base.Flat=%.4f explicit.Flat=%.4f",
+						name, hw, ecfBase.Flat, ecfExpl.Flat)
+				}
+			}
+
+			for _, tt := range []string{"grade1", "grade2", "grade3"} {
+				tags1 := encodeTagsFull(&graph.RawTags{Highway: "track", Tracktype: tt})
+				ecfBase := cfgBase.EdgeCost(tags1, 0)
+				ecfExpl := cfgExplicit.EdgeCost(tags1, 0)
+				if ecfBase.Flat != ecfExpl.Flat {
+					t.Errorf("[%s] track/%s: base.Flat=%.4f explicit.Flat=%.4f",
+						name, tt, ecfBase.Flat, ecfExpl.Flat)
+				}
+			}
+		})
+	}
+}
+
 func TestEdgeCost_TrafficPenalty(t *testing.T) {
 	tags := encodeTags("path", "")
 	enrich0 := graph.EncodeEnrichmentTags(&graph.RawEnrichment{TrafficClass: 0})
