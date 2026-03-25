@@ -1,6 +1,7 @@
 package strava
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/filestore"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/importutil"
@@ -246,12 +248,47 @@ func (m *MediaImporter) legacyImportPhoto(
 		}
 	}
 
-	if params.Storage != nil {
+	// --- Upload original photo ---
+	// FileStore (preferred): registers in user_files and sets file_id.
+	// Legacy S3 fallback: direct bucket upload, no registry entry.
+	var fileID *string
+	if params.FileStore != nil {
+		parentType := "activity"
+		rec, putErr := params.FileStore.Put(ctx, filestore.FileEntry{
+			UserID:      params.UserID,
+			FileType:    "media",
+			ContentType: contentType,
+			FileName:    filepath.Base(relPath),
+			SizeBytes:   int64(len(data)),
+			FileHash:    hash,
+			ParentType:  &parentType,
+			ParentID:    func() *string {
+				if activityID != "" {
+					return &activityID
+				}
+				return nil
+			}(),
+			Tags: map[string]string{"source": "strava"},
+		}, bytes.NewReader(data))
+		if putErr != nil {
+			slog.Warn("strava media: FileStore.Put failed", "file", relPath, "error", putErr)
+			return false
+		}
+		fileID = &rec.ID
+	} else if params.Storage != nil {
 		if err := params.Storage.UploadToBucket(ctx, bucket, s3Key, data, contentType); err != nil {
 			slog.Warn("strava media: s3 upload failed", "file", relPath, "error", err)
 			return false
 		}
+	} else {
+		// Neither FileStore nor Storage configured: cannot persist the photo.
+		slog.Warn("strava media: no storage backend configured, skipping", "file", relPath)
+		return false
+	}
 
+	// --- Upload thumb/preview (regenerable cache, S3 only, not in FileStore registry) ---
+	// If Storage is nil but FileStore exists, skip generation — they'll be regenerated on demand.
+	if params.Storage != nil {
 		if thumbData != nil {
 			s3KeyThumb = fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", params.UserID, hash)
 			if err := params.Storage.UploadToBucket(ctx, bucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
@@ -277,6 +314,7 @@ func (m *MediaImporter) legacyImportPhoto(
 	photo := model.ActivityPhoto{
 		UserID:           params.UserID,
 		ActivityID:       activityIDPtr,
+		FileID:           fileID,
 		S3Bucket:         bucket,
 		S3Key:            s3Key,
 		S3KeyThumb:       s3KeyThumb,
