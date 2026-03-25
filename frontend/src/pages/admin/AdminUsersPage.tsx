@@ -24,10 +24,7 @@ import {
   KeyRound,
   Monitor,
   Ban,
-  CheckCircle2,
   Loader2,
-  Copy,
-  Check,
 } from 'lucide-react'
 
 // ── Centralized i18n-ready labels ───────────────────────────────────────────
@@ -100,8 +97,6 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [tempPassword, setTempPassword] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
   const { addToast } = useToast()
 
   const mutation = useMutation({
@@ -112,61 +107,20 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
         password: password || undefined,
       }),
     onSuccess: (data) => {
-      if (data.temporary_password) {
-        setTempPassword(data.temporary_password)
+      if (password) {
+        addToast({ type: 'success', title: 'Benutzer erstellt' })
+      } else if (data.invite_sent) {
+        addToast({ type: 'success', title: 'Einladungs-Email gesendet' })
       } else {
         addToast({ type: 'success', title: 'Benutzer erstellt' })
-        onCreated()
-        onClose()
       }
+      onCreated()
+      onClose()
     },
     onError: (err: Error) => {
       addToast({ type: 'error', title: getAuthErrorMessage(err.message), duration: 0 })
     },
   })
-
-  function handleCopyAndClose() {
-    onCreated()
-    onClose()
-  }
-
-  async function handleCopyPassword() {
-    if (!tempPassword) return
-    await navigator.clipboard.writeText(tempPassword)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  if (tempPassword) {
-    return (
-      <ModalShell onClose={handleCopyAndClose} maxWidth="max-w-sm">
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Benutzer erstellt</h2>
-          <p className="text-sm text-neutral-600 dark:text-neutral-400">
-            Temporaeres Passwort (wird nur einmal angezeigt):
-          </p>
-          <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-700 dark:bg-neutral-800">
-            <code className="flex-1 select-all font-mono text-sm break-all">{tempPassword}</code>
-            <button
-              onClick={handleCopyPassword}
-              className="shrink-0 rounded p-1.5 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-300"
-              title="Kopieren"
-            >
-              {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-            </button>
-          </div>
-          <div className="flex justify-end">
-            <button
-              onClick={handleCopyAndClose}
-              className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              Schliessen
-            </button>
-          </div>
-        </div>
-      </ModalShell>
-    )
-  }
 
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-sm">
@@ -211,7 +165,7 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
               value={password}
               onChange={e => setPassword(e.target.value)}
               className="h-9 rounded border border-neutral-300 bg-white px-3 text-sm dark:border-neutral-600 dark:bg-neutral-800"
-              placeholder="Leer = temporaeres Passwort wird generiert"
+              placeholder="Leer = Einladungs-Email wird gesendet"
             />
           </div>
         </div>
@@ -248,70 +202,30 @@ function ResetPasswordDialog({
   user: AdminUser
   onClose: () => void
 }) {
-  const [mode, setMode] = useState<'generate' | 'custom'>('generate')
-  const [customPassword, setCustomPassword] = useState('')
-  const [tempPassword, setTempPassword] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
+  const [mode, setMode] = useState<'set' | 'email'>('set')
+  const [newPassword, setNewPassword] = useState('')
   const { addToast } = useToast()
   const queryClient = useQueryClient()
 
   const mutation = useMutation({
     mutationFn: () =>
       adminResetPassword(user.id, {
-        password: mode === 'custom' ? customPassword : undefined,
-        send_email: false,
+        password: mode === 'set' ? newPassword : undefined,
+        send_email: mode === 'email',
       }),
-    onSuccess: (data) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-users'] })
-      if (data.temporary_password) {
-        setTempPassword(data.temporary_password)
+      if (mode === 'email') {
+        addToast({ type: 'success', title: 'Reset-Email gesendet' })
       } else {
-        addToast({ type: 'success', title: 'Passwort zurueckgesetzt' })
-        onClose()
+        addToast({ type: 'success', title: 'Passwort gesetzt' })
       }
+      onClose()
     },
     onError: (err: Error) => {
       addToast({ type: 'error', title: getAuthErrorMessage(err.message), duration: 0 })
     },
   })
-
-  async function handleCopyPassword() {
-    if (!tempPassword) return
-    await navigator.clipboard.writeText(tempPassword)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  if (tempPassword) {
-    return (
-      <ModalShell onClose={onClose} maxWidth="max-w-sm">
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Passwort zurueckgesetzt</h2>
-          <p className="text-sm text-neutral-600 dark:text-neutral-400">
-            Neues Passwort fuer <strong>{user.username}</strong> (wird nur einmal angezeigt):
-          </p>
-          <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-700 dark:bg-neutral-800">
-            <code className="flex-1 select-all font-mono text-sm break-all">{tempPassword}</code>
-            <button
-              onClick={handleCopyPassword}
-              className="shrink-0 rounded p-1.5 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-300"
-              title="Kopieren"
-            >
-              {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-            </button>
-          </div>
-          <div className="flex justify-end">
-            <button
-              onClick={onClose}
-              className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              Schliessen
-            </button>
-          </div>
-        </div>
-      </ModalShell>
-    )
-  }
 
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-sm">
@@ -331,33 +245,32 @@ function ResetPasswordDialog({
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="radio"
-              checked={mode === 'generate'}
-              onChange={() => setMode('generate')}
+              checked={mode === 'set'}
+              onChange={() => setMode('set')}
               className="h-4 w-4"
             />
-            <span className="text-sm">Temporaeres Passwort generieren</span>
+            <span className="text-sm">Passwort setzen</span>
           </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="radio"
-              checked={mode === 'custom'}
-              onChange={() => setMode('custom')}
-              className="h-4 w-4"
-            />
-            <span className="text-sm">Eigenes Passwort setzen</span>
-          </label>
-
-          {mode === 'custom' && (
+          {mode === 'set' && (
             <input
               type="text"
-              value={customPassword}
-              onChange={e => setCustomPassword(e.target.value)}
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
               placeholder="Neues Passwort (min. 10 Zeichen)"
               className="mt-2 h-9 w-full rounded border border-neutral-300 bg-white px-3 text-sm dark:border-neutral-600 dark:bg-neutral-800"
               required
               minLength={10}
             />
           )}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              checked={mode === 'email'}
+              onChange={() => setMode('email')}
+              className="h-4 w-4"
+            />
+            <span className="text-sm">Reset-Email senden</span>
+          </label>
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
@@ -371,7 +284,7 @@ function ResetPasswordDialog({
           </button>
           <button
             type="submit"
-            disabled={mutation.isPending || (mode === 'custom' && customPassword.length < 10)}
+            disabled={mutation.isPending || (mode === 'set' && newPassword.length < 10)}
             className="flex items-center gap-2 rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
           >
             {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -691,7 +604,7 @@ export default function AdminUsersPage() {
     queryFn: () =>
       getAdminUsers({
         search: debouncedSearch || undefined,
-        status: statusFilter === 'all' ? undefined : statusFilter,
+        status: statusFilter,
         limit: PAGE_SIZE,
         offset,
       }),
