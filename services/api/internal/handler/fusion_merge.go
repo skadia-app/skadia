@@ -20,6 +20,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/fusion"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -241,6 +242,12 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		merged.ID, userID, auditData,
 	); err != nil {
 		slog.Warn("fusion-merge: failed to insert audit record", "id", merged.ID, "error", err)
+	}
+
+	// Write .meta companion for merged activity.
+	mergedAct, _ := h.DB.GetActivity(ctx, merged.ID)
+	if mergedAct != nil && mergedAct.FileID != nil && *mergedAct.FileID != "" {
+		sidecar.WriteMetaCompanion(ctx, h.ShadowFS, h.DB, userID, merged.ID, *mergedAct.FileID, nil, mergedAct)
 	}
 
 	slog.Info("fusion-merge: completed", "new_id", merged.ID, "sources", allIDs)
