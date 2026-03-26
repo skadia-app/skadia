@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/errgroup"
 )
 
 // ReconcileJob performs consistency checks between the filesystem and the
@@ -57,9 +58,9 @@ func NewReconcileJob(pool *pgxpool.Pool, local, s3 StorageBackend, basePath stri
 	}
 }
 
-// Run executes all 9 reconciliation checks and returns the combined result.
+// Run executes all 11 reconciliation checks and returns the combined result.
 // The provided progressFn is called after each check with the current check
-// index (1-9) so callers can update background_jobs progress.
+// index (1–11); passing nil is valid if progress tracking is not needed.
 func (j *ReconcileJob) Run(ctx context.Context, progressFn func(current int)) (ReconcileResult, error) {
 	var result ReconcileResult
 
@@ -122,7 +123,7 @@ func (j *ReconcileJob) Run(ctx context.Context, progressFn func(current int)) (R
 // 100k files, which is acceptable. For future large deployments (>100k files)
 // consider a batched/streaming approach (e.g., sort both sets and merge-scan).
 func (j *ReconcileJob) checkOrphanedFiles(ctx context.Context, r *ReconcileResult) error {
-	if j.basePath == "" {
+	if j.local == nil {
 		return nil
 	}
 	// L11: Build a set of ALL known storage_paths (including archived) from the registry.
@@ -210,7 +211,7 @@ func (j *ReconcileJob) checkOrphanedFiles(ctx context.Context, r *ReconcileResul
 // ---------- Check 2: Dangling records ----------
 // Registry entries with no physical file. DELETE the record.
 func (j *ReconcileJob) checkDanglingRecords(ctx context.Context, r *ReconcileResult) error {
-	if j.basePath == "" {
+	if j.local == nil {
 		return nil
 	}
 	rows, err := j.pool.Query(ctx,
@@ -286,7 +287,7 @@ func (j *ReconcileJob) checkDanglingRecords(ctx context.Context, r *ReconcileRes
 // ---------- Check 3: Size mismatch ----------
 // File size on disk differs from registry size_bytes. UPDATE the registry.
 func (j *ReconcileJob) checkSizeMismatches(ctx context.Context, r *ReconcileResult) error {
-	if j.basePath == "" {
+	if j.local == nil {
 		return nil
 	}
 	rows, err := j.pool.Query(ctx,
@@ -437,6 +438,9 @@ func (j *ReconcileJob) checkArchivedVersionCleanup(ctx context.Context, r *Recon
 			toRemove = append(toRemove, e)
 		}
 		excess.Close()
+		if err := excess.Err(); err != nil {
+			slog.Error("shadowfs reconcile: archived cleanup scan", "err", err)
+		}
 
 		for _, e := range toRemove {
 			fullPath := filepath.Join(j.basePath, e.path)
@@ -471,7 +475,7 @@ func (j *ReconcileJob) checkArchivedVersionCleanup(ctx context.Context, r *Recon
 // ---------- Check 5: Temp cleanup ----------
 // Files in _temp/ directories older than 30 days with no import_queue entry.
 func (j *ReconcileJob) checkTempCleanup(ctx context.Context, r *ReconcileResult) error {
-	if j.basePath == "" {
+	if j.local == nil {
 		return nil
 	}
 	cutoff := time.Now().Add(-30 * 24 * time.Hour)
@@ -807,7 +811,7 @@ func (j *ReconcileJob) checkS3Dangling(ctx context.Context, r *ReconcileResult) 
 		return nil
 	}
 	rows, err := j.pool.Query(ctx,
-		`SELECT id, storage_path, file_type FROM user_files WHERE storage_backend = 's3' AND status = 'active'`)
+		`SELECT id, storage_path, file_type FROM user_files WHERE storage_backend = 's3' AND status IN ('active', 'archived')`)
 	if err != nil {
 		return fmt.Errorf("query s3 records: %w", err)
 	}
@@ -828,27 +832,50 @@ func (j *ReconcileJob) checkS3Dangling(ctx context.Context, r *ReconcileResult) 
 		return fmt.Errorf("iterate s3 records: %w", err)
 	}
 
+	// Fan out S3 HeadObject checks with a bounded worker pool (16 goroutines).
+	// Sequential checks would take ~13 min for 10k files at 80ms/request.
+	type danglingResult struct {
+		id, path string
+	}
+	dangling := make(chan danglingResult, len(entries))
+
+	eg, egCtx := errgroup.WithContext(ctx)
+	sem := make(chan struct{}, 16)
 	for _, e := range entries {
+		e := e
+		eg.Go(func() error {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			bucket := ""
+			if j.bucketFn != nil {
+				bucket = j.bucketFn(e.fileType)
+			}
+			exists, err := j.s3.Exists(egCtx, e.path, &BackendOpts{Bucket: bucket})
+			if err != nil {
+				slog.Warn("reconcile: s3 exists check failed", "path", e.path, "err", err)
+				return nil
+			}
+			if !exists {
+				dangling <- danglingResult{id: e.id, path: e.path}
+			}
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+	close(dangling)
+
+	for d := range dangling {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		bucket := ""
-		if j.bucketFn != nil {
-			bucket = j.bucketFn(e.fileType)
-		}
-		exists, err := j.s3.Exists(ctx, e.path, &BackendOpts{Bucket: bucket})
-		if err != nil {
-			slog.Warn("reconcile: s3 exists check failed", "path", e.path, "err", err)
+		if _, err := j.pool.Exec(ctx, `DELETE FROM user_files WHERE id = $1`, d.id); err != nil {
+			slog.Error("reconcile: failed to delete dangling S3 record", "id", d.id, "err", err)
 			continue
 		}
-		if !exists {
-			if _, err := j.pool.Exec(ctx, `DELETE FROM user_files WHERE id = $1`, e.id); err != nil {
-				slog.Error("reconcile: failed to delete dangling S3 record", "id", e.id, "err", err)
-				continue
-			}
-			r.DanglingCleaned++
-			slog.Info("reconcile: removed dangling S3 record", "id", e.id, "path", e.path)
-		}
+		r.DanglingCleaned++
+		slog.Info("reconcile: removed dangling S3 record", "id", d.id, "path", d.path)
 	}
 	return nil
 }
@@ -883,19 +910,47 @@ func (j *ReconcileJob) checkS3Orphans(ctx context.Context, r *ReconcileResult) e
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			_ = j.s3.ListFunc(ctx, uid+"/", &BackendOpts{Bucket: bkt}, func(path string) error {
-				var exists bool
-				if err := j.pool.QueryRow(ctx,
-					`SELECT EXISTS(SELECT 1 FROM user_files WHERE storage_backend = 's3' AND storage_path = $1)`,
-					path).Scan(&exists); err != nil {
-					return nil // skip on query error
+			// Collect S3 keys in pages of 1000, then batch-check against the registry.
+			const pageSize = 1000
+			var page []string
+			flushPage := func() {
+				if len(page) == 0 {
+					return
 				}
-				if !exists {
-					r.OrphanWarnings++
-					slog.Warn("reconcile: orphan S3 object", "bucket", bkt, "key", path)
+				// Query which of the collected keys exist in user_files.
+				checkRows, err := j.pool.Query(ctx,
+					`SELECT storage_path FROM user_files WHERE storage_backend = 's3' AND storage_path = ANY($1)`,
+					page)
+				if err != nil {
+					slog.Error("reconcile: batch orphan check query failed", "bucket", bkt, "err", err)
+					page = page[:0]
+					return
+				}
+				known := make(map[string]struct{}, len(page))
+				for checkRows.Next() {
+					var sp string
+					if checkRows.Scan(&sp) == nil {
+						known[sp] = struct{}{}
+					}
+				}
+				checkRows.Close()
+				for _, key := range page {
+					if _, ok := known[key]; !ok {
+						r.OrphanWarnings++
+						slog.Warn("reconcile: orphan S3 object", "bucket", bkt, "key", key)
+					}
+				}
+				page = page[:0]
+			}
+
+			_ = j.s3.ListFunc(ctx, uid+"/", &BackendOpts{Bucket: bkt}, func(path string) error {
+				page = append(page, path)
+				if len(page) >= pageSize {
+					flushPage()
 				}
 				return nil
 			})
+			flushPage()
 		}
 	}
 	return nil
