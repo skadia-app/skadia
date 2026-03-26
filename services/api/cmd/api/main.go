@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	_ "net/http/pprof"
@@ -39,6 +41,94 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})))
+
+	// ── migrate-storage subcommand ─────────────────────────────────────────────
+	// Usage: api migrate-storage -target=s3 [-dry-run] [-batch-size=100]
+	//                                        [-workers=1] [-cleanup-source]
+	// Must run BEFORE the HTTP server starts (offline migration).
+	if len(os.Args) > 1 && os.Args[1] == "migrate-storage" {
+		fs := flag.NewFlagSet("migrate-storage", flag.ExitOnError)
+		target := fs.String("target", "", "Target backend: 'local' or 's3' (required)")
+		dryRun := fs.Bool("dry-run", false, "List files and check reachability without copying")
+		batchSize := fs.Int("batch-size", 100, "Files per batch")
+		workers := fs.Int("workers", 1, "Parallel workers (each buffers up to 500 MB for S3)")
+		cleanupSource := fs.Bool("cleanup-source", false, "Verify source is empty after migration")
+		if err := fs.Parse(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "migrate-storage: flag parse error: %v\n", err)
+			os.Exit(1)
+		}
+		if *target == "" {
+			fmt.Fprintf(os.Stderr, "migrate-storage: -target is required (use 'local' or 's3')\n")
+			fs.Usage()
+			os.Exit(1)
+		}
+		if *target != "local" && *target != "s3" {
+			fmt.Fprintf(os.Stderr, "migrate-storage: -target must be 'local' or 's3', got %q\n", *target)
+			os.Exit(1)
+		}
+
+		// Load config + DB (migrations included).
+		cfg, err := config.Load()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "migrate-storage: config load failed: %v\n", err)
+			os.Exit(1)
+		}
+		ctx := context.Background()
+		db, err := database.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "migrate-storage: database connect failed: %v\n", err)
+			os.Exit(1)
+		}
+		defer db.Close()
+		if err := migrate.Run(ctx, db.Pool); err != nil {
+			fmt.Fprintf(os.Stderr, "migrate-storage: migrations failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Build backends.
+		var localBE, s3BE shadowfs.StorageBackend
+		if cfg.LibraryBasePath != "" {
+			localBE = shadowfs.NewLocalBackend(cfg.LibraryBasePath)
+		}
+		if cfg.S3Endpoint != "" {
+			s3BE = shadowfs.NewS3Backend(cfg.S3Endpoint, cfg.S3AccessKey, cfg.S3SecretKey,
+				cfg.S3Bucket, cfg.S3Region, cfg.S3ForcePathStyle)
+		}
+
+		// Determine source/target backends.
+		var srcBE, tgtBE shadowfs.StorageBackend
+		switch *target {
+		case "s3":
+			srcBE, tgtBE = localBE, s3BE
+		case "local":
+			srcBE, tgtBE = s3BE, localBE
+		}
+		if srcBE == nil {
+			fmt.Fprintf(os.Stderr, "migrate-storage: source backend not configured\n")
+			os.Exit(1)
+		}
+		if tgtBE == nil {
+			fmt.Fprintf(os.Stderr, "migrate-storage: target backend not configured\n")
+			os.Exit(1)
+		}
+
+		store := shadowfs.NewUnifiedShadowFS(db.Pool, localBE, s3BE, *target,
+			cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), cfg.LibraryKeepVersions,
+			cfg.MaxUserStorageBytes, cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
+
+		if err := shadowfs.RunMigrateStorage(
+			ctx, db.Pool,
+			srcBE, tgtBE, *target,
+			store.BucketFor,
+			cfg.LibraryBasePath,
+			shadowfs.NewSchemaRenderer(),
+			*dryRun, *batchSize, *workers, *cleanupSource,
+		); err != nil {
+			fmt.Fprintf(os.Stderr, "migrate-storage: FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 
 	// L69: pprof server gated behind ENABLE_PPROF=true to avoid unintentional exposure.
 	if os.Getenv("ENABLE_PPROF") == "true" {
