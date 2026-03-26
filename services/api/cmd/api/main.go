@@ -57,6 +57,10 @@ func main() {
 			fmt.Fprintf(os.Stderr, "migrate-storage: flag parse error: %v\n", err)
 			os.Exit(1)
 		}
+		if *workers > 16 {
+			fmt.Fprintf(os.Stderr, "migrate-storage: max 16 workers supported, got %d\n", *workers)
+			os.Exit(1)
+		}
 		if *target == "" {
 			fmt.Fprintf(os.Stderr, "migrate-storage: -target is required (use 'local' or 's3')\n")
 			fs.Usage()
@@ -82,6 +86,10 @@ func main() {
 		defer db.Close()
 		if err := migrate.Run(ctx, db.Pool); err != nil {
 			fmt.Fprintf(os.Stderr, "migrate-storage: migrations failed: %v\n", err)
+			os.Exit(1)
+		}
+		if err := shadowfs.CanonicalizeParentTypes(ctx, db.Pool); err != nil {
+			fmt.Fprintf(os.Stderr, "migrate-storage: canonicalize parent_type failed: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -163,16 +171,22 @@ func main() {
 		slog.Error("failed to run migrations", "error", err)
 		os.Exit(1)
 	}
+	if err := shadowfs.CanonicalizeParentTypes(ctx, db.Pool); err != nil {
+		slog.Error("failed to canonicalize parent_type values", "error", err)
+		os.Exit(1)
+	}
 
 	// Clean up expired system_flags
 	db.Pool.Exec(ctx, `DELETE FROM system_flags WHERE expires_at < NOW()`)
 
 	// Check maintenance mode
 	var maintenanceValue string
+	var maintenanceSetAt time.Time
 	if err := db.Pool.QueryRow(ctx,
-		`SELECT value FROM system_flags WHERE key = 'maintenance_mode' AND expires_at > NOW()`).Scan(&maintenanceValue); err == nil {
+		`SELECT value, set_at FROM system_flags WHERE key = 'maintenance_mode' AND expires_at > NOW()`).Scan(&maintenanceValue, &maintenanceSetAt); err == nil {
 		slog.Error("maintenance mode active — server cannot start",
 			"reason", maintenanceValue,
+			"set_at", maintenanceSetAt,
 			"help", "Complete the storage migration or see docs for recovery steps")
 		os.Exit(1)
 	}
