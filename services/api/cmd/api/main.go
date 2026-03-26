@@ -119,30 +119,20 @@ func main() {
 		}
 	}
 
-	// ShadowFS (unified storage)
-	var store shadowfs.ShadowFS
-	switch cfg.StorageBackend {
-	case "s3":
-		store = shadowfs.NewS3ShadowFS(db.Pool, shadowfs.S3Config{
-			Endpoint:       cfg.S3Endpoint,
-			AccessKey:      cfg.S3AccessKey,
-			SecretKey:      cfg.S3SecretKey,
-			Bucket:         cfg.S3Bucket,
-			Region:         cfg.S3Region,
-			ForcePathStyle: cfg.S3ForcePathStyle,
-			BucketActivity: cfg.S3BucketActivity,
-			BucketMedia:    cfg.S3BucketMedia,
-		}, cfg.LibraryKeepVersions, cfg.MaxUserStorageBytes)
-		slog.Info("shadowfs: S3 backend active", "bucket", cfg.S3Bucket)
-	default:
-		localStore, err := shadowfs.NewLocalShadowFS(db.Pool, cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), cfg.LibraryKeepVersions, cfg.MaxUserStorageBytes)
-		if err != nil {
-			slog.Error("failed to create local ShadowFS", "error", err)
-			os.Exit(1)
-		}
-		store = localStore
-		slog.Info("shadowfs: local backend active", "path", cfg.LibraryBasePath)
+	// ShadowFS (unified storage) — both backends always created when configured;
+	// UnifiedShadowFS routes to the target backend and can read from either.
+	var localBE, s3BE shadowfs.StorageBackend
+	if cfg.LibraryBasePath != "" {
+		localBE = shadowfs.NewLocalBackend(cfg.LibraryBasePath)
 	}
+	if cfg.S3Endpoint != "" {
+		s3BE = shadowfs.NewS3Backend(cfg.S3Endpoint, cfg.S3AccessKey, cfg.S3SecretKey,
+			cfg.S3Bucket, cfg.S3Region, cfg.S3ForcePathStyle)
+	}
+	store := shadowfs.NewUnifiedShadowFS(db.Pool, localBE, s3BE, cfg.StorageBackend,
+		cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), cfg.LibraryKeepVersions,
+		cfg.MaxUserStorageBytes, cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
+	slog.Info("shadowfs: unified backend active", "target", cfg.StorageBackend)
 
 	// NATS (optional - log warning if unavailable)
 	var pub *event.Publisher
