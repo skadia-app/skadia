@@ -18,6 +18,9 @@ type ShadowFS interface {
 	Resolve(ctx context.Context, userID, fileID string) (ResolvedFile, error)
 	DiskUsage(ctx context.Context, userID string) (int64, error)
 	Archive(ctx context.Context, userID, fileID, replacedByID string) error
+	PutCompanion(ctx context.Context, userID, fileID, suffix string, data []byte) error
+	GetCompanion(ctx context.Context, userID, fileID, suffix string) ([]byte, error)
+	DeleteCompanions(ctx context.Context, userID, fileID string) error
 }
 
 // FileEntry is the input for Put().

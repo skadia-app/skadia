@@ -429,11 +429,14 @@ func (u *UnifiedShadowFS) Delete(ctx context.Context, userID, fileID string) err
 		slog.Warn("shadowfs: physical delete failed (reconciler will clean)", "path", storagePath, "err", delErr)
 	}
 
-	// Sidecar cleanup for local backend.
-	if backend == "local" && hasSidecar {
+	if hasSidecar {
+		deleteInlineCompanions(ctx, be, storagePath, fileType, u.bucketOpts(fileType))
+	}
+
+	// Clean empty local directories.
+	if backend == "local" {
 		if localBE, ok := u.local.(*LocalBackend); ok {
 			fullPath := filepath.Join(localBE.BasePath(), storagePath)
-			removeSidecarFiles(fullPath, fileType)
 			cleanEmptyDirs(filepath.Dir(fullPath), localBE.BasePath())
 		}
 	}
@@ -441,22 +444,18 @@ func (u *UnifiedShadowFS) Delete(ctx context.Context, userID, fileID string) err
 	return nil
 }
 
-// removeSidecarFiles removes file-type-specific sidecar files.
-// Package-level counterpart of LocalShadowFS.removeSidecars for use by UnifiedShadowFS.
-func removeSidecarFiles(fullPath, fileType string) {
-	var sidecarPaths []string
+// deleteInlineCompanions removes companion sidecars for the given file.
+// Uses file-type-specific path conventions:
+//   - activity: path.fit → path.fit.meta  (suffix append)
+//   - media:    photo.jpg → photo.meta.json (extension strip, then .meta.json)
+func deleteInlineCompanions(ctx context.Context, be StorageBackend, storagePath, fileType string, opts *BackendOpts) {
 	switch fileType {
-	case "media":
-		ext := filepath.Ext(fullPath)
-		stem := strings.TrimSuffix(fullPath, ext)
-		sidecarPaths = append(sidecarPaths, stem+".meta.json")
 	case "activity":
-		sidecarPaths = append(sidecarPaths, fullPath+".meta")
-	}
-	for _, p := range sidecarPaths {
-		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-			slog.Warn("shadowfs: remove sidecar", "path", p, "err", err)
-		}
+		_ = be.Delete(ctx, storagePath+".meta", opts)
+	case "media":
+		ext := filepath.Ext(storagePath)
+		stem := strings.TrimSuffix(storagePath, ext)
+		_ = be.Delete(ctx, stem+".meta.json", opts)
 	}
 }
 
@@ -716,7 +715,7 @@ func (u *UnifiedShadowFS) DeleteAllForUser(ctx context.Context, userID string) e
 
 	// Per-file delete with correct backend + bucket.
 	rows, err := conn.Query(ctx,
-		`SELECT id, storage_backend, storage_path, file_type FROM user_files WHERE user_id = $1`, userID)
+		`SELECT id, storage_backend, storage_path, file_type, has_sidecar FROM user_files WHERE user_id = $1`, userID)
 	if err != nil {
 		return fmt.Errorf("shadowfs: query files: %w", err)
 	}
@@ -724,7 +723,8 @@ func (u *UnifiedShadowFS) DeleteAllForUser(ctx context.Context, userID string) e
 
 	for rows.Next() {
 		var id, backend, path, fileType string
-		if err := rows.Scan(&id, &backend, &path, &fileType); err != nil {
+		var hasSidecar bool
+		if err := rows.Scan(&id, &backend, &path, &fileType, &hasSidecar); err != nil {
 			slog.Error("shadowfs: scan file for deletion", "err", err)
 			continue
 		}
@@ -735,6 +735,9 @@ func (u *UnifiedShadowFS) DeleteAllForUser(ctx context.Context, userID string) e
 		}
 		if delErr := be.Delete(ctx, path, u.bucketOpts(fileType)); delErr != nil {
 			slog.Warn("shadowfs: delete failed during purge", "path", path, "err", delErr)
+		}
+		if hasSidecar {
+			deleteInlineCompanions(ctx, be, path, fileType, u.bucketOpts(fileType))
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -781,6 +784,80 @@ func (u *UnifiedShadowFS) DeleteAllForUser(ctx context.Context, userID string) e
 	if err != nil {
 		return fmt.Errorf("shadowfs: delete records: %w", err)
 	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Companion file methods (PutCompanion / GetCompanion / DeleteCompanions)
+// ---------------------------------------------------------------------------
+
+// PutCompanion writes a companion sidecar (e.g. ".meta" or ".meta.json") next to
+// the main file identified by fileID, using the same backend and bucket.
+// Sets has_sidecar=true on the parent record after a successful write.
+func (u *UnifiedShadowFS) PutCompanion(ctx context.Context, userID, fileID, suffix string, data []byte) error {
+	var backend, storagePath, fileType string
+	err := u.pool.QueryRow(ctx,
+		`SELECT storage_backend, storage_path, file_type FROM user_files WHERE id = $1 AND user_id = $2`,
+		fileID, userID).Scan(&backend, &storagePath, &fileType)
+	if err != nil {
+		return fmt.Errorf("shadowfs: companion lookup: %w", err)
+	}
+	companionPath := storagePath + suffix
+	be, err := u.backendFor(backend)
+	if err != nil {
+		return fmt.Errorf("shadowfs: companion backend: %w", err)
+	}
+	opts := u.bucketOpts(fileType)
+	_, _, err = be.Write(ctx, companionPath, bytes.NewReader(data), "application/json", false, opts)
+	if err != nil {
+		return fmt.Errorf("shadowfs: write companion %s: %w", suffix, err)
+	}
+	if _, flagErr := u.pool.Exec(ctx,
+		`UPDATE user_files SET has_sidecar = true, updated_at = NOW() WHERE id = $1`,
+		fileID); flagErr != nil {
+		slog.Warn("shadowfs: companion written but has_sidecar flag update failed",
+			"file_id", fileID, "error", flagErr)
+	}
+	return nil
+}
+
+// GetCompanion reads a companion sidecar identified by suffix next to fileID.
+func (u *UnifiedShadowFS) GetCompanion(ctx context.Context, userID, fileID, suffix string) ([]byte, error) {
+	var backend, storagePath, fileType string
+	err := u.pool.QueryRow(ctx,
+		`SELECT storage_backend, storage_path, file_type FROM user_files WHERE id = $1 AND user_id = $2`,
+		fileID, userID).Scan(&backend, &storagePath, &fileType)
+	if err != nil {
+		return nil, fmt.Errorf("shadowfs: companion lookup: %w", err)
+	}
+	be, err := u.backendFor(backend)
+	if err != nil {
+		return nil, err
+	}
+	rc, err := be.Read(ctx, storagePath+suffix, u.bucketOpts(fileType))
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	return io.ReadAll(rc)
+}
+
+// DeleteCompanions removes all companion sidecars for fileID.
+// No-ops silently when the file has no sidecars (has_sidecar=false) or is not found.
+func (u *UnifiedShadowFS) DeleteCompanions(ctx context.Context, userID, fileID string) error {
+	var backend, storagePath, fileType string
+	var hasSidecar bool
+	err := u.pool.QueryRow(ctx,
+		`SELECT storage_backend, storage_path, file_type, has_sidecar FROM user_files WHERE id = $1 AND user_id = $2`,
+		fileID, userID).Scan(&backend, &storagePath, &fileType, &hasSidecar)
+	if err != nil || !hasSidecar {
+		return nil
+	}
+	be, err := u.backendFor(backend)
+	if err != nil {
+		return nil
+	}
+	deleteInlineCompanions(ctx, be, storagePath, fileType, u.bucketOpts(fileType))
 	return nil
 }
 
