@@ -257,8 +257,7 @@ func (h *Handler) autoAssignPhoto(
 	}
 }
 
-// queueMediaFile stores the file via ShadowFS (preferred) or temp S3 (fallback)
-// and creates an import_queue entry for manual review.
+// queueMediaFile stores the file via ShadowFS and creates an import_queue entry for manual review.
 func (h *Handler) queueMediaFile(
 	r *http.Request,
 	userID, filename, ct string,
