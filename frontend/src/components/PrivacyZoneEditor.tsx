@@ -602,7 +602,18 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     })
 
     mapRef.current = map
+
+    // Cursor: crosshair im Zeichen-Modus, grabbing nur bei gedrückter Maustaste
+    const canvas = map.getCanvas()
+    canvas.style.cursor = 'crosshair'
+    const onMousedown = () => { canvas.style.cursor = 'grabbing' }
+    const onMouseup   = () => { canvas.style.cursor = 'crosshair' }
+    canvas.addEventListener('mousedown', onMousedown)
+    canvas.addEventListener('mouseup',   onMouseup)
+
     return () => {
+      canvas.removeEventListener('mousedown', onMousedown)
+      canvas.removeEventListener('mouseup',   onMouseup)
       map.remove()
       mapRef.current = null
       pinMarkerRef.current = null
@@ -616,6 +627,8 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     zoneModeRef.current = zoneMode
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
+
+    map.getCanvas().style.cursor = 'crosshair'
 
     const apply = () => {
       const circleVis = zoneMode === 'circle' ? 'visible' : 'none'
