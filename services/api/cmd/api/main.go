@@ -34,7 +34,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
-	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
 
 func main() {
@@ -259,25 +258,6 @@ func main() {
 	// NOTE: Stale running jobs are handled later via h.ResumeInterruptedJobs
 	// after the Handler is fully initialised (needs DB + Handler for matching).
 
-	// S3 Storage (Garage) — always initialised during migration period.
-	// Existing data (photos, thumbnails, originals) lives in Garage.
-	// Can be made conditional AFTER 000233 cleanup migration runs.
-	var s3Client *storage.S3Client
-	if cfg.GarageEndpoint != "" && cfg.GarageAccessKey != "" {
-		s3Client, err = storage.NewS3Client(ctx, cfg.GarageEndpoint, cfg.GarageAccessKey, cfg.GarageSecretKey, cfg.GarageBucket)
-		if err != nil {
-			slog.Warn("S3/Garage client failed — legacy media will be unavailable", "error", err)
-		} else {
-			mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
-			if mediaBucket == "" {
-				mediaBucket = "skadia-media"
-			}
-			if err := s3Client.EnsureBucket(ctx, mediaBucket); err != nil {
-				slog.Warn("could not ensure media bucket", "error", err)
-			}
-		}
-	}
-
 	// ShadowFS (unified storage) — both backends always created when configured;
 	// UnifiedShadowFS routes to the target backend and can read from either.
 	var localBE, s3BE shadowfs.StorageBackend
@@ -336,11 +316,10 @@ func main() {
 	// Build the ImportService which holds the shared post-processing pipeline.
 	// The SegmentMatcher callback is wired after the Handler is created
 	// (it references handler methods), so we set it below.
-	importSvc := importer.NewService(db, s3Client, store, pub, nil)
+	importSvc := importer.NewService(db, store, pub, nil)
 
 	h := &handler.Handler{
 		DB:            db,
-		Storage:       s3Client,
 		Events:        pub,
 		ShadowFS:       store,
 		ShadowFSConfig: shadowFSCfg,
