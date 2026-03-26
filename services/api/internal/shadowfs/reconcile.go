@@ -580,6 +580,9 @@ func (j *ReconcileJob) checkDuplicatePaths(ctx context.Context, r *ReconcileResu
 // ---------- Check 7: Purging cleanup ----------
 // Records with status='purging' where the physical file is already gone. DELETE record.
 func (j *ReconcileJob) checkPurgingCleanup(ctx context.Context, r *ReconcileResult) error {
+	if j.local == nil {
+		return nil
+	}
 	rows, err := j.pool.Query(ctx,
 		`SELECT id, storage_path, user_id FROM user_files
 		 WHERE storage_backend = 'local' AND status = 'purging'`)
@@ -630,6 +633,9 @@ func (j *ReconcileJob) checkPurgingCleanup(ctx context.Context, r *ReconcileResu
 // retry the rename, or finalize if already at target.
 // NOTE: Crashed renames may leave orphaned files at old paths. These are detected by checkOrphanedFiles (Check 1) and logged. The is_renaming flag is cleared here, and the file at the new path is the authoritative version.
 func (j *ReconcileJob) checkRenameCleanup(ctx context.Context, r *ReconcileResult) error {
+	if j.local == nil {
+		return nil
+	}
 	rows, err := j.pool.Query(ctx,
 		`SELECT uf.id, uf.user_id, uf.storage_path, uf.file_type, uf.file_name,
 		        COALESCE(u.library_dir_name, uf.user_id::text) AS user_dir
@@ -842,7 +848,6 @@ func (j *ReconcileJob) checkS3Dangling(ctx context.Context, r *ReconcileResult) 
 	eg, egCtx := errgroup.WithContext(ctx)
 	sem := make(chan struct{}, 16)
 	for _, e := range entries {
-		e := e
 		eg.Go(func() error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
