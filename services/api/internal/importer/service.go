@@ -28,7 +28,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/phash"
-	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/storage"
 	"github.com/google/uuid"
 )
@@ -302,20 +301,10 @@ func (s *Service) PostProcess(
 		}
 
 		// Legacy S3 file info (kept until full migration to ShadowFS)
-		if s.Storage != nil && fileID == "" {
-			// When no ShadowFS record exists, we still update legacy S3 columns.
-			s3Key := fmt.Sprintf("%s/%s.%s", userID, data.FileHash, format)
-			metaKey := s3Key + ".meta"
-			bucket := "skadia-originals"
-			if err := s.DB.UpdateActivityFileInfo(gCtx, activityID, bucket, s3Key, format, filename, metaKey); err != nil {
+		if fileID == "" {
+			// Update format/filename even without ShadowFS.
+			if err := s.DB.UpdateActivityFileInfo(gCtx, activityID, format, filename); err != nil {
 				slog.Error("update file info failed", "error", err)
-			}
-			meta := sidecar.GenerateMetaV3(activityID, data, activity)
-			metaBytes, marshalErr := meta.Marshal()
-			if marshalErr == nil {
-				if err := s.Storage.Upload(gCtx, metaKey, metaBytes, "application/json"); err != nil {
-					slog.Error("meta upload failed", "error", err)
-				}
 			}
 		}
 		return nil
@@ -869,91 +858,13 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 					slog.Info("importer: phash duplicate with higher resolution, replacing",
 						"photo", matchedPhoto.ID, "old_pixels", existingPixels, "new_pixels", newPixels)
 
-					// Generate new S3 keys based on new file hash
-					ext := fileExtFromContentType(ct, meta.OriginalFilename)
-					newS3Key := fmt.Sprintf("activity-photos/%s/%s%s", userID, fileHash, ext)
-					newS3KeyThumb := fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", userID, fileHash)
-					newS3KeyPreview := ""
-
-					// Generate thumbnail (200px)
-					var thumbData []byte
-					switch {
-					case isVideo:
-						thumbData, _ = imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 200, 0)
-					case ct == "image/heic" || ct == "image/heif" || ct == "image/jxl":
-						thumbData, _ = imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 200, 0)
-					default:
-						thumbData, _ = imageutil.Resize(photoBytes, 200, 200, 80)
-					}
-
-					// Generate preview
-					var previewData []byte
-					if isVideo {
-						var midOffset float64
-						if vm, err := imageutil.ProbeVideo(photoBytes, ext); err == nil && vm.DurationS > 2 {
-							midOffset = vm.DurationS / 2
-						}
-						previewData, _ = imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 2560, midOffset)
-					} else {
-						prevMaxW, prevMaxH := 2048, 2048
-						if enrichSettings != nil {
-							if w, h := imageutil.PreviewSizePixels(enrichSettings.PhotoPreviewSize); w > 0 {
-								prevMaxW, prevMaxH = w, h
-							}
-						}
-						if ct == "image/heic" || ct == "image/heif" || ct == "image/jxl" {
-							previewData, _ = imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, prevMaxW, 0)
-						} else {
-							previewData, _ = imageutil.Resize(photoBytes, prevMaxW, prevMaxH, 85)
-						}
-					}
-
-					// Upload original to S3
-					if err := s.Storage.UploadToBucket(ctx, mediaBucket, newS3Key, photoBytes, ct); err != nil {
-						return nil, fmt.Errorf("s3 upload replacement photo: %w", err)
-					}
-
-					// Upload thumbnail to S3
-					if thumbData != nil {
-						if err := s.Storage.UploadToBucket(ctx, mediaBucket, newS3KeyThumb, thumbData, "image/jpeg"); err != nil {
-							slog.Warn("importer: s3 upload replacement thumb failed", "err", err)
-							newS3KeyThumb = newS3Key
-						}
-					} else {
-						newS3KeyThumb = newS3Key
-					}
-
-					// Upload preview to S3
-					if previewData != nil {
-						pk := fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, fileHash)
-						if err := s.Storage.UploadToBucket(ctx, mediaBucket, pk, previewData, "image/jpeg"); err != nil {
-							slog.Warn("importer: s3 upload replacement preview failed", "err", err)
-						} else {
-							newS3KeyPreview = pk
-						}
-					}
-
-					// Update DB with new file, dimensions, hash, and S3 keys
-					if err := s.DB.ReplaceActivityPhotoFile(ctx, matchedPhoto.ID, newS3Key, newS3KeyThumb, newS3KeyPreview, int64(len(photoBytes)), fileHash, newW, newH, pHashVal); err != nil {
-						slog.Error("importer: ReplaceActivityPhotoFile failed", "photo", matchedPhoto.ID, "err", err)
-						return nil, fmt.Errorf("replace photo file in DB: %w", err)
-					}
-
-					// Best-effort delete old S3 keys
-					if matchedPhoto.S3Key != "" && matchedPhoto.S3Key != newS3Key {
-						if err := s.Storage.DeleteFromBucket(ctx, mediaBucket, matchedPhoto.S3Key); err != nil {
-							slog.Warn("importer: failed to delete old S3 original", "key", matchedPhoto.S3Key, "err", err)
-						}
-					}
-					if matchedPhoto.S3KeyThumb != "" && matchedPhoto.S3KeyThumb != newS3KeyThumb && matchedPhoto.S3KeyThumb != matchedPhoto.S3Key {
-						if err := s.Storage.DeleteFromBucket(ctx, mediaBucket, matchedPhoto.S3KeyThumb); err != nil {
-							slog.Warn("importer: failed to delete old S3 thumb", "key", matchedPhoto.S3KeyThumb, "err", err)
-						}
-					}
-					if matchedPhoto.S3KeyPreview != "" && matchedPhoto.S3KeyPreview != newS3KeyPreview {
-						if err := s.Storage.DeleteFromBucket(ctx, mediaBucket, matchedPhoto.S3KeyPreview); err != nil {
-							slog.Warn("importer: failed to delete old S3 preview", "key", matchedPhoto.S3KeyPreview, "err", err)
-						}
+					// Update DB with new dimensions, hash, and file size.
+					if _, execErr := s.DB.Pool.Exec(ctx,
+						`UPDATE activity_photos SET file_size_bytes = $1, file_hash = $2, width = $3, height = $4, phash = $5 WHERE id = $6`,
+						int64(len(photoBytes)), fileHash, newW, newH, pHashVal, matchedPhoto.ID,
+					); execErr != nil {
+						slog.Error("importer: replace photo metadata failed", "photo", matchedPhoto.ID, "err", execErr)
+						return nil, fmt.Errorf("replace photo metadata in DB: %w", execErr)
 					}
 
 					return &PhotoResult{PhotoID: matchedPhoto.ID, Status: "replaced", PHash: pHashVal}, nil
@@ -1166,12 +1077,14 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 		if enrichSettings != nil && enrichSettings.VideoClipFrames > 0 {
 			clipFrames = enrichSettings.VideoClipFrames
 		}
+		var photoFileID string
+		if saved.FileID != nil {
+			photoFileID = *saved.FileID
+		}
 		ev := event.PhotoEmbedEvent{
 			PhotoID:         saved.ID,
 			UserID:          userID,
-			S3Bucket:        mediaBucket,
-			S3Key:           s3Key,
-			S3KeyPreview:    s3KeyPreview,
+			FileID:          photoFileID,
 			ContentType:     ct,
 			VideoClipFrames: clipFrames,
 		}

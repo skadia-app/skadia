@@ -474,8 +474,6 @@ export interface GearDocument {
   content_type: string
   file_size_bytes: number
   file_hash?: string
-  s3_bucket?: string
-  s3_key?: string
   document_date?: string | null
   document_amount?: number | null
   document_currency?: string

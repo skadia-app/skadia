@@ -472,8 +472,7 @@ type Activity struct {
 	RecordingDeviceID   *string `json:"recording_device_id,omitempty"`
 	RecordingDeviceName *string `json:"recording_device_name,omitempty"`
 	// Sidecar / manual-title tracking
-	SidecarMetaKey string `json:"sidecar_meta_key,omitempty"`
-	TitleIsManual  bool   `json:"title_is_manual,omitempty"`
+	TitleIsManual bool `json:"title_is_manual,omitempty"`
 
 	// Unified FileStore — link to user_files registry entry for the original file.
 	FileID *string `json:"file_id,omitempty"`
@@ -1266,8 +1265,7 @@ type ActivityWithPath struct {
 	City               *string   `json:"city,omitempty"`
 	DistanceM          *float64  `json:"distance_m,omitempty"`
 	ElapsedTimeS       *int      `json:"elapsed_time_s,omitempty"`
-	OriginalFileFormat *string   `json:"original_file_format,omitempty"`
-	LocalFilePath      *string   `json:"local_file_path,omitempty"`
+	OriginalFileFormat *string `json:"original_file_format,omitempty"`
 }
 
 // PrivacyZone represents a user-defined private zone (e.g. home, work).
@@ -1347,9 +1345,7 @@ type Tag struct {
 	// that appears as a pin on the map.
 	Lat                *float64 `json:"lat,omitempty"`
 	Lng                *float64 `json:"lng,omitempty"`
-	CoverImageURL      *string  `json:"cover_image_url,omitempty"`
-	CoverImageThumbURL *string  `json:"cover_image_thumb_url,omitempty"`
-	Zone               *TagZone `json:"zone,omitempty"`
+	Zone *TagZone `json:"zone,omitempty"`
 	HasAutomation      bool     `json:"has_automation"`
 }
 
@@ -1724,10 +1720,7 @@ type GearDocument struct {
 	ContentType      string    `json:"content_type"`
 	FileSizeBytes    int64     `json:"file_size_bytes"`
 	FileHash         *string   `json:"file_hash,omitempty"`
-	FileID           *string   `json:"file_id,omitempty"` // user_files registry ID (ShadowFS)
-	S3Bucket         string    `json:"-"`
-	S3Key            string    `json:"-"`
-	S3KeyThumb       string    `json:"-"` // thumbnail key (PDF preview)
+	FileID           *string   `json:"file_id,omitempty"` // user_files registry ID
 	ExtractedText    *string   `json:"extracted_text,omitempty"`
 	ProcessingStatus string    `json:"processing_status"`
 	CreatedAt        time.Time `json:"created_at"`

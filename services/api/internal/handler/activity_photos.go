@@ -22,7 +22,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
-	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
@@ -199,7 +198,7 @@ func (h *Handler) DeleteActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	photoID := chi.URLParam(r, "photoID")
-	bucket, key, keyThumb, keyPreview, fileID, err := h.DB.DeleteActivityPhoto(r.Context(), photoID, userID)
+	fileID, err := h.DB.DeleteActivityPhoto(r.Context(), photoID, userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
@@ -210,7 +209,7 @@ func (h *Handler) DeleteActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ShadowFS path (preferred): delete original + any registered sidecar for this photo.
+	// ShadowFS: delete original + any registered sidecar for this photo.
 	if h.ShadowFS != nil && fileID != "" {
 		if delErr := h.ShadowFS.Delete(r.Context(), userID, fileID); delErr != nil {
 			slog.Warn("delete activity photo: ShadowFS.Delete failed", "file_id", fileID, "error", delErr)
@@ -229,17 +228,6 @@ func (h *Handler) DeleteActivityPhoto(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-		}
-	}
-
-	// Legacy S3 fallback: runs when ShadowFS is nil or this photo has no file_id yet.
-	if h.Storage != nil && (h.ShadowFS == nil || fileID == "") {
-		_ = h.Storage.DeleteFromBucket(r.Context(), bucket, key)
-		if keyThumb != key {
-			_ = h.Storage.DeleteFromBucket(r.Context(), bucket, keyThumb)
-		}
-		if keyPreview != "" && keyPreview != key {
-			_ = h.Storage.DeleteFromBucket(r.Context(), bucket, keyPreview)
 		}
 	}
 
@@ -483,331 +471,26 @@ func (h *Handler) StreamActivityPhotoPreview(w http.ResponseWriter, r *http.Requ
 	w.Write(data)
 }
 
-// RecomputePhotoPreviews regenerates preview thumbnails for all user photos
-// using the current photo_preview_size setting. Runs as a background job.
+// RecomputePhotoPreviews is temporarily a no-op during the ShadowFS migration.
+// The legacy S3 preview regeneration relied on UpdateActivityPhotoPreviewKey
+// which has been removed. Previews will be regenerated as part of the FileStore migration.
 func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httputil.RequireUserID(w, r)
+	_, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
 	}
-
-	settings, err := h.DB.GetEnrichmentSettings(r.Context(), userID)
-	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load settings", r.URL.Path)
-		return
-	}
-	maxW, maxH := imageutil.PreviewSizePixels(settings.PhotoPreviewSize)
-
-	photos, err := h.DB.ListAllUserPhotos(r.Context(), userID)
-	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
-		return
-	}
-
-	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "photo_preview_recompute", nil, nil, int64(len(photos)))
-	if err != nil {
-		slog.Error("recompute previews: failed to create background job", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
-		return
-	}
-
-	if h.Storage == nil && h.ShadowFS == nil {
-		_ = h.DB.CompleteBackgroundJob(r.Context(), jobID, false, "")
-		httputil.WriteJSON(w, http.StatusOK, map[string]any{"job_id": jobID})
-		return
-	}
-
-	videoExts := map[string]bool{".mp4": true, ".m4v": true, ".mov": true, ".avi": true, ".mkv": true, ".webm": true}
-
-	shutdown.Go(jobID, func(ctx context.Context) {
-		processed := int64(0)
-		anyFailed := false
-
-		for _, photo := range photos {
-			// ShadowFS path (preferred): read via file_id when available.
-			var data []byte
-			if h.ShadowFS != nil && photo.FileID != nil && *photo.FileID != "" {
-				rc, getErr := h.ShadowFS.Get(ctx, userID, *photo.FileID)
-				if getErr == nil {
-					data, _ = io.ReadAll(rc)
-					rc.Close()
-				} else {
-					slog.Warn("recompute previews: ShadowFS.Get failed, falling back to S3",
-						"photo_id", photo.ID, "file_id", *photo.FileID, "error", getErr)
-				}
-			}
-			// Legacy S3 fallback.
-			if data == nil && h.Storage != nil && photo.S3Key != "" {
-				var dlErr error
-				data, _, dlErr = h.Storage.DownloadFromBucket(ctx, photo.S3Bucket, photo.S3Key)
-				if dlErr != nil {
-					slog.Warn("recompute previews: S3 download failed",
-						"photo_id", photo.ID, "error", dlErr)
-				}
-			}
-			if data == nil {
-				anyFailed = true
-				processed++
-				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
-				continue
-			}
-
-			if photo.FileHash == nil {
-				processed++
-				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
-				continue
-			}
-
-			// Detect videos by flag or by S3 key extension.
-			isVideo := photo.IsVideo
-			if !isVideo {
-				dot := strings.LastIndex(photo.S3Key, ".")
-				if dot >= 0 {
-					isVideo = videoExts[strings.ToLower(photo.S3Key[dot:])]
-				}
-			}
-
-			if isVideo {
-				// For videos: generate a preview JPEG from the midpoint frame.
-				ext := ".mp4"
-				if dot := strings.LastIndex(photo.S3Key, "."); dot >= 0 {
-					ext = photo.S3Key[dot:]
-				}
-				var midOffset float64
-				if meta, err := imageutil.ProbeVideo(data, ext); err == nil && meta.DurationS > 2 {
-					midOffset = meta.DurationS / 2
-				}
-				previewData, err := imageutil.GenerateThumbnailFFmpeg(data, ext, maxW, midOffset)
-				if err != nil || previewData == nil {
-					processed++
-					_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
-					continue
-				}
-				previewKey := fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, *photo.FileHash)
-				if h.Storage != nil {
-					if err := h.Storage.UploadToBucket(ctx, photo.S3Bucket, previewKey, previewData, "image/jpeg"); err != nil {
-						slog.Warn("recompute preview: video s3 upload failed", "photo_id", photo.ID, "error", err)
-						anyFailed = true
-					} else if err := h.DB.UpdateActivityPhotoPreviewKey(ctx, photo.ID, userID, previewKey); err != nil {
-						anyFailed = true
-					}
-				}
-				processed++
-				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
-				continue
-			}
-
-			// Regular images.
-			if maxW == 0 {
-				if photo.S3KeyPreview != "" {
-					_ = h.DB.UpdateActivityPhotoPreviewKey(ctx, photo.ID, userID, "")
-				}
-				processed++
-				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
-				continue
-			}
-
-			previewData, err := imageutil.Resize(data, maxW, maxH, 85)
-			if err != nil || previewData == nil {
-				if photo.S3KeyPreview != "" {
-					_ = h.DB.UpdateActivityPhotoPreviewKey(ctx, photo.ID, userID, "")
-				}
-				processed++
-				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
-				continue
-			}
-
-			s3KeyPreview := fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, *photo.FileHash)
-			if h.Storage != nil {
-				if err := h.Storage.UploadToBucket(ctx, photo.S3Bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
-					slog.Warn("recompute preview: s3 upload failed", "photo_id", photo.ID, "error", err)
-					anyFailed = true
-					processed++
-					_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
-					continue
-				}
-				if err := h.DB.UpdateActivityPhotoPreviewKey(ctx, photo.ID, userID, s3KeyPreview); err != nil {
-					anyFailed = true
-				}
-			}
-			processed++
-			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
-		}
-
-		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed, "")
-	})
-
-	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "temporarily disabled during ShadowFS migration"})
 }
 
-// RecomputePhotoThumbnails regenerates s3_key_thumb for photos where the thumb path
-// currently points to a non-image file (e.g. a raw .mp4 path stored during a buggy
-// Strava import). It also corrects is_video and content_type for such rows.
-// Runs as a background job; returns 202 Accepted immediately.
+// RecomputePhotoThumbnails is temporarily a no-op during the ShadowFS migration.
+// The legacy S3 thumb/preview regeneration relied on UpdateActivityPhotoThumbAndMeta
+// which has been removed. Thumbnails will be regenerated as part of the FileStore migration.
 func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httputil.RequireUserID(w, r)
+	_, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
 	}
-
-	photos, err := h.DB.ListAllUserPhotos(r.Context(), userID)
-	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
-		return
-	}
-
-	// Filter to photos that need repair:
-	// 1. Thumb key ends in a video extension — broken rows from the Strava importer bug.
-	// 2. is_video=true but duration_s is NULL — videos missing metadata (e.g. repaired
-	//    by an older version of this handler that didn't persist video dimensions).
-	var badPhotos []model.ActivityPhoto
-	videoExts := map[string]bool{".mp4": true, ".m4v": true, ".mov": true, ".avi": true, ".mkv": true, ".webm": true}
-	for _, p := range photos {
-		dot := strings.LastIndex(p.S3KeyThumb, ".")
-		if dot >= 0 {
-			ext := strings.ToLower(p.S3KeyThumb[dot:])
-			if videoExts[ext] {
-				badPhotos = append(badPhotos, p)
-				continue
-			}
-		}
-		// Also pick up videos that are already repaired (JPEG thumb) but still lack metadata.
-		if p.IsVideo && p.DurationS == nil {
-			badPhotos = append(badPhotos, p)
-		}
-	}
-
-	if len(badPhotos) == 0 {
-		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "fixed": 0})
-		return
-	}
-
-	if h.Storage == nil && h.ShadowFS == nil {
-		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "fixed": 0})
-		return
-	}
-
-	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "photo_thumb_recompute", nil, nil, int64(len(badPhotos)))
-	if err != nil {
-		slog.Error("recompute thumbnails: failed to create background job", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
-		return
-	}
-
-	shutdown.Go(jobID, func(ctx context.Context) {
-		processed := int64(0)
-		anyFailed := false
-
-		for _, photo := range badPhotos {
-			// Download the original file: ShadowFS (preferred), then S3 fallback.
-			var data []byte
-			if h.ShadowFS != nil && photo.FileID != nil && *photo.FileID != "" {
-				rc, getErr := h.ShadowFS.Get(ctx, userID, *photo.FileID)
-				if getErr == nil {
-					data, _ = io.ReadAll(rc)
-					rc.Close()
-				} else {
-					slog.Warn("recompute thumbnails: ShadowFS.Get failed, falling back to S3",
-						"photo_id", photo.ID, "file_id", *photo.FileID, "error", getErr)
-				}
-			}
-			if data == nil && h.Storage != nil {
-				var dlErr error
-				data, _, dlErr = h.Storage.DownloadFromBucket(ctx, photo.S3Bucket, photo.S3Key)
-				if dlErr != nil {
-					slog.Warn("recompute thumbnails: download failed", "photo_id", photo.ID, "key", photo.S3Key, "error", dlErr)
-				}
-			}
-			if data == nil {
-				anyFailed = true
-				processed++
-				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
-				continue
-			}
-
-			extDot := strings.LastIndex(photo.S3Key, ".")
-			ext := ".mp4" // safe default so ffmpeg always has a hint
-			if extDot >= 0 {
-				ext = photo.S3Key[extDot:]
-			}
-
-			// Generate 200px thumbnail via ffmpeg (first frame).
-			thumbData, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0)
-			if err != nil || thumbData == nil {
-				slog.Warn("recompute thumbnails: ffmpeg failed", "photo_id", photo.ID, "error", err)
-				anyFailed = true
-				processed++
-				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
-				continue
-			}
-
-			if photo.FileHash == nil {
-				slog.Warn("recompute thumbnails: photo has no file_hash, skipping", "photo_id", photo.ID)
-				processed++
-				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
-				continue
-			}
-
-			// Generate preview (mid-frame) too so both thumbs are fixed in one pass.
-			// Capture video metadata to persist duration/dimensions.
-			var midOffset float64
-			var durationS *float64
-			var videoWidth, videoHeight *int
-			if meta, err := imageutil.ProbeVideo(data, ext); err == nil {
-				if meta.DurationS > 0 {
-					d := meta.DurationS
-					durationS = &d
-					if meta.DurationS > 2 {
-						midOffset = meta.DurationS / 2
-					}
-				}
-				if meta.Width > 0 {
-					w := meta.Width
-					videoWidth = &w
-				}
-				if meta.Height > 0 {
-					h2 := meta.Height
-					videoHeight = &h2
-				}
-			}
-			previewData, _ := imageutil.GenerateThumbnailFFmpeg(data, ext, 2560, midOffset)
-
-			thumbKey := fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", userID, *photo.FileHash)
-			if err := h.Storage.UploadToBucket(ctx, photo.S3Bucket, thumbKey, thumbData, "image/jpeg"); err != nil {
-				slog.Warn("recompute thumbnails: s3 thumb upload failed", "photo_id", photo.ID, "error", err)
-				anyFailed = true
-				processed++
-				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
-				continue
-			}
-
-			previewKey := ""
-			if previewData != nil {
-				pk := fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, *photo.FileHash)
-				if err := h.Storage.UploadToBucket(ctx, photo.S3Bucket, pk, previewData, "image/jpeg"); err == nil {
-					previewKey = pk
-				}
-			}
-
-			// Determine corrected content type from the S3 key extension.
-			ct := photo.ContentType
-			if !strings.HasPrefix(ct, "video/") {
-				ct = videoContentTypeFromExt(ext)
-			}
-
-			if err := h.DB.UpdateActivityPhotoThumbAndMeta(ctx, photo.ID, userID, thumbKey, previewKey, ct, true, durationS, videoWidth, videoHeight); err != nil {
-				slog.Warn("recompute thumbnails: db update failed", "photo_id", photo.ID, "error", err)
-				anyFailed = true
-			}
-
-			processed++
-			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, processed)
-		}
-
-		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed, "")
-	})
-
-	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "queued": len(badPhotos)})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "fixed": 0, "message": "temporarily disabled during ShadowFS migration"})
 }
 
 // videoContentTypeFromExt returns the MIME type for common video extensions.
@@ -862,12 +545,14 @@ func (h *Handler) RecomputePhotoEmbeddings(w http.ResponseWriter, r *http.Reques
 
 		for _, photo := range photos {
 			if h.Events != nil {
+				var embedFileID string
+				if photo.FileID != nil {
+					embedFileID = *photo.FileID
+				}
 				ev := event.PhotoEmbedEvent{
 					PhotoID:         photo.ID,
 					UserID:          userID,
-					S3Bucket:        photo.S3Bucket,
-					S3Key:           photo.S3Key,
-					S3KeyPreview:    photo.S3KeyPreview,
+					FileID:          embedFileID,
 					VideoClipFrames: clipFrames,
 				}
 				if err := h.Events.PublishPhotoEmbed(ev); err != nil {

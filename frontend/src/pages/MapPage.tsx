@@ -730,7 +730,7 @@ export default function MapPage() {
     ? (locationTags.find(t => t.id === selectedLocationTagId) ?? null)
     : null
   const coverImageBlobUrl = useAuthImage(
-    selectedLocationTag?.cover_image_thumb_url ?? selectedLocationTag?.cover_image_url
+    selectedLocationTag?.cover_file_id ? `/api/v1/tags/${selectedLocationTag.id}/cover` : undefined
   )
 
   const updateTagLocationMutation = useMutation({
@@ -2541,7 +2541,7 @@ export default function MapPage() {
               </div>
 
               {/* Cover Image */}
-              {selectedLocationTag.cover_image_url ? (
+              {selectedLocationTag.cover_file_id ? (
                 <div className="relative flex-shrink-0 mt-2">
                   {coverImageBlobUrl ? (
                     <img src={coverImageBlobUrl} alt="" className="w-full h-36 object-cover" />
@@ -2590,7 +2590,7 @@ export default function MapPage() {
                   <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M1 8a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 018.07 3h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0016.07 6H17a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V8zm13.5 3a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM10 14a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" clipRule="evenodd"/>
                   </svg>
-                  {selectedLocationTag.cover_image_url ? 'Ersetzen' : 'Bild hinzufügen'}
+                  {selectedLocationTag.cover_file_id ? 'Ersetzen' : 'Bild hinzufügen'}
                 </label>
                 {tagPhotos.length > 0 && (
                   <button

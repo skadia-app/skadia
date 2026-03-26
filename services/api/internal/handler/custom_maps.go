@@ -3,7 +3,6 @@ package handler
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -159,33 +158,21 @@ func (h *Handler) DeleteCustomMapMarker(w http.ResponseWriter, r *http.Request) 
 	markerID := chi.URLParam(r, "markerID")
 
 	// Resolve image references before deletion so we can clean up storage.
-	var imageFileID, imageURL string
+	var imageFileID string
 	_ = h.DB.Pool.QueryRow(r.Context(),
-		`SELECT COALESCE(image_file_id::text, ''), COALESCE(image_url, '')
+		`SELECT COALESCE(image_file_id::text, '')
 		 FROM custom_map_markers WHERE id = $1 AND user_id = $2`,
 		markerID, userID,
-	).Scan(&imageFileID, &imageURL)
+	).Scan(&imageFileID)
 
 	if err := h.DB.DeleteCustomMapMarker(r.Context(), markerID, mapID, userID); httputil.HandleDBErr(w, r, err, "marker not found") {
 		return
 	}
 
 	// Best-effort ShadowFS cleanup (marker image).
-	if imageFileID != "" && h.ShadowFS != nil {
+	if h.ShadowFS != nil && imageFileID != "" {
 		if delErr := h.ShadowFS.Delete(r.Context(), userID, imageFileID); delErr != nil {
 			slog.Warn("delete marker: ShadowFS.Delete image failed", "marker_id", markerID, "file_id", imageFileID, "error", delErr)
-		}
-	}
-
-	// Legacy S3 fallback when ShadowFS is not configured.
-	if h.ShadowFS == nil && h.Storage != nil && imageURL != "" {
-		const bucket = "skadia-media"
-		const ownPrefix = "/api/v1/media/" + bucket + "/marker-images/"
-		if strings.HasPrefix(imageURL, ownPrefix) {
-			s3Key := strings.TrimPrefix(imageURL, "/api/v1/media/"+bucket+"/")
-			if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, s3Key); delErr != nil {
-				slog.Warn("delete marker: S3 delete image failed", "marker_id", markerID, "key", s3Key, "error", delErr)
-			}
 		}
 	}
 
@@ -205,20 +192,10 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 
 	ct := r.Header.Get("Content-Type")
 
-	// JSON body path: client sends an existing image URL
+	// JSON body path: legacy image_url assignment is no longer supported (column dropped).
+	// Return current marker state for backward compatibility.
 	if strings.HasPrefix(ct, "application/json") {
-		var req struct {
-			ImageURL string `json:"image_url"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
-			return
-		}
-		if req.ImageURL == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "image_url is required", r.URL.Path)
-			return
-		}
-		updateReq := model.UpdateMarkerRequest{ImageURL: &req.ImageURL}
+		updateReq := model.UpdateMarkerRequest{}
 		mk, err := h.DB.UpdateCustomMapMarker(r.Context(), markerID, mapID, userID, updateReq)
 		if httputil.HandleDBErr(w, r, err, "marker not found") {
 			return
@@ -299,13 +276,8 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	var imageURL string
-	if imageFileID != "" {
-		imageURL = fmt.Sprintf("/api/v1/files/%s", imageFileID)
-	} else {
-		imageURL = fmt.Sprintf("/api/v1/media/%s/%s", bucket, s3Key)
-	}
-	updateReq := model.UpdateMarkerRequest{ImageURL: &imageURL}
+	// Update the marker row (no-op update just to get the RETURNING row).
+	updateReq := model.UpdateMarkerRequest{}
 	mk, err := h.DB.UpdateCustomMapMarker(r.Context(), markerID, mapID, userID, updateReq)
 	if httputil.HandleDBErr(w, r, err, "marker not found") {
 		// DB update failed — clean up the new file we already stored.
@@ -313,8 +285,6 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 			if delErr := h.ShadowFS.Delete(r.Context(), userID, imageFileID); delErr != nil {
 				slog.Warn("upload marker image: ShadowFS.Delete new image rollback failed", "marker_id", markerID, "file_id", imageFileID, "error", delErr)
 			}
-		} else if h.Storage != nil {
-			_ = h.Storage.DeleteFromBucket(r.Context(), bucket, s3Key)
 		}
 		return
 	}
@@ -361,36 +331,6 @@ func (h *Handler) cleanupCustomMapMarkerImages(ctx context.Context, mapID, userI
 			}
 			if delErr := h.ShadowFS.Delete(ctx, userID, fileID); delErr != nil {
 				slog.Warn("custom map delete: ShadowFS.Delete marker image failed", "map_id", mapID, "file_id", fileID, "error", delErr)
-			}
-		}
-		return
-	}
-
-	// Legacy S3 fallback when ShadowFS is not configured.
-	if h.Storage == nil {
-		return
-	}
-	const bucket = "skadia-media"
-	const ownPrefix = "/api/v1/media/" + bucket + "/marker-images/"
-	rows, err := h.DB.Pool.Query(ctx,
-		`SELECT COALESCE(image_url, '') FROM custom_map_markers WHERE map_id = $1 AND user_id = $2`,
-		mapID, userID,
-	)
-	if err != nil {
-		slog.Warn("custom map delete: query marker image_urls failed", "map_id", mapID, "error", err)
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var imageURL string
-		if err := rows.Scan(&imageURL); err != nil || imageURL == "" {
-			continue
-		}
-		if strings.HasPrefix(imageURL, ownPrefix) {
-			s3Key := strings.TrimPrefix(imageURL, "/api/v1/media/"+bucket+"/")
-			if delErr := h.Storage.DeleteFromBucket(ctx, bucket, s3Key); delErr != nil {
-				slog.Warn("custom map delete: S3 delete marker image failed", "map_id", mapID, "key", s3Key, "error", delErr)
 			}
 		}
 	}

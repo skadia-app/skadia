@@ -154,9 +154,6 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 		"device_orphan_cleanup":    "Verwaiste Geräte bereinigen",
 		"activity_re_enrich":       "Enrichment-Update",
 		"shadowfs_reconcile":       "Dateispeicher-Konsistenzprüfung",
-		"shadowfs_migration":       "Dateispeicher-Registry-Migration",
-		"shadowfs_file_move":       "Dateispeicher-Dateimigration",
-		"shadowfs_rollback":        "Dateispeicher-Rollback",
 		"shadowfs_rename":          "Dateispeicher-Umbenennung",
 		"gdpr_purge":               "DSGVO-Datenlöschung",
 	}

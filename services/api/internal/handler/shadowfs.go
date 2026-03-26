@@ -1,13 +1,10 @@
 package handler
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
@@ -42,7 +39,7 @@ func (h *Handler) GetShadowFSSettingsCompat(w http.ResponseWriter, r *http.Reque
 		userID,
 	).Scan(&schema)
 	if schema == "" {
-		schema = shadowfs.DefaultSchema
+		schema = shadowfs.NewSchemaRenderer().DefaultSchema("activity")
 	}
 
 	hotfolderEnabled, err := h.DB.GetUserHotfolderEnabled(r.Context(), userID)
@@ -133,336 +130,36 @@ func (h *Handler) UpdateShadowFSSettingsCompat(w http.ResponseWriter, r *http.Re
 	h.GetShadowFSSettingsCompat(w, r)
 }
 
-// GetShadowFSSettings returns the user's shadow FS configuration.
-//
-// Deprecated: legacy handler reading from users.file_naming_schema (dropped in migration 000233).
-// Still wired in main.go for backward compatibility; replaced by GetShadowFSSettingsCompat
-// which reads from user_file_schemas.
+// GetShadowFSSettings is a deleted legacy handler.
+// Callers should use GetShadowFSSettingsCompat instead (reads from user_file_schemas).
+// This stub remains so existing route wiring does not break at compile time.
 func (h *Handler) GetShadowFSSettings(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httputil.RequireUserID(w, r)
-	if !ok {
-		return
-	}
-
-	schema, err := h.DB.GetUserFileNamingSchema(r.Context(), userID)
-	if err != nil {
-		slog.Error("get file naming schema failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load settings", r.URL.Path)
-		return
-	}
-
-	if schema == "" {
-		schema = shadowfs.DefaultSchema
-	}
-
-	// Read hotfolder_enabled from DB (user preference overrides env default).
-	hotfolderEnabled, err := h.DB.GetUserHotfolderEnabled(r.Context(), userID)
-	if err != nil {
-		slog.Warn("get hotfolder enabled failed, using env default", "error", err)
-		if h.ShadowFSConfig != nil {
-			hotfolderEnabled = h.ShadowFSConfig.HotfolderEnabled
-		}
-	}
-
-	resp := ShadowFSSettingsResponse{
-		Schema:           schema,
-		HotfolderEnabled: hotfolderEnabled,
-	}
-
-	if h.WatcherManager != nil {
-		if p, err := h.WatcherManager.UserPath(userID); err == nil {
-			resp.HotfolderPath = p
-		}
-	} else if h.ShadowFSConfig != nil {
-		resp.HotfolderPath = h.ShadowFSConfig.HotfolderPath
-	}
-
-	httputil.WriteJSON(w, http.StatusOK, resp)
+	h.GetShadowFSSettingsCompat(w, r)
 }
 
-// UpdateShadowFSSettings updates the user's file naming schema and/or hotfolder toggle.
-//
-// Deprecated: legacy handler writing to users.file_naming_schema (dropped in migration 000233).
-// Still wired in main.go for backward compatibility; replaced by UpdateShadowFSSettingsCompat
-// which writes to user_file_schemas.
+// UpdateShadowFSSettings is a deleted legacy handler.
+// Callers should use UpdateShadowFSSettingsCompat instead (writes to user_file_schemas).
+// This stub remains so existing route wiring does not break at compile time.
 func (h *Handler) UpdateShadowFSSettings(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httputil.RequireUserID(w, r)
-	if !ok {
-		return
-	}
-
-	req, ok := httputil.DecodeJSON[ShadowFSSettingsRequest](w, r)
-	if !ok {
-		return
-	}
-
-	// Validate schema before persisting (M16).
-	if req.Schema != "" {
-		renderer := shadowfs.NewSchemaRenderer()
-		if _, err := renderer.ValidateSchema("activity", req.Schema); err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
-			return
-		}
-	}
-
-	// Update schema if provided.
-	if req.Schema != "" {
-		if err := h.DB.UpdateUserFileNamingSchema(r.Context(), userID, req.Schema); err != nil {
-			slog.Error("update file naming schema failed", "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update settings", r.URL.Path)
-			return
-		}
-	}
-
-	// Update hotfolder_enabled if provided.
-	if req.HotfolderEnabled != nil {
-		// Read current value before update to detect changes.
-		currentEnabled, err := h.DB.GetUserHotfolderEnabled(r.Context(), userID)
-		if err != nil {
-			slog.Warn("get current hotfolder enabled failed", "error", err)
-		}
-
-		if err := h.DB.UpdateUserHotfolderEnabled(r.Context(), userID, *req.HotfolderEnabled); err != nil {
-			slog.Error("update hotfolder enabled failed", "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update hotfolder setting", r.URL.Path)
-			return
-		}
-
-		// Start or stop the per-user watcher if the value changed.
-		if h.WatcherManager != nil && *req.HotfolderEnabled != currentEnabled {
-			if *req.HotfolderEnabled {
-				if err := h.WatcherManager.EnableUser(userID); err != nil {
-					slog.Warn("hotfolder watcher enable failed", "user", userID, "error", err)
-				}
-			} else {
-				h.WatcherManager.DisableUser(userID)
-			}
-		}
-	}
-
-	// Return the current full state.
-	schema, err := h.DB.GetUserFileNamingSchema(r.Context(), userID)
-	if err != nil || schema == "" {
-		schema = shadowfs.DefaultSchema
-	}
-	hotfolderEnabled, err := h.DB.GetUserHotfolderEnabled(r.Context(), userID)
-	if err != nil {
-		slog.Warn("get hotfolder enabled after update failed", "error", err)
-	}
-
-	resp := ShadowFSSettingsResponse{
-		Schema:           schema,
-		HotfolderEnabled: hotfolderEnabled,
-	}
-	if h.WatcherManager != nil {
-		if p, err := h.WatcherManager.UserPath(userID); err == nil {
-			resp.HotfolderPath = p
-		}
-	} else if h.ShadowFSConfig != nil {
-		resp.HotfolderPath = h.ShadowFSConfig.HotfolderPath
-	}
-
-	httputil.WriteJSON(w, http.StatusOK, resp)
+	h.UpdateShadowFSSettingsCompat(w, r)
 }
 
-// PreviewRenameRequest is the POST body for previewing a rename.
-type PreviewRenameRequest struct {
-	NewSchema string `json:"new_schema"`
-}
-
-// PreviewRename returns a preview of what files would be renamed.
+// PreviewRename is a deleted legacy handler.
+// File renaming is now managed entirely through the FileStore/ShadowFS layer.
 func (h *Handler) PreviewRename(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httputil.RequireUserID(w, r)
+	_, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
 	}
-
-	if h.ShadowFSConfig == nil {
-		httputil.WriteError(w, http.StatusServiceUnavailable, "Not Configured", "shadow file system not enabled", r.URL.Path)
-		return
-	}
-
-	req, ok := httputil.DecodeJSON[PreviewRenameRequest](w, r)
-	if !ok {
-		return
-	}
-
-	if req.NewSchema == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "new_schema is required", r.URL.Path)
-		return
-	}
-
-	activities, err := h.DB.ListActivitiesWithLocalPath(r.Context(), userID)
-	if err != nil {
-		slog.Error("list activities for rename preview failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activities", r.URL.Path)
-		return
-	}
-
-	var items []shadowfs.RenameItem
-	for _, a := range activities {
-		info := activityToShadowInfo(a)
-		newPath := shadowfs.RenderPath(info, req.NewSchema)
-		newPath = shadowfs.ResolveCollision(h.ShadowFSConfig.BasePath, newPath)
-
-		oldPath := ""
-		if a.LocalFilePath != nil {
-			oldPath = *a.LocalFilePath
-		}
-
-		if oldPath != newPath {
-			items = append(items, shadowfs.RenameItem{
-				OldPath: oldPath,
-				NewPath: newPath,
-			})
-		}
-	}
-
-	if items == nil {
-		items = []shadowfs.RenameItem{}
-	}
-
-	httputil.WriteJSON(w, http.StatusOK, items)
+	httputil.WriteJSON(w, http.StatusOK, []struct{}{})
 }
 
-// ExecuteRename performs the actual rename of shadow files.
+// ExecuteRename is a deleted legacy handler.
+// File renaming is now managed entirely through the FileStore/ShadowFS layer.
 func (h *Handler) ExecuteRename(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httputil.RequireUserID(w, r)
+	_, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
 	}
-
-	if h.ShadowFSConfig == nil {
-		httputil.WriteError(w, http.StatusServiceUnavailable, "Not Configured", "shadow file system not enabled", r.URL.Path)
-		return
-	}
-
-	items, ok := httputil.DecodeJSON[[]shadowfs.RenameItem](w, r)
-	if !ok {
-		return
-	}
-
-	// Validate that all paths belong to the authenticated user's directory
-	// and contain no traversal or symlink escapes.
-	userPrefix := userID + "/"
-	basePath := h.ShadowFSConfig.BasePath
-	validItems := make([]shadowfs.RenameItem, 0, len(items))
-	for _, item := range items {
-		if !strings.HasPrefix(item.OldPath, userPrefix) || !strings.HasPrefix(item.NewPath, userPrefix) {
-			slog.Warn("rename: path outside user directory blocked",
-				"user_id", userID, "old", item.OldPath, "new", item.NewPath)
-			continue
-		}
-		if err := shadowfs.ValidateRelPath(basePath, item.OldPath); err != nil {
-			slog.Warn("rename: old path validation failed", "path", item.OldPath, "error", err)
-			continue
-		}
-		if err := shadowfs.ValidateRelPath(basePath, item.NewPath); err != nil {
-			slog.Warn("rename: new path validation failed", "path", item.NewPath, "error", err)
-			continue
-		}
-		// DB ownership check: old_path must be a known active file belonging to this user.
-		var ownerCount int
-		_ = h.DB.Pool.QueryRow(r.Context(),
-			`SELECT COUNT(*) FROM user_files WHERE user_id = $1 AND storage_path = $2 AND status = 'active'`,
-			userID, item.OldPath,
-		).Scan(&ownerCount)
-		if ownerCount == 0 {
-			slog.Warn("rename: old path not found in user_files, skipping",
-				"user_id", userID, "old", item.OldPath)
-			continue
-		}
-		validItems = append(validItems, item)
-	}
-
-	result := shadowfs.ExecuteRename(basePath, validItems)
-
-	// Update local_file_path in DB for successfully renamed files
-	for _, item := range result.SucceededItems {
-		if err := h.DB.UpdateActivityLocalFilePathByOldPath(r.Context(), userID, item.OldPath, item.NewPath); err != nil {
-			slog.Error("update local file path after rename failed",
-				"old", item.OldPath,
-				"new", item.NewPath,
-				"error", err,
-			)
-		}
-	}
-
-	httputil.WriteJSON(w, http.StatusOK, result)
-}
-
-// WriteShadowForActivity writes the shadow file for a newly uploaded activity.
-// This is called from the upload handler as a best-effort step.
-func (h *Handler) WriteShadowForActivity(ctx context.Context, userID, activityID string, data *model.ActivityData, fileBytes []byte) error {
-	schema, err := h.DB.GetUserFileNamingSchema(ctx, userID)
-	if err != nil {
-		return err
-	}
-	if schema == "" {
-		schema = shadowfs.DefaultSchema
-	}
-
-	info := shadowfs.ActivityInfo{
-		ID:           activityID,
-		StartedAt:    data.StartedAt,
-		SportType:    data.SportType,
-		Title:        "", // Title not yet set at upload time
-		DistanceM:    data.DistanceM,
-		ElapsedTimeS: data.ElapsedTimeS,
-		City:         "", // Geocoding not yet implemented
-		FileExt:      data.FileFormat,
-	}
-
-	relPath := shadowfs.RenderPath(info, schema)
-	relPath = shadowfs.ResolveCollision(h.ShadowFSConfig.BasePath, relPath)
-
-	metaBytes, err := shadowfs.BuildShadowMeta(
-		activityID, data.FileHash, data.OriginalName,
-		data.FileFormat, data.SportType, userID,
-	)
-	if err != nil {
-		return err
-	}
-
-	if err := shadowfs.WriteShadowFile(h.ShadowFSConfig.BasePath, relPath, fileBytes, metaBytes); err != nil {
-		return err
-	}
-
-	// Update local_file_path in DB
-	if err := h.DB.UpdateActivityLocalFilePath(ctx, activityID, relPath); err != nil {
-		slog.Error("update local file path failed", "id", activityID, "error", err)
-	}
-
-	return nil
-}
-
-// activityToShadowInfo converts an ActivityWithPath to a shadowfs.ActivityInfo.
-func activityToShadowInfo(a model.ActivityWithPath) shadowfs.ActivityInfo {
-	info := shadowfs.ActivityInfo{
-		ID:        a.ID,
-		StartedAt: a.StartedAt,
-		SportType: a.SportType,
-		FileExt:   "fit",
-	}
-
-	if a.SubType != nil {
-		info.SubCategory = *a.SubType
-	}
-	if a.Title != nil {
-		info.Title = *a.Title
-	}
-	if a.City != nil {
-		info.City = *a.City
-	}
-	if a.DistanceM != nil {
-		info.DistanceM = *a.DistanceM
-	}
-	if a.ElapsedTimeS != nil {
-		info.ElapsedTimeS = *a.ElapsedTimeS
-	}
-	if a.OriginalFileFormat != nil {
-		info.FileExt = *a.OriginalFileFormat
-	}
-
-	return info
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"succeeded": 0, "failed": 0})
 }

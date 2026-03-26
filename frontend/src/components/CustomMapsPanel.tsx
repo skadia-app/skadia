@@ -305,16 +305,16 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                 {editingMarker.lat.toFixed(5)}, {editingMarker.lng.toFixed(5)}
               </div>
 
-              {editingMarker.image_url ? (
+              {editingMarker.image_file_id ? (
                 <div className="relative">
-                  <img src={editingMarker.image_url} alt="" className="w-full h-32 object-cover rounded-lg" />
+                  <img src={`/api/v1/maps/${editingMarker.map_id}/markers/${editingMarker.id}/image`} alt="" className="w-full h-32 object-cover rounded-lg" />
                   <button
                     className="absolute top-1 right-1 bg-black/50 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center cursor-pointer"
                     onClick={async () => {
-                      await updateCustomMapMarker(editingMarker.map_id, editingMarker.id, { image_url: '' })
+                      await updateCustomMapMarker(editingMarker.map_id, editingMarker.id, { image_file_id: '' })
                       queryClient.invalidateQueries({ queryKey: ['custom-map-markers', editingMarker.map_id] })
                       queryClient.invalidateQueries({ queryKey: ['all-custom-map-markers'] })
-                      setEditingMarker({ ...editingMarker, image_url: undefined })
+                      setEditingMarker({ ...editingMarker, image_file_id: undefined })
                     }}
                   >
                     <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
@@ -366,7 +366,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                 <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M1 8a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 018.07 3h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0016.07 6H17a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V8zm13.5 3a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM10 14a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" clipRule="evenodd"/>
                 </svg>
-                {editingMarker.image_url ? 'Bild ersetzen' : 'Bild hinzufügen'}
+                {editingMarker.image_file_id ? 'Bild ersetzen' : 'Bild hinzufügen'}
               </label>
 
               <div className="flex gap-2 pt-1">

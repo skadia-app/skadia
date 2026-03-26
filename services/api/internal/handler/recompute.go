@@ -473,11 +473,11 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	if err != nil {
 		return fmt.Errorf("load reprocess info: %w", err)
 	}
-	if info == nil || (info.FileKey == "" && info.FileID == "") {
+	if info == nil || info.FileID == "" {
 		return fmt.Errorf("no original file stored for activity %s", activityID)
 	}
 
-	// 2. Download original file: ShadowFS (preferred), then Garage S3 fallback.
+	// 2. Download original file via ShadowFS.
 	var fileBytes []byte
 	if h.ShadowFS != nil && info.FileID != "" {
 		rc, getErr := h.ShadowFS.Get(ctx, info.UserID, info.FileID)
@@ -488,14 +488,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 				return fmt.Errorf("read ShadowFS entry %s: %w", info.FileID, err)
 			}
 		} else {
-			slog.Warn("reprocess: ShadowFS.Get failed, falling back to S3",
-				"activity_id", activityID, "file_id", info.FileID, "error", getErr)
-		}
-	}
-	if fileBytes == nil && h.Storage != nil && info.FileKey != "" {
-		fileBytes, err = h.Storage.Download(ctx, info.FileKey)
-		if err != nil {
-			return fmt.Errorf("download original file: %w", err)
+			return fmt.Errorf("ShadowFS.Get failed for activity %s (file_id=%s): %w", activityID, info.FileID, getErr)
 		}
 	}
 	if fileBytes == nil {
@@ -746,11 +739,8 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 				slog.Warn("reprocess: ShadowFS meta write failed, falling back to S3", "id", activityID, "error", putErr)
 			}
 		}
-		if !metaWritten && h.Storage != nil {
-			metaKey := info.FileKey + ".meta"
-			if err := h.Storage.Upload(ctx, metaKey, metaBytes, "application/json"); err != nil {
-				slog.Error("reprocess: meta upload failed", "id", activityID, "error", err)
-			}
+		if !metaWritten {
+			slog.Warn("reprocess: meta sidecar could not be written (no ShadowFS)", "id", activityID)
 		}
 	}
 

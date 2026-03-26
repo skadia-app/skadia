@@ -56,10 +56,8 @@ export interface Tag {
   conditions_logic: 'and' | 'or'
   activity_count: number
   created_at: string
-  // Optional cover image URL for the location tag popup.
-  cover_image_url?: string | null
-  // Optional thumbnail URL for the cover image (if available).
-  cover_image_thumb_url?: string | null
+  // Optional cover file ID — when set, cover image is served at /api/v1/tags/{id}/cover.
+  cover_file_id?: string | null
   // Optional geo-coordinates — when set, the tag acts as a "location tag".
   lat?: number | null
   lng?: number | null

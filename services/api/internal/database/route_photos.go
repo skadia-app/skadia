@@ -10,7 +10,7 @@ import (
 // GetRoutePhotos returns all photos for a route owned by the given user, ordered by sort_order.
 func (db *DB) GetRoutePhotos(ctx context.Context, routeID, userID string) ([]model.RoutePhoto, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, route_id, user_id, file_hash, s3_key, s3_key_thumb, s3_key_preview,
+		SELECT id, route_id, user_id, file_hash,
 			original_name, width, height, sort_order, created_at
 		FROM route_photos
 		WHERE route_id = $1 AND user_id = $2
@@ -26,7 +26,6 @@ func (db *DB) GetRoutePhotos(ctx context.Context, routeID, userID string) ([]mod
 		var p model.RoutePhoto
 		if err := rows.Scan(
 			&p.ID, &p.RouteID, &p.UserID, &p.FileHash,
-			&p.S3Key, &p.S3KeyThumb, &p.S3KeyPreview,
 			&p.OriginalName, &p.Width, &p.Height,
 			&p.SortOrder, &p.CreatedAt,
 		); err != nil {
@@ -47,18 +46,17 @@ func (db *DB) GetRoutePhotos(ctx context.Context, routeID, userID string) ([]mod
 func (db *DB) InsertRoutePhoto(ctx context.Context, photo model.RoutePhoto) (model.RoutePhoto, error) {
 	var saved model.RoutePhoto
 	err := db.Pool.QueryRow(ctx, `
-		INSERT INTO route_photos (route_id, user_id, file_hash, s3_key, s3_key_thumb, s3_key_preview,
+		INSERT INTO route_photos (route_id, user_id, file_hash,
 			original_name, width, height, sort_order)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+		VALUES ($1, $2, $3, $4, $5, $6,
 			COALESCE((SELECT MAX(sort_order) + 1 FROM route_photos WHERE route_id = $1), 0))
-		RETURNING id, route_id, user_id, file_hash, s3_key, s3_key_thumb, s3_key_preview,
+		RETURNING id, route_id, user_id, file_hash,
 			original_name, width, height, sort_order, created_at
 	`,
-		photo.RouteID, photo.UserID, photo.FileHash, photo.S3Key, photo.S3KeyThumb, photo.S3KeyPreview,
+		photo.RouteID, photo.UserID, photo.FileHash,
 		photo.OriginalName, photo.Width, photo.Height,
 	).Scan(
 		&saved.ID, &saved.RouteID, &saved.UserID, &saved.FileHash,
-		&saved.S3Key, &saved.S3KeyThumb, &saved.S3KeyPreview,
 		&saved.OriginalName, &saved.Width, &saved.Height,
 		&saved.SortOrder, &saved.CreatedAt,
 	)
@@ -70,18 +68,17 @@ func (db *DB) InsertRoutePhoto(ctx context.Context, photo model.RoutePhoto) (mod
 
 // DeleteRoutePhoto deletes a route photo by ID. Only photos owned by userID and
 // belonging to the specified routeID can be deleted.
-// Returns the S3 keys and the ShadowFS file_id (may be empty) so the caller
-// can clean up both storage backends.
-func (db *DB) DeleteRoutePhoto(ctx context.Context, photoID, userID, routeID string) (s3Key, s3KeyThumb string, s3KeyPreview *string, fileID string, err error) {
+// Returns the file_id so the caller can clean up file storage.
+func (db *DB) DeleteRoutePhoto(ctx context.Context, photoID, userID, routeID string) (fileID string, err error) {
 	err = db.Pool.QueryRow(ctx, `
 		DELETE FROM route_photos
 		WHERE id = $1 AND user_id = $2 AND route_id = $3
-		RETURNING s3_key, s3_key_thumb, s3_key_preview, COALESCE(file_id::text, '')
-	`, photoID, userID, routeID).Scan(&s3Key, &s3KeyThumb, &s3KeyPreview, &fileID)
+		RETURNING COALESCE(file_id::text, '')
+	`, photoID, userID, routeID).Scan(&fileID)
 	if err != nil {
-		return "", "", nil, "", fmt.Errorf("delete route photo: %w", err)
+		return "", fmt.Errorf("delete route photo: %w", err)
 	}
-	return s3Key, s3KeyThumb, s3KeyPreview, fileID, nil
+	return fileID, nil
 }
 
 // ReorderRoutePhotos updates sort_order for the given photo IDs. The order of the

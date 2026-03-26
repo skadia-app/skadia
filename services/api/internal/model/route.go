@@ -71,11 +71,8 @@ type RoutePhoto struct {
 	ID           string    `json:"id"`
 	RouteID      string    `json:"route_id"`
 	UserID       string    `json:"user_id"`
-	FileHash     string    `json:"file_hash"`
-	S3Key        string    `json:"s3_key"`
-	S3KeyThumb   string    `json:"s3_key_thumb"`
-	S3KeyPreview *string   `json:"s3_key_preview,omitempty"`
-	OriginalName *string   `json:"original_name,omitempty"`
+	FileHash     string  `json:"file_hash"`
+	OriginalName *string `json:"original_name,omitempty"`
 	Width        *int      `json:"width,omitempty"`
 	Height       *int      `json:"height,omitempty"`
 	SortOrder    int       `json:"sort_order"`

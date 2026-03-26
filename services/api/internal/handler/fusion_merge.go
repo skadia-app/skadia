@@ -421,7 +421,7 @@ func (h *Handler) fitLevelMerge(
 			return fmt.Errorf("upload merged FIT to S3: %w", err)
 		}
 		slog.Info("fusion-merge: FIT-level merge saved via S3",
-			"target", targetID, "records", result.RecordCount, "s3_key", mergedKey)
+			"target", targetID, "records", result.RecordCount, "merged_key", mergedKey)
 	}
 
 	// file_hash (and file_id if ShadowFS) der zusammengefassten Aktivität aktualisieren.
