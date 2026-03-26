@@ -28,6 +28,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/phash"
+	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/google/uuid"
 )
 
@@ -379,6 +380,13 @@ func (s *Service) PostProcess(
 		go matcher(activityID, userID, sportType, subType, gearIDPtr, startedAt)
 	}
 
+	// Write .meta v3 companion sidecar (backup/restore without DB).
+	// Skip for multisport children — they share the parent's file.
+	isChild := activity != nil && activity.ParentID != nil
+	if !isChild {
+		sidecar.WriteMetaCompanion(ctx, s.ShadowFS, s.DB, userID, activityID, fileID, data, activity)
+	}
+
 	slog.Info("activity post-processed",
 		"id", activityID,
 		"sport", data.SportType,
@@ -661,6 +669,12 @@ func (s *Service) ProcessMultisport(
 	// 3. Re-aggregate parent metrics (always, to pick up any new/enriched children)
 	if err := s.DB.AggregateParentMetrics(ctx, result.ParentID); err != nil {
 		slog.Warn("aggregate parent metrics failed", "parent", result.ParentID, "err", err)
+	}
+
+	// Write .meta companion for multisport parent.
+	parentAct, _ := s.DB.GetActivity(ctx, result.ParentID)
+	if parentAct != nil && fileID != "" {
+		sidecar.WriteMetaCompanion(ctx, s.ShadowFS, s.DB, userID, result.ParentID, fileID, nil, parentAct)
 	}
 
 	return result, nil
