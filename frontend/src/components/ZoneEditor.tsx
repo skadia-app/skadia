@@ -127,8 +127,8 @@ function injectCursorStyles() {
   const style = document.createElement('style')
   style.id = 'ze-cursor-styles'
   style.textContent = [
-    '.ze-cursor-crosshair .maplibregl-canvas { cursor: crosshair !important; }',
-    '.ze-cursor-grabbing  .maplibregl-canvas { cursor: grabbing  !important; }',
+    '.ze-cursor-crosshair .maplibregl-canvas-container { cursor: crosshair !important; }',
+    '.ze-cursor-grabbing  .maplibregl-canvas-container { cursor: grabbing  !important; }',
   ].join('\n')
   document.head.appendChild(style)
 }

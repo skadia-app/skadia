@@ -458,6 +458,14 @@ function TagForm({
                     if (z.center) {
                       setLocationLat(z.center[1].toFixed(6))
                       setLocationLng(z.center[0].toFixed(6))
+                    } else if (z.polygon?.coordinates?.[0]?.length) {
+                      // Polygon: Zentroid aus äusserem Ring berechnen
+                      const ring = z.polygon.coordinates[0]
+                      const n = ring.length
+                      let sumLng = 0, sumLat = 0
+                      for (const pt of ring) { sumLng += pt[0]; sumLat += pt[1] }
+                      setLocationLng((sumLng / n).toFixed(6))
+                      setLocationLat((sumLat / n).toFixed(6))
                     }
                   }}
                   enableHoles
