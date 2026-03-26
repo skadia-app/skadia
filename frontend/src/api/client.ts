@@ -164,6 +164,7 @@ export async function apiDownload(path: string): Promise<{ blob: Blob; filename?
   const res = await fetch(url, {
     headers: token ? { 'Authorization': `Bearer ${token}` } : {},
     credentials: 'include',
+    cache: 'no-cache',
   })
   if (res.status === 401) {
     clearToken()

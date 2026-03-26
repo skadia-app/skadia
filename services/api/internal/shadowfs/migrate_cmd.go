@@ -15,6 +15,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"errors"
+
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -394,6 +397,15 @@ func migrateFile(
 		`UPDATE user_files SET storage_backend = $1, storage_path = $2, file_hash = $3, updated_at = NOW()
 		 WHERE id = $4`,
 		targetName, targetPath, finalHash, rec.ID); err != nil {
+		if isUniqueViolation(err) {
+			slog.Info("migrate-storage: duplicate path on write — marking as migrated",
+				"id", rec.ID, "target_path", targetPath)
+			// Path collision: just flip the backend so the file exits the migration queue.
+			_, fallbackErr := pool.Exec(ctx,
+				`UPDATE user_files SET storage_backend = $1, updated_at = NOW() WHERE id = $2`,
+				targetName, rec.ID)
+			return fallbackErr
+		}
 		return fmt.Errorf("update DB record: %w", err)
 	}
 
@@ -474,12 +486,35 @@ func computeTargetPath(
 }
 
 // updateMigrRecord updates only the backend/path (file already present at target).
+// Returns nil on unique_violation (23505) — the file was already migrated by another path.
 func updateMigrRecord(ctx context.Context, pool *pgxpool.Pool, id, targetName, targetPath string) error {
 	_, err := pool.Exec(ctx,
 		`UPDATE user_files SET storage_backend = $1, storage_path = $2, updated_at = NOW()
 		 WHERE id = $3`,
 		targetName, targetPath, id)
+	if isUniqueViolation(err) {
+		slog.Info("migrate-storage: duplicate path — marking as already migrated",
+			"id", id, "target_path", targetPath)
+		// Path collision: another row already occupies this (backend, path).
+		// Just flip the backend so this file is no longer picked up.
+		_, err = pool.Exec(ctx,
+			`UPDATE user_files SET storage_backend = $1, updated_at = NOW() WHERE id = $2`,
+			targetName, id)
+		return err
+	}
 	return err
+}
+
+// isUniqueViolation returns true if err is a PostgreSQL unique_violation (23505).
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return true
+	}
+	return false
 }
 
 // cleanupSourceFiles verifies all files have been migrated away from sourceName.
