@@ -54,7 +54,7 @@ func (h *Handler) GetActivityEdits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Try ShadowFS first (if sidecar_file_id is set), then fall back to legacy S3.
+	// Load sidecar from ShadowFS via sidecar_file_id.
 	var rawData []byte
 	var sidecarFileID string
 	_ = h.DB.Pool.QueryRow(r.Context(),
@@ -62,34 +62,16 @@ func (h *Handler) GetActivityEdits(w http.ResponseWriter, r *http.Request) {
 		activityID, userID,
 	).Scan(&sidecarFileID)
 
-	if sidecarFileID != "" && h.ShadowFS != nil {
+	if sidecarFileID != "" {
 		rc, getErr := h.ShadowFS.Get(r.Context(), userID, sidecarFileID)
 		if getErr == nil {
 			rawData, _ = io.ReadAll(rc)
 			rc.Close()
 		}
 	}
-	if rawData == nil && h.Storage != nil {
-		// Legacy S3 path.
-		key := editorKey(userID, activityID)
-		downloaded, _, dlErr := h.Storage.DownloadFromBucket(r.Context(), editorBucket(), key)
-		if dlErr != nil {
-			// No sidecar yet — return empty sidecar
-			empty := &editor.EditSidecar{
-				Version:    1,
-				ActivityID: activityID,
-				CreatedAt:  time.Now(),
-				UpdatedAt:  time.Now(),
-				Edits:      []editor.Edit{},
-			}
-			httputil.WriteJSON(w, http.StatusOK, empty)
-			return
-		}
-		rawData = downloaded
-	}
 
 	if rawData == nil {
-		// No sidecar stored anywhere — return empty sidecar.
+		// No sidecar stored — return empty sidecar.
 		empty := &editor.EditSidecar{
 			Version:    1,
 			ActivityID: activityID,
@@ -155,9 +137,6 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ShadowFS path (preferred) — legacy S3 as fallback.
-	var sidecarFileID string
-
 	// Resolve existing sidecar_file_id so we can delete the old file before writing the new one.
 	var oldSidecarFileID string
 	_ = h.DB.Pool.QueryRow(r.Context(),
@@ -165,37 +144,28 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 		activityID, userID,
 	).Scan(&oldSidecarFileID)
 
-	if h.ShadowFS != nil {
-		// Delete the previous sidecar file to avoid orphans.
-		if oldSidecarFileID != "" {
-			if delErr := h.ShadowFS.Delete(r.Context(), userID, oldSidecarFileID); delErr != nil {
-				slog.Warn("editor: ShadowFS.Delete old sidecar failed", "id", activityID, "file_id", oldSidecarFileID, "error", delErr)
-			}
-		}
-		fileName := fmt.Sprintf("%s.edits.json", activityID)
-		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
-			UserID:      userID,
-			FileType:    "edit",
-			ContentType: "application/json",
-			FileName:    fileName,
-			SizeBytes:   int64(len(raw)),
-			ParentType:  func() *string { s := "activity"; return &s }(),
-			ParentID:    &activityID,
-		}, bytes.NewReader(raw))
-		if putErr != nil {
-			slog.Error("editor: ShadowFS.Put sidecar failed", "id", activityID, "error", putErr)
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store edit sidecar", r.URL.Path)
-			return
-		}
-		sidecarFileID = rec.ID
-	} else if h.Storage != nil {
-		key := editorKey(userID, activityID)
-		if err := h.Storage.UploadToBucket(r.Context(), editorBucket(), key, raw, "application/json"); err != nil {
-			slog.Error("editor: upload sidecar failed", "id", activityID, "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store edit sidecar", r.URL.Path)
-			return
+	// Delete the previous sidecar file to avoid orphans.
+	if oldSidecarFileID != "" {
+		if delErr := h.ShadowFS.Delete(r.Context(), userID, oldSidecarFileID); delErr != nil {
+			slog.Warn("editor: ShadowFS.Delete old sidecar failed", "id", activityID, "file_id", oldSidecarFileID, "error", delErr)
 		}
 	}
+	fileName := fmt.Sprintf("%s.edits.json", activityID)
+	rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
+		UserID:      userID,
+		FileType:    "edit",
+		ContentType: "application/json",
+		FileName:    fileName,
+		SizeBytes:   int64(len(raw)),
+		ParentType:  shadowfs.Ptr("activity"),
+		ParentID:    &activityID,
+	}, bytes.NewReader(raw))
+	if putErr != nil {
+		slog.Error("editor: ShadowFS.Put sidecar failed", "id", activityID, "error", putErr)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store edit sidecar", r.URL.Path)
+		return
+	}
+	sidecarFileID := rec.ID
 
 	// Mark activity as having edits and link sidecar file.
 	_, err = h.DB.Pool.Exec(r.Context(),
@@ -246,15 +216,10 @@ func (h *Handler) DeleteActivityEdits(w http.ResponseWriter, r *http.Request) {
 		activityID, userID,
 	).Scan(&sidecarFileID)
 
-	// ShadowFS delete (preferred); legacy S3 delete as fallback.
-	if sidecarFileID != "" && h.ShadowFS != nil {
+	// Delete sidecar from ShadowFS.
+	if sidecarFileID != "" {
 		if delErr := h.ShadowFS.Delete(r.Context(), userID, sidecarFileID); delErr != nil {
 			slog.Warn("editor: ShadowFS.Delete sidecar failed", "id", activityID, "file_id", sidecarFileID, "error", delErr)
-		}
-	} else if h.Storage != nil {
-		key := editorKey(userID, activityID)
-		if err := h.Storage.DeleteFromBucket(r.Context(), editorBucket(), key); err != nil {
-			slog.Warn("editor: s3 delete sidecar failed", "id", activityID, "error", err)
 		}
 	}
 
@@ -421,7 +386,7 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Load the sidecar — ShadowFS first, then legacy S3.
+	// 1. Load the sidecar from ShadowFS.
 	var sidecar editor.EditSidecar
 	hasSidecar := false
 	{
@@ -431,15 +396,11 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 			`SELECT COALESCE(sidecar_file_id::text, '') FROM activities WHERE id = $1 AND user_id = $2`,
 			activityID, userID,
 		).Scan(&sfID)
-		if sfID != "" && h.ShadowFS != nil {
+		if sfID != "" {
 			if rc, getErr := h.ShadowFS.Get(r.Context(), userID, sfID); getErr == nil {
 				rawSidecar, _ = io.ReadAll(rc)
 				rc.Close()
 			}
-		}
-		if rawSidecar == nil && h.Storage != nil {
-			key := editorKey(userID, activityID)
-			rawSidecar, _, _ = h.Storage.DownloadFromBucket(r.Context(), editorBucket(), key)
 		}
 		if rawSidecar != nil {
 			if err := json.Unmarshal(rawSidecar, &sidecar); err != nil {

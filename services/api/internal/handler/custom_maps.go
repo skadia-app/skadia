@@ -3,11 +3,9 @@ package handler
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -235,13 +233,6 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 	}
 	fileCT := detectedCT
 
-	ext := strings.ToLower(filepath.Ext(header.Filename))
-	if ext == "" {
-		ext = ".jpg"
-	}
-	s3Key := fmt.Sprintf("marker-images/%s/%s%s", userID, markerID, ext)
-	bucket := "skadia-media"
-
 	// Resolve old image_file_id so we can delete it after successful DB update.
 	var oldImageFileID string
 	_ = h.DB.Pool.QueryRow(r.Context(),
@@ -249,7 +240,7 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 		markerID, userID,
 	).Scan(&oldImageFileID)
 
-	// ShadowFS path (preferred) — legacy S3 as fallback.
+	// Upload marker image to ShadowFS.
 	var imageFileID string
 	if h.ShadowFS != nil {
 		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
@@ -268,12 +259,6 @@ func (h *Handler) UploadCustomMapMarkerImage(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		imageFileID = rec.ID
-	} else if h.Storage != nil {
-		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, fileCT); err != nil {
-			slog.Error("s3 upload marker image failed", "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store marker image", r.URL.Path)
-			return
-		}
 	}
 
 	// Update the marker row (no-op update just to get the RETURNING row).
