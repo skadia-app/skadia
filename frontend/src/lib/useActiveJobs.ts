@@ -18,6 +18,8 @@ const jobTypeLabels: Record<string, string> = {
   recompute_multisport:    'Multisport-Neuberechnung',
   tile_build:              'Routing-Tiles erstellen',
   activity_re_enrich:      'Enrichment-Update',
+  thumbnail_backfill:      'Thumbnails regenerieren',
+  shadowfs_reconcile:      'Dateispeicher-Prüfung',
 }
 
 export type { ActiveJob }
