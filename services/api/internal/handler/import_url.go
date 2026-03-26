@@ -79,8 +79,46 @@ func (h *Handler) ImportFromURL(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
+	// Sicherer HTTP-Client: verhindert SSRF via Redirects und DNS-Rebinding.
+	secureTransport := &http.Transport{
+		DialContext: func(dialCtx context.Context, network, addr string) (net.Conn, error) {
+			host, port, splitErr := net.SplitHostPort(addr)
+			if splitErr != nil {
+				return nil, fmt.Errorf("invalid address: %w", splitErr)
+			}
+			ips, lookupErr := net.DefaultResolver.LookupIPAddr(dialCtx, host)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+			if len(ips) == 0 {
+				return nil, fmt.Errorf("no IPs resolved for host: %s", host)
+			}
+			for _, ip := range ips {
+				if isPrivateIP(ip.IP) {
+					return nil, fmt.Errorf("connection to private IP blocked: %s", ip.IP)
+				}
+			}
+			// Bereits aufgelöste IP direkt verwenden — verhindert zweite DNS-Auflösung
+			// (TOCTOU-DNS-Rebinding: TTL=0 könnte beim zweiten Lookup eine private IP liefern).
+			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(dialCtx, network, net.JoinHostPort(ips[0].IP.String(), port))
+		},
+	}
+	secureClient := &http.Client{
+		Transport: secureTransport,
+		CheckRedirect: func(redirectReq *http.Request, via []*http.Request) error {
+			if isInternalHost(redirectReq.URL.Hostname()) {
+				return fmt.Errorf("redirect to internal host blocked")
+			}
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+		Timeout: 30 * time.Second,
+	}
+
 	httpReq, _ := http.NewRequestWithContext(ctx, "GET", req.URL, nil)
-	dlResp, err := http.DefaultClient.Do(httpReq)
+	dlResp, err := secureClient.Do(httpReq)
 	if err != nil {
 		slog.Error("import-url: download failed", "url", req.URL, "error", err)
 		httputil.WriteError(w, http.StatusBadGateway, "Download Failed", "failed to download file from URL", r.URL.Path)
@@ -367,6 +405,11 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 		"filename", filename,
 	)
 	return &importBytesResult{Activity: full, Warnings: warnings}, nil
+}
+
+// isPrivateIP returns true if the given net.IP is in a private/loopback/link-local range.
+func isPrivateIP(ip net.IP) bool {
+	return isBlockedIP(ip.String())
 }
 
 // isInternalHost returns true for RFC-1918 / loopback / link-local hosts to

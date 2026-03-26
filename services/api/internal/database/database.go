@@ -90,12 +90,27 @@ func (db *DB) CheckTimeOverlap(ctx context.Context, userID string, startedAt, en
 	return &a, nil
 }
 
+// rowQuerier abstracts pgxpool.Pool and pgx.Tx for InsertActivity.
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// InsertActivityTx inserts an activity using an existing pgx.Tx.
+// Use this when the insert must participate in a caller-managed transaction.
+func (db *DB) InsertActivityTx(ctx context.Context, tx pgx.Tx, userID string, data *model.ActivityData) (*model.Activity, error) {
+	return insertActivityOnQuerier(ctx, tx, userID, data)
+}
+
 func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.ActivityData) (*model.Activity, error) {
+	return insertActivityOnQuerier(ctx, db.Pool, userID, data)
+}
+
+func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, data *model.ActivityData) (*model.Activity, error) {
 	var id string
 	var createdAt, updatedAt time.Time
 	var isEbike, isVirtual bool
 
-	err := db.Pool.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		INSERT INTO activities (
 			user_id, file_hash, sport_type, sub_type,
 			parsed_sport_type, parsed_sub_type,

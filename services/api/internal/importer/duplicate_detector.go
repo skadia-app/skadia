@@ -19,8 +19,15 @@ import (
 // garminID, stravaID: Plattform-IDs (0 = nicht vorhanden)
 func CheckTier1(ctx context.Context, db *database.DB, userID string, fileBytes []byte, data *model.ActivityData, garminID, stravaID, komootTourID int64) (*DuplicateMatch, error) {
 	// 1. File-Hash (SHA256)
-	hash := sha256.Sum256(fileBytes)
-	hashStr := hex.EncodeToString(hash[:])
+	// If data already carries a pre-computed hash (e.g. multisport child hashes),
+	// use it directly so each child is deduplicated by its own hash, not the parent file hash.
+	var hashStr string
+	if data != nil && data.FileHash != "" {
+		hashStr = data.FileHash
+	} else {
+		h := sha256.Sum256(fileBytes)
+		hashStr = hex.EncodeToString(h[:])
+	}
 	existing, err := db.CheckDuplicate(ctx, userID, hashStr)
 	if err != nil {
 		return nil, err

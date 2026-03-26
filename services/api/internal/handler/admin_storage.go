@@ -136,12 +136,7 @@ func (h *Handler) StartRegistryPopulation(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if running, err := h.DB.HasRunningJobGlobal(r.Context(), "shadowfs_migration"); err == nil && running {
-		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
-		return
-	}
-
-	jobID, err := h.DB.InsertBackgroundJob(
+	jobID, inserted, err := h.DB.InsertBackgroundJobGuarded(
 		r.Context(),
 		userID,
 		"shadowfs_migration",
@@ -151,6 +146,10 @@ func (h *Handler) StartRegistryPopulation(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		slog.Error("admin: failed to insert shadowfs_migration job", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not create job", r.URL.Path)
+		return
+	}
+	if !inserted {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 
@@ -191,12 +190,7 @@ func (h *Handler) StartFileMigration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if running, err := h.DB.HasRunningJobGlobal(r.Context(), "shadowfs_file_move"); err == nil && running {
-		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
-		return
-	}
-
-	jobID, err := h.DB.InsertBackgroundJob(
+	jobID, inserted, err := h.DB.InsertBackgroundJobGuarded(
 		r.Context(),
 		userID,
 		"shadowfs_file_move",
@@ -207,6 +201,10 @@ func (h *Handler) StartFileMigration(w http.ResponseWriter, r *http.Request) {
 		slog.Error("admin: failed to insert shadowfs_file_move job", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error",
 			"could not create job", r.URL.Path)
+		return
+	}
+	if !inserted {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 
@@ -256,12 +254,7 @@ func (h *Handler) StartReconciliation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if running, err := h.DB.HasRunningJobGlobal(r.Context(), "shadowfs_reconcile"); err == nil && running {
-		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
-		return
-	}
-
-	jobID, err := h.DB.InsertBackgroundJob(
+	jobID, inserted, err := h.DB.InsertBackgroundJobGuarded(
 		r.Context(),
 		userID,
 		"shadowfs_reconcile",
@@ -272,6 +265,10 @@ func (h *Handler) StartReconciliation(w http.ResponseWriter, r *http.Request) {
 		slog.Error("admin: failed to insert shadowfs_reconcile job", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error",
 			"could not create job", r.URL.Path)
+		return
+	}
+	if !inserted {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 
@@ -313,12 +310,7 @@ func (h *Handler) StartFileMigrationRollback(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if running, err := h.DB.HasRunningJobGlobal(r.Context(), "shadowfs_rollback"); err == nil && running {
-		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
-		return
-	}
-
-	jobID, err := h.DB.InsertBackgroundJob(
+	jobID, inserted, err := h.DB.InsertBackgroundJobGuarded(
 		r.Context(),
 		userID,
 		"shadowfs_rollback",
@@ -329,6 +321,10 @@ func (h *Handler) StartFileMigrationRollback(w http.ResponseWriter, r *http.Requ
 		slog.Error("admin: failed to insert shadowfs_rollback job", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error",
 			"could not create job", r.URL.Path)
+		return
+	}
+	if !inserted {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 

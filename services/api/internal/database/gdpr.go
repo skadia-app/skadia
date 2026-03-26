@@ -318,7 +318,7 @@ func (db *DB) getUserSegmentIDs(ctx context.Context, userID string) []string {
 // M46: Runs inside the GDPR transaction for atomicity.
 // L38: Queries route_photos first, then deletes user_files (correct ordering).
 func (db *DB) deleteRoutePhotoFiles(ctx context.Context, tx pgx.Tx, userID string) {
-	rows, err := db.Pool.Query(ctx,
+	rows, err := tx.Query(ctx,
 		`SELECT rp.s3_key, rp.s3_key_thumb, rp.s3_key_preview
 		 FROM route_photos rp
 		 JOIN planned_routes pr ON pr.id = rp.route_id

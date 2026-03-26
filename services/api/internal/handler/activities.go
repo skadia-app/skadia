@@ -342,6 +342,7 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.DB.InvalidateTerraIncognitaCache(r.Context(), userID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -395,13 +396,18 @@ func (h *Handler) DeleteActivities(w http.ResponseWriter, r *http.Request) {
 		h.cleanupActivityFiles(r.Context(), userID, cid)
 	}
 
-	deleted, err := h.DB.DeleteActivities(r.Context(), userID, body.IDs)
+	allDeleteIDs := body.IDs
+	if len(childIDs) > 0 {
+		allDeleteIDs = append(allDeleteIDs, childIDs...)
+	}
+	deleted, err := h.DB.DeleteActivities(r.Context(), userID, allDeleteIDs)
 	if err != nil {
 		slog.Error("bulk delete activities failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete activities", r.URL.Path)
 		return
 	}
 
+	h.DB.InvalidateTerraIncognitaCache(r.Context(), userID)
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 }
 
@@ -448,17 +454,24 @@ func (h *Handler) cleanupActivityFiles(ctx context.Context, userID, activityID s
 			}
 		}
 	}
+	// Legacy S3 edit sidecar fallback.
+	if h.Storage != nil {
+		editKey := fmt.Sprintf("edits/%s/%s.edits.json", userID, activityID)
+		if err := h.Storage.DeleteFromBucket(ctx, "skadia-originals", editKey); err != nil {
+			slog.Warn("cleanup activity files: s3 delete edit sidecar failed", "key", editKey, "error", err)
+		}
+	}
 
 	// Photo originals (ShadowFS) + legacy S3 fallback.
 	photoRows, photoErr := h.DB.Pool.Query(ctx,
-		`SELECT COALESCE(file_id::text, ''), COALESCE(s3_bucket, ''), COALESCE(s3_key, ''), COALESCE(s3_key_thumb, '')
+		`SELECT COALESCE(file_id::text, ''), COALESCE(s3_bucket, ''), COALESCE(s3_key, ''), COALESCE(s3_key_thumb, ''), COALESCE(s3_key_preview, '')
 		 FROM activity_photos WHERE activity_id = $1 AND user_id = $2`,
 		activityID, userID,
 	)
 	if photoErr == nil {
 		for photoRows.Next() {
-			var photoFileID, photoBucket, photoKey, photoKeyThumb string
-			if scanErr := photoRows.Scan(&photoFileID, &photoBucket, &photoKey, &photoKeyThumb); scanErr != nil {
+			var photoFileID, photoBucket, photoKey, photoKeyThumb, photoKeyPreview string
+			if scanErr := photoRows.Scan(&photoFileID, &photoBucket, &photoKey, &photoKeyThumb, &photoKeyPreview); scanErr != nil {
 				continue
 			}
 			if photoFileID != "" && h.ShadowFS != nil {
@@ -470,6 +483,9 @@ func (h *Handler) cleanupActivityFiles(ctx context.Context, userID, activityID s
 				_ = h.Storage.DeleteFromBucket(ctx, photoBucket, photoKey)
 				if photoKeyThumb != "" && photoKeyThumb != photoKey {
 					_ = h.Storage.DeleteFromBucket(ctx, photoBucket, photoKeyThumb)
+				}
+				if photoKeyPreview != "" && photoKeyPreview != photoKey && photoKeyPreview != photoKeyThumb {
+					_ = h.Storage.DeleteFromBucket(ctx, photoBucket, photoKeyPreview)
 				}
 			}
 		}
@@ -1394,5 +1410,6 @@ func (h *Handler) UngroupActivities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.DB.InvalidateTerraIncognitaCache(ctx, userID)
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -439,6 +439,8 @@ func main() {
 
 	// Internal routes (no JWT auth — service-to-service only, network-level access control)
 	r.Get("/internal/coverage/query", h.QueryCoverage)
+	// ML service callback: authenticated via X-ML-Callback-Secret header, not JWT.
+	r.Post("/api/v1/internal/ml-callback", h.HandleMLCallback)
 
 	// Protected routes
 	r.Group(func(r chi.Router) {
@@ -835,9 +837,6 @@ func main() {
 
 			// ML Status
 			r.Get("/ml/status", analyticsHandler.GetMLStatus)
-
-			// ML Callback (internal — called by remote ML service)
-			r.Post("/internal/ml-callback", h.HandleMLCallback)
 
 			// Mobile: Device Registration (FCM/APNs)
 			r.Post("/devices/register", h.RegisterDevice)

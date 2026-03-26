@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -111,6 +112,7 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		if h.ShadowFS == nil {
 			return
 		}
+		fileHash := fmt.Sprintf("%x", sha256.Sum256(data))
 		actIDPtr := &activityID
 		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
@@ -118,6 +120,7 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 			ContentType: ct,
 			FileName:    header.Filename,
 			SizeBytes:   int64(len(data)),
+			FileHash:    fileHash,
 			ParentType:  func() *string { s := "activity"; return &s }(),
 			ParentID:    actIDPtr,
 		}, bytes.NewReader(data))

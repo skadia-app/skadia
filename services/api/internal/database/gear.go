@@ -1679,11 +1679,11 @@ func (db *DB) DeleteBikeSetup(ctx context.Context, id string) error {
 
 // --- Gear Documents ---
 
-const gearDocSelectCols = `id, user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, file_id, s3_bucket, s3_key, extracted_text, processing_status, created_at`
+const gearDocSelectCols = `id, user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, file_id, s3_bucket, s3_key, s3_key_thumb, extracted_text, processing_status, created_at`
 
 func scanGearDocument(row pgx.Row) (*model.GearDocument, error) {
 	var d model.GearDocument
-	err := row.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.S3Bucket, &d.S3Key, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt)
+	err := row.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.S3Bucket, &d.S3Key, &d.S3KeyThumb, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -1720,7 +1720,7 @@ func (db *DB) ListGearDocuments(ctx context.Context, gearID string) ([]model.Gea
 	var docs []model.GearDocument
 	for rows.Next() {
 		var d model.GearDocument
-		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.S3Bucket, &d.S3Key, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.S3Bucket, &d.S3Key, &d.S3KeyThumb, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan gear document: %w", err)
 		}
 		docs = append(docs, d)
@@ -1743,7 +1743,7 @@ func (db *DB) ListComponentDocuments(ctx context.Context, componentID string) ([
 	var docs []model.GearDocument
 	for rows.Next() {
 		var d model.GearDocument
-		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.S3Bucket, &d.S3Key, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.S3Bucket, &d.S3Key, &d.S3KeyThumb, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan component document: %w", err)
 		}
 		docs = append(docs, d)
@@ -1803,13 +1803,14 @@ func (db *DB) UpdateGearDocumentFileID(ctx context.Context, docID, fileID string
 // for documents belonging to a gear item (directly or via its components).
 // Used by DeleteGear to clean up ShadowFS and S3 storage.
 func (db *DB) ListGearDocumentFileIDsByGearID(ctx context.Context, gearID string) ([]struct {
-	DocID    string
-	FileID   string
-	S3Bucket string
-	S3Key    string
+	DocID      string
+	FileID     string
+	S3Bucket   string
+	S3Key      string
+	S3KeyThumb string
 }, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, COALESCE(file_id::text, ''), s3_bucket, s3_key
+		SELECT id, COALESCE(file_id::text, ''), s3_bucket, s3_key, COALESCE(s3_key_thumb, '')
 		FROM gear_documents
 		WHERE gear_id = $1
 		   OR component_id IN (SELECT id FROM gear_components WHERE gear_id = $1)
@@ -1820,28 +1821,76 @@ func (db *DB) ListGearDocumentFileIDsByGearID(ctx context.Context, gearID string
 	defer rows.Close()
 
 	type result struct {
-		DocID    string
-		FileID   string
-		S3Bucket string
-		S3Key    string
+		DocID      string
+		FileID     string
+		S3Bucket   string
+		S3Key      string
+		S3KeyThumb string
 	}
 	var results []struct {
-		DocID    string
-		FileID   string
-		S3Bucket string
-		S3Key    string
+		DocID      string
+		FileID     string
+		S3Bucket   string
+		S3Key      string
+		S3KeyThumb string
 	}
 	for rows.Next() {
 		var e result
-		if err := rows.Scan(&e.DocID, &e.FileID, &e.S3Bucket, &e.S3Key); err != nil {
+		if err := rows.Scan(&e.DocID, &e.FileID, &e.S3Bucket, &e.S3Key, &e.S3KeyThumb); err != nil {
 			return nil, fmt.Errorf("scan gear document file id: %w", err)
 		}
 		results = append(results, struct {
-			DocID    string
-			FileID   string
-			S3Bucket string
-			S3Key    string
-		}{e.DocID, e.FileID, e.S3Bucket, e.S3Key})
+			DocID      string
+			FileID     string
+			S3Bucket   string
+			S3Key      string
+			S3KeyThumb string
+		}{e.DocID, e.FileID, e.S3Bucket, e.S3Key, e.S3KeyThumb})
+	}
+	return results, rows.Err()
+}
+
+// ListGearDocumentFileIDsByServiceEventID returns storage references for all documents
+// linked to a service event. Used by DeleteServiceEvent to clean up files before DB delete.
+func (db *DB) ListGearDocumentFileIDsByServiceEventID(ctx context.Context, eventID string) ([]struct {
+	FileID     string
+	S3Bucket   string
+	S3Key      string
+	S3KeyThumb string
+}, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT COALESCE(file_id::text, ''), s3_bucket, s3_key, COALESCE(s3_key_thumb, '')
+		FROM gear_documents
+		WHERE service_event_id = $1
+	`, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("list service event document file ids: %w", err)
+	}
+	defer rows.Close()
+
+	type result struct {
+		FileID     string
+		S3Bucket   string
+		S3Key      string
+		S3KeyThumb string
+	}
+	var results []struct {
+		FileID     string
+		S3Bucket   string
+		S3Key      string
+		S3KeyThumb string
+	}
+	for rows.Next() {
+		var e result
+		if err := rows.Scan(&e.FileID, &e.S3Bucket, &e.S3Key, &e.S3KeyThumb); err != nil {
+			return nil, fmt.Errorf("scan service event document file id: %w", err)
+		}
+		results = append(results, struct {
+			FileID     string
+			S3Bucket   string
+			S3Key      string
+			S3KeyThumb string
+		}{e.FileID, e.S3Bucket, e.S3Key, e.S3KeyThumb})
 	}
 	return results, rows.Err()
 }
