@@ -461,6 +461,7 @@ function TagForm({
                     }
                   }}
                   enableHoles
+                  hideModeSwitcher
                 />
               </div>
             )}

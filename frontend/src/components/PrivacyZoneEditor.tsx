@@ -629,17 +629,20 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
 
     mapRef.current = map
 
-    // Cursor: crosshair im Zeichen-Modus, grabbing nur bei gedrückter Maustaste
+    // Cursor-Management: mousemove erzwingt crosshair (MapLibre überschreibt canvas.style sonst)
     const canvas = map.getCanvas()
-    canvas.style.cursor = 'crosshair'
-    const onMousedown = () => { canvas.style.cursor = 'grabbing' }
-    const onMouseup   = () => { canvas.style.cursor = 'crosshair' }
-    canvas.addEventListener('mousedown', onMousedown)
-    canvas.addEventListener('mouseup',   onMouseup)
+    let isMouseDown = false
+    const onMousemove = () => { if (!isMouseDown) canvas.style.cursor = 'crosshair' }
+    const onMousedown = () => { isMouseDown = true;  canvas.style.cursor = 'grabbing' }
+    const onMouseup   = () => { isMouseDown = false; canvas.style.cursor = 'crosshair' }
+    canvas.addEventListener('mousemove',  onMousemove)
+    canvas.addEventListener('mousedown',  onMousedown)
+    canvas.addEventListener('mouseup',    onMouseup)
 
     return () => {
-      canvas.removeEventListener('mousedown', onMousedown)
-      canvas.removeEventListener('mouseup',   onMouseup)
+      canvas.removeEventListener('mousemove',  onMousemove)
+      canvas.removeEventListener('mousedown',  onMousedown)
+      canvas.removeEventListener('mouseup',    onMouseup)
       map.remove()
       mapRef.current = null
       pinMarkerRef.current = null

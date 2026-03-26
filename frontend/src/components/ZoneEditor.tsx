@@ -40,6 +40,8 @@ export interface ZoneEditorProps {
   showPin?: boolean
   /** Enable hole (cut-out) drawing after outer polygon is closed (default: false) */
   enableHoles?: boolean
+  /** Versteckt den internen Kreis/Polygon-Toggle (wenn der Modus extern gesteuert wird) */
+  hideModeSwitcher?: boolean
   className?: string
   /** MapLibre style URL or style object; defaults to OSM raster */
   mapStyle?: string
@@ -129,6 +131,7 @@ export default function ZoneEditor({
   maxRadiusM = 50000,
   showPin = false,
   enableHoles = false,
+  hideModeSwitcher = false,
   className,
   mapStyle,
 }: ZoneEditorProps) {
@@ -669,20 +672,28 @@ export default function ZoneEditor({
 
     mapRef.current = map
 
-    // grabbing-Cursor bei gedrückter Maustaste (nur wenn nicht im Bleistift-Zeichenmodus)
+    // Cursor-Management: mousemove erzwingt den richtigen Cursor (MapLibre überschreibt sonst)
     const canvas = map.getCanvas()
-    const onMousedown = () => {
-      if (!canvas.style.cursor.includes('pencil')) canvas.style.cursor = 'grabbing'
+    let isMouseDown = false
+    const applyCursor = () => {
+      if (isMouseDown) return // grabbing hat Vorrang
+      if (drawingModeRef.current === 'hole' || (modeRef.current === 'polygon' && !polygonClosedRef.current)) {
+        canvas.style.cursor = 'crosshair'
+      } else {
+        canvas.style.cursor = ''
+      }
     }
-    const onMouseup = () => {
-      if (canvas.style.cursor === 'grabbing') canvas.style.cursor = ''
-    }
-    canvas.addEventListener('mousedown', onMousedown)
-    canvas.addEventListener('mouseup', onMouseup)
+    const onMousemove = () => applyCursor()
+    const onMousedown = () => { isMouseDown = true; canvas.style.cursor = 'grabbing' }
+    const onMouseup   = () => { isMouseDown = false; applyCursor() }
+    canvas.addEventListener('mousemove',  onMousemove)
+    canvas.addEventListener('mousedown',  onMousedown)
+    canvas.addEventListener('mouseup',    onMouseup)
 
     return () => {
-      canvas.removeEventListener('mousedown', onMousedown)
-      canvas.removeEventListener('mouseup', onMouseup)
+      canvas.removeEventListener('mousemove',  onMousemove)
+      canvas.removeEventListener('mousedown',  onMousedown)
+      canvas.removeEventListener('mouseup',    onMouseup)
       map.remove()
       mapRef.current = null
       centerMarkerRef.current = null
@@ -909,23 +920,25 @@ export default function ZoneEditor({
 
   return (
     <div className={`space-y-4 ${className ?? ''}`}>
-      {/* Mode toggle */}
-      <div className="flex gap-2">
-        {(['circle', 'polygon'] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setMode(m)}
-            className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors border ${
-              mode === m
-                ? 'bg-accent-DEFAULT border-accent-DEFAULT text-white'
-                : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
-            }`}
-          >
-            {m === 'circle' ? 'Kreis' : 'Polygon'}
-          </button>
-        ))}
-      </div>
+      {/* Mode toggle — versteckt wenn extern gesteuert */}
+      {!hideModeSwitcher && (
+        <div className="flex gap-2">
+          {(['circle', 'polygon'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors border ${
+                mode === m
+                  ? 'bg-accent-DEFAULT border-accent-DEFAULT text-white'
+                  : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
+              }`}
+            >
+              {m === 'circle' ? 'Kreis' : 'Polygon'}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Map */}
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
