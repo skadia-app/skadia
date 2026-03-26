@@ -224,7 +224,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 
 	// 10. FIT-Level-Merge: Original-FIT-Dateien zusammenführen.
 	if req.FitLevel {
-		if err := h.fitLevelMerge(ctx, userID, merged.ID, req.Sources, req.FieldMap, activities); err != nil {
+		if err := h.fitLevelMerge(ctx, userID, targetID, merged.ID, req.Sources, req.FieldMap, activities); err != nil {
 			slog.Error("fusion-merge: FIT-level merge failed", "target", merged.ID, "error", err)
 			// Non-fatal: DB-level merge was already successful.
 		} else {
@@ -283,10 +283,12 @@ func (h *Handler) mergeGPSFromSource(ctx context.Context, targetID, sourceID str
 
 // fitLevelMerge lädt die Original-FIT-Dateien (via ShadowFS oder S3-Fallback),
 // führt sie auf Protokoll-Ebene zusammen und speichert die neue FIT-Datei zurück.
+// targetID ist die originale Ziel-Aktivität (für Map-Lookup + FIT-Lesen).
+// mergedID ist die neue zusammengefasste Aktivität (wo das Ergebnis gespeichert wird).
 // Unterstützt aktuell nur einen Source (den ersten in der Liste).
 func (h *Handler) fitLevelMerge(
 	ctx context.Context,
-	userID, targetID string,
+	userID, targetID, mergedID string,
 	sourceIDs []string,
 	fieldMap map[string]string,
 	activities map[string]*model.Activity,
@@ -425,18 +427,18 @@ func (h *Handler) fitLevelMerge(
 			"target", targetID, "records", result.RecordCount, "s3_key", mergedKey)
 	}
 
-	// file_hash (and file_id if ShadowFS) der Ziel-Aktivität aktualisieren.
+	// file_hash (and file_id if ShadowFS) der zusammengefassten Aktivität aktualisieren.
 	if mergedFileID != "" {
 		if _, execErr := h.DB.Pool.Exec(ctx,
 			`UPDATE activities SET file_hash = $2, file_id = $3, has_edits = true WHERE id = $1`,
-			targetID, newHash, mergedFileID,
+			mergedID, newHash, mergedFileID,
 		); execErr != nil {
 			return fmt.Errorf("update file_hash/file_id: %w", execErr)
 		}
 	} else {
 		if _, execErr := h.DB.Pool.Exec(ctx,
 			`UPDATE activities SET file_hash = $2, has_edits = true WHERE id = $1`,
-			targetID, newHash,
+			mergedID, newHash,
 		); execErr != nil {
 			return fmt.Errorf("update file_hash: %w", execErr)
 		}
@@ -538,5 +540,6 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.DB.InvalidateTerraIncognitaCache(ctx, userID)
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -204,12 +204,13 @@ func (h *Handler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 	}
 	tagID := chi.URLParam(r, "id")
 
-	// Resolve cover_file_id before deletion so we can clean up ShadowFS.
-	var coverFileID string
+	// Resolve cover file references before deletion so we can clean up storage.
+	var coverFileID, coverImageURL, coverImageThumbURL string
 	_ = h.DB.Pool.QueryRow(r.Context(),
-		`SELECT COALESCE(cover_file_id::text, '') FROM tags WHERE id = $1 AND user_id = $2`,
+		`SELECT COALESCE(cover_file_id::text, ''), COALESCE(cover_image_url, ''), COALESCE(cover_image_thumb_url, '')
+		 FROM tags WHERE id = $1 AND user_id = $2`,
 		tagID, userID,
-	).Scan(&coverFileID)
+	).Scan(&coverFileID, &coverImageURL, &coverImageThumbURL)
 
 	if err := h.DB.DeleteTag(r.Context(), tagID, userID); err != nil {
 		if err.Error() == "tag not found" {
@@ -225,6 +226,26 @@ func (h *Handler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 	if coverFileID != "" && h.ShadowFS != nil {
 		if delErr := h.ShadowFS.Delete(r.Context(), userID, coverFileID); delErr != nil {
 			slog.Warn("delete tag: ShadowFS.Delete cover failed", "tag_id", tagID, "file_id", coverFileID, "error", delErr)
+		}
+	}
+
+	// Legacy S3 fallback: clean up cover + thumb when ShadowFS is not configured.
+	if h.ShadowFS == nil && h.Storage != nil {
+		const bucket = "skadia-media"
+		const ownPrefix = "/api/v1/media/" + bucket + "/tag-covers/"
+		if coverImageURL != "" && strings.HasPrefix(coverImageURL, ownPrefix) {
+			s3Key := strings.TrimPrefix(coverImageURL, "/api/v1/media/"+bucket+"/")
+			if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, s3Key); delErr != nil {
+				slog.Warn("delete tag: S3 delete cover failed", "tag_id", tagID, "key", s3Key, "error", delErr)
+			}
+		}
+		if coverImageThumbURL != "" {
+			thumbKey := strings.TrimPrefix(coverImageThumbURL, "/api/v1/media/"+bucket+"/")
+			if thumbKey != coverImageThumbURL { // prefix was present
+				if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, thumbKey); delErr != nil {
+					slog.Warn("delete tag: S3 delete cover thumb failed", "tag_id", tagID, "key", thumbKey, "error", delErr)
+				}
+			}
 		}
 	}
 
@@ -358,17 +379,12 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	s3Key := fmt.Sprintf("tag-covers/%s/%s%s", userID, tagID, ext)
 	bucket := "skadia-media"
 
-	// Delete old cover file before uploading the new one to avoid orphans.
+	// Resolve old cover_file_id so we can delete it after successful DB update.
 	var oldCoverFileID string
 	_ = h.DB.Pool.QueryRow(r.Context(),
 		`SELECT COALESCE(cover_file_id::text, '') FROM tags WHERE id = $1 AND user_id = $2`,
 		tagID, userID,
 	).Scan(&oldCoverFileID)
-	if oldCoverFileID != "" && h.ShadowFS != nil {
-		if delErr := h.ShadowFS.Delete(r.Context(), userID, oldCoverFileID); delErr != nil {
-			slog.Warn("upload tag cover: ShadowFS.Delete old cover failed", "tag_id", tagID, "file_id", oldCoverFileID, "error", delErr)
-		}
-	}
 
 	// ShadowFS path (preferred) — legacy S3 as fallback.
 	var coverFileID string
@@ -425,6 +441,14 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	updated, err := h.DB.UpdateTag(r.Context(), tagID, userID, "", "", "", nil, nil, nil, nil, nil, nil, nil, false, &coverURL, thumbURLPtr)
 	if err != nil {
 		slog.Error("update tag cover_image_url failed", "error", err)
+		// DB update failed — clean up the new file we already stored.
+		if coverFileID != "" && h.ShadowFS != nil {
+			if delErr := h.ShadowFS.Delete(r.Context(), userID, coverFileID); delErr != nil {
+				slog.Warn("upload tag cover: ShadowFS.Delete new cover rollback failed", "tag_id", tagID, "file_id", coverFileID, "error", delErr)
+			}
+		} else if h.Storage != nil {
+			_ = h.Storage.DeleteFromBucket(r.Context(), bucket, s3Key)
+		}
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
 		return
 	}
@@ -436,6 +460,13 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 			coverFileID, tagID,
 		); dbErr != nil {
 			slog.Warn("tags: set cover_file_id failed", "tag_id", tagID, "error", dbErr)
+		}
+	}
+
+	// Delete old cover AFTER successful DB update to avoid orphaning new file on error.
+	if oldCoverFileID != "" && h.ShadowFS != nil {
+		if delErr := h.ShadowFS.Delete(r.Context(), userID, oldCoverFileID); delErr != nil {
+			slog.Warn("upload tag cover: ShadowFS.Delete old cover failed", "tag_id", tagID, "file_id", oldCoverFileID, "error", delErr)
 		}
 	}
 

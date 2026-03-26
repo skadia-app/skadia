@@ -232,6 +232,17 @@ func (h *Handler) autoAssignPhoto(
 	})
 	if err != nil {
 		slog.Error("upload media: insert photo failed", "error", err)
+		// Clean up the file we already stored to avoid orphans.
+		if photoFileID != "" && h.ShadowFS != nil {
+			if delErr := h.ShadowFS.Delete(r.Context(), userID, photoFileID); delErr != nil {
+				slog.Warn("upload media: ShadowFS.Delete photo rollback failed", "file_id", photoFileID, "error", delErr)
+			}
+		} else if h.Storage != nil {
+			_ = h.Storage.DeleteFromBucket(r.Context(), mediaBucket, s3Key)
+			if s3KeyThumb != s3Key {
+				_ = h.Storage.DeleteFromBucket(r.Context(), mediaBucket, s3KeyThumb)
+			}
+		}
 		errMsg := "failed to save photo"
 		return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
 	}
@@ -342,6 +353,14 @@ func (h *Handler) queueMediaFile(
 	queueID, err := h.DB.CreateImportQueueItem(r.Context(), qItem)
 	if err != nil {
 		slog.Error("upload media: create queue item failed", "error", err)
+		// Clean up the file we already stored to avoid orphans.
+		if queueFileID != "" && h.ShadowFS != nil {
+			if delErr := h.ShadowFS.Delete(r.Context(), userID, queueFileID); delErr != nil {
+				slog.Warn("upload media: ShadowFS.Delete queue rollback failed", "file_id", queueFileID, "error", delErr)
+			}
+		} else if h.Storage != nil {
+			_ = h.Storage.DeleteFromBucket(r.Context(), tempBucket, s3Key)
+		}
 		errMsg := "failed to create queue entry"
 		return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
 	}

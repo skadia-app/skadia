@@ -148,6 +148,12 @@ func (h *Handler) DeleteGear(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 
+	// Ownership check BEFORE any file cleanup to prevent IDOR.
+	if err := h.DB.VerifyGearOwnership(r.Context(), id, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		return
+	}
+
 	// Clean up associated document files before deleting the gear row
 	// (ON DELETE CASCADE removes gear_documents rows; we must remove files first).
 	docEntries, listErr := h.DB.ListGearDocumentFileIDsByGearID(r.Context(), id)
@@ -160,11 +166,19 @@ func (h *Handler) DeleteGear(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("delete gear: shadowfs delete document failed",
 					"gear_id", id, "file_id", e.FileID, "error", delErr)
 			}
-		} else if e.S3Bucket != "" && e.S3Key != "" && h.Storage != nil {
-			// Legacy S3 fallback
-			if delErr := h.Storage.DeleteFromBucket(r.Context(), e.S3Bucket, e.S3Key); delErr != nil {
-				slog.Warn("delete gear: s3 delete document failed",
-					"gear_id", id, "bucket", e.S3Bucket, "key", e.S3Key, "error", delErr)
+		} else if e.S3Bucket != "" && h.Storage != nil {
+			// Legacy S3 fallback — delete main file and thumbnail.
+			if e.S3Key != "" {
+				if delErr := h.Storage.DeleteFromBucket(r.Context(), e.S3Bucket, e.S3Key); delErr != nil {
+					slog.Warn("delete gear: s3 delete document failed",
+						"gear_id", id, "bucket", e.S3Bucket, "key", e.S3Key, "error", delErr)
+				}
+			}
+			if e.S3KeyThumb != "" {
+				if delErr := h.Storage.DeleteFromBucket(r.Context(), e.S3Bucket, e.S3KeyThumb); delErr != nil {
+					slog.Warn("delete gear: s3 delete document thumb failed",
+						"gear_id", id, "bucket", e.S3Bucket, "key", e.S3KeyThumb, "error", delErr)
+				}
 			}
 		}
 	}
@@ -336,11 +350,18 @@ func (h *Handler) DeleteComponent(w http.ResponseWriter, r *http.Request) {
 					slog.Warn("delete component: shadowfs delete document failed",
 						"component_id", id, "doc_id", doc.ID, "file_id", *doc.FileID, "error", delErr)
 				}
-			}
-			if doc.S3Bucket != "" && doc.S3Key != "" && h.Storage != nil {
-				if delErr := h.Storage.DeleteFromBucket(r.Context(), doc.S3Bucket, doc.S3Key); delErr != nil {
-					slog.Warn("delete component: s3 delete document failed",
-						"component_id", id, "doc_id", doc.ID, "bucket", doc.S3Bucket, "key", doc.S3Key, "error", delErr)
+			} else if doc.S3Bucket != "" && h.Storage != nil {
+				if doc.S3Key != "" {
+					if delErr := h.Storage.DeleteFromBucket(r.Context(), doc.S3Bucket, doc.S3Key); delErr != nil {
+						slog.Warn("delete component: s3 delete document failed",
+							"component_id", id, "doc_id", doc.ID, "bucket", doc.S3Bucket, "key", doc.S3Key, "error", delErr)
+					}
+				}
+				if doc.S3KeyThumb != "" {
+					if delErr := h.Storage.DeleteFromBucket(r.Context(), doc.S3Bucket, doc.S3KeyThumb); delErr != nil {
+						slog.Warn("delete component: s3 delete document thumb failed",
+							"component_id", id, "doc_id", doc.ID, "bucket", doc.S3Bucket, "key", doc.S3KeyThumb, "error", delErr)
+					}
 				}
 			}
 		}
@@ -648,6 +669,34 @@ func (h *Handler) DeleteServiceEvent(w http.ResponseWriter, r *http.Request) {
 	if err := h.DB.VerifyServiceEventOwnership(r.Context(), eventID, userID); err != nil {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "service event not found", r.URL.Path)
 		return
+	}
+
+	// Clean up document files linked to this service event before DB delete
+	// (ON DELETE CASCADE removes gear_documents rows; files must be removed first).
+	docEntries, listErr := h.DB.ListGearDocumentFileIDsByServiceEventID(r.Context(), eventID)
+	if listErr != nil {
+		slog.Warn("delete service event: list document file ids failed", "event_id", eventID, "error", listErr)
+	}
+	for _, e := range docEntries {
+		if h.ShadowFS != nil && e.FileID != "" {
+			if delErr := h.ShadowFS.Delete(r.Context(), userID, e.FileID); delErr != nil {
+				slog.Warn("delete service event: shadowfs delete document failed",
+					"event_id", eventID, "file_id", e.FileID, "error", delErr)
+			}
+		} else if e.S3Bucket != "" && h.Storage != nil {
+			if e.S3Key != "" {
+				if delErr := h.Storage.DeleteFromBucket(r.Context(), e.S3Bucket, e.S3Key); delErr != nil {
+					slog.Warn("delete service event: s3 delete document failed",
+						"event_id", eventID, "bucket", e.S3Bucket, "key", e.S3Key, "error", delErr)
+				}
+			}
+			if e.S3KeyThumb != "" {
+				if delErr := h.Storage.DeleteFromBucket(r.Context(), e.S3Bucket, e.S3KeyThumb); delErr != nil {
+					slog.Warn("delete service event: s3 delete document thumb failed",
+						"event_id", eventID, "bucket", e.S3Bucket, "key", e.S3KeyThumb, "error", delErr)
+				}
+			}
+		}
 	}
 
 	if err := h.DB.DeleteServiceEvent(r.Context(), eventID); err != nil {
@@ -993,6 +1042,18 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.DB.InsertGearDocument(r.Context(), doc)
 	if err != nil {
+		// Clean up the already-stored file to avoid orphans.
+		if docFileID != "" && h.ShadowFS != nil {
+			if delErr := h.ShadowFS.Delete(r.Context(), userID, docFileID); delErr != nil {
+				slog.Warn("gear document: shadowfs cleanup after db failure failed",
+					"file_id", docFileID, "error", delErr)
+			}
+		} else if doc.S3Key != "" && h.Storage != nil {
+			if delErr := h.Storage.DeleteFromBucket(r.Context(), doc.S3Bucket, doc.S3Key); delErr != nil {
+				slog.Warn("gear document: s3 cleanup after db failure failed",
+					"bucket", doc.S3Bucket, "key", doc.S3Key, "error", delErr)
+			}
+		}
 		slog.Error("insert gear document failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to save document", r.URL.Path)
 		return
@@ -1319,6 +1380,18 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 
 	result, err := h.DB.InsertGearDocument(r.Context(), doc)
 	if err != nil {
+		// Clean up the already-stored file to avoid orphans.
+		if compFileID != "" && h.ShadowFS != nil {
+			if delErr := h.ShadowFS.Delete(r.Context(), userID, compFileID); delErr != nil {
+				slog.Warn("component document: shadowfs cleanup after db failure failed",
+					"file_id", compFileID, "error", delErr)
+			}
+		} else if doc.S3Key != "" && h.Storage != nil {
+			if delErr := h.Storage.DeleteFromBucket(r.Context(), doc.S3Bucket, doc.S3Key); delErr != nil {
+				slog.Warn("component document: s3 cleanup after db failure failed",
+					"bucket", doc.S3Bucket, "key", doc.S3Key, "error", delErr)
+			}
+		}
 		slog.Error("insert component document failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to save document", r.URL.Path)
 		return

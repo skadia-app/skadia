@@ -2,9 +2,11 @@ package database
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // BackgroundJob repräsentiert eine laufende oder abgeschlossene Hintergrundberechnung.
@@ -31,6 +33,29 @@ func (db *DB) InsertBackgroundJob(ctx context.Context, userID, jobType string, e
 		VALUES ($1, $2, $3, $4, $5, 'running', $6)
 	`, id, userID, jobType, entityID, entityName, total)
 	return id, err
+}
+
+// InsertBackgroundJobGuarded inserts a new running job only if no job of the same
+// type is already running. It is race-free under READ COMMITTED because
+// idx_bg_jobs_one_running (partial unique index on job_type WHERE status='running')
+// causes the second concurrent INSERT to fail with a unique_violation (23505).
+// Returns ("", false, nil) when a job is already running.
+// Returns (jobID, true, nil) when the job was successfully inserted.
+func (db *DB) InsertBackgroundJobGuarded(ctx context.Context, userID, jobType string, entityID, entityName *string, total int64) (string, bool, error) {
+	id := uuid.New().String()
+	_, err := db.Pool.Exec(ctx, `
+		INSERT INTO background_jobs (id, user_id, job_type, entity_id, entity_name, status, progress_total)
+		VALUES ($1, $2, $3, $4, $5, 'running', $6)
+	`, id, userID, jobType, entityID, entityName, total)
+	if err != nil {
+		// Partial unique index idx_bg_jobs_one_running fires when a running job
+		// of the same type already exists — treat this as already_running, not an error.
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return id, true, nil
 }
 
 // UpdateBackgroundJobPhase setzt die aktuelle Phase eines Jobs ("download", "import", "index").

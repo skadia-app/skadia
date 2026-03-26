@@ -170,30 +170,62 @@ func (h *Handler) DuplicateRoute(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusCreated, map[string]string{"id": newID})
 }
 
-// cleanupRoutePhotoFiles deletes ShadowFS files for all photos belonging to a
-// route. Must be called BEFORE the route is deleted (CASCADE would drop the
-// route_photos rows and lose the file_id references).
+// cleanupRoutePhotoFiles deletes ShadowFS (or legacy S3) files for all photos
+// belonging to a route. Must be called BEFORE the route is deleted (CASCADE
+// would drop the route_photos rows and lose the file_id / s3_key references).
 func (h *Handler) cleanupRoutePhotoFiles(ctx context.Context, routeID, userID string) {
-	if h.ShadowFS == nil {
+	if h.ShadowFS != nil {
+		rows, err := h.DB.Pool.Query(ctx,
+			`SELECT COALESCE(file_id::text, '') FROM route_photos WHERE route_id = $1 AND user_id = $2`,
+			routeID, userID,
+		)
+		if err != nil {
+			slog.Warn("route delete: query route_photos file_ids failed", "route_id", routeID, "error", err)
+			return
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var fileID string
+			if err := rows.Scan(&fileID); err != nil || fileID == "" {
+				continue
+			}
+			if delErr := h.ShadowFS.Delete(ctx, userID, fileID); delErr != nil {
+				slog.Warn("route delete: ShadowFS.Delete route photo failed", "route_id", routeID, "file_id", fileID, "error", delErr)
+			}
+		}
 		return
 	}
+
+	// Legacy S3 fallback when ShadowFS is not configured.
+	if h.Storage == nil {
+		return
+	}
+	bucket := mediaBucketName()
 	rows, err := h.DB.Pool.Query(ctx,
-		`SELECT COALESCE(file_id::text, '') FROM route_photos WHERE route_id = $1 AND user_id = $2`,
+		`SELECT COALESCE(s3_key,''), COALESCE(s3_key_thumb,''), COALESCE(s3_key_preview,'')
+		 FROM route_photos WHERE route_id = $1 AND user_id = $2`,
 		routeID, userID,
 	)
 	if err != nil {
-		slog.Warn("route delete: query route_photos file_ids failed", "route_id", routeID, "error", err)
+		slog.Warn("route delete: query route_photos s3_keys failed", "route_id", routeID, "error", err)
 		return
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var fileID string
-		if err := rows.Scan(&fileID); err != nil || fileID == "" {
+		var key, keyThumb, keyPreview string
+		if err := rows.Scan(&key, &keyThumb, &keyPreview); err != nil {
 			continue
 		}
-		if delErr := h.ShadowFS.Delete(ctx, userID, fileID); delErr != nil {
-			slog.Warn("route delete: ShadowFS.Delete route photo failed", "route_id", routeID, "file_id", fileID, "error", delErr)
+		if key != "" {
+			_ = h.Storage.DeleteFromBucket(ctx, bucket, key)
+		}
+		if keyThumb != "" && keyThumb != key {
+			_ = h.Storage.DeleteFromBucket(ctx, bucket, keyThumb)
+		}
+		if keyPreview != "" && keyPreview != key {
+			_ = h.Storage.DeleteFromBucket(ctx, bucket, keyPreview)
 		}
 	}
 }

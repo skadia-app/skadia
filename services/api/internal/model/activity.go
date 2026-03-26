@@ -1727,6 +1727,7 @@ type GearDocument struct {
 	FileID           *string   `json:"file_id,omitempty"` // user_files registry ID (ShadowFS)
 	S3Bucket         string    `json:"-"`
 	S3Key            string    `json:"-"`
+	S3KeyThumb       string    `json:"-"` // thumbnail key (PDF preview)
 	ExtractedText    *string   `json:"extracted_text,omitempty"`
 	ProcessingStatus string    `json:"processing_status"`
 	CreatedAt        time.Time `json:"created_at"`

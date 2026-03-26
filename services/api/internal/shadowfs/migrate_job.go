@@ -859,6 +859,11 @@ func (m *MigrateJob) RunFileMove(ctx context.Context, jobID string) error {
 
 // moveOneFile moves a single local file to its Library path and updates the registry.
 func (m *MigrateJob) moveOneFile(ctx context.Context, e moveEntry) error {
+	// Reject paths with traversal components before any filesystem access.
+	if strings.Contains(e.storagePath, "..") {
+		return fmt.Errorf("shadowfs migrate: path traversal rejected in source path: %s", e.storagePath)
+	}
+
 	// Compute the target Library path.
 	userDir, err := m.getUserDir(ctx, e.userID)
 	if err != nil {
@@ -1217,6 +1222,14 @@ func (m *MigrateJob) RunRollback(ctx context.Context, jobID string) error {
 		for _, j := range batch {
 			if ctx.Err() != nil {
 				return ctx.Err()
+			}
+
+			// Reject paths with traversal components before any filesystem access.
+			if strings.Contains(j.oldPath, "..") || strings.Contains(j.newPath, "..") {
+				slog.Warn("shadowfs migrate rollback: path traversal rejected",
+					"old_path", j.oldPath, "new_path", j.newPath)
+				failed++
+				continue
 			}
 
 			newFull := filepath.Join(m.basePath, j.newPath)

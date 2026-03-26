@@ -535,6 +535,188 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 		slog.Error("data export: user_file_schemas query failed", "error", err)
 	}
 
+	// Gear components
+	gcRows, err := h.DB.Pool.Query(ctx,
+		`SELECT gc.id, gc.gear_id, gc.parent_component_id, gc.name, gc.type,
+		        gc.brand, gc.model, gc.total_distance_m, gc.total_elevation_gain_m,
+		        gc.total_time_s, gc.installed_at, gc.removed_at, gc.is_retired,
+		        gc.status, gc.purchase_price, gc.purchase_date, gc.weight_g,
+		        gc.serial_number, gc.source_document_id, gc.notes
+		 FROM gear_components gc
+		 JOIN gear g ON g.id = gc.gear_id
+		 WHERE g.user_id = $1`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "gear_components.json", gcRows)
+	} else {
+		slog.Error("data export: gear_components query failed", "error", err)
+	}
+
+	// Component assignments
+	caRows, err := h.DB.Pool.Query(ctx,
+		`SELECT ca.id, ca.component_id, ca.gear_id, ca.installed_at, ca.removed_at,
+		        ca.distance_m, ca.elevation_gain_m, ca.time_s, ca.notes
+		 FROM component_assignments ca
+		 JOIN gear_components gc ON gc.id = ca.component_id
+		 JOIN gear g ON g.id = gc.gear_id
+		 WHERE g.user_id = $1`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "component_assignments.json", caRows)
+	} else {
+		slog.Error("data export: component_assignments query failed", "error", err)
+	}
+
+	// Gear service events
+	gseRows, err := h.DB.Pool.Query(ctx,
+		`SELECT gse.id, gse.component_id, gse.interval_id, gse.performed_at,
+		        gse.distance_at_m, gse.description, gse.cost, gse.notes, gse.created_at
+		 FROM gear_service_events gse
+		 JOIN gear_components gc ON gc.id = gse.component_id
+		 JOIN gear g ON g.id = gc.gear_id
+		 WHERE g.user_id = $1
+		 ORDER BY gse.performed_at DESC`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "gear_service_events.json", gseRows)
+	} else {
+		slog.Error("data export: gear_service_events query failed", "error", err)
+	}
+
+	// Bike setups
+	bsRows, err := h.DB.Pool.Query(ctx,
+		`SELECT bs.id, bs.gear_id, bs.name, bs.rider_weight_kg, bs.intended_use,
+		        bs.notes, bs.suspension_front, bs.suspension_rear, bs.tires,
+		        bs.contact_points, bs.brakes, bs.drivetrain, bs.is_active,
+		        bs.created_at, bs.updated_at
+		 FROM bike_setups bs
+		 JOIN gear g ON g.id = bs.gear_id
+		 WHERE g.user_id = $1`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "bike_setups.json", bsRows)
+	} else {
+		slog.Error("data export: bike_setups query failed", "error", err)
+	}
+
+	// Activity geo tags
+	agtRows, err := h.DB.Pool.Query(ctx,
+		`SELECT id, activity_id, category, name, osm_id, lat, lng, ele,
+		        dist_m, duration_min, meta, created_at
+		 FROM activity_geo_tags
+		 WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		 ORDER BY activity_id, created_at`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "activity_geo_tags.json", agtRows)
+	} else {
+		slog.Error("data export: activity_geo_tags query failed", "error", err)
+	}
+
+	// Activity climbs
+	aclRows, err := h.DB.Pool.Query(ctx,
+		`SELECT id, activity_id, climb_number, start_distance_m, end_distance_m,
+		        elevation_gain_m, length_m, avg_gradient_pct, max_gradient_pct, category
+		 FROM activity_climbs
+		 WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		 ORDER BY activity_id, climb_number`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "activity_climbs.json", aclRows)
+	} else {
+		slog.Error("data export: activity_climbs query failed", "error", err)
+	}
+
+	// Activity stops
+	astRows, err := h.DB.Pool.Query(ctx,
+		`SELECT id, activity_id, started_at, ended_at, duration_s,
+		        ST_Y(location) AS lat, ST_X(location) AS lng, name,
+		        poi_type, poi_name, poi_osm_id, poi_category, confidence
+		 FROM activity_stops
+		 WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		 ORDER BY activity_id, started_at`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "activity_stops.json", astRows)
+	} else {
+		slog.Error("data export: activity_stops query failed", "error", err)
+	}
+
+	// Activity R-R intervals
+	rrRows, err := h.DB.Pool.Query(ctx,
+		`SELECT rr.activity_id, rr.seq, rr.rr_ms
+		 FROM activity_rr_intervals rr
+		 WHERE rr.activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		 ORDER BY rr.activity_id, rr.seq`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "activity_rr_intervals.json", rrRows)
+	} else {
+		slog.Error("data export: activity_rr_intervals query failed", "error", err)
+	}
+
+	// Heatmap points
+	hpRows, err := h.DB.Pool.Query(ctx,
+		`SELECT id, activity_id, sport_type, sub_type, activity_date,
+		        ST_Y(geom) AS lat, ST_X(geom) AS lng
+		 FROM heatmap_points WHERE user_id = $1`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "heatmap_points.json", hpRows)
+	} else {
+		slog.Error("data export: heatmap_points query failed", "error", err)
+	}
+
+	// Segment versions
+	svRows, err := h.DB.Pool.Query(ctx,
+		`SELECT sv.id, sv.segment_id, sv.version_number,
+		        sv.valid_from, sv.change_note, sv.created_by, sv.created_at
+		 FROM segment_versions sv
+		 WHERE sv.created_by = $1
+		 ORDER BY sv.segment_id, sv.version_number`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "segment_versions.json", svRows)
+	} else {
+		slog.Error("data export: segment_versions query failed", "error", err)
+	}
+
+	// Segment favorites
+	sfRows, err := h.DB.Pool.Query(ctx,
+		`SELECT id, segment_id, created_at
+		 FROM segment_favorites WHERE user_id = $1
+		 ORDER BY created_at DESC`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "segment_favorites.json", sfRows)
+	} else {
+		slog.Error("data export: segment_favorites query failed", "error", err)
+	}
+
+	// OAuth connections (tokens excluded for security)
+	ocRows, err := h.DB.Pool.Query(ctx,
+		`SELECT id, provider, provider_email, scopes, token_expiry, created_at, updated_at
+		 FROM oauth_connections WHERE user_id = $1`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "oauth_connections.json", ocRows)
+	} else {
+		slog.Error("data export: oauth_connections query failed", "error", err)
+	}
+
+	// User files (metadata only — binary content exported via ShadowFS above)
+	ufRows, err := h.DB.Pool.Query(ctx,
+		`SELECT id, file_type, storage_backend, storage_path, content_type,
+		        file_name, size_bytes, file_hash, parent_type, parent_id,
+		        has_sidecar, status, created_at, updated_at
+		 FROM user_files WHERE user_id = $1
+		 ORDER BY created_at DESC`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "user_files.json", ufRows)
+	} else {
+		slog.Error("data export: user_files query failed", "error", err)
+	}
+
+	// File attachments
+	faRows, err := h.DB.Pool.Query(ctx,
+		`SELECT fa.id, fa.file_id, fa.entity_type, fa.entity_id, fa.created_at
+		 FROM file_attachments fa
+		 WHERE fa.user_id = $1
+		 ORDER BY fa.created_at DESC`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "file_attachments.json", faRows)
+	} else {
+		slog.Error("data export: file_attachments query failed", "error", err)
+	}
+
 	// Health data (TimescaleDB hypertables — SELECT * is intentional for full export)
 	var exportedTables []string
 	for _, table := range database.AllHealthTables() {
@@ -574,6 +756,11 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 			"pmc_daily", "custom_maps", "custom_map_markers",
 			"automation_rules", "notifications", "import_log",
 			"user_enrichment_settings", "ml_user_settings", "user_file_schemas",
+			"gear_components", "component_assignments", "gear_service_events",
+			"bike_setups", "activity_geo_tags", "activity_climbs",
+			"activity_stops", "activity_rr_intervals", "heatmap_points",
+			"segment_versions", "segment_favorites", "oauth_connections",
+			"user_files", "file_attachments",
 		}, exportedTables...),
 	}
 	writeZipJSON(zw, "manifest.json", manifest)
