@@ -84,9 +84,20 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 	hdr := csvHeader(rows[0])
 	total := len(rows) - 1
 
+	// L53: Warn when key columns are missing — likely a non-German locale export.
+	for _, col := range []string{"Dateiname", "Aktivitäts-ID", "Name der Aktivität"} {
+		if _, ok := hdr[col]; !ok {
+			slog.Warn("strava activities: expected CSV column not found — export may use a different locale",
+				"column", col)
+		}
+	}
+
 	slog.Info("strava activities: found rows", "count", total)
 
 	for i, row := range rows[1:] {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		if params.OnProgress != nil {
 			params.OnProgress(i+1, total, fmt.Sprintf("activities: %d/%d %s", i+1, total, colVal(row, hdr["Name der Aktivität"])))
 		}
@@ -310,7 +321,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 							UserID:      params.UserID,
 							FileType:    "activity",
 							ContentType: "application/octet-stream",
-							FileName:    filename,
+							FileName:    filepath.Base(filename), // L48: strip directory prefix
 							SizeBytes:   int64(len(fileBytes)),
 							FileHash:    msHash,
 							Tags: map[string]string{
@@ -346,7 +357,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 						result.Errors = append(result.Errors, fmt.Sprintf("multisport strava_id=%d: %s", stravaID, msErr))
 						tracker.Error(ctx, msErr)
 					} else {
-						result.Imported++
+						result.Imported += len(sessions) // L51: count each child session
 						tracker.Completed(ctx, "")
 					}
 					continue
@@ -503,6 +514,10 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			continue
 		}
 		if actResult.Status == "enriched" || actResult.Status == "replaced" {
+			// M21: Run PostProcess for enriched/replaced too so heatmap+streams stay up to date.
+			if postErr := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileID, format, filename); postErr != nil {
+				slog.Warn("strava activities: PostProcess failed (enriched/replaced)", "strava_id", stravaID, "error", postErr)
+			}
 			result.Skipped++ // counts as "not newly created" for import stats
 			tracker.Completed(ctx, actResult.ActivityID)
 			continue
@@ -520,7 +535,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 					UserID:      params.UserID,
 					FileType:    "activity",
 					ContentType: contentType,
-					FileName:    filename,
+					FileName:    filepath.Base(filename), // L48: strip directory prefix
 					SizeBytes:   int64(len(fileBytes)),
 					FileHash:    hashStr,
 					Tags: map[string]string{
@@ -606,9 +621,18 @@ func readStravaActivityFile(baseDir, relPath string) ([]byte, string, error) {
 	if !strings.HasPrefix(cleanFull, cleanBase) {
 		return nil, "", fmt.Errorf("path traversal blocked: %q escapes base %q", relPath, baseDir)
 	}
-	raw, err := os.ReadFile(cleanFull)
+	// L43: Size-limited read to prevent OOM on unexpectedly large files.
+	f, err := os.Open(cleanFull)
 	if err != nil {
 		return nil, "", fmt.Errorf("read file %s: %w", fullPath, err)
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, maxStravaFileSize+1))
+	if err != nil {
+		return nil, "", fmt.Errorf("read file %s: %w", fullPath, err)
+	}
+	if int64(len(raw)) > maxStravaFileSize {
+		return nil, "", fmt.Errorf("file %s exceeds maximum size of %d bytes", relPath, maxStravaFileSize)
 	}
 
 	// Decompress gzip if needed
@@ -619,10 +643,15 @@ func readStravaActivityFile(baseDir, relPath string) ([]byte, string, error) {
 			return nil, "", fmt.Errorf("gzip open %s: %w", relPath, err)
 		}
 		defer gr.Close()
-		raw, err = io.ReadAll(io.LimitReader(gr, maxStravaFileSize))
-		if err != nil {
-			return nil, "", fmt.Errorf("gzip read %s: %w", relPath, err)
+		// L44: Error on truncation by reading one byte beyond the limit.
+		decompressed, readErr := io.ReadAll(io.LimitReader(gr, maxStravaFileSize+1))
+		if readErr != nil {
+			return nil, "", fmt.Errorf("gzip read %s: %w", relPath, readErr)
 		}
+		if int64(len(decompressed)) > maxStravaFileSize {
+			return nil, "", fmt.Errorf("gzip file %s exceeds maximum decompressed size of %d bytes", relPath, maxStravaFileSize)
+		}
+		raw = decompressed
 		// Strip .gz suffix for format detection
 		lower = strings.TrimSuffix(lower, ".gz")
 	}

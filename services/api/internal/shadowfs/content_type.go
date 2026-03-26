@@ -7,7 +7,9 @@ import (
 )
 
 // DetectContentType determines the MIME type for a file.
-// Priority: explicit override > extension > magic bytes.
+// Priority: explicit override > extension > magic bytes > application/octet-stream fallback.
+// explicit: caller-supplied MIME type (e.g. stored Content-Type from S3); overrides all other detection.
+// first512: up to 512 bytes of file content used for magic-byte sniffing when extension lookup fails.
 func DetectContentType(fileName string, explicit string, first512 []byte) string {
 	if explicit != "" {
 		return explicit

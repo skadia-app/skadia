@@ -149,6 +149,10 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 					httputil.WriteError(w, http.StatusInternalServerError, "Upload Error", "failed to store file", r.URL.Path)
 					return
 				}
+			} else {
+				msTracker.Error(r.Context(), fmt.Errorf("no storage configured"))
+				httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "no storage backend configured", r.URL.Path)
+				return
 			}
 
 			msResult, msErr := h.ImportService.ProcessMultisport(
@@ -266,6 +270,10 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 				httputil.WriteError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
 				return
 			}
+		} else {
+			tracker.Error(r.Context(), fmt.Errorf("no storage configured"))
+			httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "no storage backend configured", r.URL.Path)
+			return
 		}
 
 		fitActivity, _ := h.DB.GetActivity(r.Context(), fitResult.ActivityID)
@@ -419,6 +427,10 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusInternalServerError, "Storage Error", "failed to store original file", r.URL.Path)
 			return
 		}
+	} else {
+		tracker.Error(r.Context(), fmt.Errorf("no storage configured"))
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "no storage backend configured", r.URL.Path)
+		return
 	}
 
 	gpxActivity, _ := h.DB.GetActivity(r.Context(), gpxResult.ActivityID)

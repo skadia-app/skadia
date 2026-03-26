@@ -117,8 +117,7 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i))
 				if err := h.reprocessActivity(ctx, child.ID, child.UserID, nil, 0, false, nil); err != nil {
 					slog.Error("reprocess multisport: child failed", "parent_id", parentID, "child_id", child.ID, "error", err)
-					_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
-					return
+					// Continue with remaining children — one failure must not abort the whole job.
 				}
 			}
 			_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, "Zusammenfassen")
@@ -162,19 +161,22 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 	jobID, jobErr := h.DB.InsertBackgroundJob(r.Context(), userID, "activity_recompute_all", &id, activityName, 1)
 	if jobErr != nil {
 		slog.Warn("reprocess: failed to insert background job", "id", id, "error", jobErr)
+		// Use a random ID so the client always gets a non-empty job_id to reference,
+		// even if the background_jobs row could not be created (e.g. DB connectivity issue).
+		jobID = uuid.New().String()
 	}
 
 	go func() {
 		ctx := context.Background()
 		if err := h.reprocessActivity(ctx, id, userID, scope, smoothWindow, false, nil); err != nil {
 			slog.Error("reprocess: failed", "id", id, "error", err)
-			if jobID != "" {
+			if jobErr == nil {
 				_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
 			}
 			return
 		}
 		slog.Info("reprocess: activity updated", "id", id)
-		if jobID != "" {
+		if jobErr == nil {
 			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, 1)
 			_ = h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 		}
@@ -393,6 +395,9 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 }
 
 // RecomputeStatus returns the current state of the async recompute-all job.
+// NOTE: The state is global (process-wide) — not scoped per user. In a
+// single-admin deployment this is intentional. Multi-admin setups would need
+// per-user job state, tracked via background_jobs table instead.
 //
 // GET /api/v1/activities/recompute-status
 func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {

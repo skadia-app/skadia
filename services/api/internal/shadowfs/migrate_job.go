@@ -134,7 +134,7 @@ func (m *MigrateJob) migrateActivities(ctx context.Context) (int, error) {
 			if r.localFilePath != nil && *r.localFilePath != "" {
 				absPath := *r.localFilePath
 				if m.shadowFSBase != "" && !strings.HasPrefix(absPath, "/") {
-					absPath = m.shadowFSBase + "/" + absPath
+					absPath = filepath.Join(m.shadowFSBase, absPath)
 				}
 				if _, statErr := os.Stat(absPath); statErr == nil {
 					if err := m.registerActivityLocal(ctx, r.id, r.userID, *r.localFilePath); err != nil {
@@ -912,11 +912,15 @@ func (m *MigrateJob) moveOneFile(ctx context.Context, e moveEntry) error {
 	}
 
 	// Write pending journal entry before making any filesystem changes.
+	// M24: Use DO NOTHING to avoid downgrading a 'done' entry back to 'pending'
+	// in the unlikely event of a concurrent run. A pre-existing 'done' entry
+	// means the file was already moved successfully; DO NOTHING preserves that.
+	// A pre-existing 'pending' entry means a previous crash; recoverPendingMoves
+	// has already cleared it before this point, so a fresh pending write is safe.
 	if _, err := m.pool.Exec(ctx, `
 		INSERT INTO migration_shadowfs_journal (source_table, source_id, phase, status, user_id, file_id, old_path, new_path)
 		VALUES ('user_files', $1::uuid, 'move', 'pending', $2, $3, $4, $5)
-		ON CONFLICT (source_table, source_id, phase) DO UPDATE
-		    SET status = 'pending', new_path = EXCLUDED.new_path, old_path = EXCLUDED.old_path`,
+		ON CONFLICT (source_table, source_id, phase) DO NOTHING`,
 		e.fileID, e.userID, e.fileID, e.storagePath, newRelPath); err != nil {
 		return fmt.Errorf("journal pending: %w", err)
 	}
@@ -1075,6 +1079,20 @@ func (m *MigrateJob) moveSidecar(oldFull, newFull, fileType string) {
 	for _, sc := range sidecars {
 		if _, err := os.Stat(sc.old); err != nil {
 			continue // sidecar doesn't exist
+		}
+		// L64: Validate that both sidecar paths remain within basePath.
+		// The existing sc.old path can be fully resolved via validateWatcherPath.
+		// The new sc.new path may not exist yet (it is created below via MkdirAll),
+		// so we apply a lighter traversal-component check instead.
+		if err := validateWatcherPath(sc.old, m.basePath); err != nil {
+			slog.Warn("shadowfs migrate: sidecar source path validation failed — skipping",
+				"path", sc.old, "error", err)
+			continue
+		}
+		if strings.Contains(sc.new, "..") {
+			slog.Warn("shadowfs migrate: sidecar target path contains traversal component — skipping",
+				"path", sc.new)
+			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(sc.new), 0o755); err != nil {
 			slog.Warn("shadowfs migrate: mkdir sidecar", "path", sc.new, "error", err)
@@ -1326,6 +1344,12 @@ func isCrossDevice(err error) bool {
 }
 
 // copyFile copies src to dst preserving permissions. dst is created with O_EXCL.
+//
+// L59: There is a narrow TOCTOU window between the caller's os.Remove(dst) and
+// this function's O_EXCL open — another process could create dst in that gap.
+// In practice this is not exploitable: the library directory is only accessible
+// to the API process inside its container. O_EXCL is retained as a correctness
+// guard (detects unexpected collisions as errors rather than silently overwriting).
 func copyFile(src, dst string) (err error) {
 	sf, err := os.Open(src)
 	if err != nil {

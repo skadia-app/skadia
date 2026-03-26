@@ -4,6 +4,18 @@ import { apiClient } from './client'
 
 export type FileType = 'activity' | 'media' | 'document' | 'health' | 'route'
 
+/** Human-readable labels for all known file types (i18n-ready placeholder). */
+export const FILE_TYPE_LABELS: Record<string, string> = {
+  activity: 'Aktivitäten',
+  media: 'Medien',
+  document: 'Dokumente',
+  health: 'Gesundheit',
+  route: 'Routen',
+  report: 'Berichte',
+  edit: 'Bearbeitungen',
+  chat: 'Chat',
+}
+
 export interface FileSchema {
   file_type: FileType
   schema: string

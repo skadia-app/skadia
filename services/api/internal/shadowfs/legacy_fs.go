@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // ShadowFSConfig holds the configuration for the legacy shadow file system.
@@ -30,13 +29,9 @@ type ShadowMeta struct {
 }
 
 // validatePath ensures relativePath stays within basePath to prevent path traversal.
+// Delegates to ValidateRelPath (local.go) which also checks symlink escapes.
 func validatePath(basePath, relativePath string) error {
-	resolved := filepath.Clean(filepath.Join(basePath, relativePath))
-	cleanBase := filepath.Clean(basePath) + string(os.PathSeparator)
-	if !strings.HasPrefix(resolved, cleanBase) && resolved != filepath.Clean(basePath) {
-		return fmt.Errorf("path traversal detected: %s", relativePath)
-	}
-	return nil
+	return ValidateRelPath(basePath, relativePath)
 }
 
 // EnsureDir creates all directories along the given path.

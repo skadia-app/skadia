@@ -137,7 +137,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 
 		// Update status if retired
 		if status == "retired" {
-			if err := params.DB.UpdateGearStatus(ctx, gear.ID, status); err != nil {
+			if err := params.DB.UpdateGearStatus(ctx, gear.ID, params.UserID, status); err != nil {
 				slog.Warn("garmin gear: update status failed", "error", err)
 			}
 		}

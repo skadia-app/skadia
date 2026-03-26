@@ -58,7 +58,9 @@ func (h *Handler) GetShadowFSSettingsCompat(w http.ResponseWriter, r *http.Reque
 		HotfolderEnabled: hotfolderEnabled,
 	}
 	if h.WatcherManager != nil {
-		resp.HotfolderPath = h.WatcherManager.UserPath(userID)
+		if p, err := h.WatcherManager.UserPath(userID); err == nil {
+			resp.HotfolderPath = p
+		}
 	} else if h.ShadowFSConfig != nil {
 		resp.HotfolderPath = h.ShadowFSConfig.HotfolderPath
 	}
@@ -168,7 +170,9 @@ func (h *Handler) GetShadowFSSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.WatcherManager != nil {
-		resp.HotfolderPath = h.WatcherManager.UserPath(userID)
+		if p, err := h.WatcherManager.UserPath(userID); err == nil {
+			resp.HotfolderPath = p
+		}
 	} else if h.ShadowFSConfig != nil {
 		resp.HotfolderPath = h.ShadowFSConfig.HotfolderPath
 	}
@@ -251,7 +255,9 @@ func (h *Handler) UpdateShadowFSSettings(w http.ResponseWriter, r *http.Request)
 		HotfolderEnabled: hotfolderEnabled,
 	}
 	if h.WatcherManager != nil {
-		resp.HotfolderPath = h.WatcherManager.UserPath(userID)
+		if p, err := h.WatcherManager.UserPath(userID); err == nil {
+			resp.HotfolderPath = p
+		}
 	} else if h.ShadowFSConfig != nil {
 		resp.HotfolderPath = h.ShadowFSConfig.HotfolderPath
 	}
@@ -353,6 +359,17 @@ func (h *Handler) ExecuteRename(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := shadowfs.ValidateRelPath(basePath, item.NewPath); err != nil {
 			slog.Warn("rename: new path validation failed", "path", item.NewPath, "error", err)
+			continue
+		}
+		// DB ownership check: old_path must be a known active file belonging to this user.
+		var ownerCount int
+		_ = h.DB.Pool.QueryRow(r.Context(),
+			`SELECT COUNT(*) FROM user_files WHERE user_id = $1 AND storage_path = $2 AND status = 'active'`,
+			userID, item.OldPath,
+		).Scan(&ownerCount)
+		if ownerCount == 0 {
+			slog.Warn("rename: old path not found in user_files, skipping",
+				"user_id", userID, "old", item.OldPath)
 			continue
 		}
 		validItems = append(validItems, item)

@@ -1482,6 +1482,3 @@ func fileExtFromContentType(ct, originalFilename string) string {
 }
 
 func newUUID() string { return uuid.New().String() }
-
-//go:fix inline
-func strPtr(s string) *string { return new(s) }

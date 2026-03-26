@@ -111,6 +111,9 @@ func sanitize(s string) string {
 	// Strip leading dots from individual path components (e.g. ".hidden" -> "hidden").
 	// Intermediate dots within a component (e.g. "file.fit") are intentionally kept.
 	// Path-level dot-dot ("..") is blocked above; full path validation is done by validateLocalPath.
+	// NOTE: Trailing dots (e.g. "name.") are intentionally not stripped. On Linux (the only supported
+	// deployment platform) trailing dots are valid filename characters. On Windows they are illegal, but
+	// this service is Linux-only, so the additional complexity is not warranted.
 	s = strings.TrimLeft(s, ".")
 	return strings.TrimSpace(s)
 }

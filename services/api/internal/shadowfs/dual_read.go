@@ -53,6 +53,10 @@ func ResolveActivityFile(ctx context.Context, fs ShadowFS, pool *pgxpool.Pool, a
 	// Legacy fallback: direct filesystem path from pre-ShadowFS era.
 	// Column is dropped in migration 000233. Validate before opening:
 	// the path was written by trusted server code, but sanitize for defense-in-depth.
+	// NOTE: This path is accepted as absolute without a basePath anchor. This is intentional —
+	// the legacy schema stores absolute OS paths and there is no single basePath to check against.
+	// The column is dropped in migration 000233, so this code path is temporary. The guard below
+	// blocks ".." traversal. Container isolation provides the remaining defense.
 	if localPath != nil && *localPath != "" {
 		cleaned := filepath.Clean(*localPath)
 		if !filepath.IsAbs(cleaned) || strings.Contains(cleaned, "..") {

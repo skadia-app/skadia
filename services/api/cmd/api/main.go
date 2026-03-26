@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"log/slog"
 	"net/http"
 	_ "net/http/pprof"
@@ -41,13 +40,15 @@ func main() {
 		Level: slog.LevelInfo,
 	})))
 
-	// pprof server on :6060 (default http mux)
-	go func() {
-		slog.Info("pprof server listening", "addr", "127.0.0.1:6060")
-		if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
-			slog.Error("pprof server failed", "error", err)
-		}
-	}()
+	// L69: pprof server gated behind ENABLE_PPROF=true to avoid unintentional exposure.
+	if os.Getenv("ENABLE_PPROF") == "true" {
+		go func() {
+			slog.Info("pprof server listening", "addr", "127.0.0.1:6060")
+			if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
+				slog.Error("pprof server failed", "error", err)
+			}
+		}()
+	}
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -408,11 +409,7 @@ func main() {
 			if cfg.DevAuth {
 				r.Use(middleware.DevAuthMiddleware)
 			} else {
-				var jwtSecret []byte
-				if cfg.JWTSecret != "" {
-					jwtSecret, _ = hex.DecodeString(cfg.JWTSecret)
-				}
-				jwtAuth := middleware.NewJWTAuth(jwtSecret)
+				jwtAuth := middleware.NewJWTAuth(cfg.JWTSecretBytes)
 				r.Use(jwtAuth.Middleware)
 			}
 			r.Use(middleware.RequirePasswordChanged())
@@ -448,11 +445,7 @@ func main() {
 			slog.Warn("DEV_AUTH enabled – using fixed dev user ID, NOT for production")
 			r.Use(middleware.DevAuthMiddleware)
 		} else {
-			var jwtSecret []byte
-			if cfg.JWTSecret != "" {
-				jwtSecret, _ = hex.DecodeString(cfg.JWTSecret) // already validated by auth.ValidateConfig
-			}
-			jwtAuth := middleware.NewJWTAuth(jwtSecret)
+			jwtAuth := middleware.NewJWTAuth(cfg.JWTSecretBytes)
 			r.Use(jwtAuth.Middleware)
 			slog.Info("JWT auth enabled", "hs256", cfg.JWTSecret != "")
 		}

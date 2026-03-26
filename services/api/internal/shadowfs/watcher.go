@@ -28,11 +28,12 @@ const maxPendingSizes = 10_000
 // allowedExtensions is the set of activity file extensions that the watcher will
 // register as new files. Other files are ignored to prevent unrelated files
 // (logs, temp data, thumbnails) from polluting the user_files registry.
+// L10/L58: Bare ".gz" is excluded — it is too permissive (any gzipped file would be
+// picked up). Only compound extensions (.fit.gz / .gpx.gz / .tcx.gz) are accepted.
 var allowedExtensions = map[string]bool{
 	".fit":     true,
 	".gpx":     true,
 	".tcx":     true,
-	".gz":      true,
 	".fit.gz":  true,
 	".gpx.gz":  true,
 	".tcx.gz":  true,
@@ -70,6 +71,12 @@ type LibraryWatcher struct {
 	// pendingSizes tracks files that were newly detected but need a second
 	// poll cycle to confirm size stability (i.e. the file is fully written).
 	// Key: absolute path, Value: size at first detection.
+	//
+	// M25: Symlinks report the size of their target (via os.Stat). If a symlink
+	// target is still being written, the observed size may change between cycles
+	// before validateWatcherPath rejects it. This is a 2-cycle window: the symlink
+	// is rejected on the cycle where size becomes stable. No registry entry is
+	// created; the window is acceptable given the container isolation assumption.
 	pendingSizes map[string]int64
 }
 
@@ -99,11 +106,13 @@ func (w *LibraryWatcher) IgnorePath(path string) {
 // The watcher detects real-time changes; the reconciler handles inconsistencies
 // from crashes, manual edits, or missed events. Both are needed for full consistency.
 //
-// The watcher uses directory mtime to detect changes, which on some
-// filesystems does not propagate when files in deep subdirectories change.
-// This is acceptable because the Reconciler performs periodic full-scans.
-// If sub-second detection of deep subdirectory changes becomes necessary,
-// consider adding an occasional forced full-scan (e.g. every 10th cycle).
+// L57: The watcher uses directory mtime to detect changes. On Linux, renaming or
+// creating a file in a direct subdirectory updates that subdirectory's mtime, which
+// propagates up to the user root directory. However, changes in deeper subdirectories
+// (e.g. user/activities/2026/) do NOT propagate to the user root mtime on all
+// filesystems (e.g. btrfs subvolumes). This is acceptable: the Reconciler performs
+// authoritative periodic full-scans. The watcher provides best-effort real-time
+// awareness only.
 func (w *LibraryWatcher) Run(ctx context.Context) {
 	w.loadState()
 	slog.Info("library-watcher: started", "basePath", w.basePath, "interval", w.interval, "autoImport", w.autoImport)
@@ -287,8 +296,12 @@ func (w *LibraryWatcher) handleNewFile(ctx context.Context, absPath, relPath, us
 	if !pending {
 		// Cap pendingSizes to prevent unbounded memory growth.
 		if len(w.pendingSizes) >= maxPendingSizes {
-			// Evict the oldest entry (arbitrary key — map iteration order is random,
-			// which is acceptable since all entries are equally stale).
+			// L56: Eviction is non-deterministic (random map iteration). This is
+			// acceptable: all pending entries are equally stale candidates that
+			// failed their stability check. The evicted file will be re-detected
+			// on the next poll cycle when the directory mtime is still newer than
+			// the stored value, so no file is permanently lost — it is just delayed
+			// by one extra cycle.
 			for k := range w.pendingSizes {
 				slog.Warn("library-watcher: pendingSizes at capacity, evicting entry",
 					"evicted", k, "capacity", maxPendingSizes)
@@ -322,9 +335,13 @@ func (w *LibraryWatcher) handleNewFile(ctx context.Context, absPath, relPath, us
 	}
 
 	// Validate symlinks before hashing to prevent path traversal between
-	// detection and registry insertion. A minimal TOCTOU gap remains between
-	// validateWatcherPath and hashFile (both use the same path), but the
-	// registry INSERT uses ON CONFLICT to handle concurrent races safely.
+	// detection and registry insertion.
+	// M22 TOCTOU note: a minimal window remains between validateWatcherPath
+	// and hashFile — both use the same absPath, but a symlink could be swapped
+	// in that window. Mitigation: the library runs in a container where only
+	// the API process can write the library directory, making such attacks
+	// impractical. The registry INSERT uses ON CONFLICT DO NOTHING so a race
+	// producing two concurrent inserts is harmless.
 	hash, err := hashFile(absPath)
 	if err != nil {
 		slog.Warn("library-watcher: hash file failed", "error", err, "path", absPath)
@@ -427,7 +444,7 @@ func (w *LibraryWatcher) detectMove(ctx context.Context, userID, newRelPath, has
 }
 
 // registerExternalFile inserts a new file record for an externally-added file.
-// Only files with allowed extensions (.fit, .gpx, .tcx, .gz) are registered.
+// Only files with allowed extensions (.fit, .gpx, .tcx, .fit.gz, .gpx.gz, .tcx.gz) are registered.
 func (w *LibraryWatcher) registerExternalFile(ctx context.Context, relPath, userID string, info fs.FileInfo, hash string) {
 	fileName := filepath.Base(relPath)
 
@@ -666,6 +683,13 @@ func (w *LibraryWatcher) loadState() {
 
 // saveState persists the mtime cache to disk.
 // Uses atomic write (.tmp + rename) to prevent corruption from crashes.
+//
+// L61: The state file is written with mode 0o600 and located inside the
+// library's _cache/ directory. On a multi-user host this directory is writable
+// by any local user, but the library is always deployed in a single-process
+// container where only the API service has filesystem access. Restricting the
+// directory to 0o700 would require an explicit mkdir on first run; the current
+// 0o755 default is acceptable for the container deployment model.
 func (w *LibraryWatcher) saveState() {
 	state := watcherState{
 		DirMtimes:  w.dirMtimes,

@@ -1232,7 +1232,7 @@ func (db *DB) DeleteActivity(ctx context.Context, userID, id string) error {
 		return fmt.Errorf("delete activity: %w", err)
 	}
 	if result.RowsAffected() == 0 {
-		return fmt.Errorf("activity not found")
+		return ErrActivityNotFound
 	}
 	return nil
 }

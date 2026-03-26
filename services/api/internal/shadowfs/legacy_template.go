@@ -1,5 +1,10 @@
 // Legacy ShadowFS functions retained for backward compatibility with the hotfolder watcher
 // and the legacy rename handlers. Do not add new code to this file.
+//
+// DEAD CODE NOTE: RenderPath and DefaultSchema in this file are the pre-ShadowFS template
+// rendering implementation. New code should use SchemaRenderer.RenderPath (schema.go).
+// This file is retained because legacy_hotfolder.go and legacy_rename.go still call RenderPath
+// directly. Both callers will be removed when migration 000233 drops the legacy columns.
 package shadowfs
 
 import (

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -333,7 +334,7 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 	h.cleanupActivityFiles(r.Context(), userID, id)
 
 	if err := h.DB.DeleteActivity(r.Context(), userID, id); err != nil {
-		if err.Error() == "activity not found" {
+		if errors.Is(err, database.ErrActivityNotFound) {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 			return
 		}
@@ -440,18 +441,24 @@ func (h *Handler) cleanupActivityFiles(ctx context.Context, userID, activityID s
 		}
 	}
 
-	// Edit sidecar file.
+	// Edit sidecar file(s): an activity can accumulate multiple edit sidecar versions;
+	// delete all of them. Using Query (not QueryRow) to handle the multi-row case.
 	if h.ShadowFS != nil {
-		var editFileID string
-		_ = h.DB.Pool.QueryRow(ctx,
-			`SELECT COALESCE(id::text, '') FROM user_files
+		editRows, editErr := h.DB.Pool.Query(ctx,
+			`SELECT id::text FROM user_files
 			 WHERE file_type = 'edit' AND parent_type = 'activity' AND parent_id = $1 AND user_id = $2`,
 			activityID, userID,
-		).Scan(&editFileID)
-		if editFileID != "" {
-			if err := h.ShadowFS.Delete(ctx, userID, editFileID); err != nil {
-				slog.Warn("cleanup activity files: shadowfs delete edit sidecar failed", "file_id", editFileID, "error", err)
+		)
+		if editErr == nil {
+			for editRows.Next() {
+				var editFileID string
+				if scanErr := editRows.Scan(&editFileID); scanErr == nil && editFileID != "" {
+					if err := h.ShadowFS.Delete(ctx, userID, editFileID); err != nil {
+						slog.Warn("cleanup activity files: shadowfs delete edit sidecar failed", "file_id", editFileID, "error", err)
+					}
+				}
 			}
+			editRows.Close()
 		}
 	}
 	// Legacy S3 edit sidecar fallback.
@@ -566,7 +573,7 @@ func (h *Handler) ExportActivity(w http.ResponseWriter, r *http.Request) {
 		if activity.SportType == "multisport" {
 			children, err := h.DB.GetChildActivities(r.Context(), id)
 			if err == nil && len(children) > 0 {
-				exportMultiSessionFIT(w, activity, children, h.DB, r.Context())
+				exportMultiSessionFIT(r.Context(), w, activity, children, h.DB)
 				return
 			}
 		}
@@ -1025,7 +1032,10 @@ func exportMultisportZip(h *Handler, w http.ResponseWriter, r *http.Request, par
 		return
 	}
 
+	// Limit in-memory ZIP to 500 MB to prevent OOM on large multisport sessions.
+	const maxZipSize = 500 << 20
 	var buf bytes.Buffer
+	buf.Grow(1 << 20) // pre-allocate 1 MB to reduce early reallocations
 	zw := zip.NewWriter(&buf)
 
 	for i, child := range children {
@@ -1084,6 +1094,12 @@ func exportMultisportZip(h *Handler, w http.ResponseWriter, r *http.Request, par
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to write zip entry", r.URL.Path)
 			return
 		}
+		if buf.Len() > maxZipSize {
+			slog.Warn("multisport zip: size limit exceeded, truncating",
+				"parent_id", parent.ID, "limit_bytes", maxZipSize, "buf_bytes", buf.Len())
+			httputil.WriteError(w, http.StatusRequestEntityTooLarge, "Too Large", "multisport ZIP exceeds 500 MB limit", r.URL.Path)
+			return
+		}
 	}
 
 	if err := zw.Close(); err != nil {
@@ -1101,8 +1117,8 @@ func exportMultisportZip(h *Handler, w http.ResponseWriter, r *http.Request, par
 // Each child activity contributes its own block of records followed by a session message,
 // producing a valid multi-sport FIT file that consumer fitness tools can parse.
 func exportMultiSessionFIT(
-	w http.ResponseWriter, parent *model.Activity,
-	children []model.Activity, db *database.DB, ctx context.Context,
+	ctx context.Context, w http.ResponseWriter, parent *model.Activity,
+	children []model.Activity, db *database.DB,
 ) {
 	var messages []proto.Message
 	messages = append(messages, buildFITFileId(parent))
@@ -1359,12 +1375,14 @@ func (h *Handler) GroupActivities(w http.ResponseWriter, r *http.Request) {
 		StartedAt: earliest,
 	}
 	if err := h.DB.InsertMultisportParent(ctx, parent); err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
+		slog.Error("group activities: insert parent failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create multisport group", r.URL.Path)
 		return
 	}
 
 	if err := h.DB.SetActivitiesParent(ctx, userID, req.ActivityIDs, parent.ID); err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
+		slog.Error("group activities: set parent failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to link activities to group", r.URL.Path)
 		return
 	}
 
@@ -1395,7 +1413,8 @@ func (h *Handler) UngroupActivities(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.DB.Pool.Exec(ctx,
 		`UPDATE activities SET parent_id = NULL WHERE parent_id = $1 AND user_id = $2`,
 		parentID, userID); err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
+		slog.Error("ungroup activities: release children failed", "parent_id", parentID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to ungroup activities", r.URL.Path)
 		return
 	}
 
@@ -1406,7 +1425,8 @@ func (h *Handler) UngroupActivities(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.DB.Pool.Exec(ctx,
 		`DELETE FROM activities WHERE id = $1 AND user_id = $2 AND sport_type = 'multisport'`,
 		parentID, userID); err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
+		slog.Error("ungroup activities: delete parent failed", "parent_id", parentID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete multisport group", r.URL.Path)
 		return
 	}
 

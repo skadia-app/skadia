@@ -128,14 +128,25 @@ func readFITFileTypeFromZipEntry(f *zip.File) uint8 {
 	return readFITFileType(buf[:n])
 }
 
+// maxMonitoringFileBytes limits monitoring FIT entries to 500 MB to prevent OOM.
+const maxMonitoringFileBytes = 500 << 20
+
 // readZipEntry reads the full contents of a zip.File into a byte slice.
+// L46: Size-limited to prevent OOM on unexpectedly large zip entries.
 func readZipEntry(f *zip.File) ([]byte, error) {
 	rc, err := f.Open()
 	if err != nil {
 		return nil, err
 	}
 	defer rc.Close()
-	return io.ReadAll(rc)
+	data, err := io.ReadAll(io.LimitReader(rc, maxMonitoringFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxMonitoringFileBytes {
+		return nil, fmt.Errorf("zip entry %s exceeds %d byte limit", f.Name, maxMonitoringFileBytes)
+	}
+	return data, nil
 }
 
 // readFITFileType reads the file_id.type field from the FIT binary header.

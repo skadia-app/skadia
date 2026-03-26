@@ -633,7 +633,11 @@ export default function SettingsPage() {
       <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Einstellungen</h1>
 
       {/* Tab-Navigation */}
-      <div className="flex gap-1 p-1 bg-neutral-100 dark:bg-neutral-800/50 rounded-lg w-fit flex-wrap">
+      <div
+        role="tablist"
+        aria-label="Einstellungen-Kategorien"
+        className="flex gap-1 p-1 bg-neutral-100 dark:bg-neutral-800/50 rounded-lg w-fit flex-wrap"
+      >
         {[
           { id: 'general' as const,  label: 'Allgemein',   show: true      },
           { id: 'konto' as const,    label: 'Konto',       show: true      },
@@ -643,6 +647,10 @@ export default function SettingsPage() {
         ].filter(tab => tab.show).map(tab => (
           <button
             key={tab.id}
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            aria-controls={`settings-panel-${tab.id}`}
+            id={`settings-tab-${tab.id}`}
             onClick={() => setActiveTab(tab.id)}
             className={`px-4 py-1.5 rounded-md text-sm font-medium cursor-pointer transition-colors ${
               activeTab === tab.id
@@ -655,20 +663,35 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      {activeTab === 'konto' && <AccountSettingsTab />}
+      {activeTab === 'konto' && (
+        <div role="tabpanel" id="settings-panel-konto" aria-labelledby="settings-tab-konto">
+          <AccountSettingsTab />
+        </div>
+      )}
 
-      {activeTab === 'admin' && isAdmin && <AdminSettingsTab />}
+      {activeTab === 'admin' && isAdmin && (
+        <div role="tabpanel" id="settings-panel-admin" aria-labelledby="settings-tab-admin">
+          <AdminSettingsTab />
+        </div>
+      )}
 
-      {activeTab === 'analysen' && <AutomatischeAnalysenSection />}
+      {activeTab === 'analysen' && (
+        <div role="tabpanel" id="settings-panel-analysen" aria-labelledby="settings-tab-analysen">
+          <AutomatischeAnalysenSection />
+        </div>
+      )}
 
-      {activeTab === 'ai' && <>
-        {isAdmin && <LLMSettingsPage />}
-        {isAdmin && <MLServiceSection />}
-        <NotificationSettingsSection />
-        <ChatProfileSettings />
-      </>}
+      {activeTab === 'ai' && (
+        <div role="tabpanel" id="settings-panel-ai" aria-labelledby="settings-tab-ai">
+          {isAdmin && <LLMSettingsPage />}
+          {isAdmin && <MLServiceSection />}
+          <NotificationSettingsSection />
+          <ChatProfileSettings />
+        </div>
+      )}
 
-      {activeTab === 'general' && <>
+      {activeTab === 'general' && (
+      <div role="tabpanel" id="settings-panel-general" aria-labelledby="settings-tab-general" className="space-y-8">
       <div className="rounded-lg bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 px-4 py-3 text-sm text-neutral-600 dark:text-neutral-400">
         Einstellung nicht gefunden? Einstellungen zur Medienverwaltung unter{' '}
         <Link to="/workshop" className="text-accent-DEFAULT hover:text-accent-600 font-medium">Werkstatt</Link>.
@@ -825,7 +848,8 @@ export default function SettingsPage() {
       {/* Lokale Karten & Geodaten */}
       {isAdmin && <LocalMapAndGeoSection />}
 
-      </>}
+      </div>
+      )}
     </div>
   )
 }

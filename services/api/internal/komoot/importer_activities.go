@@ -86,6 +86,9 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 	slog.Info("komoot activities: found tours to import", "count", total)
 
 	for idx, tour := range recorded {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		if p.OnProgress != nil {
 			p.OnProgress(idx+1, total, fmt.Sprintf("activities: %d/%d %s", idx+1, total, tour.Name))
 		}
@@ -196,6 +199,10 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 		result.TourActivityMap[tour.ID] = actResult.ActivityID
 
 		if actResult.Status == "enriched" || actResult.Status == "replaced" {
+			// M21: Run PostProcess for enriched/replaced so heatmap+streams stay up to date.
+			if postErr := p.ImportService.PostProcess(ctx, p.UserID, actResult.ActivityID, data, "", format, fmt.Sprintf("%d.%s", tour.ID, format)); postErr != nil {
+				slog.Warn("komoot activities: PostProcess failed (enriched/replaced)", "tour_id", tour.ID, "error", postErr)
+			}
 			result.Skipped++ // stats: not newly created
 			tracker.Completed(ctx, actResult.ActivityID)
 			continue

@@ -61,6 +61,7 @@ func ValidateConfig(cfg *config.Config) {
 		if err != nil || len(decoded) < 32 {
 			log.Fatal("JWT_SECRET must be 64 hex chars (32 bytes). Generate: openssl rand -hex 32")
 		}
+		cfg.JWTSecretBytes = decoded
 	}
 
 	// OAuth encryption key — required when social login is configured

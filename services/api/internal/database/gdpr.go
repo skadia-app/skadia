@@ -92,12 +92,17 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	db.Pool.Exec(ctx, `INSERT INTO background_jobs (id, job_type, user_id, status, created_at)
 		VALUES (gen_random_uuid(), 'gdpr_purge', $1, 'running', NOW())`, userID)
 	markJobDone := func(status, errMsg string) {
+		// L66: Log errors from job status updates so silent failures are visible.
+		var execErr error
 		if status == "failed" {
-			db.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'failed', error = $2, completed_at = NOW()
+			_, execErr = db.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'failed', error = $2, completed_at = NOW()
 				WHERE job_type = 'gdpr_purge' AND user_id = $1 AND status = 'running'`, userID, errMsg)
 		} else {
-			db.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'completed', completed_at = NOW()
+			_, execErr = db.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'completed', completed_at = NOW()
 				WHERE job_type = 'gdpr_purge' AND user_id = $1 AND status = 'running'`, userID)
+		}
+		if execErr != nil {
+			slog.Warn("GDPR: markJobDone update failed", "status", status, "user_id", userID, "error", execErr)
 		}
 	}
 
@@ -253,9 +258,13 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	}
 
 	// background_jobs: user_id TEXT, no FK constraint.
-	// Mark the GDPR tracking job as completed BEFORE deleting all jobs,
-	// so its final status is visible (the row will be deleted momentarily).
-	markJobDone("completed", "")
+	// M26: Mark the GDPR tracking job as completed INSIDE the TX so a rollback also
+	// reverts the status update. The row is deleted in the same TX immediately after.
+	if _, err := tx.Exec(ctx,
+		`UPDATE background_jobs SET status = 'completed', completed_at = NOW()
+		 WHERE job_type = 'gdpr_purge' AND user_id = $1 AND status = 'running'`, userID); err != nil {
+		slog.Warn("GDPR: mark job done in TX failed", "error", err)
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM background_jobs WHERE user_id = $1`, userID); err != nil {
 		slog.Warn("GDPR: delete background_jobs failed", "error", err)
 	}

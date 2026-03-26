@@ -83,9 +83,12 @@ var fileTypeDirName = map[string]string{
 }
 
 // DirForType returns the directory name for a file type.
+// Returns "other" for unknown file types so that unrecognised types land in a
+// predictable, non-traversable directory rather than inheriting the raw fileType
+// string which could contain characters unsafe in path construction.
 func DirForType(fileType string) string {
 	if d, ok := fileTypeDirName[fileType]; ok {
 		return d
 	}
-	return fileType
+	return "other"
 }

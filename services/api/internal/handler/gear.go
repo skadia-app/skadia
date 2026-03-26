@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -184,7 +185,7 @@ func (h *Handler) DeleteGear(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.DB.DeleteGear(r.Context(), userID, id); err != nil {
-		if err.Error() == "gear not found" {
+		if errors.Is(err, database.ErrGearNotFound) {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
 			return
 		}
@@ -226,8 +227,8 @@ func (h *Handler) UpdateGearStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.DB.UpdateGearStatus(r.Context(), id, req.Status); err != nil {
-		if err.Error() == "gear not found" {
+	if err := h.DB.UpdateGearStatus(r.Context(), id, userID, req.Status); err != nil {
+		if errors.Is(err, database.ErrGearNotFound) {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
 			return
 		}

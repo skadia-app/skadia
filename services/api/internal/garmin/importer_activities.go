@@ -117,6 +117,9 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 
 	current := 0
 	for _, ref := range allFiles {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		current++
 		if params.OnProgress != nil {
 			params.OnProgress(current, total, "activities: "+ref.fileName)
@@ -172,7 +175,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 						UserID:      params.UserID,
 						FileType:    "activity",
 						ContentType: "application/octet-stream",
-						FileName:    ref.fileName,
+						FileName:    filepath.Base(ref.fileName), // L47: sanitize
 						SizeBytes:   int64(len(fileBytes)),
 						FileHash:    hashStr,
 						Tags: map[string]string{
@@ -278,7 +281,18 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			continue
 		}
 
-		// Upload file for created, enriched, and replaced statuses via ShadowFS (preferred) or legacy S3.
+		// Upload file only for newly created activities (mirrors Strava importer behavior).
+		// For enriched/replaced the file already exists in storage — uploading again creates
+		// duplicate ShadowFS records (M20).
+		if actResult.Status != "created" {
+			if postErr := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, "", format, ref.fileName); postErr != nil {
+				slog.Warn("garmin activities: PostProcess failed (enriched/replaced)", "file", ref.fileName, "error", postErr)
+			}
+			result.Skipped++
+			tracker.Completed(ctx, actResult.ActivityID)
+			continue
+		}
+
 		contentType := "application/octet-stream"
 		if format == "gpx" || format == "tcx" {
 			contentType = "application/xml"
@@ -311,17 +325,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			}
 		}
 
-		if actResult.Status == "enriched" || actResult.Status == "replaced" {
-			// Run PostProcess for enriched/replaced too — the activity needs updated streams/heatmap.
-			if postErr := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileID, format, ref.fileName); postErr != nil {
-				slog.Warn("garmin activities: PostProcess failed (enriched/replaced)", "file", ref.fileName, "error", postErr)
-			}
-			result.Skipped++ // counts as "not newly created" for import stats
-			tracker.Completed(ctx, actResult.ActivityID)
-			continue
-		}
-
-		// New activity inserted
+		// New activity inserted — run PostProcess (streams, track, heatmap, Stage 1, NATS…)
 		if postErr := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileID, format, ref.fileName); postErr != nil {
 			slog.Warn("garmin activities: PostProcess failed", "file", ref.fileName, "error", postErr)
 			// Non-fatal: activity is already stored
@@ -396,37 +400,6 @@ func readFileFromZipCached(cache map[string]*zip.ReadCloser, zipPath, fileName s
 
 	// M27: Cap per-entry reads to 500 MB to prevent zip-bomb OOM.
 	const maxZipEntryBytes = 500 << 20
-
-	for _, f := range zr.File {
-		if f.Name == fileName {
-			rc, err := f.Open()
-			if err != nil {
-				return nil, fmt.Errorf("open file %s in zip: %w", fileName, err)
-			}
-			defer rc.Close()
-			data, err := io.ReadAll(io.LimitReader(rc, maxZipEntryBytes+1))
-			if err != nil {
-				return nil, fmt.Errorf("read file %s in zip: %w", fileName, err)
-			}
-			if len(data) > maxZipEntryBytes {
-				return nil, fmt.Errorf("file %s in zip exceeds %d byte limit", fileName, maxZipEntryBytes)
-			}
-			return data, nil
-		}
-	}
-	return nil, fmt.Errorf("file %s not found in zip %s", fileName, zipPath)
-}
-
-// readFileFromZip extracts a single named file from a ZIP archive into memory.
-func readFileFromZip(zipPath, fileName string) ([]byte, error) {
-	// M27: Cap per-entry reads to 500 MB to prevent zip-bomb OOM.
-	const maxZipEntryBytes = 500 << 20
-
-	zr, err := zip.OpenReader(zipPath)
-	if err != nil {
-		return nil, fmt.Errorf("open zip %s: %w", zipPath, err)
-	}
-	defer zr.Close()
 
 	for _, f := range zr.File {
 		if f.Name == fileName {
