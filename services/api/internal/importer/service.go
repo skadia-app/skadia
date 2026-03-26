@@ -28,6 +28,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/phash"
+	"github.com/skadia-app/skadia/services/api/internal/storage"
 	"github.com/google/uuid"
 )
 
@@ -41,6 +42,7 @@ type SegmentMatcherFunc func(activityID, userID, sportType, subType string, gear
 // import paths go through the same post-processing logic.
 type Service struct {
 	DB        *database.DB
+	Storage   *storage.S3Client
 	ShadowFS shadowfs.ShadowFS
 	Events    *event.Publisher
 
@@ -57,12 +59,14 @@ type Service struct {
 // segmentMatcher may be nil; the step will be skipped.
 func NewService(
 	db *database.DB,
+	s3 *storage.S3Client,
 	store shadowfs.ShadowFS,
 	events *event.Publisher,
 	segmentMatcher SegmentMatcherFunc,
 ) *Service {
 	return &Service{
 		DB:             db,
+		Storage:        s3,
 		ShadowFS:      store,
 		Events:         events,
 		SegmentMatcher: segmentMatcher,
@@ -969,7 +973,15 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 		}
 	}
 
-	if shadowFileID == "" {
+	// Legacy S3 upload (fallback when ShadowFS is not available or as dual-write).
+	if s.Storage != nil {
+		if err := s.Storage.UploadToBucket(ctx, mediaBucket, s3Key, photoBytes, ct); err != nil {
+			if shadowFileID == "" {
+				return nil, fmt.Errorf("s3 upload photo: %w", err)
+			}
+			slog.Warn("importer: s3 upload photo failed (ShadowFS ok)", "err", err)
+		}
+	} else if shadowFileID == "" {
 		return nil, fmt.Errorf("no storage available for photo upload")
 	}
 
@@ -1111,6 +1123,7 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	return result, nil
 }
 
+const importQueueBucket = "skadia-media"
 const importQueuePrefix = "import-queue"
 
 // ProcessOrphanPhoto handles a photo without a known activity.
@@ -1209,6 +1222,23 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 				slog.Warn("importer: orphan thumb ShadowFS.Put failed", "err", thumbErr)
 			}
 		}
+	} else if s.Storage != nil {
+		// Legacy S3 path.
+		if err := s.Storage.UploadToBucket(ctx, importQueueBucket, s3Key, photoBytes, ct); err != nil {
+			return nil, fmt.Errorf("s3 upload orphan photo: %w", err)
+		}
+		s3KeyThumb := ""
+		if thumbData != nil {
+			thumbKey := fmt.Sprintf("%s/%s/%s_thumb.jpg", importQueuePrefix, userID, fileHash)
+			if err := s.Storage.UploadToBucket(ctx, importQueueBucket, thumbKey, thumbData, "image/jpeg"); err == nil {
+				s3KeyThumb = thumbKey
+			} else {
+				slog.Warn("importer: orphan thumb upload failed", "err", err)
+			}
+		}
+		if s3KeyThumb != "" {
+			queueMeta["thumb_path"] = s3KeyThumb
+		}
 	} else {
 		return nil, fmt.Errorf("no storage backend configured")
 	}
@@ -1261,6 +1291,19 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 		if err != nil {
 			return nil, fmt.Errorf("shadowfs read queued photo: %w", err)
 		}
+	} else if s.Storage != nil {
+		if item.StoragePath == nil {
+			return nil, fmt.Errorf("queue item has no stored file reference")
+		}
+		storageBucket := importQueueBucket
+		var dlCT string
+		photoBytes, dlCT, err = s.Storage.DownloadFromBucket(ctx, storageBucket, *item.StoragePath)
+		if err != nil {
+			return nil, fmt.Errorf("s3 download queued photo: %w", err)
+		}
+		if dlCT != "" {
+			ct = dlCT
+		}
 	} else {
 		return nil, fmt.Errorf("no storage backend configured")
 	}
@@ -1292,6 +1335,11 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 			if delErr := s.ShadowFS.Delete(ctx, userID, thumbFileID); delErr != nil {
 				slog.Warn("importer: ShadowFS.Delete orphan thumb failed", "id", thumbFileID, "err", delErr)
 			}
+		}
+	} else if s.Storage != nil && item.StoragePath != nil {
+		_ = s.Storage.DeleteFromBucket(ctx, importQueueBucket, *item.StoragePath)
+		if thumbKey, ok := item.Metadata["thumb_path"].(string); ok && thumbKey != "" {
+			_ = s.Storage.DeleteFromBucket(ctx, importQueueBucket, thumbKey)
 		}
 	}
 
