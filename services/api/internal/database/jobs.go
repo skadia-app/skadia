@@ -155,6 +155,7 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 		"activity_re_enrich":       "Enrichment-Update",
 		"shadowfs_reconcile":       "Dateispeicher-Konsistenzprüfung",
 		"shadowfs_rename":          "Dateispeicher-Umbenennung",
+		"thumbnail_backfill":        "Thumbnails regenerieren",
 		"gdpr_purge":               "DSGVO-Datenlöschung",
 	}
 	label := labels[jobType]
