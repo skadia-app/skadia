@@ -13,7 +13,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -386,4 +389,223 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 	}
 
 	return rec, nil
+}
+
+// Get returns an io.ReadCloser for the file identified by fileID.
+// Dispatches to the correct backend based on the file's storage_backend.
+func (u *UnifiedShadowFS) Get(ctx context.Context, userID, fileID string) (io.ReadCloser, error) {
+	var backend, storagePath, fileType, status string
+	err := u.pool.QueryRow(ctx,
+		`SELECT storage_backend, storage_path, file_type, status FROM user_files WHERE id = $1 AND user_id = $2`,
+		fileID, userID).Scan(&backend, &storagePath, &fileType, &status)
+	if err != nil {
+		return nil, fmt.Errorf("shadowfs: file not found: %w", err)
+	}
+	if status == "purging" {
+		return nil, fmt.Errorf("shadowfs: file is being purged")
+	}
+	be, err := u.backendFor(backend)
+	if err != nil {
+		return nil, err
+	}
+	return be.Read(ctx, storagePath, u.bucketOpts(fileType))
+}
+
+// Delete removes a file record and its physical storage.
+// DB record is deleted first — orphaned physical files are safe (reconciler cleans them).
+func (u *UnifiedShadowFS) Delete(ctx context.Context, userID, fileID string) error {
+	var storagePath, fileType, backend string
+	var hasSidecar bool
+	err := u.pool.QueryRow(ctx,
+		`SELECT storage_path, file_type, storage_backend, has_sidecar FROM user_files WHERE id = $1 AND user_id = $2`,
+		fileID, userID).Scan(&storagePath, &fileType, &backend, &hasSidecar)
+	if err != nil {
+		return fmt.Errorf("shadowfs: file not found: %w", err)
+	}
+
+	// Delete DB record FIRST.
+	_, err = u.pool.Exec(ctx, `DELETE FROM user_files WHERE id = $1 AND user_id = $2`, fileID, userID)
+	if err != nil {
+		return fmt.Errorf("shadowfs: delete record: %w", err)
+	}
+
+	be, err := u.backendFor(backend)
+	if err != nil {
+		slog.Warn("shadowfs: backend not available for cleanup", "backend", backend, "err", err)
+		return nil // DB record deleted, physical cleanup skipped
+	}
+
+	if delErr := be.Delete(ctx, storagePath, u.bucketOpts(fileType)); delErr != nil {
+		slog.Warn("shadowfs: physical delete failed (reconciler will clean)", "path", storagePath, "err", delErr)
+	}
+
+	// Sidecar cleanup for local backend.
+	if backend == "local" && hasSidecar {
+		if localBE, ok := u.local.(*LocalBackend); ok {
+			fullPath := filepath.Join(localBE.BasePath(), storagePath)
+			removeSidecarFiles(fullPath, fileType)
+			cleanEmptyDirs(filepath.Dir(fullPath), localBE.BasePath())
+		}
+	}
+
+	return nil
+}
+
+// removeSidecarFiles removes file-type-specific sidecar files.
+// Package-level counterpart of LocalShadowFS.removeSidecars for use by UnifiedShadowFS.
+func removeSidecarFiles(fullPath, fileType string) {
+	var sidecarPaths []string
+	switch fileType {
+	case "media":
+		ext := filepath.Ext(fullPath)
+		stem := strings.TrimSuffix(fullPath, ext)
+		sidecarPaths = append(sidecarPaths, stem+".meta.json")
+	case "activity":
+		sidecarPaths = append(sidecarPaths, fullPath+".meta")
+	}
+	for _, p := range sidecarPaths {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			slog.Warn("shadowfs: remove sidecar", "path", p, "err", err)
+		}
+	}
+}
+
+// Resolve returns metadata for serving a file (local path or S3 presigned URL).
+func (u *UnifiedShadowFS) Resolve(ctx context.Context, userID, fileID string) (ResolvedFile, error) {
+	var rec FileRecord
+	err := u.pool.QueryRow(ctx,
+		`SELECT id, user_id, file_type, storage_backend, storage_path, content_type,
+			file_name, size_bytes, file_hash, parent_type, parent_id, has_sidecar,
+			is_renaming, status, replaced_by, created_at, updated_at
+		FROM user_files WHERE id = $1 AND user_id = $2 AND status != 'purging'`, fileID, userID,
+	).Scan(&rec.ID, &rec.UserID, &rec.FileType, &rec.StorageBackend, &rec.StoragePath,
+		&rec.ContentType, &rec.FileName, &rec.SizeBytes, &rec.FileHash, &rec.ParentType,
+		&rec.ParentID, &rec.HasSidecar, &rec.IsRenaming, &rec.Status, &rec.ReplacedBy,
+		&rec.CreatedAt, &rec.UpdatedAt)
+	if err != nil {
+		return ResolvedFile{}, fmt.Errorf("shadowfs: file not found: %w", err)
+	}
+
+	switch rec.StorageBackend {
+	case "local":
+		if err := ValidateRelPath(u.basePath, rec.StoragePath); err != nil {
+			return ResolvedFile{}, err
+		}
+		fullPath := filepath.Join(u.basePath, rec.StoragePath)
+		return ResolvedFile{
+			Type:        "local",
+			Path:        fullPath,
+			ContentType: rec.ContentType,
+			FileName:    rec.FileName,
+			SizeBytes:   rec.SizeBytes,
+		}, nil
+
+	case "s3":
+		s3be, ok := u.s3.(*S3Backend)
+		if !ok {
+			return ResolvedFile{}, fmt.Errorf("shadowfs: S3 backend does not support presigning")
+		}
+		presigned, err := s3be.Presigner().PresignGetObject(ctx, &s3.GetObjectInput{
+			Bucket: aws.String(u.bucketFor(rec.FileType)),
+			Key:    aws.String(rec.StoragePath),
+		}, s3.WithPresignExpires(15*time.Minute))
+		if err != nil {
+			return ResolvedFile{}, fmt.Errorf("shadowfs: presign: %w", err)
+		}
+		return ResolvedFile{
+			Type:        "s3",
+			URL:         presigned.URL,
+			ExpiresAt:   time.Now().Add(15 * time.Minute),
+			ContentType: rec.ContentType,
+			FileName:    rec.FileName,
+			SizeBytes:   rec.SizeBytes,
+		}, nil
+
+	default:
+		return ResolvedFile{}, fmt.Errorf("shadowfs: unknown backend: %q", rec.StorageBackend)
+	}
+}
+
+// Archive marks a file as archived, optionally moving it physically (local) or metadata-only (S3).
+func (u *UnifiedShadowFS) Archive(ctx context.Context, userID, fileID, replacedByID string) error {
+	if u.keepVersions == 0 {
+		return u.Delete(ctx, userID, fileID)
+	}
+
+	var storagePath, fileType, backend string
+	err := u.pool.QueryRow(ctx,
+		`SELECT storage_path, file_type, storage_backend FROM user_files WHERE id = $1 AND user_id = $2`,
+		fileID, userID).Scan(&storagePath, &fileType, &backend)
+	if err != nil {
+		return fmt.Errorf("shadowfs: file not found: %w", err)
+	}
+
+	switch backend {
+	case "local":
+		if err := ValidateRelPath(u.basePath, storagePath); err != nil {
+			return err
+		}
+		fullPath := filepath.Join(u.basePath, storagePath)
+		dir := filepath.Dir(storagePath)
+		base := filepath.Base(storagePath)
+		ext := filepath.Ext(base)
+		stem := strings.TrimSuffix(base, ext)
+
+		archiveRel := filepath.Join(dir, "_archive", stem+"_v1"+ext)
+		archiveRel = ResolveCollision(u.basePath, archiveRel)
+		archiveFull := filepath.Join(u.basePath, archiveRel)
+
+		if err := ValidateRelPath(u.basePath, archiveRel); err != nil {
+			return err
+		}
+
+		if err := os.MkdirAll(filepath.Dir(archiveFull), 0o755); err != nil {
+			return fmt.Errorf("shadowfs: mkdir archive: %w", err)
+		}
+
+		// Set is_renaming=true BEFORE os.Rename so reconciler can recover crashed archives.
+		_, err = u.pool.Exec(ctx,
+			`UPDATE user_files SET is_renaming = true, updated_at = NOW() WHERE id = $1 AND user_id = $2`,
+			fileID, userID)
+		if err != nil {
+			return fmt.Errorf("shadowfs: set is_renaming: %w", err)
+		}
+
+		if err := os.Rename(fullPath, archiveFull); err != nil {
+			_, _ = u.pool.Exec(ctx,
+				`UPDATE user_files SET is_renaming = false, updated_at = NOW() WHERE id = $1 AND user_id = $2`,
+				fileID, userID)
+			return fmt.Errorf("shadowfs: rename to archive: %w", err)
+		}
+
+		// Clean empty source directories.
+		cleanEmptyDirs(filepath.Dir(fullPath), u.basePath)
+
+		_, err = u.pool.Exec(ctx,
+			`UPDATE user_files SET storage_path = $1, status = 'archived', replaced_by = $2,
+			 is_renaming = false, updated_at = NOW()
+			 WHERE id = $3 AND user_id = $4`,
+			archiveRel, replacedByID, fileID, userID)
+		if err != nil {
+			return fmt.Errorf("shadowfs: update archive record: %w", err)
+		}
+
+	case "s3":
+		// S3: metadata-only archive (no CopyObject).
+		result, err := u.pool.Exec(ctx,
+			`UPDATE user_files SET status = 'archived', replaced_by = $1, updated_at = NOW()
+			 WHERE id = $2 AND user_id = $3 AND status = 'active'`,
+			replacedByID, fileID, userID)
+		if err != nil {
+			return fmt.Errorf("shadowfs: archive: %w", err)
+		}
+		if result.RowsAffected() == 0 {
+			return fmt.Errorf("shadowfs: file not found or already archived")
+		}
+
+	default:
+		return fmt.Errorf("shadowfs: unknown backend: %q", backend)
+	}
+
+	return nil
 }
