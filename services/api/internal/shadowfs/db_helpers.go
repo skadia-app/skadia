@@ -12,6 +12,7 @@ import (
 func advisoryLockKey(s string) int64 {
 	h := fnv.New64a()
 	h.Write([]byte(s)) //nolint:errcheck
+	// int64 cast is intentional — PostgreSQL advisory lock accepts int64. 63-bit keyspace is sufficient for UUID inputs.
 	return int64(h.Sum64())
 }
 
@@ -52,6 +53,8 @@ func listRecords(ctx context.Context, pool *pgxpool.Pool, userID string, fileTyp
 func diskUsage(ctx context.Context, pool *pgxpool.Pool, userID string) (int64, error) {
 	var total int64
 	err := pool.QueryRow(ctx,
-		`SELECT COALESCE(SUM(size_bytes), 0) FROM user_files WHERE user_id = $1 AND status = 'active'`, userID).Scan(&total)
+		`SELECT COALESCE(SUM(size_bytes), 0) FROM user_files
+		 WHERE user_id = $1 AND status = 'active'
+		 AND file_type NOT IN ('thumb', 'preview')`, userID).Scan(&total)
 	return total, err
 }

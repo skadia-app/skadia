@@ -11,21 +11,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/phash"
 )
-
-// phashBucketName returns the S3 bucket used for activity photos.
-func phashBucketName() string {
-	b := os.Getenv("GARAGE_MEDIA_BUCKET")
-	if b == "" {
-		return "skadia-media"
-	}
-	return b
-}
 
 // StartPhashBackfill computes pHash for all photos of the authenticated user
 // that currently have no pHash stored.
@@ -65,7 +55,7 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.Storage == nil && h.ShadowFS == nil {
+	if h.ShadowFS == nil {
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "processed": 0})
 		return
 	}

@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -299,13 +297,6 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	}
 	fileCT := detectedCT
 
-	ext := strings.ToLower(filepath.Ext(header.Filename))
-	if ext == "" {
-		ext = ".jpg"
-	}
-	s3Key := fmt.Sprintf("tag-covers/%s/%s%s", userID, tagID, ext)
-	bucket := "skadia-media"
-
 	// Resolve old cover_file_id so we can delete it after successful DB update.
 	var oldCoverFileID string
 	_ = h.DB.Pool.QueryRow(r.Context(),
@@ -313,7 +304,7 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 		tagID, userID,
 	).Scan(&oldCoverFileID)
 
-	// ShadowFS path (preferred) — legacy S3 as fallback.
+	// Upload cover image to ShadowFS.
 	var coverFileID string
 	if h.ShadowFS != nil {
 		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
@@ -332,12 +323,6 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		coverFileID = rec.ID
-	} else if h.Storage != nil {
-		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, fileCT); err != nil {
-			slog.Error("s3 upload tag cover failed", "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store cover image", r.URL.Path)
-			return
-		}
 	} else {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "no storage configured", r.URL.Path)
 		return
@@ -351,8 +336,6 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 			if delErr := h.ShadowFS.Delete(r.Context(), userID, coverFileID); delErr != nil {
 				slog.Warn("upload tag cover: ShadowFS.Delete new cover rollback failed", "tag_id", tagID, "file_id", coverFileID, "error", delErr)
 			}
-		} else if h.Storage != nil {
-			_ = h.Storage.DeleteFromBucket(r.Context(), bucket, s3Key)
 		}
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
 		return

@@ -948,14 +948,8 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		titlePtr = &title
 	}
 
-	// ShadowFS path (preferred) — fall back to legacy S3 when ShadowFS is not configured.
+	// Upload document to ShadowFS.
 	var docFileID string
-	mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
-	if mediaBucket == "" {
-		mediaBucket = "skadia-media"
-	}
-	s3Key := fmt.Sprintf("gear/%s/%s/%s%s", userID, gearID, hashStr, ext)
-
 	if h.ShadowFS != nil {
 		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
@@ -976,16 +970,6 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		docFileID = rec.ID
-		// Clear legacy S3 fields — file lives in ShadowFS only.
-		mediaBucket = ""
-		s3Key = ""
-	} else if h.Storage != nil {
-		// Legacy S3 upload.
-		if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, contentType); err != nil {
-			slog.Error("s3 upload failed", "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
-			return
-		}
 	}
 
 	doc := &model.GearDocument{
@@ -1270,14 +1254,8 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 		titlePtr = &title
 	}
 
-	// ShadowFS path (preferred) — fall back to legacy S3 when ShadowFS is not configured.
+	// Upload document to ShadowFS.
 	var compFileID string
-	mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
-	if mediaBucket == "" {
-		mediaBucket = "skadia-media"
-	}
-	s3Key := fmt.Sprintf("gear-component/%s/%s/%s%s", userID, componentID, hashStr, ext)
-
 	if h.ShadowFS != nil {
 		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
@@ -1298,16 +1276,6 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 			return
 		}
 		compFileID = rec.ID
-		// Clear legacy S3 fields — file lives in ShadowFS only.
-		mediaBucket = ""
-		s3Key = ""
-	} else if h.Storage != nil {
-		// Legacy S3 upload.
-		if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, contentType); err != nil {
-			slog.Error("s3 upload failed", "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
-			return
-		}
 	}
 
 	doc := &model.GearDocument{

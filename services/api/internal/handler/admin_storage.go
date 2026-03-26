@@ -3,12 +3,17 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
@@ -201,7 +206,7 @@ func (h *Handler) StartReconciliation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	renderer := shadowfs.NewSchemaRenderer()
-	job := shadowfs.NewReconcileJob(h.DB.Pool, h.Config.LibraryBasePath, renderer, h.Config.KeepVersions)
+	job := shadowfs.NewReconcileJob(h.DB.Pool, h.Config.LocalBE, h.Config.S3BE, h.Config.LibraryBasePath, h.Config.BucketFn, renderer, h.Config.KeepVersions)
 
 	db := h.DB
 	shutdown.Go(jobID, func(ctx context.Context) {
@@ -219,6 +224,147 @@ func (h *Handler) StartReconciliation(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{
 		"status": "started",
 		"job_id": jobID,
+	})
+}
+
+// BackfillThumbnails generates missing thumbnails for all activity photos whose
+// original media file is stored in ShadowFS but that have no 'thumb' derivative.
+// It runs globally across all users (admin-only endpoint).
+//
+// POST /api/v1/admin/storage/backfill-thumbnails
+func (h *Handler) BackfillThumbnails(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	if h.ShadowFS == nil {
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "skipped", "reason": "ShadowFS not configured"})
+		return
+	}
+
+	// Check whether a thumbnail_backfill job is already running (global, any user).
+	var alreadyRunning bool
+	if err := h.DB.Pool.QueryRow(r.Context(),
+		`SELECT EXISTS(SELECT 1 FROM background_jobs WHERE job_type = 'thumbnail_backfill' AND status IN ('pending', 'running'))`,
+	).Scan(&alreadyRunning); err != nil {
+		slog.Error("thumbnail backfill: check running job failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not check running jobs", r.URL.Path)
+		return
+	}
+	if alreadyRunning {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		return
+	}
+
+	// Collect photos without thumbnails across all users (admin-global scope).
+	missing, err := h.DB.PhotosWithoutThumb(r.Context())
+	if err != nil {
+		slog.Error("thumbnail backfill: list missing thumbs failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not list photos without thumbnails", r.URL.Path)
+		return
+	}
+
+	if len(missing) == 0 {
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "processed": 0})
+		return
+	}
+
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "thumbnail_backfill", nil, nil, int64(len(missing)))
+	if err != nil {
+		slog.Error("thumbnail backfill: insert job failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not create job", r.URL.Path)
+		return
+	}
+
+	fs := h.ShadowFS
+	db := h.DB
+
+	shutdown.Go(jobID, func(ctx context.Context) {
+		sem := make(chan struct{}, 4)
+		var mu sync.Mutex
+		processed := int64(0)
+		anyFailed := false
+
+		var wg sync.WaitGroup
+		for _, row := range missing {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				// Read original media.
+				rc, getErr := fs.Get(ctx, row.UserID, row.FileID)
+				if getErr != nil {
+					slog.Warn("thumbnail backfill: ShadowFS.Get failed", "file_id", row.FileID, "error", getErr)
+					mu.Lock()
+					anyFailed = true
+					processed++
+					mu.Unlock()
+					_ = db.UpdateBackgroundJobProgress(ctx, jobID, processed) //nolint:errcheck
+					return
+				}
+				data, readErr := io.ReadAll(rc)
+				rc.Close()
+				if readErr != nil {
+					slog.Warn("thumbnail backfill: read failed", "file_id", row.FileID, "error", readErr)
+					mu.Lock()
+					anyFailed = true
+					processed++
+					mu.Unlock()
+					_ = db.UpdateBackgroundJobProgress(ctx, jobID, processed) //nolint:errcheck
+					return
+				}
+
+				// Generate thumbnail.
+				thumbData, resizeErr := imageutil.Resize(data, 200, 200, 80)
+				if resizeErr != nil || thumbData == nil {
+					slog.Warn("thumbnail backfill: resize failed", "file_id", row.FileID, "error", resizeErr)
+					mu.Lock()
+					anyFailed = true
+					processed++
+					mu.Unlock()
+					_ = db.UpdateBackgroundJobProgress(ctx, jobID, processed) //nolint:errcheck
+					return
+				}
+
+				// Derive a stable file_hash for the thumbnail (original hash + suffix).
+				thumbHash := fmt.Sprintf("%s_thumb", row.FileID)
+				thumbName := row.FileID + "_thumb.jpg"
+
+				_, putErr := fs.Put(ctx, shadowfs.FileEntry{
+					UserID:      row.UserID,
+					FileType:    "thumb",
+					ContentType: "image/jpeg",
+					FileName:    thumbName,
+					SizeBytes:   int64(len(thumbData)),
+					FileHash:    thumbHash,
+					ParentType:  shadowfs.Ptr("photo"),
+					ParentID:    shadowfs.Ptr(row.ParentID),
+				}, bytes.NewReader(thumbData))
+				if putErr != nil {
+					slog.Warn("thumbnail backfill: ShadowFS.Put thumb failed", "parent_id", row.ParentID, "error", putErr)
+					mu.Lock()
+					anyFailed = true
+					mu.Unlock()
+				}
+
+				mu.Lock()
+				processed++
+				mu.Unlock()
+				_ = db.UpdateBackgroundJobProgress(ctx, jobID, processed) //nolint:errcheck
+			}()
+		}
+		wg.Wait()
+
+		_ = db.CompleteBackgroundJob(ctx, jobID, anyFailed, "")
+		slog.Info("thumbnail backfill: completed", "user_id", userID, "job_id", jobID, "processed", processed, "any_failed", anyFailed)
+	})
+
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
+		"job_id": jobID,
+		"queued": len(missing),
 	})
 }
 

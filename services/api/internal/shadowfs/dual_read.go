@@ -42,12 +42,10 @@ var allowedMediaTables = map[string]bool{
 
 // allowedFileIDColumns is the set of file_id column names permitted in ResolveMediaFile queries.
 var allowedFileIDColumns = map[string]bool{
-	"file_id":           true,
-	"thumbnail_file_id": true,
-	"preview_file_id":   true,
-	"document_file_id":  true,
-	"photo_file_id":     true,
-	"icon_file_id":      true,
+	"file_id":          true,
+	"document_file_id": true,
+	"photo_file_id":    true,
+	"icon_file_id":     true,
 }
 
 // ResolveMediaFile returns a reader for a media file (photo, document, etc.)
@@ -57,10 +55,10 @@ var allowedFileIDColumns = map[string]bool{
 // never pass user-supplied strings here.
 func ResolveMediaFile(ctx context.Context, fs ShadowFS, pool *pgxpool.Pool, tableName, fileIDColumn, rowID, userID string) (io.ReadCloser, error) {
 	if !allowedMediaTables[tableName] {
-		return nil, fmt.Errorf("invalid table name")
+		panic("invariant violation: invalid table " + tableName)
 	}
 	if !allowedFileIDColumns[fileIDColumn] {
-		return nil, fmt.Errorf("invalid file_id column: %q", fileIDColumn)
+		panic("invariant violation: invalid column " + fileIDColumn)
 	}
 
 	var fileID *string

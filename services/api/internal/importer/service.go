@@ -28,7 +28,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/phash"
-	"github.com/skadia-app/skadia/services/api/internal/storage"
 	"github.com/google/uuid"
 )
 
@@ -42,7 +41,6 @@ type SegmentMatcherFunc func(activityID, userID, sportType, subType string, gear
 // import paths go through the same post-processing logic.
 type Service struct {
 	DB        *database.DB
-	Storage   *storage.S3Client
 	ShadowFS shadowfs.ShadowFS
 	Events    *event.Publisher
 
@@ -59,14 +57,12 @@ type Service struct {
 // segmentMatcher may be nil; the step will be skipped.
 func NewService(
 	db *database.DB,
-	s3 *storage.S3Client,
 	store shadowfs.ShadowFS,
 	events *event.Publisher,
 	segmentMatcher SegmentMatcherFunc,
 ) *Service {
 	return &Service{
 		DB:             db,
-		Storage:        s3,
 		ShadowFS:      store,
 		Events:         events,
 		SegmentMatcher: segmentMatcher,
@@ -973,40 +969,18 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 		}
 	}
 
-	// Legacy S3 upload (fallback when ShadowFS is not available or as dual-write).
-	if s.Storage != nil {
-		if err := s.Storage.UploadToBucket(ctx, mediaBucket, s3Key, photoBytes, ct); err != nil {
-			if shadowFileID == "" {
-				return nil, fmt.Errorf("s3 upload photo: %w", err)
-			}
-			slog.Warn("importer: s3 upload photo failed (ShadowFS ok)", "err", err)
-		}
-	} else if shadowFileID == "" {
+	if shadowFileID == "" {
 		return nil, fmt.Errorf("no storage available for photo upload")
 	}
 
-	// Upload thumbnail
-	if thumbData != nil {
-		if s.Storage != nil {
-			if err := s.Storage.UploadToBucket(ctx, mediaBucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
-				slog.Warn("importer: s3 upload thumb failed", "err", err)
-				s3KeyThumb = s3Key // fallback: original
-			}
-		}
-	} else {
+	// Thumb/preview are stored via ShadowFS after DB insert (see below)
+	// so we can use parent_type='photo' with the photo ID. Legacy S3 paths
+	// are still computed for the DB model but no longer uploaded.
+	if thumbData == nil {
 		s3KeyThumb = s3Key
 	}
-
-	// Upload preview
 	if previewData != nil {
-		pk := fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, fileHash)
-		if s.Storage != nil {
-			if err := s.Storage.UploadToBucket(ctx, mediaBucket, pk, previewData, "image/jpeg"); err != nil {
-				slog.Warn("importer: s3 upload preview failed", "err", err)
-			} else {
-				s3KeyPreview = pk
-			}
-		}
+		s3KeyPreview = fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, fileHash)
 	}
 
 	// Build DB model
@@ -1071,6 +1045,40 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 		return nil, fmt.Errorf("insert activity photo: %w", err)
 	}
 
+	// Store thumb/preview via ShadowFS with parent_type='photo' (needs photo ID from insert).
+	if s.ShadowFS != nil && saved.ID != "" {
+		if thumbData != nil {
+			_, thumbErr := s.ShadowFS.Put(ctx, shadowfs.FileEntry{
+				UserID:      userID,
+				FileType:    "thumb",
+				ContentType: "image/jpeg",
+				FileName:    fileHash + "_thumb.jpg",
+				SizeBytes:   int64(len(thumbData)),
+				FileHash:    fileHash + "_thumb",
+				ParentType:  shadowfs.Ptr("photo"),
+				ParentID:    shadowfs.Ptr(saved.ID),
+			}, bytes.NewReader(thumbData))
+			if thumbErr != nil {
+				slog.Warn("importer: ShadowFS.Put thumb failed", "photo_id", saved.ID, "err", thumbErr)
+			}
+		}
+		if previewData != nil {
+			_, previewErr := s.ShadowFS.Put(ctx, shadowfs.FileEntry{
+				UserID:      userID,
+				FileType:    "preview",
+				ContentType: "image/jpeg",
+				FileName:    fileHash + "_preview.jpg",
+				SizeBytes:   int64(len(previewData)),
+				FileHash:    fileHash + "_preview",
+				ParentType:  shadowfs.Ptr("photo"),
+				ParentID:    shadowfs.Ptr(saved.ID),
+			}, bytes.NewReader(previewData))
+			if previewErr != nil {
+				slog.Warn("importer: ShadowFS.Put preview failed", "photo_id", saved.ID, "err", previewErr)
+			}
+		}
+	}
+
 	// Publish CLIP embed event (best-effort)
 	if s.Events != nil {
 		clipFrames := 4
@@ -1103,7 +1111,6 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	return result, nil
 }
 
-const importQueueBucket = "skadia-media"
 const importQueuePrefix = "import-queue"
 
 // ProcessOrphanPhoto handles a photo without a known activity.
@@ -1164,7 +1171,6 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 
 	fileSize := int64(len(photoBytes))
 	s3Key := fmt.Sprintf("%s/%s/%s", importQueuePrefix, userID, fileHash)
-	bucket := importQueueBucket
 	queueMeta := map[string]any{
 		"filename": meta.OriginalFilename,
 	}
@@ -1190,7 +1196,7 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 			thumbName := fileHash + "_thumb.jpg"
 			thumbRec, thumbErr := s.ShadowFS.Put(ctx, shadowfs.FileEntry{
 				UserID:      userID,
-				FileType:    "media",
+				FileType:    "thumb",
 				ContentType: "image/jpeg",
 				FileName:    thumbName,
 				SizeBytes:   int64(len(thumbData)),
@@ -1203,35 +1209,19 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 				slog.Warn("importer: orphan thumb ShadowFS.Put failed", "err", thumbErr)
 			}
 		}
-	} else if s.Storage != nil {
-		// Legacy S3 path.
-		if err := s.Storage.UploadToBucket(ctx, importQueueBucket, s3Key, photoBytes, ct); err != nil {
-			return nil, fmt.Errorf("s3 upload orphan photo: %w", err)
-		}
-		s3KeyThumb := ""
-		if thumbData != nil {
-			thumbKey := fmt.Sprintf("%s/%s/%s_thumb.jpg", importQueuePrefix, userID, fileHash)
-			if err := s.Storage.UploadToBucket(ctx, importQueueBucket, thumbKey, thumbData, "image/jpeg"); err == nil {
-				s3KeyThumb = thumbKey
-			} else {
-				slog.Warn("importer: orphan thumb upload failed", "err", err)
-			}
-		}
-		if s3KeyThumb != "" {
-			queueMeta["s3_key_thumb"] = s3KeyThumb
-		}
 	} else {
 		return nil, fmt.Errorf("no storage backend configured")
 	}
 
+	s3BE := "s3"
 	queueItem := database.ImportQueueItem{
 		UserID:           userID,
 		QueueType:        "image_no_match",
 		OriginalFilename: meta.OriginalFilename,
 		ContentType:      ct,
 		FileSizeBytes:    &fileSize,
-		S3Bucket:         &bucket,
-		S3Key:            &s3Key,
+		StorageBackend:   &s3BE,
+		StoragePath:      &s3Key,
 		Metadata:         queueMeta,
 	}
 	entryID, err := s.DB.CreateImportQueueItem(ctx, queueItem)
@@ -1271,18 +1261,6 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 		if err != nil {
 			return nil, fmt.Errorf("shadowfs read queued photo: %w", err)
 		}
-	} else if s.Storage != nil {
-		if item.S3Bucket == nil || item.S3Key == nil {
-			return nil, fmt.Errorf("queue item has no stored file reference")
-		}
-		var dlCT string
-		photoBytes, dlCT, err = s.Storage.DownloadFromBucket(ctx, *item.S3Bucket, *item.S3Key)
-		if err != nil {
-			return nil, fmt.Errorf("s3 download queued photo: %w", err)
-		}
-		if dlCT != "" {
-			ct = dlCT
-		}
 	} else {
 		return nil, fmt.Errorf("no storage backend configured")
 	}
@@ -1314,11 +1292,6 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 			if delErr := s.ShadowFS.Delete(ctx, userID, thumbFileID); delErr != nil {
 				slog.Warn("importer: ShadowFS.Delete orphan thumb failed", "id", thumbFileID, "err", delErr)
 			}
-		}
-	} else if s.Storage != nil && item.S3Bucket != nil && item.S3Key != nil {
-		_ = s.Storage.DeleteFromBucket(ctx, *item.S3Bucket, *item.S3Key)
-		if thumbKey, ok := item.Metadata["s3_key_thumb"].(string); ok && thumbKey != "" {
-			_ = s.Storage.DeleteFromBucket(ctx, *item.S3Bucket, thumbKey)
 		}
 	}
 

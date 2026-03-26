@@ -47,8 +47,19 @@ func (h *Handler) ListPhotoFeed(w http.ResponseWriter, r *http.Request) {
 		rows = rows[:photoFeedPageSize]
 	}
 
+	// Batch-fetch thumbnail file_ids from user_files in a single query.
+	// photoIDs come from a user_id-scoped DB query above — safe to use as batch parameter.
+	photoIDs := make([]string, len(rows))
+	for i, row := range rows {
+		photoIDs[i] = row.Photo.ID
+	}
+	thumbs := h.batchFetchThumbs(r.Context(), photoIDs, userID)
+
 	for i := range rows {
 		fillFeedPhotoURLs(&rows[i].Photo)
+		if thumbs != nil {
+			rows[i].Photo.ThumbFileID = thumbs[rows[i].Photo.ID]
+		}
 	}
 
 	groups := groupPhotoFeedRows(rows, sort)
@@ -100,8 +111,19 @@ func (h *Handler) SearchPhotos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Batch-fetch thumbnail file_ids from user_files in a single query.
+	// photoIDs come from a user_id-scoped DB query above — safe to use as batch parameter.
+	photoIDs := make([]string, len(results))
+	for i, r := range results {
+		photoIDs[i] = r.Photo.ID
+	}
+	thumbs := h.batchFetchThumbs(r.Context(), photoIDs, userID)
+
 	for i := range results {
 		fillFeedPhotoURLs(&results[i].Photo)
+		if thumbs != nil {
+			results[i].Photo.ThumbFileID = thumbs[results[i].Photo.ID]
+		}
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, results)

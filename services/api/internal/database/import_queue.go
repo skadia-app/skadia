@@ -17,8 +17,8 @@ type ImportQueueItem struct {
 	OriginalFilename string         `json:"original_filename"`
 	ContentType      string         `json:"content_type"`
 	FileSizeBytes    *int64         `json:"file_size_bytes,omitempty"`
-	S3Bucket         *string        `json:"s3_bucket,omitempty"`
-	S3Key            *string        `json:"s3_key,omitempty"`
+	StorageBackend   *string        `json:"storage_backend,omitempty"`
+	StoragePath      *string        `json:"storage_path,omitempty"`
 	Metadata         map[string]any `json:"metadata"`
 	CreatedAt        time.Time      `json:"created_at"`
 	ResolvedAt       *time.Time     `json:"resolved_at,omitempty"`
@@ -29,7 +29,7 @@ type ImportQueueItem struct {
 func (db *DB) ListImportQueue(ctx context.Context, userID, status string) ([]ImportQueueItem, error) {
 	query := `
 		SELECT id, user_id, queue_type, status, original_filename, content_type,
-		       file_size_bytes, s3_bucket, s3_key, metadata, created_at, resolved_at
+		       file_size_bytes, storage_backend, storage_path, metadata, created_at, resolved_at
 		FROM import_queue
 		WHERE user_id = $1`
 	args := []any{userID}
@@ -53,7 +53,7 @@ func (db *DB) ListImportQueue(ctx context.Context, userID, status string) ([]Imp
 		if err := rows.Scan(
 			&item.ID, &item.UserID, &item.QueueType, &item.Status,
 			&item.OriginalFilename, &item.ContentType,
-			&item.FileSizeBytes, &item.S3Bucket, &item.S3Key,
+			&item.FileSizeBytes, &item.StorageBackend, &item.StoragePath,
 			&metaRaw, &item.CreatedAt, &item.ResolvedAt,
 		); err != nil {
 			return nil, err
@@ -91,10 +91,10 @@ func (db *DB) CreateImportQueueItem(ctx context.Context, item ImportQueueItem) (
 	_, err = db.Pool.Exec(ctx, `
 		INSERT INTO import_queue
 			(id, user_id, queue_type, status, original_filename, content_type,
-			 file_size_bytes, s3_bucket, s3_key, metadata)
+			 file_size_bytes, storage_backend, storage_path, metadata)
 		VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9)
 	`, id, item.UserID, item.QueueType, item.OriginalFilename, item.ContentType,
-		item.FileSizeBytes, item.S3Bucket, item.S3Key, metaJSON,
+		item.FileSizeBytes, item.StorageBackend, item.StoragePath, metaJSON,
 	)
 	return id, err
 }
@@ -124,13 +124,13 @@ func (db *DB) GetImportQueueItem(ctx context.Context, id, userID string) (*Impor
 	var metaRaw []byte
 	err := db.Pool.QueryRow(ctx, `
 		SELECT id, user_id, queue_type, status, original_filename, content_type,
-		       file_size_bytes, s3_bucket, s3_key, metadata, created_at, resolved_at
+		       file_size_bytes, storage_backend, storage_path, metadata, created_at, resolved_at
 		FROM import_queue
 		WHERE id = $1 AND user_id = $2
 	`, id, userID).Scan(
 		&item.ID, &item.UserID, &item.QueueType, &item.Status,
 		&item.OriginalFilename, &item.ContentType,
-		&item.FileSizeBytes, &item.S3Bucket, &item.S3Key,
+		&item.FileSizeBytes, &item.StorageBackend, &item.StoragePath,
 		&metaRaw, &item.CreatedAt, &item.ResolvedAt,
 	)
 	if err != nil {

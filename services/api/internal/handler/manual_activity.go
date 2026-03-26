@@ -108,33 +108,23 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 	// Hash includes CreatedAt so each manual creation is unique (no file_hash dedup).
 	hash := sha256.Sum256(jsonBytes)
 	hashStr := hex.EncodeToString(hash[:])
-	s3Key := fmt.Sprintf("%s/%s.json", userID, hashStr)
 
-	// Upload JSON via ShadowFS (preferred) or legacy S3 (fallback).
-	var manualFileID string
-	if h.ShadowFS != nil {
-		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
-			UserID:      userID,
-			FileType:    "activity",
-			ContentType: "application/json",
-			FileName:    "manual.json",
-			SizeBytes:   int64(len(jsonBytes)),
-			FileHash:    hashStr,
-			Tags:        map[string]string{"format": "manual", "source": "manual"},
-		}, bytes.NewReader(jsonBytes))
-		if putErr != nil {
-			slog.Error("manual activity: ShadowFS.Put failed", "error", putErr)
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store activity file", r.URL.Path)
-			return
-		}
-		manualFileID = rec.ID
-	} else if h.Storage != nil {
-		if err := h.Storage.Upload(r.Context(), s3Key, jsonBytes, "application/json"); err != nil {
-			slog.Error("manual activity: S3 upload failed", "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store activity file", r.URL.Path)
-			return
-		}
+	// Upload JSON to ShadowFS.
+	rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
+		UserID:      userID,
+		FileType:    "activity",
+		ContentType: "application/json",
+		FileName:    "manual.json",
+		SizeBytes:   int64(len(jsonBytes)),
+		FileHash:    hashStr,
+		Tags:        map[string]string{"format": "manual", "source": "manual"},
+	}, bytes.NewReader(jsonBytes))
+	if putErr != nil {
+		slog.Error("manual activity: ShadowFS.Put failed", "error", putErr)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store activity file", r.URL.Path)
+		return
 	}
+	manualFileID := rec.ID
 
 	// Build ActivityData for InsertActivity.
 	endedAt := startedAt.Add(time.Duration(req.ElapsedTimeS) * time.Second)
@@ -219,18 +209,12 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Set file_id when ShadowFS was used; otherwise fall back to legacy file info update.
-	if manualFileID != "" {
-		if _, execErr := h.DB.Pool.Exec(r.Context(),
-			`UPDATE activities SET file_id = $1 WHERE id = $2 AND file_id IS NULL`,
-			manualFileID, activity.ID,
-		); execErr != nil {
-			slog.Warn("manual activity: set file_id failed", "id", activity.ID, "error", execErr)
-		}
-	} else {
-		if err := h.DB.UpdateActivityFileInfo(r.Context(), activity.ID, "manual", "manual.json"); err != nil {
-			slog.Warn("manual activity: update file info failed", "id", activity.ID, "error", err)
-		}
+	// Link file_id on the activity.
+	if _, execErr := h.DB.Pool.Exec(r.Context(),
+		`UPDATE activities SET file_id = $1 WHERE id = $2 AND file_id IS NULL`,
+		manualFileID, activity.ID,
+	); execErr != nil {
+		slog.Warn("manual activity: set file_id failed", "id", activity.ID, "error", execErr)
 	}
 
 	// Stage 1 enrichment: asyncWeather=true, skipStreamEnrichment=true, skipGeo=true (no GPS).

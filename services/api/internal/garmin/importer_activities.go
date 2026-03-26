@@ -168,7 +168,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				hashArr := sha256.Sum256(fileBytes)
 				hashStr := hex.EncodeToString(hashArr[:])
 				tracker.SetFileHash(ctx, hashStr)
-				// Upload file — ShadowFS path preferred; legacy S3 as fallback.
+				// Upload file via ShadowFS.
 				var msFileID string
 				if params.ShadowFS != nil {
 					rec, putErr := params.ShadowFS.Put(ctx, shadowfs.FileEntry{
@@ -190,11 +190,6 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 						continue
 					}
 					msFileID = rec.ID
-				} else if params.Storage != nil {
-					s3Key := fmt.Sprintf("%s/%s.fit", params.UserID, hashStr)
-					if uploadErr := params.Storage.Upload(ctx, s3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
-						slog.Warn("garmin activities: S3 upload multisport failed", "file", ref.fileName, "error", uploadErr)
-					}
 				}
 
 				meta := importer.ImportMetadata{
@@ -317,11 +312,6 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				slog.Warn("garmin activities: ShadowFS.Put failed", "file", ref.fileName, "error", putErr)
 			} else {
 				fileID = rec.ID
-			}
-		} else if params.Storage != nil {
-			s3Key := fmt.Sprintf("%s/%s.%s", params.UserID, hashStr, format)
-			if err := params.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
-				slog.Warn("garmin activities: S3 upload failed", "file", ref.fileName, "error", err)
 			}
 		}
 

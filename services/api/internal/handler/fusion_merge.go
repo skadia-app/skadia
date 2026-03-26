@@ -290,8 +290,8 @@ func (h *Handler) fitLevelMerge(
 	fieldMap map[string]string,
 	activities map[string]*model.Activity,
 ) error {
-	if h.ShadowFS == nil && h.Storage == nil {
-		return fmt.Errorf("neither ShadowFS nor S3 storage configured")
+	if h.ShadowFS == nil {
+		return fmt.Errorf("ShadowFS not configured")
 	}
 	if len(sourceIDs) == 0 {
 		return fmt.Errorf("no sources for FIT-level merge")
@@ -328,41 +328,26 @@ func (h *Handler) fitLevelMerge(
 
 	const maxFITSize = 50 * 1024 * 1024 // 50 MB
 
-	// readFITData liest eine FIT-Datei: erst via ShadowFS (wenn file_id bekannt),
-	// dann via Legacy-S3 als Fallback.
+	// readFITData liest eine FIT-Datei via ShadowFS.
 	readFITData := func(activityID, fileHash string) ([]byte, error) {
-		if h.ShadowFS != nil {
-			// Look up file_id for this activity from the DB.
-			var fileID string
-			_ = h.DB.Pool.QueryRow(ctx,
-				`SELECT COALESCE(file_id::text, '') FROM activities WHERE id = $1 AND user_id = $2`,
-				activityID, userID,
-			).Scan(&fileID)
-			if fileID != "" {
-				rc, getErr := h.ShadowFS.Get(ctx, userID, fileID)
-				if getErr == nil {
-					defer rc.Close()
-					d, readErr := io.ReadAll(rc)
-					if readErr != nil {
-						return nil, fmt.Errorf("read ShadowFS entry %s: %w", fileID, readErr)
-					}
-					return d, nil
-				}
-				slog.Warn("fusion-merge: ShadowFS.Get failed, falling back to S3",
-					"file_id", fileID, "error", getErr)
-			}
+		var fileID string
+		_ = h.DB.Pool.QueryRow(ctx,
+			`SELECT COALESCE(file_id::text, '') FROM activities WHERE id = $1 AND user_id = $2`,
+			activityID, userID,
+		).Scan(&fileID)
+		if fileID == "" {
+			return nil, fmt.Errorf("no file_id for activity %s", activityID)
 		}
-		// S3 fallback
-		if h.Storage == nil {
-			return nil, fmt.Errorf("no storage available for activity %s", activityID)
+		rc, getErr := h.ShadowFS.Get(ctx, userID, fileID)
+		if getErr != nil {
+			return nil, fmt.Errorf("ShadowFS.Get for activity %s (file_id=%s): %w", activityID, fileID, getErr)
 		}
-		const bucket = "skadia-originals"
-		s3Key := fmt.Sprintf("%s/%s.fit", userID, fileHash)
-		data, _, err := h.Storage.DownloadFromBucket(ctx, bucket, s3Key)
-		if err != nil {
-			return nil, fmt.Errorf("download FIT from S3 (key=%s): %w", s3Key, err)
+		defer rc.Close()
+		d, readErr := io.ReadAll(rc)
+		if readErr != nil {
+			return nil, fmt.Errorf("read ShadowFS entry %s: %w", fileID, readErr)
 		}
-		return data, nil
+		return d, nil
 	}
 
 	targetData, err := readFITData(targetID, *target.FileHash)
@@ -396,49 +381,29 @@ func (h *Handler) fitLevelMerge(
 	hashBytes := sha256.Sum256(result.Data)
 	newHash := hex.EncodeToString(hashBytes[:])
 
-	// Zusammengeführte FIT-Datei speichern: ShadowFS (preferred) oder S3 (fallback).
-	var mergedFileID string
-	if h.ShadowFS != nil {
-		rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
-			UserID:      userID,
-			FileType:    "activity",
-			ContentType: "application/octet-stream",
-			FileName:    fmt.Sprintf("%s.fit", newHash),
-			SizeBytes:   int64(len(result.Data)),
-			FileHash:    newHash,
-			Tags:        map[string]string{"format": "fit", "source": "fusion_merge"},
-		}, bytes.NewReader(result.Data))
-		if putErr != nil {
-			return fmt.Errorf("ShadowFS.Put merged FIT: %w", putErr)
-		}
-		mergedFileID = rec.ID
-		slog.Info("fusion-merge: FIT-level merge saved via ShadowFS",
-			"target", targetID, "records", result.RecordCount, "file_id", mergedFileID)
-	} else {
-		const bucket = "skadia-originals"
-		mergedKey := fmt.Sprintf("%s/%s.fit", userID, newHash)
-		if err := h.Storage.UploadToBucket(ctx, bucket, mergedKey, result.Data, "application/octet-stream"); err != nil {
-			return fmt.Errorf("upload merged FIT to S3: %w", err)
-		}
-		slog.Info("fusion-merge: FIT-level merge saved via S3",
-			"target", targetID, "records", result.RecordCount, "merged_key", mergedKey)
+	// Zusammengeführte FIT-Datei via ShadowFS speichern.
+	rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
+		UserID:      userID,
+		FileType:    "activity",
+		ContentType: "application/octet-stream",
+		FileName:    fmt.Sprintf("%s.fit", newHash),
+		SizeBytes:   int64(len(result.Data)),
+		FileHash:    newHash,
+		Tags:        map[string]string{"format": "fit", "source": "fusion_merge"},
+	}, bytes.NewReader(result.Data))
+	if putErr != nil {
+		return fmt.Errorf("ShadowFS.Put merged FIT: %w", putErr)
 	}
+	mergedFileID := rec.ID
+	slog.Info("fusion-merge: FIT-level merge saved via ShadowFS",
+		"target", targetID, "records", result.RecordCount, "file_id", mergedFileID)
 
-	// file_hash (and file_id if ShadowFS) der zusammengefassten Aktivität aktualisieren.
-	if mergedFileID != "" {
-		if _, execErr := h.DB.Pool.Exec(ctx,
-			`UPDATE activities SET file_hash = $2, file_id = $3, has_edits = true WHERE id = $1`,
-			mergedID, newHash, mergedFileID,
-		); execErr != nil {
-			return fmt.Errorf("update file_hash/file_id: %w", execErr)
-		}
-	} else {
-		if _, execErr := h.DB.Pool.Exec(ctx,
-			`UPDATE activities SET file_hash = $2, has_edits = true WHERE id = $1`,
-			mergedID, newHash,
-		); execErr != nil {
-			return fmt.Errorf("update file_hash: %w", execErr)
-		}
+	// file_hash + file_id der zusammengefassten Aktivität aktualisieren.
+	if _, execErr := h.DB.Pool.Exec(ctx,
+		`UPDATE activities SET file_hash = $2, file_id = $3, has_edits = true WHERE id = $1`,
+		mergedID, newHash, mergedFileID,
+	); execErr != nil {
+		return fmt.Errorf("update file_hash/file_id: %w", execErr)
 	}
 
 	return nil

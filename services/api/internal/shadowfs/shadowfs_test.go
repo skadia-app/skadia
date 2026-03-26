@@ -11,17 +11,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func testLocalStore(t *testing.T, pool *pgxpool.Pool) (*LocalShadowFS, string) {
+func testUnifiedStore(t *testing.T, pool *pgxpool.Pool) (*UnifiedShadowFS, string) {
 	t.Helper()
 	dir := t.TempDir()
-	fs, err := NewLocalShadowFS(pool, dir, NewSchemaRenderer(), 1, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	localBE := NewLocalBackend(dir)
+	fs := NewUnifiedShadowFS(pool, localBE, nil, "local", dir, NewSchemaRenderer(), 1, 0, "", "", "")
 	return fs, dir
 }
 
-func TestLocalShadowFS_PutGetDelete(t *testing.T) {
+func TestUnifiedShadowFS_PutGetDelete(t *testing.T) {
 	if os.Getenv("DATABASE_URL") == "" {
 		t.Skip("DATABASE_URL not set")
 	}
@@ -32,7 +30,7 @@ func TestLocalShadowFS_PutGetDelete(t *testing.T) {
 	}
 	defer pool.Close()
 
-	fs, dir := testLocalStore(t, pool)
+	fs, dir := testUnifiedStore(t, pool)
 
 	var userID string
 	if err := pool.QueryRow(ctx, `SELECT id FROM users LIMIT 1`).Scan(&userID); err != nil {

@@ -312,7 +312,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			if format == "fit" && params.ImportService != nil {
 				sessions, msParseErr := fitimport.ParseMultiSessionFIT(fileBytes, filename)
 				if msParseErr == nil && len(sessions) > 1 {
-					// Multi-session FIT: upload via ShadowFS (preferred) or legacy S3, then delegate.
+					// Multi-session FIT: upload via ShadowFS, then delegate.
 					hash := sha256.Sum256(fileBytes)
 					msHash := hex.EncodeToString(hash[:])
 					var msFileID string
@@ -336,11 +336,6 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 							continue
 						}
 						msFileID = rec.ID
-					} else if params.Storage != nil {
-						msS3Key := fmt.Sprintf("%s/%s.fit", params.UserID, msHash)
-						if uploadErr := params.Storage.Upload(ctx, msS3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
-							slog.Warn("strava activities: S3 upload for multisport failed", "file", filename, "error", uploadErr)
-						}
 					}
 
 					importMeta := importer.ImportMetadata{
@@ -485,11 +480,6 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 					} else {
 						fileID = rec.ID
 					}
-				} else if params.Storage != nil {
-					s3Key := fmt.Sprintf("%s/%s.json", params.UserID, hashStr)
-					if err := params.Storage.Upload(ctx, s3Key, jsonBytes, "application/json"); err != nil {
-						slog.Warn("strava activities: S3 upload for CSV-only failed", "error", err)
-					}
 				}
 			}
 		}
@@ -523,7 +513,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			continue
 		}
 
-		// New activity inserted — upload original file via ShadowFS (preferred) or legacy S3.
+		// New activity inserted — upload original file via ShadowFS.
 		// Only reached for "created" status, preventing orphaned files for skipped/enriched/replaced.
 		if len(fileBytes) > 0 {
 			contentType := "application/octet-stream"
@@ -547,11 +537,6 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 					slog.Warn("strava activities: ShadowFS.Put failed", "file", filename, "error", putErr)
 				} else {
 					fileID = rec.ID
-				}
-			} else if params.Storage != nil {
-				s3Key := fmt.Sprintf("%s/%s.%s", params.UserID, hashStr, format)
-				if err := params.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
-					slog.Warn("strava activities: S3 upload failed", "file", filename, "error", err)
 				}
 			}
 		}

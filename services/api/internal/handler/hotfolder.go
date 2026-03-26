@@ -97,13 +97,13 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		// ftype == 4 (activity) or unknown → continue to activity import
 	}
 
-	// 7. Store file via ShadowFS (preferred) or legacy S3
+	// 7. Store file via ShadowFS.
 	contentType := "application/octet-stream"
 	if format == "gpx" || format == "tcx" {
 		contentType = "application/xml"
 	}
 	var hotfolderFileID string
-	if h.ShadowFS != nil {
+	{
 		rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
 			UserID:      userID,
 			FileType:    "activity",
@@ -122,13 +122,6 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 			return importErr
 		}
 		hotfolderFileID = rec.ID
-	} else if h.Storage != nil {
-		s3Key := fmt.Sprintf("%s/%s.%s", userID, hashStr, format)
-		if err := h.Storage.Upload(ctx, s3Key, decompressed, contentType); err != nil {
-			importErr := fmt.Errorf("S3 upload: %w", err)
-			tracker.Error(ctx, importErr)
-			return importErr
-		}
 	}
 
 	// 8. Get user's conflict strategy
