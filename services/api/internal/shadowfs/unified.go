@@ -1,6 +1,7 @@
 package shadowfs
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -609,3 +610,188 @@ func (u *UnifiedShadowFS) Archive(ctx context.Context, userID, fileID, replacedB
 
 	return nil
 }
+
+// ---------------------------------------------------------------------------
+// List / DiskUsage — delegate to db_helpers
+// ---------------------------------------------------------------------------
+
+// List returns all file records for a user, optionally filtered by file type.
+func (u *UnifiedShadowFS) List(ctx context.Context, userID string, fileType *string) ([]FileRecord, error) {
+	return listRecords(ctx, u.pool, userID, fileType)
+}
+
+// DiskUsage returns the total bytes used by a user's active files (excluding derivatives).
+func (u *UnifiedShadowFS) DiskUsage(ctx context.Context, userID string) (int64, error) {
+	return diskUsage(ctx, u.pool, userID)
+}
+
+// ---------------------------------------------------------------------------
+// StreamToZip — per-file dispatch, skip derivatives
+// ---------------------------------------------------------------------------
+
+const maxExportBytesUnified int64 = 10 * 1024 * 1024 * 1024 // 10 GiB
+
+// StreamToZip writes all exportable user files into the given zip.Writer.
+// Derivatives (thumb/preview) and legacy _cache/ paths are skipped.
+func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zip.Writer) error {
+	records, err := listRecords(ctx, u.pool, userID, nil)
+	if err != nil {
+		return fmt.Errorf("shadowfs: list records for zip: %w", err)
+	}
+
+	var totalBytes int64
+	for _, rec := range records {
+		// Skip derivatives.
+		if rec.FileType == "thumb" || rec.FileType == "preview" {
+			continue
+		}
+		// Legacy _cache/ filter.
+		if strings.Contains(rec.StoragePath, "/_cache/") {
+			continue
+		}
+
+		totalBytes += rec.SizeBytes
+		if totalBytes > maxExportBytesUnified {
+			return fmt.Errorf("shadowfs: export exceeds %d byte limit", maxExportBytesUnified)
+		}
+
+		// Normalize zip paths: file_type/file_name (don't leak storage key structure).
+		zipPath := rec.FileType + "/" + rec.FileName
+		if rec.Status == "archived" {
+			zipPath = "_archive/" + zipPath
+		}
+		zipPath = filepath.Clean(zipPath)
+		if strings.Contains(zipPath, "..") || strings.HasPrefix(zipPath, "/") {
+			slog.Warn("shadowfs: skip suspicious path in zip", "path", zipPath)
+			continue
+		}
+
+		be, beErr := u.backendFor(rec.StorageBackend)
+		if beErr != nil {
+			slog.Warn("shadowfs: skip file in zip (backend unavailable)", "file_id", rec.ID, "err", beErr)
+			continue
+		}
+
+		rc, readErr := be.Read(ctx, rec.StoragePath, u.bucketOpts(rec.FileType))
+		if readErr != nil {
+			slog.Warn("shadowfs: skip file in zip", "file_id", rec.ID, "err", readErr)
+			continue
+		}
+
+		w, headerErr := zw.CreateHeader(&zip.FileHeader{
+			Name:     zipPath,
+			Method:   zip.Deflate,
+			Modified: rec.CreatedAt,
+		})
+		if headerErr != nil {
+			rc.Close()
+			return fmt.Errorf("shadowfs: zip header: %w", headerErr)
+		}
+		_, copyErr := io.Copy(w, rc)
+		rc.Close()
+		if copyErr != nil {
+			return fmt.Errorf("shadowfs: zip copy: %w", copyErr)
+		}
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// DeleteAllForUser — advisory lock, per-file delete, safety-net
+// ---------------------------------------------------------------------------
+
+// DeleteAllForUser purges all files (physical + registry) for a user.
+// Uses an advisory lock to prevent concurrent purges.
+func (u *UnifiedShadowFS) DeleteAllForUser(ctx context.Context, userID string) error {
+	conn, err := u.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("shadowfs: acquire conn: %w", err)
+	}
+	defer conn.Release()
+
+	lockKey := advisoryLockKey("shadowfs:" + userID)
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, lockKey); err != nil {
+		return fmt.Errorf("shadowfs: advisory lock: %w", err)
+	}
+	defer func() {
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, lockKey)
+	}()
+
+	// Mark all as purging.
+	_, err = conn.Exec(ctx, `UPDATE user_files SET status = 'purging' WHERE user_id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("shadowfs: mark purging: %w", err)
+	}
+
+	// Per-file delete with correct backend + bucket.
+	rows, err := conn.Query(ctx,
+		`SELECT id, storage_backend, storage_path, file_type FROM user_files WHERE user_id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("shadowfs: query files: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id, backend, path, fileType string
+		if err := rows.Scan(&id, &backend, &path, &fileType); err != nil {
+			slog.Error("shadowfs: scan file for deletion", "err", err)
+			continue
+		}
+		be, beErr := u.backendFor(backend)
+		if beErr != nil {
+			slog.Warn("shadowfs: skip cleanup (backend unavailable)", "backend", backend)
+			continue
+		}
+		if delErr := be.Delete(ctx, path, u.bucketOpts(fileType)); delErr != nil {
+			slog.Warn("shadowfs: delete failed during purge", "path", path, "err", delErr)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("shadowfs: iterate files for deletion", "err", err)
+	}
+
+	// Safety-Net Local: RemoveAll user directory.
+	if u.local != nil {
+		userDir := u.getUserDirOrFallback(ctx, userID)
+		if localBE, ok := u.local.(*LocalBackend); ok {
+			userFullPath := filepath.Join(localBE.BasePath(), userDir)
+			if err := os.RemoveAll(userFullPath); err != nil {
+				slog.Warn("shadowfs: removeAll user dir", "path", userFullPath, "err", err)
+			}
+		}
+	}
+
+	// Safety-Net S3: legacy prefixes on all configured buckets.
+	if u.s3 != nil {
+		if s3be, ok := u.s3.(*S3Backend); ok {
+			legacyPrefixes := []string{
+				userID + "/",
+				"_cache/" + userID + "/",
+				"_temp/" + userID + "/",
+				"activity-photos/" + userID + "/",
+				"gear/" + userID + "/",
+				"route-photos/" + userID + "/",
+				"marker-images/" + userID + "/",
+				"tag-covers/" + userID + "/",
+				"edits/" + userID + "/",
+			}
+			for _, bkt := range u.allBuckets() {
+				for _, prefix := range legacyPrefixes {
+					if delErr := s3be.DeletePrefix(ctx, prefix, &BackendOpts{Bucket: bkt}); delErr != nil {
+						slog.Error("shadowfs: deletePrefix failed", "bucket", bkt, "prefix", prefix, "err", delErr)
+					}
+				}
+			}
+		}
+	}
+
+	// Delete all registry entries.
+	_, err = conn.Exec(ctx, `DELETE FROM user_files WHERE user_id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("shadowfs: delete records: %w", err)
+	}
+	return nil
+}
+
+// Compile-time interface check.
+var _ ShadowFS = (*UnifiedShadowFS)(nil)
