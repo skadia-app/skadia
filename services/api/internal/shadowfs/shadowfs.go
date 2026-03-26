@@ -80,6 +80,8 @@ var fileTypeDirName = map[string]string{
 	"report":   "reports",
 	"edit":     "activities/_edits",
 	"chat":     "chat",
+	"thumb":    "media/_thumbs",
+	"preview":  "media/_previews",
 }
 
 // DirForType returns the directory name for a file type.
