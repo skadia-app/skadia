@@ -187,8 +187,20 @@ func (h *Handler) ListActivityPhotos(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
 		return
 	}
+
+	// Batch-fetch thumbnail file_ids from user_files in a single query.
+	// photoIDs come from a user_id-scoped DB query above — safe to use as batch parameter.
+	photoIDs := make([]string, len(photos))
+	for i, p := range photos {
+		photoIDs[i] = p.ID
+	}
+	thumbs := h.batchFetchThumbs(r.Context(), photoIDs, userID)
+
 	for i := range photos {
 		setPhotoURLs(&photos[i])
+		if thumbs != nil {
+			photos[i].ThumbFileID = thumbs[photos[i].ID]
+		}
 	}
 	httputil.WriteJSON(w, http.StatusOK, photos)
 }
@@ -804,6 +816,35 @@ func (h *Handler) ListMapPhotos(w http.ResponseWriter, r *http.Request) {
 		entries[i].ThumbURL = "/photos/" + entries[i].ID + "/thumb"
 	}
 	httputil.WriteJSON(w, http.StatusOK, entries)
+}
+
+// batchFetchThumbs performs a single batch query to fetch thumbnail file_ids for a list
+// of photo IDs. The photoIDs MUST originate from a prior user_id-scoped query — never
+// pass user-supplied IDs directly. Returns a map of photoID → thumb user_files.id.
+func (h *Handler) batchFetchThumbs(ctx context.Context, photoIDs []string, userID string) map[string]string {
+	if h.ShadowFS == nil || len(photoIDs) == 0 {
+		return nil
+	}
+	thumbs := make(map[string]string, len(photoIDs))
+	rows, err := h.DB.Pool.Query(ctx,
+		`SELECT parent_id::text, id::text
+		 FROM user_files
+		 WHERE parent_type = 'photo' AND parent_id = ANY($1::uuid[])
+		   AND file_type = 'thumb' AND user_id = $2
+		   AND status = 'active'`,
+		photoIDs, userID)
+	if err != nil {
+		slog.Warn("batchFetchThumbs: query failed", "error", err)
+		return thumbs
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var parentID, thumbFileID string
+		if scanErr := rows.Scan(&parentID, &thumbFileID); scanErr == nil {
+			thumbs[parentID] = thumbFileID
+		}
+	}
+	return thumbs
 }
 
 // setPhotoURLs sets the computed URL fields on an ActivityPhoto.
