@@ -397,10 +397,6 @@ func (s *S3ShadowFS) DeleteAllForUser(ctx context.Context, userID string) error 
 		}
 	}
 
-	// Clean journal entries (parity with LocalShadowFS.DeleteAllForUser).
-	_, _ = conn.Exec(ctx,
-		`DELETE FROM migration_shadowfs_journal WHERE user_id = $1`, userID)
-
 	// Remove from DB.
 	_, err = conn.Exec(ctx,
 		`DELETE FROM user_files WHERE user_id = $1`, userID)
