@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -17,20 +16,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
-
-// editorBucket returns the S3 bucket used for edit sidecars.
-func editorBucket() string {
-	b := os.Getenv("GARAGE_MEDIA_BUCKET")
-	if b == "" {
-		return "skadia-media"
-	}
-	return b
-}
-
-// editorKey returns the S3 key for a user's activity edit sidecar.
-func editorKey(userID, activityID string) string {
-	return fmt.Sprintf("edits/%s/%s.edits.json", userID, activityID)
-}
 
 // GetActivityEdits loads the edit sidecar for an activity from S3.
 //
