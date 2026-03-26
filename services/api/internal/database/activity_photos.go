@@ -10,7 +10,7 @@ import (
 )
 
 // clipVecLiteralRe validates pgvector literal format: '[float,float,...]'
-var clipVecLiteralRe = regexp.MustCompile(`^\[[-0-9.,e+]+\]$`)
+var clipVecLiteralRe = regexp.MustCompile(`^\[-?[0-9]+(\.[0-9]+)?(e[+-]?[0-9]+)?(,-?[0-9]+(\.[0-9]+)?(e[+-]?[0-9]+)?)*\]$`)
 
 
 func (db *DB) InsertActivityPhoto(ctx context.Context, p model.ActivityPhoto) (model.ActivityPhoto, error) {

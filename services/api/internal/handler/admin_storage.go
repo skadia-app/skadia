@@ -288,7 +288,6 @@ func (h *Handler) BackfillThumbnails(w http.ResponseWriter, r *http.Request) {
 
 		var wg sync.WaitGroup
 		for _, row := range missing {
-			row := row // capture
 			wg.Add(1)
 			sem <- struct{}{}
 			go func() {
