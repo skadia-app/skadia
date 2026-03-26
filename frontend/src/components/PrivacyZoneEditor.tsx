@@ -574,6 +574,22 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
       } else {
         // Polygon-Modus: Punkt nur hinzufügen wenn noch nicht geschlossen
         if (polygonClosedRef.current) return
+        const pts = polygonPointsRef.current
+        // Klick nahe am ersten Punkt (≥3 Punkte) → Polygon automatisch schließen
+        if (pts.length >= 3) {
+          const firstPx = map.project(pts[0])
+          const clickPx = map.project([e.lngLat.lng, e.lngLat.lat])
+          const dx = firstPx.x - clickPx.x
+          const dy = firstPx.y - clickPx.y
+          if (dx * dx + dy * dy <= 15 * 15) {
+            polygonClosedRef.current = true
+            setPolygonClosed(true)
+            if (map.isStyleLoaded()) {
+              updatePolygonLayer(map, pts, true, colorRef.current)
+            }
+            return
+          }
+        }
         const newPt: [number, number] = [e.lngLat.lng, e.lngLat.lat]
         setPolygonPoints(prev => {
           const updated = [...prev, newPt]
