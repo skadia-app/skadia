@@ -500,11 +500,8 @@ func main() {
 				r.Get("/settings/ml", h.GetMLSystemSettings)
 				r.Put("/settings/ml/{key}", h.PutMLSystemSetting)
 
-				// ShadowFS registry, dashboard & migration
+				// ShadowFS dashboard & reconciliation
 				r.Get("/storage", h.StorageDashboard)
-				r.Post("/storage/populate-registry", h.StartRegistryPopulation)
-				r.Post("/storage/migrate", h.StartFileMigration)
-				r.Post("/storage/migrate/rollback", h.StartFileMigrationRollback)
 				r.Post("/storage/reconcile", h.StartReconciliation)
 
 				// Photo batch operations
