@@ -1276,7 +1276,8 @@ func (h *Handler) GetCombinedTrack(w http.ResponseWriter, r *http.Request) {
 
 	children, err := h.DB.GetChildActivities(ctx, activityID)
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "DB Error", err.Error(), r.URL.Path)
+		slog.Error("get combined track: failed to load child activities", "activity_id", activityID, "err", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load child activities", r.URL.Path)
 		return
 	}
 

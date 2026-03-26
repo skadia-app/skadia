@@ -31,10 +31,26 @@ func NewDirSource(path string) *DirSource {
 // ReadCSV reads a CSV file and returns all rows (including header as row 0).
 // Handles the BOM that some Strava exports include.
 func (s *DirSource) ReadCSV(relativePath string) ([][]string, error) {
-	data, err := os.ReadFile(filepath.Join(s.Dir, relativePath))
+	// Containment check — relativePath must stay within the export directory.
+	fullPath := filepath.Join(s.Dir, relativePath)
+	cleanDir := filepath.Clean(s.Dir)
+	if !strings.HasPrefix(filepath.Clean(fullPath)+string(filepath.Separator), cleanDir+string(filepath.Separator)) {
+		return nil, fmt.Errorf("path traversal detected in ReadCSV: %q", relativePath)
+	}
+	// Size limit to prevent OOM.
+	f, err := os.Open(fullPath)
 	if err != nil {
 		return nil, fmt.Errorf("read csv %s: %w", relativePath, err)
 	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, maxReadFileBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read csv %s: %w", relativePath, err)
+	}
+	if int64(len(raw)) > maxReadFileBytes {
+		return nil, fmt.Errorf("csv file %q exceeds maximum size of %d bytes", relativePath, maxReadFileBytes)
+	}
+	data := raw
 
 	// Strip UTF-8 BOM if present
 	content := string(data)

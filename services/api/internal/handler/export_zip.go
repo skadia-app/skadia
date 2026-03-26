@@ -71,11 +71,18 @@ func (h *Handler) ExportActivitiesZip(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 
+	const maxZipEntryBytes = 500 << 20 // 500 MB per file
+
 	addToZip := func(activity *model.Activity) {
 		fileBytes, filename, err := h.exportActivityBytes(r.Context(), activity, body.Format)
 		if err != nil {
 			slog.Warn("export-zip: export failed, skipping",
 				"id", activity.ID, "format", body.Format, "error", err)
+			return
+		}
+		if int64(len(fileBytes)) > maxZipEntryBytes {
+			slog.Warn("export-zip: file exceeds 500 MB limit, skipping",
+				"id", activity.ID, "size", len(fileBytes))
 			return
 		}
 		f, err := zw.Create(filename)

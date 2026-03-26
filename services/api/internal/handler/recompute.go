@@ -171,7 +171,7 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 		if err := h.reprocessActivity(ctx, id, userID, scope, smoothWindow, false, nil); err != nil {
 			slog.Error("reprocess: failed", "id", id, "error", err)
 			if jobErr == nil {
-				_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
+				_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, "recompute failed")
 			}
 			return
 		}
