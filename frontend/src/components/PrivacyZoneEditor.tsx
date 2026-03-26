@@ -883,7 +883,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
             </p>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
               <span className="inline-block w-2.5 h-2.5 rounded-full bg-orange-400 mr-1 relative top-px" />
-              <strong>Zone</strong> = Maskierungsbereich (sichtbar in Heatmap).
+              <strong>Zone</strong> = Maskierungsbereich (unsichtbar in öffentlicher Heatmap).
             </p>
             {!pinInsideZone && (
               <p className="text-xs text-amber-600 dark:text-amber-400">
