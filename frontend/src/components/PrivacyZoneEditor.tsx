@@ -649,9 +649,13 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     injectPZECursorStyles()
     const container = mapContainerRef.current!
     let isMouseDown = false
-    const onMousemove = () => { if (!isMouseDown) setPZECursorClass(container, 'crosshair') }
+    const applyCursor = () => {
+      const drawing = zoneModeRef.current === 'polygon' && !polygonClosedRef.current
+      setPZECursorClass(container, drawing ? 'crosshair' : '')
+    }
+    const onMousemove = () => { if (!isMouseDown) applyCursor() }
     const onMousedown = () => { isMouseDown = true;  setPZECursorClass(container, 'grabbing') }
-    const onMouseup   = () => { isMouseDown = false; setPZECursorClass(container, 'crosshair') }
+    const onMouseup   = () => { isMouseDown = false; applyCursor() }
     const canvas = map.getCanvas()
     canvas.addEventListener('mousemove', onMousemove)
     canvas.addEventListener('mousedown', onMousedown)
