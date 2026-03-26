@@ -16,7 +16,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
-	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
 
 // ActivitiesImporter imports recorded tours (tour_recorded) from the Komoot API.
@@ -31,7 +30,6 @@ func (i *ActivitiesImporter) Priority() int       { return 20 }
 // KomootImportParams bundles everything the Komoot importers need.
 type KomootImportParams struct {
 	DB            *database.DB
-	Storage       *storage.S3Client
 	ShadowFS     shadowfs.ShadowFS // nil when not configured
 	ImportService *importer.Service   // centralised duplicate detection + insert
 	UserID        string
