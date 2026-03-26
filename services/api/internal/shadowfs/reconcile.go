@@ -17,13 +17,12 @@ import (
 // user_files registry. It is designed to be run periodically (daily cron)
 // or triggered manually via the admin API.
 //
-// L20: This reconciler only handles storage_backend='local'. An S3 reconciler
-// (comparing user_files rows with ListObjectsV2 output) is planned as future
-// work. Until then, S3 consistency relies on the atomic DB-first-then-S3
-// deletion pattern and manual cleanup via admin endpoints.
 type ReconcileJob struct {
 	pool         *pgxpool.Pool
-	basePath     string
+	local        StorageBackend      // nil when no local path configured
+	s3           StorageBackend      // nil when no S3 configured
+	basePath     string              // for local orphan walk
+	bucketFn     func(string) string // fileType → S3 bucket
 	renderer     *SchemaRenderer
 	keepVersions int
 }
@@ -32,20 +31,27 @@ type ReconcileJob struct {
 type ReconcileResult struct {
 	OrphanedFiles   int      `json:"orphaned_files"`
 	DanglingRecords int      `json:"dangling_records"`
+	DanglingCleaned int      `json:"dangling_cleaned"`  // S3 records with missing objects
 	SizeMismatches  int      `json:"size_mismatches"`
 	ArchivedCleaned int      `json:"archived_cleaned"`
 	TempCleaned     int      `json:"temp_cleaned"`
 	DuplicatePaths  int      `json:"duplicate_paths"`
 	PurgingCleaned  int      `json:"purging_cleaned"`
 	RenameFixed     int      `json:"rename_fixed"`
-	ArchiveWarnings []string `json:"archive_warnings,omitempty"` // users with >1GB archives
+	OrphanWarnings  int      `json:"orphan_warnings"`                // S3 objects with no registry entry
+	ArchiveWarnings []string `json:"archive_warnings,omitempty"`     // users with >1GB archives
 }
 
 // NewReconcileJob creates a new reconciliation job.
-func NewReconcileJob(pool *pgxpool.Pool, basePath string, renderer *SchemaRenderer, keepVersions int) *ReconcileJob {
+// local and s3 may be nil if the respective backend is not configured.
+// bucketFn maps fileType → S3 bucket name (may be nil when s3 is nil).
+func NewReconcileJob(pool *pgxpool.Pool, local, s3 StorageBackend, basePath string, bucketFn func(string) string, renderer *SchemaRenderer, keepVersions int) *ReconcileJob {
 	return &ReconcileJob{
 		pool:         pool,
+		local:        local,
+		s3:           s3,
 		basePath:     basePath,
+		bucketFn:     bucketFn,
 		renderer:     renderer,
 		keepVersions: keepVersions,
 	}
@@ -72,6 +78,8 @@ func (j *ReconcileJob) Run(ctx context.Context, progressFn func(current int)) (R
 		{"purging_cleanup", j.checkPurgingCleanup},
 		{"rename_cleanup", j.checkRenameCleanup},
 		{"archive_warnings", j.checkArchiveWarnings},
+		{"s3_dangling", j.checkS3Dangling},
+		{"s3_orphans", j.checkS3Orphans},
 	}
 
 	for i, c := range checks {
@@ -91,12 +99,14 @@ func (j *ReconcileJob) Run(ctx context.Context, progressFn func(current int)) (R
 	slog.Info("shadowfs reconcile: complete",
 		"orphaned_files", result.OrphanedFiles,
 		"dangling_records", result.DanglingRecords,
+		"dangling_cleaned", result.DanglingCleaned,
 		"size_mismatches", result.SizeMismatches,
 		"archived_cleaned", result.ArchivedCleaned,
 		"temp_cleaned", result.TempCleaned,
 		"duplicate_paths", result.DuplicatePaths,
 		"purging_cleaned", result.PurgingCleaned,
 		"rename_fixed", result.RenameFixed,
+		"orphan_warnings", result.OrphanWarnings,
 		"archive_warnings", len(result.ArchiveWarnings),
 	)
 	return result, nil
@@ -112,6 +122,9 @@ func (j *ReconcileJob) Run(ctx context.Context, progressFn func(current int)) (R
 // 100k files, which is acceptable. For future large deployments (>100k files)
 // consider a batched/streaming approach (e.g., sort both sets and merge-scan).
 func (j *ReconcileJob) checkOrphanedFiles(ctx context.Context, r *ReconcileResult) error {
+	if j.basePath == "" {
+		return nil
+	}
 	// L11: Build a set of ALL known storage_paths (including archived) from the registry.
 	// Archived files have storage_paths pointing into _archive/ directories, and these
 	// must be in knownPaths so they are not flagged as orphans during the walk.
@@ -197,6 +210,9 @@ func (j *ReconcileJob) checkOrphanedFiles(ctx context.Context, r *ReconcileResul
 // ---------- Check 2: Dangling records ----------
 // Registry entries with no physical file. DELETE the record.
 func (j *ReconcileJob) checkDanglingRecords(ctx context.Context, r *ReconcileResult) error {
+	if j.basePath == "" {
+		return nil
+	}
 	rows, err := j.pool.Query(ctx,
 		`SELECT id, storage_path, user_id FROM user_files
 		 WHERE storage_backend = 'local' AND status != 'purging'
@@ -270,6 +286,9 @@ func (j *ReconcileJob) checkDanglingRecords(ctx context.Context, r *ReconcileRes
 // ---------- Check 3: Size mismatch ----------
 // File size on disk differs from registry size_bytes. UPDATE the registry.
 func (j *ReconcileJob) checkSizeMismatches(ctx context.Context, r *ReconcileResult) error {
+	if j.basePath == "" {
+		return nil
+	}
 	rows, err := j.pool.Query(ctx,
 		`SELECT id, storage_path, size_bytes FROM user_files
 		 WHERE storage_backend = 'local' AND status = 'active'`)
@@ -452,6 +471,9 @@ func (j *ReconcileJob) checkArchivedVersionCleanup(ctx context.Context, r *Recon
 // ---------- Check 5: Temp cleanup ----------
 // Files in _temp/ directories older than 30 days with no import_queue entry.
 func (j *ReconcileJob) checkTempCleanup(ctx context.Context, r *ReconcileResult) error {
+	if j.basePath == "" {
+		return nil
+	}
 	cutoff := time.Now().Add(-30 * 24 * time.Hour)
 
 	err := filepath.WalkDir(j.basePath, func(path string, d fs.DirEntry, walkErr error) error {
@@ -775,6 +797,125 @@ func (j *ReconcileJob) checkArchiveWarnings(ctx context.Context, r *ReconcileRes
 		r.ArchiveWarnings = append(r.ArchiveWarnings, msg)
 	}
 	return rows.Err()
+}
+
+// ---------- Check 10: S3 dangling records ----------
+// Registry entries with storage_backend='s3' where the S3 object no longer exists.
+// DELETE the record.
+func (j *ReconcileJob) checkS3Dangling(ctx context.Context, r *ReconcileResult) error {
+	if j.s3 == nil {
+		return nil
+	}
+	rows, err := j.pool.Query(ctx,
+		`SELECT id, storage_path, file_type FROM user_files WHERE storage_backend = 's3' AND status = 'active'`)
+	if err != nil {
+		return fmt.Errorf("query s3 records: %w", err)
+	}
+	defer rows.Close()
+
+	type entry struct {
+		id, path, fileType string
+	}
+	var entries []entry
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.id, &e.path, &e.fileType); err != nil {
+			continue
+		}
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate s3 records: %w", err)
+	}
+
+	for _, e := range entries {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		bucket := ""
+		if j.bucketFn != nil {
+			bucket = j.bucketFn(e.fileType)
+		}
+		exists, err := j.s3.Exists(ctx, e.path, &BackendOpts{Bucket: bucket})
+		if err != nil {
+			slog.Warn("reconcile: s3 exists check failed", "path", e.path, "err", err)
+			continue
+		}
+		if !exists {
+			if _, err := j.pool.Exec(ctx, `DELETE FROM user_files WHERE id = $1`, e.id); err != nil {
+				slog.Error("reconcile: failed to delete dangling S3 record", "id", e.id, "err", err)
+				continue
+			}
+			r.DanglingCleaned++
+			slog.Info("reconcile: removed dangling S3 record", "id", e.id, "path", e.path)
+		}
+	}
+	return nil
+}
+
+// ---------- Check 11: S3 orphan warnings ----------
+// S3 objects with no corresponding registry entry. Log only — does NOT delete.
+func (j *ReconcileJob) checkS3Orphans(ctx context.Context, r *ReconcileResult) error {
+	if j.s3 == nil {
+		return nil
+	}
+	buckets := j.allBuckets()
+	for _, bkt := range buckets {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		// Get all user IDs that have S3-backed files to scope the listing.
+		rows, err := j.pool.Query(ctx, `SELECT DISTINCT user_id FROM user_files WHERE storage_backend = 's3'`)
+		if err != nil {
+			return fmt.Errorf("query s3 user_ids: %w", err)
+		}
+		var userIDs []string
+		for rows.Next() {
+			var uid string
+			if err := rows.Scan(&uid); err != nil {
+				continue
+			}
+			userIDs = append(userIDs, uid)
+		}
+		rows.Close()
+
+		for _, uid := range userIDs {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			_ = j.s3.ListFunc(ctx, uid+"/", &BackendOpts{Bucket: bkt}, func(path string) error {
+				var exists bool
+				if err := j.pool.QueryRow(ctx,
+					`SELECT EXISTS(SELECT 1 FROM user_files WHERE storage_backend = 's3' AND storage_path = $1)`,
+					path).Scan(&exists); err != nil {
+					return nil // skip on query error
+				}
+				if !exists {
+					r.OrphanWarnings++
+					slog.Warn("reconcile: orphan S3 object", "bucket", bkt, "key", path)
+				}
+				return nil
+			})
+		}
+	}
+	return nil
+}
+
+// allBuckets returns the distinct S3 buckets used by the configured bucketFn.
+func (j *ReconcileJob) allBuckets() []string {
+	if j.bucketFn == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var buckets []string
+	for _, ft := range []string{"activity", "media", "document"} {
+		b := j.bucketFn(ft)
+		if b != "" && !seen[b] {
+			seen[b] = true
+			buckets = append(buckets, b)
+		}
+	}
+	return buckets
 }
 
 // extractTagsFromPath extracts best-effort schema variables from an existing storage path.

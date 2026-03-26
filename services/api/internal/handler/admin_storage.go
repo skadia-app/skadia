@@ -201,7 +201,7 @@ func (h *Handler) StartReconciliation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	renderer := shadowfs.NewSchemaRenderer()
-	job := shadowfs.NewReconcileJob(h.DB.Pool, h.Config.LibraryBasePath, renderer, h.Config.KeepVersions)
+	job := shadowfs.NewReconcileJob(h.DB.Pool, h.Config.LocalBE, h.Config.S3BE, h.Config.LibraryBasePath, h.Config.BucketFn, renderer, h.Config.KeepVersions)
 
 	db := h.DB
 	shutdown.Go(jobID, func(ctx context.Context) {
