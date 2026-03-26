@@ -77,25 +77,8 @@ func (h *Handler) ServeMedia(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Legacy S3 fallback.
-	if h.Storage == nil {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "media not found", r.URL.Path)
-		return
-	}
-
-	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), bucket, key)
-	if err != nil {
-		slog.Error("media proxy: s3 download failed", "bucket", bucket, "key", key, "error", err)
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "media not found", r.URL.Path)
-		return
-	}
-
-	if ct == "" {
-		ct = "application/octet-stream"
-	}
-	w.Header().Set("Content-Type", ct)
-	w.Header().Set("Cache-Control", "private, max-age=86400")
-	w.Write(data)
+	// No ShadowFS record found — file not available.
+	httputil.WriteError(w, http.StatusNotFound, "Not Found", "media not found", r.URL.Path)
 }
 
 // ServeFile serves a file from the ShadowFS.
