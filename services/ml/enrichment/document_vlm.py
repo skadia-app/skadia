@@ -82,7 +82,7 @@ async def extract_from_text(text: str, prompt: str = EXTRACTION_PROMPT) -> Optio
 
 async def download_s3_doc(s3_bucket: str, s3_key: str) -> Optional[bytes]:
     """Lade Dokument aus Garage S3."""
-    garage_endpoint = os.getenv("GARAGE_ENDPOINT", "http://garage:3900")
+    garage_endpoint = os.getenv("S3_ENDPOINT", os.getenv("GARAGE_ENDPOINT", "http://garage:3900"))
 
     url = f"{garage_endpoint}/{s3_bucket}/{s3_key}"
     try:
@@ -245,9 +245,9 @@ async def upload_to_s3(bucket: str, key: str, data: bytes, content_type: str) ->
     session = aioboto3.Session()
     async with session.client(
         "s3",
-        endpoint_url=os.getenv("GARAGE_ENDPOINT", "http://garage:3900"),
-        aws_access_key_id=os.getenv("GARAGE_ACCESS_KEY"),
-        aws_secret_access_key=os.getenv("GARAGE_SECRET_KEY"),
+        endpoint_url=os.getenv("S3_ENDPOINT", os.getenv("GARAGE_ENDPOINT", "http://garage:3900")),
+        aws_access_key_id=os.getenv("S3_ACCESS_KEY", os.getenv("GARAGE_ACCESS_KEY")),
+        aws_secret_access_key=os.getenv("S3_SECRET_KEY", os.getenv("GARAGE_SECRET_KEY")),
         region_name="garage",
     ) as s3:
         await s3.put_object(Bucket=bucket, Key=key, Body=data, ContentType=content_type)
