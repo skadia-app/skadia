@@ -335,46 +335,50 @@ function TagForm({
 
         {isLocationTag && (
           <div className="px-4 py-3 border-t border-neutral-200 dark:border-neutral-800 space-y-4">
-            {/* Koordinaten-Eingabe + Karte */}
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Klicke auf die Karte oder ziehe den Pin, um den Standort zu setzen.
-            </p>
-            <LocationPinMiniMap
-              lat={locationLat ? parseFloat(locationLat) : null}
-              lng={locationLng ? parseFloat(locationLng) : null}
-              onCoordinatesChange={(lat, lng) => {
-                setLocationLat(lat.toFixed(6))
-                setLocationLng(lng.toFixed(6))
-              }}
-            />
-            <div className="flex items-center gap-3">
-              <div className="flex-1">
-                <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">Breitengrad</label>
-                <input
-                  type="number"
-                  step="any"
-                  min="-90"
-                  max="90"
-                  value={locationLat}
-                  onChange={(e) => setLocationLat(e.target.value)}
-                  placeholder="z.B. 48.1234"
-                  className="w-full px-2 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
+            {/* Koordinaten-Eingabe + Karte — nur bei Pin-Modus */}
+            {locationType === 'pin' && (
+              <>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                  Klicke auf die Karte oder ziehe den Pin, um den Standort zu setzen.
+                </p>
+                <LocationPinMiniMap
+                  lat={locationLat ? parseFloat(locationLat) : null}
+                  lng={locationLng ? parseFloat(locationLng) : null}
+                  onCoordinatesChange={(lat, lng) => {
+                    setLocationLat(lat.toFixed(6))
+                    setLocationLng(lng.toFixed(6))
+                  }}
                 />
-              </div>
-              <div className="flex-1">
-                <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">Längengrad</label>
-                <input
-                  type="number"
-                  step="any"
-                  min="-180"
-                  max="180"
-                  value={locationLng}
-                  onChange={(e) => setLocationLng(e.target.value)}
-                  placeholder="z.B. 11.5678"
-                  className="w-full px-2 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
-                />
-              </div>
-            </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1">
+                    <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">Breitengrad</label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="-90"
+                      max="90"
+                      value={locationLat}
+                      onChange={(e) => setLocationLat(e.target.value)}
+                      placeholder="z.B. 48.1234"
+                      className="w-full px-2 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">Längengrad</label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="-180"
+                      max="180"
+                      value={locationLng}
+                      onChange={(e) => setLocationLng(e.target.value)}
+                      placeholder="z.B. 11.5678"
+                      className="w-full px-2 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Standort-Typ: Pin / Radius / Polygon */}
             <div>
@@ -448,7 +452,14 @@ function TagForm({
                     ...zoneData,
                     mode: locationType === 'polygon' ? 'polygon' : 'circle',
                   }}
-                  onChange={setZoneData}
+                  onChange={(z) => {
+                    setZoneData(z)
+                    // Basis-Koordinaten aus Zone-Mittelpunkt ableiten
+                    if (z.center) {
+                      setLocationLat(z.center[1].toFixed(6))
+                      setLocationLng(z.center[0].toFixed(6))
+                    }
+                  }}
                   enableHoles
                 />
               </div>
