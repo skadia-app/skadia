@@ -18,14 +18,22 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
+// routePhotoParent is the ParentType for route photo files.
+var routePhotoParent = "route_photo"
+
 // UploadRoutePhoto handles POST /api/v1/routes/{id}/photos
-// Accepts a multipart form with a "photo" field, generates thumbnails, uploads to S3.
+// Accepts a multipart form with a "photo" field, generates thumbnails, uploads to ShadowFS.
 func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
 	}
 	routeID := chi.URLParam(r, "id")
+
+	if h.ShadowFS == nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "storage not configured", r.URL.Path)
+		return
+	}
 
 	// Verify ownership.
 	_, err := h.DB.GetRoute(r.Context(), routeID, userID)
@@ -84,104 +92,74 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// S3 paths.
-	ext := ".jpg"
-	switch {
-	case strings.Contains(ct, "png"):
-		ext = ".png"
-	case strings.Contains(ct, "heic"), strings.Contains(ct, "heif"):
-		ext = ".heic"
-	case strings.Contains(ct, "avif"):
-		ext = ".avif"
-	}
-
-	bucket := mediaBucketName()
-	s3Key := fmt.Sprintf("route-photos/%s/%s/%s%s", userID, routeID, hash, ext)
-	s3KeyThumb := fmt.Sprintf("route-photos/%s/%s/%s_thumb.jpg", userID, routeID, hash)
-
-	// ShadowFS path for original (preferred) — legacy S3 as fallback.
 	// Capture context for cleanup closures — request context may be cancelled after response.
 	cleanupCtx := context.WithoutCancel(r.Context())
 
-	var photoFileID string
-	var fsCleanup func()
-	if h.ShadowFS != nil {
-		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
-			UserID:      userID,
-			FileType:    "media",
-			ContentType: ct,
-			FileName:    header.Filename,
-			SizeBytes:   int64(len(data)),
-			FileHash:    hash,
-			ParentType:  func() *string { s := "route"; return &s }(),
-			ParentID:    &routeID,
-			Tags:        map[string]string{"role": "photo"},
-		}, bytes.NewReader(data))
-		if putErr != nil {
-			slog.Error("shadowfs upload route photo failed", "error", putErr)
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store photo", r.URL.Path)
-			return
-		}
-		photoFileID = rec.ID
-		fsCleanup = func() {
-			if delErr := h.ShadowFS.Delete(cleanupCtx, userID, photoFileID); delErr != nil {
-				slog.Warn("shadowfs orphan cleanup failed", "file_id", photoFileID, "error", delErr)
-			}
-		}
+	// Upload original photo to ShadowFS.
+	rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
+		UserID:      userID,
+		FileType:    "media",
+		ContentType: ct,
+		FileName:    header.Filename,
+		SizeBytes:   int64(len(data)),
+		FileHash:    hash,
+		ParentType:  &routePhotoParent,
+		ParentID:    &routeID,
+		Tags:        map[string]string{"role": "photo"},
+	}, bytes.NewReader(data))
+	if putErr != nil {
+		slog.Error("shadowfs upload route photo failed", "error", putErr)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store photo", r.URL.Path)
+		return
 	}
+	photoFileID := rec.ID
 
-	// Track uploaded S3 keys for cleanup on failure (legacy path).
-	var uploadedKeys []string
-	cleanupS3 := func() {
-		if h.Storage == nil {
-			return
-		}
-		for _, key := range uploadedKeys {
-			if delErr := h.Storage.DeleteFromBucket(cleanupCtx, bucket, key); delErr != nil {
-				slog.Warn("s3 orphan cleanup failed", "key", key, "error", delErr)
-			}
-		}
-	}
+	// Track ShadowFS file IDs for cleanup on failure.
+	var storedFileIDs []string
+	storedFileIDs = append(storedFileIDs, photoFileID)
 	cleanup := func() {
-		if fsCleanup != nil {
-			fsCleanup()
+		for _, fid := range storedFileIDs {
+			if delErr := h.ShadowFS.Delete(cleanupCtx, userID, fid); delErr != nil {
+				slog.Warn("shadowfs orphan cleanup failed", "file_id", fid, "error", delErr)
+			}
 		}
-		cleanupS3()
 	}
 
-	if photoFileID == "" {
-		// Legacy S3 upload — ShadowFS not available.
-		if h.Storage == nil {
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "storage not configured", r.URL.Path)
-			return
-		}
-		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3Key, data, ct); err != nil {
-			slog.Error("s3 upload route photo failed", "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store photo", r.URL.Path)
-			return
-		}
-		uploadedKeys = append(uploadedKeys, s3Key)
-	}
-
-	// Upload thumbnail (always via S3 — thumbnails are not stored in ShadowFS).
-	if thumbData != nil && h.Storage != nil {
-		if err := h.Storage.UploadToBucket(r.Context(), bucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
-			slog.Warn("s3 upload route thumb failed", "error", err)
-			s3KeyThumb = s3Key
+	// Upload thumbnail to ShadowFS.
+	if thumbData != nil {
+		thumbRec, thumbErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
+			UserID:      userID,
+			FileType:    "thumb",
+			ContentType: "image/jpeg",
+			FileName:    "thumb_200x200.jpg",
+			SizeBytes:   int64(len(thumbData)),
+			ParentType:  &routePhotoParent,
+			ParentID:    &routeID,
+			Tags:        map[string]string{"role": "photo_thumb", "source_hash": hash},
+		}, bytes.NewReader(thumbData))
+		if thumbErr != nil {
+			slog.Warn("shadowfs upload route thumb failed", "error", thumbErr)
 		} else {
-			uploadedKeys = append(uploadedKeys, s3KeyThumb)
+			storedFileIDs = append(storedFileIDs, thumbRec.ID)
 		}
-	} else {
-		s3KeyThumb = s3Key
 	}
 
-	// Upload preview.
-	if previewData != nil && h.Storage != nil {
-		key := fmt.Sprintf("route-photos/%s/%s/%s_preview.jpg", userID, routeID, hash)
-		if err := h.Storage.UploadToBucket(r.Context(), bucket, key, previewData, "image/jpeg"); err != nil {
-			slog.Warn("s3 upload route preview failed", "error", err)
+	// Upload preview to ShadowFS.
+	if previewData != nil {
+		previewRec, prevErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
+			UserID:      userID,
+			FileType:    "thumb",
+			ContentType: "image/jpeg",
+			FileName:    "preview.jpg",
+			SizeBytes:   int64(len(previewData)),
+			ParentType:  &routePhotoParent,
+			ParentID:    &routeID,
+			Tags:        map[string]string{"role": "photo_preview", "source_hash": hash},
+		}, bytes.NewReader(previewData))
+		if prevErr != nil {
+			slog.Warn("shadowfs upload route preview failed", "error", prevErr)
 		} else {
-			uploadedKeys = append(uploadedKeys, key)
+			storedFileIDs = append(storedFileIDs, previewRec.ID)
 		}
 	}
 
@@ -201,13 +179,11 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Link ShadowFS record to domain row.
-	if photoFileID != "" {
-		if _, dbErr := h.DB.Pool.Exec(r.Context(),
-			`UPDATE route_photos SET file_id = $1 WHERE id = $2`,
-			photoFileID, saved.ID,
-		); dbErr != nil {
-			slog.Warn("route_photos: set file_id failed", "photo_id", saved.ID, "error", dbErr)
-		}
+	if _, dbErr := h.DB.Pool.Exec(r.Context(),
+		`UPDATE route_photos SET file_id = $1 WHERE id = $2`,
+		photoFileID, saved.ID,
+	); dbErr != nil {
+		slog.Warn("route_photos: set file_id failed", "photo_id", saved.ID, "error", dbErr)
 	}
 
 	httputil.WriteJSON(w, http.StatusCreated, saved)
@@ -236,6 +212,8 @@ func (h *Handler) DeleteRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.ShadowFS != nil && fileID != "" {
+		// Delete the main photo file; thumbnails/previews sharing the same ParentID
+		// will be cleaned up by ShadowFS cascading or a separate cleanup pass.
 		if delErr := h.ShadowFS.Delete(r.Context(), userID, fileID); delErr != nil {
 			slog.Warn("delete route photo: ShadowFS.Delete failed", "file_id", fileID, "error", delErr)
 		}

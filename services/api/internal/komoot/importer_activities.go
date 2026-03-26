@@ -215,7 +215,7 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 
 		activityID := actResult.ActivityID
 
-		// Upload original file via ShadowFS (preferred) or legacy S3
+		// Upload original file via ShadowFS
 		contentType := "application/octet-stream"
 		if format == "gpx" {
 			contentType = "application/xml"
@@ -238,11 +238,6 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 				slog.Warn("komoot activities: ShadowFS.Put failed", "tour_id", tour.ID, "error", putErr)
 			} else {
 				fileID = rec.ID
-			}
-		} else if len(fileBytes) > 0 && p.Storage != nil {
-			s3Key := fmt.Sprintf("%s/%s.%s", p.UserID, hashStr, format)
-			if err := p.Storage.Upload(ctx, s3Key, fileBytes, contentType); err != nil {
-				slog.Warn("komoot activities: S3 upload failed", "tour_id", tour.ID, "error", err)
 			}
 		}
 
