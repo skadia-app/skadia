@@ -27,6 +27,12 @@ const (
 	// because the AWS SDK PutObject requires a known Content-Length. For files approaching
 	// this limit, the API container needs at least 500 MB free heap. A future multipart-upload
 	// path would stream in 5 MB chunks. LocalShadowFS does not have this limitation.
+	//
+	// CONCURRENCY NOTE: There is no global limit on concurrent S3 uploads. Each concurrent
+	// Put call buffers up to 500 MB. Under heavy bulk-import load (e.g. N concurrent goroutines)
+	// memory usage can reach N * 500 MB. The import worker pool (max 2 concurrent per-user) provides
+	// the primary concurrency bound. If unbounded parallelism is ever added, a semaphore should be
+	// placed here.
 	maxUploadBytes = 500 << 20 // 500 MB
 	maxZipBytes    = 10 << 30  // 10 GB
 	presignExpiry  = 15 * time.Minute
@@ -102,6 +108,10 @@ func (s *S3ShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (
 
 	// Quota check.
 	// NOTE: Quota is a soft limit (TOCTOU race possible with concurrent uploads). Hard enforcement via Reconciliation job. This is by design — see Spec §15.2.
+	// DIVERGENCE vs LocalShadowFS: LocalShadowFS skips the pre-check when entry.SizeBytes == 0
+	// (streaming uploads with unknown size). S3ShadowFS always runs the pre-check because the full
+	// buffer is read before this point and the actual size is known. Both backends run the post-write
+	// check after the upload to catch unconditional overages.
 	used, err := diskUsage(ctx, s.pool, entry.UserID)
 	if err != nil {
 		return FileRecord{}, fmt.Errorf("quota check: %w", err)
@@ -201,6 +211,11 @@ func (s *S3ShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (
 			&rec.ParentID, &rec.HasSidecar, &rec.IsRenaming, &rec.Status, &rec.ReplacedBy,
 			&rec.CreatedAt, &rec.UpdatedAt)
 	} else {
+		// ON CONFLICT note: for non-edit files, S3 keys are hash-based ({userID}/{dir}/{sha256}{ext}),
+		// so a conflict means the same file content was uploaded twice. We update metadata but keep
+		// the existing record ID. LocalShadowFS uses a plain INSERT for non-edit files (no ON CONFLICT)
+		// because it relies on O_EXCL + collision-suffix resolution instead. This behavioural difference
+		// is intentional: S3 keys are content-addressed; local paths are not.
 		err = s.pool.QueryRow(ctx,
 			`INSERT INTO user_files (id, user_id, file_type, storage_backend, storage_path,
 				content_type, file_name, size_bytes, file_hash, parent_type, parent_id,
@@ -224,6 +239,12 @@ func (s *S3ShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (
 	}
 	if err != nil {
 		// DB insert failed — attempt S3 cleanup, but only if we own the key.
+		// CAVEAT: For non-edit files the key is hash-based. If another user_files row already
+		// referenced the same key (via ON CONFLICT DO UPDATE), the key now points to that row
+		// and deleting it here would orphan that record. In practice this is rare (same file
+		// content from two different users hitting the same S3 key is an edge case), and the
+		// periodic reconciler handles resulting orphans. Accepting this trade-off to avoid
+		// dangling S3 objects in the common failure case.
 		slog.Error("user_files insert failed, cleaning up S3 object",
 			"error", err, "key", s3Key, "bucket", bucket)
 		_, _ = s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
@@ -362,6 +383,8 @@ func (s *S3ShadowFS) DeleteAllForUser(ctx context.Context, userID string) error 
 		"route-photos/" + userID + "/",
 		"marker-images/" + userID + "/",
 		"tag-covers/" + userID + "/",
+		// M36: Edit sidecars stored by the activity editor (edits/{userID}/).
+		"edits/" + userID + "/",
 	}
 
 	for _, bucket := range buckets {

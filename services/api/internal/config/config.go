@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -22,7 +23,8 @@ type Config struct {
 	FrontendURL string // e.g. "http://localhost:5173"
 
 	// JWT (HS256) issued by this backend after OIDC login
-	JWTSecret string
+	JWTSecret      string
+	JWTSecretBytes []byte // decoded at startup by auth.ValidateConfig
 
 	// Shadow File System
 	ShadowFSBasePath string
@@ -169,6 +171,23 @@ func Load() (*Config, error) {
 		slog.Warn("SMTP_TLS=none: SMTP traffic is unencrypted — credentials and emails are transmitted in plaintext")
 	}
 
+	// M28: Validate encryption keys when set — must be 64 hex chars (32 bytes for AES-256-GCM).
+	if cfg.LLMEncryptionKey != "" {
+		if decoded, err := hex.DecodeString(cfg.LLMEncryptionKey); err != nil || len(decoded) != 32 {
+			return nil, fmt.Errorf("LLM_ENCRYPTION_KEY must be 64 hex chars (32 bytes). Generate: openssl rand -hex 32")
+		}
+	}
+	if cfg.KomootEncryptionKey != "" {
+		if decoded, err := hex.DecodeString(cfg.KomootEncryptionKey); err != nil || len(decoded) != 32 {
+			return nil, fmt.Errorf("KOMOOT_ENCRYPTION_KEY must be 64 hex chars (32 bytes). Generate: openssl rand -hex 32")
+		}
+	}
+
+	// M29: Warn when KomootEncryptionKey falls back to LLMEncryptionKey — key-separation best practice.
+	if os.Getenv("KOMOOT_ENCRYPTION_KEY") == "" && cfg.LLMEncryptionKey != "" {
+		slog.Warn("KOMOOT_ENCRYPTION_KEY not set — falling back to LLM_ENCRYPTION_KEY; set KOMOOT_ENCRYPTION_KEY for key separation")
+	}
+
 	// L29: Validate STORAGE_BACKEND.
 	if cfg.StorageBackend != "local" && cfg.StorageBackend != "s3" {
 		return nil, fmt.Errorf("STORAGE_BACKEND must be 'local' or 's3', got %q", cfg.StorageBackend)
@@ -209,7 +228,7 @@ func validateLibraryBasePath(p string) error {
 		"/", "/etc", "/var", "/usr", "/home",
 		"/tmp", "/proc", "/sys", "/dev", "/root",
 		"/bin", "/sbin", "/boot", "/run",
-		"/data", "/tmp",
+		"/data",
 	}
 	for _, dangerous := range blocked {
 		if p == dangerous {

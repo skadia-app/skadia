@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/api/client'
 import { useToast } from '@/lib/toast'
+import { ModalShell } from '@/components/ui/ModalShell'
+import { FILE_TYPE_LABELS } from '@/api/shadowfs'
 import {
   HardDrive,
   Cloud,
@@ -76,17 +78,6 @@ const LABELS = {
   rollbackConfirmButton: 'Bestätigen',
   rollbackCancelButton: 'Abbrechen',
   pendingLabel: 'Läuft...',
-}
-
-const FILE_TYPE_LABELS: Record<string, string> = {
-  activity: 'Aktivitäten',
-  media: 'Medien',
-  document: 'Dokumente',
-  health: 'Gesundheit',
-  route: 'Routen',
-  report: 'Berichte',
-  edit: 'Bearbeitungen',
-  chat: 'Chat',
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -360,10 +351,14 @@ export default function AdminStorageDashboard() {
             </h3>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm" aria-describedby="storage-users-caption">
+              <caption id="storage-users-caption" className="sr-only">
+                {LABELS.usersTable.heading}
+              </caption>
               <thead>
                 <tr className="text-left text-xs text-neutral-500 dark:text-neutral-400 border-b border-neutral-100 dark:border-neutral-800">
                   <th
+                    scope="col"
                     className="px-4 py-2 font-medium"
                     aria-sort={sortKey === 'library_dir' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                   >
@@ -377,6 +372,7 @@ export default function AdminStorageDashboard() {
                     </button>
                   </th>
                   <th
+                    scope="col"
                     className="px-4 py-2 font-medium text-right"
                     aria-sort={sortKey === 'disk_usage_bytes' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                   >
@@ -390,6 +386,7 @@ export default function AdminStorageDashboard() {
                     </button>
                   </th>
                   <th
+                    scope="col"
                     className="px-4 py-2 font-medium text-right"
                     aria-sort={sortKey === 'file_count' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                   >
@@ -403,6 +400,7 @@ export default function AdminStorageDashboard() {
                     </button>
                   </th>
                   <th
+                    scope="col"
                     className="px-4 py-2 font-medium text-right"
                     aria-sort={sortKey === 'archive_size_bytes' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                   >
@@ -553,41 +551,44 @@ export default function AdminStorageDashboard() {
                 {LABELS.actions.rollbackDesc}
               </p>
             </div>
-            {showRollbackConfirm ? (
-              <div className="space-y-2">
-                <p className="text-xs text-amber-700 dark:text-amber-400">
-                  {LABELS.actions.rollbackConfirm}
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => rollbackMut.mutate()}
-                    disabled={anyJobRunning}
-                    className="flex-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-500 hover:bg-amber-600 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                  >
-                    {rollbackMut.isPending ? LABELS.pendingLabel : LABELS.rollbackConfirmButton}
-                  </button>
-                  <button
-                    onClick={() => setShowRollbackConfirm(false)}
-                    disabled={anyJobRunning}
-                    className="flex-1 px-3 py-1.5 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                  >
-                    {LABELS.rollbackCancelButton}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowRollbackConfirm(true)}
-                disabled={anyJobRunning}
-                className="w-full px-3 py-1.5 rounded-lg text-sm font-medium border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-              >
-                {rollbackMut.isPending ? LABELS.pendingLabel : LABELS.actions.rollback}
-              </button>
-            )}
+            <button
+              onClick={() => setShowRollbackConfirm(true)}
+              disabled={anyJobRunning}
+              className="w-full px-3 py-1.5 rounded-lg text-sm font-medium border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+            >
+              {rollbackMut.isPending ? LABELS.pendingLabel : LABELS.actions.rollback}
+            </button>
           </div>
 
         </div>
       </section>
+
+      {showRollbackConfirm && (
+        <ModalShell onClose={() => setShowRollbackConfirm(false)} maxWidth="max-w-sm">
+          <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100 mb-3">
+            {LABELS.actions.rollback}
+          </h2>
+          <p className="text-sm text-amber-700 dark:text-amber-400 mb-4">
+            {LABELS.actions.rollbackConfirm}
+          </p>
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={() => setShowRollbackConfirm(false)}
+              disabled={rollbackMut.isPending}
+              className="px-4 py-2 rounded-lg text-sm font-medium border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {LABELS.rollbackCancelButton}
+            </button>
+            <button
+              onClick={() => rollbackMut.mutate()}
+              disabled={rollbackMut.isPending}
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-amber-500 hover:bg-amber-600 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {rollbackMut.isPending ? LABELS.pendingLabel : LABELS.rollbackConfirmButton}
+            </button>
+          </div>
+        </ModalShell>
+      )}
 
     </div>
   )

@@ -155,7 +155,10 @@ func (j *ReconcileJob) checkOrphanedFiles(ctx context.Context, r *ReconcileResul
 			// Skip special directories — these are not tracked in user_files.
 			// L11: Do NOT skip _archive/ — archived files are tracked in user_files
 			// and must be included in orphan detection.
-			if name == "_temp" || name == "_cache" || name == "_edits" {
+			// NOTE: _edits is NOT skipped — edit sidecars are tracked in user_files
+			// (file_type='edit') and must be included in orphan detection so that
+			// edits whose parent activity was deleted are caught and logged.
+			if name == "_temp" || name == "_cache" {
 				return fs.SkipDir
 			}
 			return nil
@@ -251,8 +254,10 @@ func (j *ReconcileJob) checkDanglingRecords(ctx context.Context, r *ReconcileRes
 		}
 		slog.Warn("shadowfs reconcile: dangling record (no physical file), deleting",
 			"file_id", d.id, "path", d.path, "user_id", d.userID)
+		// L60: Include user_id as defense-in-depth to prevent accidental cross-user
+		// deletion if the id column ever has an unexpected collision.
 		if _, err := j.pool.Exec(ctx,
-			`DELETE FROM user_files WHERE id = $1`, d.id); err != nil {
+			`DELETE FROM user_files WHERE id = $1 AND user_id = $2`, d.id, d.userID); err != nil {
 			slog.Error("shadowfs reconcile: failed to delete dangling record",
 				"file_id", d.id, "error", err)
 			continue
@@ -307,6 +312,14 @@ func (j *ReconcileJob) checkSizeMismatches(ctx context.Context, r *ReconcileResu
 		// Also rehash: a size change means the old hash is stale. Without this,
 		// watcher move-detection (hash+size) produces false negatives.
 		fullPath := filepath.Join(j.basePath, m.path)
+		// L63: Validate path is not a symlink escaping basePath before hashing.
+		// os.Stat follows symlinks, so a symlink to a large external file could
+		// produce a misleading size. Reject it here for safety.
+		if err := validateWatcherPath(fullPath, j.basePath); err != nil {
+			slog.Warn("shadowfs reconcile: size mismatch path validation failed — skipping",
+				"file_id", m.id, "path", m.path, "error", err)
+			continue
+		}
 		var newHash *string
 		if h, err := hashFile(fullPath); err == nil {
 			newHash = &h
@@ -542,7 +555,7 @@ func (j *ReconcileJob) checkDuplicatePaths(ctx context.Context, r *ReconcileResu
 // Records with status='purging' where the physical file is already gone. DELETE record.
 func (j *ReconcileJob) checkPurgingCleanup(ctx context.Context, r *ReconcileResult) error {
 	rows, err := j.pool.Query(ctx,
-		`SELECT id, storage_path FROM user_files
+		`SELECT id, storage_path, user_id FROM user_files
 		 WHERE storage_backend = 'local' AND status = 'purging'`)
 	if err != nil {
 		return fmt.Errorf("query purging records: %w", err)
@@ -550,13 +563,13 @@ func (j *ReconcileJob) checkPurgingCleanup(ctx context.Context, r *ReconcileResu
 	defer rows.Close()
 
 	type entry struct {
-		id, path string
+		id, path, userID string
 	}
 	var toDelete []entry
 
 	for rows.Next() {
 		var e entry
-		if err := rows.Scan(&e.id, &e.path); err != nil {
+		if err := rows.Scan(&e.id, &e.path, &e.userID); err != nil {
 			return fmt.Errorf("scan purging record: %w", err)
 		}
 		fullPath := filepath.Join(j.basePath, e.path)
@@ -574,8 +587,9 @@ func (j *ReconcileJob) checkPurgingCleanup(ctx context.Context, r *ReconcileResu
 		}
 		slog.Info("shadowfs reconcile: cleaning purging record (file already deleted)",
 			"file_id", e.id, "path", e.path)
+		// L60: Include user_id as defense-in-depth to prevent accidental cross-user deletion.
 		if _, err := j.pool.Exec(ctx,
-			`DELETE FROM user_files WHERE id = $1`, e.id); err != nil {
+			`DELETE FROM user_files WHERE id = $1 AND user_id = $2`, e.id, e.userID); err != nil {
 			slog.Error("shadowfs reconcile: failed to delete purging record",
 				"file_id", e.id, "error", err)
 			continue
@@ -765,6 +779,13 @@ func (j *ReconcileJob) checkArchiveWarnings(ctx context.Context, r *ReconcileRes
 
 // extractTagsFromPath extracts best-effort schema variables from an existing storage path.
 // This allows RenderPath to resolve variables like {year}, {sport} during rename cleanup.
+//
+// L62: The extraction is intentionally best-effort: paths that do not follow the
+// canonical schema (e.g. legacy flat layouts) will produce incomplete tags, causing
+// RenderPath to leave some variables unreplaced (rendered as empty strings or their
+// literal placeholder). This is acceptable — the rename reconciler's Case 1 handles
+// "already at target" and Case 3 handles "file already moved"; only Case 2 relies on
+// tags for path rendering, and a wrong-but-unique path is resolved by ResolveCollision.
 func extractTagsFromPath(storagePath, fileType string) map[string]string {
 	tags := make(map[string]string)
 	parts := strings.Split(filepath.Clean(storagePath), string(filepath.Separator))

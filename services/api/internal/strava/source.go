@@ -3,6 +3,7 @@ package strava
 import (
 	"encoding/csv"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,8 +50,30 @@ func (s *DirSource) ReadCSV(relativePath string) ([][]string, error) {
 	return rows, nil
 }
 
+// maxReadFileBytes limits the size of files read via ReadFile to prevent OOM (500 MB).
+const maxReadFileBytes = 500 << 20
+
 func (s *DirSource) ReadFile(relativePath string) ([]byte, error) {
-	return os.ReadFile(filepath.Join(s.Dir, relativePath))
+	// M18: Containment check — relativePath must stay within the export directory.
+	fullPath := filepath.Join(s.Dir, relativePath)
+	cleanDir := filepath.Clean(s.Dir)
+	if !strings.HasPrefix(filepath.Clean(fullPath)+string(filepath.Separator), cleanDir+string(filepath.Separator)) {
+		return nil, fmt.Errorf("path traversal detected in ReadFile: %q", relativePath)
+	}
+	// M19: Size limit to prevent OOM — read limit+1 to detect truncation and error.
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxReadFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxReadFileBytes {
+		return nil, fmt.Errorf("file %q exceeds maximum size of %d bytes", relativePath, maxReadFileBytes)
+	}
+	return data, nil
 }
 
 // csvHeader builds a column-name → column-index map from a header row.

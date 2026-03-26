@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net"
@@ -43,13 +42,12 @@ type Handler struct {
 // lifecycle context so background goroutines (e.g. ForgotPassword email)
 // are cancelled on graceful shutdown.
 func NewHandler(db *database.DB, cfg *config.Config, mailer *Mailer, rl *middleware.RateLimiter, shutdownCtx context.Context) *Handler {
-	secret, _ := hex.DecodeString(cfg.JWTSecret) // already validated at startup
 	return &Handler{
 		DB:          db,
 		Config:      cfg,
 		Mailer:      mailer,
 		RL:          rl,
-		secret:      secret,
+		secret:      cfg.JWTSecretBytes,
 		isHTTPS:     strings.HasPrefix(cfg.AppURL, "https://"),
 		shutdownCtx: shutdownCtx,
 	}
@@ -88,6 +86,9 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 // authenticateUser validates email/password credentials with timing equalization.
+// Every early-return path calls argon2id.ComparePasswordAndHash(dummy) to ensure
+// constant response time regardless of which guard triggered (user-not-found,
+// inactive, delayed, no-password). This prevents user enumeration via timing.
 // Returns the authenticated user or writes an error response and returns nil.
 func (h *Handler) authenticateUser(w http.ResponseWriter, r *http.Request, email, password string) *model.User {
 	// Normalize email.

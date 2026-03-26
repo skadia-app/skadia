@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/bep/imagemeta"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
@@ -23,6 +25,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
 const maxPhotoSize = 200 << 20 // 200 MB (Videos können größer sein)
@@ -198,6 +201,10 @@ func (h *Handler) DeleteActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	photoID := chi.URLParam(r, "photoID")
 	bucket, key, keyThumb, keyPreview, fileID, err := h.DB.DeleteActivityPhoto(r.Context(), photoID, userID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
+			return
+		}
 		slog.Error("delete activity photo failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete photo", r.URL.Path)
 		return
@@ -414,6 +421,9 @@ func (h *Handler) writePhotoMetaSidecar(ctx context.Context, userID, photoID, fi
 	}
 
 	// Legacy S3 fallback.
+	// NOTE: Split-brain risk — when ShadowFS.Put fails (above) but S3 succeeds,
+	// the sidecar lives only in S3 while future reads may use ShadowFS. This is
+	// acceptable: S3 sidecars are best-effort metadata; the original file is unaffected.
 	if h.Storage == nil {
 		return
 	}
@@ -509,8 +519,7 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 
 	videoExts := map[string]bool{".mp4": true, ".m4v": true, ".mov": true, ".avi": true, ".mkv": true, ".webm": true}
 
-	go func() {
-		ctx := context.Background()
+	shutdown.Go(jobID, func(ctx context.Context) {
 		processed := int64(0)
 		anyFailed := false
 
@@ -626,7 +635,7 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 		}
 
 		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed, "")
-	}()
+	})
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
@@ -685,8 +694,7 @@ func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	go func() {
-		ctx := context.Background()
+	shutdown.Go(jobID, func(ctx context.Context) {
 		processed := int64(0)
 		anyFailed := false
 
@@ -797,7 +805,7 @@ func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Reques
 		}
 
 		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed, "")
-	}()
+	})
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "queued": len(badPhotos)})
 }
@@ -1043,8 +1051,12 @@ func (h *Handler) interpolateFromTrack(ctx context.Context, activityID, userID s
 }
 
 // serveResolvedFile writes a ResolvedFile to the HTTP response.
-// For local backend: streams the file directly.
-// For S3 backend: redirects to the pre-signed URL (media) or proxies (non-media).
+// For local backend: streams the file directly via http.ServeContent (Range/ETag).
+// For S3 backend: redirects to the pre-signed URL.
+//
+// NOTE: headers (Cache-Control, Content-Disposition) are set before the switch.
+// For local files http.ServeContent sets Content-Type itself; for S3 it is unused
+// because http.Redirect sends no body — both are intentional.
 func serveResolvedFile(w http.ResponseWriter, r *http.Request, resolved shadowfs.ResolvedFile) {
 	ct := resolved.ContentType
 	if ct == "" {
@@ -1073,15 +1085,8 @@ func serveResolvedFile(w http.ResponseWriter, r *http.Request, resolved shadowfs
 			modTime = fi.ModTime()
 		}
 		http.ServeContent(w, r, resolved.FileName, modTime, f)
-	case "s3":
-		if strings.HasPrefix(ct, "image/") || strings.HasPrefix(ct, "video/") {
-			http.Redirect(w, r, resolved.URL, http.StatusTemporaryRedirect)
-		} else {
-			w.Header().Set("Content-Type", ct)
-			http.Redirect(w, r, resolved.URL, http.StatusTemporaryRedirect)
-		}
 	default:
-		w.Header().Set("Content-Type", ct)
+		// "s3" and any future types: redirect to the pre-signed URL.
 		http.Redirect(w, r, resolved.URL, http.StatusTemporaryRedirect)
 	}
 }

@@ -260,7 +260,7 @@ func (db *DB) RetireGear(ctx context.Context, id string) error {
 		return fmt.Errorf("retire gear: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("gear not found")
+		return ErrGearNotFound
 	}
 	return nil
 }
@@ -280,23 +280,24 @@ func (db *DB) DeleteGear(ctx context.Context, userID, gearID string) error {
 		return fmt.Errorf("delete gear: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("gear not found")
+		return ErrGearNotFound
 	}
 	return nil
 }
 
 // UpdateGearStatus changes the status of a gear item (active, stored, retired).
-func (db *DB) UpdateGearStatus(ctx context.Context, id, status string) error {
+// userID is required to prevent cross-user updates (defense-in-depth; caller also checks ownership).
+func (db *DB) UpdateGearStatus(ctx context.Context, id, userID, status string) error {
 	isRetired := status == "retired"
 	tag, err := db.Pool.Exec(ctx,
-		`UPDATE gear SET status = $1, is_retired = $2 WHERE id = $3`,
-		status, isRetired, id,
+		`UPDATE gear SET status = $1, is_retired = $2 WHERE id = $3 AND user_id = $4`,
+		status, isRetired, id, userID,
 	)
 	if err != nil {
 		return fmt.Errorf("update gear status: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("gear not found")
+		return ErrGearNotFound
 	}
 	return nil
 }
@@ -435,7 +436,7 @@ func (db *DB) DeleteComponent(ctx context.Context, id string) error {
 		return fmt.Errorf("delete component: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("component not found")
+		return ErrComponentNotFound
 	}
 	return nil
 }

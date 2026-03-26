@@ -131,7 +131,6 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Stream-Felder zusammenführen (auf neue Aktivität angewendet).
-	gpsModified := false
 	for field, sourceID := range req.FieldMap {
 		if sourceID == merged.ID || sourceID == targetID {
 			// Ziel = neue Aktivität oder original Target → Streams bereits kopiert.
@@ -151,7 +150,6 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
-			gpsModified = true
 			continue
 		}
 
@@ -162,7 +160,6 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	_ = gpsModified
 
 	// 4. Titel aus Quell-Aktivität übernehmen.
 	if req.TitleSource != nil && *req.TitleSource != targetID {

@@ -236,6 +236,22 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Idempotency guard: check whether a split at this exact timestamp has already
+	// been applied to this activity. Prevents double-splits on retried requests.
+	{
+		var existingCount int
+		_ = h.DB.Pool.QueryRow(r.Context(),
+			`SELECT COUNT(*) FROM activity_edits
+			 WHERE activity_id = $1 AND edit_type = 'split'
+			   AND edit_data->>'split_at' = $2`,
+			activityID, req.SplitAt,
+		).Scan(&existingCount)
+		if existingCount > 0 {
+			httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_split"})
+			return
+		}
+	}
+
 	// Validate that the split point falls within the activity window.
 	if !splitAt.After(activity.StartedAt) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "split_at must be after activity start", r.URL.Path)
@@ -445,6 +461,10 @@ func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "source_id is required", r.URL.Path)
 		return
 	}
+	if req.SourceID == targetID {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "source and target must be different activities", r.URL.Path)
+		return
+	}
 	if len(req.Fields) == 0 {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "at least one field is required", r.URL.Path)
 		return
@@ -594,6 +614,9 @@ func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 // mergeStreamFields copies the specified stream columns from the source activity's
 // streams into the matching time slots of the target activity's streams.
 // Only rows where both activities have a matching timestamp are updated.
+//
+// SQL string concatenation is intentional and safe: col is derived exclusively from
+// the switch statement below which acts as an allowlist — no user input reaches the query.
 func (h *Handler) mergeStreamFields(ctx context.Context, targetID, sourceID string, fields []string) error {
 	for _, field := range fields {
 		var col string

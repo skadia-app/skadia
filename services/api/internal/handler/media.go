@@ -1,9 +1,7 @@
 package handler
 
 import (
-	"io"
 	"log/slog"
-	"mime"
 	"net/http"
 	"strings"
 
@@ -11,9 +9,11 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// ServeMedia proxies authenticated media requests to Garage S3 storage.
+// ServeMedia proxies authenticated media requests to storage.
 // GET /api/v1/media/{bucket}/{key...}
 // Used for tag cover images, custom map marker images, and other user-uploaded media.
+// Prefers ShadowFS (user_files lookup) and falls back to direct S3 for pre-migration files.
+// Access is restricted to skadia-media bucket with key-prefix ownership validation.
 func (h *Handler) ServeMedia(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -43,6 +43,7 @@ func (h *Handler) ServeMedia(w http.ResponseWriter, r *http.Request) {
 		"gear/" + userID + "/",
 		"marker-images/" + userID + "/",
 		"activity-photos/" + userID + "/",
+		"media-temp/" + userID + "/",
 	}
 	hasAccess := false
 	for _, prefix := range allowedPrefixes {
@@ -99,6 +100,10 @@ func (h *Handler) ServeMedia(w http.ResponseWriter, r *http.Request) {
 
 // ServeFile serves a file from the ShadowFS.
 // GET /api/v1/files/{fileID}
+//
+// Unlike serveResolvedFile (used for photos/media), this handler intentionally
+// proxies sensitive application/* types (FIT, GPX, PDF) server-side so the
+// presigned S3 URL is never exposed to the browser.
 func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -122,41 +127,8 @@ func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Security headers
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-
-	// Content-Disposition: inline for images/video, attachment for everything else
-	disposition := "attachment"
-	if strings.HasPrefix(resolved.ContentType, "image/") || strings.HasPrefix(resolved.ContentType, "video/") {
-		disposition = "inline"
-	}
-	w.Header().Set("Content-Disposition",
-		mime.FormatMediaType(disposition, map[string]string{"filename": resolved.FileName}))
-
-	switch resolved.Type {
-	case "local":
-		http.ServeFile(w, r, resolved.Path)
-	case "s3":
-		// Sensitive types: server-side proxy (don't expose presigned URL)
-		if resolved.ContentType == "" ||
-			strings.HasPrefix(resolved.ContentType, "application/") ||
-			resolved.ContentType == "text/plain" {
-			req, err := http.NewRequestWithContext(r.Context(), "GET", resolved.URL, nil)
-			if err != nil {
-				httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch file", r.URL.Path)
-				return
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch file", r.URL.Path)
-				return
-			}
-			defer resp.Body.Close()
-			w.Header().Set("Content-Type", resolved.ContentType)
-			io.Copy(w, resp.Body) //nolint:errcheck
-		} else {
-			// Media: redirect to presigned URL
-			http.Redirect(w, r, resolved.URL, http.StatusTemporaryRedirect)
-		}
-	}
+	// Delegate to the shared helper which handles local vs. S3 uniformly.
+	// ServeFile is called for all file types; the helper uses inline disposition
+	// for image/video and attachment for everything else.
+	serveResolvedFile(w, r, resolved)
 }

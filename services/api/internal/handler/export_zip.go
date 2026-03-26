@@ -23,8 +23,9 @@ import (
 // POST /api/v1/activities/export-zip
 // Body: {"ids": ["uuid1", ...], "format": "original"|"gpx"|"tcx"|"fit"}
 //
-// If ids is empty or omitted, all activities for the user are exported.
-// This is the foundation for a future full user-data export.
+// If the request body is absent or ids is empty/omitted, ALL activities for the
+// authenticated user are exported. Callers that want a subset must provide ids.
+// This "no body = full export" behavior is intentional for a one-click user-data export.
 func (h *Handler) ExportActivitiesZip(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -127,7 +128,9 @@ func (h *Handler) ExportActivitiesZip(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf(`attachment; filename="%s"`, zipFilename))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", buf.Len()))
 	w.WriteHeader(http.StatusOK)
-	w.Write(buf.Bytes())
+	if _, err := w.Write(buf.Bytes()); err != nil { // L67: log write errors
+		slog.Warn("export-zip: write response failed", "error", err)
+	}
 }
 
 // exportActivityBytes returns the file content and filename for a single activity

@@ -126,6 +126,31 @@ func (h *Handler) StorageDashboard(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// shadowfsMigrationJobTypes lists all job types that operate on the user_files
+// registry or the library filesystem. These are mutually exclusive: running two
+// simultaneously would produce conflicting journal entries and race on file moves.
+var shadowfsMigrationJobTypes = []string{
+	"shadowfs_migration",
+	"shadowfs_file_move",
+	"shadowfs_rollback",
+	"shadowfs_reconcile",
+}
+
+// hasRunningShadowfsJob returns true if any of the shadowfs migration/reconcile
+// job types is currently running. Used for cross-job mutual exclusion (M23).
+func (h *Handler) hasRunningShadowfsJob(ctx context.Context) (bool, error) {
+	for _, jt := range shadowfsMigrationJobTypes {
+		running, err := h.DB.HasRunningJobGlobal(ctx, jt)
+		if err != nil {
+			return false, err
+		}
+		if running {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // StartRegistryPopulation triggers the background migration job that
 // populates user_files from all legacy domain-table storage columns.
 //
@@ -133,6 +158,15 @@ func (h *Handler) StorageDashboard(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) StartRegistryPopulation(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+
+	// M23: prevent concurrent shadowfs jobs of any type.
+	if running, err := h.hasRunningShadowfsJob(r.Context()); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not check running jobs", r.URL.Path)
+		return
+	} else if running {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 
@@ -187,6 +221,15 @@ func (h *Handler) StartFileMigration(w http.ResponseWriter, r *http.Request) {
 	if h.Config.LibraryBasePath == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
 			"LIBRARY_BASE_PATH not configured", r.URL.Path)
+		return
+	}
+
+	// M23: prevent concurrent shadowfs jobs of any type.
+	if running, err := h.hasRunningShadowfsJob(r.Context()); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not check running jobs", r.URL.Path)
+		return
+	} else if running {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 
@@ -254,6 +297,15 @@ func (h *Handler) StartReconciliation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// M23: prevent concurrent shadowfs jobs of any type.
+	if running, err := h.hasRunningShadowfsJob(r.Context()); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not check running jobs", r.URL.Path)
+		return
+	} else if running {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		return
+	}
+
 	jobID, inserted, err := h.DB.InsertBackgroundJobGuarded(
 		r.Context(),
 		userID,
@@ -307,6 +359,15 @@ func (h *Handler) StartFileMigrationRollback(w http.ResponseWriter, r *http.Requ
 	if h.Config.LibraryBasePath == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
 			"LIBRARY_BASE_PATH not configured", r.URL.Path)
+		return
+	}
+
+	// M23: prevent concurrent shadowfs jobs of any type.
+	if running, err := h.hasRunningShadowfsJob(r.Context()); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not check running jobs", r.URL.Path)
+		return
+	} else if running {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
 

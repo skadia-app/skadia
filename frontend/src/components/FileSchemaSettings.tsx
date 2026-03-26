@@ -5,6 +5,7 @@ import {
   updateFileSchema,
   getLibraryDir,
   updateLibraryDir,
+  FILE_TYPE_LABELS,
   type FileType,
   type LibraryDirResponse,
 } from '@/api/shadowfs'
@@ -24,13 +25,7 @@ const LABELS = {
   libraryDir: 'Bibliotheks-Verzeichnis',
   libraryDirDesc: 'Name des Wurzel-Verzeichnisses in der Bibliothek.',
   libraryDirPlaceholder: 'skadia-library',
-  types: {
-    activity: 'Aktivitäten',
-    media: 'Medien',
-    document: 'Dokumente',
-    health: 'Gesundheit',
-    route: 'Routen',
-  } as Record<FileType, string>,
+
   errorLoad: 'Schemata konnten nicht geladen werden',
   errorSave: 'Fehler beim Speichern',
   saved: 'Schema gespeichert',
@@ -207,7 +202,7 @@ function SchemaSection({ fileType, initialSchema }: SchemaSectionProps) {
         aria-controls={`schema-body-${fileType}`}
       >
         <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
-          {LABELS.types[fileType]}
+          {FILE_TYPE_LABELS[fileType] ?? fileType}
         </span>
         <div className="flex items-center gap-3">
           {!open && initialSchema && (
@@ -370,17 +365,23 @@ function LibraryDirSection() {
         {isLoading ? (
           <div className="h-9 flex-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 animate-pulse" />
         ) : (
-          <input
-            type="text"
-            value={currentValue}
-            onChange={e => setLocalValue(e.target.value)}
-            placeholder={LABELS.libraryDirPlaceholder}
-            maxLength={100}
-            className="flex-1 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2
-                       bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100
-                       placeholder:text-neutral-400 dark:placeholder:text-neutral-600
-                       focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT text-sm font-mono"
-          />
+          <>
+            <label htmlFor="library-dir-input" className="sr-only">
+              {LABELS.libraryDir}
+            </label>
+            <input
+              id="library-dir-input"
+              type="text"
+              value={currentValue}
+              onChange={e => setLocalValue(e.target.value)}
+              placeholder={LABELS.libraryDirPlaceholder}
+              maxLength={100}
+              className="flex-1 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2
+                         bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100
+                         placeholder:text-neutral-400 dark:placeholder:text-neutral-600
+                         focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT text-sm font-mono"
+            />
+          </>
         )}
         <button
           onClick={() => mut.mutate()}

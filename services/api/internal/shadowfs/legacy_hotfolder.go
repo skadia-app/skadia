@@ -1,9 +1,9 @@
 // Legacy ShadowFS functions retained for backward compatibility with the hotfolder watcher
-// All functions here are retained for backward compatibility with the hotfolder watcher
-// and the legacy rename handlers. Do not add new code to this package.
+// and the legacy rename handlers. Do not add new code to this file.
 package shadowfs
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -230,8 +230,12 @@ func NewWatcherManager(basePath string, callback func(userID, filePath string) e
 }
 
 // UserPath returns the hotfolder path for a specific user.
-func (wm *WatcherManager) UserPath(userID string) string {
-	return filepath.Join(wm.basePath, userID)
+// Returns an error if userID contains path traversal sequences.
+func (wm *WatcherManager) UserPath(userID string) (string, error) {
+	if strings.Contains(userID, "..") || strings.ContainsAny(userID, "/\\") {
+		return "", fmt.Errorf("invalid userID: %q", userID)
+	}
+	return filepath.Join(wm.basePath, userID), nil
 }
 
 // EnableUser starts a watcher for the user's hotfolder subdirectory.

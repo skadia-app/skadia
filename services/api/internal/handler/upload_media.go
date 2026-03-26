@@ -374,21 +374,27 @@ func (h *Handler) queueMediaFile(
 }
 
 // imageExtFromContentType returns the file extension for an image content type.
+// Exact matches are required to prevent ambiguous content-type substrings from
+// matching unrelated types (e.g. "application/x-png" should not match "png").
 func imageExtFromContentType(ct string) string {
-	switch {
-	case strings.Contains(ct, "png"):
+	// Strip optional parameters (e.g. "image/jpeg; charset=...").
+	if idx := strings.IndexByte(ct, ';'); idx >= 0 {
+		ct = strings.TrimSpace(ct[:idx])
+	}
+	switch ct {
+	case "image/png":
 		return ".png"
-	case strings.Contains(ct, "heic"), strings.Contains(ct, "heif"):
+	case "image/heic", "image/heif":
 		return ".heic"
-	case strings.Contains(ct, "avif"):
+	case "image/avif":
 		return ".avif"
-	case strings.Contains(ct, "webp"):
+	case "image/webp":
 		return ".webp"
-	case strings.Contains(ct, "gif"):
+	case "image/gif":
 		return ".gif"
-	case strings.Contains(ct, "tiff"):
+	case "image/tiff":
 		return ".tiff"
-	case strings.Contains(ct, "bmp"):
+	case "image/bmp", "image/x-bmp", "image/x-ms-bmp":
 		return ".bmp"
 	default:
 		return ".jpg"

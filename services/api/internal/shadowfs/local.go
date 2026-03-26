@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -54,6 +56,13 @@ func (s *LocalShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader
 	// Validate file type.
 	if _, ok := fileTypeDirName[entry.FileType]; !ok {
 		return FileRecord{}, fmt.Errorf("unknown file type %q", entry.FileType)
+	}
+
+	// Validate ParentID as UUID if set (parity with S3ShadowFS).
+	if entry.ParentID != nil && *entry.ParentID != "" {
+		if _, err := uuid.Parse(*entry.ParentID); err != nil {
+			return FileRecord{}, fmt.Errorf("invalid parent_id: %w", err)
+		}
 	}
 
 	// Quota check: soft limit — rejects if already over quota, but does NOT
@@ -128,6 +137,11 @@ func (s *LocalShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader
 
 	// Write file with O_EXCL race retry (except edit sidecars which overwrite).
 	// Safe: O_EXCL fails atomically at open before any data is read. Do not change writeFile to read data before opening.
+	// NOTE: The io.Reader is consumed by the first writeFile call. On O_EXCL collision the reader is already
+	// exhausted, so we call writeFile with the same data variable — this is intentional: writeFile opens
+	// the file only after O_EXCL succeeds, so no bytes are consumed on failure. This is safe but fragile:
+	// if writeFile is ever changed to read from data before opening the file, the retry loop would silently
+	// produce empty files. The test for this contract is: writeFile must not read from data before os.OpenFile.
 	var written int64
 	var hashHex string
 	var first512 []byte
@@ -208,6 +222,10 @@ func (s *LocalShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader
 	}
 
 	// Post-write quota check: catches cases where SizeBytes was 0 on entry.
+	// RACE NOTE: Between diskUsage() and the file deletion/DB rollback below, another concurrent
+	// Get() or quota check could read a stale usage value. This is an accepted trade-off: the
+	// advisory lock in DeleteAllForUser is the only hard serialisation point. The post-write
+	// rollback here is best-effort; the periodic ReconcileJob catches any remaining overage.
 	if s.maxUserBytes > 0 && written > 0 {
 		usage, qErr := diskUsage(ctx, s.pool, entry.UserID)
 		if qErr != nil {
@@ -432,22 +450,25 @@ func (s *LocalShadowFS) StreamToZip(ctx context.Context, userID string, zw *zip.
 		}
 
 		fullPath := filepath.Join(s.basePath, rec.StoragePath)
-		f, err := os.Open(fullPath)
-		if err != nil {
-			slog.Warn("shadowfs: skip missing file in zip", "path", fullPath, "err", err)
-			continue
-		}
+		if err := func() error {
+			f, err := os.Open(fullPath)
+			if err != nil {
+				slog.Warn("shadowfs: skip missing file in zip", "path", fullPath, "err", err)
+				return nil
+			}
+			defer f.Close()
 
-		w, err := zw.Create(zipPath)
-		if err != nil {
-			f.Close()
-			return fmt.Errorf("shadowfs: create zip entry: %w", err)
+			w, err := zw.Create(zipPath)
+			if err != nil {
+				return fmt.Errorf("shadowfs: create zip entry: %w", err)
+			}
+			if _, err := io.Copy(w, f); err != nil {
+				return fmt.Errorf("shadowfs: write zip entry: %w", err)
+			}
+			return nil
+		}(); err != nil {
+			return err
 		}
-		if _, err := io.Copy(w, f); err != nil {
-			f.Close()
-			return fmt.Errorf("shadowfs: write zip entry: %w", err)
-		}
-		f.Close()
 	}
 	return nil
 }
