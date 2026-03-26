@@ -169,6 +169,8 @@ export default function ZoneEditor({
   const pinMarkerRef = useRef<maplibregl.Marker | null>(null)
   const polyMarkersRef = useRef<maplibregl.Marker[]>([])
   const holeMarkersRef = useRef<maplibregl.Marker[][]>([]) // per-hole vertex markers
+  const isDraggingVertexRef = useRef(false)
+  const isDraggingHoleRef = useRef(false)
 
   // These refs let MapLibre event handlers (registered once on mount) read
   // the latest React state without re-registering.
@@ -311,13 +313,17 @@ export default function ZoneEditor({
         const marker = new maplibregl.Marker({ element: el, draggable: true })
           .setLngLat(pt)
           .addTo(map)
+        marker.on('dragstart', () => { isDraggingVertexRef.current = true })
         marker.on('drag', () => {
           const pos = marker.getLngLat()
-          setPolygonPoints(prev => {
-            const updated = [...prev]
-            updated[idx] = [pos.lng, pos.lat]
-            return updated
-          })
+          const updated = [...polygonPointsRef.current]
+          updated[idx] = [pos.lng, pos.lat]
+          polygonPointsRef.current = updated
+          if (map.isStyleLoaded()) updatePolygonLayer(map, updated, polygonClosedRef.current, holesRef.current)
+        })
+        marker.on('dragend', () => {
+          isDraggingVertexRef.current = false
+          setPolygonPoints([...polygonPointsRef.current])
         })
         polyMarkersRef.current.push(marker)
       })
@@ -344,17 +350,17 @@ export default function ZoneEditor({
           const marker = new maplibregl.Marker({ element: el, draggable: true })
             .setLngLat(pt)
             .addTo(map)
+          marker.on('dragstart', () => { isDraggingHoleRef.current = true })
           marker.on('drag', () => {
             const pos = marker.getLngLat()
-            setHoles(prev => {
-              const updated = prev.map(h => [...h])
-              updated[holeIdx][vtxIdx] = [pos.lng, pos.lat]
-              holesRef.current = updated
-              if (map.isStyleLoaded()) {
-                updatePolygonLayer(map, polygonPointsRef.current, polygonClosedRef.current, updated)
-              }
-              return updated
-            })
+            const updated = holesRef.current.map(h => [...h]) as [number, number][][]
+            updated[holeIdx][vtxIdx] = [pos.lng, pos.lat]
+            holesRef.current = updated
+            if (map.isStyleLoaded()) updatePolygonLayer(map, polygonPointsRef.current, polygonClosedRef.current, updated)
+          })
+          marker.on('dragend', () => {
+            isDraggingHoleRef.current = false
+            setHoles([...holesRef.current])
           })
           group.push(marker)
         })
@@ -583,6 +589,29 @@ export default function ZoneEditor({
       } else {
         // Polygon outer ring mode — only add vertices if not yet closed
         if (polygonClosedRef.current) return
+        const pts = polygonPointsRef.current
+        // Klick nahe am ersten Punkt (≥3 Punkte) → Polygon automatisch schließen
+        if (pts.length >= 3) {
+          const firstPx = map.project(pts[0])
+          const clickPx = map.project(lngLat)
+          const dx = firstPx.x - clickPx.x
+          const dy = firstPx.y - clickPx.y
+          if (dx * dx + dy * dy <= 15 * 15) {
+            polygonClosedRef.current = true
+            setPolygonClosed(true)
+            if (map.isStyleLoaded()) {
+              updatePolygonLayer(map, pts, true, holesRef.current)
+              updateVertexMarkers(map, pts)
+            }
+            if (showPin && !pinPosRef.current) {
+              const c = centroid(pts)
+              setPinPos(c)
+              pinPosRef.current = c
+              syncPinMarker(map, c)
+            }
+            return
+          }
+        }
         setPolygonPoints(prev => {
           const updated = [...prev, lngLat]
           polygonPointsRef.current = updated
@@ -640,7 +669,20 @@ export default function ZoneEditor({
 
     mapRef.current = map
 
+    // grabbing-Cursor bei gedrückter Maustaste (nur wenn nicht im Bleistift-Zeichenmodus)
+    const canvas = map.getCanvas()
+    const onMousedown = () => {
+      if (!canvas.style.cursor.includes('pencil')) canvas.style.cursor = 'grabbing'
+    }
+    const onMouseup = () => {
+      if (canvas.style.cursor === 'grabbing') canvas.style.cursor = ''
+    }
+    canvas.addEventListener('mousedown', onMousedown)
+    canvas.addEventListener('mouseup', onMouseup)
+
     return () => {
+      canvas.removeEventListener('mousedown', onMousedown)
+      canvas.removeEventListener('mouseup', onMouseup)
       map.remove()
       mapRef.current = null
       centerMarkerRef.current = null
@@ -709,7 +751,7 @@ export default function ZoneEditor({
     if (!map || mode !== 'polygon') return
     const apply = () => {
       updatePolygonLayer(map, polygonPoints, polygonClosed, holes)
-      if (polygonClosed) updateVertexMarkers(map, polygonPoints)
+      if (polygonClosed && !isDraggingVertexRef.current) updateVertexMarkers(map, polygonPoints)
     }
     if (map.isStyleLoaded()) apply()
     else map.once('style.load', apply)
@@ -722,7 +764,7 @@ export default function ZoneEditor({
     if (!map || mode !== 'polygon' || !polygonClosed) return
     const apply = () => {
       updatePolygonLayer(map, polygonPoints, polygonClosed, holes)
-      updateAllHoleMarkers(map, holes)
+      if (!isDraggingHoleRef.current) updateAllHoleMarkers(map, holes)
     }
     if (map.isStyleLoaded()) apply()
     else map.once('style.load', apply)
