@@ -207,34 +207,6 @@ func (h *Handler) GetImportQueueItemThumb(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Legacy S3 path.
-	thumbKey, ok := item.Metadata["s3_key_thumb"].(string)
-	if !ok || thumbKey == "" {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "no thumbnail available for this queue item", r.URL.Path)
-		return
-	}
-
-	bucket := "skadia-media"
-	if item.S3Bucket != nil {
-		bucket = *item.S3Bucket
-	}
-
-	if h.Storage == nil {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "no thumbnail available for this queue item", r.URL.Path)
-		return
-	}
-	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), bucket, thumbKey)
-	if err != nil {
-		slog.Error("get queue item thumb: s3 download failed", "id", id, "key", thumbKey, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to retrieve thumbnail", r.URL.Path)
-		return
-	}
-
-	if ct == "" {
-		ct = "image/jpeg"
-	}
-	w.Header().Set("Content-Type", ct)
-	w.Header().Set("Cache-Control", "private, max-age=3600")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	// No thumbnail available.
+	httputil.WriteError(w, http.StatusNotFound, "Not Found", "no thumbnail available for this queue item", r.URL.Path)
 }

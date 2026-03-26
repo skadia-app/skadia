@@ -1184,7 +1184,6 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 
 	fileSize := int64(len(photoBytes))
 	s3Key := fmt.Sprintf("%s/%s/%s", importQueuePrefix, userID, fileHash)
-	bucket := importQueueBucket
 	queueMeta := map[string]any{
 		"filename": meta.OriginalFilename,
 	}
@@ -1238,20 +1237,21 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 			}
 		}
 		if s3KeyThumb != "" {
-			queueMeta["s3_key_thumb"] = s3KeyThumb
+			queueMeta["thumb_path"] = s3KeyThumb
 		}
 	} else {
 		return nil, fmt.Errorf("no storage backend configured")
 	}
 
+	s3BE := "s3"
 	queueItem := database.ImportQueueItem{
 		UserID:           userID,
 		QueueType:        "image_no_match",
 		OriginalFilename: meta.OriginalFilename,
 		ContentType:      ct,
 		FileSizeBytes:    &fileSize,
-		S3Bucket:         &bucket,
-		S3Key:            &s3Key,
+		StorageBackend:   &s3BE,
+		StoragePath:      &s3Key,
 		Metadata:         queueMeta,
 	}
 	entryID, err := s.DB.CreateImportQueueItem(ctx, queueItem)
@@ -1292,11 +1292,12 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 			return nil, fmt.Errorf("shadowfs read queued photo: %w", err)
 		}
 	} else if s.Storage != nil {
-		if item.S3Bucket == nil || item.S3Key == nil {
+		if item.StoragePath == nil {
 			return nil, fmt.Errorf("queue item has no stored file reference")
 		}
+		storageBucket := importQueueBucket
 		var dlCT string
-		photoBytes, dlCT, err = s.Storage.DownloadFromBucket(ctx, *item.S3Bucket, *item.S3Key)
+		photoBytes, dlCT, err = s.Storage.DownloadFromBucket(ctx, storageBucket, *item.StoragePath)
 		if err != nil {
 			return nil, fmt.Errorf("s3 download queued photo: %w", err)
 		}
@@ -1335,10 +1336,10 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 				slog.Warn("importer: ShadowFS.Delete orphan thumb failed", "id", thumbFileID, "err", delErr)
 			}
 		}
-	} else if s.Storage != nil && item.S3Bucket != nil && item.S3Key != nil {
-		_ = s.Storage.DeleteFromBucket(ctx, *item.S3Bucket, *item.S3Key)
-		if thumbKey, ok := item.Metadata["s3_key_thumb"].(string); ok && thumbKey != "" {
-			_ = s.Storage.DeleteFromBucket(ctx, *item.S3Bucket, thumbKey)
+	} else if s.Storage != nil && item.StoragePath != nil {
+		_ = s.Storage.DeleteFromBucket(ctx, importQueueBucket, *item.StoragePath)
+		if thumbKey, ok := item.Metadata["thumb_path"].(string); ok && thumbKey != "" {
+			_ = s.Storage.DeleteFromBucket(ctx, importQueueBucket, thumbKey)
 		}
 	}
 

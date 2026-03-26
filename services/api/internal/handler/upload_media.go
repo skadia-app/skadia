@@ -337,14 +337,25 @@ func (h *Handler) queueMediaFile(
 	}
 
 	fileSize := int64(len(data))
+	var storageBackend, storagePath *string
+	if queueFileID == "" {
+		// Legacy S3 path was used — record storage info.
+		s3BE := "s3"
+		storageBackend = &s3BE
+		storagePath = &s3Key
+	} else {
+		// ShadowFS path — storage is tracked via metadata file_store_id.
+		localBE := "local"
+		storageBackend = &localBE
+	}
 	qItem := database.ImportQueueItem{
 		UserID:           userID,
 		QueueType:        queueType,
 		OriginalFilename: filename,
 		ContentType:      ct,
 		FileSizeBytes:    &fileSize,
-		S3Bucket:         &tempBucket,
-		S3Key:            &s3Key,
+		StorageBackend:   storageBackend,
+		StoragePath:      storagePath,
 		Metadata:         meta,
 	}
 
