@@ -11,12 +11,10 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
-	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
 
 type Handler struct {
 	DB             *database.DB
-	Storage        *storage.S3Client
 	Events         *event.Publisher
 	ShadowFS       shadowfs.ShadowFS       // nil when not yet initialized
 	ShadowFSConfig *shadowfs.ShadowFSConfig // nil when shadow FS is not configured
