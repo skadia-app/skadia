@@ -199,17 +199,6 @@ func (h *Handler) autoAssignPhoto(
 		}
 		photoFileID = rec.ID
 		// Thumbnail is stored after DB insert (see below) so we can use parent_type='photo'.
-	} else if h.Storage != nil {
-		if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, s3Key, data, ct); err != nil {
-			slog.Error("upload media: s3 upload photo failed", "error", err)
-			errMsg := "failed to store photo"
-			return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
-		}
-		if thumbData != nil {
-			_ = h.Storage.UploadToBucket(r.Context(), mediaBucket, s3KeyThumb, thumbData, "image/jpeg")
-		} else {
-			s3KeyThumb = s3Key
-		}
 	}
 
 	fileSize := int64(len(data))
@@ -236,11 +225,6 @@ func (h *Handler) autoAssignPhoto(
 		if photoFileID != "" && h.ShadowFS != nil {
 			if delErr := h.ShadowFS.Delete(r.Context(), userID, photoFileID); delErr != nil {
 				slog.Warn("upload media: ShadowFS.Delete photo rollback failed", "file_id", photoFileID, "error", delErr)
-			}
-		} else if h.Storage != nil {
-			_ = h.Storage.DeleteFromBucket(r.Context(), mediaBucket, s3Key)
-			if s3KeyThumb != s3Key {
-				_ = h.Storage.DeleteFromBucket(r.Context(), mediaBucket, s3KeyThumb)
 			}
 		}
 		errMsg := "failed to save photo"
@@ -273,8 +257,7 @@ func (h *Handler) autoAssignPhoto(
 	}
 }
 
-// queueMediaFile stores the file via ShadowFS (preferred) or temp S3 (fallback)
-// and creates an import_queue entry for manual review.
+// queueMediaFile stores the file via ShadowFS and creates an import_queue entry for manual review.
 func (h *Handler) queueMediaFile(
 	r *http.Request,
 	userID, filename, ct string,
@@ -282,14 +265,6 @@ func (h *Handler) queueMediaFile(
 	queueType string,
 	extraMeta map[string]any,
 ) mediaUploadResult {
-	// Determine extension for legacy S3 key
-	var ext string
-	if ct == "application/pdf" {
-		ext = ".pdf"
-	} else {
-		ext = imageExtFromContentType(ct)
-	}
-
 	hash := fmt.Sprintf("%x", sha256.Sum256(data))
 
 	// Duplikat-Prüfung für Fotos (nicht für PDFs)
@@ -299,55 +274,32 @@ func (h *Handler) queueMediaFile(
 		}
 	}
 
-	tempBucket := mediaBucketName()
-	s3Key := fmt.Sprintf("media-temp/%s/%s%s", userID, hash, ext)
-
-	// Upload via ShadowFS (preferred) or legacy S3 (fallback).
-	var queueFileID string
-	if h.ShadowFS != nil {
-		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
-			UserID:      userID,
-			FileType:    "media",
-			ContentType: ct,
-			FileName:    filename,
-			SizeBytes:   int64(len(data)),
-			FileHash:    hash,
-			Tags:        map[string]string{"queue_type": queueType},
-		}, bytes.NewReader(data))
-		if putErr != nil {
-			slog.Error("upload media: ShadowFS.Put temp failed", "error", putErr)
-			errMsg := "failed to store file"
-			return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
-		}
-		queueFileID = rec.ID
-	} else if h.Storage != nil {
-		if err := h.Storage.UploadToBucket(r.Context(), tempBucket, s3Key, data, ct); err != nil {
-			slog.Error("upload media: s3 temp upload failed", "error", err)
-			errMsg := "failed to store file"
-			return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
-		}
+	rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
+		UserID:      userID,
+		FileType:    "media",
+		ContentType: ct,
+		FileName:    filename,
+		SizeBytes:   int64(len(data)),
+		FileHash:    hash,
+		Tags:        map[string]string{"queue_type": queueType},
+	}, bytes.NewReader(data))
+	if putErr != nil {
+		slog.Error("upload media: ShadowFS.Put temp failed", "error", putErr)
+		errMsg := "failed to store file"
+		return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
 	}
+	queueFileID := rec.ID
 
 	meta := map[string]any{}
 	if extraMeta != nil {
 		maps.Copy(meta, extraMeta)
 	}
-	if queueFileID != "" {
-		meta["file_store_id"] = queueFileID
-	}
+	meta["file_store_id"] = queueFileID
 
 	fileSize := int64(len(data))
-	var storageBackend, storagePath *string
-	if queueFileID == "" {
-		// Legacy S3 path was used — record storage info.
-		s3BE := "s3"
-		storageBackend = &s3BE
-		storagePath = &s3Key
-	} else {
-		// ShadowFS path — storage is tracked via metadata file_store_id.
-		localBE := "local"
-		storageBackend = &localBE
-	}
+	// ShadowFS path — storage is tracked via metadata file_store_id.
+	localBE := "local"
+	storageBackend := &localBE
 	qItem := database.ImportQueueItem{
 		UserID:           userID,
 		QueueType:        queueType,
@@ -355,7 +307,6 @@ func (h *Handler) queueMediaFile(
 		ContentType:      ct,
 		FileSizeBytes:    &fileSize,
 		StorageBackend:   storageBackend,
-		StoragePath:      storagePath,
 		Metadata:         meta,
 	}
 
@@ -363,12 +314,8 @@ func (h *Handler) queueMediaFile(
 	if err != nil {
 		slog.Error("upload media: create queue item failed", "error", err)
 		// Clean up the file we already stored to avoid orphans.
-		if queueFileID != "" && h.ShadowFS != nil {
-			if delErr := h.ShadowFS.Delete(r.Context(), userID, queueFileID); delErr != nil {
-				slog.Warn("upload media: ShadowFS.Delete queue rollback failed", "file_id", queueFileID, "error", delErr)
-			}
-		} else if h.Storage != nil {
-			_ = h.Storage.DeleteFromBucket(r.Context(), tempBucket, s3Key)
+		if delErr := h.ShadowFS.Delete(r.Context(), userID, queueFileID); delErr != nil {
+			slog.Warn("upload media: ShadowFS.Delete queue rollback failed", "file_id", queueFileID, "error", delErr)
 		}
 		errMsg := "failed to create queue entry"
 		return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
