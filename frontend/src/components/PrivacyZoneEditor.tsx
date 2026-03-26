@@ -110,8 +110,8 @@ function injectPZECursorStyles() {
   const style = document.createElement('style')
   style.id = 'pze-cursor-styles'
   style.textContent = [
-    '.pze-cursor-crosshair .maplibregl-canvas { cursor: crosshair !important; }',
-    '.pze-cursor-grabbing  .maplibregl-canvas { cursor: grabbing  !important; }',
+    '.pze-cursor-crosshair .maplibregl-canvas-container { cursor: crosshair !important; }',
+    '.pze-cursor-grabbing  .maplibregl-canvas-container { cursor: grabbing  !important; }',
   ].join('\n')
   document.head.appendChild(style)
 }
