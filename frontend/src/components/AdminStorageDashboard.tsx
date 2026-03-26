@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/api/client'
 import { useToast } from '@/lib/toast'
-import { ModalShell } from '@/components/ui/ModalShell'
 import { FILE_TYPE_LABELS } from '@/api/shadowfs'
 import {
   HardDrive,
@@ -14,7 +13,6 @@ import {
   ChevronsUpDown,
   Archive,
   Layers,
-  RotateCcw,
 } from 'lucide-react'
 
 // ── i18n-ready labels ────────────────────────────────────────────────────────
@@ -48,35 +46,17 @@ const LABELS = {
   archiveWarning: 'Archiv > 1 GB',
   actions: {
     heading: 'Verwaltungsaktionen',
-    populate: 'Registry befüllen',
-    populateDesc: 'Befüllt user_files aus Legacy-Spalten (Phase 1 Migration)',
-    populateStarted: 'Registry befüllen gestartet',
-    populateRunning: 'Registry befüllen läuft bereits',
-    populateFailed: 'Registry befüllen fehlgeschlagen',
-    migrate: 'Dateien migrieren',
-    migrateDesc: 'Verschiebt Dateien in die neue Bibliotheksstruktur (Phase 2)',
-    migrateStarted: 'Dateien migrieren gestartet',
-    migrateRunning: 'Dateien migrieren läuft bereits',
-    migrateFailed: 'Migration fehlgeschlagen',
     reconcile: 'Abgleich starten',
     reconcileDesc: 'Prüft Konsistenz zwischen Dateisystem und user_files Registry',
     reconcileStarted: 'Abgleich gestartet',
     reconcileRunning: 'Abgleich läuft bereits',
     reconcileFailed: 'Abgleich fehlgeschlagen',
-    rollback: 'Migration zurückrollen',
-    rollbackDesc: 'Verschiebt Dateien zurück in die ursprünglichen Speicherorte (Phase 2 Rollback)',
-    rollbackConfirm: 'Migration wirklich zurückrollen? Alle Phase-2-Verschiebungen werden rückgängig gemacht.',
-    rollbackStarted: 'Rollback gestartet',
-    rollbackRunning: 'Rollback läuft bereits',
-    rollbackFailed: 'Rollback fehlgeschlagen',
     sortBy: 'Sortieren nach',
   },
   loading: 'Lade Speicher-Statistiken...',
   error: 'Statistiken konnten nicht geladen werden.',
   refresh: 'Aktualisieren',
   noUsers: 'Keine Benutzer gefunden',
-  rollbackConfirmButton: 'Bestätigen',
-  rollbackCancelButton: 'Abbrechen',
   pendingLabel: 'Läuft...',
 }
 
@@ -179,42 +159,11 @@ export default function AdminStorageDashboard() {
   const queryClient = useQueryClient()
   const [sortKey, setSortKey] = useState<SortKey>('disk_usage_bytes')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
-  const [showRollbackConfirm, setShowRollbackConfirm] = useState(false)
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery<StorageDashboardData>({
     queryKey: ['admin-storage-dashboard'],
     queryFn: () => apiClient<StorageDashboardData>('/admin/storage'),
     staleTime: 30_000,
-  })
-
-  const populateMut = useMutation<ActionResponse, Error>({
-    mutationFn: () => apiClient<ActionResponse>('/admin/storage/populate-registry', { method: 'POST' }),
-    onSuccess: (res) => {
-      if (res.status === 'already_running') {
-        addToast({ type: 'warning', title: LABELS.actions.populateRunning })
-        return
-      }
-      queryClient.invalidateQueries({ queryKey: ['admin-storage-dashboard'] })
-      addToast({ type: 'success', title: LABELS.actions.populateStarted, message: `Job: ${res.job_id ?? '—'}` })
-    },
-    onError: (err) => {
-      addToast({ type: 'error', title: LABELS.actions.populateFailed, message: err.message, duration: 0 })
-    },
-  })
-
-  const migrateMut = useMutation<ActionResponse, Error>({
-    mutationFn: () => apiClient<ActionResponse>('/admin/storage/migrate', { method: 'POST' }),
-    onSuccess: (res) => {
-      if (res.status === 'already_running') {
-        addToast({ type: 'warning', title: LABELS.actions.migrateRunning })
-        return
-      }
-      queryClient.invalidateQueries({ queryKey: ['admin-storage-dashboard'] })
-      addToast({ type: 'success', title: LABELS.actions.migrateStarted, message: `Job: ${res.job_id ?? '—'}` })
-    },
-    onError: (err) => {
-      addToast({ type: 'error', title: LABELS.actions.migrateFailed, message: err.message, duration: 0 })
-    },
   })
 
   const reconcileMut = useMutation<ActionResponse, Error>({
@@ -232,25 +181,7 @@ export default function AdminStorageDashboard() {
     },
   })
 
-  const rollbackMut = useMutation<ActionResponse, Error>({
-    mutationFn: () => apiClient<ActionResponse>('/admin/storage/migrate/rollback', { method: 'POST' }),
-    onSuccess: (res) => {
-      setShowRollbackConfirm(false)
-      if (res.status === 'already_running') {
-        addToast({ type: 'warning', title: LABELS.actions.rollbackRunning })
-        return
-      }
-      queryClient.invalidateQueries({ queryKey: ['admin-storage-dashboard'] })
-      addToast({ type: 'success', title: LABELS.actions.rollbackStarted, message: `Job: ${res.job_id ?? '—'}` })
-    },
-    onError: (err) => {
-      setShowRollbackConfirm(false)
-      addToast({ type: 'error', title: LABELS.actions.rollbackFailed, message: err.message, duration: 0 })
-    },
-  })
-
-  const anyJobRunning =
-    populateMut.isPending || migrateMut.isPending || reconcileMut.isPending || rollbackMut.isPending
+  const anyJobRunning = reconcileMut.isPending
 
   function toggleSort(col: SortKey) {
     if (sortKey === col) {
@@ -485,43 +416,7 @@ export default function AdminStorageDashboard() {
         <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
           {LABELS.actions.heading}
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-
-          <div className="rounded-lg border border-neutral-100 dark:border-neutral-700 p-4 space-y-3">
-            <div>
-              <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
-                {LABELS.actions.populate}
-              </p>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                {LABELS.actions.populateDesc}
-              </p>
-            </div>
-            <button
-              onClick={() => populateMut.mutate()}
-              disabled={anyJobRunning}
-              className="w-full px-3 py-1.5 rounded-lg text-sm font-medium bg-accent-DEFAULT hover:bg-accent-600 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-            >
-              {populateMut.isPending ? LABELS.pendingLabel : LABELS.actions.populate}
-            </button>
-          </div>
-
-          <div className="rounded-lg border border-neutral-100 dark:border-neutral-700 p-4 space-y-3">
-            <div>
-              <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
-                {LABELS.actions.migrate}
-              </p>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                {LABELS.actions.migrateDesc}
-              </p>
-            </div>
-            <button
-              onClick={() => migrateMut.mutate()}
-              disabled={anyJobRunning}
-              className="w-full px-3 py-1.5 rounded-lg text-sm font-medium bg-accent-DEFAULT hover:bg-accent-600 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-            >
-              {migrateMut.isPending ? LABELS.pendingLabel : LABELS.actions.migrate}
-            </button>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
           <div className="rounded-lg border border-neutral-100 dark:border-neutral-700 p-4 space-y-3">
             <div>
@@ -541,54 +436,8 @@ export default function AdminStorageDashboard() {
             </button>
           </div>
 
-          <div className="rounded-lg border border-amber-100 dark:border-amber-900/40 p-4 space-y-3">
-            <div>
-              <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200 flex items-center gap-1.5">
-                <RotateCcw className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                {LABELS.actions.rollback}
-              </p>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                {LABELS.actions.rollbackDesc}
-              </p>
-            </div>
-            <button
-              onClick={() => setShowRollbackConfirm(true)}
-              disabled={anyJobRunning}
-              className="w-full px-3 py-1.5 rounded-lg text-sm font-medium border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-            >
-              {rollbackMut.isPending ? LABELS.pendingLabel : LABELS.actions.rollback}
-            </button>
-          </div>
-
         </div>
       </section>
-
-      {showRollbackConfirm && (
-        <ModalShell onClose={() => setShowRollbackConfirm(false)} maxWidth="max-w-sm">
-          <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100 mb-3">
-            {LABELS.actions.rollback}
-          </h2>
-          <p className="text-sm text-amber-700 dark:text-amber-400 mb-4">
-            {LABELS.actions.rollbackConfirm}
-          </p>
-          <div className="flex justify-end gap-3">
-            <button
-              onClick={() => setShowRollbackConfirm(false)}
-              disabled={rollbackMut.isPending}
-              className="px-4 py-2 rounded-lg text-sm font-medium border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            >
-              {LABELS.rollbackCancelButton}
-            </button>
-            <button
-              onClick={() => rollbackMut.mutate()}
-              disabled={rollbackMut.isPending}
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-amber-500 hover:bg-amber-600 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            >
-              {rollbackMut.isPending ? LABELS.pendingLabel : LABELS.rollbackConfirmButton}
-            </button>
-          </div>
-        </ModalShell>
-      )}
 
     </div>
   )
