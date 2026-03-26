@@ -74,6 +74,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Clean up expired system_flags
+	db.Pool.Exec(ctx, `DELETE FROM system_flags WHERE expires_at < NOW()`)
+
+	// Check maintenance mode
+	var maintenanceValue string
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT value FROM system_flags WHERE key = 'maintenance_mode' AND expires_at > NOW()`).Scan(&maintenanceValue); err == nil {
+		slog.Error("maintenance mode active — server cannot start",
+			"reason", maintenanceValue,
+			"help", "Complete the storage migration or see docs for recovery steps")
+		os.Exit(1)
+	}
+
 	// Clean up stale processing entries from previous runs (crash recovery).
 	if cleaned, cleanErr := db.CleanupStaleProcessing(ctx, 10*time.Minute); cleanErr == nil && cleaned > 0 {
 		slog.Info("import_log: cleaned stale processing entries", "count", cleaned)
