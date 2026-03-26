@@ -385,9 +385,9 @@ async def _download_from_s3(bucket: str, key: str) -> bytes:
     session = aioboto3.Session()
     async with session.client(
         "s3",
-        endpoint_url=os.getenv("GARAGE_ENDPOINT", "http://garage:3900"),
-        aws_access_key_id=os.getenv("GARAGE_ACCESS_KEY"),
-        aws_secret_access_key=os.getenv("GARAGE_SECRET_KEY"),
+        endpoint_url=os.getenv("S3_ENDPOINT", os.getenv("GARAGE_ENDPOINT", "http://garage:3900")),
+        aws_access_key_id=os.getenv("S3_ACCESS_KEY", os.getenv("GARAGE_ACCESS_KEY")),
+        aws_secret_access_key=os.getenv("S3_SECRET_KEY", os.getenv("GARAGE_SECRET_KEY")),
     ) as s3:
         response = await s3.get_object(Bucket=bucket, Key=key)
         return await response["Body"].read()
