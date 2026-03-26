@@ -99,13 +99,12 @@ func (b *S3Backend) Write(ctx context.Context, path string, data io.Reader, cont
 }
 
 // PutBytes uploads pre-buffered data to S3, avoiding double-buffering when the
-// caller has already read the entire stream (e.g. for local-hash computation).
-func (b *S3Backend) PutBytes(ctx context.Context, path string, data []byte, contentType string, opts *BackendOpts) (int64, string, error) {
+// caller has already read the entire stream. The caller supplies the pre-computed
+// SHA-256 hex hash so PutBytes does not re-hash the data.
+func (b *S3Backend) PutBytes(ctx context.Context, path string, data []byte, contentType, precomputedHash string, opts *BackendOpts) (int64, error) {
 	if len(data) > s3MaxUploadBytes {
-		return 0, "", fmt.Errorf("upload exceeds %d bytes", s3MaxUploadBytes)
+		return 0, fmt.Errorf("upload exceeds %d bytes", s3MaxUploadBytes)
 	}
-	h := sha256.Sum256(data)
-	hash := hex.EncodeToString(h[:])
 
 	ct := contentType
 	if ct == "" {
@@ -120,9 +119,9 @@ func (b *S3Backend) PutBytes(ctx context.Context, path string, data []byte, cont
 		ContentLength: aws.Int64(int64(len(data))),
 	})
 	if err != nil {
-		return 0, "", fmt.Errorf("s3 put %s: %w", path, err)
+		return 0, fmt.Errorf("s3 put %s: %w", path, err)
 	}
-	return int64(len(data)), hash, nil
+	return int64(len(data)), nil
 }
 
 func (b *S3Backend) Delete(ctx context.Context, path string, opts *BackendOpts) error {

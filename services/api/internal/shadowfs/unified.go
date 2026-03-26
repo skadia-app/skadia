@@ -287,7 +287,7 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 		if !ok {
 			return FileRecord{}, fmt.Errorf("shadowfs: s3 backend type assertion failed")
 		}
-		w, _, writeErr := s3be.PutBytes(ctx, storagePath, allData, contentType, opts)
+		w, writeErr := s3be.PutBytes(ctx, storagePath, allData, contentType, fileHash, opts)
 		if writeErr != nil {
 			return FileRecord{}, fmt.Errorf("shadowfs: s3 write: %w", writeErr)
 		}
@@ -307,7 +307,7 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 			`INSERT INTO user_files (user_id, file_type, file_name, content_type, storage_backend,
 			    storage_path, size_bytes, file_hash, parent_type, parent_id, has_sidecar, status)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active')
-			 ON CONFLICT (user_id, file_type, parent_id) WHERE file_type = 'edit' DO UPDATE SET
+			 ON CONFLICT (user_id, file_type, parent_id) WHERE file_type = 'edit' AND parent_id IS NOT NULL DO UPDATE SET
 			    size_bytes = EXCLUDED.size_bytes, file_hash = EXCLUDED.file_hash,
 			    content_type = EXCLUDED.content_type, storage_path = EXCLUDED.storage_path,
 			    updated_at = NOW()
