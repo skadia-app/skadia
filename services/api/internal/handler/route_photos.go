@@ -212,10 +212,27 @@ func (h *Handler) DeleteRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.ShadowFS != nil && fileID != "" {
-		// Delete the main photo file; thumbnails/previews sharing the same ParentID
-		// will be cleaned up by ShadowFS cascading or a separate cleanup pass.
+		// Delete the main photo file.
 		if delErr := h.ShadowFS.Delete(r.Context(), userID, fileID); delErr != nil {
 			slog.Warn("delete route photo: ShadowFS.Delete failed", "file_id", fileID, "error", delErr)
+		}
+		// Delete all derivatives (thumb, preview) registered under parent_type/parent_id.
+		// Route photo derivatives are stored with parent_type='route_photo' and parent_id=photoID.
+		derivRows, derivErr := h.DB.Pool.Query(r.Context(),
+			`SELECT id::text FROM user_files
+			 WHERE user_id = $1 AND parent_type = 'route_photo' AND parent_id = $2`,
+			userID, photoID,
+		)
+		if derivErr == nil {
+			defer derivRows.Close()
+			for derivRows.Next() {
+				var derivID string
+				if scanErr := derivRows.Scan(&derivID); scanErr == nil && derivID != "" {
+					if delErr := h.ShadowFS.Delete(r.Context(), userID, derivID); delErr != nil {
+						slog.Warn("delete route photo: ShadowFS.Delete derivative failed", "deriv_id", derivID, "error", delErr)
+					}
+				}
+			}
 		}
 	}
 
