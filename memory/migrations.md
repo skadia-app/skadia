@@ -1,6 +1,6 @@
 # Skadia Migrations
 
-Alle Migrationen im Überblick. Nächste freie: **000232**
+Alle Migrationen im Überblick. Nächste freie: **000239**
 
 | Nr    | Name                                | Beschreibung |
 |-------|-------------------------------------|--------------|
@@ -52,3 +52,10 @@ Alle Migrationen im Überblick. Nächste freie: **000232**
 | 000229 | drop_legacy_oidc_subject                  | legacy_oidc_subject Spalte aus users entfernt |
 | 000230 | auth_audit_log                     | auth_audit_log Tabelle (action, user_id, ip, user_agent, meta; 365-Tage-Retention) |
 | 000231 | auth_ui_gaps                       | users: +deleted_at TIMESTAMPTZ, +must_change_password BOOL DEFAULT false, +pending_email TEXT |
+| 000232 | user_files                         | user_files + file_attachments + file_type_schemas Tabellen (Unified FileStore Registry) |
+| 000233 | user_files_backfill                | Backfill bestehender S3/ShadowFS-Pfade in user_files Registry |
+| 000234 | check_file_attachment_ownership    | check_file_attachment_ownership Trigger: search_path als Funktions-Option (Security Fix) |
+| 000235 | activity_photos_fk_cascade         | activity_photos FK: ON DELETE CASCADE statt SET NULL |
+| 000236 | drop_legacy_shadowfs_columns       | Legacy-Spalten (LocalShadowFS/S3ShadowFS) gedroppt; per-file Backend-Dispatch aktiv |
+| 000237 | system_flags                       | system_flags Tabelle (maintenance-mode guard, NOT NULL expires_at + 48h CHECK) |
+| 000238 | import_queue_storage_columns       | import_queue: s3_bucket/s3_key → storage_backend/storage_path (generische Storage-Spalten) |
