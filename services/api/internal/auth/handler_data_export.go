@@ -828,7 +828,7 @@ func exportRowsToZip(zw *zip.Writer, name string, rows pgx.Rows) {
 
 // streamShadowFSToZip walks the user's ShadowFS directory and copies each file into the zip.
 func streamShadowFSToZip(basePath, userID string, zw *zip.Writer) {
-	const maxLegacyZipBytes int64 = 10 << 30 // 10 GB — matches S3ShadowFS.StreamToZip limit
+	const maxLegacyZipBytes int64 = 10 << 30 // 10 GB — matches UnifiedShadowFS.StreamToZip limit
 
 	userDir := filepath.Join(basePath, userID)
 	if _, err := os.Stat(userDir); os.IsNotExist(err) {
