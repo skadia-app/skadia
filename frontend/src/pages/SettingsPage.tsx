@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useUser } from '@/providers/UserProvider'
 import OSMImportModal from '@/components/OSMImportModal'
@@ -624,6 +624,36 @@ export default function SettingsPage() {
     },
   })
 
+  const tabListRef = useRef<HTMLDivElement>(null)
+
+  const handleTabKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!tabListRef.current) return
+    const tabs = Array.from(
+      tabListRef.current.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+    )
+    const currentIndex = tabs.findIndex(t => t === document.activeElement)
+    let nextIndex = currentIndex
+
+    if (e.key === 'ArrowRight') {
+      e.preventDefault()
+      nextIndex = currentIndex < tabs.length - 1 ? currentIndex + 1 : 0
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault()
+      nextIndex = currentIndex > 0 ? currentIndex - 1 : tabs.length - 1
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      nextIndex = 0
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      nextIndex = tabs.length - 1
+    } else {
+      return
+    }
+
+    tabs[nextIndex].focus()
+    tabs[nextIndex].click()
+  }, [])
+
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Einstellungen...</div>
   }
@@ -634,9 +664,11 @@ export default function SettingsPage() {
 
       {/* Tab-Navigation */}
       <div
+        ref={tabListRef}
         role="tablist"
         aria-label="Einstellungen-Kategorien"
         className="flex gap-1 p-1 bg-neutral-100 dark:bg-neutral-800/50 rounded-lg w-fit flex-wrap"
+        onKeyDown={handleTabKeyDown}
       >
         {[
           { id: 'general' as const,  label: 'Allgemein',   show: true      },
@@ -651,6 +683,7 @@ export default function SettingsPage() {
             aria-selected={activeTab === tab.id}
             aria-controls={`settings-panel-${tab.id}`}
             id={`settings-tab-${tab.id}`}
+            tabIndex={activeTab === tab.id ? 0 : -1}
             onClick={() => setActiveTab(tab.id)}
             className={`px-4 py-1.5 rounded-md text-sm font-medium cursor-pointer transition-colors ${
               activeTab === tab.id
