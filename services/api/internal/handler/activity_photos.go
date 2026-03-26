@@ -12,6 +12,7 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -967,8 +968,26 @@ func serveResolvedFile(w http.ResponseWriter, r *http.Request, resolved shadowfs
 		}
 		http.ServeContent(w, r, resolved.FileName, modTime, f)
 	default:
-		// "s3" and any future types: redirect to the pre-signed URL.
-		http.Redirect(w, r, resolved.URL, http.StatusTemporaryRedirect)
+		// "s3" and any future types: proxy through the API server because
+		// the S3 endpoint (e.g. garage:3900) is only reachable inside the
+		// container network — browsers cannot resolve it.
+		resp, fetchErr := http.Get(resolved.URL)
+		if fetchErr != nil {
+			slog.Error("serveResolvedFile: fetch S3 presigned URL failed", "url_prefix", resolved.URL[:min(80, len(resolved.URL))], "error", fetchErr)
+			http.Error(w, "upstream fetch failed", http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			slog.Error("serveResolvedFile: S3 returned non-200", "status", resp.StatusCode)
+			http.Error(w, "upstream error", http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", ct)
+		if resolved.SizeBytes > 0 {
+			w.Header().Set("Content-Length", strconv.FormatInt(resolved.SizeBytes, 10))
+		}
+		io.Copy(w, resp.Body) //nolint:errcheck
 	}
 }
 

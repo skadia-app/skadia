@@ -122,7 +122,7 @@ func (db *DB) DeleteActivityPhoto(ctx context.Context, id, userID string) (fileI
 // ListAllUserPhotos returns all photos for a user (used by recompute-previews job).
 func (db *DB) ListAllUserPhotos(ctx context.Context, userID string) ([]model.ActivityPhoto, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, user_id, activity_id,
+		SELECT id, user_id, activity_id, file_id,
 		       original_filename, content_type, file_size_bytes, file_hash,
 		       taken_at, lat, lng, location_source, created_at,
 		       is_video, duration_s, video_width, video_height
@@ -136,7 +136,7 @@ func (db *DB) ListAllUserPhotos(ctx context.Context, userID string) ([]model.Act
 	photos := make([]model.ActivityPhoto, 0)
 	for rows.Next() {
 		var p model.ActivityPhoto
-		if err := rows.Scan(&p.ID, &p.UserID, &p.ActivityID,
+		if err := rows.Scan(&p.ID, &p.UserID, &p.ActivityID, &p.FileID,
 			&p.OriginalFilename, &p.ContentType, &p.FileSizeBytes, &p.FileHash,
 			&p.TakenAt, &p.Lat, &p.Lng, &p.LocationSource, &p.CreatedAt,
 			&p.IsVideo, &p.DurationS, &p.VideoWidth, &p.VideoHeight); err != nil {
