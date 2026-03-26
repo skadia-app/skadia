@@ -985,28 +985,14 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 		return nil, fmt.Errorf("no storage available for photo upload")
 	}
 
-	// Upload thumbnail
-	if thumbData != nil {
-		if s.Storage != nil {
-			if err := s.Storage.UploadToBucket(ctx, mediaBucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
-				slog.Warn("importer: s3 upload thumb failed", "err", err)
-				s3KeyThumb = s3Key // fallback: original
-			}
-		}
-	} else {
+	// Thumb/preview are stored via ShadowFS after DB insert (see below)
+	// so we can use parent_type='photo' with the photo ID. Legacy S3 paths
+	// are still computed for the DB model but no longer uploaded.
+	if thumbData == nil {
 		s3KeyThumb = s3Key
 	}
-
-	// Upload preview
 	if previewData != nil {
-		pk := fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, fileHash)
-		if s.Storage != nil {
-			if err := s.Storage.UploadToBucket(ctx, mediaBucket, pk, previewData, "image/jpeg"); err != nil {
-				slog.Warn("importer: s3 upload preview failed", "err", err)
-			} else {
-				s3KeyPreview = pk
-			}
-		}
+		s3KeyPreview = fmt.Sprintf("activity-photos/%s/%s_preview.jpg", userID, fileHash)
 	}
 
 	// Build DB model
@@ -1069,6 +1055,40 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	saved, err := s.DB.InsertActivityPhoto(ctx, photo)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity photo: %w", err)
+	}
+
+	// Store thumb/preview via ShadowFS with parent_type='photo' (needs photo ID from insert).
+	if s.ShadowFS != nil && saved.ID != "" {
+		if thumbData != nil {
+			_, thumbErr := s.ShadowFS.Put(ctx, shadowfs.FileEntry{
+				UserID:      userID,
+				FileType:    "thumb",
+				ContentType: "image/jpeg",
+				FileName:    fileHash + "_thumb.jpg",
+				SizeBytes:   int64(len(thumbData)),
+				FileHash:    fileHash + "_thumb",
+				ParentType:  shadowfs.Ptr("photo"),
+				ParentID:    shadowfs.Ptr(saved.ID),
+			}, bytes.NewReader(thumbData))
+			if thumbErr != nil {
+				slog.Warn("importer: ShadowFS.Put thumb failed", "photo_id", saved.ID, "err", thumbErr)
+			}
+		}
+		if previewData != nil {
+			_, previewErr := s.ShadowFS.Put(ctx, shadowfs.FileEntry{
+				UserID:      userID,
+				FileType:    "preview",
+				ContentType: "image/jpeg",
+				FileName:    fileHash + "_preview.jpg",
+				SizeBytes:   int64(len(previewData)),
+				FileHash:    fileHash + "_preview",
+				ParentType:  shadowfs.Ptr("photo"),
+				ParentID:    shadowfs.Ptr(saved.ID),
+			}, bytes.NewReader(previewData))
+			if previewErr != nil {
+				slog.Warn("importer: ShadowFS.Put preview failed", "photo_id", saved.ID, "err", previewErr)
+			}
+		}
 	}
 
 	// Publish CLIP embed event (best-effort)
@@ -1190,7 +1210,7 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 			thumbName := fileHash + "_thumb.jpg"
 			thumbRec, thumbErr := s.ShadowFS.Put(ctx, shadowfs.FileEntry{
 				UserID:      userID,
-				FileType:    "media",
+				FileType:    "thumb",
 				ContentType: "image/jpeg",
 				FileName:    thumbName,
 				SizeBytes:   int64(len(thumbData)),

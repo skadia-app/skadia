@@ -250,20 +250,18 @@ func (h *Handler) autoAssignPhoto(
 	// Store thumbnail in ShadowFS with parent_type='photo' (after insert so we have the photo ID).
 	if thumbData != nil && h.ShadowFS != nil && photo.ID != "" {
 		thumbName := fmt.Sprintf("%s_thumb.jpg", hash)
-		photoParent := "photo"
-		photoID := photo.ID
 		// FileHash uses a synthetic "hash_thumb" value (not a real SHA256 of the thumbnail
 		// data) because thumbnails are regenerable derivatives. The "_thumb" suffix makes
 		// the value deterministic and unique within the user_files registry.
 		_, _ = h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
-			FileType:    "media",
+			FileType:    "thumb",
 			ContentType: "image/jpeg",
 			FileName:    thumbName,
 			SizeBytes:   int64(len(thumbData)),
 			FileHash:    hash + "_thumb",
-			ParentType:  &photoParent,
-			ParentID:    &photoID,
+			ParentType:  shadowfs.Ptr("photo"),
+			ParentID:    shadowfs.Ptr(photo.ID),
 		}, bytes.NewReader(thumbData))
 	}
 
