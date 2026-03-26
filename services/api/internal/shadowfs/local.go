@@ -382,10 +382,6 @@ func (s *LocalShadowFS) DeleteAllForUser(ctx context.Context, userID string) err
 		}
 	}
 
-	// Clean journal entries.
-	_, _ = conn.Exec(ctx,
-		`DELETE FROM migration_shadowfs_journal WHERE user_id = $1`, userID)
-
 	// Delete all registry entries.
 	_, err = conn.Exec(ctx,
 		`DELETE FROM user_files WHERE user_id = $1`, userID)

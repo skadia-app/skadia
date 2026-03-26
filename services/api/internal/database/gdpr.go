@@ -231,11 +231,6 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	// are deleted by the Phase 1.5 storage cleanup callback anyway; this is DB cleanup only.
 	db.deleteRoutePhotoFiles(ctx, tx, userID)
 
-	// M47: Delete migration_shadowfs_journal entries for this user.
-	if _, err := tx.Exec(ctx, `DELETE FROM migration_shadowfs_journal WHERE user_id = $1`, userID); err != nil {
-		slog.Warn("GDPR: delete migration_shadowfs_journal failed", "error", err)
-	}
-
 	// route_photos: user_id REFERENCES users(id) — no CASCADE. Delete explicitly as defense-in-depth
 	// (normally cascaded from planned_routes via route_id, but orphaned rows would block user deletion).
 	if _, err := tx.Exec(ctx, `DELETE FROM route_photos WHERE user_id = $1`, userID); err != nil {
