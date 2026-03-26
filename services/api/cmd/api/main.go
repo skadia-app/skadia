@@ -201,6 +201,9 @@ func main() {
 			StorageBackend:      cfg.StorageBackend,
 			KeepVersions:        cfg.LibraryKeepVersions,
 			SyncEnabled:         cfg.LibrarySyncEnabled,
+			LocalBE:             localBE,
+			S3BE:                s3BE,
+			BucketFn:            store.BucketFor,
 		},
 	}
 
@@ -302,7 +305,7 @@ func main() {
 	// ShadowFS reconciliation (daily, graceful shutdown)
 	if cfg.LibraryBasePath != "" {
 		reconcileRenderer := shadowfs.NewSchemaRenderer()
-		reconcileJob := shadowfs.NewReconcileJob(db.Pool, cfg.LibraryBasePath, reconcileRenderer, cfg.LibraryKeepVersions)
+		reconcileJob := shadowfs.NewReconcileJob(db.Pool, localBE, s3BE, cfg.LibraryBasePath, store.BucketFor, reconcileRenderer, cfg.LibraryKeepVersions)
 		shutdown.Go("shadowfs-reconciliation", func(ctx context.Context) {
 			doReconcile := func() {
 				slog.Info("shadowfs reconcile: starting run")
@@ -313,12 +316,14 @@ func main() {
 					slog.Info("shadowfs reconcile: run complete",
 						"orphaned", result.OrphanedFiles,
 						"dangling", result.DanglingRecords,
+						"dangling_cleaned", result.DanglingCleaned,
 						"size_fixes", result.SizeMismatches,
 						"archived_cleaned", result.ArchivedCleaned,
 						"temp_cleaned", result.TempCleaned,
 						"duplicates", result.DuplicatePaths,
 						"purging_cleaned", result.PurgingCleaned,
 						"rename_fixed", result.RenameFixed,
+						"orphan_warnings", result.OrphanWarnings,
 						"archive_warnings", len(result.ArchiveWarnings),
 					)
 				}
