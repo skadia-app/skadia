@@ -138,13 +138,12 @@ func (b *S3Backend) Exists(ctx context.Context, path string, opts *BackendOpts) 
 		Key:    aws.String(path),
 	})
 	if err != nil {
-		var nfe *s3types.NotFound
-		if errors.As(err, &nfe) {
-			return false, nil
-		}
-		// Also handle NoSuchKey (some S3-compatible stores return this instead)
 		var nsk *s3types.NoSuchKey
 		if errors.As(err, &nsk) {
+			return false, nil
+		}
+		var nfe *s3types.NotFound
+		if errors.As(err, &nfe) {
 			return false, nil
 		}
 		return false, fmt.Errorf("s3 head %s: %w", path, err)
