@@ -167,20 +167,6 @@ func (h *Handler) DeleteGear(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("delete gear: shadowfs delete document failed",
 					"gear_id", id, "file_id", e.FileID, "error", delErr)
 			}
-		} else if e.S3Bucket != "" && h.Storage != nil {
-			// Legacy S3 fallback — delete main file and thumbnail.
-			if e.S3Key != "" {
-				if delErr := h.Storage.DeleteFromBucket(r.Context(), e.S3Bucket, e.S3Key); delErr != nil {
-					slog.Warn("delete gear: s3 delete document failed",
-						"gear_id", id, "bucket", e.S3Bucket, "key", e.S3Key, "error", delErr)
-				}
-			}
-			if e.S3KeyThumb != "" {
-				if delErr := h.Storage.DeleteFromBucket(r.Context(), e.S3Bucket, e.S3KeyThumb); delErr != nil {
-					slog.Warn("delete gear: s3 delete document thumb failed",
-						"gear_id", id, "bucket", e.S3Bucket, "key", e.S3KeyThumb, "error", delErr)
-				}
-			}
 		}
 	}
 
@@ -342,7 +328,7 @@ func (h *Handler) DeleteComponent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clean up ShadowFS and legacy S3 files for component documents before DB delete.
+	// Clean up ShadowFS files for component documents before DB delete.
 	docs, docsErr := h.DB.ListComponentDocuments(r.Context(), id)
 	if docsErr == nil {
 		for _, doc := range docs {
@@ -350,19 +336,6 @@ func (h *Handler) DeleteComponent(w http.ResponseWriter, r *http.Request) {
 				if delErr := h.ShadowFS.Delete(r.Context(), userID, *doc.FileID); delErr != nil {
 					slog.Warn("delete component: shadowfs delete document failed",
 						"component_id", id, "doc_id", doc.ID, "file_id", *doc.FileID, "error", delErr)
-				}
-			} else if doc.S3Bucket != "" && h.Storage != nil {
-				if doc.S3Key != "" {
-					if delErr := h.Storage.DeleteFromBucket(r.Context(), doc.S3Bucket, doc.S3Key); delErr != nil {
-						slog.Warn("delete component: s3 delete document failed",
-							"component_id", id, "doc_id", doc.ID, "bucket", doc.S3Bucket, "key", doc.S3Key, "error", delErr)
-					}
-				}
-				if doc.S3KeyThumb != "" {
-					if delErr := h.Storage.DeleteFromBucket(r.Context(), doc.S3Bucket, doc.S3KeyThumb); delErr != nil {
-						slog.Warn("delete component: s3 delete document thumb failed",
-							"component_id", id, "doc_id", doc.ID, "bucket", doc.S3Bucket, "key", doc.S3KeyThumb, "error", delErr)
-					}
 				}
 			}
 		}
@@ -683,19 +656,6 @@ func (h *Handler) DeleteServiceEvent(w http.ResponseWriter, r *http.Request) {
 			if delErr := h.ShadowFS.Delete(r.Context(), userID, e.FileID); delErr != nil {
 				slog.Warn("delete service event: shadowfs delete document failed",
 					"event_id", eventID, "file_id", e.FileID, "error", delErr)
-			}
-		} else if e.S3Bucket != "" && h.Storage != nil {
-			if e.S3Key != "" {
-				if delErr := h.Storage.DeleteFromBucket(r.Context(), e.S3Bucket, e.S3Key); delErr != nil {
-					slog.Warn("delete service event: s3 delete document failed",
-						"event_id", eventID, "bucket", e.S3Bucket, "key", e.S3Key, "error", delErr)
-				}
-			}
-			if e.S3KeyThumb != "" {
-				if delErr := h.Storage.DeleteFromBucket(r.Context(), e.S3Bucket, e.S3KeyThumb); delErr != nil {
-					slog.Warn("delete service event: s3 delete document thumb failed",
-						"event_id", eventID, "bucket", e.S3Bucket, "key", e.S3KeyThumb, "error", delErr)
-				}
 			}
 		}
 	}
@@ -1037,8 +997,6 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		ContentType:      contentType,
 		FileSizeBytes:    int64(len(data)),
 		FileHash:         &hashStr,
-		S3Bucket:         mediaBucket,
-		S3Key:            s3Key,
 	}
 
 	result, err := h.DB.InsertGearDocument(r.Context(), doc)
@@ -1048,11 +1006,6 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 			if delErr := h.ShadowFS.Delete(r.Context(), userID, docFileID); delErr != nil {
 				slog.Warn("gear document: shadowfs cleanup after db failure failed",
 					"file_id", docFileID, "error", delErr)
-			}
-		} else if doc.S3Key != "" && h.Storage != nil {
-			if delErr := h.Storage.DeleteFromBucket(r.Context(), doc.S3Bucket, doc.S3Key); delErr != nil {
-				slog.Warn("gear document: s3 cleanup after db failure failed",
-					"bucket", doc.S3Bucket, "key", doc.S3Key, "error", delErr)
 			}
 		}
 		slog.Error("insert gear document failed", "error", err)
@@ -1069,17 +1022,9 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// PDF-Thumbnail generieren (best-effort, legacy S3 only — ShadowFS thumbs TBD)
-	if h.Storage != nil && contentType == "application/pdf" && s3Key != "" {
-		if thumbData, err := generatePDFThumbnail(data, 400); err == nil {
-			thumbKey := fmt.Sprintf("gear/%s/%s/%s_thumb.jpg", userID, gearID, hashStr)
-			if err := h.Storage.UploadToBucket(r.Context(), mediaBucket, thumbKey, thumbData, "image/jpeg"); err == nil {
-				_ = h.DB.UpdateGearDocumentThumbnail(r.Context(), result.ID, thumbKey)
-			}
-		} else {
-			slog.Warn("PDF thumbnail generation failed", "err", err)
-		}
-	}
+	// PDF-Thumbnail generation is temporarily disabled during ShadowFS migration.
+	// UpdateGearDocumentThumbnail has been removed. Thumbnails will be regenerated
+	// as part of the FileStore migration.
 
 	// PDF text extraction via pdfcpu (best-effort)
 	var extractedText *string
@@ -1104,8 +1049,7 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 			ContentType:   result.ContentType,
 			IsTextPDF:     isTextPDF,
 			ExtractedText: extractedText,
-			S3Bucket:      doc.S3Bucket,
-			S3Key:         doc.S3Key,
+			FileID:        docFileID,
 		}
 		if err := h.Events.PublishDocumentUploaded(evt); err != nil {
 			slog.Warn("failed to publish document uploaded event", "error", err)
@@ -1375,8 +1319,6 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 		ContentType:      contentType,
 		FileSizeBytes:    int64(len(data)),
 		FileHash:         &hashStr,
-		S3Bucket:         mediaBucket,
-		S3Key:            s3Key,
 	}
 
 	result, err := h.DB.InsertGearDocument(r.Context(), doc)
@@ -1386,11 +1328,6 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 			if delErr := h.ShadowFS.Delete(r.Context(), userID, compFileID); delErr != nil {
 				slog.Warn("component document: shadowfs cleanup after db failure failed",
 					"file_id", compFileID, "error", delErr)
-			}
-		} else if doc.S3Key != "" && h.Storage != nil {
-			if delErr := h.Storage.DeleteFromBucket(r.Context(), doc.S3Bucket, doc.S3Key); delErr != nil {
-				slog.Warn("component document: s3 cleanup after db failure failed",
-					"bucket", doc.S3Bucket, "key", doc.S3Key, "error", delErr)
 			}
 		}
 		slog.Error("insert component document failed", "error", err)
@@ -1442,31 +1379,17 @@ func (h *Handler) DeleteGearDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bucket, key, thumbKey, fileID, err := h.DB.DeleteGearDocument(r.Context(), docID, userID)
+	fileID, err := h.DB.DeleteGearDocument(r.Context(), docID, userID)
 	if err != nil {
 		slog.Error("delete gear document failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to delete document", r.URL.Path)
 		return
 	}
-	if bucket == "" && fileID == "" {
-		httputil.WriteError(w, http.StatusNotFound, "Not found", "Document not found", r.URL.Path)
-		return
-	}
 
-	// Delete from ShadowFS (preferred) or fall back to legacy S3 (best-effort).
+	// Delete from ShadowFS (best-effort).
 	if h.ShadowFS != nil && fileID != "" {
 		if delErr := h.ShadowFS.Delete(r.Context(), userID, fileID); delErr != nil {
 			slog.Error("shadowfs delete failed", "file_id", fileID, "error", delErr)
-		}
-	} else if bucket != "" && h.Storage != nil {
-		if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, key); delErr != nil {
-			slog.Error("s3 delete failed", "bucket", bucket, "key", key, "error", delErr)
-		}
-		// L39: Also delete the thumbnail S3 object.
-		if thumbKey != "" {
-			if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, thumbKey); delErr != nil {
-				slog.Error("s3 delete thumb failed", "bucket", bucket, "key", thumbKey, "error", delErr)
-			}
 		}
 	}
 
@@ -1499,7 +1422,7 @@ func (h *Handler) DownloadGearDocument(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, doc.OriginalFilename))
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 
-	// Serve from ShadowFS when available; fall back to legacy S3.
+	// Serve from ShadowFS.
 	if h.ShadowFS != nil && doc.FileID != nil && *doc.FileID != "" {
 		rc, getErr := h.ShadowFS.Get(r.Context(), userID, *doc.FileID)
 		if getErr != nil {
@@ -1512,21 +1435,7 @@ func (h *Handler) DownloadGearDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Legacy S3 download.
-	if h.Storage == nil {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "file not available", r.URL.Path)
-		return
-	}
-	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), doc.S3Bucket, doc.S3Key)
-	if err != nil {
-		slog.Error("s3 download failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Download failed", "Failed to retrieve file", r.URL.Path)
-		return
-	}
-	if ct != "" {
-		w.Header().Set("Content-Type", ct)
-	}
-	w.Write(data) //nolint:errcheck
+	httputil.WriteError(w, http.StatusNotFound, "Not Found", "file not available", r.URL.Path)
 }
 
 // PatchGearReview updates the review status of a gear item.

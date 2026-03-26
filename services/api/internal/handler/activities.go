@@ -243,10 +243,8 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 					slog.Warn("update activity: ShadowFS meta write failed, falling back to S3", "id", id, "error", putErr)
 				}
 			}
-			if !written && h.Storage != nil && freshAct.SidecarMetaKey != "" {
-				if err := h.Storage.Upload(r.Context(), freshAct.SidecarMetaKey, metaBytes, "application/json"); err != nil {
-					slog.Error("update activity: sidecar upload failed", "id", id, "error", err)
-				}
+			if !written {
+				slog.Warn("update activity: meta sidecar could not be written (no ShadowFS)", "id", id)
 			}
 		}
 	}
@@ -469,30 +467,21 @@ func (h *Handler) cleanupActivityFiles(ctx context.Context, userID, activityID s
 		}
 	}
 
-	// Photo originals (ShadowFS) + legacy S3 fallback.
+	// Photo originals (ShadowFS).
 	photoRows, photoErr := h.DB.Pool.Query(ctx,
-		`SELECT COALESCE(file_id::text, ''), COALESCE(s3_bucket, ''), COALESCE(s3_key, ''), COALESCE(s3_key_thumb, ''), COALESCE(s3_key_preview, '')
+		`SELECT COALESCE(file_id::text, '')
 		 FROM activity_photos WHERE activity_id = $1 AND user_id = $2`,
 		activityID, userID,
 	)
 	if photoErr == nil {
 		for photoRows.Next() {
-			var photoFileID, photoBucket, photoKey, photoKeyThumb, photoKeyPreview string
-			if scanErr := photoRows.Scan(&photoFileID, &photoBucket, &photoKey, &photoKeyThumb, &photoKeyPreview); scanErr != nil {
+			var photoFileID string
+			if scanErr := photoRows.Scan(&photoFileID); scanErr != nil {
 				continue
 			}
-			if photoFileID != "" && h.ShadowFS != nil {
+			if h.ShadowFS != nil && photoFileID != "" {
 				if err := h.ShadowFS.Delete(ctx, userID, photoFileID); err != nil {
 					slog.Warn("cleanup activity files: shadowfs delete photo failed", "file_id", photoFileID, "error", err)
-				}
-			}
-			if photoBucket != "" && photoKey != "" && h.Storage != nil {
-				_ = h.Storage.DeleteFromBucket(ctx, photoBucket, photoKey)
-				if photoKeyThumb != "" && photoKeyThumb != photoKey {
-					_ = h.Storage.DeleteFromBucket(ctx, photoBucket, photoKeyThumb)
-				}
-				if photoKeyPreview != "" && photoKeyPreview != photoKey && photoKeyPreview != photoKeyThumb {
-					_ = h.Storage.DeleteFromBucket(ctx, photoBucket, photoKeyPreview)
 				}
 			}
 		}

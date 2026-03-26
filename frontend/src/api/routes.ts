@@ -27,8 +27,6 @@ export interface RouteSegment {
 
 export interface RoutePhoto {
   id: string
-  s3_key_thumb: string
-  s3_key_preview?: string
   original_name?: string
   sort_order: number
 }

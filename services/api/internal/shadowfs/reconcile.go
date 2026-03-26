@@ -606,7 +606,7 @@ func (j *ReconcileJob) checkPurgingCleanup(ctx context.Context, r *ReconcileResu
 func (j *ReconcileJob) checkRenameCleanup(ctx context.Context, r *ReconcileResult) error {
 	rows, err := j.pool.Query(ctx,
 		`SELECT uf.id, uf.user_id, uf.storage_path, uf.file_type, uf.file_name,
-		        COALESCE(u.library_dir_name, uf.user_id) AS user_dir
+		        COALESCE(u.library_dir_name, uf.user_id::text) AS user_dir
 		 FROM user_files uf
 		 JOIN users u ON u.id = uf.user_id
 		 WHERE uf.is_renaming = true AND uf.storage_backend = 'local'`)
@@ -750,7 +750,7 @@ func (j *ReconcileJob) checkArchiveWarnings(ctx context.Context, r *ReconcileRes
 	const warnThreshold int64 = 1024 * 1024 * 1024 // 1 GB
 
 	rows, err := j.pool.Query(ctx, `
-		SELECT uf.user_id, COALESCE(u.username, uf.user_id) AS username,
+		SELECT uf.user_id, COALESCE(u.username, uf.user_id::text) AS username,
 		       SUM(uf.size_bytes) AS total
 		FROM user_files uf
 		JOIN users u ON u.id = uf.user_id

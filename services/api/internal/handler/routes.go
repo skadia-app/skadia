@@ -172,7 +172,7 @@ func (h *Handler) DuplicateRoute(w http.ResponseWriter, r *http.Request) {
 
 // cleanupRoutePhotoFiles deletes ShadowFS (or legacy S3) files for all photos
 // belonging to a route. Must be called BEFORE the route is deleted (CASCADE
-// would drop the route_photos rows and lose the file_id / s3_key references).
+// would drop the route_photos rows and lose the file_id references).
 func (h *Handler) cleanupRoutePhotoFiles(ctx context.Context, routeID, userID string) {
 	if h.ShadowFS != nil {
 		rows, err := h.DB.Pool.Query(ctx,
@@ -193,39 +193,6 @@ func (h *Handler) cleanupRoutePhotoFiles(ctx context.Context, routeID, userID st
 			if delErr := h.ShadowFS.Delete(ctx, userID, fileID); delErr != nil {
 				slog.Warn("route delete: ShadowFS.Delete route photo failed", "route_id", routeID, "file_id", fileID, "error", delErr)
 			}
-		}
-		return
-	}
-
-	// Legacy S3 fallback when ShadowFS is not configured.
-	if h.Storage == nil {
-		return
-	}
-	bucket := mediaBucketName()
-	rows, err := h.DB.Pool.Query(ctx,
-		`SELECT COALESCE(s3_key,''), COALESCE(s3_key_thumb,''), COALESCE(s3_key_preview,'')
-		 FROM route_photos WHERE route_id = $1 AND user_id = $2`,
-		routeID, userID,
-	)
-	if err != nil {
-		slog.Warn("route delete: query route_photos s3_keys failed", "route_id", routeID, "error", err)
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var key, keyThumb, keyPreview string
-		if err := rows.Scan(&key, &keyThumb, &keyPreview); err != nil {
-			continue
-		}
-		if key != "" {
-			_ = h.Storage.DeleteFromBucket(ctx, bucket, key)
-		}
-		if keyThumb != "" && keyThumb != key {
-			_ = h.Storage.DeleteFromBucket(ctx, bucket, keyThumb)
-		}
-		if keyPreview != "" && keyPreview != key {
-			_ = h.Storage.DeleteFromBucket(ctx, bucket, keyPreview)
 		}
 	}
 }

@@ -176,13 +176,11 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Upload preview.
-	var s3KeyPreview *string
 	if previewData != nil && h.Storage != nil {
 		key := fmt.Sprintf("route-photos/%s/%s/%s_preview.jpg", userID, routeID, hash)
 		if err := h.Storage.UploadToBucket(r.Context(), bucket, key, previewData, "image/jpeg"); err != nil {
 			slog.Warn("s3 upload route preview failed", "error", err)
 		} else {
-			s3KeyPreview = &key
 			uploadedKeys = append(uploadedKeys, key)
 		}
 	}
@@ -191,9 +189,6 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 		RouteID:      routeID,
 		UserID:       userID,
 		FileHash:     hash,
-		S3Key:        s3Key,
-		S3KeyThumb:   s3KeyThumb,
-		S3KeyPreview: s3KeyPreview,
 		OriginalName: &header.Filename,
 	}
 
@@ -233,25 +228,16 @@ func (h *Handler) DeleteRoutePhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bucket := mediaBucketName()
-	s3Key, s3KeyThumb, s3KeyPreview, fileID, err := h.DB.DeleteRoutePhoto(r.Context(), photoID, userID, routeID)
+	fileID, err := h.DB.DeleteRoutePhoto(r.Context(), photoID, userID, routeID)
 	if err != nil {
 		slog.Error("delete route photo failed", "error", err)
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
 		return
 	}
 
-	if fileID != "" && h.ShadowFS != nil {
+	if h.ShadowFS != nil && fileID != "" {
 		if delErr := h.ShadowFS.Delete(r.Context(), userID, fileID); delErr != nil {
 			slog.Warn("delete route photo: ShadowFS.Delete failed", "file_id", fileID, "error", delErr)
-		}
-	} else if h.Storage != nil {
-		_ = h.Storage.DeleteFromBucket(r.Context(), bucket, s3Key)
-		if s3KeyThumb != s3Key {
-			_ = h.Storage.DeleteFromBucket(r.Context(), bucket, s3KeyThumb)
-		}
-		if s3KeyPreview != nil && *s3KeyPreview != "" && *s3KeyPreview != s3Key {
-			_ = h.Storage.DeleteFromBucket(r.Context(), bucket, *s3KeyPreview)
 		}
 	}
 

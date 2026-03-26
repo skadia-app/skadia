@@ -12,23 +12,23 @@ func (db *DB) InsertActivityPhoto(ctx context.Context, p model.ActivityPhoto) (m
 	var out model.ActivityPhoto
 	err := db.Pool.QueryRow(ctx, `
 		INSERT INTO activity_photos
-			(user_id, activity_id, file_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
+			(user_id, activity_id, file_id,
 			 original_filename, content_type, file_size_bytes, file_hash,
 			 taken_at, lat, lng, location_source,
 			 is_video, duration_s, video_width, video_height,
 			 phash, width, height)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
-		RETURNING id, user_id, activity_id, file_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+		RETURNING id, user_id, activity_id, file_id,
 		          original_filename, content_type, file_size_bytes, file_hash,
 		          taken_at, lat, lng, location_source, created_at,
 		          is_video, duration_s, video_width, video_height,
 		          phash, width, height
-	`, p.UserID, p.ActivityID, p.FileID, p.S3Bucket, p.S3Key, p.S3KeyThumb, p.S3KeyPreview,
+	`, p.UserID, p.ActivityID, p.FileID,
 		p.OriginalFilename, p.ContentType, p.FileSizeBytes, p.FileHash,
 		p.TakenAt, p.Lat, p.Lng, p.LocationSource,
 		p.IsVideo, p.DurationS, p.VideoWidth, p.VideoHeight,
 		p.PHash, p.Width, p.Height,
-	).Scan(&out.ID, &out.UserID, &out.ActivityID, &out.FileID, &out.S3Bucket, &out.S3Key, &out.S3KeyThumb, &out.S3KeyPreview,
+	).Scan(&out.ID, &out.UserID, &out.ActivityID, &out.FileID,
 		&out.OriginalFilename, &out.ContentType, &out.FileSizeBytes, &out.FileHash,
 		&out.TakenAt, &out.Lat, &out.Lng, &out.LocationSource, &out.CreatedAt,
 		&out.IsVideo, &out.DurationS, &out.VideoWidth, &out.VideoHeight,
@@ -38,7 +38,7 @@ func (db *DB) InsertActivityPhoto(ctx context.Context, p model.ActivityPhoto) (m
 
 func (db *DB) ListActivityPhotos(ctx context.Context, activityID, userID string) ([]model.ActivityPhoto, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, user_id, activity_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
+		SELECT id, user_id, activity_id,
 		       original_filename, content_type, file_size_bytes, file_hash,
 		       taken_at, lat, lng, location_source, created_at,
 		       is_video, duration_s, video_width, video_height
@@ -53,7 +53,7 @@ func (db *DB) ListActivityPhotos(ctx context.Context, activityID, userID string)
 	photos := make([]model.ActivityPhoto, 0)
 	for rows.Next() {
 		var p model.ActivityPhoto
-		if err := rows.Scan(&p.ID, &p.UserID, &p.ActivityID, &p.S3Bucket, &p.S3Key, &p.S3KeyThumb, &p.S3KeyPreview,
+		if err := rows.Scan(&p.ID, &p.UserID, &p.ActivityID,
 			&p.OriginalFilename, &p.ContentType, &p.FileSizeBytes, &p.FileHash,
 			&p.TakenAt, &p.Lat, &p.Lng, &p.LocationSource, &p.CreatedAt,
 			&p.IsVideo, &p.DurationS, &p.VideoWidth, &p.VideoHeight); err != nil {
@@ -72,13 +72,11 @@ func (db *DB) GetActivityPhoto(ctx context.Context, id, userID string) (model.Ac
 	var fileID string
 	err := db.Pool.QueryRow(ctx, `
 		SELECT id, user_id, activity_id, COALESCE(file_id::text, ''),
-		       s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
 		       original_filename, content_type, file_size_bytes, file_hash,
 		       taken_at, lat, lng, location_source, created_at,
 		       is_video, duration_s, video_width, video_height
 		FROM activity_photos WHERE id = $1 AND user_id = $2
 	`, id, userID).Scan(&p.ID, &p.UserID, &p.ActivityID, &fileID,
-		&p.S3Bucket, &p.S3Key, &p.S3KeyThumb, &p.S3KeyPreview,
 		&p.OriginalFilename, &p.ContentType, &p.FileSizeBytes, &p.FileHash,
 		&p.TakenAt, &p.Lat, &p.Lng, &p.LocationSource, &p.CreatedAt,
 		&p.IsVideo, &p.DurationS, &p.VideoWidth, &p.VideoHeight)
@@ -94,60 +92,32 @@ func (db *DB) UpdateActivityPhotoLocation(ctx context.Context, id, userID string
 		UPDATE activity_photos
 		SET lat = $3, lng = $4, taken_at = COALESCE($5, taken_at), location_source = $6
 		WHERE id = $1 AND user_id = $2
-		RETURNING id, user_id, activity_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
+		RETURNING id, user_id, activity_id,
 		          original_filename, content_type, file_size_bytes, file_hash,
 		          taken_at, lat, lng, location_source, created_at,
 		          is_video, duration_s, video_width, video_height
 	`, id, userID, lat, lng, takenAt, locationSource,
-	).Scan(&p.ID, &p.UserID, &p.ActivityID, &p.S3Bucket, &p.S3Key, &p.S3KeyThumb, &p.S3KeyPreview,
+	).Scan(&p.ID, &p.UserID, &p.ActivityID,
 		&p.OriginalFilename, &p.ContentType, &p.FileSizeBytes, &p.FileHash,
 		&p.TakenAt, &p.Lat, &p.Lng, &p.LocationSource, &p.CreatedAt,
 		&p.IsVideo, &p.DurationS, &p.VideoWidth, &p.VideoHeight)
 	return p, err
 }
 
-func (db *DB) DeleteActivityPhoto(ctx context.Context, id, userID string) (bucket, key, keyThumb, keyPreview, fileID string, err error) {
+func (db *DB) DeleteActivityPhoto(ctx context.Context, id, userID string) (fileID string, err error) {
 	err = db.Pool.QueryRow(ctx,
 		`DELETE FROM activity_photos WHERE id = $1 AND user_id = $2
-		 RETURNING s3_bucket, s3_key, s3_key_thumb, COALESCE(s3_key_preview, ''), COALESCE(file_id::text, '')`,
+		 RETURNING COALESCE(file_id::text, '')`,
 		id, userID,
-	).Scan(&bucket, &key, &keyThumb, &keyPreview, &fileID)
+	).Scan(&fileID)
 	return
 }
 
-// UpdateActivityPhotoPreviewKey updates only s3_key_preview for a single photo.
-func (db *DB) UpdateActivityPhotoPreviewKey(ctx context.Context, id, userID, previewKey string) error {
-	_, err := db.Pool.Exec(ctx,
-		`UPDATE activity_photos SET s3_key_preview = $3 WHERE id = $1 AND user_id = $2`,
-		id, userID, previewKey,
-	)
-	return err
-}
-
-// UpdateActivityPhotoThumbAndMeta updates s3_key_thumb, is_video, content_type and
-// optionally s3_key_preview, duration_s, video_width, video_height for a single photo.
-// Used by the backfill job to repair rows where a video file's raw S3 key was mistakenly
-// stored as the thumb path.
-func (db *DB) UpdateActivityPhotoThumbAndMeta(ctx context.Context, id, userID, thumbKey, previewKey, contentType string, isVideo bool, durationS *float64, videoWidth, videoHeight *int) error {
-	_, err := db.Pool.Exec(ctx, `
-		UPDATE activity_photos
-		SET s3_key_thumb    = $3,
-		    s3_key_preview  = CASE WHEN $4 = '' THEN s3_key_preview ELSE $4 END,
-		    content_type    = $5,
-		    is_video        = $6,
-		    duration_s      = COALESCE($7, duration_s),
-		    video_width     = COALESCE($8, video_width),
-		    video_height    = COALESCE($9, video_height)
-		WHERE id = $1 AND user_id = $2`,
-		id, userID, thumbKey, previewKey, contentType, isVideo, durationS, videoWidth, videoHeight,
-	)
-	return err
-}
 
 // ListAllUserPhotos returns all photos for a user (used by recompute-previews job).
 func (db *DB) ListAllUserPhotos(ctx context.Context, userID string) ([]model.ActivityPhoto, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, user_id, activity_id, s3_bucket, s3_key, s3_key_thumb, s3_key_preview,
+		SELECT id, user_id, activity_id,
 		       original_filename, content_type, file_size_bytes, file_hash,
 		       taken_at, lat, lng, location_source, created_at,
 		       is_video, duration_s, video_width, video_height
@@ -161,7 +131,7 @@ func (db *DB) ListAllUserPhotos(ctx context.Context, userID string) ([]model.Act
 	photos := make([]model.ActivityPhoto, 0)
 	for rows.Next() {
 		var p model.ActivityPhoto
-		if err := rows.Scan(&p.ID, &p.UserID, &p.ActivityID, &p.S3Bucket, &p.S3Key, &p.S3KeyThumb, &p.S3KeyPreview,
+		if err := rows.Scan(&p.ID, &p.UserID, &p.ActivityID,
 			&p.OriginalFilename, &p.ContentType, &p.FileSizeBytes, &p.FileHash,
 			&p.TakenAt, &p.Lat, &p.Lng, &p.LocationSource, &p.CreatedAt,
 			&p.IsVideo, &p.DurationS, &p.VideoWidth, &p.VideoHeight); err != nil {
@@ -175,12 +145,11 @@ func (db *DB) ListAllUserPhotos(ctx context.Context, userID string) ([]model.Act
 	return photos, nil
 }
 
-// GetPhotosWithoutEmbedding returns id, s3_bucket, s3_key and s3_key_preview
-// for all photos of a user that have no CLIP embedding yet.
-// The clip_embedding column is expected to be added via a future migration.
+// GetPhotosWithoutEmbedding returns id and file_id for all photos of a user
+// that have no CLIP embedding yet. The ML service uses file_id to locate the photo.
 func (db *DB) GetPhotosWithoutEmbedding(ctx context.Context, userID string) ([]model.ActivityPhoto, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, s3_bucket, s3_key, COALESCE(s3_key_preview, '') AS s3_key_preview
+		SELECT id, COALESCE(file_id::text, '') AS file_id
 		FROM activity_photos
 		WHERE user_id = $1 AND clip_embedding IS NULL
 		ORDER BY created_at
@@ -192,8 +161,12 @@ func (db *DB) GetPhotosWithoutEmbedding(ctx context.Context, userID string) ([]m
 	photos := make([]model.ActivityPhoto, 0)
 	for rows.Next() {
 		var p model.ActivityPhoto
-		if err := rows.Scan(&p.ID, &p.S3Bucket, &p.S3Key, &p.S3KeyPreview); err != nil {
+		var fileID string
+		if err := rows.Scan(&p.ID, &fileID); err != nil {
 			return nil, err
+		}
+		if fileID != "" {
+			p.FileID = &fileID
 		}
 		photos = append(photos, p)
 	}
@@ -249,7 +222,6 @@ func (db *DB) ListPhotoFeed(ctx context.Context, userID, sort string, limit, off
 			ap.id, ap.activity_id, ap.taken_at, ap.created_at,
 			ap.lat, ap.lng, ap.location_source,
 			ap.content_type, ap.is_video, ap.duration_s,
-			ap.s3_key_thumb, ap.s3_key_preview, ap.s3_key,
 			a.id              AS act_id,
 			a.title           AS act_title,
 			a.sport_type      AS act_sport_type,
@@ -281,7 +253,6 @@ func (db *DB) ListPhotoFeed(ctx context.Context, userID, sort string, limit, off
 			&r.Photo.ID, &r.Photo.ActivityID, &r.Photo.TakenAt, &r.Photo.CreatedAt,
 			&r.Photo.Lat, &r.Photo.Lng, &r.Photo.LocationSource,
 			&r.Photo.ContentType, &r.Photo.IsVideo, &r.Photo.DurationS,
-			&r.Photo.S3KeyThumb, &r.Photo.S3KeyPreview, &r.Photo.S3Key,
 			&r.ActID, &r.ActTitle, &r.ActSportType,
 			&r.ActStartedAt, &r.ActDistanceM, &r.ActMovingTimeS, &r.ActElevationGainM,
 			&r.ActTrackGeoJSON, &r.ActLat, &r.ActLng,
@@ -317,7 +288,6 @@ func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, t
 				ap.id, ap.activity_id, ap.taken_at, ap.created_at,
 				ap.lat, ap.lng, ap.location_source,
 				ap.content_type, ap.is_video, ap.duration_s,
-				ap.s3_key_thumb, ap.s3_key_preview, ap.s3_key,
 				1 - (ap.clip_embedding <=> `+clipVecLiteral+`) AS similarity,
 				a.id, a.title, a.sport_type, a.started_at,
 				a.distance_m, a.moving_time_s, a.elevation_gain_m,
@@ -343,7 +313,6 @@ func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, t
 				&r.Photo.ID, &r.Photo.ActivityID, &r.Photo.TakenAt, &r.Photo.CreatedAt,
 				&r.Photo.Lat, &r.Photo.Lng, &r.Photo.LocationSource,
 				&r.Photo.ContentType, &r.Photo.IsVideo, &r.Photo.DurationS,
-				&r.Photo.S3KeyThumb, &r.Photo.S3KeyPreview, &r.Photo.S3Key,
 				&r.Similarity,
 				&actID, &actTitle, &actSportType, &actStartedAt,
 				&actDistM, &actMovS, &actElevM, &actTrackGeoJSON, &actLat, &actLng,
@@ -366,7 +335,6 @@ func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, t
 				ap.id, ap.activity_id, ap.taken_at, ap.created_at,
 				ap.lat, ap.lng, ap.location_source,
 				ap.content_type, ap.is_video, ap.duration_s,
-				ap.s3_key_thumb, ap.s3_key_preview, ap.s3_key,
 				a.id, a.title, a.sport_type, a.started_at,
 				a.distance_m, a.moving_time_s, a.elevation_gain_m,
 				NULL::text AS act_track_geojson,
@@ -390,7 +358,6 @@ func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, t
 				&r.Photo.ID, &r.Photo.ActivityID, &r.Photo.TakenAt, &r.Photo.CreatedAt,
 				&r.Photo.Lat, &r.Photo.Lng, &r.Photo.LocationSource,
 				&r.Photo.ContentType, &r.Photo.IsVideo, &r.Photo.DurationS,
-				&r.Photo.S3KeyThumb, &r.Photo.S3KeyPreview, &r.Photo.S3Key,
 				&actID, &actTitle, &actSportType, &actStartedAt,
 				&actDistM, &actMovS, &actElevM, &actTrackGeoJSON, &actLat, &actLng,
 			); err != nil {
@@ -440,20 +407,16 @@ func buildPhotoActivitySummary(id, title, sportType *string, startedAt *time.Tim
 
 // PhotoHashRow holds pHash comparison data for a single photo.
 type PhotoHashRow struct {
-	ID            string
-	PHash         *int64
-	Width         *int
-	Height        *int
-	S3Key         string
-	S3KeyThumb    string
-	S3KeyPreview  string
+	ID     string
+	PHash  *int64
+	Width  *int
+	Height *int
 }
 
 // GetActivityPhotoHashes returns photo IDs and pHashes for an activity (for pHash comparison).
 func (db *DB) GetActivityPhotoHashes(ctx context.Context, activityID string) ([]PhotoHashRow, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id, phash, width, height,
-		        COALESCE(s3_key, ''), COALESCE(s3_key_thumb, ''), COALESCE(s3_key_preview, '')
+		`SELECT id, phash, width, height
 		 FROM activity_photos
 		 WHERE activity_id = $1 AND phash IS NOT NULL`,
 		activityID)
@@ -464,7 +427,7 @@ func (db *DB) GetActivityPhotoHashes(ctx context.Context, activityID string) ([]
 	var result []PhotoHashRow
 	for rows.Next() {
 		var r PhotoHashRow
-		if err := rows.Scan(&r.ID, &r.PHash, &r.Width, &r.Height, &r.S3Key, &r.S3KeyThumb, &r.S3KeyPreview); err != nil {
+		if err := rows.Scan(&r.ID, &r.PHash, &r.Width, &r.Height); err != nil {
 			return nil, err
 		}
 		result = append(result, r)
@@ -488,33 +451,20 @@ func (db *DB) UpdateActivityPhotoDimensions(ctx context.Context, photoID string,
 	return err
 }
 
-// ReplaceActivityPhotoFile replaces S3 keys and dimensions while preserving metadata.
-func (db *DB) ReplaceActivityPhotoFile(ctx context.Context, photoID string, s3Key, s3KeyThumb, s3KeyPreview string, fileSize int64, fileHash string, width, height int, phash int64) error {
-	_, err := db.Pool.Exec(ctx,
-		`UPDATE activity_photos
-		 SET s3_key = $1, s3_key_thumb = $2, s3_key_preview = $3,
-		     file_size_bytes = $4, file_hash = $5, width = $6, height = $7, phash = $8
-		 WHERE id = $9`,
-		s3Key, s3KeyThumb, s3KeyPreview, fileSize, fileHash, width, height, phash, photoID)
-	return err
-}
-
 // BackfillPhotoRow holds data for pHash backfill processing.
 type BackfillPhotoRow struct {
-	ID         string
-	S3Key      string
-	S3KeyThumb string
-	IsVideo    bool
-	DurationS  *float64
-	Width      *int
-	Height     *int
-	FileID     string // user_files registry ID (ShadowFS); empty when not migrated
+	ID        string
+	IsVideo   bool
+	DurationS *float64
+	Width     *int
+	Height    *int
+	FileID    string // user_files registry ID (ShadowFS)
 }
 
 // PhotosWithoutPHash returns all photo IDs that need pHash or dimension backfill.
 func (db *DB) PhotosWithoutPHash(ctx context.Context, userID string) ([]BackfillPhotoRow, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id, s3_key, s3_key_thumb, is_video, duration_s, width, height, COALESCE(file_id::text, '')
+		`SELECT id, is_video, duration_s, width, height, COALESCE(file_id::text, '')
 		 FROM activity_photos
 		 WHERE user_id = $1 AND (phash IS NULL OR width IS NULL)
 		 ORDER BY created_at`,
@@ -526,7 +476,7 @@ func (db *DB) PhotosWithoutPHash(ctx context.Context, userID string) ([]Backfill
 	var result []BackfillPhotoRow
 	for rows.Next() {
 		var r BackfillPhotoRow
-		if err := rows.Scan(&r.ID, &r.S3Key, &r.S3KeyThumb, &r.IsVideo, &r.DurationS, &r.Width, &r.Height, &r.FileID); err != nil {
+		if err := rows.Scan(&r.ID, &r.IsVideo, &r.DurationS, &r.Width, &r.Height, &r.FileID); err != nil {
 			return nil, err
 		}
 		result = append(result, r)

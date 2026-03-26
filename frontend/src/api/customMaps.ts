@@ -22,7 +22,7 @@ export interface CustomMapMarker {
   lat: number
   lng: number
   color?: string
-  image_url?: string
+  image_file_id?: string
   created_at: string
   updated_at: string
 }
@@ -60,7 +60,7 @@ export async function createCustomMapMarker(
 export async function updateCustomMapMarker(
   mapID: string,
   markerID: string,
-  req: Partial<{ name: string; description: string; lat: number; lng: number; color: string; image_url: string }>,
+  req: Partial<{ name: string; description: string; lat: number; lng: number; color: string; image_file_id: string }>,
 ): Promise<CustomMapMarker> {
   return apiClient<CustomMapMarker>(`/custom-maps/${mapID}/markers/${markerID}`, { method: 'PUT', body: req })
 }

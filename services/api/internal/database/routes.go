@@ -242,7 +242,7 @@ func (db *DB) GetRouteTags(ctx context.Context, routeID string) ([]model.Tag, er
 	rows, err := db.Pool.Query(ctx, `
 		SELECT t.id, t.user_id, t.name, t.color, t.text_color, t.category, t.is_system,
 			t.is_auto, t.conditions, t.condition_groups, t.conditions_logic, t.description, t.activity_count, t.created_at,
-			t.lat, t.lng, t.cover_image_url
+			t.lat, t.lng
 		FROM tags t
 		JOIN route_tags rt ON rt.tag_id = t.id
 		WHERE rt.route_id = $1
@@ -261,7 +261,7 @@ func (db *DB) GetRouteTags(ctx context.Context, routeID string) ([]model.Tag, er
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt,
-			&t.Lat, &t.Lng, &t.CoverImageURL,
+			&t.Lat, &t.Lng,
 		); err != nil {
 			return nil, fmt.Errorf("scan route tag: %w", err)
 		}

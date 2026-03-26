@@ -219,8 +219,7 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Set file_id when ShadowFS was used; otherwise fall back to legacy S3 file info.
-	metaKey := s3Key + ".meta"
+	// Set file_id when ShadowFS was used; otherwise fall back to legacy file info update.
 	if manualFileID != "" {
 		if _, execErr := h.DB.Pool.Exec(r.Context(),
 			`UPDATE activities SET file_id = $1 WHERE id = $2 AND file_id IS NULL`,
@@ -229,7 +228,7 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("manual activity: set file_id failed", "id", activity.ID, "error", execErr)
 		}
 	} else {
-		if err := h.DB.UpdateActivityFileInfo(r.Context(), activity.ID, "skadia-originals", s3Key, "manual", "manual.json", metaKey); err != nil {
+		if err := h.DB.UpdateActivityFileInfo(r.Context(), activity.ID, "manual", "manual.json"); err != nil {
 			slog.Warn("manual activity: update file info failed", "id", activity.ID, "error", err)
 		}
 	}

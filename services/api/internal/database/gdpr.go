@@ -321,50 +321,42 @@ func (db *DB) getUserSegmentIDs(ctx context.Context, userID string) []string {
 	return ids
 }
 
-// deleteRoutePhotoFiles collects S3 keys from route_photos for the user and
+// deleteRoutePhotoFiles collects file IDs from route_photos for the user and
 // deletes the corresponding user_files entries. This MUST be called
 // BEFORE planned_routes are deleted (which would CASCADE-delete route_photos).
 // M46: Runs inside the GDPR transaction for atomicity.
 // L38: Queries route_photos first, then deletes user_files (correct ordering).
 func (db *DB) deleteRoutePhotoFiles(ctx context.Context, tx pgx.Tx, userID string) {
 	rows, err := tx.Query(ctx,
-		`SELECT rp.s3_key, rp.s3_key_thumb, rp.s3_key_preview
+		`SELECT COALESCE(rp.file_id::text, '')
 		 FROM route_photos rp
-		 JOIN planned_routes pr ON pr.id = rp.route_id
-		 WHERE pr.user_id = $1 AND rp.s3_key IS NOT NULL AND rp.s3_key != ''`, userID)
+		 JOIN planned_routes pr ON rp.route_id = pr.id
+		 WHERE pr.user_id = $1 AND rp.file_id IS NOT NULL`, userID)
 	if err != nil {
-		slog.Warn("GDPR: query route_photos S3 keys failed", "user_id", userID, "error", err)
+		slog.Warn("GDPR: query route_photos file IDs failed", "user_id", userID, "error", err)
 		return
 	}
 	defer rows.Close()
 
-	var keys []string
+	var fileIDs []string
 	for rows.Next() {
-		var key, thumb, preview string
-		if err := rows.Scan(&key, &thumb, &preview); err != nil {
+		var fileID string
+		if err := rows.Scan(&fileID); err != nil {
 			continue
 		}
-		if key != "" {
-			keys = append(keys, key)
-		}
-		if thumb != "" {
-			keys = append(keys, thumb)
-		}
-		if preview != "" {
-			keys = append(keys, preview)
+		if fileID != "" {
+			fileIDs = append(fileIDs, fileID)
 		}
 	}
-	if len(keys) > 0 {
-		slog.Info("GDPR: route_photos S3 keys collected for deletion",
-			"user_id", userID, "count", len(keys))
-		// M45: Use exact match instead of LIKE to prevent wildcard injection from S3 keys
-		// containing % or _ characters.
-		for _, k := range keys {
+	if len(fileIDs) > 0 {
+		slog.Info("GDPR: route_photos file IDs collected for deletion",
+			"user_id", userID, "count", len(fileIDs))
+		for _, fid := range fileIDs {
 			if _, err := tx.Exec(ctx,
-				`DELETE FROM user_files WHERE user_id = $1 AND storage_path = $2`,
-				userID, k); err != nil {
+				`DELETE FROM user_files WHERE user_id = $1 AND id = $2`,
+				userID, fid); err != nil {
 				slog.Warn("GDPR: delete route_photo user_file failed",
-					"user_id", userID, "key", k, "error", err)
+					"user_id", userID, "file_id", fid, "error", err)
 			}
 		}
 	}

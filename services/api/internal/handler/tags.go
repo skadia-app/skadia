@@ -19,7 +19,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
-	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -157,7 +156,7 @@ func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tag, err := h.DB.UpdateTag(r.Context(), tagID, userID, req.Name, req.Color, req.TextColor, isAuto, condBytes, condGroupBytes, req.ConditionsLogic, req.Description, lat, lng, locationPresent, nil, nil)
+	tag, err := h.DB.UpdateTag(r.Context(), tagID, userID, req.Name, req.Color, req.TextColor, isAuto, condBytes, condGroupBytes, req.ConditionsLogic, req.Description, lat, lng, locationPresent)
 	if err != nil {
 		slog.Error("update tag failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
@@ -205,12 +204,12 @@ func (h *Handler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 	tagID := chi.URLParam(r, "id")
 
 	// Resolve cover file references before deletion so we can clean up storage.
-	var coverFileID, coverImageURL, coverImageThumbURL string
+	var coverFileID string
 	_ = h.DB.Pool.QueryRow(r.Context(),
-		`SELECT COALESCE(cover_file_id::text, ''), COALESCE(cover_image_url, ''), COALESCE(cover_image_thumb_url, '')
+		`SELECT COALESCE(cover_file_id::text, '')
 		 FROM tags WHERE id = $1 AND user_id = $2`,
 		tagID, userID,
-	).Scan(&coverFileID, &coverImageURL, &coverImageThumbURL)
+	).Scan(&coverFileID)
 
 	if err := h.DB.DeleteTag(r.Context(), tagID, userID); err != nil {
 		if err.Error() == "tag not found" {
@@ -226,26 +225,6 @@ func (h *Handler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 	if coverFileID != "" && h.ShadowFS != nil {
 		if delErr := h.ShadowFS.Delete(r.Context(), userID, coverFileID); delErr != nil {
 			slog.Warn("delete tag: ShadowFS.Delete cover failed", "tag_id", tagID, "file_id", coverFileID, "error", delErr)
-		}
-	}
-
-	// Legacy S3 fallback: clean up cover + thumb when ShadowFS is not configured.
-	if h.ShadowFS == nil && h.Storage != nil {
-		const bucket = "skadia-media"
-		const ownPrefix = "/api/v1/media/" + bucket + "/tag-covers/"
-		if coverImageURL != "" && strings.HasPrefix(coverImageURL, ownPrefix) {
-			s3Key := strings.TrimPrefix(coverImageURL, "/api/v1/media/"+bucket+"/")
-			if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, s3Key); delErr != nil {
-				slog.Warn("delete tag: S3 delete cover failed", "tag_id", tagID, "key", s3Key, "error", delErr)
-			}
-		}
-		if coverImageThumbURL != "" {
-			thumbKey := strings.TrimPrefix(coverImageThumbURL, "/api/v1/media/"+bucket+"/")
-			if thumbKey != coverImageThumbURL { // prefix was present
-				if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, thumbKey); delErr != nil {
-					slog.Warn("delete tag: S3 delete cover thumb failed", "tag_id", tagID, "key", thumbKey, "error", delErr)
-				}
-			}
 		}
 	}
 
@@ -276,64 +255,12 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 
 	ct := r.Header.Get("Content-Type")
 
-	// JSON body path: client sends an existing photo URL
+	// JSON body path: legacy — now a no-op.
+	// Now a no-op: just return the current tag state.
 	if strings.HasPrefix(ct, "application/json") {
-		var req struct {
-			ActivityPhotoURL string `json:"activity_photo_url"`
-			ActivityPhotoID  string `json:"activity_photo_id"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
-			return
-		}
-		if req.ActivityPhotoURL == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "activity_photo_url is required", r.URL.Path)
-			return
-		}
-
-		// Fallback: activity_photo_url selbst als Thumb verwenden, damit ein Re-Upload
-		// niemals einen veralteten Thumb aus einem früheren Upload hinterlässt.
-		thumbURL := req.ActivityPhotoURL
-		thumbURLPtr := &thumbURL
-
-		if req.ActivityPhotoID != "" {
-			// Photo aus DB laden um S3-Key zu bekommen.
-			// Wichtig: GetActivityPhoto gibt (model.ActivityPhoto, error) zurück — KEIN Pointer.
-			// Not-found kommt als pgx.ErrNoRows im error, nicht als nil-Wert.
-			photo, photoErr := h.DB.GetActivityPhoto(r.Context(), req.ActivityPhotoID, userID)
-			if photoErr == nil {
-				// Preview bevorzugen (kleiner als Original), sonst Original
-				srcKey := photo.S3KeyPreview
-				if srcKey == "" {
-					srcKey = photo.S3Key
-				}
-				if h.Storage != nil {
-					photoData, _, dlErr := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, srcKey)
-					if dlErr == nil {
-						// imageutil.Resize gibt (nil, nil) wenn Bild bereits ≤ 800×800 — Fallback auf activity_photo_url.
-						thumbData, resizeErr := imageutil.Resize(photoData, 800, 800, 85)
-						if resizeErr == nil && thumbData != nil {
-							thumbKey := fmt.Sprintf("tag-covers/%s/%s_thumb.jpg", userID, tagID)
-							if ulErr := h.Storage.UploadToBucket(r.Context(), "skadia-media", thumbKey, thumbData, "image/jpeg"); ulErr == nil {
-								u := fmt.Sprintf("/api/v1/media/skadia-media/%s", thumbKey)
-								thumbURLPtr = &u
-							} else {
-								slog.Warn("upload tag cover thumb from photo failed", "error", ulErr)
-								// Fallback auf activity_photo_url bleibt
-							}
-						}
-					} else {
-						slog.Warn("download activity photo for thumb failed", "error", dlErr)
-					}
-				}
-			} else {
-				slog.Warn("get activity photo for cover thumb failed", "photo_id", req.ActivityPhotoID, "error", photoErr)
-			}
-		}
-
-		updated, err := h.DB.UpdateTag(r.Context(), tagID, userID, "", "", "", nil, nil, nil, nil, nil, nil, nil, false, &req.ActivityPhotoURL, thumbURLPtr)
+		updated, err := h.DB.UpdateTag(r.Context(), tagID, userID, "", "", "", nil, nil, nil, nil, nil, nil, nil, false)
 		if err != nil {
-			slog.Error("update tag cover_image_url failed", "error", err)
+			slog.Error("update tag cover failed", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
 			return
 		}
@@ -416,31 +343,9 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Thumbnail generieren (800×800 px, quadratisch).
-	// imageutil.Resize gibt (nil, nil) zurück wenn das Bild bereits ≤ 800×800 ist (kein Upscaling).
-	// In beiden Fällen (kein Thumb oder Thumb-Upload-Fehler) verwenden wir coverURL als Thumb,
-	// damit ein Re-Upload eines kleinen Bildes keinen veralteten Thumb aus dem Vorgänger-Upload hinterlässt.
-	thumbKey := fmt.Sprintf("tag-covers/%s/%s_thumb.jpg", userID, tagID)
-	var coverURL string
-	if coverFileID != "" {
-		coverURL = fmt.Sprintf("/api/v1/files/%s", coverFileID)
-	} else {
-		coverURL = fmt.Sprintf("/api/v1/media/%s/%s", bucket, s3Key)
-	}
-	thumbURL := coverURL // Fallback: Cover ist sein eigenes Thumbnail
-	thumbData, thumbErr := imageutil.Resize(data, 800, 800, 85)
-	if h.Storage != nil && thumbErr == nil && thumbData != nil {
-		if uploadErr := h.Storage.UploadToBucket(r.Context(), bucket, thumbKey, thumbData, "image/jpeg"); uploadErr != nil {
-			slog.Warn("s3 upload tag cover thumb failed", "error", uploadErr)
-			// Thumb-Fehler ist nicht fatal — Fallback auf coverURL bleibt
-		} else {
-			thumbURL = fmt.Sprintf("/api/v1/media/%s/%s", bucket, thumbKey)
-		}
-	}
-	thumbURLPtr := &thumbURL
-	updated, err := h.DB.UpdateTag(r.Context(), tagID, userID, "", "", "", nil, nil, nil, nil, nil, nil, nil, false, &coverURL, thumbURLPtr)
+	updated, err := h.DB.UpdateTag(r.Context(), tagID, userID, "", "", "", nil, nil, nil, nil, nil, nil, nil, false)
 	if err != nil {
-		slog.Error("update tag cover_image_url failed", "error", err)
+		slog.Error("update tag cover_file_id failed", "error", err)
 		// DB update failed — clean up the new file we already stored.
 		if coverFileID != "" && h.ShadowFS != nil {
 			if delErr := h.ShadowFS.Delete(r.Context(), userID, coverFileID); delErr != nil {
@@ -494,9 +399,6 @@ func (h *Handler) ClearTagCoverImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	const bucket = "skadia-media"
-	const ownPrefix = "/api/v1/media/" + bucket + "/tag-covers/"
-
 	// Resolve ShadowFS file_id for deletion (best-effort).
 	var coverFileID string
 	_ = h.DB.Pool.QueryRow(r.Context(),
@@ -504,33 +406,14 @@ func (h *Handler) ClearTagCoverImage(w http.ResponseWriter, r *http.Request) {
 		tagID, userID,
 	).Scan(&coverFileID)
 
-	// ShadowFS delete (preferred); legacy S3 delete as fallback.
+	// ShadowFS delete.
 	if coverFileID != "" && h.ShadowFS != nil {
 		if delErr := h.ShadowFS.Delete(r.Context(), userID, coverFileID); delErr != nil {
 			slog.Warn("clear tag cover: ShadowFS.Delete failed", "tag_id", tagID, "file_id", coverFileID, "error", delErr)
 		}
-	} else if h.Storage != nil {
-		// Thumb löschen (immer eigener Upload, da wir ihn selbst erstellt haben)
-		if tag.CoverImageThumbURL != nil && *tag.CoverImageThumbURL != "" {
-			thumbS3Key := strings.TrimPrefix(*tag.CoverImageThumbURL, "/api/v1/media/"+bucket+"/")
-			if thumbS3Key != *tag.CoverImageThumbURL { // Präfix war vorhanden
-				if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, thumbS3Key); delErr != nil {
-					slog.Warn("clear tag cover: delete thumb from S3 failed", "key", thumbS3Key, "error", delErr)
-					// nicht fatal
-				}
-			}
-		}
-
-		// Original nur löschen wenn es unser eigener Upload ist (tag-covers/…)
-		if tag.CoverImageURL != nil && strings.HasPrefix(*tag.CoverImageURL, ownPrefix) {
-			origS3Key := strings.TrimPrefix(*tag.CoverImageURL, "/api/v1/media/"+bucket+"/")
-			if delErr := h.Storage.DeleteFromBucket(r.Context(), bucket, origS3Key); delErr != nil {
-				slog.Warn("clear tag cover: delete original from S3 failed", "key", origS3Key, "error", delErr)
-			}
-		}
 	}
 
-	updated, err := h.DB.ClearTagCoverImages(r.Context(), tagID, userID)
+	updated, err := h.DB.ClearTagCoverFile(r.Context(), tagID, userID)
 	if err != nil {
 		slog.Error("clear tag cover: DB update failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to clear cover image", r.URL.Path)
