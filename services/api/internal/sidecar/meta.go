@@ -33,6 +33,16 @@ type MetaFile struct {
 	IsVirtual     bool     `json:"is_virtual,omitempty"`
 	IsManualEntry bool     `json:"is_manual_entry,omitempty"`
 	Source        string   `json:"source,omitempty"`
+
+	// v3.1 — Felder die für vollständigen Restore nötig sind
+	UserID                 string   `json:"user_id"`
+	ExcludeFromHeatmap     bool     `json:"exclude_from_heatmap,omitempty"`
+	ExcludeFromStats       bool     `json:"exclude_from_stats,omitempty"`
+	IsIndoor               bool     `json:"is_indoor,omitempty"`
+	ExcludeLiftSubtraction bool     `json:"exclude_lift_subtraction,omitempty"`
+	LocationLat            *float64 `json:"location_lat,omitempty"`
+	LocationLng            *float64 `json:"location_lng,omitempty"`
+	TitleIsManual          bool     `json:"title_is_manual,omitempty"`
 }
 
 // GenerateMeta creates a v3 MetaFile from ActivityData (FIT-parsed import data).
@@ -49,7 +59,12 @@ func GenerateMetaV3(activityID string, data *model.ActivityData, activity *model
 	m := &MetaFile{
 		SchemaVersion: 3,
 		SkadiaID:     activityID,
-		CreatedAt:     time.Now().UTC(),
+		CreatedAt: func() time.Time {
+			if activity != nil {
+				return activity.CreatedAt
+			}
+			return time.Now().UTC()
+		}(),
 	}
 
 	// FIT fields: prefer ActivityData, fall back to Activity model.
@@ -88,6 +103,14 @@ func GenerateMetaV3(activityID string, data *model.ActivityData, activity *model
 		m.IsEbike = activity.IsEbike
 		m.IsVirtual = activity.IsVirtual
 		m.Source = derefStr(activity.Source)
+		m.UserID = activity.UserID
+		m.ExcludeFromHeatmap = activity.ExcludeFromHeatmap
+		m.ExcludeFromStats = activity.ExcludeFromStats
+		m.IsIndoor = activity.IsIndoor
+		m.ExcludeLiftSubtraction = activity.ExcludeLiftSubtraction
+		m.LocationLat = activity.LocationLat
+		m.LocationLng = activity.LocationLng
+		m.TitleIsManual = activity.TitleIsManual
 	}
 
 	return m
