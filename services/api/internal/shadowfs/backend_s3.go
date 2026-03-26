@@ -86,15 +86,43 @@ func (b *S3Backend) Write(ctx context.Context, path string, data io.Reader, cont
 	}
 
 	_, err = b.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(b.bucket(opts)),
-		Key:         aws.String(path),
-		Body:        bytes.NewReader(buf),
-		ContentType: aws.String(ct),
+		Bucket:        aws.String(b.bucket(opts)),
+		Key:           aws.String(path),
+		Body:          bytes.NewReader(buf),
+		ContentType:   aws.String(ct),
+		ContentLength: aws.Int64(int64(len(buf))),
 	})
 	if err != nil {
 		return 0, "", fmt.Errorf("s3 put %s: %w", path, err)
 	}
 	return int64(len(buf)), hash, nil
+}
+
+// PutBytes uploads pre-buffered data to S3, avoiding double-buffering when the
+// caller has already read the entire stream (e.g. for local-hash computation).
+func (b *S3Backend) PutBytes(ctx context.Context, path string, data []byte, contentType string, opts *BackendOpts) (int64, string, error) {
+	if len(data) > s3MaxUploadBytes {
+		return 0, "", fmt.Errorf("upload exceeds %d bytes", s3MaxUploadBytes)
+	}
+	h := sha256.Sum256(data)
+	hash := hex.EncodeToString(h[:])
+
+	ct := contentType
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+
+	_, err := b.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:        aws.String(b.bucket(opts)),
+		Key:           aws.String(path),
+		Body:          bytes.NewReader(data),
+		ContentType:   aws.String(ct),
+		ContentLength: aws.Int64(int64(len(data))),
+	})
+	if err != nil {
+		return 0, "", fmt.Errorf("s3 put %s: %w", path, err)
+	}
+	return int64(len(data)), hash, nil
 }
 
 func (b *S3Backend) Delete(ctx context.Context, path string, opts *BackendOpts) error {

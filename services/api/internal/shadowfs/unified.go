@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -164,27 +165,6 @@ func (u *UnifiedShadowFS) allBuckets() []string {
 	return buckets
 }
 
-// peekReader wraps an io.Reader to capture the first N bytes for content-type
-// detection while allowing the full stream to be read exactly once.
-type peekReader struct {
-	peeked []byte
-	r      io.Reader // io.MultiReader(peeked, rest)
-}
-
-func newPeekReader(r io.Reader, n int) (*peekReader, error) {
-	buf := make([]byte, n)
-	nr, err := io.ReadAtLeast(r, buf, 1)
-	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
-		return nil, err
-	}
-	peeked := buf[:nr]
-	return &peekReader{
-		peeked: peeked,
-		r:      io.MultiReader(bytes.NewReader(peeked), r),
-	}, nil
-}
-
-func (p *peekReader) Read(b []byte) (int, error) { return p.r.Read(b) }
 
 // Put stores a file and registers it in user_files.
 func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (FileRecord, error) {
@@ -221,15 +201,25 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 	}
 	opts := u.bucketOpts(entry.FileType)
 
-	// Peek first 512 bytes for content-type detection (both paths need it).
-	pr, err := newPeekReader(data, 512)
-	if err != nil {
-		return FileRecord{}, fmt.Errorf("shadowfs: peek: %w", err)
+	// Buffer entire stream upfront — needed for retry loop (local) and hash (S3).
+	allData, readErr := io.ReadAll(data)
+	if readErr != nil {
+		return FileRecord{}, fmt.Errorf("shadowfs: read all: %w", readErr)
 	}
-	contentType := DetectContentType(entry.FileName, entry.ContentType, pr.peeked)
+
+	// Content-type detection from first 512 bytes.
+	peekLen := 512
+	if len(allData) < peekLen {
+		peekLen = len(allData)
+	}
+	contentType := DetectContentType(entry.FileName, entry.ContentType, allData[:peekLen])
+
+	// Pre-compute hash (used by both local and S3 paths).
+	hashSum := sha256.Sum256(allData)
+	fileHash := hex.EncodeToString(hashSum[:])
 
 	// 5. Path computation + write (differs by target).
-	var storagePath, fileHash string
+	var storagePath string
 	var written int64
 
 	switch targetName {
@@ -271,12 +261,12 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 		}
 
 		// Write with O_EXCL race retry (except edit sidecars which overwrite).
+		// bytes.NewReader resets cleanly for each attempt — no consumed-reader bug.
 		exclusive := entry.FileType != "edit"
 		for attempt := range 10 {
-			w, h, writeErr := be.Write(ctx, storagePath, pr, contentType, exclusive, opts)
+			w, _, writeErr := be.Write(ctx, storagePath, bytes.NewReader(allData), contentType, exclusive, opts)
 			if writeErr == nil {
 				written = w
-				fileHash = h
 				break
 			}
 			if !errors.Is(writeErr, os.ErrExist) {
@@ -290,16 +280,14 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 		}
 
 	case "s3":
-		// Buffer all data — compute hash for content-addressed path.
-		allData, readErr := io.ReadAll(pr)
-		if readErr != nil {
-			return FileRecord{}, fmt.Errorf("shadowfs: read all: %w", readErr)
-		}
-		h := sha256.Sum256(allData)
-		fileHash = hex.EncodeToString(h[:])
+		// Hash already computed above; use content-addressed path.
 		storagePath = entry.UserID + "/" + dir + "/" + fileHash + ext
 
-		w, _, writeErr := be.Write(ctx, storagePath, bytes.NewReader(allData), contentType, false, opts)
+		s3be, ok := be.(*S3Backend)
+		if !ok {
+			return FileRecord{}, fmt.Errorf("shadowfs: s3 backend type assertion failed")
+		}
+		w, _, writeErr := s3be.PutBytes(ctx, storagePath, allData, contentType, opts)
 		if writeErr != nil {
 			return FileRecord{}, fmt.Errorf("shadowfs: s3 write: %w", writeErr)
 		}
@@ -314,14 +302,15 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 	}
 
 	if entry.FileType == "edit" {
-		// Edit sidecar: upsert by (storage_backend, storage_path).
+		// Edit sidecar: upsert by (user_id, file_type, parent_id) per spec §3.2.
 		err = u.pool.QueryRow(ctx,
 			`INSERT INTO user_files (user_id, file_type, file_name, content_type, storage_backend,
 			    storage_path, size_bytes, file_hash, parent_type, parent_id, has_sidecar, status)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active')
-			 ON CONFLICT (storage_backend, storage_path) DO UPDATE SET
+			 ON CONFLICT (user_id, file_type, parent_id) WHERE file_type = 'edit' DO UPDATE SET
 			    size_bytes = EXCLUDED.size_bytes, file_hash = EXCLUDED.file_hash,
-			    content_type = EXCLUDED.content_type, updated_at = NOW()
+			    content_type = EXCLUDED.content_type, storage_path = EXCLUDED.storage_path,
+			    updated_at = NOW()
 			 RETURNING id, user_id, file_type, file_name, content_type, storage_backend,
 			    storage_path, size_bytes, file_hash, parent_type, parent_id, has_sidecar,
 			    is_renaming, status, replaced_by, created_at, updated_at`,
@@ -504,6 +493,8 @@ func (u *UnifiedShadowFS) Resolve(ctx context.Context, userID, fileID string) (R
 	case "s3":
 		s3be, ok := u.s3.(*S3Backend)
 		if !ok {
+			slog.Warn("shadowfs: S3 backend does not implement *S3Backend, presigning not available",
+				"file_id", fileID, "backend_type", fmt.Sprintf("%T", u.s3))
 			return ResolvedFile{}, fmt.Errorf("shadowfs: S3 backend does not support presigning")
 		}
 		presigned, err := s3be.Presigner().PresignGetObject(ctx, &s3.GetObjectInput{
@@ -655,12 +646,12 @@ func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zi
 			return fmt.Errorf("shadowfs: export exceeds %d byte limit", maxExportBytesUnified)
 		}
 
-		// Normalize zip paths: file_type/file_name (don't leak storage key structure).
-		zipPath := rec.FileType + "/" + rec.FileName
+		// Normalize zip paths — use path.Base to strip any directory components from
+		// rec.FileName and prevent zip-slip traversal (Fix 11).
+		zipPath := rec.FileType + "/" + path.Base(rec.FileName)
 		if rec.Status == "archived" {
-			zipPath = "_archive/" + zipPath
+			zipPath = "_versions/" + zipPath
 		}
-		zipPath = filepath.Clean(zipPath)
 		if strings.Contains(zipPath, "..") || strings.HasPrefix(zipPath, "/") {
 			slog.Warn("shadowfs: skip suspicious path in zip", "path", zipPath)
 			continue

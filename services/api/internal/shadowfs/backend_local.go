@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
@@ -51,13 +52,19 @@ func (b *LocalBackend) Write(ctx context.Context, path string, data io.Reader, c
 	if err != nil {
 		return 0, "", err
 	}
-	defer f.Close()
 
 	h := sha256.New()
 	mw := io.MultiWriter(f, h)
-	written, err := io.Copy(mw, data)
-	if err != nil {
-		return 0, "", err
+	written, copyErr := io.Copy(mw, data)
+	if closeErr := f.Close(); closeErr != nil && copyErr == nil {
+		copyErr = closeErr
+	}
+	if copyErr != nil {
+		// Remove partial file to avoid leaving corrupt data on disk.
+		if rmErr := os.Remove(full); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+			slog.Warn("shadowfs: cleanup partial file failed", "path", full, "err", rmErr)
+		}
+		return 0, "", copyErr
 	}
 	return written, hex.EncodeToString(h.Sum(nil)), nil
 }
