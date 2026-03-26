@@ -68,7 +68,7 @@ func RunMigrateStorage(
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO system_flags (key, value, expires_at)
 		 VALUES ('maintenance_mode', $1, NOW() + INTERVAL '24 hours')
-		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at`,
+		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, set_at = NOW(), expires_at = EXCLUDED.expires_at`,
 		reason); err != nil {
 		return fmt.Errorf("migrate-storage: set maintenance_mode: %w", err)
 	}
