@@ -104,6 +104,22 @@ function circleToPolygonPoints(center: [number, number], radiusM: number, steps 
   return pts
 }
 
+// ── Cursor helpers (CSS-Klassen schlagen MapLibres inline cursor) ──────────────
+function injectPZECursorStyles() {
+  if (document.getElementById('pze-cursor-styles')) return
+  const style = document.createElement('style')
+  style.id = 'pze-cursor-styles'
+  style.textContent = [
+    '.pze-cursor-crosshair .maplibregl-canvas { cursor: crosshair !important; }',
+    '.pze-cursor-grabbing  .maplibregl-canvas { cursor: grabbing  !important; }',
+  ].join('\n')
+  document.head.appendChild(style)
+}
+function setPZECursorClass(el: HTMLElement, cursor: 'crosshair' | 'grabbing' | '') {
+  el.classList.remove('pze-cursor-crosshair', 'pze-cursor-grabbing')
+  if (cursor) el.classList.add(`pze-cursor-${cursor}`)
+}
+
 export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
@@ -629,20 +645,23 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
 
     mapRef.current = map
 
-    // Cursor-Management: mousemove erzwingt crosshair (MapLibre überschreibt canvas.style sonst)
-    const canvas = map.getCanvas()
+    // Cursor-Management via CSS-Klassen (MapLibre überschreibt canvas.style.cursor intern).
+    injectPZECursorStyles()
+    const container = mapContainerRef.current!
     let isMouseDown = false
-    const onMousemove = () => { if (!isMouseDown) canvas.style.cursor = 'crosshair' }
-    const onMousedown = () => { isMouseDown = true;  canvas.style.cursor = 'grabbing' }
-    const onMouseup   = () => { isMouseDown = false; canvas.style.cursor = 'crosshair' }
-    canvas.addEventListener('mousemove',  onMousemove)
-    canvas.addEventListener('mousedown',  onMousedown)
-    canvas.addEventListener('mouseup',    onMouseup)
+    const onMousemove = () => { if (!isMouseDown) setPZECursorClass(container, 'crosshair') }
+    const onMousedown = () => { isMouseDown = true;  setPZECursorClass(container, 'grabbing') }
+    const onMouseup   = () => { isMouseDown = false; setPZECursorClass(container, 'crosshair') }
+    const canvas = map.getCanvas()
+    canvas.addEventListener('mousemove', onMousemove)
+    canvas.addEventListener('mousedown', onMousedown)
+    canvas.addEventListener('mouseup',   onMouseup)
 
     return () => {
-      canvas.removeEventListener('mousemove',  onMousemove)
-      canvas.removeEventListener('mousedown',  onMousedown)
-      canvas.removeEventListener('mouseup',    onMouseup)
+      canvas.removeEventListener('mousemove', onMousemove)
+      canvas.removeEventListener('mousedown', onMousedown)
+      canvas.removeEventListener('mouseup',   onMouseup)
+      setPZECursorClass(container, '')
       map.remove()
       mapRef.current = null
       pinMarkerRef.current = null
@@ -657,7 +676,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
 
-    map.getCanvas().style.cursor = 'crosshair'
+    setPZECursorClass(mapContainerRef.current!, 'crosshair')
 
     const apply = () => {
       const circleVis = zoneMode === 'circle' ? 'visible' : 'none'
