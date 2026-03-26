@@ -44,7 +44,7 @@ type FileRecord struct {
 	ContentType    string
 	FileName       string
 	SizeBytes      int64
-	FileHash       string
+	FileHash       *string
 	ParentType     *string
 	ParentID       *string
 	HasSidecar     bool
