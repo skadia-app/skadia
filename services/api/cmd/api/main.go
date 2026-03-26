@@ -138,6 +138,48 @@ func main() {
 		os.Exit(0)
 	}
 
+	// ── repair-registry subcommand ─────────────────────────────────────────────
+	// Usage: api repair-registry
+	// Fills size_bytes=0 and file_hash IS NULL entries in user_files by reading
+	// each file from its registered backend. Rows for missing files are skipped.
+	if len(os.Args) > 1 && os.Args[1] == "repair-registry" {
+		cfg, err := config.Load()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "repair-registry: config load failed: %v\n", err)
+			os.Exit(1)
+		}
+		ctx := context.Background()
+		db, err := database.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "repair-registry: database connect failed: %v\n", err)
+			os.Exit(1)
+		}
+		defer db.Close()
+		if err := migrate.Run(ctx, db.Pool); err != nil {
+			fmt.Fprintf(os.Stderr, "repair-registry: migrations failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		var localBE, s3BE shadowfs.StorageBackend
+		if cfg.LibraryBasePath != "" {
+			localBE = shadowfs.NewLocalBackend(cfg.LibraryBasePath)
+		}
+		if cfg.S3Endpoint != "" {
+			s3BE = shadowfs.NewS3Backend(cfg.S3Endpoint, cfg.S3AccessKey, cfg.S3SecretKey,
+				cfg.S3Bucket, cfg.S3Region, cfg.S3ForcePathStyle)
+		}
+
+		store := shadowfs.NewUnifiedShadowFS(db.Pool, localBE, s3BE, "s3",
+			cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), cfg.LibraryKeepVersions,
+			cfg.MaxUserStorageBytes, cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
+
+		if err := shadowfs.RunRepairRegistry(ctx, db.Pool, localBE, s3BE, store.BucketFor); err != nil {
+			fmt.Fprintf(os.Stderr, "repair-registry: FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	// L69: pprof server gated behind ENABLE_PPROF=true to avoid unintentional exposure.
 	if os.Getenv("ENABLE_PPROF") == "true" {
 		go func() {
