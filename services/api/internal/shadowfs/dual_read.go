@@ -55,10 +55,10 @@ var allowedFileIDColumns = map[string]bool{
 // never pass user-supplied strings here.
 func ResolveMediaFile(ctx context.Context, fs ShadowFS, pool *pgxpool.Pool, tableName, fileIDColumn, rowID, userID string) (io.ReadCloser, error) {
 	if !allowedMediaTables[tableName] {
-		return nil, fmt.Errorf("invalid table name")
+		panic("invariant violation: invalid table " + tableName)
 	}
 	if !allowedFileIDColumns[fileIDColumn] {
-		return nil, fmt.Errorf("invalid file_id column: %q", fileIDColumn)
+		panic("invariant violation: invalid column " + fileIDColumn)
 	}
 
 	var fileID *string

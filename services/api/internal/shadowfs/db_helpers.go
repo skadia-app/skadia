@@ -12,6 +12,7 @@ import (
 func advisoryLockKey(s string) int64 {
 	h := fnv.New64a()
 	h.Write([]byte(s)) //nolint:errcheck
+	// int64 cast is intentional — PostgreSQL advisory lock accepts int64. 63-bit keyspace is sufficient for UUID inputs.
 	return int64(h.Sum64())
 }
 

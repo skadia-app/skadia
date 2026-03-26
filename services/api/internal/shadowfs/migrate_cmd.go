@@ -261,7 +261,7 @@ func fetchMigrateBatch(ctx context.Context, pool *pgxpool.Pool, sourceName strin
 		 COALESCE(parent_type, ''), parent_id
 		 FROM user_files
 		 WHERE storage_backend = $1 AND status != 'purging'
-		 ORDER BY created_at
+		 ORDER BY size_bytes ASC
 		 LIMIT $2`,
 		sourceName, batchSize)
 	if err != nil {
@@ -311,6 +311,9 @@ func processBatch(
 		go func() {
 			defer wg.Done()
 			for rec := range ch {
+				if ctx.Err() != nil {
+					return
+				}
 				if err := migrateFile(ctx, pool, rec, source, target, targetName,
 					bucketFn, basePath, renderer); err != nil {
 					slog.Error("migrate-storage: file failed",

@@ -8,9 +8,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// canonicalizeParentTypes fixes legacy parent_type values.
+// CanonicalizeParentTypes fixes legacy parent_type values.
 // Idempotent — safe to run on every startup.
-func canonicalizeParentTypes(ctx context.Context, pool *pgxpool.Pool) error {
+func CanonicalizeParentTypes(ctx context.Context, pool *pgxpool.Pool) error {
 	tag, err := pool.Exec(ctx,
 		`UPDATE user_files SET parent_type = 'photo' WHERE parent_type = 'activity_photo'`)
 	if err != nil {

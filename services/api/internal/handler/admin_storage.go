@@ -257,11 +257,8 @@ func (h *Handler) BackfillThumbnails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Collect photos without thumbnails for the requesting user (admin scope).
-	// For a global sweep across all users the query in PhotosWithoutThumb uses
-	// user_id = $1; admins typically run this per user or we use their own user_id
-	// as the job owner while the goroutine queries all users below.
-	missing, err := h.DB.PhotosWithoutThumb(r.Context(), userID)
+	// Collect photos without thumbnails across all users (admin-global scope).
+	missing, err := h.DB.PhotosWithoutThumb(r.Context())
 	if err != nil {
 		slog.Error("thumbnail backfill: list missing thumbs failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not list photos without thumbnails", r.URL.Path)
