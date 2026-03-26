@@ -52,6 +52,8 @@ func listRecords(ctx context.Context, pool *pgxpool.Pool, userID string, fileTyp
 func diskUsage(ctx context.Context, pool *pgxpool.Pool, userID string) (int64, error) {
 	var total int64
 	err := pool.QueryRow(ctx,
-		`SELECT COALESCE(SUM(size_bytes), 0) FROM user_files WHERE user_id = $1 AND status = 'active'`, userID).Scan(&total)
+		`SELECT COALESCE(SUM(size_bytes), 0) FROM user_files
+		 WHERE user_id = $1 AND status = 'active'
+		 AND file_type NOT IN ('thumb', 'preview')`, userID).Scan(&total)
 	return total, err
 }
