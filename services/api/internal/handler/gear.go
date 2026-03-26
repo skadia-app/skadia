@@ -369,7 +369,7 @@ func (h *Handler) DeleteComponent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.DB.DeleteComponent(r.Context(), id); err != nil {
-		if err.Error() == "component not found" {
+		if errors.Is(err, database.ErrComponentNotFound) {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
 			return
 		}
@@ -598,7 +598,7 @@ func (h *Handler) DeleteChainRotation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.DB.DeleteChainRotation(r.Context(), groupID); err != nil {
-		if err.Error() == "chain rotation not found" {
+		if errors.Is(err, database.ErrChainRotationNotFound) {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "chain rotation not found", r.URL.Path)
 			return
 		}
@@ -701,7 +701,7 @@ func (h *Handler) DeleteServiceEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.DB.DeleteServiceEvent(r.Context(), eventID); err != nil {
-		if err.Error() == "service event not found" {
+		if errors.Is(err, database.ErrServiceEventNotFound) {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "service event not found", r.URL.Path)
 			return
 		}
@@ -826,7 +826,7 @@ func (h *Handler) DeleteBikeSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.DB.DeleteBikeSetup(r.Context(), id); err != nil {
-		if err.Error() == "bike setup not found" {
+		if errors.Is(err, database.ErrBikeSetupNotFound) {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "bike setup not found", r.URL.Path)
 			return
 		}

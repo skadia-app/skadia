@@ -856,8 +856,7 @@ func (h *Handler) RecomputePhotoEmbeddings(w http.ResponseWriter, r *http.Reques
 		clipFrames = s.VideoClipFrames
 	}
 
-	go func() {
-		ctx := context.Background()
+	shutdown.Go("photo-embeddings-recompute", func(ctx context.Context) {
 		published := int64(0)
 		anyFailed := false
 
@@ -881,7 +880,7 @@ func (h *Handler) RecomputePhotoEmbeddings(w http.ResponseWriter, r *http.Reques
 		}
 
 		_ = h.DB.CompleteBackgroundJob(ctx, jobID, anyFailed, "")
-	}()
+	})
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"job_id": jobID,

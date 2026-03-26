@@ -646,7 +646,7 @@ func (db *DB) DeleteChainRotation(ctx context.Context, groupID string) error {
 		return fmt.Errorf("delete chain rotation: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("chain rotation not found")
+		return ErrChainRotationNotFound
 	}
 	return nil
 }
@@ -772,7 +772,7 @@ func (db *DB) DeleteServiceEvent(ctx context.Context, eventID string) error {
 		return fmt.Errorf("delete service event: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("service event not found")
+		return ErrServiceEventNotFound
 	}
 	return nil
 }
@@ -1673,7 +1673,7 @@ func (db *DB) DeleteBikeSetup(ctx context.Context, id string) error {
 		return fmt.Errorf("delete bike setup: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("bike setup not found")
+		return ErrBikeSetupNotFound
 	}
 	return nil
 }
