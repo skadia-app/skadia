@@ -117,6 +117,27 @@ function centroid(points: [number, number][]): [number, number] {
 // Vite gives us the file URL; we convert it to a data-URI at runtime once.
 let _pencilCursorCSS = `url("${pencilCursorSvg}") 1 15, crosshair`
 
+// ── Cursor helpers ─────────────────────────────────────────────────────────────
+// MapLibre setzt canvas.style.cursor intern bei jedem mousemove auf 'grab'.
+// Inline-Styles lassen sich nicht zuverlässig überschreiben — daher CSS-Klassen
+// mit !important auf dem Container-Div.
+
+function injectCursorStyles() {
+  if (document.getElementById('ze-cursor-styles')) return
+  const style = document.createElement('style')
+  style.id = 'ze-cursor-styles'
+  style.textContent = [
+    '.ze-cursor-crosshair .maplibregl-canvas { cursor: crosshair !important; }',
+    '.ze-cursor-grabbing  .maplibregl-canvas { cursor: grabbing  !important; }',
+  ].join('\n')
+  document.head.appendChild(style)
+}
+
+function setCursorClass(el: HTMLElement, cursor: 'crosshair' | 'grabbing' | '') {
+  el.classList.remove('ze-cursor-crosshair', 'ze-cursor-grabbing')
+  if (cursor) el.classList.add(`ze-cursor-${cursor}`)
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const DEFAULT_CENTER: [number, number] = [10.45, 51.16] // Germany
@@ -647,7 +668,7 @@ export default function ZoneEditor({
           updatePolygonLayer(map, polygonPointsRef.current, polygonClosedRef.current, newHoles)
           updateAllHoleMarkers(map, newHoles)
         }
-        map.getCanvas().style.cursor = ''
+        setCursorClass(mapContainerRef.current!, '')
         return
       }
 
@@ -672,28 +693,33 @@ export default function ZoneEditor({
 
     mapRef.current = map
 
-    // Cursor-Management: mousemove erzwingt den richtigen Cursor (MapLibre überschreibt sonst)
-    const canvas = map.getCanvas()
+    // Cursor-Management via CSS-Klassen auf dem Container (schlägt MapLibres inline cursor).
+    // MapLibre setzt canvas.style.cursor = 'grab' bei jedem internen mousemove — das lässt
+    // sich nur mit !important in einer CSS-Klasse auf einem Ancestor zuverlässig überschreiben.
+    injectCursorStyles()
+    const container = mapContainerRef.current!
     let isMouseDown = false
     const applyCursor = () => {
-      if (isMouseDown) return // grabbing hat Vorrang
+      if (isMouseDown) return
       if (drawingModeRef.current === 'hole' || (modeRef.current === 'polygon' && !polygonClosedRef.current)) {
-        canvas.style.cursor = 'crosshair'
+        setCursorClass(container, 'crosshair')
       } else {
-        canvas.style.cursor = ''
+        setCursorClass(container, '')
       }
     }
     const onMousemove = () => applyCursor()
-    const onMousedown = () => { isMouseDown = true; canvas.style.cursor = 'grabbing' }
+    const onMousedown = () => { isMouseDown = true;  setCursorClass(container, 'grabbing') }
     const onMouseup   = () => { isMouseDown = false; applyCursor() }
-    canvas.addEventListener('mousemove',  onMousemove)
-    canvas.addEventListener('mousedown',  onMousedown)
-    canvas.addEventListener('mouseup',    onMouseup)
+    const canvas = map.getCanvas()
+    canvas.addEventListener('mousemove', onMousemove)
+    canvas.addEventListener('mousedown', onMousedown)
+    canvas.addEventListener('mouseup',   onMouseup)
 
     return () => {
-      canvas.removeEventListener('mousemove',  onMousemove)
-      canvas.removeEventListener('mousedown',  onMousedown)
-      canvas.removeEventListener('mouseup',    onMouseup)
+      canvas.removeEventListener('mousemove', onMousemove)
+      canvas.removeEventListener('mousedown', onMousedown)
+      canvas.removeEventListener('mouseup',   onMouseup)
+      setCursorClass(container, '')
       map.remove()
       mapRef.current = null
       centerMarkerRef.current = null
@@ -735,9 +761,9 @@ export default function ZoneEditor({
 
       // Set drawing cursor for polygon mode when not yet closed
       if (mode === 'polygon' && !polygonClosedRef.current) {
-        map.getCanvas().style.cursor = _pencilCursorCSS
+        setCursorClass(mapContainerRef.current!, 'crosshair')
       } else {
-        map.getCanvas().style.cursor = ''
+        setCursorClass(mapContainerRef.current!, '')
       }
     }
 
@@ -782,26 +808,12 @@ export default function ZoneEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [holes])
 
-  // ── Drawing mode cursor effect ─────────────────────────────────────────────
+  // ── Cursor-Klasse aktualisieren wenn Zeichen-Modus wechselt ──────────────────
   useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    if (drawingMode === 'hole' || (mode === 'polygon' && !polygonClosed)) {
-      map.getCanvas().style.cursor = _pencilCursorCSS
-    } else {
-      map.getCanvas().style.cursor = ''
-    }
-  }, [mode, polygonClosed, drawingMode])
-
-  // ── Pencil cursor when polygon drawing is active ───────────────────────────
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    if (mode === 'polygon' && !polygonClosed && drawingMode === 'idle') {
-      map.getCanvas().style.cursor = _pencilCursorCSS
-    } else if (drawingMode !== 'hole') {
-      map.getCanvas().style.cursor = ''
-    }
+    const el = mapContainerRef.current
+    if (!el) return
+    const drawing = drawingMode === 'hole' || (mode === 'polygon' && !polygonClosed)
+    setCursorClass(el, drawing ? 'crosshair' : '')
   }, [mode, polygonClosed, drawingMode])
 
   // ── UI action handlers ─────────────────────────────────────────────────────
@@ -821,7 +833,7 @@ export default function ZoneEditor({
       pinPosRef.current = c
       if (map?.isStyleLoaded()) syncPinMarker(map, c)
     }
-    map!.getCanvas().style.cursor = ''
+    setCursorClass(mapContainerRef.current!, '')
   }
 
   function handleResetPolygon() {
@@ -845,7 +857,7 @@ export default function ZoneEditor({
       holeMarkersRef.current = []
     }
     if (map) {
-      map.getCanvas().style.cursor = _pencilCursorCSS
+      setCursorClass(mapContainerRef.current!, 'crosshair')
     }
   }
 
@@ -855,7 +867,7 @@ export default function ZoneEditor({
     setCurrentHolePoints([])
     currentHolePointsRef.current = []
     const map = mapRef.current
-    if (map) map.getCanvas().style.cursor = _pencilCursorCSS
+    if (map) setCursorClass(mapContainerRef.current!, 'crosshair')
   }
 
   function handleCloseHole() {
@@ -873,7 +885,7 @@ export default function ZoneEditor({
       updatePolygonLayer(map, polygonPoints, polygonClosed, newHoles)
       updateAllHoleMarkers(map, newHoles)
     }
-    if (map) map.getCanvas().style.cursor = ''
+    if (map) setCursorClass(mapContainerRef.current!, '')
   }
 
   function handleCancelHole() {
@@ -883,7 +895,7 @@ export default function ZoneEditor({
     currentHolePointsRef.current = []
     const map = mapRef.current
     if (map?.isStyleLoaded()) updateHolePreviewLayer(map, [], false)
-    if (map) map.getCanvas().style.cursor = ''
+    if (map) setCursorClass(mapContainerRef.current!, '')
   }
 
   function handleRemoveHole(holeIdx: number) {
