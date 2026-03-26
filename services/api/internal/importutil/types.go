@@ -7,7 +7,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
-	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
 
 // DataImporter is the interface for a single import module.
@@ -24,7 +23,6 @@ type ImportParams[S any] struct {
 	Source           S
 	UserID           string
 	DB               *database.DB
-	Storage          *storage.S3Client
 	ShadowFS        shadowfs.ShadowFS // nil when not configured
 	ImportService    *importer.Service
 	JobID            string

@@ -710,7 +710,7 @@ func (h *Handler) mergeActivityTags(ctx context.Context, targetID, sourceID, use
 // appendSidecarEdits loads the existing sidecar (ShadowFS preferred, legacy S3 as fallback),
 // appends the given edits, and saves it back. Errors are logged as warnings (best-effort).
 func (h *Handler) appendSidecarEdits(ctx context.Context, userID, activityID string, edits []editor.Edit) {
-	if h.ShadowFS == nil && h.Storage == nil {
+	if h.ShadowFS == nil {
 		return
 	}
 
@@ -738,19 +738,11 @@ func (h *Handler) appendSidecarEdits(ctx context.Context, userID, activityID str
 		activityID, userID,
 	).Scan(&sidecarFileID)
 
-	if sidecarFileID != "" && h.ShadowFS != nil {
+	if sidecarFileID != "" {
 		rc, getErr := h.ShadowFS.Get(ctx, userID, sidecarFileID)
 		if getErr == nil {
 			rawData, _ = io.ReadAll(rc)
 			rc.Close()
-		}
-	}
-	if rawData == nil && h.Storage != nil {
-		bucket := editorBucket()
-		key := editorKey(userID, activityID)
-		downloaded, _, dlErr := h.Storage.DownloadFromBucket(ctx, bucket, key)
-		if dlErr == nil {
-			rawData = downloaded
 		}
 	}
 
@@ -776,49 +768,33 @@ func (h *Handler) appendSidecarEdits(ctx context.Context, userID, activityID str
 
 	data, _ := json.Marshal(&sidecar)
 
-	// ── Save sidecar: ShadowFS preferred, legacy S3 as fallback ─────────
-	if h.ShadowFS != nil {
-		// Delete the previous sidecar file to avoid orphans.
-		if sidecarFileID != "" {
-			if delErr := h.ShadowFS.Delete(ctx, userID, sidecarFileID); delErr != nil {
-				slog.Warn("edit-ops: ShadowFS.Delete old sidecar failed", "activity_id", activityID, "file_id", sidecarFileID, "error", delErr)
-			}
-		}
-		fileName := fmt.Sprintf("%s.edits.json", activityID)
-		rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
-			UserID:      userID,
-			FileType:    "edit",
-			ContentType: "application/json",
-			FileName:    fileName,
-			SizeBytes:   int64(len(data)),
-			ParentType:  func() *string { s := "activity"; return &s }(),
-			ParentID:    &activityID,
-		}, bytes.NewReader(data))
-		if putErr != nil {
-			slog.Warn("edit-ops: ShadowFS.Put sidecar failed", "activity_id", activityID, "error", putErr)
-		} else {
-			if _, dbErr := h.DB.Pool.Exec(ctx,
-				`UPDATE activities SET has_edits = true, sidecar_file_id = $1 WHERE id = $2 AND user_id = $3`,
-				rec.ID, activityID, userID,
-			); dbErr != nil {
-				slog.Warn("edit-ops: failed to set sidecar_file_id", "activity_id", activityID, "error", dbErr)
-			}
-			return
+	// ── Save sidecar via ShadowFS ────────────────────────────────────────
+	// Delete the previous sidecar file to avoid orphans.
+	if sidecarFileID != "" {
+		if delErr := h.ShadowFS.Delete(ctx, userID, sidecarFileID); delErr != nil {
+			slog.Warn("edit-ops: ShadowFS.Delete old sidecar failed", "activity_id", activityID, "file_id", sidecarFileID, "error", delErr)
 		}
 	}
-
-	// Legacy S3 fallback.
-	if h.Storage != nil {
-		bucket := editorBucket()
-		key := editorKey(userID, activityID)
-		if uploadErr := h.Storage.UploadToBucket(ctx, bucket, key, data, "application/json"); uploadErr != nil {
-			slog.Warn("edit-ops: failed to update sidecar", "activity_id", activityID, "error", uploadErr)
-			return
-		}
+	fileName := fmt.Sprintf("%s.edits.json", activityID)
+	rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
+		UserID:      userID,
+		FileType:    "edit",
+		ContentType: "application/json",
+		FileName:    fileName,
+		SizeBytes:   int64(len(data)),
+		ParentType:  shadowfs.Ptr("activity"),
+		ParentID:    &activityID,
+	}, bytes.NewReader(data))
+	if putErr != nil {
+		slog.Warn("edit-ops: ShadowFS.Put sidecar failed", "activity_id", activityID, "error", putErr)
+		return
 	}
-
-	// Ensure has_edits flag is set.
-	_, _ = h.DB.Pool.Exec(ctx, `UPDATE activities SET has_edits = true WHERE id = $1 AND user_id = $2`, activityID, userID)
+	if _, dbErr := h.DB.Pool.Exec(ctx,
+		`UPDATE activities SET has_edits = true, sidecar_file_id = $1 WHERE id = $2 AND user_id = $3`,
+		rec.ID, activityID, userID,
+	); dbErr != nil {
+		slog.Warn("edit-ops: failed to set sidecar_file_id", "activity_id", activityID, "error", dbErr)
+	}
 }
 
 // fnv32a returns a stable FNV-1a hash for use as advisory lock key.

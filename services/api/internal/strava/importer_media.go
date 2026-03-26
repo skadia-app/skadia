@@ -213,98 +213,40 @@ func (m *MediaImporter) legacyImportPhoto(
 	bucket := "skadia-media"
 	s3Key := fmt.Sprintf("activity-photos/%s/%s%s", params.UserID, hash, ext)
 
-	// Thumbnail (200px) + Preview generation
+	// Thumb/preview are regenerated on demand — no pre-generation needed.
 	s3KeyThumb := s3Key
 	s3KeyPreview := ""
-	var thumbData []byte
-	var previewData []byte
 
-	useFFmpeg := isVideo || contentType == "image/heic" || contentType == "image/heif" || contentType == "image/jxl"
-
-	if isVideo {
-		var midOffset float64
-		if meta, err := imageutil.ProbeVideo(data, ext); err == nil && meta.DurationS > 2 {
-			midOffset = meta.DurationS / 2
-		}
-		thumbData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0)
-		previewData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, 2560, midOffset)
-	} else if useFFmpeg {
-		thumbData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0)
-		if params.DB != nil {
-			if settings, err := params.DB.GetEnrichmentSettings(ctx, params.UserID); err == nil {
-				if maxW, _ := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
-					previewData, _ = imageutil.GenerateThumbnailFFmpeg(data, ext, maxW, 0)
-				}
-			}
-		}
-	} else {
-		thumbData, _ = imageutil.Resize(data, 200, 200, 80)
-		if params.DB != nil {
-			if settings, err := params.DB.GetEnrichmentSettings(ctx, params.UserID); err == nil {
-				if maxW, maxH := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); maxW > 0 {
-					previewData, _ = imageutil.Resize(data, maxW, maxH, 85)
-				}
-			}
-		}
-	}
-
-	// --- Upload original photo ---
-	// ShadowFS (preferred): registers in user_files and sets file_id.
-	// Legacy S3 fallback: direct bucket upload, no registry entry.
+	// --- Upload original photo via ShadowFS ---
 	var fileID *string
-	if params.ShadowFS != nil {
-		parentType := "activity"
-		rec, putErr := params.ShadowFS.Put(ctx, shadowfs.FileEntry{
-			UserID:      params.UserID,
-			FileType:    "media",
-			ContentType: contentType,
-			FileName:    filepath.Base(relPath),
-			SizeBytes:   int64(len(data)),
-			FileHash:    hash,
-			ParentType:  &parentType,
-			ParentID:    func() *string {
-				if activityID != "" {
-					return &activityID
-				}
-				return nil
-			}(),
-			Tags: map[string]string{"source": "strava"},
-		}, bytes.NewReader(data))
-		if putErr != nil {
-			slog.Warn("strava media: ShadowFS.Put failed", "file", relPath, "error", putErr)
-			return false
-		}
-		fileID = &rec.ID
-	} else if params.Storage != nil {
-		if err := params.Storage.UploadToBucket(ctx, bucket, s3Key, data, contentType); err != nil {
-			slog.Warn("strava media: s3 upload failed", "file", relPath, "error", err)
-			return false
-		}
-	} else {
-		// Neither ShadowFS nor Storage configured: cannot persist the photo.
+	if params.ShadowFS == nil {
 		slog.Warn("strava media: no storage backend configured, skipping", "file", relPath)
 		return false
 	}
-
-	// --- Upload thumb/preview (regenerable cache, S3 only, not in ShadowFS registry) ---
-	// If Storage is nil but ShadowFS exists, skip generation — they'll be regenerated on demand.
-	if params.Storage != nil {
-		if thumbData != nil {
-			s3KeyThumb = fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", params.UserID, hash)
-			if err := params.Storage.UploadToBucket(ctx, bucket, s3KeyThumb, thumbData, "image/jpeg"); err != nil {
-				slog.Warn("strava media: s3 thumb upload failed", "file", relPath, "error", err)
-				s3KeyThumb = s3Key
+	parentType := "activity"
+	rec, putErr := params.ShadowFS.Put(ctx, shadowfs.FileEntry{
+		UserID:      params.UserID,
+		FileType:    "media",
+		ContentType: contentType,
+		FileName:    filepath.Base(relPath),
+		SizeBytes:   int64(len(data)),
+		FileHash:    hash,
+		ParentType:  &parentType,
+		ParentID:    func() *string {
+			if activityID != "" {
+				return &activityID
 			}
-		}
-
-		if previewData != nil {
-			s3KeyPreview = fmt.Sprintf("activity-photos/%s/%s_preview.jpg", params.UserID, hash)
-			if err := params.Storage.UploadToBucket(ctx, bucket, s3KeyPreview, previewData, "image/jpeg"); err != nil {
-				slog.Warn("strava media: s3 preview upload failed", "file", relPath, "error", err)
-				s3KeyPreview = ""
-			}
-		}
+			return nil
+		}(),
+		Tags: map[string]string{"source": "strava"},
+	}, bytes.NewReader(data))
+	if putErr != nil {
+		slog.Warn("strava media: ShadowFS.Put failed", "file", relPath, "error", putErr)
+		return false
 	}
+	fileID = &rec.ID
+
+	// Thumb/preview are regenerated on demand from ShadowFS — no separate upload needed.
 
 	var activityIDPtr *string
 	if activityID != "" {

@@ -20,10 +20,11 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/event"
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
@@ -186,8 +187,20 @@ func (h *Handler) ListActivityPhotos(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
 		return
 	}
+
+	// Batch-fetch thumbnail file_ids from user_files in a single query.
+	// photoIDs come from a user_id-scoped DB query above — safe to use as batch parameter.
+	photoIDs := make([]string, len(photos))
+	for i, p := range photos {
+		photoIDs[i] = p.ID
+	}
+	thumbs := h.batchFetchThumbs(r.Context(), photoIDs, userID)
+
 	for i := range photos {
 		setPhotoURLs(&photos[i])
+		if thumbs != nil {
+			photos[i].ThumbFileID = thumbs[photos[i].ID]
+		}
 	}
 	httputil.WriteJSON(w, http.StatusOK, photos)
 }
@@ -246,28 +259,36 @@ func (h *Handler) StreamActivityPhotoThumb(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Try S3 first (thumbs are generated artifacts stored in S3).
-	if h.Storage != nil && photo.S3KeyThumb != "" {
-		data, _, dlErr := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, photo.S3KeyThumb)
-		if dlErr == nil {
-			w.Header().Set("Content-Type", "image/jpeg")
-			w.Header().Set("Cache-Control", "private, max-age=86400")
-			w.Write(data)
-			return
+	// ShadowFS path: look up a dedicated thumb file registered against this photo.
+	if h.ShadowFS != nil {
+		var thumbFileID string
+		_ = h.DB.Pool.QueryRow(r.Context(),
+			`SELECT id::text FROM user_files
+			 WHERE user_id = $1 AND file_type = 'thumb'
+			   AND parent_type = 'photo' AND parent_id = $2
+			   AND status = 'active'
+			 ORDER BY created_at DESC LIMIT 1`,
+			userID, photoID,
+		).Scan(&thumbFileID)
+		if thumbFileID != "" {
+			resolved, resolveErr := h.ShadowFS.Resolve(r.Context(), userID, thumbFileID)
+			if resolveErr == nil {
+				serveResolvedFile(w, r, resolved)
+				return
+			}
+			slog.Warn("stream photo thumb: ShadowFS.Resolve thumb failed",
+				"photo_id", photoID, "thumb_file_id", thumbFileID, "error", resolveErr)
 		}
-		slog.Warn("stream photo thumb: S3 download failed, trying ShadowFS fallback",
-			"photo_id", photoID, "error", dlErr)
-	}
-
-	// ShadowFS fallback: serve original via Resolve (redirect/serve).
-	if h.ShadowFS != nil && photo.FileID != nil && *photo.FileID != "" {
-		resolved, resolveErr := h.ShadowFS.Resolve(r.Context(), userID, *photo.FileID)
-		if resolveErr == nil {
-			serveResolvedFile(w, r, resolved)
-			return
+		// Fallback: serve original via ShadowFS.
+		if photo.FileID != nil && *photo.FileID != "" {
+			resolved, resolveErr := h.ShadowFS.Resolve(r.Context(), userID, *photo.FileID)
+			if resolveErr == nil {
+				serveResolvedFile(w, r, resolved)
+				return
+			}
+			slog.Warn("stream photo thumb: ShadowFS.Resolve original failed",
+				"photo_id", photoID, "file_id", *photo.FileID, "error", resolveErr)
 		}
-		slog.Warn("stream photo thumb: ShadowFS.Resolve failed",
-			"photo_id", photoID, "file_id", *photo.FileID, "error", resolveErr)
 	}
 
 	httputil.WriteError(w, http.StatusNotFound, "Not Found", "thumbnail not available", r.URL.Path)
@@ -295,20 +316,7 @@ func (h *Handler) StreamActivityPhotoFull(w http.ResponseWriter, r *http.Request
 		slog.Warn("stream photo full: ShadowFS.Resolve failed, falling back to S3", "file_id", *photo.FileID, "error", resolveErr)
 	}
 
-	// Legacy S3 fallback.
-	if h.Storage == nil {
-		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "storage not configured", r.URL.Path)
-		return
-	}
-	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, photo.S3Key)
-	if err != nil {
-		slog.Error("s3 download photo failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load photo", r.URL.Path)
-		return
-	}
-	w.Header().Set("Content-Type", ct)
-	w.Header().Set("Cache-Control", "private, max-age=86400")
-	w.Write(data)
+	httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not available", r.URL.Path)
 }
 
 // patchPhotoLocationRequest is the body for PATCH /activities/{id}/photos/{photoID}.
@@ -408,20 +416,6 @@ func (h *Handler) writePhotoMetaSidecar(ctx context.Context, userID, photoID, fi
 		}
 	}
 
-	// Legacy S3 fallback.
-	// NOTE: Split-brain risk — when ShadowFS.Put fails (above) but S3 succeeds,
-	// the sidecar lives only in S3 while future reads may use ShadowFS. This is
-	// acceptable: S3 sidecars are best-effort metadata; the original file is unaffected.
-	if h.Storage == nil {
-		return
-	}
-	bucket := mediaBucketName()
-	key := fmt.Sprintf("activity-photos/%s/%s.meta.json", userID, fileHash)
-	if err := h.Storage.UploadToBucket(ctx, bucket, key, sidecarBytes, "application/json"); err != nil {
-		slog.Error("photo meta sidecar: S3 upload failed", "bucket", bucket, "key", key, "error", err)
-		return
-	}
-	slog.Info("photo meta sidecar written via S3", "bucket", bucket, "key", key)
 }
 
 func (h *Handler) StreamActivityPhotoPreview(w http.ResponseWriter, r *http.Request) {
@@ -436,61 +430,235 @@ func (h *Handler) StreamActivityPhotoPreview(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Previews/thumbnails are regenerable cache stored in S3; serve them from S3 when available.
-	// When no S3 preview exists and ShadowFS has the original, serve that instead.
-	if photo.S3KeyPreview == "" && h.ShadowFS != nil && photo.FileID != nil && *photo.FileID != "" {
-		resolved, resolveErr := h.ShadowFS.Resolve(r.Context(), userID, *photo.FileID)
-		if resolveErr == nil {
-			serveResolvedFile(w, r, resolved)
-			return
+	// ShadowFS path: look up a dedicated preview file registered against this photo.
+	if h.ShadowFS != nil {
+		var previewFileID string
+		_ = h.DB.Pool.QueryRow(r.Context(),
+			`SELECT id::text FROM user_files
+			 WHERE user_id = $1 AND file_type = 'preview'
+			   AND parent_type = 'photo' AND parent_id = $2
+			   AND status = 'active'
+			 ORDER BY created_at DESC LIMIT 1`,
+			userID, photoID,
+		).Scan(&previewFileID)
+		if previewFileID != "" {
+			resolved, resolveErr := h.ShadowFS.Resolve(r.Context(), userID, previewFileID)
+			if resolveErr == nil {
+				serveResolvedFile(w, r, resolved)
+				return
+			}
+			slog.Warn("stream photo preview: ShadowFS.Resolve preview failed",
+				"photo_id", photoID, "preview_file_id", previewFileID, "error", resolveErr)
 		}
-		slog.Warn("stream photo preview: ShadowFS.Resolve failed, falling back to S3", "file_id", *photo.FileID, "error", resolveErr)
+		// Fallback: serve original via ShadowFS.
+		if photo.FileID != nil && *photo.FileID != "" {
+			resolved, resolveErr := h.ShadowFS.Resolve(r.Context(), userID, *photo.FileID)
+			if resolveErr == nil {
+				serveResolvedFile(w, r, resolved)
+				return
+			}
+			slog.Warn("stream photo preview: ShadowFS.Resolve original failed",
+				"photo_id", photoID, "file_id", *photo.FileID, "error", resolveErr)
+		}
 	}
 
-	// Use S3 preview key if available, otherwise fall back to original S3 key.
-	if h.Storage == nil {
-		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "storage not configured", r.URL.Path)
-		return
-	}
-	key := photo.S3KeyPreview
-	if key == "" {
-		key = photo.S3Key
-	}
-	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, key)
-	if err != nil && key != photo.S3Key {
-		// Preview key didn't exist (e.g., generated before this feature) — fall back.
-		data, ct, err = h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, photo.S3Key)
-	}
-	if err != nil {
-		slog.Error("s3 download preview failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load preview", r.URL.Path)
-		return
-	}
-	w.Header().Set("Content-Type", ct)
-	w.Header().Set("Cache-Control", "private, max-age=86400")
-	w.Write(data)
+	httputil.WriteError(w, http.StatusNotFound, "Not Found", "preview not available", r.URL.Path)
 }
 
-// RecomputePhotoPreviews is temporarily a no-op during the ShadowFS migration.
-// The legacy S3 preview regeneration relied on UpdateActivityPhotoPreviewKey
-// which has been removed. Previews will be regenerated as part of the FileStore migration.
+// RecomputePhotoPreviews regenerates preview images for all user photos via ShadowFS.
+// For each photo without a preview in user_files, the original is downloaded, resized,
+// and stored as file_type='preview' with parent_type='photo'.
 func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request) {
-	_, ok := httputil.RequireUserID(w, r)
+	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
 	}
-	httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "temporarily disabled during ShadowFS migration"})
+	if h.ShadowFS == nil {
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "fixed": 0, "message": "ShadowFS not configured"})
+		return
+	}
+
+	photos, err := h.DB.ListAllUserPhotos(r.Context(), userID)
+	if err != nil {
+		slog.Error("recompute previews: list photos failed", "err", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
+		return
+	}
+
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "photo_preview_recompute", nil, nil, int64(len(photos)))
+	if err != nil {
+		slog.Error("recompute previews: create job failed", "err", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
+		return
+	}
+
+	shutdown.Go("photo-previews-recompute", func(ctx context.Context) {
+		fixed := int64(0)
+		for i, photo := range photos {
+			if ctx.Err() != nil {
+				break
+			}
+			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1))
+
+			// Skip if preview already exists in ShadowFS.
+			var exists bool
+			_ = h.DB.Pool.QueryRow(ctx,
+				`SELECT EXISTS(SELECT 1 FROM user_files
+				 WHERE user_id = $1 AND file_type = 'preview'
+				   AND parent_type = 'photo' AND parent_id = $2
+				   AND status = 'active')`,
+				userID, photo.ID,
+			).Scan(&exists)
+			if exists {
+				continue
+			}
+
+			if photo.FileID == nil || *photo.FileID == "" {
+				continue
+			}
+
+			rc, getErr := h.ShadowFS.Get(ctx, userID, *photo.FileID)
+			if getErr != nil {
+				slog.Warn("recompute previews: get original failed", "photo_id", photo.ID, "err", getErr)
+				continue
+			}
+			origData, readErr := io.ReadAll(rc)
+			rc.Close()
+			if readErr != nil {
+				continue
+			}
+
+			previewData := h.generatePreview(origData, photo.ContentType, photo.OriginalFilename, userID)
+			if previewData == nil {
+				continue
+			}
+
+			hash := ""
+			if photo.FileHash != nil {
+				hash = *photo.FileHash
+			} else {
+				hash = fmt.Sprintf("%x", sha256.Sum256(origData))
+			}
+
+			_, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
+				UserID:      userID,
+				FileType:    "preview",
+				ContentType: "image/jpeg",
+				FileName:    hash + "_preview.jpg",
+				SizeBytes:   int64(len(previewData)),
+				FileHash:    hash + "_preview",
+				ParentType:  shadowfs.Ptr("photo"),
+				ParentID:    shadowfs.Ptr(photo.ID),
+			}, bytes.NewReader(previewData))
+			if putErr != nil {
+				slog.Warn("recompute previews: put preview failed", "photo_id", photo.ID, "err", putErr)
+				continue
+			}
+			fixed++
+		}
+		_ = h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
+		slog.Info("recompute previews done", "fixed", fixed, "total", len(photos))
+	})
+
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "total": len(photos)})
 }
 
-// RecomputePhotoThumbnails is temporarily a no-op during the ShadowFS migration.
-// The legacy S3 thumb/preview regeneration relied on UpdateActivityPhotoThumbAndMeta
-// which has been removed. Thumbnails will be regenerated as part of the FileStore migration.
+// RecomputePhotoThumbnails regenerates thumbnail images for all user photos via ShadowFS.
+// For each photo without a thumb in user_files, the original is downloaded, resized to 200px,
+// and stored as file_type='thumb' with parent_type='photo'.
 func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Request) {
-	_, ok := httputil.RequireUserID(w, r)
+	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
 	}
-	httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "fixed": 0, "message": "temporarily disabled during ShadowFS migration"})
+	if h.ShadowFS == nil {
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "fixed": 0, "message": "ShadowFS not configured"})
+		return
+	}
+
+	photos, err := h.DB.ListAllUserPhotos(r.Context(), userID)
+	if err != nil {
+		slog.Error("recompute thumbs: list photos failed", "err", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list photos", r.URL.Path)
+		return
+	}
+
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "photo_preview_recompute", nil, nil, int64(len(photos)))
+	if err != nil {
+		slog.Error("recompute thumbs: create job failed", "err", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
+		return
+	}
+
+	shutdown.Go("photo-thumbs-recompute", func(ctx context.Context) {
+		fixed := int64(0)
+		for i, photo := range photos {
+			if ctx.Err() != nil {
+				break
+			}
+			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1))
+
+			// Skip if thumb already exists in ShadowFS.
+			var exists bool
+			_ = h.DB.Pool.QueryRow(ctx,
+				`SELECT EXISTS(SELECT 1 FROM user_files
+				 WHERE user_id = $1 AND file_type = 'thumb'
+				   AND parent_type = 'photo' AND parent_id = $2
+				   AND status = 'active')`,
+				userID, photo.ID,
+			).Scan(&exists)
+			if exists {
+				continue
+			}
+
+			if photo.FileID == nil || *photo.FileID == "" {
+				continue
+			}
+
+			rc, getErr := h.ShadowFS.Get(ctx, userID, *photo.FileID)
+			if getErr != nil {
+				slog.Warn("recompute thumbs: get original failed", "photo_id", photo.ID, "err", getErr)
+				continue
+			}
+			origData, readErr := io.ReadAll(rc)
+			rc.Close()
+			if readErr != nil {
+				continue
+			}
+
+			thumbData := h.generateThumb(origData, photo.ContentType, photo.OriginalFilename)
+			if thumbData == nil {
+				continue
+			}
+
+			hash := ""
+			if photo.FileHash != nil {
+				hash = *photo.FileHash
+			} else {
+				hash = fmt.Sprintf("%x", sha256.Sum256(origData))
+			}
+
+			_, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
+				UserID:      userID,
+				FileType:    "thumb",
+				ContentType: "image/jpeg",
+				FileName:    hash + "_thumb.jpg",
+				SizeBytes:   int64(len(thumbData)),
+				FileHash:    hash + "_thumb",
+				ParentType:  shadowfs.Ptr("photo"),
+				ParentID:    shadowfs.Ptr(photo.ID),
+			}, bytes.NewReader(thumbData))
+			if putErr != nil {
+				slog.Warn("recompute thumbs: put thumb failed", "photo_id", photo.ID, "err", putErr)
+				continue
+			}
+			fixed++
+		}
+		_ = h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
+		slog.Info("recompute thumbs done", "fixed", fixed, "total", len(photos))
+	})
+
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "total": len(photos)})
 }
 
 // videoContentTypeFromExt returns the MIME type for common video extensions.
@@ -588,6 +756,35 @@ func (h *Handler) ListMapPhotos(w http.ResponseWriter, r *http.Request) {
 		entries[i].ThumbURL = "/photos/" + entries[i].ID + "/thumb"
 	}
 	httputil.WriteJSON(w, http.StatusOK, entries)
+}
+
+// batchFetchThumbs performs a single batch query to fetch thumbnail file_ids for a list
+// of photo IDs. The photoIDs MUST originate from a prior user_id-scoped query — never
+// pass user-supplied IDs directly. Returns a map of photoID → thumb user_files.id.
+func (h *Handler) batchFetchThumbs(ctx context.Context, photoIDs []string, userID string) map[string]string {
+	if h.ShadowFS == nil || len(photoIDs) == 0 {
+		return nil
+	}
+	thumbs := make(map[string]string, len(photoIDs))
+	rows, err := h.DB.Pool.Query(ctx,
+		`SELECT parent_id::text, id::text
+		 FROM user_files
+		 WHERE parent_type = 'photo' AND parent_id = ANY($1::uuid[])
+		   AND file_type = 'thumb' AND user_id = $2
+		   AND status = 'active'`,
+		photoIDs, userID)
+	if err != nil {
+		slog.Warn("batchFetchThumbs: query failed", "error", err)
+		return thumbs
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var parentID, thumbFileID string
+		if scanErr := rows.Scan(&parentID, &thumbFileID); scanErr == nil {
+			thumbs[parentID] = thumbFileID
+		}
+	}
+	return thumbs
 }
 
 // setPhotoURLs sets the computed URL fields on an ActivityPhoto.
@@ -773,4 +970,44 @@ func serveResolvedFile(w http.ResponseWriter, r *http.Request, resolved shadowfs
 		// "s3" and any future types: redirect to the pre-signed URL.
 		http.Redirect(w, r, resolved.URL, http.StatusTemporaryRedirect)
 	}
+}
+
+// generateThumb creates a 200px thumbnail from image/video data.
+func (h *Handler) generateThumb(data []byte, ct, filename string) []byte {
+	ext := fileExtForContentType(ct, filename)
+	switch {
+	case strings.HasPrefix(ct, "video/"):
+		if td, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0); err == nil {
+			return td
+		}
+	case ct == "image/heic" || ct == "image/heif" || ct == "image/jxl":
+		if td, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0); err == nil {
+			return td
+		}
+	default:
+		if td, err := imageutil.Resize(data, 200, 200, 80); err == nil {
+			return td
+		}
+	}
+	return nil
+}
+
+// generatePreview creates a preview image (default 2048px) from image/video data.
+func (h *Handler) generatePreview(data []byte, ct, filename, userID string) []byte {
+	ext := fileExtForContentType(ct, filename)
+	maxW, maxH := 2048, 2048
+
+	if strings.HasPrefix(ct, "video/") {
+		if pd, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 2560, 0); err == nil {
+			return pd
+		}
+		return nil
+	}
+
+	if ct == "image/heic" || ct == "image/heif" || ct == "image/jxl" {
+		pd, _ := imageutil.GenerateThumbnailFFmpeg(data, ext, maxW, 0)
+		return pd
+	}
+	pd, _ := imageutil.Resize(data, maxW, maxH, 85)
+	return pd
 }

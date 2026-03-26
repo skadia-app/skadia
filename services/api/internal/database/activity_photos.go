@@ -2,10 +2,15 @@ package database
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
+
+// clipVecLiteralRe validates pgvector literal format: '[float,float,...]'
+var clipVecLiteralRe = regexp.MustCompile(`^\[-?[0-9]+(\.[0-9]+)?(e[+-]?[0-9]+)?(,-?[0-9]+(\.[0-9]+)?(e[+-]?[0-9]+)?)*\]$`)
 
 
 func (db *DB) InsertActivityPhoto(ctx context.Context, p model.ActivityPhoto) (model.ActivityPhoto, error) {
@@ -283,12 +288,15 @@ func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, t
 	seen := map[string]bool{}
 
 	if clipVecLiteral != "" {
+		if !clipVecLiteralRe.MatchString(clipVecLiteral) {
+			return nil, fmt.Errorf("SearchPhotos: invalid clip_embedding literal format")
+		}
 		rows, err := db.Pool.Query(ctx, `
 			SELECT
 				ap.id, ap.activity_id, ap.taken_at, ap.created_at,
 				ap.lat, ap.lng, ap.location_source,
 				ap.content_type, ap.is_video, ap.duration_s,
-				1 - (ap.clip_embedding <=> `+clipVecLiteral+`) AS similarity,
+				1 - (ap.clip_embedding <=> `+clipVecLiteral+`::vector) AS similarity,
 				a.id, a.title, a.sport_type, a.started_at,
 				a.distance_m, a.moving_time_s, a.elevation_gain_m,
 				NULL::text AS act_track_geojson,
@@ -296,7 +304,7 @@ func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, t
 			FROM activity_photos ap
 			LEFT JOIN activities a ON ap.activity_id = a.id AND a.user_id = ap.user_id
 			WHERE ap.user_id = $1 AND ap.clip_embedding IS NOT NULL
-			ORDER BY ap.clip_embedding <=> `+clipVecLiteral+`
+			ORDER BY ap.clip_embedding <=> `+clipVecLiteral+`::vector
 			LIMIT $2
 		`, userID, limit)
 		if err != nil {
@@ -449,6 +457,49 @@ func (db *DB) UpdateActivityPhotoDimensions(ctx context.Context, photoID string,
 		`UPDATE activity_photos SET width = $1, height = $2 WHERE id = $3`,
 		width, height, photoID)
 	return err
+}
+
+// ThumbnailBackfillRow holds data for thumbnail backfill processing.
+type ThumbnailBackfillRow struct {
+	FileID     string // user_files ID of the original media file
+	ParentID   string // photo ID (parent_id in user_files)
+	UserID     string
+	ContentType string
+	FileName   string
+}
+
+// PhotosWithoutThumb returns user_files media entries with parent_type='photo'
+// that have no corresponding thumb entry in user_files, across ALL users.
+// Used by the admin thumbnail backfill endpoint.
+func (db *DB) PhotosWithoutThumb(ctx context.Context) ([]ThumbnailBackfillRow, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT uf.id, uf.parent_id, uf.user_id, uf.content_type, uf.file_name
+		FROM user_files uf
+		WHERE uf.file_type = 'media'
+		  AND uf.parent_type = 'photo'
+		  AND uf.status = 'active'
+		  AND NOT EXISTS (
+			SELECT 1 FROM user_files t
+			WHERE t.parent_type = uf.parent_type
+			  AND t.parent_id = uf.parent_id
+			  AND t.file_type = 'thumb'
+			  AND t.status = 'active'
+		  )
+		ORDER BY uf.created_at
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []ThumbnailBackfillRow
+	for rows.Next() {
+		var r ThumbnailBackfillRow
+		if err := rows.Scan(&r.FileID, &r.ParentID, &r.UserID, &r.ContentType, &r.FileName); err != nil {
+			return nil, err
+		}
+		result = append(result, r)
+	}
+	return result, rows.Err()
 }
 
 // BackfillPhotoRow holds data for pHash backfill processing.

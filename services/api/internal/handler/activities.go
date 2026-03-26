@@ -416,7 +416,7 @@ func (h *Handler) DeleteActivities(w http.ResponseWriter, r *http.Request) {
 // NOTE: Cleanup issues multiple sequential DB queries (one per file type). For large bulk
 // deletes this could be batched into a single query per type; acceptable for current scale.
 func (h *Handler) cleanupActivityFiles(ctx context.Context, userID, activityID string) {
-	if h.ShadowFS == nil && h.Storage == nil {
+	if h.ShadowFS == nil {
 		return
 	}
 
@@ -432,13 +432,6 @@ func (h *Handler) cleanupActivityFiles(ctx context.Context, userID, activityID s
 			slog.Warn("cleanup activity files: shadowfs delete failed", "file_id", actFileID, "error", err)
 		}
 	}
-	if fileHash != "" && h.Storage != nil {
-		legacyKey := fmt.Sprintf("%s/%s.%s", userID, fileHash, origFormat)
-		if err := h.Storage.DeleteFromBucket(ctx, "skadia-originals", legacyKey); err != nil {
-			slog.Warn("cleanup activity files: s3 delete failed", "key", legacyKey, "error", err)
-		}
-	}
-
 	// Edit sidecar file(s): an activity can accumulate multiple edit sidecar versions;
 	// delete all of them. Using Query (not QueryRow) to handle the multi-row case.
 	if h.ShadowFS != nil {
@@ -459,54 +452,46 @@ func (h *Handler) cleanupActivityFiles(ctx context.Context, userID, activityID s
 			editRows.Close()
 		}
 	}
-	// Legacy S3 edit sidecar fallback.
-	if h.Storage != nil {
-		editKey := fmt.Sprintf("edits/%s/%s.edits.json", userID, activityID)
-		if err := h.Storage.DeleteFromBucket(ctx, "skadia-originals", editKey); err != nil {
-			slog.Warn("cleanup activity files: s3 delete edit sidecar failed", "key", editKey, "error", err)
-		}
-	}
-
-	// Photo originals (ShadowFS).
-	photoRows, photoErr := h.DB.Pool.Query(ctx,
-		`SELECT COALESCE(file_id::text, '')
-		 FROM activity_photos WHERE activity_id = $1 AND user_id = $2`,
-		activityID, userID,
-	)
-	if photoErr == nil {
-		for photoRows.Next() {
-			var photoFileID string
-			if scanErr := photoRows.Scan(&photoFileID); scanErr != nil {
-				continue
-			}
-			if h.ShadowFS != nil && photoFileID != "" {
-				if err := h.ShadowFS.Delete(ctx, userID, photoFileID); err != nil {
-					slog.Warn("cleanup activity files: shadowfs delete photo failed", "file_id", photoFileID, "error", err)
-				}
-			}
-		}
-		photoRows.Close()
-	}
-
-	// Photo sidecar files (parent_type='photo').
+	// Photo originals + all derivatives (thumb, preview) via parent_type/parent_id.
+	// Query photo IDs and their ShadowFS file_id in one pass, then delete all
+	// user_files entries with parent_type='photo' and parent_id=photoID.
 	if h.ShadowFS != nil {
-		sidecarRows, sidecarErr := h.DB.Pool.Query(ctx,
-			`SELECT uf.id::text FROM user_files uf
-			 JOIN activity_photos ap ON ap.id::text = uf.parent_id
-			 WHERE ap.activity_id = $1 AND ap.user_id = $2
-			   AND uf.user_id = $2 AND uf.parent_type = 'photo'`,
+		photoRows, photoErr := h.DB.Pool.Query(ctx,
+			`SELECT id::text, COALESCE(file_id::text, '')
+			 FROM activity_photos WHERE activity_id = $1 AND user_id = $2`,
 			activityID, userID,
 		)
-		if sidecarErr == nil {
-			for sidecarRows.Next() {
-				var sidecarID string
-				if scanErr := sidecarRows.Scan(&sidecarID); scanErr == nil && sidecarID != "" {
-					if err := h.ShadowFS.Delete(ctx, userID, sidecarID); err != nil {
-						slog.Warn("cleanup activity files: shadowfs delete photo sidecar failed", "sidecar_id", sidecarID, "error", err)
+		if photoErr == nil {
+			for photoRows.Next() {
+				var photoID, photoFileID string
+				if scanErr := photoRows.Scan(&photoID, &photoFileID); scanErr != nil {
+					continue
+				}
+				// Delete original file.
+				if photoFileID != "" {
+					if err := h.ShadowFS.Delete(ctx, userID, photoFileID); err != nil {
+						slog.Warn("cleanup activity files: shadowfs delete photo failed", "file_id", photoFileID, "error", err)
 					}
 				}
+				// Delete all derivatives (thumb, preview) registered under parent_type='photo'.
+				derivRows, derivErr := h.DB.Pool.Query(ctx,
+					`SELECT id::text FROM user_files
+					 WHERE user_id = $1 AND parent_type = 'photo' AND parent_id = $2`,
+					userID, photoID,
+				)
+				if derivErr == nil {
+					for derivRows.Next() {
+						var derivID string
+						if scanErr := derivRows.Scan(&derivID); scanErr == nil && derivID != "" {
+							if err := h.ShadowFS.Delete(ctx, userID, derivID); err != nil {
+								slog.Warn("cleanup activity files: shadowfs delete photo derivative failed", "deriv_id", derivID, "error", err)
+							}
+						}
+					}
+					derivRows.Close()
+				}
 			}
-			sidecarRows.Close()
+			photoRows.Close()
 		}
 	}
 }
@@ -618,16 +603,6 @@ func exportOriginal(h *Handler, w http.ResponseWriter, r *http.Request, activity
 		} else {
 			slog.Warn("export original: ShadowFS.Get failed, falling back to S3",
 				"activity_id", activity.ID, "file_id", *activity.FileID, "error", getErr)
-		}
-	}
-
-	// Legacy S3 fallback.
-	if data == nil && h.Storage != nil {
-		s3Key := fmt.Sprintf("%s/%s.%s", activity.UserID, *activity.FileHash, ext)
-		var dlErr error
-		data, _, dlErr = h.Storage.DownloadFromBucket(r.Context(), "skadia-originals", s3Key)
-		if dlErr != nil {
-			slog.Warn("export original download failed", "activity_id", activity.ID, "key", s3Key, "error", dlErr)
 		}
 	}
 
@@ -1011,7 +986,7 @@ func exportFIT(w http.ResponseWriter, activity *model.Activity, streams []model.
 
 // exportMultisportZip packages the original files of all child activities into a single ZIP.
 func exportMultisportZip(h *Handler, w http.ResponseWriter, r *http.Request, parent *model.Activity) {
-	if h.Storage == nil && h.ShadowFS == nil {
+	if h.ShadowFS == nil {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "original files not available", r.URL.Path)
 		return
 	}
@@ -1057,15 +1032,6 @@ func exportMultisportZip(h *Handler, w http.ResponseWriter, r *http.Request, par
 			} else {
 				slog.Warn("multisport zip: ShadowFS.Get failed, falling back to S3",
 					"child_id", child.ID, "file_id", *child.FileID, "error", getErr)
-			}
-		}
-		// Legacy S3 fallback.
-		if data == nil && h.Storage != nil {
-			s3Key := fmt.Sprintf("%s/%s.%s", child.UserID, *child.FileHash, ext)
-			var dlErr error
-			data, _, dlErr = h.Storage.DownloadFromBucket(r.Context(), "skadia-originals", s3Key)
-			if dlErr != nil {
-				slog.Warn("multisport zip: child download failed", "child_id", child.ID, "key", s3Key, "error", dlErr)
 			}
 		}
 		if data == nil {

@@ -11,12 +11,10 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
-	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
 
 type Handler struct {
 	DB             *database.DB
-	Storage        *storage.S3Client
 	Events         *event.Publisher
 	ShadowFS       shadowfs.ShadowFS       // nil when not yet initialized
 	ShadowFSConfig *shadowfs.ShadowFSConfig // nil when shadow FS is not configured
@@ -41,10 +39,13 @@ type HandlerConfig struct {
 	RoutingTimeout      time.Duration // request timeout for route calculations (default 30s)
 	MaxUploadSize       int64         // maximum upload size in bytes
 	// ShadowFS — used by rename handlers and admin dashboard
-	LibraryBasePath  string // e.g. /data/library (local backend only)
-	StorageBackend   string // "local" or "s3"
-	KeepVersions     int    // 0=delete, 1=keep last, -1=keep all
+	LibraryBasePath  string                  // e.g. /data/library (local backend only)
+	StorageBackend   string                  // "local" or "s3"
+	KeepVersions     int                     // 0=delete, 1=keep last, -1=keep all
 	SyncEnabled      bool
+	LocalBE          shadowfs.StorageBackend // nil when no local backend
+	S3BE             shadowfs.StorageBackend // nil when no S3 backend
+	BucketFn         func(string) string     // fileType → S3 bucket
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {

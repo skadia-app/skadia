@@ -30,9 +30,10 @@ type ActivityPhoto struct {
 	Width  *int   `json:"width,omitempty" db:"width"`
 	Height *int   `json:"height,omitempty" db:"height"`
 	// Computed URLs (nicht in DB)
-	ThumbURL   string `json:"thumb_url,omitempty"`
-	PreviewURL string `json:"preview_url,omitempty"` // large preview (WQHD/4K) or same as full_url
-	FullURL    string `json:"full_url,omitempty"`
+	ThumbURL    string `json:"thumb_url,omitempty"`
+	PreviewURL  string `json:"preview_url,omitempty"` // large preview (WQHD/4K) or same as full_url
+	FullURL     string `json:"full_url,omitempty"`
+	ThumbFileID string `json:"thumb_file_id,omitempty"` // user_files.id of the thumbnail (ShadowFS)
 }
 
 // MapPhotoEntry ist ein kompakter Eintrag für den Map-Overlay

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	_ "net/http/pprof"
@@ -32,13 +34,108 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
-	"github.com/skadia-app/skadia/services/api/internal/storage"
 )
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})))
+
+	// ── migrate-storage subcommand ─────────────────────────────────────────────
+	// Usage: api migrate-storage -target=s3 [-dry-run] [-batch-size=100]
+	//                                        [-workers=1] [-cleanup-source]
+	// Must run BEFORE the HTTP server starts (offline migration).
+	if len(os.Args) > 1 && os.Args[1] == "migrate-storage" {
+		fs := flag.NewFlagSet("migrate-storage", flag.ExitOnError)
+		target := fs.String("target", "", "Target backend: 'local' or 's3' (required)")
+		dryRun := fs.Bool("dry-run", false, "List files and check reachability without copying")
+		batchSize := fs.Int("batch-size", 100, "Files per batch")
+		workers := fs.Int("workers", 1, "Parallel workers (each buffers up to 500 MB for S3)")
+		cleanupSource := fs.Bool("cleanup-source", false, "Verify source is empty after migration")
+		if err := fs.Parse(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "migrate-storage: flag parse error: %v\n", err)
+			os.Exit(1)
+		}
+		if *workers > 16 {
+			fmt.Fprintf(os.Stderr, "migrate-storage: max 16 workers supported, got %d\n", *workers)
+			os.Exit(1)
+		}
+		if *target == "" {
+			fmt.Fprintf(os.Stderr, "migrate-storage: -target is required (use 'local' or 's3')\n")
+			fs.Usage()
+			os.Exit(1)
+		}
+		if *target != "local" && *target != "s3" {
+			fmt.Fprintf(os.Stderr, "migrate-storage: -target must be 'local' or 's3', got %q\n", *target)
+			os.Exit(1)
+		}
+
+		// Load config + DB (migrations included).
+		cfg, err := config.Load()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "migrate-storage: config load failed: %v\n", err)
+			os.Exit(1)
+		}
+		ctx := context.Background()
+		db, err := database.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "migrate-storage: database connect failed: %v\n", err)
+			os.Exit(1)
+		}
+		defer db.Close()
+		if err := migrate.Run(ctx, db.Pool); err != nil {
+			fmt.Fprintf(os.Stderr, "migrate-storage: migrations failed: %v\n", err)
+			os.Exit(1)
+		}
+		if err := shadowfs.CanonicalizeParentTypes(ctx, db.Pool); err != nil {
+			fmt.Fprintf(os.Stderr, "migrate-storage: canonicalize parent_type failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Build backends.
+		var localBE, s3BE shadowfs.StorageBackend
+		if cfg.LibraryBasePath != "" {
+			localBE = shadowfs.NewLocalBackend(cfg.LibraryBasePath)
+		}
+		if cfg.S3Endpoint != "" {
+			s3BE = shadowfs.NewS3Backend(cfg.S3Endpoint, cfg.S3AccessKey, cfg.S3SecretKey,
+				cfg.S3Bucket, cfg.S3Region, cfg.S3ForcePathStyle)
+		}
+
+		// Determine source/target backends.
+		var srcBE, tgtBE shadowfs.StorageBackend
+		switch *target {
+		case "s3":
+			srcBE, tgtBE = localBE, s3BE
+		case "local":
+			srcBE, tgtBE = s3BE, localBE
+		}
+		if srcBE == nil {
+			fmt.Fprintf(os.Stderr, "migrate-storage: source backend not configured\n")
+			os.Exit(1)
+		}
+		if tgtBE == nil {
+			fmt.Fprintf(os.Stderr, "migrate-storage: target backend not configured\n")
+			os.Exit(1)
+		}
+
+		store := shadowfs.NewUnifiedShadowFS(db.Pool, localBE, s3BE, *target,
+			cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), cfg.LibraryKeepVersions,
+			cfg.MaxUserStorageBytes, cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
+
+		if err := shadowfs.RunMigrateStorage(
+			ctx, db.Pool,
+			srcBE, tgtBE, *target,
+			store.BucketFor,
+			cfg.LibraryBasePath,
+			shadowfs.NewSchemaRenderer(),
+			*dryRun, *batchSize, *workers, *cleanupSource,
+		); err != nil {
+			fmt.Fprintf(os.Stderr, "migrate-storage: FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 
 	// L69: pprof server gated behind ENABLE_PPROF=true to avoid unintentional exposure.
 	if os.Getenv("ENABLE_PPROF") == "true" {
@@ -73,6 +170,25 @@ func main() {
 		slog.Error("failed to run migrations", "error", err)
 		os.Exit(1)
 	}
+	if err := shadowfs.CanonicalizeParentTypes(ctx, db.Pool); err != nil {
+		slog.Error("failed to canonicalize parent_type values", "error", err)
+		os.Exit(1)
+	}
+
+	// Clean up expired system_flags
+	db.Pool.Exec(ctx, `DELETE FROM system_flags WHERE expires_at < NOW()`)
+
+	// Check maintenance mode
+	var maintenanceValue string
+	var maintenanceSetAt time.Time
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT value, set_at FROM system_flags WHERE key = 'maintenance_mode' AND expires_at > NOW()`).Scan(&maintenanceValue, &maintenanceSetAt); err == nil {
+		slog.Error("maintenance mode active — server cannot start",
+			"reason", maintenanceValue,
+			"set_at", maintenanceSetAt,
+			"help", "Complete the storage migration or see docs for recovery steps")
+		os.Exit(1)
+	}
 
 	// Clean up stale processing entries from previous runs (crash recovery).
 	if cleaned, cleanErr := db.CleanupStaleProcessing(ctx, 10*time.Minute); cleanErr == nil && cleaned > 0 {
@@ -100,49 +216,20 @@ func main() {
 	// NOTE: Stale running jobs are handled later via h.ResumeInterruptedJobs
 	// after the Handler is fully initialised (needs DB + Handler for matching).
 
-	// S3 Storage (Garage) — always initialised during migration period.
-	// Existing data (photos, thumbnails, originals) lives in Garage.
-	// Can be made conditional AFTER 000233 cleanup migration runs.
-	var s3Client *storage.S3Client
-	if cfg.GarageEndpoint != "" && cfg.GarageAccessKey != "" {
-		s3Client, err = storage.NewS3Client(ctx, cfg.GarageEndpoint, cfg.GarageAccessKey, cfg.GarageSecretKey, cfg.GarageBucket)
-		if err != nil {
-			slog.Warn("S3/Garage client failed — legacy media will be unavailable", "error", err)
-		} else {
-			mediaBucket := os.Getenv("GARAGE_MEDIA_BUCKET")
-			if mediaBucket == "" {
-				mediaBucket = "skadia-media"
-			}
-			if err := s3Client.EnsureBucket(ctx, mediaBucket); err != nil {
-				slog.Warn("could not ensure media bucket", "error", err)
-			}
-		}
+	// ShadowFS (unified storage) — both backends always created when configured;
+	// UnifiedShadowFS routes to the target backend and can read from either.
+	var localBE, s3BE shadowfs.StorageBackend
+	if cfg.LibraryBasePath != "" {
+		localBE = shadowfs.NewLocalBackend(cfg.LibraryBasePath)
 	}
-
-	// ShadowFS (unified storage)
-	var store shadowfs.ShadowFS
-	switch cfg.StorageBackend {
-	case "s3":
-		store = shadowfs.NewS3ShadowFS(db.Pool, shadowfs.S3Config{
-			Endpoint:       cfg.S3Endpoint,
-			AccessKey:      cfg.S3AccessKey,
-			SecretKey:      cfg.S3SecretKey,
-			Bucket:         cfg.S3Bucket,
-			Region:         cfg.S3Region,
-			ForcePathStyle: cfg.S3ForcePathStyle,
-			BucketActivity: cfg.S3BucketActivity,
-			BucketMedia:    cfg.S3BucketMedia,
-		}, cfg.LibraryKeepVersions, cfg.MaxUserStorageBytes)
-		slog.Info("shadowfs: S3 backend active", "bucket", cfg.S3Bucket)
-	default:
-		localStore, err := shadowfs.NewLocalShadowFS(db.Pool, cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), cfg.LibraryKeepVersions, cfg.MaxUserStorageBytes)
-		if err != nil {
-			slog.Error("failed to create local ShadowFS", "error", err)
-			os.Exit(1)
-		}
-		store = localStore
-		slog.Info("shadowfs: local backend active", "path", cfg.LibraryBasePath)
+	if cfg.S3Endpoint != "" {
+		s3BE = shadowfs.NewS3Backend(cfg.S3Endpoint, cfg.S3AccessKey, cfg.S3SecretKey,
+			cfg.S3Bucket, cfg.S3Region, cfg.S3ForcePathStyle)
 	}
+	store := shadowfs.NewUnifiedShadowFS(db.Pool, localBE, s3BE, cfg.StorageBackend,
+		cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), cfg.LibraryKeepVersions,
+		cfg.MaxUserStorageBytes, cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
+	slog.Info("shadowfs: unified backend active", "target", cfg.StorageBackend)
 
 	// NATS (optional - log warning if unavailable)
 	var pub *event.Publisher
@@ -187,11 +274,10 @@ func main() {
 	// Build the ImportService which holds the shared post-processing pipeline.
 	// The SegmentMatcher callback is wired after the Handler is created
 	// (it references handler methods), so we set it below.
-	importSvc := importer.NewService(db, s3Client, store, pub, nil)
+	importSvc := importer.NewService(db, store, pub, nil)
 
 	h := &handler.Handler{
 		DB:            db,
-		Storage:       s3Client,
 		Events:        pub,
 		ShadowFS:       store,
 		ShadowFSConfig: shadowFSCfg,
@@ -211,6 +297,9 @@ func main() {
 			StorageBackend:      cfg.StorageBackend,
 			KeepVersions:        cfg.LibraryKeepVersions,
 			SyncEnabled:         cfg.LibrarySyncEnabled,
+			LocalBE:             localBE,
+			S3BE:                s3BE,
+			BucketFn:            store.BucketFor,
 		},
 	}
 
@@ -312,7 +401,7 @@ func main() {
 	// ShadowFS reconciliation (daily, graceful shutdown)
 	if cfg.LibraryBasePath != "" {
 		reconcileRenderer := shadowfs.NewSchemaRenderer()
-		reconcileJob := shadowfs.NewReconcileJob(db.Pool, cfg.LibraryBasePath, reconcileRenderer, cfg.LibraryKeepVersions)
+		reconcileJob := shadowfs.NewReconcileJob(db.Pool, localBE, s3BE, cfg.LibraryBasePath, store.BucketFor, reconcileRenderer, cfg.LibraryKeepVersions)
 		shutdown.Go("shadowfs-reconciliation", func(ctx context.Context) {
 			doReconcile := func() {
 				slog.Info("shadowfs reconcile: starting run")
@@ -323,12 +412,14 @@ func main() {
 					slog.Info("shadowfs reconcile: run complete",
 						"orphaned", result.OrphanedFiles,
 						"dangling", result.DanglingRecords,
+						"dangling_cleaned", result.DanglingCleaned,
 						"size_fixes", result.SizeMismatches,
 						"archived_cleaned", result.ArchivedCleaned,
 						"temp_cleaned", result.TempCleaned,
 						"duplicates", result.DuplicatePaths,
 						"purging_cleaned", result.PurgingCleaned,
 						"rename_fixed", result.RenameFixed,
+						"orphan_warnings", result.OrphanWarnings,
 						"archive_warnings", len(result.ArchiveWarnings),
 					)
 				}
@@ -503,6 +594,7 @@ func main() {
 				// ShadowFS dashboard & reconciliation
 				r.Get("/storage", h.StorageDashboard)
 				r.Post("/storage/reconcile", h.StartReconciliation)
+				r.Post("/storage/backfill-thumbnails", h.BackfillThumbnails)
 
 				// Photo batch operations
 				r.Post("/photos/recompute-previews", h.RecomputePhotoPreviews)

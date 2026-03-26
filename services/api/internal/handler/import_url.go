@@ -228,35 +228,26 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 			msTracker.Processing(ctx)
 			msTracker.SetFileHash(ctx, hashStr)
 
-			// Upload file — ShadowFS path preferred; legacy S3 as fallback.
+			// Upload file to ShadowFS.
 			var msFileID string
-			if h.ShadowFS != nil {
-				rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
-					UserID:      userID,
-					FileType:    "activity",
-					ContentType: "application/octet-stream",
-					FileName:    filename,
-					SizeBytes:   int64(len(fileBytes)),
-					FileHash:    hashStr,
-					Tags: map[string]string{
-						"format": format,
-						"source": "url_import",
-					},
-				}, bytes.NewReader(fileBytes))
-				if putErr != nil {
-					slog.Error("import_url: ShadowFS.Put multisport failed", "error", putErr)
-					msTracker.Error(ctx, fmt.Errorf("ShadowFS upload: %w", putErr))
-					return nil, &importError{importErrStorage, "failed to store file"}
-				}
-				msFileID = rec.ID
-			} else if h.Storage != nil {
-				s3Key := fmt.Sprintf("%s/%s.fit", userID, hashStr)
-				if uploadErr := h.Storage.Upload(ctx, s3Key, fileBytes, "application/octet-stream"); uploadErr != nil {
-					slog.Error("import_url: S3 upload for multisport failed", "error", uploadErr)
-					msTracker.Error(ctx, fmt.Errorf("S3 upload: %w", uploadErr))
-					return nil, &importError{importErrStorage, "failed to store file"}
-				}
+			rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
+				UserID:      userID,
+				FileType:    "activity",
+				ContentType: "application/octet-stream",
+				FileName:    filename,
+				SizeBytes:   int64(len(fileBytes)),
+				FileHash:    hashStr,
+				Tags: map[string]string{
+					"format": format,
+					"source": "url_import",
+				},
+			}, bytes.NewReader(fileBytes))
+			if putErr != nil {
+				slog.Error("import_url: ShadowFS.Put multisport failed", "error", putErr)
+				msTracker.Error(ctx, fmt.Errorf("ShadowFS upload: %w", putErr))
+				return nil, &importError{importErrStorage, "failed to store file"}
 			}
+			msFileID = rec.ID
 
 			msResult, msErr := h.ImportService.ProcessMultisport(
 				ctx, userID, sessions, fileBytes, hashStr,
@@ -345,7 +336,7 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 		contentType = "application/xml"
 	}
 	var fileID string
-	if h.ShadowFS != nil {
+	{
 		rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
 			UserID:      userID,
 			FileType:    "activity",
@@ -364,13 +355,6 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 			return nil, &importError{importErrStorage, "failed to store file"}
 		}
 		fileID = rec.ID
-	} else if h.Storage != nil {
-		s3Key := fmt.Sprintf("%s/%s.%s", userID, hashStr, format)
-		if uploadErr := h.Storage.Upload(ctx, s3Key, fileBytes, contentType); uploadErr != nil {
-			slog.Error("import_url: S3 upload failed", "error", uploadErr)
-			tracker.Error(ctx, uploadErr)
-			return nil, &importError{importErrStorage, "failed to store file"}
-		}
 	}
 
 	if format == "fit" && actData.UserProfileImport != nil {
