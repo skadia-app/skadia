@@ -291,6 +291,19 @@ func (h *Handler) StreamActivityPhotoThumb(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	// Legacy S3 fallback.
+	if h.Storage != nil && photo.S3KeyThumb != "" {
+		data, _, dlErr := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, photo.S3KeyThumb)
+		if dlErr == nil {
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Header().Set("Cache-Control", "private, max-age=86400")
+			w.Write(data)
+			return
+		}
+		slog.Warn("stream photo thumb: S3 download failed",
+			"photo_id", photoID, "error", dlErr)
+	}
+
 	httputil.WriteError(w, http.StatusNotFound, "Not Found", "thumbnail not available", r.URL.Path)
 }
 
@@ -316,7 +329,20 @@ func (h *Handler) StreamActivityPhotoFull(w http.ResponseWriter, r *http.Request
 		slog.Warn("stream photo full: ShadowFS.Resolve failed, falling back to S3", "file_id", *photo.FileID, "error", resolveErr)
 	}
 
-	httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not available", r.URL.Path)
+	// Legacy S3 fallback.
+	if h.Storage == nil {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "storage not configured", r.URL.Path)
+		return
+	}
+	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, photo.S3Key)
+	if err != nil {
+		slog.Error("s3 download photo failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load photo", r.URL.Path)
+		return
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.Write(data)
 }
 
 // patchPhotoLocationRequest is the body for PATCH /activities/{id}/photos/{photoID}.
@@ -416,6 +442,20 @@ func (h *Handler) writePhotoMetaSidecar(ctx context.Context, userID, photoID, fi
 		}
 	}
 
+	// Legacy S3 fallback.
+	// NOTE: Split-brain risk — when ShadowFS.Put fails (above) but S3 succeeds,
+	// the sidecar lives only in S3 while future reads may use ShadowFS. This is
+	// acceptable: S3 sidecars are best-effort metadata; the original file is unaffected.
+	if h.Storage == nil {
+		return
+	}
+	bucket := mediaBucketName()
+	key := fmt.Sprintf("activity-photos/%s/%s.meta.json", userID, fileHash)
+	if err := h.Storage.UploadToBucket(ctx, bucket, key, sidecarBytes, "application/json"); err != nil {
+		slog.Error("photo meta sidecar: S3 upload failed", "bucket", bucket, "key", key, "error", err)
+		return
+	}
+	slog.Info("photo meta sidecar written via S3", "bucket", bucket, "key", key)
 }
 
 func (h *Handler) StreamActivityPhotoPreview(w http.ResponseWriter, r *http.Request) {
@@ -462,7 +502,27 @@ func (h *Handler) StreamActivityPhotoPreview(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	httputil.WriteError(w, http.StatusNotFound, "Not Found", "preview not available", r.URL.Path)
+	// Legacy S3 fallback.
+	if h.Storage == nil {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "storage not configured", r.URL.Path)
+		return
+	}
+	key := photo.S3KeyPreview
+	if key == "" {
+		key = photo.S3Key
+	}
+	data, ct, err := h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, key)
+	if err != nil && key != photo.S3Key {
+		data, ct, err = h.Storage.DownloadFromBucket(r.Context(), photo.S3Bucket, photo.S3Key)
+	}
+	if err != nil {
+		slog.Error("s3 download preview failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load preview", r.URL.Path)
+		return
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.Write(data)
 }
 
 // RecomputePhotoPreviews regenerates preview images for all user photos via ShadowFS.
