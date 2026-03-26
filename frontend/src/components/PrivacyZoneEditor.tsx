@@ -113,6 +113,8 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   const pinMarkerRef = useRef<maplibregl.Marker | null>(null) // offset pin (blue)
   // Polygon-Vertex-Marker-Liste
   const polyMarkersRef = useRef<maplibregl.Marker[]>([])
+  // true während ein Vertex gerade gezogen wird → kein Marker-Recreate im useEffect
+  const isDraggingVertexRef = useRef(false)
 
   const initialMode: ZoneMode = zone?.zone_type === 'polygon' ? 'polygon' : 'circle'
 
@@ -319,18 +321,26 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         .setLngLat(pt)
         .addTo(map)
 
+      marker.on('dragstart', () => {
+        isDraggingVertexRef.current = true
+      })
+
       marker.on('drag', () => {
         const pos = marker.getLngLat()
-        setPolygonPoints(prev => {
-          const updated = [...prev]
-          updated[idx] = [pos.lng, pos.lat]
-          polygonPointsRef.current = updated
-          // If offset pin is enabled, keep pin inside polygon
-          if (offsetPinEnabledRef.current) {
-            clampPinToPolygon(map, updated)
-          }
-          return updated
-        })
+        const updated = [...polygonPointsRef.current]
+        updated[idx] = [pos.lng, pos.lat]
+        polygonPointsRef.current = updated
+        if (map.isStyleLoaded()) {
+          updatePolygonLayer(map, updated, polygonClosedRef.current, colorRef.current)
+        }
+        if (offsetPinEnabledRef.current) {
+          clampPinToPolygon(map, updated)
+        }
+      })
+
+      marker.on('dragend', () => {
+        isDraggingVertexRef.current = false
+        setPolygonPoints([...polygonPointsRef.current])
       })
 
       polyMarkersRef.current.push(marker)
@@ -683,7 +693,11 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
 
     const apply = () => {
       updatePolygonLayer(map, polygonPoints, polygonClosed, color)
-      updateVertexMarkers(map, polygonPoints, color)
+      // Marker nicht neu erstellen während ein Vertex gezogen wird —
+      // das würde den aktiven Drag-Marker zerstören
+      if (!isDraggingVertexRef.current) {
+        updateVertexMarkers(map, polygonPoints, color)
+      }
     }
     if (map.isStyleLoaded()) apply()
     else map.once('style.load', apply)
