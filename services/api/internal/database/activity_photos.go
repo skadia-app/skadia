@@ -451,6 +451,49 @@ func (db *DB) UpdateActivityPhotoDimensions(ctx context.Context, photoID string,
 	return err
 }
 
+// ThumbnailBackfillRow holds data for thumbnail backfill processing.
+type ThumbnailBackfillRow struct {
+	FileID     string // user_files ID of the original media file
+	ParentID   string // photo ID (parent_id in user_files)
+	UserID     string
+	ContentType string
+	FileName   string
+}
+
+// PhotosWithoutThumb returns user_files media entries with parent_type='photo'
+// that have no corresponding thumb entry in user_files.
+func (db *DB) PhotosWithoutThumb(ctx context.Context, userID string) ([]ThumbnailBackfillRow, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT uf.id, uf.parent_id, uf.user_id, uf.content_type, uf.file_name
+		FROM user_files uf
+		WHERE uf.file_type = 'media'
+		  AND uf.parent_type = 'photo'
+		  AND uf.status = 'active'
+		  AND uf.user_id = $1
+		  AND NOT EXISTS (
+			SELECT 1 FROM user_files t
+			WHERE t.parent_type = uf.parent_type
+			  AND t.parent_id = uf.parent_id
+			  AND t.file_type = 'thumb'
+			  AND t.status = 'active'
+		  )
+		ORDER BY uf.created_at
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []ThumbnailBackfillRow
+	for rows.Next() {
+		var r ThumbnailBackfillRow
+		if err := rows.Scan(&r.FileID, &r.ParentID, &r.UserID, &r.ContentType, &r.FileName); err != nil {
+			return nil, err
+		}
+		result = append(result, r)
+	}
+	return result, rows.Err()
+}
+
 // BackfillPhotoRow holds data for pHash backfill processing.
 type BackfillPhotoRow struct {
 	ID        string

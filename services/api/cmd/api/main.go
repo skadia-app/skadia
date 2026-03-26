@@ -511,6 +511,7 @@ func main() {
 				// ShadowFS dashboard & reconciliation
 				r.Get("/storage", h.StorageDashboard)
 				r.Post("/storage/reconcile", h.StartReconciliation)
+				r.Post("/storage/backfill-thumbnails", h.BackfillThumbnails)
 
 				// Photo batch operations
 				r.Post("/photos/recompute-previews", h.RecomputePhotoPreviews)
