@@ -682,6 +682,19 @@ func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zi
 		if copyErr != nil {
 			return fmt.Errorf("shadowfs: zip copy: %w", copyErr)
 		}
+
+		// Include .meta companion in export (backup/restore without DB).
+		if rec.FileType == "activity" && rec.HasSidecar {
+			companionPath := rec.StoragePath + ".meta"
+			crc, cErr := be.Read(ctx, companionPath, u.bucketOpts(rec.FileType))
+			if cErr == nil {
+				cw, _ := zw.Create(zipPath + ".meta")
+				if cw != nil {
+					io.Copy(cw, crc) //nolint:errcheck
+				}
+				crc.Close()
+			}
+		}
 	}
 	return nil
 }
