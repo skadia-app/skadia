@@ -634,12 +634,7 @@ func copyFileRename(src, dst string) (retErr error) {
 func moveRenameSidecar(oldMainPath, newMainPath, fileType string) {
 	var oldSidecar, newSidecar string
 	switch fileType {
-	case "media":
-		ext := filepath.Ext(oldMainPath)
-		oldSidecar = strings.TrimSuffix(oldMainPath, ext) + ".meta.json"
-		ext2 := filepath.Ext(newMainPath)
-		newSidecar = strings.TrimSuffix(newMainPath, ext2) + ".meta.json"
-	case "activity":
+	case "media", "activity":
 		oldSidecar = oldMainPath + ".meta"
 		newSidecar = newMainPath + ".meta"
 	default:

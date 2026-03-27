@@ -825,7 +825,7 @@ func validateCompanionSuffix(suffix string) error {
 	return nil
 }
 
-// PutCompanion writes a companion sidecar (e.g. ".meta" or ".meta.json") next to
+// PutCompanion writes a companion sidecar (e.g. ".meta") next to
 // the main file identified by fileID, using the same backend and bucket.
 // Sets has_sidecar=true on the parent record after a successful write.
 func (u *UnifiedShadowFS) PutCompanion(ctx context.Context, userID, fileID, suffix string, data []byte) error {

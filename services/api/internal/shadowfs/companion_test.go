@@ -91,7 +91,7 @@ func TestCompanionSuffixValidation_Valid(t *testing.T) {
 		desc   string
 	}{
 		{".meta", "activity meta sidecar"},
-		{".meta.json", "media meta sidecar"},
+		{".meta.json", "multi-dot extension"},
 		{".edits.json", "activity editor sidecar"},
 		{".thumb.jpg", "thumbnail sidecar"},
 	}
