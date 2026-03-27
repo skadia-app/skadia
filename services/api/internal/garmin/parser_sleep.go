@@ -158,10 +158,10 @@ func processSleepFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 
 	// Set timestamps only if non-zero (COALESCE preserves existing values on conflict)
 	if !sleepStartUTC.IsZero() {
-		sleep.SleepStartUTC = sleepStartUTC
+		sleep.SleepStartUTC = &sleepStartUTC
 	}
 	if !sleepEndUTC.IsZero() {
-		sleep.SleepEndUTC = sleepEndUTC
+		sleep.SleepEndUTC = &sleepEndUTC
 	}
 
 	// Map SleepAssessment fields — all uint8, 255 = invalid → nil

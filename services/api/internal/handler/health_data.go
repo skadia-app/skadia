@@ -107,8 +107,8 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 		sleep := &model.HealthSleep{
 			UserID:        userID,
 			CalendarDate:  req.Date,
-			SleepStartUTC: sleepStart,
-			SleepEndUTC:   sleepEnd,
+			SleepStartUTC: &sleepStart,
+			SleepEndUTC:   &sleepEnd,
 			DeepSeconds:   d.DeepSeconds,
 			LightSeconds:  d.LightSeconds,
 			RemSeconds:    d.RemSeconds,
