@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/muktihari/fit/decoder"
 	"github.com/muktihari/fit/kit/datetime"
@@ -51,6 +52,9 @@ type monitoringFITResult struct {
 
 	// From MonitoringHrData (msg 211): daily resting heart rate.
 	RestingHRByDate map[string]int // calendarDate -> resting_hr_bpm (7-day rolling avg)
+
+	// From proprietary msg 369 (Training Readiness): daily readiness score and factors.
+	TrainingReadiness []*model.HealthReadinessScore
 }
 
 // importMonitoringFITs reads all UploadedFiles ZIPs and extracts health data from
@@ -326,6 +330,12 @@ func processMonitorMainFIT(ctx context.Context, db *database.DB, fs shadowfs.Sha
 }
 
 func processHRVNightFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
+	// Store original FIT file in ShadowFS for GDPR export and storage migration.
+	if len(data) > 14 { // minimal FIT header check
+		ts := time.Now()
+		storeHealthFIT(ctx, db, fs, data, userID, "hrv_night", fmt.Sprintf("%s_hrv_night.fit", ts.Format("2006-01-02")), ts)
+	}
+
 	result := parseHRVNightFIT(data, userID)
 	if result == nil {
 		return nil
@@ -333,6 +343,11 @@ func processHRVNightFIT(ctx context.Context, db *database.DB, fs shadowfs.Shadow
 	if len(result.HRVNightValues) > 0 {
 		if err := db.UpsertHealthHRVNightValuesBatch(ctx, userID, result.HRVNightValues); err != nil {
 			return fmt.Errorf("upsert HRV night values: %w", err)
+		}
+	}
+	for _, readiness := range result.TrainingReadiness {
+		if err := db.UpsertHealthReadinessScore(ctx, readiness); err != nil {
+			slog.Warn("processHRVNightFIT: upsert training readiness failed", "error", err)
 		}
 	}
 	return nil
@@ -464,25 +479,77 @@ func parseHRVNightFIT(data []byte, userID string) *monitoringFITResult {
 
 	for i := range fit.Messages {
 		msg := &fit.Messages[i]
-		if msg.Num != 281 {
-			continue
+		switch msg.Num {
+		case 281: // Proprietary HRV night 5-min windows.
+			// Raw field access: field 253 = timestamp, field 0 = RMSSD (uint16, scale 128).
+			rawTS := msg.FieldValueByNum(253).Uint32()
+			rawVal := msg.FieldValueByNum(0).Uint16()
+			if rawTS == basetype.Uint32Invalid || rawVal == basetype.Uint16Invalid {
+				continue
+			}
+			ts := datetime.ToTime(rawTS)
+			if ts.IsZero() {
+				continue
+			}
+			result.HRVNightValues = append(result.HRVNightValues, model.HealthHRVNightValue{
+				UserID:     userID,
+				TS:         ts,
+				RmssdMS:    float64(rawVal) / 128.0,
+				SourceType: "garmin_fit",
+			})
+
+		case 369: // Training Readiness (proprietary)
+			rawTS := msg.FieldValueByNum(253).Uint32()
+			if rawTS == basetype.Uint32Invalid {
+				continue
+			}
+			ts := datetime.ToTime(rawTS)
+			if ts.IsZero() || ts.Before(time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)) {
+				continue
+			}
+			calDate := ts.UTC().Format("2006-01-02")
+			readiness := &model.HealthReadinessScore{
+				UserID:       userID,
+				CalendarDate: calDate,
+				SourceType:   "garmin_fit",
+			}
+			// Field 0: score (sint16 → int)
+			if v := msg.FieldValueByNum(0); v.Valid(basetype.Sint16) {
+				s := int(v.Int16())
+				readiness.Score = &s
+			}
+			// Field 5: sleep_score
+			if v := msg.FieldValueByNum(5); v.Valid(basetype.Sint16) {
+				s := int(v.Int16())
+				readiness.SleepScore = &s
+			}
+			// Field 8: recovery_time_factor_pct (sint16 → float64)
+			if v := msg.FieldValueByNum(8); v.Valid(basetype.Sint16) {
+				f := float64(v.Int16())
+				readiness.RecoveryTimeFactorPct = &f
+			}
+			// Field 10: acwr_pct
+			if v := msg.FieldValueByNum(10); v.Valid(basetype.Sint16) {
+				f := float64(v.Int16())
+				readiness.AcwrPct = &f
+			}
+			// Field 12: stress_history_factor_pct
+			if v := msg.FieldValueByNum(12); v.Valid(basetype.Sint16) {
+				f := float64(v.Int16())
+				readiness.StressHistoryFactorPct = &f
+			}
+			// Field 14: hrv_factor_pct
+			if v := msg.FieldValueByNum(14); v.Valid(basetype.Sint16) {
+				f := float64(v.Int16())
+				readiness.HRVFactorPct = &f
+			}
+			// Field 16: sleep_history_factor_pct
+			if v := msg.FieldValueByNum(16); v.Valid(basetype.Sint16) {
+				f := float64(v.Int16())
+				readiness.SleepHistoryFactorPct = &f
+			}
+			result.TrainingReadiness = append(result.TrainingReadiness, readiness)
 		}
-		// Raw field access for proprietary message.
-		rawTS := msg.FieldValueByNum(253).Uint32()
-		rawVal := msg.FieldValueByNum(0).Uint16()
-		if rawTS == basetype.Uint32Invalid || rawVal == basetype.Uint16Invalid {
-			continue
-		}
-		ts := datetime.ToTime(rawTS)
-		if ts.IsZero() {
-			continue
-		}
-		result.HRVNightValues = append(result.HRVNightValues, model.HealthHRVNightValue{
-			UserID:     userID,
-			TS:         ts,
-			RmssdMS:    float64(rawVal) / 128.0,
-			SourceType: "garmin_fit",
-		})
 	}
 
 	return result
