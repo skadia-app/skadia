@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { CoverageOverlayState, CoverageCompositeState } from '@/hooks/useCoverageOverlays'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { DayPicker } from 'react-day-picker'
@@ -32,6 +33,89 @@ function loadUserDefaultColors(): Record<string, string> | null {
   return null
 }
 
+function CoverageCompositeToggle({
+  label,
+  color,
+  state,
+  compositeKey,
+  layerLabels,
+  onToggle,
+  onToggleLayer,
+}: {
+  label: string
+  color: string
+  state: CoverageCompositeState
+  compositeKey: keyof CoverageOverlayState
+  layerLabels: Record<string, string>
+  onToggle: (key: keyof CoverageOverlayState, update: Partial<CoverageCompositeState>) => void
+  onToggleLayer: (composite: keyof CoverageOverlayState, layer: string, enabled: boolean) => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const hasSubLayers = Object.keys(layerLabels).length > 0
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2">
+        {hasSubLayers && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-xs text-neutral-400 cursor-pointer w-3 text-center"
+          >
+            <svg
+              className={`w-3 h-3 transition-transform ${expanded ? '' : '-rotate-90'}`}
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path
+                fillRule="evenodd"
+                d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+        )}
+        {!hasSubLayers && <span className="w-3" />}
+        <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <input
+            type="checkbox"
+            checked={state.enabled}
+            onChange={(e) => onToggle(compositeKey, { enabled: e.target.checked })}
+            className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
+          />
+          <span className={`${color} font-medium`}>{label}</span>
+        </label>
+      </div>
+      {expanded && state.enabled && (
+        <div className="ml-7 space-y-1.5">
+          <label className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+            <span className="whitespace-nowrap">Deckkraft</span>
+            <input
+              type="range"
+              min={10}
+              max={100}
+              value={state.opacity}
+              onChange={(e) => onToggle(compositeKey, { opacity: Number(e.target.value) })}
+              className="flex-1 h-1 accent-neutral-500"
+            />
+            <span className="w-8 text-right tabular-nums">{state.opacity}%</span>
+          </label>
+          {Object.entries(layerLabels).map(([key, name]) => (
+            <label key={key} className="flex items-center gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={state.layers[key] ?? true}
+                onChange={(e) => onToggleLayer(compositeKey, key, e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
+              />
+              <span className="text-neutral-600 dark:text-neutral-400">{name}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface Props {
   filters: MapFilterState
   onChange: (filters: MapFilterState) => void
@@ -43,9 +127,12 @@ interface Props {
   onSegmentFiltersChange?: (filters: SegmentsOverlayFilters) => void
   segmentColors?: Partial<SegmentColorConfig>
   onSegmentColorsChange?: (colors: Partial<SegmentColorConfig>) => void
+  coverageState?: CoverageOverlayState
+  onCoverageUpdate?: (key: keyof CoverageOverlayState, update: Partial<CoverageCompositeState>) => void
+  onCoverageToggleLayer?: (composite: keyof CoverageOverlayState, layer: string, enabled: boolean) => void
 }
 
-export default function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlayState, onOverlayChange, segmentFilters, onSegmentFiltersChange, segmentColors, onSegmentColorsChange }: Props) {
+export default function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlayState, onOverlayChange, segmentFilters, onSegmentFiltersChange, segmentColors, onSegmentColorsChange, coverageState, onCoverageUpdate, onCoverageToggleLayer }: Props) {
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
@@ -717,6 +804,49 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                     </div>
                   )}
                 </div>
+
+                {/* Coverage-Overlays */}
+                {coverageState && onCoverageUpdate && onCoverageToggleLayer && (
+                  <>
+                    <div className="border-t border-neutral-200 dark:border-neutral-700 my-2" />
+                    <CoverageCompositeToggle
+                      label="Natur-Overlay"
+                      color="text-green-600 dark:text-green-400"
+                      state={coverageState.nature}
+                      compositeKey="nature"
+                      layerLabels={{
+                        forest: 'Wald',
+                        water: 'Gewaesser',
+                        riverProximity: 'Fluss-Naehe',
+                        protected: 'Schutzgebiete',
+                        landuse: 'Landnutzung',
+                      }}
+                      onToggle={onCoverageUpdate}
+                      onToggleLayer={onCoverageToggleLayer}
+                    />
+                    <CoverageCompositeToggle
+                      label="Ruhe-Overlay"
+                      color="text-purple-500 dark:text-purple-400"
+                      state={coverageState.quiet}
+                      compositeKey="quiet"
+                      layerLabels={{}}
+                      onToggle={onCoverageUpdate}
+                      onToggleLayer={onCoverageToggleLayer}
+                    />
+                    <CoverageCompositeToggle
+                      label="Verkehr-Overlay"
+                      color="text-orange-500 dark:text-orange-400"
+                      state={coverageState.trafficUrban}
+                      compositeKey="trafficUrban"
+                      layerLabels={{
+                        traffic: 'Verkehr',
+                        urbanization: 'Urbanisierung',
+                      }}
+                      onToggle={onCoverageUpdate}
+                      onToggleLayer={onCoverageToggleLayer}
+                    />
+                  </>
+                )}
               </div>
             )}
 
