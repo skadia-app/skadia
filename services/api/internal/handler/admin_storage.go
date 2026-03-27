@@ -9,7 +9,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
@@ -447,13 +449,20 @@ func (h *Handler) BackfillMetaSidecars(w http.ResponseWriter, r *http.Request) {
 	shutdown.Go(jobID, func(ctx context.Context) {
 		sem := make(chan struct{}, 4)
 		var mu sync.Mutex
-		processed := int64(0)
+		var processed int64
 		anyFailed := false
+		var errMsgs []string
 
 		var wg sync.WaitGroup
+	outer:
 		for _, row := range missing {
 			wg.Add(1)
-			sem <- struct{}{}
+			select {
+			case <-ctx.Done():
+				wg.Done()
+				break outer
+			case sem <- struct{}{}:
+			}
 			go func() {
 				defer wg.Done()
 				defer func() { <-sem }()
@@ -462,19 +471,24 @@ func (h *Handler) BackfillMetaSidecars(w http.ResponseWriter, r *http.Request) {
 				if getErr != nil || act == nil {
 					mu.Lock()
 					anyFailed = true
+					if len(errMsgs) < 5 {
+						msg := row.ActivityID + ": activity not found"
+						if getErr != nil {
+							msg = getErr.Error()
+						}
+						errMsgs = append(errMsgs, msg)
+					}
 					mu.Unlock()
 				} else {
 					sidecar.WriteMetaCompanion(ctx, fs, db, row.UserID, row.ActivityID, row.FileID, nil, act)
 				}
 
-				mu.Lock()
-				processed++
-				mu.Unlock()
-				_ = db.UpdateBackgroundJobProgress(ctx, jobID, processed)
+				cur := atomic.AddInt64(&processed, 1)
+				_ = db.UpdateBackgroundJobProgress(ctx, jobID, cur)
 			}()
 		}
 		wg.Wait()
-		_ = db.CompleteBackgroundJob(ctx, jobID, anyFailed, "")
+		_ = db.CompleteBackgroundJob(ctx, jobID, anyFailed, strings.Join(errMsgs, "; "))
 	})
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{

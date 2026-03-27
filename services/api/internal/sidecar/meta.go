@@ -57,7 +57,7 @@ func GenerateMeta(activityID string, data *model.ActivityData) *MetaFile {
 //   - User-editable fields always come from activity (when not nil).
 func GenerateMetaV3(activityID string, data *model.ActivityData, activity *model.Activity) *MetaFile {
 	m := &MetaFile{
-		SchemaVersion: 3,
+		SchemaVersion: 4,
 		SkadiaID:     activityID,
 		CreatedAt: func() time.Time {
 			if activity != nil {
