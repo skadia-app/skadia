@@ -278,45 +278,45 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		nilIfEmpty(data.OriginalName), nilIfEmpty(data.FileFormat), // $37-$38
 		nilIfEmpty(data.Source), nilIfEmpty(data.SourceDevice), // $39-$40
 		visibilityOrDefault(data.Visibility), // $41
-		data.SportConflictPending, // $42
+		data.SportConflictPending,            // $42
 		// FIT SDK new fields
 		data.WorkoutID,                                                                                          // $43
 		data.TotalCycles, data.TotalWorkJ, data.TotalFatCalories, data.MetabolicCalories, data.TotalMovingTimeS, // $44-$48
-		data.SwimStroke, data.PoolLengthM, data.PoolLengthUnit,                                                  // $49-$51
-		data.NumLengths, data.NumActiveLengths, data.AvgStrokeCount, data.AvgStrokeDistanceM,                    // $52-$55
-		data.StrokeCount, data.ZoneCount,                                                                        // $56-$57
-		data.AvgFractionalCadence, data.MaxFractionalCadence, data.TotalFractionalCycles,                        // $58-$60
-		data.AvgVerticalOscillationMm, data.AvgStanceTimeMs, data.AvgStanceTimePct,                              // $61-$63
-		data.AvgStanceTimeBalancePct, data.AvgStepLengthMm, data.AvgVerticalRatioPct,                            // $64-$66
-		data.AvgGradePct, data.AvgPosGradePct, data.AvgNegGradePct, data.MaxPosGradePct, data.MaxNegGradePct,   // $67-$71
-		data.AvgPosVerticalSpeedMs, data.AvgNegVerticalSpeedMs,                                                  // $72-$73
-		data.MaxPosVerticalSpeedMs, data.MaxNegVerticalSpeedMs, data.AvgVamMs,                                   // $74-$76
-		data.AvgAltitudeM, data.TotalFractionalAscentM, data.TotalFractionalDescentM,                            // $77-$79
-		data.AvgLeftTorqueEffectivenessPct, data.AvgRightTorqueEffectivenessPct,                                 // $80-$81
-		data.AvgLeftPedalSmoothnessPct, data.AvgRightPedalSmoothnessPct,                                        // $82-$83
-		data.AvgCombinedPedalSmoothnessPct,                                                                      // $84
-		data.AvgLeftPcoMm, data.AvgRightPcoMm,                                                                  // $85-$86
-		data.AvgLeftPowerPhaseStartDeg, data.AvgLeftPowerPhaseEndDeg,                                            // $87-$88
-		data.AvgLeftPowerPhasePeakStartDeg, data.AvgLeftPowerPhasePeakEndDeg,                                    // $89-$90
-		data.AvgRightPowerPhaseStartDeg, data.AvgRightPowerPhaseEndDeg,                                          // $91-$92
-		data.AvgRightPowerPhasePeakStartDeg, data.AvgRightPowerPhasePeakEndDeg,                                  // $93-$94
-		data.AvgPowerPositionW, data.MaxPowerPositionW,                                                          // $95-$96
-		data.AvgCadencePosition, data.MaxCadencePosition,                                                        // $97-$98
-		data.TimeStandingS, data.StandCount,                                                                     // $99-$100
-		data.AvgLevMotorPowerW, data.MaxLevMotorPowerW, data.LevBatteryConsumptionPct,                           // $101-$103
-		data.TotalGrit, data.TotalFlow, data.AvgGrit, data.AvgFlow,                                             // $104-$107
-		data.JumpCount,                                                                                          // $108
-		data.MaxBallSpeedMs, data.AvgBallSpeedMs, data.PlayerScore, data.OpponentScore, data.OpponentName,       // $109-$113
-		data.AvgTotalHemoglobinConc, data.MinTotalHemoglobinConc, data.MaxTotalHemoglobinConc,                   // $114-$116
-		data.AvgSaturatedHemoglobinPct, data.MinSaturatedHemoglobinPct, data.MaxSaturatedHemoglobinPct,          // $117-$119
-		data.AvgDepthM, data.MaxDepthM, data.SurfaceIntervalS, data.DiveNumber,                                 // $120-$123
-		data.StartCnsPct, data.EndCnsPct, data.StartN2Pct, data.EndN2Pct, data.O2ToxicityOtu,                   // $124-$128
-		data.MaxRespirationRate, data.MinRespirationRate, data.SdrrHrvMs,                                        // $129-$131
-		data.MinCoreTemperatureC, data.MaxCoreTemperatureC,                                                      // $132-$133
-		data.AvgLapTimeS, data.BestLapIndex, data.NumLaps, data.FirstLapIndex,                                   // $134-$137
-		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex,                     // $138-$141
-		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng,                                                     // $142-$145
-		data.IsManualEntry, nilIfZeroInt(data.WorkoutFeel), nilIfZeroInt(data.WorkoutRpe),                       // $146-$148
+		data.SwimStroke, data.PoolLengthM, data.PoolLengthUnit, // $49-$51
+		data.NumLengths, data.NumActiveLengths, data.AvgStrokeCount, data.AvgStrokeDistanceM, // $52-$55
+		data.StrokeCount, data.ZoneCount, // $56-$57
+		data.AvgFractionalCadence, data.MaxFractionalCadence, data.TotalFractionalCycles, // $58-$60
+		data.AvgVerticalOscillationMm, data.AvgStanceTimeMs, data.AvgStanceTimePct, // $61-$63
+		data.AvgStanceTimeBalancePct, data.AvgStepLengthMm, data.AvgVerticalRatioPct, // $64-$66
+		data.AvgGradePct, data.AvgPosGradePct, data.AvgNegGradePct, data.MaxPosGradePct, data.MaxNegGradePct, // $67-$71
+		data.AvgPosVerticalSpeedMs, data.AvgNegVerticalSpeedMs, // $72-$73
+		data.MaxPosVerticalSpeedMs, data.MaxNegVerticalSpeedMs, data.AvgVamMs, // $74-$76
+		data.AvgAltitudeM, data.TotalFractionalAscentM, data.TotalFractionalDescentM, // $77-$79
+		data.AvgLeftTorqueEffectivenessPct, data.AvgRightTorqueEffectivenessPct, // $80-$81
+		data.AvgLeftPedalSmoothnessPct, data.AvgRightPedalSmoothnessPct, // $82-$83
+		data.AvgCombinedPedalSmoothnessPct,    // $84
+		data.AvgLeftPcoMm, data.AvgRightPcoMm, // $85-$86
+		data.AvgLeftPowerPhaseStartDeg, data.AvgLeftPowerPhaseEndDeg, // $87-$88
+		data.AvgLeftPowerPhasePeakStartDeg, data.AvgLeftPowerPhasePeakEndDeg, // $89-$90
+		data.AvgRightPowerPhaseStartDeg, data.AvgRightPowerPhaseEndDeg, // $91-$92
+		data.AvgRightPowerPhasePeakStartDeg, data.AvgRightPowerPhasePeakEndDeg, // $93-$94
+		data.AvgPowerPositionW, data.MaxPowerPositionW, // $95-$96
+		data.AvgCadencePosition, data.MaxCadencePosition, // $97-$98
+		data.TimeStandingS, data.StandCount, // $99-$100
+		data.AvgLevMotorPowerW, data.MaxLevMotorPowerW, data.LevBatteryConsumptionPct, // $101-$103
+		data.TotalGrit, data.TotalFlow, data.AvgGrit, data.AvgFlow, // $104-$107
+		data.JumpCount,                                                                                    // $108
+		data.MaxBallSpeedMs, data.AvgBallSpeedMs, data.PlayerScore, data.OpponentScore, data.OpponentName, // $109-$113
+		data.AvgTotalHemoglobinConc, data.MinTotalHemoglobinConc, data.MaxTotalHemoglobinConc, // $114-$116
+		data.AvgSaturatedHemoglobinPct, data.MinSaturatedHemoglobinPct, data.MaxSaturatedHemoglobinPct, // $117-$119
+		data.AvgDepthM, data.MaxDepthM, data.SurfaceIntervalS, data.DiveNumber, // $120-$123
+		data.StartCnsPct, data.EndCnsPct, data.StartN2Pct, data.EndN2Pct, data.O2ToxicityOtu, // $124-$128
+		data.MaxRespirationRate, data.MinRespirationRate, data.SdrrHrvMs, // $129-$131
+		data.MinCoreTemperatureC, data.MaxCoreTemperatureC, // $132-$133
+		data.AvgLapTimeS, data.BestLapIndex, data.NumLaps, data.FirstLapIndex, // $134-$137
+		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex, // $138-$141
+		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng, // $142-$145
+		data.IsManualEntry, nilIfZeroInt(data.WorkoutFeel), nilIfZeroInt(data.WorkoutRpe), // $146-$148
 	).Scan(&id, &isEbike, &isVirtual, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
@@ -506,7 +506,6 @@ func (db *DB) InsertTrack(ctx context.Context, activityID string, trackPoints []
 	}
 	return nil
 }
-
 
 func (db *DB) InsertSensors(ctx context.Context, activityID string, sensors []model.SensorRecord) error {
 	if len(sensors) == 0 {
@@ -2212,7 +2211,6 @@ func ptrString(s string) *string {
 
 // ── Shadow File System ──────────────────────────────────────────────────────
 
-
 // GetUserHotfolderEnabled returns the user's hotfolder_enabled preference.
 func (db *DB) GetUserHotfolderEnabled(ctx context.Context, userID string) (bool, error) {
 	var enabled bool
@@ -2805,7 +2803,7 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, user_id, name, color, text_color, category, is_system,
 			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-			lat, lng, has_automation
+			lat, lng, has_automation, cover_file_id
 		FROM tags
 		WHERE user_id = $1
 		ORDER BY activity_count DESC, name ASC`,
@@ -2824,7 +2822,7 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt,
-			&t.Lat, &t.Lng, &t.HasAutomation,
+			&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID,
 		); err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
@@ -2893,7 +2891,7 @@ func (db *DB) GetTagByID(ctx context.Context, tagID, userID string) (*model.Tag,
 	err := db.Pool.QueryRow(ctx, `
 		SELECT id, user_id, name, color, text_color, category, is_system,
 			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-			lat, lng, has_automation
+			lat, lng, has_automation, cover_file_id
 		FROM tags
 		WHERE id = $1 AND user_id = $2`, tagID, userID,
 	).Scan(
@@ -2901,7 +2899,7 @@ func (db *DB) GetTagByID(ctx context.Context, tagID, userID string) (*model.Tag,
 		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 		&t.ConditionGroups, &t.ConditionsLogic,
 		&t.Description, &t.ActivityCount, &t.CreatedAt,
-		&t.Lat, &t.Lng, &t.HasAutomation,
+		&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -2950,13 +2948,13 @@ func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor stri
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, user_id, name, color, text_color, category, is_system,
 			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-			lat, lng, has_automation`,
+			lat, lng, has_automation, cover_file_id`,
 		userID, name, color, textColor, isAuto, conditions, conditionGroups, conditionsLogic, description, lat, lng, category,
 	).Scan(&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
 		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 		&t.ConditionGroups, &t.ConditionsLogic,
 		&t.Description, &t.ActivityCount, &t.CreatedAt,
-		&t.Lat, &t.Lng, &t.HasAutomation)
+		&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID)
 	if err != nil {
 		return nil, fmt.Errorf("create tag: %w", err)
 	}
@@ -3034,7 +3032,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 	}
 	tagCols := `id, user_id, name, color, text_color, category, is_system,
 		is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-		lat, lng, has_automation`
+		lat, lng, has_automation, cover_file_id`
 
 	scanTag := func(row interface{ Scan(...any) error }) (*model.Tag, error) {
 		var t model.Tag
@@ -3043,7 +3041,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt,
-			&t.Lat, &t.Lng, &t.HasAutomation,
+			&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID,
 		)
 		return &t, err
 	}
@@ -3083,7 +3081,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 func (db *DB) ClearTagCoverFile(ctx context.Context, tagID, userID string) (*model.Tag, error) {
 	tagCols := `id, user_id, name, color, text_color, category, is_system,
 		is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-		lat, lng, has_automation`
+		lat, lng, has_automation, cover_file_id`
 	var t model.Tag
 	err := db.Pool.QueryRow(ctx,
 		fmt.Sprintf(`UPDATE tags
@@ -3096,7 +3094,7 @@ func (db *DB) ClearTagCoverFile(ctx context.Context, tagID, userID string) (*mod
 		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 		&t.ConditionGroups, &t.ConditionsLogic,
 		&t.Description, &t.ActivityCount, &t.CreatedAt,
-		&t.Lat, &t.Lng, &t.HasAutomation,
+		&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -3127,7 +3125,7 @@ func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model
 	rows, err := db.Pool.Query(ctx, `
 		SELECT t.id, t.user_id, t.name, t.color, t.text_color, t.category, t.is_system,
 			t.is_auto, t.conditions, t.condition_groups, t.conditions_logic, t.description, t.activity_count, t.created_at,
-			t.lat, t.lng, t.has_automation
+			t.lat, t.lng, t.has_automation, t.cover_file_id
 		FROM tags t
 		JOIN activity_tags at ON at.tag_id = t.id
 		WHERE at.activity_id = $1
@@ -3147,7 +3145,7 @@ func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model
 			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 			&t.ConditionGroups, &t.ConditionsLogic,
 			&t.Description, &t.ActivityCount, &t.CreatedAt,
-			&t.Lat, &t.Lng, &t.HasAutomation,
+			&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID,
 		); err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
@@ -3611,7 +3609,7 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 	// 5. Return the surviving target tag (with refreshed activity_count).
 	tagCols := `id, user_id, name, color, text_color, category, is_system,
 		is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-		lat, lng, has_automation`
+		lat, lng, has_automation, cover_file_id`
 	var t model.Tag
 	err = tx.QueryRow(ctx,
 		fmt.Sprintf(`SELECT %s FROM tags WHERE id = $1`, tagCols),
@@ -3621,7 +3619,7 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
 		&t.ConditionGroups, &t.ConditionsLogic,
 		&t.Description, &t.ActivityCount, &t.CreatedAt,
-		&t.Lat, &t.Lng, &t.HasAutomation,
+		&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get merged tag: %w", err)

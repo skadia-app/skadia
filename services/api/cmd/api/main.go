@@ -319,11 +319,11 @@ func main() {
 	importSvc := importer.NewService(db, store, pub, nil)
 
 	h := &handler.Handler{
-		DB:            db,
-		Events:        pub,
+		DB:             db,
+		Events:         pub,
 		ShadowFS:       store,
 		ShadowFSConfig: shadowFSCfg,
-		ImportService: importSvc,
+		ImportService:  importSvc,
 		Config: &handler.HandlerConfig{
 			LiteLLMConfigPath:   cfg.LiteLLMConfigPath,
 			LiteLLMInternalURL:  cfg.LiteLLMInternalURL,
@@ -731,6 +731,7 @@ func main() {
 			r.Delete("/tags/{id}/activities", h.UnassignActivitiesFromTag)
 			r.Post("/tags/{id}/merge", h.MergeTag)
 			r.Post("/tags/{id}/sync-location", h.SyncTagLocation)
+			r.Get("/tags/{id}/cover", h.ServeTagCover)
 			r.Post("/tags/{id}/cover-image", h.UploadTagCoverImage)
 			r.Delete("/tags/{id}/cover-image", h.ClearTagCoverImage)
 

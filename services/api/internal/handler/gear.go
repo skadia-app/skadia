@@ -28,9 +28,9 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
 func (h *Handler) ListGear(w http.ResponseWriter, r *http.Request) {
@@ -948,12 +948,16 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 		titlePtr = &title
 	}
 
-	// Upload document to ShadowFS.
+	// Upload to ShadowFS — images go to media/, everything else to documents/.
+	fileType := "document"
+	if strings.HasPrefix(contentType, "image/") {
+		fileType = "media"
+	}
 	var docFileID string
 	if h.ShadowFS != nil {
 		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
-			FileType:    "document",
+			FileType:    fileType,
 			ContentType: contentType,
 			FileName:    header.Filename,
 			SizeBytes:   int64(len(data)),
@@ -1254,12 +1258,16 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 		titlePtr = &title
 	}
 
-	// Upload document to ShadowFS.
+	// Upload to ShadowFS — images go to media/, everything else to documents/.
+	fileType := "document"
+	if strings.HasPrefix(contentType, "image/") {
+		fileType = "media"
+	}
 	var compFileID string
 	if h.ShadowFS != nil {
 		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
-			FileType:    "document",
+			FileType:    fileType,
 			ContentType: contentType,
 			FileName:    header.Filename,
 			SizeBytes:   int64(len(data)),

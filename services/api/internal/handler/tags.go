@@ -15,9 +15,10 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 )
 
@@ -299,11 +300,10 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	fileCT := detectedCT
 
 	// Resolve old cover_file_id so we can delete it after successful DB update.
-	var oldCoverFileID string
-	_ = h.DB.Pool.QueryRow(r.Context(),
-		`SELECT COALESCE(cover_file_id::text, '') FROM tags WHERE id = $1 AND user_id = $2`,
-		tagID, userID,
-	).Scan(&oldCoverFileID)
+	oldCoverFileID := ""
+	if tag.CoverFileID != nil {
+		oldCoverFileID = *tag.CoverFileID
+	}
 
 	// Upload cover image to ShadowFS.
 	var coverFileID string
@@ -329,33 +329,65 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := h.DB.UpdateTag(r.Context(), tagID, userID, "", "", "", nil, nil, nil, nil, nil, nil, nil, false)
-	if err != nil {
-		slog.Error("update tag cover_file_id failed", "error", err)
-		// DB update failed — clean up the new file we already stored.
-		if coverFileID != "" && h.ShadowFS != nil {
-			if delErr := h.ShadowFS.Delete(r.Context(), userID, coverFileID); delErr != nil {
-				slog.Warn("upload tag cover: ShadowFS.Delete new cover rollback failed", "tag_id", tagID, "file_id", coverFileID, "error", delErr)
-			}
-		}
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
-		return
-	}
-
-	// Link ShadowFS record to domain row.
+	// Link ShadowFS record to domain row BEFORE reading back the tag,
+	// so the response includes the correct cover_file_id.
 	if coverFileID != "" {
 		if _, dbErr := h.DB.Pool.Exec(r.Context(),
-			`UPDATE tags SET cover_file_id = $1 WHERE id = $2`,
-			coverFileID, tagID,
+			`UPDATE tags SET cover_file_id = $1 WHERE id = $2 AND user_id = $3`,
+			coverFileID, tagID, userID,
 		); dbErr != nil {
-			slog.Warn("tags: set cover_file_id failed", "tag_id", tagID, "error", dbErr)
+			slog.Error("tags: set cover_file_id failed", "tag_id", tagID, "error", dbErr)
+			if h.ShadowFS != nil {
+				if delErr := h.ShadowFS.Delete(r.Context(), userID, coverFileID); delErr != nil {
+					slog.Warn("upload tag cover: ShadowFS.Delete new cover rollback failed", "tag_id", tagID, "file_id", coverFileID, "error", delErr)
+				}
+			}
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
+			return
 		}
+	}
+
+	// Generate and store thumbnail (best-effort, non-fatal).
+	if coverFileID != "" {
+		if thumbData, thumbErr := imageutil.Resize(data, 800, 800, 85); thumbErr == nil && thumbData != nil {
+			_, _ = h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
+				UserID:      userID,
+				FileType:    "thumb",
+				ContentType: "image/jpeg",
+				FileName:    "cover_thumb.jpg",
+				SizeBytes:   int64(len(thumbData)),
+				ParentType:  func() *string { s := "tag"; return &s }(),
+				ParentID:    &tagID,
+			}, bytes.NewReader(thumbData))
+		}
+	}
+
+	// Read back the tag with the updated cover_file_id.
+	updated, err := h.DB.GetTagByID(r.Context(), tagID, userID)
+	if err != nil || updated == nil {
+		slog.Error("upload tag cover: reload tag failed", "tag_id", tagID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to reload tag", r.URL.Path)
+		return
 	}
 
 	// Delete old cover AFTER successful DB update to avoid orphaning new file on error.
 	if oldCoverFileID != "" && h.ShadowFS != nil {
 		if delErr := h.ShadowFS.Delete(r.Context(), userID, oldCoverFileID); delErr != nil {
 			slog.Warn("upload tag cover: ShadowFS.Delete old cover failed", "tag_id", tagID, "file_id", oldCoverFileID, "error", delErr)
+		}
+		// Also delete old thumbnail (best-effort).
+		var oldThumbID string
+		_ = h.DB.Pool.QueryRow(r.Context(),
+			`SELECT id::text FROM user_files
+			 WHERE user_id = $1 AND file_type = 'thumb'
+			   AND parent_type = 'tag' AND parent_id = $2
+			   AND id != (SELECT id FROM user_files WHERE user_id = $1 AND file_type = 'thumb' AND parent_type = 'tag' AND parent_id = $2 ORDER BY created_at DESC LIMIT 1)
+			   AND status = 'active'
+			 LIMIT 1`,
+			userID, tagID,
+		).Scan(&oldThumbID)
+		if oldThumbID != "" {
+			_ = h.ShadowFS.Delete(r.Context(), userID, oldThumbID)
 		}
 	}
 
@@ -384,11 +416,10 @@ func (h *Handler) ClearTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Resolve ShadowFS file_id for deletion (best-effort).
-	var coverFileID string
-	_ = h.DB.Pool.QueryRow(r.Context(),
-		`SELECT COALESCE(cover_file_id::text, '') FROM tags WHERE id = $1 AND user_id = $2`,
-		tagID, userID,
-	).Scan(&coverFileID)
+	coverFileID := ""
+	if tag.CoverFileID != nil {
+		coverFileID = *tag.CoverFileID
+	}
 
 	// ShadowFS delete.
 	if coverFileID != "" && h.ShadowFS != nil {
@@ -409,6 +440,57 @@ func (h *Handler) ClearTagCoverImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, updated)
+}
+
+// ServeTagCover serves the tag cover image (thumbnail preferred, original fallback).
+// GET /api/v1/tags/{id}/cover
+func (h *Handler) ServeTagCover(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	tagID := chi.URLParam(r, "id")
+
+	tag, err := h.DB.GetTagByID(r.Context(), tagID, userID)
+	if err != nil || tag == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
+		return
+	}
+	if tag.CoverFileID == nil || *tag.CoverFileID == "" {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "no cover image", r.URL.Path)
+		return
+	}
+	if h.ShadowFS == nil {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "storage not configured", r.URL.Path)
+		return
+	}
+
+	// Prefer thumbnail if available.
+	var thumbFileID string
+	_ = h.DB.Pool.QueryRow(r.Context(),
+		`SELECT id::text FROM user_files
+		 WHERE user_id = $1 AND file_type = 'thumb'
+		   AND parent_type = 'tag' AND parent_id = $2
+		   AND status = 'active'
+		 ORDER BY created_at DESC LIMIT 1`,
+		userID, tagID,
+	).Scan(&thumbFileID)
+	if thumbFileID != "" {
+		resolved, resolveErr := h.ShadowFS.Resolve(r.Context(), userID, thumbFileID)
+		if resolveErr == nil {
+			serveResolvedFile(w, r, resolved)
+			return
+		}
+	}
+
+	// Fallback: serve original cover image.
+	resolved, resolveErr := h.ShadowFS.Resolve(r.Context(), userID, *tag.CoverFileID)
+	if resolveErr != nil {
+		slog.Error("serve tag cover: resolve failed", "tag_id", tagID, "file_id", *tag.CoverFileID, "error", resolveErr)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "cover image not found", r.URL.Path)
+		return
+	}
+	serveResolvedFile(w, r, resolved)
 }
 
 // AssignActivitiesToTag manually assigns a list of activities to a tag.
