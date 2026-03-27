@@ -444,6 +444,21 @@ func main() {
 	h.CoverageCache = coverage.NewTileGridCache(db.Pool, coverage.DefaultNoiseSettings())
 	h.CoverageBaseDir = filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "coverage")
 
+	// DiskCoverageReader — mmap-based reader for FCOV coverage binaries
+	coverageDir := filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "coverage")
+	if _, statErr := os.Stat(coverageDir); statErr == nil {
+		diskReader, drErr := coverage.NewDiskCoverageReader(coverageDir, 256)
+		if drErr != nil {
+			slog.Warn("disk coverage reader init failed", "error", drErr)
+		} else {
+			h.CoverageReader = diskReader
+			slog.Info("disk coverage reader initialized", "dir", coverageDir)
+		}
+	}
+	if h.CoverageReader != nil {
+		graphMgr.CoverageReader = h.CoverageReader
+	}
+
 	// Wire SegmentMatcher callback: runs segment matching + lap detection in
 	// the background goroutine, reusing the existing handler-package functions.
 	importSvc.SegmentMatcher = func(activityID, userID, sportType, subType string, gearID *string, activityDate time.Time) {
@@ -571,6 +586,7 @@ func main() {
 
 	// Public routes (no authentication required)
 	r.Get("/health", h.Health)
+	r.Get("/api/v1/coverage/info", h.CoverageBuildInfo)
 	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		// Go-native auth endpoints

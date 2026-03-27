@@ -15,18 +15,18 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
-// coverageAdapter wraps coverage.TileGridCache to satisfy graph.CoverageReader.
+// coverageAdapter wraps coverage.CoverageReader to satisfy graph.CoverageReader.
 // Needed to avoid import cycles: coverage imports graph, so graph cannot import coverage.
 type coverageAdapter struct {
-	cache *coverage.TileGridCache
+	reader coverage.CoverageReader
 }
 
 func (a *coverageAdapter) PreloadTile(ctx context.Context, tileID uint32) error {
-	return a.cache.PreloadTile(ctx, tileID)
+	return a.reader.PreloadTile(ctx, tileID)
 }
 
 func (a *coverageAdapter) SampleWay(geom orb.LineString) graph.CoverageData {
-	cr := a.cache.SampleWay(geom)
+	cr := a.reader.SampleWay(geom)
 	return graph.CoverageData{
 		ForestPct:         cr.ForestPct,
 		ProtectedArea:     cr.ProtectedArea,
@@ -54,6 +54,8 @@ type GraphManager struct {
 	// Unified routing via GraphReader interface.
 	tiledReader   *TiledGraphReader
 	unifiedRouter *UnifiedRouter
+
+	CoverageReader coverage.CoverageReader
 }
 
 // InitTiledReader initializes a TiledGraphReader and UnifiedRouter.
@@ -166,12 +168,11 @@ func (m *GraphManager) RebuildTiles(ctx context.Context, pool *pgxpool.Pool,
 	}
 	defer m.mu.Unlock()
 
-	// A07: Create CoverageReader for Phase 2 (no DB roundtrip per way).
-	// TODO: load noise settings from user/system configuration instead of defaults.
-	noiseCfg := coverage.DefaultNoiseSettings()
-	cr := coverage.NewTileGridCache(pool, noiseCfg)
-	defer cr.ReleaseAll()
-	adapter := &coverageAdapter{cache: cr}
+	// A07: Use DiskCoverageReader for coverage data (from build-coverage binaries).
+	if m.CoverageReader == nil {
+		return fmt.Errorf("coverage reader not initialized: run build-coverage first")
+	}
+	adapter := &coverageAdapter{reader: m.CoverageReader}
 
 	results, err := graph.BuildAllTiles(ctx, pool, tileDir, hgtDirs, adapter, workers, filterBBox, force, progressFn)
 	if err != nil {

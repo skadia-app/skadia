@@ -22,8 +22,9 @@ type Handler struct {
 	Config         *HandlerConfig           // LLM/LiteLLM configuration
 	ImportService  *importer.Service        // shared post-processing pipeline
 	GraphManager   *routing.GraphManager    // nil when routing graph is not configured
-	CoverageCache   *coverage.TileGridCache  // nil when coverage cache is not initialized
-	CoverageBaseDir string                   // base directory for FCOV coverage files
+	CoverageCache   *coverage.TileGridCache      // nil when coverage cache is not initialized
+	CoverageBaseDir string                       // base directory for FCOV coverage files
+	CoverageReader  *coverage.DiskCoverageReader // nil when coverage binaries are not available
 
 	recomputeJob recomputeJobState // in-memory state for async recompute-all
 }
