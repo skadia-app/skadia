@@ -24,17 +24,8 @@ func (h *Handler) BuildCoverage(w http.ResponseWriter, r *http.Request) {
 		Region  string `json:"region"`
 		Workers int    `json:"workers"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
-
-	entityName := "Coverage-Grids"
-	jobID, created, err := h.DB.InsertBackgroundJobGuarded(r.Context(), userID,
-		"coverage_build", nil, &entityName, 0)
-	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "Job creation failed", err.Error(), r.URL.Path)
-		return
-	}
-	if !created {
-		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+		httputil.WriteError(w, http.StatusBadRequest, "Invalid JSON", err.Error(), r.URL.Path)
 		return
 	}
 
@@ -45,11 +36,10 @@ func (h *Handler) BuildCoverage(w http.ResponseWriter, r *http.Request) {
 		Workers: req.Workers,
 	}
 
-	// Resolve region to bounding box
+	// Resolve region to bounding box — validate BEFORE creating background job
 	if req.Region != "" {
 		reg, ok := osmpkg.RegionByID(req.Region)
 		if !ok {
-			_ = h.DB.CompleteBackgroundJob(r.Context(), jobID, true, fmt.Sprintf("unknown region: %q", req.Region))
 			httputil.WriteError(w, http.StatusBadRequest, "Unknown region", fmt.Sprintf("unknown region: %q", req.Region), r.URL.Path)
 			return
 		}
@@ -63,6 +53,18 @@ func (h *Handler) BuildCoverage(w http.ResponseWriter, r *http.Request) {
 			opts.TileLon = lon
 			opts.SingleTile = true
 		}
+	}
+
+	entityName := "Coverage-Grids"
+	jobID, created, err := h.DB.InsertBackgroundJobGuarded(r.Context(), userID,
+		"coverage_build", nil, &entityName, 0)
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Job creation failed", err.Error(), r.URL.Path)
+		return
+	}
+	if !created {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		return
 	}
 
 	shutdown.Go(jobID, func(ctx context.Context) {

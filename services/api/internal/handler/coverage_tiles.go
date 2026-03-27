@@ -15,6 +15,9 @@ import (
 )
 
 func (h *Handler) CoverageTile(w http.ResponseWriter, r *http.Request) {
+	// Chi wildcard routes pass the entire remainder as a single parameter.
+	// We split the path to extract layer/z/x/y components.
+	// Format: /api/v1/coverage/tiles/{layer}/{z}/{x}/{y}.png
 	parts := strings.Split(r.URL.Path, "/")
 	tilesIdx := -1
 	for i, p := range parts {
@@ -33,6 +36,13 @@ func (h *Handler) CoverageTile(w http.ResponseWriter, r *http.Request) {
 	zStr := parts[tilesIdx+2]
 	xStr := parts[tilesIdx+3]
 	yPng := parts[tilesIdx+4]
+
+	if !strings.HasSuffix(yPng, ".png") {
+		httputil.WriteError(w, http.StatusBadRequest, "Invalid path",
+			"tile path must end with .png", r.URL.Path)
+		return
+	}
+
 	yStr := strings.TrimSuffix(yPng, ".png")
 
 	if strings.HasPrefix(layer, "_") {
