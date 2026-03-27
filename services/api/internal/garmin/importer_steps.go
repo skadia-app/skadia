@@ -326,8 +326,8 @@ func (s *StepsImporter) Import(ctx context.Context, params ImportParams) (*Impor
 			sleep := &model.HealthSleep{
 				UserID:          params.UserID,
 				CalendarDate:    rec.CalendarDate,
-				SleepStartUTC:   startUTC,
-				SleepEndUTC:     endUTC,
+				SleepStartUTC:   &startUTC,
+				SleepEndUTC:     &endUTC,
 				DeepSeconds:     rec.DeepSleepSeconds,
 				LightSeconds:    rec.LightSleepSeconds,
 				RemSeconds:      rec.RemSleepSeconds,

@@ -31,8 +31,8 @@ type HealthDailySummary struct {
 type HealthSleep struct {
 	UserID          string    `json:"user_id"`
 	CalendarDate    string    `json:"calendar_date"` // YYYY-MM-DD
-	SleepStartUTC   time.Time `json:"sleep_start_utc"`
-	SleepEndUTC     time.Time `json:"sleep_end_utc"`
+	SleepStartUTC   *time.Time `json:"sleep_start_utc"`
+	SleepEndUTC     *time.Time `json:"sleep_end_utc"`
 	DeepSeconds     *int      `json:"deep_seconds"`
 	LightSeconds    *int      `json:"light_seconds"`
 	RemSeconds      *int      `json:"rem_seconds"`
