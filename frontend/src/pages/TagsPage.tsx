@@ -111,9 +111,9 @@ function LocationPinMiniMap({
 type LocationType = 'pin' | 'circle' | 'polygon'
 
 function deriveInitialLocationType(tag?: Tag): LocationType {
-  if (!tag?.lat) return 'pin'
-  if (tag.zone?.zone_type === 'circle') return 'circle'
-  if (tag.zone?.zone_type === 'polygon') return 'polygon'
+  if (tag?.zone?.zone_type === 'circle') return 'circle'
+  if (tag?.zone?.zone_type === 'polygon') return 'polygon'
+  if (tag?.lat != null) return 'pin'
   return 'pin'
 }
 
@@ -134,7 +134,7 @@ function TagForm({
   const [description, setDescription] = useState(tag?.description ?? '')
 
   // Location state
-  const [isLocationTag, setIsLocationTag] = useState(() => tag?.lat != null)
+  const [isLocationTag, setIsLocationTag] = useState(() => tag?.lat != null || tag?.zone != null)
   const [locationLat, setLocationLat] = useState<string>(() => tag?.lat?.toString() ?? '')
   const [locationLng, setLocationLng] = useState<string>(() => tag?.lng?.toString() ?? '')
   // Location type: pin (simple pin), circle (zone with radius), polygon (zone with polygon)
