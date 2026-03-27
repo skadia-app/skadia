@@ -17,7 +17,7 @@ export interface CoverageOverlayState {
 
 const COMPOSITE_LAYERS: Record<keyof CoverageOverlayState, string[]> = {
   nature: ['landuse', 'forest', 'water', 'river_proximity', 'protected'],
-  quiet: ['quiet'],
+  quiet: ['noise'],
   trafficUrban: ['urbanization', 'traffic'],
 }
 
