@@ -11,13 +11,13 @@ export interface CoverageCompositeState {
 
 export interface CoverageOverlayState {
   nature: CoverageCompositeState
-  quiet: CoverageCompositeState
+  noise: CoverageCompositeState
   trafficUrban: CoverageCompositeState
 }
 
 const COMPOSITE_LAYERS: Record<keyof CoverageOverlayState, string[]> = {
   nature: ['landuse', 'forest', 'water', 'river_proximity', 'protected'],
-  quiet: ['noise'],
+  noise: ['noise'],
   trafficUrban: ['urbanization', 'traffic'],
 }
 
@@ -39,7 +39,7 @@ const defaultState: CoverageOverlayState = {
     opacity: 50,
     layers: { forest: true, water: true, riverProximity: true, protected: true, landuse: false },
   },
-  quiet: {
+  noise: {
     enabled: false,
     opacity: 50,
     layers: {},
@@ -67,10 +67,15 @@ function loadState(): CoverageOverlayState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
-      const saved = JSON.parse(raw) as Partial<CoverageOverlayState>
+      const saved = JSON.parse(raw)
+      // Migrate: quiet → noise (renamed 2026-03-28)
+      if (saved.quiet && !saved.noise) {
+        saved.noise = saved.quiet
+        delete saved.quiet
+      }
       return {
         nature: mergeComposite(defaultState.nature, saved.nature),
-        quiet: mergeComposite(defaultState.quiet, saved.quiet),
+        noise: mergeComposite(defaultState.noise, saved.noise),
         trafficUrban: mergeComposite(defaultState.trafficUrban, saved.trafficUrban),
       }
     }

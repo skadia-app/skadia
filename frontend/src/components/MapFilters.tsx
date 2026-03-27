@@ -827,8 +827,8 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                     <CoverageCompositeToggle
                       label="Lärm-Overlay"
                       color="text-purple-500 dark:text-purple-400"
-                      state={coverageState.quiet}
-                      compositeKey="quiet"
+                      state={coverageState.noise}
+                      compositeKey="noise"
                       layerLabels={{}}
                       onToggle={onCoverageUpdate}
                       onToggleLayer={onCoverageToggleLayer}
