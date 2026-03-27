@@ -30,17 +30,20 @@ func TestNoisePalette(t *testing.T) {
 
 func TestQuietPalette(t *testing.T) {
 	p := Palettes["quiet"]
+	// v=0: transparent (no data)
 	c0 := p(0)
 	if c0.A != 0 {
 		t.Errorf("quiet(0) should be transparent, got A=%d", c0.A)
 	}
+	// v=1: low noise = very quiet → RED (inverted: highlights quiet areas)
 	c1 := p(1)
-	if c1.A == 0 {
-		t.Error("quiet(1) should not be transparent")
+	if c1.R < 200 || c1.A < 200 {
+		t.Errorf("quiet(1) should be reddish+opaque (quiet=desirable), got R=%d A=%d", c1.R, c1.A)
 	}
+	// v=255: max noise = very loud → GREEN (inverted: de-emphasizes loud areas)
 	c255 := p(255)
-	if c255.R < 200 || c255.A < 200 {
-		t.Errorf("quiet(255) should be reddish+opaque, got R=%d A=%d", c255.R, c255.A)
+	if c255.G <= c255.R {
+		t.Errorf("quiet(255) should be greenish (loud=undesirable), got R=%d G=%d", c255.R, c255.G)
 	}
 }
 
