@@ -64,8 +64,6 @@ type entry struct {
 	fileSize        int64
 	fileHash        string
 	contentType     string
-	// fileBytes is pre-loaded for S3 mode to avoid a second GetObject during import.
-	fileBytes []byte
 }
 
 func main() {
@@ -106,12 +104,19 @@ func main() {
 func run(ctx context.Context) error {
 	var entries []entry
 	var scanErr error
+	var s3Client *s3.Client
 
 	switch *backendMode {
 	case "local":
 		entries, scanErr = scanLocal(ctx)
 	case "s3":
-		entries, scanErr = scanS3(ctx)
+		s3Client = s3.New(s3.Options{
+			BaseEndpoint: aws.String(*s3Endpoint),
+			Region:       *s3Region,
+			Credentials:  credentials.NewStaticCredentialsProvider(*s3AccessKey, *s3SecretKey, ""),
+			UsePathStyle: *s3ForcePathStyle,
+		})
+		entries, scanErr = scanS3(ctx, s3Client)
 	default:
 		return fmt.Errorf("unknown backend: %s", *backendMode)
 	}
@@ -164,12 +169,12 @@ func run(ctx context.Context) error {
 
 	// Cache userDir → user_id lookups to avoid one DB query per file.
 	userIDCache := make(map[string]string)
-	resolveUserID := func(dirName string, metaUserID string) string {
+	resolveUserID := func(dirOrID string, metaUserID string) string {
 		// For S3 mode the UserID is in the MetaFile directly — prefer it.
 		if metaUserID != "" {
 			return metaUserID
 		}
-		if id, ok := userIDCache[dirName]; ok {
+		if id, ok := userIDCache[dirOrID]; ok {
 			return id
 		}
 		var id string
@@ -181,10 +186,10 @@ func run(ctx context.Context) error {
 			 WHERE library_dir_name = $1
 			    OR (library_dir_name IS NULL AND id::text = $1)
 			 LIMIT 1`,
-			dirName,
+			dirOrID,
 		).Scan(&id, &resolvedDirName)
 		if err != nil {
-			slog.Warn("user_id für userDir nicht gefunden", "dir", dirName, "error", err)
+			slog.Warn("user_id für userDir nicht gefunden", "dir", dirOrID, "error", err)
 			return ""
 		}
 		// Cross-validate: the directory name must match either the user's library_dir_name or their UUID.
@@ -192,12 +197,12 @@ func run(ctx context.Context) error {
 		if resolvedDirName != nil && *resolvedDirName != "" {
 			expectedDir = *resolvedDirName
 		}
-		if dirName != expectedDir {
+		if dirOrID != expectedDir {
 			slog.Warn("user directory mismatch — possible UUID spoofing",
-				"dir", dirName, "user_id", id, "expected_dir", expectedDir)
+				"dir", dirOrID, "user_id", id, "expected_dir", expectedDir)
 			return ""
 		}
-		userIDCache[dirName] = id
+		userIDCache[dirOrID] = id
 		return id
 	}
 
@@ -214,7 +219,7 @@ func run(ctx context.Context) error {
 			continue
 		}
 
-		status, importErr := restoreOne(ctx, db, userID, e.meta, e.activityKey, e.relPath, e.fileSize, e.fileHash, e.contentType, strategy, e.fileBytes)
+		status, importErr := restoreOne(ctx, db, userID, e.meta, e.activityKey, e.relPath, e.fileSize, e.fileHash, e.contentType, strategy, s3Client)
 		if importErr != nil {
 			fmt.Printf("%s ... FEHLER: %v\n", prefix, importErr)
 			res.errors++
@@ -350,15 +355,9 @@ func scanLocal(_ context.Context) ([]entry, error) {
 	return entries, nil
 }
 
-// scanS3 scans an S3 bucket for .meta sidecars and pre-loads activity file bytes.
-func scanS3(ctx context.Context) ([]entry, error) {
-	client := s3.New(s3.Options{
-		BaseEndpoint: aws.String(*s3Endpoint),
-		Region:       *s3Region,
-		Credentials:  credentials.NewStaticCredentialsProvider(*s3AccessKey, *s3SecretKey, ""),
-		UsePathStyle: *s3ForcePathStyle,
-	})
-
+// scanS3 scans an S3 bucket for .meta sidecars. Activity files are NOT pre-loaded;
+// their existence is verified via HeadObject, and bytes are fetched on-demand during import.
+func scanS3(ctx context.Context, client *s3.Client) ([]entry, error) {
 	bucket := *s3Bucket
 
 	// Determine S3 prefix: optionally restrict to one user.
@@ -425,8 +424,9 @@ func scanS3(ctx context.Context) ([]entry, error) {
 			// Derive activity S3 key (strip .meta suffix).
 			activityKey := strings.TrimSuffix(key, ".meta")
 
-			// Fetch the activity file bytes.
-			actOut, err := client.GetObject(ctx, &s3.GetObjectInput{
+			// Check whether the activity file exists and fetch its size via HeadObject
+			// (avoids loading the entire file into memory during scan).
+			headOut, err := client.HeadObject(ctx, &s3.HeadObjectInput{
 				Bucket: aws.String(bucket),
 				Key:    aws.String(activityKey),
 			})
@@ -435,15 +435,13 @@ func scanS3(ctx context.Context) ([]entry, error) {
 					"meta", key, "erwartet", activityKey, "error", err)
 				continue
 			}
-			fileBytes, err := io.ReadAll(actOut.Body)
-			actOut.Body.Close()
-			if err != nil {
-				slog.Error("activity file lesen fehlgeschlagen (S3)", "key", activityKey, "error", err)
-				totalErrors++
-				continue
-			}
 
 			totalFiles++
+
+			var fileSize int64
+			if headOut.ContentLength != nil {
+				fileSize = *headOut.ContentLength
+			}
 
 			// Detect content type from the key basename.
 			ct := shadowfs.DetectContentType(filepath.Base(activityKey), "", nil)
@@ -452,23 +450,15 @@ func scanS3(ctx context.Context) ([]entry, error) {
 			// Key format: {user_id}/activities/... — first component = user dir.
 			userDirName := strings.SplitN(activityKey, "/", 2)[0]
 
-			// Prefer UserID from MetaFile (v3.1+); fall back to key prefix.
-			userIDFromMeta := meta.UserID
-			if userIDFromMeta == "" {
-				userIDFromMeta = userDirName
-			}
-
 			entries = append(entries, entry{
 				meta:            meta,
 				activityKey:     activityKey,
 				relPath:         activityKey, // S3 key IS the storage_path
 				userDirFromPath: userDirName,
-				fileSize:        int64(len(fileBytes)),
+				fileSize:        fileSize,
 				fileHash:        meta.FileHashSHA256,
 				contentType:     ct,
-				fileBytes:       fileBytes,
 			})
-			_ = userIDFromMeta // used via meta.UserID in resolveUserID
 		}
 	}
 
@@ -484,7 +474,7 @@ func scanS3(ctx context.Context) ([]entry, error) {
 //  3. Creates a user_files registry entry for the file (ON CONFLICT skip).
 //
 // Returns a status string ("OK", "SKIP (duplicate)", …) or an error.
-// fileBytes is optional: when non-nil (S3 mode) the file is not read from disk.
+// s3Client is non-nil in S3 mode; the activity file bytes are fetched on-demand.
 func restoreOne(
 	ctx context.Context,
 	db *database.DB,
@@ -496,9 +486,24 @@ func restoreOne(
 	fileHash string,
 	contentType string,
 	strategy importer.ConflictStrategy,
-	fileBytes []byte,
+	s3Client *s3.Client,
 ) (string, error) {
-	if fileBytes == nil {
+	var fileBytes []byte
+	if s3Client != nil {
+		// S3 mode: fetch on-demand (streaming, no pre-load during scan).
+		actOut, err := s3Client.GetObject(ctx, &s3.GetObjectInput{
+			Bucket: aws.String(*s3Bucket),
+			Key:    aws.String(activityPath),
+		})
+		if err != nil {
+			return "", fmt.Errorf("s3 GetObject %s: %w", activityPath, err)
+		}
+		fileBytes, err = io.ReadAll(actOut.Body)
+		actOut.Body.Close()
+		if err != nil {
+			return "", fmt.Errorf("s3 body lesen %s: %w", activityPath, err)
+		}
+	} else {
 		var err error
 		fileBytes, err = os.ReadFile(activityPath)
 		if err != nil {

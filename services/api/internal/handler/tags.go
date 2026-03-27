@@ -826,18 +826,11 @@ func (h *Handler) SyncTagLocation(w http.ResponseWriter, r *http.Request) {
 		updated++
 	}
 
-	// Refresh .meta companions — location_lat/lng changed.
-	for _, actID := range activityIDs {
-		act, _ := h.DB.GetActivity(r.Context(), actID)
-		if act != nil && act.FileID != nil && *act.FileID != "" {
-			sidecar.WriteMetaCompanion(r.Context(), h.ShadowFS, h.DB, userID, actID, *act.FileID, nil, act)
-		}
-	}
-
 	tagIDForBackfill := tagID
 	userIDForBackfill := userID
+	activityIDsForMeta := activityIDs
 	// recompute=true: location coordinates set/changed, re-calculate for all linked activities.
-	// Both backfills run in parallel with a 5-minute timeout.
+	// Both backfills and .meta refresh run in parallel with a 5-minute timeout.
 	go func() {
 		ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
@@ -851,6 +844,16 @@ func (h *Handler) SyncTagLocation(w http.ResponseWriter, r *http.Request) {
 		g.Go(func() error {
 			if err := h.backfillWeatherForLocationTag(gCtx, userIDForBackfill, tagIDForBackfill, nil, true); err != nil {
 				slog.Warn("sync tag location: weather backfill failed", "tag_id", tagIDForBackfill, "error", err)
+			}
+			return nil
+		})
+		g.Go(func() error {
+			// Refresh .meta companions — location_lat/lng changed.
+			for _, actID := range activityIDsForMeta {
+				act, _ := h.DB.GetActivity(gCtx, actID)
+				if act != nil && act.FileID != nil && *act.FileID != "" {
+					sidecar.WriteMetaCompanion(gCtx, h.ShadowFS, h.DB, userIDForBackfill, actID, *act.FileID, nil, act)
+				}
 			}
 			return nil
 		})
