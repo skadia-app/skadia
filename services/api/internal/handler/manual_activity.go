@@ -79,7 +79,7 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 
 	// Build MetaFile (= the JSON source file stored in S3).
 	maf := &sidecar.MetaFile{
-		SchemaVersion:  4,
+		SchemaVersion:  1,
 		FileFormat:     "manual",
 		SportType:      req.SportType,
 		SubType:        req.SubType,

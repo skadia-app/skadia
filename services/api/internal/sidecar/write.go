@@ -23,7 +23,7 @@ func WriteMetaCompanion(
 	if fs == nil || fileID == "" {
 		return
 	}
-	meta := GenerateMetaV3(activityID, data, activity)
+	meta := GenerateMetaFull(activityID, data, activity)
 
 	// GearName snapshot — informativ für manuelle Inspektion, Restore nutzt GearID.
 	if meta.GearID != "" && db != nil {

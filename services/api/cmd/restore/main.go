@@ -292,11 +292,7 @@ func scanLocal(_ context.Context) ([]entry, error) {
 			return nil
 		}
 
-		// v1/v2 compatibility warning.
-		if meta.SchemaVersion < 4 {
-			slog.Warn("restore: legacy meta version — user-editable fields may be incomplete",
-				"path", path, "version", meta.SchemaVersion)
-		}
+		_ = meta.SchemaVersion // all versions use the same JSON structure; missing fields default to zero
 
 		// Derive activity file path (strip .meta suffix).
 		activityPath := strings.TrimSuffix(path, ".meta")
@@ -415,11 +411,7 @@ func scanS3(ctx context.Context, client *s3.Client) ([]entry, error) {
 				continue
 			}
 
-			// v1/v2 compatibility warning.
-			if meta.SchemaVersion < 4 {
-				slog.Warn("restore: legacy meta version — user-editable fields may be incomplete",
-					"path", key, "version", meta.SchemaVersion)
-			}
+			_ = meta.SchemaVersion // all versions use the same JSON structure; missing fields default to zero
 
 			// Derive activity S3 key (strip .meta suffix).
 			activityKey := strings.TrimSuffix(key, ".meta")

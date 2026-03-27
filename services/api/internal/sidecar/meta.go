@@ -45,19 +45,19 @@ type MetaFile struct {
 	TitleIsManual          bool     `json:"title_is_manual,omitempty"`
 }
 
-// GenerateMeta creates a v3 MetaFile from ActivityData (FIT-parsed import data).
-// User-editable fields are left empty — use GenerateMetaV3 to include them.
+// GenerateMeta creates a MetaFile from ActivityData (FIT-parsed import data).
+// User-editable fields are left empty — use GenerateMetaFull to include them.
 func GenerateMeta(activityID string, data *model.ActivityData) *MetaFile {
-	return GenerateMetaV3(activityID, data, nil)
+	return GenerateMetaFull(activityID, data, nil)
 }
 
-// GenerateMetaV3 creates a v3 MetaFile combining FIT data and user-editable fields.
+// GenerateMetaFull creates a MetaFile combining FIT data and user-editable fields.
 //   - If data != nil: FIT fields come from data (import path).
 //   - If data == nil && activity != nil: FIT fields come from the Activity model.
 //   - User-editable fields always come from activity (when not nil).
-func GenerateMetaV3(activityID string, data *model.ActivityData, activity *model.Activity) *MetaFile {
+func GenerateMetaFull(activityID string, data *model.ActivityData, activity *model.Activity) *MetaFile {
 	m := &MetaFile{
-		SchemaVersion: 4,
+		SchemaVersion: 1,
 		SkadiaID:     activityID,
 		CreatedAt: func() time.Time {
 			if activity != nil {

@@ -441,7 +441,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		// Store the CSV row as a JSON source file so every activity has a stored original.
 		if len(fileBytes) == 0 {
 			csvJSON := &sidecar.ManualActivityFile{
-				SchemaVersion:  4,
+				SchemaVersion:  1,
 				FileFormat:     "strava_csv",
 				SportType:      data.SportType,
 				SubType:        data.SubType,
