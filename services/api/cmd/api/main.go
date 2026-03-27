@@ -23,6 +23,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
+	"github.com/skadia-app/skadia/services/api/internal/garmin"
 	"github.com/skadia-app/skadia/services/api/internal/handler"
 	analyticshandler "github.com/skadia-app/skadia/services/api/internal/handler/analytics"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -214,6 +215,13 @@ func main() {
 	}
 	if err := shadowfs.CanonicalizeParentTypes(ctx, db.Pool); err != nil {
 		slog.Error("failed to canonicalize parent_type values", "error", err)
+		os.Exit(1)
+	}
+
+	// Ensure TimescaleDB Continuous Aggregates exist (cannot be created inside
+	// golang-migrate transactions — see migration 000242 placeholder).
+	if err := garmin.EnsureMonitoringDailyCA(ctx, db.Pool); err != nil {
+		slog.Error("failed to ensure health_monitoring_daily CA", "error", err)
 		os.Exit(1)
 	}
 
