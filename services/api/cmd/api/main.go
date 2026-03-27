@@ -440,8 +440,6 @@ func main() {
 		importSvc.GraphReader = gr
 	}
 
-	// Coverage cache — on-demand tile loading for coverage query endpoint.
-	h.CoverageCache = coverage.NewTileGridCache(db.Pool, coverage.DefaultNoiseSettings())
 	h.CoverageBaseDir = filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "coverage")
 
 	// DiskCoverageReader — mmap-based reader for FCOV coverage binaries

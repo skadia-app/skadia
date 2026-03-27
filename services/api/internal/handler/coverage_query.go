@@ -9,14 +9,10 @@ import (
 )
 
 func (h *Handler) QueryCoverage(w http.ResponseWriter, r *http.Request) {
-	// Try DiskCoverageReader first (preferred), fall back to TileGridCache
-	reader := h.CoverageReader
-	cache := h.CoverageCache
-
-	if reader == nil && cache == nil {
+	if h.CoverageReader == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable,
-			"Coverage not available",
-			"no coverage reader or cache initialized",
+			"Coverage reader not initialized",
+			"coverage binaries are not available on this server",
 			r.URL.Path)
 		return
 	}
@@ -51,22 +47,12 @@ func (h *Handler) QueryCoverage(w http.ResponseWriter, r *http.Request) {
 		if layer == "" {
 			continue
 		}
-		// Prefer DiskCoverageReader, fall back to TileGridCache
-		if reader != nil {
-			val, err := reader.SamplePointByLayer(r.Context(), layer, lat, lon)
-			if err != nil {
-				result[layer] = -1
-				continue
-			}
-			result[layer] = int(val)
-		} else {
-			val, err := cache.SamplePointByLayer(r.Context(), layer, lat, lon)
-			if err != nil {
-				result[layer] = -1
-				continue
-			}
-			result[layer] = int(val)
+		val, err := h.CoverageReader.SamplePointByLayer(r.Context(), layer, lat, lon)
+		if err != nil {
+			result[layer] = -1
+			continue
 		}
+		result[layer] = int(val)
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, result)
