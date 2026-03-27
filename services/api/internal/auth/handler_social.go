@@ -89,7 +89,7 @@ func (h *Handler) SocialLogin(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		Secure:   h.isHTTPS,
 		SameSite: http.SameSiteLaxMode, // Lax required for OAuth redirects
-		MaxAge:   300,                   // 5 minutes
+		MaxAge:   300,                  // 5 minutes
 	})
 
 	url := oauthCfg.AuthCodeURL(state)

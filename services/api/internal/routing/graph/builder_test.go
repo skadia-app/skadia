@@ -8,15 +8,15 @@ import (
 func TestBuildFromSyntheticWays(t *testing.T) {
 	ways := []RawWay{
 		{
-			OSMID:  100,
-			Coords: []Coord{{Lat: 47.0, Lon: 11.0}, {Lat: 47.001, Lon: 11.0}, {Lat: 47.002, Lon: 11.0}},
-			Tags:   RawTags{Highway: "residential", Surface: "asphalt", Maxspeed: "50"},
+			OSMID:      100,
+			Coords:     []Coord{{Lat: 47.0, Lon: 11.0}, {Lat: 47.001, Lon: 11.0}, {Lat: 47.002, Lon: 11.0}},
+			Tags:       RawTags{Highway: "residential", Surface: "asphalt", Maxspeed: "50"},
 			Enrichment: RawEnrichment{ForestPct: 20, NoiseScore: 60},
 		},
 		{
-			OSMID:  200,
-			Coords: []Coord{{Lat: 47.001, Lon: 10.999}, {Lat: 47.001, Lon: 11.0}, {Lat: 47.001, Lon: 11.001}},
-			Tags:   RawTags{Highway: "tertiary", Surface: "gravel", Oneway: true},
+			OSMID:      200,
+			Coords:     []Coord{{Lat: 47.001, Lon: 10.999}, {Lat: 47.001, Lon: 11.0}, {Lat: 47.001, Lon: 11.001}},
+			Tags:       RawTags{Highway: "tertiary", Surface: "gravel", Oneway: true},
 			Enrichment: RawEnrichment{TrafficClass: 1},
 		},
 	}
@@ -68,9 +68,9 @@ func TestBuildFromSyntheticWays(t *testing.T) {
 func TestBuildFromWaysPreservesBarriers(t *testing.T) {
 	ways := []RawWay{
 		{
-			OSMID:  100,
-			Coords: []Coord{{Lat: 47.0, Lon: 11.0}, {Lat: 47.001, Lon: 11.0}},
-			Tags:   RawTags{Highway: "path"},
+			OSMID:        100,
+			Coords:       []Coord{{Lat: 47.0, Lon: 11.0}, {Lat: 47.001, Lon: 11.0}},
+			Tags:         RawTags{Highway: "path"},
 			BarrierNodes: map[int]uint8{1: BarrierGate},
 		},
 	}

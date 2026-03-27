@@ -23,26 +23,26 @@ type RouteSegment struct {
 }
 
 type PlannedRoute struct {
-	ID                 string         `json:"id"`
-	UserID             string         `json:"user_id"`
-	Name               string         `json:"name"`
-	Description        *string        `json:"description,omitempty"`
-	SportType          string         `json:"sport_type"`
-	Difficulty         *string        `json:"difficulty,omitempty"`
-	Profile            string         `json:"profile"`
-	GeometryGeoJSON    string         `json:"geometry_geojson,omitempty"` // ST_AsGeoJSON
+	ID                 string          `json:"id"`
+	UserID             string          `json:"user_id"`
+	Name               string          `json:"name"`
+	Description        *string         `json:"description,omitempty"`
+	SportType          string          `json:"sport_type"`
+	Difficulty         *string         `json:"difficulty,omitempty"`
+	Profile            string          `json:"profile"`
+	GeometryGeoJSON    string          `json:"geometry_geojson,omitempty"` // ST_AsGeoJSON
 	Waypoints          []RouteWaypoint `json:"waypoints"`
 	Segments           []RouteSegment  `json:"segments"`
-	TotalDistanceM     *float64       `json:"total_distance_m,omitempty"`
-	TotalElevationGain *float64       `json:"total_elevation_gain,omitempty"`
-	TotalElevationLoss *float64       `json:"total_elevation_loss,omitempty"`
-	EstimatedTimeMin   *int           `json:"estimated_time_min,omitempty"`
-	TimeOverride       bool           `json:"time_override"`
-	AutoTag            bool           `json:"auto_tag"`
-	Photos             []RoutePhoto   `json:"photos,omitempty"`
-	Tags               []Tag          `json:"tags,omitempty"`
-	CreatedAt          time.Time      `json:"created_at"`
-	UpdatedAt          time.Time      `json:"updated_at"`
+	TotalDistanceM     *float64        `json:"total_distance_m,omitempty"`
+	TotalElevationGain *float64        `json:"total_elevation_gain,omitempty"`
+	TotalElevationLoss *float64        `json:"total_elevation_loss,omitempty"`
+	EstimatedTimeMin   *int            `json:"estimated_time_min,omitempty"`
+	TimeOverride       bool            `json:"time_override"`
+	AutoTag            bool            `json:"auto_tag"`
+	Photos             []RoutePhoto    `json:"photos,omitempty"`
+	Tags               []Tag           `json:"tags,omitempty"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
 	// Import source tracking
 	SourcePlatform *string `json:"source_platform,omitempty"` // "komoot", "garmin", "strava", nil=manual
 	SourceID       *string `json:"source_id,omitempty"`       // Platform-specific ID
@@ -57,8 +57,8 @@ type RouteImportData struct {
 	SportType          string
 	Profile            string
 	GeometryGeoJSON    string
-	WaypointsJSON      string  // "[]" if none
-	SegmentsJSON       string  // "[]" if none
+	WaypointsJSON      string // "[]" if none
+	SegmentsJSON       string // "[]" if none
 	TotalDistanceM     *float64
 	TotalElevationGain *float64
 	TotalElevationLoss *float64
@@ -71,8 +71,8 @@ type RoutePhoto struct {
 	ID           string    `json:"id"`
 	RouteID      string    `json:"route_id"`
 	UserID       string    `json:"user_id"`
-	FileHash     string  `json:"file_hash"`
-	OriginalName *string `json:"original_name,omitempty"`
+	FileHash     string    `json:"file_hash"`
+	OriginalName *string   `json:"original_name,omitempty"`
 	Width        *int      `json:"width,omitempty"`
 	Height       *int      `json:"height,omitempty"`
 	SortOrder    int       `json:"sort_order"`

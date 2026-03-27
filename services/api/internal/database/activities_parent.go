@@ -205,46 +205,46 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 		data.EndLat, data.EndLng, // $32-$33
 		nilIfEmpty(data.OriginalName), nilIfEmpty(data.FileFormat), // $34-$35
 		nilIfEmpty(data.Source), nilIfEmpty(data.SourceDevice), // $36-$37
-		parentID, // $38
+		parentID,                             // $38
 		visibilityOrDefault(data.Visibility), // $39
-		data.SportConflictPending, // $40
+		data.SportConflictPending,            // $40
 		// FIT SDK new fields
 		data.WorkoutID,                                                                                          // $41
 		data.TotalCycles, data.TotalWorkJ, data.TotalFatCalories, data.MetabolicCalories, data.TotalMovingTimeS, // $42-$46
-		data.SwimStroke, data.PoolLengthM, data.PoolLengthUnit,                                                  // $47-$49
-		data.NumLengths, data.NumActiveLengths, data.AvgStrokeCount, data.AvgStrokeDistanceM,                    // $50-$53
-		data.StrokeCount, data.ZoneCount,                                                                        // $54-$55
-		data.AvgFractionalCadence, data.MaxFractionalCadence, data.TotalFractionalCycles,                        // $56-$58
-		data.AvgVerticalOscillationMm, data.AvgStanceTimeMs, data.AvgStanceTimePct,                              // $59-$61
-		data.AvgStanceTimeBalancePct, data.AvgStepLengthMm, data.AvgVerticalRatioPct,                            // $62-$64
-		data.AvgGradePct, data.AvgPosGradePct, data.AvgNegGradePct, data.MaxPosGradePct, data.MaxNegGradePct,   // $65-$69
-		data.AvgPosVerticalSpeedMs, data.AvgNegVerticalSpeedMs,                                                  // $70-$71
-		data.MaxPosVerticalSpeedMs, data.MaxNegVerticalSpeedMs, data.AvgVamMs,                                   // $72-$74
-		data.AvgAltitudeM, data.TotalFractionalAscentM, data.TotalFractionalDescentM,                            // $75-$77
-		data.AvgLeftTorqueEffectivenessPct, data.AvgRightTorqueEffectivenessPct,                                 // $78-$79
-		data.AvgLeftPedalSmoothnessPct, data.AvgRightPedalSmoothnessPct,                                        // $80-$81
-		data.AvgCombinedPedalSmoothnessPct,                                                                      // $82
-		data.AvgLeftPcoMm, data.AvgRightPcoMm,                                                                  // $83-$84
-		data.AvgLeftPowerPhaseStartDeg, data.AvgLeftPowerPhaseEndDeg,                                            // $85-$86
-		data.AvgLeftPowerPhasePeakStartDeg, data.AvgLeftPowerPhasePeakEndDeg,                                    // $87-$88
-		data.AvgRightPowerPhaseStartDeg, data.AvgRightPowerPhaseEndDeg,                                          // $89-$90
-		data.AvgRightPowerPhasePeakStartDeg, data.AvgRightPowerPhasePeakEndDeg,                                  // $91-$92
-		data.AvgPowerPositionW, data.MaxPowerPositionW,                                                          // $93-$94
-		data.AvgCadencePosition, data.MaxCadencePosition,                                                        // $95-$96
-		data.TimeStandingS, data.StandCount,                                                                     // $97-$98
-		data.AvgLevMotorPowerW, data.MaxLevMotorPowerW, data.LevBatteryConsumptionPct,                           // $99-$101
-		data.TotalGrit, data.TotalFlow, data.AvgGrit, data.AvgFlow,                                             // $102-$105
-		data.JumpCount,                                                                                          // $106
-		data.MaxBallSpeedMs, data.AvgBallSpeedMs, data.PlayerScore, data.OpponentScore, data.OpponentName,       // $107-$111
-		data.AvgTotalHemoglobinConc, data.MinTotalHemoglobinConc, data.MaxTotalHemoglobinConc,                   // $112-$114
-		data.AvgSaturatedHemoglobinPct, data.MinSaturatedHemoglobinPct, data.MaxSaturatedHemoglobinPct,          // $115-$117
-		data.AvgDepthM, data.MaxDepthM, data.SurfaceIntervalS, data.DiveNumber,                                 // $118-$121
-		data.StartCnsPct, data.EndCnsPct, data.StartN2Pct, data.EndN2Pct, data.O2ToxicityOtu,                   // $122-$126
-		data.MaxRespirationRate, data.MinRespirationRate, data.SdrrHrvMs,                                        // $127-$129
-		data.MinCoreTemperatureC, data.MaxCoreTemperatureC,                                                      // $130-$131
-		data.AvgLapTimeS, data.BestLapIndex, data.NumLaps, data.FirstLapIndex,                                   // $132-$135
-		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex,                     // $136-$139
-		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng,                                                     // $140-$143
+		data.SwimStroke, data.PoolLengthM, data.PoolLengthUnit, // $47-$49
+		data.NumLengths, data.NumActiveLengths, data.AvgStrokeCount, data.AvgStrokeDistanceM, // $50-$53
+		data.StrokeCount, data.ZoneCount, // $54-$55
+		data.AvgFractionalCadence, data.MaxFractionalCadence, data.TotalFractionalCycles, // $56-$58
+		data.AvgVerticalOscillationMm, data.AvgStanceTimeMs, data.AvgStanceTimePct, // $59-$61
+		data.AvgStanceTimeBalancePct, data.AvgStepLengthMm, data.AvgVerticalRatioPct, // $62-$64
+		data.AvgGradePct, data.AvgPosGradePct, data.AvgNegGradePct, data.MaxPosGradePct, data.MaxNegGradePct, // $65-$69
+		data.AvgPosVerticalSpeedMs, data.AvgNegVerticalSpeedMs, // $70-$71
+		data.MaxPosVerticalSpeedMs, data.MaxNegVerticalSpeedMs, data.AvgVamMs, // $72-$74
+		data.AvgAltitudeM, data.TotalFractionalAscentM, data.TotalFractionalDescentM, // $75-$77
+		data.AvgLeftTorqueEffectivenessPct, data.AvgRightTorqueEffectivenessPct, // $78-$79
+		data.AvgLeftPedalSmoothnessPct, data.AvgRightPedalSmoothnessPct, // $80-$81
+		data.AvgCombinedPedalSmoothnessPct,    // $82
+		data.AvgLeftPcoMm, data.AvgRightPcoMm, // $83-$84
+		data.AvgLeftPowerPhaseStartDeg, data.AvgLeftPowerPhaseEndDeg, // $85-$86
+		data.AvgLeftPowerPhasePeakStartDeg, data.AvgLeftPowerPhasePeakEndDeg, // $87-$88
+		data.AvgRightPowerPhaseStartDeg, data.AvgRightPowerPhaseEndDeg, // $89-$90
+		data.AvgRightPowerPhasePeakStartDeg, data.AvgRightPowerPhasePeakEndDeg, // $91-$92
+		data.AvgPowerPositionW, data.MaxPowerPositionW, // $93-$94
+		data.AvgCadencePosition, data.MaxCadencePosition, // $95-$96
+		data.TimeStandingS, data.StandCount, // $97-$98
+		data.AvgLevMotorPowerW, data.MaxLevMotorPowerW, data.LevBatteryConsumptionPct, // $99-$101
+		data.TotalGrit, data.TotalFlow, data.AvgGrit, data.AvgFlow, // $102-$105
+		data.JumpCount,                                                                                    // $106
+		data.MaxBallSpeedMs, data.AvgBallSpeedMs, data.PlayerScore, data.OpponentScore, data.OpponentName, // $107-$111
+		data.AvgTotalHemoglobinConc, data.MinTotalHemoglobinConc, data.MaxTotalHemoglobinConc, // $112-$114
+		data.AvgSaturatedHemoglobinPct, data.MinSaturatedHemoglobinPct, data.MaxSaturatedHemoglobinPct, // $115-$117
+		data.AvgDepthM, data.MaxDepthM, data.SurfaceIntervalS, data.DiveNumber, // $118-$121
+		data.StartCnsPct, data.EndCnsPct, data.StartN2Pct, data.EndN2Pct, data.O2ToxicityOtu, // $122-$126
+		data.MaxRespirationRate, data.MinRespirationRate, data.SdrrHrvMs, // $127-$129
+		data.MinCoreTemperatureC, data.MaxCoreTemperatureC, // $130-$131
+		data.AvgLapTimeS, data.BestLapIndex, data.NumLaps, data.FirstLapIndex, // $132-$135
+		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex, // $136-$139
+		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng, // $140-$143
 	).Scan(&id, &isEbike, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity with parent: %w", err)

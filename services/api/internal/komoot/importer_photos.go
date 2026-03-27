@@ -160,4 +160,3 @@ func komootPhotoContentType(data []byte, imageURL string) string {
 	}
 	return ct
 }
-

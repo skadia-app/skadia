@@ -18,9 +18,9 @@ func TestSplitTypeToIntensity(t *testing.T) {
 		{"interval_cooldown", "easy"},
 		{"interval_other", "moderate"},
 		{"workout_round", "moderate"},
-		{"ascent_split", ""},  // not a workout type
-		{"run_active", ""},    // not a workout type
-		{"", ""},              // empty
+		{"ascent_split", ""}, // not a workout type
+		{"run_active", ""},   // not a workout type
+		{"", ""},             // empty
 	}
 	for _, tt := range tests {
 		got := splitTypeToIntensity(tt.splitType)

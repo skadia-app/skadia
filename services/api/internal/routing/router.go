@@ -36,9 +36,9 @@ type UnifiedRouter struct {
 // maxConcurrent limits simultaneous routing queries (semaphore-based).
 func NewUnifiedRouter(reader GraphReader, maxConcurrent int) *UnifiedRouter {
 	return &UnifiedRouter{
-		reader:  reader,
-		sem:     make(chan struct{}, maxConcurrent),
-		isoSem:  make(chan struct{}, 2),
+		reader: reader,
+		sem:    make(chan struct{}, maxConcurrent),
+		isoSem: make(chan struct{}, 2),
 	}
 }
 

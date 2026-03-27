@@ -459,4 +459,3 @@ func parseGPXCreator(creator string) (source, device string, du *model.DeviceUps
 
 	return source, device, du
 }
-

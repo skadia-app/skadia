@@ -5,8 +5,8 @@ import (
 	"slices"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
 // DataImporter is the interface for a single import module.
@@ -23,7 +23,7 @@ type ImportParams[S any] struct {
 	Source           S
 	UserID           string
 	DB               *database.DB
-	ShadowFS        shadowfs.ShadowFS // nil when not configured
+	ShadowFS         shadowfs.ShadowFS // nil when not configured
 	ImportService    *importer.Service
 	JobID            string
 	OnProgress       func(current, total int, msg string)

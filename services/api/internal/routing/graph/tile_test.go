@@ -8,11 +8,11 @@ func TestTileID(t *testing.T) {
 		lat, lon float64
 		wantID   uint32
 	}{
-		{"Zürich", 47.37, 8.54, uint32((47+90)*360 + (8+180))},
+		{"Zürich", 47.37, 8.54, uint32((47+90)*360 + (8 + 180))},
 		{"Equator/Greenwich", 0.5, 0.5, uint32(90*360 + 180)},
 		{"South Pole edge", -89.5, -179.5, uint32(0*360 + 0)},
-		{"Boundary lat=47.0 → floor=47", 47.0, 8.5, uint32((47+90)*360 + (8+180))},
-		{"Negative coords", -33.9, -70.6, uint32((-34+90)*360 + (-71+180))},
+		{"Boundary lat=47.0 → floor=47", 47.0, 8.5, uint32((47+90)*360 + (8 + 180))},
+		{"Negative coords", -33.9, -70.6, uint32((-34+90)*360 + (-71 + 180))},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

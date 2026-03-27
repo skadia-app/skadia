@@ -41,9 +41,9 @@ func TestFindFlankLandmarks_BasicNorthSouth(t *testing.T) {
 	tiles := []graph.TileScanResult{{
 		TileID:    1,
 		NodeCount: 4,
-		NodeLats:  []int32{0, 1000000, -1000000, 0},  // E7: 0, +0.1°, -0.1°, 0
-		NodeLons:  []int32{0, 0, 0, 1000000},          // E7: 0, 0, 0, +0.1°
-		NodeEles:  []int32{2000, 500, 500, 2500},      // dm
+		NodeLats:  []int32{0, 1000000, -1000000, 0}, // E7: 0, +0.1°, -0.1°, 0
+		NodeLons:  []int32{0, 0, 0, 1000000},        // E7: 0, 0, 0, +0.1°
+		NodeEles:  []int32{2000, 500, 500, 2500},    // dm
 	}}
 
 	nodeMapping := map[uint32][]uint32{

@@ -201,8 +201,12 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 	defer conn.Release()
 
 	workMemMB := availableRAMMB() * 10 / 100
-	if workMemMB > 512 { workMemMB = 512 }
-	if workMemMB < 64 { workMemMB = 64 }
+	if workMemMB > 512 {
+		workMemMB = 512
+	}
+	if workMemMB < 64 {
+		workMemMB = 64
+	}
 	if _, err := conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)); err != nil {
 		slog.Warn("enrichment noise_score: SET work_mem failed (non-fatal)", "error", err)
 	}
@@ -356,8 +360,12 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 	defer conn.Release()
 
 	workMemMB := availableRAMMB() * 10 / 100
-	if workMemMB > 512 { workMemMB = 512 }
-	if workMemMB < 64 { workMemMB = 64 }
+	if workMemMB > 512 {
+		workMemMB = 512
+	}
+	if workMemMB < 64 {
+		workMemMB = 64
+	}
 	if _, err := conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)); err != nil {
 		slog.Warn("enrichment traffic_class: SET work_mem failed (non-fatal)", "error", err)
 	}
@@ -372,7 +380,7 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 	// BBox filter for traffic temp tables: use bare "geom" (no alias) for direct table queries.
 	// Expand by 0.5° (~55km) for cities (population influence at 50km) and 0.2° (~22km) for industrial.
 	trafficBBoxFilter := ""
-	trafficBBoxFilterWide := ""  // 0.5° expansion for cities (50km influence range)
+	trafficBBoxFilterWide := ""   // 0.5° expansion for cities (50km influence range)
 	trafficBBoxFilterMedium := "" // 0.2° expansion for industrial areas (20km influence range)
 	if bboxClause != "" {
 		trafficBBoxFilter = strings.Replace(bboxClause, "w.geom", "geom", 1)
@@ -643,8 +651,12 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 	defer conn.Release()
 
 	workMemMB := availableRAMMB() * 10 / 100
-	if workMemMB > 512 { workMemMB = 512 }
-	if workMemMB < 64 { workMemMB = 64 }
+	if workMemMB > 512 {
+		workMemMB = 512
+	}
+	if workMemMB < 64 {
+		workMemMB = 64
+	}
 	if _, err := conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)); err != nil {
 		slog.Warn("enrichment route_membership: SET work_mem failed (non-fatal)", "error", err)
 	}

@@ -13,7 +13,8 @@ import (
 // causing SQLSTATE 42601 on every recompute.
 //
 // It parses activity_details.go and verifies:
-//   column_count == max_$N_placeholder
+//
+//	column_count == max_$N_placeholder
 //
 // When adding a new lap column: update BOTH the INSERT column list AND the
 // VALUES placeholder list. Missing one causes runtime SQL errors.

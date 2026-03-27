@@ -339,20 +339,20 @@ func TestCorruptedCRCDetected(t *testing.T) {
 
 func TestSerializeDeserializeV4ElevSegDist(t *testing.T) {
 	g := &Graph{
-		NodeCount: 3,
-		EdgeCount: 2,
-		Version:   FormatVersion,
-		Offsets:   []uint32{0, 1, 2, 2},
-		Targets:   []uint32{1, 2},
-		EdgeDist:  []uint32{10000, 20000},
-		EdgeTags1: []uint64{0, 0},
-		EdgeTags2: []uint64{0, 0},
+		NodeCount:  3,
+		EdgeCount:  2,
+		Version:    FormatVersion,
+		Offsets:    []uint32{0, 1, 2, 2},
+		Targets:    []uint32{1, 2},
+		EdgeDist:   []uint32{10000, 20000},
+		EdgeTags1:  []uint64{0, 0},
+		EdgeTags2:  []uint64{0, 0},
 		EdgeOSMIdx: []uint32{0, 0},
-		OSMIDPool: []int64{12345},
-		NodeLat:   []int32{470000000, 470100000, 470200000},
-		NodeLon:   []int32{80000000, 80100000, 80200000},
-		NodeEle:   []int32{5000, 5100, 5200},
-		NodeTags:  []uint8{0, 0, 0},
+		OSMIDPool:  []int64{12345},
+		NodeLat:    []int32{470000000, 470100000, 470200000},
+		NodeLon:    []int32{80000000, 80100000, 80200000},
+		NodeEle:    []int32{5000, 5100, 5200},
+		NodeTags:   []uint8{0, 0, 0},
 		// Edge 0: 3 geom points (after DP), 5 elev points (full)
 		EdgeGeomOff: []uint32{0, 3, 5},
 		EdgeGeomLat: []int32{470000000, 470050000, 470100000, 470100000, 470200000},
@@ -362,7 +362,7 @@ func TestSerializeDeserializeV4ElevSegDist(t *testing.T) {
 		EdgeElevProf: []int32{5000, 5020, 5050, 5080, 5100, 5100, 5130, 5170, 5200},
 		// ElevSegDist: 4 for edge 0 (5-1), 3 for edge 1 (4-1) = 7 total
 		EdgeElevSegDist: []uint16{1100, 1200, 1050, 1150, 900, 1300, 1100},
-		IsBorder: []bool{false, false, false},
+		IsBorder:        []bool{false, false, false},
 	}
 	g.Grid = BuildSpatialIndex(g, 0.01)
 
@@ -407,15 +407,15 @@ func TestSerialize_SectionAlignment(t *testing.T) {
 	// Graph with odd NodeCount so NodeTags has an odd byte length.
 	g := &Graph{
 		NodeCount: 3, EdgeCount: 2,
-		Offsets:   []uint32{0, 1, 2, 2},
-		Targets:   []uint32{1, 2},
-		EdgeDist:  []uint32{100, 200},
-		EdgeTags1: []uint64{0, 0},
-		EdgeTags2: []uint64{0, 0},
-		NodeLat:   []int32{470000000, 470010000, 470020000},
-		NodeLon:   []int32{80000000, 80000000, 80000000},
-		NodeEle:   []int32{5000, 5100, 5200},
-		NodeTags:  []uint8{0, 1, 0}, // 3 bytes — odd length
+		Offsets:         []uint32{0, 1, 2, 2},
+		Targets:         []uint32{1, 2},
+		EdgeDist:        []uint32{100, 200},
+		EdgeTags1:       []uint64{0, 0},
+		EdgeTags2:       []uint64{0, 0},
+		NodeLat:         []int32{470000000, 470010000, 470020000},
+		NodeLon:         []int32{80000000, 80000000, 80000000},
+		NodeEle:         []int32{5000, 5100, 5200},
+		NodeTags:        []uint8{0, 1, 0}, // 3 bytes — odd length
 		EdgeGeomOff:     []uint32{0, 0, 0},
 		EdgeGeomLat:     []int32{},
 		EdgeGeomLon:     []int32{},
@@ -472,8 +472,8 @@ func TestDeserializeV3Rejected(t *testing.T) {
 
 	// Build the payload (HeaderSize bytes).
 	payload := make([]byte, HeaderSize)
-	copy(payload[0:4], "FRGR")                                         // magic
-	binary.LittleEndian.PutUint32(payload[4:8], 3)                     // version 3
+	copy(payload[0:4], "FRGR")                     // magic
+	binary.LittleEndian.PutUint32(payload[4:8], 3) // version 3
 	// remaining bytes are zero (nodeCount, edgeCount, poolSize, bbox, buildTime, sectionCnt)
 
 	// Compute Castagnoli CRC32 over payload, append it.

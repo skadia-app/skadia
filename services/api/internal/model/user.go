@@ -38,7 +38,7 @@ type User struct {
 	Username    string    `json:"username"`
 	DisplayName *string   `json:"display_name,omitempty"`
 	Email       *string   `json:"email,omitempty"`
-	IsAdmin bool `json:"is_admin"`
+	IsAdmin     bool      `json:"is_admin"`
 	IsActive    bool      `json:"is_active"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`

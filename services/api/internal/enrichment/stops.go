@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	stopFallbackSpeedMS   = 0.3     // m/s for speed-based fallback (stricter than old 0.5)
-	stopFallbackMinDurS   = 180     // 3 min for unnamed stops (was 60s)
-	stopFallbackConfinM   = 20.0    // max spatial spread for fallback stops
-	stopGastronomyMinDurS = 600     // 10 min for gastronomy geo-tag
-	stopPOISearchRadiusM  = 100.0   // outer SQL search radius (covers all categories)
+	stopFallbackSpeedMS   = 0.3   // m/s for speed-based fallback (stricter than old 0.5)
+	stopFallbackMinDurS   = 180   // 3 min for unnamed stops (was 60s)
+	stopFallbackConfinM   = 20.0  // max spatial spread for fallback stops
+	stopGastronomyMinDurS = 600   // 10 min for gastronomy geo-tag
+	stopPOISearchRadiusM  = 100.0 // outer SQL search radius (covers all categories)
 	degreesToMetersLat    = geo.MetersPerDegreeLat
 )
 

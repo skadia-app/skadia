@@ -1174,7 +1174,7 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 
 	var (
 		sportType, subType, source, intensity, title, description *string
-		isIndoor, isEbike, hasGPS, hideMap, isRoundTrip            bool
+		isIndoor, isEbike, hasGPS, hideMap, isRoundTrip           bool
 		visibility                                                *string
 		elapsedTimeS, movingTimeS                                 *int
 		weekday, month                                            *int

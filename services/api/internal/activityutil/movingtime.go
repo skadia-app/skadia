@@ -19,7 +19,6 @@ func movingThreshold(sportType string) float64 {
 	return sport.MovingThreshold(sportType)
 }
 
-
 // CalcMovingTime berechnet die Bewegungszeit aus den Stream-Datenpunkten.
 //
 // Algorithmus:
@@ -142,4 +141,3 @@ func MinMovingTime(a, b int) int {
 	}
 	return b
 }
-

@@ -22,7 +22,7 @@ type ActivityPhoto struct {
 	CreatedAt        time.Time  `json:"created_at"`
 	// Video-Metadaten (nur befüllt wenn is_video=true)
 	IsVideo     bool     `json:"is_video"`
-	DurationS   *float64 `json:"duration_s,omitempty"`   // Video-Länge in Sekunden
+	DurationS   *float64 `json:"duration_s,omitempty"` // Video-Länge in Sekunden
 	VideoWidth  *int     `json:"video_width,omitempty"`
 	VideoHeight *int     `json:"video_height,omitempty"`
 	// Image metadata

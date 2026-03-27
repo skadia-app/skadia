@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/importutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
 // MediaImporter imports photos from the Strava export's media/ directory.
@@ -232,7 +232,7 @@ func (m *MediaImporter) legacyImportPhoto(
 		SizeBytes:   int64(len(data)),
 		FileHash:    hash,
 		ParentType:  &parentType,
-		ParentID:    func() *string {
+		ParentID: func() *string {
 			if activityID != "" {
 				return &activityID
 			}
@@ -393,7 +393,6 @@ func detectMediaContentType(data []byte, filename string) string {
 func isVideoContentType(ct string) bool {
 	return strings.HasPrefix(ct, "video/")
 }
-
 
 // isVideoExtension reports whether the file extension (including the dot) is a known
 // video container format. Used to catch mis-detected content types where http.DetectContentType

@@ -14,7 +14,7 @@ func TestExtractDeveloperFieldDefs_BasicFields(t *testing.T) {
 	devDataIds := []*mesgdef.DeveloperDataId{
 		{
 			DeveloperDataIndex: 0,
-			ApplicationId:     appID,
+			ApplicationId:      appID,
 			ManufacturerId:     typedef.ManufacturerInvalid,
 		},
 	}

@@ -65,7 +65,7 @@ func landmarkDijkstraUnified(ctx context.Context, csr *graph.UnifiedCSR, src uin
 
 			if useHysteresis {
 				deltaEleMilli := int32(edge.DeltaEle) * 100 // dm → mm
-				distMilli := int32(edge.Dist) * 10           // cm → mm
+				distMilli := int32(edge.Dist) * 10          // cm → mm
 				hr := propagateHysteresis(pathStates[nd], deltaEleMilli, distMilli, cfg)
 				elevCost = hr.ElevCost
 
@@ -135,7 +135,6 @@ func landmarkBudgetDijkstraUnified(ctx context.Context, csr *graph.UnifiedCSR, s
 	slog.Info("budget dijkstra complete", "expansions", expansions, "budget", maxCost)
 	return costs
 }
-
 
 // BuildLandmarkEdgeCostClosureCSR adapts the routing package's EdgeCost closure
 // to the graph package's EdgeCostFunc type.
@@ -352,7 +351,7 @@ func RunUnifiedLandmarkPreprocessing(
 					bestCost = cost
 					best = graph.LandmarkCandidate{
 						GlobalNodeID: graph.MakeGlobalNodeID(tile.TileID, localID),
-						Lat: tile.NodeLats[localID], Lon: tile.NodeLons[localID], Ele: tile.NodeEles[localID],
+						Lat:          tile.NodeLats[localID], Lon: tile.NodeLons[localID], Ele: tile.NodeEles[localID],
 					}
 				}
 			}

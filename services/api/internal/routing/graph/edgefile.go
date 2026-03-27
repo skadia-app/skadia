@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	edgeFileMagic   = "FRTM"
+	edgeFileMagic          = "FRTM"
 	edgeFileVersion uint32 = 1
-	edgeFileBufSize = 4 * 1024 * 1024
+	edgeFileBufSize        = 4 * 1024 * 1024
 )
 
 // WaySegment represents one directed segment of an OSM way between two graph nodes.

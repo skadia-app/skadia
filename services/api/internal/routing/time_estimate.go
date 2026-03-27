@@ -42,19 +42,19 @@ var sacMultiplier = map[SACScale]float64{
 type Surface string
 
 const (
-	SurfacePaved      Surface = "paved"
-	SurfaceAsphalt    Surface = "asphalt"
-	SurfaceConcrete   Surface = "concrete"
-	SurfaceGravel     Surface = "gravel"
-	SurfaceCompacted  Surface = "compacted"
-	SurfaceDirt       Surface = "dirt"
-	SurfaceGrass      Surface = "grass"
-	SurfaceSand       Surface = "sand"
-	SurfaceRock       Surface = "rock"
-	SurfaceScree      Surface = "scree"
-	SurfaceSnow       Surface = "snow"
-	SurfaceIce        Surface = "ice"
-	SurfaceUnknown    Surface = ""
+	SurfacePaved     Surface = "paved"
+	SurfaceAsphalt   Surface = "asphalt"
+	SurfaceConcrete  Surface = "concrete"
+	SurfaceGravel    Surface = "gravel"
+	SurfaceCompacted Surface = "compacted"
+	SurfaceDirt      Surface = "dirt"
+	SurfaceGrass     Surface = "grass"
+	SurfaceSand      Surface = "sand"
+	SurfaceRock      Surface = "rock"
+	SurfaceScree     Surface = "scree"
+	SurfaceSnow      Surface = "snow"
+	SurfaceIce       Surface = "ice"
+	SurfaceUnknown   Surface = ""
 )
 
 // surfaceMultiplier maps surface types to speed multipliers.

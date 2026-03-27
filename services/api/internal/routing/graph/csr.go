@@ -262,8 +262,8 @@ func BuildCSRFromFile(nodes []Coord, nodeTags []uint8, edgeTmpPath string) (*Gra
 	g.EdgeGeomLon = sortedGeomLon
 
 	// Free unsorted geometry arrays (GC can collect them).
-	allGeomLat = nil //nolint:ineffassign
-	allGeomLon = nil //nolint:ineffassign
+	allGeomLat = nil    //nolint:ineffassign
+	allGeomLon = nil    //nolint:ineffassign
 	edgeGeomSpans = nil //nolint:ineffassign
 
 	g.EdgeElevOff = make([]uint32, edgeCount+1)

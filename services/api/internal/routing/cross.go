@@ -11,4 +11,3 @@ func MakeGlobalNodeID(tileID uint32, localNodeID uint32) uint64 {
 func SplitGlobalNodeID(gid uint64) (tileID uint32, localNodeID uint32) {
 	return graph.SplitGlobalNodeID(gid)
 }
-

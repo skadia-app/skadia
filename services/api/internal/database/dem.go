@@ -256,4 +256,3 @@ func (db *DB) CorrectActivityElevationFromDEM(ctx context.Context, activityID st
 
 	return corrected, source, nil
 }
-

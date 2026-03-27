@@ -31,8 +31,8 @@ type CorrelationEntry struct {
 
 // CorrelationsResult is the top-level output stored in analytics_cache.
 type CorrelationsResult struct {
-	Correlations         []CorrelationEntry `json:"correlations"`
-	TotalPairsEvaluated  int                `json:"total_pairs_evaluated"`
+	Correlations        []CorrelationEntry `json:"correlations"`
+	TotalPairsEvaluated int                `json:"total_pairs_evaluated"`
 }
 
 // metricPair defines the two series to correlate.

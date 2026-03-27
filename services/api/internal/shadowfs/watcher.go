@@ -31,12 +31,12 @@ const maxPendingSizes = 10_000
 // L10/L58: Bare ".gz" is excluded — it is too permissive (any gzipped file would be
 // picked up). Only compound extensions (.fit.gz / .gpx.gz / .tcx.gz) are accepted.
 var allowedExtensions = map[string]bool{
-	".fit":     true,
-	".gpx":     true,
-	".tcx":     true,
-	".fit.gz":  true,
-	".gpx.gz":  true,
-	".tcx.gz":  true,
+	".fit":    true,
+	".gpx":    true,
+	".tcx":    true,
+	".fit.gz": true,
+	".gpx.gz": true,
+	".tcx.gz": true,
 }
 
 // defaultInterval is the base polling interval.

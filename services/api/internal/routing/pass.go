@@ -30,5 +30,3 @@ func computeTurnCost(curLon, curLat, targetLon, targetLat int32,
 	}
 	return
 }
-
-

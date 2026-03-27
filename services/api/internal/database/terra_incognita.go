@@ -15,11 +15,12 @@ type terraResult struct {
 // 5 concentric ring polygons (GeoJSON) for gradient fog rendering.
 //
 // The rings are computed by buffering the union of all heatmap_lines:
-//   ring[0] = ST_Buffer(union, -R*0.3)   → innermost (clear boundary)
-//   ring[1] = ST_Buffer(union, -R*0.15)
-//   ring[2] = union (at radius R)        → the configured radius
-//   ring[3] = ST_Buffer(union, +R*0.3)
-//   ring[4] = ST_Buffer(union, +R*0.6)   → outermost fog boundary
+//
+//	ring[0] = ST_Buffer(union, -R*0.3)   → innermost (clear boundary)
+//	ring[1] = ST_Buffer(union, -R*0.15)
+//	ring[2] = union (at radius R)        → the configured radius
+//	ring[3] = ST_Buffer(union, +R*0.3)
+//	ring[4] = ST_Buffer(union, +R*0.6)   → outermost fog boundary
 //
 // The union uses a divide-and-conquer strategy: 8 partial unions via
 // ST_UnaryUnion(ST_Collect()) (O(n log n) per bucket), then one final

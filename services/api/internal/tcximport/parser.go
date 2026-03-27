@@ -25,10 +25,10 @@ type tcxActivities struct {
 }
 
 type tcxActivity struct {
-	Sport   string      `xml:"Sport,attr"`
-	ID      string      `xml:"Id"`
-	Creator tcxCreator  `xml:"Creator"`
-	Laps    []tcxLap    `xml:"Lap"`
+	Sport   string     `xml:"Sport,attr"`
+	ID      string     `xml:"Id"`
+	Creator tcxCreator `xml:"Creator"`
+	Laps    []tcxLap   `xml:"Lap"`
 }
 
 type tcxCreator struct {
@@ -407,4 +407,3 @@ func parseTCXCreator(creator tcxCreator) (source, device string, du *model.Devic
 
 	return source, device, du
 }
-

@@ -8,36 +8,36 @@ import (
 
 // RawTags holds OSM tag strings as loaded from PostGIS before bit-packing.
 type RawTags struct {
-	Highway          string
-	Surface          string
-	Tracktype        string
-	SacScale         string
-	MtbScale         string
-	MtbScaleUphill   string
-	ViaFerrataScale  string
-	TrailVisibility  string
-	Smoothness       string
-	Access           string
-	Bicycle          string
-	Foot             string
-	Horse            string
-	Cycleway         string
-	CyclewayLeft     string
-	CyclewayRight    string
-	CyclewayBoth     string
-	Maxspeed         string
-	Width            string
-	Incline          string
-	Sidewalk         string
-	Lanes            int
-	Oneway           bool
-	OnewayBicycle    bool
-	Bridge           bool
-	Tunnel           bool
-	Ford             bool
-	Lit              bool
-	Segregated       bool
-	BicycleRoad      bool
+	Highway         string
+	Surface         string
+	Tracktype       string
+	SacScale        string
+	MtbScale        string
+	MtbScaleUphill  string
+	ViaFerrataScale string
+	TrailVisibility string
+	Smoothness      string
+	Access          string
+	Bicycle         string
+	Foot            string
+	Horse           string
+	Cycleway        string
+	CyclewayLeft    string
+	CyclewayRight   string
+	CyclewayBoth    string
+	Maxspeed        string
+	Width           string
+	Incline         string
+	Sidewalk        string
+	Lanes           int
+	Oneway          bool
+	OnewayBicycle   bool
+	Bridge          bool
+	Tunnel          bool
+	Ford            bool
+	Lit             bool
+	Segregated      bool
+	BicycleRoad     bool
 }
 
 // RawEnrichment holds computed enrichment values from PostGIS (not raw OSM tags).

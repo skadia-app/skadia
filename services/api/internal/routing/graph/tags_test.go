@@ -41,14 +41,30 @@ func TestEncodeBooleanFlags(t *testing.T) {
 		Ford: true, Lit: true, Segregated: true, BicycleRoad: true,
 	}
 	encoded := EncodeOSMTags(&tags)
-	if !DecodeBool(encoded, 36) { t.Error("oneway should be true") }
-	if DecodeBool(encoded, 37) { t.Error("oneway_bicycle should be false") }
-	if !DecodeBool(encoded, 38) { t.Error("bridge should be true") }
-	if DecodeBool(encoded, 39) { t.Error("tunnel should be false") }
-	if !DecodeBool(encoded, 40) { t.Error("ford should be true") }
-	if !DecodeBool(encoded, 41) { t.Error("lit should be true") }
-	if !DecodeBool(encoded, 56) { t.Error("segregated should be true") }
-	if !DecodeBool(encoded, 57) { t.Error("bicycle_road should be true") }
+	if !DecodeBool(encoded, 36) {
+		t.Error("oneway should be true")
+	}
+	if DecodeBool(encoded, 37) {
+		t.Error("oneway_bicycle should be false")
+	}
+	if !DecodeBool(encoded, 38) {
+		t.Error("bridge should be true")
+	}
+	if DecodeBool(encoded, 39) {
+		t.Error("tunnel should be false")
+	}
+	if !DecodeBool(encoded, 40) {
+		t.Error("ford should be true")
+	}
+	if !DecodeBool(encoded, 41) {
+		t.Error("lit should be true")
+	}
+	if !DecodeBool(encoded, 56) {
+		t.Error("segregated should be true")
+	}
+	if !DecodeBool(encoded, 57) {
+		t.Error("bicycle_road should be true")
+	}
 }
 
 func TestEncodeEnrichmentTags(t *testing.T) {
@@ -157,7 +173,7 @@ func TestParseWidth(t *testing.T) {
 		{"3", 30},
 		{"0.8 m", 8},
 		{"1.2m", 12},
-		{"2,5", 25},  // European comma-decimal
+		{"2,5", 25},   // European comma-decimal
 		{"1,8 m", 18}, // European comma with unit
 		{"", 0},
 		{"5'", 15},    // 5 feet ≈ 1.524m → 15dm
@@ -189,11 +205,11 @@ func TestParseIncline(t *testing.T) {
 		{"flat", 128},
 		{"", 0},
 		{"unknown", 0},
-		{"5", 133},      // bare number treated as percent
+		{"5", 133}, // bare number treated as percent
 		{"-30%", 98},
-		{"45°", 228},    // tan(45°)*100 = 100% → 128+100=228
-		{"10°", 146},    // tan(10°)*100 ≈ 17.6% → 128+18=146
-		{"-15°", 101},   // tan(-15°)*100 ≈ -26.8% → 128-27=101
+		{"45°", 228},  // tan(45°)*100 = 100% → 128+100=228
+		{"10°", 146},  // tan(10°)*100 ≈ 17.6% → 128+18=146
+		{"-15°", 101}, // tan(-15°)*100 ≈ -26.8% → 128-27=101
 	}
 	for _, tt := range tests {
 		got := ParseIncline(tt.input)
@@ -570,11 +586,11 @@ func TestCyclewaySide(t *testing.T) {
 		left, right, both string
 		want              uint8
 	}{
-		{"", "", "", 0},           // none
-		{"lane", "", "", 1},       // left
-		{"", "track", "", 2},      // right
-		{"lane", "track", "", 3},  // both
-		{"", "", "lane", 3},       // both (via cycleway_both)
+		{"", "", "", 0},          // none
+		{"lane", "", "", 1},      // left
+		{"", "track", "", 2},     // right
+		{"lane", "track", "", 3}, // both
+		{"", "", "lane", 3},      // both (via cycleway_both)
 	}
 	for _, tt := range tests {
 		tags := RawTags{CyclewayLeft: tt.left, CyclewayRight: tt.right, CyclewayBoth: tt.both}

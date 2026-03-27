@@ -97,9 +97,9 @@ func TestBuildTopologyOneway(t *testing.T) {
 func TestBuildTopologyReverseOneway(t *testing.T) {
 	ways := []RawWay{
 		{
-			OSMID:  100,
-			Coords: []Coord{{Lat: 47.0, Lon: 11.0}, {Lat: 47.001, Lon: 11.0}},
-			Tags:   RawTags{Highway: "residential", Oneway: true},
+			OSMID:         100,
+			Coords:        []Coord{{Lat: 47.0, Lon: 11.0}, {Lat: 47.001, Lon: 11.0}},
+			Tags:          RawTags{Highway: "residential", Oneway: true},
 			ReverseOneway: true,
 		},
 	}

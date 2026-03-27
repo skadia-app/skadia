@@ -1550,4 +1550,3 @@ func extractTimeInZoneEntries(tiz *mesgdef.TimeInZone) []model.TimeInZoneData {
 	}
 	return zones
 }
-

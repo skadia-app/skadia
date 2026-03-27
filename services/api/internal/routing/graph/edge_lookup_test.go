@@ -35,7 +35,7 @@ func TestPerpendicularDist_PointOffSegment(t *testing.T) {
 	// Query point: ~11m north of the midpoint.
 	// 1° lat ≈ 111320m → 11m ≈ 0.0001° lat.
 	qLat := 47.000 + 0.0001 // ~11.1m north
-	qLng := 11.001           // midpoint longitude
+	qLng := 11.001          // midpoint longitude
 
 	_, _, distM := perpendicularDist(qLat, qLng, lat1, lng1, lat2, lng2, testCosLat)
 	if distM < 8 || distM > 15 {

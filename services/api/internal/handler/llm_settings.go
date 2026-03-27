@@ -233,7 +233,6 @@ func (h *Handler) GetLLMUserConfig(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, configs)
 }
 
-
 // liteLLMConfigTemplate is the Go template for LiteLLM config.yaml
 const liteLLMConfigTemplate = `model_list:
 {{- range .Models}}

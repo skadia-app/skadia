@@ -30,7 +30,7 @@ func TestMovingThresholdBackwardsCompat(t *testing.T) {
 		"running": 0.5, "trail_running": 0.5,
 		"walking": 0.2, "hiking": 0.2,
 		"swimming": 0.1,
-		"rowing": 0.1, "kayaking": 0.1, "stand_up_paddleboarding": 0.1, "paddling": 0.1,
+		"rowing":   0.1, "kayaking": 0.1, "stand_up_paddleboarding": 0.1, "paddling": 0.1,
 		"alpine_skiing": 0.3, "cross_country_skiing": 0.3, "snowboarding": 0.3,
 		"strength_training": 0.0, "training": 0.0, "generic": 0.0,
 	}

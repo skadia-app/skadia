@@ -104,7 +104,7 @@ type DocumentUploadedEvent struct {
 	ContentType   string  `json:"content_type"`
 	IsTextPDF     bool    `json:"is_text_pdf"`
 	ExtractedText *string `json:"extracted_text,omitempty"`
-	FileID string `json:"file_id"`
+	FileID        string  `json:"file_id"`
 }
 
 func (p *Publisher) PublishDocumentUploaded(event DocumentUploadedEvent) error {
@@ -146,8 +146,8 @@ func (p *Publisher) PublishAnalyticsInvalidate(userID string) {
 type PhotoEmbedEvent struct {
 	PhotoID         string `json:"photo_id"`
 	UserID          string `json:"user_id"`
-	FileID      string `json:"file_id"`
-	ContentType string `json:"content_type,omitempty"`
+	FileID          string `json:"file_id"`
+	ContentType     string `json:"content_type,omitempty"`
 	VideoClipFrames int    `json:"video_clip_frames,omitempty"` // 0 = use default (4)
 }
 

@@ -15,11 +15,11 @@ type Graph struct {
 	Targets []uint32 // len = EdgeCount
 
 	// Edge data (parallel to Targets).
-	EdgeDist      []uint32 // distance in centimeters (was uint16 decimeters)
-	EdgeTags1     []uint64 // OSM tags bit-packed (first uint64)
-	EdgeTags2     []uint64 // enrichment tags bit-packed (second uint64)
-	EdgeOSMIdx    []uint32
-	OSMIDPool     []int64
+	EdgeDist   []uint32 // distance in centimeters (was uint16 decimeters)
+	EdgeTags1  []uint64 // OSM tags bit-packed (first uint64)
+	EdgeTags2  []uint64 // enrichment tags bit-packed (second uint64)
+	EdgeOSMIdx []uint32
+	OSMIDPool  []int64
 
 	// Edge geometry: intermediate coordinates (transfer nodes).
 	// Geometry for edge i: EdgeGeomLat[EdgeGeomOff[i]:EdgeGeomOff[i+1]]
@@ -78,8 +78,8 @@ type Graph struct {
 	// Lazy I/O for cold sections. The backing file is kept open;
 	// cold section data (geometry, elevation profiles, OSM IDs) is read
 	// on demand via ReadAt. No mmap, no page faults, no RSS inflation.
-	backingFile  *os.File                 // graph.bin, kept open (nil for heap-only)
-	coldSections map[uint16]sectionEntry  // section type → file offset+length
+	backingFile  *os.File                // graph.bin, kept open (nil for heap-only)
+	coldSections map[uint16]sectionEntry // section type → file offset+length
 
 	// mmap resources (set by DeserializeMmap, nil for heap-only or ReadAt graphs).
 	mmapData []byte   // mmap'd file region; released by closeMmap finalizer
@@ -89,7 +89,7 @@ type Graph struct {
 // SpatialGrid is a flat grid index for O(1) cell lookup.
 // Nodes are grouped by row-major cell index (r*Cols+c).
 type SpatialGrid struct {
-	CellSize  float64  // in degrees (~0.01 = ~1.1km)
+	CellSize  float64 // in degrees (~0.01 = ~1.1km)
 	MinLat    float64
 	MinLon    float64
 	Cols      int
@@ -111,7 +111,7 @@ const (
 
 // Binary format constants.
 const (
-	Magic         = "FRGR"
+	Magic                = "FRGR"
 	FormatVersion uint32 = 4 // v4: separated EdgeGeomOff/EdgeElevOff after DP + SectionEdgeElevSegDist for hysteresis
 	HeaderSize    int    = 64
 	EleChunkSize  uint32 = 65536
@@ -121,7 +121,7 @@ const (
 const (
 	SectionOffsets     uint16 = 1
 	SectionTargets     uint16 = 2
-	SectionEdgeDist    uint16 = 3  // now uint32 centimeters (was uint16 decimeters)
+	SectionEdgeDist    uint16 = 3 // now uint32 centimeters (was uint16 decimeters)
 	SectionEdgeTags1   uint16 = 4
 	SectionEdgeTags2   uint16 = 5
 	SectionEdgeOSMIdx  uint16 = 6

@@ -34,7 +34,7 @@ func TestBuildActivityData_EndToEnd(t *testing.T) {
 		SubSport:         typedef.SubSportGeneric,
 		TotalElapsedTime: 1800000, // 1800s
 		TotalTimerTime:   1700000, // 1700s
-		TotalDistance:     2000000, // 20000m
+		TotalDistance:    2000000, // 20000m
 		TotalAscent:      350,
 		TotalDescent:     300,
 		EnhancedAvgSpeed: 11111,
@@ -50,19 +50,19 @@ func TestBuildActivityData_EndToEnd(t *testing.T) {
 
 	// --- Records (spread over 30 min to avoid CalcRecordingTime capping) ---
 	rec1 := &mesgdef.Record{
-		Timestamp:         now.Add(1 * time.Minute),
-		PositionLat:       554680000,  // ~46.5 deg
-		PositionLong:      167400000,  // ~14.0 deg
-		EnhancedAltitude:  5000,       // /5 - 500 = 500m
-		EnhancedSpeed:     5000,       // 5.0 m/s
-		Distance:          500,        // 5.0 m
-		HeartRate:         140,
-		Power:             200,
-		Cadence:           80,
-		Temperature:       22,
-		BatterySoc:        190,        // /2 = 95.0
-		Po2:               21,         // /100 = 0.21
-		GpsAccuracy:       3,
+		Timestamp:        now.Add(1 * time.Minute),
+		PositionLat:      554680000, // ~46.5 deg
+		PositionLong:     167400000, // ~14.0 deg
+		EnhancedAltitude: 5000,      // /5 - 500 = 500m
+		EnhancedSpeed:    5000,      // 5.0 m/s
+		Distance:         500,       // 5.0 m
+		HeartRate:        140,
+		Power:            200,
+		Cadence:          80,
+		Temperature:      22,
+		BatterySoc:       190, // /2 = 95.0
+		Po2:              21,  // /100 = 0.21
+		GpsAccuracy:      3,
 	}
 
 	rec2 := &mesgdef.Record{
@@ -87,7 +87,7 @@ func TestBuildActivityData_EndToEnd(t *testing.T) {
 		LapTrigger:       typedef.LapTriggerSessionEnd,
 		TotalElapsedTime: 1800000,
 		TotalTimerTime:   1700000,
-		TotalDistance:     2000000,
+		TotalDistance:    2000000,
 		TotalAscent:      350,
 		TotalDescent:     300,
 		TotalCalories:    800,
@@ -97,8 +97,8 @@ func TestBuildActivityData_EndToEnd(t *testing.T) {
 		AvgPower:         220,
 		MaxPower:         450,
 		EnhancedAvgSpeed: 11111,
-		AvgGrade:         500,    // /100 = 5.0%
-		AvgPosGrade:      800,    // /100 = 8.0%
+		AvgGrade:         500, // /100 = 5.0%
+		AvgPosGrade:      800, // /100 = 8.0%
 	}
 
 	// --- Event ---
