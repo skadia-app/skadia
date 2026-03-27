@@ -9,6 +9,7 @@ import (
 	graphpkg "github.com/skadia-app/skadia/services/api/internal/routing/graph"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/errgroup"
 )
 
 // BuildCoverageOptions configures the build-coverage command.
@@ -60,32 +61,23 @@ func RunBuildCoverage(ctx context.Context, pool *pgxpool.Pool, opts BuildCoverag
 
 	noiseCfg := DefaultNoiseSettings()
 	var done atomic.Int64
-	sem := make(chan struct{}, opts.Workers)
+	var firstErr atomic.Value // stores first error for logging
 
-	type result struct {
-		tileID uint32
-		err    error
-	}
-	results := make(chan result, len(tileIDs))
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(opts.Workers)
 
 	for _, tid := range tileIDs {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case sem <- struct{}{}:
-		}
-
-		go func(tileID uint32) {
-			defer func() { <-sem }()
-
-			tg, ti, err := buildGridsForTile(ctx, pool, tileID, noiseCfg)
+		g.Go(func() error {
+			tg, ti, err := buildGridsForTile(gctx, pool, tid, noiseCfg)
 			if err != nil {
-				results <- result{tileID, err}
-				return
+				if firstErr.CompareAndSwap(nil, err) {
+					slog.Error("build-coverage: tile failed", "tileID", tid, "error", err)
+				}
+				return err
 			}
 			defer tg.Release()
 
-			bbox := graphpkg.TileBBox(tileID)
+			bbox := graphpkg.TileBBox(tid)
 			core := tileBBoxToBound(bbox)
 
 			err = WriteTileGrids(tg, ti, opts.BaseDir, core, opts.Layer)
@@ -93,29 +85,19 @@ func RunBuildCoverage(ctx context.Context, pool *pgxpool.Pool, opts BuildCoverag
 				ti.release()
 			}
 			if err != nil {
-				results <- result{tileID, err}
-				return
+				return err
 			}
 
 			n := done.Add(1)
 			if progressFn != nil {
 				progressFn(n, total)
 			}
-			results <- result{tileID, nil}
-		}(tid)
+			return nil
+		})
 	}
 
-	var firstErr error
-	for range tileIDs {
-		r := <-results
-		if r.err != nil && firstErr == nil {
-			slog.Error("build-coverage: tile failed", "tileID", r.tileID, "error", r.err)
-			firstErr = r.err
-		}
-	}
-
-	if firstErr != nil {
-		return firstErr
+	if err := g.Wait(); err != nil {
+		return err
 	}
 
 	if err := WriteBuildTimestamp(opts.BaseDir); err != nil {
