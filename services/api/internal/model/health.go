@@ -45,8 +45,15 @@ type HealthSleep struct {
 	RespirationAvg  *float64  `json:"respiration_avg"`
 	AwakeCount      *int      `json:"awake_count"`
 	RestlessMoments *int      `json:"restless_moments"`
-	AvgSleepStress  *float64  `json:"avg_sleep_stress"`
-	SourceType      string    `json:"source_type"`
+	AvgSleepStress     *float64  `json:"avg_sleep_stress"`
+	ScoreLight         *int16    `json:"score_light,omitempty"`
+	ScoreAwakeTime     *int16    `json:"score_awake_time,omitempty"`
+	ScoreAwakenings    *int16    `json:"score_awakenings,omitempty"`
+	ScoreCombinedAwake *int16    `json:"score_combined_awake,omitempty"`
+	ScoreRestlessness  *int16    `json:"score_restlessness,omitempty"`
+	ScoreInterruptions *int16    `json:"score_interruptions,omitempty"`
+	ScoreRecovery      *int16    `json:"score_recovery,omitempty"`
+	SourceType         string    `json:"source_type"`
 	ExtraData       *string   `json:"extra_data,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 }
@@ -77,10 +84,17 @@ type HealthWeightEntry struct {
 	BMI           *float64  `json:"bmi"`
 	BodyFatPct    *float64  `json:"body_fat_pct"`
 	MuscleMassG   *int      `json:"muscle_mass_g"`
-	BoneMassG     *int      `json:"bone_mass_g"`
-	SourceType    string    `json:"source_type"`
-	ExtraData     *string   `json:"extra_data,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
+	BoneMassG          *int      `json:"bone_mass_g"`
+	PercentHydration   *float64  `json:"percent_hydration,omitempty"`
+	VisceralFatMassG   *int32    `json:"visceral_fat_mass_g,omitempty"`
+	BasalMet           *float64  `json:"basal_met,omitempty"`
+	ActiveMet          *float64  `json:"active_met,omitempty"`
+	PhysiqueRating     *int16    `json:"physique_rating,omitempty"`
+	MetabolicAge       *int16    `json:"metabolic_age,omitempty"`
+	VisceralFatRating  *int16    `json:"visceral_fat_rating,omitempty"`
+	SourceType         string    `json:"source_type"`
+	ExtraData          *string   `json:"extra_data,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 // HealthWeightCreate is used when manually creating a weight entry.
@@ -140,10 +154,11 @@ type HealthStressSnapshot struct {
 type HealthSpO2Snapshot struct {
 	UserID        string    `json:"user_id"`
 	MeasuredAtUTC time.Time `json:"measured_at_utc"`
-	SpO2Pct       *float64  `json:"spo2_pct"`
-	SourceType    string    `json:"source_type"`
-	ExtraData     *string   `json:"extra_data,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
+	SpO2Pct    *float64  `json:"spo2_pct"`
+	Confidence *int16    `json:"confidence,omitempty"`
+	SourceType string    `json:"source_type"`
+	ExtraData  *string   `json:"extra_data,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // HealthBloodPressure is a single blood pressure measurement.
