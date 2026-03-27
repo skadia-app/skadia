@@ -177,6 +177,45 @@ type HealthHRVNightValue struct {
 	SourceType string    `json:"source_type"`
 }
 
+// MonitoringSample represents one row in health_monitoring_samples.
+type MonitoringSample struct {
+	UserID            string     `json:"-"`
+	TS                time.Time  `json:"ts"`
+	HeartRate         *int16     `json:"heart_rate,omitempty"`
+	ActivityType      *int16     `json:"activity_type,omitempty"`
+	Intensity         *int16     `json:"intensity,omitempty"`
+	TemperatureC      *float64   `json:"temperature_c,omitempty"`
+	TemperatureMinC   *float64   `json:"temperature_min_c,omitempty"`
+	TemperatureMaxC   *float64   `json:"temperature_max_c,omitempty"`
+	Stress            *int16     `json:"stress,omitempty"`
+	BodyBattery       *int16     `json:"body_battery,omitempty"`
+	BodyBatteryDelta  *int16     `json:"body_battery_delta,omitempty"`
+	RespirationRate   *float64   `json:"respiration_rate,omitempty"`
+	SleepLevel        *int16     `json:"sleep_level,omitempty"`
+	SpO2Pct           *int16     `json:"spo2_pct,omitempty"`
+	SpO2Confidence    *int16     `json:"spo2_confidence,omitempty"`
+	WristTemperatureC *float64   `json:"wrist_temperature_c,omitempty"`
+}
+
+// TrainingZone represents a zone configuration for a sport.
+type TrainingZone struct {
+	ID                       string    `json:"id"`
+	UserID                   string    `json:"user_id"`
+	Sport                    int16     `json:"sport"`
+	SubSport                 int16     `json:"sub_sport"`
+	ZoneType                 string    `json:"zone_type"`
+	MaxHeartRate             *int16    `json:"max_heart_rate,omitempty"`
+	ThresholdHeartRate       *int16    `json:"threshold_heart_rate,omitempty"`
+	FunctionalThresholdPower *int32    `json:"functional_threshold_power,omitempty"`
+	HrCalcType               *int16    `json:"hr_calc_type,omitempty"`
+	PwrCalcType              *int16    `json:"pwr_calc_type,omitempty"`
+	ZoneNames                []string  `json:"zone_names"`
+	ZoneHighs                []float64 `json:"zone_highs"`
+	SourceType               string    `json:"source_type"`
+	CreatedAt                time.Time `json:"created_at"`
+	UpdatedAt                time.Time `json:"updated_at"`
+}
+
 // HealthOverview aggregates the most recent value of every health metric.
 type HealthOverview struct {
 	LatestDailySummary  *HealthDailySummary   `json:"latest_daily_summary"`

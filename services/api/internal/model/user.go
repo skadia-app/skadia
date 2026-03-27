@@ -56,6 +56,7 @@ type User struct {
 	DeletedAt          *time.Time `json:"-"`
 	MustChangePassword bool       `json:"-"`
 	PendingEmail       *string    `json:"-"`
+	Timezone           string     `json:"timezone"`
 }
 
 // MeResponse is the JSON shape returned by GET /auth/me.
