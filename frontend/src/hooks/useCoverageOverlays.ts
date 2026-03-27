@@ -51,10 +51,29 @@ const defaultState: CoverageOverlayState = {
   },
 }
 
+function mergeComposite(
+  defaults: CoverageCompositeState,
+  saved?: Partial<CoverageCompositeState>,
+): CoverageCompositeState {
+  if (!saved) return defaults
+  return {
+    enabled: saved.enabled ?? defaults.enabled,
+    opacity: saved.opacity ?? defaults.opacity,
+    layers: { ...defaults.layers, ...saved.layers },
+  }
+}
+
 function loadState(): CoverageOverlayState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return { ...defaultState, ...JSON.parse(raw) }
+    if (raw) {
+      const saved = JSON.parse(raw) as Partial<CoverageOverlayState>
+      return {
+        nature: mergeComposite(defaultState.nature, saved.nature),
+        quiet: mergeComposite(defaultState.quiet, saved.quiet),
+        trafficUrban: mergeComposite(defaultState.trafficUrban, saved.trafficUrban),
+      }
+    }
   } catch { /* ignore */ }
   return defaultState
 }
@@ -65,6 +84,27 @@ function saveState(state: CoverageOverlayState) {
 
 async function fetchCoverageInfo(): Promise<{ buildTimestamp: string }> {
   return apiClient<{ buildTimestamp: string }>('/coverage/info')
+}
+
+function syncLayerVisibility(map: MaplibreMap, state: CoverageOverlayState) {
+  const compositeKeys = Object.keys(COMPOSITE_LAYERS) as (keyof CoverageOverlayState)[]
+  for (const compositeKey of compositeKeys) {
+    const compositeState = state[compositeKey]
+    const apiLayers = COMPOSITE_LAYERS[compositeKey]
+    for (const apiLayer of apiLayers) {
+      const layerId = `coverage-${apiLayer}-layer`
+      if (!map.getLayer(layerId)) continue
+
+      const subLayerKey = Object.entries(LAYER_KEY_TO_API).find(([, v]) => v === apiLayer)?.[0]
+      const subLayerEnabled = subLayerKey ? compositeState.layers[subLayerKey] ?? true : true
+      const shouldShow = compositeState.enabled && subLayerEnabled
+
+      map.setLayoutProperty(layerId, 'visibility', shouldShow ? 'visible' : 'none')
+      if (shouldShow) {
+        map.setPaintProperty(layerId, 'raster-opacity', compositeState.opacity / 100)
+      }
+    }
+  }
 }
 
 export function useCoverageOverlays(mapInstance: MaplibreMap | null, styleVersion: number) {
@@ -84,78 +124,61 @@ export function useCoverageOverlays(mapInstance: MaplibreMap | null, styleVersio
     saveState(state)
   }, [state])
 
+  // Effect 1: Manage sources — only re-create when buildTimestamp or style changes
   useEffect(() => {
     if (!mapInstance || styleVersion === 0) return
 
-    const compositeKeys = Object.keys(COMPOSITE_LAYERS) as (keyof CoverageOverlayState)[]
-
-    for (const compositeKey of compositeKeys) {
-      const compositeState = stateRef.current[compositeKey]
-      const apiLayers = COMPOSITE_LAYERS[compositeKey]
-
-      for (const apiLayer of apiLayers) {
-        const sourceId = `coverage-${apiLayer}`
-        const layerId = `coverage-${apiLayer}-layer`
-
-        const subLayerKey = Object.entries(LAYER_KEY_TO_API).find(
-          ([, v]) => v === apiLayer,
-        )?.[0]
-
-        const subLayerEnabled = subLayerKey
-          ? compositeState.layers[subLayerKey] ?? true
-          : true
-
-        const shouldShow = compositeState.enabled && subLayerEnabled
-
-        if (shouldShow) {
-          if (!mapInstance.getSource(sourceId)) {
-            const tileUrl = buildTimestamp
-              ? `/api/v1/coverage/tiles/${apiLayer}/{z}/{x}/{y}.png?v=${buildTimestamp}`
-              : `/api/v1/coverage/tiles/${apiLayer}/{z}/{x}/{y}.png`
-            mapInstance.addSource(sourceId, {
-              type: 'raster',
-              tiles: [tileUrl],
-              tileSize: 256,
-              minzoom: 8,
-              maxzoom: 15,
-            })
-          }
-          if (!mapInstance.getLayer(layerId)) {
-            const beforeId = findFirstVectorOverlayLayer(mapInstance)
-            mapInstance.addLayer(
-              {
-                id: layerId,
-                type: 'raster',
-                source: sourceId,
-                paint: {
-                  'raster-opacity': compositeState.opacity / 100,
-                },
-              },
-              beforeId,
-            )
-          } else {
-            mapInstance.setPaintProperty(layerId, 'raster-opacity', compositeState.opacity / 100)
-          }
-        } else {
-          if (mapInstance.getLayer(layerId)) mapInstance.removeLayer(layerId)
-          if (mapInstance.getSource(sourceId)) mapInstance.removeSource(sourceId)
-        }
+    // Add all possible sources (one per API layer)
+    const allApiLayers = [...new Set(Object.values(COMPOSITE_LAYERS).flat())]
+    for (const apiLayer of allApiLayers) {
+      const sourceId = `coverage-${apiLayer}`
+      if (!mapInstance.getSource(sourceId)) {
+        const tileUrl = buildTimestamp
+          ? `/api/v1/coverage/tiles/${apiLayer}/{z}/{x}/{y}.png?v=${buildTimestamp}`
+          : `/api/v1/coverage/tiles/${apiLayer}/{z}/{x}/{y}.png`
+        mapInstance.addSource(sourceId, {
+          type: 'raster',
+          tiles: [tileUrl],
+          tileSize: 256,
+          minzoom: 8,
+          maxzoom: 15,
+        })
+      }
+      const layerId = `coverage-${apiLayer}-layer`
+      if (!mapInstance.getLayer(layerId)) {
+        const beforeId = findFirstVectorOverlayLayer(mapInstance)
+        mapInstance.addLayer(
+          {
+            id: layerId,
+            type: 'raster',
+            source: sourceId,
+            layout: { visibility: 'none' },
+            paint: { 'raster-opacity': 0.5 },
+          },
+          beforeId,
+        )
       }
     }
+
+    // Apply current state
+    syncLayerVisibility(mapInstance, stateRef.current)
 
     return () => {
       if (!mapInstance) return
-      for (const compositeKey of compositeKeys) {
-        const apiLayers = COMPOSITE_LAYERS[compositeKey]
-        for (const apiLayer of apiLayers) {
-          const layerId = `coverage-${apiLayer}-layer`
-          const sourceId = `coverage-${apiLayer}`
-          if (mapInstance.getLayer(layerId)) mapInstance.removeLayer(layerId)
-          if (mapInstance.getSource(sourceId)) mapInstance.removeSource(sourceId)
-        }
+      for (const apiLayer of allApiLayers) {
+        const layerId = `coverage-${apiLayer}-layer`
+        const sourceId = `coverage-${apiLayer}`
+        if (mapInstance.getLayer(layerId)) mapInstance.removeLayer(layerId)
+        if (mapInstance.getSource(sourceId)) mapInstance.removeSource(sourceId)
       }
     }
-  }, [mapInstance, styleVersion, state, buildTimestamp])
+  }, [mapInstance, styleVersion, buildTimestamp])
+
+  // Effect 2: Sync visibility + opacity — no source/layer add/remove
+  useEffect(() => {
+    if (!mapInstance || styleVersion === 0) return
+    syncLayerVisibility(mapInstance, state)
+  }, [mapInstance, state, styleVersion])
 
   const updateComposite = useCallback(
     (key: keyof CoverageOverlayState, update: Partial<CoverageCompositeState>) => {
