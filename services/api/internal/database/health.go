@@ -374,28 +374,42 @@ func (db *DB) UpsertHealthWeightEntry(ctx context.Context, s *model.HealthWeight
 	_, err := db.Pool.Exec(ctx, `
 		INSERT INTO health_weight_entries (
 			user_id, measured_at_utc, weight_g, bmi, body_fat_pct, muscle_mass_g, bone_mass_g,
-			source_type, extra_data
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			source_type, extra_data,
+			percent_hydration, visceral_fat_mass_g, basal_met, active_met,
+			physique_rating, metabolic_age, visceral_fat_rating
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		ON CONFLICT (user_id, measured_at_utc) DO UPDATE SET
-			weight_g      = EXCLUDED.weight_g,
-			bmi           = COALESCE(EXCLUDED.bmi,           health_weight_entries.bmi),
-			body_fat_pct  = COALESCE(EXCLUDED.body_fat_pct,  health_weight_entries.body_fat_pct),
-			muscle_mass_g = COALESCE(EXCLUDED.muscle_mass_g, health_weight_entries.muscle_mass_g),
-			bone_mass_g   = COALESCE(EXCLUDED.bone_mass_g,   health_weight_entries.bone_mass_g),
-			source_type   = CASE
+			weight_g             = EXCLUDED.weight_g,
+			bmi                  = COALESCE(EXCLUDED.bmi,                  health_weight_entries.bmi),
+			body_fat_pct         = COALESCE(EXCLUDED.body_fat_pct,         health_weight_entries.body_fat_pct),
+			muscle_mass_g        = COALESCE(EXCLUDED.muscle_mass_g,        health_weight_entries.muscle_mass_g),
+			bone_mass_g          = COALESCE(EXCLUDED.bone_mass_g,          health_weight_entries.bone_mass_g),
+			percent_hydration    = COALESCE(EXCLUDED.percent_hydration,    health_weight_entries.percent_hydration),
+			visceral_fat_mass_g  = COALESCE(EXCLUDED.visceral_fat_mass_g,  health_weight_entries.visceral_fat_mass_g),
+			basal_met            = COALESCE(EXCLUDED.basal_met,            health_weight_entries.basal_met),
+			active_met           = COALESCE(EXCLUDED.active_met,           health_weight_entries.active_met),
+			physique_rating      = COALESCE(EXCLUDED.physique_rating,      health_weight_entries.physique_rating),
+			metabolic_age        = COALESCE(EXCLUDED.metabolic_age,        health_weight_entries.metabolic_age),
+			visceral_fat_rating  = COALESCE(EXCLUDED.visceral_fat_rating,  health_weight_entries.visceral_fat_rating),
+			source_type          = CASE
 						WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(health_weight_entries.source_type)
 						THEN EXCLUDED.source_type
 						ELSE health_weight_entries.source_type
 					END
 	`, s.UserID, s.MeasuredAtUTC, s.WeightG, s.BMI, s.BodyFatPct, s.MuscleMassG, s.BoneMassG,
-		s.SourceType, s.ExtraData)
+		s.SourceType, s.ExtraData,
+		s.PercentHydration, s.VisceralFatMassG, s.BasalMet, s.ActiveMet,
+		s.PhysiqueRating, s.MetabolicAge, s.VisceralFatRating)
 	return err
 }
 
 func (db *DB) GetHealthWeight(ctx context.Context, userID, from, to string) ([]model.HealthWeightEntry, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT user_id, measured_at_utc, weight_g, bmi, body_fat_pct, muscle_mass_g, bone_mass_g,
-		       source_type, extra_data, created_at
+		       source_type, extra_data,
+		       percent_hydration, visceral_fat_mass_g, basal_met, active_met,
+		       physique_rating, metabolic_age, visceral_fat_rating,
+		       created_at
 		FROM health_weight_entries
 		WHERE user_id = $1 AND measured_at_utc BETWEEN $2::timestamptz AND $3::timestamptz
 		ORDER BY measured_at_utc ASC
@@ -410,7 +424,10 @@ func (db *DB) GetHealthWeight(ctx context.Context, userID, from, to string) ([]m
 		var s model.HealthWeightEntry
 		if err := rows.Scan(
 			&s.UserID, &s.MeasuredAtUTC, &s.WeightG, &s.BMI, &s.BodyFatPct, &s.MuscleMassG, &s.BoneMassG,
-			&s.SourceType, &s.ExtraData, &s.CreatedAt,
+			&s.SourceType, &s.ExtraData,
+			&s.PercentHydration, &s.VisceralFatMassG, &s.BasalMet, &s.ActiveMet,
+			&s.PhysiqueRating, &s.MetabolicAge, &s.VisceralFatRating,
+			&s.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan health weight: %w", err)
 		}
@@ -422,7 +439,10 @@ func (db *DB) GetHealthWeight(ctx context.Context, userID, from, to string) ([]m
 func (db *DB) GetLatestHealthWeight(ctx context.Context, userID string) (*model.HealthWeightEntry, error) {
 	row := db.Pool.QueryRow(ctx, `
 		SELECT user_id, measured_at_utc, weight_g, bmi, body_fat_pct, muscle_mass_g, bone_mass_g,
-		       source_type, extra_data, created_at
+		       source_type, extra_data,
+		       percent_hydration, visceral_fat_mass_g, basal_met, active_met,
+		       physique_rating, metabolic_age, visceral_fat_rating,
+		       created_at
 		FROM health_weight_entries
 		WHERE user_id = $1
 		ORDER BY measured_at_utc DESC
@@ -431,7 +451,10 @@ func (db *DB) GetLatestHealthWeight(ctx context.Context, userID string) (*model.
 	var s model.HealthWeightEntry
 	err := row.Scan(
 		&s.UserID, &s.MeasuredAtUTC, &s.WeightG, &s.BMI, &s.BodyFatPct, &s.MuscleMassG, &s.BoneMassG,
-		&s.SourceType, &s.ExtraData, &s.CreatedAt,
+		&s.SourceType, &s.ExtraData,
+		&s.PercentHydration, &s.VisceralFatMassG, &s.BasalMet, &s.ActiveMet,
+		&s.PhysiqueRating, &s.MetabolicAge, &s.VisceralFatRating,
+		&s.CreatedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
