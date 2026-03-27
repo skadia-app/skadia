@@ -149,14 +149,13 @@ func slippyTileBBox(z, x, y int) [4]float64 {
 
 func coverageTileIDs(bbox [4]float64) []uint32 {
 	minLat := int(math.Floor(bbox[0]))
+	maxLat := int(math.Floor(bbox[2]))
 	minLon := int(math.Floor(bbox[1]))
-	// Exclusive upper bounds: ensure at least the tile containing minLat/minLon is included.
-	maxLat := max(minLat+1, int(math.Floor(bbox[2])))
-	maxLon := max(minLon+1, int(math.Floor(bbox[3])))
+	maxLon := int(math.Floor(bbox[3]))
 
 	var ids []uint32
-	for lat := minLat; lat < maxLat; lat++ {
-		for lon := minLon; lon < maxLon; lon++ {
+	for lat := minLat; lat <= maxLat; lat++ {
+		for lon := minLon; lon <= maxLon; lon++ {
 			ids = append(ids, graphpkg.TileIDFromCoord(float64(lat)+0.5, float64(lon)+0.5))
 		}
 	}
