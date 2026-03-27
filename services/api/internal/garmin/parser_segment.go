@@ -32,8 +32,9 @@ type segmentPointData struct {
 // a new segment into the database if it is not already present.
 // If the SegmentId message has Enabled=false the file is silently skipped.
 func processSegmentFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
-	if _, err := storeHealthFIT(ctx, db, fs, data, userID, "segment", "segment.fit", time.Now().UTC()); err != nil {
-		return err
+	segTS := time.Now().UTC()
+	if _, err := storeHealthFIT(ctx, db, fs, data, userID, "segment", fmt.Sprintf("segment_%s.fit", segTS.Format("20060102_150405")), segTS); err != nil {
+		slog.Warn("processSegmentFIT: storeHealthFIT failed", "error", err)
 	}
 
 	dec := decoder.New(bytes.NewReader(data), decoder.WithIgnoreChecksum())

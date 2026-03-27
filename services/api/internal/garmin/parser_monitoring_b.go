@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/muktihari/fit/decoder"
+	"github.com/muktihari/fit/kit/datetime"
 	"github.com/muktihari/fit/profile/basetype"
 	"github.com/muktihari/fit/profile/mesgdef"
 	"github.com/muktihari/fit/profile/typedef"
@@ -28,15 +29,25 @@ var minSaneTimestamp = time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)
 //  1. Collect all messages into typed slices, track HSA presence flags.
 //  2. Merge into final []model.MonitoringSample with source priority (HSA > legacy).
 func processMonitoringBFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
-	// Store raw FIT in ShadowFS before parsing.
-	now := time.Now().UTC()
-	storeHealthFIT(ctx, db, fs, data, userID, "monitoring_b", fmt.Sprintf("monitoring_b_%s.fit", now.Format("20060102_150405")), now)
-
 	dec := decoder.New(bytes.NewReader(data), decoder.WithIgnoreChecksum())
 	fit, err := dec.Decode()
 	if err != nil {
 		return fmt.Errorf("decode monitoring_b FIT: %w", err)
 	}
+
+	// Derive file timestamp from first valid message timestamp for ShadowFS tags.
+	fileTS := time.Now().UTC()
+	for i := range fit.Messages {
+		rawTS := fit.Messages[i].FieldValueByNum(253) // field 253 = timestamp
+		if rawTS.Valid(basetype.Uint32) {
+			ts := datetime.ToTime(rawTS.Uint32())
+			if !ts.IsZero() && !ts.Before(minSaneTimestamp) {
+				fileTS = ts
+				break
+			}
+		}
+	}
+	storeHealthFIT(ctx, db, fs, data, userID, "monitoring_b", fmt.Sprintf("monitoring_b_%s.fit", fileTS.Format("20060102_150405")), fileTS)
 
 	// --- Pass 1: Collect all messages into typed slices ---
 

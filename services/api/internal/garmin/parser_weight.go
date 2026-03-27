@@ -3,6 +3,7 @@ package garmin
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -16,9 +17,9 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
-// minTS is the earliest plausible Garmin timestamp (2000-01-01 UTC).
+// minTS is the earliest plausible Garmin timestamp (2010-01-01 UTC).
 // Entries before this are considered invalid/unset.
-var minTS = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+var minTS = time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // processWeightFIT parses a Garmin weight-scale FIT file (type 9) and upserts
 // body-composition entries into health_weight_entries.
@@ -28,7 +29,7 @@ var minTS = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 // here to convert to SI units stored in the database.
 func processWeightFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
 	ts := time.Now().UTC()
-	storeHealthFIT(ctx, db, fs, data, userID, "weight", "weight.fit", ts) //nolint:errcheck // non-fatal
+	storeHealthFIT(ctx, db, fs, data, userID, "weight", fmt.Sprintf("weight_%s.fit", ts.Format("20060102_150405")), ts) //nolint:errcheck // non-fatal
 
 	dec := decoder.New(bytes.NewReader(data), decoder.WithIgnoreChecksum())
 	fit, err := dec.Decode()
