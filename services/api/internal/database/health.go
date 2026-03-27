@@ -123,28 +123,38 @@ func (db *DB) UpsertHealthSleep(ctx context.Context, s *model.HealthSleep) error
 			deep_seconds, light_seconds, rem_seconds, awake_seconds,
 			score_overall, score_quality, score_duration, score_deep, score_rem,
 			respiration_avg, awake_count, restless_moments, avg_sleep_stress,
-			source_type, extra_data
+			source_type, extra_data,
+			score_light, score_awake_time, score_awakenings, score_combined_awake,
+			score_restlessness, score_interruptions, score_recovery
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-			$11, $12, $13, $14, $15, $16, $17, $18, $19
+			$11, $12, $13, $14, $15, $16, $17, $18, $19,
+			$20, $21, $22, $23, $24, $25, $26
 		)
 		ON CONFLICT (user_id, calendar_date) DO UPDATE SET
-			sleep_start_utc   = EXCLUDED.sleep_start_utc,
-			sleep_end_utc     = EXCLUDED.sleep_end_utc,
-			deep_seconds      = COALESCE(EXCLUDED.deep_seconds,      health_sleep.deep_seconds),
-			light_seconds     = COALESCE(EXCLUDED.light_seconds,     health_sleep.light_seconds),
-			rem_seconds       = COALESCE(EXCLUDED.rem_seconds,       health_sleep.rem_seconds),
-			awake_seconds     = COALESCE(EXCLUDED.awake_seconds,     health_sleep.awake_seconds),
-			score_overall     = COALESCE(EXCLUDED.score_overall,     health_sleep.score_overall),
-			score_quality     = COALESCE(EXCLUDED.score_quality,     health_sleep.score_quality),
-			score_duration    = COALESCE(EXCLUDED.score_duration,    health_sleep.score_duration),
-			score_deep        = COALESCE(EXCLUDED.score_deep,        health_sleep.score_deep),
-			score_rem         = COALESCE(EXCLUDED.score_rem,         health_sleep.score_rem),
-			respiration_avg   = COALESCE(EXCLUDED.respiration_avg,   health_sleep.respiration_avg),
-			awake_count       = COALESCE(EXCLUDED.awake_count,       health_sleep.awake_count),
-			restless_moments  = COALESCE(EXCLUDED.restless_moments,  health_sleep.restless_moments),
-			avg_sleep_stress  = COALESCE(EXCLUDED.avg_sleep_stress,  health_sleep.avg_sleep_stress),
-			source_type       = CASE
+			sleep_start_utc      = COALESCE(EXCLUDED.sleep_start_utc,      health_sleep.sleep_start_utc),
+			sleep_end_utc        = COALESCE(EXCLUDED.sleep_end_utc,        health_sleep.sleep_end_utc),
+			deep_seconds         = COALESCE(EXCLUDED.deep_seconds,         health_sleep.deep_seconds),
+			light_seconds        = COALESCE(EXCLUDED.light_seconds,        health_sleep.light_seconds),
+			rem_seconds          = COALESCE(EXCLUDED.rem_seconds,          health_sleep.rem_seconds),
+			awake_seconds        = COALESCE(EXCLUDED.awake_seconds,        health_sleep.awake_seconds),
+			score_overall        = COALESCE(EXCLUDED.score_overall,        health_sleep.score_overall),
+			score_quality        = COALESCE(EXCLUDED.score_quality,        health_sleep.score_quality),
+			score_duration       = COALESCE(EXCLUDED.score_duration,       health_sleep.score_duration),
+			score_deep           = COALESCE(EXCLUDED.score_deep,           health_sleep.score_deep),
+			score_rem            = COALESCE(EXCLUDED.score_rem,            health_sleep.score_rem),
+			respiration_avg      = COALESCE(EXCLUDED.respiration_avg,      health_sleep.respiration_avg),
+			awake_count          = COALESCE(EXCLUDED.awake_count,          health_sleep.awake_count),
+			restless_moments     = COALESCE(EXCLUDED.restless_moments,     health_sleep.restless_moments),
+			avg_sleep_stress     = COALESCE(EXCLUDED.avg_sleep_stress,     health_sleep.avg_sleep_stress),
+			score_light          = COALESCE(EXCLUDED.score_light,          health_sleep.score_light),
+			score_awake_time     = COALESCE(EXCLUDED.score_awake_time,     health_sleep.score_awake_time),
+			score_awakenings     = COALESCE(EXCLUDED.score_awakenings,     health_sleep.score_awakenings),
+			score_combined_awake = COALESCE(EXCLUDED.score_combined_awake, health_sleep.score_combined_awake),
+			score_restlessness   = COALESCE(EXCLUDED.score_restlessness,   health_sleep.score_restlessness),
+			score_interruptions  = COALESCE(EXCLUDED.score_interruptions,  health_sleep.score_interruptions),
+			score_recovery       = COALESCE(EXCLUDED.score_recovery,       health_sleep.score_recovery),
+			source_type          = CASE
 						WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(health_sleep.source_type)
 						THEN EXCLUDED.source_type
 						ELSE health_sleep.source_type
@@ -153,7 +163,9 @@ func (db *DB) UpsertHealthSleep(ctx context.Context, s *model.HealthSleep) error
 		s.DeepSeconds, s.LightSeconds, s.RemSeconds, s.AwakeSeconds,
 		s.ScoreOverall, s.ScoreQuality, s.ScoreDuration, s.ScoreDeep, s.ScoreRem,
 		s.RespirationAvg, s.AwakeCount, s.RestlessMoments, s.AvgSleepStress,
-		s.SourceType, s.ExtraData)
+		s.SourceType, s.ExtraData,
+		s.ScoreLight, s.ScoreAwakeTime, s.ScoreAwakenings, s.ScoreCombinedAwake,
+		s.ScoreRestlessness, s.ScoreInterruptions, s.ScoreRecovery)
 	return err
 }
 
@@ -163,7 +175,10 @@ func (db *DB) GetHealthSleep(ctx context.Context, userID, from, to string) ([]mo
 		       deep_seconds, light_seconds, rem_seconds, awake_seconds,
 		       score_overall, score_quality, score_duration, score_deep, score_rem,
 		       respiration_avg, awake_count, restless_moments, avg_sleep_stress,
-		       source_type, extra_data, created_at
+		       source_type, extra_data,
+		       score_light, score_awake_time, score_awakenings, score_combined_awake,
+		       score_restlessness, score_interruptions, score_recovery,
+		       created_at
 		FROM health_sleep
 		WHERE user_id = $1 AND calendar_date BETWEEN $2::date AND $3::date
 		ORDER BY calendar_date ASC
@@ -182,7 +197,10 @@ func (db *DB) GetHealthSleep(ctx context.Context, userID, from, to string) ([]mo
 			&s.DeepSeconds, &s.LightSeconds, &s.RemSeconds, &s.AwakeSeconds,
 			&s.ScoreOverall, &s.ScoreQuality, &s.ScoreDuration, &s.ScoreDeep, &s.ScoreRem,
 			&s.RespirationAvg, &s.AwakeCount, &s.RestlessMoments, &s.AvgSleepStress,
-			&s.SourceType, &s.ExtraData, &s.CreatedAt,
+			&s.SourceType, &s.ExtraData,
+			&s.ScoreLight, &s.ScoreAwakeTime, &s.ScoreAwakenings, &s.ScoreCombinedAwake,
+			&s.ScoreRestlessness, &s.ScoreInterruptions, &s.ScoreRecovery,
+			&s.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan health sleep: %w", err)
 		}
@@ -198,7 +216,10 @@ func (db *DB) GetLatestHealthSleep(ctx context.Context, userID string) (*model.H
 		       deep_seconds, light_seconds, rem_seconds, awake_seconds,
 		       score_overall, score_quality, score_duration, score_deep, score_rem,
 		       respiration_avg, awake_count, restless_moments, avg_sleep_stress,
-		       source_type, extra_data, created_at
+		       source_type, extra_data,
+		       score_light, score_awake_time, score_awakenings, score_combined_awake,
+		       score_restlessness, score_interruptions, score_recovery,
+		       created_at
 		FROM health_sleep
 		WHERE user_id = $1
 		ORDER BY calendar_date DESC
@@ -211,7 +232,10 @@ func (db *DB) GetLatestHealthSleep(ctx context.Context, userID string) (*model.H
 		&s.DeepSeconds, &s.LightSeconds, &s.RemSeconds, &s.AwakeSeconds,
 		&s.ScoreOverall, &s.ScoreQuality, &s.ScoreDuration, &s.ScoreDeep, &s.ScoreRem,
 		&s.RespirationAvg, &s.AwakeCount, &s.RestlessMoments, &s.AvgSleepStress,
-		&s.SourceType, &s.ExtraData, &s.CreatedAt,
+		&s.SourceType, &s.ExtraData,
+		&s.ScoreLight, &s.ScoreAwakeTime, &s.ScoreAwakenings, &s.ScoreCombinedAwake,
+		&s.ScoreRestlessness, &s.ScoreInterruptions, &s.ScoreRecovery,
+		&s.CreatedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
