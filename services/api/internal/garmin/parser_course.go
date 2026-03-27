@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/muktihari/fit/decoder"
+	"github.com/muktihari/fit/kit/datetime"
 	"github.com/muktihari/fit/profile/basetype"
 	"github.com/muktihari/fit/profile/mesgdef"
 	"github.com/muktihari/fit/profile/typedef"
@@ -23,17 +24,28 @@ import (
 // processCourseFIT parses a Garmin course FIT file (type 6) and imports the
 // GPS track as a planned route in Skadia.
 func processCourseFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
-	// Store original FIT file in ShadowFS with file_type "route".
-	if len(data) > 14 {
-		ts := time.Now()
-		storeHealthFIT(ctx, db, fs, data, userID, "route", fmt.Sprintf("%s_course.fit", ts.Format("2006-01-02")), ts)
-	}
-
 	// Decode FIT messages.
 	dec := decoder.New(bytes.NewReader(data), decoder.WithIgnoreChecksum())
 	fit, err := dec.Decode()
 	if err != nil {
 		return fmt.Errorf("processCourseFIT: decode: %w", err)
+	}
+
+	// Store original FIT file in ShadowFS with file_type "route".
+	// Derive file timestamp from first valid message timestamp for ShadowFS tags.
+	if len(data) > 14 {
+		fileTS := time.Now().UTC()
+		for i := range fit.Messages {
+			rawTS := fit.Messages[i].FieldValueByNum(253) // field 253 = timestamp
+			if rawTS.Valid(basetype.Uint32) {
+				ts := datetime.ToTime(rawTS.Uint32())
+				if !ts.IsZero() && !ts.Before(minSaneTimestamp) {
+					fileTS = ts
+					break
+				}
+			}
+		}
+		storeHealthFIT(ctx, db, fs, data, userID, "route", fmt.Sprintf("%s_course.fit", fileTS.Format("2006-01-02")), fileTS)
 	}
 
 	// --- Collect data from messages ---
