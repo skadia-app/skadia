@@ -102,6 +102,7 @@ func GenerateMetaFull(activityID string, data *model.ActivityData, activity *mod
 		m.WorkoutRpe = activity.WorkoutRpe
 		m.IsEbike = activity.IsEbike
 		m.IsVirtual = activity.IsVirtual
+		m.IsManualEntry = activity.IsManualEntry
 		m.Source = derefStr(activity.Source)
 		m.UserID = activity.UserID
 		m.ExcludeFromHeatmap = activity.ExcludeFromHeatmap

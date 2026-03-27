@@ -165,7 +165,6 @@ func (u *UnifiedShadowFS) allBuckets() []string {
 	return buckets
 }
 
-
 // Put stores a file and registers it in user_files.
 func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (FileRecord, error) {
 	// 1. Validate file_type.
@@ -448,6 +447,10 @@ func (u *UnifiedShadowFS) Delete(ctx context.Context, userID, fileID string) err
 // Uses file-type-specific path conventions:
 //   - activity: path.fit → path.fit.meta  (suffix append)
 //   - media:    photo.jpg → photo.meta.json (extension strip, then .meta.json)
+//
+// NOTE: If PutCompanion runs concurrently with Delete on the same file,
+// the companion may become orphaned. This is acceptable — the reconciler
+// handles orphaned files. The window is extremely small in practice.
 func deleteInlineCompanions(ctx context.Context, be StorageBackend, storagePath, fileType string, opts *BackendOpts) {
 	switch fileType {
 	case "activity":
@@ -456,6 +459,8 @@ func deleteInlineCompanions(ctx context.Context, be StorageBackend, storagePath,
 		ext := filepath.Ext(storagePath)
 		stem := strings.TrimSuffix(storagePath, ext)
 		_ = be.Delete(ctx, stem+".meta.json", opts)
+	default:
+		slog.Debug("deleteInlineCompanions: unknown file type, no companion cleanup", "file_type", fileType)
 	}
 }
 
@@ -524,11 +529,17 @@ func (u *UnifiedShadowFS) Archive(ctx context.Context, userID, fileID, replacedB
 	}
 
 	var storagePath, fileType, backend string
+	var hasSidecar bool
 	err := u.pool.QueryRow(ctx,
-		`SELECT storage_path, file_type, storage_backend FROM user_files WHERE id = $1 AND user_id = $2`,
-		fileID, userID).Scan(&storagePath, &fileType, &backend)
+		`SELECT storage_path, file_type, storage_backend, has_sidecar FROM user_files WHERE id = $1 AND user_id = $2`,
+		fileID, userID).Scan(&storagePath, &fileType, &backend, &hasSidecar)
 	if err != nil {
 		return fmt.Errorf("shadowfs: file not found: %w", err)
+	}
+
+	be, err := u.backendFor(backend)
+	if err != nil {
+		return fmt.Errorf("shadowfs: archive backend: %w", err)
 	}
 
 	switch backend {
@@ -569,12 +580,18 @@ func (u *UnifiedShadowFS) Archive(ctx context.Context, userID, fileID, replacedB
 			return fmt.Errorf("shadowfs: rename to archive: %w", err)
 		}
 
+		// Delete companion sidecar (best-effort): archived activities are re-processed on
+		// restore, so the companion will be regenerated. Avoids stale .meta at the old path.
+		if hasSidecar {
+			deleteInlineCompanions(ctx, be, storagePath, fileType, u.bucketOpts(fileType))
+		}
+
 		// Clean empty source directories.
 		cleanEmptyDirs(filepath.Dir(fullPath), u.basePath)
 
 		_, err = u.pool.Exec(ctx,
 			`UPDATE user_files SET storage_path = $1, status = 'archived', replaced_by = $2,
-			 is_renaming = false, updated_at = NOW()
+			 is_renaming = false, has_sidecar = false, updated_at = NOW()
 			 WHERE id = $3 AND user_id = $4`,
 			archiveRel, replacedByID, fileID, userID)
 		if err != nil {
@@ -582,9 +599,14 @@ func (u *UnifiedShadowFS) Archive(ctx context.Context, userID, fileID, replacedB
 		}
 
 	case "s3":
-		// S3: metadata-only archive (no CopyObject).
+		// S3: metadata-only archive (no CopyObject). Delete companion sidecar first.
+		if hasSidecar {
+			deleteInlineCompanions(ctx, be, storagePath, fileType, u.bucketOpts(fileType))
+		}
+
 		result, err := u.pool.Exec(ctx,
-			`UPDATE user_files SET status = 'archived', replaced_by = $1, updated_at = NOW()
+			`UPDATE user_files SET status = 'archived', replaced_by = $1,
+			 has_sidecar = false, updated_at = NOW()
 			 WHERE id = $2 AND user_id = $3 AND status = 'active'`,
 			replacedByID, fileID, userID)
 		if err != nil {
@@ -835,6 +857,7 @@ func (u *UnifiedShadowFS) PutCompanion(ctx context.Context, userID, fileID, suff
 		return fmt.Errorf("shadowfs: companion backend: %w", err)
 	}
 	opts := u.bucketOpts(fileType)
+	// exclusive=false: companions are intentionally overwritten on update (not O_EXCL)
 	_, _, err = be.Write(ctx, companionPath, bytes.NewReader(data), "application/json", false, opts)
 	if err != nil {
 		return fmt.Errorf("shadowfs: write companion %s: %w", suffix, err)
