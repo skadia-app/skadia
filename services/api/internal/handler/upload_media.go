@@ -169,8 +169,8 @@ func (h *Handler) autoAssignPhoto(
 	ext := imageExtFromContentType(ct)
 	hash := fmt.Sprintf("%x", sha256.Sum256(data))
 
-	// Duplikat-Prüfung: bereits vorhandene Fotos überspringen
-	if exists, err := h.DB.ActivityPhotoExistsByHash(r.Context(), userID, hash); err == nil && exists {
+	// Duplikat-Prüfung: gleiches Foto in derselben Aktivität überspringen
+	if exists, err := h.DB.ActivityPhotoExistsByHashAndActivity(r.Context(), userID, hash, match.ID); err == nil && exists {
 		return mediaUploadResult{Filename: filename, Status: "duplicate"}
 	}
 
@@ -266,13 +266,6 @@ func (h *Handler) queueMediaFile(
 	extraMeta map[string]any,
 ) mediaUploadResult {
 	hash := fmt.Sprintf("%x", sha256.Sum256(data))
-
-	// Duplikat-Prüfung für Fotos (nicht für PDFs)
-	if ct != "application/pdf" {
-		if exists, err := h.DB.ActivityPhotoExistsByHash(r.Context(), userID, hash); err == nil && exists {
-			return mediaUploadResult{Filename: filename, Status: "duplicate"}
-		}
-	}
 
 	rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 		UserID:      userID,

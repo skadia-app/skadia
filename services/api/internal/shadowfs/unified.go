@@ -280,7 +280,11 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 
 	case "s3":
 		// Hash already computed above; use content-addressed path.
-		storagePath = entry.UserID + "/" + dir + "/" + fileHash + ext
+		if entry.ParentType != nil && *entry.ParentType != "" && entry.ParentID != nil && *entry.ParentID != "" {
+			storagePath = entry.UserID + "/" + dir + "/" + *entry.ParentType + "/" + *entry.ParentID + "/" + fileHash + ext
+		} else {
+			storagePath = entry.UserID + "/" + dir + "/" + fileHash + ext
+		}
 
 		s3be, ok := be.(*S3Backend)
 		if !ok {
