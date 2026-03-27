@@ -358,7 +358,7 @@ func (h *Handler) PatchActivityPhotoLocation(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// ShadowFS: write .meta.json companion when position was manually set.
+	// ShadowFS: write .meta companion when position was manually set.
 	if req.LocationSource == "manual" && photo.FileID != nil && *photo.FileID != "" {
 		h.writePhotoMetaSidecar(r.Context(), userID, *photo.FileID, req)
 	}
@@ -367,7 +367,7 @@ func (h *Handler) PatchActivityPhotoLocation(w http.ResponseWriter, r *http.Requ
 	httputil.WriteJSON(w, http.StatusOK, photo)
 }
 
-// writePhotoMetaSidecar writes a .meta.json companion alongside the photo file.
+// writePhotoMetaSidecar writes a .meta companion alongside the photo file.
 // Uses PutCompanion (no own user_files entry — tracked via has_sidecar on the photo's
 // user_files row). The original photo file remains untouched.
 func (h *Handler) writePhotoMetaSidecar(ctx context.Context, userID, fileID string, req patchPhotoLocationRequest) {
@@ -394,7 +394,7 @@ func (h *Handler) writePhotoMetaSidecar(ctx context.Context, userID, fileID stri
 	}
 
 	if h.ShadowFS != nil {
-		if putErr := h.ShadowFS.PutCompanion(ctx, userID, fileID, ".meta.json", sidecarBytes); putErr != nil {
+		if putErr := h.ShadowFS.PutCompanion(ctx, userID, fileID, ".meta", sidecarBytes); putErr != nil {
 			slog.Warn("photo meta sidecar: PutCompanion failed", "file_id", fileID, "error", putErr)
 		}
 	}

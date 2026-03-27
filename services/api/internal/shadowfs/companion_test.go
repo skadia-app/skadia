@@ -1,7 +1,6 @@
 package shadowfs
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -10,13 +9,10 @@ import (
 // deleteInlineCompanions does — used by tests to verify the derivation logic
 // without touching a real backend.
 func companionPathFor(storagePath, fileType string) string {
+	// All file types use unified .meta suffix.
 	switch fileType {
-	case "activity":
+	case "activity", "media":
 		return storagePath + ".meta"
-	case "media":
-		ext := filepath.Ext(storagePath)
-		stem := strings.TrimSuffix(storagePath, ext)
-		return stem + ".meta.json"
 	}
 	return ""
 }
@@ -39,15 +35,15 @@ func TestDeleteInlineCompanions_ActivitySuffix(t *testing.T) {
 }
 
 func TestDeleteInlineCompanions_MediaSuffix(t *testing.T) {
-	// media: strip extension, then + ".meta.json"
+	// media: unified .meta suffix (same as activity — no extension stripping)
 	storagePath := "alice/media/2024/03/IMG_0001.jpg"
 	got := companionPathFor(storagePath, "media")
-	want := "alice/media/2024/03/IMG_0001.meta.json"
+	want := "alice/media/2024/03/IMG_0001.jpg.meta"
 	if got != want {
 		t.Errorf("media companion path: got %q, want %q", got, want)
 	}
-	if !strings.HasSuffix(got, ".meta.json") {
-		t.Errorf("expected .meta.json suffix, got %q", got)
+	if !strings.HasSuffix(got, ".meta") {
+		t.Errorf("expected .meta suffix, got %q", got)
 	}
 }
 
