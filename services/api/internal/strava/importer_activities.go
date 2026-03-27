@@ -17,11 +17,11 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
@@ -441,7 +441,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		// Store the CSV row as a JSON source file so every activity has a stored original.
 		if len(fileBytes) == 0 {
 			csvJSON := &sidecar.ManualActivityFile{
-				SchemaVersion:  3,
+				SchemaVersion:  4,
 				FileFormat:     "strava_csv",
 				SportType:      data.SportType,
 				SubType:        data.SubType,

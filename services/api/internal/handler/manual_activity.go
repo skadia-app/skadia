@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
@@ -79,7 +79,7 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 
 	// Build MetaFile (= the JSON source file stored in S3).
 	maf := &sidecar.MetaFile{
-		SchemaVersion:  3,
+		SchemaVersion:  4,
 		FileFormat:     "manual",
 		SportType:      req.SportType,
 		SubType:        req.SubType,

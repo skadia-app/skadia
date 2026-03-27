@@ -293,7 +293,7 @@ func scanLocal(_ context.Context) ([]entry, error) {
 		}
 
 		// v1/v2 compatibility warning.
-		if meta.SchemaVersion < 3 {
+		if meta.SchemaVersion < 4 {
 			slog.Warn("restore: legacy meta version — user-editable fields may be incomplete",
 				"path", path, "version", meta.SchemaVersion)
 		}
@@ -416,7 +416,7 @@ func scanS3(ctx context.Context, client *s3.Client) ([]entry, error) {
 			}
 
 			// v1/v2 compatibility warning.
-			if meta.SchemaVersion < 3 {
+			if meta.SchemaVersion < 4 {
 				slog.Warn("restore: legacy meta version — user-editable fields may be incomplete",
 					"path", key, "version", meta.SchemaVersion)
 			}
