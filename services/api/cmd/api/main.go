@@ -459,6 +459,11 @@ func main() {
 		graphMgr.CoverageReader = h.CoverageReader
 	}
 
+	if h.CoverageReader != nil {
+		ts := h.CoverageReader.BuildTimestamp()
+		h.PNGCache = coverage.NewPNGCache(10_000, ts)
+	}
+
 	// Wire SegmentMatcher callback: runs segment matching + lap detection in
 	// the background goroutine, reusing the existing handler-package functions.
 	importSvc.SegmentMatcher = func(activityID, userID, sportType, subType string, gearID *string, activityDate time.Time) {
@@ -587,6 +592,7 @@ func main() {
 	// Public routes (no authentication required)
 	r.Get("/health", h.Health)
 	r.Get("/api/v1/coverage/info", h.CoverageBuildInfo)
+	r.Get("/api/v1/coverage/tiles/*", h.CoverageTile)
 	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		// Go-native auth endpoints
