@@ -492,6 +492,14 @@ func (h *Handler) BackfillMetaSidecars(w http.ResponseWriter, r *http.Request) {
 	fs := h.ShadowFS
 	db := h.DB
 
+	type photoMetaSidecar struct {
+		Lat            float64    `json:"lat"`
+		Lng            float64    `json:"lng"`
+		TakenAt        *time.Time `json:"taken_at,omitempty"`
+		LocationSource string     `json:"location_source"`
+		UpdatedAt      time.Time  `json:"updated_at"`
+	}
+
 	shutdown.Go(jobID, func(ctx context.Context) {
 		sem := make(chan struct{}, 4)
 		var mu sync.Mutex
@@ -552,13 +560,6 @@ func (h *Handler) BackfillMetaSidecars(w http.ResponseWriter, r *http.Request) {
 				defer wg.Done()
 				defer func() { <-sem }()
 
-				type photoMetaSidecar struct {
-					Lat            float64    `json:"lat"`
-					Lng            float64    `json:"lng"`
-					TakenAt        *time.Time `json:"taken_at,omitempty"`
-					LocationSource string     `json:"location_source"`
-					UpdatedAt      time.Time  `json:"updated_at"`
-				}
 				meta := photoMetaSidecar{
 					Lat:            row.Lat,
 					Lng:            row.Lng,
@@ -571,11 +572,17 @@ func (h *Handler) BackfillMetaSidecars(w http.ResponseWriter, r *http.Request) {
 					slog.Warn("meta backfill: photo marshal failed", "file_id", row.FileID, "error", marshalErr)
 					mu.Lock()
 					anyFailed = true
+					if len(errMsgs) < 5 {
+						errMsgs = append(errMsgs, fmt.Sprintf("photo %s: %v", row.FileID, marshalErr))
+					}
 					mu.Unlock()
 				} else if putErr := fs.PutCompanion(ctx, row.UserID, row.FileID, ".meta", jsonBytes); putErr != nil {
 					slog.Warn("meta backfill: photo PutCompanion failed", "file_id", row.FileID, "error", putErr)
 					mu.Lock()
 					anyFailed = true
+					if len(errMsgs) < 5 {
+						errMsgs = append(errMsgs, fmt.Sprintf("photo %s: %v", row.FileID, putErr))
+					}
 					mu.Unlock()
 				}
 
@@ -591,7 +598,7 @@ func (h *Handler) BackfillMetaSidecars(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"job_id":         jobID,
 		"queued":         total,
-		"queued_activity": len(missing),
+		"queued_activities": len(missing),
 		"queued_photos":  len(missingPhotos),
 	})
 }
