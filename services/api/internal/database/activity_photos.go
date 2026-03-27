@@ -188,6 +188,17 @@ func (db *DB) ActivityPhotoExistsByHash(ctx context.Context, userID, hash string
 	return exists, err
 }
 
+// ActivityPhotoExistsByHashAndActivity checks whether the same photo (by hash) already
+// exists for a specific activity. This allows the same photo in different activities.
+func (db *DB) ActivityPhotoExistsByHashAndActivity(ctx context.Context, userID, hash, activityID string) (bool, error) {
+	var exists bool
+	err := db.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM activity_photos WHERE user_id = $1 AND file_hash = $2 AND activity_id = $3)`,
+		userID, hash, activityID,
+	).Scan(&exists)
+	return exists, err
+}
+
 // PhotoFeedRow ist ein internes Scan-Ziel für ListPhotoFeed.
 type PhotoFeedRow struct {
 	Photo             model.ActivityPhoto

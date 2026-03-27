@@ -791,7 +791,7 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	hashArr := sha256.Sum256(photoBytes)
 	fileHash := hex.EncodeToString(hashArr[:])
 
-	if exists, err := s.DB.ActivityPhotoExistsByHash(ctx, userID, fileHash); err == nil && exists {
+	if exists, err := s.DB.ActivityPhotoExistsByHashAndActivity(ctx, userID, fileHash, activityID); err == nil && exists {
 		return &PhotoResult{Status: "duplicate_exact"}, nil
 	}
 

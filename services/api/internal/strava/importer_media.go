@@ -1,9 +1,7 @@
 package strava
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,11 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/importutil"
-	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
 // MediaImporter imports photos from the Strava export's media/ directory.
@@ -121,44 +116,32 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 			SourcePlatform:   "strava",
 		}
 
-		// --- Use ImportService pipeline when available ---
-		if params.ImportService != nil {
-			if activityID != "" {
-				photoResult, processErr := params.ImportService.ProcessPhoto(ctx, params.UserID, activityID, data, photoMeta)
-				if processErr != nil {
-					slog.Warn("strava media: ProcessPhoto failed", "file", relPath, "error", processErr)
-					result.Errors = append(result.Errors, fmt.Sprintf("process %s: %s", relPath, processErr))
-					continue
-				}
-				switch photoResult.Status {
-				case "duplicate_exact", "duplicate_phash":
-					result.Skipped++
-				default:
-					result.Imported++
-				}
-			} else {
-				orphanResult, orphanErr := params.ImportService.ProcessOrphanPhoto(ctx, params.UserID, data, photoMeta)
-				if orphanErr != nil {
-					slog.Warn("strava media: ProcessOrphanPhoto failed", "file", relPath, "error", orphanErr)
-					result.Errors = append(result.Errors, fmt.Sprintf("orphan %s: %s", relPath, orphanErr))
-					continue
-				}
-				switch orphanResult.Status {
-				case "queued", "matched":
-					result.Imported++
-				default:
-					result.Skipped++
-				}
+		if activityID != "" {
+			photoResult, processErr := params.ImportService.ProcessPhoto(ctx, params.UserID, activityID, data, photoMeta)
+			if processErr != nil {
+				slog.Warn("strava media: ProcessPhoto failed", "file", relPath, "error", processErr)
+				result.Errors = append(result.Errors, fmt.Sprintf("process %s: %s", relPath, processErr))
+				continue
 			}
-			continue
-		}
-
-		// --- Legacy path (no ImportService): inline processing ---
-		imported := m.legacyImportPhoto(ctx, params, relPath, data, contentType, isVideo, takenAt, lat, lng, activityID)
-		if imported {
-			result.Imported++
+			switch photoResult.Status {
+			case "duplicate_exact", "duplicate_phash":
+				result.Skipped++
+			default:
+				result.Imported++
+			}
 		} else {
-			result.Skipped++
+			orphanResult, orphanErr := params.ImportService.ProcessOrphanPhoto(ctx, params.UserID, data, photoMeta)
+			if orphanErr != nil {
+				slog.Warn("strava media: ProcessOrphanPhoto failed", "file", relPath, "error", orphanErr)
+				result.Errors = append(result.Errors, fmt.Sprintf("orphan %s: %s", relPath, orphanErr))
+				continue
+			}
+			switch orphanResult.Status {
+			case "queued", "matched":
+				result.Imported++
+			default:
+				result.Skipped++
+			}
 		}
 	}
 
@@ -168,133 +151,6 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 		"errors", len(result.Errors),
 	)
 	return result, nil
-}
-
-// legacyImportPhoto handles a single photo when ImportService is not available.
-// Returns true if the photo was imported, false if it was skipped or an error occurred.
-func (m *MediaImporter) legacyImportPhoto(
-	ctx context.Context,
-	params ImportParams,
-	relPath string,
-	data []byte,
-	contentType string,
-	isVideo bool,
-	takenAt *time.Time,
-	lat, lng *float64,
-	activityID string,
-) bool {
-	ext := filepath.Ext(relPath)
-	if ext == "" {
-		ext = ".jpg"
-	}
-
-	// Guard: if content-type detection returned image/* but the file extension is a
-	// known video container, trust the extension.
-	if !isVideo && isVideoExtension(ext) {
-		isVideo = true
-		contentType = detectMediaContentType(data, relPath)
-		if !isVideoContentType(contentType) {
-			contentType = videoContentTypeFromExt(ext)
-		}
-	}
-
-	// Hash for dedup / S3 key
-	hashBytes := sha256.Sum256(data)
-	hash := fmt.Sprintf("%x", hashBytes)
-
-	// Skip if photo with same hash already exists for this user
-	if params.DB != nil {
-		if exists, err := params.DB.ActivityPhotoExistsByHash(ctx, params.UserID, hash); err == nil && exists {
-			return false
-		}
-	}
-
-	// S3 paths
-	bucket := "skadia-media"
-	s3Key := fmt.Sprintf("activity-photos/%s/%s%s", params.UserID, hash, ext)
-
-	// Thumb/preview are regenerated on demand — no pre-generation needed.
-	s3KeyThumb := s3Key
-	s3KeyPreview := ""
-
-	// --- Upload original photo via ShadowFS ---
-	var fileID *string
-	if params.ShadowFS == nil {
-		slog.Warn("strava media: no storage backend configured, skipping", "file", relPath)
-		return false
-	}
-	parentType := "activity"
-	rec, putErr := params.ShadowFS.Put(ctx, shadowfs.FileEntry{
-		UserID:      params.UserID,
-		FileType:    "media",
-		ContentType: contentType,
-		FileName:    filepath.Base(relPath),
-		SizeBytes:   int64(len(data)),
-		FileHash:    hash,
-		ParentType:  &parentType,
-		ParentID: func() *string {
-			if activityID != "" {
-				return &activityID
-			}
-			return nil
-		}(),
-		Tags: map[string]string{"source": "strava"},
-	}, bytes.NewReader(data))
-	if putErr != nil {
-		slog.Warn("strava media: ShadowFS.Put failed", "file", relPath, "error", putErr)
-		return false
-	}
-	fileID = &rec.ID
-
-	// Thumb/preview are regenerated on demand from ShadowFS — no separate upload needed.
-
-	var activityIDPtr *string
-	if activityID != "" {
-		activityIDPtr = &activityID
-	}
-
-	photo := model.ActivityPhoto{
-		UserID:           params.UserID,
-		ActivityID:       activityIDPtr,
-		FileID:           fileID,
-		S3Bucket:         bucket,
-		S3Key:            s3Key,
-		S3KeyThumb:       s3KeyThumb,
-		S3KeyPreview:     s3KeyPreview,
-		OriginalFilename: filepath.Base(relPath),
-		ContentType:      contentType,
-		FileSizeBytes:    int64(len(data)),
-		FileHash:         &hash,
-		TakenAt:          takenAt,
-		Lat:              lat,
-		Lng:              lng,
-		IsVideo:          isVideo,
-	}
-
-	if isVideo {
-		if meta, err := imageutil.ProbeVideo(data, ext); err == nil {
-			photo.DurationS = &meta.DurationS
-			photo.VideoWidth = &meta.Width
-			photo.VideoHeight = &meta.Height
-		}
-	}
-
-	if lat != nil {
-		ls := "exif"
-		photo.LocationSource = &ls
-	} else if activityIDPtr != nil {
-		ls := "activity_track"
-		photo.LocationSource = &ls
-	}
-
-	if params.DB != nil {
-		if _, err := params.DB.InsertActivityPhoto(ctx, photo); err != nil {
-			slog.Warn("strava media: insert photo failed", "file", relPath, "error", err)
-			return false
-		}
-	}
-
-	return true
 }
 
 // buildMediaActivityMap reads activities.csv and returns a map from media UUID

@@ -906,8 +906,8 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 	hash := sha256.Sum256(data)
 	hashStr := hex.EncodeToString(hash[:])
 
-	// Duplikat-Prüfung
-	if exists, err := h.DB.GearDocumentExistsByHash(r.Context(), userID, hashStr); err == nil && exists {
+	// Duplikat-Prüfung (per gear, not global — same file allowed on different gear items)
+	if exists, err := h.DB.GearDocumentExistsByHashAndGear(r.Context(), userID, hashStr, gearID); err == nil && exists {
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
 		return
 	}
@@ -1222,8 +1222,8 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 	hash := sha256.Sum256(data)
 	hashStr := hex.EncodeToString(hash[:])
 
-	// Duplikat-Prüfung
-	if exists, err := h.DB.GearDocumentExistsByHash(r.Context(), userID, hashStr); err == nil && exists {
+	// Duplikat-Prüfung (per component, not global — same file allowed on different components)
+	if exists, err := h.DB.GearDocumentExistsByHashAndComponent(r.Context(), userID, hashStr, componentID); err == nil && exists {
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
 		return
 	}

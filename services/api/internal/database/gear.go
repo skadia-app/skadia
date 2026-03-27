@@ -1703,6 +1703,24 @@ func (db *DB) GearDocumentExistsByHash(ctx context.Context, userID, hash string)
 	return exists, err
 }
 
+func (db *DB) GearDocumentExistsByHashAndGear(ctx context.Context, userID, hash, gearID string) (bool, error) {
+	var exists bool
+	err := db.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM gear_documents WHERE user_id = $1 AND file_hash = $2 AND gear_id = $3)`,
+		userID, hash, gearID,
+	).Scan(&exists)
+	return exists, err
+}
+
+func (db *DB) GearDocumentExistsByHashAndComponent(ctx context.Context, userID, hash, componentID string) (bool, error) {
+	var exists bool
+	err := db.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM gear_documents WHERE user_id = $1 AND file_hash = $2 AND component_id = $3)`,
+		userID, hash, componentID,
+	).Scan(&exists)
+	return exists, err
+}
+
 func (db *DB) InsertGearDocument(ctx context.Context, doc *model.GearDocument) (*model.GearDocument, error) {
 	return scanGearDocument(db.Pool.QueryRow(ctx, `
 		INSERT INTO gear_documents (user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, file_id)
