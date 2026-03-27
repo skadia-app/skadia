@@ -158,6 +158,7 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 		"thumbnail_backfill":       "Thumbnails regenerieren",
 		"gdpr_purge":               "DSGVO-Datenlöschung",
 		"meta_backfill":            "Meta-Sidecars erstellen",
+		"coverage_build":           "Coverage-Grids erstellen",
 	}
 	label := labels[jobType]
 	if label == "" {

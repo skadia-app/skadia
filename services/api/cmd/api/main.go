@@ -442,6 +442,7 @@ func main() {
 
 	// Coverage cache — on-demand tile loading for coverage query endpoint.
 	h.CoverageCache = coverage.NewTileGridCache(db.Pool, coverage.DefaultNoiseSettings())
+	h.CoverageBaseDir = filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "coverage")
 
 	// Wire SegmentMatcher callback: runs segment matching + lap detection in
 	// the background goroutine, reusing the existing handler-package functions.
@@ -695,6 +696,7 @@ func main() {
 				r.Post("/routing/build-brouter-segments", h.BuildBRouterSegments)
 				r.Post("/routing/download-brouter-segments", h.DownloadBRouterSegments)
 				r.Put("/routing/cache-budget", h.SetCacheBudget)
+				r.Post("/build-coverage", h.BuildCoverage)
 
 				// LLM config (system-level)
 				r.Get("/llm-config", h.GetLLMConfig)
