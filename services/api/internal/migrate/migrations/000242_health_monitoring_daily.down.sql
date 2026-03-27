@@ -1,0 +1,1 @@
+DROP MATERIALIZED VIEW IF EXISTS health_monitoring_daily CASCADE;
