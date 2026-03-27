@@ -6,7 +6,7 @@ import (
 )
 
 // ManualActivityFile is the S3-stored source file for manual activities and
-// Strava CSV-only imports. SchemaVersion 3 distinguishes it from v2 .meta.
+// Strava CSV-only imports.
 type ManualActivityFile struct {
 	SchemaVersion  int               `json:"schema_version"`
 	SkadiaID      string            `json:"skadia_id,omitempty"`
