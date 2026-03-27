@@ -135,9 +135,13 @@ func paletteNoise(v uint8) color.NRGBA {
 	return color.NRGBA{R: r, G: g, B: b, A: a}
 }
 
-// paletteQuiet renders the same gradient as paletteNoise: green (low v = quiet) → red (high v = loud).
-// The quiet layer stores noise levels identically to the noise layer; the "quiet" label reflects
-// the user-facing framing (good quiet zones = green, bad loud zones = red).
+// paletteQuiet inverts the noise palette: Rot → Gelb → Grün (Spec line 377).
+// Quiet areas (low noise v) are highlighted in RED (desirable, warm),
+// loud areas (high noise v) fade to GREEN (less desirable, cool).
+// This lets the user see "where is it quiet?" with red = go here.
 func paletteQuiet(v uint8) color.NRGBA {
-	return paletteNoise(v)
+	if v == 0 {
+		return color.NRGBA{}
+	}
+	return paletteNoise(uint8(256 - int(v)))
 }
