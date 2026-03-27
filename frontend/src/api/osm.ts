@@ -39,6 +39,7 @@ export interface StartOSMImportRequest {
   build_brouter?: boolean
   // build_topology removed: pgRouting 4.0+ removed pgr_createTopology
   run_enrichment?: boolean  // undefined = true (backwards compatible), false = skip
+  build_coverage?: boolean  // opt-in, default false
   build_tiles?: boolean     // opt-in, default false
 }
 
@@ -136,5 +137,12 @@ export async function downloadBRouterSegments(regions: string[]): Promise<{ job_
   return apiClient<{ job_id: string; tiles: number; status: string }>('/admin/routing/download-brouter-segments', {
     method: 'POST',
     body: { regions },
+  })
+}
+
+export async function buildCoverageGrids(regions?: string[]): Promise<{ job_id: string; status: string }> {
+  return apiClient<{ job_id: string; status: string }>('/admin/build-coverage', {
+    method: 'POST',
+    ...(regions && regions.length > 0 ? { body: { regions } } : {}),
   })
 }

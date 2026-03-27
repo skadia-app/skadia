@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Trash2, Database, XCircle, ChevronDown, RefreshCw, AlertTriangle, Sparkles, Layers, Route } from 'lucide-react'
+import { Trash2, Database, XCircle, ChevronDown, RefreshCw, AlertTriangle, Sparkles, Layers, Route, Grid3x3 } from 'lucide-react'
 import { useState } from 'react'
 import {
   fetchOSMRegionStatus,
@@ -11,6 +11,7 @@ import {
   buildBRouterSegments,
   downloadBRouterSegments,
   fetchOSMRegions,
+  buildCoverageGrids,
   type OSMImportRegion,
 } from '@/api/osm'
 import { useToast } from '@/lib/toast'
@@ -79,6 +80,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
   const [tilesRegions, setTilesRegions] = useState<string[]>([])
   const [brouterLocalRegions, setBrouterLocalRegions] = useState<string[]>([])
   const [brouterDlRegions, setBrouterDlRegions] = useState<string[]>([])
+  const [coverageRegions, setCoverageRegions] = useState<string[]>([])
 
   const { data: catalogData } = useQuery({
     queryKey: ['osm-regions'],
@@ -105,6 +107,11 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['active-jobs'] }); addToast({ type: 'info', title: 'BRouter-Download gestartet' }) },
     onError: () => { addToast({ type: 'error', title: 'BRouter-Download konnte nicht gestartet werden', duration: 0 }) },
   })
+  const coverageMut = useMutation({
+    mutationFn: (regions: string[]) => buildCoverageGrids(regions),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['active-jobs'] }); addToast({ type: 'info', title: 'Coverage-Build gestartet' }) },
+    onError: () => { addToast({ type: 'error', title: 'Coverage-Build konnte nicht gestartet werden', duration: 0 }) },
+  })
 
   const { jobs } = useActiveJobs()
   const activeOsmJob = jobs.find((j) => j.job_type === 'osm_import' && j.status === 'running')
@@ -112,6 +119,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
   const activeTileBuild = jobs.find(j => j.job_type === 'tile_build' && j.status === 'running')
   const activeBrouterBuild = jobs.find(j => j.job_type === 'brouter_segment_build' && j.status === 'running')
   const activeBrouterDl = jobs.find(j => j.job_type === 'brouter_segment_download' && j.status === 'running')
+  const activeCoverageBuild = jobs.find(j => j.job_type === 'coverage_build' && j.status === 'running')
 
   const [updateTarget, setUpdateTarget] = useState<OSMImportRegion | null>(null)
 
@@ -329,6 +337,24 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
               regions={importedRegions.map(r => ({ id: r.region_id, label: r.label }))}
               selected={tilesRegions}
               onChange={setTilesRegions}
+              hint="Nur importierte Regionen werden angezeigt."
+            />
+          </PipelinePanel>
+
+          <PipelinePanel
+            title="Coverage-Grids"
+            description="Wald-, Lärm-, Verkehrs- und weitere Coverage-Grids neu bauen (für Karten-Overlays und Graph-Build)"
+            icon={Grid3x3}
+            buttonLabel="Bauen"
+            onStart={() => coverageMut.mutate(coverageRegions)}
+            isPending={coverageMut.isPending || !!activeCoverageBuild}
+            disabled={importedRegions.length === 0}
+            disabledHint="Keine importierten Regionen vorhanden."
+          >
+            <RegionSelector
+              regions={importedRegions.map(r => ({ id: r.region_id, label: r.label }))}
+              selected={coverageRegions}
+              onChange={setCoverageRegions}
               hint="Nur importierte Regionen werden angezeigt."
             />
           </PipelinePanel>
