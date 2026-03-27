@@ -358,20 +358,19 @@ func (h *Handler) PatchActivityPhotoLocation(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// ShadowFS: write meta-sidecar when position was manually set.
-	if req.LocationSource == "manual" && photo.FileHash != nil {
-		h.writePhotoMetaSidecar(r.Context(), userID, photoID, *photo.FileHash, req)
+	// ShadowFS: write .meta.json companion when position was manually set.
+	if req.LocationSource == "manual" && photo.FileID != nil && *photo.FileID != "" {
+		h.writePhotoMetaSidecar(r.Context(), userID, *photo.FileID, req)
 	}
 
 	setPhotoURLs(&photo)
 	httputil.WriteJSON(w, http.StatusOK, photo)
 }
 
-// writePhotoMetaSidecar writes a .meta.json sidecar for a photo.
-// ShadowFS path (preferred): registers the sidecar as a user_files entry with parent_type='photo'.
-// Legacy S3 fallback: writes to activity-photos/{userID}/{hash}.meta.json in the media bucket.
-// In both cases the original file remains untouched (Shadow FS principle).
-func (h *Handler) writePhotoMetaSidecar(ctx context.Context, userID, photoID, fileHash string, req patchPhotoLocationRequest) {
+// writePhotoMetaSidecar writes a .meta.json companion alongside the photo file.
+// Uses PutCompanion (no own user_files entry — tracked via has_sidecar on the photo's
+// user_files row). The original photo file remains untouched.
+func (h *Handler) writePhotoMetaSidecar(ctx context.Context, userID, fileID string, req patchPhotoLocationRequest) {
 	type metaSidecar struct {
 		Lat            *float64   `json:"lat"`
 		Lng            *float64   `json:"lng"`
@@ -394,26 +393,9 @@ func (h *Handler) writePhotoMetaSidecar(ctx context.Context, userID, photoID, fi
 		return
 	}
 
-	sidecarName := fileHash + ".meta.json"
-
-	// ShadowFS path (preferred).
 	if h.ShadowFS != nil {
-		_, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
-			UserID:      userID,
-			FileType:    "media",
-			ContentType: "application/json",
-			FileName:    sidecarName,
-			SizeBytes:   int64(len(sidecarBytes)),
-			ParentType:  func() *string { s := "photo"; return &s }(),
-			ParentID:    func() *string { s := photoID; return &s }(),
-			HasSidecar:  true,
-		}, bytes.NewReader(sidecarBytes))
-		if putErr != nil {
-			slog.Error("photo meta sidecar: ShadowFS.Put failed", "photo_id", photoID, "error", putErr)
-			// Fall through to S3 fallback below.
-		} else {
-			slog.Info("photo meta sidecar written via ShadowFS", "photo_id", photoID)
-			return
+		if putErr := h.ShadowFS.PutCompanion(ctx, userID, fileID, ".meta.json", sidecarBytes); putErr != nil {
+			slog.Warn("photo meta sidecar: PutCompanion failed", "file_id", fileID, "error", putErr)
 		}
 	}
 
