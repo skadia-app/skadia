@@ -19,10 +19,10 @@ func (h *Handler) BuildCoverage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Layer   string `json:"layer"`
-		Tile    string `json:"tile"`
-		Region  string `json:"region"`
-		Workers int    `json:"workers"`
+		Layer   string   `json:"layer"`
+		Tile    string   `json:"tile"`
+		Regions []string `json:"regions"` // region names (e.g. ["austria", "germany"])
+		Workers int      `json:"workers"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
 		httputil.WriteError(w, http.StatusBadRequest, "Invalid JSON", err.Error(), r.URL.Path)
@@ -32,18 +32,25 @@ func (h *Handler) BuildCoverage(w http.ResponseWriter, r *http.Request) {
 	opts := coverage.BuildCoverageOptions{
 		BaseDir: h.CoverageBaseDir,
 		Layer:   req.Layer,
-		Region:  req.Region,
 		Workers: req.Workers,
 	}
 
-	// Resolve region to bounding box — validate BEFORE creating background job
-	if req.Region != "" {
-		reg, ok := osmpkg.RegionByID(req.Region)
-		if !ok {
-			httputil.WriteError(w, http.StatusBadRequest, "Unknown region", fmt.Sprintf("unknown region: %q", req.Region), r.URL.Path)
-			return
+	// Resolve regions to union bounding box — validate BEFORE creating background job
+	if len(req.Regions) > 0 {
+		filterBBox := [4]float64{90, 180, -90, -180} // minLat, minLon, maxLat, maxLon
+		for _, regionID := range req.Regions {
+			reg, ok := osmpkg.RegionByID(regionID)
+			if !ok {
+				httputil.WriteError(w, http.StatusBadRequest, "Unknown region", fmt.Sprintf("unknown region: %q", regionID), r.URL.Path)
+				return
+			}
+			filterBBox[0] = min(filterBBox[0], reg.MinLat)
+			filterBBox[1] = min(filterBBox[1], reg.MinLon)
+			filterBBox[2] = max(filterBBox[2], reg.MaxLat)
+			filterBBox[3] = max(filterBBox[3], reg.MaxLon)
 		}
-		opts.RegionBBox = [4]float64{reg.MinLat, reg.MinLon, reg.MaxLat, reg.MaxLon}
+		opts.Region = req.Regions[0] // informational
+		opts.RegionBBox = filterBBox
 	}
 
 	if req.Tile != "" {
