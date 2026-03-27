@@ -6,20 +6,24 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/importutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
 )
@@ -33,12 +37,35 @@ var (
 	conflictStrategy = flag.String("conflict", "skip", "Duplikat-Strategie: skip|replace|enrich_missing")
 	// userDir may be specified to restrict the scan to one user's directory.
 	userDir = flag.String("user-dir", "", "Optionaler User-Verzeichnisname (z.B. 'alice'); leer = alle User scannen")
+
+	backendMode = flag.String("backend", "local", "Storage-Backend: local|s3")
+
+	// S3-specific flags (only used when -backend s3).
+	s3Endpoint       = flag.String("s3-endpoint", os.Getenv("S3_ENDPOINT"), "S3 endpoint URL")
+	s3AccessKey      = flag.String("s3-access-key", os.Getenv("S3_ACCESS_KEY"), "S3 access key")
+	s3SecretKey      = flag.String("s3-secret-key", os.Getenv("S3_SECRET_KEY"), "S3 secret key")
+	s3Bucket         = flag.String("s3-bucket", os.Getenv("S3_BUCKET"), "S3 bucket name")
+	s3Region         = flag.String("s3-region", os.Getenv("S3_REGION"), "S3 region")
+	s3ForcePathStyle = flag.Bool("s3-force-path-style", os.Getenv("S3_FORCE_PATH_STYLE") == "true", "Use path-style S3 URLs")
 )
 
 type result struct {
 	ok      int
 	skipped int
 	errors  int
+}
+
+// entry holds all information needed to restore one activity file.
+type entry struct {
+	meta            sidecar.MetaFile
+	activityKey     string // S3 key or absolute local path to the activity file
+	relPath         string // path relative to libraryBase / S3 key (storage_path in user_files)
+	userDirFromPath string // first component of relPath (used to resolve user_id from DB)
+	fileSize        int64
+	fileHash        string
+	contentType     string
+	// fileBytes is pre-loaded for S3 mode to avoid a second GetObject during import.
+	fileBytes []byte
 }
 
 func main() {
@@ -48,8 +75,19 @@ func main() {
 
 	flag.Parse()
 
-	if *libraryBase == "" {
-		fmt.Fprintln(os.Stderr, "Usage: skadia-restore -library <data/library> [-user-dir <name>] [-dry-run=false] [-conflict skip|replace|enrich_missing]")
+	switch *backendMode {
+	case "local":
+		if *libraryBase == "" {
+			fmt.Fprintln(os.Stderr, "Usage: skadia-restore -library <data/library> [-user-dir <name>] [-dry-run=false] [-conflict skip|replace|enrich_missing]")
+			os.Exit(1)
+		}
+	case "s3":
+		if *s3Bucket == "" {
+			fmt.Fprintln(os.Stderr, "Fehler: -s3-bucket (oder $S3_BUCKET) muss gesetzt sein wenn --backend s3")
+			os.Exit(1)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "Fehler: unbekanntes -backend %q (local|s3)\n", *backendMode)
 		os.Exit(1)
 	}
 
@@ -66,21 +104,138 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	// Collect all restorable entries first (scan phase).
-	// Library layout: {libraryBase}/{userDir}/activities/{...}/{file}.fit
-	// Sidecar:        {libraryBase}/{userDir}/activities/{...}/{file}.fit.meta
-	type entry struct {
-		meta            sidecar.MetaFile
-		activityPath    string // absolute path to the activity file
-		relPath         string // path relative to libraryBase (storage_path in user_files)
-		userDirFromPath string // first component of relPath (used to resolve user_id from DB)
-		fileSize        int64
-		fileHash        string
-		contentType     string
+	var entries []entry
+	var scanErr error
+
+	switch *backendMode {
+	case "local":
+		entries, scanErr = scanLocal(ctx)
+	case "s3":
+		entries, scanErr = scanS3(ctx)
+	default:
+		return fmt.Errorf("unknown backend: %s", *backendMode)
 	}
 
-	var entries []entry
+	if scanErr != nil {
+		return fmt.Errorf("scan failed: %w", scanErr)
+	}
 
+	total := len(entries)
+	slog.Info("scan abgeschlossen", "total", total)
+
+	if total == 0 {
+		fmt.Println("Keine wiederherstellbaren Aktivitäten gefunden.")
+		return nil
+	}
+
+	if *dryRun {
+		// Dry-run: nur auflisten, keine DB-Verbindung nötig.
+		for i, e := range entries {
+			filename := filepath.Base(e.activityKey)
+			fmt.Printf("[%d/%d] %s ... (dry-run) user-dir=%s id=%s sport=%s format=%s size=%d\n",
+				i+1, total,
+				filename,
+				e.userDirFromPath,
+				e.meta.SkadiaID,
+				e.meta.SportType,
+				e.meta.FileFormat,
+				e.fileSize,
+			)
+		}
+		fmt.Printf("\nErgebnis (dry-run): %d Dateien gefunden — mit --dry-run=false importieren\n", total)
+		return nil
+	}
+
+	// Live-run: DB-Verbindung aufbauen.
+	db, err := database.New(ctx, *dbURL)
+	if err != nil {
+		return fmt.Errorf("database verbinden: %w", err)
+	}
+	defer db.Close()
+
+	strategy := importer.ConflictStrategy(*conflictStrategy)
+	switch strategy {
+	case importer.StrategySkip, importer.StrategyReplaceAll, importer.StrategyEnrichMissing:
+		// gültig
+	default:
+		slog.Warn("unbekannte conflict-Strategie, nutze 'skip'", "conflict", *conflictStrategy)
+		strategy = importer.StrategySkip
+	}
+
+	// Cache userDir → user_id lookups to avoid one DB query per file.
+	userIDCache := make(map[string]string)
+	resolveUserID := func(dirName string, metaUserID string) string {
+		// For S3 mode the UserID is in the MetaFile directly — prefer it.
+		if metaUserID != "" {
+			return metaUserID
+		}
+		if id, ok := userIDCache[dirName]; ok {
+			return id
+		}
+		var id string
+		var resolvedDirName *string
+		// M28: Cross-validate: match by library_dir_name first, fall back to UUID equality.
+		// Also fetch library_dir_name to verify the directory actually belongs to the matched user.
+		err := db.Pool.QueryRow(ctx,
+			`SELECT id, library_dir_name FROM users
+			 WHERE library_dir_name = $1
+			    OR (library_dir_name IS NULL AND id::text = $1)
+			 LIMIT 1`,
+			dirName,
+		).Scan(&id, &resolvedDirName)
+		if err != nil {
+			slog.Warn("user_id für userDir nicht gefunden", "dir", dirName, "error", err)
+			return ""
+		}
+		// Cross-validate: the directory name must match either the user's library_dir_name or their UUID.
+		expectedDir := id
+		if resolvedDirName != nil && *resolvedDirName != "" {
+			expectedDir = *resolvedDirName
+		}
+		if dirName != expectedDir {
+			slog.Warn("user directory mismatch — possible UUID spoofing",
+				"dir", dirName, "user_id", id, "expected_dir", expectedDir)
+			return ""
+		}
+		userIDCache[dirName] = id
+		return id
+	}
+
+	var res result
+
+	for i, e := range entries {
+		filename := filepath.Base(e.activityKey)
+		prefix := fmt.Sprintf("[%d/%d] %s", i+1, total, filename)
+
+		userID := resolveUserID(e.userDirFromPath, e.meta.UserID)
+		if userID == "" {
+			fmt.Printf("%s ... FEHLER: user_id für dir %q nicht gefunden\n", prefix, e.userDirFromPath)
+			res.errors++
+			continue
+		}
+
+		status, importErr := restoreOne(ctx, db, userID, e.meta, e.activityKey, e.relPath, e.fileSize, e.fileHash, e.contentType, strategy, e.fileBytes)
+		if importErr != nil {
+			fmt.Printf("%s ... FEHLER: %v\n", prefix, importErr)
+			res.errors++
+		} else {
+			fmt.Printf("%s ... %s\n", prefix, status)
+			switch status {
+			case "OK":
+				res.ok++
+			default:
+				// "SKIP (duplicate)", "SKIP (registry)", etc.
+				res.skipped++
+			}
+		}
+	}
+
+	fmt.Printf("\nErgebnis: %d OK, %d Skip, %d Fehler\n", res.ok, res.skipped, res.errors)
+	return nil
+}
+
+// scanLocal scans the local library directory for .meta sidecars.
+func scanLocal(_ context.Context) ([]entry, error) {
 	// Scan statistics for the summary line.
 	var totalMeta, totalFiles, totalErrors int
 
@@ -91,6 +246,8 @@ func run(ctx context.Context) error {
 	}
 
 	slog.Info("scanning for .meta sidecars", "root", scanRoot, "dry_run", *dryRun)
+
+	var entries []entry
 
 	scanErr := filepath.Walk(scanRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -130,6 +287,12 @@ func run(ctx context.Context) error {
 			return nil
 		}
 
+		// v1/v2 compatibility warning.
+		if meta.SchemaVersion < 3 {
+			slog.Warn("restore: legacy meta version — user-editable fields may be incomplete",
+				"path", path, "version", meta.SchemaVersion)
+		}
+
 		// Derive activity file path (strip .meta suffix).
 		activityPath := strings.TrimSuffix(path, ".meta")
 
@@ -167,7 +330,7 @@ func run(ctx context.Context) error {
 
 		entries = append(entries, entry{
 			meta:            meta,
-			activityPath:    activityPath,
+			activityKey:     activityPath,
 			relPath:         relPath,
 			userDirFromPath: userDirName,
 			fileSize:        fi.Size(),
@@ -178,120 +341,141 @@ func run(ctx context.Context) error {
 	})
 
 	if scanErr != nil {
-		return fmt.Errorf("scan failed: %w", scanErr)
+		return nil, scanErr
 	}
 
 	fmt.Printf("Scan complete: %d .meta files found, %d activity files present, %d parse errors\n",
 		totalMeta, totalFiles, totalErrors)
 
-	total := len(entries)
-	slog.Info("scan abgeschlossen", "total", total)
+	return entries, nil
+}
 
-	if total == 0 {
-		fmt.Println("Keine wiederherstellbaren Aktivitäten gefunden.")
-		return nil
+// scanS3 scans an S3 bucket for .meta sidecars and pre-loads activity file bytes.
+func scanS3(ctx context.Context) ([]entry, error) {
+	client := s3.New(s3.Options{
+		BaseEndpoint: aws.String(*s3Endpoint),
+		Region:       *s3Region,
+		Credentials:  credentials.NewStaticCredentialsProvider(*s3AccessKey, *s3SecretKey, ""),
+		UsePathStyle: *s3ForcePathStyle,
+	})
+
+	bucket := *s3Bucket
+
+	// Determine S3 prefix: optionally restrict to one user.
+	prefix := ""
+	if *userDir != "" {
+		prefix = *userDir + "/"
 	}
 
-	if *dryRun {
-		// Dry-run: nur auflisten, keine DB-Verbindung nötig.
-		for i, e := range entries {
-			filename := filepath.Base(e.activityPath)
-			fmt.Printf("[%d/%d] %s ... (dry-run) user-dir=%s id=%s sport=%s format=%s size=%d\n",
-				i+1, total,
-				filename,
-				e.userDirFromPath,
-				e.meta.SkadiaID,
-				e.meta.SportType,
-				e.meta.FileFormat,
-				e.fileSize,
-			)
-		}
-		fmt.Printf("\nErgebnis (dry-run): %d Dateien gefunden — mit --dry-run=false importieren\n", total)
-		return nil
-	}
+	slog.Info("scanning S3 for .meta sidecars", "bucket", bucket, "prefix", prefix, "dry_run", *dryRun)
 
-	// Live-run: DB-Verbindung aufbauen.
-	db, err := database.New(ctx, *dbURL)
-	if err != nil {
-		return fmt.Errorf("database verbinden: %w", err)
-	}
-	defer db.Close()
+	var totalMeta, totalFiles, totalErrors int
+	var entries []entry
 
-	strategy := importer.ConflictStrategy(*conflictStrategy)
-	switch strategy {
-	case importer.StrategySkip, importer.StrategyReplaceAll, importer.StrategyEnrichMissing:
-		// gültig
-	default:
-		slog.Warn("unbekannte conflict-Strategie, nutze 'skip'", "conflict", *conflictStrategy)
-		strategy = importer.StrategySkip
-	}
+	paginator := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(bucket),
+		Prefix: aws.String(prefix),
+	})
 
-	// Cache userDir → user_id lookups to avoid one DB query per file.
-	userIDCache := make(map[string]string)
-	resolveUserID := func(dirName string) string {
-		if id, ok := userIDCache[dirName]; ok {
-			return id
-		}
-		var id string
-		var resolvedDirName *string
-		// M28: Cross-validate: match by library_dir_name first, fall back to UUID equality.
-		// Also fetch library_dir_name to verify the directory actually belongs to the matched user.
-		err := db.Pool.QueryRow(ctx,
-			`SELECT id, library_dir_name FROM users
-			 WHERE library_dir_name = $1
-			    OR (library_dir_name IS NULL AND id::text = $1)
-			 LIMIT 1`,
-			dirName,
-		).Scan(&id, &resolvedDirName)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
-			slog.Warn("user_id für userDir nicht gefunden", "dir", dirName, "error", err)
-			return ""
-		}
-		// Cross-validate: the directory name must match either the user's library_dir_name or their UUID.
-		expectedDir := id
-		if resolvedDirName != nil && *resolvedDirName != "" {
-			expectedDir = *resolvedDirName
-		}
-		if dirName != expectedDir {
-			slog.Warn("user directory mismatch — possible UUID spoofing",
-				"dir", dirName, "user_id", id, "expected_dir", expectedDir)
-			return ""
-		}
-		userIDCache[dirName] = id
-		return id
-	}
-
-	var res result
-
-	for i, e := range entries {
-		filename := filepath.Base(e.activityPath)
-		prefix := fmt.Sprintf("[%d/%d] %s", i+1, total, filename)
-
-		userID := resolveUserID(e.userDirFromPath)
-		if userID == "" {
-			fmt.Printf("%s ... FEHLER: user_id für dir %q nicht gefunden\n", prefix, e.userDirFromPath)
-			res.errors++
-			continue
+			return nil, fmt.Errorf("list objects: %w", err)
 		}
 
-		status, importErr := restoreOne(ctx, db, userID, e.meta, e.activityPath, e.relPath, e.fileSize, e.fileHash, e.contentType, strategy)
-		if importErr != nil {
-			fmt.Printf("%s ... FEHLER: %v\n", prefix, importErr)
-			res.errors++
-		} else {
-			fmt.Printf("%s ... %s\n", prefix, status)
-			switch status {
-			case "OK":
-				res.ok++
-			default:
-				// "SKIP (duplicate)", "SKIP (registry)", etc.
-				res.skipped++
+		for _, obj := range page.Contents {
+			key := aws.ToString(obj.Key)
+			if !strings.HasSuffix(key, ".meta") {
+				continue
 			}
+
+			totalMeta++
+
+			// Fetch and parse the .meta sidecar.
+			metaOut, err := client.GetObject(ctx, &s3.GetObjectInput{
+				Bucket: aws.String(bucket),
+				Key:    aws.String(key),
+			})
+			if err != nil {
+				slog.Error("meta lesen fehlgeschlagen (S3)", "key", key, "error", err)
+				totalErrors++
+				continue
+			}
+			metaData, err := io.ReadAll(metaOut.Body)
+			metaOut.Body.Close()
+			if err != nil {
+				slog.Error("meta lesen fehlgeschlagen (S3 body)", "key", key, "error", err)
+				totalErrors++
+				continue
+			}
+
+			var meta sidecar.MetaFile
+			if err := json.Unmarshal(metaData, &meta); err != nil {
+				slog.Error("meta parsen fehlgeschlagen (S3)", "key", key, "error", err)
+				totalErrors++
+				continue
+			}
+
+			// v1/v2 compatibility warning.
+			if meta.SchemaVersion < 3 {
+				slog.Warn("restore: legacy meta version — user-editable fields may be incomplete",
+					"path", key, "version", meta.SchemaVersion)
+			}
+
+			// Derive activity S3 key (strip .meta suffix).
+			activityKey := strings.TrimSuffix(key, ".meta")
+
+			// Fetch the activity file bytes.
+			actOut, err := client.GetObject(ctx, &s3.GetObjectInput{
+				Bucket: aws.String(bucket),
+				Key:    aws.String(activityKey),
+			})
+			if err != nil {
+				slog.Warn("activity file fehlt für meta (S3) — übersprungen",
+					"meta", key, "erwartet", activityKey, "error", err)
+				continue
+			}
+			fileBytes, err := io.ReadAll(actOut.Body)
+			actOut.Body.Close()
+			if err != nil {
+				slog.Error("activity file lesen fehlgeschlagen (S3)", "key", activityKey, "error", err)
+				totalErrors++
+				continue
+			}
+
+			totalFiles++
+
+			// Detect content type from the key basename.
+			ct := shadowfs.DetectContentType(filepath.Base(activityKey), "", nil)
+
+			// Extract the first path component (user directory / UUID).
+			// Key format: {user_id}/activities/... — first component = user dir.
+			userDirName := strings.SplitN(activityKey, "/", 2)[0]
+
+			// Prefer UserID from MetaFile (v3.1+); fall back to key prefix.
+			userIDFromMeta := meta.UserID
+			if userIDFromMeta == "" {
+				userIDFromMeta = userDirName
+			}
+
+			entries = append(entries, entry{
+				meta:            meta,
+				activityKey:     activityKey,
+				relPath:         activityKey, // S3 key IS the storage_path
+				userDirFromPath: userDirName,
+				fileSize:        int64(len(fileBytes)),
+				fileHash:        meta.FileHashSHA256,
+				contentType:     ct,
+				fileBytes:       fileBytes,
+			})
+			_ = userIDFromMeta // used via meta.UserID in resolveUserID
 		}
 	}
 
-	fmt.Printf("\nErgebnis: %d OK, %d Skip, %d Fehler\n", res.ok, res.skipped, res.errors)
-	return nil
+	fmt.Printf("Scan complete (S3): %d .meta files found, %d activity files present, %d parse errors\n",
+		totalMeta, totalFiles, totalErrors)
+
+	return entries, nil
 }
 
 // restoreOne restores a single activity:
@@ -300,6 +484,7 @@ func run(ctx context.Context) error {
 //  3. Creates a user_files registry entry for the file (ON CONFLICT skip).
 //
 // Returns a status string ("OK", "SKIP (duplicate)", …) or an error.
+// fileBytes is optional: when non-nil (S3 mode) the file is not read from disk.
 func restoreOne(
 	ctx context.Context,
 	db *database.DB,
@@ -311,10 +496,14 @@ func restoreOne(
 	fileHash string,
 	contentType string,
 	strategy importer.ConflictStrategy,
+	fileBytes []byte,
 ) (string, error) {
-	fileBytes, err := os.ReadFile(activityPath)
-	if err != nil {
-		return "", fmt.Errorf("activity file lesen: %w", err)
+	if fileBytes == nil {
+		var err error
+		fileBytes, err = os.ReadFile(activityPath)
+		if err != nil {
+			return "", fmt.Errorf("activity file lesen: %w", err)
+		}
 	}
 
 	format := importutil.DetectFormat(fileBytes, activityPath)
@@ -324,6 +513,7 @@ func restoreOne(
 
 	// Datei parsen.
 	var actData *model.ActivityData
+	var err error
 	switch format {
 	case "fit":
 		actData, err = fitimport.ParseFIT(bytes.NewReader(fileBytes), filepath.Base(activityPath))
@@ -374,6 +564,9 @@ func restoreOne(
 		}
 	}
 
+	// Determine storage_backend value from current mode.
+	storageBackend := *backendMode // "local" or "s3"
+
 	// subErr tracks whether any non-fatal sub-insert failed.
 	var subErr error
 
@@ -400,11 +593,12 @@ func restoreOne(
 				`INSERT INTO user_files
 					(user_id, file_type, storage_backend, storage_path, content_type,
 					 file_name, size_bytes, file_hash, parent_type, parent_id, has_sidecar, status)
-				VALUES ($1, 'activity', 'local', $2, $3, $4, $5, $6, 'activity', $7, true, 'active')
+				VALUES ($1, 'activity', $2, $3, $4, $5, $6, $7, 'activity', $8, true, 'active')
 				ON CONFLICT (storage_backend, storage_path) DO UPDATE
 					SET updated_at = user_files.updated_at
 				RETURNING id`,
 				userID,
+				storageBackend,
 				relPath,
 				contentType,
 				filepath.Base(activityPath),
@@ -523,11 +717,12 @@ func restoreOne(
 				`INSERT INTO user_files
 					(user_id, file_type, storage_backend, storage_path, content_type,
 					 file_name, size_bytes, file_hash, parent_type, parent_id, has_sidecar, status)
-				VALUES ($1, 'activity', 'local', $2, $3, $4, $5, $6, 'activity', $7, true, 'active')
+				VALUES ($1, 'activity', $2, $3, $4, $5, $6, $7, 'activity', $8, true, 'active')
 				ON CONFLICT (storage_backend, storage_path) DO UPDATE
 					SET updated_at = user_files.updated_at
 				RETURNING id`,
 				userID,
+				storageBackend,
 				relPath,
 				contentType,
 				filepath.Base(activityPath),
