@@ -2,6 +2,7 @@ package coverage
 
 import (
 	"bytes"
+	"container/list"
 	"image"
 	"image/png"
 	"sync"
@@ -9,6 +10,10 @@ import (
 	"github.com/paulmach/orb"
 )
 
+// RenderSingleLayerTile renders a coverage layer into an NRGBA image.
+// Row-level pre-computation (Fix #18): lat and row offset are hoisted out of
+// the inner loop; lon is computed with a pre-calculated step to avoid repeated
+// division. Direct Pix access avoids per-pixel bounds checking from SetNRGBA.
 func RenderSingleLayerTile(grids []*MappedGrid, palette PaletteFunc, width, height int, bbox orb.Bound) *image.NRGBA {
 	img := image.NewNRGBA(image.Rect(0, 0, width, height))
 	if len(grids) == 0 {
@@ -17,11 +22,14 @@ func RenderSingleLayerTile(grids []*MappedGrid, palette PaletteFunc, width, heig
 
 	latRange := bbox.Max[1] - bbox.Min[1]
 	lonRange := bbox.Max[0] - bbox.Min[0]
+	lonStep := lonRange / float64(width)
+	lonBase := bbox.Min[0] + lonStep*0.5
 
 	for py := range height {
 		lat := bbox.Max[1] - (float64(py)+0.5)/float64(height)*latRange
+		rowOff := py * width * 4 // NRGBA stride
 		for px := range width {
-			lon := bbox.Min[0] + (float64(px)+0.5)/float64(width)*lonRange
+			lon := lonBase + float64(px)*lonStep
 			var val uint8 = OutOfBounds
 			for _, mg := range grids {
 				v := mg.samplePoint(lat, lon)
@@ -35,7 +43,11 @@ func RenderSingleLayerTile(grids []*MappedGrid, palette PaletteFunc, width, heig
 			}
 			c := palette(val)
 			if c.A > 0 {
-				img.SetNRGBA(px, py, c)
+				off := rowOff + px*4
+				img.Pix[off] = c.R
+				img.Pix[off+1] = c.G
+				img.Pix[off+2] = c.B
+				img.Pix[off+3] = c.A
 			}
 		}
 	}
@@ -61,7 +73,7 @@ func TransparentPNG() []byte {
 	return transparentPNG
 }
 
-// --- PNG LRU Cache ---
+// --- PNG LRU Cache (Fix #17: O(1) via container/list) ---
 
 type PNGCacheKey struct {
 	Layer string
@@ -70,17 +82,18 @@ type PNGCacheKey struct {
 	Y     int
 }
 
-type pngCacheEntry struct {
+type pngLRUEntry struct {
 	key  PNGCacheKey
 	data []byte
+	elem *list.Element
 }
 
 type PNGCache struct {
 	mu             sync.Mutex
 	maxEntries     int
 	buildTimestamp string
-	entries        map[PNGCacheKey]*pngCacheEntry
-	order          []PNGCacheKey
+	entries        map[PNGCacheKey]*pngLRUEntry
+	lruList        *list.List
 }
 
 func NewPNGCache(maxEntries int, buildTimestamp string) *PNGCache {
@@ -90,7 +103,8 @@ func NewPNGCache(maxEntries int, buildTimestamp string) *PNGCache {
 	return &PNGCache{
 		maxEntries:     maxEntries,
 		buildTimestamp: buildTimestamp,
-		entries:        make(map[PNGCacheKey]*pngCacheEntry, maxEntries),
+		entries:        make(map[PNGCacheKey]*pngLRUEntry, maxEntries),
+		lruList:        list.New(),
 	}
 }
 
@@ -101,13 +115,7 @@ func (c *PNGCache) Get(key PNGCacheKey) ([]byte, bool) {
 	if !ok {
 		return nil, false
 	}
-	for i, k := range c.order {
-		if k == key {
-			c.order = append(c.order[:i], c.order[i+1:]...)
-			c.order = append(c.order, key)
-			break
-		}
-	}
+	c.lruList.MoveToBack(e.elem)
 	return e.data, true
 }
 
@@ -117,13 +125,15 @@ func (c *PNGCache) Put(key PNGCacheKey, data []byte) {
 	if _, ok := c.entries[key]; ok {
 		return
 	}
-	for len(c.entries) >= c.maxEntries && len(c.order) > 0 {
-		evictKey := c.order[0]
-		c.order = c.order[1:]
-		delete(c.entries, evictKey)
+	for len(c.entries) >= c.maxEntries && c.lruList.Len() > 0 {
+		oldest := c.lruList.Front()
+		entry := oldest.Value.(*pngLRUEntry)
+		c.lruList.Remove(oldest)
+		delete(c.entries, entry.key)
 	}
-	c.entries[key] = &pngCacheEntry{key: key, data: data}
-	c.order = append(c.order, key)
+	e := &pngLRUEntry{key: key, data: data}
+	e.elem = c.lruList.PushBack(e)
+	c.entries[key] = e
 }
 
 func (c *PNGCache) InvalidateIfStale(newTimestamp string) {
@@ -133,8 +143,8 @@ func (c *PNGCache) InvalidateIfStale(newTimestamp string) {
 		return
 	}
 	c.buildTimestamp = newTimestamp
-	c.entries = make(map[PNGCacheKey]*pngCacheEntry, c.maxEntries)
-	c.order = nil
+	c.entries = make(map[PNGCacheKey]*pngLRUEntry, c.maxEntries)
+	c.lruList.Init()
 }
 
 var sourceLayerForAPI = map[string]string{
