@@ -70,6 +70,14 @@ func ReadFCOV(path string) (FCOVHeader, []uint8, error) {
 	}
 
 	size := int(h.Rows) * int(h.Cols)
+	info, statErr := f.Stat()
+	if statErr != nil {
+		return FCOVHeader{}, nil, fmt.Errorf("fcov: stat: %w", statErr)
+	}
+	fileDataSize := info.Size() - fcovHeaderSize
+	if int64(size) > fileDataSize {
+		return FCOVHeader{}, nil, fmt.Errorf("fcov: header claims %d bytes but file has %d data bytes", size, fileDataSize)
+	}
 	data := make([]uint8, size)
 	if _, err := io.ReadFull(f, data); err != nil {
 		return FCOVHeader{}, nil, fmt.Errorf("fcov: read data: %w", err)
@@ -126,6 +134,12 @@ func MmapFCOV(path string) (FCOVHeader, []byte, func(), error) {
 	if h.Version != fcovVersion {
 		cleanup()
 		return FCOVHeader{}, nil, nil, fmt.Errorf("fcov: unsupported version %d", h.Version)
+	}
+
+	expectedSize := fcovHeaderSize + int(h.Rows)*int(h.Cols)
+	if len(fullData) < expectedSize {
+		cleanup()
+		return FCOVHeader{}, nil, nil, fmt.Errorf("fcov: truncated file: have %d bytes, need %d", len(fullData), expectedSize)
 	}
 
 	return h, fullData[fcovHeaderSize:], cleanup, nil
