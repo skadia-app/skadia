@@ -3,6 +3,7 @@ package coverage
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -70,7 +71,7 @@ func ReadFCOV(path string) (FCOVHeader, []uint8, error) {
 
 	size := int(h.Rows) * int(h.Cols)
 	data := make([]uint8, size)
-	if _, err := f.Read(data); err != nil {
+	if _, err := io.ReadFull(f, data); err != nil {
 		return FCOVHeader{}, nil, fmt.Errorf("fcov: read data: %w", err)
 	}
 	return h, data, nil
@@ -121,6 +122,10 @@ func MmapFCOV(path string) (FCOVHeader, []byte, func(), error) {
 	if h.Magic != fcovMagic {
 		cleanup()
 		return FCOVHeader{}, nil, nil, fmt.Errorf("fcov: invalid magic %q", h.Magic)
+	}
+	if h.Version != fcovVersion {
+		cleanup()
+		return FCOVHeader{}, nil, nil, fmt.Errorf("fcov: unsupported version %d", h.Version)
 	}
 
 	return h, fullData[fcovHeaderSize:], cleanup, nil
