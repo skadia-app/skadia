@@ -117,22 +117,27 @@ func paletteNoise(v uint8) color.NRGBA {
 		return color.NRGBA{}
 	}
 	t := float64(v) / 255.0
-	var r, g uint8
+	var r, g, b uint8
 	if t < 0.5 {
+		// Green (#22c55e) → Yellow (#eab308)
 		s := t * 2
-		r = uint8(0x22 + s*(0xea-0x22))
-		g = uint8(0xc5 + s*(0xb3-0xc5))
+		r = uint8(float64(0x22) + s*float64(0xea-0x22))
+		g = uint8(float64(0xc5) + s*float64(0xb3-0xc5))
+		b = uint8(float64(0x5e) + s*float64(0x08-0x5e))
 	} else {
+		// Yellow (#eab308) → Red (#ef4444)
 		s := (t - 0.5) * 2
-		r = uint8(0xea + s*(0xef-0xea))
-		g = uint8(0xb3 - s*0xb3*0.7)
+		r = uint8(float64(0xea) + s*float64(0xef-0xea))
+		g = uint8(float64(0xb3) - s*float64(0xb3-0x44))
+		b = uint8(float64(0x08) + s*float64(0x44-0x08))
 	}
 	a := uint8(min(255, 60+int(t*195)))
-	return color.NRGBA{R: r, G: g, B: uint8(float64(0x5e) * (1 - t) * 0.3), A: a}
+	return color.NRGBA{R: r, G: g, B: b, A: a}
 }
 
-// paletteQuiet is identical to paletteNoise by design.
-// Both render green->red. The UI label differs ("Ruhe" vs "Larm").
+// paletteQuiet renders the same gradient as paletteNoise: green (low v = quiet) → red (high v = loud).
+// The quiet layer stores noise levels identically to the noise layer; the "quiet" label reflects
+// the user-facing framing (good quiet zones = green, bad loud zones = red).
 func paletteQuiet(v uint8) color.NRGBA {
 	return paletteNoise(v)
 }
