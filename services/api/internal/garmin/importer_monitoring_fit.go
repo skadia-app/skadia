@@ -311,6 +311,22 @@ func processMonitorMainFIT(ctx context.Context, db *database.DB, fs shadowfs.Sha
 	if result == nil {
 		return nil
 	}
+
+	// Store original FIT file in ShadowFS for GDPR export.
+	// Derive timestamp from parsed data (HRVSnapshots preferred, else RestingHRByDate).
+	fileTS := time.Now().UTC()
+	if len(result.HRVSnapshots) > 0 {
+		fileTS = result.HRVSnapshots[0].MeasuredAtUTC
+	} else {
+		for calDate := range result.RestingHRByDate {
+			if t, err := time.Parse("2006-01-02", calDate); err == nil {
+				fileTS = t
+				break
+			}
+		}
+	}
+	storeHealthFIT(ctx, db, fs, data, userID, "monitor_main", fmt.Sprintf("monitor_main_%s.fit", fileTS.Format("20060102_150405")), fileTS)
+
 	for i := range result.HRVSnapshots {
 		snap := &result.HRVSnapshots[i]
 		if err := db.UpsertHealthHRVSnapshot(ctx, snap); err != nil {
@@ -338,16 +354,22 @@ func processMonitorMainFIT(ctx context.Context, db *database.DB, fs shadowfs.Sha
 }
 
 func processHRVNightFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
-	// Store original FIT file in ShadowFS for GDPR export and storage migration.
-	if len(data) > 14 { // minimal FIT header check
-		ts := time.Now()
-		storeHealthFIT(ctx, db, fs, data, userID, "hrv_night", fmt.Sprintf("%s_hrv_night.fit", ts.Format("2006-01-02")), ts)
-	}
-
 	result := parseHRVNightFIT(data, userID)
 	if result == nil {
 		return nil
 	}
+
+	// Store original FIT file in ShadowFS for GDPR export.
+	// Derive timestamp from parsed data (HRVNightValues preferred, else TrainingReadiness).
+	fileTS := time.Now().UTC()
+	if len(result.HRVNightValues) > 0 {
+		fileTS = result.HRVNightValues[0].TS
+	} else if len(result.TrainingReadiness) > 0 {
+		if cd, err := time.Parse("2006-01-02", result.TrainingReadiness[0].CalendarDate); err == nil {
+			fileTS = cd
+		}
+	}
+	storeHealthFIT(ctx, db, fs, data, userID, "hrv_night", fmt.Sprintf("hrv_night_%s.fit", fileTS.Format("20060102_150405")), fileTS)
 	if len(result.HRVNightValues) > 0 {
 		if err := db.UpsertHealthHRVNightValuesBatch(ctx, userID, result.HRVNightValues); err != nil {
 			return fmt.Errorf("upsert HRV night values: %w", err)
