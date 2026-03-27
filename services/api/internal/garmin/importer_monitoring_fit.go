@@ -21,13 +21,24 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
 // Garmin monitoring FIT file types found in UploadedFiles ZIPs.
 const (
-	fitFileTypeActivity    = 4  // Standard activity (Laufen, Radfahren etc.)
-	fitFileTypeHRVNight    = 44 // Nächtliche HRV-5-Minuten-Werte (msg 281, proprietary)
-	fitFileTypeMonitorMain = 68 // Haupt-Monitoring: HRV-Status, Schlaf, Stress, Ruhepuls
+	fitFileTypeActivity        = 4  // Standard activity (Laufen, Radfahren etc.)
+	fitFileTypeSport           = 3  // Sport profile
+	fitFileTypeWorkout         = 5  // Workout definition
+	fitFileTypeCourse          = 6  // Course/route
+	fitFileTypeWeight          = 9  // Weight scale data
+	fitFileTypeMonitoringA     = 15 // Monitoring A (hourly device monitoring)
+	fitFileTypeMonitoringDaily = 28 // Monitoring daily aggregates
+	fitFileTypeMonitoringB     = 32 // Monitoring B
+	fitFileTypeSegment         = 34 // Segment definition
+	fitFileTypeHRVNight        = 44 // Nächtliche HRV-5-Minuten-Werte (msg 281, proprietary)
+	fitFileTypeSleep           = 49 // Sleep data
+	fitFileTypeSpO2            = 58 // Blood oxygen (SpO2)
+	fitFileTypeMonitorMain     = 68 // Haupt-Monitoring: HRV-Status, Schlaf, Stress, Ruhepuls
 )
 
 // monitoringFITResult holds all health data extracted from a single monitoring FIT file.
@@ -92,7 +103,7 @@ func importMonitoringFITs(ctx context.Context, params ImportParams) (imported in
 			tracker.SetFileHash(ctx, hex.EncodeToString(hashArr[:]))
 
 			// Delegate to ProcessMonitoringFIT — shared with hotfolder/upload paths.
-			if procErr := ProcessMonitoringFIT(ctx, params.DB, data, params.UserID); procErr != nil {
+			if procErr := ProcessMonitoringFIT(ctx, params.DB, params.ShadowFS, data, params.UserID); procErr != nil {
 				slog.Warn("garmin monitoring fit: process failed", "file", f.Name, "error", procErr)
 				tracker.Error(ctx, procErr)
 				fitErrors++
@@ -236,57 +247,95 @@ func ReadFITFileType(data []byte) uint8 {
 	return readFITFileType(data)
 }
 
-// ProcessMonitoringFIT parses a monitoring FIT file (type 68 or 44) and upserts
-// the health data into the database. Returns nil if the file was processed
-// successfully, or an error if the file type is not a supported monitoring type.
-func ProcessMonitoringFIT(ctx context.Context, db *database.DB, data []byte, userID string) error {
-	ftype := readFITFileType(data)
+// RouteFITByType routes a non-activity FIT file to the appropriate parser.
+// Returns (true, nil) if handled, (false, nil) if the caller should handle it
+// (e.g. as activity), or (true, err) on processing error.
+func RouteFITByType(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string, ftype uint8) (handled bool, err error) {
 	switch ftype {
 	case fitFileTypeMonitorMain:
-		result := parseMonitorMainFIT(data, userID)
-		if result == nil {
-			return nil
-		}
-		for i := range result.HRVSnapshots {
-			snap := &result.HRVSnapshots[i]
-			if err := db.UpsertHealthHRVSnapshot(ctx, snap); err != nil {
-				slog.Warn("ProcessMonitoringFIT: upsert HRV snapshot failed", "error", err)
-			}
-		}
-		if len(result.HRVNightValues) > 0 {
-			if err := db.UpsertHealthHRVNightValuesBatch(ctx, userID, result.HRVNightValues); err != nil {
-				slog.Warn("ProcessMonitoringFIT: upsert HRV night values failed", "error", err)
-			}
-		}
-		for calDate, rhr := range result.RestingHRByDate {
-			rhrVal := rhr
-			summary := &model.HealthDailySummary{
-				UserID:           userID,
-				CalendarDate:     calDate,
-				RestingHeartRate: &rhrVal,
-				SourceType:       "garmin_fit",
-			}
-			if err := db.UpsertHealthDailySummary(ctx, summary); err != nil {
-				slog.Warn("ProcessMonitoringFIT: upsert resting HR failed", "date", calDate, "error", err)
-			}
-		}
-		return nil
-
+		return true, processMonitorMainFIT(ctx, db, fs, data, userID)
 	case fitFileTypeHRVNight:
-		result := parseHRVNightFIT(data, userID)
-		if result == nil {
-			return nil
-		}
-		if len(result.HRVNightValues) > 0 {
-			if err := db.UpsertHealthHRVNightValuesBatch(ctx, userID, result.HRVNightValues); err != nil {
-				return fmt.Errorf("upsert HRV night values: %w", err)
-			}
-		}
-		return nil
-
+		return true, processHRVNightFIT(ctx, db, fs, data, userID)
+	case fitFileTypeMonitoringA, fitFileTypeMonitoringDaily, fitFileTypeMonitoringB:
+		return true, processMonitoringBFIT(ctx, db, fs, data, userID)
+	case fitFileTypeSleep:
+		return true, processSleepFIT(ctx, db, fs, data, userID)
+	case fitFileTypeSpO2:
+		return true, processSpO2FIT(ctx, db, fs, data, userID)
+	case fitFileTypeSport:
+		return true, processSportFIT(ctx, db, fs, data, userID)
+	case fitFileTypeWorkout:
+		return true, processWorkoutFIT(ctx, db, fs, data, userID)
+	case fitFileTypeCourse:
+		return true, processCourseFIT(ctx, db, fs, data, userID)
+	case fitFileTypeWeight:
+		return true, processWeightFIT(ctx, db, fs, data, userID)
+	case fitFileTypeSegment:
+		return true, processSegmentFIT(ctx, db, fs, data, userID)
+	case fitFileTypeActivity:
+		return false, nil
 	default:
+		return false, nil
+	}
+}
+
+// ProcessMonitoringFIT parses a monitoring FIT file and upserts the health data
+// into the database. Returns nil if the file was processed successfully, or an
+// error if the file type is not a supported type.
+func ProcessMonitoringFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
+	ftype := readFITFileType(data)
+	handled, err := RouteFITByType(ctx, db, fs, data, userID, ftype)
+	if err != nil {
+		return err
+	}
+	if !handled {
 		return fmt.Errorf("unsupported monitoring FIT file type: %d", ftype)
 	}
+	return nil
+}
+
+func processMonitorMainFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
+	result := parseMonitorMainFIT(data, userID)
+	if result == nil {
+		return nil
+	}
+	for i := range result.HRVSnapshots {
+		snap := &result.HRVSnapshots[i]
+		if err := db.UpsertHealthHRVSnapshot(ctx, snap); err != nil {
+			slog.Warn("processMonitorMainFIT: upsert HRV snapshot failed", "error", err)
+		}
+	}
+	if len(result.HRVNightValues) > 0 {
+		if err := db.UpsertHealthHRVNightValuesBatch(ctx, userID, result.HRVNightValues); err != nil {
+			slog.Warn("processMonitorMainFIT: upsert HRV night values failed", "error", err)
+		}
+	}
+	for calDate, rhr := range result.RestingHRByDate {
+		rhrVal := rhr
+		summary := &model.HealthDailySummary{
+			UserID:           userID,
+			CalendarDate:     calDate,
+			RestingHeartRate: &rhrVal,
+			SourceType:       "garmin_fit",
+		}
+		if err := db.UpsertHealthDailySummary(ctx, summary); err != nil {
+			slog.Warn("processMonitorMainFIT: upsert resting HR failed", "date", calDate, "error", err)
+		}
+	}
+	return nil
+}
+
+func processHRVNightFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
+	result := parseHRVNightFIT(data, userID)
+	if result == nil {
+		return nil
+	}
+	if len(result.HRVNightValues) > 0 {
+		if err := db.UpsertHealthHRVNightValuesBatch(ctx, userID, result.HRVNightValues); err != nil {
+			return fmt.Errorf("upsert HRV night values: %w", err)
+		}
+	}
+	return nil
 }
 
 // hrvsStatusExtra holds the extra HRV-status fields stored in health_snapshots.extra_data.

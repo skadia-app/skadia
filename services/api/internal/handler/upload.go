@@ -78,7 +78,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", header.Filename, &sz, nil)
 			tracker.Processing(r.Context())
 			tracker.SetFileHash(r.Context(), hashStr)
-			monErr := garmin.ProcessMonitoringFIT(r.Context(), h.DB, decompressed, userID)
+			monErr := garmin.ProcessMonitoringFIT(r.Context(), h.DB, h.ShadowFS, decompressed, userID)
 			if monErr != nil {
 				tracker.Error(r.Context(), monErr)
 				httputil.WriteError(w, http.StatusUnprocessableEntity, "Process Error",

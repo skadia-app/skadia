@@ -73,7 +73,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		ftype := garmin.ReadFITFileType(decompressed)
 		if ftype == 68 || ftype == 44 {
 			// Monitoring FIT — no S3 upload, parse directly to health tables
-			monErr := garmin.ProcessMonitoringFIT(ctx, h.DB, decompressed, userID)
+			monErr := garmin.ProcessMonitoringFIT(ctx, h.DB, h.ShadowFS, decompressed, userID)
 			if monErr != nil {
 				tracker.Error(ctx, fmt.Errorf("process monitoring FIT (type %d): %s", ftype, monErr))
 				return monErr
