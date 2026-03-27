@@ -26,7 +26,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 )
 
@@ -218,35 +217,10 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Refresh sidecar .meta with updated user fields — ShadowFS preferred, legacy S3 fallback.
+	// Refresh .meta companion with updated user fields.
 	freshAct, _ := h.DB.GetActivity(r.Context(), id)
-	if freshAct != nil {
-		meta := sidecar.GenerateMetaV3(id, nil, freshAct)
-		metaBytes, _ := meta.Marshal()
-		if metaBytes != nil {
-			written := false
-			if h.ShadowFS != nil && freshAct.FileID != nil && *freshAct.FileID != "" {
-				metaName := fmt.Sprintf("%s.meta", id)
-				_, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
-					UserID:      userID,
-					FileType:    "edit",
-					ContentType: "application/json",
-					FileName:    metaName,
-					SizeBytes:   int64(len(metaBytes)),
-					ParentType:  func() *string { s := "activity"; return &s }(),
-					ParentID:    &id,
-					Tags:        map[string]string{"role": "meta_sidecar"},
-				}, bytes.NewReader(metaBytes))
-				if putErr == nil {
-					written = true
-				} else {
-					slog.Warn("update activity: ShadowFS meta write failed, falling back to S3", "id", id, "error", putErr)
-				}
-			}
-			if !written {
-				slog.Warn("update activity: meta sidecar could not be written (no ShadowFS)", "id", id)
-			}
-		}
+	if h.ShadowFS != nil && freshAct != nil && freshAct.FileID != nil && *freshAct.FileID != "" {
+		sidecar.WriteMetaCompanion(r.Context(), h.ShadowFS, h.DB, userID, id, *freshAct.FileID, nil, freshAct)
 	}
 
 	// Side-effect: toggle heatmap data when exclude_from_heatmap changes.
