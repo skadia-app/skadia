@@ -25,6 +25,7 @@ type Handler struct {
 	CoverageCache   *coverage.TileGridCache      // nil when coverage cache is not initialized
 	CoverageBaseDir string                       // base directory for FCOV coverage files
 	CoverageReader  *coverage.DiskCoverageReader // nil when coverage binaries are not available
+	PNGCache        *coverage.PNGCache           // LRU cache for rendered PNG tiles
 
 	recomputeJob recomputeJobState // in-memory state for async recompute-all
 }
