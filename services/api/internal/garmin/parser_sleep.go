@@ -18,8 +18,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
-var minValidTS = time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)
-
 // loadUserTimezone loads the timezone string for a user from the database.
 // Returns "UTC" as fallback if the query fails or the value is empty.
 func loadUserTimezone(ctx context.Context, db *database.DB, userID string) string {
@@ -49,7 +47,7 @@ func processSleepFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 		msg := &fit.Messages[i]
 		if msg.Num == typedef.MesgNumSleepLevel {
 			sl := mesgdef.NewSleepLevel(msg)
-			if !sl.Timestamp.IsZero() && sl.Timestamp.After(minValidTS) {
+			if !sl.Timestamp.IsZero() && sl.Timestamp.After(minSaneTimestamp) {
 				firstTS = sl.Timestamp
 				break
 			}
@@ -75,10 +73,10 @@ func processSleepFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 		switch msg.Num {
 		case typedef.MesgNumSleepLevel: // 275
 			sl := mesgdef.NewSleepLevel(msg)
-			if sl.SleepLevel == typedef.SleepLevelInvalid {
+			if sl.SleepLevel == typedef.SleepLevelInvalid || sl.SleepLevel > 4 {
 				continue
 			}
-			if sl.Timestamp.IsZero() || !sl.Timestamp.After(minValidTS) {
+			if sl.Timestamp.IsZero() || !sl.Timestamp.After(minSaneTimestamp) {
 				continue
 			}
 			level := int16(sl.SleepLevel)
@@ -104,7 +102,7 @@ func processSleepFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 				continue
 			}
 			ts := datetime.ToTime(rawTS)
-			if ts.IsZero() || !ts.After(minValidTS) {
+			if ts.IsZero() || !ts.After(minSaneTimestamp) {
 				continue
 			}
 			eventType := msg.FieldValueByNum(1).Uint8()
