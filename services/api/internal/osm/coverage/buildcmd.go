@@ -47,7 +47,7 @@ func RunBuildCoverage(ctx context.Context, pool *pgxpool.Pool, opts BuildCoverag
 		}
 
 		var err error
-		tileIDs, err = discoverActiveTiles(ctx, pool, bboxClause)
+		tileIDs, err = discoverCoverageTiles(ctx, pool, bboxClause)
 		if err != nil {
 			return fmt.Errorf("discover tiles: %w", err)
 		}
@@ -106,4 +106,65 @@ func RunBuildCoverage(ctx context.Context, pool *pgxpool.Pool, opts BuildCoverag
 
 	slog.Info("build-coverage: complete", "tiles", total)
 	return nil
+}
+
+// discoverCoverageTiles finds all 1°×1° tiles that have ANY OSM data relevant
+// for coverage grids. Unlike discoverActiveTiles (which only checks osm_ways),
+// this queries all tables used by the coverage builder: forests, waters,
+// waterways, landuse, boundaries, pois, railways, and ways.
+func discoverCoverageTiles(ctx context.Context, pool *pgxpool.Pool, bboxClause string) ([]uint32, error) {
+	// tileID formula: (floor(lat)+90)*360 + (floor(lon)+180)
+	const tileExpr = `((floor(ST_Y(ST_PointOnSurface(geom)))::int + 90) * 360
+		+ (floor(ST_X(ST_PointOnSurface(geom)))::int + 180))::int`
+
+	type tableSpec struct {
+		table string
+		where string // extra WHERE conditions (appended with AND)
+	}
+	tables := []tableSpec{
+		{"osm_ways", "highway IS NOT NULL"},
+		{"osm_forests", ""},
+		{"osm_waters", ""},
+		{"osm_waterways", ""},
+		{"osm_landuse", ""},
+		{"osm_boundaries", ""},
+		{"osm_pois", ""},
+		{"osm_railways", ""},
+	}
+
+	var unions []string
+	for _, t := range tables {
+		extra := ""
+		if t.where != "" {
+			extra = " AND " + t.where
+		}
+		unions = append(unions, fmt.Sprintf(
+			"SELECT DISTINCT %s AS tid FROM %s WHERE geom IS NOT NULL%s%s",
+			tileExpr, t.table, extra, bboxClause))
+	}
+
+	q := "SELECT DISTINCT tid FROM (" + fmt.Sprintf("%s", joinSQL(unions)) + ") sub"
+	rows, err := pool.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tiles []uint32
+	for rows.Next() {
+		var tid int
+		if err := rows.Scan(&tid); err != nil {
+			return nil, err
+		}
+		tiles = append(tiles, uint32(tid))
+	}
+	return tiles, rows.Err()
+}
+
+func joinSQL(parts []string) string {
+	result := parts[0]
+	for _, p := range parts[1:] {
+		result += " UNION ALL " + p
+	}
+	return result
 }
