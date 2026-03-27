@@ -73,27 +73,31 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	// Route monitoring FIT files (health data, no activity created)
 	if format == "fit" {
 		ftype := garmin.ReadFITFileType(decompressed)
-		if ftype == 68 || ftype == 44 {
+		handled, routeErr := garmin.RouteFITByType(r.Context(), h.DB, h.ShadowFS, decompressed, userID, ftype)
+		if routeErr != nil {
 			sz := int64(len(decompressed))
 			tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", header.Filename, &sz, nil)
 			tracker.Processing(r.Context())
 			tracker.SetFileHash(r.Context(), hashStr)
-			monErr := garmin.ProcessMonitoringFIT(r.Context(), h.DB, h.ShadowFS, decompressed, userID)
-			if monErr != nil {
-				tracker.Error(r.Context(), monErr)
-				httputil.WriteError(w, http.StatusUnprocessableEntity, "Process Error",
-					fmt.Sprintf("failed to process monitoring FIT: %s", monErr), r.URL.Path)
-				return
-			}
+			tracker.Error(r.Context(), routeErr)
+			httputil.WriteError(w, http.StatusUnprocessableEntity, "Process Error",
+				fmt.Sprintf("failed to process FIT type %d: %s", ftype, routeErr), r.URL.Path)
+			return
+		}
+		if handled {
+			sz := int64(len(decompressed))
+			tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", header.Filename, &sz, nil)
+			tracker.Processing(r.Context())
+			tracker.SetFileHash(r.Context(), hashStr)
 			tracker.Completed(r.Context(), "")
 			httputil.WriteJSON(w, http.StatusOK, map[string]any{
 				"status":    "completed",
-				"data_type": "monitoring",
+				"data_type": "non_activity",
 				"fit_type":  ftype,
 			})
 			return
 		}
-		// ftype == 4 or unknown → continue to activity import below
+		// handled==false → activity or unknown → continue to activity import below
 	}
 
 	// For FIT files try multi-session parsing to detect multisport activities.
