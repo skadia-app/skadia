@@ -747,8 +747,113 @@ func restoreOne(
 		}
 	}
 
+	// Apply user-editable fields from .meta sidecar (not recoverable from FIT file alone).
+	if meta.SchemaVersion > 0 {
+		applyMetaUserFields(ctx, db, activityID, meta)
+	}
+
 	if subErr != nil {
 		return "PARTIAL", nil
 	}
 	return "OK", nil
+}
+
+// applyMetaUserFields updates user-editable fields on the restored activity from the .meta sidecar.
+// Only fields with non-zero values are applied (zero = not set in .meta).
+// Tags are handled separately via the activity_tags junction table.
+func applyMetaUserFields(ctx context.Context, db *database.DB, activityID string, meta sidecar.MetaFile) {
+	sets := []string{}
+	args := []any{}
+	argN := 1
+
+	if meta.Description != "" {
+		sets = append(sets, fmt.Sprintf("description = $%d", argN))
+		args = append(args, meta.Description)
+		argN++
+	}
+	if meta.GearID != "" {
+		sets = append(sets, fmt.Sprintf("gear_id = $%d", argN))
+		args = append(args, meta.GearID)
+		argN++
+	}
+	if meta.Visibility != "" {
+		sets = append(sets, fmt.Sprintf("visibility = $%d", argN))
+		args = append(args, meta.Visibility)
+		argN++
+	}
+	if meta.WorkoutFeel != nil {
+		sets = append(sets, fmt.Sprintf("workout_feel = $%d", argN))
+		args = append(args, *meta.WorkoutFeel)
+		argN++
+	}
+	if meta.WorkoutRpe != nil {
+		sets = append(sets, fmt.Sprintf("workout_rpe = $%d", argN))
+		args = append(args, *meta.WorkoutRpe)
+		argN++
+	}
+	if meta.Title != "" && meta.TitleIsManual {
+		sets = append(sets, fmt.Sprintf("title = $%d", argN))
+		args = append(args, meta.Title)
+		argN++
+		sets = append(sets, fmt.Sprintf("title_is_manual = $%d", argN))
+		args = append(args, true)
+		argN++
+	}
+	// Bool fields — only set if true (false is the default anyway).
+	for _, pair := range []struct {
+		field string
+		val   bool
+	}{
+		{"is_ebike", meta.IsEbike},
+		{"is_virtual", meta.IsVirtual},
+		{"is_manual_entry", meta.IsManualEntry},
+		{"exclude_from_heatmap", meta.ExcludeFromHeatmap},
+		{"exclude_from_stats", meta.ExcludeFromStats},
+		{"is_indoor", meta.IsIndoor},
+		{"exclude_lift_subtraction", meta.ExcludeLiftSubtraction},
+	} {
+		if pair.val {
+			sets = append(sets, fmt.Sprintf("%s = $%d", pair.field, argN))
+			args = append(args, true)
+			argN++
+		}
+	}
+	// Location coordinates.
+	if meta.LocationLat != nil && meta.LocationLng != nil {
+		sets = append(sets, fmt.Sprintf("location_lat = $%d", argN))
+		args = append(args, *meta.LocationLat)
+		argN++
+		sets = append(sets, fmt.Sprintf("location_lng = $%d", argN))
+		args = append(args, *meta.LocationLng)
+		argN++
+	}
+
+	if len(sets) > 0 {
+		args = append(args, activityID)
+		query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $%d", strings.Join(sets, ", "), argN)
+		if _, err := db.Pool.Exec(ctx, query, args...); err != nil {
+			slog.Warn("restore: apply meta user fields failed", "activity_id", activityID, "error", err)
+		}
+	}
+
+	// Tags: insert via activity_tags junction table (best-effort).
+	for _, tagName := range meta.Tags {
+		var tagID string
+		err := db.Pool.QueryRow(ctx,
+			`INSERT INTO tags (user_id, name) VALUES ((SELECT user_id FROM activities WHERE id = $1), $2)
+			 ON CONFLICT (user_id, name) DO UPDATE SET name = EXCLUDED.name
+			 RETURNING id`,
+			activityID, tagName,
+		).Scan(&tagID)
+		if err == nil {
+			if _, err := db.Pool.Exec(ctx,
+				`INSERT INTO activity_tags (activity_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+				activityID, tagID,
+			); err != nil {
+				slog.Warn("restore: link tag failed", "activity_id", activityID, "tag", tagName, "error", err)
+			}
+		} else {
+			slog.Warn("restore: upsert tag failed", "activity_id", activityID, "tag", tagName, "error", err)
+		}
+	}
 }
