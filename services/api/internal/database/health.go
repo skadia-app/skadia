@@ -694,22 +694,23 @@ func (db *DB) GetLatestHealthStress(ctx context.Context, userID string) (*model.
 func (db *DB) UpsertHealthSpO2Snapshot(ctx context.Context, s *model.HealthSpO2Snapshot) error {
 	_, err := db.Pool.Exec(ctx, `
 		INSERT INTO health_spo2_snapshots (
-			user_id, measured_at_utc, spo2_pct, source_type, extra_data
-		) VALUES ($1, $2, $3, $4, $5)
+			user_id, measured_at_utc, spo2_pct, source_type, extra_data, confidence
+		) VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (user_id, measured_at_utc) DO UPDATE SET
-			spo2_pct    = COALESCE(EXCLUDED.spo2_pct, health_spo2_snapshots.spo2_pct),
+			spo2_pct    = COALESCE(EXCLUDED.spo2_pct,    health_spo2_snapshots.spo2_pct),
+			confidence  = COALESCE(EXCLUDED.confidence,  health_spo2_snapshots.confidence),
 			source_type = CASE
 						WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(health_spo2_snapshots.source_type)
 						THEN EXCLUDED.source_type
 						ELSE health_spo2_snapshots.source_type
 					END
-	`, s.UserID, s.MeasuredAtUTC, s.SpO2Pct, s.SourceType, s.ExtraData)
+	`, s.UserID, s.MeasuredAtUTC, s.SpO2Pct, s.SourceType, s.ExtraData, s.Confidence)
 	return err
 }
 
 func (db *DB) GetHealthSpO2(ctx context.Context, userID, from, to string) ([]model.HealthSpO2Snapshot, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT user_id, measured_at_utc, spo2_pct, source_type, extra_data, created_at
+		SELECT user_id, measured_at_utc, spo2_pct, source_type, extra_data, confidence, created_at
 		FROM health_spo2_snapshots
 		WHERE user_id = $1 AND measured_at_utc BETWEEN $2::timestamptz AND $3::timestamptz
 		ORDER BY measured_at_utc ASC
@@ -722,7 +723,7 @@ func (db *DB) GetHealthSpO2(ctx context.Context, userID, from, to string) ([]mod
 	var results []model.HealthSpO2Snapshot
 	for rows.Next() {
 		var s model.HealthSpO2Snapshot
-		if err := rows.Scan(&s.UserID, &s.MeasuredAtUTC, &s.SpO2Pct, &s.SourceType, &s.ExtraData, &s.CreatedAt); err != nil {
+		if err := rows.Scan(&s.UserID, &s.MeasuredAtUTC, &s.SpO2Pct, &s.SourceType, &s.ExtraData, &s.Confidence, &s.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan health spo2: %w", err)
 		}
 		results = append(results, s)
@@ -732,14 +733,14 @@ func (db *DB) GetHealthSpO2(ctx context.Context, userID, from, to string) ([]mod
 
 func (db *DB) GetLatestHealthSpO2(ctx context.Context, userID string) (*model.HealthSpO2Snapshot, error) {
 	row := db.Pool.QueryRow(ctx, `
-		SELECT user_id, measured_at_utc, spo2_pct, source_type, extra_data, created_at
+		SELECT user_id, measured_at_utc, spo2_pct, source_type, extra_data, confidence, created_at
 		FROM health_spo2_snapshots
 		WHERE user_id = $1
 		ORDER BY measured_at_utc DESC
 		LIMIT 1
 	`, userID)
 	var s model.HealthSpO2Snapshot
-	err := row.Scan(&s.UserID, &s.MeasuredAtUTC, &s.SpO2Pct, &s.SourceType, &s.ExtraData, &s.CreatedAt)
+	err := row.Scan(&s.UserID, &s.MeasuredAtUTC, &s.SpO2Pct, &s.SourceType, &s.ExtraData, &s.Confidence, &s.CreatedAt)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
