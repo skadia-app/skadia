@@ -68,33 +68,28 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 	hashStr := hex.EncodeToString(hashArr[:])
 	tracker.SetFileHash(ctx, hashStr)
 
-	// 6. FIT file type routing — monitoring FITs go to health tables, not activity import
+	// 6. FIT file type routing — non-activity FITs go to health tables, not activity import
 	if format == "fit" {
 		ftype := garmin.ReadFITFileType(decompressed)
-		if ftype == 68 || ftype == 44 {
-			// Monitoring FIT — no S3 upload, parse directly to health tables
-			monErr := garmin.ProcessMonitoringFIT(ctx, h.DB, h.ShadowFS, decompressed, userID)
-			if monErr != nil {
-				tracker.Error(ctx, fmt.Errorf("process monitoring FIT (type %d): %s", ftype, monErr))
-				return monErr
-			}
-			// Update log with monitoring metadata
+		handled, routeErr := garmin.RouteFITByType(ctx, h.DB, h.ShadowFS, decompressed, userID, ftype)
+		if routeErr != nil {
+			tracker.Error(ctx, fmt.Errorf("process FIT type %d: %s", ftype, routeErr))
+			return routeErr
+		}
+		if handled {
 			tracker.Completed(ctx, "")
 			meta, _ := json.Marshal(map[string]any{
 				"fit_file_type": ftype,
-				"data_type":     "monitoring",
+				"data_type":     "non_activity",
 			})
 			tracker.SetMetadata(ctx, meta)
-			// Delete source file
 			if removeErr := os.Remove(filePath); removeErr != nil {
-				slog.Warn("hotfolder: failed to delete monitoring FIT after import", "path", filePath, "error", removeErr)
-			} else {
-				slog.Info("hotfolder: monitoring FIT deleted after import", "path", filePath)
+				slog.Warn("hotfolder: failed to delete FIT after import", "path", filePath, "error", removeErr)
 			}
-			slog.Info("hotfolder: monitoring FIT processed", "type", ftype, "file", filename)
+			slog.Info("hotfolder: non-activity FIT processed", "type", ftype, "file", filename)
 			return nil
 		}
-		// ftype == 4 (activity) or unknown → continue to activity import
+		// handled==false → continue to activity import
 	}
 
 	// 7. Store file via ShadowFS.
