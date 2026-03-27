@@ -14,6 +14,8 @@ export const FILE_TYPE_LABELS: Record<string, string> = {
   report: 'Berichte',
   edit: 'Bearbeitungen',
   chat: 'Chat',
+  thumb: 'Thumbnails',
+  preview: 'Vorschauen',
 }
 
 export interface FileSchema {
