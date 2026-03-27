@@ -30,6 +30,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/migrate"
 	mlpkg "github.com/skadia-app/skadia/services/api/internal/ml"
+	"github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
@@ -175,6 +176,70 @@ func main() {
 
 		if err := shadowfs.RunRepairRegistry(ctx, db.Pool, localBE, s3BE, store.BucketFor); err != nil {
 			fmt.Fprintf(os.Stderr, "repair-registry: FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	// ── build-coverage subcommand ─────────────────────────────────────────────
+	// Usage: api build-coverage [--layer=noise] [--region=austria] [--tile=47,8] [--workers=4]
+	if len(os.Args) > 1 && os.Args[1] == "build-coverage" {
+		fs := flag.NewFlagSet("build-coverage", flag.ExitOnError)
+		layer := fs.String("layer", "", "Build only this layer")
+		tile := fs.String("tile", "", "Build only this tile (lat,lon)")
+		region := fs.String("region", "", "Region name (e.g. austria, germany, switzerland)")
+		workers := fs.Int("workers", 4, "Parallel workers")
+		if err := fs.Parse(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "build-coverage: flag parse error: %v\n", err)
+			os.Exit(1)
+		}
+
+		cfg, err := config.Load()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "build-coverage: config load failed: %v\n", err)
+			os.Exit(1)
+		}
+		ctx := context.Background()
+		db, err := database.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "build-coverage: database connect failed: %v\n", err)
+			os.Exit(1)
+		}
+		defer db.Close()
+		if err := migrate.Run(ctx, db.Pool); err != nil {
+			fmt.Fprintf(os.Stderr, "build-coverage: migrations failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		opts := coverage.BuildCoverageOptions{
+			BaseDir: filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "coverage"),
+			Layer:   *layer,
+			Region:  *region,
+			Workers: *workers,
+		}
+		if *region != "" {
+			reg, ok := osm.RegionByID(*region)
+			if !ok {
+				fmt.Fprintf(os.Stderr, "build-coverage: unknown region %q (use region name, e.g. austria, germany, switzerland)\n", *region)
+				os.Exit(1)
+			}
+			opts.RegionBBox = [4]float64{reg.MinLat, reg.MinLon, reg.MaxLat, reg.MaxLon}
+		}
+		if *tile != "" {
+			var lat, lon int
+			if _, err := fmt.Sscanf(*tile, "%d,%d", &lat, &lon); err != nil {
+				fmt.Fprintf(os.Stderr, "build-coverage: invalid --tile format, expected lat,lon: %v\n", err)
+				os.Exit(1)
+			}
+			opts.TileLat = lat
+			opts.TileLon = lon
+			opts.SingleTile = true
+		}
+
+		if err := coverage.RunBuildCoverage(ctx, db.Pool, opts, func(current, total int64) {
+			slog.Info("progress", "current", current, "total", total)
+		}); err != nil {
+			slog.Error("build-coverage failed", "error", err)
 			os.Exit(1)
 		}
 		os.Exit(0)
