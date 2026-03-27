@@ -21,9 +21,11 @@ import (
 //	Geburtsdatum, Gewicht, Funktionale Schwellenleistung, Maximale Herzfrequenz, ...
 type ProfileImporter struct{}
 
-func (p *ProfileImporter) Name() string        { return "profile" }
-func (p *ProfileImporter) Description() string { return "Nutzerprofil (Geburtstag, Gewicht, FTP, max. HR)" }
-func (p *ProfileImporter) Priority() int       { return 10 }
+func (p *ProfileImporter) Name() string { return "profile" }
+func (p *ProfileImporter) Description() string {
+	return "Nutzerprofil (Geburtstag, Gewicht, FTP, max. HR)"
+}
+func (p *ProfileImporter) Priority() int { return 10 }
 
 func (p *ProfileImporter) Detect(src ExportSource) (bool, int, error) {
 	if src.Exists("profile.csv") {

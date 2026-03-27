@@ -4,19 +4,19 @@ import "testing"
 
 func TestPruneWCCRemovesIsland(t *testing.T) {
 	g := &Graph{
-		NodeCount: 6,
-		EdgeCount: 8,
-		Offsets:   []uint32{0, 2, 4, 6, 8, 8, 8},
-		Targets:   []uint32{1, 2, 0, 3, 0, 3, 1, 2},
-		NodeLat:   []int32{470000000, 470010000, 470020000, 470030000, 480000000, 480010000},
-		NodeLon:   []int32{110000000, 110000000, 110000000, 110000000, 120000000, 120000000},
-		NodeEle:   []int32{5000, 5100, 5200, 5300, 1000, 1100},
-		NodeTags:  []uint8{0, 0, 0, 0, 0, 0},
-		EdgeDist:  []uint32{100, 100, 100, 100, 100, 100, 100, 100},
-		EdgeTags1: make([]uint64, 8),
-		EdgeTags2: make([]uint64, 8),
+		NodeCount:  6,
+		EdgeCount:  8,
+		Offsets:    []uint32{0, 2, 4, 6, 8, 8, 8},
+		Targets:    []uint32{1, 2, 0, 3, 0, 3, 1, 2},
+		NodeLat:    []int32{470000000, 470010000, 470020000, 470030000, 480000000, 480010000},
+		NodeLon:    []int32{110000000, 110000000, 110000000, 110000000, 120000000, 120000000},
+		NodeEle:    []int32{5000, 5100, 5200, 5300, 1000, 1100},
+		NodeTags:   []uint8{0, 0, 0, 0, 0, 0},
+		EdgeDist:   []uint32{100, 100, 100, 100, 100, 100, 100, 100},
+		EdgeTags1:  make([]uint64, 8),
+		EdgeTags2:  make([]uint64, 8),
 		EdgeOSMIdx: []uint32{0, 0, 0, 0, 0, 0, 0, 0},
-		OSMIDPool: []int64{100},
+		OSMIDPool:  []int64{100},
 	}
 	g.Offsets = []uint32{0, 2, 4, 6, 8, 9, 10}
 	g.Targets = []uint32{1, 2, 0, 3, 0, 3, 1, 2, 5, 4}
@@ -43,19 +43,19 @@ func TestPruneWCCRemovesIsland(t *testing.T) {
 
 func TestPruneWCCKeepsLargeComponents(t *testing.T) {
 	g := &Graph{
-		NodeCount: 5,
-		EdgeCount: 8,
-		Offsets:   []uint32{0, 2, 4, 6, 7, 8},
-		Targets:   []uint32{1, 4, 0, 2, 1, 3, 2, 0},
-		NodeLat:   []int32{470000000, 470010000, 470020000, 470030000, 470040000},
-		NodeLon:   []int32{110000000, 110000000, 110000000, 110000000, 110000000},
-		NodeEle:   []int32{5000, 5100, 5200, 5300, 5400},
-		NodeTags:  []uint8{0, 0, 0, 0, 0},
-		EdgeDist:  make([]uint32, 8),
-		EdgeTags1: make([]uint64, 8),
-		EdgeTags2: make([]uint64, 8),
+		NodeCount:  5,
+		EdgeCount:  8,
+		Offsets:    []uint32{0, 2, 4, 6, 7, 8},
+		Targets:    []uint32{1, 4, 0, 2, 1, 3, 2, 0},
+		NodeLat:    []int32{470000000, 470010000, 470020000, 470030000, 470040000},
+		NodeLon:    []int32{110000000, 110000000, 110000000, 110000000, 110000000},
+		NodeEle:    []int32{5000, 5100, 5200, 5300, 5400},
+		NodeTags:   []uint8{0, 0, 0, 0, 0},
+		EdgeDist:   make([]uint32, 8),
+		EdgeTags1:  make([]uint64, 8),
+		EdgeTags2:  make([]uint64, 8),
 		EdgeOSMIdx: make([]uint32, 8),
-		OSMIDPool: []int64{100},
+		OSMIDPool:  []int64{100},
 	}
 
 	pruned := PruneWCC(g, 100)
@@ -67,19 +67,19 @@ func TestPruneWCCKeepsLargeComponents(t *testing.T) {
 
 func TestPruneWCCOnewayConnectivity(t *testing.T) {
 	g := &Graph{
-		NodeCount: 3,
-		EdgeCount: 2,
-		Offsets:   []uint32{0, 1, 2, 2},
-		Targets:   []uint32{1, 2},
-		NodeLat:   []int32{470000000, 470010000, 470020000},
-		NodeLon:   []int32{110000000, 110000000, 110000000},
-		NodeEle:   []int32{5000, 5100, 5200},
-		NodeTags:  []uint8{0, 0, 0},
-		EdgeDist:  []uint32{100, 100},
-		EdgeTags1: make([]uint64, 2),
-		EdgeTags2: make([]uint64, 2),
+		NodeCount:  3,
+		EdgeCount:  2,
+		Offsets:    []uint32{0, 1, 2, 2},
+		Targets:    []uint32{1, 2},
+		NodeLat:    []int32{470000000, 470010000, 470020000},
+		NodeLon:    []int32{110000000, 110000000, 110000000},
+		NodeEle:    []int32{5000, 5100, 5200},
+		NodeTags:   []uint8{0, 0, 0},
+		EdgeDist:   []uint32{100, 100},
+		EdgeTags1:  make([]uint64, 2),
+		EdgeTags2:  make([]uint64, 2),
 		EdgeOSMIdx: []uint32{0, 0},
-		OSMIDPool: []int64{100},
+		OSMIDPool:  []int64{100},
 	}
 
 	pruned := PruneWCC(g, 2)

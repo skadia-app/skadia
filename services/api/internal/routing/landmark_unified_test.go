@@ -14,10 +14,10 @@ func TestLandmarkDijkstraUnified_SmallGraph(t *testing.T) {
 	// Cost 1→2 = 200/100 * 1.0 = 2.0
 	// Cost 0→2 = 1.5 + 2.0 = 3.5
 	csr := &graph.UnifiedCSR{
-		NodeCount:   3,
-		EdgeCount:   2,
-		Offsets:     []uint32{0, 1, 2, 2},
-		Edges:       []graph.PrecomputedEdge{
+		NodeCount: 3,
+		EdgeCount: 2,
+		Offsets:   []uint32{0, 1, 2, 2},
+		Edges: []graph.PrecomputedEdge{
 			{Target: 1, Dist: 100, CostFactor: 1.5},
 			{Target: 2, Dist: 200, CostFactor: 1.0},
 		},
@@ -41,10 +41,10 @@ func TestLandmarkDijkstraUnified_SmallGraph(t *testing.T) {
 func TestLandmarkDijkstraUnified_BlockedEdge(t *testing.T) {
 	// 2-node graph with blocked edge (CostFactor >= costBlocked)
 	csr := &graph.UnifiedCSR{
-		NodeCount:   2,
-		EdgeCount:   1,
-		Offsets:     []uint32{0, 1, 1},
-		Edges:       []graph.PrecomputedEdge{
+		NodeCount: 2,
+		EdgeCount: 1,
+		Offsets:   []uint32{0, 1, 1},
+		Edges: []graph.PrecomputedEdge{
 			{Target: 1, Dist: 100, CostFactor: costBlocked},
 		},
 		NodeTileID:  []uint32{0, 0},
@@ -64,10 +64,10 @@ func TestLandmarkDijkstraUnified_BlockedEdge(t *testing.T) {
 func TestLandmarkDijkstraUnified_ShortestPath(t *testing.T) {
 	// Diamond graph: 0→1 (cost 3), 0→2 (cost 1), 2→1 (cost 1) — shortest 0→1 = 2 via node 2
 	csr := &graph.UnifiedCSR{
-		NodeCount:   3,
-		EdgeCount:   3,
-		Offsets:     []uint32{0, 2, 2, 3},
-		Edges:       []graph.PrecomputedEdge{
+		NodeCount: 3,
+		EdgeCount: 3,
+		Offsets:   []uint32{0, 2, 2, 3},
+		Edges: []graph.PrecomputedEdge{
 			{Target: 1, Dist: 300, CostFactor: 1.0}, // 0→1: cost 3
 			{Target: 2, Dist: 100, CostFactor: 1.0}, // 0→2: cost 1
 			{Target: 1, Dist: 100, CostFactor: 1.0}, // 2→1: cost 1
@@ -95,10 +95,10 @@ func TestLandmarkDijkstraUnified_ContextCancellation(t *testing.T) {
 	cancel() // cancel immediately
 
 	csr := &graph.UnifiedCSR{
-		NodeCount:   2,
-		EdgeCount:   1,
-		Offsets:     []uint32{0, 1, 1},
-		Edges:       []graph.PrecomputedEdge{
+		NodeCount: 2,
+		EdgeCount: 1,
+		Offsets:   []uint32{0, 1, 1},
+		Edges: []graph.PrecomputedEdge{
 			{Target: 1, Dist: 100, CostFactor: 1.0},
 		},
 		NodeTileID:  []uint32{0, 0},

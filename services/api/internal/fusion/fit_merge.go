@@ -15,10 +15,10 @@ import (
 
 // FITMergeResult contains the merged FIT file bytes and metadata.
 type FITMergeResult struct {
-	Data          []byte
-	RecordCount   int
-	EarliestTime  time.Time
-	LatestTime    time.Time
+	Data         []byte
+	RecordCount  int
+	EarliestTime time.Time
+	LatestTime   time.Time
 }
 
 // MergeFITFiles merges two FIT files at the binary/protocol level.
@@ -206,11 +206,11 @@ func collectTimestamps(a, b map[time.Time]proto.Message) []time.Time {
 
 // fieldNumMap maps logical field names to FIT field numbers for Record messages.
 var fieldNumMap = map[string][]byte{
-	"hr":          {3},  // heart_rate
-	"power":       {7},  // power
-	"cadence":     {4},  // cadence
-	"temperature": {13}, // temperature
-	"gps":         {0, 1}, // position_lat, position_long
+	"hr":          {3},     // heart_rate
+	"power":       {7},     // power
+	"cadence":     {4},     // cadence
+	"temperature": {13},    // temperature
+	"gps":         {0, 1},  // position_lat, position_long
 	"altitude":    {2, 78}, // altitude, enhanced_altitude
 	"speed":       {6, 73}, // speed, enhanced_speed
 }
@@ -325,16 +325,16 @@ func buildMergedSession(records []proto.Message, allTimes []time.Time, targetMet
 
 	// Aggregate stats from records.
 	var (
-		totalDist    uint32
-		maxHR        uint8
-		sumHR        uint32
-		hrCount      uint32
-		maxPower     uint16
-		sumPower     uint32
-		powerCount   uint32
-		totalAscent  float64
-		prevAlt      float64
-		hasPrevAlt   bool
+		totalDist   uint32
+		maxHR       uint8
+		sumHR       uint32
+		hrCount     uint32
+		maxPower    uint16
+		sumPower    uint32
+		powerCount  uint32
+		totalAscent float64
+		prevAlt     float64
+		hasPrevAlt  bool
 	)
 
 	for _, m := range records {

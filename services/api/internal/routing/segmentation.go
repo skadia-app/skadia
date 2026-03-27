@@ -112,7 +112,7 @@ func FindValleySegments(pass0Path []uint64, reader GraphReader,
 			continue
 		}
 		segments = append(segments, ValleySegment{
-			From:    pass0Path[prevIdx], To: pass0Path[m.idx],
+			From: pass0Path[prevIdx], To: pass0Path[m.idx],
 			FromIdx: prevIdx, ToIdx: m.idx,
 		})
 		prevIdx = m.idx
@@ -120,7 +120,7 @@ func FindValleySegments(pass0Path []uint64, reader GraphReader,
 
 	if prevIdx < n-1 && prevIdx > 0 {
 		segments = append(segments, ValleySegment{
-			From:    pass0Path[prevIdx], To: pass0Path[n-1],
+			From: pass0Path[prevIdx], To: pass0Path[n-1],
 			FromIdx: prevIdx, ToIdx: n - 1,
 		})
 	}

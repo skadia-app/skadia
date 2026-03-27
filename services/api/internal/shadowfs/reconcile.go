@@ -17,7 +17,6 @@ import (
 // ReconcileJob performs consistency checks between the filesystem and the
 // user_files registry. It is designed to be run periodically (daily cron)
 // or triggered manually via the admin API.
-//
 type ReconcileJob struct {
 	pool         *pgxpool.Pool
 	local        StorageBackend      // nil when no local path configured
@@ -32,15 +31,15 @@ type ReconcileJob struct {
 type ReconcileResult struct {
 	OrphanedFiles   int      `json:"orphaned_files"`
 	DanglingRecords int      `json:"dangling_records"`
-	DanglingCleaned int      `json:"dangling_cleaned"`  // S3 records with missing objects
+	DanglingCleaned int      `json:"dangling_cleaned"` // S3 records with missing objects
 	SizeMismatches  int      `json:"size_mismatches"`
 	ArchivedCleaned int      `json:"archived_cleaned"`
 	TempCleaned     int      `json:"temp_cleaned"`
 	DuplicatePaths  int      `json:"duplicate_paths"`
 	PurgingCleaned  int      `json:"purging_cleaned"`
 	RenameFixed     int      `json:"rename_fixed"`
-	OrphanWarnings  int      `json:"orphan_warnings"`                // S3 objects with no registry entry
-	ArchiveWarnings []string `json:"archive_warnings,omitempty"`     // users with >1GB archives
+	OrphanWarnings  int      `json:"orphan_warnings"`            // S3 objects with no registry entry
+	ArchiveWarnings []string `json:"archive_warnings,omitempty"` // users with >1GB archives
 }
 
 // NewReconcileJob creates a new reconciliation job.

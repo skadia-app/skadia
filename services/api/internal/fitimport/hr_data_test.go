@@ -14,9 +14,9 @@ func TestExtractHrData_AllFields(t *testing.T) {
 	hrs := []*mesgdef.Hr{
 		{
 			Timestamp:           now,
-			FractionalTimestamp: 16384,                             // /32768 = 0.5
-			FilteredBpm:        []uint8{120, 121},                 // []int16{120, 121}
-			EventTimestamp:      []uint32{1024000, 1025024},       // /1024 = [1000.0, 1001.0]
+			FractionalTimestamp: 16384,                      // /32768 = 0.5
+			FilteredBpm:         []uint8{120, 121},          // []int16{120, 121}
+			EventTimestamp:      []uint32{1024000, 1025024}, // /1024 = [1000.0, 1001.0]
 		},
 	}
 
@@ -57,8 +57,8 @@ func TestExtractHrData_InvalidFieldsSkipped(t *testing.T) {
 		{
 			Timestamp:           time.Now().UTC(),
 			FractionalTimestamp: basetype.Uint16Invalid, // skip
-			FilteredBpm:        nil,                     // skip
-			EventTimestamp:      nil,                     // skip
+			FilteredBpm:         nil,                    // skip
+			EventTimestamp:      nil,                    // skip
 		},
 	}
 
@@ -82,9 +82,9 @@ func TestExtractHrData_InvalidFieldsSkipped(t *testing.T) {
 func TestExtractHrData_EventTimestampInvalidFiltered(t *testing.T) {
 	hrs := []*mesgdef.Hr{
 		{
-			Timestamp:      time.Now().UTC(),
+			Timestamp:           time.Now().UTC(),
 			FractionalTimestamp: basetype.Uint16Invalid,
-			EventTimestamp: []uint32{1024000, basetype.Uint32Invalid, 2048000},
+			EventTimestamp:      []uint32{1024000, basetype.Uint32Invalid, 2048000},
 		},
 	}
 

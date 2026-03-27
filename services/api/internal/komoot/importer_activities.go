@@ -10,11 +10,11 @@ import (
 	"slices"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
@@ -30,8 +30,8 @@ func (i *ActivitiesImporter) Priority() int       { return 20 }
 // KomootImportParams bundles everything the Komoot importers need.
 type KomootImportParams struct {
 	DB            *database.DB
-	ShadowFS     shadowfs.ShadowFS // nil when not configured
-	ImportService *importer.Service   // centralised duplicate detection + insert
+	ShadowFS      shadowfs.ShadowFS // nil when not configured
+	ImportService *importer.Service // centralised duplicate detection + insert
 	UserID        string
 	BatchID       string  // correlates all import_log entries for one import run
 	TourIDs       []int64 // nil/empty = all tours

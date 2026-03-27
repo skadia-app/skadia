@@ -250,10 +250,18 @@ func healthListHandler[T any](
 	}
 }
 
-func (h *Handler) GetHealthDailySummaries(w http.ResponseWriter, r *http.Request) { healthListHandler(h, h.DB.GetHealthDailySummaries, false, "health daily summaries")(w, r) }
-func (h *Handler) GetHealthSleep(w http.ResponseWriter, r *http.Request)          { healthListHandler(h, h.DB.GetHealthSleep, false, "health sleep")(w, r) }
-func (h *Handler) GetHealthHRV(w http.ResponseWriter, r *http.Request)            { healthListHandler(h, h.DB.GetHealthHRV, true, "health hrv")(w, r) }
-func (h *Handler) GetHealthWeight(w http.ResponseWriter, r *http.Request)         { healthListHandler(h, h.DB.GetHealthWeight, true, "health weight")(w, r) }
+func (h *Handler) GetHealthDailySummaries(w http.ResponseWriter, r *http.Request) {
+	healthListHandler(h, h.DB.GetHealthDailySummaries, false, "health daily summaries")(w, r)
+}
+func (h *Handler) GetHealthSleep(w http.ResponseWriter, r *http.Request) {
+	healthListHandler(h, h.DB.GetHealthSleep, false, "health sleep")(w, r)
+}
+func (h *Handler) GetHealthHRV(w http.ResponseWriter, r *http.Request) {
+	healthListHandler(h, h.DB.GetHealthHRV, true, "health hrv")(w, r)
+}
+func (h *Handler) GetHealthWeight(w http.ResponseWriter, r *http.Request) {
+	healthListHandler(h, h.DB.GetHealthWeight, true, "health weight")(w, r)
+}
 
 // POST /health/weight — manual weight entry creation
 func (h *Handler) CreateHealthWeightEntry(w http.ResponseWriter, r *http.Request) {
@@ -300,12 +308,24 @@ func (h *Handler) CreateHealthWeightEntry(w http.ResponseWriter, r *http.Request
 	httputil.WriteJSON(w, http.StatusCreated, entry)
 }
 
-func (h *Handler) GetHealthReadiness(w http.ResponseWriter, r *http.Request)     { healthListHandler(h, h.DB.GetHealthReadiness, false, "health readiness")(w, r) }
-func (h *Handler) GetHealthTrainingLoad(w http.ResponseWriter, r *http.Request)  { healthListHandler(h, h.DB.GetHealthTrainingLoad, false, "health training load")(w, r) }
-func (h *Handler) GetHealthStress(w http.ResponseWriter, r *http.Request)        { healthListHandler(h, h.DB.GetHealthStress, true, "health stress")(w, r) }
-func (h *Handler) GetHealthSpO2(w http.ResponseWriter, r *http.Request)          { healthListHandler(h, h.DB.GetHealthSpO2, true, "health spo2")(w, r) }
-func (h *Handler) GetHealthBloodPressure(w http.ResponseWriter, r *http.Request) { healthListHandler(h, h.DB.GetHealthBloodPressure, true, "health blood pressure")(w, r) }
-func (h *Handler) GetHealthFitnessAge(w http.ResponseWriter, r *http.Request)    { healthListHandler(h, h.DB.GetHealthFitnessAge, false, "health fitness age")(w, r) }
+func (h *Handler) GetHealthReadiness(w http.ResponseWriter, r *http.Request) {
+	healthListHandler(h, h.DB.GetHealthReadiness, false, "health readiness")(w, r)
+}
+func (h *Handler) GetHealthTrainingLoad(w http.ResponseWriter, r *http.Request) {
+	healthListHandler(h, h.DB.GetHealthTrainingLoad, false, "health training load")(w, r)
+}
+func (h *Handler) GetHealthStress(w http.ResponseWriter, r *http.Request) {
+	healthListHandler(h, h.DB.GetHealthStress, true, "health stress")(w, r)
+}
+func (h *Handler) GetHealthSpO2(w http.ResponseWriter, r *http.Request) {
+	healthListHandler(h, h.DB.GetHealthSpO2, true, "health spo2")(w, r)
+}
+func (h *Handler) GetHealthBloodPressure(w http.ResponseWriter, r *http.Request) {
+	healthListHandler(h, h.DB.GetHealthBloodPressure, true, "health blood pressure")(w, r)
+}
+func (h *Handler) GetHealthFitnessAge(w http.ResponseWriter, r *http.Request) {
+	healthListHandler(h, h.DB.GetHealthFitnessAge, false, "health fitness age")(w, r)
+}
 
 // GET /health/overview
 func (h *Handler) GetHealthOverview(w http.ResponseWriter, r *http.Request) {

@@ -15,9 +15,9 @@ import (
 // komootCDNHosts is the allowlist for photo CDN hostnames.
 // Only URLs with these hosts are downloaded to prevent SSRF.
 var komootCDNHosts = map[string]bool{
-	"images.komoot.de":           true,
-	"cdn.komoot.de":              true,
-	"photos.komoot.de":           true,
+	"images.komoot.de": true,
+	"cdn.komoot.de":    true,
+	"photos.komoot.de": true,
 }
 
 const (

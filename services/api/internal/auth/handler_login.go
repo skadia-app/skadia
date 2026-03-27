@@ -14,9 +14,9 @@ import (
 	"github.com/alexedwards/argon2id"
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
 const maxAuthBodySize = 4096 // 4 KB auth payload limit
@@ -32,7 +32,7 @@ type Handler struct {
 	Config      *config.Config
 	Mailer      *Mailer
 	RL          *middleware.RateLimiter // for per-email rate limiting (body-parsed)
-	ShadowFS   shadowfs.ShadowFS     // unified storage (nil = legacy ShadowFS only)
+	ShadowFS    shadowfs.ShadowFS       // unified storage (nil = legacy ShadowFS only)
 	secret      []byte                  // decoded JWT secret
 	isHTTPS     bool                    // derived from Config.AppURL at init
 	shutdownCtx context.Context         // server lifecycle context for background goroutines

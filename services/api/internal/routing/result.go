@@ -126,4 +126,3 @@ func mergeLegs(legs []*RouteResult) *RouteResult {
 	}
 	return result
 }
-

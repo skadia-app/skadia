@@ -161,8 +161,8 @@ func TestFillGaps_MonotonicityWhenGPSOvershootsReal(t *testing.T) {
 	points := []model.StreamPoint{
 		{Time: base, DistanceM: fptr(500), Lat: fptr(48.35), Lng: fptr(10.90)},
 		// Gap with GPS (nil distance) — large Haversine jump
-		{Time: base.Add(10 * time.Second), Lat: fptr(48.36), Lng: fptr(10.91)},  // ~1.3km away
-		{Time: base.Add(20 * time.Second), Lat: fptr(48.37), Lng: fptr(10.92)},  // another ~1.3km
+		{Time: base.Add(10 * time.Second), Lat: fptr(48.36), Lng: fptr(10.91)}, // ~1.3km away
+		{Time: base.Add(20 * time.Second), Lat: fptr(48.37), Lng: fptr(10.92)}, // another ~1.3km
 		// Real value that is LESS than cumDist (fixDistanceResets output)
 		{Time: base.Add(30 * time.Second), DistanceM: fptr(500.1), Lat: fptr(48.38), Lng: fptr(10.93)},
 		{Time: base.Add(40 * time.Second), DistanceM: fptr(800), Lat: fptr(48.39), Lng: fptr(10.94)},
@@ -194,8 +194,8 @@ func TestFillGaps_MonotonicityWhenGPSOvershootsReal(t *testing.T) {
 func TestFillGaps_FirstPointNilThenReal(t *testing.T) {
 	base := time.Now()
 	points := []model.StreamPoint{
-		{Time: base, Lat: fptr(48.35), Lng: fptr(10.90)},                                                  // nil dist
-		{Time: base.Add(10 * time.Second), Lat: fptr(48.3501), Lng: fptr(10.9001)},                        // nil dist
+		{Time: base, Lat: fptr(48.35), Lng: fptr(10.90)},                                                 // nil dist
+		{Time: base.Add(10 * time.Second), Lat: fptr(48.3501), Lng: fptr(10.9001)},                       // nil dist
 		{Time: base.Add(20 * time.Second), DistanceM: fptr(500), Lat: fptr(48.3502), Lng: fptr(10.9002)}, // real
 	}
 
@@ -393,4 +393,3 @@ func TestCalcRecordingTime_TooFew(t *testing.T) {
 		t.Errorf("want 0, got %d", got)
 	}
 }
-

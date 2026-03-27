@@ -31,8 +31,9 @@ const forecastModelWindow = 120 * 24 * time.Hour
 // given location and date, prioritising highest spatial resolution.
 //
 // Within the ~120-day rolling window of historical-forecast-api:
-//   ICON D2 (~2 km, D/A/CH) > AROME France HD (~1.5 km, France) >
-//   ICON EU (~7 km, Europe) > IFS HRES (~9 km, global)
+//
+//	ICON D2 (~2 km, D/A/CH) > AROME France HD (~1.5 km, France) >
+//	ICON EU (~7 km, Europe) > IFS HRES (~9 km, global)
 //
 // Beyond that window all forecast models return HTTP 500. ERA5-Land
 // (archive-api, ~11 km) is the only reliable option and covers data back to 1940.

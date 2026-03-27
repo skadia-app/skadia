@@ -21,12 +21,12 @@ type FileCallback func(filePath string) error
 
 // Watcher monitors a hotfolder directory for new files.
 type Watcher struct {
-	dir      string
-	callback FileCallback
-	watcher  *fsnotify.Watcher
-	debounce time.Duration
-	stopCh   chan struct{}
-	wg       sync.WaitGroup
+	dir       string
+	callback  FileCallback
+	watcher   *fsnotify.Watcher
+	debounce  time.Duration
+	stopCh    chan struct{}
+	wg        sync.WaitGroup
 	processWg sync.WaitGroup // tracks in-flight processFile goroutines
 }
 

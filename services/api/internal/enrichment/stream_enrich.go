@@ -154,4 +154,3 @@ func RunStreamEnrichment(ctx context.Context, db *database.DB, userID, activityI
 
 	return nil
 }
-

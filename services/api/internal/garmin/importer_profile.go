@@ -13,9 +13,11 @@ import (
 //   - DI-Connect-Wellness/112424438_userBioMetricProfileData.json — height, weight, FTP, LTHR, VO2Max
 type ProfileImporter struct{}
 
-func (p *ProfileImporter) Name() string        { return "profile" }
-func (p *ProfileImporter) Description() string { return "Nutzerprofil (Geburtstag, Größe, Gewicht, FTP)" }
-func (p *ProfileImporter) Priority() int       { return 10 }
+func (p *ProfileImporter) Name() string { return "profile" }
+func (p *ProfileImporter) Description() string {
+	return "Nutzerprofil (Geburtstag, Größe, Gewicht, FTP)"
+}
+func (p *ProfileImporter) Priority() int { return 10 }
 
 func (p *ProfileImporter) Detect(src ExportSource) (bool, int, error) {
 	if src.Exists("DI_CONNECT/DI-Connect-User/user_profile.json") {

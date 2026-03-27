@@ -15,7 +15,7 @@ type ProfileConfig struct {
 	// Elevation
 	UphillCost        *float32 `json:"uphill_cost,omitempty"`
 	DownhillCost      *float32 `json:"downhill_cost,omitempty"`
-	UphillCutoffPct   *float32 `json:"uphill_cutoff_pct,omitempty"`    // slope % (e.g. 1.5 = 1.5%)
+	UphillCutoffPct   *float32 `json:"uphill_cutoff_pct,omitempty"` // slope % (e.g. 1.5 = 1.5%)
 	DownhillCutoffPct *float32 `json:"downhill_cutoff_pct,omitempty"`
 	ElevPenaltyBuffer *float32 `json:"elev_penalty_buffer_m,omitempty"`
 	ElevMaxBuffer     *float32 `json:"elev_max_buffer_m,omitempty"`
@@ -41,8 +41,8 @@ type ProfileConfig struct {
 
 	// Behavior
 	WetWeather      *bool    `json:"wet_weather,omitempty"`
-	PathPreference  *float32 `json:"path_preference,omitempty"`  // 0-30
-	TurnCost        *float32 `json:"turn_cost,omitempty"`        // 0-150
+	PathPreference  *float32 `json:"path_preference,omitempty"` // 0-30
+	TurnCost        *float32 `json:"turn_cost,omitempty"`       // 0-150
 	InitialCostRoad *float32 `json:"initial_cost_road,omitempty"`
 
 	// A*
@@ -76,9 +76,9 @@ func ptrBool(v bool) *bool     { return &v }
 
 var builtinProfiles = map[string]ProfileConfig{
 	"trekking": {
-		Profile:            "trekking",
-		UphillCost:         ptr32(0),
-		DownhillCost:       ptr32(60),
+		Profile:           "trekking",
+		UphillCost:        ptr32(0),
+		DownhillCost:      ptr32(60),
 		UphillCutoffPct:   ptr32(1.5),
 		DownhillCutoffPct: ptr32(1.5),
 		ElevPenaltyBuffer: ptr32(5),
@@ -438,7 +438,7 @@ func buildEdgeCostClosure(p ProfileConfig) func(tags1, tags2 uint64) EdgeCostFac
 		}
 
 		// --- MTB scale check ---
-		mtbScale := uint8(graph.DecodeField(tags1, 17, 3)) // bits 17-19
+		mtbScale := uint8(graph.DecodeField(tags1, 17, 3))          // bits 17-19
 		if maxMtb > 0 && mtbScale > 0 && int(mtbScale) > maxMtb+1 { // enum is 1-based (0=1, 1=2, ...)
 			return EdgeCostFactors{Flat: costBlocked}
 		}
@@ -1016,24 +1016,24 @@ func surfaceDownhillMod(sf uint8, wet bool) float32 {
 func BuildLandmarkEdgeCostClosure() func(tags1, tags2 uint64) EdgeCostFactors {
 	p := ProfileConfig{
 		Profile:           "hiking",
-		UphillCost:        ptr32(0),  // overridden per LandmarkCostConfig
-		DownhillCost:      ptr32(0),  // overridden per LandmarkCostConfig
+		UphillCost:        ptr32(0), // overridden per LandmarkCostConfig
+		DownhillCost:      ptr32(0), // overridden per LandmarkCostConfig
 		UphillCutoffPct:   ptr32(3),
 		DownhillCutoffPct: ptr32(3),
 		ElevPenaltyBuffer: ptr32(5),
 		ElevMaxBuffer:     ptr32(10),
 		ElevBufferReduce:  ptr32(0.01),
-		MaxSacScale:       ptrInt(6),        // allow everything
-		SacPreferred:      ptrInt(0),        // no preference penalty
-		MaxMtbScale:       ptrInt(5),        // allow everything
-		MaxViaFerrata:     ptrInt(6),        // allow everything
+		MaxSacScale:       ptrInt(6), // allow everything
+		SacPreferred:      ptrInt(0), // no preference penalty
+		MaxMtbScale:       ptrInt(5), // allow everything
+		MaxViaFerrata:     ptrInt(6), // allow everything
 		AllowSteps:        ptrBool(true),
 		AllowFerries:      ptrBool(true),
 		// ALL enrichment weights = 0 (lower bound guarantee)
-		ForestBonus:    ptr32(0),
-		NoisePenalty:   ptr32(0),
-		TrafficPenalty: ptr32(0),
-		ProtectedBonus: ptr32(0),
+		ForestBonus:     ptr32(0),
+		NoisePenalty:    ptr32(0),
+		TrafficPenalty:  ptr32(0),
+		ProtectedBonus:  ptr32(0),
 		CyclerouteBoost: ptr32(0),
 		HikerouteBoost:  ptr32(0),
 		WetWeather:      ptrBool(false),

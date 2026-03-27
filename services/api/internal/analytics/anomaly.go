@@ -10,10 +10,10 @@ import (
 )
 
 const (
-	anomaliesCacheKey  = "anomalies"
-	minDataPoints      = 14
-	windowDays         = 30
-	zscoreThreshold    = 2.0 // absolute value; anomaly when |z| >= 2
+	anomaliesCacheKey = "anomalies"
+	minDataPoints     = 14
+	windowDays        = 30
+	zscoreThreshold   = 2.0 // absolute value; anomaly when |z| >= 2
 )
 
 // AnomalyDetail holds per-metric detail for a single anomaly day.

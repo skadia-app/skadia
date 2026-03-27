@@ -171,12 +171,12 @@ func (h *Handler) AdminDeactivateUser(w http.ResponseWriter, r *http.Request) {
 
 // adminSessionEntry is the JSON response shape for admin session listings.
 type adminSessionEntry struct {
-	FamilyID  string     `json:"family_id"`
-	UserAgent *string    `json:"user_agent,omitempty"`
-	IPAddress *string    `json:"ip_address,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
-	ExpiresAt time.Time  `json:"expires_at"`
-	Revoked   bool       `json:"revoked"`
+	FamilyID  string    `json:"family_id"`
+	UserAgent *string   `json:"user_agent,omitempty"`
+	IPAddress *string   `json:"ip_address,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Revoked   bool      `json:"revoked"`
 }
 
 // AdminListUserSessions handles GET /admin/users/{id}/sessions.

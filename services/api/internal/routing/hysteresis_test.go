@@ -115,7 +115,7 @@ func TestHysteresis_ProfileUpDownUp(t *testing.T) {
 
 	// Compare with single-delta (wrong) calculation
 	singleDelta := int32((800 - 0) * 100) // 80m in mm
-	singleDist := int32(2_000_000)         // 2km in mm
+	singleDist := int32(2_000_000)        // 2km in mm
 	singleHR := propagateHysteresis(PathState{}, singleDelta, singleDist, cfg)
 
 	if hr.ElevCost <= singleHR.ElevCost {

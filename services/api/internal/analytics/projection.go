@@ -16,11 +16,11 @@ const (
 
 // ProjectionResult holds the 28-day CTL extrapolation output.
 type ProjectionResult struct {
-	Slope            *float64 `json:"slope"`
-	CurrentCTL       *float64 `json:"current_ctl"`
-	ProjectedCTL28d  *float64 `json:"projected_ctl_28d"`
-	Trend            *string  `json:"trend"`
-	DataPoints       int      `json:"data_points"`
+	Slope           *float64 `json:"slope"`
+	CurrentCTL      *float64 `json:"current_ctl"`
+	ProjectedCTL28d *float64 `json:"projected_ctl_28d"`
+	Trend           *string  `json:"trend"`
+	DataPoints      int      `json:"data_points"`
 }
 
 // ComputeProjection extrapoliert den 28-Tage-CTL-Trend via linearer Regression

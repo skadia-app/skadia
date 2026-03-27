@@ -28,15 +28,15 @@ type ToursResponse struct {
 type Tour struct {
 	ID            int64     `json:"id"`
 	Name          string    `json:"name"`
-	Type          string    `json:"type"`          // "tour_recorded" | "tour_planned"
-	Sport         string    `json:"sport"`          // "hike", "mtb", "jogging", etc.
+	Type          string    `json:"type"`  // "tour_recorded" | "tour_planned"
+	Sport         string    `json:"sport"` // "hike", "mtb", "jogging", etc.
 	Date          time.Time `json:"date"`
-	Distance      float64   `json:"distance"`      // meters
-	Duration      int64     `json:"duration"`      // seconds
+	Distance      float64   `json:"distance"` // meters
+	Duration      int64     `json:"duration"` // seconds
 	ElevationUp   float64   `json:"elevation_up"`
 	ElevationDown float64   `json:"elevation_down"`
 	TimeInMotion  float64   `json:"time_in_motion"`
-	Status        string    `json:"status"`         // "public" | "private"
+	Status        string    `json:"status"` // "public" | "private"
 }
 
 // TourDetailResponse from GET /v007/tours/{id}?_embedded=coordinates,timeline

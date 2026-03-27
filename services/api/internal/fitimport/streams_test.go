@@ -137,7 +137,6 @@ func TestFixDistanceResets_ThreeSegments(t *testing.T) {
 	}
 }
 
-
 // TestExtractStreams_BatterySocScale tests BatterySoc Scale: /2
 func TestExtractStreams_BatterySocScale(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
@@ -227,11 +226,11 @@ func TestExtractStreams_CycleLength16Priority(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	records := []*mesgdef.Record{
 		{
-			Timestamp:      now,
-			CycleLength16:  250,  // /100 = 2.5 m (preferred)
-			CycleLength:    150,  // /100 = 1.5 m (should be ignored)
-			PositionLat:    invalidSint32,
-			PositionLong:   invalidSint32,
+			Timestamp:     now,
+			CycleLength16: 250, // /100 = 2.5 m (preferred)
+			CycleLength:   150, // /100 = 1.5 m (should be ignored)
+			PositionLat:   invalidSint32,
+			PositionLong:  invalidSint32,
 		},
 	}
 
@@ -253,11 +252,11 @@ func TestExtractStreams_CycleLengthFallback(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	records := []*mesgdef.Record{
 		{
-			Timestamp:      now,
-			CycleLength16:  basetype.Uint16Invalid, // invalid → fallback
-			CycleLength:    150,                     // /100 = 1.5 m
-			PositionLat:    invalidSint32,
-			PositionLong:   invalidSint32,
+			Timestamp:     now,
+			CycleLength16: basetype.Uint16Invalid, // invalid → fallback
+			CycleLength:   150,                    // /100 = 1.5 m
+			PositionLat:   invalidSint32,
+			PositionLong:  invalidSint32,
 		},
 	}
 

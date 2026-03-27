@@ -98,4 +98,3 @@ func ReverseGeocodeSimple(ctx context.Context, pool *pgxpool.Pool, lat, lng floa
 	}
 	return geo.City
 }
-

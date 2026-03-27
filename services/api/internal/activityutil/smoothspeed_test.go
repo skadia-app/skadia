@@ -53,8 +53,8 @@ func TestSmoothSpeed_GapBreaksWindow(t *testing.T) {
 	points := []model.StreamPoint{
 		mkSpeedPoint(5, 0),
 		mkSpeedPoint(5, 1),
-		mkSpeedPoint(100, 2),   // spike
-		mkSpeedPoint(5, 362),   // 6 minutes later — gap > 300s
+		mkSpeedPoint(100, 2), // spike
+		mkSpeedPoint(5, 362), // 6 minutes later — gap > 300s
 		mkSpeedPoint(5, 363),
 	}
 	result := SmoothSpeed(points, 2)

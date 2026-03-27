@@ -12,15 +12,15 @@ import (
 )
 
 type Config struct {
-	DatabaseURL      string
-	NatsURL          string
-	GarageEndpoint   string
-	GarageAccessKey  string
-	GarageSecretKey  string
-	GarageBucket     string
-	ListenAddr       string
-	DevAuth     bool
-	FrontendURL string // e.g. "http://localhost:5173"
+	DatabaseURL     string
+	NatsURL         string
+	GarageEndpoint  string
+	GarageAccessKey string
+	GarageSecretKey string
+	GarageBucket    string
+	ListenAddr      string
+	DevAuth         bool
+	FrontendURL     string // e.g. "http://localhost:5173"
 
 	// JWT (HS256) issued by this backend after OIDC login
 	JWTSecret      string
@@ -34,12 +34,12 @@ type Config struct {
 	MaxUploadSize    int64  // Maximum upload size in bytes (default 50 MB)
 
 	// ShadowFS (unified storage)
-	StorageBackend      string // "local" (default) or "s3"
-	LibraryBasePath     string // e.g. /data/library
-	LibraryKeepVersions int    // 0=delete, 1=keep last, -1=keep all
+	StorageBackend        string // "local" (default) or "s3"
+	LibraryBasePath       string // e.g. /data/library
+	LibraryKeepVersions   int    // 0=delete, 1=keep last, -1=keep all
 	LibrarySyncEnabled    bool
 	LibrarySyncAutoImport bool
-	MaxUserStorageBytes   int64  // Safety-valve quota (0=unlimited, default 50GB)
+	MaxUserStorageBytes   int64 // Safety-valve quota (0=unlimited, default 50GB)
 
 	// S3 (generic — works with Garage, AWS, MinIO, etc.)
 	S3Endpoint       string
@@ -89,16 +89,16 @@ type Config struct {
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		DatabaseURL:      os.Getenv("DATABASE_URL"),
-		NatsURL:          getEnvDefault("NATS_URL", "nats://localhost:4222"),
-		GarageEndpoint:   getEnvDefault("GARAGE_ENDPOINT", "http://localhost:3900"),
-		GarageAccessKey:  os.Getenv("GARAGE_ACCESS_KEY"),
-		GarageSecretKey:  os.Getenv("GARAGE_SECRET_KEY"),
-		GarageBucket:     getEnvDefault("GARAGE_BUCKET", "skadia-originals"),
-		ListenAddr:       getEnvDefault("LISTEN_ADDR", ":8080"),
-		DevAuth:     os.Getenv("DEV_AUTH") == "true",
-		FrontendURL: getEnvDefault("FRONTEND_URL", "http://localhost:5173"),
-		JWTSecret:             os.Getenv("JWT_SECRET"),
+		DatabaseURL:     os.Getenv("DATABASE_URL"),
+		NatsURL:         getEnvDefault("NATS_URL", "nats://localhost:4222"),
+		GarageEndpoint:  getEnvDefault("GARAGE_ENDPOINT", "http://localhost:3900"),
+		GarageAccessKey: os.Getenv("GARAGE_ACCESS_KEY"),
+		GarageSecretKey: os.Getenv("GARAGE_SECRET_KEY"),
+		GarageBucket:    getEnvDefault("GARAGE_BUCKET", "skadia-originals"),
+		ListenAddr:      getEnvDefault("LISTEN_ADDR", ":8080"),
+		DevAuth:         os.Getenv("DEV_AUTH") == "true",
+		FrontendURL:     getEnvDefault("FRONTEND_URL", "http://localhost:5173"),
+		JWTSecret:       os.Getenv("JWT_SECRET"),
 
 		ShadowFSBasePath: os.Getenv("SHADOW_FS_BASE_PATH"),
 		HotfolderPath:    os.Getenv("HOTFOLDER_PATH"),
@@ -106,10 +106,10 @@ func Load() (*Config, error) {
 		HotfolderUserID:  os.Getenv("HOTFOLDER_USER_ID"),
 		MaxUploadSize:    parseMaxUploadSize(os.Getenv("MAX_UPLOAD_SIZE"), 52428800),
 
-		StorageBackend:      getEnvDefault("STORAGE_BACKEND", "local"),
-		LibraryBasePath:     getEnvDefault("LIBRARY_BASE_PATH", "/data/library"),
-		LibraryKeepVersions: parseIntDefault(os.Getenv("LIBRARY_KEEP_VERSIONS"), 1),
-		LibrarySyncEnabled:  os.Getenv("LIBRARY_SYNC_ENABLED") == "true",
+		StorageBackend:        getEnvDefault("STORAGE_BACKEND", "local"),
+		LibraryBasePath:       getEnvDefault("LIBRARY_BASE_PATH", "/data/library"),
+		LibraryKeepVersions:   parseIntDefault(os.Getenv("LIBRARY_KEEP_VERSIONS"), 1),
+		LibrarySyncEnabled:    os.Getenv("LIBRARY_SYNC_ENABLED") == "true",
 		LibrarySyncAutoImport: os.Getenv("LIBRARY_SYNC_AUTO_IMPORT") == "true",
 		MaxUserStorageBytes:   parseMaxStorageBytes(os.Getenv("MAX_USER_STORAGE_BYTES"), int64(50)*1024*1024*1024),
 

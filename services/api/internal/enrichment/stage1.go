@@ -528,7 +528,7 @@ func fetchAndInsertWeather(db *database.DB, userID, activityID string, data *mod
 		data.ElapsedTimeS,
 		minElevPtr, maxElevPtr,
 		nil, nil, 0, // summit point not yet known
-		0, 0, 0,     // midpoint GPS not yet known
+		0, 0, 0, // midpoint GPS not yet known
 		nil, nil,
 		model.DefaultWeatherPrefs(),
 	)

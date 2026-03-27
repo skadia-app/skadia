@@ -23,8 +23,8 @@ type CustomMapMarker struct {
 	Description *string   `json:"description"`
 	Lat         float64   `json:"lat"`
 	Lng         float64   `json:"lng"`
-	Color     *string   `json:"color"`
-	CreatedAt time.Time `json:"created_at"`
+	Color       *string   `json:"color"`
+	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
@@ -54,5 +54,5 @@ type UpdateMarkerRequest struct {
 	Description *string  `json:"description"`
 	Lat         *float64 `json:"lat"`
 	Lng         *float64 `json:"lng"`
-	Color *string `json:"color"`
+	Color       *string  `json:"color"`
 }

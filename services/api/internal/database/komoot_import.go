@@ -132,4 +132,3 @@ func (db *DB) DeleteKomootCredentials(ctx context.Context, userID string) error 
 	_, err := db.Pool.Exec(ctx, `DELETE FROM komoot_credentials WHERE user_id = $1`, userID)
 	return err
 }
-

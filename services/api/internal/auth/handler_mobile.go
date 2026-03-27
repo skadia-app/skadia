@@ -146,7 +146,7 @@ func (h *Handler) MobileRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"token":              jwt,
+		"token":             jwt,
 		refreshTokenBodyKey: newToken,
 	})
 }

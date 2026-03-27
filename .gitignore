@@ -1,5 +1,6 @@
 # Environment
 .env
+.superpowers/
 
 # Data / temp (Laufzeitdaten, nicht im Git)
 # data/* statt data/ damit Unterverzeichnisse per !-Ausnahme freigebbar sind

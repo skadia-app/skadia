@@ -186,14 +186,14 @@ func (db *DB) ConsumeAuthCode(ctx context.Context, codeHash string) (uuid.UUID, 
 
 // AuditLogEntry is the JSON response shape for admin audit log listings.
 type AuditLogEntry struct {
-	ID        int64      `json:"id"`
-	UserID    *string    `json:"user_id,omitempty"`
-	Username  *string    `json:"username,omitempty"`
-	EventType string     `json:"event_type"`
-	IPAddress *string    `json:"ip_address,omitempty"`
-	UserAgent *string    `json:"user_agent,omitempty"`
-	Details   any        `json:"details,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID        int64     `json:"id"`
+	UserID    *string   `json:"user_id,omitempty"`
+	Username  *string   `json:"username,omitempty"`
+	EventType string    `json:"event_type"`
+	IPAddress *string   `json:"ip_address,omitempty"`
+	UserAgent *string   `json:"user_agent,omitempty"`
+	Details   any       `json:"details,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // GetAuditLog returns paginated audit log entries with optional filters.

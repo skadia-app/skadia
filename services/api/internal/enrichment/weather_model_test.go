@@ -8,8 +8,8 @@ import (
 )
 
 func TestSelectWeatherModel(t *testing.T) {
-	recent := time.Now().UTC().Add(-7 * 24 * time.Hour)   // 7 days ago — within window
-	old    := time.Now().UTC().Add(-365 * 24 * time.Hour) // 1 year ago — outside window
+	recent := time.Now().UTC().Add(-7 * 24 * time.Hour) // 7 days ago — within window
+	old := time.Now().UTC().Add(-365 * 24 * time.Hour)  // 1 year ago — outside window
 
 	tests := []struct {
 		name            string
@@ -18,16 +18,16 @@ func TestSelectWeatherModel(t *testing.T) {
 		wantModel       string
 		wantEndpointKey string // "archive" or "forecast"
 	}{
-		{"Munich ICON D2",    48.1,  11.6,   recent, "dwd_icon_d2",                 "forecast"},
-		{"Vienna ICON D2",    48.2,  16.4,   recent, "dwd_icon_d2",                 "forecast"},
-		{"Zurich ICON D2",    47.4,   8.5,   recent, "dwd_icon_d2",                 "forecast"},
-		{"Paris AROME",       48.85,  2.35,  recent, "meteofrance_arome_france_hd", "forecast"},
-		{"Amsterdam ICON EU", 52.37,  4.90,  recent, "dwd_icon_eu",                 "forecast"},
-		{"Tokyo IFS",         35.68, 139.69, recent, "ecmwf_ifs_hres",              "forecast"},
-		{"Old Munich",        48.1,  11.6,   old,    "era5_land",                   "archive"},
-		{"Old Paris",         48.85,  2.35,  old,    "era5_land",                   "archive"},
-		{"Old Tokyo",         35.68, 139.69, old,    "era5_land",                   "archive"},
-		{"Very old 2015",     48.1,  11.6,   time.Date(2015, 6, 1, 0, 0, 0, 0, time.UTC), "era5_land", "archive"},
+		{"Munich ICON D2", 48.1, 11.6, recent, "dwd_icon_d2", "forecast"},
+		{"Vienna ICON D2", 48.2, 16.4, recent, "dwd_icon_d2", "forecast"},
+		{"Zurich ICON D2", 47.4, 8.5, recent, "dwd_icon_d2", "forecast"},
+		{"Paris AROME", 48.85, 2.35, recent, "meteofrance_arome_france_hd", "forecast"},
+		{"Amsterdam ICON EU", 52.37, 4.90, recent, "dwd_icon_eu", "forecast"},
+		{"Tokyo IFS", 35.68, 139.69, recent, "ecmwf_ifs_hres", "forecast"},
+		{"Old Munich", 48.1, 11.6, old, "era5_land", "archive"},
+		{"Old Paris", 48.85, 2.35, old, "era5_land", "archive"},
+		{"Old Tokyo", 35.68, 139.69, old, "era5_land", "archive"},
+		{"Very old 2015", 48.1, 11.6, time.Date(2015, 6, 1, 0, 0, 0, 0, time.UTC), "era5_land", "archive"},
 	}
 
 	for _, tt := range tests {
@@ -56,14 +56,14 @@ func TestDetermineWeatherCase(t *testing.T) {
 		prefs          model.WeatherPrefs
 		want           WeatherCase
 	}{
-		{"short flat",       3600,  500, 600,  defaultPrefs, CaseSingle},
-		{"long flat",       18000,  500, 600,  defaultPrefs, CaseLong},
-		{"mountain short",   3600,  500, 1100, defaultPrefs, CaseMountain},
-		{"mountain long",   18000,  900, 2300, defaultPrefs, CaseMountain},
-		{"exactly 500m",     3600,  500, 1000, defaultPrefs, CaseMountain},
-		{"499m delta",       3600,  500,  999, defaultPrefs, CaseSingle},
-		{"exactly 4h",      14400,  500, 600,  defaultPrefs, CaseLong},
-		{"no elevation",     3600,    0,   0,  defaultPrefs, CaseSingle},
+		{"short flat", 3600, 500, 600, defaultPrefs, CaseSingle},
+		{"long flat", 18000, 500, 600, defaultPrefs, CaseLong},
+		{"mountain short", 3600, 500, 1100, defaultPrefs, CaseMountain},
+		{"mountain long", 18000, 900, 2300, defaultPrefs, CaseMountain},
+		{"exactly 500m", 3600, 500, 1000, defaultPrefs, CaseMountain},
+		{"499m delta", 3600, 500, 999, defaultPrefs, CaseSingle},
+		{"exactly 4h", 14400, 500, 600, defaultPrefs, CaseLong},
+		{"no elevation", 3600, 0, 0, defaultPrefs, CaseSingle},
 		{"custom mountain 300m", 3600, 500, 800,
 			model.WeatherPrefs{ReadingMode: "auto", MountainThresholdM: 300, LongDurationS: 7200},
 			CaseMountain},

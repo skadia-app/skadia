@@ -10,11 +10,12 @@ import (
 )
 
 // scanTagZone scans a tag_zone row. Expects columns:
-//   id, tag_id, zone_type,
-//   ST_Y(center), ST_X(center),   -- lat, lng  (NULL for polygon zones)
-//   radius_m,
-//   ST_AsGeoJSON(polygon)          -- NULL for circle zones
-//   created_at, updated_at
+//
+//	id, tag_id, zone_type,
+//	ST_Y(center), ST_X(center),   -- lat, lng  (NULL for polygon zones)
+//	radius_m,
+//	ST_AsGeoJSON(polygon)          -- NULL for circle zones
+//	created_at, updated_at
 func scanTagZone(row interface{ Scan(...any) error }) (*model.TagZone, error) {
 	var z model.TagZone
 	var lat, lng *float64

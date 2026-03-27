@@ -23,9 +23,11 @@ import (
 // Also imports: sleep, HRV snapshots, weight, blood pressure, training readiness, training load.
 type StepsImporter struct{}
 
-func (s *StepsImporter) Name() string        { return "health" }
-func (s *StepsImporter) Description() string { return "Gesundheitsdaten (Schritte, Schlaf, Gewicht, Trainingsstatus)" }
-func (s *StepsImporter) Priority() int       { return 40 }
+func (s *StepsImporter) Name() string { return "health" }
+func (s *StepsImporter) Description() string {
+	return "Gesundheitsdaten (Schritte, Schlaf, Gewicht, Trainingsstatus)"
+}
+func (s *StepsImporter) Priority() int { return 40 }
 
 func (s *StepsImporter) Detect(src ExportSource) (bool, int, error) {
 	files, _ := src.FindFiles("DI_CONNECT/DI-Connect-Aggregator/UDSFile_*.json")
@@ -132,11 +134,11 @@ type garminSleepRecord struct {
 
 // garminWellnessActivity matches *_wellnessActivities.json items (Health Snapshot feature).
 type garminWellnessActivity struct {
-	ActivityName            string `json:"activityName"`
-	WellnessActivityType    string `json:"wellnessActivityType"`
-	StartTimestampGMT       string `json:"startTimestampGMT"`
-	SnapshotTimeOfDayType   string `json:"snapshotTimeOfDayType"`
-	SummaryTypeDataList     []struct {
+	ActivityName          string `json:"activityName"`
+	WellnessActivityType  string `json:"wellnessActivityType"`
+	StartTimestampGMT     string `json:"startTimestampGMT"`
+	SnapshotTimeOfDayType string `json:"snapshotTimeOfDayType"`
+	SummaryTypeDataList   []struct {
 		SummaryType string  `json:"summaryType"`
 		AvgValue    float64 `json:"avgValue"`
 	} `json:"summaryTypeDataList"`
@@ -165,17 +167,17 @@ type garminBloodPressure struct {
 
 // garminTrainingReadiness matches TrainingReadinessDTO_*.json items.
 type garminTrainingReadiness struct {
-	CalendarDate                string   `json:"calendarDate"`
-	Score                       *int     `json:"score"`
-	Level                       *string  `json:"level"`
-	SleepScore                  *int     `json:"sleepScore"`
-	RecoveryTime                *int     `json:"recoveryTime"`
-	AcwrFactorPercent           *float64 `json:"acwrFactorPercent"`
-	StressHistoryFactorPercent  *float64 `json:"stressHistoryFactorPercent"`
-	HRVFactorPercent            *float64 `json:"hrvFactorPercent"`
-	SleepHistoryFactorPercent   *float64 `json:"sleepHistoryFactorPercent"`
-	RecoveryTimeFactorPercent   *float64 `json:"recoveryTimeFactorPercent"`
-	HRVWeeklyAverage            *float64 `json:"hrvWeeklyAverage"`
+	CalendarDate               string   `json:"calendarDate"`
+	Score                      *int     `json:"score"`
+	Level                      *string  `json:"level"`
+	SleepScore                 *int     `json:"sleepScore"`
+	RecoveryTime               *int     `json:"recoveryTime"`
+	AcwrFactorPercent          *float64 `json:"acwrFactorPercent"`
+	StressHistoryFactorPercent *float64 `json:"stressHistoryFactorPercent"`
+	HRVFactorPercent           *float64 `json:"hrvFactorPercent"`
+	SleepHistoryFactorPercent  *float64 `json:"sleepHistoryFactorPercent"`
+	RecoveryTimeFactorPercent  *float64 `json:"recoveryTimeFactorPercent"`
+	HRVWeeklyAverage           *float64 `json:"hrvWeeklyAverage"`
 }
 
 // garminTrainingLoad matches MetricsAcuteTrainingLoad_*.json items.
@@ -224,7 +226,7 @@ func (s *StepsImporter) Import(ctx context.Context, params ImportParams) (*Impor
 			if len(rec.AllDayStress) > 0 && string(rec.AllDayStress) != "null" {
 				var allDayStress struct {
 					AggregatorList []struct {
-						Type              string  `json:"type"`
+						Type               string  `json:"type"`
 						AverageStressLevel float64 `json:"averageStressLevel"`
 					} `json:"aggregatorList"`
 				}
@@ -306,11 +308,11 @@ func (s *StepsImporter) Import(ctx context.Context, params ImportParams) (*Impor
 			var scoreOverall, scoreQuality, scoreDuration, scoreDeep, scoreRem *int
 			if len(rec.SleepScores) > 0 && string(rec.SleepScores) != "null" {
 				var scores struct {
-					OverallScore   *int `json:"overallScore"`
-					QualityScore   *int `json:"qualityScore"`
-					DurationScore  *int `json:"durationScore"`
-					DeepScore      *int `json:"deepScore"`
-					RemScore       *int `json:"remScore"`
+					OverallScore  *int `json:"overallScore"`
+					QualityScore  *int `json:"qualityScore"`
+					DurationScore *int `json:"durationScore"`
+					DeepScore     *int `json:"deepScore"`
+					RemScore      *int `json:"remScore"`
 				}
 				if err := json.Unmarshal(rec.SleepScores, &scores); err == nil {
 					scoreOverall = scores.OverallScore

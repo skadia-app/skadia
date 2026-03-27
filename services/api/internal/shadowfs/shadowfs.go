@@ -26,9 +26,9 @@ type ShadowFS interface {
 // FileEntry is the input for Put().
 type FileEntry struct {
 	UserID      string
-	FileType    string            // "activity", "media", "document", "health", "route", "edit", "chat"
-	ContentType string            // MIME type
-	FileName    string            // Original filename (display)
+	FileType    string // "activity", "media", "document", "health", "route", "edit", "chat"
+	ContentType string // MIME type
+	FileName    string // Original filename (display)
 	SizeBytes   int64
 	FileHash    string            // SHA256
 	ParentType  *string           // "activity", "gear", "gear_component", "route", "tag", "marker"

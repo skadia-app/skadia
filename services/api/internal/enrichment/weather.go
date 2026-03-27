@@ -20,8 +20,8 @@ const weatherParams = "temperature_2m,apparent_temperature,relative_humidity_2m,
 
 // WeatherRequest describes one weather API call.
 type WeatherRequest struct {
-	ReadingType string    // 'single'|'start'|'summit'|'midpoint'
-	Label       *string   // display label, nil for single reading
+	ReadingType string  // 'single'|'start'|'summit'|'midpoint'
+	Label       *string // display label, nil for single reading
 	Lat, Lng    float64
 	ElevationM  float64   // actual elevation for lapse rate; 0 = let API use DEM
 	At          time.Time // timestamp to look up (picks closest hour)
@@ -68,16 +68,16 @@ func fetchSingle(ctx context.Context, client *http.Client, endpoint, modelID str
 	date := req.At.UTC().Format("2006-01-02")
 
 	params := url.Values{}
-	params.Set("latitude",        strconv.FormatFloat(req.Lat, 'f', 4, 64))
-	params.Set("longitude",       strconv.FormatFloat(req.Lng, 'f', 4, 64))
-	params.Set("start_date",      date)
-	params.Set("end_date",        date)
-	params.Set("hourly",          weatherParams)
+	params.Set("latitude", strconv.FormatFloat(req.Lat, 'f', 4, 64))
+	params.Set("longitude", strconv.FormatFloat(req.Lng, 'f', 4, 64))
+	params.Set("start_date", date)
+	params.Set("end_date", date)
+	params.Set("hourly", weatherParams)
 	if endpoint == forecastEndpoint {
 		params.Set("model", modelID)
 	}
 	params.Set("wind_speed_unit", "ms")
-	params.Set("timezone",        "UTC")
+	params.Set("timezone", "UTC")
 	if req.ElevationM > 0 {
 		params.Set("elevation", strconv.FormatFloat(req.ElevationM, 'f', 0, 64))
 	}
@@ -275,9 +275,9 @@ func BuildWeatherRequests(
 		}
 		return []WeatherRequest{{
 			ReadingType: "single",
-			Lat: lat, Lng: lng,
+			Lat:         lat, Lng: lng,
 			ElevationM: elev,
-			At: midTime,
+			At:         midTime,
 		}}
 
 	case CaseMountain:
@@ -292,8 +292,8 @@ func BuildWeatherRequests(
 			sumTime = *summitAt
 		}
 		return []WeatherRequest{
-			{ReadingType: "start",  Label: &label1, Lat: startLat, Lng: startLng, ElevationM: startElevM, At: startedAt},
-			{ReadingType: "summit", Label: &label2, Lat: sumLat,   Lng: sumLng,   ElevationM: sumAlt,     At: sumTime},
+			{ReadingType: "start", Label: &label1, Lat: startLat, Lng: startLng, ElevationM: startElevM, At: startedAt},
+			{ReadingType: "summit", Label: &label2, Lat: sumLat, Lng: sumLng, ElevationM: sumAlt, At: sumTime},
 		}
 
 	case CaseLong:
@@ -309,8 +309,8 @@ func BuildWeatherRequests(
 			midTime = *midAt
 		}
 		return []WeatherRequest{
-			{ReadingType: "start",    Label: &label1, Lat: startLat, Lng: startLng, ElevationM: startElevM, At: startedAt},
-			{ReadingType: "midpoint", Label: &label2, Lat: mLat,     Lng: mLng,     ElevationM: mElev,      At: midTime},
+			{ReadingType: "start", Label: &label1, Lat: startLat, Lng: startLng, ElevationM: startElevM, At: startedAt},
+			{ReadingType: "midpoint", Label: &label2, Lat: mLat, Lng: mLng, ElevationM: mElev, At: midTime},
 		}
 	}
 	return nil

@@ -12,7 +12,6 @@ import (
 // clipVecLiteralRe validates pgvector literal format: '[float,float,...]'
 var clipVecLiteralRe = regexp.MustCompile(`^\[-?[0-9]+(\.[0-9]+)?(e[+-]?[0-9]+)?(,-?[0-9]+(\.[0-9]+)?(e[+-]?[0-9]+)?)*\]$`)
 
-
 func (db *DB) InsertActivityPhoto(ctx context.Context, p model.ActivityPhoto) (model.ActivityPhoto, error) {
 	var out model.ActivityPhoto
 	err := db.Pool.QueryRow(ctx, `
@@ -117,7 +116,6 @@ func (db *DB) DeleteActivityPhoto(ctx context.Context, id, userID string) (fileI
 	).Scan(&fileID)
 	return
 }
-
 
 // ListAllUserPhotos returns all photos for a user (used by recompute-previews job).
 func (db *DB) ListAllUserPhotos(ctx context.Context, userID string) ([]model.ActivityPhoto, error) {
@@ -461,11 +459,11 @@ func (db *DB) UpdateActivityPhotoDimensions(ctx context.Context, photoID string,
 
 // ThumbnailBackfillRow holds data for thumbnail backfill processing.
 type ThumbnailBackfillRow struct {
-	FileID     string // user_files ID of the original media file
-	ParentID   string // photo ID (parent_id in user_files)
-	UserID     string
+	FileID      string // user_files ID of the original media file
+	ParentID    string // photo ID (parent_id in user_files)
+	UserID      string
 	ContentType string
-	FileName   string
+	FileName    string
 }
 
 // PhotosWithoutThumb returns user_files media entries with parent_type='photo'

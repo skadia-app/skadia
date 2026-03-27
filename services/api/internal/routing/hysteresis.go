@@ -171,8 +171,8 @@ func propagateHysteresisProfileCm(parent PathState, elevsDm []int32,
 	var totalUpW, totalDownW, totalDist float32
 
 	for i := range len(elevsDm) - 1 {
-		segDistMilli := int32(segDistsCm[i]) * 10              // cm → mm, inline, no alloc
-		deltaEleMilli := (elevsDm[i+1] - elevsDm[i]) * 100    // dm → mm
+		segDistMilli := int32(segDistsCm[i]) * 10          // cm → mm, inline, no alloc
+		deltaEleMilli := (elevsDm[i+1] - elevsDm[i]) * 100 // dm → mm
 		segDistF := float32(segDistMilli)
 
 		res := propagateHysteresis(state, deltaEleMilli, segDistMilli, cfg)

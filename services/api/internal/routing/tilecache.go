@@ -32,7 +32,7 @@ func estimateGraphBytes(g *graph.Graph) int64 {
 	//   + NodeLat(4n) + NodeLon(4n) + NodeEle(4n) + NodeTags(1n)
 	//   + EdgeGeomOff(4e) + EdgeElevOff(4e)
 	est := (n+1)*4 + e*(4+4+8+8+4+4+4) // 36 bytes/edge + offsets
-	est += n * (4 + 4 + 4 + 1)           // 13 bytes/node
+	est += n * (4 + 4 + 4 + 1)         // 13 bytes/node
 	// SpatialGrid: ~8 bytes/node (cell index + node list overhead)
 	est += n * 8
 	// IsBorder: 1 byte/node when present

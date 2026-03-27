@@ -2,10 +2,10 @@ package routing
 
 // LandmarkCostConfig defines the elevation parameters for one landmark set.
 type LandmarkCostConfig struct {
-	SetID            LandmarkSetID
-	UphillCost       float32
-	DownhillCost     float32
-	UphillCutoffPct  float32 // slope percentage (e.g. 3.0 = 3%)
+	SetID             LandmarkSetID
+	UphillCost        float32
+	DownhillCost      float32
+	UphillCutoffPct   float32 // slope percentage (e.g. 3.0 = 3%)
 	DownhillCutoffPct float32
 	ElevPenaltyBuffer float32 // meters
 	ElevMaxBuffer     float32 // meters
@@ -40,6 +40,3 @@ func BuildLandmarkCostConfig(lcc LandmarkCostConfig, edgeCostFn func(tags1, tags
 	cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCost, cfg.DownhillCost)
 	return cfg
 }
-
-
-

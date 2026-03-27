@@ -87,7 +87,7 @@ func (r *SchemaRenderer) ValidateSchema(fileType, schema string) (warnings []str
 		"sport": strings.Repeat("x", 30), "subCategory": strings.Repeat("x", 30),
 		"city": strings.Repeat("x", 50), "title": strings.Repeat("x", 50),
 		"distance_km": "9999.9", "duration_h": "99-59", "elevation_m": "99999",
-		"country": strings.Repeat("x", 30),
+		"country":  strings.Repeat("x", 30),
 		"category": strings.Repeat("x", 30), "type": strings.Repeat("x", 20),
 		"parent_type": strings.Repeat("x", 20), "parent_name": strings.Repeat("x", 50),
 		"camera": strings.Repeat("x", 30), "width": "9999", "height": "9999",

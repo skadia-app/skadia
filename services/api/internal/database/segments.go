@@ -801,7 +801,6 @@ func (db *DB) GetActivityGPSStream(ctx context.Context, activityID string) ([]GP
 	return points, nil
 }
 
-
 // NOTE: GetSegmentEffortMetrics, GetSegmentEffortMetricsAndElevation, and
 // GetSubTrackElevationGain have been replaced by in-memory computeEffortMetrics
 // in handler/segment_matching.go (eliminates per-candidate DB round-trips).

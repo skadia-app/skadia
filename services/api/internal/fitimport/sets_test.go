@@ -14,11 +14,11 @@ func TestExtractSets_WeightAndRepetitions(t *testing.T) {
 		{
 			Timestamp:         now,
 			StartTime:         now.Add(-30 * time.Second),
-			Duration:          5000,                                                                         // /1000 = 5.0s
-			SetType:           typedef.SetType(0),                                                           // active
-			Repetitions:       10,                                                                           // int32(10)
-			Weight:            1600,                                                                         // /16 = 100.0 kg
-			WeightDisplayUnit: typedef.FitBaseUnitInvalid,                                                   // skip
+			Duration:          5000,                                                                                 // /1000 = 5.0s
+			SetType:           typedef.SetType(0),                                                                   // active
+			Repetitions:       10,                                                                                   // int32(10)
+			Weight:            1600,                                                                                 // /16 = 100.0 kg
+			WeightDisplayUnit: typedef.FitBaseUnitInvalid,                                                           // skip
 			Category:          []typedef.ExerciseCategory{typedef.ExerciseCategory(3), typedef.ExerciseCategory(7)}, // bench_press=3, deadlift=7
 			CategorySubtype:   []uint16{1, 2},
 			MessageIndex:      typedef.MessageIndex(0),

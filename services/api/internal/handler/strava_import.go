@@ -101,7 +101,7 @@ func (h *Handler) StartStravaImport(w http.ResponseWriter, r *http.Request) {
 			Source:        src,
 			UserID:        userID,
 			DB:            h.DB,
-			ShadowFS:     h.ShadowFS,
+			ShadowFS:      h.ShadowFS,
 			ImportService: h.ImportService,
 			JobID:         jobID,
 			OnProgress: func(current, total int, msg string) {
@@ -177,7 +177,7 @@ func (h *Handler) UploadStravaZIP(w http.ResponseWriter, r *http.Request) {
 			Source:        src,
 			UserID:        userID,
 			DB:            h.DB,
-			ShadowFS:     h.ShadowFS,
+			ShadowFS:      h.ShadowFS,
 			ImportService: h.ImportService,
 			JobID:         jobID,
 			OnProgress: func(current, total int, msg string) {
