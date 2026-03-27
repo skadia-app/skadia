@@ -292,7 +292,7 @@ func scanLocal(_ context.Context) ([]entry, error) {
 			return nil
 		}
 
-		_ = meta.SchemaVersion // all versions use the same JSON structure; missing fields default to zero
+		_ = meta.SchemaVersion // all versions share one JSON structure; missing fields stay at Go zero values (false/nil/"")
 
 		// Derive activity file path (strip .meta suffix).
 		activityPath := strings.TrimSuffix(path, ".meta")
@@ -411,7 +411,7 @@ func scanS3(ctx context.Context, client *s3.Client) ([]entry, error) {
 				continue
 			}
 
-			_ = meta.SchemaVersion // all versions use the same JSON structure; missing fields default to zero
+			_ = meta.SchemaVersion // all versions share one JSON structure; missing fields stay at Go zero values (false/nil/"")
 
 			// Derive activity S3 key (strip .meta suffix).
 			activityKey := strings.TrimSuffix(key, ".meta")
