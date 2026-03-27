@@ -30,6 +30,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/migrate"
 	mlpkg "github.com/skadia-app/skadia/services/api/internal/ml"
+	"github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
@@ -175,6 +176,70 @@ func main() {
 
 		if err := shadowfs.RunRepairRegistry(ctx, db.Pool, localBE, s3BE, store.BucketFor); err != nil {
 			fmt.Fprintf(os.Stderr, "repair-registry: FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	// ── build-coverage subcommand ─────────────────────────────────────────────
+	// Usage: api build-coverage [--layer=noise] [--region=austria] [--tile=47,8] [--workers=4]
+	if len(os.Args) > 1 && os.Args[1] == "build-coverage" {
+		fs := flag.NewFlagSet("build-coverage", flag.ExitOnError)
+		layer := fs.String("layer", "", "Build only this layer")
+		tile := fs.String("tile", "", "Build only this tile (lat,lon)")
+		region := fs.String("region", "", "Region name (e.g. austria, germany, switzerland)")
+		workers := fs.Int("workers", 4, "Parallel workers")
+		if err := fs.Parse(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "build-coverage: flag parse error: %v\n", err)
+			os.Exit(1)
+		}
+
+		cfg, err := config.Load()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "build-coverage: config load failed: %v\n", err)
+			os.Exit(1)
+		}
+		ctx := context.Background()
+		db, err := database.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "build-coverage: database connect failed: %v\n", err)
+			os.Exit(1)
+		}
+		defer db.Close()
+		if err := migrate.Run(ctx, db.Pool); err != nil {
+			fmt.Fprintf(os.Stderr, "build-coverage: migrations failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		opts := coverage.BuildCoverageOptions{
+			BaseDir: filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "coverage"),
+			Layer:   *layer,
+			Region:  *region,
+			Workers: *workers,
+		}
+		if *region != "" {
+			reg, ok := osm.RegionByID(*region)
+			if !ok {
+				fmt.Fprintf(os.Stderr, "build-coverage: unknown region %q (use region name, e.g. austria, germany, switzerland)\n", *region)
+				os.Exit(1)
+			}
+			opts.RegionBBox = [4]float64{reg.MinLat, reg.MinLon, reg.MaxLat, reg.MaxLon}
+		}
+		if *tile != "" {
+			var lat, lon int
+			if _, err := fmt.Sscanf(*tile, "%d,%d", &lat, &lon); err != nil {
+				fmt.Fprintf(os.Stderr, "build-coverage: invalid --tile format, expected lat,lon: %v\n", err)
+				os.Exit(1)
+			}
+			opts.TileLat = lat
+			opts.TileLon = lon
+			opts.SingleTile = true
+		}
+
+		if err := coverage.RunBuildCoverage(ctx, db.Pool, opts, func(current, total int64) {
+			slog.Info("progress", "current", current, "total", total)
+		}); err != nil {
+			slog.Error("build-coverage failed", "error", err)
 			os.Exit(1)
 		}
 		os.Exit(0)
@@ -375,8 +440,27 @@ func main() {
 		importSvc.GraphReader = gr
 	}
 
-	// Coverage cache — on-demand tile loading for coverage query endpoint.
-	h.CoverageCache = coverage.NewTileGridCache(db.Pool, coverage.DefaultNoiseSettings())
+	h.CoverageBaseDir = filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "coverage")
+
+	// DiskCoverageReader — mmap-based reader for FCOV coverage binaries
+	coverageDir := filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "coverage")
+	if _, statErr := os.Stat(coverageDir); statErr == nil {
+		diskReader, drErr := coverage.NewDiskCoverageReader(coverageDir, 256)
+		if drErr != nil {
+			slog.Warn("disk coverage reader init failed", "error", drErr)
+		} else {
+			h.CoverageReader = diskReader
+			slog.Info("disk coverage reader initialized", "dir", coverageDir)
+		}
+	}
+	if h.CoverageReader != nil {
+		graphMgr.CoverageReader = h.CoverageReader
+	}
+
+	if h.CoverageReader != nil {
+		ts := h.CoverageReader.BuildTimestamp()
+		h.PNGCache = coverage.NewPNGCache(10_000, ts)
+	}
 
 	// Wire SegmentMatcher callback: runs segment matching + lap detection in
 	// the background goroutine, reusing the existing handler-package functions.
@@ -505,6 +589,8 @@ func main() {
 
 	// Public routes (no authentication required)
 	r.Get("/health", h.Health)
+	r.Get("/api/v1/coverage/info", h.CoverageBuildInfo)
+	r.Get("/api/v1/coverage/tiles/*", h.CoverageTile)
 	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		// Go-native auth endpoints
@@ -630,6 +716,7 @@ func main() {
 				r.Post("/routing/build-brouter-segments", h.BuildBRouterSegments)
 				r.Post("/routing/download-brouter-segments", h.DownloadBRouterSegments)
 				r.Put("/routing/cache-budget", h.SetCacheBudget)
+				r.Post("/build-coverage", h.BuildCoverage)
 
 				// LLM config (system-level)
 				r.Get("/llm-config", h.GetLLMConfig)

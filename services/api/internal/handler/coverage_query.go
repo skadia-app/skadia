@@ -8,14 +8,11 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
-// QueryCoverage samples coverage grid values at a geographic point for one or
-// more layers. Query params: lat, lon, layers (comma-separated).
-// Example: GET /api/v1/coverage/query?lat=47.5&lon=11.2&layers=forest,noise,traffic
 func (h *Handler) QueryCoverage(w http.ResponseWriter, r *http.Request) {
-	if h.CoverageCache == nil {
+	if h.CoverageReader == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable,
-			"Coverage cache not initialized",
-			"coverage cache is not available on this server",
+			"Coverage reader not initialized",
+			"coverage binaries are not available on this server",
 			r.URL.Path)
 		return
 	}
@@ -50,7 +47,7 @@ func (h *Handler) QueryCoverage(w http.ResponseWriter, r *http.Request) {
 		if layer == "" {
 			continue
 		}
-		val, err := h.CoverageCache.SamplePointByLayer(r.Context(), layer, lat, lon)
+		val, err := h.CoverageReader.SamplePointByLayer(r.Context(), layer, lat, lon)
 		if err != nil {
 			result[layer] = -1
 			continue
@@ -59,4 +56,15 @@ func (h *Handler) QueryCoverage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, result)
+}
+
+// CoverageBuildInfo returns the coverage build timestamp for cache-busting.
+func (h *Handler) CoverageBuildInfo(w http.ResponseWriter, r *http.Request) {
+	ts := ""
+	if h.CoverageReader != nil {
+		ts = h.CoverageReader.BuildTimestamp()
+	}
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{
+		"buildTimestamp": ts,
+	})
 }
