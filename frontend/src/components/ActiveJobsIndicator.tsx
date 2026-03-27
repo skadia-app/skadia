@@ -44,6 +44,7 @@ function JobRow({ job }: { job: ActiveJob }) {
     photo_clip_embed:        'Foto-Indexierung',
     photo_embed_backfill:    'Foto-Einbettungen berechnen',
     phash_backfill:          'Foto-Duplikaterkennung berechnen',
+    meta_backfill:           'Meta-Sidecars erstellen',
     elevation_reset:         'Höhenkorrektur zurücksetzen',
     elevation_correction:    'Höhenkorrektur anwenden',
     distance_correction:     'Distanzkorrektur anwenden',

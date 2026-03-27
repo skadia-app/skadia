@@ -381,6 +381,23 @@ function PhotoPreviewSection() {
               <p className="text-xs text-neutral-400 dark:text-neutral-500">{desc}</p>
             </div>
           ))}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={async () => {
+                try {
+                  const res = await apiFetch('/api/v1/admin/storage/backfill-meta', { method: 'POST' }).then(r => r.json())
+                  addToast({ type: 'success', title: 'Meta-Sidecars werden erstellt', message: `${res.queued || 0} Aktivitäten in Warteschlange` })
+                } catch {
+                  addToast({ type: 'error', title: 'Fehler beim Starten', duration: 0 })
+                }
+              }}
+              disabled={isLoading}
+              className="cursor-pointer whitespace-nowrap px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[200px]"
+            >
+              Meta-Sidecars erstellen
+            </button>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">Erstellt .meta Backup-Dateien für alle Aktivitäten (für Restore ohne Datenbank).</p>
+          </div>
         </div>
       )}
     </section>

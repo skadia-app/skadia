@@ -806,12 +806,21 @@ func (u *UnifiedShadowFS) DeleteAllForUser(ctx context.Context, userID string) e
 // Companion file methods (PutCompanion / GetCompanion / DeleteCompanions)
 // ---------------------------------------------------------------------------
 
+// validateCompanionSuffix checks that a companion suffix is safe:
+// must start with ".", must not contain "/" or "..".
+func validateCompanionSuffix(suffix string) error {
+	if !strings.HasPrefix(suffix, ".") || strings.Contains(suffix, "/") || strings.Contains(suffix, "..") {
+		return fmt.Errorf("shadowfs: invalid companion suffix: %q", suffix)
+	}
+	return nil
+}
+
 // PutCompanion writes a companion sidecar (e.g. ".meta" or ".meta.json") next to
 // the main file identified by fileID, using the same backend and bucket.
 // Sets has_sidecar=true on the parent record after a successful write.
 func (u *UnifiedShadowFS) PutCompanion(ctx context.Context, userID, fileID, suffix string, data []byte) error {
-	if !strings.HasPrefix(suffix, ".") || strings.Contains(suffix, "/") || strings.Contains(suffix, "..") {
-		return fmt.Errorf("shadowfs: invalid companion suffix: %q", suffix)
+	if err := validateCompanionSuffix(suffix); err != nil {
+		return err
 	}
 	var backend, storagePath, fileType string
 	err := u.pool.QueryRow(ctx,
@@ -841,8 +850,8 @@ func (u *UnifiedShadowFS) PutCompanion(ctx context.Context, userID, fileID, suff
 
 // GetCompanion reads a companion sidecar identified by suffix next to fileID.
 func (u *UnifiedShadowFS) GetCompanion(ctx context.Context, userID, fileID, suffix string) ([]byte, error) {
-	if !strings.HasPrefix(suffix, ".") || strings.Contains(suffix, "/") || strings.Contains(suffix, "..") {
-		return nil, fmt.Errorf("shadowfs: invalid companion suffix: %q", suffix)
+	if err := validateCompanionSuffix(suffix); err != nil {
+		return nil, err
 	}
 	var backend, storagePath, fileType string
 	err := u.pool.QueryRow(ctx,

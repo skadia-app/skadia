@@ -406,6 +406,8 @@ func (h *Handler) cleanupActivityFiles(ctx context.Context, userID, activityID s
 			slog.Warn("cleanup activity files: shadowfs delete failed", "file_id", actFileID, "error", err)
 		}
 	}
+	// Delete edit sidecars (activity editor .edits.json files, NOT .meta companions).
+	// .meta companions are deleted automatically by Delete() via deleteInlineCompanions().
 	// Edit sidecar file(s): an activity can accumulate multiple edit sidecar versions;
 	// delete all of them. Using Query (not QueryRow) to handle the multi-row case.
 	if h.ShadowFS != nil {
