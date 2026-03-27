@@ -922,6 +922,8 @@ func main() {
 				r.Get("/blood-pressure", h.GetHealthBloodPressure)
 				r.Get("/fitness-age", h.GetHealthFitnessAge)
 				r.Get("/overview", h.GetHealthOverview)
+				r.Get("/monitoring", h.GetHealthMonitoring)
+				r.Get("/monitoring/daily", h.GetHealthMonitoringDaily)
 			})
 
 			// Import from external URL (skadia:// deep-link handler)
