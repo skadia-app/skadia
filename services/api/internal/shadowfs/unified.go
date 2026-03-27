@@ -444,24 +444,12 @@ func (u *UnifiedShadowFS) Delete(ctx context.Context, userID, fileID string) err
 }
 
 // deleteInlineCompanions removes companion sidecars for the given file.
-// Uses file-type-specific path conventions:
-//   - activity: path.fit → path.fit.meta  (suffix append)
-//   - media:    photo.jpg → photo.meta.json (extension strip, then .meta.json)
-//
 // NOTE: If PutCompanion runs concurrently with Delete on the same file,
 // the companion may become orphaned. This is acceptable — the reconciler
 // handles orphaned files. The window is extremely small in practice.
 func deleteInlineCompanions(ctx context.Context, be StorageBackend, storagePath, fileType string, opts *BackendOpts) {
-	switch fileType {
-	case "activity":
-		_ = be.Delete(ctx, storagePath+".meta", opts)
-	case "media":
-		ext := filepath.Ext(storagePath)
-		stem := strings.TrimSuffix(storagePath, ext)
-		_ = be.Delete(ctx, stem+".meta.json", opts)
-	default:
-		slog.Debug("deleteInlineCompanions: unknown file type, no companion cleanup", "file_type", fileType)
-	}
+	// All file types use unified .meta suffix.
+	_ = be.Delete(ctx, storagePath+".meta", opts)
 }
 
 // Resolve returns metadata for serving a file (local path or S3 presigned URL).
@@ -706,7 +694,7 @@ func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zi
 		}
 
 		// Include .meta companion in export (backup/restore without DB).
-		if rec.FileType == "activity" && rec.HasSidecar {
+		if (rec.FileType == "activity" || rec.FileType == "media") && rec.HasSidecar {
 			companionPath := rec.StoragePath + ".meta"
 			crc, cErr := be.Read(ctx, companionPath, u.bucketOpts(rec.FileType))
 			if cErr == nil {

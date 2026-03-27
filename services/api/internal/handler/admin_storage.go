@@ -5,6 +5,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
@@ -371,9 +373,11 @@ func (h *Handler) BackfillThumbnails(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// BackfillMetaSidecars generates missing .meta v3 companions for all activity
-// files that don't have one yet (has_sidecar=false). Runs as a background job
-// with 4 concurrent workers.
+// BackfillMetaSidecars generates missing .meta companions for:
+//   - Phase 1: activity files that don't have a sidecar yet (has_sidecar=false)
+//   - Phase 2: photo files with manually assigned locations (has_sidecar=false)
+//
+// Runs as a background job with 4 concurrent workers.
 //
 // POST /api/v1/admin/storage/backfill-meta
 func (h *Handler) BackfillMetaSidecars(w http.ResponseWriter, r *http.Request) {
@@ -398,6 +402,8 @@ func (h *Handler) BackfillMetaSidecars(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
 		return
 	}
+
+	// ── Phase 1: activity files missing companions ─────────────────────────
 
 	type backfillRow struct {
 		FileID     string
@@ -432,12 +438,52 @@ func (h *Handler) BackfillMetaSidecars(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(missing) == 0 {
+	// ── Phase 2: photo files with manual locations missing companions ───────
+
+	type photoBackfillRow struct {
+		FileID         string
+		UserID         string
+		Lat            float64
+		Lng            float64
+		TakenAt        *time.Time
+		LocationSource string
+	}
+
+	photoRows, err := h.DB.Pool.Query(r.Context(), `
+		SELECT uf.id AS file_id, uf.user_id, ap.lat, ap.lng, ap.taken_at, ap.location_source
+		FROM activity_photos ap
+		JOIN user_files uf ON uf.id = ap.file_id
+		WHERE ap.lat IS NOT NULL
+		  AND ap.location_source = 'manual'
+		  AND uf.has_sidecar = false
+		  AND uf.status = 'active'`)
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not query photos", r.URL.Path)
+		return
+	}
+	defer photoRows.Close()
+
+	var missingPhotos []photoBackfillRow
+	for photoRows.Next() {
+		var row photoBackfillRow
+		if err := photoRows.Scan(&row.FileID, &row.UserID, &row.Lat, &row.Lng, &row.TakenAt, &row.LocationSource); err != nil {
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "scan photo row failed", r.URL.Path)
+			return
+		}
+		missingPhotos = append(missingPhotos, row)
+	}
+	if err := photoRows.Err(); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "photo query error", r.URL.Path)
+		return
+	}
+
+	total := len(missing) + len(missingPhotos)
+	if total == 0 {
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "processed": 0})
 		return
 	}
 
-	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "meta_backfill", nil, nil, int64(len(missing)))
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "meta_backfill", nil, nil, int64(total))
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not create job", r.URL.Path)
 		return
@@ -454,6 +500,8 @@ func (h *Handler) BackfillMetaSidecars(w http.ResponseWriter, r *http.Request) {
 		var errMsgs []string
 
 		var wg sync.WaitGroup
+
+		// Phase 1: activity companions.
 	outer:
 		for _, row := range missing {
 			wg.Add(1)
@@ -488,12 +536,62 @@ func (h *Handler) BackfillMetaSidecars(w http.ResponseWriter, r *http.Request) {
 			}()
 		}
 		wg.Wait()
+
+		// Phase 2: photo location companions.
+		wg = sync.WaitGroup{}
+	outerPhoto:
+		for _, row := range missingPhotos {
+			wg.Add(1)
+			select {
+			case <-ctx.Done():
+				wg.Done()
+				break outerPhoto
+			case sem <- struct{}{}:
+			}
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				type photoMetaSidecar struct {
+					Lat            float64    `json:"lat"`
+					Lng            float64    `json:"lng"`
+					TakenAt        *time.Time `json:"taken_at,omitempty"`
+					LocationSource string     `json:"location_source"`
+					UpdatedAt      time.Time  `json:"updated_at"`
+				}
+				meta := photoMetaSidecar{
+					Lat:            row.Lat,
+					Lng:            row.Lng,
+					TakenAt:        row.TakenAt,
+					LocationSource: row.LocationSource,
+					UpdatedAt:      time.Now().UTC(),
+				}
+				jsonBytes, marshalErr := json.Marshal(meta)
+				if marshalErr != nil {
+					slog.Warn("meta backfill: photo marshal failed", "file_id", row.FileID, "error", marshalErr)
+					mu.Lock()
+					anyFailed = true
+					mu.Unlock()
+				} else if putErr := fs.PutCompanion(ctx, row.UserID, row.FileID, ".meta", jsonBytes); putErr != nil {
+					slog.Warn("meta backfill: photo PutCompanion failed", "file_id", row.FileID, "error", putErr)
+					mu.Lock()
+					anyFailed = true
+					mu.Unlock()
+				}
+
+				cur := atomic.AddInt64(&processed, 1)
+				_ = db.UpdateBackgroundJobProgress(ctx, jobID, cur)
+			}()
+		}
+		wg.Wait()
+
 		_ = db.CompleteBackgroundJob(ctx, jobID, anyFailed, strings.Join(errMsgs, "; "))
 	})
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
-		"job_id": jobID,
-		"queued": len(missing),
+		"job_id":         jobID,
+		"queued":         total,
+		"queued_activity": len(missing),
+		"queued_photos":  len(missingPhotos),
 	})
 }
-

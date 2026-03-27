@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/api/client'
+import { apiFetch } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
 import { FILE_TYPE_LABELS } from '@/api/shadowfs'
 import {
@@ -51,6 +52,11 @@ const LABELS = {
     reconcileStarted: 'Abgleich gestartet',
     reconcileRunning: 'Abgleich läuft bereits',
     reconcileFailed: 'Abgleich fehlgeschlagen',
+    backfillMeta: 'Backup-Metadaten erstellen',
+    backfillMetaDesc: 'Erstellt .meta Backup-Dateien für alle Aktivitäten und Foto-Positionen (für Restore ohne Datenbank).',
+    backfillMetaStarted: 'Backup-Metadaten werden erstellt',
+    backfillMetaRunning: 'Backfill läuft bereits',
+    backfillMetaFailed: 'Backfill fehlgeschlagen',
     sortBy: 'Sortieren nach',
   },
   loading: 'Lade Speicher-Statistiken...',
@@ -181,7 +187,22 @@ export default function AdminStorageDashboard() {
     },
   })
 
-  const anyJobRunning = reconcileMut.isPending
+  const backfillMetaMut = useMutation<void, Error>({
+    mutationFn: async () => {
+      const res = await apiFetch('/api/v1/admin/storage/backfill-meta', { method: 'POST' })
+      const data = await res.json() as ActionResponse
+      if (data.status === 'already_running') {
+        addToast({ type: 'warning', title: LABELS.actions.backfillMetaRunning })
+        return
+      }
+      addToast({ type: 'success', title: LABELS.actions.backfillMetaStarted, message: `Job: ${data.job_id ?? '—'}` })
+    },
+    onError: (err) => {
+      addToast({ type: 'error', title: LABELS.actions.backfillMetaFailed, message: err.message, duration: 0 })
+    },
+  })
+
+  const anyJobRunning = reconcileMut.isPending || backfillMetaMut.isPending
 
   function toggleSort(col: SortKey) {
     if (sortKey === col) {
@@ -433,6 +454,24 @@ export default function AdminStorageDashboard() {
               className="w-full px-3 py-1.5 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
               {reconcileMut.isPending ? LABELS.pendingLabel : LABELS.actions.reconcile}
+            </button>
+          </div>
+
+          <div className="rounded-lg border border-neutral-100 dark:border-neutral-700 p-4 space-y-3">
+            <div>
+              <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
+                {LABELS.actions.backfillMeta}
+              </p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+                {LABELS.actions.backfillMetaDesc}
+              </p>
+            </div>
+            <button
+              onClick={() => backfillMetaMut.mutate()}
+              disabled={anyJobRunning}
+              className="w-full px-3 py-1.5 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+            >
+              {backfillMetaMut.isPending ? LABELS.pendingLabel : LABELS.actions.backfillMeta}
             </button>
           </div>
 
