@@ -24,6 +24,7 @@ import {
 } from '@/lib/mapHeatmap'
 import { useTheme } from '@/lib/theme'
 import { useAuthImage } from '@/hooks/useAuthImage'
+import { useCoverageOverlays } from '@/hooks/useCoverageOverlays'
 import { useModal } from '@/lib/modal'
 import { getHeatmapSettings } from '@/api/settings'
 import { listCustomMaps, listCustomMapMarkers, createCustomMapMarker, updateCustomMapMarker } from '@/api/customMaps'
@@ -607,6 +608,11 @@ export default function MapPage() {
 
   // Style version counter for re-adding layers after style changes
   const [styleVersion, setStyleVersion] = useState(0)
+
+  const { coverageState, updateComposite, toggleLayer: toggleCoverageLayer } = useCoverageOverlays(
+    mapRef.current,
+    styleVersion,
+  )
 
   const queryClient = useQueryClient()
   const locationSyncTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
@@ -2444,6 +2450,9 @@ export default function MapPage() {
           onSegmentFiltersChange={(f) => setSegmentFilters(f)}
           segmentColors={segmentColors}
           onSegmentColorsChange={(c) => setSegmentColors(c)}
+          coverageState={coverageState}
+          onCoverageUpdate={updateComposite}
+          onCoverageToggleLayer={toggleCoverageLayer}
         />
 
         {/* Drag-to-merge Bestätigungs-Dialog */}

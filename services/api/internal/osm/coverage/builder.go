@@ -42,7 +42,7 @@ func DefaultNoiseSettings() NoiseSettings {
 		Road:       NoiseSourceConfig{true, 500},
 		Rail:       NoiseSourceConfig{true, 300},
 		Air:        NoiseSourceConfig{true, 3000},
-		Wind:       NoiseSourceConfig{true, 800},
+		Wind:       NoiseSourceConfig{true, 200},
 		Shooting:   NoiseSourceConfig{false, 400},
 		Military:   NoiseSourceConfig{true, 500},
 		Industrial: NoiseSourceConfig{true, 200},
