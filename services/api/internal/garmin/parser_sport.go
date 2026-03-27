@@ -194,5 +194,12 @@ func processSportFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 		upsert("speed", names, highs)
 	}
 
+	// If no zone messages were found but ZonesTarget has threshold values, store
+	// them as a standalone "thresholds" record so they are not silently discarded.
+	if len(hrEntries) == 0 && len(powerEntries) == 0 && len(speedEntries) == 0 &&
+		(maxHR != nil || thrHR != nil || ftp != nil) {
+		upsert("thresholds", nil, nil)
+	}
+
 	return nil
 }
