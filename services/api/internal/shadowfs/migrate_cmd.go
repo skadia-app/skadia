@@ -34,6 +34,7 @@ type migrateRecord struct {
 	FileHash       string // may be empty (NULL)
 	ParentType     string
 	ParentID       *string
+	HasSidecar     bool
 }
 
 // RunMigrateStorage is the entry point for the migrate-storage subcommand.
@@ -261,7 +262,7 @@ func fetchMigrateBatch(ctx context.Context, pool *pgxpool.Pool, sourceName strin
 	rows, err := pool.Query(ctx,
 		`SELECT id, user_id, file_type, storage_backend, storage_path, content_type,
 		 file_name, size_bytes, COALESCE(file_hash, ''),
-		 COALESCE(parent_type, ''), parent_id
+		 COALESCE(parent_type, ''), parent_id, has_sidecar
 		 FROM user_files
 		 WHERE storage_backend = $1 AND status != 'purging'
 		 ORDER BY size_bytes ASC
@@ -278,7 +279,7 @@ func fetchMigrateBatch(ctx context.Context, pool *pgxpool.Pool, sourceName strin
 		var parentType string
 		if err := rows.Scan(&r.ID, &r.UserID, &r.FileType, &r.StorageBackend, &r.StoragePath,
 			&r.ContentType, &r.FileName, &r.SizeBytes, &r.FileHash,
-			&parentType, &r.ParentID); err != nil {
+			&parentType, &r.ParentID, &r.HasSidecar); err != nil {
 			return nil, err
 		}
 		r.ParentType = parentType
@@ -407,6 +408,20 @@ func migrateFile(
 			return fallbackErr
 		}
 		return fmt.Errorf("update DB record: %w", err)
+	}
+
+	// Copy companion sidecar if present (best-effort).
+	if rec.HasSidecar {
+		companionSrc := rec.StoragePath + ".meta"
+		companionDst := targetPath + ".meta"
+		srcRC, readErr := source.Read(ctx, companionSrc, srcOpts)
+		if readErr == nil {
+			_, _, writeErr := target.Write(ctx, companionDst, srcRC, "application/json", false, targetOpts)
+			srcRC.Close()
+			if writeErr != nil {
+				slog.Warn("migrate-storage: companion copy failed", "src", companionSrc, "error", writeErr)
+			}
+		}
 	}
 
 	slog.Debug("migrate-storage: migrated file",

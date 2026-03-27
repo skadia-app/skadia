@@ -23,11 +23,11 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
-	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/phash"
+	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/google/uuid"
 )
@@ -41,9 +41,9 @@ type SegmentMatcherFunc func(activityID, userID, sportType, subType string, gear
 // handler and will be reused by the cross-platform import pipeline so that all
 // import paths go through the same post-processing logic.
 type Service struct {
-	DB        *database.DB
+	DB       *database.DB
 	ShadowFS shadowfs.ShadowFS
-	Events    *event.Publisher
+	Events   *event.Publisher
 
 	// Callback for segment matching that lives in the handler package to
 	// avoid circular imports. Optional (nil is safe – the step is skipped).
@@ -64,7 +64,7 @@ func NewService(
 ) *Service {
 	return &Service{
 		DB:             db,
-		ShadowFS:      store,
+		ShadowFS:       store,
 		Events:         events,
 		SegmentMatcher: segmentMatcher,
 	}
@@ -75,7 +75,7 @@ func NewService(
 //  2. Phase 1 (parallel):
 //     Group A (sequential): InsertStreams → InsertTrack → InsertHeatmapData
 //     Group C (parallel): RR-Intervals, Sensors+Devices, Laps, Splits, SplitSummaries,
-//                          Lengths, ClimbPro, TimeInZones, Events, Sets, Jumps, HrData, SegmentLaps
+//     Lengths, ClimbPro, TimeInZones, Events, Sets, Jumps, HrData, SegmentLaps
 //     Group D (parallel): UpdateActivityFileInfo + S3 Meta Upload
 //  3. DeveloperFieldDefs, Workout + Link, Stream-Enrichment, NATS Events, Shadow FS, Segment-Matching
 func (s *Service) PostProcess(
@@ -384,7 +384,11 @@ func (s *Service) PostProcess(
 	// Skip for multisport children — they share the parent's file.
 	isChild := activity != nil && activity.ParentID != nil
 	if !isChild {
-		sidecar.WriteMetaCompanion(ctx, s.ShadowFS, s.DB, userID, activityID, fileID, data, activity)
+		effectiveFileID := fileID
+		if effectiveFileID == "" && activity != nil && activity.FileID != nil {
+			effectiveFileID = *activity.FileID
+		}
+		sidecar.WriteMetaCompanion(ctx, s.ShadowFS, s.DB, userID, activityID, effectiveFileID, data, activity)
 	}
 
 	slog.Info("activity post-processed",
