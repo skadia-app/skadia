@@ -1,6 +1,7 @@
 package coverage
 
 import (
+	"container/list"
 	"context"
 	"fmt"
 	"log/slog"
@@ -37,12 +38,20 @@ type layerTileKey struct {
 	tileID uint32
 }
 
+type lruEntry struct {
+	key  layerTileKey
+	grid *MappedGrid
+	elem *list.Element
+}
+
 type DiskCoverageReader struct {
 	baseDir     string
 	maxMapped   int
 	mu          sync.RWMutex
-	mappings    map[layerTileKey]*MappedGrid
-	accessOrder []layerTileKey
+	mappings    map[layerTileKey]*lruEntry
+	lruList     *list.List
+	buildTS     string
+	buildTSOnce sync.Once
 }
 
 func NewDiskCoverageReader(baseDir string, maxMappings int) (*DiskCoverageReader, error) {
@@ -52,41 +61,47 @@ func NewDiskCoverageReader(baseDir string, maxMappings int) (*DiskCoverageReader
 	return &DiskCoverageReader{
 		baseDir:   baseDir,
 		maxMapped: maxMappings,
-		mappings:  make(map[layerTileKey]*MappedGrid),
+		mappings:  make(map[layerTileKey]*lruEntry),
+		lruList:   list.New(),
 	}, nil
 }
 
 func (r *DiskCoverageReader) Close() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, m := range r.mappings {
-		m.cleanup()
+	for _, e := range r.mappings {
+		e.grid.cleanup()
 	}
-	r.mappings = make(map[layerTileKey]*MappedGrid)
-	r.accessOrder = nil
+	r.mappings = make(map[layerTileKey]*lruEntry)
+	r.lruList.Init()
 }
 
+// tileFilePath returns the filesystem path for a layer/tile, reusing the shared
+// tileFilename function from diskwriter.go to keep naming consistent.
 func (r *DiskCoverageReader) tileFilePath(layer string, tileID uint32) string {
 	bbox := graphpkg.TileBBox(tileID)
-	lat := int(bbox[0])
-	lon := int(bbox[1])
-	return filepath.Join(r.baseDir, layer, fmt.Sprintf("%d_%d.bin", lat, lon))
+	core := orb.Bound{
+		Min: orb.Point{bbox[1], bbox[0]},
+		Max: orb.Point{bbox[3], bbox[2]},
+	}
+	return filepath.Join(r.baseDir, layer, tileFilename(core))
 }
 
 // loadGrid mmap's a single layer/tile combination. Caller must hold write lock.
 func (r *DiskCoverageReader) loadGrid(layer string, tileID uint32) (*MappedGrid, error) {
 	key := layerTileKey{layer, tileID}
-	if m, ok := r.mappings[key]; ok {
-		return m, nil
+	if e, ok := r.mappings[key]; ok {
+		r.lruList.MoveToBack(e.elem)
+		return e.grid, nil
 	}
 
-	for len(r.mappings) >= r.maxMapped && len(r.accessOrder) > 0 {
-		evictKey := r.accessOrder[0]
-		r.accessOrder = r.accessOrder[1:]
-		if m, ok := r.mappings[evictKey]; ok {
-			m.cleanup()
-			delete(r.mappings, evictKey)
-		}
+	// Evict oldest entries until under limit.
+	for len(r.mappings) >= r.maxMapped && r.lruList.Len() > 0 {
+		oldest := r.lruList.Front()
+		entry := oldest.Value.(*lruEntry)
+		entry.grid.cleanup()
+		r.lruList.Remove(oldest)
+		delete(r.mappings, entry.key)
 	}
 
 	path := r.tileFilePath(layer, tileID)
@@ -109,28 +124,34 @@ func (r *DiskCoverageReader) loadGrid(layer string, tileID uint32) (*MappedGrid,
 		latStep: (float64(header.MaxLat) - float64(header.MinLat)) / float64(header.Rows),
 		lonStep: (float64(header.MaxLon) - float64(header.MinLon)) / float64(header.Cols),
 	}
-	r.mappings[key] = m
-	r.accessOrder = append(r.accessOrder, key)
+
+	entry := &lruEntry{key: key, grid: m}
+	entry.elem = r.lruList.PushBack(entry)
+	r.mappings[key] = entry
 	return m, nil
 }
 
+// getGrid retrieves or loads a grid. The fast path (cache hit) promotes under
+// write lock and re-checks existence to handle concurrent eviction (Fix #5).
 func (r *DiskCoverageReader) getGrid(layer string, tileID uint32) (*MappedGrid, error) {
 	key := layerTileKey{layer, tileID}
 
 	r.mu.RLock()
-	m, ok := r.mappings[key]
+	_, ok := r.mappings[key]
 	r.mu.RUnlock()
 	if ok {
+		// Promote to most-recently-used under write lock.
+		// Re-check existence: entry may have been evicted between RUnlock and Lock.
 		r.mu.Lock()
-		for i, k := range r.accessOrder {
-			if k == key {
-				r.accessOrder = append(r.accessOrder[:i], r.accessOrder[i+1:]...)
-				r.accessOrder = append(r.accessOrder, key)
-				break
-			}
+		if e2, stillExists := r.mappings[key]; stillExists {
+			r.lruList.MoveToBack(e2.elem)
+			r.mu.Unlock()
+			return e2.grid, nil
 		}
+		// Was evicted — reload under the write lock we already hold.
+		m, err := r.loadGrid(layer, tileID)
 		r.mu.Unlock()
-		return m, nil
+		return m, err
 	}
 
 	r.mu.Lock()
@@ -266,10 +287,15 @@ func (r *DiskCoverageReader) SampleWay(geom orb.LineString) CoverageResult {
 	return result
 }
 
+// BuildTimestamp returns the build timestamp as a Unix epoch string.
+// The result is cached after the first successful read (Fix #7).
 func (r *DiskCoverageReader) BuildTimestamp() string {
-	ts, err := ReadBuildTimestamp(r.baseDir)
-	if err != nil {
-		return ""
-	}
-	return fmt.Sprintf("%d", ts.Unix())
+	r.buildTSOnce.Do(func() {
+		ts, err := ReadBuildTimestamp(r.baseDir)
+		if err != nil {
+			return
+		}
+		r.buildTS = fmt.Sprintf("%d", ts.Unix())
+	})
+	return r.buildTS
 }
