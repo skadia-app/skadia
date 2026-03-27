@@ -11,20 +11,56 @@ import (
 	"github.com/paulmach/orb"
 )
 
-// CropGridToCore extracts the 1°×1° core from an expanded grid.
+// CropGridToCore extracts the 1°×1° core from an expanded grid by copying
+// the sub-rectangle directly — no resampling. This preserves the expanded grid's
+// cell spacing (LatStep/LonStep) so adjacent tiles have matching cell alignment
+// at boundaries, eliminating the tile-seam artifact caused by NewGrid computing
+// slightly different cell spacings for 1.0° vs 1.2° bounding boxes.
 func CropGridToCore(g *CoverageGrid, core orb.Bound) *CoverageGrid {
-	dst := NewGrid(core, g.ResM)
-	for row := range dst.Rows {
-		lat := core.Min[1] + (float64(row)+0.5)*dst.LatStep
-		for col := range dst.Cols {
-			lon := core.Min[0] + (float64(col)+0.5)*dst.LonStep
-			val := g.SamplePoint(orb.Point{lon, lat})
-			if val != OutOfBounds {
-				dst.Data[row*dst.Cols+col] = val
-			}
-		}
+	// Compute row/col offsets where the core region starts in the expanded grid
+	startRow := int(math.Round((core.Min[1] - g.Bound.Min[1]) / g.LatStep))
+	startCol := int(math.Round((core.Min[0] - g.Bound.Min[0]) / g.LonStep))
+	endRow := int(math.Round((core.Max[1] - g.Bound.Min[1]) / g.LatStep))
+	endCol := int(math.Round((core.Max[0] - g.Bound.Min[0]) / g.LonStep))
+
+	// Clamp to valid range
+	startRow = max(0, min(startRow, g.Rows))
+	startCol = max(0, min(startCol, g.Cols))
+	endRow = max(startRow, min(endRow, g.Rows))
+	endCol = max(startCol, min(endCol, g.Cols))
+
+	dstRows := endRow - startRow
+	dstCols := endCol - startCol
+	if dstRows <= 0 || dstCols <= 0 {
+		return NewGrid(core, g.ResM)
 	}
-	return dst
+
+	size := dstRows * dstCols
+	data := gridPool.Get().([]uint8)
+	if cap(data) >= size {
+		data = data[:size]
+		clear(data)
+	} else {
+		data = make([]uint8, size)
+	}
+
+	// Copy row-by-row from expanded grid
+	for r := range dstRows {
+		srcOff := (startRow + r) * g.Cols + startCol
+		dstOff := r * dstCols
+		copy(data[dstOff:dstOff+dstCols], g.Data[srcOff:srcOff+dstCols])
+	}
+
+	// Use the expanded grid's cell spacing for exact alignment
+	return &CoverageGrid{
+		Bound:   core,
+		Rows:    dstRows,
+		Cols:    dstCols,
+		ResM:    g.ResM,
+		LatStep: g.LatStep,
+		LonStep: g.LonStep,
+		Data:    data,
+	}
 }
 
 // fcovHeaderFromGrid creates an FCOV header from a CoverageGrid.
