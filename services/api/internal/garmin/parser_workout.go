@@ -3,6 +3,8 @@ package garmin
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/muktihari/fit/decoder"
@@ -15,8 +17,9 @@ import (
 )
 
 func processWorkoutFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
-	if _, err := storeHealthFIT(ctx, db, fs, data, userID, "workout", "workout.fit", time.Now().UTC()); err != nil {
-		return err
+	wTS := time.Now().UTC()
+	if _, err := storeHealthFIT(ctx, db, fs, data, userID, "workout", fmt.Sprintf("workout_%s.fit", wTS.Format("20060102_150405")), wTS); err != nil {
+		slog.Warn("processWorkoutFIT: storeHealthFIT failed", "error", err)
 	}
 
 	dec := decoder.New(bytes.NewReader(data), decoder.WithIgnoreChecksum())

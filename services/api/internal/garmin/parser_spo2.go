@@ -3,6 +3,7 @@ package garmin
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -24,7 +25,7 @@ import (
 // If neither standard message is found, the function returns nil without error.
 func processSpO2FIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
 	ts := time.Now().UTC()
-	storeHealthFIT(ctx, db, fs, data, userID, "spo2", "spo2.fit", ts) //nolint:errcheck // non-fatal
+	storeHealthFIT(ctx, db, fs, data, userID, "spo2", fmt.Sprintf("spo2_%s.fit", ts.Format("20060102_150405")), ts) //nolint:errcheck // non-fatal
 
 	dec := decoder.New(bytes.NewReader(data), decoder.WithIgnoreChecksum())
 	fit, err := dec.Decode()
@@ -40,7 +41,7 @@ func processSpO2FIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, 
 
 		case typedef.MesgNumSpo2Data: // 269 — single point-in-time measurement
 			s := mesgdef.NewSpo2Data(msg)
-			if s.Timestamp.IsZero() {
+			if s.Timestamp.IsZero() || s.Timestamp.Before(minSaneTimestamp) {
 				continue
 			}
 			// Skip invalid / blank readings (0 or basetype.Uint8Invalid = 0xFF).
@@ -68,7 +69,7 @@ func processSpO2FIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, 
 
 		case typedef.MesgNumHsaSpo2Data: // 305 — HSA array with processing_interval
 			h := mesgdef.NewHsaSpo2Data(msg)
-			if h.Timestamp.IsZero() || len(h.ReadingSpo2) == 0 {
+			if h.Timestamp.IsZero() || h.Timestamp.Before(minSaneTimestamp) || len(h.ReadingSpo2) == 0 {
 				continue
 			}
 			interval := time.Duration(0)
