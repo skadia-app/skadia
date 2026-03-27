@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/muktihari/fit/decoder"
+	"github.com/muktihari/fit/kit/datetime"
 	"github.com/muktihari/fit/profile/basetype"
 	"github.com/muktihari/fit/profile/mesgdef"
 	"github.com/muktihari/fit/profile/typedef"
@@ -24,15 +25,26 @@ import (
 // (HsaSpo2Data) are processed. Proprietary msg 318 is silently skipped.
 // If neither standard message is found, the function returns nil without error.
 func processSpO2FIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
-	ts := time.Now().UTC()
-	storeHealthFIT(ctx, db, fs, data, userID, "spo2", fmt.Sprintf("spo2_%s.fit", ts.Format("20060102_150405")), ts) //nolint:errcheck // non-fatal
-
 	dec := decoder.New(bytes.NewReader(data), decoder.WithIgnoreChecksum())
 	fit, err := dec.Decode()
 	if err != nil {
 		slog.Warn("processSpO2FIT: decode failed", "error", err)
 		return nil
 	}
+
+	// Derive file timestamp from first valid message timestamp for ShadowFS tags.
+	fileTS := time.Now().UTC()
+	for i := range fit.Messages {
+		rawTS := fit.Messages[i].FieldValueByNum(253) // field 253 = timestamp
+		if rawTS.Valid(basetype.Uint32) {
+			ts := datetime.ToTime(rawTS.Uint32())
+			if !ts.IsZero() && !ts.Before(minSaneTimestamp) {
+				fileTS = ts
+				break
+			}
+		}
+	}
+	storeHealthFIT(ctx, db, fs, data, userID, "spo2", fmt.Sprintf("spo2_%s.fit", fileTS.Format("20060102_150405")), fileTS) //nolint:errcheck // non-fatal
 
 	count := 0
 	for i := range fit.Messages {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/muktihari/fit/decoder"
+	"github.com/muktihari/fit/kit/datetime"
 	"github.com/muktihari/fit/profile/basetype"
 	"github.com/muktihari/fit/profile/mesgdef"
 	"github.com/muktihari/fit/profile/typedef"
@@ -17,10 +18,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
-// minTS is the earliest plausible Garmin timestamp (2010-01-01 UTC).
-// Entries before this are considered invalid/unset.
-var minTS = time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)
-
 // processWeightFIT parses a Garmin weight-scale FIT file (type 9) and upserts
 // body-composition entries into health_weight_entries.
 //
@@ -28,15 +25,26 @@ var minTS = time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)
 // All numeric fields use Garmin fixed-point encoding; scale factors are applied
 // here to convert to SI units stored in the database.
 func processWeightFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
-	ts := time.Now().UTC()
-	storeHealthFIT(ctx, db, fs, data, userID, "weight", fmt.Sprintf("weight_%s.fit", ts.Format("20060102_150405")), ts) //nolint:errcheck // non-fatal
-
 	dec := decoder.New(bytes.NewReader(data), decoder.WithIgnoreChecksum())
 	fit, err := dec.Decode()
 	if err != nil {
 		slog.Warn("processWeightFIT: decode failed", "error", err)
 		return nil
 	}
+
+	// Derive file timestamp from first valid message timestamp for ShadowFS tags.
+	fileTS := time.Now().UTC()
+	for i := range fit.Messages {
+		rawTS := fit.Messages[i].FieldValueByNum(253) // field 253 = timestamp
+		if rawTS.Valid(basetype.Uint32) {
+			ts := datetime.ToTime(rawTS.Uint32())
+			if !ts.IsZero() && !ts.Before(minSaneTimestamp) {
+				fileTS = ts
+				break
+			}
+		}
+	}
+	storeHealthFIT(ctx, db, fs, data, userID, "weight", fmt.Sprintf("weight_%s.fit", fileTS.Format("20060102_150405")), fileTS) //nolint:errcheck // non-fatal
 
 	count := 0
 	for i := range fit.Messages {
@@ -45,7 +53,7 @@ func processWeightFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS
 		switch msg.Num {
 		case typedef.MesgNumWeightScale: // 30
 			ws := mesgdef.NewWeightScale(msg)
-			if ws.Timestamp.IsZero() || ws.Timestamp.Before(minTS) {
+			if ws.Timestamp.IsZero() || ws.Timestamp.Before(minSaneTimestamp) {
 				continue
 			}
 			if ws.Weight == typedef.WeightInvalid {
