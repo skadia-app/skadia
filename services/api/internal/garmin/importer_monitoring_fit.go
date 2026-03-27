@@ -69,6 +69,11 @@ func importMonitoringFITs(ctx context.Context, params ImportParams) (imported in
 
 	fitErrors := 0
 
+	_, _ = params.DB.Pool.Exec(ctx, `SELECT remove_compression_policy('health_monitoring_samples', if_exists => true)`)
+	defer func() {
+		_, _ = params.DB.Pool.Exec(ctx, `SELECT add_compression_policy('health_monitoring_samples', INTERVAL '7 days')`)
+	}()
+
 	for _, z := range zips {
 		zipPath := filepath.Join(params.Source.BaseDir(), z)
 		zr, err := zip.OpenReader(zipPath)
@@ -90,10 +95,9 @@ func importMonitoringFITs(ctx context.Context, params ImportParams) (imported in
 
 			ftype := readFITFileType(data)
 
-			// Skip activity FITs silently — ActivitiesImporter tracks them.
-			// All other non-monitoring types are also skipped without polluting import_log.
-			if ftype != fitFileTypeMonitorMain && ftype != fitFileTypeHRVNight {
-				continue
+			handled, procErr := RouteFITByType(ctx, params.DB, params.ShadowFS, data, params.UserID, ftype)
+			if !handled {
+				continue // activity or unknown → skip
 			}
 
 			fileSize := int64(len(data))
@@ -106,9 +110,8 @@ func importMonitoringFITs(ctx context.Context, params ImportParams) (imported in
 			hashArr := sha256.Sum256(data)
 			tracker.SetFileHash(ctx, hex.EncodeToString(hashArr[:]))
 
-			// Delegate to ProcessMonitoringFIT — shared with hotfolder/upload paths.
-			if procErr := ProcessMonitoringFIT(ctx, params.DB, params.ShadowFS, data, params.UserID); procErr != nil {
-				slog.Warn("garmin monitoring fit: process failed", "file", f.Name, "error", procErr)
+			if procErr != nil {
+				slog.Warn("garmin monitoring fit: process failed", "file", f.Name, "type", ftype, "error", procErr)
 				tracker.Error(ctx, procErr)
 				fitErrors++
 				continue
@@ -119,6 +122,11 @@ func importMonitoringFITs(ctx context.Context, params ImportParams) (imported in
 		}
 		zr.Close()
 	}
+
+	// Compress all uncompressed chunks
+	_, _ = params.DB.Pool.Exec(ctx, `SELECT compress_chunk(c) FROM show_chunks('health_monitoring_samples') c WHERE NOT is_compressed`)
+	// Refresh Continuous Aggregate for all historical data
+	_, _ = params.DB.Pool.Exec(ctx, `CALL refresh_continuous_aggregate('health_monitoring_daily', NULL, NULL)`)
 
 	slog.Info("garmin monitoring fit: import done",
 		"imported", imported,
