@@ -11,10 +11,11 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
+	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 )
 
 // storageDashboardUserRow holds per-user storage statistics.
@@ -360,6 +361,120 @@ func (h *Handler) BackfillThumbnails(w http.ResponseWriter, r *http.Request) {
 
 		_ = db.CompleteBackgroundJob(ctx, jobID, anyFailed, "")
 		slog.Info("thumbnail backfill: completed", "user_id", userID, "job_id", jobID, "processed", processed, "any_failed", anyFailed)
+	})
+
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
+		"job_id": jobID,
+		"queued": len(missing),
+	})
+}
+
+// BackfillMetaSidecars generates missing .meta v3 companions for all activity
+// files that don't have one yet (has_sidecar=false). Runs as a background job
+// with 4 concurrent workers.
+//
+// POST /api/v1/admin/storage/backfill-meta
+func (h *Handler) BackfillMetaSidecars(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	if h.ShadowFS == nil {
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "skipped", "reason": "ShadowFS not configured"})
+		return
+	}
+
+	// Check for already-running job.
+	var alreadyRunning bool
+	if err := h.DB.Pool.QueryRow(r.Context(),
+		`SELECT EXISTS(SELECT 1 FROM background_jobs WHERE job_type = 'meta_backfill' AND status IN ('pending', 'running'))`,
+	).Scan(&alreadyRunning); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not check running jobs", r.URL.Path)
+		return
+	}
+	if alreadyRunning {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		return
+	}
+
+	type backfillRow struct {
+		FileID     string
+		UserID     string
+		ActivityID string
+	}
+
+	rows, err := h.DB.Pool.Query(r.Context(), `
+		SELECT uf.id, uf.user_id, a.id AS activity_id
+		FROM user_files uf
+		JOIN activities a ON a.file_id = uf.id
+		WHERE uf.file_type = 'activity' AND uf.status = 'active'
+		  AND uf.has_sidecar = false
+		ORDER BY a.started_at`)
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not query activities", r.URL.Path)
+		return
+	}
+	defer rows.Close()
+
+	var missing []backfillRow
+	for rows.Next() {
+		var row backfillRow
+		if err := rows.Scan(&row.FileID, &row.UserID, &row.ActivityID); err != nil {
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "scan failed", r.URL.Path)
+			return
+		}
+		missing = append(missing, row)
+	}
+	if err := rows.Err(); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "query error", r.URL.Path)
+		return
+	}
+
+	if len(missing) == 0 {
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "processed": 0})
+		return
+	}
+
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "meta_backfill", nil, nil, int64(len(missing)))
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not create job", r.URL.Path)
+		return
+	}
+
+	fs := h.ShadowFS
+	db := h.DB
+
+	shutdown.Go(jobID, func(ctx context.Context) {
+		sem := make(chan struct{}, 4)
+		var mu sync.Mutex
+		processed := int64(0)
+		anyFailed := false
+
+		var wg sync.WaitGroup
+		for _, row := range missing {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				act, getErr := db.GetActivity(ctx, row.ActivityID)
+				if getErr != nil || act == nil {
+					mu.Lock()
+					anyFailed = true
+					mu.Unlock()
+				} else {
+					sidecar.WriteMetaCompanion(ctx, fs, db, row.UserID, row.ActivityID, row.FileID, nil, act)
+				}
+
+				mu.Lock()
+				processed++
+				mu.Unlock()
+				_ = db.UpdateBackgroundJobProgress(ctx, jobID, processed)
+			}()
+		}
+		wg.Wait()
+		_ = db.CompleteBackgroundJob(ctx, jobID, anyFailed, "")
 	})
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{

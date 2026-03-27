@@ -637,6 +637,7 @@ func main() {
 				r.Get("/storage", h.StorageDashboard)
 				r.Post("/storage/reconcile", h.StartReconciliation)
 				r.Post("/storage/backfill-thumbnails", h.BackfillThumbnails)
+				r.Post("/storage/backfill-meta", h.BackfillMetaSidecars)
 
 				// Photo batch operations
 				r.Post("/photos/recompute-previews", h.RecomputePhotoPreviews)
