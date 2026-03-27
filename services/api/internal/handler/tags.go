@@ -18,6 +18,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 )
 
 // ListTags returns all tags for the authenticated user.
@@ -823,6 +824,14 @@ func (h *Handler) SyncTagLocation(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		updated++
+	}
+
+	// Refresh .meta companions — location_lat/lng changed.
+	for _, actID := range activityIDs {
+		act, _ := h.DB.GetActivity(r.Context(), actID)
+		if act != nil && act.FileID != nil && *act.FileID != "" {
+			sidecar.WriteMetaCompanion(r.Context(), h.ShadowFS, h.DB, userID, actID, *act.FileID, nil, act)
+		}
 	}
 
 	tagIDForBackfill := tagID

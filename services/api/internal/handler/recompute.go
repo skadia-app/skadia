@@ -29,7 +29,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
-	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
@@ -712,36 +711,13 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 	}
 
-	// 7. Rewrite sidecar metadata (v3 with user-editable fields) — ShadowFS preferred, S3 fallback.
+	// Rewrite .meta companion with updated data + user-editable fields.
 	activity, actErr := h.DB.GetActivity(ctx, activityID)
 	if actErr != nil {
 		slog.Error("reprocess: get activity for meta failed", "id", activityID, "error", actErr)
 	}
-	meta := sidecar.GenerateMetaV3(activityID, data, activity)
-	metaBytes, mErr := meta.Marshal()
-	if mErr == nil && metaBytes != nil {
-		metaWritten := false
-		if h.ShadowFS != nil && activity != nil && activity.FileID != nil && *activity.FileID != "" {
-			metaName := fmt.Sprintf("%s.meta", activityID)
-			_, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
-				UserID:      userID,
-				FileType:    "edit",
-				ContentType: "application/json",
-				FileName:    metaName,
-				SizeBytes:   int64(len(metaBytes)),
-				ParentType:  func() *string { s := "activity"; return &s }(),
-				ParentID:    &activityID,
-				Tags:        map[string]string{"role": "meta_sidecar"},
-			}, bytes.NewReader(metaBytes))
-			if putErr == nil {
-				metaWritten = true
-			} else {
-				slog.Warn("reprocess: ShadowFS meta write failed, falling back to S3", "id", activityID, "error", putErr)
-			}
-		}
-		if !metaWritten {
-			slog.Warn("reprocess: meta sidecar could not be written (no ShadowFS)", "id", activityID)
-		}
+	if h.ShadowFS != nil && activity != nil && activity.FileID != nil && *activity.FileID != "" {
+		sidecar.WriteMetaCompanion(ctx, h.ShadowFS, h.DB, userID, activityID, *activity.FileID, data, activity)
 	}
 
 	// 7d. Geo Stage-2 data cleanup (summits, forests, water, stops, lifts, surfaces, borders).
