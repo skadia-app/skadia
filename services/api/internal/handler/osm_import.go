@@ -14,6 +14,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
+	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/go-chi/chi/v5"
 )
@@ -55,8 +56,9 @@ type osmImportRequest struct {
 	Regions       []string `json:"regions"`
 	Categories    []string `json:"categories"`
 	BuildBRouter  bool     `json:"build_brouter"`
-	RunEnrichment *bool    `json:"run_enrichment"` // nil = true (backwards compatible)
-	BuildTiles    bool     `json:"build_tiles"`    // opt-in, default false
+	RunEnrichment *bool    `json:"run_enrichment"`  // nil = true (backwards compatible)
+	BuildTiles    bool     `json:"build_tiles"`     // opt-in, default false
+	BuildCoverage bool     `json:"build_coverage"`  // opt-in, build coverage grids after import
 }
 
 func (r osmImportRequest) shouldRunEnrichment() bool {
@@ -130,6 +132,9 @@ func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
 			"Tiles benötigen Enrichment. build_tiles=true und run_enrichment=false können nicht kombiniert werden.", r.URL.Path)
 		return
 	}
+
+	// Dependency check: tiles require coverage when coverage is requested (coverage must precede tiles)
+	// Coverage itself has no enrichment dependency — it reads OSM tables populated during import.
 
 	// Region-Namen für entity_name zusammenstellen
 	var labels []string
@@ -275,8 +280,57 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 		}
 	}
 
-	// Tiles (only if enrichment ran synchronously and succeeded — defense-in-depth guard)
-	if req.BuildTiles && req.shouldRunEnrichment() && waysImported && !enrichmentFailed {
+	// Coverage-Grids (must run before Tiles — Tiles need DiskCoverageReader)
+	var coverageFailed bool
+	if req.BuildCoverage && waysImported {
+		coverageName := "Coverage-Grids"
+		coverageJobID, err := h.DB.InsertBackgroundJob(context.Background(), userID,
+			"coverage_build", nil, &coverageName, 0)
+		if err != nil {
+			slog.Error("osm import: failed to create coverage build job", "error", err)
+		} else {
+			mainReporter.SetPhase("coverage")
+			graphPath := os.Getenv("ROUTING_GRAPH_PATH")
+			if graphPath == "" {
+				graphPath = "/data/routing/graph.bin"
+			}
+			coverageDir := filepath.Join(filepath.Dir(graphPath), "coverage")
+
+			// Compute union BBox filter (minLat, minLon, maxLat, maxLon)
+			filterBBox := [4]float64{90, 180, -90, -180}
+			for _, reg := range succeededRegions {
+				filterBBox[0] = min(filterBBox[0], reg.MinLat)
+				filterBBox[1] = min(filterBBox[1], reg.MinLon)
+				filterBBox[2] = max(filterBBox[2], reg.MaxLat)
+				filterBBox[3] = max(filterBBox[3], reg.MaxLon)
+			}
+
+			opts := coverage.BuildCoverageOptions{
+				BaseDir:    coverageDir,
+				RegionBBox: filterBBox,
+				Region:     succeededRegions[0].ID,
+				Workers:    2,
+			}
+			err := coverage.RunBuildCoverage(ctx, h.DB.Pool, opts, func(current, total int64) {
+				if current == 0 && total > 0 {
+					_ = h.DB.UpdateBackgroundJobTotal(context.Background(), coverageJobID, total)
+				} else {
+					_ = h.DB.UpdateBackgroundJobProgress(context.Background(), coverageJobID, current)
+				}
+			})
+			if err != nil {
+				slog.Error("osm import: coverage build failed", "error", err)
+				_ = h.DB.CompleteBackgroundJob(context.Background(), coverageJobID, true, err.Error())
+				coverageFailed = true
+			} else {
+				slog.Info("osm import: coverage build completed")
+				_ = h.DB.CompleteBackgroundJob(context.Background(), coverageJobID, false, "")
+			}
+		}
+	}
+
+	// Tiles (only if enrichment ran synchronously and succeeded, and coverage (if requested) succeeded)
+	if req.BuildTiles && req.shouldRunEnrichment() && waysImported && !enrichmentFailed && (!req.BuildCoverage || !coverageFailed) {
 		tilesName := "Routing Tiles"
 		tilesJobID, err := h.DB.InsertBackgroundJob(context.Background(), userID,
 			"tile_build", nil, &tilesName, 0)
