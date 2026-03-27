@@ -688,8 +688,10 @@ func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zi
 			companionPath := rec.StoragePath + ".meta"
 			crc, cErr := be.Read(ctx, companionPath, u.bucketOpts(rec.FileType))
 			if cErr == nil {
-				cw, _ := zw.Create(zipPath + ".meta")
-				if cw != nil {
+				cw, cwErr := zw.Create(zipPath + ".meta")
+				if cwErr != nil {
+					slog.Warn("shadowfs: create zip entry for .meta companion failed", "path", zipPath+".meta", "error", cwErr)
+				} else if cw != nil {
 					io.Copy(cw, crc) //nolint:errcheck
 				}
 				crc.Close()
@@ -808,6 +810,9 @@ func (u *UnifiedShadowFS) DeleteAllForUser(ctx context.Context, userID string) e
 // the main file identified by fileID, using the same backend and bucket.
 // Sets has_sidecar=true on the parent record after a successful write.
 func (u *UnifiedShadowFS) PutCompanion(ctx context.Context, userID, fileID, suffix string, data []byte) error {
+	if !strings.HasPrefix(suffix, ".") || strings.Contains(suffix, "/") || strings.Contains(suffix, "..") {
+		return fmt.Errorf("shadowfs: invalid companion suffix: %q", suffix)
+	}
 	var backend, storagePath, fileType string
 	err := u.pool.QueryRow(ctx,
 		`SELECT storage_backend, storage_path, file_type FROM user_files WHERE id = $1 AND user_id = $2`,
@@ -826,8 +831,8 @@ func (u *UnifiedShadowFS) PutCompanion(ctx context.Context, userID, fileID, suff
 		return fmt.Errorf("shadowfs: write companion %s: %w", suffix, err)
 	}
 	if _, flagErr := u.pool.Exec(ctx,
-		`UPDATE user_files SET has_sidecar = true, updated_at = NOW() WHERE id = $1`,
-		fileID); flagErr != nil {
+		`UPDATE user_files SET has_sidecar = true, updated_at = NOW() WHERE id = $1 AND user_id = $2`,
+		fileID, userID); flagErr != nil {
 		slog.Warn("shadowfs: companion written but has_sidecar flag update failed",
 			"file_id", fileID, "error", flagErr)
 	}
@@ -836,6 +841,9 @@ func (u *UnifiedShadowFS) PutCompanion(ctx context.Context, userID, fileID, suff
 
 // GetCompanion reads a companion sidecar identified by suffix next to fileID.
 func (u *UnifiedShadowFS) GetCompanion(ctx context.Context, userID, fileID, suffix string) ([]byte, error) {
+	if !strings.HasPrefix(suffix, ".") || strings.Contains(suffix, "/") || strings.Contains(suffix, "..") {
+		return nil, fmt.Errorf("shadowfs: invalid companion suffix: %q", suffix)
+	}
 	var backend, storagePath, fileType string
 	err := u.pool.QueryRow(ctx,
 		`SELECT storage_backend, storage_path, file_type FROM user_files WHERE id = $1 AND user_id = $2`,
@@ -852,7 +860,7 @@ func (u *UnifiedShadowFS) GetCompanion(ctx context.Context, userID, fileID, suff
 		return nil, err
 	}
 	defer rc.Close()
-	return io.ReadAll(rc)
+	return io.ReadAll(io.LimitReader(rc, 1<<20)) // 1 MB cap
 }
 
 // DeleteCompanions removes all companion sidecars for fileID.
@@ -871,6 +879,9 @@ func (u *UnifiedShadowFS) DeleteCompanions(ctx context.Context, userID, fileID s
 		return nil
 	}
 	deleteInlineCompanions(ctx, be, storagePath, fileType, u.bucketOpts(fileType))
+	_, _ = u.pool.Exec(ctx,
+		`UPDATE user_files SET has_sidecar = false, updated_at = NOW() WHERE id = $1 AND user_id = $2`,
+		fileID, userID)
 	return nil
 }
 
