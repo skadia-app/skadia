@@ -40,7 +40,11 @@ func (db *DB) UpsertHealthDailySummary(ctx context.Context, s *model.HealthDaily
 			body_battery_max       = COALESCE(EXCLUDED.body_battery_max,       health_daily_summary.body_battery_max),
 			hydration_ml           = COALESCE(EXCLUDED.hydration_ml,           health_daily_summary.hydration_ml),
 			hydration_goal_ml      = COALESCE(EXCLUDED.hydration_goal_ml,      health_daily_summary.hydration_goal_ml),
-			source_type            = EXCLUDED.source_type
+			source_type            = CASE
+						WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(health_daily_summary.source_type)
+						THEN EXCLUDED.source_type
+						ELSE health_daily_summary.source_type
+					END
 	`, s.UserID, s.CalendarDate, s.TotalSteps, s.StepGoal, s.TotalDistanceM,
 		s.ActiveSeconds, s.HighlyActiveSeconds, s.RestingHeartRate, s.MinHeartRate, s.MaxHeartRate,
 		s.TotalCalories, s.ActiveCalories, s.BmrCalories, s.StressAvg, s.BodyBatteryMin, s.BodyBatteryMax,
@@ -140,7 +144,11 @@ func (db *DB) UpsertHealthSleep(ctx context.Context, s *model.HealthSleep) error
 			awake_count       = COALESCE(EXCLUDED.awake_count,       health_sleep.awake_count),
 			restless_moments  = COALESCE(EXCLUDED.restless_moments,  health_sleep.restless_moments),
 			avg_sleep_stress  = COALESCE(EXCLUDED.avg_sleep_stress,  health_sleep.avg_sleep_stress),
-			source_type       = EXCLUDED.source_type
+			source_type       = CASE
+						WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(health_sleep.source_type)
+						THEN EXCLUDED.source_type
+						ELSE health_sleep.source_type
+					END
 	`, s.UserID, s.CalendarDate, s.SleepStartUTC, s.SleepEndUTC,
 		s.DeepSeconds, s.LightSeconds, s.RemSeconds, s.AwakeSeconds,
 		s.ScoreOverall, s.ScoreQuality, s.ScoreDuration, s.ScoreDeep, s.ScoreRem,
@@ -233,7 +241,11 @@ func (db *DB) UpsertHealthHRVSnapshot(ctx context.Context, s *model.HealthHRVSna
 			stress_level       = COALESCE(EXCLUDED.stress_level,       health_snapshots.stress_level),
 			title              = COALESCE(EXCLUDED.title,              health_snapshots.title),
 			time_of_day        = COALESCE(EXCLUDED.time_of_day,        health_snapshots.time_of_day),
-			source_type        = EXCLUDED.source_type
+			source_type        = CASE
+						WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(health_snapshots.source_type)
+						THEN EXCLUDED.source_type
+						ELSE health_snapshots.source_type
+					END
 	`, s.UserID, s.MeasuredAtUTC, s.RmssdMS, s.SdrrMS,
 		s.AvgHeartRateBPM, s.SpO2Pct, s.RespirationBRPM, s.StressLevel, s.Title,
 		s.TimeOfDay, s.SourceType, s.ExtraData)
@@ -346,7 +358,11 @@ func (db *DB) UpsertHealthWeightEntry(ctx context.Context, s *model.HealthWeight
 			body_fat_pct  = COALESCE(EXCLUDED.body_fat_pct,  health_weight_entries.body_fat_pct),
 			muscle_mass_g = COALESCE(EXCLUDED.muscle_mass_g, health_weight_entries.muscle_mass_g),
 			bone_mass_g   = COALESCE(EXCLUDED.bone_mass_g,   health_weight_entries.bone_mass_g),
-			source_type   = EXCLUDED.source_type
+			source_type   = CASE
+						WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(health_weight_entries.source_type)
+						THEN EXCLUDED.source_type
+						ELSE health_weight_entries.source_type
+					END
 	`, s.UserID, s.MeasuredAtUTC, s.WeightG, s.BMI, s.BodyFatPct, s.MuscleMassG, s.BoneMassG,
 		s.SourceType, s.ExtraData)
 	return err
@@ -422,7 +438,11 @@ func (db *DB) UpsertHealthReadinessScore(ctx context.Context, s *model.HealthRea
 			sleep_history_factor_pct   = COALESCE(EXCLUDED.sleep_history_factor_pct,   health_readiness_scores.sleep_history_factor_pct),
 			stress_history_factor_pct  = COALESCE(EXCLUDED.stress_history_factor_pct,  health_readiness_scores.stress_history_factor_pct),
 			recovery_time_factor_pct   = COALESCE(EXCLUDED.recovery_time_factor_pct,   health_readiness_scores.recovery_time_factor_pct),
-			source_type                = EXCLUDED.source_type
+			source_type                = CASE
+						WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(health_readiness_scores.source_type)
+						THEN EXCLUDED.source_type
+						ELSE health_readiness_scores.source_type
+					END
 	`, s.UserID, s.CalendarDate, s.Score, s.Level, s.SleepScore, s.HRVWeeklyAvgMS, s.RecoveryTimeMin,
 		s.AcwrPct, s.HRVFactorPct, s.SleepHistoryFactorPct, s.StressHistoryFactorPct,
 		s.RecoveryTimeFactorPct, s.SourceType, s.ExtraData)
@@ -499,7 +519,11 @@ func (db *DB) UpsertHealthTrainingLoad(ctx context.Context, s *model.HealthTrain
 			ctl_chronic = COALESCE(EXCLUDED.ctl_chronic, health_training_load.ctl_chronic),
 			acwr_pct    = COALESCE(EXCLUDED.acwr_pct,    health_training_load.acwr_pct),
 			acwr_status = COALESCE(EXCLUDED.acwr_status, health_training_load.acwr_status),
-			source_type = EXCLUDED.source_type
+			source_type = CASE
+						WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(health_training_load.source_type)
+						THEN EXCLUDED.source_type
+						ELSE health_training_load.source_type
+					END
 	`, s.UserID, s.CalendarDate, s.ATLAcute, s.CTLChronic, s.AcwrPct, s.AcwrStatus, s.SourceType, s.ExtraData)
 	return err
 }
@@ -567,7 +591,11 @@ func (db *DB) UpsertHealthStressSnapshot(ctx context.Context, s *model.HealthStr
 		) VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (user_id, measured_at_utc) DO UPDATE SET
 			stress_level = COALESCE(EXCLUDED.stress_level, health_stress_snapshots.stress_level),
-			source_type  = EXCLUDED.source_type
+			source_type  = CASE
+						WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(health_stress_snapshots.source_type)
+						THEN EXCLUDED.source_type
+						ELSE health_stress_snapshots.source_type
+					END
 	`, s.UserID, s.MeasuredAtUTC, s.StressLevel, s.SourceType, s.ExtraData)
 	return err
 }
@@ -623,7 +651,11 @@ func (db *DB) UpsertHealthSpO2Snapshot(ctx context.Context, s *model.HealthSpO2S
 		) VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (user_id, measured_at_utc) DO UPDATE SET
 			spo2_pct    = COALESCE(EXCLUDED.spo2_pct, health_spo2_snapshots.spo2_pct),
-			source_type = EXCLUDED.source_type
+			source_type = CASE
+						WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(health_spo2_snapshots.source_type)
+						THEN EXCLUDED.source_type
+						ELSE health_spo2_snapshots.source_type
+					END
 	`, s.UserID, s.MeasuredAtUTC, s.SpO2Pct, s.SourceType, s.ExtraData)
 	return err
 }
@@ -681,7 +713,11 @@ func (db *DB) UpsertHealthBloodPressure(ctx context.Context, s *model.HealthBloo
 			systolic    = COALESCE(EXCLUDED.systolic,   health_blood_pressure.systolic),
 			diastolic   = COALESCE(EXCLUDED.diastolic,  health_blood_pressure.diastolic),
 			pulse       = COALESCE(EXCLUDED.pulse,      health_blood_pressure.pulse),
-			source_type = EXCLUDED.source_type
+			source_type = CASE
+						WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(health_blood_pressure.source_type)
+						THEN EXCLUDED.source_type
+						ELSE health_blood_pressure.source_type
+					END
 	`, s.UserID, s.MeasuredAtUTC, s.Systolic, s.Diastolic, s.Pulse, s.SourceType, s.ExtraData)
 	return err
 }
@@ -743,7 +779,11 @@ func (db *DB) UpsertHealthFitnessAge(ctx context.Context, s *model.HealthFitness
 		) VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (user_id, calendar_date) DO UPDATE SET
 			fitness_age = COALESCE(EXCLUDED.fitness_age, health_fitness_age.fitness_age),
-			source_type = EXCLUDED.source_type
+			source_type = CASE
+						WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(health_fitness_age.source_type)
+						THEN EXCLUDED.source_type
+						ELSE health_fitness_age.source_type
+					END
 	`, s.UserID, s.CalendarDate, s.FitnessAge, s.SourceType, s.ExtraData)
 	return err
 }
