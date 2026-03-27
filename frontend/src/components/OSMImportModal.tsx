@@ -66,6 +66,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
   const [activeContinent, setActiveContinent] = useState(initialContinent ?? 'Europa')
   const [buildBRouter, setBuildBRouter] = useState(true)
   const [runEnrichment, setRunEnrichment] = useState(true)
+  const [buildCoverage, setBuildCoverage] = useState(false)
   const [buildTiles, setBuildTiles] = useState(false)
   const tilesDisabled = !runEnrichment
   // buildTopology removed: pgRouting 4.0+ removed pgr_createTopology
@@ -248,6 +249,16 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                 <span className="text-neutral-700 dark:text-neutral-300">Route-Membership berechnen</span>
                 <span className="text-xs text-neutral-400">(Radrouten/Wanderrouten-Zugehörigkeit)</span>
               </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={buildCoverage}
+                  onChange={e => setBuildCoverage(e.target.checked)}
+                  className="accent-accent-DEFAULT"
+                />
+                <span className="text-neutral-700 dark:text-neutral-300">Coverage-Grids bauen</span>
+                <span className="text-xs text-neutral-400">(Wald, Lärm, Verkehr — für Karten-Overlays)</span>
+              </label>
               <label className={`flex items-center gap-2 text-sm ${tilesDisabled ? 'opacity-40' : ''}`}>
                 <input
                   type="checkbox"
@@ -304,6 +315,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                   categories: selectedCategories,
                   build_brouter: buildBRouter,
                   run_enrichment: runEnrichment,
+                  build_coverage: buildCoverage,
                   build_tiles: buildTiles && runEnrichment,
                 })
               }}
