@@ -11,6 +11,13 @@ const DEV_AUTH = import.meta.env.VITE_DEV_AUTH === 'true'
 // Dev mock token (valid-looking JWT structure, not a real secret)
 const DEV_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJkZXYtdXNlciIsImV4cCI6OTk5OTk5OTk5OX0.dev'
 
+if (DEV_AUTH && !import.meta.env.DEV) {
+  console.error(
+    '[auth] CRITICAL: VITE_DEV_AUTH is enabled in a non-dev build. ' +
+    'This bypasses all authentication. Remove VITE_DEV_AUTH from your production environment.',
+  )
+}
+
 export function getToken(): string | null {
   if (DEV_AUTH && accessToken === null) {
     accessToken = DEV_TOKEN
@@ -151,4 +158,30 @@ export async function apiFetch(input: string, init?: RequestInit): Promise<Respo
   }
 
   return res
+}
+
+/**
+ * Registers a visibilitychange listener that proactively refreshes the access
+ * token when the user returns to the tab after a long absence. Prevents the
+ * "eternal spinner" scenario where the token expired while the tab was frozen.
+ * Call once at app startup (main.tsx).
+ */
+export function initVisibilityRefresh(): void {
+  if (DEV_AUTH) return
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return
+
+    const token = accessToken
+    if (!token) return
+
+    const payload = parseJwtPayload(token)
+    if (!payload?.exp) return
+
+    const nowSec = Math.floor(Date.now() / 1000)
+    // Refresh if the token has expired or will expire within the next 60 seconds
+    if (payload.exp - nowSec <= 60) {
+      void refreshToken()
+    }
+  })
 }

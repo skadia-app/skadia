@@ -111,7 +111,7 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
         password: password || undefined,
       }),
     onSuccess: (data) => {
-      if ((data as { status?: string }).status === 'email_exists') {
+      if (data.status === 'email_exists') {
         addToast({ type: 'error', title: getAuthErrorMessage('email_exists'), duration: 0 })
         return
       }
@@ -196,7 +196,7 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
           </button>
           <button
             type="submit"
-            disabled={mutation.isPending || !email || !username}
+            disabled={mutation.isPending || !email || !username || (password.length > 0 && password.length < 10)}
             className="flex cursor-pointer items-center gap-2 rounded-lg bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}

@@ -6,6 +6,7 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import 'maplibre-gl-draw/dist/mapbox-gl-draw.css'
 import App from './App'
+import { initVisibilityRefresh } from './lib/auth'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,6 +20,8 @@ const queryClient = new QueryClient({
 
 const root = document.getElementById('root')
 if (!root) throw new Error('Root element not found')
+
+initVisibilityRefresh()
 
 createRoot(root).render(
   <StrictMode>
