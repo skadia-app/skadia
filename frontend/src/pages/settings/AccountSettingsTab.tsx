@@ -245,6 +245,7 @@ function EmailSection() {
 function PasswordSection() {
   const { hasPassword, mustChangePassword } = useUser()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { addToast } = useToast()
   const [currentPw, setCurrentPw] = useState('')
   const [newPw, setNewPw] = useState('')
@@ -253,6 +254,7 @@ function PasswordSection() {
   const mutation = useMutation({
     mutationFn: () => changePassword(hasPassword ? currentPw : '', newPw),
     onSuccess: () => {
+      queryClient.removeQueries({ queryKey: ['me'] })
       clearToken()
       navigate('/login?message=password_changed', { replace: true })
     },
