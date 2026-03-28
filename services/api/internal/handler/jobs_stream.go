@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,47 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
+
+const maxSSEErrorLen = 200
+
+func (h *Handler) collectJobsPayload(ctx context.Context, userID string, includeCounts bool) ([]byte, error) {
+	jobs, err := h.DB.ListActiveBackgroundJobs(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if garminJobs, err := h.DB.ListActiveGarminImportJobs(ctx, userID); err == nil {
+		jobs = append(jobs, garminJobs...)
+	}
+	if stravaJobs, err := h.DB.ListActiveStravaImportJobs(ctx, userID); err == nil {
+		jobs = append(jobs, stravaJobs...)
+	}
+
+	for i := range jobs {
+		if jobs[i].Error != nil && len(*jobs[i].Error) > maxSSEErrorLen {
+			truncated := (*jobs[i].Error)[:maxSSEErrorLen] + "…"
+			jobs[i].Error = &truncated
+		}
+	}
+
+	payload := map[string]any{
+		"jobs": jobs,
+	}
+
+	if includeCounts {
+		if pending, err := h.DB.CountPendingEnrichments(ctx, userID); err == nil {
+			payload["pending_enrichments"] = pending
+		} else {
+			slog.Warn("SSE: count pending enrichments failed", "error", err)
+		}
+		if unread, err := h.DB.GetUnreadCount(ctx, userID); err == nil {
+			payload["unread_notifications"] = unread
+		} else {
+			slog.Warn("SSE: get unread notification count failed", "error", err)
+		}
+	}
+
+	return json.Marshal(payload)
+}
 
 // StreamJobProgress streams enrichment progress via Server-Sent Events.
 //
@@ -32,27 +74,36 @@ func (h *Handler) StreamJobProgress(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	// Initiale Jobs senden bevor wir subscriben, damit der Client sofort Daten hat.
-	if jobs, err := h.DB.ListActiveBackgroundJobs(r.Context(), userID); err == nil && len(jobs) > 0 {
-		data, _ := json.Marshal(jobs)
+	// Initial send — always include counts so the client has full data immediately.
+	if data, err := h.collectJobsPayload(r.Context(), userID, true); err == nil {
 		fmt.Fprintf(w, "event: init\ndata: %s\n\n", data)
 		flusher.Flush()
 	}
 
 	if h.Events == nil {
-		// NATS nicht konfiguriert — re-send job list periodically.
 		jobTicker := time.NewTicker(5 * time.Second)
 		defer jobTicker.Stop()
+		keepaliveTicker := time.NewTicker(30 * time.Second)
+		defer keepaliveTicker.Stop()
+		var tickCount int
 		for {
 			select {
 			case <-r.Context().Done():
 				return
 			case <-jobTicker.C:
-				if jobs, err := h.DB.ListActiveBackgroundJobs(r.Context(), userID); err == nil {
-					data, _ := json.Marshal(jobs)
-					fmt.Fprintf(w, "event: init\ndata: %s\n\n", data)
+				tickCount++
+				includeCounts := tickCount%6 == 0
+				if data, err := h.collectJobsPayload(r.Context(), userID, includeCounts); err == nil {
+					if _, err := fmt.Fprintf(w, "event: init\ndata: %s\n\n", data); err != nil {
+						return
+					}
 					flusher.Flush()
 				}
+			case <-keepaliveTicker.C:
+				if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
+					return
+				}
+				flusher.Flush()
 			}
 		}
 	}
@@ -74,12 +125,11 @@ func (h *Handler) StreamJobProgress(w http.ResponseWriter, r *http.Request) {
 	}
 	defer sub.Unsubscribe()
 
-	// Re-send job list periodically so the UI picks up status changes
-	// (completed/failed) without relying solely on client-side polling.
 	jobTicker := time.NewTicker(5 * time.Second)
 	defer jobTicker.Stop()
 	keepaliveTicker := time.NewTicker(30 * time.Second)
 	defer keepaliveTicker.Stop()
+	var tickCount int
 
 	for {
 		select {
@@ -101,18 +151,25 @@ func (h *Handler) StreamJobProgress(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			data, _ := json.Marshal(payload)
-			fmt.Fprintf(w, "event: progress\ndata: %s\n\n", data)
+			if _, err := fmt.Fprintf(w, "event: progress\ndata: %s\n\n", data); err != nil {
+				return
+			}
 			flusher.Flush()
 
 		case <-jobTicker.C:
-			if jobs, err := h.DB.ListActiveBackgroundJobs(r.Context(), userID); err == nil {
-				data, _ := json.Marshal(jobs)
-				fmt.Fprintf(w, "event: init\ndata: %s\n\n", data)
+			tickCount++
+			includeCounts := tickCount%6 == 0
+			if data, err := h.collectJobsPayload(r.Context(), userID, includeCounts); err == nil {
+				if _, err := fmt.Fprintf(w, "event: init\ndata: %s\n\n", data); err != nil {
+					return
+				}
 				flusher.Flush()
 			}
 
 		case <-keepaliveTicker.C:
-			fmt.Fprintf(w, ": keepalive\n\n")
+			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
+				return
+			}
 			flusher.Flush()
 		}
 	}
