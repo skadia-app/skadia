@@ -50,6 +50,7 @@ import MergeDialog from '@/components/MergeDialog'
 import MultisportSection from '@/components/MultisportSection'
 import { MultisportMap, type MultisportMapHandle } from '@/components/activity/MultisportMap'
 import MultisportEnrichments from '@/components/activity/MultisportEnrichments'
+import { PiPMap } from '@/components/activity/PiPMap'
 import { StatsGrid } from '@/components/activity/StatsGrid'
 import { RunningDynamicsStats } from '@/components/activity/RunningDynamicsStats'
 import { DataCorrectionsSection } from '@/components/activity/DataCorrections'
@@ -177,6 +178,19 @@ export default function ActivityDetailPage() {
   const [mapFullscreen, setMapFullscreen] = useState(false)
   const [hoveredChildId, setHoveredChildId] = useState<string | null>(null)
   const multisportMapRef = useRef<MultisportMapHandle>(null)
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+  const [mapInView, setMapInView] = useState(true)
+
+  useEffect(() => {
+    const el = mapContainerRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => setMapInView(entry.isIntersecting),
+      { threshold: 0.1 }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
 
   // Per-activity module visibility (persisted in localStorage)
   const [hiddenModules, setHiddenModules] = useState<Set<string>>(() => {
@@ -551,20 +565,22 @@ export default function ActivityDetailPage() {
 
       {/* Map (nicht für Multisport-Parent — die Karte ist oben in der Multisport-Sektion) */}
       {activity.sport_type !== 'multisport' && (
-        <TrackMap
-          activityId={activity.id}
-          streams={streams ?? []}
-          hoverIndex={hoverIndex}
-          sportColor={sportColor(activity.sport_type)}
-          hasGps={activity.has_gps}
-          zoomRange={zoomRange}
-          onMaximize={() => setMapFullscreen(true)}
-          geoTags={geoTags}
-          stops={stops}
-          locationPin={assignedLocationTag && assignedLocationTag.lat != null && assignedLocationTag.lng != null
-            ? { lat: assignedLocationTag.lat, lng: assignedLocationTag.lng, name: assignedLocationTag.name, color: assignedLocationTag.color }
-            : undefined}
-        />
+        <div ref={mapContainerRef}>
+          <TrackMap
+            activityId={activity.id}
+            streams={streams ?? []}
+            hoverIndex={hoverIndex}
+            sportColor={sportColor(activity.sport_type)}
+            hasGps={activity.has_gps}
+            zoomRange={zoomRange}
+            onMaximize={() => setMapFullscreen(true)}
+            geoTags={geoTags}
+            stops={stops}
+            locationPin={assignedLocationTag && assignedLocationTag.lat != null && assignedLocationTag.lng != null
+              ? { lat: assignedLocationTag.lat, lng: assignedLocationTag.lng, name: assignedLocationTag.name, color: assignedLocationTag.color }
+              : undefined}
+          />
+        </div>
       )}
 
       {/* Map fullscreen overlay */}
@@ -687,6 +703,17 @@ export default function ActivityDetailPage() {
 
       {/* Sensors */}
       {sensors && sensors.length > 0 && <SensorList sensors={sensors} />}
+
+      {/* PiP-Karte: erscheint wenn die Hauptkarte nicht sichtbar ist */}
+      {activity.has_gps && activity.sport_type !== 'multisport' && streams && (
+        <PiPMap
+          streams={streams}
+          sportType={activity.sport_type}
+          hoverIndex={hoverIndex}
+          visible={!mapInView}
+          onClickScrollToMap={() => mapContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+        />
+      )}
     </div>
   )
 }
