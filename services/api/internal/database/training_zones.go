@@ -15,8 +15,8 @@ func (db *DB) UpsertTrainingZones(ctx context.Context, zone *model.TrainingZone)
 			user_id, sport, sub_sport, zone_type,
 			max_heart_rate, threshold_heart_rate, functional_threshold_power,
 			hr_calc_type, pwr_calc_type,
-			zone_names, zone_highs, source_type
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			zone_names, zone_highs, source_type, threshold_speed_mps
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (user_id, sport, sub_sport, zone_type) DO UPDATE SET
 			max_heart_rate             = EXCLUDED.max_heart_rate,
 			threshold_heart_rate       = EXCLUDED.threshold_heart_rate,
@@ -25,6 +25,7 @@ func (db *DB) UpsertTrainingZones(ctx context.Context, zone *model.TrainingZone)
 			pwr_calc_type              = EXCLUDED.pwr_calc_type,
 			zone_names                 = EXCLUDED.zone_names,
 			zone_highs                 = EXCLUDED.zone_highs,
+			threshold_speed_mps        = EXCLUDED.threshold_speed_mps,
 			source_type = CASE
 				WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(training_zones.source_type)
 				THEN EXCLUDED.source_type
@@ -34,7 +35,7 @@ func (db *DB) UpsertTrainingZones(ctx context.Context, zone *model.TrainingZone)
 	`, zone.UserID, zone.Sport, zone.SubSport, zone.ZoneType,
 		zone.MaxHeartRate, zone.ThresholdHeartRate, zone.FunctionalThresholdPower,
 		zone.HrCalcType, zone.PwrCalcType,
-		zone.ZoneNames, zone.ZoneHighs, zone.SourceType)
+		zone.ZoneNames, zone.ZoneHighs, zone.SourceType, zone.ThresholdSpeedMps)
 	return err
 }
 
@@ -43,6 +44,7 @@ func (db *DB) GetTrainingZones(ctx context.Context, userID string, sport, subSpo
 	query := `
 		SELECT id, user_id, sport, sub_sport, zone_type,
 		       max_heart_rate, threshold_heart_rate, functional_threshold_power,
+		       threshold_speed_mps,
 		       hr_calc_type, pwr_calc_type,
 		       zone_names, zone_highs, source_type, created_at, updated_at
 		FROM training_zones
@@ -71,6 +73,7 @@ func (db *DB) GetTrainingZones(ctx context.Context, userID string, sport, subSpo
 		if err := rows.Scan(
 			&z.ID, &z.UserID, &z.Sport, &z.SubSport, &z.ZoneType,
 			&z.MaxHeartRate, &z.ThresholdHeartRate, &z.FunctionalThresholdPower,
+			&z.ThresholdSpeedMps,
 			&z.HrCalcType, &z.PwrCalcType,
 			&z.ZoneNames, &z.ZoneHighs, &z.SourceType, &z.CreatedAt, &z.UpdatedAt,
 		); err != nil {
