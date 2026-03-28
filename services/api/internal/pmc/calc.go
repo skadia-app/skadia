@@ -21,6 +21,8 @@ var (
 
 // EstimateTSS estimates Training Stress Score from activity data.
 // Power-based TSS is preferred; falls back to HR-based estimation.
+//
+// Deprecated: replaced by pmc.ComputeTSS pipeline. Kept as reference.
 func EstimateTSS(avgPowerW *float64, ftpW float64, avgHR *float64, maxHR float64, movingTimeS int) float64 {
 	if avgPowerW != nil && *avgPowerW > 0 && ftpW > 0 {
 		intensityFactor := *avgPowerW / ftpW
@@ -87,17 +89,14 @@ func Calculate(from, to time.Time, dailyTSS map[string]float64, previousCTL, pre
 
 		tss := dailyTSS[dateStr]
 
-		// TSB uses yesterday's CTL and ATL
+		// TSB = yesterday's CTL - yesterday's ATL (readiness at start of today,
+		// before today's training). CTL/ATL are then updated with today's TSS.
+		// This mixed temporal semantics is intentional (Banister convention).
 		tsb := ctl - atl
 
 		// Exponential weighted moving average
 		ctl = ctl*ctlDecay + tss*ctlFactor
 		atl = atl*atlDecay + tss*atlFactor
-
-		var acwr float64
-		if ctl > 0 {
-			acwr = math.Round(atl/ctl*100) / 100
-		}
 
 		result = append(result, model.PMCDay{
 			Date: dateStr,
@@ -105,7 +104,6 @@ func Calculate(from, to time.Time, dailyTSS map[string]float64, previousCTL, pre
 			CTL:  math.Round(ctl*100) / 100,
 			ATL:  math.Round(atl*100) / 100,
 			TSB:  math.Round(tsb*100) / 100,
-			ACWR: acwr,
 		})
 	}
 
