@@ -3,13 +3,16 @@ import { fmtDuration } from '@/lib/format'
 
 const EXERCISE_LABELS: Record<number, string> = {
   0: 'Bankdrücken', 1: 'Wadenheben', 2: 'Cardio', 3: 'Tragen',
+  4: 'Bauchmuskel-Crunch',
   5: 'Core / Rumpf', 6: 'Crunches', 7: 'Curls', 8: 'Kreuzheben',
-  9: 'Fliegende', 10: 'Hüftheben', 13: 'Rückenstrecker', 14: 'Seitheben',
+  9: 'Fliegende', 10: 'Hüftheben', 11: 'Fliegende (Maschine)', 12: 'Hüftheben',
+  13: 'Rückenstrecker', 14: 'Seitheben',
   15: 'Beinbeuger', 16: 'Beinheben', 17: 'Ausfallschritt',
   18: 'Olympisches Heben', 19: 'Plank', 20: 'Plyometrie',
   21: 'Klimmzug', 22: 'Liegestütz', 23: 'Rudern (Übung)',
-  24: 'Schulterdrücken', 26: 'Schulterheben', 27: 'Sit-Ups',
+  24: 'Schulterdrücken', 25: 'Schulterstabilität', 26: 'Schulterheben', 27: 'Sit-Ups',
   28: 'Kniebeuge', 29: 'Ganzkörper', 30: 'Trizepsdrücken', 31: 'Aufwärmen',
+  32: 'Suspension', 33: 'Kettlebell', 34: 'Langhantel', 35: 'Kurzhantel',
 }
 
 function exerciseLabel(categories: number[] | undefined): string {
