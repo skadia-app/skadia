@@ -3,6 +3,7 @@ import * as echarts from 'echarts/core'
 import { useECharts } from '@/hooks/useECharts'
 import { LineChart } from 'echarts/charts'
 import { getSegmentGroup } from '@/lib/sportTaxonomy'
+import { fieldLabel, fieldUnit, formatPace, formatPace100m, formatPace500m, type FieldKey } from '@/lib/sportFieldLabels'
 import {
   GridComponent,
   TooltipComponent,
@@ -41,7 +42,7 @@ const SUNSET_SVG = "image://data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type FieldKey = 'altitude' | 'heartRate' | 'power' | 'cadence' | 'speed' | 'temperature' | 'groundContactTime' | 'verticalOscillation' | 'stepLength'
+// FieldKey imported from sportFieldLabels.ts
 type XMode = 'distance' | 'time'
 
 type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'runningDynamics' | 'stepLength' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth'
@@ -498,29 +499,36 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   )
   if (show('cadence') && hasValidData(data.cadence)) panels.push(
     <ChartPanel key={k('cadence')} chartId="cadence" {...common}
-      field="cadence" label="Kadenz" unit="rpm" color="#f97316" />,
+      field="cadence" label={sportType ? fieldLabel('cadence', sportType) : 'Kadenz'} unit={sportType ? fieldUnit('cadence', sportType) : 'rpm'} color="#f97316" />,
   )
   if (show('speed') && hasValidData(data.speed)) {
     if (speedMode === 'pace') {
-      // Convert m/s → min/km for pace display (inverted Y: higher value = slower)
+      // Sport-aware pace conversion
+      const sg = sportType ? getSegmentGroup(sportType) : 'foot'
+      const isRowingSport = sportType === 'rowing'
+      const isSwimSport = sg === 'swim'
+      const divisor = isRowingSport ? 500 : isSwimSport ? 100 : 1000
+      const paceUnit = isRowingSport ? 'min/500m' : isSwimSport ? 'min/100m' : 'min/km'
+      const paceLabel = isRowingSport ? '500-m-Pace' : sportType ? fieldLabel('speed', sportType) : 'Pace'
+
       const paceValues = data.speedMs.map(ms =>
-        ms > 0 && isFinite(ms) ? 1000 / ms / 60 : NaN,
+        ms > 0 && isFinite(ms) ? divisor / ms / 60 : NaN,
       )
-      const paceFmt = (minPerKm: number): string => {
-        if (isNaN(minPerKm) || !isFinite(minPerKm)) return '—'
-        const min = Math.floor(minPerKm)
-        const sec = Math.round((minPerKm - min) * 60)
-        return `${min}:${sec.toString().padStart(2, '0')}\u202fmin/km`
+      const paceFmt = (minPer: number): string => {
+        if (isNaN(minPer) || !isFinite(minPer)) return '—'
+        const min = Math.floor(minPer)
+        const sec = Math.round((minPer - min) * 60)
+        return `${min}:${sec.toString().padStart(2, '0')}\u202f${paceUnit}`
       }
       panels.push(
         <ChartPanel key={k('speed-pace')} chartId="speed" {...common}
-          field="speed" label="Pace" unit="min/km" color="#3b82f6"
+          field="speed" label={paceLabel} unit={paceUnit} color="#3b82f6"
           overrideValues={paceValues} invertY tooltipValueFn={paceFmt} />,
       )
     } else {
       panels.push(
         <ChartPanel key={k('speed')} chartId="speed" {...common}
-          field="speed" label="Geschwindigkeit" unit="km/h" color="#3b82f6" />,
+          field="speed" label={sportType ? fieldLabel('speed', sportType) : 'Geschwindigkeit'} unit="km/h" color="#3b82f6" />,
       )
     }
   }

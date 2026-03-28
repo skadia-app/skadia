@@ -1,6 +1,6 @@
 import type { Lap } from '@/api/types'
 import { fmtDuration, fmtDist } from '@/lib/format'
-import { formatSpeedValue, fieldLabel, fieldUnit } from '@/lib/sportFieldLabels'
+import { formatSpeedValue, fieldLabel, fieldUnit, swimStrokeLabel } from '@/lib/sportFieldLabels'
 import { getSegmentGroup } from '@/lib/sportTaxonomy'
 
 interface Props {
@@ -75,16 +75,4 @@ export default function LapTable({ laps, sportType, speedMode }: Props) {
   )
 }
 
-function swimStrokeLabel(stroke?: string): string {
-  if (!stroke) return '--'
-  const labels: Record<string, string> = {
-    freestyle: 'Kraul',
-    backstroke: 'Ruecken',
-    breaststroke: 'Brust',
-    butterfly: 'Schmetterling',
-    drill: 'Drill',
-    mixed: 'Gemischt',
-    im: 'Lagen',
-  }
-  return labels[stroke] ?? stroke
-}
+// swimStrokeLabel imported from sportFieldLabels

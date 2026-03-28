@@ -220,3 +220,23 @@ export function formatFieldValue(field: FieldKey, value: number, sportType: stri
 export function cyclesLabel(sportType: string): string | null {
   return CYCLES_LABELS[getSegmentGroup(sportType)]?.label ?? null
 }
+
+// ── Swim Stroke Labels ──────────────────────────────────────────────────────────
+
+const SWIM_STROKE_LABELS: Record<string, string> = {
+  freestyle: 'Kraul',
+  backstroke: 'Rücken',
+  breaststroke: 'Brust',
+  butterfly: 'Schmetterling',
+  drill: 'Technik',
+  mixed: 'Gemischt',
+  im: 'Lagen',
+  im_by_round: 'Lagen (Runde)',
+  rimo: 'Lagen (umgekehrt)',
+}
+
+/** Deutsches Label für einen Schwimm-Stil. Fallback: raw key. */
+export function swimStrokeLabel(stroke?: string): string {
+  if (!stroke) return '--'
+  return SWIM_STROKE_LABELS[stroke] ?? stroke
+}

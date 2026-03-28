@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { StreamPoint } from '@/api/types'
-import { sportColor } from '@/lib/utils'
+import { sportColor } from '@/lib/sportTaxonomy'
 
 interface Props {
   streams: StreamPoint[]
@@ -18,7 +18,15 @@ export function PiPMap({ streams, sportType, hoverIndex, visible, onClickScrollT
     for (const s of streams) {
       if (s.lat != null && s.lng != null) pts.push({ lat: s.lat, lng: s.lng })
     }
-    return pts
+    // Downsample to max ~800 points for SVG performance
+    if (pts.length <= 800) return pts
+    const step = pts.length / 800
+    const result: { lat: number; lng: number }[] = []
+    for (let i = 0; i < pts.length; i = Math.round(i + step)) {
+      result.push(pts[i])
+    }
+    if (result[result.length - 1] !== pts[pts.length - 1]) result.push(pts[pts.length - 1])
+    return result
   }, [streams])
 
   if (dismissed || !visible || coords.length < 2) return null
