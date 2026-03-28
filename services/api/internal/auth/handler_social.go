@@ -20,6 +20,7 @@ import (
 	"golang.org/x/oauth2/google"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
@@ -59,18 +60,18 @@ func (h *Handler) SocialLogin(w http.ResponseWriter, r *http.Request) {
 	switch provider {
 	case "strava":
 		if h.Config.StravaClientID == "" {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not configured"})
+			httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "provider not configured"})
 			return
 		}
 		oauthCfg = h.stravaOAuthConfig()
 	case "google":
 		if h.Config.GoogleClientID == "" {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not configured"})
+			httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "provider not configured"})
 			return
 		}
 		oauthCfg = h.googleOAuthConfig()
 	default:
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown provider"})
+		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "unknown provider"})
 		return
 	}
 
@@ -78,7 +79,7 @@ func (h *Handler) SocialLogin(w http.ResponseWriter, r *http.Request) {
 	state, err := GenerateToken()
 	if err != nil {
 		slog.Error("generate oauth state failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 

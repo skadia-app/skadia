@@ -14,6 +14,7 @@ import (
 	"github.com/alexedwards/argon2id"
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
@@ -62,18 +63,18 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
 
 	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 
 	if req.Email == "" || req.Password == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email_and_password_required"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "email_and_password_required"})
 		return
 	}
 	if _, err := mail.ParseAddress(req.Email); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_email"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_email"})
 		return
 	}
 
@@ -97,13 +98,13 @@ func (h *Handler) authenticateUser(w http.ResponseWriter, r *http.Request, email
 	// Password max length guard (prevent argon2id DoS).
 	if len(password) > 1000 {
 		_, _ = argon2id.ComparePasswordAndHash(password[:100], GetDummyHash())
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
 		return nil
 	}
 
 	// 1. Per-email rate limit (5/15min).
 	if !h.RL.Allow("login-email:"+email, 5.0/900, 5) {
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too_many_requests"})
+		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "too_many_requests"})
 		return nil
 	}
 
@@ -112,14 +113,14 @@ func (h *Handler) authenticateUser(w http.ResponseWriter, r *http.Request, email
 	if err != nil {
 		// User not found — timing equalization.
 		_, _ = argon2id.ComparePasswordAndHash(password, GetDummyHash())
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
 		return nil
 	}
 
 	// 3. Check is_active BEFORE password verify (I21 fix — no info leak with timing equalization).
 	if !user.IsActive {
 		_, _ = argon2id.ComparePasswordAndHash(password, GetDummyHash())
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
 		return nil
 	}
 
@@ -128,14 +129,14 @@ func (h *Handler) authenticateUser(w http.ResponseWriter, r *http.Request, email
 		_, _ = argon2id.ComparePasswordAndHash(password, GetDummyHash())
 		retryAfter := int(time.Until(*user.LoginDelayUntil).Seconds()) + 1
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "account_delayed"})
+		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "account_delayed"})
 		return nil
 	}
 
 	// 5. No password set (OAuth-only user).
 	if user.PasswordHash == nil {
 		_, _ = argon2id.ComparePasswordAndHash(password, GetDummyHash())
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
 		return nil
 	}
 
@@ -144,7 +145,7 @@ func (h *Handler) authenticateUser(w http.ResponseWriter, r *http.Request, email
 	if err != nil || !match {
 		_ = h.DB.UpdateLoginFailure(r.Context(), user.ID)
 		go h.DB.LogAuthEvent(h.shutdownCtx, user.ID, "login_failure", middleware.ClientIP(r), r.UserAgent(), nil)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
 		return nil
 	}
 
@@ -166,7 +167,7 @@ func (h *Handler) issueTokensAndRespond(w http.ResponseWriter, r *http.Request, 
 	jwtToken, err := IssueJWT(user.ID, user.IsAdmin, user.EmailVerified, user.MustChangePassword, h.secret)
 	if err != nil {
 		slog.Error("issue JWT failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -174,7 +175,7 @@ func (h *Handler) issueTokensAndRespond(w http.ResponseWriter, r *http.Request, 
 	token, err := GenerateToken()
 	if err != nil {
 		slog.Error("generate refresh token failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -182,7 +183,7 @@ func (h *Handler) issueTokensAndRespond(w http.ResponseWriter, r *http.Request, 
 	familyID, err := GenerateFamily()
 	if err != nil {
 		slog.Error("generate family ID failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 	ip := net.ParseIP(middleware.ClientIP(r))
@@ -190,7 +191,7 @@ func (h *Handler) issueTokensAndRespond(w http.ResponseWriter, r *http.Request, 
 	if err := h.DB.CreateRefreshToken(r.Context(), user.ID, familyID, tokenHash,
 		r.UserAgent(), ip, time.Now().Add(RefreshTokenExpiry)); err != nil {
 		slog.Error("create refresh token failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -209,17 +210,6 @@ func (h *Handler) issueTokensAndRespond(w http.ResponseWriter, r *http.Request, 
 	if user.MustChangePassword {
 		resp["must_change_password"] = true
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httputil.WriteJSONNoCache(w, http.StatusOK, resp)
 }
 
-// writeJSON writes a JSON response with the given status code.
-// All auth responses include Cache-Control: no-store to prevent caching
-// of tokens, credentials, and security-sensitive data.
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		slog.Error("writeJSON encode failed", "error", err)
-	}
-}

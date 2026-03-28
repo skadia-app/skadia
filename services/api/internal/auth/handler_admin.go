@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -70,7 +71,7 @@ func (h *Handler) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 	countQuery := `SELECT count(*) FROM users WHERE ` + whereClause
 	if err := h.DB.Pool.QueryRow(r.Context(), countQuery, escapedSearch, status).Scan(&total); err != nil {
 		slog.Error("admin list users count failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -84,7 +85,7 @@ LIMIT $3 OFFSET $4`
 	rows, err := h.DB.Pool.Query(r.Context(), query, escapedSearch, status, limit, offset)
 	if err != nil {
 		slog.Error("admin list users failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 	defer rows.Close()
@@ -95,18 +96,18 @@ LIMIT $3 OFFSET $4`
 		if err := rows.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.IsAdmin, &u.IsActive,
 			&u.EmailVerified, &u.RegistrationSource, &u.LastLoginAt, &u.CreatedAt, &u.DeletedAt); err != nil {
 			slog.Error("admin list users scan failed", "error", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
 		users = append(users, u)
 	}
 	if err := rows.Err(); err != nil {
 		slog.Error("admin list users rows error", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]any{
 		"users":  users,
 		"total":  total,
 		"limit":  limit,
@@ -118,13 +119,13 @@ LIMIT $3 OFFSET $4`
 func (h *Handler) AdminActivateUser(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "id")
 	if _, err := uuid.Parse(userID); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
 		return
 	}
 
 	if err := h.DB.SetUserActive(r.Context(), userID, true); err != nil {
 		slog.Error("admin activate user failed", "error", err, "user_id", userID)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -136,26 +137,26 @@ func (h *Handler) AdminActivateUser(w http.ResponseWriter, r *http.Request) {
 	adminID := middleware.GetUserID(r.Context())
 	go h.DB.LogAuthEvent(h.shutdownCtx, adminID, "admin_activate_user", middleware.ClientIP(r), r.UserAgent(), map[string]string{"target_user_id": userID})
 	slog.Info("admin activated user", "user_id", userID, "admin_id", adminID)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "activated"})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "activated"})
 }
 
 // AdminDeactivateUser handles POST /admin/users/{id}/deactivate.
 func (h *Handler) AdminDeactivateUser(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "id")
 	if _, err := uuid.Parse(userID); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
 		return
 	}
 
 	adminID := middleware.GetUserID(r.Context())
 	if userID == adminID {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cannot_deactivate_self"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "cannot_deactivate_self"})
 		return
 	}
 
 	if err := h.DB.SetUserActive(r.Context(), userID, false); err != nil {
 		slog.Error("admin deactivate user failed", "error", err, "user_id", userID)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -166,7 +167,7 @@ func (h *Handler) AdminDeactivateUser(w http.ResponseWriter, r *http.Request) {
 
 	go h.DB.LogAuthEvent(h.shutdownCtx, adminID, "admin_deactivate_user", middleware.ClientIP(r), r.UserAgent(), map[string]string{"target_user_id": userID})
 	slog.Info("admin deactivated user", "user_id", userID, "admin_id", adminID)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deactivated"})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "deactivated"})
 }
 
 // adminSessionEntry is the JSON response shape for admin session listings.
@@ -183,7 +184,7 @@ type adminSessionEntry struct {
 func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "id")
 	if _, err := uuid.Parse(userID); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
 		return
 	}
 
@@ -206,7 +207,7 @@ func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) 
 		 ORDER BY created_at DESC LIMIT $2 OFFSET $3`, userID, limit, offset)
 	if err != nil {
 		slog.Error("admin list user sessions failed", "error", err, "user_id", userID)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 	defer rows.Close()
@@ -217,38 +218,38 @@ func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) 
 		if err := rows.Scan(&s.FamilyID, &s.UserAgent, &s.IPAddress,
 			&s.CreatedAt, &s.ExpiresAt, &s.Revoked); err != nil {
 			slog.Error("admin list user sessions scan failed", "error", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
 		sessions = append(sessions, s)
 	}
 	if err := rows.Err(); err != nil {
 		slog.Error("admin list user sessions rows error", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]any{"sessions": sessions})
 }
 
 // AdminRevokeUserSessions handles POST /admin/users/{id}/revoke-sessions.
 func (h *Handler) AdminRevokeUserSessions(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "id")
 	if _, err := uuid.Parse(userID); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
 		return
 	}
 
 	if err := h.DB.RevokeAllUserTokens(r.Context(), userID); err != nil {
 		slog.Error("admin revoke user sessions failed", "error", err, "user_id", userID)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
 	adminID := middleware.GetUserID(r.Context())
 	go h.DB.LogAuthEvent(h.shutdownCtx, adminID, "admin_revoke_sessions", middleware.ClientIP(r), r.UserAgent(), map[string]string{"target_user_id": userID})
 	slog.Info("admin revoked all sessions", "user_id", userID, "admin_id", adminID)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "sessions_revoked"})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "sessions_revoked"})
 }
 
 // AdminResetPassword handles POST /admin/users/{id}/reset-password.
@@ -258,7 +259,7 @@ func (h *Handler) AdminRevokeUserSessions(w http.ResponseWriter, r *http.Request
 func (h *Handler) AdminResetPassword(w http.ResponseWriter, r *http.Request) {
 	targetID := chi.URLParam(r, "id")
 	if _, err := uuid.Parse(targetID); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
 		return
 	}
 
@@ -267,13 +268,13 @@ func (h *Handler) AdminResetPassword(w http.ResponseWriter, r *http.Request) {
 		SendEmail bool    `json:"send_email"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
 
 	targetUser, err := h.DB.GetUserByID(r.Context(), targetID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user_not_found"})
+		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "user_not_found"})
 		return
 	}
 
@@ -282,31 +283,31 @@ func (h *Handler) AdminResetPassword(w http.ResponseWriter, r *http.Request) {
 
 	if req.Password != nil {
 		if len(*req.Password) < 10 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_short"})
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "password_too_short"})
 			return
 		}
 		if len(*req.Password) > 1000 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
 			return
 		}
 		// HIBP-Check — only block if definitively compromised; network errors are non-fatal.
 		compromised, err := CheckHIBP(*req.Password)
 		if err == nil && compromised {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_compromised"})
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "password_compromised"})
 			return
 		}
 		hash, err := argon2id.CreateHash(*req.Password, GetArgon2Params())
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
 		if err := h.DB.UpdatePassword(r.Context(), targetID, hash); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
 		if _, err := h.DB.Pool.Exec(r.Context(),
 			`UPDATE users SET must_change_password = true WHERE id = $1`, targetID); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
 		if err := h.DB.RevokeAllUserTokens(r.Context(), targetID); err != nil {
@@ -315,35 +316,35 @@ func (h *Handler) AdminResetPassword(w http.ResponseWriter, r *http.Request) {
 		go h.DB.LogAuthEvent(h.shutdownCtx, adminID, "admin_reset_password", ip, r.UserAgent(),
 			map[string]string{"target_user_id": targetID, "method": "password"})
 		slog.Info("admin reset password (direct)", "target_user_id", targetID, "admin_id", adminID)
-		writeJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
+		httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "password_reset"})
 
 	} else if req.SendEmail {
 		if h.Config.SMTPHost == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "smtp_not_configured"})
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "smtp_not_configured"})
 			return
 		}
 		if targetUser.Email == nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user_has_no_email"})
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "user_has_no_email"})
 			return
 		}
 		token, err := GenerateToken()
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
 		if err := h.DB.CreateEmailToken(r.Context(), uuid.MustParse(targetID),
 			HashToken(token), "reset", time.Now().Add(1*time.Hour)); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
 		go h.Mailer.SendResetEmail(*targetUser.Email, targetUser.Username, token)
 		go h.DB.LogAuthEvent(h.shutdownCtx, adminID, "admin_reset_password", ip, r.UserAgent(),
 			map[string]string{"target_user_id": targetID, "method": "email"})
 		slog.Info("admin reset password (email)", "target_user_id", targetID, "admin_id", adminID)
-		writeJSON(w, http.StatusOK, map[string]string{"status": "reset_email_sent"})
+		httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "reset_email_sent"})
 
 	} else {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 	}
 }
 
@@ -361,7 +362,7 @@ func (h *Handler) AdminAuditLog(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("from"); v != "" {
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_from_timestamp"})
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_from_timestamp"})
 			return
 		}
 		from = &t
@@ -369,7 +370,7 @@ func (h *Handler) AdminAuditLog(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("to"); v != "" {
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_to_timestamp"})
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_to_timestamp"})
 			return
 		}
 		to = &t
@@ -378,10 +379,10 @@ func (h *Handler) AdminAuditLog(w http.ResponseWriter, r *http.Request) {
 	entries, total, err := h.DB.GetAuditLog(r.Context(), eventType, userID, from, to, limit, offset)
 	if err != nil {
 		slog.Error("admin audit log query failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]any{
 		"entries": entries,
 		"total":   total,
 		"limit":   limit,

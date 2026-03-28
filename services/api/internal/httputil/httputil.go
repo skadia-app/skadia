@@ -23,6 +23,14 @@ func WriteJSON(w http.ResponseWriter, status int, data any) {
 	}
 }
 
+// WriteJSONNoCache writes a JSON response with Cache-Control: no-store.
+// Use this for all auth endpoints to prevent caching of tokens, credentials,
+// and other security-sensitive data.
+func WriteJSONNoCache(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Cache-Control", "no-store")
+	WriteJSON(w, status, v)
+}
+
 // WriteError writes an RFC 7807 problem detail response.
 func WriteError(w http.ResponseWriter, status int, title, detail, instance string) {
 	problem := model.ProblemDetail{
