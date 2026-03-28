@@ -82,6 +82,7 @@ interface ChartData {
   motorPower: number[]
   batteryLevel: number[]
   travelRange: number[]
+  depth: number[]
   maxDist: number
   maxElapsed: number
 }
@@ -109,6 +110,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const motorPower: number[] = []
   const batteryLevel: number[] = []
   const travelRange: number[] = []
+  const depth: number[] = []
 
   const t0 = streams.length > 0 ? new Date(streams[0].time).getTime() : 0
 
@@ -137,6 +139,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     motorPower.push(s.motor_power_w ?? NaN)
     batteryLevel.push(s.ebike_battery_level_pct ?? NaN)
     travelRange.push(s.ebike_travel_range_km ?? NaN)
+    depth.push(s.depth_m ?? NaN)
   }
 
   const validDist = distanceKm.filter(v => !isNaN(v) && isFinite(v))
@@ -144,7 +147,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -571,6 +574,12 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     <ChartPanel key={k('travel-range')} chartId="travel-range" {...common}
       field="power" label="Reichweite" unit="km" color="#6B7280"
       overrideValues={data.travelRange} />,
+  )
+  // Dive: Depth profile — Y axis inverted so surface = top, depth = bottom
+  if (show('depth') && hasValidData(data.depth)) panels.push(
+    <ChartPanel key={k('depth')} chartId="depth" {...common}
+      field="altitude" label="Tiefe" unit="m" color="#3B82F6" area
+      overrideValues={data.depth} invertY />,
   )
 
   if (panels.length === 0) return null
