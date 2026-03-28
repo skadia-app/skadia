@@ -173,3 +173,99 @@ func TestCalcSwimTSS_ZeroInputs(t *testing.T) {
 	if CalcSwimTSS(3000, 0, 1.0) != 0 { t.Error("zero time") }
 	if CalcSwimTSS(3000, 3300, 0) != 0 { t.Error("zero CSS") }
 }
+
+// --- ComputeTSS Orchestrator Tests ---
+
+func TestComputeTSS_PowerPreferred(t *testing.T) {
+	th := &Thresholds{FTP: 200, LTHR: 170, RestingHR: 60, MaxHR: 190,
+		Sources: map[string]string{}}
+	power := make([]float64, 60)
+	hr := make([]int, 60)
+	for i := range power { power[i] = 200; hr[i] = 150 }
+	r := ComputeTSS(2, 0, 3600, nil, nil, nil, power, hr, nil, nil, nil, th)
+	if r.TSSMethod != "power_np" {
+		t.Errorf("method = %s, want power_np", r.TSSMethod)
+	}
+	if r.TRIMP == nil {
+		t.Error("TRIMP should be computed even when power is primary")
+	}
+	if r.ComputedNPW == nil {
+		t.Error("computed NP should be set")
+	}
+	if r.ComputedIF == nil {
+		t.Error("computed IF should be set")
+	}
+}
+
+func TestComputeTSS_FallbackToHrTSS(t *testing.T) {
+	th := &Thresholds{FTP: 200, LTHR: 170, RestingHR: 60, MaxHR: 190,
+		Sources: map[string]string{}}
+	hr := make([]int, 3600)
+	for i := range hr { hr[i] = 150 }
+	r := ComputeTSS(2, 0, 3600, nil, nil, nil, nil, hr, nil, nil, nil, th)
+	if r.TSSMethod != "hr_stream" {
+		t.Errorf("method = %s, want hr_stream", r.TSSMethod)
+	}
+	if r.ComputedIF != nil {
+		t.Error("hrTSS should have nil IF")
+	}
+}
+
+func TestComputeTSS_NoData(t *testing.T) {
+	th := &Thresholds{FTP: 200, LTHR: 170, RestingHR: 60, MaxHR: 190,
+		Sources: map[string]string{}}
+	r := ComputeTSS(2, 0, 3600, nil, nil, nil, nil, nil, nil, nil, nil, th)
+	if r.TSSMethod != "none" {
+		t.Errorf("method = %s, want none", r.TSSMethod)
+	}
+	if r.ComputedTSS != nil {
+		t.Error("no-data should have nil TSS")
+	}
+}
+
+func TestComputeTSS_PowerAvgFallback(t *testing.T) {
+	th := &Thresholds{FTP: 200, LTHR: 170, RestingHR: 60, MaxHR: 190,
+		Sources: map[string]string{}}
+	avgP := 180.0
+	// Short power stream (<30) + avgPower → power_avg
+	r := ComputeTSS(2, 0, 3600, &avgP, nil, nil, make([]float64, 10), nil, nil, nil, nil, th)
+	if r.TSSMethod != "power_avg" {
+		t.Errorf("method = %s, want power_avg", r.TSSMethod)
+	}
+}
+
+func TestComputeTSS_StrengthTraining(t *testing.T) {
+	th := &Thresholds{FTP: 200, LTHR: 170, RestingHR: 60, MaxHR: 190,
+		Sources: map[string]string{}}
+	hr := make([]int, 1800)
+	for i := range hr { hr[i] = 140 }
+	r := ComputeTSS(10, 0, 1800, nil, nil, nil, nil, hr, nil, nil, nil, th)
+	if r.TSSMethod != "hr_stream" {
+		t.Errorf("strength training method = %s, want hr_stream", r.TSSMethod)
+	}
+}
+
+func TestComputeTSS_SwimmingWithCSS(t *testing.T) {
+	css := 1.0
+	th := &Thresholds{FTP: 200, LTHR: 170, RestingHR: 60, MaxHR: 190,
+		SpeedThreshold: &css, Sources: map[string]string{}}
+	dist := 3000.0
+	r := ComputeTSS(5, 0, 3300, nil, nil, &dist, nil, nil, nil, nil, nil, th)
+	if r.TSSMethod != "pace_swim" {
+		t.Errorf("swim method = %s, want pace_swim", r.TSSMethod)
+	}
+	if r.ComputedIF == nil {
+		t.Error("swim should have IF")
+	}
+}
+
+func TestComputeTSS_HrAvgFallback(t *testing.T) {
+	th := &Thresholds{FTP: 200, LTHR: 170, RestingHR: 60, MaxHR: 190,
+		Sources: map[string]string{}}
+	avgHR := 150.0
+	// No streams at all, only avgHR
+	r := ComputeTSS(2, 0, 3600, nil, &avgHR, nil, nil, nil, nil, nil, nil, th)
+	if r.TSSMethod != "hr_avg" {
+		t.Errorf("method = %s, want hr_avg", r.TSSMethod)
+	}
+}
