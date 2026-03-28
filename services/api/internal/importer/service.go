@@ -868,20 +868,55 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 					existingPixels = *matchedPhoto.Width * *matchedPhoto.Height
 				}
 				newPixels := newW * newH
+
+				// Sanitize location_source to values allowed by the DB constraint.
+				locSrc := meta.LocationSource
+				switch locSrc {
+				case "exif", "activity_track", "manual":
+				default:
+					locSrc = ""
+				}
+
 				if newPixels > existingPixels && existingPixels > 0 {
 					slog.Info("importer: phash duplicate with higher resolution, replacing",
 						"photo", matchedPhoto.ID, "old_pixels", existingPixels, "new_pixels", newPixels)
 
-					// Update DB with new dimensions, hash, and file size.
+					// Update file metadata; fill EXIF fields only when existing lacks them (COALESCE: existing wins).
 					if _, execErr := s.DB.Pool.Exec(ctx,
-						`UPDATE activity_photos SET file_size_bytes = $1, file_hash = $2, width = $3, height = $4, phash = $5 WHERE id = $6`,
-						int64(len(photoBytes)), fileHash, newW, newH, pHashVal, matchedPhoto.ID,
+						`UPDATE activity_photos
+						 SET file_size_bytes = $1, file_hash = $2, width = $3, height = $4, phash = $5,
+						     taken_at        = COALESCE(taken_at, $6::timestamptz),
+						     lat             = COALESCE(lat, $7::double precision),
+						     lng             = COALESCE(lng, $8::double precision),
+						     location_source = COALESCE(location_source, NULLIF($9, ''))
+						 WHERE id = $10`,
+						int64(len(photoBytes)), fileHash, newW, newH, pHashVal,
+						meta.TakenAt, meta.Lat, meta.Lng, locSrc,
+						matchedPhoto.ID,
 					); execErr != nil {
 						slog.Error("importer: replace photo metadata failed", "photo", matchedPhoto.ID, "err", execErr)
 						return nil, fmt.Errorf("replace photo metadata in DB: %w", execErr)
 					}
-
 					return &PhotoResult{PhotoID: matchedPhoto.ID, Status: "replaced", PHash: pHashVal}, nil
+				}
+				// EXIF enrichment: new photo has timestamp or GPS that the existing photo lacks.
+				// Returns "duplicate_phash" so callers do not treat this as a new file import.
+				if (meta.TakenAt != nil && matchedPhoto.TakenAt == nil) || (meta.Lat != nil && matchedPhoto.Lat == nil) {
+					slog.Info("importer: phash duplicate, enriching with EXIF metadata", "photo", matchedPhoto.ID)
+					if _, execErr := s.DB.Pool.Exec(ctx,
+						`UPDATE activity_photos
+						 SET taken_at        = COALESCE(taken_at, $1::timestamptz),
+						     lat             = COALESCE(lat, $2::double precision),
+						     lng             = COALESCE(lng, $3::double precision),
+						     location_source = COALESCE(location_source, NULLIF($4, ''))
+						 WHERE id = $5`,
+						meta.TakenAt, meta.Lat, meta.Lng, locSrc,
+						matchedPhoto.ID,
+					); execErr != nil {
+						slog.Error("importer: enrich photo EXIF failed", "photo", matchedPhoto.ID, "err", execErr)
+						return nil, fmt.Errorf("enrich photo EXIF in DB: %w", execErr)
+					}
+					return &PhotoResult{PhotoID: matchedPhoto.ID, Status: "duplicate_phash", PHash: pHashVal}, nil
 				}
 				return &PhotoResult{PhotoID: matchedPhoto.ID, Status: "duplicate_phash", PHash: pHashVal}, nil
 			}

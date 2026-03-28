@@ -424,16 +424,18 @@ func buildPhotoActivitySummary(id, title, sportType *string, startedAt *time.Tim
 
 // PhotoHashRow holds pHash comparison data for a single photo.
 type PhotoHashRow struct {
-	ID     string
-	PHash  *int64
-	Width  *int
-	Height *int
+	ID      string
+	PHash   *int64
+	Width   *int
+	Height  *int
+	TakenAt *time.Time
+	Lat     *float64
 }
 
 // GetActivityPhotoHashes returns photo IDs and pHashes for an activity (for pHash comparison).
 func (db *DB) GetActivityPhotoHashes(ctx context.Context, activityID string) ([]PhotoHashRow, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id, phash, width, height
+		`SELECT id, phash, width, height, taken_at, lat
 		 FROM activity_photos
 		 WHERE activity_id = $1 AND phash IS NOT NULL`,
 		activityID)
@@ -444,7 +446,7 @@ func (db *DB) GetActivityPhotoHashes(ctx context.Context, activityID string) ([]
 	var result []PhotoHashRow
 	for rows.Next() {
 		var r PhotoHashRow
-		if err := rows.Scan(&r.ID, &r.PHash, &r.Width, &r.Height); err != nil {
+		if err := rows.Scan(&r.ID, &r.PHash, &r.Width, &r.Height, &r.TakenAt, &r.Lat); err != nil {
 			return nil, err
 		}
 		result = append(result, r)
