@@ -727,8 +727,8 @@ export default function ActivityDetailPage() {
       {/* Stopps (nicht für Multisport-Parent) */}
       {activity.sport_type !== 'multisport' && !hiddenModules.has('stops') && <StopsSection activityId={activity.id} />}
 
-      {/* Untergrund (nicht für Multisport, Wassersport, virtuelle Aktivitäten) */}
-      {activity.sport_type !== 'multisport' && !activity.is_virtual && categoryForSport(activity.sport_type).key !== 'water' && !hiddenModules.has('surfaces') && <SurfacesSection activityId={activity.id} />}
+      {/* Untergrund (nicht für Multisport) */}
+      {activity.sport_type !== 'multisport' && !hiddenModules.has('surfaces') && <SurfacesSection activityId={activity.id} />}
 
       {/* Enrichment-Modul-Status */}
       <EnrichmentStatusSection
