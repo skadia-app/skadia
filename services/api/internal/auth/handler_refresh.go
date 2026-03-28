@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
@@ -19,7 +20,7 @@ import (
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(RefreshCookieName)
 	if err != nil || cookie.Value == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "session_expired"})
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "session_expired"})
 		return
 	}
 
@@ -31,7 +32,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		h.handleRefreshReuse(r.Context(), tokenHash)
 		// Fall B + C: same response (no info leak).
 		h.clearRefreshCookie(w)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "session_expired"})
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "session_expired"})
 		return
 	}
 
@@ -39,7 +40,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	user, err := h.DB.GetUserByID(r.Context(), userID.String())
 	if err != nil || !user.IsActive {
 		h.clearRefreshCookie(w)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "account_inactive"})
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "account_inactive"})
 		return
 	}
 
@@ -48,7 +49,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("generate refresh token failed", "error", err)
 		h.clearRefreshCookie(w)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -59,7 +60,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		r.UserAgent(), ip, time.Now().Add(RefreshTokenExpiry)); err != nil {
 		slog.Error("create new refresh token failed", "error", err)
 		h.clearRefreshCookie(w)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -68,7 +69,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("issue JWT on refresh failed", "error", err)
 		h.clearRefreshCookie(w)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -83,7 +84,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   RefreshCookieMaxAge,
 	})
 
-	writeJSON(w, http.StatusOK, map[string]string{"token": jwt})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"token": jwt})
 }
 
 // Logout handles POST /auth/logout — revoke entire token family + clear cookie.
@@ -103,7 +104,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.clearRefreshCookie(w)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "logged_out"})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "logged_out"})
 }
 
 // handleRefreshReuse checks if a failed rotation was a reuse attempt and revokes the family.

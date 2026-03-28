@@ -12,6 +12,7 @@ import (
 	"github.com/alexedwards/argon2id"
 	"github.com/google/uuid"
 
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
@@ -25,13 +26,13 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
 
 	// Registration mode check — before validation to avoid external calls (HIBP) on rejection.
 	if h.Config.RegistrationMode == "invite" {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "registration_disabled"})
+		httputil.WriteJSONNoCache(w, http.StatusForbidden, map[string]string{"error": "registration_disabled"})
 		return
 	}
 
@@ -41,28 +42,28 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	// Validate inputs.
 	if req.Email == "" || req.Username == "" || req.Password == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email, username, and password required"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "email, username, and password required"})
 		return
 	}
 
 	// Email format validation (I4).
 	if _, err := mail.ParseAddress(req.Email); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_email"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_email"})
 		return
 	}
 
 	// Username validation (M10) — shared rules with settings.go.
 	if errKey := ValidateUsername(req.Username); errKey != "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errKey})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": errKey})
 		return
 	}
 
 	if len(req.Password) < 10 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_short"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "password_too_short"})
 		return
 	}
 	if len(req.Password) > 1000 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
 		return
 	}
 
@@ -72,7 +73,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("HIBP check failed", "error", err)
 		// Don't block registration on HIBP failure.
 	} else if compromised {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_compromised"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "password_compromised"})
 		return
 	}
 
@@ -80,12 +81,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	exists, err := h.DB.CheckEmailCollision(r.Context(), req.Email)
 	if err != nil {
 		slog.Error("check email collision failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 	if exists {
 		// Silent — don't reveal email existence (M7).
-		writeJSON(w, http.StatusCreated, map[string]string{"status": "verification_email_sent"})
+		httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"status": "verification_email_sent"})
 		return
 	}
 
@@ -93,7 +94,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	hash, err := argon2id.CreateHash(req.Password, GetArgon2Params())
 	if err != nil {
 		slog.Error("hash password failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -103,7 +104,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	user, err := h.DB.CreateUserWithPassword(r.Context(), req.Email, req.Username, hash, "email", ip, isActive)
 	if err != nil {
 		slog.Error("create user failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -122,7 +123,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("generate verification token failed", "error", err)
 		// User was created but token generation failed — not fatal.
-		writeJSON(w, http.StatusCreated, map[string]string{"status": "verification_email_sent"})
+		httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"status": "verification_email_sent"})
 		return
 	}
 
@@ -135,9 +136,9 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	// Send verification email (async) — send the RAW token, not the hash.
 	if h.Mailer.IsConfigured() {
 		h.Mailer.SendVerificationEmail(req.Email, req.Username, token)
-		writeJSON(w, http.StatusCreated, map[string]string{"status": "verification_email_sent"})
+		httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"status": "verification_email_sent"})
 	} else {
-		writeJSON(w, http.StatusCreated, map[string]string{"status": "created"})
+		httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"status": "created"})
 	}
 }
 
@@ -147,34 +148,34 @@ func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	user, err := h.DB.GetUserByID(r.Context(), userID)
 	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
 	if user.EmailVerified {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "already_verified"})
+		httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "already_verified"})
 		return
 	}
 	if !h.Mailer.IsConfigured() {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "smtp_not_configured"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "smtp_not_configured"})
 		return
 	}
 	token, err := GenerateToken()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 	if err := h.DB.CreateEmailToken(r.Context(), uuid.MustParse(userID), HashToken(token), "verification",
 		time.Now().Add(24*time.Hour)); err != nil {
 		slog.Error("create email token failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 	if user.Email == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no_email_configured"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "no_email_configured"})
 		return
 	}
 	go h.Mailer.SendVerificationEmail(*user.Email, user.Username, token)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "verification_email_sent"})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "verification_email_sent"})
 }
 
 // VerifyEmail handles POST /auth/verify-email.
@@ -185,22 +186,22 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		Token string `json:"token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "token required"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "token required"})
 		return
 	}
 
 	tokenHash := HashToken(req.Token)
 	userID, err := h.DB.ConsumeEmailToken(r.Context(), tokenHash, "verification")
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid or expired token"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid or expired token"})
 		return
 	}
 
 	if err := h.DB.SetEmailVerified(r.Context(), userID.String()); err != nil {
 		slog.Error("set email verified failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "verified"})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "verified"})
 }

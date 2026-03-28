@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useClickOutside } from '@/hooks/useClickOutside'
 import { useQuery, useInfiniteQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { format } from 'date-fns'
@@ -11,7 +12,7 @@ import { apiDownload } from '@/api/client'
 import { apiFetch } from '@/lib/auth'
 import {
   formatDuration, formatDistance,
-  formatElevationGain, formatElevationLoss, showIndoorBadge,
+  formatElevationGain, formatElevationLoss, showIndoorBadge, triggerBlobDownload,
 } from '@/lib/utils'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { SportIcon } from '@/components/SportIcon'
@@ -100,14 +101,7 @@ function ExportSubMenu({ activityId, sportType, onClose }: { activityId: string;
   const handleExport = async (format: ExportFormat) => {
     try {
       const { blob, filename } = await apiDownload(`/activities/${activityId}/export?format=${format}`)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename || `activity.${format}`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      triggerBlobDownload(blob, filename || `activity.${format}`)
       onClose()
     } catch (error) {
       console.error('Export failed:', error)
@@ -189,14 +183,7 @@ function ZipDropdown({
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!open) return
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [open])
+  useClickOutside(ref, () => setOpen(false), open)
 
   if (!showFormats) {
     return (

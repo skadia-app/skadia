@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
+import { useClickOutside } from '@/hooks/useClickOutside'
 import { format, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
 import { de } from 'date-fns/locale'
 
@@ -20,16 +21,7 @@ export default function DateRangePopover({
   const popoverRef = useRef<HTMLDivElement>(null)
 
   // Close popover when clicking outside
-  useEffect(() => {
-    if (!isOpen) return
-    function handleClick(e: MouseEvent) {
-      if (!popoverRef.current?.contains(e.target as Node)) {
-        setIsOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [isOpen])
+  useClickOutside(popoverRef, () => setIsOpen(false), isOpen)
 
   // Only show in weeks tab
   if (tab !== 'weeks') return null

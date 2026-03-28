@@ -2,9 +2,9 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -31,7 +31,7 @@ func scanGear(row pgx.Row) (*model.Gear, error) {
 		&g.TotalDistanceM, &g.TotalTimeS, &g.TotalElevationGainM, &g.TotalActivities,
 		&purchasedAt, &retiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &g.Notes, &g.CreatedAt,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -66,7 +66,7 @@ func scanComponent(row pgx.Row) (*model.GearComponent, error) {
 		&c.PurchasePrice, &c.PurchaseDate, &c.WeightG, &c.SerialNumber,
 		&c.InstalledAt, &c.RemovedAt, &c.IsRetired, &c.Status, &c.Notes,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -168,74 +168,50 @@ func (db *DB) GetGear(ctx context.Context, id string) (*model.Gear, error) {
 }
 
 func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdate) (*model.Gear, error) {
-	var sets []string
-	var args []any
-	argIdx := 1
+	b := newSetBuilder(1)
 
 	if update.Name != nil {
-		sets = append(sets, fmt.Sprintf("name = $%d", argIdx))
-		args = append(args, *update.Name)
-		argIdx++
+		b.Set("name", *update.Name)
 	}
 	if update.Type != nil {
-		sets = append(sets, fmt.Sprintf("type = $%d", argIdx))
-		args = append(args, *update.Type)
-		argIdx++
+		b.Set("type", *update.Type)
 	}
 	if update.SubType != nil {
-		sets = append(sets, fmt.Sprintf("sub_type = $%d", argIdx))
-		args = append(args, *update.SubType)
-		argIdx++
+		b.Set("sub_type", *update.SubType)
 	}
 	if update.Brand != nil {
-		sets = append(sets, fmt.Sprintf("brand = $%d", argIdx))
-		args = append(args, *update.Brand)
-		argIdx++
+		b.Set("brand", *update.Brand)
 	}
 	if update.Model != nil {
-		sets = append(sets, fmt.Sprintf("model = $%d", argIdx))
-		args = append(args, *update.Model)
-		argIdx++
+		b.Set("model", *update.Model)
 	}
 	if update.PurchasedAt != nil {
-		sets = append(sets, fmt.Sprintf("purchased_at = $%d", argIdx))
-		args = append(args, *update.PurchasedAt)
-		argIdx++
+		b.Set("purchased_at", *update.PurchasedAt)
 	}
 	if update.RetiredAt != nil {
-		sets = append(sets, fmt.Sprintf("retired_at = $%d", argIdx))
-		args = append(args, *update.RetiredAt)
-		argIdx++
+		b.Set("retired_at", *update.RetiredAt)
 	}
 	if update.IsRetired != nil {
-		sets = append(sets, fmt.Sprintf("is_retired = $%d", argIdx))
-		args = append(args, *update.IsRetired)
-		argIdx++
+		b.Set("is_retired", *update.IsRetired)
 	}
 	if update.DefaultForSports != nil {
-		sets = append(sets, fmt.Sprintf("default_for_sports = $%d", argIdx))
-		args = append(args, update.DefaultForSports)
-		argIdx++
+		b.Set("default_for_sports", update.DefaultForSports)
 	}
 	if update.Notes != nil {
-		sets = append(sets, fmt.Sprintf("notes = $%d", argIdx))
-		args = append(args, *update.Notes)
-		argIdx++
+		b.Set("notes", *update.Notes)
 	}
 	if update.WeightG != nil {
-		sets = append(sets, fmt.Sprintf("weight_g = $%d", argIdx))
-		args = append(args, *update.WeightG)
-		argIdx++
+		b.Set("weight_g", *update.WeightG)
 	}
 
-	if len(sets) == 0 {
+	if !b.HasSets() {
 		return db.GetGear(ctx, id)
 	}
 
-	args = append(args, id)
+	args := append(b.Args(), id)
 	query := fmt.Sprintf(
 		`UPDATE gear SET %s WHERE id = $%d RETURNING `+gearSelectCols,
-		strings.Join(sets, ", "), argIdx,
+		b.Clause(), b.NextIdx(),
 	)
 
 	g, err := scanGear(db.Pool.QueryRow(ctx, query, args...))
@@ -351,62 +327,40 @@ func (db *DB) CreateComponent(ctx context.Context, gearID string, create *model.
 }
 
 func (db *DB) UpdateComponent(ctx context.Context, id string, name, typ *string, brand, modelStr, notes *string, isRetired *bool, purchasePrice *float64, purchaseDate, serialNumber *string, weightG *int) (*model.GearComponent, error) {
-	var sets []string
-	var args []any
-	argIdx := 1
+	b := newSetBuilder(1)
 
 	if name != nil {
-		sets = append(sets, fmt.Sprintf("name = $%d", argIdx))
-		args = append(args, *name)
-		argIdx++
+		b.Set("name", *name)
 	}
 	if typ != nil {
-		sets = append(sets, fmt.Sprintf("type = $%d", argIdx))
-		args = append(args, *typ)
-		argIdx++
+		b.Set("type", *typ)
 	}
 	if brand != nil {
-		sets = append(sets, fmt.Sprintf("brand = $%d", argIdx))
-		args = append(args, *brand)
-		argIdx++
+		b.Set("brand", *brand)
 	}
 	if modelStr != nil {
-		sets = append(sets, fmt.Sprintf("model = $%d", argIdx))
-		args = append(args, *modelStr)
-		argIdx++
+		b.Set("model", *modelStr)
 	}
 	if notes != nil {
-		sets = append(sets, fmt.Sprintf("notes = $%d", argIdx))
-		args = append(args, *notes)
-		argIdx++
+		b.Set("notes", *notes)
 	}
 	if isRetired != nil {
-		sets = append(sets, fmt.Sprintf("is_retired = $%d", argIdx))
-		args = append(args, *isRetired)
-		argIdx++
+		b.Set("is_retired", *isRetired)
 	}
 	if purchasePrice != nil {
-		sets = append(sets, fmt.Sprintf("purchase_price = $%d", argIdx))
-		args = append(args, *purchasePrice)
-		argIdx++
+		b.Set("purchase_price", *purchasePrice)
 	}
 	if purchaseDate != nil {
-		sets = append(sets, fmt.Sprintf("purchase_date = $%d", argIdx))
-		args = append(args, *purchaseDate)
-		argIdx++
+		b.Set("purchase_date", *purchaseDate)
 	}
 	if serialNumber != nil {
-		sets = append(sets, fmt.Sprintf("serial_number = $%d", argIdx))
-		args = append(args, *serialNumber)
-		argIdx++
+		b.Set("serial_number", *serialNumber)
 	}
 	if weightG != nil {
-		sets = append(sets, fmt.Sprintf("weight_g = $%d", argIdx))
-		args = append(args, *weightG)
-		argIdx++
+		b.Set("weight_g", *weightG)
 	}
 
-	if len(sets) == 0 {
+	if !b.HasSets() {
 		// No changes, just return the existing component
 		c, err := scanComponent(db.Pool.QueryRow(ctx,
 			`SELECT `+componentSelectCols+` FROM gear_components WHERE id = $1`, id,
@@ -417,10 +371,10 @@ func (db *DB) UpdateComponent(ctx context.Context, id string, name, typ *string,
 		return c, nil
 	}
 
-	args = append(args, id)
+	args := append(b.Args(), id)
 	query := fmt.Sprintf(
 		`UPDATE gear_components SET %s WHERE id = $%d RETURNING `+componentSelectCols,
-		strings.Join(sets, ", "), argIdx,
+		b.Clause(), b.NextIdx(),
 	)
 
 	c, err := scanComponent(db.Pool.QueryRow(ctx, query, args...))
@@ -533,7 +487,7 @@ func (db *DB) GetChainRotation(ctx context.Context, gearID string) (*model.Chain
 		`SELECT id, user_id, gear_id, name, swap_interval_km, swap_interval_hm, created_at::text
 		 FROM chain_rotation_groups WHERE gear_id = $1`, gearID,
 	).Scan(&g.ID, &g.UserID, &g.GearID, &g.Name, &g.SwapIntervalKM, &g.SwapIntervalHM, &g.CreatedAt)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -665,7 +619,7 @@ func (db *DB) SwapChain(ctx context.Context, groupID string) error {
 	err = tx.QueryRow(ctx,
 		`SELECT position FROM chain_rotation_members WHERE group_id = $1 AND is_active = true`, groupID,
 	).Scan(&currentPos)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		currentPos = 0
 	} else if err != nil {
 		return fmt.Errorf("find active member: %w", err)
@@ -875,7 +829,7 @@ func scanRule(row pgx.Row) (*model.AutomationRule, error) {
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
 		&r.IsSystem, &r.SystemType,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -960,7 +914,7 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 		`SELECT system_type FROM automation_rules WHERE id = $1 AND user_id = $2`,
 		id, userID,
 	).Scan(&sysType); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -969,47 +923,31 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 		return nil, fmt.Errorf("this system rule is read-only")
 	}
 
-	var sets []string
-	var args []any
-	argIdx := 1
+	b := newSetBuilder(1)
 
 	if update.Name != nil {
-		sets = append(sets, fmt.Sprintf("name = $%d", argIdx))
-		args = append(args, *update.Name)
-		argIdx++
+		b.Set("name", *update.Name)
 	}
 	if update.IsActive != nil {
-		sets = append(sets, fmt.Sprintf("is_active = $%d", argIdx))
-		args = append(args, *update.IsActive)
-		argIdx++
+		b.Set("is_active", *update.IsActive)
 	}
 	if update.Priority != nil {
-		sets = append(sets, fmt.Sprintf("priority = $%d", argIdx))
-		args = append(args, *update.Priority)
-		argIdx++
+		b.Set("priority", *update.Priority)
 	}
 	if update.Conditions != nil {
-		sets = append(sets, fmt.Sprintf("conditions = $%d", argIdx))
-		args = append(args, *update.Conditions)
-		argIdx++
+		b.Set("conditions", *update.Conditions)
 	}
 	if update.ConditionsLogic != nil {
-		sets = append(sets, fmt.Sprintf("conditions_logic = $%d", argIdx))
-		args = append(args, *update.ConditionsLogic)
-		argIdx++
+		b.Set("conditions_logic", *update.ConditionsLogic)
 	}
 	if update.ConditionGroups != nil {
-		sets = append(sets, fmt.Sprintf("condition_groups = $%d", argIdx))
-		args = append(args, *update.ConditionGroups)
-		argIdx++
+		b.Set("condition_groups", *update.ConditionGroups)
 	}
 	if update.Actions != nil {
-		sets = append(sets, fmt.Sprintf("actions = $%d", argIdx))
-		args = append(args, *update.Actions)
-		argIdx++
+		b.Set("actions", *update.Actions)
 	}
 
-	if len(sets) == 0 {
+	if !b.HasSets() {
 		// No changes
 		r, err := scanRule(db.Pool.QueryRow(ctx,
 			`SELECT `+ruleSelectCols+` FROM automation_rules WHERE id = $1 AND user_id = $2`, id, userID,
@@ -1020,11 +958,11 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 		return r, nil
 	}
 
-	args = append(args, id, userID)
+	args := append(b.Args(), id, userID)
 	query := fmt.Sprintf(
 		`UPDATE automation_rules SET %s WHERE id = $%d AND user_id = $%d
 		 RETURNING `+ruleSelectCols,
-		strings.Join(sets, ", "), argIdx, argIdx+1,
+		b.Clause(), b.NextIdx(), b.NextIdx()+1,
 	)
 
 	var r model.AutomationRule
@@ -1034,7 +972,7 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
 		&r.IsSystem, &r.SystemType,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -1057,7 +995,7 @@ func (db *DB) DeleteRule(ctx context.Context, id string, userID string) error {
 		`SELECT is_system FROM automation_rules WHERE id = $1 AND user_id = $2`,
 		id, userID,
 	).Scan(&isSystem); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("rule not found")
 		}
 		return err
@@ -1116,7 +1054,7 @@ func (db *DB) AssignGearByRules(ctx context.Context, userID, activityID, sportTy
 		 WHERE user_id = $1 AND is_retired = false AND $2 = ANY(default_for_sports)
 		 ORDER BY created_at LIMIT 1`, userID, sportType,
 	).Scan(&gearID)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil // No default gear for this sport
 	}
 	if err != nil {
@@ -1222,7 +1160,7 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		&netAscentM, &netDescentM, &netDistM,
 		&climbCount, &climbCategoryMax,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -1528,7 +1466,7 @@ func scanBikeSetup(row pgx.Row) (*model.BikeSetup, error) {
 		&s.SuspensionFront, &s.SuspensionRear, &s.Tires, &s.ContactPoints, &s.Brakes, &s.Drivetrain,
 		&s.IsActive, &s.CreatedAt, &s.UpdatedAt,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -1584,67 +1522,43 @@ func (db *DB) CreateBikeSetup(ctx context.Context, gearID string, create *model.
 }
 
 func (db *DB) UpdateBikeSetup(ctx context.Context, id string, update *model.BikeSetupUpdate) (*model.BikeSetup, error) {
-	var sets []string
-	var args []any
-	argIdx := 1
+	b := newSetBuilder(1)
 
 	if update.Name != nil {
-		sets = append(sets, fmt.Sprintf("name = $%d", argIdx))
-		args = append(args, *update.Name)
-		argIdx++
+		b.Set("name", *update.Name)
 	}
 	if update.RiderWeightKg != nil {
-		sets = append(sets, fmt.Sprintf("rider_weight_kg = $%d", argIdx))
-		args = append(args, *update.RiderWeightKg)
-		argIdx++
+		b.Set("rider_weight_kg", *update.RiderWeightKg)
 	}
 	if update.IntendedUse != nil {
-		sets = append(sets, fmt.Sprintf("intended_use = $%d", argIdx))
-		args = append(args, *update.IntendedUse)
-		argIdx++
+		b.Set("intended_use", *update.IntendedUse)
 	}
 	if update.Notes != nil {
-		sets = append(sets, fmt.Sprintf("notes = $%d", argIdx))
-		args = append(args, *update.Notes)
-		argIdx++
+		b.Set("notes", *update.Notes)
 	}
 	if update.SuspensionFront != nil {
-		sets = append(sets, fmt.Sprintf("suspension_front = $%d", argIdx))
-		args = append(args, update.SuspensionFront)
-		argIdx++
+		b.Set("suspension_front", update.SuspensionFront)
 	}
 	if update.SuspensionRear != nil {
-		sets = append(sets, fmt.Sprintf("suspension_rear = $%d", argIdx))
-		args = append(args, update.SuspensionRear)
-		argIdx++
+		b.Set("suspension_rear", update.SuspensionRear)
 	}
 	if update.Tires != nil {
-		sets = append(sets, fmt.Sprintf("tires = $%d", argIdx))
-		args = append(args, update.Tires)
-		argIdx++
+		b.Set("tires", update.Tires)
 	}
 	if update.ContactPoints != nil {
-		sets = append(sets, fmt.Sprintf("contact_points = $%d", argIdx))
-		args = append(args, update.ContactPoints)
-		argIdx++
+		b.Set("contact_points", update.ContactPoints)
 	}
 	if update.Brakes != nil {
-		sets = append(sets, fmt.Sprintf("brakes = $%d", argIdx))
-		args = append(args, update.Brakes)
-		argIdx++
+		b.Set("brakes", update.Brakes)
 	}
 	if update.Drivetrain != nil {
-		sets = append(sets, fmt.Sprintf("drivetrain = $%d", argIdx))
-		args = append(args, update.Drivetrain)
-		argIdx++
+		b.Set("drivetrain", update.Drivetrain)
 	}
 	if update.IsActive != nil {
-		sets = append(sets, fmt.Sprintf("is_active = $%d", argIdx))
-		args = append(args, *update.IsActive)
-		argIdx++
+		b.Set("is_active", *update.IsActive)
 	}
 
-	if len(sets) == 0 {
+	if !b.HasSets() {
 		s, err := scanBikeSetup(db.Pool.QueryRow(ctx,
 			`SELECT `+bikeSetupCols+` FROM bike_setups WHERE id = $1`, id,
 		))
@@ -1654,10 +1568,10 @@ func (db *DB) UpdateBikeSetup(ctx context.Context, id string, update *model.Bike
 		return s, nil
 	}
 
-	args = append(args, id)
+	args := append(b.Args(), id)
 	query := fmt.Sprintf(
 		`UPDATE bike_setups SET %s WHERE id = $%d RETURNING `+bikeSetupCols,
-		strings.Join(sets, ", "), argIdx,
+		b.Clause(), b.NextIdx(),
 	)
 
 	s, err := scanBikeSetup(db.Pool.QueryRow(ctx, query, args...))
@@ -1685,7 +1599,7 @@ const gearDocSelectCols = `id, user_id, gear_id, component_id, service_event_id,
 func scanGearDocument(row pgx.Row) (*model.GearDocument, error) {
 	var d model.GearDocument
 	err := row.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -1787,7 +1701,7 @@ func (db *DB) DeleteGearDocument(ctx context.Context, docID, userID string) (fil
 		`DELETE FROM gear_documents WHERE id = $1 AND user_id = $2 RETURNING file_id::text`,
 		docID, userID,
 	).Scan(&fID)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
@@ -1915,7 +1829,7 @@ func (db *DB) GetGearCostSummary(ctx context.Context, gearID string) (*model.Gea
 		 FROM gear_cost_summary WHERE gear_id = $1`,
 		gearID,
 	).Scan(&s.GearID, &s.UserID, &s.Name, &s.TotalCost, &s.Currency, &s.CostPerKm, &s.CostPerHour)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

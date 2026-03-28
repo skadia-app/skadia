@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
+import { useClickOutside } from '@/hooks/useClickOutside'
 import { DayPicker, useDayPicker } from 'react-day-picker'
 import { toLocalISO } from '@/lib/dateUtils'
 import 'react-day-picker/style.css'
@@ -36,14 +37,7 @@ export function MonthYearCaption({ calendarMonth }: { calendarMonth: { date: Dat
 
   // Close picker on outside click
   const wrapRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!mode) return
-    function handler(e: MouseEvent) {
-      if (!wrapRef.current?.contains(e.target as Node)) setMode(null)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [mode])
+  useClickOutside(wrapRef, () => setMode(null), !!mode)
 
   return (
     <div className="relative" ref={wrapRef}>
@@ -167,14 +161,7 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!open) return
-    function handler(e: MouseEvent) {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
+  useClickOutside(ref, () => setOpen(false), open)
 
   const hasFilter = !!(dateFrom || dateTo)
 

@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
@@ -17,7 +18,7 @@ import (
 func (h *Handler) AdminRestoreUser(w http.ResponseWriter, r *http.Request) {
 	targetID := chi.URLParam(r, "id")
 	if _, err := uuid.Parse(targetID); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
 		return
 	}
 
@@ -26,11 +27,11 @@ func (h *Handler) AdminRestoreUser(w http.ResponseWriter, r *http.Request) {
 	err := h.DB.Pool.QueryRow(r.Context(),
 		`SELECT deleted_at FROM users WHERE id = $1`, targetID).Scan(&deletedAt)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user_not_found"})
+		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "user_not_found"})
 		return
 	}
 	if deletedAt == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user_not_deleted"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "user_not_deleted"})
 		return
 	}
 
@@ -38,7 +39,7 @@ func (h *Handler) AdminRestoreUser(w http.ResponseWriter, r *http.Request) {
 		`UPDATE users SET deleted_at = NULL, is_active = true WHERE id = $1`, targetID)
 	if err != nil {
 		slog.Error("admin restore user failed", "error", err, "target_user_id", targetID)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -52,5 +53,5 @@ func (h *Handler) AdminRestoreUser(w http.ResponseWriter, r *http.Request) {
 		middleware.ClientIP(r), r.UserAgent(),
 		map[string]string{"target_user_id": targetID})
 	slog.Info("admin restored user", "target_user_id", targetID, "admin_id", adminID)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "user_restored"})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "user_restored"})
 }

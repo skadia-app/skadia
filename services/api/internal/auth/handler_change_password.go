@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/alexedwards/argon2id"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
@@ -20,21 +21,21 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		NewPassword     string `json:"new_password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
 
 	// NewPassword is always required.
 	if req.NewPassword == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "new_password_required"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "new_password_required"})
 		return
 	}
 	if len(req.NewPassword) < 10 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_short"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "password_too_short"})
 		return
 	}
 	if len(req.NewPassword) > 1000 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
 		return
 	}
 
@@ -43,7 +44,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	// Load user to determine whether current_password is required.
 	user, err := h.DB.GetUserByID(r.Context(), userID)
 	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
 
@@ -55,21 +56,21 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	if requireCurrentPassword {
 		if req.CurrentPassword == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "current_and_new_password_required"})
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "current_and_new_password_required"})
 			return
 		}
 		if len(req.CurrentPassword) > 1000 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
 			return
 		}
 		if user.PasswordHash == nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no_password_set"})
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "no_password_set"})
 			return
 		}
 		// Verify current password.
 		match, err := argon2id.ComparePasswordAndHash(req.CurrentPassword, *user.PasswordHash)
 		if err != nil || !match {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "wrong_password"})
+			httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "wrong_password"})
 			return
 		}
 	}
@@ -79,7 +80,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("HIBP check failed during password change", "error", err)
 	} else if compromised {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_compromised"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "password_compromised"})
 		return
 	}
 
@@ -87,14 +88,14 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	hash, err := argon2id.CreateHash(req.NewPassword, GetArgon2Params())
 	if err != nil {
 		slog.Error("hash password failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
 	// Update password.
 	if err := h.DB.UpdatePassword(r.Context(), userID, hash); err != nil {
 		slog.Error("update password failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -113,5 +114,5 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("auth.password_change", "user_id", userID)
 	go h.DB.LogAuthEvent(h.shutdownCtx, userID, "password_change", middleware.ClientIP(r), r.UserAgent(), nil)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "password_changed"})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "password_changed"})
 }

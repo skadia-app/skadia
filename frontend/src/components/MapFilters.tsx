@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useClickOutside } from '@/hooks/useClickOutside'
 import type { CoverageOverlayState, CoverageCompositeState } from '@/hooks/useCoverageOverlays'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -159,15 +160,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
   const visibleKeys = useMemo(() => getAllSportKeys(visibleOptions), [visibleOptions])
 
   // Close date picker on click outside
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (datePickerRef.current && !datePickerRef.current.contains(e.target as Node)) {
-        setDatePickerOpen(false)
-      }
-    }
-    if (datePickerOpen) document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [datePickerOpen])
+  useClickOutside(datePickerRef, () => setDatePickerOpen(false), datePickerOpen)
 
   const allSelected = visibleKeys.every(k => filters.sportTypes.has(k))
 

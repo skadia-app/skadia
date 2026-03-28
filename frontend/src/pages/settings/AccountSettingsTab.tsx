@@ -17,6 +17,7 @@ import {
   getDataExport,
   type UserSession,
 } from '@/api/auth'
+import { triggerBlobDownload } from '@/lib/utils'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -541,14 +542,7 @@ function DangerZoneSection() {
     setExporting(true)
     try {
       const blob = await getDataExport()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `skadia-export-${new Date().toISOString().slice(0, 10)}.zip`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      triggerBlobDownload(blob, `skadia-export-${new Date().toISOString().slice(0, 10)}.zip`)
       addToast({ type: 'success', title: 'Datenexport heruntergeladen' })
     } catch {
       addToast({ type: 'error', title: 'Datenexport fehlgeschlagen', duration: 0 })

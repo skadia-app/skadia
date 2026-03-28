@@ -1,6 +1,5 @@
 import { apiFetch } from '@/lib/auth'
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+import { API_BASE } from '@/api/client'
 
 export interface AuthConfig {
   registration_mode: 'invite' | 'open' | 'approval'

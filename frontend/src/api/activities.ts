@@ -1,6 +1,7 @@
-import { apiClient, parseContentDisposition } from './client'
+import { apiClient, parseContentDisposition, API_BASE } from './client'
 import { getToken, clearToken } from '@/lib/auth'
 import { ApiError } from './client'
+import { triggerBlobDownload } from '@/lib/utils'
 import type { ActivitiesResponse, Activity, StreamPoint, Sensor, ZoneDistribution, PowerCurveResponse, Lap, Split, SplitSummary, SwimLength, ClimbProEvent, ActivitySet, ActivityJump, ActivityEvent } from './types'
 
 export interface ActivityFilterParams {
@@ -126,7 +127,6 @@ export async function reprocessAllActivities(filter?: ReprocessFilter): Promise<
 
 export type ExportFormat = 'original' | 'gpx' | 'tcx' | 'fit' | 'zip'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
 /**
  * Returns the full URL for a single-activity export endpoint.
@@ -134,7 +134,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
  * <a href> or passed to apiDownload() without double-prefixing.
  */
 export function getActivityExportUrl(id: string, format: ExportFormat): string {
-  return `${API_BASE_URL}/activities/${id}/export?format=${format}`
+  return `${API_BASE}/activities/${id}/export?format=${format}`
 }
 
 export async function getZoneDistribution(id: string): Promise<ZoneDistribution> {
@@ -283,7 +283,7 @@ export async function downloadActivitiesZip(
   format: ExportFormat = 'original',
 ): Promise<void> {
   const token = getToken()
-  const url = `${API_BASE_URL}/activities/export-zip`
+  const url = `${API_BASE}/activities/export-zip`
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -301,15 +301,5 @@ export async function downloadActivitiesZip(
   if (!res.ok) throw new ApiError(res.status, await res.text())
   const blob = await res.blob()
   const filename = parseContentDisposition(res.headers.get('Content-Disposition')) ?? 'skadia-export.zip'
-  const objectUrl = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = objectUrl
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  // Delay revoking the object URL so the browser has time to initiate the download.
-  // Revoking synchronously after click() can race the browser's download initiation
-  // and silently abort the download in Firefox and some Chromium versions.
-  setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000)
+  triggerBlobDownload(blob, filename)
 }

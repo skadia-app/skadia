@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect } from 'react'
+import { useClickOutside } from '@/hooks/useClickOutside'
 import { useNavigate, Link } from 'react-router-dom'
 import { useUser } from '@/providers/UserProvider'
 import { logout } from '@/api/auth'
@@ -22,16 +23,7 @@ export default function UserMenu() {
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Close on outside click
-  useEffect(() => {
-    if (!open) return
-    function handleClick(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [open])
+  useClickOutside(containerRef, () => setOpen(false), open)
 
   // Close on Escape
   useEffect(() => {

@@ -1,6 +1,10 @@
 package auth
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
+)
 
 // AuthConfig handles GET /auth/config (public, no authentication required).
 func (h *Handler) AuthConfig(w http.ResponseWriter, r *http.Request) {
@@ -12,7 +16,7 @@ func (h *Handler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 		providers = append(providers, "google")
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]any{
 		"registration_mode": h.Config.RegistrationMode,
 		"social_providers":  providers,
 		"smtp_configured":   h.Config.SMTPHost != "",

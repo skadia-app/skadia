@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"context"
 	"fmt"
 	"time"
@@ -104,7 +105,7 @@ func (db *DB) GetLatestHealthDailySummary(ctx context.Context, userID string) (*
 		&s.TotalCalories, &s.ActiveCalories, &s.BmrCalories, &s.StressAvg, &s.BodyBatteryMin, &s.BodyBatteryMax,
 		&s.HydrationML, &s.HydrationGoalML, &s.SourceType, &s.ExtraData, &s.CreatedAt,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -237,7 +238,7 @@ func (db *DB) GetLatestHealthSleep(ctx context.Context, userID string) (*model.H
 		&s.ScoreRestlessness, &s.ScoreInterruptions, &s.ScoreRecovery,
 		&s.CreatedAt,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -359,7 +360,7 @@ func (db *DB) GetLatestHealthHRV(ctx context.Context, userID string) (*model.Hea
 	err := row.Scan(&s.UserID, &s.MeasuredAtUTC, &s.RmssdMS, &s.SdrrMS,
 		&s.AvgHeartRateBPM, &s.SpO2Pct, &s.RespirationBRPM, &s.StressLevel, &s.Title,
 		&s.TimeOfDay, &s.SourceType, &s.ExtraData, &s.CreatedAt)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -456,7 +457,7 @@ func (db *DB) GetLatestHealthWeight(ctx context.Context, userID string) (*model.
 		&s.PhysiqueRating, &s.MetabolicAge, &s.VisceralFatRating,
 		&s.CreatedAt,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -544,7 +545,7 @@ func (db *DB) GetLatestHealthReadiness(ctx context.Context, userID string) (*mod
 		&s.AcwrPct, &s.HRVFactorPct, &s.SleepHistoryFactorPct, &s.StressHistoryFactorPct,
 		&s.RecoveryTimeFactorPct, &s.SourceType, &s.ExtraData, &s.CreatedAt,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -619,7 +620,7 @@ func (db *DB) GetLatestHealthTrainingLoad(ctx context.Context, userID string) (*
 		&s.UserID, &calDate, &s.ATLAcute, &s.CTLChronic, &s.AcwrPct, &s.AcwrStatus,
 		&s.SourceType, &s.ExtraData, &s.CreatedAt,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -680,7 +681,7 @@ func (db *DB) GetLatestHealthStress(ctx context.Context, userID string) (*model.
 	`, userID)
 	var s model.HealthStressSnapshot
 	err := row.Scan(&s.UserID, &s.MeasuredAtUTC, &s.StressLevel, &s.SourceType, &s.ExtraData, &s.CreatedAt)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -741,7 +742,7 @@ func (db *DB) GetLatestHealthSpO2(ctx context.Context, userID string) (*model.He
 	`, userID)
 	var s model.HealthSpO2Snapshot
 	err := row.Scan(&s.UserID, &s.MeasuredAtUTC, &s.SpO2Pct, &s.SourceType, &s.ExtraData, &s.Confidence, &s.CreatedAt)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -809,7 +810,7 @@ func (db *DB) GetLatestHealthBloodPressure(ctx context.Context, userID string) (
 		&s.UserID, &s.MeasuredAtUTC, &s.Systolic, &s.Diastolic, &s.Pulse,
 		&s.SourceType, &s.ExtraData, &s.CreatedAt,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -872,7 +873,7 @@ func (db *DB) GetLatestHealthFitnessAge(ctx context.Context, userID string) (*mo
 	var s model.HealthFitnessAge
 	var calDate time.Time
 	err := row.Scan(&s.UserID, &calDate, &s.FitnessAge, &s.SourceType, &s.ExtraData, &s.CreatedAt)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

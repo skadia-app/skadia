@@ -1,6 +1,6 @@
 import { getToken, refreshToken, clearToken } from '@/lib/auth'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
 interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown

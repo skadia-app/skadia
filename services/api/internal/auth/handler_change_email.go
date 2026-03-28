@@ -11,6 +11,7 @@ import (
 	"github.com/alexedwards/argon2id"
 	"github.com/google/uuid"
 
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
@@ -23,7 +24,7 @@ func (h *Handler) ChangeEmail(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	user, err := h.DB.GetUserByID(r.Context(), userID)
 	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
 
@@ -32,7 +33,7 @@ func (h *Handler) ChangeEmail(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
 
@@ -41,20 +42,20 @@ func (h *Handler) ChangeEmail(w http.ResponseWriter, r *http.Request) {
 	// Password check only if user has a password (not OAuth-only).
 	if user.PasswordHash != nil {
 		if req.Password == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_required"})
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "password_required"})
 			return
 		}
 		match, _ := argon2id.ComparePasswordAndHash(req.Password, *user.PasswordHash)
 		if !match {
 			h.DB.LogAuthEvent(r.Context(), userID, "password_verification_failed",
 				middleware.ClientIP(r), r.UserAgent(), map[string]string{"context": "change_email"})
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "wrong_password"})
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "wrong_password"})
 			return
 		}
 	}
 
 	if _, err := mail.ParseAddress(req.NewEmail); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_email"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_email"})
 		return
 	}
 
@@ -65,21 +66,21 @@ func (h *Handler) ChangeEmail(w http.ResponseWriter, r *http.Request) {
 		`UPDATE users SET pending_email = $1 WHERE id = $2`, req.NewEmail, userID)
 	if err != nil {
 		slog.Error("change-email: set pending_email failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
 	token, err := GenerateToken()
 	if err != nil {
 		slog.Error("change-email: generate token failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
 	if err := h.DB.CreateEmailToken(r.Context(), uuid.MustParse(userID),
 		HashToken(token), "email_change", time.Now().Add(24*time.Hour)); err != nil {
 		slog.Error("change-email: create email token failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -92,7 +93,7 @@ func (h *Handler) ChangeEmail(w http.ResponseWriter, r *http.Request) {
 	go h.DB.LogAuthEvent(h.shutdownCtx, userID, "email_change_requested",
 		middleware.ClientIP(r), r.UserAgent(), nil)
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "verification_email_sent"})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "verification_email_sent"})
 }
 
 // ConfirmEmailChange handles POST /auth/confirm-email-change (public, token-based).
@@ -104,14 +105,14 @@ func (h *Handler) ConfirmEmailChange(w http.ResponseWriter, r *http.Request) {
 		Token string `json:"token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
 
 	// Validate + consume token (single-use, atomic).
 	userID, err := h.DB.ConsumeEmailToken(r.Context(), HashToken(req.Token), "email_change")
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_or_expired_token"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_or_expired_token"})
 		return
 	}
 
@@ -124,7 +125,7 @@ func (h *Handler) ConfirmEmailChange(w http.ResponseWriter, r *http.Request) {
 		userID).Scan(&oldEmail, &newEmail)
 	if err != nil {
 		slog.Error("confirm-email-change: update email failed", "user_id", userID, "error", err)
-		writeJSON(w, http.StatusOK, map[string]string{"error": "email_change_expired"})
+		httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"error": "email_change_expired"})
 		return
 	}
 
@@ -134,5 +135,5 @@ func (h *Handler) ConfirmEmailChange(w http.ResponseWriter, r *http.Request) {
 
 	h.DB.RevokeAllUserTokens(r.Context(), userID.String())
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "email_changed"})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "email_changed"})
 }

@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
+import { useClickOutside } from '@/hooks/useClickOutside'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -71,16 +72,7 @@ export default function CalendarPage() {
   const [yearPickerOpen, setYearPickerOpen] = useState(false)
   const yearPickerRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!yearPickerOpen) return
-    function handleClick(e: MouseEvent) {
-      if (!yearPickerRef.current?.contains(e.target as Node)) {
-        setYearPickerOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [yearPickerOpen])
+  useClickOutside(yearPickerRef, () => setYearPickerOpen(false), yearPickerOpen)
 
   // Task 5: Health data toggle
   const [showHealthData, setShowHealthData] = useState<boolean>(() => {
