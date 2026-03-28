@@ -47,6 +47,14 @@ export interface StartOSMImportResponse {
   job_id: string
 }
 
+export async function fetchOSMStatus(): Promise<OSMStatus> {
+  return apiClient<OSMStatus>('/admin/osm-status')
+}
+
+export async function importLifts(): Promise<{ imported: number }> {
+  return apiClient<{ imported: number }>('/segments/import-lifts', { method: 'POST' })
+}
+
 export async function fetchOSMRegions(): Promise<OSMRegionsResponse> {
   return apiClient<OSMRegionsResponse>('/admin/osm-regions')
 }
