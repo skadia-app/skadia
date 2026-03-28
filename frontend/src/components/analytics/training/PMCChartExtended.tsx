@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
@@ -10,6 +10,7 @@ import {
   MarkAreaComponent,
   MarkLineComponent,
   ToolboxComponent,
+  BrushComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchAnalyticsPMC } from '@/api/analytics'
@@ -28,6 +29,7 @@ echarts.use([
   MarkAreaComponent,
   MarkLineComponent,
   ToolboxComponent,
+  BrushComponent,
   CanvasRenderer,
 ])
 
@@ -87,6 +89,8 @@ export default function PMCChartExtended() {
   const [localFrom, setLocalFrom] = useState<string>('')
   const [localTo, setLocalTo] = useState<string>('')
   const [isCustomRange, setIsCustomRange] = useState(false)
+  const [isZoomed, setIsZoomed] = useState(false)
+  const chartInstanceRef = useRef<echarts.ECharts | null>(null)
   const today = toLocalISO(new Date())
 
   const { from, to } = useMemo(() => {
@@ -127,6 +131,19 @@ export default function PMCChartExtended() {
     retry: 1,
   })
 
+  const handleResetZoom = () => {
+    const chart = chartInstanceRef.current
+    if (!chart) return
+    chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: 0, end: 100 })
+    chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1, start: 0, end: 100 })
+    chart.dispatchAction({
+      type: 'takeGlobalCursor',
+      key: 'brush',
+      brushOption: { brushType: 'lineX', brushMode: 'single' },
+    })
+    setIsZoomed(false)
+  }
+
   const containerRef = useECharts(
     () => {
       if (!data) return { series: [] }
@@ -152,6 +169,17 @@ export default function PMCChartExtended() {
       return {
         backgroundColor: 'transparent',
         grid: { left: 52, right: 20, top: 40, bottom: 80 },
+        brush: {
+          toolbox: [],
+          brushType: 'lineX',
+          brushStyle: {
+            borderWidth: 1,
+            color: 'rgba(59,130,246,0.12)',
+            borderColor: 'rgba(59,130,246,0.6)',
+          },
+          throttleType: 'debounce',
+          throttleDelay: 100,
+        },
         toolbox: {
           right: 8,
           top: 2,
@@ -275,6 +303,73 @@ export default function PMCChartExtended() {
       }
     },
     [data],
+    (chart) => {
+      chartInstanceRef.current = chart
+
+      chart.dispatchAction({
+        type: 'takeGlobalCursor',
+        key: 'brush',
+        brushOption: { brushType: 'lineX', brushMode: 'single' },
+      })
+
+      type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
+      let brushZoomLock = false
+      const allDates = [
+        ...(data?.days ?? []).map(d => d.date),
+        ...(data?.projection ?? []).map(d => d.date),
+      ]
+
+      chart.on('brushEnd', (params: unknown) => {
+        if (brushZoomLock) return
+        brushZoomLock = true
+
+        const p = params as {
+          areas?: BrushArea[]
+          batch?: Array<{ areas?: BrushArea[] }>
+        }
+        const areas = p.areas ?? p.batch?.[0]?.areas
+        if (!areas || areas.length === 0) { brushZoomLock = false; return }
+
+        const area = areas[0]
+        let startIdx: number
+        let endIdx: number
+
+        if (area.coordRange) {
+          [startIdx, endIdx] = area.coordRange
+        } else if (area.range) {
+          const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
+          const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
+          if (s == null || e == null) { brushZoomLock = false; return }
+          startIdx = Math.round(s as number)
+          endIdx = Math.round(e as number)
+        } else {
+          brushZoomLock = false; return
+        }
+
+        if (endIdx <= startIdx) { brushZoomLock = false; return }
+        startIdx = Math.max(0, startIdx)
+        endIdx = Math.min(allDates.length - 1, endIdx)
+
+        chart.dispatchAction({
+          type: 'dataZoom',
+          dataZoomIndex: 0,
+          startValue: startIdx,
+          endValue: endIdx,
+        })
+        chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1, startValue: startIdx, endValue: endIdx })
+        chart.dispatchAction({ type: 'brush', command: 'clear', areas: [] })
+        chart.dispatchAction({
+          type: 'takeGlobalCursor',
+          key: 'brush',
+          brushOption: { brushType: false },
+        })
+
+        setIsZoomed(true)
+        requestAnimationFrame(() => { brushZoomLock = false })
+      })
+
+      return () => { chartInstanceRef.current = null }
+    },
   )
 
   const latest = data?.days && data.days.length > 0 ? data.days[data.days.length - 1] : null
@@ -287,6 +382,13 @@ export default function PMCChartExtended() {
           Performance Management (PMC)
         </h2>
         <div className="flex items-center gap-2 flex-wrap">
+          {isZoomed && (
+            <button onClick={handleResetZoom}
+              className="cursor-pointer text-sm px-3 py-1 rounded-md bg-accent-100 text-orange-700 hover:bg-orange-200
+                         dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50 transition-colors">
+              Zoom zurücksetzen
+            </button>
+          )}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
             {(Object.keys(rangeLabels) as TimeRange[]).map(r => (
               <button

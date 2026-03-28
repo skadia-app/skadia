@@ -81,17 +81,17 @@ func (db *DB) UpsertPMCDays(ctx context.Context, userID string, days []model.PMC
 }
 
 // GetDailyTSS returns a map of date -> summed TSS for a user in a date range.
-// Falls back to estimating TSS from activity power/HR data.
-func (db *DB) GetDailyTSS(ctx context.Context, userID string, from, to time.Time) (map[string]float64, error) {
+// Falls back to estimating TSS from activity power/HR data using the provided ftpW and maxHRBpm.
+func (db *DB) GetDailyTSS(ctx context.Context, userID string, from, to time.Time, ftpW int, maxHRBpm int) (map[string]float64, error) {
 	rows, err := db.Pool.Query(ctx,
 		`SELECT started_at::date AS day,
 			COALESCE(SUM(
 				CASE
 					WHEN tss IS NOT NULL AND tss > 0 THEN tss
 					WHEN avg_power_w IS NOT NULL AND avg_power_w > 0 AND moving_time_s IS NOT NULL THEN
-						(moving_time_s::float * avg_power_w * (avg_power_w / 200.0)) / (200.0 * 3600) * 100
+						(moving_time_s::float * avg_power_w * (avg_power_w / $4::float)) / ($4::float * 3600) * 100
 					WHEN avg_heart_rate IS NOT NULL AND avg_heart_rate > 0 AND moving_time_s IS NOT NULL THEN
-						moving_time_s::float / 3600 * (avg_heart_rate / 190.0) * 100
+						moving_time_s::float / 3600 * (avg_heart_rate / $5::float) * 100
 					ELSE 0
 				END
 			), 0) AS daily_tss
@@ -100,7 +100,7 @@ func (db *DB) GetDailyTSS(ctx context.Context, userID string, from, to time.Time
 		   AND NOT exclude_from_stats
 		 GROUP BY day
 		 ORDER BY day`,
-		userID, from, to,
+		userID, from, to, ftpW, maxHRBpm,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get daily tss: %w", err)
