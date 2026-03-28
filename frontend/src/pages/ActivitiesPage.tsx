@@ -11,8 +11,9 @@ import { apiDownload } from '@/api/client'
 import { apiFetch } from '@/lib/auth'
 import {
   formatDuration, formatDistance,
-  formatElevationGain, formatElevationLoss, sportLabel, showIndoorBadge,
+  formatElevationGain, formatElevationLoss, showIndoorBadge,
 } from '@/lib/utils'
+import { sportLabel } from '@/lib/sportTaxonomy'
 import { SportIcon } from '@/components/SportIcon'
 import ActivityFilters, { paramsToFilters, filtersToParams, filtersToApiParams } from '@/components/ActivityFilters'
 import type { ActivityFilterState } from '@/components/ActivityFilters'

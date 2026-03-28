@@ -24,6 +24,7 @@ import ColorPicker from '@/components/ColorPicker'
 import { BASE_STYLES, buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
 import { apiClient } from '@/api/client'
 import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl, loadHeatmapColor, saveHeatmapColor } from '@/lib/mapHeatmap'
+import { type FieldKey } from '@/lib/sportFieldLabels'
 
 echarts.use([
   LineChart,
@@ -39,7 +40,6 @@ echarts.use([
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type FieldKey = 'altitude' | 'heartRate' | 'power' | 'cadence' | 'speed' | 'temperature'
 type XMode = 'distance' | 'time'
 
 interface ChartData {
