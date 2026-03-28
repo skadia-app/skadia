@@ -285,7 +285,7 @@ function EnrichmentRow({ entry }: { entry: EnrichmentActivityProgress }) {
 
 export default function ActiveJobsIndicator() {
   const { user } = useUser()
-  useJobStream(user!.user_id)
+  useJobStream(user?.user_id ?? '')
   const { jobs, isAnyActive } = useActiveJobs()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
