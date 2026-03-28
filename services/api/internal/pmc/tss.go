@@ -261,3 +261,115 @@ func ExtractGradeStream(points []model.StreamPoint) []float64 {
 	}
 	return result
 }
+
+// --- TSS Pipeline Orchestrator ---
+
+// TSSResult contains all computed metrics for a single activity.
+type TSSResult struct {
+	ComputedTSS    *float64
+	ComputedNPW    *float64
+	ComputedNGPMps *float64
+	ComputedIF     *float64
+	TSSMethod      string
+	TRIMP          *float64
+}
+
+// ComputeTSS runs the full TSS computation pipeline for one activity.
+// Method priority: power_np > power_avg > pace_ngp > pace_swim > hr_stream > hr_avg > none
+// Edwards TRIMP is always computed in parallel if HR stream is available.
+func ComputeTSS(
+	sport, subSport int16,
+	movingTimeS int,
+	avgPowerW *float64,
+	avgHR *float64,
+	totalDistanceM *float64,
+	powerStream []float64,
+	hrStream []int,
+	speedStream []float64,
+	gradeStream []float64,
+	gapStream []float64,
+	th *Thresholds,
+) *TSSResult {
+	r := &TSSResult{TSSMethod: "none"}
+
+	// Edwards TRIMP (always, if HR stream available)
+	if len(hrStream) > 0 && th.MaxHR > th.RestingHR {
+		trimp := CalcEdwardsTRIMP(hrStream, th.RestingHR, th.MaxHR)
+		if trimp > 0 {
+			r.TRIMP = &trimp
+		}
+	}
+
+	// Method 1a: Power-NP TSS (power stream + FTP)
+	if len(powerStream) >= 30 && th.FTP > 0 {
+		np := CalcNP(powerStream)
+		if np > 0 {
+			iF := np / float64(th.FTP)
+			tss := float64(movingTimeS) / 3600 * iF * iF * 100
+			r.ComputedTSS = &tss
+			r.ComputedNPW = &np
+			r.ComputedIF = &iF
+			r.TSSMethod = "power_np"
+			return r
+		}
+	}
+
+	// Method 1b: Power-avg TSS (avg power only, no stream)
+	if avgPowerW != nil && *avgPowerW > 0 && th.FTP > 0 && len(powerStream) < 30 {
+		iF := *avgPowerW / float64(th.FTP)
+		tss := float64(movingTimeS) / 3600 * iF * iF * 100
+		r.ComputedTSS = &tss
+		r.ComputedIF = &iF
+		r.TSSMethod = "power_avg"
+		return r
+	}
+
+	// Method 2: rTSS (running NGP) — sport=1 (Running)
+	if sport == 1 && len(speedStream) >= 30 && th.SpeedThreshold != nil && *th.SpeedThreshold > 0 {
+		ngp := CalcNGP(speedStream, gradeStream, gapStream)
+		if ngp > 0 {
+			iF := ngp / *th.SpeedThreshold
+			tss := float64(movingTimeS) / 3600 * iF * iF * 100
+			r.ComputedTSS = &tss
+			r.ComputedNGPMps = &ngp
+			r.ComputedIF = &iF
+			r.TSSMethod = "pace_ngp"
+			return r
+		}
+	}
+
+	// Method 3: sTSS (swimming) — sport=5 (Swimming)
+	if sport == 5 && totalDistanceM != nil && *totalDistanceM > 0 && th.SpeedThreshold != nil && *th.SpeedThreshold > 0 {
+		tss := CalcSwimTSS(*totalDistanceM, movingTimeS, *th.SpeedThreshold)
+		if tss > 0 {
+			avgSpeed := *totalDistanceM / float64(movingTimeS)
+			iF := avgSpeed / *th.SpeedThreshold
+			r.ComputedTSS = &tss
+			r.ComputedIF = &iF
+			r.TSSMethod = "pace_swim"
+			return r
+		}
+	}
+
+	// Method 4: hrTSS (second-by-second)
+	if len(hrStream) > 0 && th.LTHR > th.RestingHR {
+		tss := CalcHrTSS(hrStream, th.LTHR, th.RestingHR, th.MaxHR)
+		if tss > 0 {
+			r.ComputedTSS = &tss
+			r.TSSMethod = "hr_stream"
+			return r
+		}
+	}
+
+	// Method 5: hrTSS (average fallback)
+	if avgHR != nil && *avgHR > 0 && th.LTHR > th.RestingHR {
+		tss := CalcHrTSSAvg(*avgHR, th.LTHR, th.RestingHR, movingTimeS)
+		if tss > 0 {
+			r.ComputedTSS = &tss
+			r.TSSMethod = "hr_avg"
+			return r
+		}
+	}
+
+	return r
+}
