@@ -61,6 +61,9 @@ interface ChartData {
   torqueEffR: number[]
   pedalSmL: number[]
   pedalSmR: number[]
+  motorPower: number[]
+  batteryLevel: number[]
+  travelRange: number[]
   maxDist: number
   maxElapsed: number
 }
@@ -85,6 +88,9 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const torqueEffR: number[] = []
   const pedalSmL: number[] = []
   const pedalSmR: number[] = []
+  const motorPower: number[] = []
+  const batteryLevel: number[] = []
+  const travelRange: number[] = []
 
   const t0 = streams.length > 0 ? new Date(streams[0].time).getTime() : 0
 
@@ -110,6 +116,9 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     torqueEffR.push(s.right_torque_effectiveness_pct ?? NaN)
     pedalSmL.push(s.left_pedal_smoothness_pct ?? NaN)
     pedalSmR.push(s.right_pedal_smoothness_pct ?? NaN)
+    motorPower.push(s.motor_power_w ?? NaN)
+    batteryLevel.push(s.ebike_battery_level_pct ?? NaN)
+    travelRange.push(s.ebike_travel_range_km ?? NaN)
   }
 
   const validDist = distanceKm.filter(v => !isNaN(v) && isFinite(v))
@@ -117,7 +126,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -518,6 +527,24 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       leftColor="#A855F7" rightColor="#8B5CF6"
       leftAxisName="Links\n(%)" rightAxisName="Rechts\n(%)"
       tooltipTitle="Tritt-Gleichm." />,
+  )
+  // E-Bike: Motor Power
+  if (hasValidData(data.motorPower)) panels.push(
+    <ChartPanel key={k('motor-power')} chartId="motor-power" {...common}
+      field="power" label="Motorleistung" unit="W" color="#9333EA"
+      overrideValues={data.motorPower} />,
+  )
+  // E-Bike: Battery Level (fixed 0–100 % Y axis)
+  if (hasValidData(data.batteryLevel)) panels.push(
+    <ChartPanel key={k('battery')} chartId="battery" {...common}
+      field="power" label="Akku-Level" unit="%" color="#22C55E"
+      overrideValues={data.batteryLevel} yAxisFixed={[0, 100]} />,
+  )
+  // E-Bike: Travel Range
+  if (hasValidData(data.travelRange)) panels.push(
+    <ChartPanel key={k('travel-range')} chartId="travel-range" {...common}
+      field="power" label="Reichweite" unit="km" color="#6B7280"
+      overrideValues={data.travelRange} />,
   )
 
   if (panels.length === 0) return null
@@ -1110,13 +1137,15 @@ interface ChartPanelProps {
   invertY?: boolean
   /** Custom value formatter for tooltip (used for pace mode). */
   tooltipValueFn?: (v: number) => string
+  /** Fix Y axis to a specific [min, max] range (e.g. [0, 100] for battery %). */
+  yAxisFixed?: [number, number]
 }
 
 function ChartPanel({
   chartId, data, field, unit, label, color, area,
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
   brushZoomLockRef, markLines = 'none', altitudeSmartY, showGradeColor, xMode,
-  sunMarkLines, splitMarkers, overrideValues, invertY, tooltipValueFn,
+  sunMarkLines, splitMarkers, overrideValues, invertY, tooltipValueFn, yAxisFixed,
 }: ChartPanelProps) {
   const containerRef = useECharts(
     () => {
@@ -1130,6 +1159,7 @@ function ChartPanel({
         const range = calcAltitudeYRange(values)
         if (range) { yAxisExtra.min = range.min; yAxisExtra.max = range.max }
       }
+      if (yAxisFixed) { yAxisExtra.min = yAxisFixed[0]; yAxisExtra.max = yAxisFixed[1] }
       if (invertY) { yAxisExtra.inverse = true }
 
       // Extra top padding for sunrise/sunset icons or split marker labels above the chart
@@ -1387,7 +1417,7 @@ function ChartPanel({
         ],
       } as echarts.EChartsCoreOption
     },
-    [data, field, xMode, splitMarkers, showGradeColor, overrideValues, invertY], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, field, xMode, splitMarkers, showGradeColor, overrideValues, invertY, yAxisFixed], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       onRegister(chartId, chart)
 

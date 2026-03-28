@@ -155,6 +155,20 @@ export function StatsGrid({ activity, speedMode }: StatsGridProps) {
       value: `${activity.avg_spo2_pct.toFixed(1)} %`,
       title: 'Durchschnittliche Sauerstoffsättigung',
     } : null,
+
+    // E-Bike
+    activity.avg_lev_motor_power_w != null ? {
+      label: 'Ø Motorleistung',
+      value: `${Math.round(activity.avg_lev_motor_power_w)} W`,
+    } : null,
+    activity.max_lev_motor_power_w != null ? {
+      label: 'Max. Motorleistung',
+      value: `${Math.round(activity.max_lev_motor_power_w)} W`,
+    } : null,
+    activity.lev_battery_consumption_pct != null ? {
+      label: 'Akkuverbrauch',
+      value: `${activity.lev_battery_consumption_pct.toFixed(1)} %`,
+    } : null,
   ]
 
   const visible = (stats.filter(Boolean) as StatItem[]).filter(s => s.value && s.value !== '—')
