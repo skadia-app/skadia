@@ -134,7 +134,7 @@ function ClimbingSplits({ splits, summaries, subType, activityId }: { splits: Sp
   const totalCalories = splits.reduce((sum, s) => sum + (s.total_calories ?? 0), 0)
 
   const summaryForClimb = summaries.find(s => s.split_type === 'climb_active')
-  const routenVerb = isBouldering ? 'geboulbert' : 'geklettert'
+  const routenVerb = isBouldering ? 'gebouldert' : 'geklettert'
   const sectionTitle = isBouldering ? 'Boulder-Routen' : 'Routen'
 
   // Nur climb_active-Splits numerieren (separate Route-Zählung)
