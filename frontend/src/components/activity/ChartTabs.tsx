@@ -1,6 +1,20 @@
+import { useMemo } from 'react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useSearchParams } from 'react-router-dom'
 import type { StreamPoint } from '@/api/types'
+
+export const CHART_TAB = {
+  alles: 'alles',
+  uebersicht: 'uebersicht',
+  leistung: 'leistung',
+  dynamik: 'dynamik',
+  pedal: 'pedal',
+  ebike: 'ebike',
+  tauchgang: 'tauchgang',
+  sensoren: 'sensoren',
+} as const
+
+export type ChartTabValue = typeof CHART_TAB[keyof typeof CHART_TAB]
 
 interface TabDef {
   value: string
@@ -15,25 +29,26 @@ interface Props {
 
 export function ChartTabs({ streams, children }: Props) {
   const [searchParams, setSearchParams] = useSearchParams()
-  const activeTab = searchParams.get('tab') ?? 'alles'
+  const activeTab = searchParams.get('tab') ?? CHART_TAB.alles
 
-  const tabs: TabDef[] = [
-    { value: 'alles', label: 'Alles', visible: true },
-    { value: 'uebersicht', label: 'Übersicht', visible: true },
-    { value: 'leistung', label: 'Leistung', visible: streams.some(s => s.power_w != null) },
-    { value: 'dynamik', label: 'Dynamik', visible: streams.some(s => s.ground_contact_time_ms != null) },
-    { value: 'pedal', label: 'Pedal-Analytik', visible: streams.some(s => s.left_torque_effectiveness_pct != null) },
-    { value: 'ebike', label: 'E-Bike', visible: streams.some(s => s.motor_power_w != null) },
-    { value: 'tauchgang', label: 'Tauchgang', visible: streams.some(s => s.depth_m != null) },
-    { value: 'sensoren', label: 'Sensoren', visible: streams.some(s => s.core_temperature_c != null) },
-  ]
-
-  const visibleTabs = tabs.filter(t => t.visible)
+  const visibleTabs = useMemo(() => {
+    const tabs: TabDef[] = [
+      { value: CHART_TAB.alles, label: 'Alles', visible: true },
+      { value: CHART_TAB.uebersicht, label: 'Übersicht', visible: true },
+      { value: CHART_TAB.leistung, label: 'Leistung', visible: streams.some(s => s.power_w != null) },
+      { value: CHART_TAB.dynamik, label: 'Dynamik', visible: streams.some(s => s.ground_contact_time_ms != null) },
+      { value: CHART_TAB.pedal, label: 'Pedal-Analytik', visible: streams.some(s => s.left_torque_effectiveness_pct != null) },
+      { value: CHART_TAB.ebike, label: 'E-Bike', visible: streams.some(s => s.motor_power_w != null) },
+      { value: CHART_TAB.tauchgang, label: 'Tauchgang', visible: streams.some(s => s.depth_m != null) },
+      { value: CHART_TAB.sensoren, label: 'Sensoren', visible: streams.some(s => s.core_temperature_c != null) },
+    ]
+    return tabs.filter(t => t.visible)
+  }, [streams])
   const showTabs = visibleTabs.length > 2
 
   const handleTabChange = (value: string) => {
     const next = new URLSearchParams(searchParams)
-    if (value === 'alles') {
+    if (value === CHART_TAB.alles) {
       next.delete('tab')
     } else {
       next.set('tab', value)
@@ -41,9 +56,9 @@ export function ChartTabs({ streams, children }: Props) {
     setSearchParams(next, { replace: true })
   }
 
-  const validTab = visibleTabs.find(t => t.value === activeTab) ? activeTab : 'alles'
+  const validTab = visibleTabs.find(t => t.value === activeTab) ? activeTab : CHART_TAB.alles
 
-  if (!showTabs) return <>{children('alles')}</>
+  if (!showTabs) return <>{children(CHART_TAB.alles)}</>
 
   return (
     <Tabs value={validTab} onValueChange={handleTabChange}>
