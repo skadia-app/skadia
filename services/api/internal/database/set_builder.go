@@ -15,6 +15,9 @@ func newSetBuilder(startIdx int) *setBuilder {
 	return &setBuilder{idx: startIdx}
 }
 
+// Set adds a "col = $N" assignment. col MUST be a compile-time constant column
+// name — never pass user-controlled input here, as it is interpolated directly
+// into the SQL string without further validation.
 func (b *setBuilder) Set(col string, val any) {
 	b.sets = append(b.sets, fmt.Sprintf("%s = $%d", col, b.idx))
 	b.args = append(b.args, val)
