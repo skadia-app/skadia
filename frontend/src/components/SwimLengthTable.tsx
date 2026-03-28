@@ -6,7 +6,6 @@ interface Props {
   lengths: SwimLength[]
 }
 
-// swimStrokeLabel imported from sportFieldLabels
 
 function strokeColor(stroke?: string): string {
   switch (stroke) {

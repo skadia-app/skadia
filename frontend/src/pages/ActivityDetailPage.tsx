@@ -653,7 +653,7 @@ export default function ActivityDetailPage() {
 
       {/* Charts */}
       {streams && streams.length > 0 && (
-        <ChartTabs streams={streams} sportType={activity.sport_type}>
+        <ChartTabs streams={streams}>
           {(activeTab) => (
             <ActivityCharts
               streams={streams}

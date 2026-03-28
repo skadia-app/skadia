@@ -75,4 +75,3 @@ export default function LapTable({ laps, sportType, speedMode }: Props) {
   )
 }
 
-// swimStrokeLabel imported from sportFieldLabels

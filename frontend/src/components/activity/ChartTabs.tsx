@@ -10,7 +10,6 @@ interface TabDef {
 
 interface Props {
   streams: StreamPoint[]
-  sportType: string
   children: (activeTab: string) => React.ReactNode
 }
 
