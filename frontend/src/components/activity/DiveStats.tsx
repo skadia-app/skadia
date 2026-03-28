@@ -1,5 +1,6 @@
 import type { Activity } from '@/api/types'
 import { fmtDuration } from '@/lib/format'
+import { ActivityStatCard } from './ActivityStatCard'
 
 interface Props { activity: Activity }
 
@@ -23,10 +24,7 @@ export function DiveStats({ activity }: Props) {
       <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2">Tauchgang</h3>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
         {stats.map(s => (
-          <div key={s.label} className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
-            <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{s.label}</div>
-            <div className="text-base font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">{s.value}</div>
-          </div>
+          <ActivityStatCard key={s.label} label={s.label} value={s.value} />
         ))}
       </div>
     </div>

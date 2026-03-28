@@ -1,5 +1,6 @@
 import type { Activity } from '@/api/types'
 import { formatSpeedKmh } from '@/lib/sportFieldLabels'
+import { ActivityStatCard } from './ActivityStatCard'
 
 interface Props { activity: Activity }
 
@@ -25,20 +26,10 @@ export function BallSportStats({ activity }: Props) {
           </div>
         )}
         {activity.max_ball_speed_ms != null && (
-          <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
-            <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Max. Ballgeschwindigkeit</div>
-            <div className="text-base font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
-              {formatSpeedKmh(activity.max_ball_speed_ms)}
-            </div>
-          </div>
+          <ActivityStatCard label="Max. Ballgeschwindigkeit" value={formatSpeedKmh(activity.max_ball_speed_ms)} />
         )}
         {activity.avg_ball_speed_ms != null && (
-          <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
-            <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Ø Ballgeschwindigkeit</div>
-            <div className="text-base font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
-              {formatSpeedKmh(activity.avg_ball_speed_ms)}
-            </div>
-          </div>
+          <ActivityStatCard label="Ø Ballgeschwindigkeit" value={formatSpeedKmh(activity.avg_ball_speed_ms)} />
         )}
       </div>
     </div>
