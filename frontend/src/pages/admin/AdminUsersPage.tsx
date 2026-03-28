@@ -111,6 +111,10 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
         password: password || undefined,
       }),
     onSuccess: (data) => {
+      if ((data as { status?: string }).status === 'email_exists') {
+        addToast({ type: 'error', title: getAuthErrorMessage('email_exists'), duration: 0 })
+        return
+      }
       if (password) {
         addToast({ type: 'success', title: 'Benutzer erstellt' })
       } else if (data.invite_sent) {
@@ -173,7 +177,11 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
               className={AUTH_INPUT_CLASS}
               placeholder={smtpConfigured ? 'Leer = Einladungs-Email wird gesendet' : 'Passwort ist erforderlich (kein SMTP konfiguriert)'}
               required={!smtpConfigured}
+              minLength={password ? 10 : undefined}
             />
+            {password && password.length > 0 && password.length < 10 && (
+              <p className="text-xs text-rose-600 dark:text-rose-400">Mindestens 10 Zeichen erforderlich</p>
+            )}
           </div>
         </div>
 

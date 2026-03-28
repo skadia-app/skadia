@@ -80,10 +80,13 @@ export async function refreshToken(): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight
 
   refreshInFlight = (async () => {
+    const ctrl = new AbortController()
+    const timeoutId = setTimeout(() => ctrl.abort(), 10_000)
     try {
       const res = await fetch(`${API_BASE}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
+        signal: ctrl.signal,
       })
       if (!res.ok) {
         clearToken()
@@ -96,6 +99,7 @@ export async function refreshToken(): Promise<boolean> {
       clearToken()
       return false
     } finally {
+      clearTimeout(timeoutId)
       refreshInFlight = null
     }
   })()
