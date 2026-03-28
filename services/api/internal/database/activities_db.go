@@ -1055,20 +1055,14 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 }
 
 func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *model.ActivityUpdate) (*model.Activity, error) {
-	var sets []string
-	var args []any
-	argIdx := 3
-	args = append(args, id, userID)
+	b := newSetBuilder(3)
 
 	if update.Title != nil {
-		sets = append(sets, fmt.Sprintf("title = $%d, title_is_manual = true", argIdx))
-		args = append(args, *update.Title)
-		argIdx++
+		b.Set("title", *update.Title)
+		b.SetExpr("title_is_manual = true")
 	}
 	if update.Description != nil {
-		sets = append(sets, fmt.Sprintf("description = $%d", argIdx))
-		args = append(args, *update.Description)
-		argIdx++
+		b.Set("description", *update.Description)
 	}
 	if update.SportType != nil || update.SubType != nil {
 		// Load parsed values to compare — sport_type_is_manual should only be
@@ -1079,14 +1073,10 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 		).Scan(&parsedSportType, &parsedSubType)
 
 		if update.SportType != nil {
-			sets = append(sets, fmt.Sprintf("sport_type = $%d", argIdx))
-			args = append(args, *update.SportType)
-			argIdx++
+			b.Set("sport_type", *update.SportType)
 		}
 		if update.SubType != nil {
-			sets = append(sets, fmt.Sprintf("sub_type = $%d", argIdx))
-			args = append(args, *update.SubType)
-			argIdx++
+			b.Set("sub_type", *update.SubType)
 		}
 
 		// Determine if the effective values differ from parsed values.
@@ -1095,64 +1085,44 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 		parsedST := derefOr(parsedSportType, "")
 		parsedSub := derefOr(parsedSubType, "")
 		isManual := newST != parsedST || newSub != parsedSub
-		sets = append(sets, fmt.Sprintf("sport_type_is_manual = %t", isManual))
+		b.SetExpr(fmt.Sprintf("sport_type_is_manual = %t", isManual))
 	}
 	if update.Tags != nil {
-		sets = append(sets, fmt.Sprintf("tags = $%d", argIdx))
-		args = append(args, update.Tags)
-		argIdx++
+		b.Set("tags", update.Tags)
 	}
 	if update.Visibility != nil {
-		sets = append(sets, fmt.Sprintf("visibility = $%d", argIdx))
-		args = append(args, *update.Visibility)
-		argIdx++
+		b.Set("visibility", *update.Visibility)
 	}
 	if update.HideMap != nil {
-		sets = append(sets, fmt.Sprintf("hide_map = $%d", argIdx))
-		args = append(args, *update.HideMap)
-		argIdx++
+		b.Set("hide_map", *update.HideMap)
 	}
 	if update.DataVisibility != nil {
-		sets = append(sets, fmt.Sprintf("data_visibility = $%d", argIdx))
-		args = append(args, update.DataVisibility)
-		argIdx++
+		b.Set("data_visibility", update.DataVisibility)
 	}
 	if update.GearID != nil {
 		if string(update.GearID) == "null" {
-			sets = append(sets, "gear_id = NULL")
+			b.SetExpr("gear_id = NULL")
 		} else {
 			var gearID string
 			if err := json.Unmarshal(update.GearID, &gearID); err == nil && gearID != "" {
-				sets = append(sets, fmt.Sprintf("gear_id = $%d", argIdx))
-				args = append(args, gearID)
-				argIdx++
+				b.Set("gear_id", gearID)
 			}
 		}
 	}
 	if update.LocationLat != nil {
-		sets = append(sets, fmt.Sprintf("location_lat = $%d", argIdx))
-		args = append(args, *update.LocationLat)
-		argIdx++
+		b.Set("location_lat", *update.LocationLat)
 	}
 	if update.LocationLng != nil {
-		sets = append(sets, fmt.Sprintf("location_lng = $%d", argIdx))
-		args = append(args, *update.LocationLng)
-		argIdx++
+		b.Set("location_lng", *update.LocationLng)
 	}
 	if update.ExcludeLiftSubtraction != nil {
-		sets = append(sets, fmt.Sprintf("exclude_lift_subtraction = $%d", argIdx))
-		args = append(args, *update.ExcludeLiftSubtraction)
-		argIdx++
+		b.Set("exclude_lift_subtraction", *update.ExcludeLiftSubtraction)
 	}
 	if update.WorkoutFeel != nil {
-		sets = append(sets, fmt.Sprintf("workout_feel = $%d", argIdx))
-		args = append(args, *update.WorkoutFeel)
-		argIdx++
+		b.Set("workout_feel", *update.WorkoutFeel)
 	}
 	if update.WorkoutRpe != nil {
-		sets = append(sets, fmt.Sprintf("workout_rpe = $%d", argIdx))
-		args = append(args, *update.WorkoutRpe)
-		argIdx++
+		b.Set("workout_rpe", *update.WorkoutRpe)
 	}
 	if update.ExcludeFromHeatmap != nil {
 		if !*update.ExcludeFromHeatmap {
@@ -1162,21 +1132,18 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 				return nil, fmt.Errorf("cannot disable heatmap exclusion for virtual activities")
 			}
 		}
-		sets = append(sets, fmt.Sprintf("exclude_from_heatmap = $%d", argIdx))
-		args = append(args, *update.ExcludeFromHeatmap)
-		argIdx++
+		b.Set("exclude_from_heatmap", *update.ExcludeFromHeatmap)
 	}
 	if update.ExcludeFromStats != nil {
-		sets = append(sets, fmt.Sprintf("exclude_from_stats = $%d", argIdx))
-		args = append(args, *update.ExcludeFromStats)
-		argIdx++
+		b.Set("exclude_from_stats", *update.ExcludeFromStats)
 	}
 
-	if len(sets) == 0 {
+	if !b.HasSets() {
 		return db.GetActivity(ctx, id)
 	}
 
-	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1 AND user_id = $2", strings.Join(sets, ", "))
+	args := append([]any{id, userID}, b.Args()...)
+	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1 AND user_id = $2", b.Clause())
 	_, err := db.Pool.Exec(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("update activity: %w", err)

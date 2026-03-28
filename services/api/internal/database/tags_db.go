@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -176,70 +175,48 @@ func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor stri
 //   - locationPresent=true, lat/lng=nil → SET lat=NULL, lng=NULL
 //   - locationPresent=true, lat/lng=non-nil → SET lat=*lat, lng=*lng
 func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textColor string, isAuto *bool, conditions, conditionGroups *[]byte, conditionsLogic *string, description *string, lat, lng *float64, locationPresent bool) (*model.Tag, error) {
-	var sets []string
-	var args []any
-	args = append(args, tagID, userID) // $1 = tagID, $2 = userID
-	argIdx := 3
+	b := newSetBuilder(3)
 
 	if name != "" {
-		sets = append(sets, fmt.Sprintf("name = $%d", argIdx))
-		args = append(args, name)
-		argIdx++
+		b.Set("name", name)
 	}
 	if color != "" {
-		sets = append(sets, fmt.Sprintf("color = $%d", argIdx))
-		args = append(args, color)
-		argIdx++
+		b.Set("color", color)
 	}
 	if textColor != "" {
-		sets = append(sets, fmt.Sprintf("text_color = $%d", argIdx))
-		args = append(args, textColor)
-		argIdx++
+		b.Set("text_color", textColor)
 	}
 	if isAuto != nil {
-		sets = append(sets, fmt.Sprintf("is_auto = $%d", argIdx))
-		args = append(args, *isAuto)
-		argIdx++
+		b.Set("is_auto", *isAuto)
 	}
 	if conditions != nil {
-		sets = append(sets, fmt.Sprintf("conditions = $%d", argIdx))
-		args = append(args, *conditions)
-		argIdx++
+		b.Set("conditions", *conditions)
 	}
 	if conditionGroups != nil {
-		sets = append(sets, fmt.Sprintf("condition_groups = $%d", argIdx))
-		args = append(args, *conditionGroups)
-		argIdx++
+		b.Set("condition_groups", *conditionGroups)
 	}
 	if conditionsLogic != nil {
-		sets = append(sets, fmt.Sprintf("conditions_logic = $%d", argIdx))
-		args = append(args, *conditionsLogic)
-		argIdx++
+		b.Set("conditions_logic", *conditionsLogic)
 	}
 	if description != nil {
-		sets = append(sets, fmt.Sprintf("description = $%d", argIdx))
-		args = append(args, *description)
-		argIdx++
+		b.Set("description", *description)
 	}
 	if locationPresent {
 		// lat and lng are either both NULL or both a value — update both together.
-		sets = append(sets, fmt.Sprintf("lat = $%d", argIdx))
-		args = append(args, lat) // pgx treats nil *float64 as SQL NULL
-		argIdx++
-		sets = append(sets, fmt.Sprintf("lng = $%d", argIdx))
-		args = append(args, lng)
-		argIdx++
+		b.Set("lat", lat) // pgx treats nil *float64 as SQL NULL
+		b.Set("lng", lng)
 		// Auto-set category based on location
 		if lat != nil {
-			sets = append(sets, fmt.Sprintf("category = $%d", argIdx))
-			args = append(args, "standort")
-			argIdx++
+			b.Set("category", "standort")
 		} else {
 			// lat removed → revert standort back to custom (only if it was standort)
-			sets = append(sets, "category = CASE WHEN category = 'standort' THEN 'custom' ELSE category END")
+			b.SetExpr("category = CASE WHEN category = 'standort' THEN 'custom' ELSE category END")
 		}
 	}
-	if len(sets) == 0 {
+
+	args := append([]any{tagID, userID}, b.Args()...)
+
+	if !b.HasSets() {
 		t, err := scanTag(db.Pool.QueryRow(ctx,
 			`SELECT `+tagSelectCols+` FROM tags WHERE id = $1 AND user_id = $2`,
 			tagID, userID,
@@ -257,7 +234,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 		UPDATE tags SET %s
 		WHERE id = $1 AND user_id = $2
 		RETURNING `+tagSelectCols,
-		strings.Join(sets, ", "),
+		b.Clause(),
 	)
 
 	t, err := scanTag(db.Pool.QueryRow(ctx, query, args...))
