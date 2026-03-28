@@ -351,7 +351,7 @@ func (s *Service) PostProcess(
 	// Geo-Enrichment + Stage-2 NATS event run AFTER InsertTrack (Phase 1) because
 	// all geo queries read from activity_tracks.track_full.
 	// For non-GPS activities, geo queries are skipped internally but Stage-2 NATS event (embeddings) is still published.
-	enrichment.RunGeoAndPublishStage2(ctx, s.DB, userID, activityID, data.HasGPS, s.Events, s.GraphReader)
+	enrichment.RunGeoAndPublishStage2(ctx, s.DB, userID, activityID, data.HasGPS, data.SportType, data.IsVirtual, s.Events, s.GraphReader)
 
 	// Publish NATS events
 	if s.Events != nil {

@@ -13,6 +13,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // RunGeoAndPublishStage2 runs geo-enrichment (summits, settlements, forests, water,
@@ -21,7 +22,7 @@ import (
 // because every geo query reads from activity_tracks.track_full.
 // This is a separate function from RunStage1 so that the import path (service.go)
 // can defer geo work to Phase 2 while still running scalar enrichment in Phase 0.
-func RunGeoAndPublishStage2(ctx context.Context, db *database.DB, userID, activityID string, hasGPS bool, pub *event.Publisher, graphReader routing.GraphReader) {
+func RunGeoAndPublishStage2(ctx context.Context, db *database.DB, userID, activityID string, hasGPS bool, sportType string, isVirtual bool, pub *event.Publisher, graphReader routing.GraphReader) {
 	enrichSettings, settingsErr := db.GetEnrichmentSettings(ctx, userID)
 	if settingsErr != nil {
 		slog.Warn("RunGeoAndPublishStage2: could not load enrichment settings, running all geo modules",
@@ -38,13 +39,23 @@ func RunGeoAndPublishStage2(ctx context.Context, db *database.DB, userID, activi
 			slog.Warn("RunGeoAndPublishStage2: geo enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
 		}
 
-		surfEnabled := enrichSettings == nil || enrichSettings.EnableSurfaceDetection
-		var surfStream []EnrichmentStreamPoint
-		if graphReader != nil {
-			surfStream, _ = getEnrichmentStream(ctx, db, activityID)
+		// Skip surface detection for virtual/indoor activities and water sports —
+		// OSM road surface matching produces nonsensical results for these.
+		skipSurfaces := isVirtual
+		if !skipSurfaces {
+			if def, ok := sport.GetSportDef(sportType); ok {
+				skipSurfaces = def.CategoryKey == "water"
+			}
 		}
-		if err := EnrichSurfaces(ctx, db, activityID, surfEnabled, graphReader, surfStream); err != nil {
-			slog.Warn("RunGeoAndPublishStage2: surfaces enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+		if !skipSurfaces {
+			surfEnabled := enrichSettings == nil || enrichSettings.EnableSurfaceDetection
+			var surfStream []EnrichmentStreamPoint
+			if graphReader != nil {
+				surfStream, _ = getEnrichmentStream(ctx, db, activityID)
+			}
+			if err := EnrichSurfaces(ctx, db, activityID, surfEnabled, graphReader, surfStream); err != nil {
+				slog.Warn("RunGeoAndPublishStage2: surfaces enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+			}
 		}
 	}
 
