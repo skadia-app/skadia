@@ -3,7 +3,9 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -24,7 +26,7 @@ func (h *Handler) BuildCoverage(w http.ResponseWriter, r *http.Request) {
 		Regions []string `json:"regions"` // region names (e.g. ["austria", "germany"])
 		Workers int      `json:"workers"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		httputil.WriteError(w, http.StatusBadRequest, "Invalid JSON", err.Error(), r.URL.Path)
 		return
 	}

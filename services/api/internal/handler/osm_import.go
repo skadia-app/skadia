@@ -284,10 +284,12 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 	var coverageFailed bool
 	if req.BuildCoverage && waysImported {
 		coverageName := "Coverage-Grids"
-		coverageJobID, err := h.DB.InsertBackgroundJob(context.Background(), userID,
+		coverageJobID, created, err := h.DB.InsertBackgroundJobGuarded(context.Background(), userID,
 			"coverage_build", nil, &coverageName, 0)
 		if err != nil {
 			slog.Error("osm import: failed to create coverage build job", "error", err)
+		} else if !created {
+			slog.Warn("osm import: coverage build already running, skipping")
 		} else {
 			mainReporter.SetPhase("coverage")
 			graphPath := os.Getenv("ROUTING_GRAPH_PATH")
@@ -311,21 +313,31 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 				Region:     succeededRegions[0].ID,
 				Workers:    2,
 			}
-			err := coverage.RunBuildCoverage(ctx, h.DB.Pool, opts, func(current, total int64) {
+			progressFn := func(current, total int64) {
 				if current == 0 && total > 0 {
 					_ = h.DB.UpdateBackgroundJobTotal(context.Background(), coverageJobID, total)
 				} else {
 					_ = h.DB.UpdateBackgroundJobProgress(context.Background(), coverageJobID, current)
 				}
-			})
-			if err != nil {
-				slog.Error("osm import: coverage build failed", "error", err)
-				_ = h.DB.CompleteBackgroundJob(context.Background(), coverageJobID, true, err.Error())
-				coverageFailed = true
-			} else {
-				slog.Info("osm import: coverage build completed")
-				_ = h.DB.CompleteBackgroundJob(context.Background(), coverageJobID, false, "")
 			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("osm import: coverage build panicked", "error", r)
+						_ = h.DB.CompleteBackgroundJob(context.Background(), coverageJobID, true, fmt.Sprintf("panic: %v", r))
+						coverageFailed = true
+					}
+				}()
+				err := coverage.RunBuildCoverage(ctx, h.DB.Pool, opts, progressFn)
+				if err != nil {
+					slog.Error("osm import: coverage build failed", "error", err)
+					_ = h.DB.CompleteBackgroundJob(context.Background(), coverageJobID, true, err.Error())
+					coverageFailed = true
+				} else {
+					slog.Info("osm import: coverage build completed")
+					_ = h.DB.CompleteBackgroundJob(context.Background(), coverageJobID, false, "")
+				}
+			}()
 		}
 	}
 
