@@ -47,7 +47,7 @@ func WriteFCOV(path string, h FCOVHeader, data []uint8) error {
 	if _, err := f.Write(data); err != nil {
 		return fmt.Errorf("fcov: write data: %w", err)
 	}
-	return nil
+	return f.Sync()
 }
 
 // ReadFCOV reads header + data from path (regular file I/O, no mmap).

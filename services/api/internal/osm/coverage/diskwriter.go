@@ -126,6 +126,7 @@ func WriteTileGrids(tg *TileGrids, ti *trafficInputs, baseDir string, core orb.B
 		if err := WriteFCOV(path, fcovHeaderFromGrid(cropped), cropped.Data); err != nil {
 			return fmt.Errorf("write layer %s: %w", layer, err)
 		}
+		cropped.Release()
 	}
 
 	// Write internal traffic-input grids (quantised from float64 to uint8)
@@ -152,6 +153,7 @@ func WriteTileGrids(tg *TileGrids, ti *trafficInputs, baseDir string, core orb.B
 			if err := WriteFCOV(path, fcovHeaderFromGrid(resampled), resampled.Data); err != nil {
 				return fmt.Errorf("write layer %s: %w", p.name, err)
 			}
+			resampled.Release()
 		}
 	}
 
