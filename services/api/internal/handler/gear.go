@@ -841,17 +841,31 @@ func (h *Handler) GetMaintenanceAlerts(w http.ResponseWriter, r *http.Request) {
 
 // --- Gear Documents ---
 
-func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httputil.RequireUserID(w, r)
-	if !ok {
-		return
-	}
-	gearID := chi.URLParam(r, "id")
-	if err := h.DB.VerifyGearOwnership(r.Context(), gearID, userID); err != nil {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
-		return
-	}
+// docUploadConfig holds the caller-specific parameters for processDocumentUpload.
+type docUploadConfig struct {
+	// parentType is the ShadowFS parent type string ("gear" or "gear_component").
+	parentType string
+	// parentID is the gear or component UUID.
+	parentID string
+	// logPrefix is used in slog messages (e.g. "gear document", "component document").
+	logPrefix string
+	// readDocType controls whether doc_type is read from the form value (gear) or
+	// derived solely from the content type (component).
+	readDocType bool
+	// buildDoc returns a GearDocument with the caller-specific foreign-key field set.
+	buildDoc func(userID, docType string, titlePtr *string, filename, contentType string, size int64, hashStr string) *model.GearDocument
+	// dupCheck returns (exists, error) for the caller-specific duplicate query.
+	dupCheck func(userID, hashStr string) (bool, error)
+	// extractPDF enables PDF text extraction + DB update.
+	extractPDF bool
+	// publishEvent enables the NATS DocumentUploaded event.
+	publishEvent bool
+}
 
+// processDocumentUpload implements the shared multipart upload pipeline used by
+// UploadGearDocument and UploadComponentDocument. It writes the HTTP response
+// directly and returns false on any error so callers can return immediately.
+func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, userID string, cfg docUploadConfig) {
 	// Limit to 30MB
 	r.Body = http.MaxBytesReader(w, r.Body, 30<<20)
 	if err := r.ParseMultipartForm(30 << 20); err != nil {
@@ -893,9 +907,9 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 
 	// Check pixel dimensions for images (max 200 megapixels)
 	if strings.HasPrefix(contentType, "image/") {
-		cfg, _, decErr := image.DecodeConfig(bytes.NewReader(data))
-		if decErr == nil && cfg.Width > 0 && cfg.Height > 0 {
-			if int64(cfg.Width)*int64(cfg.Height) > 200_000_000 {
+		cfg2, _, decErr := image.DecodeConfig(bytes.NewReader(data))
+		if decErr == nil && cfg2.Width > 0 && cfg2.Height > 0 {
+			if int64(cfg2.Width)*int64(cfg2.Height) > 200_000_000 {
 				httputil.WriteError(w, http.StatusBadRequest, "Image too large", "Maximum 200 megapixels per image", r.URL.Path)
 				return
 			}
@@ -906,8 +920,8 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 	hash := sha256.Sum256(data)
 	hashStr := hex.EncodeToString(hash[:])
 
-	// Duplikat-Prüfung (per gear, not global — same file allowed on different gear items)
-	if exists, err := h.DB.GearDocumentExistsByHashAndGear(r.Context(), userID, hashStr, gearID); err == nil && exists {
+	// Duplicate check
+	if exists, err := cfg.dupCheck(userID, hashStr); err == nil && exists {
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
 		return
 	}
@@ -932,8 +946,12 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 			ext = ".pdf"
 		}
 	}
+	_ = ext // computed for potential future use (e.g. forced filename)
 
-	docType := r.FormValue("doc_type")
+	var docType string
+	if cfg.readDocType {
+		docType = r.FormValue("doc_type")
+	}
 	if docType == "" {
 		if strings.HasPrefix(contentType, "image/") {
 			docType = "photo"
@@ -953,7 +971,7 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(contentType, "image/") {
 		fileType = "media"
 	}
-	var docFileID string
+	var storedFileID string
 	if h.ShadowFS != nil {
 		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
@@ -962,62 +980,49 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 			FileName:    header.Filename,
 			SizeBytes:   int64(len(data)),
 			FileHash:    hashStr,
-			ParentType:  shadowfs.Ptr("gear"),
-			ParentID:    shadowfs.Ptr(gearID),
+			ParentType:  shadowfs.Ptr(cfg.parentType),
+			ParentID:    shadowfs.Ptr(cfg.parentID),
 			Tags: map[string]string{
 				"doc_type": docType,
 			},
 		}, bytes.NewReader(data))
 		if putErr != nil {
-			slog.Error("gear document: shadowfs put failed", "error", putErr)
+			slog.Error(cfg.logPrefix+": shadowfs put failed", "error", putErr)
 			httputil.WriteError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
 			return
 		}
-		docFileID = rec.ID
+		storedFileID = rec.ID
 	}
 
-	doc := &model.GearDocument{
-		UserID:           userID,
-		GearID:           &gearID,
-		DocType:          docType,
-		Title:            titlePtr,
-		OriginalFilename: header.Filename,
-		ContentType:      contentType,
-		FileSizeBytes:    int64(len(data)),
-		FileHash:         &hashStr,
-	}
+	doc := cfg.buildDoc(userID, docType, titlePtr, header.Filename, contentType, int64(len(data)), hashStr)
 
 	result, err := h.DB.InsertGearDocument(r.Context(), doc)
 	if err != nil {
 		// Clean up the already-stored file to avoid orphans.
-		if docFileID != "" && h.ShadowFS != nil {
-			if delErr := h.ShadowFS.Delete(r.Context(), userID, docFileID); delErr != nil {
-				slog.Warn("gear document: shadowfs cleanup after db failure failed",
-					"file_id", docFileID, "error", delErr)
+		if storedFileID != "" && h.ShadowFS != nil {
+			if delErr := h.ShadowFS.Delete(r.Context(), userID, storedFileID); delErr != nil {
+				slog.Warn(cfg.logPrefix+": shadowfs cleanup after db failure failed",
+					"file_id", storedFileID, "error", delErr)
 			}
 		}
-		slog.Error("insert gear document failed", "error", err)
+		slog.Error("insert "+cfg.logPrefix+" failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to save document", r.URL.Path)
 		return
 	}
 
 	// Persist the ShadowFS file_id on the row.
-	if docFileID != "" {
-		if setErr := h.DB.UpdateGearDocumentFileID(r.Context(), result.ID, docFileID); setErr != nil {
-			slog.Warn("gear document: failed to set file_id", "doc_id", result.ID, "file_id", docFileID, "error", setErr)
+	if storedFileID != "" {
+		if setErr := h.DB.UpdateGearDocumentFileID(r.Context(), result.ID, storedFileID); setErr != nil {
+			slog.Warn(cfg.logPrefix+": failed to set file_id", "doc_id", result.ID, "file_id", storedFileID, "error", setErr)
 		} else {
-			result.FileID = &docFileID
+			result.FileID = &storedFileID
 		}
 	}
-
-	// PDF-Thumbnail generation is temporarily disabled during ShadowFS migration.
-	// UpdateGearDocumentThumbnail has been removed. Thumbnails will be regenerated
-	// as part of the FileStore migration.
 
 	// PDF text extraction via pdfcpu (best-effort)
 	var extractedText *string
 	var isTextPDF bool
-	if contentType == "application/pdf" {
+	if cfg.extractPDF && contentType == "application/pdf" {
 		if text := extractPDFText(data); text != "" {
 			extractedText = &text
 			isTextPDF = true
@@ -1028,7 +1033,7 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// NATS event (graceful - no error if NATS unavailable)
-	if h.Events != nil {
+	if cfg.publishEvent && h.Events != nil {
 		evt := event.DocumentUploadedEvent{
 			DocID:         result.ID,
 			GearID:        result.GearID,
@@ -1037,7 +1042,7 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 			ContentType:   result.ContentType,
 			IsTextPDF:     isTextPDF,
 			ExtractedText: extractedText,
-			FileID:        docFileID,
+			FileID:        storedFileID,
 		}
 		if err := h.Events.PublishDocumentUploaded(evt); err != nil {
 			slog.Warn("failed to publish document uploaded event", "error", err)
@@ -1045,6 +1050,42 @@ func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusCreated, result)
+}
+
+func (h *Handler) UploadGearDocument(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	gearID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyGearOwnership(r.Context(), gearID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		return
+	}
+
+	h.processDocumentUpload(w, r, userID, docUploadConfig{
+		parentType:   "gear",
+		parentID:     gearID,
+		logPrefix:    "gear document",
+		readDocType:  true,
+		extractPDF:   true,
+		publishEvent: true,
+		dupCheck: func(uid, hash string) (bool, error) {
+			return h.DB.GearDocumentExistsByHashAndGear(r.Context(), uid, hash, gearID)
+		},
+		buildDoc: func(uid, docType string, titlePtr *string, filename, contentType string, size int64, hashStr string) *model.GearDocument {
+			return &model.GearDocument{
+				UserID:           uid,
+				GearID:           &gearID,
+				DocType:          docType,
+				Title:            titlePtr,
+				OriginalFilename: filename,
+				ContentType:      contentType,
+				FileSizeBytes:    size,
+				FileHash:         &hashStr,
+			}
+		},
+	})
 }
 
 // generatePDFThumbnail rendert die erste Seite eines PDFs als JPEG.
@@ -1174,153 +1215,29 @@ func (h *Handler) UploadComponentDocument(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Limit to 30MB
-	r.Body = http.MaxBytesReader(w, r.Body, 30<<20)
-	if err := r.ParseMultipartForm(30 << 20); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "File too large", "Maximum file size is 30MB", r.URL.Path)
-		return
-	}
-
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Missing file", "No file provided", r.URL.Path)
-		return
-	}
-	defer file.Close()
-
-	data, err := io.ReadAll(file)
-	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "Read error", "Failed to read file", r.URL.Path)
-		return
-	}
-
-	contentType := header.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = http.DetectContentType(data)
-	}
-
-	allowed := map[string]bool{
-		"image/jpeg": true, "image/png": true, "image/webp": true,
-		"image/gif": true, "image/tiff": true, "image/bmp": true,
-		"application/pdf": true,
-	}
-	if !allowed[contentType] {
-		httputil.WriteError(w, http.StatusBadRequest, "Invalid file type", "Allowed: JPEG, PNG, WebP, GIF, TIFF, BMP, PDF", r.URL.Path)
-		return
-	}
-
-	if strings.HasPrefix(contentType, "image/") {
-		cfg, _, decErr := image.DecodeConfig(bytes.NewReader(data))
-		if decErr == nil && cfg.Width > 0 && cfg.Height > 0 {
-			if int64(cfg.Width)*int64(cfg.Height) > 200_000_000 {
-				httputil.WriteError(w, http.StatusBadRequest, "Image too large", "Maximum 200 megapixels per image", r.URL.Path)
-				return
+	h.processDocumentUpload(w, r, userID, docUploadConfig{
+		parentType:   "gear_component",
+		parentID:     componentID,
+		logPrefix:    "component document",
+		readDocType:  false,
+		extractPDF:   false,
+		publishEvent: false,
+		dupCheck: func(uid, hash string) (bool, error) {
+			return h.DB.GearDocumentExistsByHashAndComponent(r.Context(), uid, hash, componentID)
+		},
+		buildDoc: func(uid, docType string, titlePtr *string, filename, contentType string, size int64, hashStr string) *model.GearDocument {
+			return &model.GearDocument{
+				UserID:           uid,
+				ComponentID:      &componentID,
+				DocType:          docType,
+				Title:            titlePtr,
+				OriginalFilename: filename,
+				ContentType:      contentType,
+				FileSizeBytes:    size,
+				FileHash:         &hashStr,
 			}
-		}
-	}
-
-	hash := sha256.Sum256(data)
-	hashStr := hex.EncodeToString(hash[:])
-
-	// Duplikat-Prüfung (per component, not global — same file allowed on different components)
-	if exists, err := h.DB.GearDocumentExistsByHashAndComponent(r.Context(), userID, hashStr, componentID); err == nil && exists {
-		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
-		return
-	}
-
-	ext := filepath.Ext(header.Filename)
-	if ext == "" {
-		switch contentType {
-		case "image/jpeg":
-			ext = ".jpg"
-		case "image/png":
-			ext = ".png"
-		case "image/webp":
-			ext = ".webp"
-		case "image/gif":
-			ext = ".gif"
-		case "image/tiff":
-			ext = ".tiff"
-		case "image/bmp":
-			ext = ".bmp"
-		case "application/pdf":
-			ext = ".pdf"
-		}
-	}
-
-	docType := "photo"
-	if !strings.HasPrefix(contentType, "image/") {
-		docType = "other"
-	}
-	title := r.FormValue("title")
-	var titlePtr *string
-	if title != "" {
-		titlePtr = &title
-	}
-
-	// Upload to ShadowFS — images go to media/, everything else to documents/.
-	fileType := "document"
-	if strings.HasPrefix(contentType, "image/") {
-		fileType = "media"
-	}
-	var compFileID string
-	if h.ShadowFS != nil {
-		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
-			UserID:      userID,
-			FileType:    fileType,
-			ContentType: contentType,
-			FileName:    header.Filename,
-			SizeBytes:   int64(len(data)),
-			FileHash:    hashStr,
-			ParentType:  shadowfs.Ptr("gear_component"),
-			ParentID:    shadowfs.Ptr(componentID),
-			Tags: map[string]string{
-				"doc_type": docType,
-			},
-		}, bytes.NewReader(data))
-		if putErr != nil {
-			slog.Error("component document: shadowfs put failed", "error", putErr)
-			httputil.WriteError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
-			return
-		}
-		compFileID = rec.ID
-	}
-
-	doc := &model.GearDocument{
-		UserID:           userID,
-		ComponentID:      &componentID,
-		DocType:          docType,
-		Title:            titlePtr,
-		OriginalFilename: header.Filename,
-		ContentType:      contentType,
-		FileSizeBytes:    int64(len(data)),
-		FileHash:         &hashStr,
-	}
-
-	result, err := h.DB.InsertGearDocument(r.Context(), doc)
-	if err != nil {
-		// Clean up the already-stored file to avoid orphans.
-		if compFileID != "" && h.ShadowFS != nil {
-			if delErr := h.ShadowFS.Delete(r.Context(), userID, compFileID); delErr != nil {
-				slog.Warn("component document: shadowfs cleanup after db failure failed",
-					"file_id", compFileID, "error", delErr)
-			}
-		}
-		slog.Error("insert component document failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to save document", r.URL.Path)
-		return
-	}
-
-	// Persist the ShadowFS file_id on the row.
-	if compFileID != "" {
-		if setErr := h.DB.UpdateGearDocumentFileID(r.Context(), result.ID, compFileID); setErr != nil {
-			slog.Warn("component document: failed to set file_id", "doc_id", result.ID, "file_id", compFileID, "error", setErr)
-		} else {
-			result.FileID = &compFileID
-		}
-	}
-
-	httputil.WriteJSON(w, http.StatusCreated, result)
+		},
+	})
 }
 
 // ListComponentDocuments returns all documents for a gear component.
