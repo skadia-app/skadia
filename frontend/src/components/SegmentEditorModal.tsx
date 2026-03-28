@@ -104,6 +104,7 @@ export default function SegmentEditorModal({
   const [isMountain, setIsMountain] = useState(false)
   const [climbDirection, setClimbDirection] = useState<'bergauf' | 'bergab'>('bergauf')
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [visibility, setVisibility] = useState<'public' | 'private'>('public')
 
   function detectClimbDirection(geojsonStr: string): 'bergauf' | 'bergab' | null {
     try {
@@ -166,6 +167,7 @@ export default function SegmentEditorModal({
       source_activity_id: sourceActivityId,
       terrain_type: segType === 'trail' ? 'trail' : 'standard',
       climb_type: getClimbType(),
+      visibility,
     })
   }
 
@@ -571,6 +573,21 @@ export default function SegmentEditorModal({
 
           {mode === 'lap' && lapCrossings.length > 1 && (
             <p className="text-xs text-neutral-500">Rundkurs-Segment · {lapCrossings.length - 1} Runden erkannt</p>
+          )}
+
+          {/* Visibility */}
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={() => setVisibility('public')}
+              className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
+                visibility === 'public' ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT' : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
+              }`}>Öffentlich</button>
+            <button type="button" onClick={() => setVisibility('private')}
+              className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
+                visibility === 'private' ? 'bg-neutral-700 text-neutral-100 border-neutral-600' : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
+              }`}>Privat</button>
+          </div>
+          {visibility === 'private' && (
+            <p className="text-xs text-neutral-500">Privat: nur du siehst dieses Segment. Später veröffentlichbar.</p>
           )}
 
           {submitError && <p className="text-sm text-red-400">{submitError}</p>}
