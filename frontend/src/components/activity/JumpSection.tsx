@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ActivityJump } from '@/api/types'
+import { formatSpeedKmh } from '@/lib/sportFieldLabels'
 
 interface Props {
   jumpCount: number
@@ -40,7 +41,7 @@ export function JumpSection({ jumpCount, jumps }: Props) {
                   <td className="px-4 py-2 tabular-nums">{i + 1}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{j.height_m != null ? `${j.height_m.toFixed(1)} m` : '—'}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{j.hang_time_s != null ? `${j.hang_time_s.toFixed(1)} s` : '—'}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{j.speed_ms != null ? `${(j.speed_ms * 3.6).toFixed(1)} km/h` : '—'}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{j.speed_ms != null ? formatSpeedKmh(j.speed_ms) : '—'}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{j.score ?? '—'}</td>
                 </tr>
               ))}
