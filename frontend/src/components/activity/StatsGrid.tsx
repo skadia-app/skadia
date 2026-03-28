@@ -183,6 +183,10 @@ export function StatsGrid({ activity, speedMode }: StatsGridProps) {
     activity.avg_stroke_count != null ? {
       label: 'Ø Züge/Bahn', value: `${activity.avg_stroke_count.toFixed(1)}`,
     } : null,
+    activity.avg_stroke_distance_m != null ? {
+      label: getSegmentGroup(sport) === 'swim' ? 'Ø Distanz/Zug' : 'Ø Distanz/Schlag',
+      value: `${activity.avg_stroke_distance_m.toFixed(2)} m`,
+    } : null,
   ]
 
   const visible = (stats.filter(Boolean) as StatItem[]).filter(s => s.value && s.value !== '—')
