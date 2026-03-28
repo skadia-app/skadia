@@ -169,7 +169,7 @@ func (h *Handler) StreamJobProgress(w http.ResponseWriter, r *http.Request) {
 	// Kanal für eingehende NATS-Nachrichten (gepuffert damit der Handler nicht blockiert).
 	msgCh := make(chan *natsgo.Msg, 32)
 
-	sub, err := h.Events.Subscribe("skadia.enrichment.progress", func(msg *natsgo.Msg) {
+	sub, err := h.Events.Subscribe("skadia.enrichment.progress."+userID, func(msg *natsgo.Msg) {
 		select {
 		case msgCh <- msg:
 		default:
@@ -219,6 +219,7 @@ func (h *Handler) StreamJobProgress(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(msg.Data, &payload); err != nil {
 				continue
 			}
+			// Defense-in-depth: subject is already user-scoped, but verify anyway
 			if payload.UserID != userID {
 				continue
 			}
