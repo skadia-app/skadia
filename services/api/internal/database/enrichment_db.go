@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -74,7 +75,7 @@ func (db *DB) UpdateEnrichmentFields(ctx context.Context, activityID string, fie
 		argIdx++
 	}
 
-	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1", joinSets(sets))
+	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1", strings.Join(sets, ", "))
 	_, err := db.Pool.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("update enrichment fields: %w", err)
@@ -103,7 +104,7 @@ func (db *DB) UpdateEnrichmentFieldsSafe(ctx context.Context, activityID string,
 		argIdx++
 	}
 
-	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1", joinSets(sets))
+	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1", strings.Join(sets, ", "))
 	_, err := db.Pool.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("update enrichment fields safe: %w", err)
@@ -622,16 +623,4 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 			)
 		WHERE id = $1`, activityID)
 	return err
-}
-
-// joinSets joins a string slice with ", " separator — local helper for SET clauses.
-func joinSets(parts []string) string {
-	result := ""
-	for i, p := range parts {
-		if i > 0 {
-			result += ", "
-		}
-		result += p
-	}
-	return result
 }
