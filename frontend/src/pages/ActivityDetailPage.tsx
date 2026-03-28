@@ -206,7 +206,7 @@ export default function ActivityDetailPage() {
     )
     obs.observe(el)
     return () => obs.disconnect()
-  }, [])
+  }, [activity?.id])
 
   // Per-activity module visibility (persisted in localStorage)
   const [hiddenModules, setHiddenModules] = useState<Set<string>>(() => {
