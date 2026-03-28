@@ -215,7 +215,7 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 
 		// Upload original file via ShadowFS
 		contentType := "application/octet-stream"
-		if format == "gpx" {
+		if format == "gpx" || format == "tcx" {
 			contentType = "application/xml"
 		}
 		var fileID string
