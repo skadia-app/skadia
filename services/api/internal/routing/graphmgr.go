@@ -15,6 +15,17 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
+// nullCoverageAdapter returns zero coverage values when no FCOV files exist.
+type nullCoverageAdapter struct{}
+
+func (a *nullCoverageAdapter) PreloadTile(ctx context.Context, tileID uint32) error {
+	return nil
+}
+
+func (a *nullCoverageAdapter) SampleWay(geom orb.LineString) graph.CoverageData {
+	return graph.CoverageData{}
+}
+
 // coverageAdapter wraps coverage.CoverageReader to satisfy graph.CoverageReader.
 // Needed to avoid import cycles: coverage imports graph, so graph cannot import coverage.
 type coverageAdapter struct {
@@ -169,10 +180,13 @@ func (m *GraphManager) RebuildTiles(ctx context.Context, pool *pgxpool.Pool,
 	defer m.mu.Unlock()
 
 	// A07: Use DiskCoverageReader for coverage data (from build-coverage binaries).
-	if m.CoverageReader == nil {
-		return fmt.Errorf("coverage reader not initialized: run build-coverage first")
+	var adapter graph.CoverageReader
+	if m.CoverageReader != nil {
+		adapter = &coverageAdapter{reader: m.CoverageReader}
+	} else {
+		slog.Warn("coverage reader not initialized: tile build will use zero coverage values. Run build-coverage for full enrichment.")
+		adapter = &nullCoverageAdapter{}
 	}
-	adapter := &coverageAdapter{reader: m.CoverageReader}
 
 	results, err := graph.BuildAllTiles(ctx, pool, tileDir, hgtDirs, adapter, workers, filterBBox, force, progressFn)
 	if err != nil {
