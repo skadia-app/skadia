@@ -1,7 +1,7 @@
 import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import * as echarts from 'echarts/core'
 import { useECharts } from '@/hooks/useECharts'
-import { LineChart } from 'echarts/charts'
+import { LineChart, ScatterChart } from 'echarts/charts'
 import { getSegmentGroup } from '@/lib/sportTaxonomy'
 import { fieldLabel, fieldUnit, type FieldKey } from '@/lib/sportFieldLabels'
 import {
@@ -21,6 +21,7 @@ import type { StreamPoint } from '@/api/types'
 
 echarts.use([
   LineChart,
+  ScatterChart,
   GridComponent,
   TooltipComponent,
   DataZoomComponent,
@@ -633,9 +634,8 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     const cycleLengthLabel = sg === 'swim' ? 'Distanz/Zug' : sg === 'paddle' ? 'Distanz/Schlag' : 'Zykluslänge'
     panels.push(
       <div key={k('cycle-length')} style={{ display: show('cycleLength') ? undefined : 'none' }}>
-        <ChartPanel chartId="cycle-length" {...common}
-          field="stepLength" label={cycleLengthLabel} unit="m" color="#0EA5E9"
-          overrideValues={data.cycleLength} />
+        <ScatterChartPanel chartId="cycle-length" {...common}
+          values={data.cycleLength} label={cycleLengthLabel} unit="m" color="#0EA5E9" />
       </div>,
     )
   }
@@ -1195,6 +1195,249 @@ function RunningDynamicsChartPanel({
             Vertikale Bewegung <span className="font-normal text-neutral-400 dark:text-neutral-600">(cm)</span>
           </span>
         </div>
+      </div>
+      <div ref={containerRef} className="h-[180px] w-full" />
+    </div>
+  )
+}
+
+// ── Scatter Chart Panel (for sporadic data like stroke distance) ──────────────
+
+interface ScatterChartPanelProps {
+  chartId: string
+  data: ChartData
+  values: number[]
+  label: string
+  unit: string
+  color: string
+  onHover: (index: number | null) => void
+  onBrushZoom: (startValue: number, endValue: number) => void
+  onSyncZoom: (start: number, end: number, sourceId: string) => void
+  onRegister: (id: string, chart: echarts.ECharts) => void
+  onUnregister: (id: string) => void
+  brushZoomLockRef: React.MutableRefObject<boolean>
+  xMode: XMode
+  splitMarkers?: SplitMarker[]
+}
+
+function ScatterChartPanel({
+  chartId, data, values, label, unit, color,
+  onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
+  brushZoomLockRef, xMode, splitMarkers,
+}: ScatterChartPanelProps) {
+  const containerRef = useECharts(
+    () => {
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+
+      const gridTop = (splitMarkers && splitMarkers.length > 0) ? 34 : 8
+      const xFormatter = xMode === 'distance'
+        ? (v: number) => v.toFixed(1)
+        : (v: number) => formatElapsed(v, data.maxElapsed)
+
+      // Average of non-NaN values for markLine
+      const validValues = values.filter(v => !isNaN(v) && isFinite(v))
+      const avg = validValues.length > 0
+        ? validValues.reduce((a, b) => a + b, 0) / validValues.length
+        : null
+
+      // Split marker lines
+      const mlData: Record<string, unknown>[] = []
+      if (avg != null) {
+        mlData.push({
+          yAxis: avg,
+          lineStyle: { color, type: 'dashed', width: 1.5, opacity: 0.7 },
+          label: {
+            show: true,
+            position: 'insideEndTop',
+            formatter: `Ø ${avg.toFixed(2)} ${unit}`,
+            fontSize: 11,
+            color,
+            backgroundColor: 'rgba(255,255,255,0.88)',
+            padding: [2, 5],
+            borderRadius: 3,
+          },
+        })
+      }
+      if (splitMarkers && splitMarkers.length > 0) {
+        for (const marker of splitMarkers) {
+          mlData.push({
+            xAxis: xMode === 'distance' ? marker.distanceKm : marker.elapsedMin,
+            lineStyle: { color: '#94a3b8', type: 'dashed', width: 1, opacity: 0.8 },
+            label: {
+              show: true,
+              position: 'insideStartTop',
+              formatter: marker.label,
+              fontSize: 10,
+              color: '#94a3b8',
+            },
+          })
+        }
+      }
+
+      return {
+        animation: false,
+        grid: { left: 52, right: 52, top: gridTop, bottom: 36 },
+
+        brush: {
+          toolbox: [],
+          brushType: 'lineX',
+          brushStyle: {
+            borderWidth: 1,
+            color: 'rgba(249,115,22,0.12)',
+            borderColor: '#f97316',
+          },
+          throttleType: 'debounce',
+          throttleDelay: 100,
+        },
+
+        tooltip: {
+          trigger: 'item',
+          transitionDuration: 0,
+          confine: true,
+          backgroundColor: 'rgba(255,255,255,0.96)',
+          borderColor: '#e5e5e5',
+          borderWidth: 1,
+          padding: [8, 10],
+          textStyle: { fontSize: 12, color: '#333' },
+          formatter: (params: unknown) => {
+            const p = params as { dataIndex?: number; data?: [number, number] }
+            if (p?.dataIndex == null || !p.data) return ''
+            const idx = p.dataIndex
+            const val = p.data[1]
+            const kmStr = (data.distanceKm[idx] ?? 0).toFixed(1)
+            const elapsed = data.elapsedMin[idx] ?? 0
+            const timeStr = formatElapsed(elapsed, data.maxElapsed)
+            const posLine = xMode === 'distance'
+              ? `${kmStr}\u202fkm`
+              : `${timeStr}\u2009·\u2009${kmStr}\u202fkm`
+            return `<div style="line-height:1.75;min-width:120px"><div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div><div style="font-size:13px;color:${color}"><strong>${!isNaN(val) ? val.toFixed(2) : '—'}\u202f${unit}</strong></div></div>`
+          },
+        },
+
+        xAxis: {
+          type: 'value',
+          min: 0,
+          max: xMax,
+          axisLabel: { fontSize: 11, color: '#666', formatter: xFormatter },
+          splitLine: { show: false },
+          axisLine: { lineStyle: { color: '#ddd' } },
+          axisTick: { lineStyle: { color: '#ddd' } },
+        },
+
+        yAxis: {
+          type: 'value',
+          min: 0,
+          name: unit,
+          nameTextStyle: { fontSize: 10, color: '#666' },
+          axisLabel: { fontSize: 11, color: '#666', margin: 8 },
+          splitLine: { lineStyle: { color: '#eee', type: 'dashed' } },
+          axisLine: { show: false },
+          axisTick: { show: false },
+        },
+
+        series: [{
+          type: 'scatter',
+          data: xData.map((x, i) => [x, values[i]]),
+          symbolSize: 3,
+          itemStyle: { color, opacity: 0.7 },
+          ...(mlData.length > 0 ? {
+            markLine: {
+              silent: true,
+              symbol: ['none', 'none'],
+              data: mlData,
+            },
+          } : {}),
+        }],
+
+        dataZoom: [{
+          type: 'inside',
+          xAxisIndex: 0,
+          filterMode: 'none',
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: true,
+          moveOnMouseWheel: false,
+        }],
+      } as echarts.EChartsCoreOption
+    },
+    [data, values, xMode, splitMarkers],
+    (chart) => {
+      onRegister(chartId, chart)
+
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+
+      chart.dispatchAction({
+        type: 'takeGlobalCursor',
+        key: 'brush',
+        brushOption: { brushType: 'lineX', brushMode: 'single' },
+      })
+
+      chart.on('showTip', (params: unknown) => {
+        const typed = params as { dataIndex?: number }
+        if (typed.dataIndex != null) onHover(typed.dataIndex)
+      })
+      chart.on('hideTip', () => onHover(null))
+
+      type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
+
+      chart.on('brushEnd', (params: unknown) => {
+        if (brushZoomLockRef.current) return
+        brushZoomLockRef.current = true
+
+        const p = params as {
+          areas?: BrushArea[]
+          batch?: Array<{ areas?: BrushArea[] }>
+        }
+        const areas = p.areas ?? p.batch?.[0]?.areas
+        if (!areas || areas.length === 0) {
+          brushZoomLockRef.current = false
+          return
+        }
+
+        const area = areas[0]
+        let startData: number
+        let endData: number
+
+        if (area.coordRange) {
+          [startData, endData] = area.coordRange
+        } else if (area.range) {
+          const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
+          const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
+          if (s == null || e == null) { brushZoomLockRef.current = false; return }
+          startData = s as number
+          endData = e as number
+        } else {
+          brushZoomLockRef.current = false
+          return
+        }
+
+        if (endData <= startData) { brushZoomLockRef.current = false; return }
+        onBrushZoom(Math.max(0, startData), Math.min(xMax, endData))
+
+        requestAnimationFrame(() => { brushZoomLockRef.current = false })
+      })
+
+      chart.on('dataZoom', (params: unknown) => {
+        const p = params as {
+          batch?: Array<{ start: number; end: number }>
+          start?: number
+          end?: number
+        }
+        const z = p.batch?.[0] ?? (p.start != null && p.end != null ? p as { start: number; end: number } : null)
+        if (z != null) onSyncZoom(z.start, z.end, chartId)
+      })
+
+      return () => onUnregister(chartId)
+    },
+  )
+
+  return (
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60">
+        <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+        <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+          {label} <span className="font-normal text-neutral-400 dark:text-neutral-600">({unit})</span>
+        </span>
       </div>
       <div ref={containerRef} className="h-[180px] w-full" />
     </div>
