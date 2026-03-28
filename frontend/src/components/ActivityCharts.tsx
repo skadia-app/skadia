@@ -12,6 +12,7 @@ import {
   MarkPointComponent,
   MarkAreaComponent,
   ToolboxComponent,
+  VisualMapComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { StreamPoint } from '@/api/types'
@@ -27,6 +28,7 @@ echarts.use([
   MarkPointComponent,
   MarkAreaComponent,
   ToolboxComponent,
+  VisualMapComponent,
   CanvasRenderer,
 ])
 
@@ -45,6 +47,7 @@ interface ChartData {
   distanceKm: number[]
   elapsedMin: number[]
   altitude: number[]
+  grade: number[]
   heartRate: number[]
   power: number[]
   cadence: number[]
@@ -60,6 +63,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const distanceKm: number[] = []
   const elapsedMin: number[] = []
   const altitude: number[] = []
+  const grade: number[] = []
   const heartRate: number[] = []
   const power: number[] = []
   const cadence: number[] = []
@@ -76,6 +80,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     )
     elapsedMin.push((new Date(s.time).getTime() - t0) / 60000)
     altitude.push(s.altitude_m ?? NaN)
+    grade.push(s.grade_pct ?? NaN)
     heartRate.push(s.heart_rate ?? NaN)
     power.push(s.power_w ?? NaN)
     cadence.push(s.cadence ?? NaN)
@@ -88,7 +93,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, heartRate, power, cadence, speed, temperature, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, temperature, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -238,20 +243,27 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   }, [])
 
   // ── Climb highlight: markArea on altitude chart ─────────────────────────────
+  // With showGradeColor there are two series: series[0] = colored area, series[1] = green line.
+  // markArea goes on the last series (which carries markLine/markPoint decorations).
   useEffect(() => {
     const altChart = chartInstancesRef.current.get('altitude')
     if (!altChart) return
-    altChart.setOption({
-      series: [{
-        markArea: highlightRange
-          ? {
-              silent: true,
-              itemStyle: { color: 'rgba(249, 115, 22, 0.3)' },
-              data: [[{ xAxis: highlightRange.startKm }, { xAxis: highlightRange.endKm }]],
-            }
-          : { data: [] },
-      }],
-    })
+    const opt = altChart.getOption() as { series?: unknown[] }
+    const seriesCount = opt.series?.length ?? 1
+    const markAreaSeries = Array.from({ length: seriesCount }, (_, i) =>
+      i === seriesCount - 1
+        ? {
+            markArea: highlightRange
+              ? {
+                  silent: true,
+                  itemStyle: { color: 'rgba(249, 115, 22, 0.3)' },
+                  data: [[{ xAxis: highlightRange.startKm }, { xAxis: highlightRange.endKm }]],
+                }
+              : { data: [] },
+          }
+        : {},
+    )
+    altChart.setOption({ series: markAreaSeries })
   }, [highlightRange])
 
   // ── Helper: convert percentage-based zoom range to km + stream indices for map
@@ -408,7 +420,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   if (hasValidData(data.altitude)) panels.push(
     <ChartPanel key={k('altitude')} chartId="altitude" {...common}
       field="altitude" label="Höhe" unit="m" color="#22c55e" area
-      markLines="minmax" altitudeSmartY showGradient
+      markLines="minmax" altitudeSmartY showGradeColor
       sunMarkLines={sunMarkLines} />,
   )
   if (hasValidData(data.heartRate)) panels.push(
@@ -490,7 +502,8 @@ interface ChartPanelProps {
   brushZoomLockRef: React.MutableRefObject<boolean>
   markLines?: 'none' | 'max' | 'minmax'
   altitudeSmartY?: boolean
-  showGradient?: boolean
+  /** Elevation chart: use grade_pct data for grade-based area colorization */
+  showGradeColor?: boolean
   xMode: XMode
   sunMarkLines?: SunMarkLine[]
   splitMarkers?: SplitMarker[]
@@ -499,7 +512,7 @@ interface ChartPanelProps {
 function ChartPanel({
   chartId, data, field, unit, label, color, area,
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
-  brushZoomLockRef, markLines = 'none', altitudeSmartY, showGradient, xMode,
+  brushZoomLockRef, markLines = 'none', altitudeSmartY, showGradeColor, xMode,
   sunMarkLines, splitMarkers,
 }: ChartPanelProps) {
   const containerRef = useECharts(
@@ -571,15 +584,12 @@ function ChartPanel({
         html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
         html += `<div style="font-size:13px"><strong>${v.toFixed(decimals)}</strong>\u2009${unit}</div>`
 
-        if (showGradient && idx > 0 && idx < values.length - 1) {
-          const prevAlt = values[idx - 1]
-          const nextAlt = values[idx + 1]
-          const dDist = ((data.distanceKm[idx + 1] ?? 0) - (data.distanceKm[idx - 1] ?? 0)) * 1000
-          if (dDist > 0 && !isNaN(prevAlt) && !isNaN(nextAlt)) {
-            const pct = ((nextAlt - prevAlt) / dDist) * 100
-            const sign = pct >= 0 ? '+' : ''
-            const gc = Math.abs(pct) > 10 ? '#dc2626' : Math.abs(pct) > 4 ? '#ea580c' : '#16a34a'
-            html += `<div style="color:${gc};font-size:12px;margin-top:1px">Steigung\u2009${sign}${pct.toFixed(1)}\u202f%</div>`
+        if (showGradeColor) {
+          const gradeVal = data.grade[idx]
+          if (gradeVal != null && !isNaN(gradeVal)) {
+            const sign = gradeVal >= 0 ? '+' : ''
+            const gc = Math.abs(gradeVal) > 10 ? '#dc2626' : Math.abs(gradeVal) > 4 ? '#ea580c' : '#16a34a'
+            html += `<div style="color:${gc};font-size:12px;margin-top:1px">Steigung\u2009${sign}${gradeVal.toFixed(1)}\u202f%</div>`
           }
         }
         return html + '</div>'
@@ -646,47 +656,118 @@ function ChartPanel({
           ...yAxisExtra,
         },
 
-        series: [
-          {
-            type: 'line',
-            data: xData.map((x, i) => [x, values[i]]),
-            showSymbol: false,
-            lineStyle: { width: 1.5, color },
-            itemStyle: { color },
-            areaStyle: area ? { color: `${color}20` } : undefined,
-            connectNulls: true,
-            ...(mlData.length > 0 ? {
-              markLine: {
-                silent: true,
-                symbol: ['none', 'none'],
-                label: {
-                  show: true,
-                  backgroundColor: 'rgba(255,255,255,0.88)',
-                  padding: [2, 5],
-                  borderRadius: 3,
-                  formatter: (p: { value: number; name: string }) =>
-                    `${p.name}: ${p.value.toFixed(decimals)}\u2009${unit}`,
-                  color: '#444',
-                  fontSize: 11,
-                },
-                lineStyle: { type: 'dashed', color: '#ccc', width: 1 },
-                data: mlData,
+        series: showGradeColor
+          ? [
+              // Series 0: colored area driven by grade (dimension 2) via visualMap
+              {
+                type: 'line',
+                data: xData.map((x, i) => [x, values[i], data.grade[i]]),
+                showSymbol: false,
+                lineStyle: { width: 0, color: 'transparent' },
+                itemStyle: { color },
+                areaStyle: { color: `${color}20`, opacity: 1 },
+                connectNulls: true,
               },
-            } : {}),
-            ...(sunMarkLines && sunMarkLines.length > 0 ? {
-              markPoint: {
-                data: sunMarkLines.map(sm => ({
-                  coord: [sm.xAxis, yAxisExtra.max ?? Math.ceil(Math.max(...values.filter(v => !isNaN(v))))],
-                  symbol: sm.type === 'sunrise' ? SUNRISE_SVG : SUNSET_SVG,
-                  symbolSize: 24,
-                  symbolOffset: [0, -14],
-                  label: { show: false },
-                })),
-                animation: false,
+              // Series 1: green line on top (no area, carries markLine/markPoint)
+              {
+                type: 'line',
+                data: xData.map((x, i) => [x, values[i]]),
+                showSymbol: false,
+                lineStyle: { width: 1.5, color },
+                itemStyle: { color },
+                areaStyle: undefined,
+                connectNulls: true,
+                ...(mlData.length > 0 ? {
+                  markLine: {
+                    silent: true,
+                    symbol: ['none', 'none'],
+                    label: {
+                      show: true,
+                      backgroundColor: 'rgba(255,255,255,0.88)',
+                      padding: [2, 5],
+                      borderRadius: 3,
+                      formatter: (p: { value: number; name: string }) =>
+                        `${p.name}: ${p.value.toFixed(decimals)}\u2009${unit}`,
+                      color: '#444',
+                      fontSize: 11,
+                    },
+                    lineStyle: { type: 'dashed', color: '#ccc', width: 1 },
+                    data: mlData,
+                  },
+                } : {}),
+                ...(sunMarkLines && sunMarkLines.length > 0 ? {
+                  markPoint: {
+                    data: sunMarkLines.map(sm => ({
+                      coord: [sm.xAxis, yAxisExtra.max ?? Math.ceil(Math.max(...values.filter(v => !isNaN(v))))],
+                      symbol: sm.type === 'sunrise' ? SUNRISE_SVG : SUNSET_SVG,
+                      symbolSize: 24,
+                      symbolOffset: [0, -14],
+                      label: { show: false },
+                    })),
+                    animation: false,
+                  },
+                } : {}),
               },
-            } : {}),
-          },
-        ],
+            ]
+          : [
+              {
+                type: 'line',
+                data: xData.map((x, i) => [x, values[i]]),
+                showSymbol: false,
+                lineStyle: { width: 1.5, color },
+                itemStyle: { color },
+                areaStyle: area ? { color: `${color}20` } : undefined,
+                connectNulls: true,
+                ...(mlData.length > 0 ? {
+                  markLine: {
+                    silent: true,
+                    symbol: ['none', 'none'],
+                    label: {
+                      show: true,
+                      backgroundColor: 'rgba(255,255,255,0.88)',
+                      padding: [2, 5],
+                      borderRadius: 3,
+                      formatter: (p: { value: number; name: string }) =>
+                        `${p.name}: ${p.value.toFixed(decimals)}\u2009${unit}`,
+                      color: '#444',
+                      fontSize: 11,
+                    },
+                    lineStyle: { type: 'dashed', color: '#ccc', width: 1 },
+                    data: mlData,
+                  },
+                } : {}),
+                ...(sunMarkLines && sunMarkLines.length > 0 ? {
+                  markPoint: {
+                    data: sunMarkLines.map(sm => ({
+                      coord: [sm.xAxis, yAxisExtra.max ?? Math.ceil(Math.max(...values.filter(v => !isNaN(v))))],
+                      symbol: sm.type === 'sunrise' ? SUNRISE_SVG : SUNSET_SVG,
+                      symbolSize: 24,
+                      symbolOffset: [0, -14],
+                      label: { show: false },
+                    })),
+                    animation: false,
+                  },
+                } : {}),
+              },
+            ],
+
+        ...(showGradeColor ? {
+          visualMap: [{
+            show: false,
+            dimension: 2,  // grade_pct
+            seriesIndex: 0,  // the colored area series
+            pieces: [
+              { gt: -100, lte: -12, color: 'rgba(124,58,237,0.50)' },   // Very steep downhill → Purple
+              { gt: -12,  lte: -5,  color: 'rgba(59,130,246,0.40)' },   // Steep downhill → Blue
+              { gt: -5,   lte: -2,  color: 'rgba(96,165,250,0.30)' },   // Moderate downhill → Light blue
+              { gt: -2,   lte: 2,   color: 'rgba(34,197,94,0.25)' },    // Flat → Green
+              { gt: 2,    lte: 5,   color: 'rgba(251,191,36,0.35)' },   // Moderate uphill → Yellow
+              { gt: 5,    lte: 12,  color: 'rgba(249,115,22,0.45)' },   // Steep uphill → Orange
+              { gt: 12,   lte: 20,  color: 'rgba(220,38,38,0.55)' },    // Very steep → Red
+              { gt: 20,             color: 'rgba(153,27,27,0.65)' },    // Extreme → Dark red
+            ],
+          }],
+        } : {}),
 
         dataZoom: [
           {
@@ -700,7 +781,7 @@ function ChartPanel({
         ],
       } as echarts.EChartsCoreOption
     },
-    [data, field, xMode, splitMarkers], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, field, xMode, splitMarkers, showGradeColor], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       onRegister(chartId, chart)
 
