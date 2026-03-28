@@ -952,6 +952,7 @@ func main() {
 			r.Delete("/segments/{id}", h.DeleteSegment)
 			r.Get("/segments/{id}/leaderboard", h.GetSegmentLeaderboard)
 			r.Post("/segments/{id}/recompute", h.RecomputeSegment)
+			r.Post("/segments/{id}/publish", h.PublishSegment)
 			r.Get("/segments/{id}/favorite", h.GetSegmentFavoriteStatus)
 			r.Post("/segments/{id}/favorite", h.AddSegmentFavorite)
 			r.Delete("/segments/{id}/favorite", h.RemoveSegmentFavorite)

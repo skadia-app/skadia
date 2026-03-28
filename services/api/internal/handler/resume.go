@@ -13,6 +13,7 @@ import (
 // logic deletes prior results and re-runs from scratch.
 var resumableJobTypes = map[string]bool{
 	"segment_recompute": true,
+	"segment_publish":   true,
 }
 
 // maxResumableJobAge is the maximum age of a job that can be resumed.
@@ -112,11 +113,77 @@ func (h *Handler) ResumeInterruptedJobs(ctx context.Context) {
 		switch job.JobType {
 		case "segment_recompute":
 			h.resumeSegmentRecompute(job)
+		case "segment_publish":
+			h.resumeSegmentPublish(job)
 		default:
 			_ = h.DB.FailBackgroundJob(ctx, job.ID)
 		}
 	}
 
+}
+
+// resumeSegmentPublish restarts a segment_publish job from scratch after an interrupted API restart.
+// The segment is already public at this point; we re-delete all efforts and rematch all users' activities.
+func (h *Handler) resumeSegmentPublish(job database.BackgroundJob) {
+	segmentID := ""
+	if job.EntityID != nil {
+		segmentID = *job.EntityID
+	}
+	if segmentID == "" {
+		slog.Warn("resume: segment_publish job has no entity_id", "job_id", job.ID)
+		_ = h.DB.FailBackgroundJob(context.Background(), job.ID)
+		return
+	}
+
+	slog.Info("resume: restarting segment publish recompute",
+		"job_id", job.ID, "segment_id", segmentID)
+
+	go func() {
+		ctx := context.Background()
+		failed := false
+
+		ids, err := h.DB.ListAllActivityIDsForSegmentBackfill(ctx, segmentID)
+		if err != nil {
+			slog.Error("resume segment_publish: list activities failed", "job_id", job.ID, "error", err)
+			_ = h.DB.FailBackgroundJob(ctx, job.ID)
+			return
+		}
+
+		if err := h.DB.ResetBackgroundJobProgress(ctx, job.ID, int64(len(ids))); err != nil {
+			slog.Warn("resume segment_publish: reset progress failed", "job_id", job.ID, "error", err)
+		}
+
+		if err := h.DB.DeleteAllSegmentEffortsBySegment(ctx, segmentID); err != nil {
+			slog.Error("resume segment_publish: delete efforts failed", "job_id", job.ID, "error", err)
+			failed = true
+		}
+
+		if !failed {
+			for i, actID := range ids {
+				act, err := h.DB.GetActivity(ctx, actID)
+				if err != nil || act == nil {
+					continue
+				}
+				subType := ""
+				if act.SubType != nil {
+					subType = *act.SubType
+				}
+				MatchActivitySegments(ctx, h.DB, actID, act.UserID, act.SportType, subType, act.GearID, act.StartedAt)
+				if i%10 == 0 || i == len(ids)-1 {
+					h.DB.UpdateBackgroundJobProgress(ctx, job.ID, int64(i+1))
+				}
+			}
+			slog.Info("resume segment_publish: recompute done", "job_id", job.ID, "segment_id", segmentID)
+		}
+
+		if err := h.DB.UpdateSegmentEffortRanks(ctx, segmentID); err != nil {
+			slog.Warn("resume segment_publish: final rank update failed", "segment_id", segmentID, "error", err)
+		}
+
+		if err := h.DB.CompleteBackgroundJob(ctx, job.ID, failed, ""); err != nil {
+			slog.Warn("resume segment_publish: complete job failed", "job_id", job.ID, "error", err)
+		}
+	}()
 }
 
 // resumeSegmentRecompute restarts a segment recompute job from scratch.
