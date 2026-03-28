@@ -44,7 +44,6 @@ const SUNSET_SVG = "image://data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-// FieldKey imported from sportFieldLabels.ts
 type XMode = 'distance' | 'time'
 
 type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'coreTemperature' | 'runningDynamics' | 'stepLength' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength'
@@ -293,14 +292,14 @@ function computeSunMarkLines(
 
 export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode, highlightRange, speedMode, sportType, activeTab }: Props) {
   const data = useMemo(() => buildChartData(streams), [streams])
+  const segGroup = sportType ? getSegmentGroup(sportType) : 'generic'
 
   // Pre-compute pace values — memoized so the array reference is stable across
   // hover/zoom renders and does not trigger a full ECharts re-initialization
   const paceValues = useMemo(() => {
     if (speedMode !== 'pace' || !data) return undefined
-    const sg = sportType ? getSegmentGroup(sportType) : 'generic'
     const isRowingSport = sportType === 'rowing'
-    const isSwimSport = sg === 'swim'
+    const isSwimSport = segGroup === 'swim'
     const divisor = isRowingSport ? 500 : isSwimSport ? 100 : 1000
     const maxPace = 30
     return data.speedMs.map(ms => {
@@ -507,7 +506,6 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     splitMarkers,
   }
 
-  // Tab-based filtering: tabCharts === null means "show all"
   const tabCharts = activeTab ? getTabCharts(activeTab, sportType ?? '') : null
   const show = (key: ChartKey) => tabCharts === null || tabCharts.includes(key)
 
@@ -544,12 +542,11 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   )
   if (hasValidData(data.speed)) {
     // Speed/Pace: always render one panel with stable key to preserve ECharts instance
-    const sg = sportType ? getSegmentGroup(sportType) : 'generic'
     const isRowingSport = sportType === 'rowing'
-    const isSwimSport = sg === 'swim'
+    const isSwimSport = segGroup === 'swim'
 
     if (speedMode === 'pace') {
-      const paceUnit = isRowingSport ? 'min/500m' : isSwimSport ? 'min/100m' : 'min/km'
+      const paceUnit = sportType ? fieldUnit('speed', sportType) : 'min/km'
       const paceFmt = (minPer: number): string => {
         if (isNaN(minPer) || !isFinite(minPer)) return '—'
         let min = Math.floor(minPer)
@@ -657,9 +654,8 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   // Cycle Length (stroke/stroke distance) — only for swim + paddle sports
   // For running: step_length_mm chart already exists. For cycling: cycle_length = pedal revolution (not useful as chart).
   {
-    const sg = sportType ? getSegmentGroup(sportType) : 'generic'
-    if ((sg === 'swim' || sg === 'paddle') && hasValidData(data.cycleLength)) {
-      const cycleLengthLabel = sg === 'swim' ? 'Distanz/Zug' : 'Distanz/Schlag'
+    if ((segGroup === 'swim' || segGroup === 'paddle') && hasValidData(data.cycleLength)) {
+      const cycleLengthLabel = segGroup === 'swim' ? 'Distanz/Zug' : 'Distanz/Schlag'
       panels.push(
         <div key={k('cycle-length')} style={{ display: show('cycleLength') ? undefined : 'none' }}>
           <ScatterChartPanel chartId="cycle-length" {...common}
@@ -707,6 +703,103 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   )
 }
 
+// ── Shared chart helpers ───────────────────────────────────────────────────────
+
+function buildSplitMarkLines(splitMarkers: SplitMarker[] | undefined, xMode: XMode): Record<string, unknown>[] {
+  if (!splitMarkers?.length) return []
+  return splitMarkers.map(marker => ({
+    xAxis: xMode === 'distance' ? marker.distanceKm : marker.elapsedMin,
+    lineStyle: { color: '#94a3b8', type: 'dashed', width: 1, opacity: 0.8 },
+    label: { show: true, position: 'insideStartTop', formatter: marker.label, fontSize: 10, color: '#94a3b8' },
+  }))
+}
+
+interface ChartInteractionOpts {
+  chart: echarts.ECharts
+  chartId: string
+  onHover: (index: number | null) => void
+  onBrushZoom: (startValue: number, endValue: number) => void
+  onSyncZoom: (start: number, end: number, sourceId: string) => void
+  onRegister: (id: string, chart: echarts.ECharts) => void
+  onUnregister: (id: string) => void
+  brushZoomLockRef: React.MutableRefObject<boolean>
+  xMax: number
+}
+
+function setupChartInteractions(opts: ChartInteractionOpts): () => void {
+  const { chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax } = opts
+
+  onRegister(chartId, chart)
+
+  chart.dispatchAction({
+    type: 'takeGlobalCursor',
+    key: 'brush',
+    brushOption: { brushType: 'lineX', brushMode: 'single' },
+  })
+
+  chart.on('showTip', (params: unknown) => {
+    const typed = params as { dataIndex?: number }
+    if (typed.dataIndex != null) onHover(typed.dataIndex)
+  })
+  chart.on('hideTip', () => onHover(null))
+
+  type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
+
+  // Brush gesture ended → zoom all charts + map.
+  // Uses shared brushZoomLockRef to prevent cascading: dataZoom dispatch
+  // triggers brushEnd again on all echarts.connect'd charts with the SAME
+  // pixel range but a DIFFERENT axis scale → exponential zoom-in.
+  chart.on('brushEnd', (params: unknown) => {
+    if (brushZoomLockRef.current) return
+    brushZoomLockRef.current = true
+
+    const p = params as {
+      areas?: BrushArea[]
+      batch?: Array<{ areas?: BrushArea[] }>
+    }
+    const areas = p.areas ?? p.batch?.[0]?.areas
+    if (!areas || areas.length === 0) {
+      brushZoomLockRef.current = false
+      return
+    }
+
+    const area = areas[0]
+    let startData: number
+    let endData: number
+
+    if (area.coordRange) {
+      [startData, endData] = area.coordRange
+    } else if (area.range) {
+      const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
+      const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
+      if (s == null || e == null) { brushZoomLockRef.current = false; return }
+      startData = s as number
+      endData = e as number
+    } else {
+      brushZoomLockRef.current = false
+      return
+    }
+
+    if (endData <= startData) { brushZoomLockRef.current = false; return }
+    onBrushZoom(Math.max(0, startData), Math.min(xMax, endData))
+
+    requestAnimationFrame(() => { brushZoomLockRef.current = false })
+  })
+
+  // Mouse-wheel / pan → sync all other charts + update map.
+  chart.on('dataZoom', (params: unknown) => {
+    const p = params as {
+      batch?: Array<{ start: number; end: number }>
+      start?: number
+      end?: number
+    }
+    const z = p.batch?.[0] ?? (p.start != null && p.end != null ? p as { start: number; end: number } : null)
+    if (z != null) onSyncZoom(z.start, z.end, chartId)
+  })
+
+  return () => onUnregister(chartId)
+}
+
 // ── Pedal Analytics Dual-Axis Chart Panel ─────────────────────────────────────
 
 interface PedalDualChartPanelProps {
@@ -747,22 +840,7 @@ function PedalDualChartPanel({
         ? (v: number) => v.toFixed(1)
         : (v: number) => formatElapsed(v, data.maxElapsed)
 
-      const mlData: Record<string, unknown>[] = []
-      if (splitMarkers && splitMarkers.length > 0) {
-        for (const marker of splitMarkers) {
-          mlData.push({
-            xAxis: xMode === 'distance' ? marker.distanceKm : marker.elapsedMin,
-            lineStyle: { color: '#94a3b8', type: 'dashed', width: 1, opacity: 0.8 },
-            label: {
-              show: true,
-              position: 'insideStartTop',
-              formatter: marker.label,
-              fontSize: 10,
-              color: '#94a3b8',
-            },
-          })
-        }
-      }
+      const mlData = buildSplitMarkLines(splitMarkers, xMode)
 
       return {
         animation: false,
@@ -878,72 +956,8 @@ function PedalDualChartPanel({
     },
     [data, xMode, splitMarkers, leftValues, rightValues, leftColor, rightColor, tooltipTitle], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
-      onRegister(chartId, chart)
-
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-
-      chart.dispatchAction({
-        type: 'takeGlobalCursor',
-        key: 'brush',
-        brushOption: { brushType: 'lineX', brushMode: 'single' },
-      })
-
-      chart.on('showTip', (params: unknown) => {
-        const typed = params as { dataIndex?: number }
-        if (typed.dataIndex != null) onHover(typed.dataIndex)
-      })
-      chart.on('hideTip', () => onHover(null))
-
-      type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
-
-      chart.on('brushEnd', (params: unknown) => {
-        if (brushZoomLockRef.current) return
-        brushZoomLockRef.current = true
-
-        const p = params as {
-          areas?: BrushArea[]
-          batch?: Array<{ areas?: BrushArea[] }>
-        }
-        const areas = p.areas ?? p.batch?.[0]?.areas
-        if (!areas || areas.length === 0) {
-          brushZoomLockRef.current = false
-          return
-        }
-
-        const area = areas[0]
-        let startData: number
-        let endData: number
-
-        if (area.coordRange) {
-          [startData, endData] = area.coordRange
-        } else if (area.range) {
-          const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
-          const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
-          if (s == null || e == null) { brushZoomLockRef.current = false; return }
-          startData = s as number
-          endData = e as number
-        } else {
-          brushZoomLockRef.current = false
-          return
-        }
-
-        if (endData <= startData) { brushZoomLockRef.current = false; return }
-        onBrushZoom(Math.max(0, startData), Math.min(xMax, endData))
-
-        requestAnimationFrame(() => { brushZoomLockRef.current = false })
-      })
-
-      chart.on('dataZoom', (params: unknown) => {
-        const p = params as {
-          batch?: Array<{ start: number; end: number }>
-          start?: number
-          end?: number
-        }
-        const z = p.batch?.[0] ?? (p.start != null && p.end != null ? p as { start: number; end: number } : null)
-        if (z != null) onSyncZoom(z.start, z.end, chartId)
-      })
-
-      return () => onUnregister(chartId)
+      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
     },
   )
 
@@ -999,22 +1013,7 @@ function RunningDynamicsChartPanel({
         ? (v: number) => v.toFixed(1)
         : (v: number) => formatElapsed(v, data.maxElapsed)
 
-      const mlData: Record<string, unknown>[] = []
-      if (splitMarkers && splitMarkers.length > 0) {
-        for (const marker of splitMarkers) {
-          mlData.push({
-            xAxis: xMode === 'distance' ? marker.distanceKm : marker.elapsedMin,
-            lineStyle: { color: '#94a3b8', type: 'dashed', width: 1, opacity: 0.8 },
-            label: {
-              show: true,
-              position: 'insideStartTop',
-              formatter: marker.label,
-              fontSize: 10,
-              color: '#94a3b8',
-            },
-          })
-        }
-      }
+      const mlData = buildSplitMarkLines(splitMarkers, xMode)
 
       return {
         animation: false,
@@ -1140,72 +1139,8 @@ function RunningDynamicsChartPanel({
     },
     [data, xMode, splitMarkers], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
-      onRegister(chartId, chart)
-
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-
-      chart.dispatchAction({
-        type: 'takeGlobalCursor',
-        key: 'brush',
-        brushOption: { brushType: 'lineX', brushMode: 'single' },
-      })
-
-      chart.on('showTip', (params: unknown) => {
-        const typed = params as { dataIndex?: number }
-        if (typed.dataIndex != null) onHover(typed.dataIndex)
-      })
-      chart.on('hideTip', () => onHover(null))
-
-      type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
-
-      chart.on('brushEnd', (params: unknown) => {
-        if (brushZoomLockRef.current) return
-        brushZoomLockRef.current = true
-
-        const p = params as {
-          areas?: BrushArea[]
-          batch?: Array<{ areas?: BrushArea[] }>
-        }
-        const areas = p.areas ?? p.batch?.[0]?.areas
-        if (!areas || areas.length === 0) {
-          brushZoomLockRef.current = false
-          return
-        }
-
-        const area = areas[0]
-        let startData: number
-        let endData: number
-
-        if (area.coordRange) {
-          [startData, endData] = area.coordRange
-        } else if (area.range) {
-          const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
-          const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
-          if (s == null || e == null) { brushZoomLockRef.current = false; return }
-          startData = s as number
-          endData = e as number
-        } else {
-          brushZoomLockRef.current = false
-          return
-        }
-
-        if (endData <= startData) { brushZoomLockRef.current = false; return }
-        onBrushZoom(Math.max(0, startData), Math.min(xMax, endData))
-
-        requestAnimationFrame(() => { brushZoomLockRef.current = false })
-      })
-
-      chart.on('dataZoom', (params: unknown) => {
-        const p = params as {
-          batch?: Array<{ start: number; end: number }>
-          start?: number
-          end?: number
-        }
-        const z = p.batch?.[0] ?? (p.start != null && p.end != null ? p as { start: number; end: number } : null)
-        if (z != null) onSyncZoom(z.start, z.end, chartId)
-      })
-
-      return () => onUnregister(chartId)
+      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
     },
   )
 
@@ -1270,7 +1205,6 @@ function ScatterChartPanel({
         ? validValues.reduce((a, b) => a + b, 0) / validValues.length
         : null
 
-      // Split marker lines
       const mlData: Record<string, unknown>[] = []
       if (avg != null) {
         mlData.push({
@@ -1288,21 +1222,7 @@ function ScatterChartPanel({
           },
         })
       }
-      if (splitMarkers && splitMarkers.length > 0) {
-        for (const marker of splitMarkers) {
-          mlData.push({
-            xAxis: xMode === 'distance' ? marker.distanceKm : marker.elapsedMin,
-            lineStyle: { color: '#94a3b8', type: 'dashed', width: 1, opacity: 0.8 },
-            label: {
-              show: true,
-              position: 'insideStartTop',
-              formatter: marker.label,
-              fontSize: 10,
-              color: '#94a3b8',
-            },
-          })
-        }
-      }
+      mlData.push(...buildSplitMarkLines(splitMarkers, xMode))
 
       return {
         animation: false,
@@ -1391,72 +1311,8 @@ function ScatterChartPanel({
     },
     [data, values, xMode, splitMarkers],
     (chart) => {
-      onRegister(chartId, chart)
-
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-
-      chart.dispatchAction({
-        type: 'takeGlobalCursor',
-        key: 'brush',
-        brushOption: { brushType: 'lineX', brushMode: 'single' },
-      })
-
-      chart.on('showTip', (params: unknown) => {
-        const typed = params as { dataIndex?: number }
-        if (typed.dataIndex != null) onHover(typed.dataIndex)
-      })
-      chart.on('hideTip', () => onHover(null))
-
-      type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
-
-      chart.on('brushEnd', (params: unknown) => {
-        if (brushZoomLockRef.current) return
-        brushZoomLockRef.current = true
-
-        const p = params as {
-          areas?: BrushArea[]
-          batch?: Array<{ areas?: BrushArea[] }>
-        }
-        const areas = p.areas ?? p.batch?.[0]?.areas
-        if (!areas || areas.length === 0) {
-          brushZoomLockRef.current = false
-          return
-        }
-
-        const area = areas[0]
-        let startData: number
-        let endData: number
-
-        if (area.coordRange) {
-          [startData, endData] = area.coordRange
-        } else if (area.range) {
-          const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
-          const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
-          if (s == null || e == null) { brushZoomLockRef.current = false; return }
-          startData = s as number
-          endData = e as number
-        } else {
-          brushZoomLockRef.current = false
-          return
-        }
-
-        if (endData <= startData) { brushZoomLockRef.current = false; return }
-        onBrushZoom(Math.max(0, startData), Math.min(xMax, endData))
-
-        requestAnimationFrame(() => { brushZoomLockRef.current = false })
-      })
-
-      chart.on('dataZoom', (params: unknown) => {
-        const p = params as {
-          batch?: Array<{ start: number; end: number }>
-          start?: number
-          end?: number
-        }
-        const z = p.batch?.[0] ?? (p.start != null && p.end != null ? p as { start: number; end: number } : null)
-        if (z != null) onSyncZoom(z.start, z.end, chartId)
-      })
-
-      return () => onUnregister(chartId)
+      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
     },
   )
 
@@ -1550,21 +1406,7 @@ function ChartPanel({
         }
       }
 
-      if (splitMarkers && splitMarkers.length > 0) {
-        for (const marker of splitMarkers) {
-          mlData.push({
-            xAxis: xMode === 'distance' ? marker.distanceKm : marker.elapsedMin,
-            lineStyle: { color: '#94a3b8', type: 'dashed', width: 1, opacity: 0.8 },
-            label: {
-              show: true,
-              position: 'insideStartTop',
-              formatter: marker.label,
-              fontSize: 10,
-              color: '#94a3b8',
-            },
-          })
-        }
-      }
+      mlData.push(...buildSplitMarkLines(splitMarkers, xMode))
 
       // ── Tooltip builder ─────────────────────────────────────────────────────
       const decimals = field === 'altitude' || field === 'temperature' ? 0 : 1
@@ -1784,80 +1626,8 @@ function ChartPanel({
     },
     [data, field, xMode, splitMarkers, showGradeColor, overrideValues, invertY, yAxisFixed], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
-      onRegister(chartId, chart)
-
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-
-      // Activate brush cursor so click-drag draws a range selection
-      chart.dispatchAction({
-        type: 'takeGlobalCursor',
-        key: 'brush',
-        brushOption: { brushType: 'lineX', brushMode: 'single' },
-      })
-
-      // Hover → map marker
-      chart.on('showTip', (params: unknown) => {
-        const typed = params as { dataIndex?: number }
-        if (typed.dataIndex != null) onHover(typed.dataIndex)
-      })
-      chart.on('hideTip', () => onHover(null))
-
-      // Brush areas type
-      type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
-
-      // Brush gesture ended → zoom all charts + map
-      // Uses shared brushZoomLockRef to prevent cascading: dataZoom dispatch
-      // triggers brushEnd again on all echarts.connect'd charts with the SAME
-      // pixel range but a DIFFERENT axis scale → exponential zoom-in.
-      chart.on('brushEnd', (params: unknown) => {
-        if (brushZoomLockRef.current) return
-        brushZoomLockRef.current = true
-
-        const p = params as {
-          areas?: BrushArea[]
-          batch?: Array<{ areas?: BrushArea[] }>
-        }
-        const areas = p.areas ?? p.batch?.[0]?.areas
-        if (!areas || areas.length === 0) {
-          brushZoomLockRef.current = false
-          return
-        }
-
-        const area = areas[0]
-        let startData: number
-        let endData: number
-
-        if (area.coordRange) {
-          [startData, endData] = area.coordRange
-        } else if (area.range) {
-          const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
-          const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
-          if (s == null || e == null) { brushZoomLockRef.current = false; return }
-          startData = s as number
-          endData = e as number
-        } else {
-          brushZoomLockRef.current = false
-          return
-        }
-
-        if (endData <= startData) { brushZoomLockRef.current = false; return }
-        onBrushZoom(Math.max(0, startData), Math.min(xMax, endData))
-
-        requestAnimationFrame(() => { brushZoomLockRef.current = false })
-      })
-
-      // Mouse-wheel / pan → sync all other charts + update map.
-      chart.on('dataZoom', (params: unknown) => {
-        const p = params as {
-          batch?: Array<{ start: number; end: number }>
-          start?: number
-          end?: number
-        }
-        const z = p.batch?.[0] ?? (p.start != null && p.end != null ? p as { start: number; end: number } : null)
-        if (z != null) onSyncZoom(z.start, z.end, chartId)
-      })
-
-      return () => onUnregister(chartId)
+      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
     },
   )
 
