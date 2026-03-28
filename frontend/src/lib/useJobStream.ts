@@ -108,6 +108,13 @@ export function useJobStream(userId: string) {
           return // falls through to finally → reconnect with fresh token
         }
 
+        // Server rejected: too many SSE connections for this user.
+        // Another tab is likely the leader — stop reconnecting.
+        if (res.status === 429) {
+          activeRef.current = false
+          return
+        }
+
         if (!res.ok || !res.body) throw new Error(`SSE failed: ${res.status}`)
 
         // Successful connection — reset auth retry counter
