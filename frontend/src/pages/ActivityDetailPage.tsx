@@ -183,6 +183,8 @@ export default function ActivityDetailPage() {
       setSpeedMode(defaultSpeedMode(activity.sport_type))
     }
   }, [activity])
+  // Reset speed mode init when navigating to a different activity
+  useEffect(() => { speedModeInitRef.current = false }, [id])
   const handleSpeedModeChange = (mode: 'speed' | 'pace') => {
     setSpeedMode(mode)
     localStorage.setItem(speedStorageKey, mode)
