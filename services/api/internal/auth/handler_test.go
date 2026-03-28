@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/config"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
@@ -588,17 +589,24 @@ func TestDummyHashFormat(t *testing.T) {
 	}
 }
 
-// --- writeJSON Helper ---
+// --- WriteJSONNoCache Helper ---
 
-func TestWriteJSON(t *testing.T) {
+// TestWriteJSONNoCache verifies that httputil.WriteJSONNoCache sets
+// Cache-Control: no-store on every auth response. This header is
+// security-critical: without it, browsers or proxies may cache tokens
+// and credentials returned by auth endpoints.
+func TestWriteJSONNoCache(t *testing.T) {
 	w := httptest.NewRecorder()
-	writeJSON(w, http.StatusCreated, map[string]string{"key": "value"})
+	httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"key": "value"})
 
 	if w.Code != http.StatusCreated {
 		t.Errorf("expected 201, got %d", w.Code)
 	}
 	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("expected application/json, got %q", ct)
+	}
+	if cc := w.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("expected Cache-Control: no-store, got %q — auth responses must not be cached", cc)
 	}
 
 	var resp map[string]string

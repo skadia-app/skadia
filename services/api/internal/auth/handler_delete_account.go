@@ -9,6 +9,7 @@ import (
 	"github.com/alexedwards/argon2id"
 	"github.com/google/uuid"
 
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
@@ -21,7 +22,7 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	user, err := h.DB.GetUserByID(r.Context(), userID)
 	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
 
@@ -30,7 +31,7 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		Confirmation string `json:"confirmation,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
 
@@ -41,11 +42,11 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 			`SELECT count(*) FROM users WHERE is_admin = true AND id != $1
 			 AND is_active = true AND deleted_at IS NULL`, userID).Scan(&otherAdmins); err != nil {
 			slog.Error("delete account: count other admins failed", "error", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
 		if otherAdmins == 0 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "last_admin"})
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "last_admin"})
 			return
 		}
 	}
@@ -55,12 +56,12 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	if user.PasswordHash != nil {
 		match, err := argon2id.ComparePasswordAndHash(req.Password, *user.PasswordHash)
 		if err != nil || !match {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "wrong_password"})
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "wrong_password"})
 			return
 		}
 	} else {
 		if req.Confirmation != "ACCOUNT LÖSCHEN" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_confirmation"})
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_confirmation"})
 			return
 		}
 	}
@@ -70,7 +71,7 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		`UPDATE users SET deleted_at = NOW(), is_active = false, pending_email = NULL
 		 WHERE id = $1`, userID); err != nil {
 		slog.Error("delete account: soft-delete failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
@@ -103,7 +104,7 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	slog.Info("account deletion requested", "user_id", userID)
 
 	purgeAt := time.Now().Add(30 * 24 * time.Hour)
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]any{
 		"status":   "deletion_scheduled",
 		"purge_at": purgeAt.Format(time.RFC3339),
 	})
@@ -118,25 +119,25 @@ func (h *Handler) CancelDeletion(w http.ResponseWriter, r *http.Request) {
 		Token string `json:"token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
 
 	userID, err := h.DB.ConsumeEmailToken(r.Context(), HashToken(req.Token), "cancel_deletion")
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_or_expired_token"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_or_expired_token"})
 		return
 	}
 
 	if _, err := h.DB.Pool.Exec(r.Context(),
 		`UPDATE users SET deleted_at = NULL, is_active = true WHERE id = $1`, userID); err != nil {
 		slog.Error("cancel deletion: restore user failed", "error", err, "user_id", userID)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
 	go h.DB.LogAuthEvent(h.shutdownCtx, userID.String(), "account_deletion_cancelled",
 		middleware.ClientIP(r), r.UserAgent(), nil)
 	slog.Info("account deletion cancelled", "user_id", userID)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deletion_cancelled"})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "deletion_cancelled"})
 }

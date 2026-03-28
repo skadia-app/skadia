@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
@@ -33,7 +34,7 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 
 	// Per-user singleflight
 	if _, loaded := exportInflight.LoadOrStore(userID, true); loaded {
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "export_already_running"})
+		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "export_already_running"})
 		return
 	}
 	defer exportInflight.Delete(userID)
@@ -43,7 +44,7 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 	case exportSem <- struct{}{}:
 		defer func() { <-exportSem }()
 	default:
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "server_busy"})
+		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "server_busy"})
 		return
 	}
 
@@ -52,7 +53,7 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.DB.GetUserByID(ctx, userID)
 	if err != nil || !user.IsActive || user.DeletedAt != nil {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "account_inactive"})
+		httputil.WriteJSONNoCache(w, http.StatusForbidden, map[string]string{"error": "account_inactive"})
 		return
 	}
 
