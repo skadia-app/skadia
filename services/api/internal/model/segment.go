@@ -42,6 +42,7 @@ type SegmentCreate struct {
 	Description      *string         `json:"description,omitempty"`
 	TerrainType      string          `json:"terrain_type"`
 	ClimbType        string          `json:"climb_type"`
+	Visibility       string          `json:"visibility,omitempty"` // "public" | "private"; default "public"
 }
 
 type SegmentUpdate struct {
@@ -51,6 +52,7 @@ type SegmentUpdate struct {
 	NewVersion      bool             `json:"new_version,omitempty"`
 	TerrainType     *string          `json:"terrain_type,omitempty"`
 	ClimbType       *string          `json:"climb_type,omitempty"`
+	Visibility      *string          `json:"visibility,omitempty"` // "public" | "private"
 }
 
 type SegmentVersion struct {
@@ -139,6 +141,7 @@ type ListSegmentsParams struct {
 	IncludeGeoJSON bool
 	Cursor         string // base64(created_at|id)
 	Limit          int    // 0 = kein Limit
+	IsAdmin        bool   // if true: bypass visibility filter
 }
 
 // ListSegmentsResult enthaelt die paginierte Segment-Liste.
