@@ -307,7 +307,7 @@ async def _process_analytics_message(msg, nc: nats.NATS) -> None:
     Ergebnisse in analytics_cache. Fehler einzelner Module stoppen
     nicht die anderen (graceful degradation).
     """
-    data = await _decode_or_ack(msg, "analytics: invalid message")
+    data = await _decode_or_ack(msg, "analytics")
     if data is None:
         return
 
@@ -398,7 +398,7 @@ async def _download_from_s3(bucket: str, key: str) -> bytes:
 
 async def _process_photo_embed(msg, pool, nc) -> None:
     """Process a photo embedding request from skadia.photo.embed."""
-    data = await _decode_or_ack(msg, "photo_embed: invalid message")
+    data = await _decode_or_ack(msg, "photo_embed")
     if data is None:
         return
 
