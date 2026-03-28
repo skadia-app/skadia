@@ -144,7 +144,8 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     batteryLevel.push(s.ebike_battery_level_pct ?? NaN)
     travelRange.push(s.ebike_travel_range_km ?? NaN)
     depth.push(s.depth_m ?? NaN)
-    cycleLength.push(s.cycle_length_m ?? NaN)
+    // Clamp: values > 50m are FIT parser artifacts (real stroke distance is 0.5–15m)
+    cycleLength.push(s.cycle_length_m != null && s.cycle_length_m > 0 && s.cycle_length_m <= 50 ? s.cycle_length_m : NaN)
   }
 
   const validDist = distanceKm.filter(v => !isNaN(v) && isFinite(v))
@@ -628,16 +629,19 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         overrideValues={data.depth} invertY />
     </div>,
   )
-  // Cycle Length (stroke distance): swim = Distanz/Zug, paddle = Distanz/Schlag, else Zykluslänge
-  if (hasValidData(data.cycleLength)) {
+  // Cycle Length (stroke/stroke distance) — only for swim + paddle sports
+  // For running: step_length_mm chart already exists. For cycling: cycle_length = pedal revolution (not useful as chart).
+  {
     const sg = sportType ? getSegmentGroup(sportType) : 'generic'
-    const cycleLengthLabel = sg === 'swim' ? 'Distanz/Zug' : sg === 'paddle' ? 'Distanz/Schlag' : 'Zykluslänge'
-    panels.push(
-      <div key={k('cycle-length')} style={{ display: show('cycleLength') ? undefined : 'none' }}>
-        <ScatterChartPanel chartId="cycle-length" {...common}
-          values={data.cycleLength} label={cycleLengthLabel} unit="m" color="#0EA5E9" />
-      </div>,
-    )
+    if ((sg === 'swim' || sg === 'paddle') && hasValidData(data.cycleLength)) {
+      const cycleLengthLabel = sg === 'swim' ? 'Distanz/Zug' : 'Distanz/Schlag'
+      panels.push(
+        <div key={k('cycle-length')} style={{ display: show('cycleLength') ? undefined : 'none' }}>
+          <ScatterChartPanel chartId="cycle-length" {...common}
+            values={data.cycleLength} label={cycleLengthLabel} unit="m" color="#0EA5E9" />
+        </div>,
+      )
+    }
   }
 
   if (panels.length === 0) return null
