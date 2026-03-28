@@ -55,9 +55,13 @@ func (h *Handler) collectJobsPayload(ctx context.Context, userID string, include
 	}
 	if garminJobs, err := h.DB.ListActiveGarminImportJobs(ctx, userID); err == nil {
 		jobs = append(jobs, garminJobs...)
+	} else {
+		slog.Warn("SSE: list garmin import jobs failed", "error", err)
 	}
 	if stravaJobs, err := h.DB.ListActiveStravaImportJobs(ctx, userID); err == nil {
 		jobs = append(jobs, stravaJobs...)
+	} else {
+		slog.Warn("SSE: list strava import jobs failed", "error", err)
 	}
 
 	for i := range jobs {
@@ -137,8 +141,11 @@ func (h *Handler) StreamJobProgress(w http.ResponseWriter, r *http.Request) {
 				var isActive bool
 				if err := h.DB.Pool.QueryRow(r.Context(),
 					"SELECT is_active FROM users WHERE id = $1", userID,
-				).Scan(&isActive); err != nil || !isActive {
-					slog.Info("SSE: closing stream for inactive user", "user_id", userID)
+				).Scan(&isActive); err != nil {
+					// Transient DB error — log and continue, don't kill the stream
+					slog.Warn("SSE: user revalidation query failed", "user_id", userID, "error", err)
+				} else if !isActive {
+					slog.Info("SSE: closing stream for deactivated user", "user_id", userID)
 					return
 				}
 			case <-jobTicker.C:
@@ -193,8 +200,11 @@ func (h *Handler) StreamJobProgress(w http.ResponseWriter, r *http.Request) {
 			var isActive bool
 			if err := h.DB.Pool.QueryRow(r.Context(),
 				"SELECT is_active FROM users WHERE id = $1", userID,
-			).Scan(&isActive); err != nil || !isActive {
-				slog.Info("SSE: closing stream for inactive user", "user_id", userID)
+			).Scan(&isActive); err != nil {
+				// Transient DB error — log and continue, don't kill the stream
+				slog.Warn("SSE: user revalidation query failed", "user_id", userID, "error", err)
+			} else if !isActive {
+				slog.Info("SSE: closing stream for deactivated user", "user_id", userID)
 				return
 			}
 
