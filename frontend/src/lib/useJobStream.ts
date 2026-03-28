@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { getToken, refreshToken } from '@/lib/auth'
-import { updateModule, clearCompleted } from '@/lib/useEnrichmentProgress'
+import { updateModule, clearCompleted, clearAll } from '@/lib/useEnrichmentProgress'
 import { useTabLeader } from '@/lib/useTabLeader'
 
 interface BroadcastEvent {
@@ -72,6 +72,11 @@ export function useJobStream(userId: string) {
     const timer = setInterval(() => clearCompleted(), 15_000)
     return () => clearInterval(timer)
   }, [])
+
+  // Clear enrichment progress on user change (logout → login as different user)
+  useEffect(() => {
+    clearAll()
+  }, [userId])
 
   // Follower path: receive broadcast events from leader
   useEffect(() => {
