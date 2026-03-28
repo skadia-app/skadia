@@ -11,6 +11,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 const reEnrichWorkers = 3
@@ -159,16 +160,29 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 
 	// Surfaces — separated from RunGeoEnrichment, has its own orchestration.
 	if containsAny(modules, "surfaces") {
-		enabled := settings == nil || settings.EnableSurfaceDetection
-		var surfStream []EnrichmentStreamPoint
-		if graphReader != nil {
-			if stream == nil {
-				stream, _ = getEnrichmentStream(ctx, db, activityID)
+		// Skip surface detection for virtual/indoor activities and water sports —
+		// OSM road surface matching produces nonsensical results for these.
+		skipSurfaces := false
+		if act, err := db.GetActivity(ctx, activityID); err == nil {
+			skipSurfaces = act.IsVirtual
+			if !skipSurfaces {
+				if def, ok := sport.GetSportDef(act.SportType); ok {
+					skipSurfaces = def.CategoryKey == "water"
+				}
 			}
-			surfStream = stream
 		}
-		if err := EnrichSurfaces(ctx, db, activityID, enabled, graphReader, surfStream); err != nil {
-			slog.Warn("re-enrich: surfaces failed", "activity_id", activityID, "error", err)
+		if !skipSurfaces {
+			enabled := settings == nil || settings.EnableSurfaceDetection
+			var surfStream []EnrichmentStreamPoint
+			if graphReader != nil {
+				if stream == nil {
+					stream, _ = getEnrichmentStream(ctx, db, activityID)
+				}
+				surfStream = stream
+			}
+			if err := EnrichSurfaces(ctx, db, activityID, enabled, graphReader, surfStream); err != nil {
+				slog.Warn("re-enrich: surfaces failed", "activity_id", activityID, "error", err)
+			}
 		}
 	}
 
