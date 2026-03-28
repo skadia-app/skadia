@@ -920,7 +920,7 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 	hash := sha256.Sum256(data)
 	hashStr := hex.EncodeToString(hash[:])
 
-	// Duplicate check
+	// Duplikat-Prüfung (per gear/component, not global — same file allowed on different items)
 	if exists, err := cfg.dupCheck(userID, hashStr); err == nil && exists {
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
 		return
