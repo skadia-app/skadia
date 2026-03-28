@@ -1,7 +1,6 @@
 // frontend/src/components/activity/SpeedPaceToggle.tsx
 
 interface Props {
-  sportType: string
   mode: 'speed' | 'pace'
   onChange: (mode: 'speed' | 'pace') => void
 }

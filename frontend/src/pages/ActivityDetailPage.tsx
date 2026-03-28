@@ -376,7 +376,7 @@ export default function ActivityDetailPage() {
   const { data: events } = useQuery<ActivityEvent[]>({
     queryKey: ['activity-events', id],
     queryFn: () => fetchActivityEvents(id!),
-    enabled: !!activity && activity.has_gps,
+    enabled: !!activity && activity.has_gps && getSegmentGroup(activity.sport_type) === 'bike',
   })
 
   if (isLoading) {
@@ -454,7 +454,6 @@ export default function ActivityDetailPage() {
           {activity.avg_speed_ms != null && (
             <div className="flex justify-end">
               <SpeedPaceToggle
-                sportType={activity.sport_type}
                 mode={speedMode}
                 onChange={handleSpeedModeChange}
               />
