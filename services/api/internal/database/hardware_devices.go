@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"context"
 	"fmt"
 	"time"
@@ -35,7 +36,7 @@ func scanHWDevice(row pgx.Row) (*model.Device, error) {
 		&d.FirstSeenAt, &d.LastSeenAt, &d.CreatedAt,
 		&d.ActivityCount,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -67,7 +68,7 @@ func (db *DB) UpsertHWDevice(ctx context.Context, d model.DeviceUpsert) (string,
 			 WHERE user_id = $1 AND type = $2 AND serial_number = $3`,
 			d.UserID, d.Type, *d.SerialNumber,
 		).Scan(&existingID)
-		if err != nil && err != pgx.ErrNoRows {
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return "", fmt.Errorf("upsert hw device (serial lookup): %w", err)
 		}
 	} else if d.AntDeviceNumber != nil {
@@ -77,7 +78,7 @@ func (db *DB) UpsertHWDevice(ctx context.Context, d model.DeviceUpsert) (string,
 			   AND ant_device_number = $4 AND serial_number IS NULL`,
 			d.UserID, d.Type, d.ManufacturerID, *d.AntDeviceNumber,
 		).Scan(&existingID)
-		if err != nil && err != pgx.ErrNoRows {
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return "", fmt.Errorf("upsert hw device (ant lookup): %w", err)
 		}
 	} else {
@@ -89,7 +90,7 @@ func (db *DB) UpsertHWDevice(ctx context.Context, d model.DeviceUpsert) (string,
 			   AND serial_number IS NULL AND ant_device_number IS NULL`,
 			d.UserID, d.Type, d.ManufacturerID, d.ProductName,
 		).Scan(&existingID)
-		if err != nil && err != pgx.ErrNoRows {
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return "", fmt.Errorf("upsert hw device (name lookup): %w", err)
 		}
 	}
@@ -381,7 +382,7 @@ func (db *DB) ListDeviceActivities(ctx context.Context, deviceID string, limit i
 	// Determine device type.
 	var deviceType string
 	err := db.Pool.QueryRow(ctx, `SELECT type FROM devices WHERE id = $1`, deviceID).Scan(&deviceType)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return []DeviceActivitySummary{}, nil
 	}
 	if err != nil {

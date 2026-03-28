@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -61,7 +62,7 @@ func (db *DB) CheckDuplicate(ctx context.Context, userID, fileHash string) (*mod
 	)
 	var a model.Activity
 	err := row.Scan(&a.ID, &a.SportType, &a.StartedAt)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -81,7 +82,7 @@ func (db *DB) CheckTimeOverlap(ctx context.Context, userID string, startedAt, en
 	)
 	var a model.Activity
 	err := row.Scan(&a.ID, &a.SportType, &a.StartedAt)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -716,7 +717,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.TitleIsManual,
 		&a.IsManualEntry, &a.WorkoutFeel, &a.WorkoutRpe,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -1676,7 +1677,7 @@ func (db *DB) GetActivityReprocessInfo(ctx context.Context, activityID string) (
 		 FROM activities WHERE id = $1`,
 		activityID,
 	).Scan(&format, &info.SportTypeIsManual, &filename, &fileID, &info.UserID)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -2287,7 +2288,7 @@ func (db *DB) GetUserHotfolderEnabled(ctx context.Context, userID string) (bool,
 		`SELECT hotfolder_enabled FROM users WHERE id = $1`,
 		userID,
 	).Scan(&enabled)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
@@ -2695,7 +2696,7 @@ func (db *DB) UpdatePrivacyZone(ctx context.Context, zoneID, userID string, upda
 	err := db.Pool.QueryRow(ctx, query, args...).Scan(
 		&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt, &z.ZoneType, &z.Polygon,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -2716,7 +2717,7 @@ func (db *DB) getPrivacyZone(ctx context.Context, zoneID, userID string) (*model
 		WHERE id = $1 AND user_id = $2`,
 		zoneID, userID,
 	).Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt, &z.ZoneType, &z.Polygon)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -2970,7 +2971,7 @@ func (db *DB) GetTagByID(ctx context.Context, tagID, userID string) (*model.Tag,
 		&t.Description, &t.ActivityCount, &t.CreatedAt,
 		&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -3120,7 +3121,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 			fmt.Sprintf(`SELECT %s FROM tags WHERE id = $1 AND user_id = $2`, tagCols),
 			tagID, userID,
 		))
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		if err != nil {
@@ -3137,7 +3138,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 	)
 
 	t, err := scanTag(db.Pool.QueryRow(ctx, query, args...))
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -3165,7 +3166,7 @@ func (db *DB) ClearTagCoverFile(ctx context.Context, tagID, userID string) (*mod
 		&t.Description, &t.ActivityCount, &t.CreatedAt,
 		&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -3545,7 +3546,7 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 		`SELECT name FROM tags WHERE id = $1 AND user_id = $2`,
 		targetTagID, userID,
 	).Scan(&targetName); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("target tag not found")
 		}
 		return nil, fmt.Errorf("get target tag: %w", err)
@@ -3554,7 +3555,7 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 		`SELECT name FROM tags WHERE id = $1 AND user_id = $2`,
 		sourceTagID, userID,
 	).Scan(&sourceName); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("source tag not found")
 		}
 		return nil, fmt.Errorf("get source tag: %w", err)
@@ -3918,7 +3919,7 @@ func (db *DB) GetStreamPointNearTime(ctx context.Context, activityID string, t t
 		LIMIT 1`,
 		activityID, t,
 	).Scan(&sp.Time, &sp.Lat, &sp.Lng)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

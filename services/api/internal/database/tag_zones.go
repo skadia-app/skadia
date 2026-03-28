@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"context"
 	"fmt"
 
@@ -56,7 +57,7 @@ func (db *DB) GetTagZone(ctx context.Context, tagID, userID string) (*model.TagZ
 		tagID, userID,
 	)
 	z, err := scanTagZone(row)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

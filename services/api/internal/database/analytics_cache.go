@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,7 +17,7 @@ func (db *DB) GetAnalyticsCache(ctx context.Context, userID string, cacheKey str
 		`SELECT data FROM analytics_cache WHERE user_id = $1 AND cache_key = $2`,
 		userID, cacheKey,
 	).Scan(&data)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, pgx.ErrNoRows
 	}
 	if err != nil {
