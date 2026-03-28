@@ -160,6 +160,86 @@ export interface Activity {
   // Recording device (linked to hardware registry)
   recording_device_id?: string | null
   recording_device_name?: string | null
+
+  // ── Phase 1: Running Dynamics ──
+  avg_vertical_oscillation_mm?: number | null
+  avg_stance_time_ms?: number | null
+  avg_stance_time_pct?: number | null
+  avg_stance_time_balance_pct?: number | null
+  avg_step_length_mm?: number | null
+  avg_vertical_ratio_pct?: number | null
+
+  // ── Phase 1: Vertical Speed ──
+  avg_pos_vertical_speed_ms?: number | null
+  avg_neg_vertical_speed_ms?: number | null
+  max_pos_vertical_speed_ms?: number | null
+  max_neg_vertical_speed_ms?: number | null
+  avg_vam_ms?: number | null
+
+  // ── Phase 1: Grade ──
+  avg_grade_pct?: number | null
+  max_pos_grade_pct?: number | null
+  max_neg_grade_pct?: number | null
+
+  // ── Phase 1: Pedal Analytics ──
+  avg_left_torque_effectiveness_pct?: number | null
+  avg_right_torque_effectiveness_pct?: number | null
+  avg_left_pedal_smoothness_pct?: number | null
+  avg_right_pedal_smoothness_pct?: number | null
+  avg_combined_pedal_smoothness_pct?: number | null
+  left_right_balance?: number | null
+  time_standing_s?: number | null
+  stand_count?: number | null
+
+  // ── Phase 1: Swimming ──
+  swim_stroke?: string | null
+  pool_length_m?: number | null
+  pool_length_unit?: string | null
+  num_lengths?: number | null
+  num_active_lengths?: number | null
+  avg_stroke_count?: number | null
+  avg_stroke_distance_m?: number | null
+
+  // ── Phase 1: Diving ──
+  avg_depth_m?: number | null
+  max_depth_m?: number | null
+  dive_number?: number | null
+  surface_interval_s?: number | null
+  start_cns_pct?: number | null
+  end_cns_pct?: number | null
+  start_n2_pct?: number | null
+  end_n2_pct?: number | null
+  o2_toxicity_otu?: number | null
+
+  // ── Phase 1: Ball Sports ──
+  player_score?: number | null
+  opponent_score?: number | null
+  opponent_name?: string | null
+  max_ball_speed_ms?: number | null
+  avg_ball_speed_ms?: number | null
+
+  // ── Phase 1: E-Bike ──
+  avg_lev_motor_power_w?: number | null
+  max_lev_motor_power_w?: number | null
+  lev_battery_consumption_pct?: number | null
+
+  // ── Phase 1: Jumps ──
+  jump_count?: number | null
+
+  // ── Phase 1: Cycles / Work ──
+  total_cycles?: number | null
+  total_work_j?: number | null
+  total_fat_calories?: number | null
+  metabolic_calories?: number | null
+  total_moving_time_s?: number | null
+  workout_id?: string | null
+  intensity_factor?: number | null
+
+  // ── Phase 1: Misc ──
+  sport_profile_name?: string | null
+  sdrr_hrv_ms?: number | null
+  avg_respiration_rate?: number | null
+  avg_core_temperature_c?: number | null
 }
 
 export interface ActivitiesResponse {
@@ -169,6 +249,7 @@ export interface ActivitiesResponse {
 }
 
 export interface StreamPoint {
+  // ── Bestehend (10 Felder) ──
   time: string
   lat?: number
   lng?: number
@@ -179,6 +260,97 @@ export interface StreamPoint {
   power_w?: number
   cadence?: number
   temperature_c?: number
+
+  // ── Terrain & Movement ──
+  grade_pct?: number
+  vertical_speed_ms?: number
+  gps_accuracy_m?: number
+  calories?: number
+  resistance?: number
+  total_cycles?: number
+  accumulated_power_w?: number
+  absolute_pressure_pa?: number
+  ascent_rate_ms?: number
+  time_from_course_s?: number
+  activity_type?: number
+  device_index?: number
+
+  // ── Running Dynamics ──
+  ground_contact_time_ms?: number
+  vertical_oscillation_mm?: number
+  stance_time_percent?: number
+  step_length_mm?: number
+  vertical_ratio_pct?: number
+  stance_time_balance_pct?: number
+  cycle_length_m?: number
+  fractional_cadence?: number
+
+  // ── Pedal Analytics ──
+  left_torque_effectiveness_pct?: number
+  right_torque_effectiveness_pct?: number
+  left_pedal_smoothness_pct?: number
+  right_pedal_smoothness_pct?: number
+  combined_pedal_smoothness_pct?: number
+  left_pco_mm?: number
+  right_pco_mm?: number
+  left_right_balance?: number
+
+  // ── Power Phase ──
+  left_power_phase_start_deg?: number
+  left_power_phase_end_deg?: number
+  left_power_phase_peak_start_deg?: number
+  left_power_phase_peak_end_deg?: number
+  right_power_phase_start_deg?: number
+  right_power_phase_end_deg?: number
+  right_power_phase_peak_start_deg?: number
+  right_power_phase_peak_end_deg?: number
+
+  // ── Hemoglobin / Muscle Oxygen ──
+  total_hemoglobin_conc?: number
+  total_hemoglobin_conc_min?: number
+  total_hemoglobin_conc_max?: number
+  saturated_hemoglobin_pct?: number
+  saturated_hemoglobin_pct_min?: number
+  saturated_hemoglobin_pct_max?: number
+
+  // ── E-Bike ──
+  motor_power_w?: number
+  ebike_travel_range_km?: number
+  ebike_battery_level_pct?: number
+  ebike_assist_mode?: number
+  ebike_assist_level_pct?: number
+
+  // ── Health / Stress ──
+  core_temperature_c?: number
+  enhanced_respiration_rate?: number
+  current_stress?: number
+  battery_soc_pct?: number
+
+  // ── MTB ──
+  grit?: number
+  flow?: number
+
+  // ── Racket / Ball Sports ──
+  stroke_type?: number
+  zone?: number
+  ball_speed_ms?: number
+
+  // ── Diving ──
+  depth_m?: number
+  next_stop_depth_m?: number
+  next_stop_time_s?: number
+  time_to_surface_s?: number
+  ndl_time_s?: number
+  cns_load_pct?: number
+  n2_load_pct?: number
+  air_time_remaining_s?: number
+  pressure_sac?: number
+  volume_sac?: number
+  rmv?: number
+  po2?: number
+
+  // ── Developer Fields ──
+  developer_fields?: Record<string, unknown>
 }
 
 export interface DataVisibility {
@@ -688,4 +860,88 @@ export interface ClimbProEvent {
   current_dist_m?: number
   lat?: number
   lng?: number
+}
+
+// ── Strength Training Sets ──
+export interface ActivitySet {
+  message_index: number
+  timestamp?: string
+  start_time?: string
+  duration_s?: number
+  set_type?: number
+  repetitions?: number
+  weight_kg?: number
+  weight_display_unit?: number
+  exercise_categories?: number[]
+  exercise_subtypes?: number[]
+  wkt_step_index?: number
+}
+
+// ── Jump Events ──
+export interface ActivityJump {
+  timestamp: string
+  distance_m?: number
+  height_m?: number
+  hang_time_s?: number
+  speed_ms?: number
+  score?: number
+  rotations?: number
+  lat?: number
+  lng?: number
+}
+
+// ── Activity Events ──
+export interface ActivityEvent {
+  timestamp: string
+  event: number
+  event_type: number
+  event_group?: number
+  data?: number
+  front_gear_num?: number
+  front_gear?: number
+  rear_gear_num?: number
+  rear_gear?: number
+  radar_threat_level_max?: number
+  radar_threat_count?: number
+  radar_threat_avg_approach_speed_ms?: number
+  radar_threat_max_approach_speed_ms?: number
+  score?: number
+  opponent_score?: number
+  device_index?: number
+  activity_type?: number
+  start_timestamp?: string
+}
+
+// ── Workouts ──
+export interface Workout {
+  id: string
+  name?: string
+  description?: string
+  sport?: number
+  sub_sport?: number
+  num_valid_steps?: number
+  pool_length_m?: number
+  pool_length_unit?: string
+  steps: WorkoutStep[]
+}
+
+export interface WorkoutStep {
+  message_index: number
+  step_name?: string
+  notes?: string
+  duration_type?: number
+  duration_value?: number
+  target_type?: number
+  target_value?: number
+  custom_target_low?: number
+  custom_target_high?: number
+  intensity?: number
+  exercise_category?: number
+  exercise_name?: number
+  exercise_weight_kg?: number
+  weight_display_unit?: number
+  secondary_target_type?: number
+  secondary_target_value?: number
+  secondary_custom_target_low?: number
+  secondary_custom_target_high?: number
 }
