@@ -73,6 +73,12 @@ func (h *Handler) CoverageTile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if z < 0 || z > 22 {
+		httputil.WriteError(w, http.StatusBadRequest, "Invalid zoom",
+			"z must be between 0 and 22", r.URL.Path)
+		return
+	}
+
 	if h.CoverageReader == nil {
 		writePNG(w, coverage.TransparentPNG())
 		return
@@ -139,7 +145,7 @@ func writePNG(w http.ResponseWriter, data []byte) {
 }
 
 func slippyTileBBox(z, x, y int) [4]float64 {
-	n := math.Pow(2, float64(z))
+	n := float64(uint64(1) << uint(z))
 	minLon := float64(x)/n*360 - 180
 	maxLon := float64(x+1)/n*360 - 180
 	maxLat := math.Atan(math.Sinh(math.Pi*(1-2*float64(y)/n))) * 180 / math.Pi

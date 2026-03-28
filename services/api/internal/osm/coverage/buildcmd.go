@@ -113,10 +113,6 @@ func RunBuildCoverage(ctx context.Context, pool *pgxpool.Pool, opts BuildCoverag
 // this queries all tables used by the coverage builder: forests, waters,
 // waterways, landuse, boundaries, pois, railways, and ways.
 func discoverCoverageTiles(ctx context.Context, pool *pgxpool.Pool, bboxClause string) ([]uint32, error) {
-	// tileID formula: (floor(lat)+90)*360 + (floor(lon)+180)
-	const tileExpr = `((floor(ST_Y(ST_PointOnSurface(geom)))::int + 90) * 360
-		+ (floor(ST_X(ST_PointOnSurface(geom)))::int + 180))::int`
-
 	type tableSpec struct {
 		table string
 		where string // extra WHERE conditions (appended with AND)
@@ -138,12 +134,22 @@ func discoverCoverageTiles(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 		if t.where != "" {
 			extra = " AND " + t.where
 		}
+		where := "WHERE geom IS NOT NULL" + extra + bboxClause
+		// Centroid — covers point/polygon features
 		unions = append(unions, fmt.Sprintf(
-			"SELECT DISTINCT %s AS tid FROM %s WHERE geom IS NOT NULL%s%s",
-			tileExpr, t.table, extra, bboxClause))
+			"SELECT DISTINCT %s AS tid FROM %s %s",
+			tileExprPoint("ST_PointOnSurface(geom)"), t.table, where))
+		// SW corner of bounding box — catches start of linear features
+		unions = append(unions, fmt.Sprintf(
+			"SELECT DISTINCT %s AS tid FROM %s %s",
+			tileExprPoint("ST_MakePoint(ST_XMin(geom), ST_YMin(geom))"), t.table, where))
+		// NE corner of bounding box — catches end of linear features
+		unions = append(unions, fmt.Sprintf(
+			"SELECT DISTINCT %s AS tid FROM %s %s",
+			tileExprPoint("ST_MakePoint(ST_XMax(geom), ST_YMax(geom))"), t.table, where))
 	}
 
-	q := "SELECT DISTINCT tid FROM (" + fmt.Sprintf("%s", joinSQL(unions)) + ") sub"
+	q := "SELECT DISTINCT tid FROM (" + joinSQL(unions) + ") sub"
 	rows, err := pool.Query(ctx, q)
 	if err != nil {
 		return nil, err
@@ -167,4 +173,11 @@ func joinSQL(parts []string) string {
 		result += " UNION ALL " + p
 	}
 	return result
+}
+
+// tileExprPoint builds the SQL expression that converts a point expression
+// into a 1°×1° tile ID using the formula (floor(lat)+90)*360 + (floor(lon)+180).
+func tileExprPoint(pointExpr string) string {
+	return fmt.Sprintf("((floor(ST_Y(%s))::int + 90) * 360 + (floor(ST_X(%s))::int + 180))::int",
+		pointExpr, pointExpr)
 }
