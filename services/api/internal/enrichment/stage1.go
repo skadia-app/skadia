@@ -471,14 +471,22 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 
 		// Surfaces enrichment — requires GPS track data.
-		if data.HasGPS {
-			surfEnabled := enrichSettings == nil || enrichSettings.EnableSurfaceDetection
-			var surfStream []EnrichmentStreamPoint
-			if !skipStreamEnrichment && graphReader != nil {
-				surfStream, _ = getEnrichmentStream(ctx, db, activityID)
+		// Skip for virtual/indoor activities and water sports — OSM road surface
+		// matching produces nonsensical results for these.
+		if data.HasGPS && !data.IsVirtual {
+			skipSurfaces := false
+			if def, ok := sport.GetSportDef(data.SportType); ok {
+				skipSurfaces = def.CategoryKey == "water"
 			}
-			if err := EnrichSurfaces(ctx, db, activityID, surfEnabled, graphReader, surfStream); err != nil {
-				slog.Warn("stage1: surfaces enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+			if !skipSurfaces {
+				surfEnabled := enrichSettings == nil || enrichSettings.EnableSurfaceDetection
+				var surfStream []EnrichmentStreamPoint
+				if !skipStreamEnrichment && graphReader != nil {
+					surfStream, _ = getEnrichmentStream(ctx, db, activityID)
+				}
+				if err := EnrichSurfaces(ctx, db, activityID, surfEnabled, graphReader, surfStream); err != nil {
+					slog.Warn("stage1: surfaces enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
+				}
 			}
 		}
 	}
