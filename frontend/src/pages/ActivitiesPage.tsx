@@ -11,7 +11,7 @@ import { apiDownload } from '@/api/client'
 import { apiFetch } from '@/lib/auth'
 import {
   formatDuration, formatDistance,
-  formatElevationGain, formatElevationLoss, showIndoorBadge,
+  formatElevationGain, formatElevationLoss, showIndoorBadge, triggerBlobDownload,
 } from '@/lib/utils'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { SportIcon } from '@/components/SportIcon'
@@ -100,14 +100,7 @@ function ExportSubMenu({ activityId, sportType, onClose }: { activityId: string;
   const handleExport = async (format: ExportFormat) => {
     try {
       const { blob, filename } = await apiDownload(`/activities/${activityId}/export?format=${format}`)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename || `activity.${format}`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      triggerBlobDownload(blob, filename || `activity.${format}`)
       onClose()
     } catch (error) {
       console.error('Export failed:', error)
