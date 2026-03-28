@@ -20,6 +20,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
+	"github.com/skadia-app/skadia/services/api/internal/importutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
@@ -642,44 +643,13 @@ func readStravaActivityFile(baseDir, relPath string) ([]byte, string, error) {
 	}
 
 	// Detect format
-	format := detectStravaFormat(raw, lower)
+	format := importutil.DetectFormat(raw, lower)
 	if format == "" {
 		return nil, "", fmt.Errorf("unknown format for %s", relPath)
 	}
 	return raw, format, nil
 }
 
-// detectStravaFormat detects file format from content and filename.
-func detectStravaFormat(data []byte, lowerName string) string {
-	// FIT: check binary header signature
-	if len(data) >= 14 {
-		headerSize := int(data[0])
-		if (headerSize == 12 || headerSize == 14) && headerSize <= len(data) {
-			sig := string(data[headerSize-4 : headerSize])
-			if sig == ".FIT" {
-				return "fit"
-			}
-		}
-	}
-	// XML-based
-	content := strings.ToLower(string(data[:min(len(data), 1024)]))
-	if strings.Contains(content, "<gpx") {
-		return "gpx"
-	}
-	if strings.Contains(content, "<trainingcenterdatabase") {
-		return "tcx"
-	}
-	// Extension fallback
-	switch {
-	case strings.HasSuffix(lowerName, ".fit"):
-		return "fit"
-	case strings.HasSuffix(lowerName, ".gpx"):
-		return "gpx"
-	case strings.HasSuffix(lowerName, ".tcx"):
-		return "tcx"
-	}
-	return ""
-}
 
 // mergeActivityData merges parsedData (GPS/stream data) into base (CSV metadata).
 // GPS and stream fields from parsed file take precedence; CSV metrics fill gaps.

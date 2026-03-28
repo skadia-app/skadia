@@ -16,6 +16,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
+	"github.com/skadia-app/skadia/services/api/internal/importutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
@@ -144,7 +145,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		garminActivityID := extractActivityID(ref.fileName)
 
 		// Detect format
-		format := detectActivityFormat(fileBytes, ref.fileName)
+		format := importutil.DetectFormat(fileBytes, ref.fileName)
 		if format == "" {
 			result.Skipped++
 			tracker.Skipped(ctx, "format_unsupported", nil)
@@ -411,30 +412,3 @@ func readFileFromZipCached(cache map[string]*zip.ReadCloser, zipPath, fileName s
 	return nil, fmt.Errorf("file %s not found in zip %s", fileName, zipPath)
 }
 
-// detectActivityFormat detects the file format from content + extension.
-func detectActivityFormat(data []byte, filename string) string {
-	// FIT: check header — ".FIT" signature is always at bytes 8–11,
-	// regardless of whether the header is 12 or 14 bytes.
-	if len(data) >= 12 && string(data[8:12]) == ".FIT" {
-		return "fit"
-	}
-	// XML-based
-	content := strings.ToLower(string(data[:min(len(data), 1024)]))
-	if strings.Contains(content, "<gpx") {
-		return "gpx"
-	}
-	if strings.Contains(content, "<trainingcenterdatabase") {
-		return "tcx"
-	}
-	// Fallback: extension
-	ext := strings.ToLower(filepath.Ext(filename))
-	switch ext {
-	case ".fit":
-		return "fit"
-	case ".gpx":
-		return "gpx"
-	case ".tcx":
-		return "tcx"
-	}
-	return ""
-}
