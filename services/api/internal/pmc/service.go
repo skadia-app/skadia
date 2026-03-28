@@ -35,8 +35,18 @@ func (s *Service) RecalculatePMC(ctx context.Context, userID string, activityDat
 		return err
 	}
 
+	// Get user profile for TSS estimation fallback values
+	ftpW := 200
+	maxHRBpm := 190
+	if profile, err := s.DB.GetUserProfile(ctx, userID); err == nil && profile != nil {
+		if profile.FtpW != nil && *profile.FtpW > 0 {
+			ftpW = *profile.FtpW
+		}
+		maxHRBpm = profile.EffectiveMaxHR()
+	}
+
 	// Get daily TSS from activities
-	dailyTSS, err := s.DB.GetDailyTSS(ctx, userID, from, to)
+	dailyTSS, err := s.DB.GetDailyTSS(ctx, userID, from, to, ftpW, maxHRBpm)
 	if err != nil {
 		return err
 	}
