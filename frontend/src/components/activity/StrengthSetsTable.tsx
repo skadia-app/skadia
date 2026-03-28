@@ -3,9 +3,9 @@ import { fmtDuration } from '@/lib/format'
 
 const EXERCISE_LABELS: Record<number, string> = {
   0: 'Bankdrücken', 1: 'Wadenheben', 2: 'Cardio', 3: 'Tragen',
-  4: 'Bauchmuskel-Crunch',
+  4: 'Holzhacker',
   5: 'Core / Rumpf', 6: 'Crunches', 7: 'Curls', 8: 'Kreuzheben',
-  9: 'Fliegende', 10: 'Hüftheben', 11: 'Fliegende (Maschine)', 12: 'Hüftheben',
+  9: 'Fliegende', 10: 'Hüftheben', 11: 'Hüftstabilität', 12: 'Hüftschwung',
   13: 'Rückenstrecker', 14: 'Seitheben',
   15: 'Beinbeuger', 16: 'Beinheben', 17: 'Ausfallschritt',
   18: 'Olympisches Heben', 19: 'Plank', 20: 'Plyometrie',
