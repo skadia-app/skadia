@@ -669,6 +669,8 @@ async def start_consumers(nc: nats.NATS) -> list[asyncio.Task]:
         ("skadia.stage2.normal", "ml-stage2-normal", NORMAL_PRIORITY_STEPS, "stage2-normal"),
         ("skadia.stage2.low", "ml-stage2-low", LOW_PRIORITY_STEPS, "stage2-low"),
     ]:
+        if not steps:
+            continue
         sub = await js.pull_subscribe(
             subject,
             durable=durable,
