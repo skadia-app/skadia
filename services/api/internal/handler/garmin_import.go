@@ -234,7 +234,7 @@ func (h *Handler) ScanGarminExport(w http.ResponseWriter, r *http.Request) {
 	registry := h.buildGarminRegistry()
 	modules := registry.Detect(src)
 
-	result := buildScanResult(r.Context(), modules, func(ctx context.Context, name string) (int, error) {
+	result := buildScanResult(r.Context(), "garmin scan", modules, func(ctx context.Context, name string) (int, error) {
 		if name == "activities" {
 			return scanExistingGarminActivities(ctx, h, userID, src)
 		}
@@ -315,7 +315,7 @@ func (h *Handler) UploadGarminZIPScan(w http.ResponseWriter, r *http.Request) {
 	registry := h.buildGarminRegistry()
 	modules := registry.Detect(src)
 
-	scanResult := buildScanResult(r.Context(), modules, func(ctx context.Context, name string) (int, error) {
+	scanResult := buildScanResult(r.Context(), "garmin zip scan", modules, func(ctx context.Context, name string) (int, error) {
 		if name == "activities" {
 			return scanExistingGarminActivities(ctx, h, userID, src)
 		}

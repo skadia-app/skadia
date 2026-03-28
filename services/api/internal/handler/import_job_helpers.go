@@ -95,6 +95,7 @@ func makeProgressCallbacks(cb importJobCallbacks, logTag, jobID string) (
 // modules that don't need an existence check.
 func buildScanResult(
 	ctx context.Context,
+	logPrefix string,
 	modules []importutil.DetectedModule,
 	existingFn func(ctx context.Context, moduleName string) (int, error),
 ) map[string]categoryStats {
@@ -106,7 +107,7 @@ func buildScanResult(
 		stats := categoryStats{Found: m.ItemCount}
 		existing, err := existingFn(ctx, m.Name)
 		if err != nil {
-			slog.Warn("import scan: existence check failed", "module", m.Name, "error", err)
+			slog.Warn(logPrefix+": existence check failed", "module", m.Name, "error", err)
 		} else {
 			stats.Existing = existing
 		}

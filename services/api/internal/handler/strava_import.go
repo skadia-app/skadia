@@ -235,7 +235,7 @@ func (h *Handler) ScanStravaExport(w http.ResponseWriter, r *http.Request) {
 	registry := h.buildStravaRegistry()
 	modules := registry.Detect(src)
 
-	result := buildScanResult(r.Context(), modules, func(ctx context.Context, name string) (int, error) {
+	result := buildScanResult(r.Context(), "strava scan", modules, func(ctx context.Context, name string) (int, error) {
 		switch name {
 		case "activities":
 			return scanExistingStravaActivities(ctx, h, userID, src)
@@ -373,7 +373,7 @@ func (h *Handler) UploadStravaZIPScan(w http.ResponseWriter, r *http.Request) {
 	registry := h.buildStravaRegistry()
 	modules := registry.Detect(src)
 
-	scanResult := buildScanResult(r.Context(), modules, func(ctx context.Context, name string) (int, error) {
+	scanResult := buildScanResult(r.Context(), "strava zip scan", modules, func(ctx context.Context, name string) (int, error) {
 		switch name {
 		case "activities":
 			return scanExistingStravaActivities(ctx, h, userID, src)
