@@ -1385,10 +1385,39 @@ func (db *DB) GetStreams(ctx context.Context, activityID string) ([]model.Stream
 
 // GetStreamPoints loads stream data for an activity as StreamPoint slices,
 // which is the type required by activityutil.CalcMovingTime.
+// All stored stream fields are returned (80+ columns).
 func (db *DB) GetStreamPoints(ctx context.Context, activityID string) ([]model.StreamPoint, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT time, lat, lng, altitude_m, speed_ms, distance_m,
-			heart_rate, power_w, cadence, temperature_c
+		SELECT
+			time, lat, lng, altitude_m, speed_ms, distance_m,
+			heart_rate, power_w, cadence, temperature_c,
+			ground_contact_time_ms, vertical_oscillation_mm, stance_time_percent, left_right_balance,
+			respiration_rate, stress_level,
+			grade_pct, vertical_speed_ms, gps_accuracy_m,
+			calories, resistance, total_cycles, accumulated_power_w,
+			absolute_pressure_pa, ascent_rate_ms, time_from_course_s,
+			activity_type, device_index,
+			step_length_mm, vertical_ratio_pct, stance_time_balance_pct,
+			cycle_length_m, fractional_cadence,
+			left_torque_effectiveness_pct, right_torque_effectiveness_pct,
+			left_pedal_smoothness_pct, right_pedal_smoothness_pct,
+			combined_pedal_smoothness_pct,
+			left_pco_mm, right_pco_mm,
+			left_power_phase_start_deg, left_power_phase_end_deg,
+			left_power_phase_peak_start_deg, left_power_phase_peak_end_deg,
+			right_power_phase_start_deg, right_power_phase_end_deg,
+			right_power_phase_peak_start_deg, right_power_phase_peak_end_deg,
+			total_hemoglobin_conc, total_hemoglobin_conc_min, total_hemoglobin_conc_max,
+			saturated_hemoglobin_pct, saturated_hemoglobin_pct_min, saturated_hemoglobin_pct_max,
+			motor_power_w, ebike_travel_range_km, ebike_battery_level_pct,
+			ebike_assist_mode, ebike_assist_level_pct,
+			core_temperature_c, enhanced_respiration_rate, current_stress, battery_soc_pct,
+			grit, flow,
+			stroke_type, zone, ball_speed_ms,
+			depth_m, next_stop_depth_m, next_stop_time_s, time_to_surface_s,
+			ndl_time_s, cns_load_pct, n2_load_pct, air_time_remaining_s,
+			pressure_sac, volume_sac, rmv, po2,
+			developer_fields
 		FROM activity_streams
 		WHERE activity_id = $1
 		ORDER BY time ASC`,
@@ -1403,8 +1432,48 @@ func (db *DB) GetStreamPoints(ctx context.Context, activityID string) ([]model.S
 	for rows.Next() {
 		var s model.StreamPoint
 		if err := rows.Scan(
+			// Core (10)
 			&s.Time, &s.Lat, &s.Lng, &s.AltitudeM, &s.SpeedMS, &s.DistanceM,
 			&s.HeartRate, &s.PowerW, &s.Cadence, &s.TemperatureC,
+			// Running dynamics original (4)
+			&s.GroundContactTimeMs, &s.VerticalOscillationMm, &s.StanceTimePercent, &s.LeftRightBalance,
+			// Terrain & Movement (14)
+			&s.RespirationRate, &s.StressLevel,
+			&s.GradePct, &s.VerticalSpeedMs, &s.GpsAccuracyM,
+			&s.Calories, &s.Resistance, &s.TotalCycles, &s.AccumulatedPowerW,
+			&s.AbsolutePressurePa, &s.AscentRateMs, &s.TimeFromCourseS,
+			&s.ActivityType, &s.DeviceIndex,
+			// Running Dynamics extended (5)
+			&s.StepLengthMm, &s.VerticalRatioPct, &s.StanceTimeBalancePct,
+			&s.CycleLengthM, &s.FractionalCadence,
+			// Pedal Analytics (7)
+			&s.LeftTorqueEffectivenessPct, &s.RightTorqueEffectivenessPct,
+			&s.LeftPedalSmoothnessPct, &s.RightPedalSmoothnessPct,
+			&s.CombinedPedalSmoothnessPct,
+			&s.LeftPcoMm, &s.RightPcoMm,
+			// Power Phase (8)
+			&s.LeftPowerPhaseStartDeg, &s.LeftPowerPhaseEndDeg,
+			&s.LeftPowerPhasePeakStartDeg, &s.LeftPowerPhasePeakEndDeg,
+			&s.RightPowerPhaseStartDeg, &s.RightPowerPhaseEndDeg,
+			&s.RightPowerPhasePeakStartDeg, &s.RightPowerPhasePeakEndDeg,
+			// Hemoglobin / Muscle Oxygen (6)
+			&s.TotalHemoglobinConc, &s.TotalHemoglobinConcMin, &s.TotalHemoglobinConcMax,
+			&s.SaturatedHemoglobinPct, &s.SaturatedHemoglobinPctMin, &s.SaturatedHemoglobinPctMax,
+			// E-Bike (5)
+			&s.MotorPowerW, &s.EbikeTravelRangeKm, &s.EbikeBatteryLevelPct,
+			&s.EbikeAssistMode, &s.EbikeAssistLevelPct,
+			// Health / Stress (4)
+			&s.CoreTemperatureC, &s.EnhancedRespirationRate, &s.CurrentStress, &s.BatterySocPct,
+			// MTB Metrics (2)
+			&s.Grit, &s.Flow,
+			// Racket / Ball Sports (3)
+			&s.StrokeType, &s.Zone, &s.BallSpeedMs,
+			// Diving (12)
+			&s.DepthM, &s.NextStopDepthM, &s.NextStopTimeS, &s.TimeToSurfaceS,
+			&s.NdlTimeS, &s.CnsLoadPct, &s.N2LoadPct, &s.AirTimeRemainingS,
+			&s.PressureSac, &s.VolumeSac, &s.Rmv, &s.Po2,
+			// Developer Fields (1)
+			&s.DeveloperFields,
 		); err != nil {
 			return nil, fmt.Errorf("scan stream point: %w", err)
 		}

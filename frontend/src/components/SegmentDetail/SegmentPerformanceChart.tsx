@@ -1,8 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import * as echarts from 'echarts'
+import * as echarts from 'echarts/core'
+import type { EChartsCoreOption } from 'echarts/core'
+import { ScatterChart, LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import { apiClient } from '@/api/client'
+
+echarts.use([ScatterChart, LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 import { fmtDuration } from '@/lib/format'
 import { useECharts } from '@/hooks/useECharts'
 
@@ -125,7 +131,7 @@ export function SegmentPerformanceChart({ segmentId, dateFrom, dateTo }: Segment
             tooltip: { show: false },
           },
         ],
-      } as echarts.EChartsOption
+      } as EChartsCoreOption
     },
     [sorted, bestTime, avgTime],
     (chart) => {
