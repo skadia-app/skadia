@@ -18,6 +18,7 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { StreamPoint } from '@/api/types'
+import { CHART_TAB } from '@/components/activity/ChartTabs'
 
 echarts.use([
   LineChart,
@@ -49,21 +50,21 @@ type XMode = 'distance' | 'time'
 type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'coreTemperature' | 'runningDynamics' | 'stepLength' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength'
 
 function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
-  if (tab === 'alles') return null // show all
+  if (tab === CHART_TAB.alles) return null // show all
   const isSwim = getSegmentGroup(sportType) === 'swim'
   switch (tab) {
-    case 'uebersicht': return isSwim ? ['heartRate', 'cycleLength'] : ['altitude', 'heartRate', 'speed']
-    case 'leistung': {
+    case CHART_TAB.uebersicht: return isSwim ? ['heartRate', 'cycleLength'] : ['altitude', 'heartRate', 'speed']
+    case CHART_TAB.leistung: {
       const sg = getSegmentGroup(sportType)
       const charts: ChartKey[] = ['power', 'cadence']
       if (sg === 'swim' || sg === 'paddle') charts.push('cycleLength')
       return charts
     }
-    case 'dynamik': return ['runningDynamics', 'stepLength']
-    case 'pedal': return ['torqueEff', 'pedalSm']
-    case 'ebike': return ['motorPower', 'batteryLevel', 'travelRange']
-    case 'tauchgang': return ['depth']
-    case 'sensoren': return ['temperature', 'coreTemperature']
+    case CHART_TAB.dynamik: return ['runningDynamics', 'stepLength']
+    case CHART_TAB.pedal: return ['torqueEff', 'pedalSm']
+    case CHART_TAB.ebike: return ['motorPower', 'batteryLevel', 'travelRange']
+    case CHART_TAB.tauchgang: return ['depth']
+    case CHART_TAB.sensoren: return ['temperature', 'coreTemperature']
     default: return null
   }
 }
