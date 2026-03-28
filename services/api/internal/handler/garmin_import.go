@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -28,6 +27,26 @@ func (h *Handler) buildGarminRegistry() *garmin.ImportRegistry {
 	r.Register(&garmin.MonitoringFITImporter{})
 	r.Register(&garmin.CoursesImporter{})
 	return r
+}
+
+// garminJobCallbacks returns the importJobCallbacks wired to the Garmin DB methods.
+func (h *Handler) garminJobCallbacks() importJobCallbacks {
+	return importJobCallbacks{
+		label:     "garmin",
+		createJob: h.DB.CreateGarminImportJob,
+		failJob: func(ctx context.Context, jobID, errMsg string) error {
+			return h.DB.FailGarminImportJob(ctx, jobID, errMsg)
+		},
+		completeJob: func(ctx context.Context, jobID string, errs []string) error {
+			return h.DB.CompleteGarminImportJob(ctx, jobID, errs)
+		},
+		updateCurrentModule: func(ctx context.Context, jobID, module string) error {
+			return h.DB.UpdateGarminImportCurrentModule(ctx, jobID, module)
+		},
+		updateModuleProgress: func(ctx context.Context, jobID string, completed, total int) error {
+			return h.DB.UpdateGarminImportModuleProgress(ctx, jobID, completed, total)
+		},
+	}
 }
 
 // DetectGarminModules probes a Garmin export directory and returns available import modules.
@@ -78,60 +97,39 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create job record in DB
-	jobID, err := h.DB.CreateGarminImportJob(r.Context(), userID, req.SourcePath)
-	if err != nil {
-		slog.Error("create garmin import job failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create import job", r.URL.Path)
-		return
-	}
+	cb := h.garminJobCallbacks()
+	h.startImportAsync(w, r, userID, req.SourcePath, isTempSourcePath(req.SourcePath), cb,
+		func(ctx context.Context, jobID string) {
+			src := garmin.NewDirSource(req.SourcePath)
+			registry := h.buildGarminRegistry()
+			onProgress, onModuleComplete := makeProgressCallbacks(cb, "garmin import", jobID)
 
-	// Run import asynchronously; clean up temp dir afterwards if ZIP was uploaded
-	isTempPath := strings.HasPrefix(req.SourcePath, os.TempDir())
-	go func() {
-		if isTempPath {
-			defer os.RemoveAll(req.SourcePath)
-		}
-		bgCtx := context.Background()
-		src := garmin.NewDirSource(req.SourcePath)
-		registry := h.buildGarminRegistry()
+			params := garmin.ImportParams{
+				Source:           src,
+				UserID:           userID,
+				DB:               h.DB,
+				ShadowFS:         h.ShadowFS,
+				ImportService:    h.ImportService,
+				JobID:            jobID,
+				OnProgress:       onProgress,
+				OnModuleComplete: onModuleComplete,
+			}
+			if req.Options != nil {
+				params.Options = *req.Options
+			}
 
-		params := garmin.ImportParams{
-			Source:        src,
-			UserID:        userID,
-			DB:            h.DB,
-			ShadowFS:      h.ShadowFS,
-			ImportService: h.ImportService,
-			JobID:         jobID,
-			OnProgress: func(current, total int, msg string) {
-				if err := h.DB.UpdateGarminImportCurrentModule(bgCtx, jobID, msg); err != nil {
-					slog.Warn("garmin import: update current module failed", "error", err)
-				}
-			},
-			OnModuleComplete: func(completed, total int, name string) {
-				if err := h.DB.UpdateGarminImportModuleProgress(bgCtx, jobID, completed, total); err != nil {
-					slog.Warn("garmin import: update module progress failed", "error", err)
-				}
-			},
-		}
-		if req.Options != nil {
-			params.Options = *req.Options
-		}
-
-		allErrors, err := registry.RunModules(bgCtx, req.Modules, params)
-		if err != nil {
-			slog.Error("garmin import failed", "job_id", jobID, "error", err)
-			_ = h.DB.FailGarminImportJob(bgCtx, jobID, err.Error())
-			return
-		}
-
-		if err := h.DB.CompleteGarminImportJob(bgCtx, jobID, allErrors); err != nil {
-			slog.Warn("garmin import: complete job failed", "job_id", jobID, "error", err)
-		}
-		slog.Info("garmin import completed", "job_id", jobID, "errors", len(allErrors))
-	}()
-
-	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+			allErrors, err := registry.RunModules(ctx, req.Modules, params)
+			if err != nil {
+				slog.Error("garmin import failed", "job_id", jobID, "error", err)
+				_ = cb.failJob(ctx, jobID, err.Error())
+				return
+			}
+			if err := cb.completeJob(ctx, jobID, allErrors); err != nil {
+				slog.Warn("garmin import: complete job failed", "job_id", jobID, "error", err)
+			}
+			slog.Info("garmin import completed", "job_id", jobID, "errors", len(allErrors))
+		},
+	)
 }
 
 // UploadGarminZIP accepts a multipart ZIP upload of a Garmin GDPR export, extracts it to
@@ -150,60 +148,43 @@ func (h *Handler) UploadGarminZIP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobID, err := h.DB.CreateGarminImportJob(r.Context(), userID, tmpDir)
-	if err != nil {
-		slog.Error("create garmin import job (zip) failed", "error", err)
-		os.RemoveAll(tmpDir)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create import job", r.URL.Path)
-		return
-	}
-
-	go func() {
-		defer os.RemoveAll(tmpDir)
-
-		bgCtx := context.Background()
-		src := garmin.NewDirSource(tmpDir)
-		registry := h.buildGarminRegistry()
-		allModules := registry.Detect(src)
-		moduleNames := make([]string, 0, len(allModules))
-		for _, m := range allModules {
-			if m.Available {
-				moduleNames = append(moduleNames, m.Name)
+	cb := h.garminJobCallbacks()
+	h.startImportAsync(w, r, userID, tmpDir, true, cb,
+		func(ctx context.Context, jobID string) {
+			src := garmin.NewDirSource(tmpDir)
+			registry := h.buildGarminRegistry()
+			allModules := registry.Detect(src)
+			moduleNames := make([]string, 0, len(allModules))
+			for _, m := range allModules {
+				if m.Available {
+					moduleNames = append(moduleNames, m.Name)
+				}
 			}
-		}
 
-		params := garmin.ImportParams{
-			Source:        src,
-			UserID:        userID,
-			DB:            h.DB,
-			ShadowFS:      h.ShadowFS,
-			ImportService: h.ImportService,
-			JobID:         jobID,
-			OnProgress: func(current, total int, msg string) {
-				if err := h.DB.UpdateGarminImportCurrentModule(bgCtx, jobID, msg); err != nil {
-					slog.Warn("garmin import (zip): update current module failed", "error", err)
-				}
-			},
-			OnModuleComplete: func(completed, total int, name string) {
-				if err := h.DB.UpdateGarminImportModuleProgress(bgCtx, jobID, completed, total); err != nil {
-					slog.Warn("garmin import (zip): update module progress failed", "error", err)
-				}
-			},
-		}
+			onProgress, onModuleComplete := makeProgressCallbacks(cb, "garmin import (zip)", jobID)
+			params := garmin.ImportParams{
+				Source:           src,
+				UserID:           userID,
+				DB:               h.DB,
+				ShadowFS:         h.ShadowFS,
+				ImportService:    h.ImportService,
+				JobID:            jobID,
+				OnProgress:       onProgress,
+				OnModuleComplete: onModuleComplete,
+			}
 
-		allErrors, err := registry.RunModules(bgCtx, moduleNames, params)
-		if err != nil {
-			slog.Error("garmin import (zip) failed", "job_id", jobID, "error", err)
-			_ = h.DB.FailGarminImportJob(bgCtx, jobID, err.Error())
-			return
-		}
-		if err := h.DB.CompleteGarminImportJob(bgCtx, jobID, allErrors); err != nil {
-			slog.Warn("garmin import (zip): complete job failed", "job_id", jobID, "error", err)
-		}
-		slog.Info("garmin import (zip) completed", "job_id", jobID, "errors", len(allErrors))
-	}()
-
-	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+			allErrors, err := registry.RunModules(ctx, moduleNames, params)
+			if err != nil {
+				slog.Error("garmin import (zip) failed", "job_id", jobID, "error", err)
+				_ = cb.failJob(ctx, jobID, err.Error())
+				return
+			}
+			if err := cb.completeJob(ctx, jobID, allErrors); err != nil {
+				slog.Warn("garmin import (zip): complete job failed", "job_id", jobID, "error", err)
+			}
+			slog.Info("garmin import (zip) completed", "job_id", jobID, "errors", len(allErrors))
+		},
+	)
 }
 
 // GetGarminImportJob returns the current status of an import job.
@@ -251,33 +232,14 @@ func (h *Handler) ScanGarminExport(w http.ResponseWriter, r *http.Request) {
 
 	src := garmin.NewDirSource(req.SourcePath)
 	registry := h.buildGarminRegistry()
-
-	type categoryStats struct {
-		Found    int `json:"found"`
-		Existing int `json:"existing"`
-		New      int `json:"new"`
-	}
-	result := map[string]categoryStats{}
-
-	// Detect all modules to get item counts
 	modules := registry.Detect(src)
-	for _, m := range modules {
-		if !m.Available {
-			continue
+
+	result := buildScanResult(r.Context(), modules, func(ctx context.Context, name string) (int, error) {
+		if name == "activities" {
+			return scanExistingGarminActivities(ctx, h, userID, src)
 		}
-		stats := categoryStats{Found: m.ItemCount}
-		// For activities: check how many Garmin activity IDs already exist in the DB.
-		if m.Name == "activities" {
-			existing, err := scanExistingGarminActivities(r.Context(), h, userID, src)
-			if err != nil {
-				slog.Warn("garmin scan: activity existence check failed", "error", err)
-			} else {
-				stats.Existing = existing
-			}
-		}
-		stats.New = max(stats.Found-stats.Existing, 0)
-		result[m.Name] = stats
-	}
+		return 0, nil
+	})
 
 	httputil.WriteJSON(w, http.StatusOK, result)
 }
@@ -349,32 +311,16 @@ func (h *Handler) UploadGarminZIPScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type categoryStats struct {
-		Found    int `json:"found"`
-		Existing int `json:"existing"`
-		New      int `json:"new"`
-	}
-	scanResult := map[string]categoryStats{}
-
 	src := garmin.NewDirSource(tmpDir)
 	registry := h.buildGarminRegistry()
 	modules := registry.Detect(src)
-	for _, m := range modules {
-		if !m.Available {
-			continue
+
+	scanResult := buildScanResult(r.Context(), modules, func(ctx context.Context, name string) (int, error) {
+		if name == "activities" {
+			return scanExistingGarminActivities(ctx, h, userID, src)
 		}
-		stats := categoryStats{Found: m.ItemCount}
-		if m.Name == "activities" {
-			existing, err := scanExistingGarminActivities(r.Context(), h, userID, src)
-			if err != nil {
-				slog.Warn("garmin zip scan: activity existence check failed", "error", err)
-			} else {
-				stats.Existing = existing
-			}
-		}
-		stats.New = max(stats.Found-stats.Existing, 0)
-		scanResult[m.Name] = stats
-	}
+		return 0, nil
+	})
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"source_path": tmpDir,
