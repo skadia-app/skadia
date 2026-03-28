@@ -11,10 +11,9 @@ import {
   type ChatMessage,
 } from '@/api/chat'
 import { getToken, refreshToken, clearToken } from '@/lib/auth'
+import { API_BASE } from '@/api/client'
 import ChatMessageList, { type StreamMessage } from '@/components/chat/ChatMessageList'
 import ChatInput from '@/components/chat/ChatInput'
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
 function generateId(): string {
   return crypto.randomUUID()
