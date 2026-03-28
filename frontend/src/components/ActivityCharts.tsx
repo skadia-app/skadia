@@ -53,7 +53,12 @@ function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
   const isSwim = getSegmentGroup(sportType) === 'swim'
   switch (tab) {
     case 'uebersicht': return isSwim ? ['heartRate', 'cycleLength'] : ['altitude', 'heartRate', 'speed']
-    case 'leistung': return ['power', 'cadence', 'cycleLength']
+    case 'leistung': {
+      const sg = getSegmentGroup(sportType)
+      const charts: ChartKey[] = ['power', 'cadence']
+      if (sg === 'swim' || sg === 'paddle') charts.push('cycleLength')
+      return charts
+    }
     case 'dynamik': return ['runningDynamics', 'stepLength']
     case 'pedal': return ['torqueEff', 'pedalSm']
     case 'ebike': return ['motorPower', 'batteryLevel', 'travelRange']
@@ -534,8 +539,9 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       })
       const paceFmt = (minPer: number): string => {
         if (isNaN(minPer) || !isFinite(minPer)) return '—'
-        const min = Math.floor(minPer)
-        const sec = Math.round((minPer - min) * 60)
+        let min = Math.floor(minPer)
+        let sec = Math.round((minPer - min) * 60)
+        if (sec >= 60) { min += 1; sec = 0 }
         return `${min}:${sec.toString().padStart(2, '0')}\u202f${paceUnit}`
       }
       panels.push(
