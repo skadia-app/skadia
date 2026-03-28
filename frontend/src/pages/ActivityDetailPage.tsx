@@ -54,6 +54,7 @@ import { PiPMap } from '@/components/activity/PiPMap'
 import { ChartTabs } from '@/components/activity/ChartTabs'
 import { StatsGrid } from '@/components/activity/StatsGrid'
 import { RunningDynamicsStats } from '@/components/activity/RunningDynamicsStats'
+import { DiveStats } from '@/components/activity/DiveStats'
 import { DataCorrectionsSection } from '@/components/activity/DataCorrections'
 import { VisibilitySettings } from '@/components/activity/VisibilitySettings'
 import { SunInfo } from '@/components/activity/SunInfo'
@@ -409,6 +410,9 @@ export default function ActivityDetailPage() {
           <StatsGrid activity={activity} speedMode={speedMode} />
           {getSegmentGroup(activity.sport_type) === 'foot' && activity.avg_vertical_oscillation_mm != null && (
             <RunningDynamicsStats activity={activity} />
+          )}
+          {activity.sport_type === 'diving' && (
+            <DiveStats activity={activity} />
           )}
         </div>
       )}
