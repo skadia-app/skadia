@@ -45,14 +45,14 @@ const SUNSET_SVG = "image://data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2
 // FieldKey imported from sportFieldLabels.ts
 type XMode = 'distance' | 'time'
 
-type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'runningDynamics' | 'stepLength' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth'
+type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'runningDynamics' | 'stepLength' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength'
 
 function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
   if (tab === 'alles') return null // show all
   const isSwim = getSegmentGroup(sportType) === 'swim'
   switch (tab) {
-    case 'uebersicht': return isSwim ? ['heartRate'] : ['altitude', 'heartRate', 'speed']
-    case 'leistung': return ['power', 'cadence']
+    case 'uebersicht': return isSwim ? ['heartRate', 'cycleLength'] : ['altitude', 'heartRate', 'speed']
+    case 'leistung': return ['power', 'cadence', 'cycleLength']
     case 'dynamik': return ['runningDynamics', 'stepLength']
     case 'pedal': return ['torqueEff', 'pedalSm']
     case 'ebike': return ['motorPower', 'batteryLevel', 'travelRange']
@@ -84,6 +84,7 @@ interface ChartData {
   batteryLevel: number[]
   travelRange: number[]
   depth: number[]
+  cycleLength: number[]
   maxDist: number
   maxElapsed: number
 }
@@ -112,6 +113,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const batteryLevel: number[] = []
   const travelRange: number[] = []
   const depth: number[] = []
+  const cycleLength: number[] = []
 
   const t0 = streams.length > 0 ? new Date(streams[0].time).getTime() : 0
 
@@ -141,6 +143,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     batteryLevel.push(s.ebike_battery_level_pct ?? NaN)
     travelRange.push(s.ebike_travel_range_km ?? NaN)
     depth.push(s.depth_m ?? NaN)
+    cycleLength.push(s.cycle_length_m ?? NaN)
   }
 
   const validDist = distanceKm.filter(v => !isNaN(v) && isFinite(v))
@@ -148,7 +151,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -624,6 +627,18 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         overrideValues={data.depth} invertY />
     </div>,
   )
+  // Cycle Length (stroke distance): swim = Distanz/Zug, paddle = Distanz/Schlag, else Zykluslänge
+  if (hasValidData(data.cycleLength)) {
+    const sg = sportType ? getSegmentGroup(sportType) : 'generic'
+    const cycleLengthLabel = sg === 'swim' ? 'Distanz/Zug' : sg === 'paddle' ? 'Distanz/Schlag' : 'Zykluslänge'
+    panels.push(
+      <div key={k('cycle-length')} style={{ display: show('cycleLength') ? undefined : 'none' }}>
+        <ChartPanel chartId="cycle-length" {...common}
+          field="stepLength" label={cycleLengthLabel} unit="m" color="#0EA5E9"
+          overrideValues={data.cycleLength} />
+      </div>,
+    )
+  }
 
   if (panels.length === 0) return null
 
