@@ -1,4 +1,5 @@
 import type { WeatherReading } from '@/api/types'
+import { fmtTime } from '@/lib/format'
 
 function getConditionIcon(condition: string | null | undefined): string {
   if (!condition) return '🌡️'
@@ -36,7 +37,7 @@ function WeatherBadgeCard({ reading, displayFields }: WeatherBadgeCardProps) {
           {reading.label && <span>{reading.label}</span>}
           {reading.recorded_at && (
             <span className="font-normal tabular-nums">
-              {new Date(reading.recorded_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+              {fmtTime(reading.recorded_at)}
             </span>
           )}
         </div>
