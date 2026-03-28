@@ -40,7 +40,7 @@ const SUNSET_SVG = "image://data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type FieldKey = 'altitude' | 'heartRate' | 'power' | 'cadence' | 'speed' | 'temperature'
+type FieldKey = 'altitude' | 'heartRate' | 'power' | 'cadence' | 'speed' | 'temperature' | 'groundContactTime' | 'verticalOscillation' | 'stepLength'
 type XMode = 'distance' | 'time'
 
 interface ChartData {
@@ -54,6 +54,9 @@ interface ChartData {
   speed: number[]
   speedMs: number[]
   temperature: number[]
+  groundContactTime: number[]
+  verticalOscillation: number[]
+  stepLength: number[]
   maxDist: number
   maxElapsed: number
 }
@@ -71,6 +74,9 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const speed: number[] = []
   const speedMs: number[] = []
   const temperature: number[] = []
+  const groundContactTime: number[] = []
+  const verticalOscillation: number[] = []
+  const stepLength: number[] = []
 
   const t0 = streams.length > 0 ? new Date(streams[0].time).getTime() : 0
 
@@ -89,6 +95,9 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     speed.push(s.speed_ms != null ? s.speed_ms * 3.6 : NaN)
     speedMs.push(s.speed_ms ?? NaN)
     temperature.push(s.temperature_c ?? NaN)
+    groundContactTime.push(s.ground_contact_time_ms ?? NaN)
+    verticalOscillation.push(s.vertical_oscillation_mm != null ? s.vertical_oscillation_mm / 10 : NaN)
+    stepLength.push(s.step_length_mm != null ? s.step_length_mm / 1000 : NaN)
   }
 
   const validDist = distanceKm.filter(v => !isNaN(v) && isFinite(v))
@@ -96,7 +105,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, groundContactTime, verticalOscillation, stepLength, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -470,6 +479,16 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       field="temperature" label="Temperatur" unit="°C" color="#06b6d4"
       markLines="minmax" />,
   )
+  // Running Dynamics: dual-axis GCT + VO chart
+  if (hasValidData(data.groundContactTime) || hasValidData(data.verticalOscillation)) panels.push(
+    <RunningDynamicsChartPanel key={k('running-dynamics')} chartId="running-dynamics" {...common} />,
+  )
+  // Step Length: single series
+  if (hasValidData(data.stepLength)) panels.push(
+    <ChartPanel key={k('step-length')} chartId="step-length" {...common}
+      field="stepLength" label="Schrittlänge" unit="m" color="#0891b2"
+      overrideValues={data.stepLength} />,
+  )
 
   if (panels.length === 0) return null
 
@@ -505,6 +524,268 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       <p className="text-xs text-neutral-400 dark:text-neutral-600">
         Ziehen zum Auswählen · Mausrad zum Zoomen · Nach Auswahl: Ziehen zum Verschieben
       </p>
+    </div>
+  )
+}
+
+// ── Running Dynamics Dual-Axis Chart Panel ─────────────────────────────────────
+
+interface RunningDynamicsChartPanelProps {
+  chartId: string
+  data: ChartData
+  onHover: (index: number | null) => void
+  onBrushZoom: (startValue: number, endValue: number) => void
+  onSyncZoom: (start: number, end: number, sourceId: string) => void
+  onRegister: (id: string, chart: echarts.ECharts) => void
+  onUnregister: (id: string) => void
+  brushZoomLockRef: React.MutableRefObject<boolean>
+  xMode: XMode
+  splitMarkers?: SplitMarker[]
+}
+
+function RunningDynamicsChartPanel({
+  chartId, data, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
+  brushZoomLockRef, xMode, splitMarkers,
+}: RunningDynamicsChartPanelProps) {
+  const containerRef = useECharts(
+    () => {
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+      const gctValues = data.groundContactTime
+      const voValues = data.verticalOscillation
+
+      const gridTop = (splitMarkers && splitMarkers.length > 0) ? 34 : 8
+      const xFormatter = xMode === 'distance'
+        ? (v: number) => v.toFixed(1)
+        : (v: number) => formatElapsed(v, data.maxElapsed)
+
+      const mlData: Record<string, unknown>[] = []
+      if (splitMarkers && splitMarkers.length > 0) {
+        for (const marker of splitMarkers) {
+          mlData.push({
+            xAxis: xMode === 'distance' ? marker.distanceKm : marker.elapsedMin,
+            lineStyle: { color: '#94a3b8', type: 'dashed', width: 1, opacity: 0.8 },
+            label: {
+              show: true,
+              position: 'insideStartTop',
+              formatter: marker.label,
+              fontSize: 10,
+              color: '#94a3b8',
+            },
+          })
+        }
+      }
+
+      return {
+        animation: false,
+        grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
+
+        brush: {
+          toolbox: [],
+          brushType: 'lineX',
+          brushStyle: {
+            borderWidth: 1,
+            color: 'rgba(249,115,22,0.12)',
+            borderColor: '#f97316',
+          },
+          throttleType: 'debounce',
+          throttleDelay: 100,
+        },
+
+        tooltip: {
+          trigger: 'axis',
+          transitionDuration: 0,
+          confine: true,
+          backgroundColor: 'rgba(255,255,255,0.96)',
+          borderColor: '#e5e5e5',
+          borderWidth: 1,
+          padding: [8, 10],
+          textStyle: { fontSize: 12, color: '#333' },
+          axisPointer: {
+            type: 'line',
+            lineStyle: { color: '#f97316', width: 1, type: 'dashed' },
+            animation: false,
+          },
+          formatter: (params: unknown) => {
+            const arr = Array.isArray(params) ? params : [params]
+            const p = arr[0] as { dataIndex?: number }
+            if (p?.dataIndex == null) return ''
+            const idx = p.dataIndex
+            const kmStr = (data.distanceKm[idx] ?? 0).toFixed(1)
+            const elapsed = data.elapsedMin[idx] ?? 0
+            const timeStr = formatElapsed(elapsed, data.maxElapsed)
+            const posLine = xMode === 'distance'
+              ? `${kmStr}\u202fkm`
+              : `${timeStr}\u2009·\u2009${kmStr}\u202fkm`
+            let html = `<div style="line-height:1.75;min-width:150px">`
+            html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
+            const gct = gctValues[idx]
+            if (!isNaN(gct)) html += `<div style="font-size:13px;color:#10B981"><strong>${Math.round(gct)}\u202fms</strong> GCT</div>`
+            const vo = voValues[idx]
+            if (!isNaN(vo)) html += `<div style="font-size:13px;color:#06B6D4"><strong>${vo.toFixed(1)}\u202fcm</strong> Vert. Oszi.</div>`
+            return html + '</div>'
+          },
+        },
+
+        xAxis: {
+          type: 'value',
+          min: 0,
+          max: xMax,
+          axisLabel: { fontSize: 11, color: '#666', formatter: xFormatter },
+          splitLine: { show: false },
+          axisLine: { lineStyle: { color: '#ddd' } },
+          axisTick: { lineStyle: { color: '#ddd' } },
+        },
+
+        yAxis: [
+          {
+            type: 'value',
+            name: 'GCT\n(ms)',
+            nameTextStyle: { fontSize: 10, color: '#10B981' },
+            axisLabel: { fontSize: 11, color: '#10B981', margin: 8 },
+            splitLine: { lineStyle: { color: '#eee', type: 'dashed' } },
+            axisLine: { show: false },
+            axisTick: { show: false },
+          },
+          {
+            type: 'value',
+            name: 'VO\n(cm)',
+            nameTextStyle: { fontSize: 10, color: '#06B6D4' },
+            axisLabel: { fontSize: 11, color: '#06B6D4', margin: 8 },
+            splitLine: { show: false },
+            axisLine: { show: false },
+            axisTick: { show: false },
+          },
+        ],
+
+        series: [
+          {
+            type: 'line',
+            yAxisIndex: 0,
+            data: xData.map((x, i) => [x, gctValues[i]]),
+            showSymbol: false,
+            lineStyle: { width: 1.5, color: '#10B981' },
+            itemStyle: { color: '#10B981' },
+            connectNulls: true,
+            ...(mlData.length > 0 ? {
+              markLine: {
+                silent: true,
+                symbol: ['none', 'none'],
+                data: mlData,
+              },
+            } : {}),
+          },
+          {
+            type: 'line',
+            yAxisIndex: 1,
+            data: xData.map((x, i) => [x, voValues[i]]),
+            showSymbol: false,
+            lineStyle: { width: 1.5, color: '#06B6D4' },
+            itemStyle: { color: '#06B6D4' },
+            connectNulls: true,
+          },
+        ],
+
+        dataZoom: [
+          {
+            type: 'inside',
+            xAxisIndex: 0,
+            filterMode: 'none',
+            zoomOnMouseWheel: true,
+            moveOnMouseMove: true,
+            moveOnMouseWheel: false,
+          },
+        ],
+      } as echarts.EChartsCoreOption
+    },
+    [data, xMode, splitMarkers], // eslint-disable-line react-hooks/exhaustive-deps
+    (chart) => {
+      onRegister(chartId, chart)
+
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+
+      chart.dispatchAction({
+        type: 'takeGlobalCursor',
+        key: 'brush',
+        brushOption: { brushType: 'lineX', brushMode: 'single' },
+      })
+
+      chart.on('showTip', (params: unknown) => {
+        const typed = params as { dataIndex?: number }
+        if (typed.dataIndex != null) onHover(typed.dataIndex)
+      })
+      chart.on('hideTip', () => onHover(null))
+
+      type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
+
+      chart.on('brushEnd', (params: unknown) => {
+        if (brushZoomLockRef.current) return
+        brushZoomLockRef.current = true
+
+        const p = params as {
+          areas?: BrushArea[]
+          batch?: Array<{ areas?: BrushArea[] }>
+        }
+        const areas = p.areas ?? p.batch?.[0]?.areas
+        if (!areas || areas.length === 0) {
+          brushZoomLockRef.current = false
+          return
+        }
+
+        const area = areas[0]
+        let startData: number
+        let endData: number
+
+        if (area.coordRange) {
+          [startData, endData] = area.coordRange
+        } else if (area.range) {
+          const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
+          const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
+          if (s == null || e == null) { brushZoomLockRef.current = false; return }
+          startData = s as number
+          endData = e as number
+        } else {
+          brushZoomLockRef.current = false
+          return
+        }
+
+        if (endData <= startData) { brushZoomLockRef.current = false; return }
+        onBrushZoom(Math.max(0, startData), Math.min(xMax, endData))
+
+        requestAnimationFrame(() => { brushZoomLockRef.current = false })
+      })
+
+      chart.on('dataZoom', (params: unknown) => {
+        const p = params as {
+          batch?: Array<{ start: number; end: number }>
+          start?: number
+          end?: number
+        }
+        const z = p.batch?.[0] ?? (p.start != null && p.end != null ? p as { start: number; end: number } : null)
+        if (z != null) onSyncZoom(z.start, z.end, chartId)
+      })
+
+      return () => onUnregister(chartId)
+    },
+  )
+
+  return (
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+      <div className="flex items-center gap-4 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60">
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#10B981' }} />
+          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+            Bodenkontaktzeit <span className="font-normal text-neutral-400 dark:text-neutral-600">(ms)</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#06B6D4' }} />
+          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+            Vertikale Bewegung <span className="font-normal text-neutral-400 dark:text-neutral-600">(cm)</span>
+          </span>
+        </div>
+      </div>
+      <div ref={containerRef} className="h-[180px] w-full" />
     </div>
   )
 }
