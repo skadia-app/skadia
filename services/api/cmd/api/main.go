@@ -449,6 +449,7 @@ func main() {
 		if drErr != nil {
 			slog.Warn("disk coverage reader init failed", "error", drErr)
 		} else {
+			defer diskReader.Close()
 			h.CoverageReader = diskReader
 			slog.Info("disk coverage reader initialized", "dir", coverageDir)
 		}
