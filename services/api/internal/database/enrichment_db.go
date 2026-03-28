@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -11,6 +12,56 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
+
+// validEnrichmentCols is the allowlist of column names that may be passed to
+// UpdateEnrichmentFields / UpdateEnrichmentFieldsSafe. Any column not in this
+// set is skipped with a warning log so that a future caller passing user-
+// controlled input cannot inject arbitrary SQL identifiers.
+var validEnrichmentCols = map[string]bool{
+	// Scalar metrics (from importer/enrich.go buildEnrichFields / buildReplaceFields)
+	"avg_heart_rate":    true,
+	"max_heart_rate":    true,
+	"avg_power_w":       true,
+	"max_power_w":       true,
+	"avg_cadence":       true,
+	"avg_temperature_c": true,
+	"elevation_gain_m":  true,
+	"elevation_loss_m":  true,
+	"max_elevation_m":   true,
+	"min_elevation_m":   true,
+	"moving_time_s":     true,
+	"tss":               true,
+	"distance_m":        true,
+	// Speed metrics (from editor.go recalcActivityMetricsFromStreams)
+	"avg_speed_ms": true,
+	"max_speed_ms": true,
+	// Distance / source flags (from corrections.go)
+	"distance_source": true,
+	// Elevation source (from elevation.go, stage1.go)
+	"elevation_source": true,
+	// Stage-1 enrichment fields (from enrichment/stage1.go)
+	"time_of_day":        true,
+	"sunrise_at":         true,
+	"sunset_at":          true,
+	"trimp":              true,
+	"variability_index":  true,
+	"efficiency_factor":  true,
+	"aerobic_decoupling": true,
+	"intensity":          true,
+	"start_city":         true,
+	"start_state":        true,
+	"start_country":      true,
+	"start_country_code": true,
+	"end_city":           true,
+	"title_auto":         true,
+	"tags":               true,
+	"sub_type":           true,
+	"exclude_from_heatmap": true,
+	// Activity metadata (manual activity, recompute, importers)
+	"title":          true,
+	"title_is_manual": true,
+	"description":    true,
+}
 
 // GetGeoTags returns all geo tags for an activity.
 func (db *DB) GetGeoTags(ctx context.Context, activityID string) ([]model.GeoTag, error) {
@@ -70,9 +121,16 @@ func (db *DB) UpdateEnrichmentFields(ctx context.Context, activityID string, fie
 	argIdx := 2
 
 	for col, val := range fields {
+		if !validEnrichmentCols[col] {
+			slog.Warn("enrichment: unknown column skipped", "col", col)
+			continue
+		}
 		sets = append(sets, fmt.Sprintf("%s = $%d", col, argIdx))
 		args = append(args, val)
 		argIdx++
+	}
+	if len(sets) == 0 {
+		return nil
 	}
 
 	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1", strings.Join(sets, ", "))
@@ -98,10 +156,17 @@ func (db *DB) UpdateEnrichmentFieldsSafe(ctx context.Context, activityID string,
 	argIdx := 2
 
 	for col, val := range fields {
+		if !validEnrichmentCols[col] {
+			slog.Warn("enrichment: unknown column skipped", "col", col)
+			continue
+		}
 		// COALESCE(col, $N): keeps existing non-NULL value, writes $N only when NULL
 		sets = append(sets, fmt.Sprintf("%s = COALESCE(%s, $%d)", col, col, argIdx))
 		args = append(args, val)
 		argIdx++
+	}
+	if len(sets) == 0 {
+		return nil
 	}
 
 	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1", strings.Join(sets, ", "))
