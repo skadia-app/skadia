@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom'
 import { fetchActivities, reprocessAllActivities } from '@/api/activities'
 import type { ReprocessFilter, ReprocessResult } from '@/api/activities'
 import type { Activity } from '@/api/types'
-import { sportLabel } from '@/lib/utils'
+import { sportLabel } from '@/lib/sportTaxonomy'
 import { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS, REPROCESS_SCOPES } from '@/components/RecomputeModal'
 
 type ReprocessMode = 'all' | 'selection'

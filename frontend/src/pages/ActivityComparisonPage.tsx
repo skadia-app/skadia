@@ -16,7 +16,9 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchActivity, fetchActivityStreams } from '@/api/activities'
 import type { Activity, StreamPoint } from '@/api/types'
-import { formatDuration, formatDistance, sportLabel } from '@/lib/utils'
+import { formatDuration, formatDistance } from '@/lib/utils'
+import { sportLabel } from '@/lib/sportTaxonomy'
+import { formatSpeedKmh } from '@/lib/sportFieldLabels'
 
 import { SportIcon } from '@/components/SportIcon'
 
@@ -79,11 +81,6 @@ function hasValidData(arr: number[]): boolean {
   return arr.some(v => !isNaN(v))
 }
 
-function formatSpeed(ms: number | null | undefined): string {
-  if (ms == null || isNaN(ms)) return '\u2014'
-  return `${(ms * 3.6).toFixed(1)} km/h`
-}
-
 function formatHr(v: number | null | undefined): string {
   if (v == null || isNaN(v)) return '\u2014'
   return `${Math.round(v)} bpm`
@@ -134,7 +131,7 @@ const METRIC_ROWS: MetricRow[] = [
   },
   {
     label: 'Geschwindigkeit',
-    getValue: a => formatSpeed(a.avg_speed_ms),
+    getValue: a => formatSpeedKmh(a.avg_speed_ms ?? 0),
     getRawValue: a => a.avg_speed_ms,
     higherIsBetter: true,
   },

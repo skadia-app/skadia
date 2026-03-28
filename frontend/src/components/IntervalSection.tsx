@@ -3,9 +3,11 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchActivityIntervals } from '@/api/enrichment'
 import type { ActivityInterval } from '@/api/types'
 import { fmtDuration } from '@/lib/format'
+import { formatSpeedValue } from '@/lib/sportFieldLabels'
 
 interface Props {
   activityId: string
+  sportType: string
 }
 
 const intensityStyles: Record<string, { label: string; bg: string; text: string; dot: string }> = {
@@ -26,12 +28,7 @@ function IntensityBadge({ intensity }: { intensity: ActivityInterval['intensity'
 }
 
 
-function formatSpeed(ms: number): string {
-  const kmh = ms * 3.6
-  return `${kmh.toFixed(1)} km/h`
-}
-
-export default function IntervalSection({ activityId }: Props) {
+export default function IntervalSection({ activityId, sportType }: Props) {
   const [collapsed, setCollapsed] = useState(false)
 
   const { data: intervals = [], isLoading, isError } = useQuery({
@@ -100,7 +97,7 @@ export default function IntervalSection({ activityId }: Props) {
                     {iv.avg_heart_rate != null ? `${iv.avg_heart_rate} bpm` : '--'}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                    {iv.avg_speed_ms != null ? formatSpeed(iv.avg_speed_ms) : '--'}
+                    {iv.avg_speed_ms != null ? formatSpeedValue(iv.avg_speed_ms, sportType) : '--'}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
                     {iv.avg_cadence != null ? `${Math.round(iv.avg_cadence)} rpm` : '--'}

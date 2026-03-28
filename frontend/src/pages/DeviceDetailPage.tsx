@@ -5,7 +5,7 @@ import { Pencil, Check, X, Trash2, Merge } from 'lucide-react'
 import { fetchDevice, fetchDevices, fetchDeviceActivities, updateDeviceCustomName, deleteDevice, mergeDevices } from '@/api/hardware'
 import type { DeviceActivity } from '@/api/hardware'
 import { formatDistance } from '@/lib/utils'
-import { sportLabel } from '@/lib/utils'
+import { sportLabel } from '@/lib/sportTaxonomy'
 import { connectionTypeLabel, deviceTypeBadgeLabel } from '@/lib/deviceUtils'
 
 function ActivityRow({ activity }: { activity: DeviceActivity }) {

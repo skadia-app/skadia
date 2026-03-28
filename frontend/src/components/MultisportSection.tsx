@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { SportIcon } from '@/components/SportIcon'
-import { sportLabel, formatDuration, formatDistance } from '@/lib/utils'
+import { formatDuration, formatDistance } from '@/lib/utils'
+import { sportLabel } from '@/lib/sportTaxonomy'
 import type { Activity } from '@/api/types'
 
 interface Props {
