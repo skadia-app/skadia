@@ -13,12 +13,28 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
+// tagSelectCols are the columns returned by tag queries.
+const tagSelectCols = `id, user_id, name, color, text_color, category, is_system,
+	is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
+	lat, lng, has_automation, cover_file_id`
+
+// scanTag scans a tag row into a model.Tag.
+func scanTag(row interface{ Scan(...any) error }) (model.Tag, error) {
+	var t model.Tag
+	err := row.Scan(
+		&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
+		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
+		&t.ConditionGroups, &t.ConditionsLogic,
+		&t.Description, &t.ActivityCount, &t.CreatedAt,
+		&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID,
+	)
+	return t, err
+}
+
 // ListTags returns all tags for a user, ordered by activity_count DESC, name ASC.
 func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, user_id, name, color, text_color, category, is_system,
-			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-			lat, lng, has_automation, cover_file_id
+		SELECT `+tagSelectCols+`
 		FROM tags
 		WHERE user_id = $1
 		ORDER BY activity_count DESC, name ASC`,
@@ -31,14 +47,8 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 
 	var tags []model.Tag
 	for rows.Next() {
-		var t model.Tag
-		if err := rows.Scan(
-			&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
-			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
-			&t.ConditionGroups, &t.ConditionsLogic,
-			&t.Description, &t.ActivityCount, &t.CreatedAt,
-			&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID,
-		); err != nil {
+		t, err := scanTag(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
 		tags = append(tags, t)
@@ -102,20 +112,11 @@ func (db *DB) ListTags(ctx context.Context, userID string) ([]model.Tag, error) 
 
 // GetTagByID returns a single tag by ID, scoped to the given user.
 func (db *DB) GetTagByID(ctx context.Context, tagID, userID string) (*model.Tag, error) {
-	var t model.Tag
-	err := db.Pool.QueryRow(ctx, `
-		SELECT id, user_id, name, color, text_color, category, is_system,
-			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-			lat, lng, has_automation, cover_file_id
+	t, err := scanTag(db.Pool.QueryRow(ctx, `
+		SELECT `+tagSelectCols+`
 		FROM tags
 		WHERE id = $1 AND user_id = $2`, tagID, userID,
-	).Scan(
-		&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
-		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
-		&t.ConditionGroups, &t.ConditionsLogic,
-		&t.Description, &t.ActivityCount, &t.CreatedAt,
-		&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID,
-	)
+	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -157,19 +158,12 @@ func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor stri
 	if lat != nil && lng != nil {
 		category = "standort"
 	}
-	var t model.Tag
-	err := db.Pool.QueryRow(ctx, `
+	t, err := scanTag(db.Pool.QueryRow(ctx, `
 		INSERT INTO tags (user_id, name, color, text_color, is_auto, conditions, condition_groups, conditions_logic, description, lat, lng, category)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		RETURNING id, user_id, name, color, text_color, category, is_system,
-			is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-			lat, lng, has_automation, cover_file_id`,
+		RETURNING `+tagSelectCols,
 		userID, name, color, textColor, isAuto, conditions, conditionGroups, conditionsLogic, description, lat, lng, category,
-	).Scan(&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
-		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
-		&t.ConditionGroups, &t.ConditionsLogic,
-		&t.Description, &t.ActivityCount, &t.CreatedAt,
-		&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID)
+	))
 	if err != nil {
 		return nil, fmt.Errorf("create tag: %w", err)
 	}
@@ -245,25 +239,9 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 			sets = append(sets, "category = CASE WHEN category = 'standort' THEN 'custom' ELSE category END")
 		}
 	}
-	tagCols := `id, user_id, name, color, text_color, category, is_system,
-		is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-		lat, lng, has_automation, cover_file_id`
-
-	scanTag := func(row interface{ Scan(...any) error }) (*model.Tag, error) {
-		var t model.Tag
-		err := row.Scan(
-			&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
-			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
-			&t.ConditionGroups, &t.ConditionsLogic,
-			&t.Description, &t.ActivityCount, &t.CreatedAt,
-			&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID,
-		)
-		return &t, err
-	}
-
 	if len(sets) == 0 {
 		t, err := scanTag(db.Pool.QueryRow(ctx,
-			fmt.Sprintf(`SELECT %s FROM tags WHERE id = $1 AND user_id = $2`, tagCols),
+			`SELECT `+tagSelectCols+` FROM tags WHERE id = $1 AND user_id = $2`,
 			tagID, userID,
 		))
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -272,14 +250,14 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 		if err != nil {
 			return nil, fmt.Errorf("get tag: %w", err)
 		}
-		return t, nil
+		return &t, nil
 	}
 
 	query := fmt.Sprintf(`
 		UPDATE tags SET %s
 		WHERE id = $1 AND user_id = $2
-		RETURNING %s`,
-		fmt.Sprintf("%s", strings.Join(sets, ", ")), tagCols,
+		RETURNING `+tagSelectCols,
+		strings.Join(sets, ", "),
 	)
 
 	t, err := scanTag(db.Pool.QueryRow(ctx, query, args...))
@@ -289,28 +267,18 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 	if err != nil {
 		return nil, fmt.Errorf("update tag: %w", err)
 	}
-	return t, nil
+	return &t, nil
 }
 
 // ClearTagCoverFile sets cover_file_id to NULL.
 func (db *DB) ClearTagCoverFile(ctx context.Context, tagID, userID string) (*model.Tag, error) {
-	tagCols := `id, user_id, name, color, text_color, category, is_system,
-		is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-		lat, lng, has_automation, cover_file_id`
-	var t model.Tag
-	err := db.Pool.QueryRow(ctx,
-		fmt.Sprintf(`UPDATE tags
-                     SET cover_file_id = NULL
-                     WHERE id = $1 AND user_id = $2
-                     RETURNING %s`, tagCols),
+	t, err := scanTag(db.Pool.QueryRow(ctx,
+		`UPDATE tags
+		 SET cover_file_id = NULL
+		 WHERE id = $1 AND user_id = $2
+		 RETURNING `+tagSelectCols,
 		tagID, userID,
-	).Scan(
-		&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
-		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
-		&t.ConditionGroups, &t.ConditionsLogic,
-		&t.Description, &t.ActivityCount, &t.CreatedAt,
-		&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID,
-	)
+	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -354,14 +322,8 @@ func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model
 
 	var tags []model.Tag
 	for rows.Next() {
-		var t model.Tag
-		if err := rows.Scan(
-			&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
-			&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
-			&t.ConditionGroups, &t.ConditionsLogic,
-			&t.Description, &t.ActivityCount, &t.CreatedAt,
-			&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID,
-		); err != nil {
+		t, err := scanTag(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
 		tags = append(tags, t)
@@ -822,20 +784,10 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 	}
 
 	// 5. Return the surviving target tag (with refreshed activity_count).
-	tagCols := `id, user_id, name, color, text_color, category, is_system,
-		is_auto, conditions, condition_groups, conditions_logic, description, activity_count, created_at,
-		lat, lng, has_automation, cover_file_id`
-	var t model.Tag
-	err = tx.QueryRow(ctx,
-		fmt.Sprintf(`SELECT %s FROM tags WHERE id = $1`, tagCols),
+	t, err := scanTag(tx.QueryRow(ctx,
+		`SELECT `+tagSelectCols+` FROM tags WHERE id = $1`,
 		targetTagID,
-	).Scan(
-		&t.ID, &t.UserID, &t.Name, &t.Color, &t.TextColor,
-		&t.Category, &t.IsSystem, &t.IsAuto, &t.Conditions,
-		&t.ConditionGroups, &t.ConditionsLogic,
-		&t.Description, &t.ActivityCount, &t.CreatedAt,
-		&t.Lat, &t.Lng, &t.HasAutomation, &t.CoverFileID,
-	)
+	))
 	if err != nil {
 		return nil, fmt.Errorf("get merged tag: %w", err)
 	}
