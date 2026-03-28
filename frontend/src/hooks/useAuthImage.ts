@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getToken } from '@/lib/auth'
+import { API_BASE } from '@/api/client'
 
 /**
  * Fetches an authenticated image URL and returns a blob URL for <img> rendering.
@@ -17,10 +18,9 @@ export function useAuthImage(url: string | undefined | null): string | null {
     let revoked = false
     const controller = new AbortController()
 
-    const baseUrl = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
     const fullUrl = url.startsWith('http') ? url : url.startsWith('/api/v1/')
-      ? url.replace('/api/v1/', `${baseUrl}/`)
-      : `${baseUrl}${url}`
+      ? url.replace('/api/v1/', `${API_BASE}/`)
+      : `${API_BASE}${url}`
 
     const token = getToken()
     const headers: Record<string, string> = {}

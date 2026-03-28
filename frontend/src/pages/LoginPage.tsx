@@ -5,8 +5,7 @@ import { getAuthConfig, loginWithEmail, type AuthConfig } from '@/api/auth'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 import { useToast } from '@/lib/toast'
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+import { API_BASE } from '@/api/client'
 
 const LOGIN_MESSAGES: Record<string, { title: string; description?: string }> = {
   password_changed: { title: 'Passwort geändert', description: 'Bitte melde dich mit deinem neuen Passwort an.' },
