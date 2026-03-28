@@ -44,6 +44,12 @@ type Activity struct {
 	MaxTemperatureC         *float64         `json:"max_temperature_c,omitempty"`
 	TSS                     *float64         `json:"tss,omitempty"`
 	TRIMP                   *float64         `json:"trimp,omitempty"`
+	// Self-computed metrics (canonical values for PMC pipeline)
+	ComputedTSS    *float64 `json:"computed_tss,omitempty"`
+	ComputedNPW    *float64 `json:"computed_np_w,omitempty"`
+	ComputedNGPMps *float64 `json:"computed_ngp_mps,omitempty"`
+	TSSMethod      *string  `json:"tss_method,omitempty"`
+	ComputedIF     *float64 `json:"computed_if,omitempty"`
 	MinHeartRate            *int             `json:"min_heart_rate,omitempty"`
 	TotalCalories           *int             `json:"total_calories,omitempty"`
 	AerobicTrainingEffect   *float64         `json:"aerobic_training_effect,omitempty"`
@@ -321,15 +327,24 @@ type UploadResponse struct {
 	Warnings []string  `json:"warnings,omitempty"`
 }
 
-// PMCDay represents a single day in the Performance Management Chart.
+// PMCDay contains mixed temporal semantics (Banister convention):
+//
+// Calculation order per day:
+//   1. TSB = CTL_previous - ATL_previous  (readiness AT START of today)
+//   2. CTL = update with today's TSS       (fitness AFTER today's training)
+//   3. ATL = update with today's TSS       (fatigue AFTER today's training)
+//
+// This is intentional: TSB describes readiness before today's load, while CTL
+// and ATL describe fitness/fatigue after today's load.
 type PMCDay struct {
 	UserID string  `json:"-"`
-	Date   string  `json:"date"` // YYYY-MM-DD
+	Date   string  `json:"date"`
 	TSS    float64 `json:"tss"`
 	CTL    float64 `json:"ctl"`
 	ATL    float64 `json:"atl"`
 	TSB    float64 `json:"tsb"`
-	ACWR   float64 `json:"acwr"`
+	ACWR   float64 `json:"acwr"`    // EWMA ATL/CTL — computed on read in database/pmc.go
+	ACWRRA float64 `json:"acwr_ra"` // Rolling Average 7:28 uncoupled — computed during recompute
 }
 
 // ProblemDetail is an RFC 7807 error response.

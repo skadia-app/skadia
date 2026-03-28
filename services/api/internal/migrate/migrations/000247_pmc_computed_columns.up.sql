@@ -1,0 +1,12 @@
+ALTER TABLE activities
+  ADD COLUMN IF NOT EXISTS computed_tss FLOAT,
+  ADD COLUMN IF NOT EXISTS computed_np_w FLOAT,
+  ADD COLUMN IF NOT EXISTS computed_ngp_mps FLOAT,
+  ADD COLUMN IF NOT EXISTS tss_method TEXT,
+  ADD COLUMN IF NOT EXISTS computed_if FLOAT;
+
+ALTER TABLE training_zones
+  ADD COLUMN IF NOT EXISTS threshold_speed_mps REAL;
+
+ALTER TABLE pmc_daily
+  ADD COLUMN IF NOT EXISTS acwr_ra FLOAT;

@@ -102,6 +102,15 @@ func (p *UserProfile) EffectiveMaxHR() int {
 	return 220
 }
 
+// EffectiveLTHR returns the best available LTHR from profile data.
+// Priority: manual > 88% of EffectiveMaxHR.
+func (p *UserProfile) EffectiveLTHR() int {
+	if p.LthrBpm != nil && *p.LthrBpm > 0 {
+		return *p.LthrBpm
+	}
+	return int(float64(p.EffectiveMaxHR()) * 0.88)
+}
+
 // EffectiveRestingHR returns resting HR or a default of 60.
 func (p *UserProfile) EffectiveRestingHR() int {
 	if p.RestingHrBpm != nil && *p.RestingHrBpm > 0 {

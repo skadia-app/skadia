@@ -222,6 +222,7 @@ type TrainingZone struct {
 	MaxHeartRate             *int16    `json:"max_heart_rate,omitempty"`
 	ThresholdHeartRate       *int16    `json:"threshold_heart_rate,omitempty"`
 	FunctionalThresholdPower *int32    `json:"functional_threshold_power,omitempty"`
+	ThresholdSpeedMps        *float32  `json:"threshold_speed_mps,omitempty"`
 	HrCalcType               *int16    `json:"hr_calc_type,omitempty"`
 	PwrCalcType              *int16    `json:"pwr_calc_type,omitempty"`
 	ZoneNames                []string  `json:"zone_names"`
