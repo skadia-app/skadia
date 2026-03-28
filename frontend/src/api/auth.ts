@@ -259,7 +259,7 @@ export async function adminCreateUser(data: {
   email: string
   username: string
   password?: string
-}): Promise<{ id: string; status: string; invite_sent?: boolean }> {
+}): Promise<{ status?: string; invite_sent?: boolean; user?: unknown }> {
   const res = await apiFetch('/api/v1/admin/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -269,7 +269,7 @@ export async function adminCreateUser(data: {
     const d = await res.json().catch(() => ({})) as { error?: string }
     throw new Error(d.error ?? 'User creation failed')
   }
-  return res.json() as Promise<{ id: string; status: string; invite_sent?: boolean }>
+  return res.json() as Promise<{ status?: string; invite_sent?: boolean; user?: unknown }>
 }
 
 export async function getAdminUserSessions(id: string): Promise<{ sessions: AdminUserSession[] }> {
