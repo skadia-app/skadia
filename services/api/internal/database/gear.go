@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"context"
 	"fmt"
 	"math"
@@ -31,7 +32,7 @@ func scanGear(row pgx.Row) (*model.Gear, error) {
 		&g.TotalDistanceM, &g.TotalTimeS, &g.TotalElevationGainM, &g.TotalActivities,
 		&purchasedAt, &retiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &g.Notes, &g.CreatedAt,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -66,7 +67,7 @@ func scanComponent(row pgx.Row) (*model.GearComponent, error) {
 		&c.PurchasePrice, &c.PurchaseDate, &c.WeightG, &c.SerialNumber,
 		&c.InstalledAt, &c.RemovedAt, &c.IsRetired, &c.Status, &c.Notes,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -533,7 +534,7 @@ func (db *DB) GetChainRotation(ctx context.Context, gearID string) (*model.Chain
 		`SELECT id, user_id, gear_id, name, swap_interval_km, swap_interval_hm, created_at::text
 		 FROM chain_rotation_groups WHERE gear_id = $1`, gearID,
 	).Scan(&g.ID, &g.UserID, &g.GearID, &g.Name, &g.SwapIntervalKM, &g.SwapIntervalHM, &g.CreatedAt)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -665,7 +666,7 @@ func (db *DB) SwapChain(ctx context.Context, groupID string) error {
 	err = tx.QueryRow(ctx,
 		`SELECT position FROM chain_rotation_members WHERE group_id = $1 AND is_active = true`, groupID,
 	).Scan(&currentPos)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		currentPos = 0
 	} else if err != nil {
 		return fmt.Errorf("find active member: %w", err)
@@ -875,7 +876,7 @@ func scanRule(row pgx.Row) (*model.AutomationRule, error) {
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
 		&r.IsSystem, &r.SystemType,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -960,7 +961,7 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 		`SELECT system_type FROM automation_rules WHERE id = $1 AND user_id = $2`,
 		id, userID,
 	).Scan(&sysType); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -1034,7 +1035,7 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
 		&r.IsSystem, &r.SystemType,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -1057,7 +1058,7 @@ func (db *DB) DeleteRule(ctx context.Context, id string, userID string) error {
 		`SELECT is_system FROM automation_rules WHERE id = $1 AND user_id = $2`,
 		id, userID,
 	).Scan(&isSystem); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("rule not found")
 		}
 		return err
@@ -1116,7 +1117,7 @@ func (db *DB) AssignGearByRules(ctx context.Context, userID, activityID, sportTy
 		 WHERE user_id = $1 AND is_retired = false AND $2 = ANY(default_for_sports)
 		 ORDER BY created_at LIMIT 1`, userID, sportType,
 	).Scan(&gearID)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil // No default gear for this sport
 	}
 	if err != nil {
@@ -1222,7 +1223,7 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		&netAscentM, &netDescentM, &netDistM,
 		&climbCount, &climbCategoryMax,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -1528,7 +1529,7 @@ func scanBikeSetup(row pgx.Row) (*model.BikeSetup, error) {
 		&s.SuspensionFront, &s.SuspensionRear, &s.Tires, &s.ContactPoints, &s.Brakes, &s.Drivetrain,
 		&s.IsActive, &s.CreatedAt, &s.UpdatedAt,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -1685,7 +1686,7 @@ const gearDocSelectCols = `id, user_id, gear_id, component_id, service_event_id,
 func scanGearDocument(row pgx.Row) (*model.GearDocument, error) {
 	var d model.GearDocument
 	err := row.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -1787,7 +1788,7 @@ func (db *DB) DeleteGearDocument(ctx context.Context, docID, userID string) (fil
 		`DELETE FROM gear_documents WHERE id = $1 AND user_id = $2 RETURNING file_id::text`,
 		docID, userID,
 	).Scan(&fID)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
@@ -1915,7 +1916,7 @@ func (db *DB) GetGearCostSummary(ctx context.Context, gearID string) (*model.Gea
 		 FROM gear_cost_summary WHERE gear_id = $1`,
 		gearID,
 	).Scan(&s.GearID, &s.UserID, &s.Name, &s.TotalCost, &s.Currency, &s.CostPerKm, &s.CostPerHour)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

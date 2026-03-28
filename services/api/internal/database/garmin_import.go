@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -44,7 +45,7 @@ func (db *DB) GetGarminImportJob(ctx context.Context, userID, jobID string) (map
 		totalModules     int
 		completedModules int
 		currentModule    *string
-		errors           []byte
+		errBytes         []byte
 		startedAt        *time.Time
 		completedAt      *time.Time
 		createdAt        time.Time
@@ -52,9 +53,9 @@ func (db *DB) GetGarminImportJob(ctx context.Context, userID, jobID string) (map
 
 	err := row.Scan(
 		&id, &uid, &status, &sourcePath, &totalModules, &completedModules,
-		&currentModule, &errors, &startedAt, &completedAt, &createdAt,
+		&currentModule, &errBytes, &startedAt, &completedAt, &createdAt,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("job not found")
 	}
 	if err != nil {
@@ -62,8 +63,8 @@ func (db *DB) GetGarminImportJob(ctx context.Context, userID, jobID string) (map
 	}
 
 	var parsedErrors []string
-	if len(errors) > 0 {
-		_ = json.Unmarshal(errors, &parsedErrors)
+	if len(errBytes) > 0 {
+		_ = json.Unmarshal(errBytes, &parsedErrors)
 	}
 
 	result := map[string]any{
