@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef } from 'react'
+import { useClickOutside } from '@/hooks/useClickOutside'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bell, CheckCircle2, XCircle, Settings, AlertTriangle, Wrench, MessageCircle, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -50,14 +51,7 @@ export default function NotificationCenter() {
   const unreadCount = unreadData?.unread_count ?? 0
 
   // Schließen beim Klick außerhalb des Panels
-  useEffect(() => {
-    if (!open) return
-    function handle(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handle)
-    return () => document.removeEventListener('mousedown', handle)
-  }, [open])
+  useClickOutside(ref, () => setOpen(false), open)
 
   async function fetchNotifications() {
     try {

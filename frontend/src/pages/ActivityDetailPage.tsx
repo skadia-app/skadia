@@ -19,7 +19,7 @@ import ActivityCharts, { type ZoomRange, type SplitMarker } from '@/components/A
 import MapFullscreen from '@/components/MapFullscreen'
 import {
   formatDuration, formatDistance, formatElevationGain, formatElevationLoss,
-  sportColor, showIndoorBadge,
+  sportColor, showIndoorBadge, triggerBlobDownload,
 } from '@/lib/utils'
 import { sportDetailLabel, getSegmentGroup, categoryForSport } from '@/lib/sportTaxonomy'
 import { defaultSpeedMode } from '@/lib/sportFieldLabels'
@@ -969,14 +969,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
     try {
       const { blob, filename } = await apiDownload(`/activities/${activity.id}/export?format=${format}`)
       const extMap: Record<string, string> = { original: '', gpx: '.gpx', tcx: '.tcx', fit: '.fit', zip: '.zip' }
-      const objectUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = objectUrl
-      a.download = filename ?? `activity${extMap[format] ?? ''}`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000)
+      triggerBlobDownload(blob, filename ?? `activity${extMap[format] ?? ''}`)
     } catch (err) {
       console.error('Export fehlgeschlagen', err)
     }

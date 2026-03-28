@@ -29,3 +29,26 @@ export function showIndoorBadge(isIndoor: boolean, subType?: string | null): boo
   if (!isIndoor) return false
   return !implicitlyIndoorSubTypes.has(subType ?? '')
 }
+
+// Delay revoking the object URL so the browser has time to initiate the download.
+// Revoking synchronously after click() can race the browser's download initiation
+// and silently abort the download in Firefox and some Chromium versions.
+export function triggerBlobDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
+
+export function triggerUrlDownload(url: string, filename: string): void {
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
