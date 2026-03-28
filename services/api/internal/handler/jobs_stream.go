@@ -66,8 +66,11 @@ func (h *Handler) collectJobsPayload(ctx context.Context, userID string, include
 
 	for i := range jobs {
 		if jobs[i].Error != nil && len(*jobs[i].Error) > maxSSEErrorLen {
-			truncated := (*jobs[i].Error)[:maxSSEErrorLen] + "…"
-			jobs[i].Error = &truncated
+			runes := []rune(*jobs[i].Error)
+			if len(runes) > maxSSEErrorLen {
+				truncated := string(runes[:maxSSEErrorLen]) + "…"
+				jobs[i].Error = &truncated
+			}
 		}
 	}
 
