@@ -202,7 +202,7 @@ export default function ActivityDetailPage() {
     if (!el) return
     const obs = new IntersectionObserver(
       ([entry]) => setMapInView(entry.isIntersecting),
-      { threshold: 0.1 }
+      { threshold: 0.75 }
     )
     obs.observe(el)
     return () => obs.disconnect()
