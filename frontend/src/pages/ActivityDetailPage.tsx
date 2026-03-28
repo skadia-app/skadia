@@ -5,12 +5,13 @@ import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, reprocessAllActivities, getZoneDistribution, correctActivityElevation, resetActivityElevation, correctActivityDistance, resetActivityDistance, type ExportFormat } from '@/api/activities'
+import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, reprocessAllActivities, getZoneDistribution, correctActivityElevation, resetActivityElevation, correctActivityDistance, resetActivityDistance, fetchActivitySets, fetchActivityJumps, fetchActivityEvents, type ExportFormat } from '@/api/activities'
+import { fetchWorkout } from '@/api/workouts'
 import { getHeatmapSettings, getWeatherSettings } from '@/api/settings'
 import { apiDownload } from '@/api/client'
 import { fetchTags, createTag, unassignActivitiesFromTag, assignActivitiesToTag } from '@/api/tags'
 import ActivityLocationTagSection from '@/components/ActivityLocationTagSection'
-import type { Activity, StreamPoint, Sensor, ZoneDistribution } from '@/api/types'
+import type { Activity, StreamPoint, Sensor, ZoneDistribution, ActivitySet, ActivityJump, ActivityEvent, Workout } from '@/api/types'
 // Tag type imported via api/tags is used indirectly through fetchTags
 import { getTagBadgeStyle } from '@/lib/tagUtils'
 import { SportIcon } from '@/components/SportIcon'
@@ -20,7 +21,9 @@ import {
   formatDuration, formatDistance, formatElevationGain, formatElevationLoss,
   sportColor, showIndoorBadge,
 } from '@/lib/utils'
-import { sportDetailLabel } from '@/lib/sportTaxonomy'
+import { sportDetailLabel, getSegmentGroup, categoryForSport } from '@/lib/sportTaxonomy'
+import { defaultSpeedMode } from '@/lib/sportFieldLabels'
+import { SpeedPaceToggle } from '@/components/activity/SpeedPaceToggle'
 import WeatherBadge from '@/components/WeatherBadge'
 import GeoTagsList from '@/components/GeoTagsList'
 import GearSelector from '@/components/GearSelector'
@@ -48,6 +51,21 @@ import MergeDialog from '@/components/MergeDialog'
 import MultisportSection from '@/components/MultisportSection'
 import { MultisportMap, type MultisportMapHandle } from '@/components/activity/MultisportMap'
 import MultisportEnrichments from '@/components/activity/MultisportEnrichments'
+import { PiPMap } from '@/components/activity/PiPMap'
+import { ChartTabs } from '@/components/activity/ChartTabs'
+import { StatsGrid } from '@/components/activity/StatsGrid'
+import { RunningDynamicsStats } from '@/components/activity/RunningDynamicsStats'
+import { DiveStats } from '@/components/activity/DiveStats'
+import { DataCorrectionsSection } from '@/components/activity/DataCorrections'
+import { VisibilitySettings } from '@/components/activity/VisibilitySettings'
+import { SunInfo } from '@/components/activity/SunInfo'
+import { LocationLine } from '@/components/activity/LocationLine'
+import { StrengthSetsTable } from '@/components/activity/StrengthSetsTable'
+import { WorkoutOverview } from '@/components/activity/WorkoutOverview'
+import { BallSportStats } from '@/components/activity/BallSportStats'
+import { JumpSection } from '@/components/activity/JumpSection'
+import { RadarSummary } from '@/components/activity/RadarSummary'
+import { SensorList } from '@/components/activity/SensorList'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
 import { revertFusion } from '@/api/fusion'
 import { getCapabilities, getWaypointsFromActivity } from '@/api/routes'
@@ -149,12 +167,46 @@ export default function ActivityDetailPage() {
     enabled: !!id && activity?.sport_type === 'multisport',
   })
 
+  // Speed/Pace toggle — persisted per segment group
+  const segGroup = activity ? getSegmentGroup(activity.sport_type) : 'generic'
+  const speedStorageKey = `skadia-speed-format:${segGroup}`
+  const [speedMode, setSpeedMode] = useState<'speed' | 'pace'>('speed')
+  const speedModeInitRef = useRef(false)
+  useEffect(() => {
+    if (!activity || speedModeInitRef.current) return
+    speedModeInitRef.current = true
+    const key = `skadia-speed-format:${getSegmentGroup(activity.sport_type)}`
+    const stored = localStorage.getItem(key)
+    if (stored === 'speed' || stored === 'pace') {
+      setSpeedMode(stored)
+    } else {
+      setSpeedMode(defaultSpeedMode(activity.sport_type))
+    }
+  }, [activity])
+  const handleSpeedModeChange = (mode: 'speed' | 'pace') => {
+    setSpeedMode(mode)
+    localStorage.setItem(speedStorageKey, mode)
+  }
+
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null)
   const [hoveredClimbRange, setHoveredClimbRange] = useState<{ startKm: number; endKm: number } | null>(null)
   const [mapFullscreen, setMapFullscreen] = useState(false)
   const [hoveredChildId, setHoveredChildId] = useState<string | null>(null)
   const multisportMapRef = useRef<MultisportMapHandle>(null)
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+  const [mapInView, setMapInView] = useState(true)
+
+  useEffect(() => {
+    const el = mapContainerRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => setMapInView(entry.isIntersecting),
+      { threshold: 0.1 }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
 
   // Per-activity module visibility (persisted in localStorage)
   const [hiddenModules, setHiddenModules] = useState<Set<string>>(() => {
@@ -282,6 +334,18 @@ export default function ActivityDetailPage() {
     return { merged, splitMarkers }
   }, [childStreams, childActivities])
 
+  // Multisport hover handler — must be unconditional (Rules of Hooks)
+  const handleMultisportHover = useCallback((index: number | null) => {
+    if (index == null) {
+      multisportMapRef.current?.setHoverPoint(null)
+      return
+    }
+    const pt = multisportChartData?.merged[index]
+    if (pt?.lat != null && pt?.lng != null) {
+      multisportMapRef.current?.setHoverPoint({ lat: pt.lat, lng: pt.lng })
+    }
+  }, [multisportChartData])
+
   // Tags für Standort-Sektion bei Indoor-Aktivitäten laden
   const { data: allTagsForLocation = [] } = useQuery({
     queryKey: ['tags'],
@@ -290,6 +354,30 @@ export default function ActivityDetailPage() {
   })
   const locationTagsForActivity = allTagsForLocation.filter(t => t.lat != null && t.lng != null)
   const assignedLocationTag = locationTagsForActivity.find(t => (activity?.tags ?? []).includes(t.name)) ?? null
+
+  const { data: sets } = useQuery<ActivitySet[]>({
+    queryKey: ['activity-sets', id],
+    queryFn: () => fetchActivitySets(id!),
+    enabled: !!activity && ['strength_training', 'training', 'strength'].includes(activity.sport_type),
+  })
+
+  const { data: workout } = useQuery<Workout>({
+    queryKey: ['workout', activity?.workout_id],
+    queryFn: () => fetchWorkout(activity!.workout_id!),
+    enabled: !!activity?.workout_id,
+  })
+
+  const { data: jumps } = useQuery<ActivityJump[]>({
+    queryKey: ['activity-jumps', id],
+    queryFn: () => fetchActivityJumps(id!),
+    enabled: !!activity && (activity.jump_count ?? 0) > 0,
+  })
+
+  const { data: events } = useQuery<ActivityEvent[]>({
+    queryKey: ['activity-events', id],
+    queryFn: () => fetchActivityEvents(id!),
+    enabled: !!activity && activity.has_gps && getSegmentGroup(activity.sport_type) === 'bike',
+  })
 
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Aktivität...</div>
@@ -354,8 +442,38 @@ export default function ActivityDetailPage() {
       {/* Sunrise / Sunset */}
       <SunInfo sunriseAt={activity.sunrise_at} sunsetAt={activity.sunset_at} />
 
+      {/* Location */}
+      <LocationLine activity={activity} />
+
+      {/* Radar Threats */}
+      <RadarSummary events={events} />
+
       {/* Stats — hide the standard grid for multisport parents (we show custom stats below) */}
-      {activity.sport_type !== 'multisport' && <StatsGrid activity={activity} />}
+      {activity.sport_type !== 'multisport' && (
+        <div className="space-y-2">
+          {activity.avg_speed_ms != null && (
+            <div className="flex justify-end">
+              <SpeedPaceToggle
+                mode={speedMode}
+                onChange={handleSpeedModeChange}
+              />
+            </div>
+          )}
+          <StatsGrid activity={activity} speedMode={speedMode} />
+          {getSegmentGroup(activity.sport_type) === 'foot' && activity.avg_vertical_oscillation_mm != null && (
+            <RunningDynamicsStats activity={activity} />
+          )}
+          {activity.sport_type === 'diving' && (
+            <DiveStats activity={activity} />
+          )}
+        </div>
+      )}
+
+      {/* Workout visualization */}
+      {workout && <WorkoutOverview workout={workout} />}
+
+      {/* Ballsport Metriken */}
+      {categoryForSport(activity.sport_type).key === 'game' && <BallSportStats activity={activity} />}
 
       {/* Multisport parent — combined view */}
       {activity.sport_type === 'multisport' && (
@@ -404,16 +522,7 @@ export default function ActivityDetailPage() {
           {multisportChartData && multisportChartData.merged.length > 0 && (
             <ActivityCharts
               streams={multisportChartData.merged}
-              onHover={useCallback((index: number | null) => {
-                if (index == null) {
-                  multisportMapRef.current?.setHoverPoint(null)
-                  return
-                }
-                const pt = multisportChartData.merged[index]
-                if (pt?.lat != null && pt?.lng != null) {
-                  multisportMapRef.current?.setHoverPoint({ lat: pt.lat, lng: pt.lng })
-                }
-              }, [multisportChartData.merged])}
+              onHover={handleMultisportHover}
               splitMarkers={multisportChartData.splitMarkers}
               defaultXMode={childActivities?.some(c => c.has_gps) ? 'distance' : 'time'}
             />
@@ -510,20 +619,22 @@ export default function ActivityDetailPage() {
 
       {/* Map (nicht für Multisport-Parent — die Karte ist oben in der Multisport-Sektion) */}
       {activity.sport_type !== 'multisport' && (
-        <TrackMap
-          activityId={activity.id}
-          streams={streams ?? []}
-          hoverIndex={hoverIndex}
-          sportColor={sportColor(activity.sport_type)}
-          hasGps={activity.has_gps}
-          zoomRange={zoomRange}
-          onMaximize={() => setMapFullscreen(true)}
-          geoTags={geoTags}
-          stops={stops}
-          locationPin={assignedLocationTag && assignedLocationTag.lat != null && assignedLocationTag.lng != null
-            ? { lat: assignedLocationTag.lat, lng: assignedLocationTag.lng, name: assignedLocationTag.name, color: assignedLocationTag.color }
-            : undefined}
-        />
+        <div ref={mapContainerRef}>
+          <TrackMap
+            activityId={activity.id}
+            streams={streams ?? []}
+            hoverIndex={hoverIndex}
+            sportColor={sportColor(activity.sport_type)}
+            hasGps={activity.has_gps}
+            zoomRange={zoomRange}
+            onMaximize={() => setMapFullscreen(true)}
+            geoTags={geoTags}
+            stops={stops}
+            locationPin={assignedLocationTag && assignedLocationTag.lat != null && assignedLocationTag.lng != null
+              ? { lat: assignedLocationTag.lat, lng: assignedLocationTag.lng, name: assignedLocationTag.name, color: assignedLocationTag.color }
+              : undefined}
+          />
+        </div>
       )}
 
       {/* Map fullscreen overlay */}
@@ -541,19 +652,32 @@ export default function ActivityDetailPage() {
 
       {/* Charts */}
       {streams && streams.length > 0 && (
-        <ActivityCharts
-          streams={streams}
-          onHover={setHoverIndex}
-          onZoomChange={setZoomRange}
-          sunriseAt={activity.sunrise_at}
-          sunsetAt={activity.sunset_at}
-          defaultXMode={!activity.has_gps ? 'time' : 'distance'}
-          highlightRange={hoveredClimbRange}
-        />
+        <ChartTabs streams={streams}>
+          {(activeTab) => (
+            <ActivityCharts
+              streams={streams}
+              onHover={setHoverIndex}
+              onZoomChange={setZoomRange}
+              sunriseAt={activity.sunrise_at}
+              sunsetAt={activity.sunset_at}
+              defaultXMode={!activity.has_gps ? 'time' : 'distance'}
+              highlightRange={hoveredClimbRange}
+              speedMode={speedMode}
+              sportType={activity.sport_type}
+              activeTab={activeTab}
+            />
+          )}
+        </ChartTabs>
       )}
 
+      {/* Krafttraining Sets */}
+      {sets && sets.length > 0 && <StrengthSetsTable sets={sets} />}
+
+      {/* Sprünge */}
+      {(activity.jump_count ?? 0) > 0 && <JumpSection jumpCount={activity.jump_count!} jumps={jumps} />}
+
       {/* Runden */}
-      {laps && laps.length > 0 && <LapTable laps={laps} sportType={activity.sport_type} />}
+      {laps && laps.length > 0 && <LapTable laps={laps} sportType={activity.sport_type} speedMode={speedMode} />}
 
       {/* Splits (Klettern zuerst) */}
       {splitsData && splitsData.splits.length > 0 && activity.sport_type === 'rock_climbing' && (
@@ -575,7 +699,7 @@ export default function ActivityDetailPage() {
       {activity.has_gps && !hiddenModules.has('ascents') && <ClimbsSection activityId={activity.id} onClimbHover={setHoveredClimbRange} />}
 
       {/* Intervalltraining */}
-      <IntervalSection activityId={activity.id} />
+      <IntervalSection activityId={activity.id} sportType={activity.sport_type} />
 
       {/* Liftfahrten */}
       {(activity.lift_count ?? 0) > 0 ? (
@@ -618,7 +742,7 @@ export default function ActivityDetailPage() {
       <DataCorrectionsSection activity={activity} />
 
       {/* Erkannte Runden */}
-      <DetectedLapsTable activityId={activity.id} />
+      <DetectedLapsTable activityId={activity.id} sportType={activity.sport_type} />
 
       {/* Segmente (nur bei GPS-Aktivitäten) */}
       {activity.has_gps && (
@@ -645,6 +769,17 @@ export default function ActivityDetailPage() {
 
       {/* Sensors */}
       {sensors && sensors.length > 0 && <SensorList sensors={sensors} />}
+
+      {/* PiP-Karte: erscheint wenn die Hauptkarte nicht sichtbar ist */}
+      {activity.has_gps && activity.sport_type !== 'multisport' && streams && (
+        <PiPMap
+          streams={streams}
+          sportType={activity.sport_type}
+          hoverIndex={hoverIndex}
+          visible={!mapInView}
+          onClickScrollToMap={() => mapContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+        />
+      )}
     </div>
   )
 }
@@ -1028,9 +1163,6 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
           ) : activity.source_device ? (
             <span className="text-neutral-400 dark:text-neutral-600">{activity.source_device}</span>
           ) : null}
-          {activity.start_city && (
-            <span className="text-neutral-400 dark:text-neutral-600">{activity.start_city}</span>
-          )}
         </div>
         {activity.fusion_sources && (
           <div className="flex items-center gap-2 mt-1">
@@ -1506,219 +1638,6 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
   )
 }
 
-// ── Stats Grid ────────────────────────────────────────────────────────────────
-
-function StatsGrid({ activity }: { activity: Activity }) {
-  const gain = formatElevationGain(activity.elevation_gain_m)
-  const loss = formatElevationLoss(activity.elevation_loss_m)
-  const isDEM = activity.elevation_source === 'dem'
-
-  const stats: { label: string; value: string | null; badge?: ReactNode }[] = [
-    { label: 'Distanz', value: formatDistance(activity.distance_m) },
-    { label: 'Dauer', value: formatDuration(activity.elapsed_time_s ?? 0) },
-    { label: 'Bewegungszeit', value: activity.moving_time_s ? formatDuration(activity.moving_time_s) : null },
-    {
-      label: 'Anstieg',
-      value: gain,
-      badge: isDEM ? (
-        <span
-          className="text-xs text-emerald-600 dark:text-emerald-400 ml-1 font-normal"
-          title="Höhe via DEM (Open-Meteo) korrigiert"
-        >
-          DEM
-        </span>
-      ) : undefined,
-    },
-    { label: 'Abstieg', value: loss },
-    { label: 'Avg HR', value: activity.avg_heart_rate != null ? `${Math.round(activity.avg_heart_rate)} bpm` : null },
-    { label: 'Max HR', value: activity.max_heart_rate != null ? `${activity.max_heart_rate} bpm` : null },
-    { label: 'Avg Power', value: activity.avg_power_w != null ? `${Math.round(activity.avg_power_w)} W` : null },
-    { label: 'NP', value: activity.normalized_power_w != null ? `${Math.round(activity.normalized_power_w)} W` : null },
-    { label: 'Avg Cadence', value: activity.avg_cadence != null ? `${Math.round(activity.avg_cadence)} rpm` : null },
-    { label: 'TSS', value: activity.tss != null ? `${Math.round(activity.tss)}` : null },
-    { label: 'Avg Temp', value: activity.avg_temperature_c != null ? `${Math.round(activity.avg_temperature_c)} °C` : null },
-  ]
-
-  const visible = stats.filter(s => s.value && s.value !== '—')
-
-  if (visible.length === 0) return null
-
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-      {visible.map(({ label, value, badge }) => (
-        <div key={label} className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
-          <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{label}</div>
-          <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
-            {value}{badge}
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ── Data Corrections ──────────────────────────────────────────────────────────
-
-function DataCorrectionsSection({ activity }: { activity: Activity }) {
-  const queryClient = useQueryClient()
-  const { addToast } = useToast()
-  const { data: routingCapabilities } = useQuery({
-    queryKey: ['routing-capabilities'],
-    queryFn: getCapabilities,
-    staleTime: 5 * 60 * 1000,
-  })
-
-  const elevationCorrectionMutation = useMutation({
-    mutationFn: () => correctActivityElevation(activity.id),
-    onSuccess: () => {
-      addToast({ type: 'success', title: 'DEM-Höhenkorrektur gestartet', message: 'Im Hintergrund wird die Höhe korrigiert.' })
-      queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
-    },
-    onError: () => addToast({ type: 'error', title: 'DEM-Korrektur fehlgeschlagen', message: 'Bitte erneut versuchen.' }),
-  })
-
-  const elevationResetMutation = useMutation({
-    mutationFn: () => resetActivityElevation(activity.id),
-    onSuccess: () => {
-      addToast({ type: 'success', title: 'Höhe wird zurückgesetzt', message: 'GPS-Höhenwerte werden aus der Originaldatei wiederhergestellt.' })
-      queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
-    },
-    onError: () => addToast({ type: 'error', title: 'Höhen-Reset fehlgeschlagen', message: 'Bitte erneut versuchen.' }),
-  })
-
-  const distanceCorrectionMutation = useMutation({
-    mutationFn: () => correctActivityDistance(activity.id),
-    onSuccess: () => {
-      addToast({ type: 'success', title: 'Distanzkorrektur gestartet', message: 'Distanz wird aus GPS-Track neu berechnet.' })
-      queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
-    },
-    onError: () => addToast({ type: 'error', title: 'Distanzkorrektur fehlgeschlagen', message: 'Bitte erneut versuchen.' }),
-  })
-
-  const distanceResetMutation = useMutation({
-    mutationFn: () => resetActivityDistance(activity.id),
-    onSuccess: () => {
-      addToast({ type: 'success', title: 'Distanz wird zurückgesetzt', message: 'Originaldistanz aus der Datei wird wiederhergestellt.' })
-      queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
-    },
-    onError: () => addToast({ type: 'error', title: 'Distanz-Reset fehlgeschlagen', message: 'Bitte erneut versuchen.' }),
-  })
-
-  const elevationSource = activity.elevation_source ?? 'device'
-  const distanceSource = activity.distance_source ?? 'device'
-  const isElevationCorrected = elevationSource === 'dem'
-  const isDistanceCorrected = distanceSource === 'computed'
-
-  const distanceKm = activity.distance_m != null
-    ? (activity.distance_m / 1000).toFixed(2) + ' km'
-    : '—'
-
-  const spinnerIcon = (
-    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" strokeDasharray="50 20" />
-    </svg>
-  )
-  const correctIcon = (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-      <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.451a.75.75 0 000-1.5H4.5a.75.75 0 00-.75.75v3.75a.75.75 0 001.5 0v-2.033a7 7 0 0011.712-3.138.75.75 0 00-1.449-.391zm-10.624-3.85a5.5 5.5 0 019.201-2.465l.312.31H11.75a.75.75 0 000 1.5h3.75a.75.75 0 00.75-.75V2.419a.75.75 0 00-1.5 0v2.034A7 7 0 003.038 7.59a.75.75 0 001.449.392z" clipRule="evenodd" />
-    </svg>
-  )
-  const resetIcon = (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-      <path fillRule="evenodd" d="M7.793 2.232a.75.75 0 01-.025 1.06L3.622 7.25h10.003a5.375 5.375 0 010 10.75H10.75a.75.75 0 010-1.5h2.875a3.875 3.875 0 000-7.75H3.622l4.146 3.957a.75.75 0 01-1.036 1.085l-5.5-5.25a.75.75 0 010-1.085l5.5-5.25a.75.75 0 011.061.025z" clipRule="evenodd" />
-    </svg>
-  )
-
-  return (
-    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-      <div className="px-4 py-3 bg-neutral-50 dark:bg-neutral-900/60 border-b border-neutral-200 dark:border-neutral-800">
-        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Datenkorrekturen</h3>
-      </div>
-      <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-        {/* Elevation — XOR-Swap: nur EIN Button sichtbar */}
-        <div className="px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <div className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Höhe</div>
-            <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-              Quelle: <span className={isElevationCorrected ? 'text-emerald-600 dark:text-emerald-400' : ''}>
-                {isElevationCorrected ? 'DEM (EEA-10)' : elevationSource === 'gps' ? 'GPS' : 'Gerät'}
-              </span>
-            </div>
-          </div>
-          {!isElevationCorrected && routingCapabilities?.dem_correction ? (
-            <button
-              onClick={() => elevationCorrectionMutation.mutate()}
-              disabled={elevationCorrectionMutation.isPending}
-              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium
-                         bg-emerald-50 text-emerald-700 hover:bg-emerald-100
-                         dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50
-                         disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-              title="Höhe via DEM-Raster (EEA-10) korrigieren"
-            >
-              {elevationCorrectionMutation.isPending ? spinnerIcon : correctIcon}
-              DEM-Korrektur anwenden
-            </button>
-          ) : isElevationCorrected ? (
-            <button
-              onClick={() => elevationResetMutation.mutate()}
-              disabled={elevationResetMutation.isPending}
-              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium
-                         bg-neutral-100 text-neutral-600 hover:bg-neutral-200
-                         dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700
-                         disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-              title="GPS-Höhenwerte aus Originaldatei wiederherstellen"
-            >
-              {elevationResetMutation.isPending ? spinnerIcon : resetIcon}
-              Auf GPS zurücksetzen
-            </button>
-          ) : null}
-        </div>
-
-        {/* Distance — XOR-Swap: nur EIN Button sichtbar */}
-        {activity.has_gps && (
-          <div className="px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <div className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Distanz</div>
-              <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                {distanceKm} · Quelle: <span className={isDistanceCorrected ? 'text-blue-600 dark:text-blue-400' : ''}>
-                  {isDistanceCorrected ? 'GPS (Haversine)' : 'Gerät'}
-                </span>
-              </div>
-            </div>
-            {!isDistanceCorrected ? (
-              <button
-                onClick={() => distanceCorrectionMutation.mutate()}
-                disabled={distanceCorrectionMutation.isPending}
-                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium
-                           bg-blue-50 text-blue-700 hover:bg-blue-100
-                           dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50
-                           disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                title="Distanz aus GPS-Track via Haversine neu berechnen"
-              >
-                {distanceCorrectionMutation.isPending ? spinnerIcon : correctIcon}
-                Aus GPS berechnen
-              </button>
-            ) : (
-              <button
-                onClick={() => distanceResetMutation.mutate()}
-                disabled={distanceResetMutation.isPending}
-                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium
-                           bg-neutral-100 text-neutral-600 hover:bg-neutral-200
-                           dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700
-                           disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                title="Originaldistanz aus der Aktivitätsdatei wiederherstellen"
-              >
-                {distanceResetMutation.isPending ? spinnerIcon : resetIcon}
-                Zurücksetzen
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
 // ── Tags ──────────────────────────────────────────────────────────────────────
 
 function TagsBadges({ tags, activityId, isVirtual }: { tags: string[]; activityId: string; isVirtual?: boolean }) {
@@ -1902,34 +1821,6 @@ function TagsBadges({ tags, activityId, isVirtual }: { tags: string[]; activityI
         )
       })}
     </>
-  )
-}
-
-// ── Sun Info ──────────────────────────────────────────────────────────────────
-
-function SunInfo({ sunriseAt, sunsetAt }: { sunriseAt?: string | null; sunsetAt?: string | null }) {
-  if (!sunriseAt && !sunsetAt) return null
-
-  const fmt = (iso: string) => {
-    const d = new Date(iso)
-    return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
-  }
-
-  return (
-    <div className="flex items-center gap-4 text-sm text-neutral-600 dark:text-neutral-400">
-      {sunriseAt && (
-        <span className="flex items-center gap-1.5">
-          <span className="text-amber-500">&#9728;</span>
-          <span>{fmt(sunriseAt)}</span>
-        </span>
-      )}
-      {sunsetAt && (
-        <span className="flex items-center gap-1.5">
-          <span className="text-accent-600">&#9790;</span>
-          <span>{fmt(sunsetAt)}</span>
-        </span>
-      )}
-    </div>
   )
 }
 
@@ -2464,206 +2355,6 @@ function TrackMap({ activityId, streams, hoverIndex, sportColor, hasGps, zoomRan
             </svg>
           </button>
         )}
-      </div>
-    </div>
-  )
-}
-
-// ── Visibility & Privacy ──────────────────────────────────────────────────────
-// TODO: Backend muss hide_map und data_visibility in Activity-Response aufnehmen
-// Aktuell nur UI-Stubs — Felder werden lokal verwaltet bis das Backend sie liefert
-
-function VisibilitySettings({ activity }: { activity: Activity }) {
-  const queryClient = useQueryClient()
-
-  const visibilityMut = useMutation({
-    mutationFn: (visibility: Activity['visibility']) =>
-      updateActivity(activity.id, { visibility }),
-    onSuccess: (updated) => {
-      queryClient.setQueryData(['activity', activity.id], updated)
-    },
-  })
-
-  // Stub state for fields not yet in API
-  const [hideMap, setHideMap] = useState(false)
-  const [dataVis, setDataVis] = useState({
-    speed: true,
-    heart_rate: true,
-    power: true,
-    cadence: true,
-    temperature: true,
-    altitude: true,
-  })
-
-  function toggleDataVis(key: keyof typeof dataVis) {
-    setDataVis((prev) => ({ ...prev, [key]: !prev[key] }))
-  }
-
-  const dataVisOptions: { key: keyof typeof dataVis; label: string }[] = [
-    { key: 'speed', label: 'Geschwindigkeit' },
-    { key: 'heart_rate', label: 'Herzfrequenz' },
-    { key: 'power', label: 'Leistung' },
-    { key: 'cadence', label: 'Kadenz' },
-    { key: 'temperature', label: 'Temperatur' },
-    { key: 'altitude', label: 'Höhe' },
-  ]
-
-  const visibilityOptions: { value: Activity['visibility']; label: string }[] = [
-    { value: 'private', label: 'Privat' },
-    { value: 'bekannte', label: 'Bekannte' },
-    { value: 'instanz', label: 'Instanz' },
-    { value: 'federation', label: 'Federation' },
-    { value: 'public', label: 'Öffentlich' },
-  ]
-
-  return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Sichtbarkeit</h2>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Visibility dropdown */}
-        <div>
-          <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-            Wer kann diese Aktivität sehen?
-          </label>
-          <select
-            value={activity.visibility}
-            onChange={(e) => visibilityMut.mutate(e.target.value as Activity['visibility'])}
-            className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
-          >
-            {visibilityOptions.map(({ value, label }) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Hide map toggle */}
-        <div>
-          <label className="flex items-center gap-3 cursor-pointer mt-6">
-            <input
-              type="checkbox"
-              checked={hideMap}
-              onChange={() => setHideMap(!hideMap)}
-              className="w-4 h-4 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
-            />
-            <span className="text-sm text-neutral-700 dark:text-neutral-300">
-              Karte ausblenden
-            </span>
-          </label>
-          <p className="text-xs text-neutral-400 mt-1 ml-7">
-            Karte wird für andere Nutzer nicht angezeigt
-          </p>
-        </div>
-      </div>
-
-      {/* Data visibility checkboxes */}
-      <div>
-        <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
-          Sichtbare Daten
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {dataVisOptions.map(({ key, label }) => (
-            <label key={key} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={dataVis[key]}
-                onChange={() => toggleDataVis(key)}
-                className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
-              />
-              <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
-            </label>
-          ))}
-        </div>
-        <p className="text-xs text-neutral-400 mt-2">
-          Nicht ausgewählte Daten werden für andere Nutzer ausgeblendet.
-        </p>
-      </div>
-    </div>
-  )
-}
-
-// ── Sensors ───────────────────────────────────────────────────────────────────
-
-function sensorSourceLabel(sourceType: string): string {
-  switch (sourceType) {
-    case 'antplus': return 'ANT+'
-    case 'bluetooth': return 'BT'
-    default: return sourceType
-  }
-}
-
-function SensorList({ sensors }: { sensors: Sensor[] }) {
-  return (
-    <div>
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">Sensoren</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {sensors.map(sensor => {
-          const isInvalidManufacturer = !sensor.manufacturer || sensor.manufacturer.includes('ManufacturerInvalid')
-          const title = sensor.product_name || sensor.primary_type_label || sensor.primary_type || 'Unbekannt'
-          const cardContent = (
-            <>
-              {/* Header: product name + connection type badge */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">
-                  {title}
-                </span>
-                <span className="shrink-0 text-xs px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">
-                  {sensorSourceLabel(sensor.source_type)}
-                </span>
-              </div>
-
-              {/* Manufacturer (when separate from product name and valid) */}
-              {!isInvalidManufacturer && sensor.manufacturer && sensor.product_name && (
-                <div className="text-xs text-neutral-500 dark:text-neutral-400">{sensor.manufacturer}</div>
-              )}
-
-              {/* Sensor type badges — use labels when available */}
-              <div className="flex flex-wrap gap-1.5">
-                {sensor.all_types.map((type_, idx) => (
-                  <span
-                    key={type_}
-                    className="text-xs px-1.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400"
-                  >
-                    {(sensor.all_type_labels && sensor.all_type_labels[idx]) || type_}
-                  </span>
-                ))}
-              </div>
-
-              {/* IDs: serial number and ANT+ device number */}
-              {(sensor.serial_number != null || sensor.ant_device_number != null) && (
-                <div className="text-xs text-neutral-400 dark:text-neutral-500 space-y-0.5 pt-0.5 border-t border-neutral-100 dark:border-neutral-800">
-                  {sensor.serial_number != null && (
-                    <div>S/N: <span className="font-mono">{sensor.serial_number}</span></div>
-                  )}
-                  {sensor.ant_device_number != null && (
-                    <div>ANT+: <span className="font-mono">{sensor.ant_device_number}</span></div>
-                  )}
-                </div>
-              )}
-
-              {/* Battery status */}
-              {sensor.battery_status && sensor.battery_status !== 'unknown' && (
-                <div className="text-xs text-neutral-400">Batterie: {sensor.battery_status}</div>
-              )}
-            </>
-          )
-
-          const cardClass = "rounded-lg border border-neutral-200 dark:border-neutral-800 p-3 space-y-1.5"
-
-          return sensor.device_id ? (
-            <Link
-              key={sensor.id}
-              to={`/hardware/detail/${sensor.device_id}`}
-              className={`${cardClass} block hover:border-accent-400 transition-colors`}
-            >
-              {cardContent}
-            </Link>
-          ) : (
-            <div key={sensor.id} className={cardClass}>
-              {cardContent}
-            </div>
-          )
-        })}
       </div>
     </div>
   )

@@ -5,7 +5,7 @@ import { createTag, syncTagLocation, assignActivitiesToTag } from '@/api/tags'
 import type { Tag } from '@/api/tags'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
-import { sportLabel } from '@/lib/utils'
+import { sportLabel } from '@/lib/sportTaxonomy'
 import ColorPicker from '@/components/ColorPicker'
 
 interface Props {

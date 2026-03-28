@@ -2,6 +2,8 @@ import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import * as echarts from 'echarts/core'
 import { useECharts } from '@/hooks/useECharts'
 import { LineChart } from 'echarts/charts'
+import { getSegmentGroup } from '@/lib/sportTaxonomy'
+import { fieldLabel, fieldUnit, type FieldKey } from '@/lib/sportFieldLabels'
 import {
   GridComponent,
   TooltipComponent,
@@ -12,6 +14,7 @@ import {
   MarkPointComponent,
   MarkAreaComponent,
   ToolboxComponent,
+  VisualMapComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { StreamPoint } from '@/api/types'
@@ -27,6 +30,7 @@ echarts.use([
   MarkPointComponent,
   MarkAreaComponent,
   ToolboxComponent,
+  VisualMapComponent,
   CanvasRenderer,
 ])
 
@@ -38,18 +42,48 @@ const SUNSET_SVG = "image://data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type FieldKey = 'altitude' | 'heartRate' | 'power' | 'cadence' | 'speed' | 'temperature'
+// FieldKey imported from sportFieldLabels.ts
 type XMode = 'distance' | 'time'
+
+type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'runningDynamics' | 'stepLength' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth'
+
+function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
+  if (tab === 'alles') return null // show all
+  const isSwim = getSegmentGroup(sportType) === 'swim'
+  switch (tab) {
+    case 'uebersicht': return isSwim ? ['heartRate'] : ['altitude', 'heartRate', 'speed']
+    case 'leistung': return ['power', 'cadence']
+    case 'dynamik': return ['runningDynamics', 'stepLength']
+    case 'pedal': return ['torqueEff', 'pedalSm']
+    case 'ebike': return ['motorPower', 'batteryLevel', 'travelRange']
+    case 'tauchgang': return ['depth']
+    case 'sensoren': return ['temperature']
+    default: return null
+  }
+}
 
 interface ChartData {
   distanceKm: number[]
   elapsedMin: number[]
   altitude: number[]
+  grade: number[]
   heartRate: number[]
   power: number[]
   cadence: number[]
   speed: number[]
+  speedMs: number[]
   temperature: number[]
+  groundContactTime: number[]
+  verticalOscillation: number[]
+  stepLength: number[]
+  torqueEffL: number[]
+  torqueEffR: number[]
+  pedalSmL: number[]
+  pedalSmR: number[]
+  motorPower: number[]
+  batteryLevel: number[]
+  travelRange: number[]
+  depth: number[]
   maxDist: number
   maxElapsed: number
 }
@@ -60,11 +94,24 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const distanceKm: number[] = []
   const elapsedMin: number[] = []
   const altitude: number[] = []
+  const grade: number[] = []
   const heartRate: number[] = []
   const power: number[] = []
   const cadence: number[] = []
   const speed: number[] = []
+  const speedMs: number[] = []
   const temperature: number[] = []
+  const groundContactTime: number[] = []
+  const verticalOscillation: number[] = []
+  const stepLength: number[] = []
+  const torqueEffL: number[] = []
+  const torqueEffR: number[] = []
+  const pedalSmL: number[] = []
+  const pedalSmR: number[] = []
+  const motorPower: number[] = []
+  const batteryLevel: number[] = []
+  const travelRange: number[] = []
+  const depth: number[] = []
 
   const t0 = streams.length > 0 ? new Date(streams[0].time).getTime() : 0
 
@@ -76,11 +123,24 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     )
     elapsedMin.push((new Date(s.time).getTime() - t0) / 60000)
     altitude.push(s.altitude_m ?? NaN)
+    grade.push(s.grade_pct ?? NaN)
     heartRate.push(s.heart_rate ?? NaN)
     power.push(s.power_w ?? NaN)
     cadence.push(s.cadence ?? NaN)
     speed.push(s.speed_ms != null ? s.speed_ms * 3.6 : NaN)
+    speedMs.push(s.speed_ms ?? NaN)
     temperature.push(s.temperature_c ?? NaN)
+    groundContactTime.push(s.ground_contact_time_ms ?? NaN)
+    verticalOscillation.push(s.vertical_oscillation_mm != null ? s.vertical_oscillation_mm / 10 : NaN)
+    stepLength.push(s.step_length_mm != null ? s.step_length_mm / 1000 : NaN)
+    torqueEffL.push(s.left_torque_effectiveness_pct ?? NaN)
+    torqueEffR.push(s.right_torque_effectiveness_pct ?? NaN)
+    pedalSmL.push(s.left_pedal_smoothness_pct ?? NaN)
+    pedalSmR.push(s.right_pedal_smoothness_pct ?? NaN)
+    motorPower.push(s.motor_power_w ?? NaN)
+    batteryLevel.push(s.ebike_battery_level_pct ?? NaN)
+    travelRange.push(s.ebike_travel_range_km ?? NaN)
+    depth.push(s.depth_m ?? NaN)
   }
 
   const validDist = distanceKm.filter(v => !isNaN(v) && isFinite(v))
@@ -88,7 +148,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, heartRate, power, cadence, speed, temperature, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -174,6 +234,12 @@ interface Props {
   defaultXMode?: XMode
   /** Distanzbereich (in km) der im Höhenprofil als markArea hervorgehoben wird. */
   highlightRange?: { startKm: number; endKm: number } | null
+  /** Speed/Pace toggle mode: 'speed' = km/h, 'pace' = min/km (inverted Y axis). */
+  speedMode?: 'speed' | 'pace'
+  /** Sport type used for tab-based chart filtering. */
+  sportType?: string
+  /** Active tab from ChartTabs. If set, only shows charts relevant to that tab. */
+  activeTab?: string
 }
 
 function computeSunMarkLines(
@@ -211,7 +277,7 @@ function computeSunMarkLines(
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode, highlightRange }: Props) {
+export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode, highlightRange, speedMode, sportType, activeTab }: Props) {
   const data = useMemo(() => buildChartData(streams), [streams])
   const [isZoomed, setIsZoomed] = useState(false)
   const [xMode, setXMode] = useState<XMode>(defaultXMode ?? 'distance')
@@ -238,20 +304,27 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   }, [])
 
   // ── Climb highlight: markArea on altitude chart ─────────────────────────────
+  // With showGradeColor there are two series: series[0] = colored area, series[1] = green line.
+  // markArea goes on the last series (which carries markLine/markPoint decorations).
   useEffect(() => {
     const altChart = chartInstancesRef.current.get('altitude')
     if (!altChart) return
-    altChart.setOption({
-      series: [{
-        markArea: highlightRange
-          ? {
-              silent: true,
-              itemStyle: { color: 'rgba(249, 115, 22, 0.3)' },
-              data: [[{ xAxis: highlightRange.startKm }, { xAxis: highlightRange.endKm }]],
-            }
-          : { data: [] },
-      }],
-    })
+    const opt = altChart.getOption() as { series?: unknown[] }
+    const seriesCount = opt.series?.length ?? 1
+    const markAreaSeries = Array.from({ length: seriesCount }, (_, i) =>
+      i === seriesCount - 1
+        ? {
+            markArea: highlightRange
+              ? {
+                  silent: true,
+                  itemStyle: { color: 'rgba(249, 115, 22, 0.3)' },
+                  data: [[{ xAxis: highlightRange.startKm }, { xAxis: highlightRange.endKm }]],
+                }
+              : { data: [] },
+          }
+        : {},
+    )
+    altChart.setOption({ series: markAreaSeries })
   }, [highlightRange])
 
   // ── Helper: convert percentage-based zoom range to km + stream indices for map
@@ -403,35 +476,150 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     splitMarkers,
   }
 
+  // Tab-based filtering: tabCharts === null means "show all"
+  const tabCharts = activeTab ? getTabCharts(activeTab, sportType ?? '') : null
+  const show = (key: ChartKey) => tabCharts === null || tabCharts.includes(key)
+
+  // Build all panels that have data, always. Wrap each in a visibility div so
+  // ECharts instances are never destroyed on tab switch — only hidden via CSS.
   const panels: React.ReactNode[] = []
 
   if (hasValidData(data.altitude)) panels.push(
-    <ChartPanel key={k('altitude')} chartId="altitude" {...common}
-      field="altitude" label="Höhe" unit="m" color="#22c55e" area
-      markLines="minmax" altitudeSmartY showGradient
-      sunMarkLines={sunMarkLines} />,
+    <div key={k('altitude')} style={{ display: show('altitude') ? undefined : 'none' }}>
+      <ChartPanel chartId="altitude" {...common}
+        field="altitude" label="Höhe" unit="m" color="#22c55e" area
+        markLines="minmax" altitudeSmartY showGradeColor
+        sunMarkLines={sunMarkLines} />
+    </div>,
   )
   if (hasValidData(data.heartRate)) panels.push(
-    <ChartPanel key={k('hr')} chartId="hr" {...common}
-      field="heartRate" label="Herzfrequenz" unit="bpm" color="#ef4444"
-      markLines="max" />,
+    <div key={k('hr')} style={{ display: show('heartRate') ? undefined : 'none' }}>
+      <ChartPanel chartId="hr" {...common}
+        field="heartRate" label="Herzfrequenz" unit="bpm" color="#ef4444"
+        markLines="max" />
+    </div>,
   )
   if (hasValidData(data.power)) panels.push(
-    <ChartPanel key={k('power')} chartId="power" {...common}
-      field="power" label="Leistung" unit="W" color="#a855f7" />,
+    <div key={k('power')} style={{ display: show('power') ? undefined : 'none' }}>
+      <ChartPanel chartId="power" {...common}
+        field="power" label="Leistung" unit="W" color="#a855f7" />
+    </div>,
   )
   if (hasValidData(data.cadence)) panels.push(
-    <ChartPanel key={k('cadence')} chartId="cadence" {...common}
-      field="cadence" label="Kadenz" unit="rpm" color="#f97316" />,
+    <div key={k('cadence')} style={{ display: show('cadence') ? undefined : 'none' }}>
+      <ChartPanel chartId="cadence" {...common}
+        field="cadence" label={sportType ? fieldLabel('cadence', sportType) : 'Kadenz'} unit={sportType ? fieldUnit('cadence', sportType) : 'rpm'} color="#f97316" />
+    </div>,
   )
-  if (hasValidData(data.speed)) panels.push(
-    <ChartPanel key={k('speed')} chartId="speed" {...common}
-      field="speed" label="Geschwindigkeit" unit="km/h" color="#3b82f6" />,
-  )
+  if (hasValidData(data.speed)) {
+    if (speedMode === 'pace') {
+      // Sport-aware pace conversion
+      const sg = sportType ? getSegmentGroup(sportType) : 'foot'
+      const isRowingSport = sportType === 'rowing'
+      const isSwimSport = sg === 'swim'
+      const divisor = isRowingSport ? 500 : isSwimSport ? 100 : 1000
+      const paceUnit = isRowingSport ? 'min/500m' : isSwimSport ? 'min/100m' : 'min/km'
+      const paceLabel = isRowingSport ? '500-m-Pace' : sportType ? fieldLabel('speed', sportType) : 'Pace'
+
+      const paceValues = data.speedMs.map(ms =>
+        ms > 0 && isFinite(ms) ? divisor / ms / 60 : NaN,
+      )
+      const paceFmt = (minPer: number): string => {
+        if (isNaN(minPer) || !isFinite(minPer)) return '—'
+        const min = Math.floor(minPer)
+        const sec = Math.round((minPer - min) * 60)
+        return `${min}:${sec.toString().padStart(2, '0')}\u202f${paceUnit}`
+      }
+      panels.push(
+        <div key={k('speed-pace')} style={{ display: show('speed') ? undefined : 'none' }}>
+          <ChartPanel chartId="speed" {...common}
+            field="speed" label={paceLabel} unit={paceUnit} color="#3b82f6"
+            overrideValues={paceValues} invertY tooltipValueFn={paceFmt} />
+        </div>,
+      )
+    } else {
+      panels.push(
+        <div key={k('speed')} style={{ display: show('speed') ? undefined : 'none' }}>
+          <ChartPanel chartId="speed" {...common}
+            field="speed" label={sportType ? fieldLabel('speed', sportType) : 'Geschwindigkeit'} unit="km/h" color="#3b82f6" />
+        </div>,
+      )
+    }
+  }
   if (hasValidData(data.temperature)) panels.push(
-    <ChartPanel key={k('temperature')} chartId="temperature" {...common}
-      field="temperature" label="Temperatur" unit="°C" color="#06b6d4"
-      markLines="minmax" />,
+    <div key={k('temperature')} style={{ display: show('temperature') ? undefined : 'none' }}>
+      <ChartPanel chartId="temperature" {...common}
+        field="temperature" label="Temperatur" unit="°C" color="#06b6d4"
+        markLines="minmax" />
+    </div>,
+  )
+  // Running Dynamics: dual-axis GCT + VO chart
+  if (hasValidData(data.groundContactTime) || hasValidData(data.verticalOscillation)) panels.push(
+    <div key={k('running-dynamics')} style={{ display: show('runningDynamics') ? undefined : 'none' }}>
+      <RunningDynamicsChartPanel chartId="running-dynamics" {...common} />
+    </div>,
+  )
+  // Step Length: single series
+  if (hasValidData(data.stepLength)) panels.push(
+    <div key={k('step-length')} style={{ display: show('stepLength') ? undefined : 'none' }}>
+      <ChartPanel chartId="step-length" {...common}
+        field="stepLength" label="Schrittlänge" unit="m" color="#0891b2"
+        overrideValues={data.stepLength} />
+    </div>,
+  )
+  // Pedal Analytics: Torque Effectiveness L/R
+  if (hasValidData(data.torqueEffL) || hasValidData(data.torqueEffR)) panels.push(
+    <div key={k('torque-eff')} style={{ display: show('torqueEff') ? undefined : 'none' }}>
+      <PedalDualChartPanel chartId="torque-eff" {...common}
+        leftValues={data.torqueEffL} rightValues={data.torqueEffR}
+        leftLabel="Drehmoment-Eff. Links" rightLabel="Drehmoment-Eff. Rechts"
+        leftColor="#EC4899" rightColor="#A855F7"
+        leftAxisName="Links\n(%)" rightAxisName="Rechts\n(%)"
+        tooltipTitle="Drehmoment-Eff." />
+    </div>,
+  )
+  // Pedal Analytics: Pedal Smoothness L/R
+  if (hasValidData(data.pedalSmL) || hasValidData(data.pedalSmR)) panels.push(
+    <div key={k('pedal-sm')} style={{ display: show('pedalSm') ? undefined : 'none' }}>
+      <PedalDualChartPanel chartId="pedal-sm" {...common}
+        leftValues={data.pedalSmL} rightValues={data.pedalSmR}
+        leftLabel="Tritt-Gleichm. Links" rightLabel="Tritt-Gleichm. Rechts"
+        leftColor="#A855F7" rightColor="#8B5CF6"
+        leftAxisName="Links\n(%)" rightAxisName="Rechts\n(%)"
+        tooltipTitle="Tritt-Gleichm." />
+    </div>,
+  )
+  // E-Bike: Motor Power
+  if (hasValidData(data.motorPower)) panels.push(
+    <div key={k('motor-power')} style={{ display: show('motorPower') ? undefined : 'none' }}>
+      <ChartPanel chartId="motor-power" {...common}
+        field="power" label="Motorleistung" unit="W" color="#9333EA"
+        overrideValues={data.motorPower} />
+    </div>,
+  )
+  // E-Bike: Battery Level (fixed 0–100 % Y axis)
+  if (hasValidData(data.batteryLevel)) panels.push(
+    <div key={k('battery')} style={{ display: show('batteryLevel') ? undefined : 'none' }}>
+      <ChartPanel chartId="battery" {...common}
+        field="power" label="Akku-Level" unit="%" color="#22C55E"
+        overrideValues={data.batteryLevel} yAxisFixed={[0, 100]} />
+    </div>,
+  )
+  // E-Bike: Travel Range
+  if (hasValidData(data.travelRange)) panels.push(
+    <div key={k('travel-range')} style={{ display: show('travelRange') ? undefined : 'none' }}>
+      <ChartPanel chartId="travel-range" {...common}
+        field="power" label="Reichweite" unit="km" color="#6B7280"
+        overrideValues={data.travelRange} />
+    </div>,
+  )
+  // Dive: Depth profile — Y axis inverted so surface = top, depth = bottom
+  if (hasValidData(data.depth)) panels.push(
+    <div key={k('depth')} style={{ display: show('depth') ? undefined : 'none' }}>
+      <ChartPanel chartId="depth" {...common}
+        field="altitude" label="Tiefe" unit="m" color="#3B82F6" area
+        overrideValues={data.depth} invertY />
+    </div>,
   )
 
   if (panels.length === 0) return null
@@ -472,6 +660,529 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   )
 }
 
+// ── Pedal Analytics Dual-Axis Chart Panel ─────────────────────────────────────
+
+interface PedalDualChartPanelProps {
+  chartId: string
+  data: ChartData
+  leftValues: number[]
+  rightValues: number[]
+  leftLabel: string
+  rightLabel: string
+  leftColor: string
+  rightColor: string
+  leftAxisName: string
+  rightAxisName: string
+  tooltipTitle: string
+  onHover: (index: number | null) => void
+  onBrushZoom: (startValue: number, endValue: number) => void
+  onSyncZoom: (start: number, end: number, sourceId: string) => void
+  onRegister: (id: string, chart: echarts.ECharts) => void
+  onUnregister: (id: string) => void
+  brushZoomLockRef: React.MutableRefObject<boolean>
+  xMode: XMode
+  splitMarkers?: SplitMarker[]
+}
+
+function PedalDualChartPanel({
+  chartId, data, leftValues, rightValues, leftLabel, rightLabel,
+  leftColor, rightColor, leftAxisName, rightAxisName, tooltipTitle,
+  onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
+  brushZoomLockRef, xMode, splitMarkers,
+}: PedalDualChartPanelProps) {
+  const containerRef = useECharts(
+    () => {
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+
+      const gridTop = (splitMarkers && splitMarkers.length > 0) ? 34 : 8
+      const xFormatter = xMode === 'distance'
+        ? (v: number) => v.toFixed(1)
+        : (v: number) => formatElapsed(v, data.maxElapsed)
+
+      const mlData: Record<string, unknown>[] = []
+      if (splitMarkers && splitMarkers.length > 0) {
+        for (const marker of splitMarkers) {
+          mlData.push({
+            xAxis: xMode === 'distance' ? marker.distanceKm : marker.elapsedMin,
+            lineStyle: { color: '#94a3b8', type: 'dashed', width: 1, opacity: 0.8 },
+            label: {
+              show: true,
+              position: 'insideStartTop',
+              formatter: marker.label,
+              fontSize: 10,
+              color: '#94a3b8',
+            },
+          })
+        }
+      }
+
+      return {
+        animation: false,
+        grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
+
+        brush: {
+          toolbox: [],
+          brushType: 'lineX',
+          brushStyle: {
+            borderWidth: 1,
+            color: 'rgba(249,115,22,0.12)',
+            borderColor: '#f97316',
+          },
+          throttleType: 'debounce',
+          throttleDelay: 100,
+        },
+
+        tooltip: {
+          trigger: 'axis',
+          transitionDuration: 0,
+          confine: true,
+          backgroundColor: 'rgba(255,255,255,0.96)',
+          borderColor: '#e5e5e5',
+          borderWidth: 1,
+          padding: [8, 10],
+          textStyle: { fontSize: 12, color: '#333' },
+          axisPointer: {
+            type: 'line',
+            lineStyle: { color: '#f97316', width: 1, type: 'dashed' },
+            animation: false,
+          },
+          formatter: (params: unknown) => {
+            const arr = Array.isArray(params) ? params : [params]
+            const p = arr[0] as { dataIndex?: number }
+            if (p?.dataIndex == null) return ''
+            const idx = p.dataIndex
+            const kmStr = (data.distanceKm[idx] ?? 0).toFixed(1)
+            const elapsed = data.elapsedMin[idx] ?? 0
+            const timeStr = formatElapsed(elapsed, data.maxElapsed)
+            const posLine = xMode === 'distance'
+              ? `${kmStr}\u202fkm`
+              : `${timeStr}\u2009·\u2009${kmStr}\u202fkm`
+            let html = `<div style="line-height:1.75;min-width:160px">`
+            html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
+            html += `<div style="font-size:11px;color:#888;margin-bottom:2px">${tooltipTitle}</div>`
+            const lv = leftValues[idx]
+            if (!isNaN(lv)) html += `<div style="font-size:13px;color:${leftColor}"><strong>${lv.toFixed(1)}\u202f%</strong> Links</div>`
+            const rv = rightValues[idx]
+            if (!isNaN(rv)) html += `<div style="font-size:13px;color:${rightColor}"><strong>${rv.toFixed(1)}\u202f%</strong> Rechts</div>`
+            return html + '</div>'
+          },
+        },
+
+        xAxis: {
+          type: 'value',
+          min: 0,
+          max: xMax,
+          axisLabel: { fontSize: 11, color: '#666', formatter: xFormatter },
+          splitLine: { show: false },
+          axisLine: { lineStyle: { color: '#ddd' } },
+          axisTick: { lineStyle: { color: '#ddd' } },
+        },
+
+        yAxis: {
+          type: 'value',
+          min: 0,
+          max: 100,
+          name: '%',
+          nameTextStyle: { fontSize: 10, color: '#666' },
+          axisLabel: { fontSize: 11, color: '#666', margin: 8, formatter: (v: number) => `${v}` },
+          splitLine: { lineStyle: { color: '#eee', type: 'dashed' } },
+          axisLine: { show: false },
+          axisTick: { show: false },
+        },
+
+        series: [
+          {
+            type: 'line',
+            data: xData.map((x, i) => [x, leftValues[i]]),
+            showSymbol: false,
+            lineStyle: { width: 1.5, color: leftColor },
+            itemStyle: { color: leftColor },
+            connectNulls: true,
+            ...(mlData.length > 0 ? {
+              markLine: {
+                silent: true,
+                symbol: ['none', 'none'],
+                data: mlData,
+              },
+            } : {}),
+          },
+          {
+            type: 'line',
+            data: xData.map((x, i) => [x, rightValues[i]]),
+            showSymbol: false,
+            lineStyle: { width: 1.5, color: rightColor },
+            itemStyle: { color: rightColor },
+            connectNulls: true,
+          },
+        ],
+
+        dataZoom: [
+          {
+            type: 'inside',
+            xAxisIndex: 0,
+            filterMode: 'none',
+            zoomOnMouseWheel: true,
+            moveOnMouseMove: true,
+            moveOnMouseWheel: false,
+          },
+        ],
+      } as echarts.EChartsCoreOption
+    },
+    [data, xMode, splitMarkers, leftValues, rightValues, leftColor, rightColor, tooltipTitle], // eslint-disable-line react-hooks/exhaustive-deps
+    (chart) => {
+      onRegister(chartId, chart)
+
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+
+      chart.dispatchAction({
+        type: 'takeGlobalCursor',
+        key: 'brush',
+        brushOption: { brushType: 'lineX', brushMode: 'single' },
+      })
+
+      chart.on('showTip', (params: unknown) => {
+        const typed = params as { dataIndex?: number }
+        if (typed.dataIndex != null) onHover(typed.dataIndex)
+      })
+      chart.on('hideTip', () => onHover(null))
+
+      type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
+
+      chart.on('brushEnd', (params: unknown) => {
+        if (brushZoomLockRef.current) return
+        brushZoomLockRef.current = true
+
+        const p = params as {
+          areas?: BrushArea[]
+          batch?: Array<{ areas?: BrushArea[] }>
+        }
+        const areas = p.areas ?? p.batch?.[0]?.areas
+        if (!areas || areas.length === 0) {
+          brushZoomLockRef.current = false
+          return
+        }
+
+        const area = areas[0]
+        let startData: number
+        let endData: number
+
+        if (area.coordRange) {
+          [startData, endData] = area.coordRange
+        } else if (area.range) {
+          const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
+          const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
+          if (s == null || e == null) { brushZoomLockRef.current = false; return }
+          startData = s as number
+          endData = e as number
+        } else {
+          brushZoomLockRef.current = false
+          return
+        }
+
+        if (endData <= startData) { brushZoomLockRef.current = false; return }
+        onBrushZoom(Math.max(0, startData), Math.min(xMax, endData))
+
+        requestAnimationFrame(() => { brushZoomLockRef.current = false })
+      })
+
+      chart.on('dataZoom', (params: unknown) => {
+        const p = params as {
+          batch?: Array<{ start: number; end: number }>
+          start?: number
+          end?: number
+        }
+        const z = p.batch?.[0] ?? (p.start != null && p.end != null ? p as { start: number; end: number } : null)
+        if (z != null) onSyncZoom(z.start, z.end, chartId)
+      })
+
+      return () => onUnregister(chartId)
+    },
+  )
+
+  return (
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+      <div className="flex items-center gap-4 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60">
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: leftColor }} />
+          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+            {leftLabel} <span className="font-normal text-neutral-400 dark:text-neutral-600">(%)</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: rightColor }} />
+          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+            {rightLabel} <span className="font-normal text-neutral-400 dark:text-neutral-600">(%)</span>
+          </span>
+        </div>
+      </div>
+      <div ref={containerRef} className="h-[180px] w-full" />
+    </div>
+  )
+}
+
+// ── Running Dynamics Dual-Axis Chart Panel ─────────────────────────────────────
+
+interface RunningDynamicsChartPanelProps {
+  chartId: string
+  data: ChartData
+  onHover: (index: number | null) => void
+  onBrushZoom: (startValue: number, endValue: number) => void
+  onSyncZoom: (start: number, end: number, sourceId: string) => void
+  onRegister: (id: string, chart: echarts.ECharts) => void
+  onUnregister: (id: string) => void
+  brushZoomLockRef: React.MutableRefObject<boolean>
+  xMode: XMode
+  splitMarkers?: SplitMarker[]
+}
+
+function RunningDynamicsChartPanel({
+  chartId, data, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
+  brushZoomLockRef, xMode, splitMarkers,
+}: RunningDynamicsChartPanelProps) {
+  const containerRef = useECharts(
+    () => {
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+      const gctValues = data.groundContactTime
+      const voValues = data.verticalOscillation
+
+      const gridTop = (splitMarkers && splitMarkers.length > 0) ? 34 : 8
+      const xFormatter = xMode === 'distance'
+        ? (v: number) => v.toFixed(1)
+        : (v: number) => formatElapsed(v, data.maxElapsed)
+
+      const mlData: Record<string, unknown>[] = []
+      if (splitMarkers && splitMarkers.length > 0) {
+        for (const marker of splitMarkers) {
+          mlData.push({
+            xAxis: xMode === 'distance' ? marker.distanceKm : marker.elapsedMin,
+            lineStyle: { color: '#94a3b8', type: 'dashed', width: 1, opacity: 0.8 },
+            label: {
+              show: true,
+              position: 'insideStartTop',
+              formatter: marker.label,
+              fontSize: 10,
+              color: '#94a3b8',
+            },
+          })
+        }
+      }
+
+      return {
+        animation: false,
+        grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
+
+        brush: {
+          toolbox: [],
+          brushType: 'lineX',
+          brushStyle: {
+            borderWidth: 1,
+            color: 'rgba(249,115,22,0.12)',
+            borderColor: '#f97316',
+          },
+          throttleType: 'debounce',
+          throttleDelay: 100,
+        },
+
+        tooltip: {
+          trigger: 'axis',
+          transitionDuration: 0,
+          confine: true,
+          backgroundColor: 'rgba(255,255,255,0.96)',
+          borderColor: '#e5e5e5',
+          borderWidth: 1,
+          padding: [8, 10],
+          textStyle: { fontSize: 12, color: '#333' },
+          axisPointer: {
+            type: 'line',
+            lineStyle: { color: '#f97316', width: 1, type: 'dashed' },
+            animation: false,
+          },
+          formatter: (params: unknown) => {
+            const arr = Array.isArray(params) ? params : [params]
+            const p = arr[0] as { dataIndex?: number }
+            if (p?.dataIndex == null) return ''
+            const idx = p.dataIndex
+            const kmStr = (data.distanceKm[idx] ?? 0).toFixed(1)
+            const elapsed = data.elapsedMin[idx] ?? 0
+            const timeStr = formatElapsed(elapsed, data.maxElapsed)
+            const posLine = xMode === 'distance'
+              ? `${kmStr}\u202fkm`
+              : `${timeStr}\u2009·\u2009${kmStr}\u202fkm`
+            let html = `<div style="line-height:1.75;min-width:150px">`
+            html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
+            const gct = gctValues[idx]
+            if (!isNaN(gct)) html += `<div style="font-size:13px;color:#10B981"><strong>${Math.round(gct)}\u202fms</strong> GCT</div>`
+            const vo = voValues[idx]
+            if (!isNaN(vo)) html += `<div style="font-size:13px;color:#06B6D4"><strong>${vo.toFixed(1)}\u202fcm</strong> Vert. Oszi.</div>`
+            return html + '</div>'
+          },
+        },
+
+        xAxis: {
+          type: 'value',
+          min: 0,
+          max: xMax,
+          axisLabel: { fontSize: 11, color: '#666', formatter: xFormatter },
+          splitLine: { show: false },
+          axisLine: { lineStyle: { color: '#ddd' } },
+          axisTick: { lineStyle: { color: '#ddd' } },
+        },
+
+        yAxis: [
+          {
+            type: 'value',
+            name: 'GCT\n(ms)',
+            nameTextStyle: { fontSize: 10, color: '#10B981' },
+            axisLabel: { fontSize: 11, color: '#10B981', margin: 8 },
+            splitLine: { lineStyle: { color: '#eee', type: 'dashed' } },
+            axisLine: { show: false },
+            axisTick: { show: false },
+          },
+          {
+            type: 'value',
+            name: 'VO\n(cm)',
+            nameTextStyle: { fontSize: 10, color: '#06B6D4' },
+            axisLabel: { fontSize: 11, color: '#06B6D4', margin: 8 },
+            splitLine: { show: false },
+            axisLine: { show: false },
+            axisTick: { show: false },
+          },
+        ],
+
+        series: [
+          {
+            type: 'line',
+            yAxisIndex: 0,
+            data: xData.map((x, i) => [x, gctValues[i]]),
+            showSymbol: false,
+            lineStyle: { width: 1.5, color: '#10B981' },
+            itemStyle: { color: '#10B981' },
+            connectNulls: true,
+            ...(mlData.length > 0 ? {
+              markLine: {
+                silent: true,
+                symbol: ['none', 'none'],
+                data: mlData,
+              },
+            } : {}),
+          },
+          {
+            type: 'line',
+            yAxisIndex: 1,
+            data: xData.map((x, i) => [x, voValues[i]]),
+            showSymbol: false,
+            lineStyle: { width: 1.5, color: '#06B6D4' },
+            itemStyle: { color: '#06B6D4' },
+            connectNulls: true,
+          },
+        ],
+
+        dataZoom: [
+          {
+            type: 'inside',
+            xAxisIndex: 0,
+            filterMode: 'none',
+            zoomOnMouseWheel: true,
+            moveOnMouseMove: true,
+            moveOnMouseWheel: false,
+          },
+        ],
+      } as echarts.EChartsCoreOption
+    },
+    [data, xMode, splitMarkers], // eslint-disable-line react-hooks/exhaustive-deps
+    (chart) => {
+      onRegister(chartId, chart)
+
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+
+      chart.dispatchAction({
+        type: 'takeGlobalCursor',
+        key: 'brush',
+        brushOption: { brushType: 'lineX', brushMode: 'single' },
+      })
+
+      chart.on('showTip', (params: unknown) => {
+        const typed = params as { dataIndex?: number }
+        if (typed.dataIndex != null) onHover(typed.dataIndex)
+      })
+      chart.on('hideTip', () => onHover(null))
+
+      type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
+
+      chart.on('brushEnd', (params: unknown) => {
+        if (brushZoomLockRef.current) return
+        brushZoomLockRef.current = true
+
+        const p = params as {
+          areas?: BrushArea[]
+          batch?: Array<{ areas?: BrushArea[] }>
+        }
+        const areas = p.areas ?? p.batch?.[0]?.areas
+        if (!areas || areas.length === 0) {
+          brushZoomLockRef.current = false
+          return
+        }
+
+        const area = areas[0]
+        let startData: number
+        let endData: number
+
+        if (area.coordRange) {
+          [startData, endData] = area.coordRange
+        } else if (area.range) {
+          const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
+          const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
+          if (s == null || e == null) { brushZoomLockRef.current = false; return }
+          startData = s as number
+          endData = e as number
+        } else {
+          brushZoomLockRef.current = false
+          return
+        }
+
+        if (endData <= startData) { brushZoomLockRef.current = false; return }
+        onBrushZoom(Math.max(0, startData), Math.min(xMax, endData))
+
+        requestAnimationFrame(() => { brushZoomLockRef.current = false })
+      })
+
+      chart.on('dataZoom', (params: unknown) => {
+        const p = params as {
+          batch?: Array<{ start: number; end: number }>
+          start?: number
+          end?: number
+        }
+        const z = p.batch?.[0] ?? (p.start != null && p.end != null ? p as { start: number; end: number } : null)
+        if (z != null) onSyncZoom(z.start, z.end, chartId)
+      })
+
+      return () => onUnregister(chartId)
+    },
+  )
+
+  return (
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+      <div className="flex items-center gap-4 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60">
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#10B981' }} />
+          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+            Bodenkontaktzeit <span className="font-normal text-neutral-400 dark:text-neutral-600">(ms)</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#06B6D4' }} />
+          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+            Vertikale Bewegung <span className="font-normal text-neutral-400 dark:text-neutral-600">(cm)</span>
+          </span>
+        </div>
+      </div>
+      <div ref={containerRef} className="h-[180px] w-full" />
+    </div>
+  )
+}
+
 // ── Individual Chart Panel ─────────────────────────────────────────────────────
 
 interface ChartPanelProps {
@@ -490,21 +1201,30 @@ interface ChartPanelProps {
   brushZoomLockRef: React.MutableRefObject<boolean>
   markLines?: 'none' | 'max' | 'minmax'
   altitudeSmartY?: boolean
-  showGradient?: boolean
+  /** Elevation chart: use grade_pct data for grade-based area colorization */
+  showGradeColor?: boolean
   xMode: XMode
   sunMarkLines?: SunMarkLine[]
   splitMarkers?: SplitMarker[]
+  /** Override the data values array (used for pace mode: pre-converted values). */
+  overrideValues?: number[]
+  /** Invert the Y axis (used for pace mode so slower pace = lower on screen). */
+  invertY?: boolean
+  /** Custom value formatter for tooltip (used for pace mode). */
+  tooltipValueFn?: (v: number) => string
+  /** Fix Y axis to a specific [min, max] range (e.g. [0, 100] for battery %). */
+  yAxisFixed?: [number, number]
 }
 
 function ChartPanel({
   chartId, data, field, unit, label, color, area,
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
-  brushZoomLockRef, markLines = 'none', altitudeSmartY, showGradient, xMode,
-  sunMarkLines, splitMarkers,
+  brushZoomLockRef, markLines = 'none', altitudeSmartY, showGradeColor, xMode,
+  sunMarkLines, splitMarkers, overrideValues, invertY, tooltipValueFn, yAxisFixed,
 }: ChartPanelProps) {
   const containerRef = useECharts(
     () => {
-      const values = data[field]
+      const values = overrideValues ?? data[field]
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
 
@@ -514,6 +1234,8 @@ function ChartPanel({
         const range = calcAltitudeYRange(values)
         if (range) { yAxisExtra.min = range.min; yAxisExtra.max = range.max }
       }
+      if (yAxisFixed) { yAxisExtra.min = yAxisFixed[0]; yAxisExtra.max = yAxisFixed[1] }
+      if (invertY) { yAxisExtra.inverse = true }
 
       // Extra top padding for sunrise/sunset icons or split marker labels above the chart
       const gridTop = (sunMarkLines && sunMarkLines.length > 0) || (splitMarkers && splitMarkers.length > 0) ? 34 : 8
@@ -567,19 +1289,18 @@ function ChartPanel({
           ? `${kmStr}\u202fkm`
           : `${timeStr}\u2009·\u2009${kmStr}\u202fkm`
 
+        const valStr = tooltipValueFn ? tooltipValueFn(v) : `${v.toFixed(decimals)}\u2009${unit}`
+
         let html = `<div style="line-height:1.75;min-width:130px">`
         html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
-        html += `<div style="font-size:13px"><strong>${v.toFixed(decimals)}</strong>\u2009${unit}</div>`
+        html += `<div style="font-size:13px"><strong>${valStr}</strong></div>`
 
-        if (showGradient && idx > 0 && idx < values.length - 1) {
-          const prevAlt = values[idx - 1]
-          const nextAlt = values[idx + 1]
-          const dDist = ((data.distanceKm[idx + 1] ?? 0) - (data.distanceKm[idx - 1] ?? 0)) * 1000
-          if (dDist > 0 && !isNaN(prevAlt) && !isNaN(nextAlt)) {
-            const pct = ((nextAlt - prevAlt) / dDist) * 100
-            const sign = pct >= 0 ? '+' : ''
-            const gc = Math.abs(pct) > 10 ? '#dc2626' : Math.abs(pct) > 4 ? '#ea580c' : '#16a34a'
-            html += `<div style="color:${gc};font-size:12px;margin-top:1px">Steigung\u2009${sign}${pct.toFixed(1)}\u202f%</div>`
+        if (showGradeColor) {
+          const gradeVal = data.grade[idx]
+          if (gradeVal != null && !isNaN(gradeVal)) {
+            const sign = gradeVal >= 0 ? '+' : ''
+            const gc = Math.abs(gradeVal) > 10 ? '#dc2626' : Math.abs(gradeVal) > 4 ? '#ea580c' : '#16a34a'
+            html += `<div style="color:${gc};font-size:12px;margin-top:1px">Steigung\u2009${sign}${gradeVal.toFixed(1)}\u202f%</div>`
           }
         }
         return html + '</div>'
@@ -646,47 +1367,118 @@ function ChartPanel({
           ...yAxisExtra,
         },
 
-        series: [
-          {
-            type: 'line',
-            data: xData.map((x, i) => [x, values[i]]),
-            showSymbol: false,
-            lineStyle: { width: 1.5, color },
-            itemStyle: { color },
-            areaStyle: area ? { color: `${color}20` } : undefined,
-            connectNulls: true,
-            ...(mlData.length > 0 ? {
-              markLine: {
-                silent: true,
-                symbol: ['none', 'none'],
-                label: {
-                  show: true,
-                  backgroundColor: 'rgba(255,255,255,0.88)',
-                  padding: [2, 5],
-                  borderRadius: 3,
-                  formatter: (p: { value: number; name: string }) =>
-                    `${p.name}: ${p.value.toFixed(decimals)}\u2009${unit}`,
-                  color: '#444',
-                  fontSize: 11,
-                },
-                lineStyle: { type: 'dashed', color: '#ccc', width: 1 },
-                data: mlData,
+        series: showGradeColor
+          ? [
+              // Series 0: colored area driven by grade (dimension 2) via visualMap
+              {
+                type: 'line',
+                data: xData.map((x, i) => [x, values[i], data.grade[i]]),
+                showSymbol: false,
+                lineStyle: { width: 0, color: 'transparent' },
+                itemStyle: { color },
+                areaStyle: { color: `${color}20`, opacity: 1 },
+                connectNulls: true,
               },
-            } : {}),
-            ...(sunMarkLines && sunMarkLines.length > 0 ? {
-              markPoint: {
-                data: sunMarkLines.map(sm => ({
-                  coord: [sm.xAxis, yAxisExtra.max ?? Math.ceil(Math.max(...values.filter(v => !isNaN(v))))],
-                  symbol: sm.type === 'sunrise' ? SUNRISE_SVG : SUNSET_SVG,
-                  symbolSize: 24,
-                  symbolOffset: [0, -14],
-                  label: { show: false },
-                })),
-                animation: false,
+              // Series 1: green line on top (no area, carries markLine/markPoint)
+              {
+                type: 'line',
+                data: xData.map((x, i) => [x, values[i]]),
+                showSymbol: false,
+                lineStyle: { width: 1.5, color },
+                itemStyle: { color },
+                areaStyle: undefined,
+                connectNulls: true,
+                ...(mlData.length > 0 ? {
+                  markLine: {
+                    silent: true,
+                    symbol: ['none', 'none'],
+                    label: {
+                      show: true,
+                      backgroundColor: 'rgba(255,255,255,0.88)',
+                      padding: [2, 5],
+                      borderRadius: 3,
+                      formatter: (p: { value: number; name: string }) =>
+                        `${p.name}: ${p.value.toFixed(decimals)}\u2009${unit}`,
+                      color: '#444',
+                      fontSize: 11,
+                    },
+                    lineStyle: { type: 'dashed', color: '#ccc', width: 1 },
+                    data: mlData,
+                  },
+                } : {}),
+                ...(sunMarkLines && sunMarkLines.length > 0 ? {
+                  markPoint: {
+                    data: sunMarkLines.map(sm => ({
+                      coord: [sm.xAxis, yAxisExtra.max ?? Math.ceil(Math.max(...values.filter(v => !isNaN(v))))],
+                      symbol: sm.type === 'sunrise' ? SUNRISE_SVG : SUNSET_SVG,
+                      symbolSize: 24,
+                      symbolOffset: [0, -14],
+                      label: { show: false },
+                    })),
+                    animation: false,
+                  },
+                } : {}),
               },
-            } : {}),
-          },
-        ],
+            ]
+          : [
+              {
+                type: 'line',
+                data: xData.map((x, i) => [x, values[i]]),
+                showSymbol: false,
+                lineStyle: { width: 1.5, color },
+                itemStyle: { color },
+                areaStyle: area ? { color: `${color}20` } : undefined,
+                connectNulls: true,
+                ...(mlData.length > 0 ? {
+                  markLine: {
+                    silent: true,
+                    symbol: ['none', 'none'],
+                    label: {
+                      show: true,
+                      backgroundColor: 'rgba(255,255,255,0.88)',
+                      padding: [2, 5],
+                      borderRadius: 3,
+                      formatter: (p: { value: number; name: string }) =>
+                        `${p.name}: ${p.value.toFixed(decimals)}\u2009${unit}`,
+                      color: '#444',
+                      fontSize: 11,
+                    },
+                    lineStyle: { type: 'dashed', color: '#ccc', width: 1 },
+                    data: mlData,
+                  },
+                } : {}),
+                ...(sunMarkLines && sunMarkLines.length > 0 ? {
+                  markPoint: {
+                    data: sunMarkLines.map(sm => ({
+                      coord: [sm.xAxis, yAxisExtra.max ?? Math.ceil(Math.max(...values.filter(v => !isNaN(v))))],
+                      symbol: sm.type === 'sunrise' ? SUNRISE_SVG : SUNSET_SVG,
+                      symbolSize: 24,
+                      symbolOffset: [0, -14],
+                      label: { show: false },
+                    })),
+                    animation: false,
+                  },
+                } : {}),
+              },
+            ],
+
+        ...(showGradeColor ? {
+          visualMap: [{
+            show: false,
+            dimension: 2,  // grade_pct
+            seriesIndex: 0,  // the colored area series
+            pieces: [
+              { gt: -100, lte: -12, color: 'rgba(124,58,237,0.50)' },   // Very steep downhill → Purple
+              { gt: -12,  lte: -5,  color: 'rgba(59,130,246,0.40)' },   // Steep downhill → Blue
+              { gt: -5,   lte: -2,  color: 'rgba(96,165,250,0.30)' },   // Moderate downhill → Light blue
+              { gt: -2,   lte: 2,   color: 'rgba(34,197,94,0.25)' },    // Flat → Green
+              { gt: 2,    lte: 5,   color: 'rgba(251,191,36,0.35)' },   // Moderate uphill → Yellow
+              { gt: 5,    lte: 12,  color: 'rgba(249,115,22,0.45)' },   // Steep uphill → Orange
+              { gt: 12,   lte: 20,  color: 'rgba(220,38,38,0.55)' },    // Very steep → Red
+              { gt: 20,             color: 'rgba(153,27,27,0.65)' },    // Extreme → Dark red
+            ],
+          }],
+        } : {}),
 
         dataZoom: [
           {
@@ -700,7 +1492,7 @@ function ChartPanel({
         ],
       } as echarts.EChartsCoreOption
     },
-    [data, field, xMode, splitMarkers], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, field, xMode, splitMarkers, showGradeColor, overrideValues, invertY, yAxisFixed], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       onRegister(chartId, chart)
 

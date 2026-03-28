@@ -1,46 +1,26 @@
 import type { Lap } from '@/api/types'
 import { fmtDuration, fmtDist } from '@/lib/format'
+import { formatSpeedValue, fieldLabel, fieldUnit, swimStrokeLabel } from '@/lib/sportFieldLabels'
+import { getSegmentGroup } from '@/lib/sportTaxonomy'
 
 interface Props {
   laps: Lap[]
   sportType: string
-}
-
-function fmtPace(speedMs?: number): string {
-  if (speedMs == null || speedMs <= 0) return '--'
-  const secPerKm = 1000 / speedMs
-  const m = Math.floor(secPerKm / 60)
-  const s = Math.floor(secPerKm % 60)
-  return `${m}:${s.toString().padStart(2, '0')} /km`
-}
-
-function fmtSpeed(speedMs?: number): string {
-  if (speedMs == null || speedMs <= 0) return '--'
-  return `${(speedMs * 3.6).toFixed(1)} km/h`
-}
-
-function isRunLike(sport: string): boolean {
-  return ['running', 'hiking', 'walking'].includes(sport)
-}
-
-function isSwimLike(sport: string): boolean {
-  return sport === 'swimming'
-}
-
-function isCycleLike(sport: string): boolean {
-  return sport === 'cycling' || sport === 'mountain_biking' || sport === 'gravel_cycling'
+  speedMode?: 'speed' | 'pace'
 }
 
 const thClass = 'px-2 py-1.5 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400 whitespace-nowrap'
 const tdClass = 'px-2 py-1.5 text-sm text-neutral-900 dark:text-neutral-100 whitespace-nowrap'
 
-export default function LapTable({ laps, sportType }: Props) {
-  const showPace = isRunLike(sportType)
-  const showPower = isCycleLike(sportType) && laps.some(l => l.avg_power_w != null)
+export default function LapTable({ laps, sportType, speedMode }: Props) {
+  const segGroup = getSegmentGroup(sportType)
+  const effectiveMode = speedMode ?? (segGroup === 'foot' || segGroup === 'swim' ? 'pace' : 'speed')
+  const showPace = effectiveMode === 'pace'
+  const showPower = segGroup === 'bike' && laps.some(l => l.avg_power_w != null)
   const showNP = showPower && laps.some(l => l.normalized_power_w != null)
-  const showCadence = (isCycleLike(sportType) || isRunLike(sportType)) && laps.some(l => l.avg_cadence != null)
-  const showRunDynamics = isRunLike(sportType) && laps.some(l => l.avg_vertical_oscillation_mm != null || l.avg_stance_time_ms != null || l.avg_step_length_mm != null)
-  const showSwim = isSwimLike(sportType)
+  const showCadence = (segGroup === 'bike' || segGroup === 'foot') && laps.some(l => l.avg_cadence != null)
+  const showRunDynamics = segGroup === 'foot' && laps.some(l => l.avg_vertical_oscillation_mm != null || l.avg_stance_time_ms != null || l.avg_step_length_mm != null)
+  const showSwim = segGroup === 'swim'
   const showHR = laps.some(l => l.avg_heart_rate != null)
 
   return (
@@ -57,7 +37,7 @@ export default function LapTable({ laps, sportType }: Props) {
               {showHR && <th className={thClass}>HR</th>}
               {showPower && <th className={thClass}>Power</th>}
               {showNP && <th className={thClass}>NP</th>}
-              {showCadence && <th className={thClass}>Kadenz</th>}
+              {showCadence && <th className={thClass}>{fieldLabel('cadence', sportType)}</th>}
               {showRunDynamics && <th className={thClass}>Vert. Osz.</th>}
               {showRunDynamics && <th className={thClass}>Bodenkontakt</th>}
               {showRunDynamics && <th className={thClass}>Schrittl.</th>}
@@ -75,11 +55,11 @@ export default function LapTable({ laps, sportType }: Props) {
                 <td className={tdClass}>{lap.lap_index != null ? lap.lap_index + 1 : '--'}</td>
                 <td className={tdClass}>{fmtDuration(lap.timer_time_s ?? lap.elapsed_time_s)}</td>
                 <td className={tdClass}>{fmtDist(lap.distance_m)}</td>
-                <td className={tdClass}>{showPace ? fmtPace(lap.avg_speed_ms) : fmtSpeed(lap.avg_speed_ms)}</td>
+                <td className={tdClass}>{formatSpeedValue(lap.avg_speed_ms, sportType, speedMode)}</td>
                 {showHR && <td className={tdClass}>{lap.avg_heart_rate != null ? `${Math.round(lap.avg_heart_rate)} bpm` : '--'}</td>}
                 {showPower && <td className={tdClass}>{lap.avg_power_w != null ? `${Math.round(lap.avg_power_w)} W` : '--'}</td>}
                 {showNP && <td className={tdClass}>{lap.normalized_power_w != null ? `${Math.round(lap.normalized_power_w)} W` : '--'}</td>}
-                {showCadence && <td className={tdClass}>{lap.avg_cadence != null ? `${Math.round(lap.avg_cadence)}` : '--'}</td>}
+                {showCadence && <td className={tdClass}>{lap.avg_cadence != null ? `${Math.round(lap.avg_cadence)} ${fieldUnit('cadence', sportType)}` : '--'}</td>}
                 {showRunDynamics && <td className={tdClass}>{lap.avg_vertical_oscillation_mm != null ? `${(lap.avg_vertical_oscillation_mm / 10).toFixed(1)} cm` : '--'}</td>}
                 {showRunDynamics && <td className={tdClass}>{lap.avg_stance_time_ms != null ? `${Math.round(lap.avg_stance_time_ms)} ms` : '--'}</td>}
                 {showRunDynamics && <td className={tdClass}>{lap.avg_step_length_mm != null ? `${(lap.avg_step_length_mm / 10).toFixed(0)} cm` : '--'}</td>}
@@ -95,16 +75,3 @@ export default function LapTable({ laps, sportType }: Props) {
   )
 }
 
-function swimStrokeLabel(stroke?: string): string {
-  if (!stroke) return '--'
-  const labels: Record<string, string> = {
-    freestyle: 'Kraul',
-    backstroke: 'Ruecken',
-    breaststroke: 'Brust',
-    butterfly: 'Schmetterling',
-    drill: 'Drill',
-    mixed: 'Gemischt',
-    im: 'Lagen',
-  }
-  return labels[stroke] ?? stroke
-}

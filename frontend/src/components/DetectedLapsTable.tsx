@@ -2,20 +2,14 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchDetectedLaps } from '@/api/segments'
 import { fmtDuration, fmtDist } from '@/lib/format'
+import { formatSpeedValue } from '@/lib/sportFieldLabels'
 
 interface Props {
   activityId: string
+  sportType: string
 }
 
-function fmtPace(speedMs: number | undefined): string {
-  if (speedMs == null || speedMs <= 0) return '--'
-  const minPerKm = (1000 / speedMs) / 60
-  const min = Math.floor(minPerKm)
-  const sec = Math.round((minPerKm - min) * 60)
-  return `${min}:${sec.toString().padStart(2, '0')} /km`
-}
-
-export default function DetectedLapsTable({ activityId }: Props) {
+export default function DetectedLapsTable({ activityId, sportType }: Props) {
   const [collapsed, setCollapsed] = useState(false)
 
   const { data: laps = [], isLoading } = useQuery({
@@ -107,7 +101,7 @@ export default function DetectedLapsTable({ activityId }: Props) {
                       {fmtDist(lap.distance_m)}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                      {fmtPace(lap.avg_speed_ms)}
+                      {formatSpeedValue(lap.avg_speed_ms, sportType)}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
                       {lap.avg_heart_rate != null ? `${Math.round(lap.avg_heart_rate)}` : '--'}

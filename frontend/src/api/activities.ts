@@ -1,7 +1,7 @@
 import { apiClient, parseContentDisposition } from './client'
 import { getToken, clearToken } from '@/lib/auth'
 import { ApiError } from './client'
-import type { ActivitiesResponse, Activity, StreamPoint, Sensor, ZoneDistribution, PowerCurveResponse, Lap, Split, SplitSummary, SwimLength, ClimbProEvent } from './types'
+import type { ActivitiesResponse, Activity, StreamPoint, Sensor, ZoneDistribution, PowerCurveResponse, Lap, Split, SplitSummary, SwimLength, ClimbProEvent, ActivitySet, ActivityJump, ActivityEvent } from './types'
 
 export interface ActivityFilterParams {
   sportTypes?: string[]
@@ -252,6 +252,23 @@ export async function deleteActivities(ids: string[]): Promise<{ deleted: number
     method: 'DELETE',
     body: { ids },
   })
+}
+
+// ── Phase 1 Data Endpoints ──────────────────────────────────────────────────────
+
+export async function fetchActivitySets(id: string): Promise<ActivitySet[]> {
+  const res = await apiClient<{ sets: ActivitySet[] }>(`/activities/${id}/sets`)
+  return res.sets
+}
+
+export async function fetchActivityJumps(id: string): Promise<ActivityJump[]> {
+  const res = await apiClient<{ jumps: ActivityJump[] }>(`/activities/${id}/jumps`)
+  return res.jumps
+}
+
+export async function fetchActivityEvents(id: string, limit = 500): Promise<ActivityEvent[]> {
+  const res = await apiClient<{ events: ActivityEvent[] }>(`/activities/${id}/events?limit=${limit}`)
+  return res.events
 }
 
 // ── ZIP Export ────────────────────────────────────────────────────────────────

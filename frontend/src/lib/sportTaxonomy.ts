@@ -19,6 +19,7 @@ export interface SubTypeDef {
 export interface SportDef {
   sportType: string
   categoryKey: string
+  segmentGroup: 'bike' | 'foot' | 'swim' | 'ski' | 'paddle' | 'generic'
   label: string
   typicallyHasGPS: boolean
   subTypes: SubTypeDef[]
@@ -46,11 +47,12 @@ const categoryMap = new Map<string, SportCategory>(CATEGORIES.map((c) => [c.key,
 function def(
   sportType: string,
   categoryKey: string,
+  segmentGroup: 'bike' | 'foot' | 'swim' | 'ski' | 'paddle' | 'generic',
   label: string,
   typicallyHasGPS: boolean,
   subTypes: SubTypeDef[] = [],
 ): SportDef {
-  return { sportType, categoryKey, label, typicallyHasGPS, subTypes }
+  return { sportType, categoryKey, segmentGroup, label, typicallyHasGPS, subTypes }
 }
 
 function sub(subType: string, label: string, detail?: string): SubTypeDef {
@@ -61,7 +63,7 @@ function sub(subType: string, label: string, detail?: string): SubTypeDef {
 
 export const SPORT_DEFS: SportDef[] = [
   // ── run ──
-  def('running', 'run', 'Laufen', true, [
+  def('running', 'run', 'foot', 'Laufen', true, [
     sub('treadmill', 'Laufband'),
     sub('street', 'Straße'),
     sub('trail', 'Trail'),
@@ -70,20 +72,22 @@ export const SPORT_DEFS: SportDef[] = [
     sub('ultra', 'Ultra'),
     sub('obstacle', 'Hindernislauf'),
   ]),
-  def('walking', 'run', 'Gehen', true, [
+  def('walking', 'run', 'foot', 'Gehen', true, [
     sub('casual_walking', 'Gehen'),
     sub('speed_walking', 'Speedwalking'),
     sub('indoor_walking', 'Indoor'),
   ]),
-  def('hiking', 'run', 'Wandern', true),
-  def('mountaineering', 'run', 'Bergsteigen', true),
-  def('snowshoeing', 'run', 'Schneeschuhwandern', true),
-  def('floor_climbing', 'run', 'Treppensteigen', false),
-  def('wheelchair_push_walk', 'run', 'Rollstuhl (Fahren)', true),
-  def('wheelchair_push_run', 'run', 'Rollstuhl (Rennen)', true),
+  def('hiking', 'run', 'foot', 'Wandern', true),
+  def('mountaineering', 'run', 'foot', 'Bergsteigen', true),
+  def('snowshoeing', 'run', 'foot', 'Schneeschuhwandern', true),
+  def('floor_climbing', 'run', 'foot', 'Treppensteigen', false),
+  def('wheelchair_push_walk', 'run', 'foot', 'Rollstuhl (Fahren)', true),
+  def('wheelchair_push_run', 'run', 'foot', 'Rollstuhl (Rennen)', true),
+  def('trail_running', 'run', 'foot', 'Trailrunning', true),
+  def('treadmill_running', 'run', 'foot', 'Laufband', false),
 
   // ── bike ──
-  def('cycling', 'bike', 'Radfahren', true, [
+  def('cycling', 'bike', 'bike', 'Radfahren', true, [
     sub('road', 'Rennrad'),
     sub('mountain', 'MTB'),
     sub('downhill', 'Downhill'),
@@ -98,95 +102,103 @@ export const SPORT_DEFS: SportDef[] = [
     sub('recumbent', 'Liegerad'),
     sub('unicycling', 'Einrad'),
   ]),
-  def('inline_skating', 'outdoor', 'Inline-Skaten', true),
+  def('mountain_biking', 'bike', 'bike', 'Mountainbiken', true),
+  def('gravel_cycling', 'bike', 'bike', 'Gravel', true),
+  def('indoor_cycling', 'bike', 'bike', 'Indoor-Radfahren', false),
+  def('inline_skating', 'outdoor', 'generic', 'Inline-Skaten', true),
 
   // ── winter ──
-  def('alpine_skiing', 'winter', 'Alpin-Ski', true, [
+  def('alpine_skiing', 'winter', 'ski', 'Alpin-Ski', true, [
     sub('resort', 'Piste'),
     sub('backcountry', 'Backcountry'),
     sub('indoor_skiing', 'Indoor'),
   ]),
-  def('backcountry_skiing', 'winter', 'Skitour', true),
-  def('cross_country_skiing', 'winter', 'Langlauf', true, [
+  def('backcountry_skiing', 'winter', 'ski', 'Skitour', true),
+  def('cross_country_skiing', 'winter', 'ski', 'Langlauf', true, [
     sub('skate_skiing', 'Skating'),
   ]),
-  def('snowboarding', 'winter', 'Snowboard', true),
-  def('ice_skating', 'winter', 'Eislaufen', true),
-  def('snowmobiling', 'winter', 'Schneemobil', true),
-  def('sledding', 'winter', 'Rodeln', true),
+  def('snowboarding', 'winter', 'ski', 'Snowboard', true),
+  def('ice_skating', 'winter', 'generic', 'Eislaufen', true),
+  def('snowmobiling', 'winter', 'generic', 'Schneemobil', true),
+  def('sledding', 'winter', 'generic', 'Rodeln', true),
+  def('skiing', 'winter', 'ski', 'Skifahren', true),
 
   // ── water ──
-  def('swimming', 'water', 'Schwimmen', true, [
+  def('swimming', 'water', 'swim', 'Schwimmen', true, [
     sub('lap_swimming', 'Hallenbad'),
     sub('open_water', 'Freiwasser'),
   ]),
-  def('paddling', 'water', 'Wassersport', true),
-  def('kayaking', 'water', 'Kajak', true, [
+  def('lap_swimming', 'water', 'swim', 'Bahnschwimmen', false),
+  def('open_water_swimming', 'water', 'swim', 'Freiwasserschwimmen', true),
+  def('paddling', 'water', 'paddle', 'Wassersport', true),
+  def('kayaking', 'water', 'paddle', 'Kajak', true, [
     sub('whitewater', 'Wildwasser'),
   ]),
-  def('stand_up_paddleboarding', 'water', 'SUP', true),
-  def('rowing', 'water', 'Rudern', true, [
+  def('stand_up_paddleboarding', 'water', 'paddle', 'SUP', true),
+  def('rowing', 'water', 'paddle', 'Rudern', true, [
     sub('indoor_rowing', 'Indoor-Rudern'),
   ]),
-  def('surfing', 'water', 'Surfen', true),
-  def('kitesurfing', 'water', 'Kitesurfen', true),
-  def('windsurfing', 'water', 'Windsurfen', true),
-  def('wakeboarding', 'water', 'Wakeboard', true),
-  def('wakesurfing', 'water', 'Wakesurfen', true),
-  def('water_skiing', 'water', 'Wasserski', true),
-  def('water_tubing', 'water', 'Tubing', true),
-  def('diving', 'water', 'Tauchen', true, [
+  def('rafting', 'water', 'paddle', 'Rafting', true),
+  def('canoeing', 'water', 'paddle', 'Kanu', true),
+  def('surfing', 'water', 'generic', 'Surfen', true),
+  def('kitesurfing', 'water', 'generic', 'Kitesurfen', true),
+  def('windsurfing', 'water', 'generic', 'Windsurfen', true),
+  def('wakeboarding', 'water', 'generic', 'Wakeboard', true),
+  def('wakesurfing', 'water', 'generic', 'Wakesurfen', true),
+  def('water_skiing', 'water', 'generic', 'Wasserski', true),
+  def('water_tubing', 'water', 'generic', 'Tubing', true),
+  def('diving', 'water', 'generic', 'Tauchen', true, [
     sub('single_gas_diving', 'Eingas-Tauchen'),
     sub('multi_gas_diving', 'Mehrgas-Tauchen'),
     sub('apnea_diving', 'Apnoe-Tauchen'),
   ]),
-  def('snorkeling', 'water', 'Schnorcheln', true),
-  def('boating', 'water', 'Bootfahren', true),
-  def('sailing', 'water', 'Segeln', true, [
+  def('snorkeling', 'water', 'generic', 'Schnorcheln', true),
+  def('boating', 'water', 'generic', 'Bootfahren', true),
+  def('sailing', 'water', 'generic', 'Segeln', true, [
     sub('sail_race', 'Regatta'),
   ]),
-  def('fishing', 'water', 'Angeln', true),
-  def('rafting', 'water', 'Rafting', true),
+  def('fishing', 'water', 'generic', 'Angeln', true),
 
   // ── fitness ──
-  def('training', 'fitness', 'Training', false, [
+  def('training', 'fitness', 'generic', 'Training', false, [
     sub('strength_training', 'Krafttraining'),
     sub('flexibility_training', 'Flexibilität'),
     sub('cardio_training', 'Cardio'),
     sub('yoga', 'Yoga'),
     sub('pilates', 'Pilates'),
   ]),
-  def('fitness_equipment', 'fitness', 'Fitnessgerät', false, [
+  def('fitness_equipment', 'fitness', 'generic', 'Fitnessgerät', false, [
     sub('elliptical', 'Crosstrainer'),
     sub('stair_climbing', 'Treppensteiger'),
   ]),
-  def('strength_training', 'fitness', 'Krafttraining', false, [
+  def('strength_training', 'fitness', 'generic', 'Krafttraining', false, [
     sub('amrap', 'AMRAP', 'As Many Reps As Possible'),
     sub('emom', 'EMOM', 'Every Minute On the Minute'),
   ]),
-  def('hiit', 'fitness', 'HIIT', false, [
+  def('hiit', 'fitness', 'generic', 'HIIT', false, [
     sub('tabata', 'Tabata'),
   ]),
-  def('yoga', 'fitness', 'Yoga', false),
-  def('pilates', 'fitness', 'Pilates', false),
-  def('dance', 'fitness', 'Tanzen', false),
-  def('jump_rope', 'fitness', 'Seilspringen', false),
-  def('meditation', 'fitness', 'Meditation', false),
+  def('yoga', 'fitness', 'generic', 'Yoga', false),
+  def('pilates', 'fitness', 'generic', 'Pilates', false),
+  def('dance', 'fitness', 'generic', 'Tanzen', false),
+  def('jump_rope', 'fitness', 'generic', 'Seilspringen', false),
+  def('meditation', 'fitness', 'generic', 'Meditation', false),
+  def('strength', 'fitness', 'generic', 'Krafttraining', false),
 
   // ── game ──
-  def('soccer', 'game', 'Fußball', false, [
+  def('soccer', 'game', 'generic', 'Fußball', false, [
     sub('warm_up', 'Aufwärmen'),
     sub('match', 'Spiel'),
     sub('exercise', 'Übung'),
   ]),
-  def('basketball', 'game', 'Basketball', false),
-  def('american_football', 'game', 'American Football', false),
-  def('rugby', 'game', 'Rugby', false),
-  def('lacrosse', 'game', 'Lacrosse', false),
-  def('hockey', 'game', 'Hockey', false),
-  def('volleyball', 'game', 'Volleyball', false),
-  def('tennis', 'game', 'Tennis', true),
-  def('racket', 'game', 'Schlägersport', false, [
+  def('basketball', 'game', 'generic', 'Basketball', false),
+  def('american_football', 'game', 'generic', 'American Football', false),
+  def('rugby', 'game', 'generic', 'Rugby', false),
+  def('lacrosse', 'game', 'generic', 'Lacrosse', false),
+  def('hockey', 'game', 'generic', 'Hockey', false),
+  def('volleyball', 'game', 'generic', 'Volleyball', false),
+  def('tennis', 'game', 'generic', 'Tennis', true),
+  def('racket', 'game', 'generic', 'Schlägersport', false, [
     sub('pickleball', 'Pickleball'),
     sub('padel', 'Padel'),
     sub('squash', 'Squash'),
@@ -194,37 +206,37 @@ export const SPORT_DEFS: SportDef[] = [
     sub('racquetball', 'Racquetball'),
     sub('table_tennis', 'Tischtennis'),
   ]),
-  def('cricket', 'game', 'Cricket', true),
-  def('baseball', 'game', 'Baseball', false),
-  def('golf', 'game', 'Golf', true),
-  def('disc_golf', 'game', 'Disc Golf', true),
+  def('cricket', 'game', 'generic', 'Cricket', true),
+  def('baseball', 'game', 'generic', 'Baseball', false),
+  def('golf', 'game', 'generic', 'Golf', true),
+  def('disc_golf', 'game', 'generic', 'Disc Golf', true),
 
   // ── climb ──
-  def('rock_climbing', 'climb', 'Klettern', true, [
+  def('rock_climbing', 'climb', 'generic', 'Klettern', true, [
     sub('bouldering', 'Bouldern'),
     sub('indoor_climbing', 'Klettern (Halle)'),
   ]),
 
   // ── outdoor ──
-  def('flying', 'outdoor', 'Fliegen', true),
-  def('hang_gliding', 'outdoor', 'Gleitschirmfliegen', true),
-  def('sky_diving', 'outdoor', 'Fallschirmspringen', true),
-  def('jumpmaster', 'outdoor', 'Jumpmaster', true),
-  def('horseback_riding', 'outdoor', 'Reiten', true),
-  def('hunting', 'outdoor', 'Jagen', true),
-  def('motorcycling', 'outdoor', 'Motorrad', true),
-  def('driving', 'outdoor', 'Autofahren', true),
-  def('boxing', 'fitness', 'Boxen', false),
-  def('mixed_martial_arts', 'fitness', 'MMA', false),
-  def('tactical', 'outdoor', 'Taktisch', false),
+  def('flying', 'outdoor', 'generic', 'Fliegen', true),
+  def('hang_gliding', 'outdoor', 'generic', 'Gleitschirmfliegen', true),
+  def('sky_diving', 'outdoor', 'generic', 'Fallschirmspringen', true),
+  def('jumpmaster', 'outdoor', 'generic', 'Jumpmaster', true),
+  def('horseback_riding', 'outdoor', 'generic', 'Reiten', true),
+  def('hunting', 'outdoor', 'generic', 'Jagen', true),
+  def('motorcycling', 'outdoor', 'generic', 'Motorrad', true),
+  def('driving', 'outdoor', 'generic', 'Autofahren', true),
+  def('boxing', 'fitness', 'generic', 'Boxen', false),
+  def('mixed_martial_arts', 'fitness', 'generic', 'MMA', false),
+  def('tactical', 'outdoor', 'generic', 'Taktisch', false),
 
   // ── multi ──
-  def('multisport', 'multi', 'Multisport', true),
-  def('transition', 'multi', 'Wechselzone', true),
+  def('multisport', 'multi', 'generic', 'Multisport', true),
+  def('transition', 'multi', 'generic', 'Wechselzone', true),
 
   // ── other ──
-  def('generic', 'other', 'Sonstige', false),
-  def('unknown', 'other', 'Unbekannt', false),
+  def('generic', 'other', 'generic', 'Sonstige', false),
+  def('unknown', 'other', 'generic', 'Unbekannt', false),
 ]
 
 // ── Lookup Maps ─────────────────────────────────────────────────────────────────
@@ -261,6 +273,13 @@ function humanize(raw: string): string {
  */
 export function getSportDef(sportType: string): SportDef | undefined {
   return sportMap.get(sportType)
+}
+
+/**
+ * Get the segment group for a sport type. Returns 'generic' for unknown types.
+ */
+export function getSegmentGroup(sportType: string): 'bike' | 'foot' | 'swim' | 'ski' | 'paddle' | 'generic' {
+  return sportMap.get(sportType)?.segmentGroup ?? 'generic'
 }
 
 /**
