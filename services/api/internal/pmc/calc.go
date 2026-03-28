@@ -45,8 +45,8 @@ func CalculateTRIMP(hrStream []int, restingHR, maxHR int) float64 {
 		{0.50, 0.60, 1},
 		{0.60, 0.70, 2},
 		{0.70, 0.80, 3},
-		{0.80, 0.90, 5},
-		{0.90, 1.01, 10},
+		{0.80, 0.90, 4}, // Edwards standard (was 5)
+		{0.90, 1.01, 5}, // Edwards standard (was 10)
 	}
 	hrRange := float64(maxHR - restingHR)
 	var trimp float64
