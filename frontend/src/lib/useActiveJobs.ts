@@ -24,8 +24,6 @@ const jobTypeLabels: Record<string, string> = {
 
 export type { ActiveJob }
 
-const POLL_INTERVAL_MS = 5000
-
 export function useActiveJobs() {
   const queryClient = useQueryClient()
   const prevJobsRef = useRef<ActiveJob[]>([])
@@ -33,15 +31,12 @@ export function useActiveJobs() {
   const { data } = useQuery({
     queryKey: ['active-jobs'],
     queryFn: fetchActiveJobs,
-    refetchInterval: (query) => {
-      const data = query.state.data
-      if (!data) return POLL_INTERVAL_MS
-      const hasActive = data.jobs.some(j => j.status === 'running')
-      return hasActive ? POLL_INTERVAL_MS : 30_000
-    },
+    // SSE delivers data every 5s via setQueryData. This 120s poll is a safety net
+    // for edge cases (suspended tabs, SSE failure, leader crash).
+    refetchInterval: 120_000,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
-    staleTime: POLL_INTERVAL_MS - 500,
+    staleTime: 30_000,
   })
 
   // Query-Invalidierung wenn Jobs abgeschlossen werden
