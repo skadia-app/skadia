@@ -92,11 +92,14 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 	writeZipJSON(zw, "account.json", acct)
 
 	// M31: User profile (physiological data + timezone, locale, unit_system).
-	queryAndExport(ctx, zw, h.DB.Pool, "profile.json",
+	profileRows, err := h.DB.Pool.Query(ctx,
 		`SELECT birth_date, gender, height_cm, weight_kg, ftp_w, lthr_bpm,
 		        max_hr_bpm, max_hr_detected_bpm, resting_hr_bpm,
 		        timezone, locale, unit_system
 		 FROM users WHERE id = $1`, userID)
+	if err == nil {
+		exportRowsToZip(zw, "profile.json", profileRows)
+	}
 
 	// Activities metadata (without streams — too large)
 	// M30: Include geo columns (start_lat, start_lng, end_lat, end_lng, route_geom as GeoJSON).
@@ -520,10 +523,15 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 
 // queryAndExport runs a SQL query and streams the results into the zip archive.
 // On query error it logs and returns without writing a zip entry.
+// name is used as the zip filename (e.g. "activities.json"); the log message omits the extension.
 func queryAndExport(ctx context.Context, zw *zip.Writer, pool *pgxpool.Pool, name, query string, args ...any) {
 	rows, err := pool.Query(ctx, query, args...)
 	if err != nil {
-		slog.Error("data export: "+name+" query failed", "error", err)
+		logName := name
+		if ext := filepath.Ext(name); ext != "" {
+			logName = name[:len(name)-len(ext)]
+		}
+		slog.Error("data export: "+logName+" query failed", "error", err)
 		return
 	}
 	exportRowsToZip(zw, name, rows)
