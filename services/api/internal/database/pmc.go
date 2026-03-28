@@ -14,7 +14,7 @@ import (
 
 func (db *DB) GetPMCRange(ctx context.Context, userID string, from, to time.Time) ([]model.PMCDay, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT date::text, tss, ctl, atl, tsb FROM pmc_daily
+		`SELECT date::text, tss, ctl, atl, tsb, COALESCE(acwr_ra, 0) FROM pmc_daily
 		 WHERE user_id = $1 AND date >= $2 AND date <= $3
 		 ORDER BY date ASC`,
 		userID, from, to,
@@ -27,7 +27,7 @@ func (db *DB) GetPMCRange(ctx context.Context, userID string, from, to time.Time
 	var days []model.PMCDay
 	for rows.Next() {
 		var d model.PMCDay
-		if err := rows.Scan(&d.Date, &d.TSS, &d.CTL, &d.ATL, &d.TSB); err != nil {
+		if err := rows.Scan(&d.Date, &d.TSS, &d.CTL, &d.ATL, &d.TSB, &d.ACWRRA); err != nil {
 			return nil, fmt.Errorf("scan pmc day: %w", err)
 		}
 		if d.CTL > 0 {
@@ -62,11 +62,12 @@ func (db *DB) UpsertPMCDays(ctx context.Context, userID string, days []model.PMC
 	batch := &pgx.Batch{}
 	for _, d := range days {
 		batch.Queue(
-			`INSERT INTO pmc_daily (user_id, date, tss, ctl, atl, tsb)
-			 VALUES ($1, $2, $3, $4, $5, $6)
+			`INSERT INTO pmc_daily (user_id, date, tss, ctl, atl, tsb, acwr_ra)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)
 			 ON CONFLICT (user_id, date) DO UPDATE
-			 SET tss = EXCLUDED.tss, ctl = EXCLUDED.ctl, atl = EXCLUDED.atl, tsb = EXCLUDED.tsb`,
-			userID, d.Date, d.TSS, d.CTL, d.ATL, d.TSB,
+			 SET tss = EXCLUDED.tss, ctl = EXCLUDED.ctl, atl = EXCLUDED.atl, tsb = EXCLUDED.tsb,
+			     acwr_ra = EXCLUDED.acwr_ra`,
+			userID, d.Date, d.TSS, d.CTL, d.ATL, d.TSB, d.ACWRRA,
 		)
 	}
 
@@ -81,30 +82,21 @@ func (db *DB) UpsertPMCDays(ctx context.Context, userID string, days []model.PMC
 	return nil
 }
 
-// GetDailyTSS returns a map of date -> summed TSS for a user in a date range.
-// Falls back to estimating TSS from activity power/HR data using the provided ftpW and maxHRBpm.
-func (db *DB) GetDailyTSS(ctx context.Context, userID string, from, to time.Time, ftpW int, maxHRBpm int) (map[string]float64, error) {
-	rows, err := db.Pool.Query(ctx,
-		`SELECT started_at::date AS day,
-			COALESCE(SUM(
-				CASE
-					WHEN tss IS NOT NULL AND tss > 0 THEN tss
-					WHEN avg_power_w IS NOT NULL AND avg_power_w > 0 AND moving_time_s IS NOT NULL THEN
-						(moving_time_s::float * avg_power_w * (avg_power_w / $4::float)) / ($4::float * 3600) * 100
-					WHEN avg_heart_rate IS NOT NULL AND avg_heart_rate > 0 AND moving_time_s IS NOT NULL THEN
-						moving_time_s::float / 3600 * (avg_heart_rate / $5::float) * 100
-					ELSE 0
-				END
-			), 0) AS daily_tss
-		 FROM activities
-		 WHERE user_id = $1 AND started_at >= $2 AND started_at < ($3::date + 1)
-		   AND NOT exclude_from_stats
-		 GROUP BY day
-		 ORDER BY day`,
-		userID, from, to, ftpW, maxHRBpm,
-	)
+// GetDailyTSS aggregates pre-computed TSS values per day.
+func (db *DB) GetDailyTSS(ctx context.Context, userID string, from, to time.Time) (map[string]float64, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT date_trunc('day', a.started_at AT TIME ZONE u.timezone)::date AS day,
+		       COALESCE(SUM(a.computed_tss), 0) AS tss
+		FROM activities a
+		JOIN users u ON u.id = a.user_id
+		WHERE a.user_id = $1
+		  AND a.started_at >= $2 AND a.started_at < $3
+		  AND a.computed_tss IS NOT NULL AND a.computed_tss > 0
+		  AND NOT a.exclude_from_stats
+		GROUP BY 1
+	`, userID, from, to)
 	if err != nil {
-		return nil, fmt.Errorf("get daily tss: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -113,14 +105,11 @@ func (db *DB) GetDailyTSS(ctx context.Context, userID string, from, to time.Time
 		var day time.Time
 		var tss float64
 		if err := rows.Scan(&day, &tss); err != nil {
-			return nil, fmt.Errorf("scan daily tss: %w", err)
+			return nil, err
 		}
 		result[day.Format("2006-01-02")] = tss
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("get daily tss: %w", err)
-	}
-	return result, nil
+	return result, rows.Err()
 }
 
 // GetEarliestActivityDate returns the started_at of the user's oldest activity.
