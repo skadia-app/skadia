@@ -1,4 +1,4 @@
-import { apiClient, apiUpload } from './client'
+import { apiClient, apiUpload, API_BASE } from './client'
 import { getToken } from '@/lib/auth'
 import type {
   Gear, MaintenanceAlert, GearStatus,
@@ -149,8 +149,6 @@ export async function activateBikeSetup(id: string): Promise<BikeSetup> {
 }
 
 // --- Gear Documents ---
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
 export async function uploadGearDocument(gearId: string, file: File, opts?: {
   doc_type?: string

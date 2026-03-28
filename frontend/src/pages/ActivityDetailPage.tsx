@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode, type CSSProperties } from 'react'
+import { useClickOutside } from '@/hooks/useClickOutside'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
@@ -19,7 +20,7 @@ import ActivityCharts, { type ZoomRange, type SplitMarker } from '@/components/A
 import MapFullscreen from '@/components/MapFullscreen'
 import {
   formatDuration, formatDistance, formatElevationGain, formatElevationLoss,
-  sportColor, showIndoorBadge,
+  sportColor, showIndoorBadge, triggerBlobDownload,
 } from '@/lib/utils'
 import { sportDetailLabel, getSegmentGroup, categoryForSport } from '@/lib/sportTaxonomy'
 import { defaultSpeedMode } from '@/lib/sportFieldLabels'
@@ -930,14 +931,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
   // Slider range 1-3 → total window 3s/5s/7s (always odd for clean median).
   const [smoothWindow, setSmoothWindow] = useState(2)
   const smoothRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!smoothPopover) return
-    const handler = (e: MouseEvent) => {
-      if (smoothRef.current && !smoothRef.current.contains(e.target as Node)) setSmoothPopover(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [smoothPopover])
+  useClickOutside(smoothRef, () => setSmoothPopover(false), smoothPopover)
   const [multisportConfirm, setMultisportConfirm] = useState(false)
   const [ungroupConfirm, setUngroupConfirm] = useState(false)
   const [ungroupLoading, setUngroupLoading] = useState(false)
@@ -952,31 +946,14 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Close reprocess dropdown when clicking outside
-  useEffect(() => {
-    if (!reprocessMenuOpen) return
-    function handleOutside(e: MouseEvent) {
-      if (reprocessMenuRef.current && !reprocessMenuRef.current.contains(e.target as Node)) {
-        setReprocessMenuOpen(false)
-        setMultisportConfirm(false)
-      }
-    }
-    document.addEventListener('mousedown', handleOutside)
-    return () => document.removeEventListener('mousedown', handleOutside)
-  }, [reprocessMenuOpen])
+  useClickOutside(reprocessMenuRef, () => { setReprocessMenuOpen(false); setMultisportConfirm(false) }, reprocessMenuOpen)
 
   const handleExport = async (format: ExportFormat) => {
     setExportOpen(false)
     try {
       const { blob, filename } = await apiDownload(`/activities/${activity.id}/export?format=${format}`)
       const extMap: Record<string, string> = { original: '', gpx: '.gpx', tcx: '.tcx', fit: '.fit', zip: '.zip' }
-      const objectUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = objectUrl
-      a.download = filename ?? `activity${extMap[format] ?? ''}`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000)
+      triggerBlobDownload(blob, filename ?? `activity${extMap[format] ?? ''}`)
     } catch (err) {
       console.error('Export fehlgeschlagen', err)
     }
@@ -1730,17 +1707,7 @@ function TagsBadges({ tags, activityId, isVirtual }: { tags: string[]; activityI
   })
 
   // Close popover on click outside
-  useEffect(() => {
-    if (!addOpen) return
-    function handleClick(e: MouseEvent) {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        setAddOpen(false)
-        setSearch('')
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [addOpen])
+  useClickOutside(popoverRef, () => { setAddOpen(false); setSearch('') }, addOpen)
 
   // Focus search on open
   useEffect(() => {

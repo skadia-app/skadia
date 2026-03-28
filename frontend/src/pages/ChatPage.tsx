@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useClickOutside } from '@/hooks/useClickOutside'
 import { Plus, Trash2, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/lib/toast'
@@ -11,10 +12,9 @@ import {
   type ChatMessage,
 } from '@/api/chat'
 import { getToken, refreshToken, clearToken } from '@/lib/auth'
+import { API_BASE } from '@/api/client'
 import ChatMessageList, { type StreamMessage } from '@/components/chat/ChatMessageList'
 import ChatInput from '@/components/chat/ChatInput'
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
 function generateId(): string {
   return crypto.randomUUID()
@@ -75,16 +75,7 @@ export default function ChatPage() {
   }, [activeSessionId])
 
   // Close session dropdown on outside click
-  useEffect(() => {
-    if (!sessionsOpen) return
-    function handle(e: MouseEvent) {
-      if (sessionDropdownRef.current && !sessionDropdownRef.current.contains(e.target as Node)) {
-        setSessionsOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handle)
-    return () => document.removeEventListener('mousedown', handle)
-  }, [sessionsOpen])
+  useClickOutside(sessionDropdownRef, () => setSessionsOpen(false), sessionsOpen)
 
   const handleNewSession = useCallback(async () => {
     try {

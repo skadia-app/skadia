@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -348,7 +349,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string) (*model.
 		&s.TrackGeoJSON,
 		&s.TerrainType, &s.ClimbType,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -720,7 +721,7 @@ func (db *DB) GetSegmentEndpoints(ctx context.Context, versionID string) (*Segme
 		FROM segment_versions
 		WHERE id = $1 AND track IS NOT NULL`, versionID,
 	).Scan(&ep.StartLat, &ep.StartLng, &ep.EndLat, &ep.EndLng, &ep.LengthM)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

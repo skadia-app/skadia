@@ -8,6 +8,7 @@ import {
 import { useToast } from '@/lib/toast'
 import type { GearDocument } from '@/api/types'
 import { ModalShell } from '@/components/ui/ModalShell'
+import { triggerUrlDownload } from '@/lib/utils'
 const COMPACT_INPUT_CLASS = 'w-full px-4 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 text-sm focus:outline-none focus:ring-1 focus:ring-accent-400'
 
 interface Props {
@@ -532,12 +533,7 @@ function PreviewPanel({
 
   const handleDownload = useCallback(async () => {
     if (!blobUrl) return
-    const a = document.createElement('a')
-    a.href = blobUrl
-    a.download = doc.original_filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+    triggerUrlDownload(blobUrl, doc.original_filename)
   }, [blobUrl, doc.original_filename])
 
   useEscapeKey(onClose)

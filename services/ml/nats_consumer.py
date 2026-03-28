@@ -13,7 +13,6 @@ from db import get_pool
 from progress import publish_progress
 from enrichment import (
     enrich_commute,
-    compute_route_embedding,
     enrich_lifts,
 )
 from enrichment.document_vlm import convert_to_markdown, process_document, upload_to_s3
@@ -65,9 +64,7 @@ HIGH_PRIORITY_STEPS = [
 
 NORMAL_PRIORITY_STEPS = []
 
-LOW_PRIORITY_STEPS = [
-    ("embeddings", compute_route_embedding),
-]
+LOW_PRIORITY_STEPS = []
 
 
 async def _process_message(msg, steps: list, nc: nats.NATS) -> None:
@@ -672,6 +669,8 @@ async def start_consumers(nc: nats.NATS) -> list[asyncio.Task]:
         ("skadia.stage2.normal", "ml-stage2-normal", NORMAL_PRIORITY_STEPS, "stage2-normal"),
         ("skadia.stage2.low", "ml-stage2-low", LOW_PRIORITY_STEPS, "stage2-low"),
     ]:
+        if not steps:
+            continue
         sub = await js.pull_subscribe(
             subject,
             durable=durable,

@@ -12,6 +12,8 @@ def test_all_tools_defined():
         "search_routes", "run_sql",
         "get_gear_for_activity", "get_gear_documents",
         "get_activity_detail", "search_photos_by_content",
+        "search_pois_nearby", "search_trails_by_difficulty", "plan_route",
+        "search_pois_on_route", "get_isochrone", "query_coverage",
     }
     assert names == expected
 

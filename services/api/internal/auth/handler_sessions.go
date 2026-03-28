@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
@@ -41,7 +42,7 @@ func (h *Handler) ListMySessions(w http.ResponseWriter, r *http.Request) {
 		 ORDER BY created_at DESC`, userID)
 	if err != nil {
 		slog.Error("list my sessions failed", "error", err, "user_id", userID)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 	defer rows.Close()
@@ -51,7 +52,7 @@ func (h *Handler) ListMySessions(w http.ResponseWriter, r *http.Request) {
 		var s sessionEntry
 		if err := rows.Scan(&s.FamilyID, &s.UserAgent, &s.IPAddress, &s.CreatedAt, &s.ExpiresAt); err != nil {
 			slog.Error("list my sessions scan failed", "error", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
 		s.IsCurrent = (s.FamilyID == currentFamilyID)
@@ -59,11 +60,11 @@ func (h *Handler) ListMySessions(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := rows.Err(); err != nil {
 		slog.Error("list my sessions rows error", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]any{"sessions": sessions})
 }
 
 // RevokeSession handles POST /auth/sessions/{familyId}/revoke (authenticated).
@@ -72,11 +73,11 @@ func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	familyID := chi.URLParam(r, "familyId")
 	if familyID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "family_id_required"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "family_id_required"})
 		return
 	}
 	if _, err := uuid.Parse(familyID); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_session_id"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_session_id"})
 		return
 	}
 
@@ -85,17 +86,17 @@ func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	err := h.DB.Pool.QueryRow(r.Context(),
 		"SELECT user_id FROM refresh_tokens WHERE family_id = $1 LIMIT 1", familyID).Scan(&ownerID)
 	if err != nil || ownerID != userID {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session_not_found"})
+		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "session_not_found"})
 		return
 	}
 
 	if err := h.DB.RevokeTokenFamily(r.Context(), familyID); err != nil {
 		slog.Error("revoke session failed", "error", err, "user_id", userID, "family_id", familyID)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
 	go h.DB.LogAuthEvent(h.shutdownCtx, userID, "session_revoke", middleware.ClientIP(r), r.UserAgent(), map[string]string{"family_id": familyID})
 	slog.Info("session revoked", "user_id", userID, "family_id", familyID)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "session_revoked"})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "session_revoked"})
 }

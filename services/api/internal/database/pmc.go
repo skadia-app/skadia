@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"context"
 	"fmt"
 	"math"
@@ -130,7 +131,7 @@ func (db *DB) GetEarliestActivityDate(ctx context.Context, userID string) (time.
 		`SELECT MIN(started_at) FROM activities WHERE user_id = $1`,
 		userID,
 	).Scan(&t)
-	if err == pgx.ErrNoRows || t == nil {
+	if errors.Is(err, pgx.ErrNoRows) || t == nil {
 		return time.Time{}, nil
 	}
 	if err != nil {
@@ -146,7 +147,7 @@ func (db *DB) GetPMCDayBefore(ctx context.Context, userID string, date time.Time
 		`SELECT ctl, atl FROM pmc_daily WHERE user_id = $1 AND date = $2`,
 		userID, before,
 	).Scan(&ctl, &atl)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, 0, nil
 	}
 	if err != nil {

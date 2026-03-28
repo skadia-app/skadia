@@ -3,6 +3,8 @@ package auth
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // ExchangeCode handles POST /auth/exchange-code.
@@ -15,21 +17,21 @@ func (h *Handler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 		Code string `json:"code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Code == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "code required"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "code required"})
 		return
 	}
 
 	codeHash := HashToken(req.Code)
 	userID, _, _, err := h.DB.ConsumeAuthCode(r.Context(), codeHash)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid or expired code"})
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid or expired code"})
 		return
 	}
 
 	// Check is_active after code consumption (C6).
 	user, err := h.DB.GetUserByID(r.Context(), userID.String())
 	if err != nil || !user.IsActive {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "account_inactive"})
+		httputil.WriteJSONNoCache(w, http.StatusForbidden, map[string]string{"error": "account_inactive"})
 		return
 	}
 	h.issueTokensAndRespond(w, r, user)

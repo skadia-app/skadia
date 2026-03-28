@@ -1,4 +1,5 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useState, useCallback } from 'react'
+import { useClickOutside } from '@/hooks/useClickOutside'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -16,6 +17,7 @@ import { deleteRoute, exportRouteGPX, type PlannedRoute } from '@/api/routes'
 import { fmtDist } from '@/lib/format'
 import { sportLabel, sportColor } from '@/lib/sportTaxonomy'
 import { useToast } from '@/lib/toast'
+import { triggerBlobDownload } from '@/lib/utils'
 
 // ── Mini-map SVG ──────────────────────────────────────────────────────────────
 
@@ -148,16 +150,7 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
   const label = sportLabel(route.sport_type)
 
   // Close menu on outside click
-  useEffect(() => {
-    if (!menuOpen) return
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [menuOpen])
+  useClickOutside(menuRef, () => setMenuOpen(false), menuOpen)
 
   // Delete mutation
   const deleteMutation = useMutation({
@@ -178,12 +171,7 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
     setMenuOpen(false)
     try {
       const { blob, filename } = await exportRouteGPX(route.id)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename ?? `route-${route.id}.gpx`
-      a.click()
-      URL.revokeObjectURL(url)
+      triggerBlobDownload(blob, filename ?? `route-${route.id}.gpx`)
     } catch {
       addToast({ type: 'error', title: 'GPX-Export fehlgeschlagen', duration: 0 })
     }

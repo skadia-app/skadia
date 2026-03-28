@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useClickOutside } from '@/hooks/useClickOutside'
 import { useQuery } from '@tanstack/react-query'
 import type { SportOption } from '@/lib/sportOptions'
 import { generateActivityFilterOptions, getOptionKey, getAllSportKeys, filterToExistingSports } from '@/lib/sportOptions'
@@ -156,16 +157,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
   const visibleKeys = useMemo(() => getAllSportKeys(visibleOptions), [visibleOptions])
 
   // Close popover on outside click
-  useEffect(() => {
-    if (!open) return
-    function handleClick(e: MouseEvent) {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [open])
+  useClickOutside(popoverRef, () => setOpen(false), open)
 
   // Count active filters
   const activeCount = countActive(filters)

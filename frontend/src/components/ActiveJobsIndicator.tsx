@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
+import { useClickOutside } from '@/hooks/useClickOutside'
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -296,14 +297,7 @@ export default function ActiveJobsIndicator() {
   }).length
 
   // Schließen bei Klick außerhalb
-  useEffect(() => {
-    if (!open) return
-    function handle(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handle)
-    return () => document.removeEventListener('mousedown', handle)
-  }, [open])
+  useClickOutside(ref, () => setOpen(false), open)
 
   // Nicht rendern wenn keine Jobs vorhanden (auch keine kürzlich abgeschlossenen)
   if (!isAnyActive && jobs.length === 0 && !hasEnrichment) return null

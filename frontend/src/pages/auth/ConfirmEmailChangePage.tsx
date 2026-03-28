@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+import { API_BASE } from '@/api/client'
 
 export default function ConfirmEmailChangePage() {
   const [searchParams] = useSearchParams()

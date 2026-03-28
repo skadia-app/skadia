@@ -11,6 +11,7 @@ import {
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
 import { fmtDist } from '@/lib/format'
+import { triggerBlobDownload } from '@/lib/utils'
 
 // ── Sport type labels for filter dropdown ─────────────────────────────────────
 
@@ -440,14 +441,7 @@ export default function RoutesPage() {
     async (route: PlannedRoute) => {
       try {
         const { blob, filename } = await exportRouteGPX(route.id)
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = filename || `route-${route.id}.gpx`
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
+        triggerBlobDownload(blob, filename || `route-${route.id}.gpx`)
         addToast({ type: 'success', title: 'GPX-Export erfolgreich' })
       } catch {
         addToast({ type: 'error', title: 'GPX-Export fehlgeschlagen', duration: 0 })

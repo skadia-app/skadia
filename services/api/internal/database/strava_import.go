@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -45,7 +46,7 @@ func (db *DB) GetStravaImportJob(ctx context.Context, userID, jobID string) (map
 		completedModules int
 		currentModule    *string
 		moduleResults    []byte
-		errors           []byte
+		errBytes         []byte
 		startedAt        *time.Time
 		completedAt      *time.Time
 		createdAt        time.Time
@@ -53,9 +54,9 @@ func (db *DB) GetStravaImportJob(ctx context.Context, userID, jobID string) (map
 
 	err := row.Scan(
 		&id, &uid, &status, &sourcePath, &totalModules, &completedModules,
-		&currentModule, &moduleResults, &errors, &startedAt, &completedAt, &createdAt,
+		&currentModule, &moduleResults, &errBytes, &startedAt, &completedAt, &createdAt,
 	)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("job not found")
 	}
 	if err != nil {
@@ -67,8 +68,8 @@ func (db *DB) GetStravaImportJob(ctx context.Context, userID, jobID string) (map
 		// moduleResults not yet used for display
 		_ = moduleResults
 	}
-	if len(errors) > 0 {
-		_ = json.Unmarshal(errors, &parsedErrors)
+	if len(errBytes) > 0 {
+		_ = json.Unmarshal(errBytes, &parsedErrors)
 	}
 
 	result := map[string]any{
@@ -157,7 +158,7 @@ func (db *DB) FindActivityIDAtTime(ctx context.Context, userID string, ts time.T
 		 LIMIT 1`,
 		userID, ts,
 	).Scan(&id)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
 	return id, err
@@ -188,7 +189,7 @@ func (db *DB) GearExistsByNameForUser(ctx context.Context, userID, name string) 
 		`SELECT id FROM gear WHERE user_id = $1 AND name = $2 LIMIT 1`,
 		userID, name,
 	).Scan(&id)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return false, "", nil
 	}
 	if err != nil {
