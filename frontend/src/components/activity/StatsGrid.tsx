@@ -157,15 +157,15 @@ export function StatsGrid({ activity, speedMode }: StatsGridProps) {
     } : null,
 
     // E-Bike
-    activity.avg_lev_motor_power_w != null ? {
+    activity.is_ebike && activity.avg_lev_motor_power_w != null ? {
       label: 'Ø Motorleistung',
       value: `${Math.round(activity.avg_lev_motor_power_w)} W`,
     } : null,
-    activity.max_lev_motor_power_w != null ? {
+    activity.is_ebike && activity.max_lev_motor_power_w != null ? {
       label: 'Max. Motorleistung',
       value: `${Math.round(activity.max_lev_motor_power_w)} W`,
     } : null,
-    activity.lev_battery_consumption_pct != null ? {
+    activity.is_ebike && activity.lev_battery_consumption_pct != null ? {
       label: 'Akkuverbrauch',
       value: `${activity.lev_battery_consumption_pct.toFixed(1)} %`,
     } : null,
