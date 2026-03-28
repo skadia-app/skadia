@@ -512,18 +512,21 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     </div>,
   )
   if (hasValidData(data.speed)) {
+    // Speed/Pace: always render one panel with stable key to preserve ECharts instance
+    const sg = sportType ? getSegmentGroup(sportType) : 'generic'
+    const isRowingSport = sportType === 'rowing'
+    const isSwimSport = sg === 'swim'
+
     if (speedMode === 'pace') {
-      // Sport-aware pace conversion
-      const sg = sportType ? getSegmentGroup(sportType) : 'foot'
-      const isRowingSport = sportType === 'rowing'
-      const isSwimSport = sg === 'swim'
       const divisor = isRowingSport ? 500 : isSwimSport ? 100 : 1000
       const paceUnit = isRowingSport ? 'min/500m' : isSwimSport ? 'min/100m' : 'min/km'
-      const paceLabel = isRowingSport ? '500-m-Pace' : sportType ? fieldLabel('speed', sportType) : 'Pace'
-
-      const paceValues = data.speedMs.map(ms =>
-        ms > 0 && isFinite(ms) ? divisor / ms / 60 : NaN,
-      )
+      // Clamp pace to max 30 min/km (= walking ~2 km/h) to avoid Y-axis explosion at stops
+      const maxPace = 30
+      const paceValues = data.speedMs.map(ms => {
+        if (!ms || ms <= 0 || !isFinite(ms)) return NaN
+        const pace = divisor / ms / 60
+        return pace > maxPace ? NaN : pace
+      })
       const paceFmt = (minPer: number): string => {
         if (isNaN(minPer) || !isFinite(minPer)) return '—'
         const min = Math.floor(minPer)
@@ -531,9 +534,9 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         return `${min}:${sec.toString().padStart(2, '0')}\u202f${paceUnit}`
       }
       panels.push(
-        <div key={k('speed-pace')} style={{ display: show('speed') ? undefined : 'none' }}>
+        <div key={k('speed')} style={{ display: show('speed') ? undefined : 'none' }}>
           <ChartPanel chartId="speed" {...common}
-            field="speed" label={paceLabel} unit={paceUnit} color="#3b82f6"
+            field="speed" label="Pace" unit={paceUnit} color="#3b82f6"
             overrideValues={paceValues} invertY tooltipValueFn={paceFmt} />
         </div>,
       )
