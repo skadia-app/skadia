@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode, type CSSProperties } from 'react'
+import { useClickOutside } from '@/hooks/useClickOutside'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
@@ -930,14 +931,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
   // Slider range 1-3 → total window 3s/5s/7s (always odd for clean median).
   const [smoothWindow, setSmoothWindow] = useState(2)
   const smoothRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!smoothPopover) return
-    const handler = (e: MouseEvent) => {
-      if (smoothRef.current && !smoothRef.current.contains(e.target as Node)) setSmoothPopover(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [smoothPopover])
+  useClickOutside(smoothRef, () => setSmoothPopover(false), smoothPopover)
   const [multisportConfirm, setMultisportConfirm] = useState(false)
   const [ungroupConfirm, setUngroupConfirm] = useState(false)
   const [ungroupLoading, setUngroupLoading] = useState(false)
@@ -952,17 +946,7 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Close reprocess dropdown when clicking outside
-  useEffect(() => {
-    if (!reprocessMenuOpen) return
-    function handleOutside(e: MouseEvent) {
-      if (reprocessMenuRef.current && !reprocessMenuRef.current.contains(e.target as Node)) {
-        setReprocessMenuOpen(false)
-        setMultisportConfirm(false)
-      }
-    }
-    document.addEventListener('mousedown', handleOutside)
-    return () => document.removeEventListener('mousedown', handleOutside)
-  }, [reprocessMenuOpen])
+  useClickOutside(reprocessMenuRef, () => { setReprocessMenuOpen(false); setMultisportConfirm(false) }, reprocessMenuOpen)
 
   const handleExport = async (format: ExportFormat) => {
     setExportOpen(false)
@@ -1723,17 +1707,7 @@ function TagsBadges({ tags, activityId, isVirtual }: { tags: string[]; activityI
   })
 
   // Close popover on click outside
-  useEffect(() => {
-    if (!addOpen) return
-    function handleClick(e: MouseEvent) {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        setAddOpen(false)
-        setSearch('')
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [addOpen])
+  useClickOutside(popoverRef, () => { setAddOpen(false); setSearch('') }, addOpen)
 
   // Focus search on open
   useEffect(() => {
