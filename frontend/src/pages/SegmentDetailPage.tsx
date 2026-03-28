@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Map, RefreshCw, Pencil } from 'lucide-react'
-import { fetchSegment, recomputeSegment } from '@/api/segments'
+import { ArrowLeft, Lock, Map, Pencil, RefreshCw, Trash2 } from 'lucide-react'
+import { getMe } from '@/api/auth'
+import { fetchSegment, recomputeSegment, publishSegment, deleteSegment } from '@/api/segments'
+import { useModal } from '@/lib/modal'
+import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { fmtDist } from '@/lib/format'
 import { SegmentMinimap } from '@/components/SegmentDetail/SegmentMinimap'
@@ -32,6 +35,32 @@ export default function SegmentDetailPage() {
 
   const queryClient = useQueryClient()
   const { isJobActiveForEntity } = useActiveJobs()
+  const { openModal } = useModal()
+  const { addToast } = useToast()
+
+  const { data: me } = useQuery({
+    queryKey: ['me'],
+    queryFn: getMe,
+    staleTime: 60_000,
+  })
+
+  const publishMut = useMutation({
+    mutationFn: () => publishSegment(id!),
+    onSuccess: () => {
+      addToast({ type: 'success', title: 'Segment veröffentlicht', message: 'Recompute gestartet.' })
+      queryClient.invalidateQueries({ queryKey: ['segment', id] })
+      queryClient.invalidateQueries({ queryKey: ['segments'] })
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Veröffentlichung fehlgeschlagen', duration: 0 })
+    },
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: () => deleteSegment(id!),
+    onSuccess: () => navigate('/segments'),
+    onError: () => addToast({ type: 'error', title: 'Löschen fehlgeschlagen', duration: 0 }),
+  })
 
   const recomputeMut = useMutation({
     mutationFn: () => recomputeSegment(id!),
@@ -102,6 +131,41 @@ export default function SegmentDetailPage() {
           >
             <Map size={14} /> Auf Karte
           </button>
+          {/* Publish: shown for creator of private segment */}
+          {segment.visibility === 'private' && segment.created_by === me?.user_id && (
+            <button
+              onClick={() => openModal({
+                title: 'Segment veröffentlichen?',
+                message: 'Alle Nutzer können das Segment danach sehen. Ein Recompute-Job wird gestartet.',
+                buttons: [
+                  { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+                  { label: 'Veröffentlichen', variant: 'destructive', onClick: () => publishMut.mutate() },
+                ],
+              })}
+              disabled={publishMut.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-amber-400 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 cursor-pointer transition-colors disabled:opacity-50"
+            >
+              Veröffentlichen
+            </button>
+          )}
+
+          {/* Delete: visible for creator or admin, not for OSM lift segments */}
+          {segment.segment_type !== 'lift' && (me?.user_id === segment.created_by || me?.is_admin) && (
+            <button
+              onClick={() => openModal({
+                title: 'Segment löschen?',
+                message: 'Löschen ist nicht rückgängig zu machen.',
+                buttons: [
+                  { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+                  { label: 'Löschen', variant: 'destructive', onClick: () => deleteMut.mutate() },
+                ],
+              })}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Löschen
+            </button>
+          )}
           <FavoriteButton segmentId={id!} />
         </div>
       </div>
@@ -127,6 +191,24 @@ export default function SegmentDetailPage() {
           )}
           {segment.climb_type && segment.climb_type !== 'standard' && (
             <span className="capitalize">{segment.climb_type}</span>
+          )}
+        </div>
+        {/* Effort count stats */}
+        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+          <span>
+            {segment.effort_count} {segment.effort_count === 1 ? 'Effort' : 'Efforts'} gesamt
+          </span>
+          {segment.ridden_count > 0 && (
+            <span>· {segment.ridden_count} {segment.ridden_count === 1 ? 'eigener' : 'eigene'}</span>
+          )}
+          {segment.athlete_count > 0 && (
+            <span>· {segment.athlete_count} {segment.athlete_count === 1 ? 'Athlet' : 'Athleten'}</span>
+          )}
+          {segment.visibility === 'private' && (
+            <span className="flex items-center gap-1 text-neutral-400">
+              <Lock className="w-3 h-3" />
+              Privat
+            </span>
           )}
         </div>
         {segment.description && (
