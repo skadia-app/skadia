@@ -584,7 +584,7 @@ export default function ActivityDetailPage() {
       {activity.has_gps && !hiddenModules.has('ascents') && <ClimbsSection activityId={activity.id} onClimbHover={setHoveredClimbRange} />}
 
       {/* Intervalltraining */}
-      <IntervalSection activityId={activity.id} />
+      <IntervalSection activityId={activity.id} sportType={activity.sport_type} />
 
       {/* Liftfahrten */}
       {(activity.lift_count ?? 0) > 0 ? (
@@ -627,7 +627,7 @@ export default function ActivityDetailPage() {
       <DataCorrectionsSection activity={activity} />
 
       {/* Erkannte Runden */}
-      <DetectedLapsTable activityId={activity.id} />
+      <DetectedLapsTable activityId={activity.id} sportType={activity.sport_type} />
 
       {/* Segmente (nur bei GPS-Aktivitäten) */}
       {activity.has_gps && (

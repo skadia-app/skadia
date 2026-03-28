@@ -1,5 +1,6 @@
 import type { SwimLength } from '@/api/types'
 import { fmtDuration } from '@/lib/format'
+import { fieldLabel } from '@/lib/sportFieldLabels'
 
 interface Props {
   lengths: SwimLength[]
@@ -12,9 +13,11 @@ function swimStrokeLabel(stroke?: string): string {
     backstroke: 'Ruecken',
     breaststroke: 'Brust',
     butterfly: 'Schmetterling',
-    drill: 'Drill',
+    drill: 'Technik',
     mixed: 'Gemischt',
     im: 'Lagen',
+    im_by_round: 'Lagen (Runde)',
+    rimo: 'Lagen (umgekehrt)',
   }
   return labels[stroke] ?? stroke
 }
@@ -52,7 +55,7 @@ export default function SwimLengthTable({ lengths }: Props) {
               <th className={thClass}>Dauer</th>
               <th className={thClass}>Zuege</th>
               <th className={thClass}>SWOLF</th>
-              {showCadence && <th className={thClass}>Kadenz</th>}
+              {showCadence && <th className={thClass}>{fieldLabel('cadence', 'swimming')}</th>}
               <th className={thClass}>kcal</th>
             </tr>
           </thead>
