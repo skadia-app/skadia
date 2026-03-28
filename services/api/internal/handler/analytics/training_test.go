@@ -20,14 +20,15 @@ func TestGetPMCACWRCalculation(t *testing.T) {
 		acwr     float64
 		expected string
 	}{
-		{0.5, "fresh"},
-		{0.79, "fresh"},
+		{0.5, "reduced"},
+		{0.79, "reduced"},
 		{0.8, "optimal"},
-		{0.99, "optimal"},
-		{1.0, "overreach"},
+		{1.0, "optimal"},
+		{1.29, "optimal"},
 		{1.3, "overreach"},
-		{1.31, "danger"},
-		{1.5, "danger"},
+		{1.5, "overreach"},
+		{1.51, "danger"},
+		{2.0, "danger"},
 	}
 	for _, tc := range tests {
 		got := acwrStatus(tc.acwr)
@@ -50,11 +51,12 @@ func TestGetPMCMonotony(t *testing.T) {
 		t.Errorf("expected monotony 0 for uniform TSS, got %f", m)
 	}
 
-	// Known values: [0, 100] → mean=50, variance=((−50)²+(50)²)/2=2500, stddev=50, monotony=1.0
+	// Known values: [0, 100] → mean=50, sample variance=((−50)²+(50)²)/1=5000, stddev=~70.71
+	// monotony = mean/stddev = 50/70.71 ≈ 0.7071
 	tss2 := []float64{0, 100}
 	m2 := calcMonotony(tss2)
-	if math.Abs(m2-1.0) > 0.001 {
-		t.Errorf("expected monotony ~1.0, got %f", m2)
+	if math.Abs(m2-0.7071) > 0.001 {
+		t.Errorf("expected monotony ~0.7071, got %f", m2)
 	}
 
 	// Fewer than 2 values → 0.
@@ -72,52 +74,62 @@ func TestGetPMCMonotony(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestGetPMCProjection
-// Verify that linear projection extrapolates a perfect linear CTL series.
+// TestEwmaProjection
+// Verify that ewmaProjection returns correct number of days and decays CTL/ATL
+// correctly given a known avgTSS.
 // ---------------------------------------------------------------------------
 
-func TestGetPMCProjection(t *testing.T) {
-	// Build 30 days of PMC data with CTL increasing by 1 per day starting at 50.
-	days := make([]model.PMCDay, 30)
-	base := 50.0
+func TestEwmaProjection(t *testing.T) {
+	// Build 10 days of PMC data with constant TSS=100, CTL=50, ATL=60.
+	days := make([]model.PMCDay, 10)
 	for i := range days {
 		days[i] = model.PMCDay{
 			Date: "2025-01-" + pad2(i+1),
-			CTL:  base + float64(i),
+			TSS:  100,
+			CTL:  50,
+			ATL:  60,
 		}
 	}
 
-	proj := linearProjection(days, 28, 7)
+	proj := ewmaProjection(days, 7)
 	if len(proj) != 7 {
 		t.Fatalf("expected 7 projection days, got %d", len(proj))
 	}
 
-	// The last real CTL is days[29].CTL = 50+29 = 79.
-	// Each projected day should increase by ~1.
-	for i, p := range proj {
-		expected := days[29].CTL + float64(i+1)
-		if math.Abs(p.CTL-expected) > 0.5 {
-			t.Errorf("projection day %d: CTL = %.2f, want ~%.2f", i, p.CTL, expected)
-		}
+	// First projected date must be day after last input day.
+	if proj[0].Date != "2025-01-11" {
+		t.Errorf("expected first projection date 2025-01-11, got %s", proj[0].Date)
+	}
+
+	// With avgTSS=100, CTL=50, ATL=60:
+	// ctlDecay = exp(-1/42), ctlFactor = 1 - ctlDecay
+	// Day 1 CTL = 50*ctlDecay + 100*ctlFactor — must be between 50 and 100.
+	if proj[0].CTL <= 50 || proj[0].CTL >= 100 {
+		t.Errorf("unexpected CTL on day 1: %f", proj[0].CTL)
+	}
+
+	// TSB on day 1 = CTL_last - ATL_last = 50 - 60 = -10.
+	if math.Abs(proj[0].TSB-(-10)) > 0.01 {
+		t.Errorf("expected TSB -10 on day 1, got %f", proj[0].TSB)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// TestGetPMCProjectionInsufficientData
-// Projection with fewer than 2 data points returns empty slice.
+// TestEwmaProjectionInsufficientData
+// Projection with fewer than 7 data points returns nil.
 // ---------------------------------------------------------------------------
 
-func TestGetPMCProjectionInsufficientData(t *testing.T) {
-	proj := linearProjection([]model.PMCDay{
-		{Date: "2025-01-01", CTL: 40},
-	}, 28, 28)
-	if len(proj) != 0 {
-		t.Errorf("expected empty projection for 1 day, got %d", len(proj))
+func TestEwmaProjectionInsufficientData(t *testing.T) {
+	proj := ewmaProjection([]model.PMCDay{
+		{Date: "2025-01-01", CTL: 40, ATL: 45, TSS: 80},
+	}, 28)
+	if proj != nil {
+		t.Errorf("expected nil projection for 1 day, got %d items", len(proj))
 	}
 
-	proj2 := linearProjection([]model.PMCDay{}, 28, 28)
-	if len(proj2) != 0 {
-		t.Errorf("expected empty projection for 0 days, got %d", len(proj2))
+	proj2 := ewmaProjection([]model.PMCDay{}, 28)
+	if proj2 != nil {
+		t.Errorf("expected nil projection for 0 days, got %d items", len(proj2))
 	}
 }
 

@@ -16,22 +16,25 @@ import (
 
 // PMCResponse is the full response for the Performance Management Chart endpoint.
 type PMCResponse struct {
-	Days       []model.PMCDay `json:"days"`
-	ACWR       float64        `json:"acwr"`
-	ACWRStatus string         `json:"acwr_status"` // "fresh"|"optimal"|"overreach"|"danger"
-	RampRate   float64        `json:"ramp_rate"`
-	Monotony   float64        `json:"monotony"`
-	Strain     float64        `json:"strain"`
-	Projection []model.PMCDay `json:"projection"`
+	Days                   []model.PMCDay `json:"days"`
+	ACWR                   float64        `json:"acwr"`
+	ACWRStatus             string         `json:"acwr_status"`
+	ACWRTrend              float64        `json:"acwr_trend"`
+	RampRate               float64        `json:"ramp_rate"`
+	Monotony               float64        `json:"monotony"`
+	Strain                 float64        `json:"strain"`
+	Projection             []model.PMCDay `json:"projection"`
+	UsingDefaultThresholds bool           `json:"using_default_thresholds"`
+	DefaultThresholdFields []string       `json:"default_threshold_fields,omitempty"`
 }
 
 func acwrStatus(acwr float64) string {
 	switch {
 	case acwr < 0.8:
-		return "fresh"
-	case acwr < 1.0:
+		return "reduced"
+	case acwr < 1.3:
 		return "optimal"
-	case acwr <= 1.3:
+	case acwr <= 1.5:
 		return "overreach"
 	default:
 		return "danger"
@@ -65,49 +68,71 @@ func calcMonotony(tssSlice []float64) float64 {
 	return mean / stddev
 }
 
-// linearProjection extrapolates CTL/ATL/TSB for the next `horizon` days using
-// a simple linear regression on the last `window` PMC days (at most).
-// Returns an empty slice if not enough data is available.
-func linearProjection(days []model.PMCDay, window, horizon int) []model.PMCDay {
-	if len(days) < 2 {
-		return []model.PMCDay{}
+// calcACWR_RA computes Rolling Average ACWR (7:28, uncoupled).
+// Acute = days 0-6, Chronic = days 7-34 (4 weeks BEFORE current week).
+// Returns 0 if insufficient training history (< 7 training days in chronic window).
+func calcACWR_RA(dailyTSS map[string]float64, today time.Time) float64 {
+	var acuteSum, chronicSum float64
+	var chronicDaysWithTraining int
+	for d := 0; d < 7; d++ {
+		key := today.AddDate(0, 0, -d).Format("2006-01-02")
+		acuteSum += dailyTSS[key]
 	}
-	// Take up to the last `window` days.
-	start := max(len(days)-window, 0)
-	slice := days[start:]
-	n := float64(len(slice))
+	for d := 7; d < 35; d++ {
+		key := today.AddDate(0, 0, -d).Format("2006-01-02")
+		tss := dailyTSS[key]
+		chronicSum += tss
+		if tss > 0 {
+			chronicDaysWithTraining++
+		}
+	}
+	// Minimum: 7 training days in chronic 28-day window
+	if chronicDaysWithTraining < 7 {
+		return 0
+	}
+	acute := acuteSum / 7
+	chronic := chronicSum / 28
+	if chronic == 0 {
+		return 0
+	}
+	return math.Round(acute/chronic*100) / 100
+}
 
-	// Fit linear regression for CTL over position index.
-	var sumX, sumY, sumXY, sumX2 float64
-	for i, d := range slice {
-		x := float64(i)
-		sumX += x
-		sumY += d.CTL
-		sumXY += x * d.CTL
-		sumX2 += x * x
+// ewmaProjection projects CTL/ATL/TSB forward using the EWMA model
+// with assumed daily TSS = average of last 7 days.
+func ewmaProjection(days []model.PMCDay, horizon int) []model.PMCDay {
+	if len(days) < 7 {
+		return nil
 	}
-	denom := n*sumX2 - sumX*sumX
-	if denom == 0 {
-		return []model.PMCDay{}
+	var sumTSS float64
+	for _, d := range days[len(days)-7:] {
+		sumTSS += d.TSS
 	}
-	slope := (n*sumXY - sumX*sumY) / denom
-	intercept := (sumY - slope*sumX) / n
+	avgTSS := sumTSS / 7
 
-	// Use last known day as anchor for date.
-	lastDay := slice[len(slice)-1]
+	lastDay := days[len(days)-1]
+	ctl := lastDay.CTL
+	atl := lastDay.ATL
 	lastDate, err := time.Parse("2006-01-02", lastDay.Date)
 	if err != nil {
-		return []model.PMCDay{}
+		return nil
 	}
 
+	ctlDecay := math.Exp(-1.0 / 42.0)
+	ctlFactor := 1 - ctlDecay
+	atlDecay := math.Exp(-1.0 / 7.0)
+	atlFactor := 1 - atlDecay
+
 	projection := make([]model.PMCDay, horizon)
-	baseIdx := float64(len(slice) - 1)
 	for i := range horizon {
-		x := baseIdx + float64(i+1)
-		ctl := intercept + slope*x
+		tsb := ctl - atl
+		ctl = ctl*ctlDecay + avgTSS*ctlFactor
+		atl = atl*atlDecay + avgTSS*atlFactor
 		projection[i] = model.PMCDay{
 			Date: lastDate.AddDate(0, 0, i+1).Format("2006-01-02"),
-			CTL:  math.Max(0, ctl),
+			CTL:  math.Round(ctl*100) / 100,
+			ATL:  math.Round(atl*100) / 100,
+			TSB:  math.Round(tsb*100) / 100,
 		}
 	}
 	return projection
@@ -129,7 +154,6 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build response metrics from the loaded days.
-	var currentACWR float64
 	var currentCTL float64
 	var ctl7DaysAgo float64
 
@@ -138,7 +162,6 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 
 	for i, d := range days {
 		if i == len(days)-1 {
-			currentACWR = d.ACWR
 			currentCTL = d.CTL
 		}
 		if i == len(days)-8 {
@@ -160,13 +183,29 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 	}
 	strain := weekTSS * monotony
 
-	// Projection over next 28 days based on last 28 CTL values.
-	projection := linearProjection(days, 28, 28)
+	// ACWR_RA: Rolling Average 7:28 uncoupled.
+	dailyTSSMap := make(map[string]float64)
+	for _, d := range days {
+		dailyTSSMap[d.Date] = d.TSS
+	}
+	lastDate, _ := time.Parse("2006-01-02", days[len(days)-1].Date)
+	acwrRA := calcACWR_RA(dailyTSSMap, lastDate)
+
+	// ACWR Trend: ATL/CTL of last day (EWMA ratio).
+	var acwrTrend float64
+	lastDay := days[len(days)-1]
+	if lastDay.CTL > 0 {
+		acwrTrend = math.Round(lastDay.ATL/lastDay.CTL*100) / 100
+	}
+
+	// Projection over next 28 days using EWMA model.
+	projection := ewmaProjection(days, 28)
 
 	resp := PMCResponse{
 		Days:       days,
-		ACWR:       currentACWR,
-		ACWRStatus: acwrStatus(currentACWR),
+		ACWR:       acwrRA,
+		ACWRStatus: acwrStatus(acwrRA),
+		ACWRTrend:  acwrTrend,
 		RampRate:   math.Round(rampRate*100) / 100,
 		Monotony:   math.Round(monotony*1000) / 1000,
 		Strain:     math.Round(strain*10) / 10,
