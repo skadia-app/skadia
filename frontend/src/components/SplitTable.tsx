@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import type { Split, SplitSummary } from '@/api/types'
 import { fmtDuration } from '@/lib/format'
-import { formatSpeedKmh } from '@/lib/sportFieldLabels'
+import { formatSpeedKmh, formatSpeedValue } from '@/lib/sportFieldLabels'
 
 interface Props {
   splits: Split[]
@@ -124,7 +124,7 @@ function GradeCell({ splitId, activityId, initialGrade }: { splitId: string; act
 export default function SplitTable({ splits, summaries, sportType, subType, activityId }: Props) {
   if (sportType === 'rock_climbing') return <ClimbingSplits splits={splits} summaries={summaries} subType={subType} activityId={activityId} />
   if (sportType === 'skiing') return <SkiSplits splits={splits} />
-  return <GenericSplits splits={splits} />
+  return <GenericSplits splits={splits} sportType={sportType} />
 }
 
 function ClimbingSplits({ splits, summaries, subType, activityId }: { splits: Split[]; summaries: SplitSummary[]; subType?: string; activityId: string }) {
@@ -256,7 +256,7 @@ function SkiSplits({ splits }: { splits: Split[] }) {
   )
 }
 
-function GenericSplits({ splits }: { splits: Split[] }) {
+function GenericSplits({ splits, sportType }: { splits: Split[]; sportType: string }) {
   const showHR = splits.some(s => s.avg_hr != null)
   const showElevation = splits.some(s => s.total_ascent_m != null || s.total_descent_m != null)
 
@@ -291,7 +291,7 @@ function GenericSplits({ splits }: { splits: Split[] }) {
                 </td>
                 <td className={tdClass}>{fmtDuration(s.timer_time_s ?? s.elapsed_time_s)}</td>
                 <td className={tdClass}>{fmtDist(s.distance_m)}</td>
-                <td className={tdClass}>{formatSpeedKmh(s.avg_speed_ms ?? 0)}</td>
+                <td className={tdClass}>{formatSpeedValue(s.avg_speed_ms ?? 0, sportType)}</td>
                 {showHR && <td className={tdClass}>{s.avg_hr != null ? `${Math.round(s.avg_hr)} bpm` : '--'}</td>}
                 {showElevation && <td className={tdClass}>{s.total_ascent_m != null ? `+${Math.round(s.total_ascent_m)} m` : '--'}</td>}
                 {showElevation && <td className={tdClass}>{s.total_descent_m != null ? `-${Math.round(s.total_descent_m)} m` : '--'}</td>}

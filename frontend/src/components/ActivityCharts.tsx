@@ -46,7 +46,7 @@ const SUNSET_SVG = "image://data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2
 // FieldKey imported from sportFieldLabels.ts
 type XMode = 'distance' | 'time'
 
-type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'runningDynamics' | 'stepLength' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength'
+type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'coreTemperature' | 'runningDynamics' | 'stepLength' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength'
 
 function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
   if (tab === 'alles') return null // show all
@@ -63,7 +63,7 @@ function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
     case 'pedal': return ['torqueEff', 'pedalSm']
     case 'ebike': return ['motorPower', 'batteryLevel', 'travelRange']
     case 'tauchgang': return ['depth']
-    case 'sensoren': return ['temperature']
+    case 'sensoren': return ['temperature', 'coreTemperature']
     default: return null
   }
 }
@@ -79,6 +79,7 @@ interface ChartData {
   speed: number[]
   speedMs: number[]
   temperature: number[]
+  coreTemperature: number[]
   groundContactTime: number[]
   verticalOscillation: number[]
   stepLength: number[]
@@ -108,6 +109,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const speed: number[] = []
   const speedMs: number[] = []
   const temperature: number[] = []
+  const coreTemperature: number[] = []
   const groundContactTime: number[] = []
   const verticalOscillation: number[] = []
   const stepLength: number[] = []
@@ -138,6 +140,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     speed.push(s.speed_ms != null ? s.speed_ms * 3.6 : NaN)
     speedMs.push(s.speed_ms ?? NaN)
     temperature.push(s.temperature_c ?? NaN)
+    coreTemperature.push(s.core_temperature_c ?? NaN)
     groundContactTime.push(s.ground_contact_time_ms ?? NaN)
     verticalOscillation.push(s.vertical_oscillation_mm != null ? s.vertical_oscillation_mm / 10 : NaN)
     stepLength.push(s.step_length_mm != null ? s.step_length_mm / 1000 : NaN)
@@ -158,7 +161,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -574,6 +577,12 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       <ChartPanel chartId="temperature" {...common}
         field="temperature" label="Temperatur" unit="°C" color="#06b6d4"
         markLines="minmax" />
+    </div>,
+  )
+  if (hasValidData(data.coreTemperature)) panels.push(
+    <div key={k('core-temp')} style={{ display: show('coreTemperature') ? undefined : 'none' }}>
+      <ChartPanel chartId="core-temp" {...common}
+        field="coreTemperature" label="Kerntemperatur" unit="°C" color="#f43f5e" />
     </div>,
   )
   // Running Dynamics: dual-axis GCT + VO chart

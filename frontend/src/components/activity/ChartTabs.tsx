@@ -25,7 +25,7 @@ export function ChartTabs({ streams, children }: Props) {
     { value: 'pedal', label: 'Pedal-Analytik', visible: streams.some(s => s.left_torque_effectiveness_pct != null) },
     { value: 'ebike', label: 'E-Bike', visible: streams.some(s => s.motor_power_w != null) },
     { value: 'tauchgang', label: 'Tauchgang', visible: streams.some(s => s.depth_m != null) },
-    { value: 'sensoren', label: 'Sensoren', visible: streams.some(s => s.core_temperature_c != null || (s.developer_fields != null && Object.keys(s.developer_fields).length > 0)) },
+    { value: 'sensoren', label: 'Sensoren', visible: streams.some(s => s.core_temperature_c != null) },
   ]
 
   const visibleTabs = tabs.filter(t => t.visible)
