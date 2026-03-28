@@ -1,4 +1,4 @@
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useSearchParams } from 'react-router-dom'
 import type { StreamPoint } from '@/api/types'
 
@@ -52,11 +52,9 @@ export function ChartTabs({ streams, children }: Props) {
           <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>
         ))}
       </TabsList>
-      {visibleTabs.map(t => (
-        <TabsContent key={t.value} value={t.value}>
-          {children(t.value)}
-        </TabsContent>
-      ))}
+      <div className="mt-2">
+        {children(validTab)}
+      </div>
     </Tabs>
   )
 }

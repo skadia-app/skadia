@@ -476,32 +476,42 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     splitMarkers,
   }
 
-  const panels: React.ReactNode[] = []
-
-  // Tab-based filtering: if activeTab is set, only render panels matching the tab
+  // Tab-based filtering: tabCharts === null means "show all"
   const tabCharts = activeTab ? getTabCharts(activeTab, sportType ?? '') : null
   const show = (key: ChartKey) => tabCharts === null || tabCharts.includes(key)
 
-  if (show('altitude') && hasValidData(data.altitude)) panels.push(
-    <ChartPanel key={k('altitude')} chartId="altitude" {...common}
-      field="altitude" label="Höhe" unit="m" color="#22c55e" area
-      markLines="minmax" altitudeSmartY showGradeColor
-      sunMarkLines={sunMarkLines} />,
+  // Build all panels that have data, always. Wrap each in a visibility div so
+  // ECharts instances are never destroyed on tab switch — only hidden via CSS.
+  const panels: React.ReactNode[] = []
+
+  if (hasValidData(data.altitude)) panels.push(
+    <div key={k('altitude')} style={{ display: show('altitude') ? undefined : 'none' }}>
+      <ChartPanel chartId="altitude" {...common}
+        field="altitude" label="Höhe" unit="m" color="#22c55e" area
+        markLines="minmax" altitudeSmartY showGradeColor
+        sunMarkLines={sunMarkLines} />
+    </div>,
   )
-  if (show('heartRate') && hasValidData(data.heartRate)) panels.push(
-    <ChartPanel key={k('hr')} chartId="hr" {...common}
-      field="heartRate" label="Herzfrequenz" unit="bpm" color="#ef4444"
-      markLines="max" />,
+  if (hasValidData(data.heartRate)) panels.push(
+    <div key={k('hr')} style={{ display: show('heartRate') ? undefined : 'none' }}>
+      <ChartPanel chartId="hr" {...common}
+        field="heartRate" label="Herzfrequenz" unit="bpm" color="#ef4444"
+        markLines="max" />
+    </div>,
   )
-  if (show('power') && hasValidData(data.power)) panels.push(
-    <ChartPanel key={k('power')} chartId="power" {...common}
-      field="power" label="Leistung" unit="W" color="#a855f7" />,
+  if (hasValidData(data.power)) panels.push(
+    <div key={k('power')} style={{ display: show('power') ? undefined : 'none' }}>
+      <ChartPanel chartId="power" {...common}
+        field="power" label="Leistung" unit="W" color="#a855f7" />
+    </div>,
   )
-  if (show('cadence') && hasValidData(data.cadence)) panels.push(
-    <ChartPanel key={k('cadence')} chartId="cadence" {...common}
-      field="cadence" label={sportType ? fieldLabel('cadence', sportType) : 'Kadenz'} unit={sportType ? fieldUnit('cadence', sportType) : 'rpm'} color="#f97316" />,
+  if (hasValidData(data.cadence)) panels.push(
+    <div key={k('cadence')} style={{ display: show('cadence') ? undefined : 'none' }}>
+      <ChartPanel chartId="cadence" {...common}
+        field="cadence" label={sportType ? fieldLabel('cadence', sportType) : 'Kadenz'} unit={sportType ? fieldUnit('cadence', sportType) : 'rpm'} color="#f97316" />
+    </div>,
   )
-  if (show('speed') && hasValidData(data.speed)) {
+  if (hasValidData(data.speed)) {
     if (speedMode === 'pace') {
       // Sport-aware pace conversion
       const sg = sportType ? getSegmentGroup(sportType) : 'foot'
@@ -521,73 +531,95 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         return `${min}:${sec.toString().padStart(2, '0')}\u202f${paceUnit}`
       }
       panels.push(
-        <ChartPanel key={k('speed-pace')} chartId="speed" {...common}
-          field="speed" label={paceLabel} unit={paceUnit} color="#3b82f6"
-          overrideValues={paceValues} invertY tooltipValueFn={paceFmt} />,
+        <div key={k('speed-pace')} style={{ display: show('speed') ? undefined : 'none' }}>
+          <ChartPanel chartId="speed" {...common}
+            field="speed" label={paceLabel} unit={paceUnit} color="#3b82f6"
+            overrideValues={paceValues} invertY tooltipValueFn={paceFmt} />
+        </div>,
       )
     } else {
       panels.push(
-        <ChartPanel key={k('speed')} chartId="speed" {...common}
-          field="speed" label={sportType ? fieldLabel('speed', sportType) : 'Geschwindigkeit'} unit="km/h" color="#3b82f6" />,
+        <div key={k('speed')} style={{ display: show('speed') ? undefined : 'none' }}>
+          <ChartPanel chartId="speed" {...common}
+            field="speed" label={sportType ? fieldLabel('speed', sportType) : 'Geschwindigkeit'} unit="km/h" color="#3b82f6" />
+        </div>,
       )
     }
   }
-  if (show('temperature') && hasValidData(data.temperature)) panels.push(
-    <ChartPanel key={k('temperature')} chartId="temperature" {...common}
-      field="temperature" label="Temperatur" unit="°C" color="#06b6d4"
-      markLines="minmax" />,
+  if (hasValidData(data.temperature)) panels.push(
+    <div key={k('temperature')} style={{ display: show('temperature') ? undefined : 'none' }}>
+      <ChartPanel chartId="temperature" {...common}
+        field="temperature" label="Temperatur" unit="°C" color="#06b6d4"
+        markLines="minmax" />
+    </div>,
   )
   // Running Dynamics: dual-axis GCT + VO chart
-  if (show('runningDynamics') && (hasValidData(data.groundContactTime) || hasValidData(data.verticalOscillation))) panels.push(
-    <RunningDynamicsChartPanel key={k('running-dynamics')} chartId="running-dynamics" {...common} />,
+  if (hasValidData(data.groundContactTime) || hasValidData(data.verticalOscillation)) panels.push(
+    <div key={k('running-dynamics')} style={{ display: show('runningDynamics') ? undefined : 'none' }}>
+      <RunningDynamicsChartPanel chartId="running-dynamics" {...common} />
+    </div>,
   )
   // Step Length: single series
-  if (show('stepLength') && hasValidData(data.stepLength)) panels.push(
-    <ChartPanel key={k('step-length')} chartId="step-length" {...common}
-      field="stepLength" label="Schrittlänge" unit="m" color="#0891b2"
-      overrideValues={data.stepLength} />,
+  if (hasValidData(data.stepLength)) panels.push(
+    <div key={k('step-length')} style={{ display: show('stepLength') ? undefined : 'none' }}>
+      <ChartPanel chartId="step-length" {...common}
+        field="stepLength" label="Schrittlänge" unit="m" color="#0891b2"
+        overrideValues={data.stepLength} />
+    </div>,
   )
   // Pedal Analytics: Torque Effectiveness L/R
-  if (show('torqueEff') && (hasValidData(data.torqueEffL) || hasValidData(data.torqueEffR))) panels.push(
-    <PedalDualChartPanel key={k('torque-eff')} chartId="torque-eff" {...common}
-      leftValues={data.torqueEffL} rightValues={data.torqueEffR}
-      leftLabel="Drehmoment-Eff. Links" rightLabel="Drehmoment-Eff. Rechts"
-      leftColor="#EC4899" rightColor="#A855F7"
-      leftAxisName="Links\n(%)" rightAxisName="Rechts\n(%)"
-      tooltipTitle="Drehmoment-Eff." />,
+  if (hasValidData(data.torqueEffL) || hasValidData(data.torqueEffR)) panels.push(
+    <div key={k('torque-eff')} style={{ display: show('torqueEff') ? undefined : 'none' }}>
+      <PedalDualChartPanel chartId="torque-eff" {...common}
+        leftValues={data.torqueEffL} rightValues={data.torqueEffR}
+        leftLabel="Drehmoment-Eff. Links" rightLabel="Drehmoment-Eff. Rechts"
+        leftColor="#EC4899" rightColor="#A855F7"
+        leftAxisName="Links\n(%)" rightAxisName="Rechts\n(%)"
+        tooltipTitle="Drehmoment-Eff." />
+    </div>,
   )
   // Pedal Analytics: Pedal Smoothness L/R
-  if (show('pedalSm') && (hasValidData(data.pedalSmL) || hasValidData(data.pedalSmR))) panels.push(
-    <PedalDualChartPanel key={k('pedal-sm')} chartId="pedal-sm" {...common}
-      leftValues={data.pedalSmL} rightValues={data.pedalSmR}
-      leftLabel="Tritt-Gleichm. Links" rightLabel="Tritt-Gleichm. Rechts"
-      leftColor="#A855F7" rightColor="#8B5CF6"
-      leftAxisName="Links\n(%)" rightAxisName="Rechts\n(%)"
-      tooltipTitle="Tritt-Gleichm." />,
+  if (hasValidData(data.pedalSmL) || hasValidData(data.pedalSmR)) panels.push(
+    <div key={k('pedal-sm')} style={{ display: show('pedalSm') ? undefined : 'none' }}>
+      <PedalDualChartPanel chartId="pedal-sm" {...common}
+        leftValues={data.pedalSmL} rightValues={data.pedalSmR}
+        leftLabel="Tritt-Gleichm. Links" rightLabel="Tritt-Gleichm. Rechts"
+        leftColor="#A855F7" rightColor="#8B5CF6"
+        leftAxisName="Links\n(%)" rightAxisName="Rechts\n(%)"
+        tooltipTitle="Tritt-Gleichm." />
+    </div>,
   )
   // E-Bike: Motor Power
-  if (show('motorPower') && hasValidData(data.motorPower)) panels.push(
-    <ChartPanel key={k('motor-power')} chartId="motor-power" {...common}
-      field="power" label="Motorleistung" unit="W" color="#9333EA"
-      overrideValues={data.motorPower} />,
+  if (hasValidData(data.motorPower)) panels.push(
+    <div key={k('motor-power')} style={{ display: show('motorPower') ? undefined : 'none' }}>
+      <ChartPanel chartId="motor-power" {...common}
+        field="power" label="Motorleistung" unit="W" color="#9333EA"
+        overrideValues={data.motorPower} />
+    </div>,
   )
   // E-Bike: Battery Level (fixed 0–100 % Y axis)
-  if (show('batteryLevel') && hasValidData(data.batteryLevel)) panels.push(
-    <ChartPanel key={k('battery')} chartId="battery" {...common}
-      field="power" label="Akku-Level" unit="%" color="#22C55E"
-      overrideValues={data.batteryLevel} yAxisFixed={[0, 100]} />,
+  if (hasValidData(data.batteryLevel)) panels.push(
+    <div key={k('battery')} style={{ display: show('batteryLevel') ? undefined : 'none' }}>
+      <ChartPanel chartId="battery" {...common}
+        field="power" label="Akku-Level" unit="%" color="#22C55E"
+        overrideValues={data.batteryLevel} yAxisFixed={[0, 100]} />
+    </div>,
   )
   // E-Bike: Travel Range
-  if (show('travelRange') && hasValidData(data.travelRange)) panels.push(
-    <ChartPanel key={k('travel-range')} chartId="travel-range" {...common}
-      field="power" label="Reichweite" unit="km" color="#6B7280"
-      overrideValues={data.travelRange} />,
+  if (hasValidData(data.travelRange)) panels.push(
+    <div key={k('travel-range')} style={{ display: show('travelRange') ? undefined : 'none' }}>
+      <ChartPanel chartId="travel-range" {...common}
+        field="power" label="Reichweite" unit="km" color="#6B7280"
+        overrideValues={data.travelRange} />
+    </div>,
   )
   // Dive: Depth profile — Y axis inverted so surface = top, depth = bottom
-  if (show('depth') && hasValidData(data.depth)) panels.push(
-    <ChartPanel key={k('depth')} chartId="depth" {...common}
-      field="altitude" label="Tiefe" unit="m" color="#3B82F6" area
-      overrideValues={data.depth} invertY />,
+  if (hasValidData(data.depth)) panels.push(
+    <div key={k('depth')} style={{ display: show('depth') ? undefined : 'none' }}>
+      <ChartPanel chartId="depth" {...common}
+        field="altitude" label="Tiefe" unit="m" color="#3B82F6" area
+        overrideValues={data.depth} invertY />
+    </div>,
   )
 
   if (panels.length === 0) return null
