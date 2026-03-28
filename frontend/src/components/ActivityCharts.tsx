@@ -289,6 +289,23 @@ function computeSunMarkLines(
 
 export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode, highlightRange, speedMode, sportType, activeTab }: Props) {
   const data = useMemo(() => buildChartData(streams), [streams])
+
+  // Pre-compute pace values — memoized so the array reference is stable across
+  // hover/zoom renders and does not trigger a full ECharts re-initialization
+  const paceValues = useMemo(() => {
+    if (speedMode !== 'pace' || !data) return undefined
+    const sg = sportType ? getSegmentGroup(sportType) : 'generic'
+    const isRowingSport = sportType === 'rowing'
+    const isSwimSport = sg === 'swim'
+    const divisor = isRowingSport ? 500 : isSwimSport ? 100 : 1000
+    const maxPace = 30
+    return data.speedMs.map(ms => {
+      if (!ms || ms <= 0 || !isFinite(ms)) return NaN
+      const pace = divisor / ms / 60
+      return pace > maxPace ? NaN : pace
+    })
+  }, [data, speedMode, sportType])
+
   const [isZoomed, setIsZoomed] = useState(false)
   const [xMode, setXMode] = useState<XMode>(defaultXMode ?? 'distance')
 
@@ -528,15 +545,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     const isSwimSport = sg === 'swim'
 
     if (speedMode === 'pace') {
-      const divisor = isRowingSport ? 500 : isSwimSport ? 100 : 1000
       const paceUnit = isRowingSport ? 'min/500m' : isSwimSport ? 'min/100m' : 'min/km'
-      // Clamp pace to max 30 min/km (= walking ~2 km/h) to avoid Y-axis explosion at stops
-      const maxPace = 30
-      const paceValues = data.speedMs.map(ms => {
-        if (!ms || ms <= 0 || !isFinite(ms)) return NaN
-        const pace = divisor / ms / 60
-        return pace > maxPace ? NaN : pace
-      })
       const paceFmt = (minPer: number): string => {
         if (isNaN(minPer) || !isFinite(minPer)) return '—'
         let min = Math.floor(minPer)
