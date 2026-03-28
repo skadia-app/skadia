@@ -169,6 +169,20 @@ export function StatsGrid({ activity, speedMode }: StatsGridProps) {
       label: 'Akkuverbrauch',
       value: `${activity.lev_battery_consumption_pct.toFixed(1)} %`,
     } : null,
+
+    // Pool-Info (nur wenn pool_length_m vorhanden)
+    activity.pool_length_m != null ? {
+      label: 'Bahnlänge', value: `${activity.pool_length_m} m`,
+    } : null,
+    activity.num_lengths != null ? {
+      label: 'Bahnen', value: `${activity.num_lengths}`,
+    } : null,
+    activity.num_active_lengths != null && activity.num_lengths != null && activity.num_active_lengths !== activity.num_lengths ? {
+      label: 'Aktive Bahnen', value: `${activity.num_active_lengths}`,
+    } : null,
+    activity.avg_stroke_count != null ? {
+      label: 'Ø Züge/Bahn', value: `${activity.avg_stroke_count.toFixed(1)}`,
+    } : null,
   ]
 
   const visible = (stats.filter(Boolean) as StatItem[]).filter(s => s.value && s.value !== '—')
