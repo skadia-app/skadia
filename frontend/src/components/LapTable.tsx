@@ -6,14 +6,16 @@ import { getSegmentGroup } from '@/lib/sportTaxonomy'
 interface Props {
   laps: Lap[]
   sportType: string
+  speedMode?: 'speed' | 'pace'
 }
 
 const thClass = 'px-2 py-1.5 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400 whitespace-nowrap'
 const tdClass = 'px-2 py-1.5 text-sm text-neutral-900 dark:text-neutral-100 whitespace-nowrap'
 
-export default function LapTable({ laps, sportType }: Props) {
+export default function LapTable({ laps, sportType, speedMode }: Props) {
   const segGroup = getSegmentGroup(sportType)
-  const showPace = segGroup === 'foot'
+  const effectiveMode = speedMode ?? (segGroup === 'foot' || segGroup === 'swim' ? 'pace' : 'speed')
+  const showPace = effectiveMode === 'pace'
   const showPower = segGroup === 'bike' && laps.some(l => l.avg_power_w != null)
   const showNP = showPower && laps.some(l => l.normalized_power_w != null)
   const showCadence = (segGroup === 'bike' || segGroup === 'foot') && laps.some(l => l.avg_cadence != null)
@@ -53,7 +55,7 @@ export default function LapTable({ laps, sportType }: Props) {
                 <td className={tdClass}>{lap.lap_index != null ? lap.lap_index + 1 : '--'}</td>
                 <td className={tdClass}>{fmtDuration(lap.timer_time_s ?? lap.elapsed_time_s)}</td>
                 <td className={tdClass}>{fmtDist(lap.distance_m)}</td>
-                <td className={tdClass}>{formatSpeedValue(lap.avg_speed_ms, sportType)}</td>
+                <td className={tdClass}>{formatSpeedValue(lap.avg_speed_ms, sportType, speedMode)}</td>
                 {showHR && <td className={tdClass}>{lap.avg_heart_rate != null ? `${Math.round(lap.avg_heart_rate)} bpm` : '--'}</td>}
                 {showPower && <td className={tdClass}>{lap.avg_power_w != null ? `${Math.round(lap.avg_power_w)} W` : '--'}</td>}
                 {showNP && <td className={tdClass}>{lap.normalized_power_w != null ? `${Math.round(lap.normalized_power_w)} W` : '--'}</td>}
