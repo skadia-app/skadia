@@ -246,10 +246,15 @@ export default function ActivityDetailPage() {
     e.preventDefault()
   }, [])
 
-  const handleDrop = useCallback((e: DragEvent) => {
-    e.preventDefault()
+  // Capture phase: only resets overlay state — fires before stopPropagation() in child components (e.g. ImportHub FileDropZone)
+  const handleDropCapture = useCallback((_e: DragEvent) => {
     dragCounter.current = 0
     setIsDraggingPhotos(false)
+  }, [])
+
+  // Bubble phase: handles actual upload — stopped by ImportHub's stopPropagation(), so no double-upload
+  const handleDrop = useCallback((e: DragEvent) => {
+    e.preventDefault()
     if (!id) return
     const files = e.dataTransfer?.files
     if (!files || files.length === 0) return
@@ -268,14 +273,16 @@ export default function ActivityDetailPage() {
     window.addEventListener('dragenter', handleDragEnter)
     window.addEventListener('dragleave', handleDragLeave)
     window.addEventListener('dragover', handleDragOver)
+    window.addEventListener('drop', handleDropCapture, true)
     window.addEventListener('drop', handleDrop)
     return () => {
       window.removeEventListener('dragenter', handleDragEnter)
       window.removeEventListener('dragleave', handleDragLeave)
       window.removeEventListener('dragover', handleDragOver)
+      window.removeEventListener('drop', handleDropCapture, true)
       window.removeEventListener('drop', handleDrop)
     }
-  }, [handleDragEnter, handleDragLeave, handleDragOver, handleDrop])
+  }, [handleDragEnter, handleDragLeave, handleDragOver, handleDropCapture, handleDrop])
 
   // Load child streams for multisport combined chart
   const { data: childStreams } = useQuery({
