@@ -367,7 +367,7 @@ export default function ActivityDetailPage() {
   const { data: sets } = useQuery<ActivitySet[]>({
     queryKey: ['activity-sets', id],
     queryFn: () => fetchActivitySets(id!),
-    enabled: !!activity && ['strength_training', 'strength'].includes(activity.sport_type),
+    enabled: !!activity && ['strength_training', 'training', 'strength'].includes(activity.sport_type),
   })
 
   const { data: workout } = useQuery<Workout>({
