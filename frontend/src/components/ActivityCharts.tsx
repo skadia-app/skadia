@@ -52,6 +52,7 @@ interface ChartData {
   power: number[]
   cadence: number[]
   speed: number[]
+  speedMs: number[]
   temperature: number[]
   maxDist: number
   maxElapsed: number
@@ -68,6 +69,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const power: number[] = []
   const cadence: number[] = []
   const speed: number[] = []
+  const speedMs: number[] = []
   const temperature: number[] = []
 
   const t0 = streams.length > 0 ? new Date(streams[0].time).getTime() : 0
@@ -85,6 +87,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     power.push(s.power_w ?? NaN)
     cadence.push(s.cadence ?? NaN)
     speed.push(s.speed_ms != null ? s.speed_ms * 3.6 : NaN)
+    speedMs.push(s.speed_ms ?? NaN)
     temperature.push(s.temperature_c ?? NaN)
   }
 
@@ -93,7 +96,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, temperature, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -179,6 +182,8 @@ interface Props {
   defaultXMode?: XMode
   /** Distanzbereich (in km) der im Höhenprofil als markArea hervorgehoben wird. */
   highlightRange?: { startKm: number; endKm: number } | null
+  /** Speed/Pace toggle mode: 'speed' = km/h, 'pace' = min/km (inverted Y axis). */
+  speedMode?: 'speed' | 'pace'
 }
 
 function computeSunMarkLines(
@@ -216,7 +221,7 @@ function computeSunMarkLines(
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode, highlightRange }: Props) {
+export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode, highlightRange, speedMode }: Props) {
   const data = useMemo(() => buildChartData(streams), [streams])
   const [isZoomed, setIsZoomed] = useState(false)
   const [xMode, setXMode] = useState<XMode>(defaultXMode ?? 'distance')
@@ -436,10 +441,30 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     <ChartPanel key={k('cadence')} chartId="cadence" {...common}
       field="cadence" label="Kadenz" unit="rpm" color="#f97316" />,
   )
-  if (hasValidData(data.speed)) panels.push(
-    <ChartPanel key={k('speed')} chartId="speed" {...common}
-      field="speed" label="Geschwindigkeit" unit="km/h" color="#3b82f6" />,
-  )
+  if (hasValidData(data.speed)) {
+    if (speedMode === 'pace') {
+      // Convert m/s → min/km for pace display (inverted Y: higher value = slower)
+      const paceValues = data.speedMs.map(ms =>
+        ms > 0 && isFinite(ms) ? 1000 / ms / 60 : NaN,
+      )
+      const paceFmt = (minPerKm: number): string => {
+        if (isNaN(minPerKm) || !isFinite(minPerKm)) return '—'
+        const min = Math.floor(minPerKm)
+        const sec = Math.round((minPerKm - min) * 60)
+        return `${min}:${sec.toString().padStart(2, '0')}\u202fmin/km`
+      }
+      panels.push(
+        <ChartPanel key={k('speed-pace')} chartId="speed" {...common}
+          field="speed" label="Pace" unit="min/km" color="#3b82f6"
+          overrideValues={paceValues} invertY tooltipValueFn={paceFmt} />,
+      )
+    } else {
+      panels.push(
+        <ChartPanel key={k('speed')} chartId="speed" {...common}
+          field="speed" label="Geschwindigkeit" unit="km/h" color="#3b82f6" />,
+      )
+    }
+  }
   if (hasValidData(data.temperature)) panels.push(
     <ChartPanel key={k('temperature')} chartId="temperature" {...common}
       field="temperature" label="Temperatur" unit="°C" color="#06b6d4"
@@ -507,17 +532,23 @@ interface ChartPanelProps {
   xMode: XMode
   sunMarkLines?: SunMarkLine[]
   splitMarkers?: SplitMarker[]
+  /** Override the data values array (used for pace mode: pre-converted values). */
+  overrideValues?: number[]
+  /** Invert the Y axis (used for pace mode so slower pace = lower on screen). */
+  invertY?: boolean
+  /** Custom value formatter for tooltip (used for pace mode). */
+  tooltipValueFn?: (v: number) => string
 }
 
 function ChartPanel({
   chartId, data, field, unit, label, color, area,
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
   brushZoomLockRef, markLines = 'none', altitudeSmartY, showGradeColor, xMode,
-  sunMarkLines, splitMarkers,
+  sunMarkLines, splitMarkers, overrideValues, invertY, tooltipValueFn,
 }: ChartPanelProps) {
   const containerRef = useECharts(
     () => {
-      const values = data[field]
+      const values = overrideValues ?? data[field]
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
 
@@ -527,6 +558,7 @@ function ChartPanel({
         const range = calcAltitudeYRange(values)
         if (range) { yAxisExtra.min = range.min; yAxisExtra.max = range.max }
       }
+      if (invertY) { yAxisExtra.inverse = true }
 
       // Extra top padding for sunrise/sunset icons or split marker labels above the chart
       const gridTop = (sunMarkLines && sunMarkLines.length > 0) || (splitMarkers && splitMarkers.length > 0) ? 34 : 8
@@ -580,9 +612,11 @@ function ChartPanel({
           ? `${kmStr}\u202fkm`
           : `${timeStr}\u2009·\u2009${kmStr}\u202fkm`
 
+        const valStr = tooltipValueFn ? tooltipValueFn(v) : `${v.toFixed(decimals)}\u2009${unit}`
+
         let html = `<div style="line-height:1.75;min-width:130px">`
         html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
-        html += `<div style="font-size:13px"><strong>${v.toFixed(decimals)}</strong>\u2009${unit}</div>`
+        html += `<div style="font-size:13px"><strong>${valStr}</strong></div>`
 
         if (showGradeColor) {
           const gradeVal = data.grade[idx]
@@ -781,7 +815,7 @@ function ChartPanel({
         ],
       } as echarts.EChartsCoreOption
     },
-    [data, field, xMode, splitMarkers, showGradeColor], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, field, xMode, splitMarkers, showGradeColor, overrideValues, invertY], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       onRegister(chartId, chart)
 

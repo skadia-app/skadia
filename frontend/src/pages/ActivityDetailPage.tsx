@@ -20,7 +20,9 @@ import {
   formatDuration, formatDistance, formatElevationGain, formatElevationLoss,
   sportColor, showIndoorBadge,
 } from '@/lib/utils'
-import { sportDetailLabel } from '@/lib/sportTaxonomy'
+import { sportDetailLabel, getSegmentGroup } from '@/lib/sportTaxonomy'
+import { defaultSpeedMode } from '@/lib/sportFieldLabels'
+import { SpeedPaceToggle } from '@/components/activity/SpeedPaceToggle'
 import WeatherBadge from '@/components/WeatherBadge'
 import GeoTagsList from '@/components/GeoTagsList'
 import GearSelector from '@/components/GearSelector'
@@ -154,6 +156,19 @@ export default function ActivityDetailPage() {
     },
     enabled: !!id && activity?.sport_type === 'multisport',
   })
+
+  // Speed/Pace toggle — persisted per segment group
+  const segGroup = activity ? getSegmentGroup(activity.sport_type) : 'generic'
+  const speedStorageKey = `skadia-speed-format:${segGroup}`
+  const [speedMode, setSpeedMode] = useState<'speed' | 'pace'>(() => {
+    const stored = localStorage.getItem(`skadia-speed-format:${activity ? getSegmentGroup(activity.sport_type) : 'generic'}`)
+    if (stored === 'speed' || stored === 'pace') return stored
+    return activity ? defaultSpeedMode(activity.sport_type) : 'speed'
+  })
+  const handleSpeedModeChange = (mode: 'speed' | 'pace') => {
+    setSpeedMode(mode)
+    localStorage.setItem(speedStorageKey, mode)
+  }
 
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null)
@@ -364,7 +379,20 @@ export default function ActivityDetailPage() {
       <LocationLine activity={activity} />
 
       {/* Stats — hide the standard grid for multisport parents (we show custom stats below) */}
-      {activity.sport_type !== 'multisport' && <StatsGrid activity={activity} />}
+      {activity.sport_type !== 'multisport' && (
+        <div className="space-y-2">
+          {activity.avg_speed_ms != null && (
+            <div className="flex justify-end">
+              <SpeedPaceToggle
+                sportType={activity.sport_type}
+                mode={speedMode}
+                onChange={handleSpeedModeChange}
+              />
+            </div>
+          )}
+          <StatsGrid activity={activity} speedMode={speedMode} />
+        </div>
+      )}
 
       {/* Multisport parent — combined view */}
       {activity.sport_type === 'multisport' && (
@@ -558,11 +586,12 @@ export default function ActivityDetailPage() {
           sunsetAt={activity.sunset_at}
           defaultXMode={!activity.has_gps ? 'time' : 'distance'}
           highlightRange={hoveredClimbRange}
+          speedMode={speedMode}
         />
       )}
 
       {/* Runden */}
-      {laps && laps.length > 0 && <LapTable laps={laps} sportType={activity.sport_type} />}
+      {laps && laps.length > 0 && <LapTable laps={laps} sportType={activity.sport_type} speedMode={speedMode} />}
 
       {/* Splits (Klettern zuerst) */}
       {splitsData && splitsData.splits.length > 0 && activity.sport_type === 'rock_climbing' && (

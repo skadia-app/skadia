@@ -6,6 +6,7 @@ import { getSegmentGroup } from '@/lib/sportTaxonomy'
 
 interface StatsGridProps {
   activity: Activity
+  speedMode?: 'speed' | 'pace'
 }
 
 interface StatItem {
@@ -15,7 +16,7 @@ interface StatItem {
   title?: string
 }
 
-export function StatsGrid({ activity }: StatsGridProps) {
+export function StatsGrid({ activity, speedMode }: StatsGridProps) {
   const sport = activity.sport_type
   const gain = formatElevationGain(activity.elevation_gain_m)
   const loss = formatElevationLoss(activity.elevation_loss_m)
@@ -42,13 +43,13 @@ export function StatsGrid({ activity }: StatsGridProps) {
     // Ø Geschwindigkeit / Pace
     activity.avg_speed_ms != null ? {
       label: `Ø ${fieldLabel('speed', sport)}`,
-      value: formatSpeedValue(activity.avg_speed_ms, sport),
+      value: formatSpeedValue(activity.avg_speed_ms, sport, speedMode),
     } : null,
 
     // Max. Geschwindigkeit / Beste Pace
     activity.max_speed_ms != null ? {
       label: getSegmentGroup(sport) === 'foot' ? 'Beste Pace' : 'Max. Geschwindigkeit',
-      value: formatSpeedValue(activity.max_speed_ms, sport),
+      value: formatSpeedValue(activity.max_speed_ms, sport, speedMode),
     } : null,
 
     // Herzfrequenz
