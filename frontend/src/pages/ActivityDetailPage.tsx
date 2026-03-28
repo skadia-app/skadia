@@ -170,11 +170,19 @@ export default function ActivityDetailPage() {
   // Speed/Pace toggle — persisted per segment group
   const segGroup = activity ? getSegmentGroup(activity.sport_type) : 'generic'
   const speedStorageKey = `skadia-speed-format:${segGroup}`
-  const [speedMode, setSpeedMode] = useState<'speed' | 'pace'>(() => {
-    const stored = localStorage.getItem(`skadia-speed-format:${activity ? getSegmentGroup(activity.sport_type) : 'generic'}`)
-    if (stored === 'speed' || stored === 'pace') return stored
-    return activity ? defaultSpeedMode(activity.sport_type) : 'speed'
-  })
+  const [speedMode, setSpeedMode] = useState<'speed' | 'pace'>('speed')
+  const speedModeInitRef = useRef(false)
+  useEffect(() => {
+    if (!activity || speedModeInitRef.current) return
+    speedModeInitRef.current = true
+    const key = `skadia-speed-format:${getSegmentGroup(activity.sport_type)}`
+    const stored = localStorage.getItem(key)
+    if (stored === 'speed' || stored === 'pace') {
+      setSpeedMode(stored)
+    } else {
+      setSpeedMode(defaultSpeedMode(activity.sport_type))
+    }
+  }, [activity])
   const handleSpeedModeChange = (mode: 'speed' | 'pace') => {
     setSpeedMode(mode)
     localStorage.setItem(speedStorageKey, mode)
@@ -325,6 +333,18 @@ export default function ActivityDetailPage() {
 
     return { merged, splitMarkers }
   }, [childStreams, childActivities])
+
+  // Multisport hover handler — must be unconditional (Rules of Hooks)
+  const handleMultisportHover = useCallback((index: number | null) => {
+    if (index == null) {
+      multisportMapRef.current?.setHoverPoint(null)
+      return
+    }
+    const pt = multisportChartData?.merged[index]
+    if (pt?.lat != null && pt?.lng != null) {
+      multisportMapRef.current?.setHoverPoint({ lat: pt.lat, lng: pt.lng })
+    }
+  }, [multisportChartData])
 
   // Tags für Standort-Sektion bei Indoor-Aktivitäten laden
   const { data: allTagsForLocation = [] } = useQuery({
@@ -503,16 +523,7 @@ export default function ActivityDetailPage() {
           {multisportChartData && multisportChartData.merged.length > 0 && (
             <ActivityCharts
               streams={multisportChartData.merged}
-              onHover={useCallback((index: number | null) => {
-                if (index == null) {
-                  multisportMapRef.current?.setHoverPoint(null)
-                  return
-                }
-                const pt = multisportChartData.merged[index]
-                if (pt?.lat != null && pt?.lng != null) {
-                  multisportMapRef.current?.setHoverPoint({ lat: pt.lat, lng: pt.lng })
-                }
-              }, [multisportChartData.merged])}
+              onHover={handleMultisportHover}
               splitMarkers={multisportChartData.splitMarkers}
               defaultXMode={childActivities?.some(c => c.has_gps) ? 'distance' : 'time'}
             />

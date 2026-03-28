@@ -28,7 +28,7 @@ export function RunningDynamicsStats({ activity }: Props) {
 
   return (
     <div>
-      <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2">Running Dynamics</h3>
+      <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2">Laufdynamik</h3>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
         {stats.map(s => (
           <div key={s.label} className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
