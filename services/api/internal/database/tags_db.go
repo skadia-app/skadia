@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -278,7 +279,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 		UPDATE tags SET %s
 		WHERE id = $1 AND user_id = $2
 		RETURNING %s`,
-		fmt.Sprintf("%s", joinStrings(sets, ", ")), tagCols,
+		fmt.Sprintf("%s", strings.Join(sets, ", ")), tagCols,
 	)
 
 	t, err := scanTag(db.Pool.QueryRow(ctx, query, args...))
@@ -1027,16 +1028,4 @@ func contrastTextColor(hex string) string {
 		return "#1a1a1a"
 	}
 	return "#ffffff"
-}
-
-// joinStrings joins string slices — local helper to avoid importing strings in this file indirectly.
-func joinStrings(parts []string, sep string) string {
-	result := ""
-	for i, p := range parts {
-		if i > 0 {
-			result += sep
-		}
-		result += p
-	}
-	return result
 }
