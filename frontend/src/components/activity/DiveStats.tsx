@@ -12,6 +12,7 @@ export function DiveStats({ activity }: Props) {
     activity.end_cns_pct != null ? { label: 'CNS Ende', value: `${activity.end_cns_pct.toFixed(1)} %` } : null,
     activity.start_n2_pct != null ? { label: 'N₂ Start', value: `${activity.start_n2_pct.toFixed(1)} %` } : null,
     activity.end_n2_pct != null ? { label: 'N₂ Ende', value: `${activity.end_n2_pct.toFixed(1)} %` } : null,
+    activity.o2_toxicity_otu != null ? { label: 'O₂-Toxizität (OTU)', value: `${Math.round(activity.o2_toxicity_otu)}` } : null,
     activity.surface_interval_s != null ? { label: 'Oberflächenintervall', value: fmtDuration(activity.surface_interval_s, 'short') } : null,
   ].filter(Boolean) as { label: string; value: string }[]
 
