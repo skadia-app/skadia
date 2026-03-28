@@ -1,7 +1,7 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import { sportLabel as taxonomySportLabel, sportColor as taxonomySportColor } from '@/lib/sportTaxonomy'
 import { fmtDuration, fmtDist } from '@/lib/format'
+export { sportColor, sportLabel } from '@/lib/sportTaxonomy'
 
 /** Backwards-compatible re-export — defaults to 'human' style (was the old utils.ts format). */
 export const formatDuration = (s: number) => fmtDuration(s, 'human')
@@ -20,14 +20,6 @@ export function formatElevationGain(meters: number | null | undefined): string |
 export function formatElevationLoss(meters: number | null | undefined): string | null {
   if (meters == null || isNaN(meters) || meters <= 0) return null
   return `−${Math.round(meters)} m`
-}
-
-export function sportColor(sport: string): string {
-  return taxonomySportColor(sport)
-}
-
-export function sportLabel(sport: string, subType?: string | null): string {
-  return taxonomySportLabel(sport, subType)
 }
 
 // Sub-Types die Indoor schon semantisch implizieren – kein separates Badge noetig
