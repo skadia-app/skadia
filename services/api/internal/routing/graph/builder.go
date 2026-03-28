@@ -43,7 +43,7 @@ type CoverageData struct {
 
 // CoverageReader provides coverage grid access for the graph builder.
 // Defined locally to avoid import cycles (coverage package imports graph).
-// Callers wrap coverage.TileGridCache with an adapter that converts
+// Callers wrap coverage.DiskCoverageReader with an adapter that converts
 // coverage.CoverageResult → graph.CoverageData.
 type CoverageReader interface {
 	// SampleWay samples all coverage layers along a way geometry.
