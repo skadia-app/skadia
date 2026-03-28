@@ -14,7 +14,8 @@ export interface Segment {
   athlete_count: number
   ridden_count: number
   is_favorite: boolean
-  visibility: string
+  visibility: 'public' | 'private'
+  created_by: string
   created_at: string
   track_geojson?: string
   terrain_type?: string
@@ -36,14 +37,19 @@ export interface SegmentEffort {
 }
 
 export interface LeaderboardEntry {
-  rank: number
-  athlete_name: string
-  elapsed_time_s: number
+  id: string
+  segment_id: string
   activity_id: string
-  started_at: string
-  gear_name?: string
+  user_id: string
+  elapsed_time_s: number
+  is_reverse: boolean
+  sport_type: string
+  rank_overall?: number
   is_personal_best: boolean
   is_segment_record: boolean
+  started_at: string
+  display_name: string
+  gear_name?: string
 }
 
 export interface CreateSegmentPayload {
@@ -56,6 +62,7 @@ export interface CreateSegmentPayload {
   description?: string
   terrain_type?: string
   climb_type?: string
+  visibility?: 'public' | 'private'
 }
 
 export interface SegmentsResponse {
@@ -97,14 +104,19 @@ export interface UpdateSegmentPayload {
   new_version?: boolean
   terrain_type?: string
   climb_type?: string
+  visibility?: 'public' | 'private'
 }
 
 export async function fetchSegmentLeaderboard(
   segmentId: string,
   isReverse?: boolean,
+  onlyMine?: boolean,
 ): Promise<LeaderboardEntry[]> {
-  const qs = isReverse !== undefined ? `?is_reverse=${isReverse}` : ''
-  return apiClient<LeaderboardEntry[]>(`/segments/${segmentId}/leaderboard${qs}`)
+  const qs = new URLSearchParams()
+  if (isReverse !== undefined) qs.set('is_reverse', String(isReverse))
+  if (onlyMine) qs.set('only_mine', 'true')
+  const q = qs.toString()
+  return apiClient<LeaderboardEntry[]>(`/segments/${segmentId}/leaderboard${q ? `?${q}` : ''}`)
 }
 
 export async function fetchSegment(id: string): Promise<Segment> {
@@ -133,4 +145,8 @@ export async function fetchDetectedLaps(activityId: string): Promise<DetectedLap
 
 export async function recomputeSegment(segmentId: string): Promise<void> {
   return apiClient<void>(`/segments/${segmentId}/recompute`, { method: 'POST' })
+}
+
+export async function publishSegment(id: string): Promise<{ status: string; job_id: string }> {
+  return apiClient<{ status: string; job_id: string }>(`/segments/${id}/publish`, { method: 'POST' })
 }
