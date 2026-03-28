@@ -1,9 +1,13 @@
 // JWT auth state management
-// Token is kept in memory only (not localStorage) for security
+// Token is kept in memory only (not localStorage) for security.
+// Cross-tab sync via BroadcastChannel ensures all tabs share the same token
+// without persisting it to storage.
 
 let accessToken: string | null = null
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
 let refreshInFlight: Promise<boolean> | null = null
+let authChannel: BroadcastChannel | null = null
+let suppressBroadcast = false
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 const DEV_AUTH = import.meta.env.VITE_DEV_AUTH === 'true'
@@ -28,6 +32,9 @@ export function getToken(): string | null {
 export function setToken(token: string): void {
   accessToken = token
   scheduleRefresh(token)
+  if (!suppressBroadcast) {
+    authChannel?.postMessage({ type: 'token-update', token })
+  }
 }
 
 export function clearToken(): void {
@@ -35,6 +42,9 @@ export function clearToken(): void {
   if (refreshTimer) {
     clearTimeout(refreshTimer)
     refreshTimer = null
+  }
+  if (!suppressBroadcast) {
+    authChannel?.postMessage({ type: 'logout' })
   }
 }
 
@@ -164,6 +174,11 @@ export async function apiFetch(input: string, init?: RequestInit): Promise<Respo
   return res
 }
 
+const PUBLIC_PATHS = [
+  '/login', '/register', '/forgot-password', '/reset-password',
+  '/verify-email', '/callback', '/confirm-email-change', '/cancel-deletion',
+]
+
 /**
  * Registers a visibilitychange listener that proactively refreshes the access
  * token when the user returns to the tab after a long absence. Prevents the
@@ -181,10 +196,7 @@ export function initVisibilityRefresh(): void {
       // Token was cleared while the tab was backgrounded (e.g. scheduled refresh
       // failed). If we're on a protected page, attempt a silent restore — or
       // redirect to login so the user isn't stuck in a zombie state.
-      const isPublicPath = [
-        '/login', '/register', '/forgot-password', '/reset-password',
-        '/verify-email', '/callback', '/confirm-email-change', '/cancel-deletion',
-      ].some(p => window.location.pathname.startsWith(p))
+      const isPublicPath = PUBLIC_PATHS.some(p => window.location.pathname.startsWith(p))
       if (!isPublicPath) {
         void tryRestoreSession().then(ok => {
           if (!ok) window.location.href = '/login'
@@ -204,4 +216,53 @@ export function initVisibilityRefresh(): void {
       })
     }
   })
+}
+
+/**
+ * Cross-tab auth token synchronization via BroadcastChannel.
+ *
+ * Ensures that when one tab logs in, refreshes, or logs out, all other tabs
+ * immediately receive the updated auth state. Without this, tabs that make
+ * few API calls (SSE followers with 120s safety-net polling) would not
+ * discover token updates until their next request.
+ *
+ * Also handles the F5 (page reload) case: a reloaded tab requests the current
+ * token from other open tabs before falling back to a network refresh.
+ *
+ * Call once at app startup (main.tsx), before tryRestoreSession().
+ */
+export function initAuthSync(): void {
+  if (DEV_AUTH || typeof BroadcastChannel === 'undefined') return
+
+  authChannel = new BroadcastChannel('skadia-auth')
+
+  authChannel.onmessage = (e: MessageEvent) => {
+    const msg = e.data
+    if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return
+
+    if (msg.type === 'token-update' && typeof msg.token === 'string') {
+      // Another tab got a fresh token (login or refresh) — accept it
+      suppressBroadcast = true
+      setToken(msg.token)
+      suppressBroadcast = false
+    } else if (msg.type === 'logout') {
+      // Another tab logged out — clear local state and redirect
+      suppressBroadcast = true
+      clearToken()
+      suppressBroadcast = false
+      const isPublic = PUBLIC_PATHS.some(p => window.location.pathname.startsWith(p))
+      if (!isPublic) window.location.href = '/login'
+    } else if (msg.type === 'token-request') {
+      // Another tab (e.g., after F5 reload) is asking for the current token
+      const token = getToken()
+      if (token) {
+        authChannel?.postMessage({ type: 'token-update', token })
+      }
+    }
+  }
+
+  // If we don't have a token yet (page reload), ask other tabs
+  if (!accessToken) {
+    authChannel.postMessage({ type: 'token-request' })
+  }
 }
