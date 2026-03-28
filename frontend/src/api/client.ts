@@ -26,12 +26,12 @@ export async function apiClient<T>(path: string, options: RequestOptions = {}): 
     throw new ApiError(response.status, await response.text())
   }
 
-  if (response.status === 204) return undefined as T
+  if (response.status === 204) return null as unknown as T
   // 202 may or may not have a JSON body; only parse if Content-Type indicates JSON
   if (response.status === 202) {
     const ct = response.headers.get('content-type') ?? ''
     if (ct.includes('application/json')) return response.json() as Promise<T>
-    return undefined as T
+    return null as unknown as T
   }
   return response.json() as Promise<T>
 }

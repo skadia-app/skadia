@@ -310,7 +310,7 @@ func (db *DB) GetHealthHRV(ctx context.Context, userID, from, to string) ([]mode
 			NULL::text                     AS title,
 			'daily_avg'                    AS time_of_day,
 			r.source_type,
-			NULL::text                     AS extra_data,
+			NULL::jsonb                    AS extra_data,
 			r.created_at
 		FROM health_readiness_scores r
 		WHERE r.user_id = $1
