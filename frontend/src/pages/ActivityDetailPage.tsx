@@ -5,12 +5,13 @@ import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, reprocessAllActivities, getZoneDistribution, correctActivityElevation, resetActivityElevation, correctActivityDistance, resetActivityDistance, type ExportFormat } from '@/api/activities'
+import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, reprocessAllActivities, getZoneDistribution, correctActivityElevation, resetActivityElevation, correctActivityDistance, resetActivityDistance, fetchActivitySets, fetchActivityJumps, fetchActivityEvents, type ExportFormat } from '@/api/activities'
+import { fetchWorkout } from '@/api/workouts'
 import { getHeatmapSettings, getWeatherSettings } from '@/api/settings'
 import { apiDownload } from '@/api/client'
 import { fetchTags, createTag, unassignActivitiesFromTag, assignActivitiesToTag } from '@/api/tags'
 import ActivityLocationTagSection from '@/components/ActivityLocationTagSection'
-import type { Activity, StreamPoint, Sensor, ZoneDistribution } from '@/api/types'
+import type { Activity, StreamPoint, Sensor, ZoneDistribution, ActivitySet, ActivityJump, ActivityEvent, Workout } from '@/api/types'
 // Tag type imported via api/tags is used indirectly through fetchTags
 import { getTagBadgeStyle } from '@/lib/tagUtils'
 import { SportIcon } from '@/components/SportIcon'
@@ -20,7 +21,7 @@ import {
   formatDuration, formatDistance, formatElevationGain, formatElevationLoss,
   sportColor, showIndoorBadge,
 } from '@/lib/utils'
-import { sportDetailLabel, getSegmentGroup } from '@/lib/sportTaxonomy'
+import { sportDetailLabel, getSegmentGroup, categoryForSport } from '@/lib/sportTaxonomy'
 import { defaultSpeedMode } from '@/lib/sportFieldLabels'
 import { SpeedPaceToggle } from '@/components/activity/SpeedPaceToggle'
 import WeatherBadge from '@/components/WeatherBadge'
@@ -59,6 +60,11 @@ import { DataCorrectionsSection } from '@/components/activity/DataCorrections'
 import { VisibilitySettings } from '@/components/activity/VisibilitySettings'
 import { SunInfo } from '@/components/activity/SunInfo'
 import { LocationLine } from '@/components/activity/LocationLine'
+import { StrengthSetsTable } from '@/components/activity/StrengthSetsTable'
+import { WorkoutOverview } from '@/components/activity/WorkoutOverview'
+import { BallSportStats } from '@/components/activity/BallSportStats'
+import { JumpSection } from '@/components/activity/JumpSection'
+import { RadarSummary } from '@/components/activity/RadarSummary'
 import { SensorList } from '@/components/activity/SensorList'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
 import { revertFusion } from '@/api/fusion'
@@ -329,6 +335,30 @@ export default function ActivityDetailPage() {
   const locationTagsForActivity = allTagsForLocation.filter(t => t.lat != null && t.lng != null)
   const assignedLocationTag = locationTagsForActivity.find(t => (activity?.tags ?? []).includes(t.name)) ?? null
 
+  const { data: sets } = useQuery<ActivitySet[]>({
+    queryKey: ['activity-sets', id],
+    queryFn: () => fetchActivitySets(id!),
+    enabled: !!activity && ['strength_training', 'training', 'strength'].includes(activity.sport_type),
+  })
+
+  const { data: workout } = useQuery<Workout>({
+    queryKey: ['workout', activity?.workout_id],
+    queryFn: () => fetchWorkout(activity!.workout_id!),
+    enabled: !!activity?.workout_id,
+  })
+
+  const { data: jumps } = useQuery<ActivityJump[]>({
+    queryKey: ['activity-jumps', id],
+    queryFn: () => fetchActivityJumps(id!),
+    enabled: !!activity && (activity.jump_count ?? 0) > 0,
+  })
+
+  const { data: events } = useQuery<ActivityEvent[]>({
+    queryKey: ['activity-events', id],
+    queryFn: () => fetchActivityEvents(id!),
+    enabled: !!activity && activity.has_gps,
+  })
+
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Aktivität...</div>
   }
@@ -395,6 +425,9 @@ export default function ActivityDetailPage() {
       {/* Location */}
       <LocationLine activity={activity} />
 
+      {/* Radar Threats */}
+      <RadarSummary events={events} />
+
       {/* Stats — hide the standard grid for multisport parents (we show custom stats below) */}
       {activity.sport_type !== 'multisport' && (
         <div className="space-y-2">
@@ -416,6 +449,12 @@ export default function ActivityDetailPage() {
           )}
         </div>
       )}
+
+      {/* Workout visualization */}
+      {workout && <WorkoutOverview workout={workout} />}
+
+      {/* Ballsport Metriken */}
+      {categoryForSport(activity.sport_type).key === 'game' && <BallSportStats activity={activity} />}
 
       {/* Multisport parent — combined view */}
       {activity.sport_type === 'multisport' && (
@@ -620,6 +659,12 @@ export default function ActivityDetailPage() {
           )}
         </ChartTabs>
       )}
+
+      {/* Krafttraining Sets */}
+      {sets && sets.length > 0 && <StrengthSetsTable sets={sets} />}
+
+      {/* Sprünge */}
+      {(activity.jump_count ?? 0) > 0 && <JumpSection jumpCount={activity.jump_count!} jumps={jumps} />}
 
       {/* Runden */}
       {laps && laps.length > 0 && <LapTable laps={laps} sportType={activity.sport_type} speedMode={speedMode} />}
