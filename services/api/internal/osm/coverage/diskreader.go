@@ -45,13 +45,11 @@ type lruEntry struct {
 }
 
 type DiskCoverageReader struct {
-	baseDir     string
-	maxMapped   int
-	mu          sync.RWMutex
-	mappings    map[layerTileKey]*lruEntry
-	lruList     *list.List
-	buildTS     string
-	buildTSOnce sync.Once
+	baseDir   string
+	maxMapped int
+	mu        sync.RWMutex
+	mappings  map[layerTileKey]*lruEntry
+	lruList   *list.List
 }
 
 func NewDiskCoverageReader(baseDir string, maxMappings int) (*DiskCoverageReader, error) {
@@ -288,14 +286,12 @@ func (r *DiskCoverageReader) SampleWay(geom orb.LineString) CoverageResult {
 }
 
 // BuildTimestamp returns the build timestamp as a Unix epoch string.
-// The result is cached after the first successful read (Fix #7).
+// The file is read on every call (sub-µs via OS pagecache) so that
+// a coverage rebuild is reflected immediately without restarting.
 func (r *DiskCoverageReader) BuildTimestamp() string {
-	r.buildTSOnce.Do(func() {
-		ts, err := ReadBuildTimestamp(r.baseDir)
-		if err != nil {
-			return
-		}
-		r.buildTS = fmt.Sprintf("%d", ts.Unix())
-	})
-	return r.buildTS
+	ts, err := ReadBuildTimestamp(r.baseDir)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d", ts.Unix())
 }
