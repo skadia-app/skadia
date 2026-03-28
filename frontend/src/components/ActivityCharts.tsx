@@ -1,7 +1,7 @@
 import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import * as echarts from 'echarts/core'
 import { useECharts } from '@/hooks/useECharts'
-import { LineChart, ScatterChart } from 'echarts/charts'
+import { LineChart } from 'echarts/charts'
 import { getSegmentGroup } from '@/lib/sportTaxonomy'
 import { fieldLabel, fieldUnit, type FieldKey } from '@/lib/sportFieldLabels'
 import {
@@ -21,7 +21,6 @@ import type { StreamPoint } from '@/api/types'
 
 echarts.use([
   LineChart,
-  ScatterChart,
   GridComponent,
   TooltipComponent,
   DataZoomComponent,
@@ -636,7 +635,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       <div key={k('cycle-length')} style={{ display: show('cycleLength') ? undefined : 'none' }}>
         <ChartPanel chartId="cycle-length" {...common}
           field="stepLength" label={cycleLengthLabel} unit="m" color="#0EA5E9"
-          overrideValues={data.cycleLength} scatter />
+          overrideValues={data.cycleLength} />
       </div>,
     )
   }
@@ -1233,15 +1232,13 @@ interface ChartPanelProps {
   tooltipValueFn?: (v: number) => string
   /** Fix Y axis to a specific [min, max] range (e.g. [0, 100] for battery %). */
   yAxisFixed?: [number, number]
-  /** Render as scatter plot (dots) instead of line. */
-  scatter?: boolean
 }
 
 function ChartPanel({
   chartId, data, field, unit, label, color, area,
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
   brushZoomLockRef, markLines = 'none', altitudeSmartY, showGradeColor, xMode,
-  sunMarkLines, splitMarkers, overrideValues, invertY, tooltipValueFn, yAxisFixed, scatter,
+  sunMarkLines, splitMarkers, overrideValues, invertY, tooltipValueFn, yAxisFixed,
 }: ChartPanelProps) {
   const containerRef = useECharts(
     () => {
@@ -1443,14 +1440,13 @@ function ChartPanel({
             ]
           : [
               {
-                type: scatter ? 'scatter' : 'line',
+                type: 'line',
                 data: xData.map((x, i) => [x, values[i]]),
-                showSymbol: scatter ? true : false,
-                symbolSize: scatter ? 2.5 : 4,
-                lineStyle: scatter ? { width: 0 } : { width: 1.5, color },
+                showSymbol: false,
+                lineStyle: { width: 1.5, color },
                 itemStyle: { color },
                 areaStyle: area ? { color: `${color}20` } : undefined,
-                connectNulls: scatter ? false : true,
+                connectNulls: true,
                 ...(mlData.length > 0 ? {
                   markLine: {
                     silent: true,
