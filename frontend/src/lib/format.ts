@@ -46,3 +46,8 @@ export function fmtDist(m?: number | null): string {
   if (m >= 1000) return `${(m / 1000).toFixed(2)} km`
   return `${Math.round(m)} m`
 }
+
+/** Format an ISO date string as HH:MM (de-DE locale). */
+export function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+}
