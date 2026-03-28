@@ -29,43 +29,49 @@ export function PiPMap({ streams, sportType, hoverIndex, visible, onClickScrollT
     return result
   }, [streams])
 
-  if (dismissed || !visible || coords.length < 2) return null
+  const projection = useMemo(() => {
+    if (coords.length < 2) return null
 
-  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity
-  for (const c of coords) {
-    if (c.lat < minLat) minLat = c.lat
-    if (c.lat > maxLat) maxLat = c.lat
-    if (c.lng < minLng) minLng = c.lng
-    if (c.lng > maxLng) maxLng = c.lng
-  }
+    let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity
+    for (const c of coords) {
+      if (c.lat < minLat) minLat = c.lat
+      if (c.lat > maxLat) maxLat = c.lat
+      if (c.lng < minLng) minLng = c.lng
+      if (c.lng > maxLng) maxLng = c.lng
+    }
 
-  const padding = 10
-  const width = 300
-  const height = 220
-  const innerW = width - padding * 2
-  const innerH = height - padding * 2
+    const padding = 10
+    const width = 300
+    const height = 220
+    const innerW = width - padding * 2
+    const innerH = height - padding * 2
 
-  const latRange = maxLat - minLat || 0.001
-  const lngRange = maxLng - minLng || 0.001
-  const cosLat = Math.cos(((minLat + maxLat) / 2) * Math.PI / 180)
-  const adjustedLngRange = lngRange * cosLat
+    const latRange = maxLat - minLat || 0.001
+    const lngRange = maxLng - minLng || 0.001
+    const cosLat = Math.cos(((minLat + maxLat) / 2) * Math.PI / 180)
+    const adjustedLngRange = lngRange * cosLat
 
-  const scaleX = innerW / (adjustedLngRange || 0.001)
-  const scaleY = innerH / latRange
-  const scale = Math.min(scaleX, scaleY)
-  const offX = padding + (innerW - adjustedLngRange * scale) / 2
-  const offY = padding + (innerH - latRange * scale) / 2
+    const scaleX = innerW / (adjustedLngRange || 0.001)
+    const scaleY = innerH / latRange
+    const scale = Math.min(scaleX, scaleY)
+    const offX = padding + (innerW - adjustedLngRange * scale) / 2
+    const offY = padding + (innerH - latRange * scale) / 2
 
-  const toX = (lng: number) => offX + (lng - minLng) * cosLat * scale
-  const toY = (lat: number) => offY + (maxLat - lat) * scale
+    const toX = (lng: number) => offX + (lng - minLng) * cosLat * scale
+    const toY = (lat: number) => offY + (maxLat - lat) * scale
 
-  const polyline = coords.map(c => `${toX(c.lng)},${toY(c.lat)}`).join(' ')
+    const polyline = coords.map(c => `${toX(c.lng)},${toY(c.lat)}`).join(' ')
+
+    return { toX, toY, polyline, color: sportColor(sportType), width, height }
+  }, [coords, sportType])
+
+  if (dismissed || !visible || !projection) return null
+
+  const { toX, toY, polyline, color, width, height } = projection
 
   const hoverPt = hoverIndex != null && streams[hoverIndex]?.lat != null
     ? { x: toX(streams[hoverIndex].lng!), y: toY(streams[hoverIndex].lat!) }
     : null
-
-  const color = sportColor(sportType)
 
   return (
     <div
