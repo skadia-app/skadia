@@ -44,8 +44,12 @@ export default function NotificationCenter() {
   const { data: unreadData } = useQuery({
     queryKey: UNREAD_KEY,
     queryFn: () => apiClient<{ unread_count: number }>('/notifications/unread-count'),
-    refetchInterval: 30_000,
+    // SSE delivers unread count every 5s via setQueryData. This 120s poll is a
+    // safety net for edge cases (suspended tabs, SSE failure, leader crash).
+    refetchInterval: 120_000,
     refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    staleTime: 30_000,
   })
 
   const unreadCount = unreadData?.unread_count ?? 0
