@@ -13,4 +13,5 @@ async def publish_progress(
         "detail": detail,
         "user_id": user_id,
     }
-    await nc.publish("skadia.enrichment.progress", json.dumps(payload).encode())
+    subject = f"skadia.enrichment.progress.{user_id}" if user_id else "skadia.enrichment.progress"
+    await nc.publish(subject, json.dumps(payload).encode())

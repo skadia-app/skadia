@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { useClickOutside } from '@/hooks/useClickOutside'
+import { useUser } from '@/providers/UserProvider'
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -283,7 +284,8 @@ function EnrichmentRow({ entry }: { entry: EnrichmentActivityProgress }) {
 }
 
 export default function ActiveJobsIndicator() {
-  useJobStream()
+  const { user } = useUser()
+  useJobStream(user?.user_id ?? '')
   const { jobs, isAnyActive } = useActiveJobs()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)

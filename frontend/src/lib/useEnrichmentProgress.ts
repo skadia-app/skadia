@@ -54,6 +54,11 @@ export function clearCompleted() {
   if (changed) notify()
 }
 
+export function clearAll() {
+  _activities.clear()
+  notify()
+}
+
 export function getActivities() {
   return new Map(_activities)
 }
