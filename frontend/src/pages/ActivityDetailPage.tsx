@@ -51,6 +51,7 @@ import MultisportSection from '@/components/MultisportSection'
 import { MultisportMap, type MultisportMapHandle } from '@/components/activity/MultisportMap'
 import MultisportEnrichments from '@/components/activity/MultisportEnrichments'
 import { StatsGrid } from '@/components/activity/StatsGrid'
+import { RunningDynamicsStats } from '@/components/activity/RunningDynamicsStats'
 import { DataCorrectionsSection } from '@/components/activity/DataCorrections'
 import { VisibilitySettings } from '@/components/activity/VisibilitySettings'
 import { SunInfo } from '@/components/activity/SunInfo'
@@ -391,6 +392,9 @@ export default function ActivityDetailPage() {
             </div>
           )}
           <StatsGrid activity={activity} speedMode={speedMode} />
+          {getSegmentGroup(activity.sport_type) === 'foot' && activity.avg_vertical_oscillation_mm != null && (
+            <RunningDynamicsStats activity={activity} />
+          )}
         </div>
       )}
 
