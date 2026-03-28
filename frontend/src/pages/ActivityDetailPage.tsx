@@ -51,6 +51,7 @@ import MultisportSection from '@/components/MultisportSection'
 import { MultisportMap, type MultisportMapHandle } from '@/components/activity/MultisportMap'
 import MultisportEnrichments from '@/components/activity/MultisportEnrichments'
 import { PiPMap } from '@/components/activity/PiPMap'
+import { ChartTabs } from '@/components/activity/ChartTabs'
 import { StatsGrid } from '@/components/activity/StatsGrid'
 import { RunningDynamicsStats } from '@/components/activity/RunningDynamicsStats'
 import { DataCorrectionsSection } from '@/components/activity/DataCorrections'
@@ -598,16 +599,22 @@ export default function ActivityDetailPage() {
 
       {/* Charts */}
       {streams && streams.length > 0 && (
-        <ActivityCharts
-          streams={streams}
-          onHover={setHoverIndex}
-          onZoomChange={setZoomRange}
-          sunriseAt={activity.sunrise_at}
-          sunsetAt={activity.sunset_at}
-          defaultXMode={!activity.has_gps ? 'time' : 'distance'}
-          highlightRange={hoveredClimbRange}
-          speedMode={speedMode}
-        />
+        <ChartTabs streams={streams} sportType={activity.sport_type}>
+          {(activeTab) => (
+            <ActivityCharts
+              streams={streams}
+              onHover={setHoverIndex}
+              onZoomChange={setZoomRange}
+              sunriseAt={activity.sunrise_at}
+              sunsetAt={activity.sunset_at}
+              defaultXMode={!activity.has_gps ? 'time' : 'distance'}
+              highlightRange={hoveredClimbRange}
+              speedMode={speedMode}
+              sportType={activity.sport_type}
+              activeTab={activeTab}
+            />
+          )}
+        </ChartTabs>
       )}
 
       {/* Runden */}

@@ -2,6 +2,7 @@ import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import * as echarts from 'echarts/core'
 import { useECharts } from '@/hooks/useECharts'
 import { LineChart } from 'echarts/charts'
+import { getSegmentGroup } from '@/lib/sportTaxonomy'
 import {
   GridComponent,
   TooltipComponent,
@@ -42,6 +43,23 @@ const SUNSET_SVG = "image://data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2
 
 type FieldKey = 'altitude' | 'heartRate' | 'power' | 'cadence' | 'speed' | 'temperature' | 'groundContactTime' | 'verticalOscillation' | 'stepLength'
 type XMode = 'distance' | 'time'
+
+type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'runningDynamics' | 'stepLength' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth'
+
+function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
+  if (tab === 'alles') return null // show all
+  const isSwim = getSegmentGroup(sportType) === 'swim'
+  switch (tab) {
+    case 'uebersicht': return isSwim ? ['heartRate'] : ['altitude', 'heartRate', 'speed']
+    case 'leistung': return ['power', 'cadence']
+    case 'dynamik': return ['runningDynamics', 'stepLength']
+    case 'pedal': return ['torqueEff', 'pedalSm']
+    case 'ebike': return ['motorPower', 'batteryLevel', 'travelRange']
+    case 'tauchgang': return ['depth']
+    case 'sensoren': return ['temperature']
+    default: return null
+  }
+}
 
 interface ChartData {
   distanceKm: number[]
@@ -214,6 +232,10 @@ interface Props {
   highlightRange?: { startKm: number; endKm: number } | null
   /** Speed/Pace toggle mode: 'speed' = km/h, 'pace' = min/km (inverted Y axis). */
   speedMode?: 'speed' | 'pace'
+  /** Sport type used for tab-based chart filtering. */
+  sportType?: string
+  /** Active tab from ChartTabs. If set, only shows charts relevant to that tab. */
+  activeTab?: string
 }
 
 function computeSunMarkLines(
@@ -251,7 +273,7 @@ function computeSunMarkLines(
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode, highlightRange, speedMode }: Props) {
+export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode, highlightRange, speedMode, sportType, activeTab }: Props) {
   const data = useMemo(() => buildChartData(streams), [streams])
   const [isZoomed, setIsZoomed] = useState(false)
   const [xMode, setXMode] = useState<XMode>(defaultXMode ?? 'distance')
@@ -452,26 +474,30 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
 
   const panels: React.ReactNode[] = []
 
-  if (hasValidData(data.altitude)) panels.push(
+  // Tab-based filtering: if activeTab is set, only render panels matching the tab
+  const tabCharts = activeTab ? getTabCharts(activeTab, sportType ?? '') : null
+  const show = (key: ChartKey) => tabCharts === null || tabCharts.includes(key)
+
+  if (show('altitude') && hasValidData(data.altitude)) panels.push(
     <ChartPanel key={k('altitude')} chartId="altitude" {...common}
       field="altitude" label="Höhe" unit="m" color="#22c55e" area
       markLines="minmax" altitudeSmartY showGradeColor
       sunMarkLines={sunMarkLines} />,
   )
-  if (hasValidData(data.heartRate)) panels.push(
+  if (show('heartRate') && hasValidData(data.heartRate)) panels.push(
     <ChartPanel key={k('hr')} chartId="hr" {...common}
       field="heartRate" label="Herzfrequenz" unit="bpm" color="#ef4444"
       markLines="max" />,
   )
-  if (hasValidData(data.power)) panels.push(
+  if (show('power') && hasValidData(data.power)) panels.push(
     <ChartPanel key={k('power')} chartId="power" {...common}
       field="power" label="Leistung" unit="W" color="#a855f7" />,
   )
-  if (hasValidData(data.cadence)) panels.push(
+  if (show('cadence') && hasValidData(data.cadence)) panels.push(
     <ChartPanel key={k('cadence')} chartId="cadence" {...common}
       field="cadence" label="Kadenz" unit="rpm" color="#f97316" />,
   )
-  if (hasValidData(data.speed)) {
+  if (show('speed') && hasValidData(data.speed)) {
     if (speedMode === 'pace') {
       // Convert m/s → min/km for pace display (inverted Y: higher value = slower)
       const paceValues = data.speedMs.map(ms =>
@@ -495,23 +521,23 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       )
     }
   }
-  if (hasValidData(data.temperature)) panels.push(
+  if (show('temperature') && hasValidData(data.temperature)) panels.push(
     <ChartPanel key={k('temperature')} chartId="temperature" {...common}
       field="temperature" label="Temperatur" unit="°C" color="#06b6d4"
       markLines="minmax" />,
   )
   // Running Dynamics: dual-axis GCT + VO chart
-  if (hasValidData(data.groundContactTime) || hasValidData(data.verticalOscillation)) panels.push(
+  if (show('runningDynamics') && (hasValidData(data.groundContactTime) || hasValidData(data.verticalOscillation))) panels.push(
     <RunningDynamicsChartPanel key={k('running-dynamics')} chartId="running-dynamics" {...common} />,
   )
   // Step Length: single series
-  if (hasValidData(data.stepLength)) panels.push(
+  if (show('stepLength') && hasValidData(data.stepLength)) panels.push(
     <ChartPanel key={k('step-length')} chartId="step-length" {...common}
       field="stepLength" label="Schrittlänge" unit="m" color="#0891b2"
       overrideValues={data.stepLength} />,
   )
   // Pedal Analytics: Torque Effectiveness L/R
-  if (hasValidData(data.torqueEffL) || hasValidData(data.torqueEffR)) panels.push(
+  if (show('torqueEff') && (hasValidData(data.torqueEffL) || hasValidData(data.torqueEffR))) panels.push(
     <PedalDualChartPanel key={k('torque-eff')} chartId="torque-eff" {...common}
       leftValues={data.torqueEffL} rightValues={data.torqueEffR}
       leftLabel="Drehmoment-Eff. Links" rightLabel="Drehmoment-Eff. Rechts"
@@ -520,7 +546,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       tooltipTitle="Drehmoment-Eff." />,
   )
   // Pedal Analytics: Pedal Smoothness L/R
-  if (hasValidData(data.pedalSmL) || hasValidData(data.pedalSmR)) panels.push(
+  if (show('pedalSm') && (hasValidData(data.pedalSmL) || hasValidData(data.pedalSmR))) panels.push(
     <PedalDualChartPanel key={k('pedal-sm')} chartId="pedal-sm" {...common}
       leftValues={data.pedalSmL} rightValues={data.pedalSmR}
       leftLabel="Tritt-Gleichm. Links" rightLabel="Tritt-Gleichm. Rechts"
@@ -529,19 +555,19 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       tooltipTitle="Tritt-Gleichm." />,
   )
   // E-Bike: Motor Power
-  if (hasValidData(data.motorPower)) panels.push(
+  if (show('motorPower') && hasValidData(data.motorPower)) panels.push(
     <ChartPanel key={k('motor-power')} chartId="motor-power" {...common}
       field="power" label="Motorleistung" unit="W" color="#9333EA"
       overrideValues={data.motorPower} />,
   )
   // E-Bike: Battery Level (fixed 0–100 % Y axis)
-  if (hasValidData(data.batteryLevel)) panels.push(
+  if (show('batteryLevel') && hasValidData(data.batteryLevel)) panels.push(
     <ChartPanel key={k('battery')} chartId="battery" {...common}
       field="power" label="Akku-Level" unit="%" color="#22C55E"
       overrideValues={data.batteryLevel} yAxisFixed={[0, 100]} />,
   )
   // E-Bike: Travel Range
-  if (hasValidData(data.travelRange)) panels.push(
+  if (show('travelRange') && hasValidData(data.travelRange)) panels.push(
     <ChartPanel key={k('travel-range')} chartId="travel-range" {...common}
       field="power" label="Reichweite" unit="km" color="#6B7280"
       overrideValues={data.travelRange} />,
