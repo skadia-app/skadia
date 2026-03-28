@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,8 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/go-chi/chi/v5"
 )
+
+var validRegionID = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
 // GetOSMStatus returns counts from OSM tables.
 // GET /api/v1/admin/osm-status
@@ -171,6 +174,10 @@ func (h *Handler) DeleteOSMRegion(w http.ResponseWriter, r *http.Request) {
 	regionID := chi.URLParam(r, "regionID")
 	if regionID == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing region ID", r.URL.Path)
+		return
+	}
+	if !validRegionID.MatchString(regionID) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid region ID", r.URL.Path)
 		return
 	}
 
