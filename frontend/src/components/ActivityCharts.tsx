@@ -3,7 +3,7 @@ import * as echarts from 'echarts/core'
 import { useECharts } from '@/hooks/useECharts'
 import { LineChart } from 'echarts/charts'
 import { getSegmentGroup } from '@/lib/sportTaxonomy'
-import { fieldLabel, fieldUnit, formatPace, formatPace100m, formatPace500m, type FieldKey } from '@/lib/sportFieldLabels'
+import { fieldLabel, fieldUnit, type FieldKey } from '@/lib/sportFieldLabels'
 import {
   GridComponent,
   TooltipComponent,
