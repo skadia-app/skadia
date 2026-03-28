@@ -70,12 +70,16 @@ function scheduleRefresh(token: string): void {
   const refreshInMs = (payload.exp - nowSec - 60) * 1000
 
   if (refreshInMs <= 0) {
-    void refreshToken()
+    void refreshToken().then(ok => {
+      if (!ok) window.location.href = '/login'
+    })
     return
   }
 
   refreshTimer = setTimeout(() => {
-    void refreshToken()
+    void refreshToken().then(ok => {
+      if (!ok) window.location.href = '/login'
+    })
   }, refreshInMs)
 }
 
@@ -173,7 +177,21 @@ export function initVisibilityRefresh(): void {
     if (document.visibilityState !== 'visible') return
 
     const token = accessToken
-    if (!token) return
+    if (!token) {
+      // Token was cleared while the tab was backgrounded (e.g. scheduled refresh
+      // failed). If we're on a protected page, attempt a silent restore — or
+      // redirect to login so the user isn't stuck in a zombie state.
+      const isPublicPath = [
+        '/login', '/register', '/forgot-password', '/reset-password',
+        '/verify-email', '/callback', '/confirm-email-change', '/cancel-deletion',
+      ].some(p => window.location.pathname.startsWith(p))
+      if (!isPublicPath) {
+        void tryRestoreSession().then(ok => {
+          if (!ok) window.location.href = '/login'
+        })
+      }
+      return
+    }
 
     const payload = parseJwtPayload(token)
     if (!payload?.exp) return
@@ -181,7 +199,9 @@ export function initVisibilityRefresh(): void {
     const nowSec = Math.floor(Date.now() / 1000)
     // Refresh if the token has expired or will expire within the next 60 seconds
     if (payload.exp - nowSec <= 60) {
-      void refreshToken()
+      void refreshToken().then(ok => {
+        if (!ok) window.location.href = '/login'
+      })
     }
   })
 }
