@@ -191,7 +191,7 @@ func pgvecLiteral(vec []float32) string {
 
 // groupPhotoFeedRows gruppiert DB-Zeilen in PhotoFeedGroup-Slices.
 func groupPhotoFeedRows(rows []database.PhotoFeedRow, sort string) []model.PhotoFeedGroup {
-	var groups []model.PhotoFeedGroup
+	groups := make([]model.PhotoFeedGroup, 0)
 	var current *model.PhotoFeedGroup
 
 	for _, row := range rows {

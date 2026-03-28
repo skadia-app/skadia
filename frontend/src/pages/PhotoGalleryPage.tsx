@@ -50,7 +50,7 @@ export default function PhotoGalleryPage() {
     enabled: isSearching,
   })
 
-  const allGroups = feedData?.pages.flatMap(p => p.groups) ?? []
+  const allGroups = feedData?.pages.flatMap(p => p.groups ?? []) ?? []
 
   function openLightbox(photos: ActivityPhoto[], index: number) {
     setLightbox({ photos, index })
