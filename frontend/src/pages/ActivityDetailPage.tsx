@@ -52,6 +52,7 @@ import { StatsGrid } from '@/components/activity/StatsGrid'
 import { DataCorrectionsSection } from '@/components/activity/DataCorrections'
 import { VisibilitySettings } from '@/components/activity/VisibilitySettings'
 import { SunInfo } from '@/components/activity/SunInfo'
+import { LocationLine } from '@/components/activity/LocationLine'
 import { SensorList } from '@/components/activity/SensorList'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
 import { revertFusion } from '@/api/fusion'
@@ -358,6 +359,9 @@ export default function ActivityDetailPage() {
 
       {/* Sunrise / Sunset */}
       <SunInfo sunriseAt={activity.sunrise_at} sunsetAt={activity.sunset_at} />
+
+      {/* Location */}
+      <LocationLine activity={activity} />
 
       {/* Stats — hide the standard grid for multisport parents (we show custom stats below) */}
       {activity.sport_type !== 'multisport' && <StatsGrid activity={activity} />}
@@ -1033,9 +1037,6 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
           ) : activity.source_device ? (
             <span className="text-neutral-400 dark:text-neutral-600">{activity.source_device}</span>
           ) : null}
-          {activity.start_city && (
-            <span className="text-neutral-400 dark:text-neutral-600">{activity.start_city}</span>
-          )}
         </div>
         {activity.fusion_sources && (
           <div className="flex items-center gap-2 mt-1">
