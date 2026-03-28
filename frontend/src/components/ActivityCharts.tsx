@@ -546,7 +546,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     const isSwimSport = segGroup === 'swim'
 
     if (speedMode === 'pace') {
-      const paceUnit = sportType ? fieldUnit('speed', sportType) : 'min/km'
+      const paceUnit = isRowingSport ? 'min/500m' : isSwimSport ? 'min/100m' : 'min/km'
       const paceFmt = (minPer: number): string => {
         if (isNaN(minPer) || !isFinite(minPer)) return '—'
         let min = Math.floor(minPer)
