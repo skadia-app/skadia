@@ -129,7 +129,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     grade.push(s.grade_pct ?? NaN)
     heartRate.push(s.heart_rate ?? NaN)
     power.push(s.power_w ?? NaN)
-    cadence.push(s.cadence ?? NaN)
+    cadence.push(s.cadence != null && s.cadence > 0 ? s.cadence : NaN)
     speed.push(s.speed_ms != null ? s.speed_ms * 3.6 : NaN)
     speedMs.push(s.speed_ms ?? NaN)
     temperature.push(s.temperature_c ?? NaN)
@@ -816,7 +816,7 @@ function PedalDualChartPanel({
             showSymbol: false,
             lineStyle: { width: 1.5, color: leftColor },
             itemStyle: { color: leftColor },
-            connectNulls: true,
+            connectNulls: false,
             ...(mlData.length > 0 ? {
               markLine: {
                 silent: true,
@@ -831,7 +831,7 @@ function PedalDualChartPanel({
             showSymbol: false,
             lineStyle: { width: 1.5, color: rightColor },
             itemStyle: { color: rightColor },
-            connectNulls: true,
+            connectNulls: false,
           },
         ],
 
@@ -1077,7 +1077,7 @@ function RunningDynamicsChartPanel({
             showSymbol: false,
             lineStyle: { width: 1.5, color: '#10B981' },
             itemStyle: { color: '#10B981' },
-            connectNulls: true,
+            connectNulls: false,
             ...(mlData.length > 0 ? {
               markLine: {
                 silent: true,
@@ -1093,7 +1093,7 @@ function RunningDynamicsChartPanel({
             showSymbol: false,
             lineStyle: { width: 1.5, color: '#06B6D4' },
             itemStyle: { color: '#06B6D4' },
-            connectNulls: true,
+            connectNulls: false,
           },
         ],
 
@@ -1638,7 +1638,7 @@ function ChartPanel({
                 lineStyle: { width: 0, color: 'transparent' },
                 itemStyle: { color },
                 areaStyle: { color: `${color}20`, opacity: 1 },
-                connectNulls: true,
+                connectNulls: false,
               },
               // Series 1: green line on top (no area, carries markLine/markPoint)
               {
@@ -1648,7 +1648,7 @@ function ChartPanel({
                 lineStyle: { width: 1.5, color },
                 itemStyle: { color },
                 areaStyle: undefined,
-                connectNulls: true,
+                connectNulls: false,
                 ...(mlData.length > 0 ? {
                   markLine: {
                     silent: true,
@@ -1689,7 +1689,7 @@ function ChartPanel({
                 lineStyle: { width: 1.5, color },
                 itemStyle: { color },
                 areaStyle: area ? { color: `${color}20` } : undefined,
-                connectNulls: true,
+                connectNulls: false,
                 ...(mlData.length > 0 ? {
                   markLine: {
                     silent: true,
