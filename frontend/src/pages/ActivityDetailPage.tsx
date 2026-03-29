@@ -674,6 +674,7 @@ export default function ActivityDetailPage() {
               speedMode={speedMode}
               sportType={activity.sport_type}
               activeTab={activeTab}
+              gearEvents={events}
             />
           )}
         </ChartTabs>

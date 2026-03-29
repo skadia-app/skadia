@@ -25,6 +25,7 @@ import { BASE_STYLES, buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
 import { apiClient } from '@/api/client'
 import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl, loadHeatmapColor, saveHeatmapColor } from '@/lib/mapHeatmap'
 import { type FieldKey } from '@/lib/sportFieldLabels'
+import { findClosestIdx } from '@/lib/utils'
 
 echarts.use([
   LineChart,
@@ -130,16 +131,6 @@ function formatElapsed(minutes: number, maxMinutes: number): string {
   return `${h}h${m.toString().padStart(2, '0')}`
 }
 
-function findClosestIdx(arr: number[], target: number): number {
-  if (arr.length === 0) return 0
-  let bestIdx = 0
-  let bestDiff = Math.abs(arr[0] - target)
-  for (let i = 1; i < arr.length; i++) {
-    const d = Math.abs(arr[i] - target)
-    if (d < bestDiff) { bestDiff = d; bestIdx = i }
-  }
-  return bestIdx
-}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
