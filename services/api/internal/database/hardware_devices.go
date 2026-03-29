@@ -61,15 +61,41 @@ func (db *DB) UpsertHWDevice(ctx context.Context, d model.DeviceUpsert) (string,
 
 	// 1. Try to find existing device.
 	if d.SerialNumber != nil {
-		// Serial number allein identifiziert das Gerät — manufacturer_id NICHT im Lookup,
-		// da dasselbe Gerät manchmal als garmin(1) und manchmal als ManufacturerInvalid(-1) auftaucht.
-		err := db.Pool.QueryRow(ctx,
-			`SELECT id FROM devices
-			 WHERE user_id = $1 AND type = $2 AND serial_number = $3`,
-			d.UserID, d.Type, *d.SerialNumber,
-		).Scan(&existingID)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return "", fmt.Errorf("upsert hw device (serial lookup): %w", err)
+		// Garmin-Familie (garmin/dynastream/dynastream_oem/tacx/ManufacturerInvalid) matcht
+		// seriennummern-übergreifend, da dasselbe Gerät verschiedene manufacturer_id-Werte
+		// melden kann. Andere Hersteller (COROS, Apple etc.) erfordern exakten manufacturer_id-Match,
+		// damit verschiedene Hersteller mit gleicher Serial nicht kollisionieren.
+		garminFamily := []int{1, 13, 14, 89, 65535}
+		isGarminFamily := false
+		for _, gm := range garminFamily {
+			if d.ManufacturerID == gm {
+				isGarminFamily = true
+				break
+			}
+		}
+
+		if isGarminFamily {
+			// Garmin family: match serial across garmin/dynastream/invalid manufacturer IDs
+			err := db.Pool.QueryRow(ctx,
+				`SELECT id FROM devices
+				 WHERE user_id = $1 AND type = $2 AND serial_number = $3
+				   AND COALESCE(manufacturer_id, 0) IN (0, 1, 13, 14, 89, 65535)`,
+				d.UserID, d.Type, *d.SerialNumber,
+			).Scan(&existingID)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return "", fmt.Errorf("upsert hw device (garmin serial lookup): %w", err)
+			}
+		} else {
+			// Non-Garmin: require exact manufacturer_id match to prevent cross-manufacturer collisions
+			err := db.Pool.QueryRow(ctx,
+				`SELECT id FROM devices
+				 WHERE user_id = $1 AND type = $2 AND serial_number = $3
+				   AND manufacturer_id = $4`,
+				d.UserID, d.Type, *d.SerialNumber, d.ManufacturerID,
+			).Scan(&existingID)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return "", fmt.Errorf("upsert hw device (serial lookup): %w", err)
+			}
 		}
 	} else if d.AntDeviceNumber != nil {
 		err := db.Pool.QueryRow(ctx,

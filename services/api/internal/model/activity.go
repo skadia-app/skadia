@@ -39,6 +39,7 @@ type Activity struct {
 	MaxPowerW               *int             `json:"max_power_w,omitempty"`
 	NormalizedPowerW        *float64         `json:"normalized_power_w,omitempty"`
 	AvgCadence              *float64         `json:"avg_cadence,omitempty"`
+	MaxCadence              *int             `json:"max_cadence,omitempty"`
 	AvgTemperatureC         *float64         `json:"avg_temperature_c,omitempty"`
 	MinTemperatureC         *float64         `json:"min_temperature_c,omitempty"`
 	MaxTemperatureC         *float64         `json:"max_temperature_c,omitempty"`
@@ -120,6 +121,13 @@ type Activity struct {
 
 	// Unified FileStore — link to user_files registry entry for the original file.
 	FileID *string `json:"file_id,omitempty"`
+
+	// NumSessions is the number of FIT sessions. Values > 1 indicate a multi-sport activity.
+	NumSessions *int `json:"num_sessions,omitempty"`
+
+	// Timezone is the IANA timezone string (e.g. "America/Los_Angeles") determined
+	// from the GPS start position. NULL for indoor/virtual activities without GPS.
+	Timezone *string `json:"timezone,omitempty"`
 
 	// FIT SDK — Workout FK
 	WorkoutID *string `json:"workout_id,omitempty"`
@@ -263,6 +271,15 @@ type Activity struct {
 	NecLng           *float64 `json:"nec_lng,omitempty"`
 	SwcLat           *float64 `json:"swc_lat,omitempty"`
 	SwcLng           *float64 `json:"swc_lng,omitempty"`
+
+	// FIT SDK — VO2max (from max_met_data message)
+	Vo2MaxMlKgMin     *float64 `json:"vo2max_ml_kg_min,omitempty"`
+	Vo2MaxCalibrated  *bool    `json:"vo2max_calibrated,omitempty"`
+	Vo2MaxHrSource    *string  `json:"vo2max_hr_source,omitempty"`
+	Vo2MaxSpeedSource *string  `json:"vo2max_speed_source,omitempty"`
+
+	// FIT SDK — GPS Metadata / Session GPS quality
+	GpsAccuracyM *int `json:"gps_accuracy_m,omitempty"`
 }
 
 // SportConflictMeta holds conflict metadata embedded from import_queue.

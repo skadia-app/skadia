@@ -3,6 +3,9 @@ package pmc
 import (
 	"math"
 	"testing"
+	"time"
+
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // --- NP Tests ---
@@ -267,5 +270,37 @@ func TestComputeTSS_HrAvgFallback(t *testing.T) {
 	r := ComputeTSS(2, 0, 3600, nil, &avgHR, nil, nil, nil, nil, nil, nil, th)
 	if r.TSSMethod != "hr_avg" {
 		t.Errorf("method = %s, want hr_avg", r.TSSMethod)
+	}
+}
+
+func TestExtractPowerStream_SkipsNullRows(t *testing.T) {
+	// Simulate Apple Watch: alternating power/no-power rows per timestamp.
+	// The central dedup approach is now tested: dedup first, then extract.
+	points := make([]model.StreamPoint, 120)
+	now := time.Now()
+	for i := 0; i < 120; i++ {
+		points[i].Time = now.Add(time.Duration(i/2) * time.Second) // 2 rows per second
+		if i%2 == 0 {
+			// Power row
+			p := int16(200)
+			points[i].PowerW = &p
+		}
+		// Odd rows: PowerW = nil (speed-only subtype)
+	}
+
+	// Central dedup approach: dedup before extract (as done in service.go)
+	deduped := DeduplicateStreamsByTimestamp(points)
+	stream := ExtractPowerStream(deduped)
+
+	// Should contain 60 values (one per unique timestamp), not 120
+	if len(stream) != 60 {
+		t.Errorf("len = %d, want 60 (deduplicated by timestamp)", len(stream))
+	}
+	// All values should be 200, no zeros from NULL rows
+	for i, v := range stream {
+		if v != 200 {
+			t.Errorf("stream[%d] = %f, want 200", i, v)
+			break
+		}
 	}
 }

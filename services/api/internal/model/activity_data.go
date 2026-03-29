@@ -33,9 +33,10 @@ type ActivityData struct {
 	MaxPowerW        int
 	NormalizedPowerW float64
 	AvgCadence       float64
+	MaxCadence       int
 	AvgTemperatureC  float64
-	MinTemperatureC  float64
-	MaxTemperatureC  float64
+	MinTemperatureC  *float64
+	MaxTemperatureC  *float64
 
 	MinHeartRate            int
 	TotalCalories           int
@@ -62,6 +63,8 @@ type ActivityData struct {
 
 	Visibility string // "private", "public", "followers" — empty means default ("private")
 
+	Timezone string // IANA timezone string, e.g. "Europe/Berlin". Empty for indoor without GPS.
+
 	IsIndoor             bool
 	IsEbike              bool
 	IsVirtual            bool
@@ -81,6 +84,30 @@ type ActivityData struct {
 	// RecordingDevice is the primary recording device extracted from the FIT FileId message.
 	// Transient — not persisted directly in ActivityData but handed to the device registry.
 	RecordingDevice *DeviceUpsert
+
+	// SportName is the name from the FIT Sport message (MesgNum 12), used as auto-title fallback.
+	// Transient — not persisted directly.
+	SportName string `json:"-"`
+
+	// NumSessions is the number of sessions from the FIT Activity message (MesgNum 34).
+	// Values > 1 indicate a multi-sport activity.
+	NumSessions int
+
+	// LocalTimestamp is from the FIT Activity message for timezone offset fallback.
+	// Transient — not persisted directly.
+	LocalTimestamp time.Time `json:"-"`
+
+	// FileCreatorSWVersion is the software version from the FIT FileCreator message.
+	// Transient — not persisted, used for debug/logging only.
+	FileCreatorSWVersion int `json:"-"`
+
+	// DeviceUtcOffset is the UTC offset in seconds from the DeviceSettings message.
+	// Transient — not persisted directly, used as indoor timezone fallback.
+	DeviceUtcOffset int32 `json:"-"`
+
+	// DeviceTzOffsetQuarters is the timezone offset in 1/4-hour increments from DeviceSettings.
+	// Transient — not persisted directly, used as indoor timezone fallback.
+	DeviceTzOffsetQuarters int8 `json:"-"`
 
 	Laps           []LapRecord
 	Splits         []SplitRecord
@@ -238,6 +265,19 @@ type ActivityData struct {
 	NecLng           *float64 `json:"-"`
 	SwcLat           *float64 `json:"-"`
 	SwcLng           *float64 `json:"-"`
+
+	// FIT SDK — VO2max (from max_met_data message)
+	Vo2MaxMlKgMin     *float64 `json:"-"`
+	Vo2MaxCalibrated  *bool    `json:"-"`
+	Vo2MaxHrSource    *string  `json:"-"`
+	Vo2MaxSpeedSource *string  `json:"-"`
+
+	// FIT SDK — GPS Metadata / Session GPS quality
+	GpsAccuracyM int `json:"-"` // from session.GpsAccuracy (meters)
+
+	// FIT SDK — Dive configuration (DiveSettings + DiveGas messages)
+	DiveSettings *DiveSettings `json:"-"`
+	DiveGases    []DiveGas     `json:"-"`
 }
 
 // TrackPoint is a GPS coordinate for PostGIS LineString construction.

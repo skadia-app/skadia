@@ -131,7 +131,14 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			avg_lap_time_s, best_lap_index, num_laps, first_lap_index,
 			intensity_factor, left_right_balance, sport_profile_name, sport_index,
 			nec_lat, nec_lng, swc_lat, swc_lng,
-			is_manual_entry, workout_feel, workout_rpe
+			is_manual_entry, workout_feel, workout_rpe,
+			timezone,
+			max_cadence, min_temperature_c, max_temperature_c,
+			num_sessions,
+			-- VO2max
+			vo2max_ml_kg_min, vo2max_calibrated, vo2max_hr_source, vo2max_speed_source,
+			-- GPS quality
+			gps_accuracy_m
 		) VALUES (
 			-- Core ($1-$4, parsed reuses $3/$4)
 			$1, $2, $3, $4,
@@ -224,7 +231,17 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			-- Bounding Box ($142-$145)
 			$142, $143, $144, $145,
 			-- Manual / Workout ($146-$148)
-			$146, $147, $148
+			$146, $147, $148,
+			-- Timezone ($149)
+			$149,
+			-- Max cadence / Min+Max temperature ($150-$152)
+			$150, $151, $152,
+			-- NumSessions ($153)
+			$153,
+			-- VO2max ($154-$157)
+			$154, $155, $156, $157,
+			-- GPS quality ($158)
+			$158
 		)
 		RETURNING id, is_ebike, is_virtual, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType), // $1-$4
@@ -282,12 +299,17 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex, // $138-$141
 		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng, // $142-$145
 		data.IsManualEntry, nilIfZeroInt(data.WorkoutFeel), nilIfZeroInt(data.WorkoutRpe), // $146-$148
+		nilIfEmpty(data.Timezone),                                                          // $149
+		nilIfZeroInt(data.MaxCadence), data.MinTemperatureC, data.MaxTemperatureC, // $150-$152
+		nilIfZeroInt(data.NumSessions),                                           // $153
+		data.Vo2MaxMlKgMin, data.Vo2MaxCalibrated, data.Vo2MaxHrSource, data.Vo2MaxSpeedSource, // $154-$157
+		nilIfZeroInt(data.GpsAccuracyM), // $158
 	).Scan(&id, &isEbike, &isVirtual, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
 	}
 
-	return &model.Activity{
+	act := &model.Activity{
 		ID:                   id,
 		UserID:               userID,
 		SportType:            data.SportType,
@@ -309,7 +331,12 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		CreatedAt:            createdAt,
 		UpdatedAt:            updatedAt,
 		SportConflictPending: data.SportConflictPending,
-	}, nil
+	}
+	if data.NumSessions > 0 {
+		ns := data.NumSessions
+		act.NumSessions = &ns
+	}
+	return act, nil
 }
 
 func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []model.StreamPoint) error {
@@ -358,6 +385,8 @@ func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []mo
 		"depth_m", "next_stop_depth_m", "next_stop_time_s", "time_to_surface_s",
 		"ndl_time_s", "cns_load_pct", "n2_load_pct", "air_time_remaining_s",
 		"pressure_sac", "volume_sac", "rmv", "po2",
+		// FIT SDK — GPS Metadata (1)
+		"heading",
 		// FIT SDK — Developer Fields (1)
 		"developer_fields",
 	}
@@ -405,6 +434,8 @@ func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []mo
 			s.DepthM, s.NextStopDepthM, s.NextStopTimeS, s.TimeToSurfaceS,
 			s.NdlTimeS, s.CnsLoadPct, s.N2LoadPct, s.AirTimeRemainingS,
 			s.PressureSac, s.VolumeSac, s.Rmv, s.Po2,
+			// FIT SDK — GPS Metadata (1)
+			s.Heading,
 			// FIT SDK — Developer Fields (1)
 			s.DeveloperFields,
 		}
@@ -529,7 +560,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 
 	err := db.Pool.QueryRow(ctx, `
 		SELECT
-			a.id, a.user_id, a.file_hash, a.title, a.title_auto, a.description,
+			a.id, a.user_id, a.file_hash, a.file_id, a.title, a.title_auto, a.description,
 			a.sport_type, a.sub_type, a.fit_sport_id, a.fit_sub_sport_id, a.is_ebike,
 			a.is_virtual, a.exclude_from_heatmap, a.exclude_from_stats,
 			a.started_at, a.ended_at, a.elapsed_time_s, a.moving_time_s,
@@ -539,7 +570,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.avg_heart_rate, a.max_heart_rate,
 			a.avg_power_w, a.max_power_w, a.normalized_power_w,
 			a.avg_cadence, a.avg_temperature_c,
-			a.min_temperature_c, a.max_temperature_c,
+			a.min_temperature_c, a.max_temperature_c, a.max_cadence,
 			a.tss, a.trimp, a.is_indoor,
 			a.source, a.source_device,
 			a.tags, a.visibility, a.enrichment_status, a.original_filename, a.original_file_format,
@@ -597,7 +628,11 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		a.intensity_factor, a.left_right_balance, a.sport_profile_name, a.sport_index,
 		a.nec_lat, a.nec_lng, a.swc_lat, a.swc_lng,
 		COALESCE(a.title_is_manual, false),
-		a.is_manual_entry, a.workout_feel, a.workout_rpe
+		a.is_manual_entry, a.workout_feel, a.workout_rpe,
+		a.timezone,
+		a.num_sessions,
+		a.vo2max_ml_kg_min, a.vo2max_calibrated, a.vo2max_hr_source, a.vo2max_speed_source,
+		a.gps_accuracy_m
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		LEFT JOIN LATERAL (
@@ -611,7 +646,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		LEFT JOIN devices rd ON rd.id = a.recording_device_id
 		WHERE a.id = $1`, id,
 	).Scan(
-		&a.ID, &a.UserID, &a.FileHash, &a.Title, &a.TitleAuto, &a.Description,
+		&a.ID, &a.UserID, &a.FileHash, &a.FileID, &a.Title, &a.TitleAuto, &a.Description,
 		&a.SportType, &a.SubType, &a.FitSportID, &a.FitSubSportID, &a.IsEbike,
 		&a.IsVirtual, &a.ExcludeFromHeatmap, &a.ExcludeFromStats,
 		&a.StartedAt, &a.EndedAt, &a.ElapsedTimeS, &a.MovingTimeS,
@@ -621,7 +656,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.AvgHeartRate, &a.MaxHeartRate,
 		&a.AvgPowerW, &a.MaxPowerW, &a.NormalizedPowerW,
 		&a.AvgCadence, &a.AvgTemperatureC,
-		&a.MinTemperatureC, &a.MaxTemperatureC,
+		&a.MinTemperatureC, &a.MaxTemperatureC, &a.MaxCadence,
 		&a.TSS, &a.TRIMP, &a.IsIndoor,
 		&a.Source, &a.SourceDevice,
 		&a.Tags, &a.Visibility, &a.EnrichmentStatus, &a.OriginalFilename, &a.OriginalFileFormat,
@@ -680,6 +715,10 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.NecLat, &a.NecLng, &a.SwcLat, &a.SwcLng,
 		&a.TitleIsManual,
 		&a.IsManualEntry, &a.WorkoutFeel, &a.WorkoutRpe,
+		&a.Timezone,
+		&a.NumSessions,
+		&a.Vo2MaxMlKgMin, &a.Vo2MaxCalibrated, &a.Vo2MaxHrSource, &a.Vo2MaxSpeedSource,
+		&a.GpsAccuracyM,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -699,6 +738,14 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		}
 	}
 	return &a, nil
+}
+
+// SetActivityTimezone sets the IANA timezone string on an activity.
+func (db *DB) SetActivityTimezone(ctx context.Context, activityID, timezone string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE activities SET timezone = $1 WHERE id = $2`,
+		timezone, activityID)
+	return err
 }
 
 // GetActivityWithWeather returns an activity by ID, including its weather readings.
@@ -1245,6 +1292,8 @@ func (db *DB) GetStreams(ctx context.Context, activityID string) ([]model.Stream
 			depth_m, next_stop_depth_m, next_stop_time_s, time_to_surface_s,
 			ndl_time_s, cns_load_pct, n2_load_pct, air_time_remaining_s,
 			pressure_sac, volume_sac, rmv, po2,
+			-- FIT SDK — GPS Metadata
+			heading,
 			-- FIT SDK — Developer Fields
 			developer_fields
 		FROM activity_streams
@@ -1299,6 +1348,8 @@ func (db *DB) GetStreams(ctx context.Context, activityID string) ([]model.Stream
 			&s.DepthM, &s.NextStopDepthM, &s.NextStopTimeS, &s.TimeToSurfaceS,
 			&s.NdlTimeS, &s.CnsLoadPct, &s.N2LoadPct, &s.AirTimeRemainingS,
 			&s.PressureSac, &s.VolumeSac, &s.Rmv, &s.Po2,
+			// FIT SDK — GPS Metadata
+			&s.Heading,
 			// FIT SDK — Developer Fields
 			&s.DeveloperFields,
 		); err != nil {
@@ -1349,6 +1400,7 @@ func (db *DB) GetStreamPoints(ctx context.Context, activityID string) ([]model.S
 			depth_m, next_stop_depth_m, next_stop_time_s, time_to_surface_s,
 			ndl_time_s, cns_load_pct, n2_load_pct, air_time_remaining_s,
 			pressure_sac, volume_sac, rmv, po2,
+			heading,
 			developer_fields
 		FROM activity_streams
 		WHERE activity_id = $1
@@ -1404,6 +1456,8 @@ func (db *DB) GetStreamPoints(ctx context.Context, activityID string) ([]model.S
 			&s.DepthM, &s.NextStopDepthM, &s.NextStopTimeS, &s.TimeToSurfaceS,
 			&s.NdlTimeS, &s.CnsLoadPct, &s.N2LoadPct, &s.AirTimeRemainingS,
 			&s.PressureSac, &s.VolumeSac, &s.Rmv, &s.Po2,
+			// GPS Metadata (1)
+			&s.Heading,
 			// Developer Fields (1)
 			&s.DeveloperFields,
 		); err != nil {
@@ -2041,6 +2095,28 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	args = append(args, nilIfZeroInt(data.WorkoutFeel))
 	sets = append(sets, fmt.Sprintf("workout_rpe = %s", idx()))
 	args = append(args, nilIfZeroInt(data.WorkoutRpe))
+
+	// FIT SDK — GPS quality
+	sets = append(sets, fmt.Sprintf("gps_accuracy_m = %s", idx()))
+	args = append(args, nilIfZeroInt(data.GpsAccuracyM))
+
+	// FIT SDK — New session fields (recompute support)
+	sets = append(sets, fmt.Sprintf("max_cadence = %s", idx()))
+	args = append(args, nilIfZeroInt(data.MaxCadence))
+	sets = append(sets, fmt.Sprintf("min_temperature_c = %s", idx()))
+	args = append(args, data.MinTemperatureC)
+	sets = append(sets, fmt.Sprintf("max_temperature_c = %s", idx()))
+	args = append(args, data.MaxTemperatureC)
+	sets = append(sets, fmt.Sprintf("num_sessions = %s", idx()))
+	args = append(args, nilIfZeroInt(data.NumSessions))
+	sets = append(sets, fmt.Sprintf("vo2max_ml_kg_min = %s", idx()))
+	args = append(args, data.Vo2MaxMlKgMin)
+	sets = append(sets, fmt.Sprintf("vo2max_calibrated = %s", idx()))
+	args = append(args, data.Vo2MaxCalibrated)
+	sets = append(sets, fmt.Sprintf("vo2max_hr_source = %s", idx()))
+	args = append(args, data.Vo2MaxHrSource)
+	sets = append(sets, fmt.Sprintf("vo2max_speed_source = %s", idx()))
+	args = append(args, data.Vo2MaxSpeedSource)
 
 	// Always reset enrichment and timestamp
 	sets = append(sets, "enrichment_status = 'pending'")

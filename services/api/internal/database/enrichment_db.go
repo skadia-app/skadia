@@ -61,6 +61,8 @@ var validEnrichmentCols = map[string]bool{
 	"title":          true,
 	"title_is_manual": true,
 	"description":    true,
+	// Timezone from GPS start position (tzf library)
+	"timezone": true,
 }
 
 // GetGeoTags returns all geo tags for an activity.
