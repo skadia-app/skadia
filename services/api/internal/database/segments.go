@@ -407,6 +407,8 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, updat
 		args = append(args, *update.ClimbType)
 		argIdx++
 	}
+	// Note: private→public MUST go through PublishSegment (handler blocks it via 400).
+	// This SET clause only handles public→private or same-value updates.
 	if update.Visibility != nil {
 		setClauses = append(setClauses, fmt.Sprintf("visibility = $%d", argIdx))
 		args = append(args, *update.Visibility)
@@ -1037,7 +1039,7 @@ func (db *DB) ImportLiftSegments(ctx context.Context, userID string) (int, error
 		_, err := db.Pool.Exec(ctx, `
 			INSERT INTO segments (created_by, name, sport_group, segment_type,
 			                      segment_type_meta, osm_lift_id, visibility)
-			VALUES ($1, $2, 'generic', 'lift', '{}', $3, 'private')
+			VALUES ($1, $2, 'generic', 'lift', '{}', $3, 'public')
 		`, userID, segName, osmID)
 		if err != nil {
 			continue

@@ -99,7 +99,6 @@ export async function fetchSegments(params: {
 export interface UpdateSegmentPayload {
   name?: string
   description?: string
-  sport_group?: string
   segment_type_meta?: Record<string, unknown>
   new_version?: boolean
   terrain_type?: string
