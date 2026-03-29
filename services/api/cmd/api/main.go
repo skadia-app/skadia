@@ -392,6 +392,7 @@ func main() {
 	// The SegmentMatcher callback is wired after the Handler is created
 	// (it references handler methods), so we set it below.
 	importSvc := importer.NewService(db, store, pub, nil)
+	importSvc.PMC = pmcService
 
 	h := &handler.Handler{
 		DB:             db,

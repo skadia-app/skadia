@@ -15,6 +15,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/pmc"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
@@ -40,6 +41,10 @@ type Service struct {
 	// GraphReader provides tile-level graph access for surface enrichment.
 	// Optional — nil when no tiles are loaded.
 	GraphReader routing.GraphReader
+
+	// PMC is the PMC service used to immediately compute TSS after import.
+	// Optional — nil is safe; TSS will be populated on the next recompute.
+	PMC *pmc.Service
 }
 
 // NewService constructs a Service with the provided dependencies.
@@ -340,6 +345,31 @@ func (s *Service) PostProcess(
 	// all geo queries read from activity_tracks.track_full.
 	// For non-GPS activities, geo queries are skipped internally but Stage-2 NATS event (embeddings) is still published.
 	enrichment.RunGeoAndPublishStage2(ctx, s.DB, userID, activityID, data.HasGPS, data.SportType, data.IsVirtual, s.Events, s.GraphReader)
+
+	// Compute TSS immediately after import so computed_tss is populated
+	// without requiring a manual recompute. Runs after InsertStreams (Phase 1)
+	// so power/HR/speed streams are available for stream-based TSS methods.
+	if s.PMC != nil {
+		sport := data.FitSportID
+		sub := data.FitSubSportID
+		var avgPower, avgHR, distM *float64
+		if data.AvgPowerW > 0 {
+			v := data.AvgPowerW
+			avgPower = &v
+		}
+		if data.AvgHeartRate > 0 {
+			v := data.AvgHeartRate
+			avgHR = &v
+		}
+		if data.DistanceM > 0 {
+			v := data.DistanceM
+			distM = &v
+		}
+		if err := s.PMC.ComputeActivityTSS(ctx, userID, activityID,
+			sport, sub, data.MovingTimeS, avgPower, avgHR, distM, data.StartedAt); err != nil {
+			slog.Warn("postprocess: ComputeActivityTSS failed (non-fatal)", "activity_id", activityID, "error", err)
+		}
+	}
 
 	// Publish NATS events
 	if s.Events != nil {
