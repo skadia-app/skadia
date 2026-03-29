@@ -379,6 +379,8 @@ func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []mo
 		"core_temperature_c", "enhanced_respiration_rate", "current_stress", "battery_soc_pct",
 		// FIT SDK — MTB Metrics (2)
 		"grit", "flow",
+		// Garmin Stamina + GAP (3)
+		"potential_stamina", "stamina", "gap_speed_ms",
 		// FIT SDK — Racket / Ball Sports (3)
 		"stroke_type", "zone", "ball_speed_ms",
 		// FIT SDK — Diving (12)
@@ -428,6 +430,8 @@ func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []mo
 			s.CoreTemperatureC, s.EnhancedRespirationRate, s.CurrentStress, s.BatterySocPct,
 			// FIT SDK — MTB Metrics (2)
 			s.Grit, s.Flow,
+			// Garmin Stamina + GAP (3)
+			s.PotentialStamina, s.Stamina, s.GapSpeedMS,
 			// FIT SDK — Racket / Ball Sports (3)
 			s.StrokeType, s.Zone, s.BallSpeedMs,
 			// FIT SDK — Diving (12)
@@ -1286,6 +1290,8 @@ func (db *DB) GetStreams(ctx context.Context, activityID string) ([]model.Stream
 			core_temperature_c, enhanced_respiration_rate, current_stress, battery_soc_pct,
 			-- FIT SDK — MTB Metrics
 			grit, flow,
+			-- Garmin Stamina + GAP
+			potential_stamina, stamina, gap_speed_ms,
 			-- FIT SDK — Racket / Ball Sports
 			stroke_type, zone, ball_speed_ms,
 			-- FIT SDK — Diving
@@ -1342,6 +1348,8 @@ func (db *DB) GetStreams(ctx context.Context, activityID string) ([]model.Stream
 			&s.CoreTemperatureC, &s.EnhancedRespirationRate, &s.CurrentStress, &s.BatterySocPct,
 			// FIT SDK — MTB Metrics
 			&s.Grit, &s.Flow,
+			// Garmin Stamina + GAP
+			&s.PotentialStamina, &s.Stamina, &s.GapSpeedMS,
 			// FIT SDK — Racket / Ball Sports
 			&s.StrokeType, &s.Zone, &s.BallSpeedMs,
 			// FIT SDK — Diving
@@ -1396,6 +1404,7 @@ func (db *DB) GetStreamPoints(ctx context.Context, activityID string) ([]model.S
 			ebike_assist_mode, ebike_assist_level_pct,
 			core_temperature_c, enhanced_respiration_rate, current_stress, battery_soc_pct,
 			grit, flow,
+			potential_stamina, stamina, gap_speed_ms,
 			stroke_type, zone, ball_speed_ms,
 			depth_m, next_stop_depth_m, next_stop_time_s, time_to_surface_s,
 			ndl_time_s, cns_load_pct, n2_load_pct, air_time_remaining_s,
@@ -1450,6 +1459,8 @@ func (db *DB) GetStreamPoints(ctx context.Context, activityID string) ([]model.S
 			&s.CoreTemperatureC, &s.EnhancedRespirationRate, &s.CurrentStress, &s.BatterySocPct,
 			// MTB Metrics (2)
 			&s.Grit, &s.Flow,
+			// Garmin Stamina + GAP (3)
+			&s.PotentialStamina, &s.Stamina, &s.GapSpeedMS,
 			// Racket / Ball Sports (3)
 			&s.StrokeType, &s.Zone, &s.BallSpeedMs,
 			// Diving (12)

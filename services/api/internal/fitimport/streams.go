@@ -524,6 +524,52 @@ func ExtractStreams(records []*mesgdef.Record) []model.StreamPoint {
 			}
 		}
 
+		// Garmin undokumentierte Record-Felder (nicht im FIT-Profil)
+		for _, uf := range rec.UnknownFields {
+			switch uf.Num {
+			case 137: // PotentialStamina (uint8, 0-100%)
+				if raw := uf.Value.Any(); raw != nil {
+					switch v := raw.(type) {
+					case uint8:
+						if v != 0xFF && v <= 100 {
+							val := int16(v)
+							sp.PotentialStamina = &val
+						}
+					case int8:
+						if v >= 0 && v <= 100 {
+							val := int16(v)
+							sp.PotentialStamina = &val
+						}
+					}
+				}
+			case 138: // Stamina (uint8, 0-100%)
+				if raw := uf.Value.Any(); raw != nil {
+					switch v := raw.(type) {
+					case uint8:
+						if v != 0xFF && v <= 100 {
+							val := int16(v)
+							sp.Stamina = &val
+						}
+					case int8:
+						if v >= 0 && v <= 100 {
+							val := int16(v)
+							sp.Stamina = &val
+						}
+					}
+				}
+			case 140: // Grade-Adjusted Speed (uint32, Skalierung 1000 → m/s)
+				if raw := uf.Value.Any(); raw != nil {
+					switch v := raw.(type) {
+					case uint32:
+						if v != 0xFFFFFFFF && v > 0 {
+							gap := float64(v) / 1000.0
+							sp.GapSpeedMS = &gap
+						}
+					}
+				}
+			}
+		}
+
 		streams = append(streams, sp)
 	}
 

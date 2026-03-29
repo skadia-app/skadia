@@ -79,6 +79,11 @@ type StreamPoint struct {
 	// FIT SDK — MTB Metrics
 	Grit *float64 `json:"grit,omitempty"`
 	Flow *float64 `json:"flow,omitempty"`
+	// Garmin Stamina (undocumented record fields 137/138, 0-100%)
+	PotentialStamina *int16 `json:"potential_stamina,omitempty"`
+	Stamina          *int16 `json:"stamina,omitempty"`
+	// Garmin GAP (undocumented record field 140, m/s)
+	GapSpeedMS *float64 `json:"gap_speed_ms,omitempty"`
 	// FIT SDK — Racket / Ball Sports
 	StrokeType  *int16   `json:"stroke_type,omitempty"`
 	Zone        *int16   `json:"zone,omitempty"`
@@ -178,6 +183,11 @@ type StreamResponse struct {
 	// FIT SDK — MTB Metrics
 	Grit *float64 `json:"grit,omitempty"`
 	Flow *float64 `json:"flow,omitempty"`
+	// Garmin Stamina (undocumented record fields 137/138, 0-100%)
+	PotentialStamina *int16 `json:"potential_stamina,omitempty"`
+	Stamina          *int16 `json:"stamina,omitempty"`
+	// Garmin GAP (undocumented record field 140, m/s)
+	GapSpeedMS *float64 `json:"gap_speed_ms,omitempty"`
 	// FIT SDK — Racket / Ball Sports
 	StrokeType  *int16   `json:"stroke_type,omitempty"`
 	Zone        *int16   `json:"zone,omitempty"`
