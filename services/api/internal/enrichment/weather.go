@@ -196,41 +196,41 @@ func safeInt(arr []int, idx int) int {
 func mapWeatherCode(code int) (string, []string) {
 	switch {
 	case code == 0:
-		return "klar", []string{"sonnig"}
+		return "Klar", []string{"sonnig"}
 	case code == 1:
-		return "ueberwiegend klar", []string{"sonnig"}
+		return "Überwiegend klar", []string{"sonnig"}
 	case code == 2:
-		return "teilweise bewölkt", []string{"bewölkt"}
+		return "Teilweise bewölkt", []string{"bewölkt"}
 	case code == 3:
-		return "bedeckt", []string{"bewölkt"}
+		return "Bedeckt", []string{"bewölkt"}
 	case code == 45:
-		return "nebel", []string{"nebel"}
+		return "Nebel", []string{"nebel"}
 	case code == 48:
-		return "nebel", []string{"nebel"}
+		return "Nebel", []string{"nebel"}
 	case code >= 51 && code <= 55:
-		return "nieselregen", []string{"regen"}
+		return "Nieselregen", []string{"regen"}
 	case code >= 56 && code <= 57:
-		return "gefrierender nieselregen", []string{"regen"}
+		return "Gefrierender Nieselregen", []string{"regen"}
 	case code >= 61 && code <= 65:
-		return "regen", []string{"regen"}
+		return "Regen", []string{"regen"}
 	case code >= 66 && code <= 67:
-		return "gefrierender regen", []string{"regen"}
+		return "Gefrierender Regen", []string{"regen"}
 	case code >= 71 && code <= 75:
-		return "schneefall", []string{"schnee"}
+		return "Schneefall", []string{"schnee"}
 	case code == 77:
-		return "schneegriesel", []string{"schnee"}
+		return "Schneegriesel", []string{"schnee"}
 	case code >= 80 && code <= 82:
-		return "regenschauer", []string{"regen"}
+		return "Regenschauer", []string{"regen"}
 	case code >= 85 && code <= 86:
-		return "schneeschauer", []string{"schnee"}
+		return "Schneeschauer", []string{"schnee"}
 	case code == 95:
-		return "gewitter", []string{"gewitter", "regen"}
+		return "Gewitter", []string{"gewitter", "regen"}
 	case code == 96:
-		return "gewitter mit leichtem hagel", []string{"gewitter", "regen"}
+		return "Gewitter mit leichtem Hagel", []string{"gewitter", "regen"}
 	case code == 99:
-		return "gewitter mit starkem hagel", []string{"gewitter", "regen"}
+		return "Gewitter mit starkem Hagel", []string{"gewitter", "regen"}
 	default:
-		return "unbekannt", nil
+		return "Unbekannt", nil
 	}
 }
 
