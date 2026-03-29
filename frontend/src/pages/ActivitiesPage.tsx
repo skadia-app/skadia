@@ -698,12 +698,12 @@ export default function ActivitiesPage() {
   }
 
   // ── Fusionskandidaten-Badge ───────────────────────────────────────────────
-  const { data: fusionEntries = [] } = useQuery({
+  const { data: fusionData } = useQuery({
     queryKey: ['fusion-queue'],
     queryFn: () => getFusionQueue(50),
     staleTime: 60_000,
   })
-  const fusionCount = fusionEntries.length
+  const fusionCount = fusionData?.items?.length ?? 0
 
   // ── Paginierter Modus ────────────────────────────────────────────────────
   const { data: pageData, isLoading: pageLoading, isFetching: pageFetching } = useQuery({

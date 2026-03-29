@@ -250,6 +250,13 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		sidecar.WriteMetaCompanion(ctx, h.ShadowFS, h.DB, userID, merged.ID, *mergedAct.FileID, nil, mergedAct)
 	}
 
+	// Remove cached entries for all source activities so they don't appear as stale candidates
+	for _, id := range allIDs {
+		if err := h.DB.DeleteFusionCandidatesForActivity(ctx, id); err != nil {
+			slog.Warn("fusion-merge: delete cached candidates failed", "id", id, "error", err)
+		}
+	}
+
 	slog.Info("fusion-merge: completed", "new_id", merged.ID, "sources", allIDs)
 	httputil.WriteJSON(w, http.StatusCreated, map[string]string{"id": merged.ID})
 }
@@ -509,6 +516,10 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Remove cached fusion candidate entries for the deleted fusion result
+	if err := h.DB.DeleteFusionCandidatesForActivity(ctx, id); err != nil {
+		slog.Warn("revert-fusion: delete cached candidates failed", "id", id, "error", err)
+	}
 	h.DB.InvalidateTerraIncognitaCache(ctx, userID)
 	w.WriteHeader(http.StatusNoContent)
 }

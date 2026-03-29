@@ -48,5 +48,6 @@ func (h *Handler) UpdateImportSettings(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed", r.URL.Path)
 		return
 	}
+	h.DB.InvalidateFusionCache(r.Context(), userID)
 	httputil.WriteJSON(w, http.StatusOK, s)
 }

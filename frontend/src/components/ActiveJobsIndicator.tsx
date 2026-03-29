@@ -57,6 +57,7 @@ function JobRow({ job }: { job: ActiveJob }) {
     tile_build:              'Routing-Tiles erstellen',
     brouter_segment_build:   'BRouter-Segmente erstellen',
     brouter_segment_download: 'BRouter-Segmente herunterladen',
+    fusion_queue_compute:     'Fusionskandidaten berechnen',
   }
 
   const label = job.job_type === 'segment_recompute'
@@ -83,7 +84,7 @@ function JobRow({ job }: { job: ActiveJob }) {
         ? job.phase?.startsWith('landmarks:')
           ? job.phase
           : `${job.progress_current} / ${job.progress_total} Tiles`
-        : job.job_type === 'activity_recompute_all' || job.job_type === 'activity_recompute'
+        : job.job_type === 'activity_recompute_all' || job.job_type === 'activity_recompute' || job.job_type === 'fusion_queue_compute'
         ? `${job.progress_current} / ${job.progress_total} Aktivitäten`
         : `${Math.round((job.progress_current / job.progress_total) * 100)}%`
       : (job.job_type === 'garmin_import' || job.job_type === 'strava_import') && job.status === 'running' && job.progress_total > 0

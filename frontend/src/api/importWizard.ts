@@ -121,8 +121,13 @@ export interface FusionQueueEntry {
   time_diff_sec: number
 }
 
-export async function getFusionQueue(limit = 20): Promise<FusionQueueEntry[]> {
-  return apiClient<FusionQueueEntry[]>(`/fusion-queue?limit=${limit}`)
+export interface FusionQueueResponse {
+  items: FusionQueueEntry[]
+  computing: boolean
+}
+
+export async function getFusionQueue(limit = 20): Promise<FusionQueueResponse> {
+  return apiClient<FusionQueueResponse>(`/fusion-queue?limit=${limit}`)
 }
 
 // Gear Merge API (ergänzend zu gear.ts)

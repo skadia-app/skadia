@@ -729,7 +729,7 @@ function ImportPanel({
 
       if (job.status === 'completed') {
         getFusionQueue(5)
-          .then(entries => setFusionCount(entries.length))
+          .then(resp => setFusionCount(resp.items.length))
           .catch(() => setFusionCount(null))
       }
     }
