@@ -485,6 +485,11 @@ func main() {
 			}
 		}
 	}
+	// Wire PostImportHook: triggers fusion queue recompute after successful imports.
+	importSvc.PostImportHook = func(ctx context.Context, userID string) {
+		h.MaybeTriggerFusionQueueCompute(ctx, userID)
+	}
+
 	mlClient := mlpkg.NewClient(cfg.MLServiceURL)
 	analyticsHandler := analyticshandler.NewHandlerWithML(db, pub, mlClient)
 

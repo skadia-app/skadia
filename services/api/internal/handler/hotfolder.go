@@ -217,6 +217,5 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		tracker.Skipped(ctx, "duplicate", existingID)
 	}
 
-	h.MaybeTriggerFusionQueueCompute(ctx, userID)
 	return nil
 }

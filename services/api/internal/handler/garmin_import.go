@@ -128,7 +128,6 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("garmin import: complete job failed", "job_id", jobID, "error", err)
 			}
 			slog.Info("garmin import completed", "job_id", jobID, "errors", len(allErrors))
-			h.MaybeTriggerFusionQueueCompute(ctx, userID)
 		},
 	)
 }
@@ -184,7 +183,6 @@ func (h *Handler) UploadGarminZIP(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("garmin import (zip): complete job failed", "job_id", jobID, "error", err)
 			}
 			slog.Info("garmin import (zip) completed", "job_id", jobID, "errors", len(allErrors))
-			h.MaybeTriggerFusionQueueCompute(ctx, userID)
 		},
 	)
 }

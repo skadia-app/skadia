@@ -45,6 +45,10 @@ type Service struct {
 	// PMC is the PMC service used to immediately compute TSS after import.
 	// Optional — nil is safe; TSS will be populated on the next recompute.
 	PMC *pmc.Service
+
+	// PostImportHook is called once after a successful activity import.
+	// Used to trigger fusion queue recompute. Optional — nil is safe.
+	PostImportHook func(ctx context.Context, userID string)
 }
 
 // NewService constructs a Service with the provided dependencies.
@@ -507,7 +511,12 @@ func (s *Service) runWeatherStreamRefinement(activityID, userID string, data *mo
 // ProcessActivity is the central entry point for all cross-platform imports.
 // It runs duplicate detection (Tier 1), then either enriches/replaces an existing
 // activity or inserts a new one. Platform IDs are backfilled in all cases.
-func (s *Service) ProcessActivity(ctx context.Context, userID string, data *model.ActivityData, fileBytes []byte, meta ImportMetadata) (*ActivityResult, error) {
+func (s *Service) ProcessActivity(ctx context.Context, userID string, data *model.ActivityData, fileBytes []byte, meta ImportMetadata) (result *ActivityResult, retErr error) {
+	defer func() {
+		if s.PostImportHook != nil && retErr == nil && result != nil && result.Status != "skipped" {
+			s.PostImportHook(ctx, userID)
+		}
+	}()
 	// 1. Duplicate check (Tier 1)
 	match, err := CheckTier1(ctx, s.DB, userID, fileBytes, data, meta.GarminActivityID, meta.StravaActivityID, meta.KomootTourID)
 	if err != nil {
