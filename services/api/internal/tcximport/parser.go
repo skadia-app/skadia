@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +13,40 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
+
+// xmlFlexInt unmarshals XML text as int16, tolerating float notation ("711.0", "143.56").
+type xmlFlexInt int16
+
+func (f *xmlFlexInt) UnmarshalText(text []byte) error {
+	s := string(text)
+	if v, err := strconv.ParseInt(s, 10, 16); err == nil {
+		*f = xmlFlexInt(v)
+		return nil
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return err
+	}
+	*f = xmlFlexInt(math.Round(v))
+	return nil
+}
+
+// xmlFlexIntLarge is like xmlFlexInt but for int (Calories can exceed int16 range).
+type xmlFlexIntLarge int
+
+func (f *xmlFlexIntLarge) UnmarshalText(text []byte) error {
+	s := string(text)
+	if v, err := strconv.ParseInt(s, 10, 32); err == nil {
+		*f = xmlFlexIntLarge(v)
+		return nil
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return err
+	}
+	*f = xmlFlexIntLarge(math.Round(v))
+	return nil
+}
 
 // TCX XML structures
 
@@ -37,14 +72,14 @@ type tcxCreator struct {
 }
 
 type tcxLap struct {
-	StartTime        string     `xml:"StartTime,attr"`
-	TotalTimeSeconds float64    `xml:"TotalTimeSeconds"`
-	DistanceMeters   float64    `xml:"DistanceMeters"`
-	Calories         int        `xml:"Calories"`
-	AvgHR            *tcxHRVal  `xml:"AverageHeartRateBpm"`
-	MaxHR            *tcxHRVal  `xml:"MaximumHeartRateBpm"`
-	AvgCadence       *int16     `xml:"Cadence"`
-	Track            []tcxTrack `xml:"Track"`
+	StartTime        string           `xml:"StartTime,attr"`
+	TotalTimeSeconds float64          `xml:"TotalTimeSeconds"`
+	DistanceMeters   float64          `xml:"DistanceMeters"`
+	Calories         xmlFlexIntLarge  `xml:"Calories"`
+	AvgHR            *tcxHRVal        `xml:"AverageHeartRateBpm"`
+	MaxHR            *tcxHRVal        `xml:"MaximumHeartRateBpm"`
+	AvgCadence       *xmlFlexInt      `xml:"Cadence"`
+	Track            []tcxTrack       `xml:"Track"`
 }
 
 type tcxTrack struct {
@@ -52,7 +87,7 @@ type tcxTrack struct {
 }
 
 type tcxHRVal struct {
-	Value int16 `xml:"Value"`
+	Value xmlFlexInt `xml:"Value"`
 }
 
 type tcxTrackpoint struct {
@@ -61,7 +96,7 @@ type tcxTrackpoint struct {
 	Altitude  *float64     `xml:"AltitudeMeters"`
 	Distance  *float64     `xml:"DistanceMeters"`
 	HR        *tcxHRVal    `xml:"HeartRateBpm"`
-	Cadence   *int16       `xml:"Cadence"`
+	Cadence   *xmlFlexInt  `xml:"Cadence"`
 	Extension tcxTPExt     `xml:"Extensions"`
 }
 
@@ -75,8 +110,8 @@ type tcxTPExt struct {
 }
 
 type tcxTPX struct {
-	Watts *int16   `xml:"Watts"`
-	Speed *float64 `xml:"Speed"`
+	Watts *xmlFlexInt `xml:"Watts"`
+	Speed *float64    `xml:"Speed"`
 }
 
 func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
@@ -192,16 +227,18 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 				}
 
 				if pt.HR != nil {
-					hr := pt.HR.Value
+					hr := int16(pt.HR.Value)
 					sp.HeartRate = &hr
 				}
 
 				if pt.Cadence != nil {
-					sp.Cadence = pt.Cadence
+					v := int16(*pt.Cadence)
+					sp.Cadence = &v
 				}
 
 				if pt.Extension.TPX.Watts != nil {
-					sp.PowerW = pt.Extension.TPX.Watts
+					v := int16(*pt.Extension.TPX.Watts)
+					sp.PowerW = &v
 				}
 
 				if pt.Extension.TPX.Speed != nil {
