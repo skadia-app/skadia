@@ -334,6 +334,7 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	var workoutSteps []*mesgdef.WorkoutStep
 	var devDataIds []*mesgdef.DeveloperDataId
 	var fieldDescs []*mesgdef.FieldDescription
+	var diveSummary *mesgdef.DiveSummary
 
 	for i := range fit.Messages {
 		switch fit.Messages[i].Num {
@@ -388,6 +389,8 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 			devDataIds = append(devDataIds, mesgdef.NewDeveloperDataId(&fit.Messages[i]))
 		case typedef.MesgNumFieldDescription:
 			fieldDescs = append(fieldDescs, mesgdef.NewFieldDescription(&fit.Messages[i]))
+		case typedef.MesgNumDiveSummary:
+			diveSummary = mesgdef.NewDiveSummary(&fit.Messages[i])
 		}
 	}
 
@@ -1050,6 +1053,49 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	if session.O2Toxicity != basetype.Uint16Invalid {
 		v := int32(session.O2Toxicity)
 		data.O2ToxicityOtu = &v
+	}
+
+	// DiveSummary (MesgNum 268) is the authoritative source for dive metadata on
+	// Garmin Descent devices. Many dive FIT files omit the diving fields from the
+	// Session message and only populate DiveSummary. Apply DiveSummary values as a
+	// fallback (or override) for any field that is still nil after session parsing.
+	if diveSummary != nil {
+		if data.AvgDepthM == nil && diveSummary.AvgDepth != basetype.Uint32Invalid {
+			v := diveSummary.AvgDepthScaled()
+			data.AvgDepthM = &v
+		}
+		if data.MaxDepthM == nil && diveSummary.MaxDepth != basetype.Uint32Invalid {
+			v := diveSummary.MaxDepthScaled()
+			data.MaxDepthM = &v
+		}
+		if data.DiveNumber == nil && diveSummary.DiveNumber != basetype.Uint32Invalid {
+			v := int32(diveSummary.DiveNumber)
+			data.DiveNumber = &v
+		}
+		if data.SurfaceIntervalS == nil && diveSummary.SurfaceInterval != basetype.Uint32Invalid {
+			v := int32(diveSummary.SurfaceInterval)
+			data.SurfaceIntervalS = &v
+		}
+		if data.StartCnsPct == nil && diveSummary.StartCns != basetype.Uint8Invalid {
+			v := int16(diveSummary.StartCns)
+			data.StartCnsPct = &v
+		}
+		if data.EndCnsPct == nil && diveSummary.EndCns != basetype.Uint8Invalid {
+			v := int16(diveSummary.EndCns)
+			data.EndCnsPct = &v
+		}
+		if data.StartN2Pct == nil && diveSummary.StartN2 != basetype.Uint16Invalid {
+			v := int32(diveSummary.StartN2)
+			data.StartN2Pct = &v
+		}
+		if data.EndN2Pct == nil && diveSummary.EndN2 != basetype.Uint16Invalid {
+			v := int32(diveSummary.EndN2)
+			data.EndN2Pct = &v
+		}
+		if data.O2ToxicityOtu == nil && diveSummary.O2Toxicity != basetype.Uint16Invalid {
+			v := int32(diveSummary.O2Toxicity)
+			data.O2ToxicityOtu = &v
+		}
 	}
 
 	// === FIT SDK — Respiration / HRV Extended ===
