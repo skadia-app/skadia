@@ -117,6 +117,15 @@ func (s *Service) RecalculatePMC(ctx context.Context, userID string, activityDat
 		return nil
 	}
 
+	// Populate ACWR_RA (Rolling Average 7:28 uncoupled) for persistence.
+	for i, d := range days {
+		dayDate, err := time.Parse("2006-01-02", d.Date)
+		if err != nil {
+			continue
+		}
+		days[i].ACWRRA = CalcACWR_RA(dailyTSS, dayDate)
+	}
+
 	// Set userID on all days for batch upsert
 	for i := range days {
 		days[i].UserID = userID
@@ -134,4 +143,27 @@ func (s *Service) RecalculatePMC(ctx context.Context, userID string, activityDat
 		"days", len(days),
 	)
 	return nil
+}
+
+// ComputeActivityTSS calculates and stores TSS for a single activity.
+// Called after FIT import to immediately populate computed_tss.
+func (s *Service) ComputeActivityTSS(ctx context.Context, userID, activityID string,
+	sport, subSport int16, movingTimeS int, avgPowerW, avgHR, distanceM *float64,
+	startedAt time.Time) error {
+
+	th, err := EffectiveThresholds(ctx, s.DB, userID, sport, subSport, startedAt)
+	if err != nil {
+		return err
+	}
+
+	streams, _ := s.DB.GetStreamPoints(ctx, activityID)
+	result := ComputeTSS(sport, subSport, movingTimeS,
+		avgPowerW, avgHR, distanceM,
+		ExtractPowerStream(streams), ExtractHRStream(streams),
+		ExtractSpeedStream(streams), ExtractGradeStream(streams),
+		nil, th)
+
+	return s.DB.UpdateActivityTSS(ctx, activityID,
+		result.ComputedTSS, result.ComputedNPW, result.ComputedNGPMps,
+		result.ComputedIF, result.TRIMP, result.TSSMethod)
 }

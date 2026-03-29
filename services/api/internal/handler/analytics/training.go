@@ -69,35 +69,6 @@ func calcMonotony(tssSlice []float64) float64 {
 	return mean / stddev
 }
 
-// calcACWR_RA computes Rolling Average ACWR (7:28, uncoupled).
-// Acute = days 0-6, Chronic = days 7-34 (4 weeks BEFORE current week).
-// Returns 0 if insufficient training history (< 7 training days in chronic window).
-func calcACWR_RA(dailyTSS map[string]float64, today time.Time) float64 {
-	var acuteSum, chronicSum float64
-	var chronicDaysWithTraining int
-	for d := 0; d < 7; d++ {
-		key := today.AddDate(0, 0, -d).Format("2006-01-02")
-		acuteSum += dailyTSS[key]
-	}
-	for d := 7; d < 35; d++ {
-		key := today.AddDate(0, 0, -d).Format("2006-01-02")
-		tss := dailyTSS[key]
-		chronicSum += tss
-		if tss > 0 {
-			chronicDaysWithTraining++
-		}
-	}
-	// Minimum: 7 training days in chronic 28-day window
-	if chronicDaysWithTraining < 7 {
-		return 0
-	}
-	acute := acuteSum / 7
-	chronic := chronicSum / 28
-	if chronic == 0 {
-		return 0
-	}
-	return math.Round(acute/chronic*100) / 100
-}
 
 // ewmaProjection projects CTL/ATL/TSB forward using the EWMA model
 // with assumed daily TSS = average of last 7 days.
@@ -195,7 +166,7 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 		dailyTSSMap[d.Date] = d.TSS
 	}
 	lastDate, _ := time.Parse("2006-01-02", days[len(days)-1].Date)
-	acwrRA := calcACWR_RA(dailyTSSMap, lastDate)
+	acwrRA := pmc.CalcACWR_RA(dailyTSSMap, lastDate)
 
 	acwrStatusStr := ""
 	if acwrRA > 0 {
