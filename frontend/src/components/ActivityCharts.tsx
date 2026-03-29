@@ -20,6 +20,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import type { StreamPoint, ActivityEvent } from '@/api/types'
 import { CHART_TAB } from '@/components/activity/ChartTabs'
 import { findClosestIdx } from '@/lib/utils'
+import { re3GradeAdjustedSpeed } from '@/lib/re3'
 
 echarts.use([
   LineChart,
@@ -53,7 +54,12 @@ function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
   if (tab === CHART_TAB.alles) return null // show all
   const isSwim = getSegmentGroup(sportType) === 'swim'
   switch (tab) {
-    case CHART_TAB.uebersicht: return isSwim ? ['heartRate', 'cycleLength'] : ['altitude', 'heartRate', 'speed']
+    case CHART_TAB.uebersicht: {
+      if (isSwim) return ['heartRate', 'cycleLength']
+      const isFoot = getSegmentGroup(sportType) === 'foot'
+      if (isFoot) return ['altitude', 'heartRate', 'speed', 'gapSpeed']
+      return ['altitude', 'heartRate', 'speed']
+    }
     case CHART_TAB.leistung: {
       const sg = getSegmentGroup(sportType)
       const charts: ChartKey[] = ['power', 'cadence']
@@ -101,6 +107,9 @@ interface ChartData {
   potentialStamina: number[]
   staminaCurrent: number[]
   gapSpeed: number[]
+  paceMinKm: number[]
+  garminGapMinKm: number[]
+  re3Gap: number[]
   maxDist: number
   maxElapsed: number
 }
@@ -136,6 +145,9 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const potentialStamina: number[] = []
   const staminaCurrent: number[] = []
   const gapSpeed: number[] = []
+  const paceMinKm: number[] = []
+  const garminGapMinKm: number[] = []
+  const re3Gap: number[] = []
 
   const t0 = streams.length > 0 ? new Date(streams[0].time).getTime() : 0
 
@@ -173,6 +185,18 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     potentialStamina.push(s.potential_stamina ?? NaN)
     staminaCurrent.push(s.stamina ?? NaN)
     gapSpeed.push(s.gap_speed_ms ?? NaN)
+
+    // GAP comparison: Pace, Garmin GAP, RE3 GAP — all in min/km
+    const speedVal = s.speed_ms ?? 0
+    paceMinKm.push(speedVal > 0 ? 1000 / speedVal / 60 : NaN)
+    garminGapMinKm.push(s.gap_speed_ms != null && s.gap_speed_ms > 0 ? 1000 / s.gap_speed_ms / 60 : NaN)
+    if (speedVal > 0 && s.grade_pct != null) {
+      const gradeVal = s.grade_pct / 100
+      const gasMs = re3GradeAdjustedSpeed(speedVal, gradeVal)
+      re3Gap.push(gasMs > 0 ? 1000 / gasMs / 60 : NaN)
+    } else {
+      re3Gap.push(NaN)
+    }
   }
 
   const validDist = distanceKm.filter(v => !isNaN(v) && isFinite(v))
@@ -180,7 +204,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, gapSpeed, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, gapSpeed, paceMinKm, garminGapMinKm, re3Gap, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -657,6 +681,12 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       )
     }
   }
+  // GAP Comparison: only for running sports with valid pace data
+  if (segGroup === 'foot' && hasValidData(data.paceMinKm)) panels.push(
+    <div key={k('gapSpeed')} style={{ display: show('gapSpeed') ? undefined : 'none' }}>
+      <GAPComparisonPanel chartId="gapSpeed" {...common} />
+    </div>,
+  )
   if (hasValidData(data.temperature)) panels.push(
     <div key={k('temperature')} style={{ display: show('temperature') ? undefined : 'none' }}>
       <ChartPanel chartId="temperature" {...common}
@@ -1104,6 +1134,246 @@ function PedalDualChartPanel({
             {rightLabel}{headerUnit ? <span className="font-normal text-neutral-400 dark:text-neutral-600"> ({headerUnit})</span> : null}
           </span>
         </div>
+      </div>
+      <div ref={containerRef} className="h-[180px] w-full" />
+    </div>
+  )
+}
+
+// ── GAP Comparison Tri-Line Chart Panel ────────────────────────────────────────
+
+interface GAPComparisonPanelProps {
+  chartId: string
+  data: ChartData
+  onHover: (index: number | null) => void
+  onBrushZoom: (startValue: number, endValue: number) => void
+  onSyncZoom: (start: number, end: number, sourceId: string) => void
+  onRegister: (id: string, chart: echarts.ECharts) => void
+  onUnregister: (id: string) => void
+  brushZoomLockRef: React.MutableRefObject<boolean>
+  xMode: XMode
+  splitMarkers?: SplitMarker[]
+}
+
+/** 30-second simple moving average — smooths noisy per-second pace data. */
+function sma(arr: number[], window = 30): number[] {
+  const result = new Array(arr.length).fill(NaN)
+  let sum = 0, count = 0
+  for (let i = 0; i < arr.length; i++) {
+    if (!isNaN(arr[i])) { sum += arr[i]; count++ }
+    if (i >= window) {
+      if (!isNaN(arr[i - window])) { sum -= arr[i - window]; count-- }
+    }
+    if (count > 0) result[i] = sum / count
+  }
+  return result
+}
+
+/** Format a min/km value as "m:ss /km" for tooltip display. */
+function formatMinKm(minKm: number): string {
+  if (isNaN(minKm) || !isFinite(minKm) || minKm <= 0) return '—'
+  const min = Math.floor(minKm)
+  let sec = Math.round((minKm - min) * 60)
+  if (sec >= 60) { return `${min + 1}:00\u202f/km` }
+  return `${min}:${sec.toString().padStart(2, '0')}\u202f/km`
+}
+
+const COLOR_PACE = '#3B82F6'
+const COLOR_GARMIN_GAP = '#F59E0B'
+const COLOR_RE3_GAP = '#10B981'
+
+function GAPComparisonPanel({
+  chartId, data, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
+  brushZoomLockRef, xMode, splitMarkers,
+}: GAPComparisonPanelProps) {
+  const hasGarminGap = hasValidData(data.garminGapMinKm)
+
+  const containerRef = useECharts(
+    () => {
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+
+      const gridTop = (splitMarkers && splitMarkers.length > 0) ? 34 : 8
+      const xFormatter = xMode === 'distance'
+        ? (v: number) => v.toFixed(1)
+        : (v: number) => formatElapsed(v, data.maxElapsed)
+
+      const mlData = buildSplitMarkLines(splitMarkers, xMode)
+
+      // 30s SMA for all three series
+      const paceSmoothed = sma(data.paceMinKm)
+      const garminSmoothed = sma(data.garminGapMinKm)
+      const re3Smoothed = sma(data.re3Gap)
+
+      // Y-axis range: auto from valid smoothed values across all series
+      const allValues = [
+        ...paceSmoothed,
+        ...(hasGarminGap ? garminSmoothed : []),
+        ...re3Smoothed,
+      ].filter(v => !isNaN(v) && isFinite(v) && v > 0 && v < 30)
+
+      const yMin = allValues.length > 0 ? Math.max(0, Math.floor(Math.min(...allValues) * 10) / 10 - 0.5) : 0
+      const yMax = allValues.length > 0 ? Math.ceil(Math.max(...allValues) * 10) / 10 + 0.5 : 15
+
+      const series: echarts.EChartsCoreOption['series'] = [
+        {
+          type: 'line',
+          name: 'Pace',
+          data: xData.map((x, i) => [x, paceSmoothed[i]]),
+          showSymbol: false,
+          lineStyle: { width: 1.5, color: COLOR_PACE },
+          itemStyle: { color: COLOR_PACE },
+          connectNulls: false,
+          ...(mlData.length > 0 ? {
+            markLine: {
+              silent: true,
+              symbol: ['none', 'none'],
+              data: mlData,
+            },
+          } : {}),
+        },
+        ...(hasGarminGap ? [{
+          type: 'line' as const,
+          name: 'Garmin GAP',
+          data: xData.map((x, i) => [x, garminSmoothed[i]]),
+          showSymbol: false,
+          lineStyle: { width: 1.5, color: COLOR_GARMIN_GAP },
+          itemStyle: { color: COLOR_GARMIN_GAP },
+          connectNulls: false,
+        }] : []),
+        {
+          type: 'line',
+          name: 'RE3 GAP',
+          data: xData.map((x, i) => [x, re3Smoothed[i]]),
+          showSymbol: false,
+          lineStyle: { width: 1.5, color: COLOR_RE3_GAP },
+          itemStyle: { color: COLOR_RE3_GAP },
+          connectNulls: false,
+        },
+      ]
+
+      return {
+        animation: false,
+        grid: { left: 52, right: 16, top: gridTop, bottom: 36 },
+
+        brush: {
+          toolbox: [],
+          brushType: 'lineX',
+          brushStyle: {
+            borderWidth: 1,
+            color: 'rgba(249,115,22,0.12)',
+            borderColor: '#f97316',
+          },
+          throttleType: 'debounce',
+          throttleDelay: 100,
+        },
+
+        tooltip: {
+          trigger: 'axis',
+          transitionDuration: 0,
+          confine: true,
+          backgroundColor: 'rgba(255,255,255,0.96)',
+          borderColor: '#e5e5e5',
+          borderWidth: 1,
+          padding: [8, 10],
+          textStyle: { fontSize: 12, color: '#333' },
+          axisPointer: {
+            type: 'line',
+            lineStyle: { color: '#f97316', width: 1, type: 'dashed' },
+            animation: false,
+          },
+          formatter: (params: unknown) => {
+            const arr = Array.isArray(params) ? params : [params]
+            const p = arr[0] as { dataIndex?: number }
+            if (p?.dataIndex == null) return ''
+            const idx = p.dataIndex
+            const xVal = xMode === 'distance' ? data.distanceKm[idx] : data.elapsedMin[idx]
+            const posLine = buildTooltipPosLine(xVal, xMode, data)
+            let html = `<div style="line-height:1.75;min-width:180px">`
+            html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
+            const pace = sma(data.paceMinKm)[idx]
+            if (!isNaN(pace)) html += `<div style="font-size:13px;color:${COLOR_PACE}"><strong>${formatMinKm(pace)}</strong> Pace</div>`
+            if (hasGarminGap) {
+              const gg = sma(data.garminGapMinKm)[idx]
+              if (!isNaN(gg)) html += `<div style="font-size:13px;color:${COLOR_GARMIN_GAP}"><strong>${formatMinKm(gg)}</strong> Garmin GAP</div>`
+            }
+            const re3 = sma(data.re3Gap)[idx]
+            if (!isNaN(re3)) html += `<div style="font-size:13px;color:${COLOR_RE3_GAP}"><strong>${formatMinKm(re3)}</strong> RE3 GAP</div>`
+            return html + '</div>'
+          },
+        },
+
+        xAxis: {
+          type: 'value',
+          min: 0,
+          max: xMax,
+          axisLabel: { fontSize: 11, color: '#666', formatter: xFormatter },
+          splitLine: { show: false },
+          axisLine: { lineStyle: { color: '#ddd' } },
+          axisTick: { lineStyle: { color: '#ddd' } },
+        },
+
+        yAxis: {
+          type: 'value',
+          inverse: true,
+          min: yMin,
+          max: yMax,
+          name: 'min/km',
+          nameTextStyle: { fontSize: 10, color: '#666' },
+          axisLabel: {
+            fontSize: 11,
+            color: '#666',
+            margin: 8,
+            formatter: (v: number) => {
+              const min = Math.floor(v)
+              const sec = Math.round((v - min) * 60)
+              return `${min}:${sec.toString().padStart(2, '0')}`
+            },
+          },
+          splitLine: { lineStyle: { color: '#eee', type: 'dashed' } },
+          axisLine: { show: false },
+          axisTick: { show: false },
+        },
+
+        series,
+
+        dataZoom: [
+          {
+            type: 'inside',
+            xAxisIndex: 0,
+            filterMode: 'none',
+            zoomOnMouseWheel: true,
+            moveOnMouseMove: true,
+            moveOnMouseWheel: false,
+          },
+        ],
+      } as echarts.EChartsCoreOption
+    },
+    [data, xMode, splitMarkers, hasGarminGap], // eslint-disable-line react-hooks/exhaustive-deps
+    (chart) => {
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
+    },
+  )
+
+  return (
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+      <div className="flex items-center gap-4 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60">
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLOR_PACE }} />
+          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Pace</span>
+        </div>
+        {hasGarminGap && (
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLOR_GARMIN_GAP }} />
+            <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Garmin GAP</span>
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLOR_RE3_GAP }} />
+          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">RE3 GAP</span>
+        </div>
+        <span className="text-xs text-neutral-400 dark:text-neutral-600 ml-auto">Grade-Adjusted Pace</span>
       </div>
       <div ref={containerRef} className="h-[180px] w-full" />
     </div>

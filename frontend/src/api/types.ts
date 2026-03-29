@@ -340,6 +340,12 @@ export interface StreamPoint {
   grit?: number
   flow?: number
 
+  // Garmin Stamina (undocumented fields 137/138)
+  potential_stamina?: number
+  stamina?: number
+  // Garmin GAP (undocumented field 140)
+  gap_speed_ms?: number
+
   // ── Racket / Ball Sports ──
   stroke_type?: number
   zone?: number
