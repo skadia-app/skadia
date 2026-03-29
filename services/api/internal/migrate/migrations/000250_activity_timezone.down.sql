@@ -1,0 +1,1 @@
+ALTER TABLE activities DROP COLUMN IF EXISTS timezone;

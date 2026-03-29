@@ -1,0 +1,5 @@
+data/
+cmd/reducePolygon/reducePolygon
+cmd/tzjson2pb/tzjson2pb
+tmp/
+.claude/

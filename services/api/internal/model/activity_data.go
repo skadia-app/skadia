@@ -62,6 +62,8 @@ type ActivityData struct {
 
 	Visibility string // "private", "public", "followers" — empty means default ("private")
 
+	Timezone string // IANA timezone string, e.g. "Europe/Berlin". Empty for indoor without GPS.
+
 	IsIndoor             bool
 	IsEbike              bool
 	IsVirtual            bool

@@ -131,7 +131,8 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			avg_lap_time_s, best_lap_index, num_laps, first_lap_index,
 			intensity_factor, left_right_balance, sport_profile_name, sport_index,
 			nec_lat, nec_lng, swc_lat, swc_lng,
-			is_manual_entry, workout_feel, workout_rpe
+			is_manual_entry, workout_feel, workout_rpe,
+			timezone
 		) VALUES (
 			-- Core ($1-$4, parsed reuses $3/$4)
 			$1, $2, $3, $4,
@@ -224,7 +225,9 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			-- Bounding Box ($142-$145)
 			$142, $143, $144, $145,
 			-- Manual / Workout ($146-$148)
-			$146, $147, $148
+			$146, $147, $148,
+			-- Timezone ($149)
+			$149
 		)
 		RETURNING id, is_ebike, is_virtual, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType), // $1-$4
@@ -282,6 +285,7 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex, // $138-$141
 		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng, // $142-$145
 		data.IsManualEntry, nilIfZeroInt(data.WorkoutFeel), nilIfZeroInt(data.WorkoutRpe), // $146-$148
+		nilIfEmpty(data.Timezone), // $149
 	).Scan(&id, &isEbike, &isVirtual, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
@@ -597,7 +601,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		a.intensity_factor, a.left_right_balance, a.sport_profile_name, a.sport_index,
 		a.nec_lat, a.nec_lng, a.swc_lat, a.swc_lng,
 		COALESCE(a.title_is_manual, false),
-		a.is_manual_entry, a.workout_feel, a.workout_rpe
+		a.is_manual_entry, a.workout_feel, a.workout_rpe,
+		a.timezone
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		LEFT JOIN LATERAL (
@@ -680,6 +685,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.NecLat, &a.NecLng, &a.SwcLat, &a.SwcLng,
 		&a.TitleIsManual,
 		&a.IsManualEntry, &a.WorkoutFeel, &a.WorkoutRpe,
+		&a.Timezone,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -699,6 +705,14 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		}
 	}
 	return &a, nil
+}
+
+// SetActivityTimezone sets the IANA timezone string on an activity.
+func (db *DB) SetActivityTimezone(ctx context.Context, activityID, timezone string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE activities SET timezone = $1 WHERE id = $2`,
+		timezone, activityID)
+	return err
 }
 
 // GetActivityWithWeather returns an activity by ID, including its weather readings.
