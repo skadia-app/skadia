@@ -75,10 +75,21 @@ function getDateRange(range: TimeRange): { from: string; to: string } {
 
 function acwrStatusColor(status: string): string {
   switch (status) {
-    case 'optimal': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-    case 'high': return 'bg-accent-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'
-    case 'low': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-    default: return 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
+    case 'optimal':   return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+    case 'reduced':   return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+    case 'overreach': return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'
+    case 'danger':    return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+    default:          return 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
+  }
+}
+
+function acwrStatusLabel(status: string): string {
+  switch (status) {
+    case 'optimal':   return 'Optimal'
+    case 'reduced':   return 'Reduziert'
+    case 'overreach': return 'Erhöhtes Risiko'
+    case 'danger':    return 'Spike'
+    default:          return '—'
   }
 }
 
@@ -158,6 +169,8 @@ export default function PMCChartExtended() {
 
       const projDates = projection.map(d => d.date)
       const projCTL = projection.map(d => d.ctl)
+      const projATL = projection.map(d => d.atl)
+      const projTSB = projection.map(d => d.tsb)
 
       const allDates = [...dates, ...projDates]
 
@@ -165,6 +178,8 @@ export default function PMCChartExtended() {
       const atlFull = [...atlData, ...Array(projDates.length).fill(null)]
       const tsbFull = [...tsbData, ...Array(projDates.length).fill(null)]
       const ctlProjFull = [...Array(dates.length).fill(null), ...projCTL]
+      const atlProjFull = [...Array(dates.length).fill(null), ...projATL]
+      const tsbProjFull = [...Array(dates.length).fill(null), ...projTSB]
 
       return {
         backgroundColor: 'transparent',
@@ -195,7 +210,7 @@ export default function PMCChartExtended() {
           emphasis: { iconStyle: { borderColor: '#d1d5db' } },
         },
         legend: {
-          data: ['CTL (Fitness)', 'ATL (Ermüdung)', 'TSB (Form)', 'CTL Prognose'],
+          data: ['CTL (Fitness)', 'ATL (Ermüdung)', 'TSB (Form)', 'CTL Prognose', 'ATL Prognose', 'TSB Prognose'],
           top: 6,
           right: 80,
           textStyle: { fontSize: 11, color: '#9ca3af' },
@@ -297,6 +312,27 @@ export default function PMCChartExtended() {
             lineStyle: { width: 1.5, color: '#3b82f6', type: 'dashed', opacity: 0.5 },
             itemStyle: { color: '#3b82f6', opacity: 0.5 },
             z: 1,
+            connectNulls: false,
+          },
+          // ATL Prognose
+          {
+            name: 'ATL Prognose',
+            type: 'line',
+            data: atlProjFull,
+            showSymbol: false,
+            lineStyle: { width: 1.5, color: '#ef4444', type: 'dashed', opacity: 0.5 },
+            itemStyle: { color: '#ef4444', opacity: 0.5 },
+            z: 1,
+            connectNulls: false,
+          },
+          // TSB Prognose
+          {
+            name: 'TSB Prognose',
+            type: 'bar',
+            data: tsbProjFull,
+            showSymbol: false,
+            itemStyle: { color: 'rgba(107,114,128,0.2)' },
+            z: 0,
             connectNulls: false,
           },
         ],
@@ -429,42 +465,64 @@ export default function PMCChartExtended() {
       </div>
 
       {/* Metrics row */}
-      {(latest || data) && (
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* CTL / ATL / TSB badges */}
-          {latest && (
-            <>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-                <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />
-                CTL {latest.ctl.toFixed(1)}
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-accent-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
-                <span className="w-2 h-2 rounded-full bg-accent-DEFAULT inline-block" />
-                ATL {latest.atl.toFixed(1)}
-              </span>
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${latest.tsb >= 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'}`}>
-                <span className={`w-2 h-2 rounded-full inline-block ${latest.tsb >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                TSB {latest.tsb >= 0 ? '+' : ''}{latest.tsb.toFixed(1)}
-              </span>
-            </>
-          )}
-          {/* ACWR / RampRate / Monotony / Strain */}
-          {data && (
-            <>
-              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${acwrStatusColor(data.acwr_status)}`}>
-                ACWR {data.acwr.toFixed(2)}
-              </span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                Rampe {data.ramp_rate >= 0 ? '+' : ''}{data.ramp_rate.toFixed(1)}/Wo
-              </span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                Mono {data.monotony.toFixed(2)}
-              </span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                Strain {data.strain.toFixed(0)}
-              </span>
-            </>
-          )}
+      {(latest || data) && (() => {
+        const lastDate = data?.days[data.days.length - 1]?.date
+        const todayISO = new Date().toISOString().slice(0, 10)
+        const isHistorical = lastDate && lastDate !== todayISO
+        const dateSuffix = isHistorical ? ` (${new Date(lastDate).toLocaleDateString('de-DE')})` : ''
+        return (
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* CTL / ATL / TSB badges */}
+            {latest && (
+              <>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                  <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />
+                  CTL {latest.ctl.toFixed(1)}{dateSuffix}
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-accent-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
+                  <span className="w-2 h-2 rounded-full bg-accent-DEFAULT inline-block" />
+                  ATL {latest.atl.toFixed(1)}{dateSuffix}
+                </span>
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${latest.tsb >= 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'}`}>
+                  <span className={`w-2 h-2 rounded-full inline-block ${latest.tsb >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                  TSB {latest.tsb >= 0 ? '+' : ''}{latest.tsb.toFixed(1)}{dateSuffix}
+                </span>
+              </>
+            )}
+            {/* ACWR / RampRate / Monotony / Strain */}
+            {data && (
+              <>
+                {data.acwr_status && (
+                  <span
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${acwrStatusColor(data.acwr_status)}`}
+                    title={`${acwrStatusLabel(data.acwr_status)} — Rolling 7:28 uncoupled${data.acwr_status === 'reduced' ? '. Kann geplanten Taper, Erholung oder Detraining anzeigen.' : ''}`}
+                  >
+                    ACWR {data.acwr.toFixed(2)}{dateSuffix}
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                  Rampe {data.ramp_rate >= 0 ? '+' : ''}{data.ramp_rate.toFixed(1)}/Wo{dateSuffix}
+                </span>
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                  Mono {data.monotony.toFixed(2)}{dateSuffix}
+                </span>
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                  Strain {data.strain.toFixed(0)}{dateSuffix}
+                </span>
+              </>
+            )}
+          </div>
+        )
+      })()}
+
+      {/* Fallback warning banner */}
+      {data?.using_default_thresholds && (
+        <div className="mb-4 px-4 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-sm">
+          TSS-Berechnung nutzt geschätzte Schwellenwerte
+          {data.default_threshold_fields?.length ? (
+            <> für: <strong>{data.default_threshold_fields.map(f => f.toUpperCase()).join(', ')}</strong></>
+          ) : null}.{' '}
+          Für genauere Ergebnisse im Profil oder pro Sportart hinterlegen.
         </div>
       )}
 
@@ -493,9 +551,9 @@ export default function PMCChartExtended() {
 
       {/* TSB zone legend */}
       <div className="flex items-center gap-3 flex-wrap text-xs text-neutral-500 dark:text-neutral-400">
-        <span className="flex items-center gap-1.5">
+        <span className="flex items-center gap-1.5" title="Hoher TSB kann Erholung ODER Formverlust durch Trainingsunterbrechung bedeuten.">
           <span className="w-3 h-3 rounded-sm inline-block bg-blue-400/30" />
-          Frisch (&gt;+15)
+          Frisch / Detrained (&gt;+15)
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded-sm inline-block bg-emerald-400/30" />
