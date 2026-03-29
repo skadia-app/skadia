@@ -695,6 +695,7 @@ func main() {
 				r.Post("/backfill-weather", h.BackfillWeather)
 				r.Post("/backfill-enrichment", h.BackfillEnrichment)
 				r.Post("/backfill-sunrise-sunset", h.BackfillSunriseSunset)
+				r.Post("/backfill-timezones", h.BackfillTimezones)
 				r.Post("/phash-backfill", h.StartPhashBackfill)
 				r.Post("/detect-max-hr", h.DetectMaxHR)
 				r.Post("/activities/recompute-all", h.RecomputeAllActivities)

@@ -339,6 +339,51 @@ func (h *Handler) BackfillSunriseSunset(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// BackfillTimezones sets the IANA timezone for all GPS activities that don't have one yet.
+func (h *Handler) BackfillTimezones(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	rows, err := h.DB.Pool.Query(ctx,
+		`SELECT id, ST_Y(start_location::geometry), ST_X(start_location::geometry)
+         FROM activities
+         WHERE user_id = $1
+           AND has_gps = TRUE
+           AND timezone IS NULL
+           AND start_location IS NOT NULL`,
+		userID)
+	if err != nil {
+		slog.Error("backfill timezones: query failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		return
+	}
+	defer rows.Close()
+
+	var updated int
+	for rows.Next() {
+		var id string
+		var lat, lng float64
+		if err := rows.Scan(&id, &lat, &lng); err != nil {
+			continue
+		}
+		tz := enrichment.DetermineTimezone(lat, lng)
+		if tz == "" {
+			continue
+		}
+		if err := h.DB.SetActivityTimezone(ctx, id, tz); err != nil {
+			slog.Warn("backfill timezones: set failed", "activity_id", id, "error", err)
+			continue
+		}
+		updated++
+	}
+
+	slog.Info("timezone backfill complete", "user_id", userID, "updated", updated)
+	httputil.WriteJSON(w, http.StatusOK, map[string]int{"updated": updated})
+}
+
 // GetActivityClimbs returns detected climbs for an activity.
 func (h *Handler) GetActivityClimbs(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
