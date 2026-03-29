@@ -12,14 +12,8 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
-
-func derefStr(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
 
 // FusionQueueEntry ist ein angereichter FusionCandidate für die API.
 // sport_type_a und sport_type_b können unterschiedlich sein — z.B. wenn dieselbe
@@ -51,37 +45,36 @@ type fusionQueueResponse struct {
 	Computing bool               `json:"computing"`
 }
 
-// fusionRowToEntry konvertiert eine FusionCandidateRow in einen FusionQueueEntry.
+func resolveTitle(title, titleAuto *string) string {
+	if title != nil && *title != "" {
+		return *title
+	}
+	if titleAuto != nil {
+		return *titleAuto
+	}
+	return ""
+}
+
+func derefFloat(p *float64) float64 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 func fusionRowToEntry(row database.FusionCandidateRow) FusionQueueEntry {
-	titleA := ""
-	if row.TitleA != nil && *row.TitleA != "" {
-		titleA = *row.TitleA
-	} else if row.TitleAutoA != nil {
-		titleA = *row.TitleAutoA
-	}
-
-	titleB := ""
-	if row.TitleB != nil && *row.TitleB != "" {
-		titleB = *row.TitleB
-	} else if row.TitleAutoB != nil {
-		titleB = *row.TitleAutoB
-	}
-
-	distA := float64(0)
-	if row.DistanceMA != nil {
-		distA = *row.DistanceMA
-	}
-
-	distB := float64(0)
-	if row.DistanceMB != nil {
-		distB = *row.DistanceMB
-	}
-
 	return FusionQueueEntry{
 		ActivityIDA:    row.ActivityIDA,
 		ActivityIDB:    row.ActivityIDB,
-		TitleA:         titleA,
-		TitleB:         titleB,
+		TitleA:         resolveTitle(row.TitleA, row.TitleAutoA),
+		TitleB:         resolveTitle(row.TitleB, row.TitleAutoB),
 		StartedAtA:     row.StartedAtA.Format("2006-01-02T15:04:05Z"),
 		StartedAtB:     row.StartedAtB.Format("2006-01-02T15:04:05Z"),
 		SportTypeA:     row.SportTypeA,
@@ -90,8 +83,8 @@ func fusionRowToEntry(row database.FusionCandidateRow) FusionQueueEntry {
 		SubTypeB:       derefStr(row.SubTypeB),
 		IsEbikeA:       row.IsEbikeA,
 		IsEbikeB:       row.IsEbikeB,
-		DistanceMa:     distA,
-		DistanceMb:     distB,
+		DistanceMa:     derefFloat(row.DistanceMA),
+		DistanceMb:     derefFloat(row.DistanceMB),
 		OverlapPercent: math.Round(row.OverlapPercent*10) / 10,
 		FieldRichnessA: row.FieldRichnessA,
 		FieldRichnessB: row.FieldRichnessB,
@@ -114,33 +107,14 @@ func (h *Handler) GetFusionQueue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Check cache staleness
-	stale, invalidationSeq, err := h.DB.IsFusionCacheStale(r.Context(), userID)
+	// Check staleness + maybe trigger background recompute
+	stale, _, err := h.DB.IsFusionCacheStale(r.Context(), userID)
 	if err != nil {
 		slog.Error("fusion queue: cache check failed", "error", err)
-		// DB error → return cached data without starting a job
-		// (avoids K2: invalidationSeq=0 would cause permanent stale loop)
 	}
-
 	computing := stale
-
-	// Start background job if stale and no job already running.
-	// Only attempt if IsFusionCacheStale succeeded (err == nil) to avoid
-	// storing invalidationSeq=0 which would cause an endless recompute loop.
 	if err == nil && stale {
-		running, runErr := h.DB.HasRunningJob(r.Context(), userID, "fusion_queue_compute")
-		if runErr != nil {
-			slog.Warn("fusion queue: check running job failed", "error", runErr)
-		}
-		if !running {
-			jobID, jobErr := h.DB.InsertBackgroundJob(r.Context(), userID, "fusion_queue_compute", nil, nil, 0)
-			if jobErr != nil {
-				// Unique violation (23505) means another user's job is running → not an error
-				slog.Info("fusion queue: job not created (likely already running)", "error", jobErr)
-			} else {
-				go h.runFusionQueueCompute(jobID, userID, invalidationSeq)
-			}
-		}
+		h.MaybeTriggerFusionQueueCompute(r.Context(), userID)
 	}
 
 	// Return cached results (may be empty on first load)
@@ -163,7 +137,7 @@ func (h *Handler) GetFusionQueue(w http.ResponseWriter, r *http.Request) {
 }
 
 // MaybeTriggerFusionQueueCompute startet einen Fusion-Queue-Recompute im Hintergrund,
-// wenn der Cache stale ist und kein Job läuft. Wird nach Imports aufgerufen.
+// wenn der Cache stale ist und kein Job läuft. Wird nach Imports und vom GET-Endpoint aufgerufen.
 func (h *Handler) MaybeTriggerFusionQueueCompute(ctx context.Context, userID string) {
 	stale, invalidationSeq, err := h.DB.IsFusionCacheStale(ctx, userID)
 	if err != nil || !stale {
@@ -177,26 +151,27 @@ func (h *Handler) MaybeTriggerFusionQueueCompute(ctx context.Context, userID str
 	if err != nil {
 		return
 	}
-	go h.runFusionQueueCompute(jobID, userID, invalidationSeq)
+	shutdown.Go("fusion-queue-compute-"+userID, func(ctx context.Context) {
+		h.runFusionQueueCompute(ctx, jobID, userID, invalidationSeq)
+	})
 }
 
 // runFusionQueueCompute führt die Tier-2-Berechnung im Hintergrund aus und
 // speichert die Ergebnisse im Cache (fusion_candidates).
-func (h *Handler) runFusionQueueCompute(jobID, userID string, startSeq int64) {
-	ctx := context.Background()
+func (h *Handler) runFusionQueueCompute(ctx context.Context, jobID, userID string, startSeq int64) {
 	start := time.Now()
 
 	defer func() {
 		if rec := recover(); rec != nil {
 			slog.Error("fusion queue compute panicked", "panic", rec, "job_id", jobID)
-			h.DB.CompleteBackgroundJob(ctx, jobID, true, fmt.Sprintf("panic: %v", rec)) //nolint:errcheck
+			h.DB.CompleteBackgroundJob(context.Background(), jobID, true, fmt.Sprintf("panic: %v", rec)) //nolint:errcheck
 		}
 	}()
 
 	slog.Info("fusion queue compute: starting", "job_id", jobID, "user_id", userID)
 
 	settings, _ := h.DB.GetImportSettings(ctx, userID)
-	threshold := float64(75)
+	threshold := 75.0
 	timeWindowMin := 30
 	if settings != nil {
 		threshold = float64(settings.GPSDuplicateThreshold)
@@ -205,8 +180,6 @@ func (h *Handler) runFusionQueueCompute(jobID, userID string, startSeq int64) {
 		}
 	}
 
-	// No limit in background job — check ALL eligible activities.
-	// FindFusionCandidates returns fast for activities without temporal neighbors.
 	activityIDs, err := h.DB.GetFusionQueueActivities(ctx, userID, 0)
 	if err != nil {
 		slog.Error("fusion queue compute: load activities failed", "error", err)
@@ -220,6 +193,12 @@ func (h *Handler) runFusionQueueCompute(jobID, userID string, startSeq int64) {
 	var candidates []database.FusionCandidateInsert
 
 	for i, actID := range activityIDs {
+		if ctx.Err() != nil {
+			slog.Info("fusion queue compute: cancelled", "job_id", jobID)
+			h.DB.CompleteBackgroundJob(context.Background(), jobID, true, "cancelled") //nolint:errcheck
+			return
+		}
+
 		matches, err := importer.CheckTier2(ctx, h.DB, userID, actID, threshold, timeWindowMin)
 		if err != nil {
 			slog.Warn("fusion queue compute: tier-2 check failed", "id", actID, "error", err)
