@@ -176,9 +176,14 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 
-	// Timezone fallback: UTC offset from Activity LocalTimestamp (stage 3)
-	// This only provides an offset, not an IANA timezone string — stored as
-	// fixed-offset string like "UTC+02:00" for display purposes.
+	// Timezone fallback stage 3: UTC offset from Activity.LocalTimestamp
+	// FIT SDK: LocalTimestamp is "local time stored as if UTC" — i.e., the clock time
+	// with no timezone applied. If an activity starts at 14:00 local (UTC+2), the FIT
+	// file stores StartTime as 12:00 UTC and LocalTimestamp as 14:00 (stored as UTC).
+	// The difference (LocalTimestamp - StartTime) gives the UTC offset.
+	// Limitation: This is a fixed offset, not an IANA timezone. No DST awareness.
+	// It's a best-effort fallback for indoor activities without GPS.
+	// Stored as a fixed-offset string like "UTC+02:00" for display purposes.
 	if _, hasTz := fields["timezone"]; !hasTz && !data.LocalTimestamp.IsZero() && !data.StartedAt.IsZero() {
 		offset := data.LocalTimestamp.Sub(data.StartedAt)
 		// Sanity check: offset should be between -14h and +14h
