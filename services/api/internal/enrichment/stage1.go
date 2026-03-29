@@ -118,15 +118,15 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		profile = &model.UserProfile{}
 	}
 
-	// Time of day (requires GPS + start/end time)
-	if data.StartLat != 0 && data.StartLng != 0 && !data.StartedAt.IsZero() && !data.EndedAt.IsZero() {
+	// Time of day (requires GPS + start/end time; skip virtual — GPS is simulated)
+	if data.StartLat != 0 && data.StartLng != 0 && !data.StartedAt.IsZero() && !data.EndedAt.IsZero() && !data.IsVirtual {
 		if periods := TimeOfDayPeriods(data.StartLat, data.StartLng, data.StartedAt, data.EndedAt); len(periods) > 0 {
 			fields["time_of_day"] = periods
 		}
 	}
 
-	// Sunrise/Sunset (requires GPS + start/end time)
-	if data.StartLat != 0 && !data.StartedAt.IsZero() && !data.EndedAt.IsZero() {
+	// Sunrise/Sunset (requires GPS + start/end time; skip virtual — GPS is simulated)
+	if data.StartLat != 0 && !data.StartedAt.IsZero() && !data.EndedAt.IsZero() && !data.IsVirtual {
 		sun := CalculateSunTimes(
 			data.StartLat, data.StartLng, data.EndLat, data.EndLng,
 			data.StartedAt, data.EndedAt, data.Streams,
@@ -283,8 +283,8 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		fields["elevation_source"] = "device"
 	}
 
-	// Reverse geocoding (PostGIS)
-	if data.StartLat != 0 && data.StartLng != 0 {
+	// Reverse geocoding (PostGIS; skip virtual — GPS is simulated)
+	if data.StartLat != 0 && data.StartLng != 0 && !data.IsVirtual {
 		if geo, err := ReverseGeocode(ctx, db.Pool, data.StartLat, data.StartLng); err == nil && geo != nil {
 			if geo.City != "" {
 				fields["start_city"] = geo.City
@@ -300,7 +300,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 			}
 		}
 	}
-	if data.EndLat != 0 && data.EndLng != 0 {
+	if data.EndLat != 0 && data.EndLng != 0 && !data.IsVirtual {
 		if geo, err := ReverseGeocode(ctx, db.Pool, data.EndLat, data.EndLng); err == nil && geo != nil {
 			if geo.City != "" {
 				fields["end_city"] = geo.City
@@ -311,7 +311,8 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	// Weather enrichment — case-based, 1–2 readings stored in activity_weather.
 	// Streams are not yet available here, so summit/midpoint GPS is unknown.
 	// Stream-Refinement (summit/midpoint GPS) runs in service.go after stream insert.
-	if data.StartLat != 0 && data.StartLng != 0 && !data.StartedAt.IsZero() {
+	// Skip virtual activities — GPS is simulated, weather at virtual location is irrelevant.
+	if data.StartLat != 0 && data.StartLng != 0 && !data.StartedAt.IsZero() && !data.IsVirtual {
 		if asyncWeather {
 			// Import path: fire-and-forget so we don't block the import pipeline.
 			// Tags are applied later by automation rules / Stage 2.
