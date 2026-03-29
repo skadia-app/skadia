@@ -60,16 +60,12 @@ func TestMapWeatherCodeUmlauts(t *testing.T) {
 
 // TestMapWeatherCodeNoAsciiBrokenUmlauts tests that no broken ASCII umlauts are used
 func TestMapWeatherCodeNoAsciiBrokenUmlauts(t *testing.T) {
-	// Critical check: "bewoelkt" (broken) should never appear, only "bewölkt" (correct)
 	for code := 0; code <= 99; code++ {
-		_, tags := mapWeatherCode(code)
+		condition, tags := mapWeatherCode(code)
+		if strings.Contains(strings.ToLower(condition), "ueberwiegend") {
+			t.Errorf("code %d: found broken umlaut 'ueberwiegend' in condition '%s', should use 'überwiegend'", code, condition)
+		}
 		for _, tag := range tags {
-			// "ueberwiegend" is allowed (it's a legacy exception)
-			if strings.HasPrefix(tag, "ueberw") {
-				continue
-			}
-
-			// CRITICAL: Check that broken umlauts are not present
 			if strings.Contains(tag, "bewoelkt") {
 				t.Errorf("code %d: found broken umlaut 'bewoelkt' in tag '%s', should use 'bewölkt'", code, tag)
 			}
@@ -105,14 +101,14 @@ func TestMapWeatherCodeReturnsCorrectConditions(t *testing.T) {
 		expectedCondition string
 		expectedAnyTag    string
 	}{
-		{0, "klar", "sonnig"},
-		{1, "ueberwiegend klar", "sonnig"},
-		{2, "teilweise bewölkt", "bewölkt"},
-		{3, "bedeckt", "bewölkt"},
-		{45, "nebel", "nebel"},
-		{61, "regen", "regen"},
-		{71, "schneefall", "schnee"},
-		{95, "gewitter", "gewitter"},
+		{0, "Klar", "sonnig"},
+		{1, "Überwiegend klar", "sonnig"},
+		{2, "Teilweise bewölkt", "bewölkt"},
+		{3, "Bedeckt", "bewölkt"},
+		{45, "Nebel", "nebel"},
+		{61, "Regen", "regen"},
+		{71, "Schneefall", "schnee"},
+		{95, "Gewitter", "gewitter"},
 	}
 
 	for _, tt := range tests {
