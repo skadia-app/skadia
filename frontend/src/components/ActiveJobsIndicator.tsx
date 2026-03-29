@@ -8,6 +8,7 @@ function formatCount(n: number): string {
   return String(n)
 }
 import { RefreshCw, Check, X } from 'lucide-react'
+import { JOB_TYPE_LABELS } from '@/lib/jobLabels'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import type { ActiveJob } from '@/lib/useActiveJobs'
 import { useJobStream } from '@/lib/useJobStream'
@@ -31,38 +32,9 @@ function JobRow({ job }: { job: ActiveJob }) {
   const isOSMJob = job.job_type === 'osm_import' || job.job_type === 'osm_enrichment'
   const isDataImport = job.job_type === 'garmin_import' || job.job_type === 'strava_import' || job.job_type === 'komoot_import'
 
-  const JOB_LABELS: Record<string, string> = {
-    osm_import:              'OSM-Import',
-    osm_enrichment:          'OSM-Anreicherung',
-    garmin_import:           'Garmin-Synchronisierung',
-    strava_import:           'Strava-Synchronisierung',
-    komoot_import:           'Komoot-Import',
-    activity_recompute_all:  'Alle Aktivitäten neu berechnen',
-    activity_recompute:      'Aktivität neu berechnen',
-    activity_re_enrich:      'Enrichment-Update',
-    recompute_multisport:    'Multisport neu berechnen',
-    photo_preview_recompute: 'Foto-Vorschaubilder neu erstellen',
-    photo_thumb_recompute:   'Foto-Thumbnails neu erstellen',
-    photo_clip_embed:        'Foto-Indexierung',
-    photo_embed_backfill:    'Foto-Einbettungen berechnen',
-    phash_backfill:          'Foto-Duplikaterkennung berechnen',
-    meta_backfill:           'Meta-Sidecars erstellen',
-    elevation_reset:         'Höhenkorrektur zurücksetzen',
-    elevation_correction:    'Höhenkorrektur anwenden',
-    distance_correction:     'Distanzkorrektur anwenden',
-    distance_reset:          'Distanzkorrektur zurücksetzen',
-    dem_import:              'Höhenmodell importieren',
-    apply_rules:             'Regeln anwenden',
-    weather_backfill:        'Wetter-Daten nachfüllen',
-    tile_build:              'Routing-Tiles erstellen',
-    brouter_segment_build:   'BRouter-Segmente erstellen',
-    brouter_segment_download: 'BRouter-Segmente herunterladen',
-    fusion_queue_compute:     'Fusionskandidaten berechnen',
-  }
-
   const label = job.job_type === 'segment_recompute'
     ? `Segment „${job.entity_name ?? 'Segment'}"`
-    : JOB_LABELS[job.job_type] ?? job.entity_name ?? job.job_type
+    : JOB_TYPE_LABELS[job.job_type] ?? job.entity_name ?? job.job_type
 
   const isEnrichmentWithProgress = job.job_type === 'osm_enrichment' && job.progress_total > 100
   const pct =
