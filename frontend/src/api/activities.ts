@@ -1,5 +1,5 @@
 import { apiClient, parseContentDisposition, API_BASE } from './client'
-import { getToken, clearToken } from '@/lib/auth'
+import { getToken, clearToken, redirectToLogin } from '@/lib/auth'
 import { ApiError } from './client'
 import { triggerBlobDownload } from '@/lib/utils'
 import type { ActivitiesResponse, Activity, StreamPoint, Sensor, ZoneDistribution, PowerCurveResponse, Lap, Split, SplitSummary, SwimLength, ClimbProEvent, ActivitySet, ActivityJump, ActivityEvent } from './types'
@@ -295,7 +295,7 @@ export async function downloadActivitiesZip(
   })
   if (res.status === 401) {
     clearToken()
-    window.location.href = '/login'
+    redirectToLogin()
     throw new ApiError(401, 'Unauthorized')
   }
   if (!res.ok) throw new ApiError(res.status, await res.text())
