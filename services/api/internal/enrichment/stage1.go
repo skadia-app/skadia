@@ -194,7 +194,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 				sign = "-"
 				hours = -hours
 			}
-			fields["timezone"] = fmt.Sprintf("UTC%s%02d:%02d", sign, hours, minutes)
+			fields["timezone"] = fmt.Sprintf("%s%02d:%02d", sign, hours, minutes)
 		}
 	}
 
@@ -212,7 +212,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 			sign = "-"
 			hours = -hours
 		}
-		fields["timezone"] = fmt.Sprintf("UTC%s%02d:%02d", sign, hours, minutes)
+		fields["timezone"] = fmt.Sprintf("%s%02d:%02d", sign, hours, minutes)
 	}
 
 	// TRIMP calculation (requires HR stream)

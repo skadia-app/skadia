@@ -928,7 +928,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 
 	selectCols := `id, sport_type, sub_type, title, started_at, distance_m,
 		elapsed_time_s, elevation_gain_m, elevation_loss_m, is_indoor, is_ebike, is_virtual, exclude_from_heatmap, exclude_from_stats, visibility,
-		created_at, updated_at, sport_conflict_pending`
+		created_at, updated_at, sport_conflict_pending, timezone`
 
 	// Build ORDER BY: primary sort column + tiebreaker id (same direction)
 	orderClause := fmt.Sprintf("%s %s, id %s", sqlCol, strings.ToUpper(sortDir), strings.ToUpper(sortDir))
@@ -1044,7 +1044,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 		if err := rows.Scan(
 			&a.ID, &a.SportType, &a.SubType, &a.Title, &a.StartedAt, &a.DistanceM,
 			&a.ElapsedTimeS, &a.ElevationGainM, &a.ElevationLossM, &a.IsIndoor, &a.IsEbike, &a.IsVirtual, &a.ExcludeFromHeatmap, &a.ExcludeFromStats, &a.Visibility,
-			&a.CreatedAt, &a.UpdatedAt, &a.SportConflictPending,
+			&a.CreatedAt, &a.UpdatedAt, &a.SportConflictPending, &a.Timezone,
 		); err != nil {
 			return nil, fmt.Errorf("scan activity: %w", err)
 		}

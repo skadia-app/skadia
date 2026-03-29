@@ -48,6 +48,19 @@ function dateKey(d: Date): string {
   return format(d, 'yyyy-MM-dd')
 }
 
+function toDateKey(iso: string, timezone?: string | null): string {
+  if (!timezone) return iso.slice(0, 10)
+  try {
+    const d = new Date(iso)
+    return new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      timeZone: timezone,
+    }).format(d)
+  } catch {
+    return iso.slice(0, 10)
+  }
+}
+
 function formatWeeklyTime(seconds: number): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
@@ -119,7 +132,7 @@ export default function CalendarPage() {
   const activitiesByDate = useMemo(() => {
     const map = new Map<string, Activity[]>()
     for (const a of activities) {
-      const key = a.started_at.slice(0, 10)
+      const key = toDateKey(a.started_at, a.timezone)
       const list = map.get(key)
       if (list) list.push(a)
       else map.set(key, [a])
@@ -145,7 +158,7 @@ export default function CalendarPage() {
   const yearActivitiesByDate = useMemo(() => {
     const map = new Map<string, Activity[]>()
     for (const a of yearActivities) {
-      const key = a.started_at.slice(0, 10)
+      const key = toDateKey(a.started_at, a.timezone)
       const list = map.get(key)
       if (list) list.push(a)
       else map.set(key, [a])
