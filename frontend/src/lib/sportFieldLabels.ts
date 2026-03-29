@@ -16,6 +16,10 @@ export type FieldKey =
   | 'pedalSmoothnessL' | 'pedalSmoothnessR'
   | 'motorPower' | 'batteryLevel' | 'travelRange'
   | 'coreTemperature' | 'depth'
+  // MTB
+  | 'grit' | 'flow'
+  // Garmin Stamina + GAP
+  | 'potentialStamina' | 'staminaCurrent' | 'gapSpeed'
 
 // ── Pace / Speed Formatter ──────────────────────────────────────────────────────
 
@@ -147,6 +151,11 @@ const FIXED_LABELS: Partial<Record<FieldKey, FieldDef>> = {
   travelRange:          { label: 'Reichweite', unit: 'km' },
   coreTemperature:      { label: 'Kerntemperatur', unit: '°C' },
   depth:                { label: 'Tiefe', unit: 'm' },
+  grit:                 { label: 'MTB Grit', unit: '' },
+  flow:                 { label: 'MTB Flow', unit: '' },
+  potentialStamina:     { label: 'Stamina (Potential)', unit: '%' },
+  staminaCurrent:       { label: 'Stamina (Aktuell)', unit: '%' },
+  gapSpeed:             { label: 'Grade-Adjusted Pace', unit: 'min/km' },
 }
 
 // ── Sonderfälle ─────────────────────────────────────────────────────────────────
@@ -212,6 +221,10 @@ export function formatFieldValue(field: FieldKey, value: number, sportType: stri
     case 'motorPower': return `${Math.round(value)} W`
     case 'travelRange': return `${value.toFixed(1)} km`
     case 'depth': return `${value.toFixed(1)} m`
+    case 'grit':
+    case 'flow': return value.toFixed(2)
+    case 'potentialStamina':
+    case 'staminaCurrent': return `${Math.round(value)}`
     default: return String(value)
   }
 }
