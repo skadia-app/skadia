@@ -16,6 +16,18 @@ interface StatItem {
   title?: string
 }
 
+const TSS_METHOD_INFO: Record<string, { icon: string; label: string }> = {
+  power_np:  { icon: '⚡', label: 'Power-basiert (Normalized Power)' },
+  power_avg: { icon: '⚡', label: 'Power-basiert (Durchschnitt)' },
+  hr_stream: { icon: '♥',  label: 'HR-basiert (sekunden-weise)' },
+  hr_avg:    { icon: '♥',  label: 'HR-basiert (Durchschnitt)' },
+  pace_ngp:  { icon: '🏃', label: 'Pace-basiert (NGP)' },
+  pace_swim: { icon: '🏊', label: 'Pace-basiert (CSS)' },
+  multi:     { icon: '🔀', label: 'Multi-Sport' },
+}
+
+const STRENGTH_SPORT_TYPES = ['fitness_equipment', 'training', 'strength_training']
+
 export function StatsGrid({ activity, speedMode }: StatsGridProps) {
   const sport = activity.sport_type
   const gain = formatElevationGain(activity.elevation_gain_m)
@@ -98,11 +110,28 @@ export function StatsGrid({ activity, speedMode }: StatsGridProps) {
       value: `${Math.round(activity.min_temperature_c)} – ${Math.round(activity.max_temperature_c)} °C`,
     } : null,
 
-    // TSS
-    activity.tss != null ? {
-      label: 'TSS',
-      value: `${Math.round(activity.tss)}`,
-      title: 'Training Stress Score',
+    // TSS (prefer computed_tss if available, fall back to tss)
+    (() => {
+      const tssValue = activity.computed_tss ?? activity.tss
+      if (tssValue == null || tssValue <= 0) return null
+      const method = activity.tss_method ? TSS_METHOD_INFO[activity.tss_method] : undefined
+      const isStrength = STRENGTH_SPORT_TYPES.includes(sport)
+      const isHrBased = method?.icon === '♥'
+      const methodSuffix = method ? ` ${method.icon}` : ''
+      const baseTitle = method?.label ?? 'Training Stress Score'
+      const warningNote = isStrength && isHrBased ? ' — bei Krafttraining möglicherweise ungenau' : ''
+      return {
+        label: `TSS${methodSuffix}`,
+        value: `${Math.round(tssValue)}`,
+        title: baseTitle + warningNote,
+      }
+    })(),
+
+    // TRIMP
+    activity.trimp != null && activity.trimp > 0 ? {
+      label: 'TRIMP',
+      value: `${Math.round(activity.trimp)}`,
+      title: 'Edwards TRIMP — Zonen-gewichtete Belastungsminuten (Standard: 1,2,3,4,5)',
     } : null,
 
     // Kalorien
