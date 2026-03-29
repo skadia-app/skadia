@@ -520,6 +520,9 @@ const HIGHWAY_COLORS: Record<string, string> = {
   offroad: '#b91c1c', unknown: '#d1d5db',
 }
 
+// Surface keys are already human-readable German names — no separate label map needed
+const SURFACE_LABELS: Record<string, string> = {}
+
 const HIGHWAY_LABELS: Record<string, string> = {
   primary: 'Bundesstraße', secondary: 'Landstraße', tertiary: 'Kreisstraße',
   unclassified: 'Gemeindestraße', residential: 'Wohnstraße', living_street: 'Spielstraße',
