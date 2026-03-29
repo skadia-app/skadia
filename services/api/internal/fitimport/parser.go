@@ -515,10 +515,19 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	if session.AvgCadence != 0xFF && session.AvgCadence != 0 {
 		data.AvgCadence = float64(session.AvgCadence)
 	}
+	if session.MaxCadence != basetype.Uint8Invalid && session.MaxCadence != 0 {
+		data.MaxCadence = int(session.MaxCadence)
+	}
 
 	// Temperature
 	if session.AvgTemperature != 0x7F {
 		data.AvgTemperatureC = float64(session.AvgTemperature)
+	}
+	if session.MinTemperature != basetype.Sint8Invalid {
+		data.MinTemperatureC = float64(session.MinTemperature)
+	}
+	if session.MaxTemperature != basetype.Sint8Invalid {
+		data.MaxTemperatureC = float64(session.MaxTemperature)
 	}
 
 	// TSS (uint16, Scale: 10)
@@ -589,7 +598,10 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		v := int32(session.TotalFatCalories)
 		data.TotalFatCalories = &v
 	}
-	// MetabolicCalories: not available in SDK v0.26.0 Session struct — skipped
+	if session.MetabolicCalories != basetype.Uint16Invalid {
+		v := int32(session.MetabolicCalories)
+		data.MetabolicCalories = &v
+	}
 	if session.TotalMovingTime != basetype.Uint32Invalid {
 		v := float64(session.TotalMovingTime) / 1000.0
 		data.TotalMovingTimeS = &v
@@ -1280,6 +1292,13 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		if streamMoving > 0 {
 			data.MovingTimeS = activityutil.MinMovingTime(data.MovingTimeS, streamMoving)
 		}
+	}
+
+	// Start position from Session (fallback if no trackpoints)
+	if session.StartPositionLat != basetype.Sint32Invalid &&
+		session.StartPositionLong != basetype.Sint32Invalid {
+		data.StartLat = semicircles.ToDegrees(session.StartPositionLat)
+		data.StartLng = semicircles.ToDegrees(session.StartPositionLong)
 	}
 
 	// GPS info

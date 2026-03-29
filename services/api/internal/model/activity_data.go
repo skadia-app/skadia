@@ -33,6 +33,7 @@ type ActivityData struct {
 	MaxPowerW        int
 	NormalizedPowerW float64
 	AvgCadence       float64
+	MaxCadence       int
 	AvgTemperatureC  float64
 	MinTemperatureC  float64
 	MaxTemperatureC  float64
