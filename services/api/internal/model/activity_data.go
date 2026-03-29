@@ -97,6 +97,18 @@ type ActivityData struct {
 	// Transient — not persisted directly.
 	LocalTimestamp time.Time `json:"-"`
 
+	// FileCreatorSWVersion is the software version from the FIT FileCreator message.
+	// Transient — not persisted, used for debug/logging only.
+	FileCreatorSWVersion int `json:"-"`
+
+	// DeviceUtcOffset is the UTC offset in seconds from the DeviceSettings message.
+	// Transient — not persisted directly, used as indoor timezone fallback.
+	DeviceUtcOffset int32 `json:"-"`
+
+	// DeviceTzOffsetQuarters is the timezone offset in 1/4-hour increments from DeviceSettings.
+	// Transient — not persisted directly, used as indoor timezone fallback.
+	DeviceTzOffsetQuarters int8 `json:"-"`
+
 	Laps           []LapRecord
 	Splits         []SplitRecord
 	SplitSummaries []SplitSummaryRecord

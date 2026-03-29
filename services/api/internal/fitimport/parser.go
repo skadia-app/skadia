@@ -344,6 +344,8 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	var diveSettingsMsg *mesgdef.DiveSettings
 	var diveGasMsgs []*mesgdef.DiveGas
 	var maxMetData *mesgdef.MaxMetData
+	var fileCreatorSWVersion int
+	var deviceSettingsMsg *mesgdef.DeviceSettings
 
 	// GPS heading points from gps_metadata messages (timestamp → heading in degrees)
 	var gpsHeadings []gpsHeadingPoint
@@ -443,6 +445,13 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 			if !actMsg.LocalTimestamp.IsZero() {
 				activityLocalTimestamp = actMsg.LocalTimestamp
 			}
+		case typedef.MesgNumFileCreator:
+			fc := mesgdef.NewFileCreator(&fit.Messages[i])
+			if fc.SoftwareVersion != basetype.Uint16Invalid {
+				fileCreatorSWVersion = int(fc.SoftwareVersion)
+			}
+		case typedef.MesgNumDeviceSettings:
+			deviceSettingsMsg = mesgdef.NewDeviceSettings(&fit.Messages[i])
 		}
 	}
 
@@ -1386,6 +1395,31 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		}
 	}
 
+	// Speed zones from session array
+	if len(session.TimeInSpeedZone) > 0 {
+		for i, v := range session.TimeInSpeedZone {
+			if v != basetype.Uint32Invalid && v > 0 {
+				data.TimeInZoneData = append(data.TimeInZoneData, model.TimeInZoneData{
+					ZoneType:  "speed",
+					ZoneIndex: i,
+					Seconds:   int(v / 1000),
+				})
+			}
+		}
+	}
+	// Cadence zones from session array
+	if len(session.TimeInCadenceZone) > 0 {
+		for i, v := range session.TimeInCadenceZone {
+			if v != basetype.Uint32Invalid && v > 0 {
+				data.TimeInZoneData = append(data.TimeInZoneData, model.TimeInZoneData{
+					ZoneType:  "cadence",
+					ZoneIndex: i,
+					Seconds:   int(v / 1000),
+				})
+			}
+		}
+	}
+
 	if workout != nil {
 		data.Workout = ExtractWorkout(workout)
 		data.WorkoutSteps = ExtractWorkoutSteps(workoutSteps)
@@ -1558,6 +1592,27 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	// === FIT SDK — GPS Metadata: assign headings to stream points ===
 	if len(gpsHeadings) > 0 && len(data.Streams) > 0 {
 		assignHeadingToStreams(data.Streams, gpsHeadings)
+	}
+
+	// === FIT SDK — FileCreator software version (transient, debug only) ===
+	if fileCreatorSWVersion > 0 {
+		data.FileCreatorSWVersion = fileCreatorSWVersion
+	}
+
+	// === FIT SDK — DeviceSettings timezone offset (transient, indoor TZ fallback) ===
+	if deviceSettingsMsg != nil {
+		if deviceSettingsMsg.UtcOffset != basetype.Uint32Invalid {
+			data.DeviceUtcOffset = int32(deviceSettingsMsg.UtcOffset)
+		}
+		if len(deviceSettingsMsg.TimeZoneOffset) > 0 {
+			atz := deviceSettingsMsg.ActiveTimeZone
+			if atz != basetype.Uint8Invalid && int(atz) < len(deviceSettingsMsg.TimeZoneOffset) {
+				tzOff := deviceSettingsMsg.TimeZoneOffset[atz]
+				if tzOff != basetype.Sint8Invalid {
+					data.DeviceTzOffsetQuarters = int8(tzOff)
+				}
+			}
+		}
 	}
 
 	// === FIT SDK — Session GPS accuracy and end position fallback ===
