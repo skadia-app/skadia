@@ -276,6 +276,24 @@ func (s *Service) PostProcess(
 		return nil
 	})
 
+	g.Go(func() error {
+		if data.DiveSettings != nil {
+			data.DiveSettings.ActivityID = activityID
+			if err := s.DB.InsertDiveSettings(gCtx, *data.DiveSettings); err != nil {
+				slog.Error("insert dive settings failed", "error", err)
+			}
+		}
+		if len(data.DiveGases) > 0 {
+			for i := range data.DiveGases {
+				data.DiveGases[i].ActivityID = activityID
+			}
+			if err := s.DB.InsertDiveGases(gCtx, data.DiveGases); err != nil {
+				slog.Error("insert dive gases failed", "error", err)
+			}
+		}
+		return nil
+	})
+
 	// Group D: file info + file_id linkage (parallel to everything else)
 	g.Go(func() error {
 		// Link file_id from ShadowFS.Put (set by caller) if not already set.

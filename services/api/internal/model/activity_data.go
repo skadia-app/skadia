@@ -262,6 +262,10 @@ type ActivityData struct {
 
 	// FIT SDK — GPS Metadata / Session GPS quality
 	GpsAccuracyM int `json:"-"` // from session.GpsAccuracy (meters)
+
+	// FIT SDK — Dive configuration (DiveSettings + DiveGas messages)
+	DiveSettings *DiveSettings `json:"-"`
+	DiveGases    []DiveGas     `json:"-"`
 }
 
 // TrackPoint is a GPS coordinate for PostGIS LineString construction.
