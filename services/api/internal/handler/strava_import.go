@@ -129,7 +129,6 @@ func (h *Handler) StartStravaImport(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("strava import: complete job failed", "job_id", jobID, "error", err)
 			}
 			slog.Info("strava import completed", "job_id", jobID, "errors", len(allErrors))
-			h.MaybeTriggerFusionQueueCompute(ctx, userID)
 		},
 	)
 }
@@ -185,7 +184,6 @@ func (h *Handler) UploadStravaZIP(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("strava import (zip): complete job failed", "job_id", jobID, "error", err)
 			}
 			slog.Info("strava import (zip) completed", "job_id", jobID, "errors", len(allErrors))
-			h.MaybeTriggerFusionQueueCompute(ctx, userID)
 		},
 	)
 }

@@ -175,7 +175,7 @@ func (h *Handler) ImportFromURL(w http.ResponseWriter, r *http.Request) {
 		} else {
 			httputil.WriteJSON(w, http.StatusCreated, map[string]string{"status": "multisport_imported"})
 		}
-		h.MaybeTriggerFusionQueueCompute(ctx, userID)
+
 		return
 	}
 

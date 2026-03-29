@@ -162,7 +162,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			} else {
 				httputil.WriteJSON(w, http.StatusCreated, map[string]string{"parent_id": msResult.ParentID})
 			}
-			h.MaybeTriggerFusionQueueCompute(r.Context(), userID)
+
 			return
 		}
 
