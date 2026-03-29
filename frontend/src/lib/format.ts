@@ -98,3 +98,23 @@ export function fmtDateTime(iso: string, timezone?: string | null): string {
   if (timezone) opts.timeZone = timezone
   return new Date(iso).toLocaleString('de-DE', opts)
 }
+
+/**
+ * Format an ISO date string as compact numeric date (de-DE locale).
+ * Example: "28.03.2026"
+ */
+export function fmtDateCompact(iso: string, timezone?: string | null): string {
+  const opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit', year: 'numeric' }
+  if (timezone) opts.timeZone = timezone
+  return new Date(iso).toLocaleDateString('de-DE', opts)
+}
+
+/**
+ * Format an ISO date string as medium date with abbreviated month (de-DE locale).
+ * Example: "28. Mär. 2026"
+ */
+export function fmtDateMedium(iso: string, timezone?: string | null): string {
+  const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }
+  if (timezone) opts.timeZone = timezone
+  return new Date(iso).toLocaleDateString('de-DE', opts)
+}

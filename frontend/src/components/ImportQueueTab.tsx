@@ -10,6 +10,7 @@ import {
 } from '@/api/importQueue'
 import { resolveSportConflict } from '@/api/sportConflict'
 import { fetchActivities } from '@/api/activities'
+import { fmtDateCompact } from '@/lib/format'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -96,7 +97,7 @@ function ActivitySearchDropdown({ value, onChange, placeholder }: ActivitySearch
             >
               {a.title ?? 'Unbenannte Aktivität'}
               <span className="ml-2 text-xs text-neutral-400">
-                {a.started_at ? new Date(a.started_at).toLocaleDateString('de-DE') : ''}
+                {a.started_at ? fmtDateCompact(a.started_at, a.timezone) : ''}
               </span>
             </button>
           ))}

@@ -1,9 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useToast } from '@/lib/toast'
-import { format } from 'date-fns'
-import { de } from 'date-fns/locale'
 import { Link } from 'react-router-dom'
+import { fmtDateCompact } from '@/lib/format'
 import { fetchActivities, reprocessAllActivities } from '@/api/activities'
 import type { ReprocessFilter, ReprocessResult } from '@/api/activities'
 import type { Activity } from '@/api/types'
@@ -291,7 +290,7 @@ export default function WorkshopReprocessPage() {
                           />
                         </td>
                         <td className="px-3 py-1.5 text-neutral-600 dark:text-neutral-300 whitespace-nowrap">
-                          {format(new Date(a.started_at), 'dd.MM.yyyy', { locale: de })}
+                          {fmtDateCompact(a.started_at, a.timezone)}
                         </td>
                         <td className="px-3 py-1.5 text-neutral-600 dark:text-neutral-300">
                           {sportLabel(a.sport_type, a.sub_type)}

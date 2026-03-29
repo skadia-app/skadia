@@ -6,8 +6,7 @@ import type { Activity } from '@/api/types'
 import { useToast } from '@/lib/toast'
 import { formatDuration, formatDistance } from '@/lib/utils'
 import { useAccentColor } from '@/lib/accentColor'
-import { format } from 'date-fns'
-import { de } from 'date-fns/locale'
+import { fmtDateCompact } from '@/lib/format'
 import { MergeComparisonTable } from '@/components/MergeComparisonTable'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
@@ -168,7 +167,7 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
                 >
                   <div className="font-medium truncate">{a.title ?? a.sport_type}</div>
                   <div className={`text-xs mt-0.5 ${selectedSourceId === a.id ? 'text-white/70' : 'text-neutral-400 dark:text-neutral-500'}`}>
-                    {format(new Date(a.started_at), 'dd.MM.yyyy', { locale: de })}
+                    {fmtDateCompact(a.started_at, a.timezone)}
                     {a.elapsed_time_s ? ` · ${formatDuration(a.elapsed_time_s)}` : ''}
                     {a.distance_m ? ` · ${formatDistance(a.distance_m)}` : ''}
                   </div>
