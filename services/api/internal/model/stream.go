@@ -96,6 +96,8 @@ type StreamPoint struct {
 	VolumeSac         *float64 `json:"volume_sac,omitempty"`
 	Rmv               *float64 `json:"rmv,omitempty"`
 	Po2               *float64 `json:"po2,omitempty"`
+	// FIT SDK — GPS Metadata
+	Heading *float32 `json:"heading,omitempty"`
 	// FIT SDK — Developer Fields
 	DeveloperFields map[string]any `json:"developer_fields,omitempty"`
 }
@@ -193,6 +195,8 @@ type StreamResponse struct {
 	VolumeSac         *float64 `json:"volume_sac,omitempty"`
 	Rmv               *float64 `json:"rmv,omitempty"`
 	Po2               *float64 `json:"po2,omitempty"`
+	// FIT SDK — GPS Metadata
+	Heading *float32 `json:"heading,omitempty"`
 	// FIT SDK — Developer Fields
 	DeveloperFields map[string]any `json:"developer_fields,omitempty"`
 }

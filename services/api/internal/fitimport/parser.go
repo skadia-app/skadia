@@ -311,6 +311,12 @@ func patchDeprecatedBaseTypes(raw []byte) []byte {
 	return data
 }
 
+// gpsHeadingPoint holds a GPS heading extracted from a gps_metadata FIT message.
+type gpsHeadingPoint struct {
+	Time    time.Time
+	Heading float64 // degrees (0–360)
+}
+
 func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, error) {
 	var fileId *mesgdef.FileId
 	var sessions []*mesgdef.Session
@@ -336,6 +342,9 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	var fieldDescs []*mesgdef.FieldDescription
 	var diveSummary *mesgdef.DiveSummary
 	var maxMetData *mesgdef.MaxMetData
+
+	// GPS heading points from gps_metadata messages (timestamp → heading in degrees)
+	var gpsHeadings []gpsHeadingPoint
 
 	// Sport message (MesgNum 12) fallback for files with no sport in session (Polar, WHOOP)
 	var sportFallbackSport typedef.Sport
@@ -402,6 +411,15 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 			diveSummary = mesgdef.NewDiveSummary(&fit.Messages[i])
 		case typedef.MesgNumMaxMetData:
 			maxMetData = mesgdef.NewMaxMetData(&fit.Messages[i])
+		case typedef.MesgNumGpsMetadata:
+			gm := mesgdef.NewGpsMetadata(&fit.Messages[i])
+			if gm.Heading != basetype.Uint16Invalid {
+				// Scale: 100, Units: degrees (uint16 / 100.0 = degrees)
+				gpsHeadings = append(gpsHeadings, gpsHeadingPoint{
+					Time:    gm.Timestamp,
+					Heading: float64(gm.Heading) / 100.0,
+				})
+			}
 		case typedef.MesgNumSport:
 			sportMsg := mesgdef.NewSport(&fit.Messages[i])
 			if sportMsg.Sport != typedef.SportInvalid {
@@ -1460,7 +1478,49 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		}
 	}
 
+	// === FIT SDK — GPS Metadata: assign headings to stream points ===
+	if len(gpsHeadings) > 0 && len(data.Streams) > 0 {
+		assignHeadingToStreams(data.Streams, gpsHeadings)
+	}
+
+	// === FIT SDK — Session GPS accuracy and end position fallback ===
+	if session.GpsAccuracy != basetype.Uint8Invalid {
+		data.GpsAccuracyM = int(session.GpsAccuracy)
+	}
+	// End position fallback from session (used when no trackpoints available)
+	if session.EndPositionLat != basetype.Sint32Invalid &&
+		session.EndPositionLong != basetype.Sint32Invalid {
+		if data.EndLat == 0 && data.EndLng == 0 {
+			data.EndLat = semicircles.ToDegrees(session.EndPositionLat)
+			data.EndLng = semicircles.ToDegrees(session.EndPositionLong)
+		}
+	}
+
 	return data, nil
+}
+
+// assignHeadingToStreams assigns GPS heading values from gps_metadata messages to
+// stream points by nearest timestamp. A heading is only assigned when the closest
+// gps_metadata point is within 2 seconds of the stream point's timestamp.
+func assignHeadingToStreams(streams []model.StreamPoint, headings []gpsHeadingPoint) {
+	// headings is assumed to be in chronological order (same as messages in FIT file)
+	hi := 0
+	for i := range streams {
+		// Advance heading index to the closest point in time
+		for hi < len(headings)-1 && headings[hi+1].Time.Before(streams[i].Time) {
+			hi++
+		}
+		if hi < len(headings) {
+			diff := streams[i].Time.Sub(headings[hi].Time)
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff <= 2*time.Second {
+				h := float32(headings[hi].Heading)
+				streams[i].Heading = &h
+			}
+		}
+	}
 }
 
 // extractFITSource determines source app and recording device from FIT metadata.

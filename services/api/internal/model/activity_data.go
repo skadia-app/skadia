@@ -259,6 +259,9 @@ type ActivityData struct {
 	Vo2MaxCalibrated  bool     `json:"-"`
 	Vo2MaxHrSource    *string  `json:"-"`
 	Vo2MaxSpeedSource *string  `json:"-"`
+
+	// FIT SDK — GPS Metadata / Session GPS quality
+	GpsAccuracyM int `json:"-"` // from session.GpsAccuracy (meters)
 }
 
 // TrackPoint is a GPS coordinate for PostGIS LineString construction.

@@ -277,6 +277,9 @@ type Activity struct {
 	Vo2MaxCalibrated  *bool    `json:"vo2max_calibrated,omitempty"`
 	Vo2MaxHrSource    *string  `json:"vo2max_hr_source,omitempty"`
 	Vo2MaxSpeedSource *string  `json:"vo2max_speed_source,omitempty"`
+
+	// FIT SDK — GPS Metadata / Session GPS quality
+	GpsAccuracyM *int `json:"gps_accuracy_m,omitempty"`
 }
 
 // SportConflictMeta holds conflict metadata embedded from import_queue.

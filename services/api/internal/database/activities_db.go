@@ -136,7 +136,9 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			max_cadence, min_temperature_c, max_temperature_c,
 			num_sessions,
 			-- VO2max
-			vo2max_ml_kg_min, vo2max_calibrated, vo2max_hr_source, vo2max_speed_source
+			vo2max_ml_kg_min, vo2max_calibrated, vo2max_hr_source, vo2max_speed_source,
+			-- GPS quality
+			gps_accuracy_m
 		) VALUES (
 			-- Core ($1-$4, parsed reuses $3/$4)
 			$1, $2, $3, $4,
@@ -237,7 +239,9 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			-- NumSessions ($153)
 			$153,
 			-- VO2max ($154-$157)
-			$154, $155, $156, $157
+			$154, $155, $156, $157,
+			-- GPS quality ($158)
+			$158
 		)
 		RETURNING id, is_ebike, is_virtual, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType), // $1-$4
@@ -299,6 +303,7 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		nilIfZeroInt(data.MaxCadence), nilIfZeroF64(data.MinTemperatureC), nilIfZeroF64(data.MaxTemperatureC), // $150-$152
 		nilIfZeroInt(data.NumSessions),                                           // $153
 		data.Vo2MaxMlKgMin, data.Vo2MaxCalibrated, data.Vo2MaxHrSource, data.Vo2MaxSpeedSource, // $154-$157
+		nilIfZeroInt(data.GpsAccuracyM), // $158
 	).Scan(&id, &isEbike, &isVirtual, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
@@ -380,6 +385,8 @@ func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []mo
 		"depth_m", "next_stop_depth_m", "next_stop_time_s", "time_to_surface_s",
 		"ndl_time_s", "cns_load_pct", "n2_load_pct", "air_time_remaining_s",
 		"pressure_sac", "volume_sac", "rmv", "po2",
+		// FIT SDK — GPS Metadata (1)
+		"heading",
 		// FIT SDK — Developer Fields (1)
 		"developer_fields",
 	}
@@ -427,6 +434,8 @@ func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []mo
 			s.DepthM, s.NextStopDepthM, s.NextStopTimeS, s.TimeToSurfaceS,
 			s.NdlTimeS, s.CnsLoadPct, s.N2LoadPct, s.AirTimeRemainingS,
 			s.PressureSac, s.VolumeSac, s.Rmv, s.Po2,
+			// FIT SDK — GPS Metadata (1)
+			s.Heading,
 			// FIT SDK — Developer Fields (1)
 			s.DeveloperFields,
 		}
@@ -622,7 +631,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		a.is_manual_entry, a.workout_feel, a.workout_rpe,
 		a.timezone,
 		a.num_sessions,
-		a.vo2max_ml_kg_min, a.vo2max_calibrated, a.vo2max_hr_source, a.vo2max_speed_source
+		a.vo2max_ml_kg_min, a.vo2max_calibrated, a.vo2max_hr_source, a.vo2max_speed_source,
+		a.gps_accuracy_m
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		LEFT JOIN LATERAL (
@@ -708,6 +718,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.Timezone,
 		&a.NumSessions,
 		&a.Vo2MaxMlKgMin, &a.Vo2MaxCalibrated, &a.Vo2MaxHrSource, &a.Vo2MaxSpeedSource,
+		&a.GpsAccuracyM,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -1281,6 +1292,8 @@ func (db *DB) GetStreams(ctx context.Context, activityID string) ([]model.Stream
 			depth_m, next_stop_depth_m, next_stop_time_s, time_to_surface_s,
 			ndl_time_s, cns_load_pct, n2_load_pct, air_time_remaining_s,
 			pressure_sac, volume_sac, rmv, po2,
+			-- FIT SDK — GPS Metadata
+			heading,
 			-- FIT SDK — Developer Fields
 			developer_fields
 		FROM activity_streams
@@ -1335,6 +1348,8 @@ func (db *DB) GetStreams(ctx context.Context, activityID string) ([]model.Stream
 			&s.DepthM, &s.NextStopDepthM, &s.NextStopTimeS, &s.TimeToSurfaceS,
 			&s.NdlTimeS, &s.CnsLoadPct, &s.N2LoadPct, &s.AirTimeRemainingS,
 			&s.PressureSac, &s.VolumeSac, &s.Rmv, &s.Po2,
+			// FIT SDK — GPS Metadata
+			&s.Heading,
 			// FIT SDK — Developer Fields
 			&s.DeveloperFields,
 		); err != nil {
@@ -1385,6 +1400,7 @@ func (db *DB) GetStreamPoints(ctx context.Context, activityID string) ([]model.S
 			depth_m, next_stop_depth_m, next_stop_time_s, time_to_surface_s,
 			ndl_time_s, cns_load_pct, n2_load_pct, air_time_remaining_s,
 			pressure_sac, volume_sac, rmv, po2,
+			heading,
 			developer_fields
 		FROM activity_streams
 		WHERE activity_id = $1
@@ -1440,6 +1456,8 @@ func (db *DB) GetStreamPoints(ctx context.Context, activityID string) ([]model.S
 			&s.DepthM, &s.NextStopDepthM, &s.NextStopTimeS, &s.TimeToSurfaceS,
 			&s.NdlTimeS, &s.CnsLoadPct, &s.N2LoadPct, &s.AirTimeRemainingS,
 			&s.PressureSac, &s.VolumeSac, &s.Rmv, &s.Po2,
+			// GPS Metadata (1)
+			&s.Heading,
 			// Developer Fields (1)
 			&s.DeveloperFields,
 		); err != nil {
@@ -2077,6 +2095,10 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	args = append(args, nilIfZeroInt(data.WorkoutFeel))
 	sets = append(sets, fmt.Sprintf("workout_rpe = %s", idx()))
 	args = append(args, nilIfZeroInt(data.WorkoutRpe))
+
+	// FIT SDK — GPS quality
+	sets = append(sets, fmt.Sprintf("gps_accuracy_m = %s", idx()))
+	args = append(args, nilIfZeroInt(data.GpsAccuracyM))
 
 	// Always reset enrichment and timestamp
 	sets = append(sets, "enrichment_status = 'pending'")
