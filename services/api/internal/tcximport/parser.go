@@ -188,6 +188,25 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 			maxHR = int(lap.MaxHR.Value)
 		}
 
+		// Build Lap entry
+		lapStart, _ := time.Parse(time.RFC3339, lap.StartTime)
+		l := model.LapRecord{
+			StartTime:         lapStart,
+			TotalElapsedTimeS: lap.TotalTimeSeconds,
+			TotalDistanceM:    lap.DistanceMeters,
+			TotalCalories:     int(lap.Calories),
+		}
+		if lap.AvgHR != nil {
+			l.AvgHeartRate = int(lap.AvgHR.Value)
+		}
+		if lap.MaxHR != nil {
+			l.MaxHeartRate = int(lap.MaxHR.Value)
+		}
+		if lap.AvgCadence != nil {
+			l.AvgCadence = int(*lap.AvgCadence)
+		}
+		data.Laps = append(data.Laps, l)
+
 		for _, track := range lap.Track {
 			for _, pt := range track.Points {
 				t, err := time.Parse(time.RFC3339, pt.Time)
