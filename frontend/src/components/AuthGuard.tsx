@@ -5,6 +5,7 @@ import { isAuthenticated, tryRestoreSession } from '@/lib/auth'
 export default function AuthGuard() {
   const [checking, setChecking] = useState(true)
   const [authed, setAuthed] = useState(false)
+  const location = useLocation()
 
   useEffect(() => {
     if (isAuthenticated()) {
@@ -26,8 +27,6 @@ export default function AuthGuard() {
       </div>
     )
   }
-
-  const location = useLocation()
 
   if (!authed) {
     const returnTo = encodeURIComponent(location.pathname + location.search)
