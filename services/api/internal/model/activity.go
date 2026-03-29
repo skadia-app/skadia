@@ -122,6 +122,9 @@ type Activity struct {
 	// Unified FileStore — link to user_files registry entry for the original file.
 	FileID *string `json:"file_id,omitempty"`
 
+	// NumSessions is the number of FIT sessions. Values > 1 indicate a multi-sport activity.
+	NumSessions *int `json:"num_sessions,omitempty"`
+
 	// Timezone is the IANA timezone string (e.g. "America/Los_Angeles") determined
 	// from the GPS start position. NULL for indoor/virtual activities without GPS.
 	Timezone *string `json:"timezone,omitempty"`

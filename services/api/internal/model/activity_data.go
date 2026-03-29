@@ -85,6 +85,18 @@ type ActivityData struct {
 	// Transient — not persisted directly in ActivityData but handed to the device registry.
 	RecordingDevice *DeviceUpsert
 
+	// SportName is the name from the FIT Sport message (MesgNum 12), used as auto-title fallback.
+	// Transient — not persisted directly.
+	SportName string `json:"-"`
+
+	// NumSessions is the number of sessions from the FIT Activity message (MesgNum 34).
+	// Values > 1 indicate a multi-sport activity.
+	NumSessions int
+
+	// LocalTimestamp is from the FIT Activity message for timezone offset fallback.
+	// Transient — not persisted directly.
+	LocalTimestamp time.Time `json:"-"`
+
 	Laps           []LapRecord
 	Splits         []SplitRecord
 	SplitSummaries []SplitSummaryRecord
