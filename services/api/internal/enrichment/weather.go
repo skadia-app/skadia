@@ -196,13 +196,13 @@ func safeInt(arr []int, idx int) int {
 func mapWeatherCode(code int) (string, []string) {
 	switch {
 	case code == 0:
-		return "Klar", []string{"sonnig"}
+		return "klar", []string{"sonnig"}
 	case code == 1:
-		return "Überwiegend klar", []string{"sonnig"}
+		return "überwiegend klar", []string{"sonnig"}
 	case code == 2:
-		return "Teilweise bewölkt", []string{"bewölkt"}
+		return "teilweise bewölkt", []string{"bewölkt"}
 	case code == 3:
-		return "Bedeckt", []string{"bewölkt"}
+		return "bedeckt", []string{"bewölkt"}
 	case code == 45:
 		return "Nebel", []string{"nebel"}
 	case code == 48:
@@ -210,11 +210,11 @@ func mapWeatherCode(code int) (string, []string) {
 	case code >= 51 && code <= 55:
 		return "Nieselregen", []string{"regen"}
 	case code >= 56 && code <= 57:
-		return "Gefrierender Nieselregen", []string{"regen"}
+		return "gefrierender Nieselregen", []string{"regen"}
 	case code >= 61 && code <= 65:
 		return "Regen", []string{"regen"}
 	case code >= 66 && code <= 67:
-		return "Gefrierender Regen", []string{"regen"}
+		return "gefrierender Regen", []string{"regen"}
 	case code >= 71 && code <= 75:
 		return "Schneefall", []string{"schnee"}
 	case code == 77:
@@ -230,7 +230,7 @@ func mapWeatherCode(code int) (string, []string) {
 	case code == 99:
 		return "Gewitter mit starkem Hagel", []string{"gewitter", "regen"}
 	default:
-		return "Unbekannt", nil
+		return "unbekannt", nil
 	}
 }
 
