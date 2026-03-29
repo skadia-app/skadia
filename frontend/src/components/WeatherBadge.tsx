@@ -16,9 +16,10 @@ function getConditionIcon(condition: string | null | undefined): string {
 interface WeatherBadgeCardProps {
   reading: WeatherReading
   displayFields?: string[]
+  timezone?: string | null
 }
 
-function WeatherBadgeCard({ reading, displayFields }: WeatherBadgeCardProps) {
+function WeatherBadgeCard({ reading, displayFields, timezone }: WeatherBadgeCardProps) {
   const show = (field: string) => !displayFields || displayFields.includes(field)
   const icon = getConditionIcon(reading.condition)
   const tempDiff =
@@ -37,7 +38,7 @@ function WeatherBadgeCard({ reading, displayFields }: WeatherBadgeCardProps) {
           {reading.label && <span>{reading.label}</span>}
           {reading.recorded_at && (
             <span className="font-normal tabular-nums">
-              {fmtTime(reading.recorded_at)}
+              {fmtTime(reading.recorded_at, timezone)}
             </span>
           )}
         </div>
@@ -102,15 +103,16 @@ interface WeatherBadgeProps {
   readings: WeatherReading[]
   displayFields?: string[]
   className?: string
+  timezone?: string | null
 }
 
-export default function WeatherBadge({ readings, displayFields, className }: WeatherBadgeProps) {
+export default function WeatherBadge({ readings, displayFields, className, timezone }: WeatherBadgeProps) {
   if (!readings || readings.length === 0) return null
 
   return (
     <div className={`flex flex-wrap gap-2${className ? ` ${className}` : ''}`}>
       {readings.map((r) => (
-        <WeatherBadgeCard key={r.id} reading={r} displayFields={displayFields} />
+        <WeatherBadgeCard key={r.id} reading={r} displayFields={displayFields} timezone={timezone} />
       ))}
     </div>
   )

@@ -14,6 +14,7 @@ import {
   formatDuration, formatDistance,
   formatElevationGain, formatElevationLoss, showIndoorBadge, triggerBlobDownload,
 } from '@/lib/utils'
+import { fmtActivityDateShort, fmtTimeFromDate } from '@/lib/format'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { SportIcon } from '@/components/SportIcon'
 import ActivityFilters, { paramsToFilters, filtersToParams, filtersToApiParams } from '@/components/ActivityFilters'
@@ -1423,8 +1424,8 @@ function ActivityRow({
         />
       </td>
       <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
-        {format(date, 'EEE, dd. MMM yyyy', { locale: de })}
-        <span className="ml-2 text-neutral-400 dark:text-neutral-600 text-xs">{format(date, 'HH:mm')}</span>
+        {fmtActivityDateShort(activity.started_at, activity.timezone)}
+        <span className="ml-2 text-neutral-400 dark:text-neutral-600 text-xs">{fmtTimeFromDate(date, activity.timezone)}</span>
       </td>
       <td className="px-4 py-3">
         <span className="inline-flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">

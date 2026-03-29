@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
-import { format } from 'date-fns'
-import { de } from 'date-fns/locale'
+import { fmtDateTime } from '@/lib/format'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import {
@@ -302,7 +301,7 @@ export default function ActivityComparisonPage() {
                         {a.title ?? a.title_auto ?? sportLabel(a.sport_type, a.sub_type)}
                       </div>
                       <div className="text-xs text-neutral-400 dark:text-neutral-500">
-                        {format(new Date(a.started_at), 'dd. MMM yyyy, HH:mm', { locale: de })}
+                        {fmtDateTime(a.started_at, a.timezone)}
                       </div>
                     </div>
                   </div>

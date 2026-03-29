@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchStops } from '@/api/enrichment'
-import { format } from 'date-fns'
-import { de } from 'date-fns/locale'
-import { fmtDuration } from '@/lib/format'
+import { fmtDuration, fmtTime } from '@/lib/format'
 import type { ActivityStop } from '@/api/types'
 
 interface Props {
   activityId: string
+  timezone?: string | null
 }
 
 function PoiIcon({ poiType }: { poiType?: string }) {
@@ -204,7 +203,7 @@ function getStopTitle(stop: ActivityStop): string {
   return 'Rast'
 }
 
-export default function StopsSection({ activityId }: Props) {
+export default function StopsSection({ activityId, timezone }: Props) {
   const [collapsed, setCollapsed] = useState(false)
 
   const { data: stops = [], isLoading, isError } = useQuery({
@@ -246,7 +245,7 @@ export default function StopsSection({ activityId }: Props) {
               >
                 <div className="flex items-center gap-3">
                   <span className="text-xs tabular-nums text-neutral-500 dark:text-neutral-400">
-                    {format(new Date(stop.started_at), 'HH:mm', { locale: de })}
+                    {fmtTime(stop.started_at, timezone)}
                   </span>
                   <PoiIcon poiType={stop.poi_type} />
                   <span className={isFallback ? 'text-neutral-500 dark:text-neutral-400' : 'font-medium text-neutral-800 dark:text-neutral-200'}>

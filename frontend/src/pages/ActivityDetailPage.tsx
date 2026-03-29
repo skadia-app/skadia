@@ -2,8 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode, type
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { format } from 'date-fns'
-import { de } from 'date-fns/locale'
+import { fmtActivityDate, fmtTimeFromDate } from '@/lib/format'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, updateActivity, reprocessActivity, reprocessAllActivities, getZoneDistribution, correctActivityElevation, resetActivityElevation, correctActivityDistance, resetActivityDistance, fetchActivitySets, fetchActivityJumps, fetchActivityEvents, type ExportFormat } from '@/api/activities'
@@ -450,7 +449,7 @@ export default function ActivityDetailPage() {
       )}
 
       {/* Sunrise / Sunset */}
-      <SunInfo sunriseAt={activity.sunrise_at} sunsetAt={activity.sunset_at} />
+      <SunInfo sunriseAt={activity.sunrise_at} sunsetAt={activity.sunset_at} timezone={activity.timezone} />
 
       {/* Location */}
       <LocationLine activity={activity} />
@@ -540,7 +539,7 @@ export default function ActivityDetailPage() {
 
           {/* Enrichments aus Kindaktivitäten */}
           {childActivities && childActivities.length > 0 && (
-            <MultisportEnrichments childActivities={childActivities} />
+            <MultisportEnrichments childActivities={childActivities} timezone={activity.timezone} />
           )}
         </div>
       )}
@@ -610,7 +609,7 @@ export default function ActivityDetailPage() {
       {/* Weather */}
       {activity.weather_readings && activity.weather_readings.length > 0 && (
         <div className="mt-2">
-          <WeatherBadge readings={activity.weather_readings} displayFields={weatherDisplayFields} />
+          <WeatherBadge readings={activity.weather_readings} displayFields={weatherDisplayFields} timezone={activity.timezone} />
         </div>
       )}
 
@@ -735,7 +734,7 @@ export default function ActivityDetailPage() {
       ) : null}
 
       {/* Stopps (nicht für Multisport-Parent) */}
-      {activity.sport_type !== 'multisport' && !hiddenModules.has('stops') && <StopsSection activityId={activity.id} />}
+      {activity.sport_type !== 'multisport' && !hiddenModules.has('stops') && <StopsSection activityId={activity.id} timezone={activity.timezone} />}
 
       {/* Untergrund (nicht für Multisport) */}
       {activity.sport_type !== 'multisport' && !hiddenModules.has('surfaces') && <SurfacesSection activityId={activity.id} />}
@@ -1137,8 +1136,8 @@ function ActivityHeader({ activity, childCount }: { activity: Activity; childCou
           {showIndoorBadge(activity.is_indoor, activity.sub_type) && (
             <span className="text-xs text-neutral-400 dark:text-neutral-600">indoor</span>
           )}
-          <span>{format(date, 'EEEE, dd. MMMM yyyy', { locale: de })}</span>
-          <span className="text-neutral-400 dark:text-neutral-600">{format(date, 'HH:mm')} Uhr</span>
+          <span>{fmtActivityDate(activity.started_at, activity.timezone)}</span>
+          <span className="text-neutral-400 dark:text-neutral-600">{fmtTimeFromDate(date, activity.timezone)} Uhr</span>
           {activity.recording_device_id ? (
             <Link
               to={`/hardware/detail/${activity.recording_device_id}`}
