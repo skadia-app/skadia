@@ -862,6 +862,34 @@ func (h *Handler) reprocessTags(ctx context.Context, activityID, userID string) 
 	return h.ApplyRulesToActivity(ctx, activityID, userID, allRules)
 }
 
+// RecomputeAllTSS starts an async background job that recomputes TSS for all
+// activities of the authenticated user, then recalculates the PMC.
+// Returns 200 OK with {"status":"started"} immediately.
+//
+// POST /api/v1/admin/recompute-tss
+func (h *Handler) RecomputeAllTSS(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	if h.PMC == nil {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "PMC service not configured", r.URL.Path)
+		return
+	}
+
+	go func() {
+		bgCtx := context.Background()
+		if err := h.PMC.RecomputeAllTSS(bgCtx, userID); err != nil {
+			slog.Error("RecomputeAllTSS failed", "user", userID, "err", err)
+		} else {
+			slog.Info("RecomputeAllTSS completed", "user", userID)
+		}
+	}()
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "started"})
+}
+
 // recomputeWorkerCount liest RECOMPUTE_WORKERS aus der Umgebung (Default: 4).
 // Gültige Werte: 1–32.
 func recomputeWorkerCount() int {

@@ -1,8 +1,8 @@
 package database
 
 import (
-	"errors"
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -11,6 +11,23 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
+
+// UpdateActivityTSS saves computed TSS metrics for a single activity.
+// Parameters correspond to pmc.TSSResult fields; kept as primitives to avoid
+// a circular import between the database and pmc packages.
+func (db *DB) UpdateActivityTSS(ctx context.Context, activityID string,
+	computedTSS, computedNPW, computedNGPMps, computedIF, trimp *float64,
+	tssMethod string,
+) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE activities SET
+			computed_tss = $2, computed_np_w = $3, computed_ngp_mps = $4,
+			tss_method = $5, computed_if = $6, trimp = $7
+		WHERE id = $1
+	`, activityID, computedTSS, computedNPW, computedNGPMps,
+		tssMethod, computedIF, trimp)
+	return err
+}
 
 func (db *DB) GetPMCRange(ctx context.Context, userID string, from, to time.Time) ([]model.PMCDay, error) {
 	rows, err := db.Pool.Query(ctx,

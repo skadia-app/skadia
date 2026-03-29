@@ -13,6 +13,76 @@ type Service struct {
 	DB *database.DB
 }
 
+// RecomputeAllTSS recalculates TSS for all activities of a user,
+// then recalculates the PMC. Used after threshold changes or initial migration.
+func (s *Service) RecomputeAllTSS(ctx context.Context, userID string) error {
+	rows, err := s.DB.Pool.Query(ctx, `
+		SELECT id, fit_sport_id, fit_sub_sport_id, moving_time_s,
+		       avg_power_w, avg_heart_rate, distance_m, started_at
+		FROM activities WHERE user_id = $1 AND NOT exclude_from_stats
+		ORDER BY started_at
+	`, userID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			id        string
+			sportID   *int16
+			subSport  *int16
+			movTimeS  *int
+			avgPower  *float64
+			avgHR     *float64
+			distM     *float64
+			startedAt time.Time
+		)
+		if err := rows.Scan(&id, &sportID, &subSport, &movTimeS,
+			&avgPower, &avgHR, &distM, &startedAt); err != nil {
+			slog.Warn("RecomputeAllTSS: scan failed", "err", err)
+			continue
+		}
+		sport := int16(0)
+		if sportID != nil {
+			sport = *sportID
+		}
+		sub := int16(0)
+		if subSport != nil {
+			sub = *subSport
+		}
+		movTime := 0
+		if movTimeS != nil {
+			movTime = *movTimeS
+		}
+
+		th, err := EffectiveThresholds(ctx, s.DB, userID, sport, sub, startedAt)
+		if err != nil {
+			slog.Warn("RecomputeAllTSS: thresholds failed", "activity", id, "err", err)
+			continue
+		}
+
+		streams, _ := s.DB.GetStreamPoints(ctx, id)
+		result := ComputeTSS(sport, sub, movTime,
+			avgPower, avgHR, distM,
+			ExtractPowerStream(streams), ExtractHRStream(streams),
+			ExtractSpeedStream(streams), ExtractGradeStream(streams),
+			nil, th)
+
+		if err := s.DB.UpdateActivityTSS(ctx, id,
+			result.ComputedTSS, result.ComputedNPW, result.ComputedNGPMps,
+			result.ComputedIF, result.TRIMP, result.TSSMethod,
+		); err != nil {
+			slog.Warn("RecomputeAllTSS: update failed", "activity", id, "err", err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	return s.RecalculatePMC(ctx, userID, time.Time{})
+}
+
 // RecalculatePMC recalculates PMC from the user's earliest activity up to 90 days from now.
 // This satisfies the event.ActivityHandler interface.
 func (s *Service) RecalculatePMC(ctx context.Context, userID string, activityDate time.Time) error {
