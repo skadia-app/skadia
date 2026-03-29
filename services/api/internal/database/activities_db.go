@@ -132,7 +132,8 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			intensity_factor, left_right_balance, sport_profile_name, sport_index,
 			nec_lat, nec_lng, swc_lat, swc_lng,
 			is_manual_entry, workout_feel, workout_rpe,
-			timezone
+			timezone,
+			max_cadence, min_temperature_c, max_temperature_c
 		) VALUES (
 			-- Core ($1-$4, parsed reuses $3/$4)
 			$1, $2, $3, $4,
@@ -227,7 +228,9 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			-- Manual / Workout ($146-$148)
 			$146, $147, $148,
 			-- Timezone ($149)
-			$149
+			$149,
+			-- Max cadence / Min+Max temperature ($150-$152)
+			$150, $151, $152
 		)
 		RETURNING id, is_ebike, is_virtual, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType), // $1-$4
@@ -285,7 +288,8 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex, // $138-$141
 		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng, // $142-$145
 		data.IsManualEntry, nilIfZeroInt(data.WorkoutFeel), nilIfZeroInt(data.WorkoutRpe), // $146-$148
-		nilIfEmpty(data.Timezone), // $149
+		nilIfEmpty(data.Timezone),                                                          // $149
+		nilIfZeroInt(data.MaxCadence), nilIfZeroF64(data.MinTemperatureC), nilIfZeroF64(data.MaxTemperatureC), // $150-$152
 	).Scan(&id, &isEbike, &isVirtual, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
@@ -543,7 +547,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.avg_heart_rate, a.max_heart_rate,
 			a.avg_power_w, a.max_power_w, a.normalized_power_w,
 			a.avg_cadence, a.avg_temperature_c,
-			a.min_temperature_c, a.max_temperature_c,
+			a.min_temperature_c, a.max_temperature_c, a.max_cadence,
 			a.tss, a.trimp, a.is_indoor,
 			a.source, a.source_device,
 			a.tags, a.visibility, a.enrichment_status, a.original_filename, a.original_file_format,
@@ -626,7 +630,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.AvgHeartRate, &a.MaxHeartRate,
 		&a.AvgPowerW, &a.MaxPowerW, &a.NormalizedPowerW,
 		&a.AvgCadence, &a.AvgTemperatureC,
-		&a.MinTemperatureC, &a.MaxTemperatureC,
+		&a.MinTemperatureC, &a.MaxTemperatureC, &a.MaxCadence,
 		&a.TSS, &a.TRIMP, &a.IsIndoor,
 		&a.Source, &a.SourceDevice,
 		&a.Tags, &a.Visibility, &a.EnrichmentStatus, &a.OriginalFilename, &a.OriginalFileFormat,

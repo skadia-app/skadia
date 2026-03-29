@@ -39,6 +39,7 @@ type Activity struct {
 	MaxPowerW               *int             `json:"max_power_w,omitempty"`
 	NormalizedPowerW        *float64         `json:"normalized_power_w,omitempty"`
 	AvgCadence              *float64         `json:"avg_cadence,omitempty"`
+	MaxCadence              *int             `json:"max_cadence,omitempty"`
 	AvgTemperatureC         *float64         `json:"avg_temperature_c,omitempty"`
 	MinTemperatureC         *float64         `json:"min_temperature_c,omitempty"`
 	MaxTemperatureC         *float64         `json:"max_temperature_c,omitempty"`
