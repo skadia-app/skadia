@@ -175,6 +175,7 @@ func (h *Handler) ImportFromURL(w http.ResponseWriter, r *http.Request) {
 		} else {
 			httputil.WriteJSON(w, http.StatusCreated, map[string]string{"status": "multisport_imported"})
 		}
+		h.MaybeTriggerFusionQueueCompute(ctx, userID)
 		return
 	}
 
@@ -182,6 +183,7 @@ func (h *Handler) ImportFromURL(w http.ResponseWriter, r *http.Request) {
 		Activity: result.Activity,
 		Warnings: result.Warnings,
 	})
+	h.MaybeTriggerFusionQueueCompute(ctx, userID)
 }
 
 type importErrKind int

@@ -162,6 +162,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			} else {
 				httputil.WriteJSON(w, http.StatusCreated, map[string]string{"parent_id": msResult.ParentID})
 			}
+			h.MaybeTriggerFusionQueueCompute(r.Context(), userID)
 			return
 		}
 
@@ -282,6 +283,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			full = fitActivity
 		}
 		httputil.WriteJSON(w, http.StatusCreated, model.UploadResponse{Activity: full, Warnings: warnings})
+		h.MaybeTriggerFusionQueueCompute(r.Context(), userID)
 		return
 	}
 
@@ -420,6 +422,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		Warnings: warnings,
 	}
 	httputil.WriteJSON(w, http.StatusCreated, resp)
+	h.MaybeTriggerFusionQueueCompute(r.Context(), userID)
 }
 
 // postInsertActivity runs all post-insert steps by delegating to the shared
