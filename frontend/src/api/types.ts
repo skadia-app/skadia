@@ -240,6 +240,13 @@ export interface Activity {
   sdrr_hrv_ms?: number | null
   avg_respiration_rate?: number | null
   avg_core_temperature_c?: number | null
+
+  // ── TSS / Load Computation ──
+  computed_tss?: number | null
+  computed_np_w?: number | null
+  computed_ngp_mps?: number | null
+  tss_method?: string | null
+  computed_if?: number | null
 }
 
 export interface ActivitiesResponse {
