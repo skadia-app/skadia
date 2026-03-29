@@ -10,21 +10,25 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// GetFusionQueueActivities gibt die letzten N Aktivitäten eines Users zurück
+// GetFusionQueueActivities gibt Aktivitäten eines Users zurück
 // die GPS-Daten haben und noch nicht is_fusion_source sind.
-// Wird für den Tier-2-Queue verwendet.
+// limit <= 0 gibt alle zurück; limit > 0 beschränkt auf die neuesten N.
 func (db *DB) GetFusionQueueActivities(ctx context.Context, userID string, limit int) ([]string, error) {
-	rows, err := db.Pool.Query(ctx, `
+	query := `
 		SELECT a.id
 		FROM activities a
 		WHERE a.user_id = $1
 		  AND a.is_fusion_source = FALSE
 		  AND a.fusion_sources IS NULL
 		  AND a.has_gps = TRUE
-		ORDER BY a.started_at DESC
-		LIMIT $2`,
-		userID, limit,
-	)
+		ORDER BY a.started_at DESC`
+	var rows pgx.Rows
+	var err error
+	if limit > 0 {
+		rows, err = db.Pool.Query(ctx, query+" LIMIT $2", userID, limit)
+	} else {
+		rows, err = db.Pool.Query(ctx, query, userID)
+	}
 	if err != nil {
 		return nil, err
 	}
