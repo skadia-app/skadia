@@ -582,9 +582,23 @@ export default function ActivitiesPage() {
   async function handleZipDownload(ids: string[], fmt: ExportFormat = 'original') {
     setZipLoading(true)
     try {
-      await downloadActivitiesZip(ids, fmt)
+      if (ids.length === 1) {
+        const act = activities.find(a => a.id === ids[0])
+        if (act && act.sport_type !== 'multisport') {
+          // Single non-multisport: direct download, no ZIP wrapper
+          const extMap: Record<string, string> = { original: '', gpx: '.gpx', tcx: '.tcx', fit: '.fit', zip: '.zip' }
+          const { blob, filename } = await apiDownload(`/activities/${ids[0]}/export?format=${fmt}`)
+          triggerBlobDownload(blob, filename ?? `activity${extMap[fmt] ?? ''}`)
+        } else {
+          // Single multisport: ZIP of all child originals
+          await downloadActivitiesZip(ids, 'original')
+        }
+      } else {
+        // Multi-select: ZIP with chosen format
+        await downloadActivitiesZip(ids, fmt)
+      }
     } catch (err) {
-      console.error('ZIP download failed', err)
+      console.error('Download failed', err)
     } finally {
       setZipLoading(false)
     }
