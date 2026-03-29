@@ -279,7 +279,7 @@ func (db *DB) GetChildActivities(ctx context.Context, parentID string) ([]model.
 		       elevation_loss_m, avg_heart_rate, avg_power_w, parent_id,
 		       is_indoor, has_gps, enrichment_status, visibility,
 		       COALESCE(tags, '{}'),
-		       file_hash, original_filename, original_file_format
+		       file_hash, file_id, original_filename, original_file_format
 		FROM activities
 		WHERE parent_id = $1
 		ORDER BY started_at`, parentID)
@@ -297,7 +297,7 @@ func (db *DB) GetChildActivities(ctx context.Context, parentID string) ([]model.
 			&a.ElevationLossM, &a.AvgHeartRate, &a.AvgPowerW, &a.ParentID,
 			&a.IsIndoor, &a.HasGPS, &a.EnrichmentStatus, &a.Visibility,
 			&a.Tags,
-			&a.FileHash, &a.OriginalFilename, &a.OriginalFileFormat,
+			&a.FileHash, &a.FileID, &a.OriginalFilename, &a.OriginalFileFormat,
 		); err != nil {
 			return nil, fmt.Errorf("scan child activity: %w", err)
 		}
