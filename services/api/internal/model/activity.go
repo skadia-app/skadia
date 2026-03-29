@@ -271,6 +271,12 @@ type Activity struct {
 	NecLng           *float64 `json:"nec_lng,omitempty"`
 	SwcLat           *float64 `json:"swc_lat,omitempty"`
 	SwcLng           *float64 `json:"swc_lng,omitempty"`
+
+	// FIT SDK — VO2max (from max_met_data message)
+	Vo2MaxMlKgMin     *float64 `json:"vo2max_ml_kg_min,omitempty"`
+	Vo2MaxCalibrated  *bool    `json:"vo2max_calibrated,omitempty"`
+	Vo2MaxHrSource    *string  `json:"vo2max_hr_source,omitempty"`
+	Vo2MaxSpeedSource *string  `json:"vo2max_speed_source,omitempty"`
 }
 
 // SportConflictMeta holds conflict metadata embedded from import_queue.

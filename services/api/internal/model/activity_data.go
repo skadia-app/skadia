@@ -253,6 +253,12 @@ type ActivityData struct {
 	NecLng           *float64 `json:"-"`
 	SwcLat           *float64 `json:"-"`
 	SwcLng           *float64 `json:"-"`
+
+	// FIT SDK — VO2max (from max_met_data message)
+	Vo2MaxMlKgMin     *float64 `json:"-"`
+	Vo2MaxCalibrated  bool     `json:"-"`
+	Vo2MaxHrSource    *string  `json:"-"`
+	Vo2MaxSpeedSource *string  `json:"-"`
 }
 
 // TrackPoint is a GPS coordinate for PostGIS LineString construction.

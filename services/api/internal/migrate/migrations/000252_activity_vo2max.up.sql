@@ -1,0 +1,4 @@
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS vo2max_ml_kg_min REAL;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS vo2max_calibrated BOOLEAN DEFAULT FALSE;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS vo2max_hr_source TEXT;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS vo2max_speed_source TEXT;
