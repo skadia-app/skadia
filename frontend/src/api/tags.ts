@@ -153,6 +153,7 @@ export interface TagActivity {
   started_at: string
   sport_type: string
   distance_m?: number | null
+  timezone?: string | null
 }
 
 export async function fetchTagActivities(tagId: string): Promise<TagActivity[]> {

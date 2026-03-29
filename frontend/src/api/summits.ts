@@ -26,6 +26,7 @@ export interface SummitActivity {
   sport_type: string
   distance_m: number | null
   elevation_gain_m: number | null
+  timezone?: string | null
 }
 
 export async function fetchSummitCollection(filter?: SummitCollectionFilter): Promise<SummitVisit[]> {

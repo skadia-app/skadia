@@ -96,6 +96,7 @@ type summitActivityResponse struct {
 	SportType      string   `json:"sport_type"`
 	DistanceM      *float64 `json:"distance_m"`
 	ElevationGainM *float64 `json:"elevation_gain_m"`
+	Timezone       *string  `json:"timezone,omitempty"`
 }
 
 // GetSummitActivities returns all activities linked to a summit.
@@ -133,6 +134,7 @@ func (h *Handler) GetSummitActivities(w http.ResponseWriter, r *http.Request) {
 			SportType:      a.SportType,
 			DistanceM:      a.DistanceM,
 			ElevationGainM: a.ElevationGainM,
+			Timezone:       a.Timezone,
 		})
 	}
 	httputil.WriteJSON(w, http.StatusOK, resp)
@@ -165,6 +167,7 @@ func (h *Handler) GetSummitActivitiesByName(w http.ResponseWriter, r *http.Reque
 			SportType:      a.SportType,
 			DistanceM:      a.DistanceM,
 			ElevationGainM: a.ElevationGainM,
+			Timezone:       a.Timezone,
 		})
 	}
 	httputil.WriteJSON(w, http.StatusOK, resp)

@@ -6,6 +6,7 @@ import {
   executeFusionMerge,
   type FusionCandidate,
 } from '@/api/fusion'
+import { fmtDateCompact } from '@/lib/format'
 import { fetchActivityStreams } from '@/api/activities'
 import type { StreamPoint } from '@/api/types'
 import FusionMap, { type TrackInfo, type FusionMapHandle } from '@/components/fusion/FusionMap'
@@ -358,7 +359,7 @@ export default function FusionPage() {
                   .map(c => (
                     <option key={c.id} value={c.id}>
                       {c.title ?? 'Ohne Titel'} —{' '}
-                      {new Date(c.started_at).toLocaleDateString('de-AT')} —{' '}
+                      {fmtDateCompact(c.started_at, c.timezone)} —{' '}
                       {Math.round((c.distance_m / 1000) * 10) / 10} km —{' '}
                       {Math.round(c.overlap_pct * 100)}% Überlappung
                     </option>

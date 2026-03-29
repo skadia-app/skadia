@@ -59,6 +59,7 @@ type PhotoFeedActivitySummary struct {
 	TrackGeoJSON   *string  `json:"track_geojson,omitempty"`
 	Lat            *float64 `json:"lat,omitempty"`
 	Lng            *float64 `json:"lng,omitempty"`
+	Timezone       *string  `json:"timezone,omitempty"`
 }
 
 // PhotoFeedGroup ist eine Gruppe im paginierten Feed.

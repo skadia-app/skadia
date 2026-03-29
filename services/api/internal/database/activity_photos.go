@@ -212,6 +212,7 @@ type PhotoFeedRow struct {
 	ActTrackGeoJSON   *string
 	ActLat            *float64
 	ActLng            *float64
+	ActTimezone       *string
 }
 
 // ListPhotoFeed gibt paginierte Fotos zurück mit zugehörigen Aktivitätsdaten.
@@ -245,7 +246,8 @@ func (db *DB) ListPhotoFeed(ctx context.Context, userID, sort string, limit, off
 			a.elevation_gain_m AS act_elevation_gain_m,
 			ST_AsGeoJSON(at.track_simplified) AS act_track_geojson,
 			a.location_lat    AS act_lat,
-			a.location_lng    AS act_lng
+			a.location_lng    AS act_lng,
+			a.timezone        AS act_timezone
 		FROM activity_photos ap
 		LEFT JOIN activities a ON ap.activity_id = a.id AND a.user_id = ap.user_id
 		LEFT JOIN activity_tracks at ON at.activity_id = a.id
@@ -269,7 +271,7 @@ func (db *DB) ListPhotoFeed(ctx context.Context, userID, sort string, limit, off
 			&r.Photo.ContentType, &r.Photo.IsVideo, &r.Photo.DurationS,
 			&r.ActID, &r.ActTitle, &r.ActSportType,
 			&r.ActStartedAt, &r.ActDistanceM, &r.ActMovingTimeS, &r.ActElevationGainM,
-			&r.ActTrackGeoJSON, &r.ActLat, &r.ActLng,
+			&r.ActTrackGeoJSON, &r.ActLat, &r.ActLng, &r.ActTimezone,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -309,7 +311,7 @@ func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, t
 				a.id, a.title, a.sport_type, a.started_at,
 				a.distance_m, a.moving_time_s, a.elevation_gain_m,
 				NULL::text AS act_track_geojson,
-				a.location_lat, a.location_lng
+				a.location_lat, a.location_lng, a.timezone
 			FROM activity_photos ap
 			LEFT JOIN activities a ON ap.activity_id = a.id AND a.user_id = ap.user_id
 			WHERE ap.user_id = $1 AND ap.clip_embedding IS NOT NULL
@@ -322,7 +324,7 @@ func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, t
 		defer rows.Close()
 		for rows.Next() {
 			var r model.PhotoSearchResult
-			var actID, actTitle, actSportType, actTrackGeoJSON *string
+			var actID, actTitle, actSportType, actTrackGeoJSON, actTimezone *string
 			var actStartedAt *time.Time
 			var actDistM, actElevM, actLat, actLng *float64
 			var actMovS *int
@@ -332,12 +334,12 @@ func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, t
 				&r.Photo.ContentType, &r.Photo.IsVideo, &r.Photo.DurationS,
 				&r.Similarity,
 				&actID, &actTitle, &actSportType, &actStartedAt,
-				&actDistM, &actMovS, &actElevM, &actTrackGeoJSON, &actLat, &actLng,
+				&actDistM, &actMovS, &actElevM, &actTrackGeoJSON, &actLat, &actLng, &actTimezone,
 			); err != nil {
 				return nil, err
 			}
 			r.MatchType = "clip"
-			r.Activity = buildPhotoActivitySummary(actID, actTitle, actSportType, actStartedAt, actDistM, actMovS, actElevM, actTrackGeoJSON, actLat, actLng)
+			r.Activity = buildPhotoActivitySummary(actID, actTitle, actSportType, actStartedAt, actDistM, actMovS, actElevM, actTrackGeoJSON, actLat, actLng, actTimezone)
 			results = append(results, r)
 			seen[r.Photo.ID] = true
 		}
@@ -355,7 +357,7 @@ func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, t
 				a.id, a.title, a.sport_type, a.started_at,
 				a.distance_m, a.moving_time_s, a.elevation_gain_m,
 				NULL::text AS act_track_geojson,
-				a.location_lat, a.location_lng
+				a.location_lat, a.location_lng, a.timezone
 			FROM activity_photos ap
 			JOIN activities a ON ap.activity_id = a.id AND a.user_id = ap.user_id
 			WHERE ap.user_id = $1 AND a.title ILIKE '%' || $2 || '%'
@@ -367,7 +369,7 @@ func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, t
 		defer rows.Close()
 		for rows.Next() {
 			var r model.PhotoSearchResult
-			var actID, actTitle, actSportType, actTrackGeoJSON *string
+			var actID, actTitle, actSportType, actTrackGeoJSON, actTimezone *string
 			var actStartedAt *time.Time
 			var actDistM, actElevM, actLat, actLng *float64
 			var actMovS *int
@@ -376,7 +378,7 @@ func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, t
 				&r.Photo.Lat, &r.Photo.Lng, &r.Photo.LocationSource,
 				&r.Photo.ContentType, &r.Photo.IsVideo, &r.Photo.DurationS,
 				&actID, &actTitle, &actSportType, &actStartedAt,
-				&actDistM, &actMovS, &actElevM, &actTrackGeoJSON, &actLat, &actLng,
+				&actDistM, &actMovS, &actElevM, &actTrackGeoJSON, &actLat, &actLng, &actTimezone,
 			); err != nil {
 				return nil, err
 			}
@@ -385,7 +387,7 @@ func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, t
 			}
 			r.MatchType = "title"
 			r.Similarity = 1.0
-			r.Activity = buildPhotoActivitySummary(actID, actTitle, actSportType, actStartedAt, actDistM, actMovS, actElevM, actTrackGeoJSON, actLat, actLng)
+			r.Activity = buildPhotoActivitySummary(actID, actTitle, actSportType, actStartedAt, actDistM, actMovS, actElevM, actTrackGeoJSON, actLat, actLng, actTimezone)
 			results = append(results, r)
 		}
 		if err := rows.Err(); err != nil {
@@ -396,7 +398,7 @@ func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, t
 	return results, nil
 }
 
-func buildPhotoActivitySummary(id, title, sportType *string, startedAt *time.Time, distM *float64, movS *int, elevM *float64, trackGeoJSON *string, lat, lng *float64) *model.PhotoFeedActivitySummary {
+func buildPhotoActivitySummary(id, title, sportType *string, startedAt *time.Time, distM *float64, movS *int, elevM *float64, trackGeoJSON *string, lat, lng *float64, timezone *string) *model.PhotoFeedActivitySummary {
 	if id == nil {
 		return nil
 	}
@@ -408,6 +410,7 @@ func buildPhotoActivitySummary(id, title, sportType *string, startedAt *time.Tim
 		DistanceM:      distM,
 		MovingTimeS:    movS,
 		ElevationGainM: elevM,
+		Timezone:       timezone,
 	}
 	if title != nil {
 		s.Title = *title

@@ -317,7 +317,7 @@ func (db *DB) GetTagsByActivity(ctx context.Context, activityID string) ([]model
 // GetTagActivities returns a lightweight list of activities that have the given tag.
 func (db *DB) GetTagActivities(ctx context.Context, tagID, userID string) ([]model.TagActivity, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT a.id, a.title, a.title_auto, a.started_at, a.sport_type, a.distance_m
+		SELECT a.id, a.title, a.title_auto, a.started_at, a.sport_type, a.distance_m, a.timezone
 		FROM activities a
 		JOIN activity_tags at_join ON at_join.activity_id = a.id
 		WHERE at_join.tag_id = $1 AND a.user_id = $2
@@ -331,7 +331,7 @@ func (db *DB) GetTagActivities(ctx context.Context, tagID, userID string) ([]mod
 	var activities []model.TagActivity
 	for rows.Next() {
 		var a model.TagActivity
-		if err := rows.Scan(&a.ID, &a.Title, &a.TitleAuto, &a.StartedAt, &a.SportType, &a.DistanceM); err != nil {
+		if err := rows.Scan(&a.ID, &a.Title, &a.TitleAuto, &a.StartedAt, &a.SportType, &a.DistanceM, &a.Timezone); err != nil {
 			return nil, fmt.Errorf("scan tag activity: %w", err)
 		}
 		activities = append(activities, a)

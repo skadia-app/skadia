@@ -13,6 +13,7 @@ export interface FusionCandidate {
   has_cadence: boolean
   has_altitude: boolean
   overlap_pct: number
+  timezone?: string | null
 }
 
 export interface GPSFusionConfig {

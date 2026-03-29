@@ -58,6 +58,7 @@ type FusionCandidate struct {
 	HasCadence     bool      `json:"has_cadence"`
 	HasAltitude    bool      `json:"has_altitude"`
 	OverlapPct     float64   `json:"overlap_pct"`
+	Timezone       *string   `json:"timezone,omitempty"`
 }
 
 // GetFusionCandidates godoc
@@ -105,7 +106,8 @@ func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 						GREATEST(b.started_at, $2::timestamptz)
 					))
 				) / GREATEST(1.0, EXTRACT(EPOCH FROM (b.ended_at - b.started_at)))
-			ELSE 0.0 END AS overlap_pct
+			ELSE 0.0 END AS overlap_pct,
+			b.timezone
 		FROM activities a
 		JOIN activities b
 			ON b.user_id = a.user_id
@@ -149,6 +151,7 @@ func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 			&c.HasCadence,
 			&c.HasAltitude,
 			&c.OverlapPct,
+			&c.Timezone,
 		); err != nil {
 			slog.Warn("scan fusion candidate failed", "error", err)
 			continue

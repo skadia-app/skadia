@@ -13,6 +13,7 @@ import RouteSaveDialog from '@/components/route-planner/RouteSaveDialog'
 import RouteProfileChart from '@/components/route-planner/RouteProfileChart'
 import { useRoutePlanner } from '@/hooks/useRoutePlanner'
 import { getTagTextColor, getTagBadgeStyle } from '@/lib/tagUtils'
+import { fmtDateCompact } from '@/lib/format'
 import { useRouteEditor } from '@/components/route-planner/useRouteEditor'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { SPORT_DEFS, categoryForSport, sportColor } from '@/lib/sportTaxonomy'
@@ -2485,7 +2486,7 @@ export default function MapPage() {
                   <ul className="divide-y divide-neutral-100 dark:divide-neutral-800 max-h-[200px] overflow-y-auto">
                     {tagActivities.map(act => {
                       const displayTitle = act.title || act.title_auto || 'Aktivität'
-                      const date = new Date(act.started_at).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                      const date = fmtDateCompact(act.started_at, act.timezone)
                       const dist = act.distance_m != null
                         ? act.distance_m >= 1000
                           ? `${(act.distance_m / 1000).toFixed(1)} km`

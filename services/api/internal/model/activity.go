@@ -907,6 +907,7 @@ type TagActivity struct {
 	StartedAt time.Time `json:"started_at"`
 	SportType string    `json:"sport_type"`
 	DistanceM *float64  `json:"distance_m,omitempty"`
+	Timezone  *string   `json:"timezone,omitempty"`
 }
 
 // TimeInZoneData represents time spent in a specific training zone.
