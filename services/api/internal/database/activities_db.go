@@ -134,7 +134,9 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			is_manual_entry, workout_feel, workout_rpe,
 			timezone,
 			max_cadence, min_temperature_c, max_temperature_c,
-			num_sessions
+			num_sessions,
+			-- VO2max
+			vo2max_ml_kg_min, vo2max_calibrated, vo2max_hr_source, vo2max_speed_source
 		) VALUES (
 			-- Core ($1-$4, parsed reuses $3/$4)
 			$1, $2, $3, $4,
@@ -233,7 +235,9 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			-- Max cadence / Min+Max temperature ($150-$152)
 			$150, $151, $152,
 			-- NumSessions ($153)
-			$153
+			$153,
+			-- VO2max ($154-$157)
+			$154, $155, $156, $157
 		)
 		RETURNING id, is_ebike, is_virtual, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType), // $1-$4
@@ -293,7 +297,8 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		data.IsManualEntry, nilIfZeroInt(data.WorkoutFeel), nilIfZeroInt(data.WorkoutRpe), // $146-$148
 		nilIfEmpty(data.Timezone),                                                          // $149
 		nilIfZeroInt(data.MaxCadence), nilIfZeroF64(data.MinTemperatureC), nilIfZeroF64(data.MaxTemperatureC), // $150-$152
-		nilIfZeroInt(data.NumSessions), // $153
+		nilIfZeroInt(data.NumSessions),                                           // $153
+		data.Vo2MaxMlKgMin, data.Vo2MaxCalibrated, data.Vo2MaxHrSource, data.Vo2MaxSpeedSource, // $154-$157
 	).Scan(&id, &isEbike, &isVirtual, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
@@ -616,7 +621,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		COALESCE(a.title_is_manual, false),
 		a.is_manual_entry, a.workout_feel, a.workout_rpe,
 		a.timezone,
-		a.num_sessions
+		a.num_sessions,
+		a.vo2max_ml_kg_min, a.vo2max_calibrated, a.vo2max_hr_source, a.vo2max_speed_source
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		LEFT JOIN LATERAL (
@@ -701,6 +707,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.IsManualEntry, &a.WorkoutFeel, &a.WorkoutRpe,
 		&a.Timezone,
 		&a.NumSessions,
+		&a.Vo2MaxMlKgMin, &a.Vo2MaxCalibrated, &a.Vo2MaxHrSource, &a.Vo2MaxSpeedSource,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil

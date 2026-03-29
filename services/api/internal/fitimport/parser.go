@@ -335,6 +335,7 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	var devDataIds []*mesgdef.DeveloperDataId
 	var fieldDescs []*mesgdef.FieldDescription
 	var diveSummary *mesgdef.DiveSummary
+	var maxMetData *mesgdef.MaxMetData
 
 	// Sport message (MesgNum 12) fallback for files with no sport in session (Polar, WHOOP)
 	var sportFallbackSport typedef.Sport
@@ -399,6 +400,8 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 			fieldDescs = append(fieldDescs, mesgdef.NewFieldDescription(&fit.Messages[i]))
 		case typedef.MesgNumDiveSummary:
 			diveSummary = mesgdef.NewDiveSummary(&fit.Messages[i])
+		case typedef.MesgNumMaxMetData:
+			maxMetData = mesgdef.NewMaxMetData(&fit.Messages[i])
 		case typedef.MesgNumSport:
 			sportMsg := mesgdef.NewSport(&fit.Messages[i])
 			if sportMsg.Sport != typedef.SportInvalid {
@@ -1436,6 +1439,26 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 
 	// Indoor detection
 	data.IsIndoor = !data.HasGPS
+
+	// === FIT SDK — VO2max (max_met_data message) ===
+	if maxMetData != nil {
+		if maxMetData.Vo2Max != basetype.Uint16Invalid && maxMetData.Vo2Max > 0 {
+			v := maxMetData.Vo2MaxScaled()
+			data.Vo2MaxMlKgMin = &v
+		}
+		// CalibratedData: typedef.Bool, valid values are 0 (false) and 1 (true); 2+ invalid
+		if maxMetData.CalibratedData < 2 {
+			data.Vo2MaxCalibrated = maxMetData.CalibratedData == 1
+		}
+		if maxMetData.HrSource != typedef.MaxMetHeartRateSourceInvalid {
+			s := maxMetData.HrSource.String()
+			data.Vo2MaxHrSource = &s
+		}
+		if maxMetData.SpeedSource != typedef.MaxMetSpeedSourceInvalid {
+			s := maxMetData.SpeedSource.String()
+			data.Vo2MaxSpeedSource = &s
+		}
+	}
 
 	return data, nil
 }
