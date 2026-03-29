@@ -17,8 +17,9 @@ import {
   VisualMapComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import type { StreamPoint } from '@/api/types'
+import type { StreamPoint, ActivityEvent } from '@/api/types'
 import { CHART_TAB } from '@/components/activity/ChartTabs'
+import { findClosestIdx } from '@/lib/utils'
 
 echarts.use([
   LineChart,
@@ -46,7 +47,7 @@ const SUNSET_SVG = "image://data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2
 
 type XMode = 'distance' | 'time'
 
-type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'coreTemperature' | 'runningDynamics' | 'stepLength' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength'
+type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'coreTemperature' | 'runningDynamics' | 'stepLength' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength' | 'grit' | 'flow' | 'gear' | 'potentialStamina' | 'staminaCurrent' | 'gapSpeed'
 
 function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
   if (tab === CHART_TAB.alles) return null // show all
@@ -57,6 +58,7 @@ function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
       const sg = getSegmentGroup(sportType)
       const charts: ChartKey[] = ['power', 'cadence']
       if (sg === 'swim' || sg === 'paddle') charts.push('cycleLength')
+      if (sg === 'bike') charts.push('gear')
       return charts
     }
     case CHART_TAB.dynamik: return ['runningDynamics', 'stepLength']
@@ -64,6 +66,8 @@ function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
     case CHART_TAB.ebike: return ['motorPower', 'batteryLevel', 'travelRange']
     case CHART_TAB.tauchgang: return ['depth']
     case CHART_TAB.sensoren: return ['temperature', 'coreTemperature']
+    case CHART_TAB.mtb: return ['grit', 'flow']
+    case CHART_TAB.ausdauer: return ['potentialStamina', 'staminaCurrent']
     default: return null
   }
 }
@@ -92,6 +96,11 @@ interface ChartData {
   travelRange: number[]
   depth: number[]
   cycleLength: number[]
+  grit: number[]
+  flow: number[]
+  potentialStamina: number[]
+  staminaCurrent: number[]
+  gapSpeed: number[]
   maxDist: number
   maxElapsed: number
 }
@@ -122,6 +131,11 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const travelRange: number[] = []
   const depth: number[] = []
   const cycleLength: number[] = []
+  const grit: number[] = []
+  const flow: number[] = []
+  const potentialStamina: number[] = []
+  const staminaCurrent: number[] = []
+  const gapSpeed: number[] = []
 
   const t0 = streams.length > 0 ? new Date(streams[0].time).getTime() : 0
 
@@ -154,6 +168,11 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     depth.push(s.depth_m ?? NaN)
     // Clamp: values > 50m are FIT parser artifacts (real stroke distance is 0.5–15m)
     cycleLength.push(s.cycle_length_m != null && s.cycle_length_m > 0 && s.cycle_length_m <= 50 ? s.cycle_length_m : NaN)
+    grit.push(s.grit ?? NaN)
+    flow.push(s.flow ?? NaN)
+    potentialStamina.push(s.potential_stamina ?? NaN)
+    staminaCurrent.push(s.stamina ?? NaN)
+    gapSpeed.push(s.gap_speed_ms ?? NaN)
   }
 
   const validDist = distanceKm.filter(v => !isNaN(v) && isFinite(v))
@@ -161,7 +180,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, gapSpeed, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -186,23 +205,23 @@ function calcAltitudeYRange(values: number[]): { min: number; max: number } | un
   return { min: Math.floor(yMin), max: Math.ceil(yMax) }
 }
 
-function findClosestIdx(arr: number[], target: number): number {
-  if (arr.length === 0) return 0
-  let bestIdx = 0
-  let bestDiff = Math.abs(arr[0] - target)
-  for (let i = 1; i < arr.length; i++) {
-    const d = Math.abs(arr[i] - target)
-    if (d < bestDiff) { bestDiff = d; bestIdx = i }
-  }
-  return bestIdx
-}
-
 function formatElapsed(minutes: number, maxMinutes: number): string {
   if (maxMinutes < 60) return `${Math.round(minutes)}\u202fmin`
   const h = Math.floor(minutes / 60)
   const m = Math.round(minutes % 60)
   if (h === 0) return `${m}\u202fmin`
   return `${h}h${m.toString().padStart(2, '0')}`
+}
+
+function buildTooltipPosLine(
+  xVal: number, xMode: XMode, data: ChartData,
+): string {
+  if (xMode === 'distance') {
+    return `${xVal.toFixed(1)}\u202fkm`
+  }
+  const idx = findClosestIdx(data.elapsedMin, xVal)
+  const kmStr = (data.distanceKm[idx] ?? 0).toFixed(1)
+  return `${formatElapsed(xVal, data.maxElapsed)}\u2009\u00b7\u2009${kmStr}\u202fkm`
 }
 
 // ── Exported types ─────────────────────────────────────────────────────────────
@@ -253,6 +272,8 @@ interface Props {
   sportType?: string
   /** Active tab from ChartTabs. If set, only shows charts relevant to that tab. */
   activeTab?: string
+  /** Gear-change events from the activity_events table. Only shown for bike activities. */
+  gearEvents?: ActivityEvent[]
 }
 
 function computeSunMarkLines(
@@ -288,9 +309,69 @@ function computeSunMarkLines(
   return marks
 }
 
+// ── Gear data computation ────────────────────────────────────────────────────
+
+interface GearPoint {
+  /** X-axis value (km or elapsed minutes) */
+  xVal: number
+  /** Front chainring tooth count */
+  frontGear: number
+  /** Rear sprocket tooth count */
+  rearGear: number
+  /** Front gear position number (1 = small, 2 = large) */
+  frontGearNum: number
+  /** Rear gear position number (1 = smallest/hardest, n = largest/easiest) */
+  rearGearNum: number
+}
+
+function computeGearData(
+  streams: StreamPoint[],
+  data: ChartData,
+  xMode: XMode,
+  gearEvents: ActivityEvent[],
+): GearPoint[] {
+  if (streams.length === 0 || gearEvents.length === 0) return []
+
+  // Pre-compute timestamps once — O(N) instead of O(N×M)
+  const streamTimes = streams.map(s => new Date(s.time).getTime())
+  const t0 = streamTimes[0]
+  const tEnd = streamTimes[streamTimes.length - 1]
+
+  const points: GearPoint[] = []
+
+  for (const ev of gearEvents) {
+    if (ev.front_gear == null || ev.rear_gear == null) continue
+    const t = new Date(ev.timestamp).getTime()
+    if (t < t0 || t > tEnd) continue
+
+    // Binary search for closest stream index
+    let lo = 0, hi = streamTimes.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (streamTimes[mid] < t) lo = mid + 1
+      else hi = mid
+    }
+    // Check neighbor for closer match
+    const bestIdx = lo > 0 && Math.abs(streamTimes[lo - 1] - t) < Math.abs(streamTimes[lo] - t) ? lo - 1 : lo
+
+    const xVal = xMode === 'distance' ? data.distanceKm[bestIdx] : data.elapsedMin[bestIdx]
+    points.push({
+      xVal,
+      frontGear: ev.front_gear,
+      rearGear: ev.rear_gear,
+      frontGearNum: ev.front_gear_num ?? 0,
+      rearGearNum: ev.rear_gear_num ?? 0,
+    })
+  }
+
+  // Sort by X position
+  points.sort((a, b) => a.xVal - b.xVal)
+  return points
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode, highlightRange, speedMode, sportType, activeTab }: Props) {
+export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode, highlightRange, speedMode, sportType, activeTab, gearEvents }: Props) {
   const data = useMemo(() => buildChartData(streams), [streams])
   const segGroup = sportType ? getSegmentGroup(sportType) : 'generic'
 
@@ -315,6 +396,12 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   const sunMarkLines = useMemo(
     () => computeSunMarkLines(streams, data, xMode, sunriseAt, sunsetAt),
     [streams, data, xMode, sunriseAt, sunsetAt],
+  )
+
+  // Stable reference for gear points — prevents useECharts re-init on every render
+  const gearPoints = useMemo(
+    () => gearEvents?.length ? computeGearData(streams, data, xMode, gearEvents) : [],
+    [streams, data, xMode, gearEvents],
   )
 
   const chartInstancesRef = useRef<Map<string, echarts.ECharts>>(new Map())
@@ -605,7 +692,8 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         leftLabel="Drehmoment-Eff. Links" rightLabel="Drehmoment-Eff. Rechts"
         leftColor="#EC4899" rightColor="#A855F7"
         leftAxisName="Links\n(%)" rightAxisName="Rechts\n(%)"
-        tooltipTitle="Drehmoment-Eff." />
+        tooltipTitle="Drehmoment-Eff."
+        leftTooltipSuffix="Links" rightTooltipSuffix="Rechts" />
     </div>,
   )
   // Pedal Analytics: Pedal Smoothness L/R
@@ -616,7 +704,8 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         leftLabel="Tritt-Gleichm. Links" rightLabel="Tritt-Gleichm. Rechts"
         leftColor="#A855F7" rightColor="#8B5CF6"
         leftAxisName="Links\n(%)" rightAxisName="Rechts\n(%)"
-        tooltipTitle="Tritt-Gleichm." />
+        tooltipTitle="Tritt-Gleichm."
+        leftTooltipSuffix="Links" rightTooltipSuffix="Rechts" />
     </div>,
   )
   // E-Bike: Motor Power
@@ -664,6 +753,42 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       )
     }
   }
+  // Gangschaltung — nur für Rad-Aktivitäten mit Gear-Events
+  if (gearPoints.length > 0) {
+    panels.push(
+      <div key={k('gear')} style={{ display: show('gear') ? undefined : 'none' }}>
+        <GearChartPanel chartId="gear" {...common}
+          gearPoints={gearPoints} />
+      </div>,
+    )
+  }
+  // MTB: Grit — nur für Rad-Aktivitäten mit Grit-Daten
+  if (segGroup === 'bike' && hasValidData(data.grit)) panels.push(
+    <div key={k('grit')} style={{ display: show('grit') ? undefined : 'none' }}>
+      <ChartPanel chartId="grit" {...common}
+        field="grit" label="MTB Grit" unit="" color="#D97706" />
+    </div>,
+  )
+  // MTB: Flow — nur für Rad-Aktivitäten mit Flow-Daten
+  if (segGroup === 'bike' && hasValidData(data.flow)) panels.push(
+    <div key={k('flow')} style={{ display: show('flow') ? undefined : 'none' }}>
+      <ChartPanel chartId="flow" {...common}
+        field="flow" label="MTB Flow" unit="" color="#10B981" />
+    </div>,
+  )
+  // Garmin Stamina — Dual-Line Chart: Potential Stamina + Stamina (Aktuell)
+  if (hasValidData(data.potentialStamina) || hasValidData(data.staminaCurrent)) panels.push(
+    <div key={k('potentialStamina')} style={{ display: show('potentialStamina') ? undefined : 'none' }}>
+      <PedalDualChartPanel chartId="potentialStamina" {...common}
+        leftValues={data.potentialStamina}
+        rightValues={data.staminaCurrent}
+        leftLabel="Stamina (Potential)" rightLabel="Stamina (Aktuell)"
+        leftColor="#8B5CF6" rightColor="#EC4899"
+        leftAxisName="%" rightAxisName="%"
+        leftTooltipSuffix="Potential" rightTooltipSuffix="Aktuell"
+        tooltipTitle="Garmin Stamina" />
+    </div>,
+  )
 
   if (panels.length === 0) return null
 
@@ -814,6 +939,11 @@ interface PedalDualChartPanelProps {
   leftAxisName: string
   rightAxisName: string
   tooltipTitle: string
+  /** Suffix shown after each value in the tooltip */
+  leftTooltipSuffix: string
+  rightTooltipSuffix: string
+  /** Unit string shown in the header after label (default: "%") */
+  headerUnit?: string
   onHover: (index: number | null) => void
   onBrushZoom: (startValue: number, endValue: number) => void
   onSyncZoom: (start: number, end: number, sourceId: string) => void
@@ -827,6 +957,8 @@ interface PedalDualChartPanelProps {
 function PedalDualChartPanel({
   chartId, data, leftValues, rightValues, leftLabel, rightLabel,
   leftColor, rightColor, leftAxisName, rightAxisName, tooltipTitle,
+  leftTooltipSuffix, rightTooltipSuffix,
+  headerUnit = '%',
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
   brushZoomLockRef, xMode, splitMarkers,
 }: PedalDualChartPanelProps) {
@@ -877,19 +1009,15 @@ function PedalDualChartPanel({
             const p = arr[0] as { dataIndex?: number }
             if (p?.dataIndex == null) return ''
             const idx = p.dataIndex
-            const kmStr = (data.distanceKm[idx] ?? 0).toFixed(1)
-            const elapsed = data.elapsedMin[idx] ?? 0
-            const timeStr = formatElapsed(elapsed, data.maxElapsed)
-            const posLine = xMode === 'distance'
-              ? `${kmStr}\u202fkm`
-              : `${timeStr}\u2009·\u2009${kmStr}\u202fkm`
+            const xVal = xMode === 'distance' ? data.distanceKm[idx] : data.elapsedMin[idx]
+            const posLine = buildTooltipPosLine(xVal, xMode, data)
             let html = `<div style="line-height:1.75;min-width:160px">`
             html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
             html += `<div style="font-size:11px;color:#888;margin-bottom:2px">${tooltipTitle}</div>`
             const lv = leftValues[idx]
-            if (!isNaN(lv)) html += `<div style="font-size:13px;color:${leftColor}"><strong>${lv.toFixed(1)}\u202f%</strong> Links</div>`
+            if (!isNaN(lv)) html += `<div style="font-size:13px;color:${leftColor}"><strong>${lv.toFixed(1)}\u202f${headerUnit}</strong> ${leftTooltipSuffix}</div>`
             const rv = rightValues[idx]
-            if (!isNaN(rv)) html += `<div style="font-size:13px;color:${rightColor}"><strong>${rv.toFixed(1)}\u202f%</strong> Rechts</div>`
+            if (!isNaN(rv)) html += `<div style="font-size:13px;color:${rightColor}"><strong>${rv.toFixed(1)}\u202f${headerUnit}</strong> ${rightTooltipSuffix}</div>`
             return html + '</div>'
           },
         },
@@ -967,13 +1095,13 @@ function PedalDualChartPanel({
         <div className="flex items-center gap-2">
           <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: leftColor }} />
           <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
-            {leftLabel} <span className="font-normal text-neutral-400 dark:text-neutral-600">(%)</span>
+            {leftLabel}{headerUnit ? <span className="font-normal text-neutral-400 dark:text-neutral-600"> ({headerUnit})</span> : null}
           </span>
         </div>
         <div className="flex items-center gap-2">
           <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: rightColor }} />
           <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
-            {rightLabel} <span className="font-normal text-neutral-400 dark:text-neutral-600">(%)</span>
+            {rightLabel}{headerUnit ? <span className="font-normal text-neutral-400 dark:text-neutral-600"> ({headerUnit})</span> : null}
           </span>
         </div>
       </div>
@@ -1050,12 +1178,8 @@ function RunningDynamicsChartPanel({
             const p = arr[0] as { dataIndex?: number }
             if (p?.dataIndex == null) return ''
             const idx = p.dataIndex
-            const kmStr = (data.distanceKm[idx] ?? 0).toFixed(1)
-            const elapsed = data.elapsedMin[idx] ?? 0
-            const timeStr = formatElapsed(elapsed, data.maxElapsed)
-            const posLine = xMode === 'distance'
-              ? `${kmStr}\u202fkm`
-              : `${timeStr}\u2009·\u2009${kmStr}\u202fkm`
+            const xVal = xMode === 'distance' ? data.distanceKm[idx] : data.elapsedMin[idx]
+            const posLine = buildTooltipPosLine(xVal, xMode, data)
             let html = `<div style="line-height:1.75;min-width:150px">`
             html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
             const gct = gctValues[idx]
@@ -1254,12 +1378,8 @@ function ScatterChartPanel({
             if (p?.dataIndex == null || !p.data) return ''
             const idx = p.dataIndex
             const val = p.data[1]
-            const kmStr = (data.distanceKm[idx] ?? 0).toFixed(1)
-            const elapsed = data.elapsedMin[idx] ?? 0
-            const timeStr = formatElapsed(elapsed, data.maxElapsed)
-            const posLine = xMode === 'distance'
-              ? `${kmStr}\u202fkm`
-              : `${timeStr}\u2009·\u2009${kmStr}\u202fkm`
+            const xVal = xMode === 'distance' ? data.distanceKm[idx] : data.elapsedMin[idx]
+            const posLine = buildTooltipPosLine(xVal, xMode, data)
             return `<div style="line-height:1.75;min-width:120px"><div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div><div style="font-size:13px;color:${color}"><strong>${!isNaN(val) ? val.toFixed(2) : '—'}\u202f${unit}</strong></div></div>`
           },
         },
@@ -1414,12 +1534,8 @@ function ChartPanel({
       const buildTooltip = (idx: number): string => {
         const v = values[idx]
         if (isNaN(v)) return ''
-        const kmStr = (data.distanceKm[idx] ?? 0).toFixed(1)
-        const elapsed = data.elapsedMin[idx] ?? 0
-        const timeStr = formatElapsed(elapsed, data.maxElapsed)
-        const posLine = xMode === 'distance'
-          ? `${kmStr}\u202fkm`
-          : `${timeStr}\u2009·\u2009${kmStr}\u202fkm`
+        const xVal = xMode === 'distance' ? data.distanceKm[idx] : data.elapsedMin[idx]
+        const posLine = buildTooltipPosLine(xVal, xMode, data)
 
         const valStr = tooltipValueFn ? tooltipValueFn(v) : `${v.toFixed(decimals)}\u2009${unit}`
 
@@ -1638,6 +1754,198 @@ function ChartPanel({
         <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
           {label}{' '}
           <span className="font-normal text-neutral-400 dark:text-neutral-600">({unit})</span>
+        </span>
+      </div>
+      <div ref={containerRef} className="h-[180px] w-full" />
+    </div>
+  )
+}
+
+// ── Gear Chart Panel (Gangschaltung — Treppenfunktion) ────────────────────────
+
+interface GearChartPanelProps {
+  chartId: string
+  data: ChartData
+  gearPoints: GearPoint[]
+  onHover: (index: number | null) => void
+  onBrushZoom: (startValue: number, endValue: number) => void
+  onSyncZoom: (start: number, end: number, sourceId: string) => void
+  onRegister: (id: string, chart: echarts.ECharts) => void
+  onUnregister: (id: string) => void
+  brushZoomLockRef: React.MutableRefObject<boolean>
+  xMode: XMode
+  splitMarkers?: SplitMarker[]
+}
+
+function GearChartPanel({
+  chartId, data, gearPoints,
+  onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
+  brushZoomLockRef, xMode, splitMarkers,
+}: GearChartPanelProps) {
+  const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+
+  // Build step-chart series: [xVal, ratio] pairs for ECharts step:'start' line
+  const stepData = useMemo(() => {
+    if (gearPoints.length === 0) return []
+    const result: [number, number][] = []
+    for (const pt of gearPoints) {
+      if (pt.rearGear === 0) continue
+      result.push([pt.xVal, pt.frontGear / pt.rearGear])
+    }
+    // Extend the last step to the end of the activity
+    if (result.length > 0) {
+      result.push([xMax, result[result.length - 1][1]])
+    }
+    return result
+  }, [gearPoints, xMax])
+
+  const containerRef = useECharts(
+    () => {
+      if (stepData.length === 0) return null as unknown as echarts.EChartsCoreOption
+
+      const gridTop = (splitMarkers && splitMarkers.length > 0) ? 34 : 8
+      const xFormatter = xMode === 'distance'
+        ? (v: number) => v.toFixed(1)
+        : (v: number) => formatElapsed(v, data.maxElapsed)
+
+      const mlData = buildSplitMarkLines(splitMarkers, xMode)
+
+      // Y range from actual ratios
+      const ratios = stepData.slice(0, -1).map(d => d[1]).filter(v => !isNaN(v) && isFinite(v))
+      const yMin = Math.max(0, Math.floor(Math.min(...ratios) * 10) / 10 - 0.1)
+      const yMax = Math.ceil(Math.max(...ratios) * 10) / 10 + 0.1
+
+      return {
+        animation: false,
+        grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
+
+        brush: {
+          toolbox: [],
+          brushType: 'lineX',
+          brushStyle: {
+            borderWidth: 1,
+            color: 'rgba(249,115,22,0.12)',
+            borderColor: '#f97316',
+          },
+          throttleType: 'debounce',
+          throttleDelay: 100,
+        },
+
+        tooltip: {
+          trigger: 'axis',
+          transitionDuration: 0,
+          confine: true,
+          backgroundColor: 'rgba(255,255,255,0.96)',
+          borderColor: '#e5e5e5',
+          borderWidth: 1,
+          padding: [8, 10],
+          textStyle: { fontSize: 12, color: '#333' },
+          axisPointer: {
+            type: 'line',
+            lineStyle: { color: '#f97316', width: 1, type: 'dashed' },
+            animation: false,
+          },
+          formatter: (params: unknown) => {
+            const arr = Array.isArray(params) ? params : [params]
+            const p = arr[0] as { data?: [number, number] }
+            if (!p?.data) return ''
+            const xVal = p.data[0]
+            const ratio = p.data[1]
+            if (isNaN(ratio) || !isFinite(ratio)) return ''
+
+            // Find the active gear at this X position (last event at or before xVal)
+            let activeGear: GearPoint | null = null
+            for (let i = gearPoints.length - 1; i >= 0; i--) {
+              if (gearPoints[i].xVal <= xVal && gearPoints[i].rearGear > 0) {
+                activeGear = gearPoints[i]
+                break
+              }
+            }
+
+            const posLine = buildTooltipPosLine(xVal, xMode, data)
+
+            let html = `<div style="line-height:1.75;min-width:140px">`
+            html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
+            if (activeGear) {
+              html += `<div style="font-size:14px;font-weight:600;color:#6366f1">${activeGear.frontGear}\u00d7${activeGear.rearGear}</div>`
+              html += `<div style="font-size:11px;color:#888">Übersetzung: ${ratio.toFixed(2)}</div>`
+            } else {
+              html += `<div style="font-size:13px;color:#6366f1"><strong>Übersetzung ${ratio.toFixed(2)}</strong></div>`
+            }
+            return html + '</div>'
+          },
+        },
+
+        xAxis: {
+          type: 'value',
+          min: 0,
+          max: xMax,
+          axisLabel: { fontSize: 11, color: '#666', formatter: xFormatter },
+          splitLine: { show: false },
+          axisLine: { lineStyle: { color: '#ddd' } },
+          axisTick: { lineStyle: { color: '#ddd' } },
+        },
+
+        yAxis: {
+          type: 'value',
+          min: yMin,
+          max: yMax,
+          name: 'Gang',
+          nameTextStyle: { fontSize: 10, color: '#666' },
+          axisLabel: {
+            fontSize: 11,
+            color: '#666',
+            margin: 8,
+            formatter: (v: number) => v.toFixed(1),
+          },
+          splitLine: { lineStyle: { color: '#eee', type: 'dashed' } },
+          axisLine: { show: false },
+          axisTick: { show: false },
+        },
+
+        series: [{
+          type: 'line',
+          data: stepData,
+          step: 'start',
+          showSymbol: false,
+          lineStyle: { width: 2, color: '#6366f1' },
+          itemStyle: { color: '#6366f1' },
+          areaStyle: { color: 'rgba(99,102,241,0.12)' },
+          connectNulls: false,
+          ...(mlData.length > 0 ? {
+            markLine: {
+              silent: true,
+              symbol: ['none', 'none'],
+              data: mlData,
+            },
+          } : {}),
+        }],
+
+        dataZoom: [{
+          type: 'inside',
+          xAxisIndex: 0,
+          filterMode: 'none',
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: true,
+          moveOnMouseWheel: false,
+        }],
+      } as echarts.EChartsCoreOption
+    },
+    [data, stepData, gearPoints, xMode, splitMarkers, xMax], // eslint-disable-line react-hooks/exhaustive-deps
+    (chart) => {
+      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
+    },
+  )
+
+  if (stepData.length === 0) return null
+
+  return (
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60">
+        <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#6366f1' }} />
+        <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+          Gangschaltung{' '}
+          <span className="font-normal text-neutral-400 dark:text-neutral-600">(Übersetzungsverhältnis)</span>
         </span>
       </div>
       <div ref={containerRef} className="h-[180px] w-full" />

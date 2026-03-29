@@ -52,3 +52,14 @@ export function triggerUrlDownload(url: string, filename: string): void {
   a.click()
   document.body.removeChild(a)
 }
+
+export function findClosestIdx(arr: number[], target: number): number {
+  if (arr.length === 0) return 0
+  let bestIdx = 0
+  let bestDiff = Math.abs(arr[0] - target)
+  for (let i = 1; i < arr.length; i++) {
+    const d = Math.abs(arr[i] - target)
+    if (d < bestDiff) { bestDiff = d; bestIdx = i }
+  }
+  return bestIdx
+}
