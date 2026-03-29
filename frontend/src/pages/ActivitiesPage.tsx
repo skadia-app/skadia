@@ -1095,8 +1095,8 @@ export default function ActivitiesPage() {
               >
                 Datum{sortIndicator('started_at')}
               </th>
-              <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Titel</th>
               <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Sport</th>
+              <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Titel</th>
               <th
                 className={`text-right ${sortableHeaderClass('distance_m')}`}
                 onClick={() => toggleSort('distance_m')}
@@ -1412,6 +1412,21 @@ function ActivityRow({
         {format(date, 'EEE, dd. MMM yyyy', { locale: de })}
         <span className="ml-2 text-neutral-400 dark:text-neutral-600 text-xs">{format(date, 'HH:mm')}</span>
       </td>
+      <td className="px-4 py-3">
+        <span className="inline-flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
+          <span className="w-4 text-center text-xs flex-shrink-0">
+            {activity.is_ebike ? <span className="text-green-600 font-bold text-sm">E</span> : activity.is_virtual ? <span className="text-purple-500 font-bold">V</span> : activity.sport_type === 'multisport' ? <span className="text-red-800 font-bold">M</span> : ''}
+          </span>
+          <SportIcon sport={activity.sport_type} subType={activity.sub_type} isEbike={activity.is_ebike} className="w-4 h-4 flex-shrink-0" />
+          <span className="text-xs">{label}</span>
+          {showIndoorBadge(activity.is_indoor, activity.sub_type) && <span className="text-neutral-400 dark:text-neutral-600 text-xs">indoor</span>}
+          {activity.sport_conflict_pending && onConflictClick && (
+            <span onClick={e => e.stopPropagation()}>
+              <SportConflictBadge onClick={() => onConflictClick(activity)} />
+            </span>
+          )}
+        </span>
+      </td>
       <td className={`px-4 py-3 ${titleClass}`}>
         <div className="flex items-center gap-1.5">
           {isMultisport && (
@@ -1431,21 +1446,6 @@ function ActivityRow({
             )}
           </span>
         </div>
-      </td>
-      <td className="px-4 py-3">
-        <span className="inline-flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
-          <span className="w-4 text-center text-xs flex-shrink-0">
-            {activity.is_ebike ? <span className="text-green-600 font-bold">E</span> : activity.is_virtual ? <span className="text-purple-500 font-bold">V</span> : activity.sport_type === 'multisport' ? <span className="text-red-800 font-bold">M</span> : ''}
-          </span>
-          <SportIcon sport={activity.sport_type} subType={activity.sub_type} isEbike={activity.is_ebike} className="w-4 h-4 flex-shrink-0" />
-          <span className="text-xs">{label}</span>
-          {showIndoorBadge(activity.is_indoor, activity.sub_type) && <span className="text-neutral-400 dark:text-neutral-600 text-xs">indoor</span>}
-          {activity.sport_conflict_pending && onConflictClick && (
-            <span onClick={e => e.stopPropagation()}>
-              <SportConflictBadge onClick={() => onConflictClick(activity)} />
-            </span>
-          )}
-        </span>
       </td>
       <td className="px-4 py-3 text-right text-neutral-700 dark:text-neutral-300 tabular-nums">
         {formatDistance(activity.distance_m)}
