@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { updateSegment, type Segment } from '@/api/segments'
+import { updateSegment, publishSegment, type Segment, type UpdateSegmentPayload } from '@/api/segments'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
+import { useModal } from '@/lib/modal'
+import { useToast } from '@/lib/toast'
 
 interface Props {
   segment: Segment
@@ -39,6 +41,11 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
   const [climbDirection, setClimbDirection] = useState<'bergauf' | 'bergab'>(
     initialClimbType === 'bergab' ? 'bergab' : 'bergauf'
   )
+  const [visibility, setVisibility] = useState<'public' | 'private'>(
+    (segment.visibility as 'public' | 'private') ?? 'public'
+  )
+  const { openModal } = useModal()
+  const { addToast } = useToast()
 
   function getClimbType(): string {
     if (segment.segment_type === 'lap') return 'standard'
@@ -54,17 +61,36 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
         if (sacScale) meta.sac_scale = sacScale; else delete meta.sac_scale
         if (mtbScale) meta.mtb_scale = mtbScale; else delete meta.mtb_scale
       }
-      return updateSegment(segment.id, {
+      const payload: UpdateSegmentPayload = {
         name: name.trim(),
         description: description.trim() || undefined,
         segment_type_meta: Object.keys(meta).length > 0 ? meta : undefined,
         new_version: newVersion || undefined,
         climb_type: getClimbType(),
-      })
+      }
+      // Only pass visibility for public→private (private→public uses the publish endpoint).
+      if (segment.visibility === 'public' && visibility === 'private') {
+        payload.visibility = 'private'
+      }
+      return updateSegment(segment.id, payload)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['segments'] })
+      qc.invalidateQueries({ queryKey: ['segment', segment.id] })
       onClose()
+    },
+  })
+
+  const publishMut = useMutation({
+    mutationFn: () => publishSegment(segment.id),
+    onSuccess: () => {
+      addToast({ type: 'success', title: 'Segment veröffentlicht', message: 'Ein Recompute wurde gestartet.' })
+      qc.invalidateQueries({ queryKey: ['segments'] })
+      qc.invalidateQueries({ queryKey: ['segment', segment.id] })
+      onClose()
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Veröffentlichung fehlgeschlagen', duration: 0 })
     },
   })
 
@@ -158,6 +184,41 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
           </div>
         )}
 
+        {/* Visibility toggle — not for lift segments */}
+        {segment.segment_type !== 'lift' && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setVisibility('public')}
+                className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
+                  visibility === 'public'
+                    ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
+                    : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
+                }`}
+              >
+                Öffentlich
+              </button>
+              <button
+                type="button"
+                onClick={() => setVisibility('private')}
+                className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
+                  visibility === 'private'
+                    ? 'bg-neutral-700 text-neutral-100 border-neutral-600'
+                    : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
+                }`}
+              >
+                Privat
+              </button>
+            </div>
+            {segment.visibility === 'private' && visibility === 'public' && (
+              <p className="text-xs text-amber-400">
+                Veröffentlichen: alle User können das Segment sehen. Ein Recompute-Job startet.
+              </p>
+            )}
+          </div>
+        )}
+
         <label className="flex items-start gap-3 cursor-pointer">
           <input
             type="checkbox"
@@ -186,11 +247,24 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
             Abbrechen
           </button>
           <button
-            onClick={() => mutation.mutate()}
-            disabled={!name.trim() || mutation.isPending}
+            onClick={() => {
+              if (segment.visibility === 'private' && visibility === 'public') {
+                openModal({
+                  title: 'Segment veröffentlichen?',
+                  message: 'Alle Nutzer können das Segment danach sehen. Ein Recompute-Job wird gestartet.',
+                  buttons: [
+                    { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+                    { label: 'Veröffentlichen', variant: 'destructive', onClick: () => publishMut.mutate() },
+                  ],
+                })
+              } else {
+                mutation.mutate()
+              }
+            }}
+            disabled={!name.trim() || mutation.isPending || publishMut.isPending}
             className="cursor-pointer px-4 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {mutation.isPending ? 'Speichern...' : 'Speichern'}
+            {mutation.isPending || publishMut.isPending ? 'Speichern...' : 'Speichern'}
           </button>
         </div>
     </ModalShell>

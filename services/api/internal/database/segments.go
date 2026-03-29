@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -15,9 +16,17 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
+// Sentinel errors for segment operations — use errors.Is() in handlers.
+var (
+	ErrSegmentNotFound      = errors.New("segment not found")
+	ErrSegmentNotAuthorized = errors.New("segment not authorized")
+	ErrSegmentOSMLift       = errors.New("OSM-imported lift segments cannot be deleted")
+)
+
 func (db *DB) ListSegments(ctx context.Context, p model.ListSegmentsParams) (*model.ListSegmentsResult, error) {
-	args := []any{p.UserID}
-	argIdx := 2
+	// args: $1 = userID, $2 = isAdmin (fixed positions for WHERE clause)
+	args := []any{p.UserID, p.IsAdmin}
+	argIdx := 3 // next dynamic param starts at $3
 
 	// --- CTE: user_efforts ---
 	cte := `
@@ -71,8 +80,11 @@ LEFT JOIN LATERAL (
 	}
 
 	// --- WHERE ---
+	// Admin sees all segments (public + private from all users).
+	// Segments contain only geometry/metadata — no personal health data.
+	// Admin access is covered by the existing audit log.
 	where := `
-WHERE (s.visibility = 'public' OR s.created_by = $1)`
+WHERE (s.visibility = 'public' OR s.created_by = $1 OR $2 = true)`
 
 	if p.SportGroup != "" {
 		where += fmt.Sprintf(" AND s.sport_group = $%d", argIdx)
@@ -215,8 +227,8 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	// Insert segment
 	var s model.Segment
 	err = tx.QueryRow(ctx, `
-		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id, terrain_type, climb_type)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id, terrain_type, climb_type, visibility)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, created_by, name, description, sport_group,
 		          allowed_sport_types, allowed_sub_types,
 		          segment_type, segment_type_meta,
@@ -227,7 +239,7 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 		          terrain_type, climb_type`,
 		userID, create.Name, create.Description, create.SportGroup,
 		create.SegmentType, segmentTypeMeta, create.SourceActivityID,
-		create.TerrainType, create.ClimbType,
+		create.TerrainType, create.ClimbType, create.Visibility,
 	).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&s.AllowedSportTypes, &s.AllowedSubTypes,
@@ -307,7 +319,7 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	return &s, nil
 }
 
-func (db *DB) GetSegment(ctx context.Context, segmentID, userID string) (*model.Segment, error) {
+func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin bool) (*model.Segment, error) {
 	var s model.Segment
 	err := db.Pool.QueryRow(ctx, `
 		SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
@@ -336,7 +348,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string) (*model.
 			LIMIT 1
 		) sv ON true
 		WHERE s.id = $1
-		  AND (s.visibility = 'public' OR s.created_by = NULLIF($2::text, '')::uuid)`, segmentID, userID,
+		  AND (s.visibility = 'public' OR s.created_by = NULLIF($2::text, '')::uuid OR $3 = true)`, segmentID, userID, isAdmin,
 	).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&s.AllowedSportTypes, &s.AllowedSubTypes,
@@ -395,9 +407,16 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, updat
 		args = append(args, *update.ClimbType)
 		argIdx++
 	}
+	// Note: private→public MUST go through PublishSegment (handler blocks it via 400).
+	// This SET clause only handles public→private or same-value updates.
+	if update.Visibility != nil {
+		setClauses = append(setClauses, fmt.Sprintf("visibility = $%d", argIdx))
+		args = append(args, *update.Visibility)
+		argIdx++
+	}
 
 	if len(setClauses) == 0 {
-		return db.GetSegment(ctx, segmentID, "")
+		return db.GetSegment(ctx, segmentID, userID, false)
 	}
 
 	query := fmt.Sprintf("UPDATE segments SET %s WHERE id = $%d AND created_by = $%d",
@@ -412,7 +431,7 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, updat
 		return nil, nil
 	}
 
-	return db.GetSegment(ctx, segmentID, "")
+	return db.GetSegment(ctx, segmentID, userID, false)
 }
 
 // createNewSegmentVersion copies the latest segment_version into a new version row.
@@ -432,33 +451,55 @@ func (db *DB) createNewSegmentVersion(ctx context.Context, segmentID string) err
 	return nil
 }
 
-func (db *DB) DeleteSegment(ctx context.Context, userID, segmentID string) error {
-	// Prüfe ob es ein OSM-importiertes Lift-Segment ist
+func (db *DB) DeleteSegment(ctx context.Context, userID, segmentID string, isAdmin bool) error {
 	var segType string
 	var osmLiftID *int64
+	var createdBy string
 	err := db.Pool.QueryRow(ctx,
-		`SELECT segment_type, osm_lift_id FROM segments WHERE id = $1 AND created_by = $2`,
-		segmentID, userID).Scan(&segType, &osmLiftID)
+		`SELECT segment_type, osm_lift_id, created_by FROM segments WHERE id = $1`,
+		segmentID).Scan(&segType, &osmLiftID, &createdBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrSegmentNotFound
+	}
 	if err != nil {
-		return fmt.Errorf("segment not found or not owned by user")
+		return fmt.Errorf("delete segment: %w", err)
+	}
+	if !isAdmin && createdBy != userID {
+		return ErrSegmentNotAuthorized
 	}
 	if segType == "lift" && osmLiftID != nil {
-		return fmt.Errorf("OSM-imported lift segments cannot be deleted")
+		return ErrSegmentOSMLift
 	}
 
-	tag, err := db.Pool.Exec(ctx,
-		`DELETE FROM segments WHERE id = $1 AND created_by = $2`,
-		segmentID, userID)
+	tag, err := db.Pool.Exec(ctx, `DELETE FROM segments WHERE id = $1`, segmentID)
 	if err != nil {
 		return fmt.Errorf("delete segment: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("segment not found or not owned by user")
+		return ErrSegmentNotFound
 	}
+
+	// Audit: log admin deletions of other users' segments (DSGVO Art. 5(2) Rechenschaftspflicht).
+	if isAdmin && createdBy != userID {
+		slog.Info("admin deleted segment", "admin_id", userID, "segment_id", segmentID, "segment_owner", createdBy)
+	}
+
 	return nil
 }
 
-func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType string, isReverse *bool, gearID string) ([]model.SegmentEffort, error) {
+// PublishSegment sets a private segment to public.
+// Only the creator may publish. Returns false if segment not found, not owned, or already public.
+func (db *DB) PublishSegment(ctx context.Context, segmentID, creatorID string) (bool, error) {
+	tag, err := db.Pool.Exec(ctx,
+		`UPDATE segments SET visibility = 'public' WHERE id = $1 AND created_by = $2 AND visibility = 'private'`,
+		segmentID, creatorID)
+	if err != nil {
+		return false, fmt.Errorf("publish segment: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType string, isReverse *bool, gearID string, onlyUserID string) ([]model.SegmentEffort, error) {
 	query := `
 		SELECT se.id, se.segment_id, se.segment_version_id, se.activity_id,
 		       se.user_id, se.started_at, se.elapsed_time_s,
@@ -472,11 +513,23 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 		FROM segment_efforts se
 		JOIN segments s ON s.id = se.segment_id
 		JOIN users u ON u.id = se.user_id
-		LEFT JOIN gear g ON g.id = se.gear_id
-		WHERE se.segment_id = $1 AND se.in_leaderboard = true`
+		LEFT JOIN gear g ON g.id = se.gear_id`
 
 	args := []any{segmentID}
 	argIdx := 2
+
+	if onlyUserID != "" {
+		// "Nur ich": show all own efforts including from private activities.
+		query += `
+		WHERE se.segment_id = $1 AND se.in_leaderboard = true AND se.user_id = $` + fmt.Sprint(argIdx)
+		args = append(args, onlyUserID)
+		argIdx++
+	} else {
+		// "Alle": JOIN activities to exclude efforts from private activities.
+		query += `
+		JOIN activities act ON act.id = se.activity_id AND act.visibility = 'public'
+		WHERE se.segment_id = $1 AND se.in_leaderboard = true`
+	}
 
 	if sportType != "" {
 		query += fmt.Sprintf(" AND se.sport_type = $%d", argIdx)
@@ -597,40 +650,63 @@ func (db *DB) InsertSegmentEffort(ctx context.Context, effort *model.SegmentEffo
 }
 
 func (db *DB) UpdateSegmentEffortRanks(ctx context.Context, segmentID string) error {
-	// Re-rank all efforts for this segment, grouped by (sport_type, is_reverse)
+	// Two CTEs:
+	// global_ranked: ranks efforts from non-private activities only (for public leaderboard).
+	// personal_ranked: ranks ALL of a user's efforts, including private activities.
+	//   Intentional: a user should see their own personal best even if the activity is private.
+	//   The global rank (rank_overall) will be NULL for private-activity efforts — that's correct.
+	//
+	// TimescaleDB note: both CTEs include started_at so the UPDATE WHERE clause can use the
+	// composite PK (id, started_at) — required for efficient chunk pruning on the hypertable.
 	_, err := db.Pool.Exec(ctx, `
-		WITH ranked AS (
-			SELECT id, started_at,
+		WITH
+		global_ranked AS (
+			SELECT se.id, se.started_at,
 			       ROW_NUMBER() OVER (
-			           PARTITION BY sport_type, is_reverse
-			           ORDER BY elapsed_time_s ASC
+			           PARTITION BY se.sport_type, se.is_reverse
+			           ORDER BY se.elapsed_time_s ASC
 			       ) AS rk,
+			       (ROW_NUMBER() OVER (
+			           PARTITION BY se.sport_type, se.is_reverse
+			           ORDER BY se.elapsed_time_s ASC
+			       ) = 1) AS is_record
+			FROM segment_efforts se
+			JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public'
+			WHERE se.segment_id = $1 AND se.in_leaderboard = true
+		),
+		personal_ranked AS (
+			SELECT id, started_at,
 			       ROW_NUMBER() OVER (
 			           PARTITION BY sport_type, is_reverse, user_id
 			           ORDER BY elapsed_time_s ASC
-			       ) AS user_rk,
-			       CASE WHEN ROW_NUMBER() OVER (
-			           PARTITION BY sport_type, is_reverse
-			           ORDER BY elapsed_time_s ASC
-			       ) = 1 THEN true ELSE false END AS is_record
+			       ) AS user_rk
 			FROM segment_efforts
 			WHERE segment_id = $1 AND in_leaderboard = true
 		)
 		UPDATE segment_efforts se
-		SET rank_overall = r.rk,
-		    is_personal_best = (r.user_rk = 1),
-		    is_segment_record = r.is_record
-		FROM ranked r
-		WHERE se.id = r.id AND se.started_at = r.started_at`, segmentID)
+		SET rank_overall      = gr.rk,
+		    is_personal_best  = (pr.user_rk = 1),
+		    is_segment_record = COALESCE(gr.is_record, false)
+		FROM personal_ranked pr
+		LEFT JOIN global_ranked gr ON gr.id = pr.id AND gr.started_at = pr.started_at
+		WHERE se.id = pr.id AND se.started_at = pr.started_at`, segmentID)
 	if err != nil {
 		return fmt.Errorf("update effort ranks: %w", err)
 	}
 
-	// Update effort_count and athlete_count on the segment
+	// Update effort_count and athlete_count: public activities only.
 	_, err = db.Pool.Exec(ctx, `
 		UPDATE segments SET
-			effort_count = (SELECT COUNT(*) FROM segment_efforts WHERE segment_id = $1),
-			athlete_count = (SELECT COUNT(DISTINCT user_id) FROM segment_efforts WHERE segment_id = $1)
+			effort_count = (
+				SELECT COUNT(*) FROM segment_efforts se
+				JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public'
+				WHERE se.segment_id = $1
+			),
+			athlete_count = (
+				SELECT COUNT(DISTINCT se.user_id) FROM segment_efforts se
+				JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public'
+				WHERE se.segment_id = $1
+			)
 		WHERE id = $1`, segmentID)
 	if err != nil {
 		return fmt.Errorf("update segment counts: %w", err)
@@ -963,7 +1039,7 @@ func (db *DB) ImportLiftSegments(ctx context.Context, userID string) (int, error
 		_, err := db.Pool.Exec(ctx, `
 			INSERT INTO segments (created_by, name, sport_group, segment_type,
 			                      segment_type_meta, osm_lift_id, visibility)
-			VALUES ($1, $2, 'generic', 'lift', '{}', $3, 'private')
+			VALUES ($1, $2, 'generic', 'lift', '{}', $3, 'public')
 		`, userID, segName, osmID)
 		if err != nil {
 			continue
@@ -1023,6 +1099,50 @@ func (db *DB) ListActivityIDsForSegmentBackfill(ctx context.Context, userID, seg
 		return nil, fmt.Errorf("list activity ids for segment backfill: %w", err)
 	}
 	return ids, nil
+}
+
+// ListAllActivityIDsForSegmentBackfill returns activity IDs from ALL users
+// whose track passes within 100m of the given segment. Used when publishing
+// a previously private segment (full recompute across all users).
+func (db *DB) ListAllActivityIDsForSegmentBackfill(ctx context.Context, segmentID string) ([]string, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT at.activity_id
+		FROM activity_tracks at
+		JOIN LATERAL (
+			SELECT track FROM segment_versions
+			WHERE segment_id = $1
+			ORDER BY version_number DESC
+			LIMIT 1
+		) sv ON true
+		WHERE at.track_full IS NOT NULL
+		  AND sv.track IS NOT NULL
+		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`,
+		segmentID)
+	if err != nil {
+		return nil, fmt.Errorf("list all activity ids for segment backfill: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan activity id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// DeleteAllSegmentEffortsBySegment removes ALL efforts for a segment across all users.
+// Used when publishing a previously private segment (full recompute).
+func (db *DB) DeleteAllSegmentEffortsBySegment(ctx context.Context, segmentID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`DELETE FROM segment_efforts WHERE segment_id = $1`, segmentID)
+	if err != nil {
+		return fmt.Errorf("delete all segment efforts by segment: %w", err)
+	}
+	return nil
 }
 
 // InsertSegmentEffortsBatch inserts multiple segment efforts in a single multi-row INSERT.

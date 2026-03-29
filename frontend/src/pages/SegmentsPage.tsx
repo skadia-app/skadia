@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, recomputeSegment, type Segment } from '@/api/segments'
+import { getMe } from '@/api/auth'
 import { useModal } from '@/lib/modal'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
@@ -9,6 +10,7 @@ import { fmtDuration, fmtDist } from '@/lib/format'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
 import SegmentEditModal from '@/components/SegmentEditModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
+import { Lock, Trash2 } from 'lucide-react'
 
 const SPORT_GROUP_LABELS: Record<string, string> = {
   bike: 'Radfahren',
@@ -59,6 +61,12 @@ export default function SegmentsPage() {
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
   const [editorMode, setEditorMode] = useState<'draw' | null>(null)
   const [editingSegment, setEditingSegment] = useState<Segment | null>(null)
+
+  const { data: me } = useQuery({
+    queryKey: ['me'],
+    queryFn: getMe,
+    staleTime: 60_000,
+  })
 
   // Fetch all sport groups that have at least one segment (for hideUnused filtering)
   const { data: allGroupsData } = useQuery({
@@ -301,9 +309,11 @@ export default function SegmentsPage() {
             <div
               key={segment.id}
               onClick={() => navigate(`/segments/${segment.id}`)}
-              className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4
-                         hover:border-neutral-300 dark:hover:border-neutral-700
-                         hover:shadow-sm transition-all cursor-pointer group"
+              className={`rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-sm transition-all cursor-pointer group ${
+                segment.visibility === 'private' && segment.created_by !== me?.user_id
+                  ? 'opacity-60 ring-1 ring-neutral-600'
+                  : ''
+              }`}
             >
               <div className="flex items-start justify-between mb-2">
                 <div className="flex items-center gap-2 min-w-0">
@@ -313,6 +323,9 @@ export default function SegmentsPage() {
                   <h3 className="font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors truncate">
                     {segment.name}
                   </h3>
+                  {segment.visibility === 'private' && (
+                    <Lock className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+                  )}
                   {segment.segment_type === 'trail' && (
                     <DifficultyBadge meta={segment.segment_type_meta ?? {}} />
                   )}
@@ -337,16 +350,15 @@ export default function SegmentsPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
                   </button>
-                  {segment.segment_type !== 'lift' && (
-                  <button
-                    onClick={(e) => handleDelete(e, segment.id)}
-                    className="p-1 rounded text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer transition-colors"
-                    title="Segment löschen"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
+                  {/* Show delete if creator OR admin. Admin sees all segments including private. */}
+                  {segment.segment_type !== 'lift' && (segment.created_by === me?.user_id || me?.is_admin) && (
+                    <button
+                      onClick={(e) => handleDelete(e, segment.id)}
+                      className="p-1 rounded text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer transition-colors"
+                      title="Segment löschen"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   )}
                 </div>
               </div>
@@ -358,7 +370,12 @@ export default function SegmentsPage() {
                 {segment.elevation_gain_m != null && segment.elevation_gain_m > 0 && (
                   <span>+{Math.round(segment.elevation_gain_m)} m</span>
                 )}
-                <span>{segment.effort_count} {segment.effort_count === 1 ? 'Effort' : 'Efforts'}</span>
+                <span>
+                  {segment.effort_count} {segment.effort_count === 1 ? 'Effort' : 'Efforts'}
+                  {segment.ridden_count > 0 && (
+                    <span className="text-neutral-400 ml-1">· {segment.ridden_count} eigene</span>
+                  )}
+                </span>
               </div>
 
               <div className="flex items-center gap-2 mt-2">
@@ -406,11 +423,13 @@ export default function SegmentsPage() {
 
 function LeaderboardModal({ segmentId, segmentName, onClose }: { segmentId: string; segmentName: string; onClose: () => void }) {
   const [direction, setDirection] = useState<'all' | 'forward' | 'reverse'>('all')
+  const [scope, setScope] = useState<'all' | 'mine'>('all')
+
   const isReverse = direction === 'all' ? undefined : direction === 'forward' ? false : true
 
   const { data: entries = [], isLoading } = useQuery({
-    queryKey: ['segment-leaderboard', segmentId, direction],
-    queryFn: () => fetchSegmentLeaderboard(segmentId, isReverse),
+    queryKey: ['segment-leaderboard', segmentId, direction, scope],
+    queryFn: () => fetchSegmentLeaderboard(segmentId, isReverse, scope === 'mine'),
   })
 
   return (
@@ -425,6 +444,18 @@ function LeaderboardModal({ segmentId, segmentName, onClose }: { segmentId: stri
             <p className="text-sm text-neutral-500 dark:text-neutral-400">{segmentName}</p>
           </div>
           <div className="flex items-center gap-3">
+            {/* Scope: Alle / Nur ich */}
+            <div className="flex gap-1">
+              {(['all', 'mine'] as const).map(s => (
+                <button key={s}
+                  onClick={() => setScope(s)}
+                  className={`px-2 py-1 text-xs rounded cursor-pointer ${scope === s ? 'bg-neutral-700 text-white dark:bg-neutral-200 dark:text-neutral-900' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
+                >
+                  {s === 'all' ? 'Alle' : 'Nur ich'}
+                </button>
+              ))}
+            </div>
+            {/* Direction */}
             <div className="flex gap-1">
               {(['all', 'forward', 'reverse'] as const).map(dir => (
                 <button key={dir}
@@ -469,15 +500,19 @@ function LeaderboardModal({ segmentId, segmentName, onClose }: { segmentId: stri
                     className={`border-b border-neutral-100 dark:border-neutral-800 ${i % 2 !== 0 ? 'bg-neutral-50/50 dark:bg-neutral-800/20' : ''}`}
                   >
                     <td className="px-3 py-2 text-neutral-900 dark:text-neutral-100">
-                      {entry.rank === 1 ? (
-                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-bold text-xs">
-                          1
-                        </span>
+                      {entry.rank_overall != null ? (
+                        entry.rank_overall === 1 ? (
+                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-bold text-xs">
+                            1
+                          </span>
+                        ) : (
+                          <span className="text-neutral-600 dark:text-neutral-400">#{entry.rank_overall}</span>
+                        )
                       ) : (
-                        <span className="text-neutral-600 dark:text-neutral-400">#{entry.rank}</span>
+                        <span className="text-neutral-600 dark:text-neutral-400">–</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-neutral-900 dark:text-neutral-100">{entry.athlete_name}</td>
+                    <td className="px-3 py-2 text-neutral-900 dark:text-neutral-100">{entry.display_name}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-neutral-900 dark:text-neutral-100">
                       {fmtDuration(entry.elapsed_time_s)}
                     </td>
