@@ -2145,7 +2145,7 @@ func (db *DB) ListActivityIDsFiltered(ctx context.Context, userID string, filter
 }
 
 // FindActivitiesByTimeRange findet Aktivitäten in einem Zeitfenster mit passendem Sport.
-// Wird für Tier-1 Temporal-Matching im DuplicateDetector verwendet.
+// Wird für Tier-1 GPS-Identity-Matching im DuplicateDetector verwendet.
 // Sport-Filter wird nur angewendet wenn sportType bekannt ist (nicht "unknown"/"generic"/leer),
 // damit plattformübergreifende Duplikate erkannt werden (z.B. Garmin "cycling" vs Komoot "unknown").
 func (db *DB) FindActivitiesByTimeRange(ctx context.Context, userID string, from, to time.Time, sportType string) ([]model.Activity, error) {
@@ -2159,7 +2159,7 @@ func (db *DB) FindActivitiesByTimeRange(ctx context.Context, userID string, from
 		                avg_cadence, avg_temperature_c, elevation_gain_m
 		         FROM activities
 		         WHERE user_id = $1 AND started_at BETWEEN $2 AND $3 AND sport_type = $4
-		         LIMIT 5`
+		         LIMIT 6`
 		args = []any{userID, from, to, sportType}
 	} else {
 		query = `SELECT id, sport_type, started_at, distance_m,
@@ -2167,7 +2167,7 @@ func (db *DB) FindActivitiesByTimeRange(ctx context.Context, userID string, from
 		                avg_cadence, avg_temperature_c, elevation_gain_m
 		         FROM activities
 		         WHERE user_id = $1 AND started_at BETWEEN $2 AND $3
-		         LIMIT 5`
+		         LIMIT 6`
 		args = []any{userID, from, to}
 	}
 
