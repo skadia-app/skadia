@@ -2,8 +2,6 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Link } from 'react-router-dom'
-import { format } from 'date-fns'
-import { de } from 'date-fns/locale'
 import { fetchActivities } from '@/api/activities'
 import type { Activity, Gear, MaintenanceAlert } from '@/api/types'
 import { fetchGear, fetchMaintenanceAlerts } from '@/api/gear'
@@ -310,7 +308,10 @@ export default function DashboardPage() {
                   {a.title ?? sportLabel(a.sport_type, a.sub_type)}
                 </span>
                 <span className="text-xs text-neutral-400 flex-shrink-0">
-                  {format(new Date(a.started_at), 'dd. MMM', { locale: de })}
+                  {new Date(a.started_at).toLocaleDateString('de-DE', {
+                    day: '2-digit', month: 'short',
+                    ...(a.timezone ? { timeZone: a.timezone } : {}),
+                  })}
                 </span>
                 <span className="text-xs text-neutral-400 flex-shrink-0 hidden sm:inline">
                   {formatDuration(a.moving_time_s ?? a.elapsed_time_s)}

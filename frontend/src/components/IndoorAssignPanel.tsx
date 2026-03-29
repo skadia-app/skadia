@@ -3,8 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchActivities } from '@/api/activities'
 import { createTag, syncTagLocation, assignActivitiesToTag } from '@/api/tags'
 import type { Tag } from '@/api/tags'
-import { format } from 'date-fns'
-import { de } from 'date-fns/locale'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import ColorPicker from '@/components/ColorPicker'
 
@@ -249,7 +247,10 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
             </div>
             {sortedFiltered.map(act => {
               const dateStr = act.started_at
-                ? format(new Date(act.started_at), 'EEE dd.MM.', { locale: de })
+                ? new Date(act.started_at).toLocaleDateString('de-DE', {
+                    weekday: 'short', day: '2-digit', month: '2-digit',
+                    ...(act.timezone ? { timeZone: act.timezone } : {}),
+                  })
                 : ''
               const dur = act.elapsed_time_s
                 ? `${Math.floor(act.elapsed_time_s / 3600)}h ${Math.floor((act.elapsed_time_s % 3600) / 60)}m`
