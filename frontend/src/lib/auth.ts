@@ -81,14 +81,14 @@ function scheduleRefresh(token: string): void {
 
   if (refreshInMs <= 0) {
     void refreshToken().then(ok => {
-      if (!ok) window.location.href = '/login'
+      if (!ok) redirectToLogin()
     })
     return
   }
 
   refreshTimer = setTimeout(() => {
     void refreshToken().then(ok => {
-      if (!ok) window.location.href = '/login'
+      if (!ok) redirectToLogin()
     })
   }, refreshInMs)
 }
@@ -170,7 +170,7 @@ export async function apiFetch(input: string, init?: RequestInit): Promise<Respo
     if (!refreshed) {
       // Refresh failed — redirect to login
       clearToken()
-      window.location.href = '/login'
+      redirectToLogin()
     }
     // Non-idempotent: token refreshed for future calls, but return 401 to caller
   }
@@ -182,6 +182,14 @@ const PUBLIC_PATHS = [
   '/login', '/register', '/forgot-password', '/reset-password',
   '/verify-email', '/callback', '/confirm-email-change', '/cancel-deletion',
 ]
+
+/** Redirect to login, preserving the current URL as returnTo parameter. */
+export function redirectToLogin(): void {
+  const isPublic = PUBLIC_PATHS.some(p => window.location.pathname.startsWith(p))
+  if (isPublic) return
+  const returnTo = window.location.pathname + window.location.search
+  window.location.href = `/login?returnTo=${encodeURIComponent(returnTo)}`
+}
 
 /**
  * Registers a visibilitychange listener that proactively refreshes the access
@@ -203,7 +211,7 @@ export function initVisibilityRefresh(): void {
       const isPublicPath = PUBLIC_PATHS.some(p => window.location.pathname.startsWith(p))
       if (!isPublicPath) {
         void tryRestoreSession().then(ok => {
-          if (!ok) window.location.href = '/login'
+          if (!ok) redirectToLogin()
         })
       }
       return
@@ -216,7 +224,7 @@ export function initVisibilityRefresh(): void {
     // Refresh if the token has expired or will expire within the next 60 seconds
     if (payload.exp - nowSec <= 60) {
       void refreshToken().then(ok => {
-        if (!ok) window.location.href = '/login'
+        if (!ok) redirectToLogin()
       })
     }
   })

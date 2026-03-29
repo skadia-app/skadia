@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Navigate, Outlet } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { isAuthenticated, tryRestoreSession } from '@/lib/auth'
 
 export default function AuthGuard() {
@@ -27,8 +27,11 @@ export default function AuthGuard() {
     )
   }
 
+  const location = useLocation()
+
   if (!authed) {
-    return <Navigate to="/login" replace />
+    const returnTo = encodeURIComponent(location.pathname + location.search)
+    return <Navigate to={`/login?returnTo=${returnTo}`} replace />
   }
 
   return <Outlet />

@@ -1,4 +1,4 @@
-import { getToken, refreshToken, clearToken } from '@/lib/auth'
+import { getToken, refreshToken, clearToken, redirectToLogin } from '@/lib/auth'
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
@@ -18,7 +18,7 @@ export async function apiClient<T>(path: string, options: RequestOptions = {}): 
       return retry.json() as Promise<T>
     }
     clearToken()
-    window.location.href = '/login'
+    redirectToLogin()
     throw new ApiError(401, 'Unauthorized')
   }
 
@@ -84,7 +84,7 @@ export function apiUploadWithProgress<T>(
     xhr.addEventListener('load', () => {
       if (xhr.status === 401) {
         clearToken()
-        window.location.href = '/login'
+        redirectToLogin()
         reject(new ApiError(401, 'Unauthorized'))
         return
       }
@@ -133,7 +133,7 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
       return retry.json() as Promise<T>
     }
     clearToken()
-    window.location.href = '/login'
+    redirectToLogin()
     throw new ApiError(401, 'Unauthorized')
   }
 
@@ -168,7 +168,7 @@ export async function apiDownload(path: string): Promise<{ blob: Blob; filename?
   })
   if (res.status === 401) {
     clearToken()
-    window.location.href = '/login'
+    redirectToLogin()
     throw new ApiError(401, 'Unauthorized')
   }
   if (!res.ok) throw new ApiError(res.status, await res.text())

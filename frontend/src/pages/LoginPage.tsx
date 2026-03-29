@@ -22,9 +22,11 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [config, setConfig] = useState<AuthConfig | null>(null)
 
+  const returnTo = searchParams.get('returnTo') || '/activities'
+
   useEffect(() => {
     if (isAuthenticated()) {
-      navigate('/activities', { replace: true })
+      navigate(returnTo, { replace: true })
       return
     }
 
@@ -52,7 +54,7 @@ export default function LoginPage() {
     try {
       const data = await loginWithEmail(email, password)
       setToken(data.token)
-      navigate('/activities', { replace: true })
+      navigate(returnTo, { replace: true })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen'
       setError(getAuthErrorMessage(msg))

@@ -11,7 +11,7 @@ import {
   type ChatSession,
   type ChatMessage,
 } from '@/api/chat'
-import { getToken, refreshToken, clearToken } from '@/lib/auth'
+import { getToken, refreshToken, clearToken, redirectToLogin } from '@/lib/auth'
 import { API_BASE } from '@/api/client'
 import ChatMessageList, { type StreamMessage } from '@/components/chat/ChatMessageList'
 import ChatInput from '@/components/chat/ChatInput'
@@ -162,7 +162,7 @@ export default function ChatPage() {
           })
         } else {
           clearToken()
-          window.location.href = '/login'
+          redirectToLogin()
           return
         }
       }
