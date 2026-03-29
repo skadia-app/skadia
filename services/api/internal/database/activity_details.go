@@ -415,7 +415,8 @@ func (db *DB) InsertSplits(ctx context.Context, activityID string, splits []mode
 				$13, $14, $15,
 				$16, $17, $18, $19,
 				$20
-			)`,
+			)
+			ON CONFLICT (activity_id, message_index) DO NOTHING`,
 			activityID, s.MessageIndex, nilIfEmpty(s.SplitType),
 			nilIfZeroTime(s.StartTime), nilIfZeroTime(s.EndTime),
 			nilIfZeroF64(s.TotalElapsedTimeS), nilIfZeroF64(s.TotalTimerTimeS), nilIfZeroF64(s.TotalMovingTimeS),
