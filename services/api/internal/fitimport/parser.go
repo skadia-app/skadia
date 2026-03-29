@@ -431,7 +431,8 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		case typedef.ManufacturerZwift, typedef.ManufacturerZwiftByte,
 			typedef.ManufacturerBkool, typedef.ManufacturerMywhoosh,
 			typedef.ManufacturerVirtualtraining, typedef.ManufacturerIctrainer,
-			typedef.ManufacturerVirtugo:
+			typedef.ManufacturerVirtugo,
+			typedef.ManufacturerRgtCycling:
 			isVirtual = true
 		}
 	}
@@ -1382,12 +1383,22 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 			source = "SRM"
 		case mfr == typedef.ManufacturerStrava:
 			source = "Strava"
-		case strings.Contains(strings.ToLower(mfrStr), "trainingpeaks"):
-			source = "TrainingPeaks"
-		case mfr == typedef.ManufacturerZwift:
-			source = "Zwift"
+		case mfr == typedef.ManufacturerDevelopment:
+			// manufacturer_id=255: Apple Watch, Amazfit, Huawei etc.
+			// Resolve from ProductName pattern (Watch7,12 → Apple Watch Ultra 3).
+			// DeviceInfo.Descriptor contains user-editable device name ("Ray's Apple Watch")
+			// and is NOT used for identification — only ProductName is reliable.
+			devSource, devName := ResolveDevelopmentManufacturer(fileId.ProductName, "")
+			if devSource != "" {
+				source = devSource
+			}
+			if devName != "" {
+				device = devName
+			}
 		default:
-			if !strings.HasPrefix(mfrStr, "Manufacturer") && mfrStr != "" {
+			if mapped := MapVirtualPlatform(mfrStr); mapped != "" {
+				source = mapped
+			} else if !strings.HasPrefix(mfrStr, "Manufacturer") && mfrStr != "" {
 				source = mfrStr
 			}
 		}
@@ -1446,9 +1457,23 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 		}
 		productName := ResolveProductName(mfrID, prodID, "")
 		mfrStr := typedef.Manufacturer(mfrID).String()
+		mfrDisplay := FormatManufacturer(mfrStr)
+
+		// Override manufacturer display for resolved development devices
+		if mfrID == uint16(typedef.ManufacturerDevelopment) && source != "" && source != "development" {
+			mfrDisplay = source
+			if productName == "" || productName == "Development" {
+				productName = device
+			}
+		}
+		// Override for virtual platforms
+		if mapped := MapVirtualPlatform(mfrStr); mapped != "" {
+			mfrDisplay = mapped
+		}
+
 		du = &model.DeviceUpsert{
 			Type:           "recorder",
-			Manufacturer:   FormatManufacturer(mfrStr),
+			Manufacturer:   mfrDisplay,
 			ManufacturerID: int(mfrID),
 			ProductName:    productName,
 			ProductID:      int(prodID),
