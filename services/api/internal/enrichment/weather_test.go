@@ -101,10 +101,10 @@ func TestMapWeatherCodeReturnsCorrectConditions(t *testing.T) {
 		expectedCondition string
 		expectedAnyTag    string
 	}{
-		{0, "Klar", "sonnig"},
-		{1, "Überwiegend klar", "sonnig"},
-		{2, "Teilweise bewölkt", "bewölkt"},
-		{3, "Bedeckt", "bewölkt"},
+		{0, "klar", "sonnig"},
+		{1, "überwiegend klar", "sonnig"},
+		{2, "teilweise bewölkt", "bewölkt"},
+		{3, "bedeckt", "bewölkt"},
 		{45, "Nebel", "nebel"},
 		{61, "Regen", "regen"},
 		{71, "Schneefall", "schnee"},
