@@ -717,6 +717,9 @@ func (h *Handler) backfillSunTimesForLocationTag(ctx context.Context, userID, ta
 	}
 	rows.Close()
 
+	// Determine timezone once for this location tag (same for all linked activities)
+	tz := enrichment.DetermineTimezone(*lat, *lng)
+
 	for _, c := range candidates {
 		sun := enrichment.CalculateSunTimes(*lat, *lng, *lat, *lng, c.startedAt, c.endedAt, nil)
 		periods := enrichment.TimeOfDayPeriods(*lat, *lng, c.startedAt, c.endedAt)
@@ -730,6 +733,9 @@ func (h *Handler) backfillSunTimesForLocationTag(ctx context.Context, userID, ta
 		}
 		if len(periods) > 0 {
 			fields["time_of_day"] = periods
+		}
+		if tz != "" {
+			fields["timezone"] = tz
 		}
 		if len(fields) > 0 {
 			if err := h.DB.UpdateEnrichmentFields(ctx, c.id, fields); err != nil {

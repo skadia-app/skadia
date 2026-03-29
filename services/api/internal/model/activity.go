@@ -121,6 +121,10 @@ type Activity struct {
 	// Unified FileStore — link to user_files registry entry for the original file.
 	FileID *string `json:"file_id,omitempty"`
 
+	// Timezone is the IANA timezone string (e.g. "America/Los_Angeles") determined
+	// from the GPS start position. NULL for indoor/virtual activities without GPS.
+	Timezone *string `json:"timezone,omitempty"`
+
 	// FIT SDK — Workout FK
 	WorkoutID *string `json:"workout_id,omitempty"`
 

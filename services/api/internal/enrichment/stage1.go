@@ -4,9 +4,11 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"sync"
 	"time"
 
 	suncalc "github.com/sixdouglas/suncalc"
+	"github.com/ringsaturn/tzf"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
@@ -15,6 +17,32 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
+
+var (
+	tzFinder     tzf.F
+	tzFinderOnce sync.Once
+)
+
+func getTimezoneFinderInstance() tzf.F {
+	tzFinderOnce.Do(func() {
+		var err error
+		tzFinder, err = tzf.NewDefaultFinder()
+		if err != nil {
+			slog.Error("failed to init timezone finder", "error", err)
+		}
+	})
+	return tzFinder
+}
+
+// DetermineTimezone returns the IANA timezone string for given coordinates.
+// Note: tzf expects longitude first, then latitude.
+func DetermineTimezone(lat, lng float64) string {
+	finder := getTimezoneFinderInstance()
+	if finder == nil {
+		return ""
+	}
+	return finder.GetTimezoneName(lng, lat)
+}
 
 // RunGeoAndPublishStage2 runs geo-enrichment (summits, settlements, forests, water,
 // borders, surfaces) and emits the Stage-2 NATS event.
@@ -136,6 +164,14 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 		if sun.SunsetAt != nil {
 			fields["sunset_at"] = *sun.SunsetAt
+		}
+	}
+
+	// Timezone from GPS coordinates (skip virtual — GPS is simulated)
+	if data.StartLat != 0 && !data.IsVirtual {
+		tz := DetermineTimezone(data.StartLat, data.StartLng)
+		if tz != "" {
+			fields["timezone"] = tz
 		}
 	}
 
