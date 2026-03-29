@@ -380,6 +380,31 @@ func (h *Handler) BackfillTimezones(w http.ResponseWriter, r *http.Request) {
 		updated++
 	}
 
+	// Pass 2: Indoor activities with location tags but no timezone
+	rows2, err := h.DB.Pool.Query(ctx,
+		`SELECT a.id, a.location_lat, a.location_lng
+		 FROM activities a
+		 WHERE a.user_id = $1
+		   AND a.has_gps = FALSE AND a.is_virtual = FALSE
+		   AND a.timezone IS NULL
+		   AND a.location_lat IS NOT NULL AND a.location_lng IS NOT NULL`,
+		userID)
+	if err == nil {
+		defer rows2.Close()
+		for rows2.Next() {
+			var id string
+			var lat, lng float64
+			if err := rows2.Scan(&id, &lat, &lng); err != nil {
+				continue
+			}
+			tz := enrichment.DetermineTimezone(lat, lng)
+			if tz != "" {
+				h.DB.SetActivityTimezone(ctx, id, tz)
+				updated++
+			}
+		}
+	}
+
 	slog.Info("timezone backfill complete", "user_id", userID, "updated", updated)
 	httputil.WriteJSON(w, http.StatusOK, map[string]int{"updated": updated})
 }

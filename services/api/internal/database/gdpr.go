@@ -80,7 +80,7 @@ func (db *DB) PurgeDeletedUsers(ctx context.Context, storageCleanup func(ctx con
 //	auth_audit_log (SET NULL), activity_weather, activity_events,
 //	activity_sets, activity_laps, workouts, workout_steps, devices,
 //	route_photos, planned_routes (explicit), user_files, user_file_schemas,
-//	file_attachments, etc.
+//	file_attachments, activity_dive_settings, activity_dive_gases, etc.
 //
 // Phase 1.5: Best-effort external storage cleanup via ShadowFS.
 // storageCleanup is an optional callback that deletes all stored files for a user;
