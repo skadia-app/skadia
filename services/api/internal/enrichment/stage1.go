@@ -2,6 +2,7 @@ package enrichment
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
@@ -173,6 +174,45 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		if tz != "" {
 			fields["timezone"] = tz
 		}
+	}
+
+	// Timezone fallback: UTC offset from Activity LocalTimestamp (stage 3)
+	// This only provides an offset, not an IANA timezone string — stored as
+	// fixed-offset string like "UTC+02:00" for display purposes.
+	if _, hasTz := fields["timezone"]; !hasTz && !data.LocalTimestamp.IsZero() && !data.StartedAt.IsZero() {
+		offset := data.LocalTimestamp.Sub(data.StartedAt)
+		// Sanity check: offset should be between -14h and +14h
+		if offset >= -14*time.Hour && offset <= 14*time.Hour {
+			totalMinutes := int(offset.Minutes())
+			hours := totalMinutes / 60
+			minutes := totalMinutes % 60
+			if minutes < 0 {
+				minutes = -minutes
+			}
+			sign := "+"
+			if hours < 0 {
+				sign = "-"
+				hours = -hours
+			}
+			fields["timezone"] = fmt.Sprintf("UTC%s%02d:%02d", sign, hours, minutes)
+		}
+	}
+
+	// Timezone fallback: DeviceSettings UTC offset (stage 4)
+	// Quarter-hour increments (e.g., 20 = +5:00, -6 = -1:30)
+	if _, hasTz := fields["timezone"]; !hasTz && data.DeviceTzOffsetQuarters != 0 {
+		totalMinutes := int(data.DeviceTzOffsetQuarters) * 15
+		hours := totalMinutes / 60
+		minutes := totalMinutes % 60
+		if minutes < 0 {
+			minutes = -minutes
+		}
+		sign := "+"
+		if totalMinutes < 0 {
+			sign = "-"
+			hours = -hours
+		}
+		fields["timezone"] = fmt.Sprintf("UTC%s%02d:%02d", sign, hours, minutes)
 	}
 
 	// TRIMP calculation (requires HR stream)
