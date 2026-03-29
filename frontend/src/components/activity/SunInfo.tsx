@@ -3,9 +3,10 @@ import { fmtTime } from '@/lib/format'
 interface SunInfoProps {
   sunriseAt?: string | null
   sunsetAt?: string | null
+  timezone?: string | null
 }
 
-export function SunInfo({ sunriseAt, sunsetAt }: SunInfoProps) {
+export function SunInfo({ sunriseAt, sunsetAt, timezone }: SunInfoProps) {
   if (!sunriseAt && !sunsetAt) return null
 
   return (
@@ -13,13 +14,13 @@ export function SunInfo({ sunriseAt, sunsetAt }: SunInfoProps) {
       {sunriseAt && (
         <span className="flex items-center gap-1.5">
           <span className="text-amber-500">&#9728;</span>
-          <span>{fmtTime(sunriseAt)}</span>
+          <span>{fmtTime(sunriseAt, timezone)}</span>
         </span>
       )}
       {sunsetAt && (
         <span className="flex items-center gap-1.5">
           <span className="text-accent-600">&#9790;</span>
-          <span>{fmtTime(sunsetAt)}</span>
+          <span>{fmtTime(sunsetAt, timezone)}</span>
         </span>
       )}
     </div>

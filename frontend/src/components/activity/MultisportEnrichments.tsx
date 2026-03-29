@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { useQueries } from '@tanstack/react-query'
-import { format } from 'date-fns'
-import { de } from 'date-fns/locale'
 import { fetchGeoTags, fetchStops, fetchSurfaces } from '@/api/enrichment'
-import { fmtDuration } from '@/lib/format'
+import { fmtDuration, fmtTime } from '@/lib/format'
 import type { Activity, GeoTag, ActivityStop, ActivitySurface } from '@/api/types'
 
 interface Props {
   childActivities: Activity[]
+  timezone?: string | null
 }
 
 // ── Geo-Tags rendering helpers ────────────────────────────────────────────────
@@ -284,7 +283,7 @@ function CollapsibleSection({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function MultisportEnrichments({ childActivities }: Props) {
+export default function MultisportEnrichments({ childActivities, timezone }: Props) {
   const ids = childActivities.map(c => c.id)
 
   const geoTagQueries = useQueries({
@@ -490,7 +489,7 @@ function StopsDisplay({ stops }: { stops: ActivityStop[] }) {
           >
             <div className="flex items-center gap-3">
               <span className="text-xs tabular-nums text-neutral-500 dark:text-neutral-400">
-                {format(new Date(stop.started_at), 'HH:mm', { locale: de })}
+                {fmtTime(stop.started_at, timezone)}
               </span>
               <PoiIcon poiType={stop.poi_type} />
               <span className={isFallback ? 'text-neutral-500 dark:text-neutral-400' : 'font-medium text-neutral-800 dark:text-neutral-200'}>

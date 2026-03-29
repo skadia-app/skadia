@@ -247,6 +247,9 @@ export interface Activity {
   computed_ngp_mps?: number | null
   tss_method?: string | null
   computed_if?: number | null
+
+  // ── Timezone ──
+  timezone?: string | null  // IANA timezone or UTC offset (e.g., "Europe/Berlin", "UTC+02:00")
 }
 
 export interface ActivitiesResponse {

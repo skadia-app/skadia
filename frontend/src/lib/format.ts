@@ -47,7 +47,54 @@ export function fmtDist(m?: number | null): string {
   return `${Math.round(m)} m`
 }
 
-/** Format an ISO date string as HH:MM (de-DE locale). */
-export function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+/** Format an ISO date string as HH:MM (de-DE locale). Optional timezone (IANA or UTC offset). */
+export function fmtTime(iso: string, timezone?: string | null): string {
+  const opts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }
+  if (timezone) opts.timeZone = timezone
+  return new Date(iso).toLocaleTimeString('de-DE', opts)
+}
+
+/** Format a Date object as HH:MM (de-DE locale). Optional timezone (IANA or UTC offset). */
+export function fmtTimeFromDate(date: Date, timezone?: string | null): string {
+  const opts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }
+  if (timezone) opts.timeZone = timezone
+  return date.toLocaleTimeString('de-DE', opts)
+}
+
+/**
+ * Format an ISO date string as a full weekday+date string (de-DE locale).
+ * Optional timezone — avoids date-fns format() which ignores timezone.
+ * Example: "Montag, 28. März 2026"
+ */
+export function fmtActivityDate(iso: string, timezone?: string | null): string {
+  const opts: Intl.DateTimeFormatOptions = {
+    weekday: 'long', day: '2-digit', month: 'long', year: 'numeric',
+  }
+  if (timezone) opts.timeZone = timezone
+  return new Date(iso).toLocaleDateString('de-DE', opts)
+}
+
+/**
+ * Format an ISO date string as short weekday+date (de-DE locale).
+ * Example: "Mo., 28. Mär. 2026"
+ */
+export function fmtActivityDateShort(iso: string, timezone?: string | null): string {
+  const opts: Intl.DateTimeFormatOptions = {
+    weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
+  }
+  if (timezone) opts.timeZone = timezone
+  return new Date(iso).toLocaleDateString('de-DE', opts)
+}
+
+/**
+ * Format an ISO date string as date + time (de-DE locale).
+ * Example: "28.03.2026, 10:15"
+ */
+export function fmtDateTime(iso: string, timezone?: string | null): string {
+  const opts: Intl.DateTimeFormatOptions = {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  }
+  if (timezone) opts.timeZone = timezone
+  return new Date(iso).toLocaleString('de-DE', opts)
 }
