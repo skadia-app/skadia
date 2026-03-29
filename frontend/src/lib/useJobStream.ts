@@ -167,6 +167,8 @@ export function useJobStream(userId: string) {
           connect()
         }, reconnectDelay())
       })
+  // Stability: qc is a singleton (QueryClient), broadcast is memoized with [tabId] (stable ref).
+  // Both have stable identity across renders, so connect is not recreated unnecessarily.
   }, [qc, broadcast])
 
   useEffect(() => {
