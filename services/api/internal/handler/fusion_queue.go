@@ -187,7 +187,9 @@ func (h *Handler) runFusionQueueCompute(jobID, userID string, startSeq int64) {
 		}
 	}
 
-	activityIDs, err := h.DB.GetFusionQueueActivities(ctx, userID, 50)
+	// No limit in background job — check ALL eligible activities.
+	// FindFusionCandidates returns fast for activities without temporal neighbors.
+	activityIDs, err := h.DB.GetFusionQueueActivities(ctx, userID, 0)
 	if err != nil {
 		slog.Error("fusion queue compute: load activities failed", "error", err)
 		h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error()) //nolint:errcheck
