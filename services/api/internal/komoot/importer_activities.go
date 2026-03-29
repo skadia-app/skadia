@@ -49,7 +49,7 @@ type KomootImportResult struct {
 
 // Import fetches all tour_recorded tours from Komoot and imports them as activities.
 // Duplicate detection is delegated to ImportService.ProcessActivity which runs
-// Tier-0 (Komoot Tour-ID) and Tier-1 (file hash + temporal match) internally.
+// Tier-0 (Komoot Tour-ID) and Tier-1 (file hash + GPS identity) internally.
 func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (*KomootImportResult, error) {
 	result := &KomootImportResult{
 		TourActivityMap: make(map[int64]string),

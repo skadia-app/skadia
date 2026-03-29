@@ -534,20 +534,24 @@ func (s *Service) ProcessActivity(ctx context.Context, userID string, data *mode
 		default: // enrich_missing
 			// Enrich scalar fields via COALESCE (existing values are never overwritten)
 			existing, _ := s.DB.GetActivity(ctx, match.ExistingActivityID)
-			if _, err := EnrichActivity(ctx, s.DB, match.ExistingActivityID, existing, data); err != nil {
+			enrichedCount, err := EnrichActivity(ctx, s.DB, match.ExistingActivityID, existing, data)
+			if err != nil {
 				slog.Warn("enrich duplicate failed", "activity", match.ExistingActivityID, "err", err)
 			}
 
 			// Child-table richness check: replace stream data if new data is richer
+			streamsReplaced := false
 			if existing != nil && s.compareStreamRichness(ctx, data, match.ExistingActivityID) > 0 {
 				if err := ReplaceActivity(ctx, s.DB, match.ExistingActivityID, data); err != nil {
 					slog.Warn("replace activity streams failed", "activity", match.ExistingActivityID, "err", err)
+				} else {
+					streamsReplaced = true
 				}
 			}
 
-			status := "enriched"
-			if match.Confidence == "platform_id" && len(backfilled) == 0 {
-				status = "skipped"
+			status := "skipped"
+			if enrichedCount > 0 || streamsReplaced || len(backfilled) > 0 {
+				status = "enriched"
 			}
 			return &ActivityResult{
 				ActivityID:            match.ExistingActivityID,

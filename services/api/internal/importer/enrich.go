@@ -2,58 +2,59 @@ package importer
 
 import (
 	"context"
-
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // buildEnrichFields erstellt die Map der zu aktualisierenden Felder für EnrichActivity.
-// Schreibt alle non-zero Felder aus newData — die COALESCE-Logik im DB-Layer
-// (UpdateEnrichmentFieldsSafe) stellt sicher, dass existierende Werte nicht überschrieben
-// werden. Die Go-seitige nil/0-Prüfung gegen existing entfällt dadurch vollständig.
+// Nur Felder bei denen existing nil/0 ist UND newData non-zero hat werden inkludiert.
+// Die COALESCE-Logik im DB-Layer (UpdateEnrichmentFieldsSafe) ist ein zusätzliches
+// Safety-Net gegen Race Conditions bei parallelen Imports.
 //
-// Regel: 0 gilt als "nicht gesetzt" für alle numerischen Metriken. Das ist ein
-// akzeptabler Trade-off, da legitime Null-Werte (z.B. 0 Höhenmeter) nicht von
-// "nie berechnet" unterscheidbar sind.
-func buildEnrichFields(_ *model.Activity, newData *model.ActivityData) map[string]any {
+// Regel: 0 gilt als "nicht gesetzt" für alle numerischen Metriken.
+func buildEnrichFields(existing *model.Activity, newData *model.ActivityData) map[string]any {
 	fields := map[string]any{}
-	if newData.AvgHeartRate > 0 {
+	missingF := func(p *float64) bool { return p == nil || *p == 0 }
+	missingI := func(p *int) bool { return p == nil || *p == 0 }
+
+
+	if newData.AvgHeartRate > 0 && (existing == nil || missingF(existing.AvgHeartRate)) {
 		fields["avg_heart_rate"] = newData.AvgHeartRate
 	}
-	if newData.MaxHeartRate > 0 {
+	if newData.MaxHeartRate > 0 && (existing == nil || missingI(existing.MaxHeartRate)) {
 		fields["max_heart_rate"] = newData.MaxHeartRate
 	}
-	if newData.AvgPowerW > 0 {
+	if newData.AvgPowerW > 0 && (existing == nil || missingF(existing.AvgPowerW)) {
 		fields["avg_power_w"] = newData.AvgPowerW
 	}
-	if newData.MaxPowerW > 0 {
+	if newData.MaxPowerW > 0 && (existing == nil || missingI(existing.MaxPowerW)) {
 		fields["max_power_w"] = newData.MaxPowerW
 	}
-	if newData.AvgCadence > 0 {
+	if newData.AvgCadence > 0 && (existing == nil || missingF(existing.AvgCadence)) {
 		fields["avg_cadence"] = newData.AvgCadence
 	}
-	if newData.AvgTemperatureC != 0 {
+	if newData.AvgTemperatureC != 0 && (existing == nil || missingF(existing.AvgTemperatureC)) {
 		fields["avg_temperature_c"] = newData.AvgTemperatureC
 	}
-	if newData.ElevationGainM > 0 {
+	if newData.ElevationGainM > 0 && (existing == nil || missingF(existing.ElevationGainM)) {
 		fields["elevation_gain_m"] = newData.ElevationGainM
 	}
-	if newData.ElevationLossM > 0 {
+	if newData.ElevationLossM > 0 && (existing == nil || missingF(existing.ElevationLossM)) {
 		fields["elevation_loss_m"] = newData.ElevationLossM
 	}
-	if newData.MaxElevationM != 0 {
+	if newData.MaxElevationM != 0 && (existing == nil || missingF(existing.MaxElevationM)) {
 		fields["max_elevation_m"] = newData.MaxElevationM
 	}
-	if newData.MinElevationM != 0 {
+	if newData.MinElevationM != 0 && (existing == nil || missingF(existing.MinElevationM)) {
 		fields["min_elevation_m"] = newData.MinElevationM
 	}
-	if newData.MovingTimeS > 0 {
+	if newData.MovingTimeS > 0 && (existing == nil || missingI(existing.MovingTimeS)) {
 		fields["moving_time_s"] = newData.MovingTimeS
 	}
-	if newData.TSS > 0 {
+	if newData.TSS > 0 && (existing == nil || missingF(existing.TSS)) {
 		fields["tss"] = newData.TSS
 	}
-	if newData.DistanceM > 0 {
+	if newData.DistanceM > 0 && (existing == nil || missingF(existing.DistanceM)) {
 		fields["distance_m"] = newData.DistanceM
 	}
 	return fields

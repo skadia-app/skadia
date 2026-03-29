@@ -65,21 +65,36 @@ func CheckTier1(ctx context.Context, db *database.DB, userID string, fileBytes [
 		}
 	}
 
-	// 5. Temporal Match: Zeitstempel ±60s + Sport + Distanz ±5%
+	// 5. GPS Track Identity: bei ähnlicher Startzeit GPS-Tracks auf Identität prüfen.
+	// Erkennt selbes Gerät in verschiedenen Formaten (z.B. FIT + GPX vom selben Garmin).
+	// Multi-Device-Aufzeichnungen (verschiedene GPS-Sensoren) haben ≥5-15m Drift
+	// und fallen unter 98% bei 10m Radius → werden als neue Aktivität importiert
+	// und von Tier 2 (Fusion-Queue) als Fusionskandidat erkannt.
 	if data != nil && !data.StartedAt.IsZero() {
-		from := data.StartedAt.Add(-60 * time.Second)
-		to := data.StartedAt.Add(60 * time.Second)
-		candidates, err := db.FindActivitiesByTimeRange(ctx, userID, from, to, data.SportType)
-		if err != nil {
-			return nil, err
-		}
-		for _, c := range candidates {
-			if data.DistanceM > 0 && c.DistanceM != nil && *c.DistanceM > 0 {
-				diff := math.Abs(*c.DistanceM-data.DistanceM) / data.DistanceM
-				if diff <= 0.05 {
+		trackNew := extractLatLngFromData(data.Streams)
+		if len(trackNew) >= 10 {
+			from := data.StartedAt.Add(-60 * time.Second)
+			to := data.StartedAt.Add(60 * time.Second)
+			// Keine Sport-Filterung: verschiedene Exportformate können verschiedene Sport-Typen melden
+			candidates, err := db.FindActivitiesByTimeRange(ctx, userID, from, to, "")
+			if err != nil {
+				return nil, err
+			}
+			for _, c := range candidates {
+				existingStreams, err := db.GetStreams(ctx, c.ID)
+				if err != nil {
+					continue
+				}
+				trackExisting := extractLatLng(existingStreams)
+				if len(trackExisting) < 10 {
+					continue
+				}
+				// 10m Radius + 98% Threshold: nur identische Tracks matchen (selbes Gerät).
+				overlap := GPSOverlapPercent(trackNew, trackExisting, 10)
+				if overlap >= 98 {
 					return &DuplicateMatch{
 						ExistingActivityID: c.ID,
-						Confidence:         "temporal",
+						Confidence:         "gps_identity",
 						MissingFields:      missingFields(&c),
 					}, nil
 				}
@@ -156,6 +171,17 @@ func CheckTier2(ctx context.Context, db *database.DB, userID string, activityID 
 
 // extractLatLng extrahiert lat/lng aus Streams (filtert nil).
 func extractLatLng(streams []model.StreamResponse) []LatLng {
+	out := make([]LatLng, 0, len(streams))
+	for _, s := range streams {
+		if s.Lat != nil && s.Lng != nil {
+			out = append(out, LatLng{Lat: *s.Lat, Lng: *s.Lng})
+		}
+	}
+	return out
+}
+
+// extractLatLngFromData extrahiert lat/lng aus geparsten StreamPoints (filtert nil).
+func extractLatLngFromData(streams []model.StreamPoint) []LatLng {
 	out := make([]LatLng, 0, len(streams))
 	for _, s := range streams {
 		if s.Lat != nil && s.Lng != nil {

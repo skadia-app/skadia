@@ -16,7 +16,7 @@ const (
 // DuplicateMatch ist ein sicheres Duplikat (Tier-1, hohe Konfidenz).
 type DuplicateMatch struct {
 	ExistingActivityID string
-	Confidence         string   // "hash" | "platform_id" | "temporal"
+	Confidence         string   // "hash" | "platform_id" | "gps_identity"
 	MissingFields      []string // Felder die in der bestehenden Aktivität fehlen/0 sind
 }
 

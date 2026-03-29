@@ -26,18 +26,16 @@ func TestBuildEnrichFields_ElevationLoss(t *testing.T) {
 }
 
 // TestBuildEnrichFields_ElevationLoss_ExistingPresent stellt sicher, dass
-// buildEnrichFields das Feld auch dann einschließt wenn existing einen Wert hat.
-// Der Schutz vor Überschreiben erfolgt via SQL COALESCE in UpdateEnrichmentFieldsSafe —
-// nicht mehr auf Go-Ebene.
+// buildEnrichFields das Feld NICHT einschließt wenn existing bereits einen Wert hat.
+// Nur fehlende Felder (nil/0) werden enriched.
 func TestBuildEnrichFields_ElevationLoss_ExistingPresent(t *testing.T) {
 	existing := &model.Activity{ElevationLossM: new(200.0)}
 	newData := &model.ActivityData{ElevationLossM: 312.5}
 
 	fields := buildEnrichFields(existing, newData)
 
-	// Field must be present — COALESCE in the DB layer keeps the existing 200.0.
-	if _, ok := fields["elevation_loss_m"]; !ok {
-		t.Error("elevation_loss_m soll in fields enthalten sein (COALESCE-Schutz ist DB-seitig)")
+	if _, ok := fields["elevation_loss_m"]; ok {
+		t.Error("elevation_loss_m darf NICHT in fields sein wenn existing bereits einen Wert hat")
 	}
 }
 

@@ -1292,6 +1292,35 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		data.EndLng = last.Lng
 	}
 
+	// Fallback: compute max/min elevation from stream data when session summary
+	// doesn't provide them (common with some Garmin firmware versions).
+	if data.MaxElevationM == 0 || data.MinElevationM == 0 {
+		var maxAlt, minAlt float64
+		minAlt = math.MaxFloat64
+		maxAlt = -math.MaxFloat64
+		altCount := 0
+		for _, sp := range data.Streams {
+			if sp.AltitudeM != nil {
+				alt := *sp.AltitudeM
+				if alt > maxAlt {
+					maxAlt = alt
+				}
+				if alt < minAlt {
+					minAlt = alt
+				}
+				altCount++
+			}
+		}
+		if altCount > 0 {
+			if data.MaxElevationM == 0 {
+				data.MaxElevationM = maxAlt
+			}
+			if data.MinElevationM == 0 {
+				data.MinElevationM = minAlt
+			}
+		}
+	}
+
 	// Indoor detection
 	data.IsIndoor = !data.HasGPS
 
