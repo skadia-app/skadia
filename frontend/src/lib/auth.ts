@@ -135,6 +135,10 @@ export async function tryRestoreSession(): Promise<boolean> {
     return true
   }
 
+  // Token may already be available via cross-tab BroadcastChannel sync
+  // (initAuthSync requested it from other tabs). Skip the network refresh.
+  if (accessToken) return true
+
   return refreshToken()
 }
 
