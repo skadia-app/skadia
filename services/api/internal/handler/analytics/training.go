@@ -28,7 +28,7 @@ type PMCResponse struct {
 	DefaultThresholdFields []string       `json:"default_threshold_fields,omitempty"`
 }
 
-func acwrStatus(acwr float64) string {
+func getAcwrStatus(acwr float64) string {
 	switch {
 	case acwr < 0.8:
 		return "reduced"
@@ -153,6 +153,11 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(days) == 0 {
+		httputil.WriteJSON(w, http.StatusOK, PMCResponse{})
+		return
+	}
+
 	// Build response metrics from the loaded days.
 	var currentCTL float64
 	var ctl7DaysAgo float64
@@ -191,6 +196,11 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 	lastDate, _ := time.Parse("2006-01-02", days[len(days)-1].Date)
 	acwrRA := calcACWR_RA(dailyTSSMap, lastDate)
 
+	acwrStatusStr := ""
+	if acwrRA > 0 {
+		acwrStatusStr = getAcwrStatus(acwrRA)
+	}
+
 	// ACWR Trend: ATL/CTL of last day (EWMA ratio).
 	var acwrTrend float64
 	lastDay := days[len(days)-1]
@@ -204,7 +214,7 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 	resp := PMCResponse{
 		Days:       days,
 		ACWR:       acwrRA,
-		ACWRStatus: acwrStatus(acwrRA),
+		ACWRStatus: acwrStatusStr,
 		ACWRTrend:  acwrTrend,
 		RampRate:   math.Round(rampRate*100) / 100,
 		Monotony:   math.Round(monotony*1000) / 1000,

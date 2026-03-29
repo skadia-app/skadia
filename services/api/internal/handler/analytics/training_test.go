@@ -12,7 +12,7 @@ import (
 
 // ---------------------------------------------------------------------------
 // TestGetPMCACWRCalculation
-// Verify that acwrStatus returns the correct buckets.
+// Verify that getAcwrStatus returns the correct buckets.
 // ---------------------------------------------------------------------------
 
 func TestGetPMCACWRCalculation(t *testing.T) {
@@ -31,9 +31,9 @@ func TestGetPMCACWRCalculation(t *testing.T) {
 		{2.0, "danger"},
 	}
 	for _, tc := range tests {
-		got := acwrStatus(tc.acwr)
+		got := getAcwrStatus(tc.acwr)
 		if got != tc.expected {
-			t.Errorf("acwrStatus(%.2f) = %q, want %q", tc.acwr, got, tc.expected)
+			t.Errorf("getAcwrStatus(%.2f) = %q, want %q", tc.acwr, got, tc.expected)
 		}
 	}
 }
