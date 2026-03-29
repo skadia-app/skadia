@@ -133,7 +133,8 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			nec_lat, nec_lng, swc_lat, swc_lng,
 			is_manual_entry, workout_feel, workout_rpe,
 			timezone,
-			max_cadence, min_temperature_c, max_temperature_c
+			max_cadence, min_temperature_c, max_temperature_c,
+			num_sessions
 		) VALUES (
 			-- Core ($1-$4, parsed reuses $3/$4)
 			$1, $2, $3, $4,
@@ -230,7 +231,9 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			-- Timezone ($149)
 			$149,
 			-- Max cadence / Min+Max temperature ($150-$152)
-			$150, $151, $152
+			$150, $151, $152,
+			-- NumSessions ($153)
+			$153
 		)
 		RETURNING id, is_ebike, is_virtual, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType), // $1-$4
@@ -290,12 +293,13 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		data.IsManualEntry, nilIfZeroInt(data.WorkoutFeel), nilIfZeroInt(data.WorkoutRpe), // $146-$148
 		nilIfEmpty(data.Timezone),                                                          // $149
 		nilIfZeroInt(data.MaxCadence), nilIfZeroF64(data.MinTemperatureC), nilIfZeroF64(data.MaxTemperatureC), // $150-$152
+		nilIfZeroInt(data.NumSessions), // $153
 	).Scan(&id, &isEbike, &isVirtual, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
 	}
 
-	return &model.Activity{
+	act := &model.Activity{
 		ID:                   id,
 		UserID:               userID,
 		SportType:            data.SportType,
@@ -317,7 +321,12 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		CreatedAt:            createdAt,
 		UpdatedAt:            updatedAt,
 		SportConflictPending: data.SportConflictPending,
-	}, nil
+	}
+	if data.NumSessions > 0 {
+		ns := data.NumSessions
+		act.NumSessions = &ns
+	}
+	return act, nil
 }
 
 func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []model.StreamPoint) error {
@@ -606,7 +615,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		a.nec_lat, a.nec_lng, a.swc_lat, a.swc_lng,
 		COALESCE(a.title_is_manual, false),
 		a.is_manual_entry, a.workout_feel, a.workout_rpe,
-		a.timezone
+		a.timezone,
+		a.num_sessions
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		LEFT JOIN LATERAL (
@@ -690,6 +700,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.TitleIsManual,
 		&a.IsManualEntry, &a.WorkoutFeel, &a.WorkoutRpe,
 		&a.Timezone,
+		&a.NumSessions,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil

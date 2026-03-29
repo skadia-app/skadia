@@ -336,6 +336,14 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	var fieldDescs []*mesgdef.FieldDescription
 	var diveSummary *mesgdef.DiveSummary
 
+	// Sport message (MesgNum 12) fallback for files with no sport in session (Polar, WHOOP)
+	var sportFallbackSport typedef.Sport
+	var sportFallbackSubSport typedef.SubSport
+	var sportFallbackName string
+	// Activity message (MesgNum 34): NumSessions for multi-sport, LocalTimestamp for TZ fallback
+	var activityNumSessions int
+	var activityLocalTimestamp time.Time
+
 	for i := range fit.Messages {
 		switch fit.Messages[i].Num {
 		case typedef.MesgNumFileId:
@@ -391,6 +399,23 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 			fieldDescs = append(fieldDescs, mesgdef.NewFieldDescription(&fit.Messages[i]))
 		case typedef.MesgNumDiveSummary:
 			diveSummary = mesgdef.NewDiveSummary(&fit.Messages[i])
+		case typedef.MesgNumSport:
+			sportMsg := mesgdef.NewSport(&fit.Messages[i])
+			if sportMsg.Sport != typedef.SportInvalid {
+				sportFallbackSport = sportMsg.Sport
+				sportFallbackSubSport = sportMsg.SubSport
+			}
+			if sportMsg.Name != basetype.StringInvalid && sportMsg.Name != "" {
+				sportFallbackName = sportMsg.Name
+			}
+		case typedef.MesgNumActivity:
+			actMsg := mesgdef.NewActivity(&fit.Messages[i])
+			if actMsg.NumSessions != basetype.Uint16Invalid && actMsg.NumSessions > 0 {
+				activityNumSessions = int(actMsg.NumSessions)
+			}
+			if !actMsg.LocalTimestamp.IsZero() {
+				activityLocalTimestamp = actMsg.LocalTimestamp
+			}
 		}
 	}
 
@@ -451,6 +476,28 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		IsVirtual:     isVirtual,
 		StartedAt:     session.StartTime,
 		EndedAt:       session.Timestamp,
+	}
+
+	// Apply Activity message fallbacks (NumSessions, LocalTimestamp)
+	if activityNumSessions > 0 {
+		data.NumSessions = activityNumSessions
+	}
+	if !activityLocalTimestamp.IsZero() {
+		data.LocalTimestamp = activityLocalTimestamp
+	}
+
+	// Apply Sport message fallback for files where session has no sport (Polar, WHOOP)
+	if (data.SportType == "unknown" || data.SportType == "") && sportFallbackSport != typedef.SportInvalid {
+		mapped := SportToString(sportFallbackSport)
+		if mapped != "" && mapped != "unknown" {
+			data.SportType = mapped
+			data.SubType = SubSportToString(sportFallbackSubSport)
+			data.FitSportID = int16(sportFallbackSport)
+			data.FitSubSportID = int16(sportFallbackSubSport)
+		}
+	}
+	if data.SportName == "" && sportFallbackName != "" {
+		data.SportName = sportFallbackName
 	}
 
 	// Source / Device from FileId and DeviceInfo[0]
