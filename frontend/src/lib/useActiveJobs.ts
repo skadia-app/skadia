@@ -2,26 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import { fetchActiveJobs } from '@/api/jobs'
 import type { ActiveJob } from '@/api/jobs'
-
-const jobTypeLabels: Record<string, string> = {
-  osm_import:              'OSM-Import',
-  osm_enrichment:          'OSM-Anreicherung',
-  garmin_import:           'Garmin-Import',
-  strava_import:           'Strava-Import',
-  komoot_import:           'Komoot-Import',
-  segment_recompute:       'Segment-Neuberechnung',
-  activity_recompute:      'Aktivität-Neuberechnung',
-  activity_recompute_all:  'Alle Aktivitäten neu berechnen',
-  photo_preview_recompute: 'Foto-Vorschauen',
-  photo_clip_embed:        'Foto-Indexierung',
-  phash_backfill:          'pHash-Berechnung',
-  recompute_multisport:    'Multisport-Neuberechnung',
-  tile_build:              'Routing-Tiles erstellen',
-  activity_re_enrich:      'Enrichment-Update',
-  thumbnail_backfill:      'Thumbnails regenerieren',
-  shadowfs_reconcile:      'Dateispeicher-Prüfung',
-  fusion_queue_compute:    'Fusionskandidaten berechnen',
-}
+import { JOB_TYPE_LABELS } from '@/lib/jobLabels'
 
 export type { ActiveJob }
 
@@ -51,7 +32,7 @@ export function useActiveJobs() {
       const wasRunning = prevJob?.status === 'running'
       if (wasRunning && (job.status === 'completed' || job.status === 'failed')) {
         if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-          const label = jobTypeLabels[job.job_type] ?? job.job_type
+          const label = JOB_TYPE_LABELS[job.job_type] ?? job.job_type
           const suffix = job.entity_name ? ` — ${job.entity_name}` : ''
           const title = job.status === 'completed'
             ? `${label}${suffix} abgeschlossen`

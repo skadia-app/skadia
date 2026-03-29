@@ -247,14 +247,25 @@ func (db *DB) ReplaceFusionCandidates(ctx context.Context, userID string, candid
 		return fmt.Errorf("delete old fusion candidates: %w", err)
 	}
 
-	for _, c := range candidates {
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO fusion_candidates
-				(user_id, activity_id_a, activity_id_b, overlap_percent, field_richness_a, field_richness_b, time_diff_sec)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			userID, c.ActivityIDA, c.ActivityIDB, c.OverlapPercent, c.FieldRichnessA, c.FieldRichnessB, c.TimeDiffSec,
-		); err != nil {
-			return fmt.Errorf("insert fusion candidate (%s, %s): %w", c.ActivityIDA, c.ActivityIDB, err)
+	if len(candidates) > 0 {
+		batch := &pgx.Batch{}
+		for _, c := range candidates {
+			batch.Queue(
+				`INSERT INTO fusion_candidates
+					(user_id, activity_id_a, activity_id_b, overlap_percent, field_richness_a, field_richness_b, time_diff_sec)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				userID, c.ActivityIDA, c.ActivityIDB, c.OverlapPercent, c.FieldRichnessA, c.FieldRichnessB, c.TimeDiffSec,
+			)
+		}
+		br := tx.SendBatch(ctx, batch)
+		for i := range candidates {
+			if _, err := br.Exec(); err != nil {
+				br.Close() //nolint:errcheck
+				return fmt.Errorf("insert fusion candidate %d: %w", i, err)
+			}
+		}
+		if err := br.Close(); err != nil {
+			return fmt.Errorf("close batch: %w", err)
 		}
 	}
 
