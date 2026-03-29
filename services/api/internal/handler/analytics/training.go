@@ -8,6 +8,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/pmc"
 )
 
 // ---------------------------------------------------------------------------
@@ -211,15 +212,27 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 	// Projection over next 28 days using EWMA model.
 	projection := ewmaProjection(days, 28)
 
+	// Check if user has heuristic threshold defaults.
+	// Use sport=0, subSport=0 to check profile-level defaults (skips sport-specific zones).
+	th, thErr := pmc.EffectiveThresholds(ctx, h.DB, userID, 0, 0, time.Now())
+	var usingDefaults bool
+	var defaultFields []string
+	if thErr == nil && th != nil {
+		usingDefaults = th.HasHeuristicDefaults()
+		defaultFields = th.DefaultFields()
+	}
+
 	resp := PMCResponse{
-		Days:       days,
-		ACWR:       acwrRA,
-		ACWRStatus: acwrStatusStr,
-		ACWRTrend:  acwrTrend,
-		RampRate:   math.Round(rampRate*100) / 100,
-		Monotony:   math.Round(monotony*1000) / 1000,
-		Strain:     math.Round(strain*10) / 10,
-		Projection: projection,
+		Days:                   days,
+		ACWR:                   acwrRA,
+		ACWRStatus:             acwrStatusStr,
+		ACWRTrend:              acwrTrend,
+		RampRate:               math.Round(rampRate*100) / 100,
+		Monotony:               math.Round(monotony*1000) / 1000,
+		Strain:                 math.Round(strain*10) / 10,
+		Projection:             projection,
+		UsingDefaultThresholds: usingDefaults,
+		DefaultThresholdFields: defaultFields,
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, resp)
