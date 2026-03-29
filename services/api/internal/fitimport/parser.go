@@ -341,6 +341,8 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	var devDataIds []*mesgdef.DeveloperDataId
 	var fieldDescs []*mesgdef.FieldDescription
 	var diveSummary *mesgdef.DiveSummary
+	var diveSettingsMsg *mesgdef.DiveSettings
+	var diveGasMsgs []*mesgdef.DiveGas
 	var maxMetData *mesgdef.MaxMetData
 
 	// GPS heading points from gps_metadata messages (timestamp → heading in degrees)
@@ -409,6 +411,10 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 			fieldDescs = append(fieldDescs, mesgdef.NewFieldDescription(&fit.Messages[i]))
 		case typedef.MesgNumDiveSummary:
 			diveSummary = mesgdef.NewDiveSummary(&fit.Messages[i])
+		case typedef.MesgNumDiveSettings:
+			diveSettingsMsg = mesgdef.NewDiveSettings(&fit.Messages[i])
+		case typedef.MesgNumDiveGas:
+			diveGasMsgs = append(diveGasMsgs, mesgdef.NewDiveGas(&fit.Messages[i]))
 		case typedef.MesgNumMaxMetData:
 			maxMetData = mesgdef.NewMaxMetData(&fit.Messages[i])
 		case typedef.MesgNumGpsMetadata:
@@ -1476,6 +1482,77 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 			s := maxMetData.SpeedSource.String()
 			data.Vo2MaxSpeedSource = &s
 		}
+	}
+
+	// === FIT SDK — DiveSettings (MesgNum 258) ===
+	if diveSettingsMsg != nil {
+		ds := &model.DiveSettings{}
+		if diveSettingsMsg.GfLow != basetype.Uint8Invalid {
+			ds.GfLow = int(diveSettingsMsg.GfLow)
+		}
+		if diveSettingsMsg.GfHigh != basetype.Uint8Invalid {
+			ds.GfHigh = int(diveSettingsMsg.GfHigh)
+		}
+		if diveSettingsMsg.WaterType != typedef.WaterTypeInvalid {
+			ds.WaterType = diveSettingsMsg.WaterType.String()
+		}
+		if math.Float32bits(diveSettingsMsg.WaterDensity) != basetype.Float32Invalid {
+			ds.WaterDensity = float64(diveSettingsMsg.WaterDensity)
+		}
+		if diveSettingsMsg.Model != typedef.TissueModelTypeInvalid {
+			ds.DecoModel = diveSettingsMsg.Model.String()
+		}
+		if diveSettingsMsg.Po2Warn != basetype.Uint8Invalid {
+			ds.Po2Warn = diveSettingsMsg.Po2WarnScaled()
+		}
+		if diveSettingsMsg.Po2Critical != basetype.Uint8Invalid {
+			ds.Po2Critical = diveSettingsMsg.Po2CriticalScaled()
+		}
+		if diveSettingsMsg.Po2Deco != basetype.Uint8Invalid {
+			ds.Po2Deco = diveSettingsMsg.Po2DecoScaled()
+		}
+		if diveSettingsMsg.SafetyStopEnabled < 2 {
+			ds.SafetyStopEnabled = diveSettingsMsg.SafetyStopEnabled == 1
+		}
+		if diveSettingsMsg.SafetyStopTime != basetype.Uint16Invalid {
+			ds.SafetyStopTimeS = int(diveSettingsMsg.SafetyStopTime)
+		}
+		if diveSettingsMsg.RepeatDiveInterval != basetype.Uint16Invalid {
+			ds.RepeatDiveIntervalS = int(diveSettingsMsg.RepeatDiveInterval)
+		}
+		if diveSettingsMsg.CcrLowSetpoint != basetype.Uint8Invalid {
+			ds.CcrLowSetpoint = diveSettingsMsg.CcrLowSetpointScaled()
+		}
+		if diveSettingsMsg.CcrLowSetpointDepth != basetype.Uint32Invalid {
+			ds.CcrLowSetpointDepthM = diveSettingsMsg.CcrLowSetpointDepthScaled()
+		}
+		if diveSettingsMsg.CcrHighSetpoint != basetype.Uint8Invalid {
+			ds.CcrHighSetpoint = diveSettingsMsg.CcrHighSetpointScaled()
+		}
+		if diveSettingsMsg.CcrHighSetpointDepth != basetype.Uint32Invalid {
+			ds.CcrHighSetpointDepthM = diveSettingsMsg.CcrHighSetpointDepthScaled()
+		}
+		data.DiveSettings = ds
+	}
+
+	// === FIT SDK — DiveGas (MesgNum 259) ===
+	for _, dg := range diveGasMsgs {
+		gas := model.DiveGas{
+			GasIndex: int(dg.MessageIndex),
+		}
+		if dg.HeliumContent != basetype.Uint8Invalid {
+			gas.HeliumPct = int(dg.HeliumContent)
+		}
+		if dg.OxygenContent != basetype.Uint8Invalid {
+			gas.OxygenPct = int(dg.OxygenContent)
+		}
+		if dg.Status != typedef.DiveGasStatusInvalid {
+			gas.Status = dg.Status.String()
+		}
+		if dg.Mode != typedef.DiveGasModeInvalid {
+			gas.Mode = dg.Mode.String()
+		}
+		data.DiveGases = append(data.DiveGases, gas)
 	}
 
 	// === FIT SDK — GPS Metadata: assign headings to stream points ===
