@@ -274,7 +274,8 @@ func TestComputeTSS_HrAvgFallback(t *testing.T) {
 }
 
 func TestExtractPowerStream_SkipsNullRows(t *testing.T) {
-	// Simulate Apple Watch: alternating power/no-power rows per timestamp
+	// Simulate Apple Watch: alternating power/no-power rows per timestamp.
+	// The central dedup approach is now tested: dedup first, then extract.
 	points := make([]model.StreamPoint, 120)
 	now := time.Now()
 	for i := 0; i < 120; i++ {
@@ -287,7 +288,9 @@ func TestExtractPowerStream_SkipsNullRows(t *testing.T) {
 		// Odd rows: PowerW = nil (speed-only subtype)
 	}
 
-	stream := ExtractPowerStream(points)
+	// Central dedup approach: dedup before extract (as done in service.go)
+	deduped := DeduplicateStreamsByTimestamp(points)
+	stream := ExtractPowerStream(deduped)
 
 	// Should contain 60 values (one per unique timestamp), not 120
 	if len(stream) != 60 {

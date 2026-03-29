@@ -300,7 +300,7 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng, // $142-$145
 		data.IsManualEntry, nilIfZeroInt(data.WorkoutFeel), nilIfZeroInt(data.WorkoutRpe), // $146-$148
 		nilIfEmpty(data.Timezone),                                                          // $149
-		nilIfZeroInt(data.MaxCadence), nilIfZeroF64(data.MinTemperatureC), nilIfZeroF64(data.MaxTemperatureC), // $150-$152
+		nilIfZeroInt(data.MaxCadence), data.MinTemperatureC, data.MaxTemperatureC, // $150-$152
 		nilIfZeroInt(data.NumSessions),                                           // $153
 		data.Vo2MaxMlKgMin, data.Vo2MaxCalibrated, data.Vo2MaxHrSource, data.Vo2MaxSpeedSource, // $154-$157
 		nilIfZeroInt(data.GpsAccuracyM), // $158
@@ -2099,6 +2099,24 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	// FIT SDK — GPS quality
 	sets = append(sets, fmt.Sprintf("gps_accuracy_m = %s", idx()))
 	args = append(args, nilIfZeroInt(data.GpsAccuracyM))
+
+	// FIT SDK — New session fields (recompute support)
+	sets = append(sets, fmt.Sprintf("max_cadence = %s", idx()))
+	args = append(args, nilIfZeroInt(data.MaxCadence))
+	sets = append(sets, fmt.Sprintf("min_temperature_c = %s", idx()))
+	args = append(args, data.MinTemperatureC)
+	sets = append(sets, fmt.Sprintf("max_temperature_c = %s", idx()))
+	args = append(args, data.MaxTemperatureC)
+	sets = append(sets, fmt.Sprintf("num_sessions = %s", idx()))
+	args = append(args, nilIfZeroInt(data.NumSessions))
+	sets = append(sets, fmt.Sprintf("vo2max_ml_kg_min = %s", idx()))
+	args = append(args, data.Vo2MaxMlKgMin)
+	sets = append(sets, fmt.Sprintf("vo2max_calibrated = %s", idx()))
+	args = append(args, data.Vo2MaxCalibrated)
+	sets = append(sets, fmt.Sprintf("vo2max_hr_source = %s", idx()))
+	args = append(args, data.Vo2MaxHrSource)
+	sets = append(sets, fmt.Sprintf("vo2max_speed_source = %s", idx()))
+	args = append(args, data.Vo2MaxSpeedSource)
 
 	// Always reset enrichment and timestamp
 	sets = append(sets, "enrichment_status = 'pending'")

@@ -35,8 +35,8 @@ type ActivityData struct {
 	AvgCadence       float64
 	MaxCadence       int
 	AvgTemperatureC  float64
-	MinTemperatureC  float64
-	MaxTemperatureC  float64
+	MinTemperatureC  *float64
+	MaxTemperatureC  *float64
 
 	MinHeartRate            int
 	TotalCalories           int
@@ -268,7 +268,7 @@ type ActivityData struct {
 
 	// FIT SDK — VO2max (from max_met_data message)
 	Vo2MaxMlKgMin     *float64 `json:"-"`
-	Vo2MaxCalibrated  bool     `json:"-"`
+	Vo2MaxCalibrated  *bool    `json:"-"`
 	Vo2MaxHrSource    *string  `json:"-"`
 	Vo2MaxSpeedSource *string  `json:"-"`
 

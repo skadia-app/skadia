@@ -611,10 +611,12 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		data.AvgTemperatureC = float64(session.AvgTemperature)
 	}
 	if session.MinTemperature != basetype.Sint8Invalid {
-		data.MinTemperatureC = float64(session.MinTemperature)
+		v := float64(session.MinTemperature)
+		data.MinTemperatureC = &v
 	}
 	if session.MaxTemperature != basetype.Sint8Invalid {
-		data.MaxTemperatureC = float64(session.MaxTemperature)
+		v := float64(session.MaxTemperature)
+		data.MaxTemperatureC = &v
 	}
 
 	// TSS (uint16, Scale: 10)
@@ -1504,9 +1506,11 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 			v := maxMetData.Vo2MaxScaled()
 			data.Vo2MaxMlKgMin = &v
 		}
-		// CalibratedData: typedef.Bool, valid values are 0 (false) and 1 (true); 2+ invalid
-		if maxMetData.CalibratedData < 2 {
-			data.Vo2MaxCalibrated = maxMetData.CalibratedData == 1
+		// CalibratedData: typedef.Bool, 1=true, 0=false, 2+=invalid.
+		// Only set when explicitly calibrated — NULL means "no MaxMetData".
+		if maxMetData.CalibratedData == 1 {
+			t := true
+			data.Vo2MaxCalibrated = &t
 		}
 		if maxMetData.HrSource != typedef.MaxMetHeartRateSourceInvalid {
 			s := maxMetData.HrSource.String()
@@ -1714,9 +1718,15 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 		case mfr == typedef.ManufacturerDevelopment:
 			// manufacturer_id=255: Apple Watch, Amazfit, Huawei etc.
 			// Resolve from ProductName pattern (Watch7,12 → Apple Watch Ultra 3).
-			// DeviceInfo.Descriptor contains user-editable device name ("Ray's Apple Watch")
-			// and is NOT used for identification — only ProductName is reliable.
-			devSource, devName := ResolveDevelopmentManufacturer(fileId.ProductName, "")
+			// For Huawei devices, ProductName is empty but Descriptor holds the model.
+			var descriptor string
+			for _, di := range deviceInfos {
+				if di.DeviceIndex == typedef.DeviceIndexCreator && di.Descriptor != "" {
+					descriptor = di.Descriptor
+					break
+				}
+			}
+			devSource, devName := ResolveDevelopmentManufacturer(fileId.ProductName, descriptor)
 			if devSource != "" {
 				source = devSource
 			}
