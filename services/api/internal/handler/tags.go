@@ -576,6 +576,7 @@ func (h *Handler) backfillWeatherForLocationTag(
 			WHERE at.tag_id = $1
 			  AND a.user_id = $2
 			  AND a.has_gps = false
+			  AND a.is_virtual = false
 			  AND a.started_at IS NOT NULL`,
 			tagID, userID,
 		)
@@ -587,6 +588,7 @@ func (h *Handler) backfillWeatherForLocationTag(
 			WHERE a.id = ANY($1)
 			  AND a.user_id = $2
 			  AND a.has_gps = false
+			  AND a.is_virtual = false
 			  AND NOT EXISTS (SELECT 1 FROM activity_weather aw WHERE aw.activity_id = a.id)`,
 			activityIDs, userID,
 		)
@@ -669,6 +671,7 @@ func (h *Handler) backfillSunTimesForLocationTag(ctx context.Context, userID, ta
 		WHERE at.tag_id = $1
 		  AND a.user_id = $2
 		  AND a.has_gps = false
+		  AND a.is_virtual = false
 		  AND a.started_at IS NOT NULL
 		  AND a.ended_at IS NOT NULL`,
 			tagID, userID)
@@ -680,6 +683,7 @@ func (h *Handler) backfillSunTimesForLocationTag(ctx context.Context, userID, ta
 		WHERE at.tag_id = $1
 		  AND a.user_id = $2
 		  AND a.has_gps = false
+		  AND a.is_virtual = false
 		  AND a.sunrise_at IS NULL
 		  AND a.started_at IS NOT NULL
 		  AND a.ended_at IS NOT NULL
@@ -693,6 +697,7 @@ func (h *Handler) backfillSunTimesForLocationTag(ctx context.Context, userID, ta
 		WHERE at.tag_id = $1
 		  AND a.user_id = $2
 		  AND a.has_gps = false
+		  AND a.is_virtual = false
 		  AND a.sunrise_at IS NULL
 		  AND a.started_at IS NOT NULL
 		  AND a.ended_at IS NOT NULL`,
