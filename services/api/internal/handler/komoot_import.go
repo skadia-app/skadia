@@ -376,6 +376,7 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 			"errors", len(importErrors),
 			"tour_activity_map_size", len(tourActivityMap),
 		)
+		h.MaybeTriggerFusionQueueCompute(bgCtx, userID)
 	}()
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})

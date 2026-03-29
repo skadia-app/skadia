@@ -162,6 +162,24 @@ func (h *Handler) GetFusionQueue(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// MaybeTriggerFusionQueueCompute startet einen Fusion-Queue-Recompute im Hintergrund,
+// wenn der Cache stale ist und kein Job läuft. Wird nach Imports aufgerufen.
+func (h *Handler) MaybeTriggerFusionQueueCompute(ctx context.Context, userID string) {
+	stale, invalidationSeq, err := h.DB.IsFusionCacheStale(ctx, userID)
+	if err != nil || !stale {
+		return
+	}
+	running, _ := h.DB.HasRunningJob(ctx, userID, "fusion_queue_compute")
+	if running {
+		return
+	}
+	jobID, err := h.DB.InsertBackgroundJob(ctx, userID, "fusion_queue_compute", nil, nil, 0)
+	if err != nil {
+		return
+	}
+	go h.runFusionQueueCompute(jobID, userID, invalidationSeq)
+}
+
 // runFusionQueueCompute führt die Tier-2-Berechnung im Hintergrund aus und
 // speichert die Ergebnisse im Cache (fusion_candidates).
 func (h *Handler) runFusionQueueCompute(jobID, userID string, startSeq int64) {
