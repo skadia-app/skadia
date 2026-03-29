@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { fetchSummitActivities, type SummitVisit } from '@/api/summits'
 import { sportLabel } from '@/lib/sportTaxonomy'
-import { fmtDist } from '@/lib/format'
+import { fmtDist, fmtDateCompact } from '@/lib/format'
 
 interface SummitActivityListProps {
   summit: SummitVisit
@@ -45,7 +45,7 @@ export default function SummitActivityList({ summit }: SummitActivityListProps) 
               {act.title || 'Aktivität'}
             </div>
             <div className="text-xs text-neutral-500 dark:text-neutral-400 flex flex-wrap gap-2 mt-1">
-              <span>{new Date(act.started_at).toLocaleDateString('de-DE')}</span>
+              <span>{fmtDateCompact(act.started_at, act.timezone)}</span>
               <span>·</span>
               <span>{sportLabel(act.sport_type)}</span>
               {act.distance_m != null && (

@@ -6,8 +6,7 @@ import { getTagTextColor, getTagBadgeStyle } from '@/lib/tagUtils'
 import type { Tag, TagActivity } from '@/api/tags'
 import ZoneEditor from '@/components/ZoneEditor'
 import type { ZoneData } from '@/components/ZoneEditor'
-import { format } from 'date-fns'
-import { de } from 'date-fns/locale'
+import { fmtDateCompact } from '@/lib/format'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import ColorPicker from '@/components/ColorPicker'
@@ -547,7 +546,7 @@ function TagActivitiesPanel({ tag, onClose }: { tag: Tag; onClose: () => void })
                   </Link>
                   {act.started_at && (
                     <span className="text-xs text-neutral-400 flex-shrink-0">
-                      {format(new Date(act.started_at), 'dd.MM.yyyy', { locale: de })}
+                      {fmtDateCompact(act.started_at, act.timezone)}
                     </span>
                   )}
                 </div>

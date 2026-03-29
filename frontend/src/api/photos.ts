@@ -12,6 +12,7 @@ export interface PhotoFeedActivitySummary {
   track_geojson?: string   // GeoJSON LineString als String (JSON.parse nötig)
   lat?: number
   lng?: number
+  timezone?: string | null
 }
 
 export interface PhotoFeedGroup {

@@ -7,13 +7,10 @@ import type { DeviceActivity } from '@/api/hardware'
 import { formatDistance } from '@/lib/utils'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { connectionTypeLabel, deviceTypeBadgeLabel } from '@/lib/deviceUtils'
+import { fmtDateMedium } from '@/lib/format'
 
 function ActivityRow({ activity }: { activity: DeviceActivity }) {
-  const date = new Date(activity.started_at).toLocaleDateString('de-DE', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
+  const date = fmtDateMedium(activity.started_at, activity.timezone)
 
   return (
     <Link

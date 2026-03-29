@@ -2,14 +2,7 @@ import { Link } from 'react-router-dom'
 import { sportLabel, sportColor } from '@/lib/sportTaxonomy'
 import StaticTrackMap from '@/components/StaticTrackMap'
 import type { PhotoFeedActivitySummary } from '@/api/photos'
-import { fmtDuration, fmtDist } from '@/lib/format'
-
-function formatDate(iso?: string): string {
-  if (!iso) return ''
-  return new Date(iso).toLocaleDateString('de-DE', {
-    day: 'numeric', month: 'short', year: 'numeric',
-  })
-}
+import { fmtDuration, fmtDist, fmtDateMedium } from '@/lib/format'
 
 interface Props {
   activity: PhotoFeedActivitySummary
@@ -62,7 +55,7 @@ export default function ActivityMiniCard({ activity, photoCount }: Props) {
         </Link>
 
         <div className="text-xs text-neutral-500 dark:text-neutral-400 space-y-0.5">
-          {activity.started_at && <div>{formatDate(activity.started_at)}</div>}
+          {activity.started_at && <div>{fmtDateMedium(activity.started_at, activity.timezone)}</div>}
           <div className="flex flex-wrap gap-x-2">
             {activity.distance_m && <span>{fmtDist(activity.distance_m)}</span>}
             {activity.moving_time_s && <span>{fmtDuration(activity.moving_time_s, 'compact')}</span>}

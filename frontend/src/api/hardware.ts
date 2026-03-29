@@ -25,6 +25,7 @@ export interface DeviceActivity {
   sport_type: string
   started_at: string
   distance_m: number
+  timezone?: string | null
 }
 
 export async function fetchDevices(type?: string): Promise<Device[]> {

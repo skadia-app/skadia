@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Wrench } from 'lucide-react'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { apiClient } from '@/api/client'
-import { fmtDuration } from '@/lib/format'
+import { fmtDuration, fmtDateCompact } from '@/lib/format'
 import type { Segment } from '@/api/segments'
 import type { ActivityFilterState } from '@/components/ActivityFilters'
 
@@ -20,6 +20,7 @@ interface Performance {
   gear_id?: string | null
   gear_name?: string | null
   gear_type?: string | null
+  timezone?: string | null
 }
 
 function getDirectionLabels(segment?: Segment) {
@@ -125,7 +126,7 @@ export function SegmentActivityList({ segmentId, segment, filters }: SegmentActi
               {perf.title}
             </div>
             <div className="text-xs text-neutral-500 dark:text-neutral-400 flex flex-wrap gap-2 mt-1">
-              <span>{new Date(perf.started_at).toLocaleDateString('de-DE')}</span>
+              <span>{fmtDateCompact(perf.started_at, perf.timezone)}</span>
               <span>·</span>
               <span>{fmtDuration(perf.elapsed_time_s)}</span>
               <span>·</span>

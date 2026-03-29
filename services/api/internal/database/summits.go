@@ -151,6 +151,7 @@ type SummitActivity struct {
 	SportType      string
 	DistanceM      *float64
 	ElevationGainM *float64
+	Timezone       *string
 }
 
 // GetSummitActivities returns all activities that visited a given summit (by osm_id).
@@ -162,7 +163,7 @@ func (db *DB) GetSummitActivities(ctx context.Context, userID string, osmID *int
 	if osmID != nil {
 		query = `
 			SELECT a.id, COALESCE(a.title, ''), a.started_at,
-			       COALESCE(a.sport_type, ''), a.distance_m, a.elevation_gain_m
+			       COALESCE(a.sport_type, ''), a.distance_m, a.elevation_gain_m, a.timezone
 			FROM activity_geo_tags g
 			JOIN activities a ON g.activity_id = a.id
 			WHERE a.user_id = $1
@@ -174,7 +175,7 @@ func (db *DB) GetSummitActivities(ctx context.Context, userID string, osmID *int
 	} else {
 		query = `
 			SELECT a.id, COALESCE(a.title, ''), a.started_at,
-			       COALESCE(a.sport_type, ''), a.distance_m, a.elevation_gain_m
+			       COALESCE(a.sport_type, ''), a.distance_m, a.elevation_gain_m, a.timezone
 			FROM activity_geo_tags g
 			JOIN activities a ON g.activity_id = a.id
 			WHERE a.user_id = $1
@@ -195,7 +196,7 @@ func (db *DB) GetSummitActivities(ctx context.Context, userID string, osmID *int
 	for rows.Next() {
 		var sa SummitActivity
 		if err := rows.Scan(&sa.ActivityID, &sa.Title, &sa.StartedAt,
-			&sa.SportType, &sa.DistanceM, &sa.ElevationGainM); err != nil {
+			&sa.SportType, &sa.DistanceM, &sa.ElevationGainM, &sa.Timezone); err != nil {
 			return nil, fmt.Errorf("summit activities scan: %w", err)
 		}
 		acts = append(acts, sa)

@@ -1234,7 +1234,8 @@ func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID stri
 		se.is_reverse,
 		a.gear_id,
 		g.name AS gear_name,
-		g.type AS gear_type
+		g.type AS gear_type,
+		a.timezone
 	FROM segment_efforts se
 	JOIN activities a ON se.activity_id = a.id
 	LEFT JOIN gear g ON a.gear_id = g.id
@@ -1258,7 +1259,7 @@ func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID stri
 		var perf model.SegmentPerformance
 		if err := rows.Scan(&perf.SegmentEffortID, &perf.ActivityID, &perf.ElapsedTimeS,
 			&perf.MovingTimeS, &perf.StartedAt, &perf.SportType, &perf.Title, &perf.IsReverse,
-			&perf.GearID, &perf.GearName, &perf.GearType); err != nil {
+			&perf.GearID, &perf.GearName, &perf.GearType, &perf.Timezone); err != nil {
 			return nil, fmt.Errorf("scan performance: %w", err)
 		}
 		performances = append(performances, perf)

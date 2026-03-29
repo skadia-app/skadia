@@ -239,6 +239,7 @@ func buildPhotoFeedActivity(row database.PhotoFeedRow) *model.PhotoFeedActivityS
 		DistanceM:      row.ActDistanceM,
 		MovingTimeS:    row.ActMovingTimeS,
 		ElevationGainM: row.ActElevationGainM,
+		Timezone:       row.ActTimezone,
 	}
 	if row.ActTitle != nil {
 		s.Title = *row.ActTitle
