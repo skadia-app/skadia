@@ -14,13 +14,35 @@ import (
 // Tacx-Produkte post-Akquisition sind ebenfalls unter GarminProduct (IDs 4265–4276, mfr=1).
 var nonGarminProducts = map[[2]uint16]string{
 	// Wahoo Fitness (32) — verifiziert: ELEMNT prod=28 aus echtem FIT-File
+	{32, 8}:  "Wahoo TICKR",
 	{32, 28}: "Wahoo ELEMNT",
 	{32, 31}: "Wahoo ELEMNT BOLT",
+	{32, 33}: "Wahoo ELEMNT Rival",
+	{32, 37}: "Wahoo ELEMNT ROAM",
 	{32, 41}: "Wahoo PowrLink",
+	{32, 43}: "Wahoo ELEMNT BOLT v2",
+	{32, 47}: "Wahoo ELEMNT ROAM v2",
 
 	// Polar Electro (123)
-	{123, 2}: "Polar H10",
-	{123, 3}: "Polar H9",
+	{123, 1}:  "Polar V800",
+	{123, 2}:  "Polar H10",
+	{123, 3}:  "Polar H9",
+	{123, 4}:  "Polar Vantage V",
+	{123, 5}:  "Polar Vantage V Titan",
+	{123, 6}:  "Polar Vantage M",
+	{123, 7}:  "Polar Grit X",
+	{123, 8}:  "Polar Ignite",
+	{123, 9}:  "Polar Ignite 2",
+	{123, 10}: "Polar Vantage V2",
+	{123, 11}: "Polar Grit X Pro",
+	{123, 12}: "Polar Pacer",
+	{123, 13}: "Polar Pacer Pro",
+	{123, 14}: "Polar Vantage V3",
+	{123, 15}: "Polar Grit X2 Pro",
+	{123, 16}: "Polar Ignite 3",
+	{123, 17}: "Polar Unite",
+	{123, 18}: "Polar Vantage M2",
+	{123, 20}: "Polar OH1",
 
 	// Favero Electronics (263) — Assioma Uno/Duo im FIT SDK als FaveroProduct definiert
 	{263, 10}: "Favero Assioma Uno",
@@ -90,13 +112,91 @@ var nonGarminProducts = map[[2]uint16]string{
 	{70, 69}: "Sigma ROX 4.0 SE",
 
 	// Lezyne (258)
+	{258, 1}:  "Lezyne Super GPS",
+	{258, 2}:  "Lezyne Macro GPS",
+	{258, 3}:  "Lezyne Micro C GPS",
 	{258, 4}:  "Lezyne Super GPS",
+	{258, 5}:  "Lezyne Super Pro GPS",
 	{258, 6}:  "Lezyne Micro GPS",
 	{258, 11}: "Lezyne Mega XL GPS",
+
+	// Suunto (23)
+	{23, 19}: "Suunto Ambit3 Peak",
+	{23, 20}: "Suunto 3 Fitness",
+	{23, 22}: "Suunto Ambit3 Run",
+	{23, 23}: "Suunto Ambit3 Sport",
+	{23, 24}: "Suunto Ambit3 Vertical",
+	{23, 25}: "Suunto Spartan Sport",
+	{23, 26}: "Suunto Spartan Sport Wrist HR",
+	{23, 27}: "Suunto Spartan Ultra",
+	{23, 28}: "Suunto Spartan Trainer",
+	{23, 29}: "Suunto 5",
+	{23, 34}: "Suunto 7",
+	{23, 35}: "Suunto 9 Baro",
+	{23, 36}: "Suunto 9 Peak",
+	{23, 37}: "Suunto 9 Peak Pro",
+	{23, 38}: "Suunto Race",
+	{23, 39}: "Suunto Vertical",
+	{23, 40}: "Suunto Race S",
+	{23, 41}: "Suunto Ocean",
+
+	// COROS (294)
+	{294, 1}:  "COROS PACE",
+	{294, 2}:  "COROS PACE 2",
+	{294, 3}:  "COROS PACE 3",
+	{294, 4}:  "COROS APEX",
+	{294, 5}:  "COROS APEX Pro",
+	{294, 6}:  "COROS APEX 2",
+	{294, 7}:  "COROS APEX 2 Pro",
+	{294, 8}:  "COROS VERTIX",
+	{294, 9}:  "COROS VERTIX 2",
+	{294, 10}: "COROS VERTIX 2S",
+	{294, 11}: "COROS POD",
+	{294, 12}: "COROS POD 2",
+	{294, 14}: "COROS DURA",
+	{294, 15}: "COROS PACE Pro",
+
+	// Magene (107)
+	{107, 20}: "Magene C406",
+	{107, 30}: "Magene C606",
+	{107, 40}: "Magene L508",
+
+	// Wattbike (73)
+	{73, 26}: "Wattbike Atom",
+	{73, 29}: "Wattbike Icon",
+	{73, 30}: "Wattbike Atom X",
+
+	// Hammerhead (289)
+	{289, 1}: "Hammerhead Karoo",
+	{289, 2}: "Hammerhead Karoo 2",
+
+	// TomTom (71)
+	{71, 2015}: "TomTom Runner 3 Cardio",
+
+	// Timex (16)
+	{16, 87}: "Timex Ironman GPS",
+
+	// Xplova (45)
+	{45, 22582}: "Xplova X5 EVO",
+	{45, 20051}: "Xplova Noza S",
+
+	// Cycplus (132)
+	{132, 1711}: "Cycplus M1",
+	{132, 2104}: "Cycplus M2",
+
+	// Dabuziduo/XOSS (292)
+	{292, 10}: "XOSS G+N4",
+	{292, 11}: "XOSS G+N3",
+
+	// Coospo (135)
+	{135, 1107}: "Coospo BC107",
+	{135, 1200}: "Coospo BC200",
 
 	// Tacx (89) — Pre-Akquisition IDs, für historische FIT-Dateien
 	{89, 2800}: "Tacx Neo Smart",
 	{89, 2850}: "Tacx Neo 2 Smart",
+	{89, 3111}: "Tacx Breakaway",
+	{89, 4274}: "Tacx Rouvy",
 }
 
 // ResolveProductName resolves a human-readable device product name from FIT device info fields.
@@ -185,6 +285,8 @@ func FormatManufacturer(s string) string {
 	switch s {
 	case "srm":
 		return "SRM"
+	case "whoop":
+		return "WHOOP"
 	case "sigmasport":
 		return "Sigmasport"
 	case "osynce":

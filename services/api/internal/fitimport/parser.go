@@ -311,6 +311,12 @@ func patchDeprecatedBaseTypes(raw []byte) []byte {
 	return data
 }
 
+// gpsHeadingPoint holds a GPS heading extracted from a gps_metadata FIT message.
+type gpsHeadingPoint struct {
+	Time    time.Time
+	Heading float64 // degrees (0–360)
+}
+
 func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, error) {
 	var fileId *mesgdef.FileId
 	var sessions []*mesgdef.Session
@@ -334,6 +340,23 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	var workoutSteps []*mesgdef.WorkoutStep
 	var devDataIds []*mesgdef.DeveloperDataId
 	var fieldDescs []*mesgdef.FieldDescription
+	var diveSummary *mesgdef.DiveSummary
+	var diveSettingsMsg *mesgdef.DiveSettings
+	var diveGasMsgs []*mesgdef.DiveGas
+	var maxMetData *mesgdef.MaxMetData
+	var fileCreatorSWVersion int
+	var deviceSettingsMsg *mesgdef.DeviceSettings
+
+	// GPS heading points from gps_metadata messages (timestamp → heading in degrees)
+	var gpsHeadings []gpsHeadingPoint
+
+	// Sport message (MesgNum 12) fallback for files with no sport in session (Polar, WHOOP)
+	var sportFallbackSport typedef.Sport
+	var sportFallbackSubSport typedef.SubSport
+	var sportFallbackName string
+	// Activity message (MesgNum 34): NumSessions for multi-sport, LocalTimestamp for TZ fallback
+	var activityNumSessions int
+	var activityLocalTimestamp time.Time
 
 	for i := range fit.Messages {
 		switch fit.Messages[i].Num {
@@ -388,6 +411,47 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 			devDataIds = append(devDataIds, mesgdef.NewDeveloperDataId(&fit.Messages[i]))
 		case typedef.MesgNumFieldDescription:
 			fieldDescs = append(fieldDescs, mesgdef.NewFieldDescription(&fit.Messages[i]))
+		case typedef.MesgNumDiveSummary:
+			diveSummary = mesgdef.NewDiveSummary(&fit.Messages[i])
+		case typedef.MesgNumDiveSettings:
+			diveSettingsMsg = mesgdef.NewDiveSettings(&fit.Messages[i])
+		case typedef.MesgNumDiveGas:
+			diveGasMsgs = append(diveGasMsgs, mesgdef.NewDiveGas(&fit.Messages[i]))
+		case typedef.MesgNumMaxMetData:
+			maxMetData = mesgdef.NewMaxMetData(&fit.Messages[i])
+		case typedef.MesgNumGpsMetadata:
+			gm := mesgdef.NewGpsMetadata(&fit.Messages[i])
+			if gm.Heading != basetype.Uint16Invalid {
+				// Scale: 100, Units: degrees (uint16 / 100.0 = degrees)
+				gpsHeadings = append(gpsHeadings, gpsHeadingPoint{
+					Time:    gm.Timestamp,
+					Heading: float64(gm.Heading) / 100.0,
+				})
+			}
+		case typedef.MesgNumSport:
+			sportMsg := mesgdef.NewSport(&fit.Messages[i])
+			if sportMsg.Sport != typedef.SportInvalid {
+				sportFallbackSport = sportMsg.Sport
+				sportFallbackSubSport = sportMsg.SubSport
+			}
+			if sportMsg.Name != basetype.StringInvalid && sportMsg.Name != "" {
+				sportFallbackName = sportMsg.Name
+			}
+		case typedef.MesgNumActivity:
+			actMsg := mesgdef.NewActivity(&fit.Messages[i])
+			if actMsg.NumSessions != basetype.Uint16Invalid && actMsg.NumSessions > 0 {
+				activityNumSessions = int(actMsg.NumSessions)
+			}
+			if !actMsg.LocalTimestamp.IsZero() {
+				activityLocalTimestamp = actMsg.LocalTimestamp
+			}
+		case typedef.MesgNumFileCreator:
+			fc := mesgdef.NewFileCreator(&fit.Messages[i])
+			if fc.SoftwareVersion != basetype.Uint16Invalid {
+				fileCreatorSWVersion = int(fc.SoftwareVersion)
+			}
+		case typedef.MesgNumDeviceSettings:
+			deviceSettingsMsg = mesgdef.NewDeviceSettings(&fit.Messages[i])
 		}
 	}
 
@@ -431,7 +495,8 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		case typedef.ManufacturerZwift, typedef.ManufacturerZwiftByte,
 			typedef.ManufacturerBkool, typedef.ManufacturerMywhoosh,
 			typedef.ManufacturerVirtualtraining, typedef.ManufacturerIctrainer,
-			typedef.ManufacturerVirtugo:
+			typedef.ManufacturerVirtugo,
+			typedef.ManufacturerRgtCycling:
 			isVirtual = true
 		}
 	}
@@ -447,6 +512,28 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		IsVirtual:     isVirtual,
 		StartedAt:     session.StartTime,
 		EndedAt:       session.Timestamp,
+	}
+
+	// Apply Activity message fallbacks (NumSessions, LocalTimestamp)
+	if activityNumSessions > 0 {
+		data.NumSessions = activityNumSessions
+	}
+	if !activityLocalTimestamp.IsZero() {
+		data.LocalTimestamp = activityLocalTimestamp
+	}
+
+	// Apply Sport message fallback for files where session has no sport (Polar, WHOOP)
+	if (data.SportType == "unknown" || data.SportType == "") && sportFallbackSport != typedef.SportInvalid {
+		mapped := SportToString(sportFallbackSport)
+		if mapped != "" && mapped != "unknown" {
+			data.SportType = mapped
+			data.SubType = SubSportToString(sportFallbackSubSport)
+			data.FitSportID = int16(sportFallbackSport)
+			data.FitSubSportID = int16(sportFallbackSubSport)
+		}
+	}
+	if data.SportName == "" && sportFallbackName != "" {
+		data.SportName = sportFallbackName
 	}
 
 	// Source / Device from FileId and DeviceInfo[0]
@@ -515,10 +602,21 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	if session.AvgCadence != 0xFF && session.AvgCadence != 0 {
 		data.AvgCadence = float64(session.AvgCadence)
 	}
+	if session.MaxCadence != basetype.Uint8Invalid && session.MaxCadence != 0 {
+		data.MaxCadence = int(session.MaxCadence)
+	}
 
 	// Temperature
 	if session.AvgTemperature != 0x7F {
 		data.AvgTemperatureC = float64(session.AvgTemperature)
+	}
+	if session.MinTemperature != basetype.Sint8Invalid {
+		v := float64(session.MinTemperature)
+		data.MinTemperatureC = &v
+	}
+	if session.MaxTemperature != basetype.Sint8Invalid {
+		v := float64(session.MaxTemperature)
+		data.MaxTemperatureC = &v
 	}
 
 	// TSS (uint16, Scale: 10)
@@ -589,7 +687,10 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		v := int32(session.TotalFatCalories)
 		data.TotalFatCalories = &v
 	}
-	// MetabolicCalories: not available in SDK v0.26.0 Session struct — skipped
+	if session.MetabolicCalories != basetype.Uint16Invalid {
+		v := int32(session.MetabolicCalories)
+		data.MetabolicCalories = &v
+	}
 	if session.TotalMovingTime != basetype.Uint32Invalid {
 		v := float64(session.TotalMovingTime) / 1000.0
 		data.TotalMovingTimeS = &v
@@ -1039,6 +1140,49 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		data.O2ToxicityOtu = &v
 	}
 
+	// DiveSummary (MesgNum 268) is the authoritative source for dive metadata on
+	// Garmin Descent devices. Many dive FIT files omit the diving fields from the
+	// Session message and only populate DiveSummary. Apply DiveSummary values as a
+	// fallback (or override) for any field that is still nil after session parsing.
+	if diveSummary != nil {
+		if data.AvgDepthM == nil && diveSummary.AvgDepth != basetype.Uint32Invalid {
+			v := diveSummary.AvgDepthScaled()
+			data.AvgDepthM = &v
+		}
+		if data.MaxDepthM == nil && diveSummary.MaxDepth != basetype.Uint32Invalid {
+			v := diveSummary.MaxDepthScaled()
+			data.MaxDepthM = &v
+		}
+		if data.DiveNumber == nil && diveSummary.DiveNumber != basetype.Uint32Invalid {
+			v := int32(diveSummary.DiveNumber)
+			data.DiveNumber = &v
+		}
+		if data.SurfaceIntervalS == nil && diveSummary.SurfaceInterval != basetype.Uint32Invalid {
+			v := int32(diveSummary.SurfaceInterval)
+			data.SurfaceIntervalS = &v
+		}
+		if data.StartCnsPct == nil && diveSummary.StartCns != basetype.Uint8Invalid {
+			v := int16(diveSummary.StartCns)
+			data.StartCnsPct = &v
+		}
+		if data.EndCnsPct == nil && diveSummary.EndCns != basetype.Uint8Invalid {
+			v := int16(diveSummary.EndCns)
+			data.EndCnsPct = &v
+		}
+		if data.StartN2Pct == nil && diveSummary.StartN2 != basetype.Uint16Invalid {
+			v := int32(diveSummary.StartN2)
+			data.StartN2Pct = &v
+		}
+		if data.EndN2Pct == nil && diveSummary.EndN2 != basetype.Uint16Invalid {
+			v := int32(diveSummary.EndN2)
+			data.EndN2Pct = &v
+		}
+		if data.O2ToxicityOtu == nil && diveSummary.O2Toxicity != basetype.Uint16Invalid {
+			v := int32(diveSummary.O2Toxicity)
+			data.O2ToxicityOtu = &v
+		}
+	}
+
 	// === FIT SDK — Respiration / HRV Extended ===
 	if session.EnhancedMaxRespirationRate != basetype.Uint16Invalid {
 		v := float64(session.EnhancedMaxRespirationRate) / 100.0
@@ -1253,6 +1397,31 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		}
 	}
 
+	// Speed zones from session array
+	if len(session.TimeInSpeedZone) > 0 {
+		for i, v := range session.TimeInSpeedZone {
+			if v != basetype.Uint32Invalid && v > 0 {
+				data.TimeInZoneData = append(data.TimeInZoneData, model.TimeInZoneData{
+					ZoneType:  "speed",
+					ZoneIndex: i,
+					Seconds:   int(v / 1000),
+				})
+			}
+		}
+	}
+	// Cadence zones from session array
+	if len(session.TimeInCadenceZone) > 0 {
+		for i, v := range session.TimeInCadenceZone {
+			if v != basetype.Uint32Invalid && v > 0 {
+				data.TimeInZoneData = append(data.TimeInZoneData, model.TimeInZoneData{
+					ZoneType:  "cadence",
+					ZoneIndex: i,
+					Seconds:   int(v / 1000),
+				})
+			}
+		}
+	}
+
 	if workout != nil {
 		data.Workout = ExtractWorkout(workout)
 		data.WorkoutSteps = ExtractWorkoutSteps(workoutSteps)
@@ -1280,6 +1449,13 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		if streamMoving > 0 {
 			data.MovingTimeS = activityutil.MinMovingTime(data.MovingTimeS, streamMoving)
 		}
+	}
+
+	// Start position from Session (fallback if no trackpoints)
+	if session.StartPositionLat != basetype.Sint32Invalid &&
+		session.StartPositionLong != basetype.Sint32Invalid {
+		data.StartLat = semicircles.ToDegrees(session.StartPositionLat)
+		data.StartLng = semicircles.ToDegrees(session.StartPositionLong)
 	}
 
 	// GPS info
@@ -1324,7 +1500,163 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	// Indoor detection
 	data.IsIndoor = !data.HasGPS
 
+	// === FIT SDK — VO2max (max_met_data message) ===
+	if maxMetData != nil {
+		if maxMetData.Vo2Max != basetype.Uint16Invalid && maxMetData.Vo2Max > 0 {
+			v := maxMetData.Vo2MaxScaled()
+			data.Vo2MaxMlKgMin = &v
+		}
+		// CalibratedData: typedef.Bool, 1=true, 0=false, 2+=invalid.
+		// Only set when explicitly calibrated — NULL means "no MaxMetData".
+		if maxMetData.CalibratedData == 1 {
+			t := true
+			data.Vo2MaxCalibrated = &t
+		}
+		if maxMetData.HrSource != typedef.MaxMetHeartRateSourceInvalid {
+			s := maxMetData.HrSource.String()
+			data.Vo2MaxHrSource = &s
+		}
+		if maxMetData.SpeedSource != typedef.MaxMetSpeedSourceInvalid {
+			s := maxMetData.SpeedSource.String()
+			data.Vo2MaxSpeedSource = &s
+		}
+	}
+
+	// === FIT SDK — DiveSettings (MesgNum 258) ===
+	if diveSettingsMsg != nil {
+		ds := &model.DiveSettings{}
+		if diveSettingsMsg.GfLow != basetype.Uint8Invalid {
+			ds.GfLow = int(diveSettingsMsg.GfLow)
+		}
+		if diveSettingsMsg.GfHigh != basetype.Uint8Invalid {
+			ds.GfHigh = int(diveSettingsMsg.GfHigh)
+		}
+		if diveSettingsMsg.WaterType != typedef.WaterTypeInvalid {
+			ds.WaterType = diveSettingsMsg.WaterType.String()
+		}
+		if math.Float32bits(diveSettingsMsg.WaterDensity) != basetype.Float32Invalid {
+			ds.WaterDensity = float64(diveSettingsMsg.WaterDensity)
+		}
+		if diveSettingsMsg.Model != typedef.TissueModelTypeInvalid {
+			ds.DecoModel = diveSettingsMsg.Model.String()
+		}
+		if diveSettingsMsg.Po2Warn != basetype.Uint8Invalid {
+			ds.Po2Warn = diveSettingsMsg.Po2WarnScaled()
+		}
+		if diveSettingsMsg.Po2Critical != basetype.Uint8Invalid {
+			ds.Po2Critical = diveSettingsMsg.Po2CriticalScaled()
+		}
+		if diveSettingsMsg.Po2Deco != basetype.Uint8Invalid {
+			ds.Po2Deco = diveSettingsMsg.Po2DecoScaled()
+		}
+		if diveSettingsMsg.SafetyStopEnabled < 2 {
+			ds.SafetyStopEnabled = diveSettingsMsg.SafetyStopEnabled == 1
+		}
+		if diveSettingsMsg.SafetyStopTime != basetype.Uint16Invalid {
+			ds.SafetyStopTimeS = int(diveSettingsMsg.SafetyStopTime)
+		}
+		if diveSettingsMsg.RepeatDiveInterval != basetype.Uint16Invalid {
+			ds.RepeatDiveIntervalS = int(diveSettingsMsg.RepeatDiveInterval)
+		}
+		if diveSettingsMsg.CcrLowSetpoint != basetype.Uint8Invalid {
+			ds.CcrLowSetpoint = diveSettingsMsg.CcrLowSetpointScaled()
+		}
+		if diveSettingsMsg.CcrLowSetpointDepth != basetype.Uint32Invalid {
+			ds.CcrLowSetpointDepthM = diveSettingsMsg.CcrLowSetpointDepthScaled()
+		}
+		if diveSettingsMsg.CcrHighSetpoint != basetype.Uint8Invalid {
+			ds.CcrHighSetpoint = diveSettingsMsg.CcrHighSetpointScaled()
+		}
+		if diveSettingsMsg.CcrHighSetpointDepth != basetype.Uint32Invalid {
+			ds.CcrHighSetpointDepthM = diveSettingsMsg.CcrHighSetpointDepthScaled()
+		}
+		data.DiveSettings = ds
+	}
+
+	// === FIT SDK — DiveGas (MesgNum 259) ===
+	for _, dg := range diveGasMsgs {
+		gas := model.DiveGas{
+			GasIndex: int(dg.MessageIndex),
+		}
+		if dg.HeliumContent != basetype.Uint8Invalid {
+			gas.HeliumPct = int(dg.HeliumContent)
+		}
+		if dg.OxygenContent != basetype.Uint8Invalid {
+			gas.OxygenPct = int(dg.OxygenContent)
+		}
+		if dg.Status != typedef.DiveGasStatusInvalid {
+			gas.Status = dg.Status.String()
+		}
+		if dg.Mode != typedef.DiveGasModeInvalid {
+			gas.Mode = dg.Mode.String()
+		}
+		data.DiveGases = append(data.DiveGases, gas)
+	}
+
+	// === FIT SDK — GPS Metadata: assign headings to stream points ===
+	if len(gpsHeadings) > 0 && len(data.Streams) > 0 {
+		assignHeadingToStreams(data.Streams, gpsHeadings)
+	}
+
+	// === FIT SDK — FileCreator software version (transient, debug only) ===
+	if fileCreatorSWVersion > 0 {
+		data.FileCreatorSWVersion = fileCreatorSWVersion
+	}
+
+	// === FIT SDK — DeviceSettings timezone offset (transient, indoor TZ fallback) ===
+	if deviceSettingsMsg != nil {
+		if deviceSettingsMsg.UtcOffset != basetype.Uint32Invalid {
+			data.DeviceUtcOffset = int32(deviceSettingsMsg.UtcOffset)
+		}
+		if len(deviceSettingsMsg.TimeZoneOffset) > 0 {
+			atz := deviceSettingsMsg.ActiveTimeZone
+			if atz != basetype.Uint8Invalid && int(atz) < len(deviceSettingsMsg.TimeZoneOffset) {
+				tzOff := deviceSettingsMsg.TimeZoneOffset[atz]
+				if tzOff != basetype.Sint8Invalid {
+					data.DeviceTzOffsetQuarters = int8(tzOff)
+				}
+			}
+		}
+	}
+
+	// === FIT SDK — Session GPS accuracy and end position fallback ===
+	if session.GpsAccuracy != basetype.Uint8Invalid {
+		data.GpsAccuracyM = int(session.GpsAccuracy)
+	}
+	// End position fallback from session (used when no trackpoints available)
+	if session.EndPositionLat != basetype.Sint32Invalid &&
+		session.EndPositionLong != basetype.Sint32Invalid {
+		if data.EndLat == 0 && data.EndLng == 0 {
+			data.EndLat = semicircles.ToDegrees(session.EndPositionLat)
+			data.EndLng = semicircles.ToDegrees(session.EndPositionLong)
+		}
+	}
+
 	return data, nil
+}
+
+// assignHeadingToStreams assigns GPS heading values from gps_metadata messages to
+// stream points by nearest timestamp. A heading is only assigned when the closest
+// gps_metadata point is within 2 seconds of the stream point's timestamp.
+func assignHeadingToStreams(streams []model.StreamPoint, headings []gpsHeadingPoint) {
+	// headings is assumed to be in chronological order (same as messages in FIT file)
+	hi := 0
+	for i := range streams {
+		// Advance heading index to the closest point in time
+		for hi < len(headings)-1 && headings[hi+1].Time.Before(streams[i].Time) {
+			hi++
+		}
+		if hi < len(headings) {
+			diff := streams[i].Time.Sub(headings[hi].Time)
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff <= 2*time.Second {
+				h := float32(headings[hi].Heading)
+				streams[i].Heading = &h
+			}
+		}
+	}
 }
 
 // extractFITSource determines source app and recording device from FIT metadata.
@@ -1363,12 +1695,48 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 			source = "SRM"
 		case mfr == typedef.ManufacturerStrava:
 			source = "Strava"
-		case strings.Contains(strings.ToLower(mfrStr), "trainingpeaks"):
+		case mfr == typedef.ManufacturerPeaksware:
 			source = "TrainingPeaks"
-		case mfr == typedef.ManufacturerZwift:
-			source = "Zwift"
+		case mfr == typedef.ManufacturerTimex:
+			source = "Timex"
+		case mfr == typedef.ManufacturerTomtom:
+			source = "TomTom"
+		case mfr == typedef.ManufacturerXplova:
+			source = "Xplova"
+		case mfr == typedef.ManufacturerConcept2:
+			source = "Concept2"
+		case mfr == typedef.ManufacturerForm:
+			source = "FORM"
+		case mfr == typedef.ManufacturerMagene:
+			source = "Magene"
+		case mfr == typedef.ManufacturerWattbike:
+			source = "Wattbike"
+		case mfr == typedef.ManufacturerIgpsport:
+			source = "iGPSport"
+		case mfr == typedef.ManufacturerCycplus:
+			source = "Cycplus"
+		case mfr == typedef.ManufacturerDevelopment:
+			// manufacturer_id=255: Apple Watch, Amazfit, Huawei etc.
+			// Resolve from ProductName pattern (Watch7,12 → Apple Watch Ultra 3).
+			// For Huawei devices, ProductName is empty but Descriptor holds the model.
+			var descriptor string
+			for _, di := range deviceInfos {
+				if di.DeviceIndex == typedef.DeviceIndexCreator && di.Descriptor != "" {
+					descriptor = di.Descriptor
+					break
+				}
+			}
+			devSource, devName := ResolveDevelopmentManufacturer(fileId.ProductName, descriptor)
+			if devSource != "" {
+				source = devSource
+			}
+			if devName != "" {
+				device = devName
+			}
 		default:
-			if !strings.HasPrefix(mfrStr, "Manufacturer") && mfrStr != "" {
+			if mapped := MapVirtualPlatform(mfrStr); mapped != "" {
+				source = mapped
+			} else if !strings.HasPrefix(mfrStr, "Manufacturer") && mfrStr != "" {
 				source = mfrStr
 			}
 		}
@@ -1427,9 +1795,23 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 		}
 		productName := ResolveProductName(mfrID, prodID, "")
 		mfrStr := typedef.Manufacturer(mfrID).String()
+		mfrDisplay := FormatManufacturer(mfrStr)
+
+		// Override manufacturer display for resolved development devices
+		if mfrID == uint16(typedef.ManufacturerDevelopment) && source != "" && source != "development" {
+			mfrDisplay = source
+			if productName == "" || productName == "Development" {
+				productName = device
+			}
+		}
+		// Override for virtual platforms
+		if mapped := MapVirtualPlatform(mfrStr); mapped != "" {
+			mfrDisplay = mapped
+		}
+
 		du = &model.DeviceUpsert{
 			Type:           "recorder",
-			Manufacturer:   FormatManufacturer(mfrStr),
+			Manufacturer:   mfrDisplay,
 			ManufacturerID: int(mfrID),
 			ProductName:    productName,
 			ProductID:      int(prodID),

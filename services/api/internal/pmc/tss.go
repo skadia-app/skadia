@@ -216,8 +216,47 @@ func CalcSwimTSS(distanceM float64, movingTimeS int, cssMps float64) float64 {
 
 // --- Stream Extractors ---
 
+// DeduplicateStreamsByTimestamp merges multi-row-per-timestamp records into
+// one StreamPoint per unique timestamp, taking the first non-nil value for
+// each field. Devices like Apple Watch, COROS, and Wahoo write 2-7 record
+// messages per second with different field sets (e.g. one row has power,
+// another has speed). Without deduplication, nil power rows become 0W and
+// inflate the zero count, skewing NP by ~20%.
+func DeduplicateStreamsByTimestamp(points []model.StreamPoint) []model.StreamPoint {
+	if len(points) == 0 {
+		return nil
+	}
+	result := make([]model.StreamPoint, 0, len(points))
+	current := points[0]
+
+	for i := 1; i < len(points); i++ {
+		if !points[i].Time.Equal(current.Time) {
+			result = append(result, current)
+			current = points[i]
+			continue
+		}
+		// Same timestamp: merge non-nil fields into current
+		if current.PowerW == nil && points[i].PowerW != nil {
+			current.PowerW = points[i].PowerW
+		}
+		if current.HeartRate == nil && points[i].HeartRate != nil {
+			current.HeartRate = points[i].HeartRate
+		}
+		if current.Cadence == nil && points[i].Cadence != nil {
+			current.Cadence = points[i].Cadence
+		}
+		if current.SpeedMS == nil && points[i].SpeedMS != nil {
+			current.SpeedMS = points[i].SpeedMS
+		}
+	}
+	result = append(result, current)
+	return result
+}
+
 // ExtractPowerStream extracts power values from StreamPoints as float64 slice.
-// Nil values become 0 (coasting). *int16 → float64 conversion.
+// Expects deduplicated input (one row per timestamp — see DeduplicateStreamsByTimestamp).
+// nil PowerW → 0 so coasting contributes to the rolling average.
+// *int16 → float64 conversion.
 func ExtractPowerStream(points []model.StreamPoint) []float64 {
 	result := make([]float64, len(points))
 	for i, p := range points {

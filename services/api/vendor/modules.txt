@@ -215,6 +215,9 @@ github.com/lestrrat-go/option
 # github.com/mattn/go-runewidth v0.0.19
 ## explicit; go 1.20
 github.com/mattn/go-runewidth
+# github.com/mitchellh/mapstructure v1.5.0
+## explicit; go 1.14
+github.com/mitchellh/mapstructure
 # github.com/muktihari/fit v0.27.2
 ## explicit; go 1.24.0
 github.com/muktihari/fit/decoder
@@ -258,6 +261,8 @@ github.com/paulmach/orb/encoding/wkt
 github.com/paulmach/orb/geo
 github.com/paulmach/orb/geojson
 github.com/paulmach/orb/internal/length
+github.com/paulmach/orb/internal/mercator
+github.com/paulmach/orb/maptile
 github.com/paulmach/orb/planar
 github.com/paulmach/orb/simplify
 # github.com/pdfcpu/pdfcpu v0.11.1
@@ -284,6 +289,16 @@ github.com/pdfcpu/pdfcpu/pkg/pdfcpu/validate
 # github.com/pkg/errors v0.9.1
 ## explicit
 github.com/pkg/errors
+# github.com/ringsaturn/tzf v1.0.4
+## explicit; go 1.25
+github.com/ringsaturn/tzf
+github.com/ringsaturn/tzf/convert
+github.com/ringsaturn/tzf/gen/go/tzf/v1
+github.com/ringsaturn/tzf/internal/maps
+github.com/ringsaturn/tzf/reduce
+# github.com/ringsaturn/tzf-rel-lite v0.0.2026-a
+## explicit; go 1.24
+github.com/ringsaturn/tzf-rel-lite
 # github.com/segmentio/asm v1.2.0
 ## explicit; go 1.18
 github.com/segmentio/asm/base64
@@ -296,6 +311,18 @@ github.com/segmentio/asm/internal/unsafebytes
 # github.com/sixdouglas/suncalc v0.0.0-20250114185126-291b1938b70c
 ## explicit; go 1.18
 github.com/sixdouglas/suncalc
+# github.com/tidwall/geoindex v1.7.0
+## explicit; go 1.15
+github.com/tidwall/geoindex/child
+# github.com/tidwall/geojson v1.4.6
+## explicit; go 1.15
+github.com/tidwall/geojson/geometry
+# github.com/tidwall/rtree v1.10.0
+## explicit; go 1.18
+github.com/tidwall/rtree
+# github.com/twpayne/go-polyline v1.1.1
+## explicit; go 1.16
+github.com/twpayne/go-polyline
 # github.com/wneessen/go-mail v0.7.2
 ## explicit; go 1.24.0
 github.com/wneessen/go-mail
@@ -382,6 +409,35 @@ golang.org/x/text/width
 # golang.org/x/time v0.15.0
 ## explicit; go 1.25.0
 golang.org/x/time/rate
+# google.golang.org/protobuf v1.36.11
+## explicit; go 1.23
+google.golang.org/protobuf/encoding/prototext
+google.golang.org/protobuf/encoding/protowire
+google.golang.org/protobuf/internal/descfmt
+google.golang.org/protobuf/internal/descopts
+google.golang.org/protobuf/internal/detrand
+google.golang.org/protobuf/internal/editiondefaults
+google.golang.org/protobuf/internal/encoding/defval
+google.golang.org/protobuf/internal/encoding/messageset
+google.golang.org/protobuf/internal/encoding/tag
+google.golang.org/protobuf/internal/encoding/text
+google.golang.org/protobuf/internal/errors
+google.golang.org/protobuf/internal/filedesc
+google.golang.org/protobuf/internal/filetype
+google.golang.org/protobuf/internal/flags
+google.golang.org/protobuf/internal/genid
+google.golang.org/protobuf/internal/impl
+google.golang.org/protobuf/internal/order
+google.golang.org/protobuf/internal/pragma
+google.golang.org/protobuf/internal/protolazy
+google.golang.org/protobuf/internal/set
+google.golang.org/protobuf/internal/strs
+google.golang.org/protobuf/internal/version
+google.golang.org/protobuf/proto
+google.golang.org/protobuf/reflect/protoreflect
+google.golang.org/protobuf/reflect/protoregistry
+google.golang.org/protobuf/runtime/protoiface
+google.golang.org/protobuf/runtime/protoimpl
 # gopkg.in/yaml.v2 v2.4.0
 ## explicit; go 1.15
 gopkg.in/yaml.v2

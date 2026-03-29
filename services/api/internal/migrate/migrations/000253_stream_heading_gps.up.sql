@@ -1,0 +1,2 @@
+ALTER TABLE activity_streams ADD COLUMN IF NOT EXISTS heading REAL;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS gps_accuracy_m SMALLINT;
