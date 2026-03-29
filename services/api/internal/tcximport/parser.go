@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/skadia-app/skadia/services/api/internal/activityutil"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -191,6 +193,7 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 		// Build Lap entry
 		lapStart, _ := time.Parse(time.RFC3339, lap.StartTime)
 		l := model.LapRecord{
+			ID:                uuid.New().String(),
 			StartTime:         lapStart,
 			TotalElapsedTimeS: lap.TotalTimeSeconds,
 			TotalDistanceM:    lap.DistanceMeters,
