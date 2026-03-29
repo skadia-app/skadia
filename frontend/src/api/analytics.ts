@@ -21,10 +21,13 @@ export interface PMCExtended {
   days: PMCDay[]
   acwr: number
   acwr_status: string
+  acwr_trend: number
   ramp_rate: number
   monotony: number
   strain: number
   projection: PMCDay[]
+  using_default_thresholds: boolean
+  default_threshold_fields?: string[]
 }
 
 export interface PMCDay {
@@ -34,6 +37,7 @@ export interface PMCDay {
   atl: number
   tsb: number
   acwr: number
+  acwr_ra?: number
 }
 
 export interface YearProgressionYearData {
