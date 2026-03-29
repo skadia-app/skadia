@@ -20,6 +20,7 @@ const jobTypeLabels: Record<string, string> = {
   activity_re_enrich:      'Enrichment-Update',
   thumbnail_backfill:      'Thumbnails regenerieren',
   shadowfs_reconcile:      'Dateispeicher-Prüfung',
+  fusion_queue_compute:    'Fusionskandidaten berechnen',
 }
 
 export type { ActiveJob }
@@ -77,6 +78,9 @@ export function useActiveJobs() {
         }
         if (job.job_type === 'garmin_import' || job.job_type === 'strava_import') {
           queryClient.invalidateQueries({ queryKey: ['activities'] })
+        }
+        if (job.job_type === 'fusion_queue_compute') {
+          queryClient.invalidateQueries({ queryKey: ['fusion-queue'] })
         }
       }
     }

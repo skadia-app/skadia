@@ -3,7 +3,11 @@ package database
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // GetFusionQueueActivities gibt die letzten N Aktivitäten eines Users zurück
@@ -124,4 +128,165 @@ func (db *DB) FindFusionCandidates(ctx context.Context, userID string, activityI
 		return nil, err
 	}
 	return candidateIDs, nil
+}
+
+// FusionCandidateRow ist das Ergebnis einer GetCachedFusionCandidates-Abfrage,
+// inklusive der zugehörigen Aktivitäts-Metadaten für beide Seiten des Paares.
+type FusionCandidateRow struct {
+	ActivityIDA    string
+	ActivityIDB    string
+	OverlapPercent float64
+	FieldRichnessA int
+	FieldRichnessB int
+	TimeDiffSec    float64
+	TitleA         *string
+	TitleAutoA     *string
+	StartedAtA     time.Time
+	SportTypeA     string
+	SubTypeA       *string
+	IsEbikeA       bool
+	DistanceMA     *float64
+	TitleB         *string
+	TitleAutoB     *string
+	StartedAtB     time.Time
+	SportTypeB     string
+	SubTypeB       *string
+	IsEbikeB       bool
+	DistanceMB     *float64
+}
+
+// FusionCandidateInsert beschreibt einen einzelnen Eintrag für ReplaceFusionCandidates.
+type FusionCandidateInsert struct {
+	ActivityIDA    string
+	ActivityIDB    string
+	OverlapPercent float64
+	FieldRichnessA int
+	FieldRichnessB int
+	TimeDiffSec    float64
+}
+
+// IsFusionCacheStale prüft ob der Fusion-Cache eines Users veraltet ist.
+// Gibt stale=true zurück wenn fusion_invalidation_seq > fusion_computed_seq.
+// invalidationSeq wird zurückgegeben damit der Background-Job den Wert snapshotten kann.
+// Wenn der User nicht gefunden wird, wird stale=true, invalidationSeq=0, err=nil zurückgegeben.
+func (db *DB) IsFusionCacheStale(ctx context.Context, userID string) (stale bool, invalidationSeq int64, err error) {
+	var invalidation, computed int64
+	err = db.Pool.QueryRow(ctx,
+		`SELECT fusion_invalidation_seq, fusion_computed_seq FROM users WHERE id = $1`,
+		userID,
+	).Scan(&invalidation, &computed)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return true, 0, nil
+		}
+		return false, 0, fmt.Errorf("check fusion cache staleness: %w", err)
+	}
+	return invalidation > computed, invalidation, nil
+}
+
+// GetCachedFusionCandidates liest die gecachten Fusion-Kandidaten eines Users
+// aus fusion_candidates, angereichert mit den Aktivitäts-Metadaten beider Seiten.
+// Gibt einen leeren Slice (nie nil) zurück wenn keine Einträge vorhanden sind.
+func (db *DB) GetCachedFusionCandidates(ctx context.Context, userID string, limit int) ([]FusionCandidateRow, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT
+			fc.activity_id_a, fc.activity_id_b,
+			fc.overlap_percent, fc.field_richness_a, fc.field_richness_b, fc.time_diff_sec,
+			a1.title, a1.title_auto, a1.started_at, a1.sport_type, a1.sub_type, a1.is_ebike, a1.distance_m,
+			a2.title, a2.title_auto, a2.started_at, a2.sport_type, a2.sub_type, a2.is_ebike, a2.distance_m
+		FROM fusion_candidates fc
+		JOIN activities a1 ON a1.id = fc.activity_id_a
+		JOIN activities a2 ON a2.id = fc.activity_id_b
+		WHERE fc.user_id = $1
+		ORDER BY fc.overlap_percent DESC
+		LIMIT $2`,
+		userID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query cached fusion candidates: %w", err)
+	}
+	defer rows.Close()
+	result := []FusionCandidateRow{}
+	for rows.Next() {
+		var r FusionCandidateRow
+		if err := rows.Scan(
+			&r.ActivityIDA, &r.ActivityIDB,
+			&r.OverlapPercent, &r.FieldRichnessA, &r.FieldRichnessB, &r.TimeDiffSec,
+			&r.TitleA, &r.TitleAutoA, &r.StartedAtA, &r.SportTypeA, &r.SubTypeA, &r.IsEbikeA, &r.DistanceMA,
+			&r.TitleB, &r.TitleAutoB, &r.StartedAtB, &r.SportTypeB, &r.SubTypeB, &r.IsEbikeB, &r.DistanceMB,
+		); err != nil {
+			return nil, fmt.Errorf("scan fusion candidate row: %w", err)
+		}
+		result = append(result, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate fusion candidates: %w", err)
+	}
+	return result, nil
+}
+
+// ReplaceFusionCandidates ersetzt alle gecachten Fusion-Kandidaten eines Users
+// in einer einzelnen Transaktion: löscht alte Einträge, fügt neue ein und
+// aktualisiert fusion_computed_seq auf den übergebenen computedSeq-Wert.
+// Wenn candidates leer ist, werden nur alte Einträge gelöscht und computed_seq gesetzt.
+func (db *DB) ReplaceFusionCandidates(ctx context.Context, userID string, candidates []FusionCandidateInsert, computedSeq int64) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM fusion_candidates WHERE user_id = $1`,
+		userID,
+	); err != nil {
+		return fmt.Errorf("delete old fusion candidates: %w", err)
+	}
+
+	for _, c := range candidates {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO fusion_candidates
+				(user_id, activity_id_a, activity_id_b, overlap_percent, field_richness_a, field_richness_b, time_diff_sec)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			userID, c.ActivityIDA, c.ActivityIDB, c.OverlapPercent, c.FieldRichnessA, c.FieldRichnessB, c.TimeDiffSec,
+		); err != nil {
+			return fmt.Errorf("insert fusion candidate (%s, %s): %w", c.ActivityIDA, c.ActivityIDB, err)
+		}
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE users SET fusion_computed_seq = $2 WHERE id = $1`,
+		userID, computedSeq,
+	); err != nil {
+		return fmt.Errorf("update fusion_computed_seq: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
+// InvalidateFusionCache erhöht fusion_invalidation_seq eines Users um 1.
+// Wird aufgerufen wenn sich Import-Einstellungen ändern, die den Fusion-Queue beeinflussen.
+func (db *DB) InvalidateFusionCache(ctx context.Context, userID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE users SET fusion_invalidation_seq = fusion_invalidation_seq + 1 WHERE id = $1`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("invalidate fusion cache: %w", err)
+	}
+	return nil
+}
+
+// DeleteFusionCandidatesForActivity löscht alle gecachten Kandidatenpaare
+// in denen die gegebene Aktivität auf einer der beiden Seiten vorkommt.
+// Wird nach einer erfolgreichen Fusion-Merge aufgerufen um veraltete Paare sofort zu entfernen.
+func (db *DB) DeleteFusionCandidatesForActivity(ctx context.Context, activityID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`DELETE FROM fusion_candidates WHERE activity_id_a = $1 OR activity_id_b = $1`,
+		activityID,
+	)
+	if err != nil {
+		return fmt.Errorf("delete fusion candidates for activity: %w", err)
+	}
+	return nil
 }
