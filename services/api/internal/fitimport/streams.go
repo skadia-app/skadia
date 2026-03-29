@@ -505,9 +505,23 @@ func ExtractStreams(records []*mesgdef.Record) []model.StreamPoint {
 			devFields := make(map[string]any, len(rec.DeveloperFields))
 			for _, df := range rec.DeveloperFields {
 				key := strconv.Itoa(int(df.Num))
-				devFields[key] = df.Value.Any()
+				val := df.Value.Any()
+				// Sanitize NaN/Inf — JSONB cannot encode IEEE 754 special values
+				switch v := val.(type) {
+				case float64:
+					if math.IsNaN(v) || math.IsInf(v, 0) {
+						continue // skip this field
+					}
+				case float32:
+					if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
+						continue
+					}
+				}
+				devFields[key] = val
 			}
-			sp.DeveloperFields = devFields
+			if len(devFields) > 0 {
+				sp.DeveloperFields = devFields
+			}
 		}
 
 		streams = append(streams, sp)
