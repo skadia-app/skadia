@@ -1429,6 +1429,26 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 			source = "SRM"
 		case mfr == typedef.ManufacturerStrava:
 			source = "Strava"
+		case mfr == typedef.ManufacturerPeaksware:
+			source = "TrainingPeaks"
+		case mfr == typedef.ManufacturerTimex:
+			source = "Timex"
+		case mfr == typedef.ManufacturerTomtom:
+			source = "TomTom"
+		case mfr == typedef.ManufacturerXplova:
+			source = "Xplova"
+		case mfr == typedef.ManufacturerConcept2:
+			source = "Concept2"
+		case mfr == typedef.ManufacturerForm:
+			source = "FORM"
+		case mfr == typedef.ManufacturerMagene:
+			source = "Magene"
+		case mfr == typedef.ManufacturerWattbike:
+			source = "Wattbike"
+		case mfr == typedef.ManufacturerIgpsport:
+			source = "iGPSport"
+		case mfr == typedef.ManufacturerCycplus:
+			source = "Cycplus"
 		case mfr == typedef.ManufacturerDevelopment:
 			// manufacturer_id=255: Apple Watch, Amazfit, Huawei etc.
 			// Resolve from ProductName pattern (Watch7,12 → Apple Watch Ultra 3).

@@ -100,6 +100,11 @@ func ResolveDevelopmentManufacturer(productName, descriptor string) (source, dev
 		return "Samsung", productName
 	}
 
+	// 3b. Polar devices exported with mfr=255 (via Polar Flow app or older firmware)
+	if strings.HasPrefix(pnLower, "polar ") {
+		return "Polar", productName
+	}
+
 	// 4. Google Pixel Watch: productName contains "pixel watch"
 	if strings.Contains(pnLower, "pixel watch") {
 		return "Google", productName
