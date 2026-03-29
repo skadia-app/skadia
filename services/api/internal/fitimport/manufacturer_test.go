@@ -49,6 +49,28 @@ func TestResolveDevelopmentManufacturer(t *testing.T) {
 	}
 }
 
+func TestFormatManufacturer_SpecialCases(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"whoop", "WHOOP"},
+		{"wahoo_fitness", "Wahoo Fitness"},
+		{"trainer_road", "Trainer Road"},
+		{"srm", "SRM"},
+		{"", ""},
+		{"ManufacturerInvalid", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := FormatManufacturer(tt.input)
+			if got != tt.want {
+				t.Errorf("FormatManufacturer(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestVirtualPlatformMapping(t *testing.T) {
 	tests := []struct {
 		mfrString  string

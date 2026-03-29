@@ -185,6 +185,8 @@ func FormatManufacturer(s string) string {
 	switch s {
 	case "srm":
 		return "SRM"
+	case "whoop":
+		return "WHOOP"
 	case "sigmasport":
 		return "Sigmasport"
 	case "osynce":
