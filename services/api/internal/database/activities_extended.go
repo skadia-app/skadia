@@ -87,7 +87,8 @@ func (db *DB) SaveTimeInZones(ctx context.Context, activityID string, lapID *str
 		}
 		batch.Queue(
 			`INSERT INTO activity_time_in_zone (activity_id, zone_type, zone_index, zone_high, seconds, lap_id, segment_lap_id)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)
+			 ON CONFLICT ON CONSTRAINT uq_activity_time_in_zone_v2 DO NOTHING`,
 			activityID, z.ZoneType, z.ZoneIndex, zoneHigh, z.Seconds, lapID, segmentLapID,
 		)
 	}

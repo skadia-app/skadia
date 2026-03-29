@@ -103,7 +103,8 @@ func (db *DB) InsertActivitySegmentLaps(ctx context.Context, activityID string, 
 				$88, $89,
 				$90, $91,
 				$92, $93, $94
-			)`,
+			)
+			ON CONFLICT (activity_id, message_index) DO NOTHING`,
 			l.ID, activityID, l.MessageIndex, l.Timestamp, l.StartTime,
 			l.Name, l.UUID, l.Status, l.Manufacturer, l.Sport, l.SubSport,
 			l.Event, l.EventType, l.EventGroup, l.SportEvent,
