@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
 // resumableJobTypes defines which job types can be automatically resumed after
@@ -138,8 +139,7 @@ func (h *Handler) resumeSegmentPublish(job database.BackgroundJob) {
 	slog.Info("resume: restarting segment publish recompute",
 		"job_id", job.ID, "segment_id", segmentID)
 
-	go func() {
-		ctx := context.Background()
+	shutdown.Go("resume-segment-publish-"+segmentID, func(ctx context.Context) {
 		failed := false
 
 		ids, err := h.DB.ListAllActivityIDsForSegmentBackfill(ctx, segmentID)
@@ -183,7 +183,7 @@ func (h *Handler) resumeSegmentPublish(job database.BackgroundJob) {
 		if err := h.DB.CompleteBackgroundJob(ctx, job.ID, failed, ""); err != nil {
 			slog.Warn("resume segment_publish: complete job failed", "job_id", job.ID, "error", err)
 		}
-	}()
+	})
 }
 
 // resumeSegmentRecompute restarts a segment recompute job from scratch.
@@ -202,8 +202,7 @@ func (h *Handler) resumeSegmentRecompute(job database.BackgroundJob) {
 	slog.Info("resume: restarting segment recompute",
 		"job_id", job.ID, "segment_id", segmentID, "user_id", job.UserID)
 
-	go func() {
-		ctx := context.Background()
+	shutdown.Go("resume-segment-recompute-"+segmentID, func(ctx context.Context) {
 		failed := false
 
 		// List activity IDs and reset progress.
@@ -248,5 +247,5 @@ func (h *Handler) resumeSegmentRecompute(job database.BackgroundJob) {
 		if err := h.DB.CompleteBackgroundJob(ctx, job.ID, failed, ""); err != nil {
 			slog.Warn("resume: complete job failed", "job_id", job.ID, "error", err)
 		}
-	}()
+	})
 }

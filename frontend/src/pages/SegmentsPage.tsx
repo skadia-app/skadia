@@ -500,12 +500,16 @@ function LeaderboardModal({ segmentId, segmentName, onClose }: { segmentId: stri
                     className={`border-b border-neutral-100 dark:border-neutral-800 ${i % 2 !== 0 ? 'bg-neutral-50/50 dark:bg-neutral-800/20' : ''}`}
                   >
                     <td className="px-3 py-2 text-neutral-900 dark:text-neutral-100">
-                      {entry.rank_overall === 1 ? (
-                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-bold text-xs">
-                          1
-                        </span>
+                      {entry.rank_overall != null ? (
+                        entry.rank_overall === 1 ? (
+                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-bold text-xs">
+                            1
+                          </span>
+                        ) : (
+                          <span className="text-neutral-600 dark:text-neutral-400">#{entry.rank_overall}</span>
+                        )
                       ) : (
-                        <span className="text-neutral-600 dark:text-neutral-400">#{entry.rank_overall}</span>
+                        <span className="text-neutral-600 dark:text-neutral-400">–</span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-neutral-900 dark:text-neutral-100">{entry.display_name}</td>
