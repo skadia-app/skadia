@@ -161,6 +161,7 @@ func CalcEdwardsTRIMP(hrStream []int, restingHR, maxHR int) float64 {
 // minettiCr returns the energy cost coefficient (J/kg/m) for a given grade.
 // Grade is a decimal (-0.10 = -10%, 0.10 = +10%). Clamped to ±45%.
 // Minetti et al. 2002, J Appl Physiol 93:1039-1046.
+// Legacy: kept as reference, superseded by re3MetabolicRate.
 func minettiCr(grade float64) float64 {
 	if grade < -0.45 {
 		grade = -0.45
@@ -173,6 +174,58 @@ func minettiCr(grade float64) float64 {
 		46.3*math.Pow(i, 2) + 19.5*i + 3.6
 }
 
+// re3MetabolicRate returns metabolic energy expenditure rate (W/kg)
+// for running at the given speed (m/s) and grade (decimal rise/run).
+// Looney, Hoogkamer, Kram (2025), Eq. 4.
+// Valid: speed 1.78-5.70 m/s, grade -0.45 to +0.82.
+func re3MetabolicRate(speed, grade float64) float64 {
+	if grade < -0.45 {
+		grade = -0.45
+	}
+	if grade > 0.82 {
+		grade = 0.82
+	}
+	if speed < 1.0 {
+		speed = 1.0
+	}
+	// RE3 Level (Eq. 1)
+	mLevel := 4.43 + 1.51*speed + 0.37*speed*speed
+	// RE3 Graded term (Eq. 4): β₁=30.43, β₂=1.133, β₃=1.056, β₄=43
+	exp1 := math.Pow(1.056, 100.0*grade+43.0)
+	exp2 := math.Pow(1.133, 1.0-exp1)
+	gradeTerm := 30.43 * speed * grade * (1.0 - exp2)
+	result := mLevel + gradeTerm
+	if result < 1.0 {
+		return 1.0
+	}
+	return result
+}
+
+// re3InvertLevel solves RE3 level equation for speed given metabolic rate.
+// Ṁ = 4.43 + 1.51*S + 0.37*S² → quadratic formula.
+func re3InvertLevel(mdot float64) float64 {
+	const a, b, c0 = 0.37, 1.51, 4.43
+	disc := b*b - 4*a*(c0-mdot)
+	if disc < 0 {
+		return 0
+	}
+	s := (-b + math.Sqrt(disc)) / (2 * a)
+	if s < 0 {
+		return 0
+	}
+	return s
+}
+
+// re3GradeAdjustedSpeed converts actual speed at a grade to equivalent flat speed.
+// Uses exact quadratic inversion of RE3 level equation.
+func re3GradeAdjustedSpeed(speed, grade float64) float64 {
+	if speed <= 0 {
+		return 0
+	}
+	mdotGraded := re3MetabolicRate(speed, grade)
+	return re3InvertLevel(mdotGraded)
+}
+
 // CalcNGP calculates Normalized Graded Pace from speed and grade streams.
 // If gapStream (Garmin GAP field 140) is provided, it's used directly.
 // Unlike CalcNP, does NOT apply repairDropouts (speed=0 = standing, not dropout).
@@ -181,18 +234,12 @@ func CalcNGP(speeds, grades []float64, gapStream []float64) float64 {
 	if n < 30 {
 		return 0
 	}
-	crFlat := minettiCr(0) // 3.6
 	gasStream := make([]float64, n)
 	for i := 0; i < n; i++ {
 		if gapStream != nil && i < len(gapStream) && gapStream[i] > 0 {
-			gasStream[i] = gapStream[i]
+			gasStream[i] = gapStream[i] // Garmin native GAP preferred
 		} else if i < len(grades) {
-			cr := minettiCr(grades[i])
-			gas := speeds[i] * cr / crFlat
-			if gas < 0 {
-				gas = 0
-			}
-			gasStream[i] = gas
+			gasStream[i] = re3GradeAdjustedSpeed(speeds[i], grades[i])
 		} else {
 			gasStream[i] = speeds[i]
 		}
@@ -297,6 +344,23 @@ func ExtractGradeStream(points []model.StreamPoint) []float64 {
 		if p.GradePct != nil {
 			result[i] = *p.GradePct / 100.0
 		}
+	}
+	return result
+}
+
+// ExtractGAPStream extracts Garmin GAP (field 140) as m/s.
+// Returns nil if no GAP data found.
+func ExtractGAPStream(points []model.StreamPoint) []float64 {
+	result := make([]float64, len(points))
+	hasAny := false
+	for i, p := range points {
+		if p.GapSpeedMS != nil && *p.GapSpeedMS > 0 {
+			result[i] = *p.GapSpeedMS
+			hasAny = true
+		}
+	}
+	if !hasAny {
+		return nil
 	}
 	return result
 }

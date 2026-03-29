@@ -273,6 +273,121 @@ func TestComputeTSS_HrAvgFallback(t *testing.T) {
 	}
 }
 
+// --- RE3 Model Tests ---
+
+func TestRE3MetabolicRate_Level(t *testing.T) {
+	// RE3 level: 4.43 + 1.51*S + 0.37*S²
+	// S=3.33: 4.43 + 5.028 + 4.105 = 13.563
+	m := re3MetabolicRate(3.33, 0)
+	if math.Abs(m-13.563) > 0.1 {
+		t.Errorf("RE3 level at 3.33 m/s = %.3f, want ~13.563", m)
+	}
+}
+
+func TestRE3MetabolicRate_Uphill(t *testing.T) {
+	mFlat := re3MetabolicRate(3.33, 0)
+	mUp := re3MetabolicRate(3.33, 0.10)
+	if mUp <= mFlat {
+		t.Errorf("uphill (%.2f) should be > flat (%.2f)", mUp, mFlat)
+	}
+	ratio := mUp / mFlat
+	// RE3 at +10%: ~1.66 (steeper than Minetti, matches empirical 2025 data)
+	if ratio < 1.5 || ratio > 2.0 {
+		t.Errorf("uphill/flat ratio = %.2f, want 1.5-2.0", ratio)
+	}
+}
+
+func TestRE3MetabolicRate_Downhill(t *testing.T) {
+	mFlat := re3MetabolicRate(3.33, 0)
+	mDown := re3MetabolicRate(3.33, -0.10)
+	ratio := mDown / mFlat
+	// RE3 at -10%: ~0.65 (less metabolic demand downhill, matches empirical 2025 data)
+	if ratio < 0.50 || ratio > 0.85 {
+		t.Errorf("downhill/flat ratio = %.2f, want 0.50-0.85", ratio)
+	}
+}
+
+func TestRE3MetabolicRate_Clamp(t *testing.T) {
+	mClamped := re3MetabolicRate(3.33, -0.60)
+	mEdge := re3MetabolicRate(3.33, -0.45)
+	if math.Abs(mClamped-mEdge) > 0.001 {
+		t.Errorf("grade -0.60 should clamp to -0.45: %.3f vs %.3f", mClamped, mEdge)
+	}
+	mUpClamped := re3MetabolicRate(3.33, 1.0)
+	mUpEdge := re3MetabolicRate(3.33, 0.82)
+	if math.Abs(mUpClamped-mUpEdge) > 0.001 {
+		t.Errorf("grade 1.0 should clamp to 0.82: %.3f vs %.3f", mUpClamped, mUpEdge)
+	}
+}
+
+func TestRE3MetabolicRate_SpeedClamp(t *testing.T) {
+	m := re3MetabolicRate(0.5, 0.10)
+	mClamp := re3MetabolicRate(1.0, 0.10)
+	if math.Abs(m-mClamp) > 0.001 {
+		t.Errorf("speed 0.5 should clamp to 1.0: %.3f vs %.3f", m, mClamp)
+	}
+}
+
+func TestRE3MetabolicRate_AlwaysPositive(t *testing.T) {
+	cases := [][2]float64{
+		{1.78, -0.45}, {5.70, -0.45}, {3.0, -0.30},
+		{1.78, 0.82}, {5.70, 0.82}, {5.70, 0},
+	}
+	for _, c := range cases {
+		m := re3MetabolicRate(c[0], c[1])
+		if m <= 0 {
+			t.Errorf("re3MetabolicRate(%.1f, %.2f) = %.3f, must be > 0", c[0], c[1], m)
+		}
+	}
+}
+
+func TestRE3InvertLevel(t *testing.T) {
+	for _, speed := range []float64{2.0, 3.33, 4.5, 5.7} {
+		mdot := re3MetabolicRate(speed, 0)
+		recovered := re3InvertLevel(mdot)
+		if math.Abs(recovered-speed) > 0.01 {
+			t.Errorf("invert round-trip: speed=%.2f -> mdot=%.2f -> %.2f", speed, mdot, recovered)
+		}
+	}
+}
+
+func TestRE3GradeAdjustedSpeed(t *testing.T) {
+	gas := re3GradeAdjustedSpeed(3.33, 0)
+	if math.Abs(gas-3.33) > 0.01 {
+		t.Errorf("GAS at 0%% = %.3f, want 3.33", gas)
+	}
+	gasUp := re3GradeAdjustedSpeed(3.33, 0.10)
+	if gasUp <= 3.33 {
+		t.Errorf("GAS uphill (%.3f) should be > 3.33", gasUp)
+	}
+	gasDown := re3GradeAdjustedSpeed(3.33, -0.10)
+	if gasDown >= 3.33 {
+		t.Errorf("GAS downhill (%.3f) should be < 3.33", gasDown)
+	}
+	if re3GradeAdjustedSpeed(0, 0.10) != 0 {
+		t.Error("GAS at speed=0 should be 0")
+	}
+}
+
+func TestExtractGAPStream_Nil(t *testing.T) {
+	pts := []model.StreamPoint{{}, {}, {}}
+	if ExtractGAPStream(pts) != nil {
+		t.Error("all-nil should return nil")
+	}
+}
+
+func TestExtractGAPStream_WithData(t *testing.T) {
+	v := 3.5
+	pts := []model.StreamPoint{{}, {GapSpeedMS: &v}, {}}
+	result := ExtractGAPStream(pts)
+	if result == nil {
+		t.Fatal("should return non-nil")
+	}
+	if result[1] != 3.5 || result[0] != 0 {
+		t.Errorf("unexpected: %v", result)
+	}
+}
+
 func TestExtractPowerStream_SkipsNullRows(t *testing.T) {
 	// Simulate Apple Watch: alternating power/no-power rows per timestamp.
 	// The central dedup approach is now tested: dedup first, then extract.
