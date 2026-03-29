@@ -31,7 +31,9 @@ func (db *DB) ListSegments(ctx context.Context, p model.ListSegmentsParams) (*mo
 	// --- CTE: user_efforts ---
 	cte := `
 WITH user_efforts AS (
-    SELECT se.segment_id, COUNT(*)::int AS ridden_count
+    SELECT se.segment_id,
+           COUNT(*)::int AS ridden_count,
+           COUNT(*) FILTER (WHERE a.visibility != 'public')::int AS private_ridden_count
     FROM segment_efforts se
     JOIN activities a ON se.activity_id = a.id
     WHERE a.user_id = $1
@@ -48,7 +50,7 @@ SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
        s.segment_type, s.segment_type_meta,
        s.source_activity_id, s.osm_lift_id,
        s.distance_m, s.elevation_gain_m,
-       s.effort_count, s.athlete_count,
+       s.effort_count + COALESCE(ue.private_ridden_count, 0) AS effort_count, s.athlete_count,
        COALESCE(ue.ridden_count, 0) AS ridden_count,
        (uf.segment_id IS NOT NULL) AS is_favorite,
        s.visibility, s.route_hash, s.created_at,`
@@ -327,7 +329,11 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
 		       s.segment_type, s.segment_type_meta,
 		       s.source_activity_id, s.osm_lift_id,
 		       s.distance_m, s.elevation_gain_m,
-		       s.effort_count, s.athlete_count,
+		       s.effort_count + COALESCE((
+		           SELECT COUNT(*)::int FROM segment_efforts se
+		           JOIN activities a ON se.activity_id = a.id
+		           WHERE se.segment_id = s.id AND a.user_id = NULLIF($2::text, '')::uuid AND a.visibility != 'public'
+		       ), 0) AS effort_count, s.athlete_count,
 		       COALESCE((
 		           SELECT COUNT(*)::int FROM segment_efforts se
 		           JOIN activities a ON se.activity_id = a.id
