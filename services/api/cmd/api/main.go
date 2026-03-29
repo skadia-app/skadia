@@ -346,6 +346,9 @@ func main() {
 		cfg.MaxUserStorageBytes, cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
 	slog.Info("shadowfs: unified backend active", "target", cfg.StorageBackend)
 
+	// PMC service — always created; used by event consumer and recompute endpoint.
+	pmcService := &pmc.Service{DB: db}
+
 	// NATS (optional - log warning if unavailable)
 	var pub *event.Publisher
 	pub, err = event.NewPublisher(cfg.NatsURL)
@@ -356,7 +359,6 @@ func main() {
 		defer pub.Close()
 
 		// Start PMC consumer
-		pmcService := &pmc.Service{DB: db}
 		consumer := event.NewConsumer(pub.JetStream(), pmcService)
 		if err := consumer.Start(); err != nil {
 			slog.Warn("PMC consumer failed to start", "error", err)
@@ -394,6 +396,7 @@ func main() {
 	h := &handler.Handler{
 		DB:             db,
 		Events:         pub,
+		PMC:            pmcService,
 		ShadowFS:       store,
 		ShadowFSConfig: shadowFSCfg,
 		ImportService:  importSvc,
@@ -695,6 +698,7 @@ func main() {
 				r.Post("/detect-max-hr", h.DetectMaxHR)
 				r.Post("/activities/recompute-all", h.RecomputeAllActivities)
 				r.Get("/activities/recompute-status", h.RecomputeStatus)
+				r.Post("/recompute-tss", h.RecomputeAllTSS)
 
 				// OSM
 				r.Get("/osm-status", h.GetOSMStatus)
@@ -1172,9 +1176,8 @@ func main() {
 			slog.Warn("startup PMC recalc: failed to list users", "error", err)
 			return
 		}
-		pmcSvc := &pmc.Service{DB: db}
 		for _, uid := range userIDs {
-			if err := pmcSvc.RecalculatePMC(ctx, uid, time.Now()); err != nil {
+			if err := pmcService.RecalculatePMC(ctx, uid, time.Now()); err != nil {
 				slog.Warn("startup PMC recalc failed", "user_id", uid, "error", err)
 			}
 		}

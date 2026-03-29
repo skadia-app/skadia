@@ -9,6 +9,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
+	"github.com/skadia-app/skadia/services/api/internal/pmc"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
@@ -26,6 +27,7 @@ type Handler struct {
 	CoverageReader  *coverage.DiskCoverageReader // nil when coverage binaries are not available
 	PNGCache        *coverage.PNGCache           // LRU cache for rendered PNG tiles
 
+	PMC          *pmc.Service      // TSS/PMC recomputation service
 	recomputeJob recomputeJobState // in-memory state for async recompute-all
 }
 
