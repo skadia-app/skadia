@@ -63,6 +63,7 @@ func (s *Service) RecomputeAllTSS(ctx context.Context, userID string) error {
 		}
 
 		streams, _ := s.DB.GetStreamPoints(ctx, id)
+		streams = DeduplicateStreamsByTimestamp(streams)
 		result := ComputeTSS(sport, sub, movTime,
 			avgPower, avgHR, distM,
 			ExtractPowerStream(streams), ExtractHRStream(streams),
@@ -157,6 +158,7 @@ func (s *Service) ComputeActivityTSS(ctx context.Context, userID, activityID str
 	}
 
 	streams, _ := s.DB.GetStreamPoints(ctx, activityID)
+	streams = DeduplicateStreamsByTimestamp(streams)
 	result := ComputeTSS(sport, subSport, movingTimeS,
 		avgPowerW, avgHR, distanceM,
 		ExtractPowerStream(streams), ExtractHRStream(streams),

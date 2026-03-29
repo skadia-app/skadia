@@ -2,7 +2,6 @@ package pmc
 
 import (
 	"math"
-	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -255,38 +254,15 @@ func DeduplicateStreamsByTimestamp(points []model.StreamPoint) []model.StreamPoi
 }
 
 // ExtractPowerStream extracts power values from StreamPoints as float64 slice.
-// Deduplicates by timestamp first (handles Apple Watch / COROS / Wahoo multi-row
-// records). Timestamps with no power row are omitted entirely — they are not
-// treated as 0W coasting, preventing ~20% NP underestimation.
+// Expects deduplicated input (one row per timestamp — see DeduplicateStreamsByTimestamp).
+// nil PowerW → 0 so coasting contributes to the rolling average.
 // *int16 → float64 conversion.
 func ExtractPowerStream(points []model.StreamPoint) []float64 {
-	if len(points) == 0 {
-		return nil
-	}
-	result := make([]float64, 0, len(points))
-	var lastTime time.Time
-	var lastPower float64
-	var hasPower bool
-
-	for _, p := range points {
-		if !p.Time.Equal(lastTime) {
-			// New timestamp: flush previous if it had power
-			if hasPower {
-				result = append(result, lastPower)
-			}
-			lastTime = p.Time
-			lastPower = 0
-			hasPower = false
-		}
-		// Take power from whichever row has it
+	result := make([]float64, len(points))
+	for i, p := range points {
 		if p.PowerW != nil {
-			lastPower = float64(*p.PowerW)
-			hasPower = true
+			result[i] = float64(*p.PowerW)
 		}
-	}
-	// Flush last timestamp
-	if hasPower {
-		result = append(result, lastPower)
 	}
 	return result
 }
