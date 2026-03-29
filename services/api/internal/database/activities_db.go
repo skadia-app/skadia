@@ -560,7 +560,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 
 	err := db.Pool.QueryRow(ctx, `
 		SELECT
-			a.id, a.user_id, a.file_hash, a.title, a.title_auto, a.description,
+			a.id, a.user_id, a.file_hash, a.file_id, a.title, a.title_auto, a.description,
 			a.sport_type, a.sub_type, a.fit_sport_id, a.fit_sub_sport_id, a.is_ebike,
 			a.is_virtual, a.exclude_from_heatmap, a.exclude_from_stats,
 			a.started_at, a.ended_at, a.elapsed_time_s, a.moving_time_s,
@@ -646,7 +646,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		LEFT JOIN devices rd ON rd.id = a.recording_device_id
 		WHERE a.id = $1`, id,
 	).Scan(
-		&a.ID, &a.UserID, &a.FileHash, &a.Title, &a.TitleAuto, &a.Description,
+		&a.ID, &a.UserID, &a.FileHash, &a.FileID, &a.Title, &a.TitleAuto, &a.Description,
 		&a.SportType, &a.SubType, &a.FitSportID, &a.FitSubSportID, &a.IsEbike,
 		&a.IsVirtual, &a.ExcludeFromHeatmap, &a.ExcludeFromStats,
 		&a.StartedAt, &a.EndedAt, &a.ElapsedTimeS, &a.MovingTimeS,
