@@ -19,7 +19,7 @@ func (s *Service) RecomputeAllTSS(ctx context.Context, userID string) error {
 	rows, err := s.DB.Pool.Query(ctx, `
 		SELECT id, fit_sport_id, fit_sub_sport_id, moving_time_s,
 		       avg_power_w, avg_heart_rate, distance_m, started_at
-		FROM activities WHERE user_id = $1 AND NOT exclude_from_stats
+		FROM activities WHERE user_id = $1
 		ORDER BY started_at
 	`, userID)
 	if err != nil {
