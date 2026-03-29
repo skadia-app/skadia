@@ -429,6 +429,17 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 		 WHERE rr.activity_id IN (SELECT id FROM activities WHERE user_id = $1)
 		 ORDER BY rr.activity_id, rr.seq`, userID)
 
+	// Activity dive settings
+	queryAndExport(ctx, zw, h.DB.Pool, "activity_dive_settings.json",
+		`SELECT ads.* FROM activity_dive_settings ads
+		 WHERE ads.activity_id IN (SELECT id FROM activities WHERE user_id = $1)`, userID)
+
+	// Activity dive gases
+	queryAndExport(ctx, zw, h.DB.Pool, "activity_dive_gases.json",
+		`SELECT adg.* FROM activity_dive_gases adg
+		 WHERE adg.activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		 ORDER BY adg.activity_id, adg.gas_index`, userID)
+
 	// Heatmap points
 	queryAndExport(ctx, zw, h.DB.Pool, "heatmap_points.json",
 		`SELECT id, activity_id, sport_type, sub_type, activity_date,
@@ -510,7 +521,9 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 			"user_enrichment_settings", "ml_user_settings", "user_file_schemas",
 			"gear_components", "component_assignments", "gear_service_events",
 			"bike_setups", "activity_geo_tags", "activity_climbs",
-			"activity_stops", "activity_rr_intervals", "heatmap_points",
+			"activity_stops", "activity_rr_intervals",
+			"activity_dive_settings", "activity_dive_gases",
+			"heatmap_points",
 			"segment_versions", "segment_favorites", "oauth_connections",
 			"user_files", "file_attachments",
 		}, exportedTables...),
