@@ -195,6 +195,8 @@ func re3MetabolicRate(speed, grade float64) float64 {
 	exp2 := math.Pow(1.133, 1.0-exp1)
 	gradeTerm := 30.43 * speed * grade * (1.0 - exp2)
 	result := mLevel + gradeTerm
+	// Floor: RE3 polynomial can yield < 1 W/kg below the validated speed range
+	// (1.78 m/s). 1.0 W/kg is below resting metabolic rate for any locomotion.
 	if result < 1.0 {
 		return 1.0
 	}
@@ -206,6 +208,8 @@ func re3MetabolicRate(speed, grade float64) float64 {
 func re3InvertLevel(mdot float64) float64 {
 	const a, b, c0 = 0.37, 1.51, 4.43
 	disc := b*b - 4*a*(c0-mdot)
+	// Unreachable in normal operation: disc < 0 only when mdot < ~2.89 W/kg,
+	// which is below re3MetabolicRate's floor of 1.0.
 	if disc < 0 {
 		return 0
 	}
