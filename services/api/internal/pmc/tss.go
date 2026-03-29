@@ -2,6 +2,7 @@ package pmc
 
 import (
 	"math"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -216,14 +217,76 @@ func CalcSwimTSS(distanceM float64, movingTimeS int, cssMps float64) float64 {
 
 // --- Stream Extractors ---
 
-// ExtractPowerStream extracts power values from StreamPoints as float64 slice.
-// Nil values become 0 (coasting). *int16 → float64 conversion.
-func ExtractPowerStream(points []model.StreamPoint) []float64 {
-	result := make([]float64, len(points))
-	for i, p := range points {
-		if p.PowerW != nil {
-			result[i] = float64(*p.PowerW)
+// DeduplicateStreamsByTimestamp merges multi-row-per-timestamp records into
+// one StreamPoint per unique timestamp, taking the first non-nil value for
+// each field. Devices like Apple Watch, COROS, and Wahoo write 2-7 record
+// messages per second with different field sets (e.g. one row has power,
+// another has speed). Without deduplication, nil power rows become 0W and
+// inflate the zero count, skewing NP by ~20%.
+func DeduplicateStreamsByTimestamp(points []model.StreamPoint) []model.StreamPoint {
+	if len(points) == 0 {
+		return nil
+	}
+	result := make([]model.StreamPoint, 0, len(points))
+	current := points[0]
+
+	for i := 1; i < len(points); i++ {
+		if !points[i].Time.Equal(current.Time) {
+			result = append(result, current)
+			current = points[i]
+			continue
 		}
+		// Same timestamp: merge non-nil fields into current
+		if current.PowerW == nil && points[i].PowerW != nil {
+			current.PowerW = points[i].PowerW
+		}
+		if current.HeartRate == nil && points[i].HeartRate != nil {
+			current.HeartRate = points[i].HeartRate
+		}
+		if current.Cadence == nil && points[i].Cadence != nil {
+			current.Cadence = points[i].Cadence
+		}
+		if current.SpeedMS == nil && points[i].SpeedMS != nil {
+			current.SpeedMS = points[i].SpeedMS
+		}
+	}
+	result = append(result, current)
+	return result
+}
+
+// ExtractPowerStream extracts power values from StreamPoints as float64 slice.
+// Deduplicates by timestamp first (handles Apple Watch / COROS / Wahoo multi-row
+// records). Timestamps with no power row are omitted entirely — they are not
+// treated as 0W coasting, preventing ~20% NP underestimation.
+// *int16 → float64 conversion.
+func ExtractPowerStream(points []model.StreamPoint) []float64 {
+	if len(points) == 0 {
+		return nil
+	}
+	result := make([]float64, 0, len(points))
+	var lastTime time.Time
+	var lastPower float64
+	var hasPower bool
+
+	for _, p := range points {
+		if !p.Time.Equal(lastTime) {
+			// New timestamp: flush previous if it had power
+			if hasPower {
+				result = append(result, lastPower)
+			}
+			lastTime = p.Time
+			lastPower = 0
+			hasPower = false
+		}
+		// Take power from whichever row has it
+		if p.PowerW != nil {
+			lastPower = float64(*p.PowerW)
+			hasPower = true
+		}
+	}
+	// Flush last timestamp
+	if hasPower {
+		result = append(result, lastPower)
 	}
 	return result
 }
