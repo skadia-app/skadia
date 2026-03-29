@@ -68,7 +68,7 @@ func (s *Service) RecomputeAllTSS(ctx context.Context, userID string) error {
 			avgPower, avgHR, distM,
 			ExtractPowerStream(streams), ExtractHRStream(streams),
 			ExtractSpeedStream(streams), ExtractGradeStream(streams),
-			nil, th)
+			ExtractGAPStream(streams), th)
 
 		if err := s.DB.UpdateActivityTSS(ctx, id,
 			result.ComputedTSS, result.ComputedNPW, result.ComputedNGPMps,
@@ -163,7 +163,7 @@ func (s *Service) ComputeActivityTSS(ctx context.Context, userID, activityID str
 		avgPowerW, avgHR, distanceM,
 		ExtractPowerStream(streams), ExtractHRStream(streams),
 		ExtractSpeedStream(streams), ExtractGradeStream(streams),
-		nil, th)
+		ExtractGAPStream(streams), th)
 
 	return s.DB.UpdateActivityTSS(ctx, activityID,
 		result.ComputedTSS, result.ComputedNPW, result.ComputedNGPMps,
