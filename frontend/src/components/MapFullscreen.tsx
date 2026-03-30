@@ -551,6 +551,13 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
           throttleDelay: 100,
         },
 
+        toolbox: {
+          feature: {
+            brush: { show: false },
+            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
+          },
+        },
+
         tooltip: {
           trigger: 'axis',
           transitionDuration: 0,
