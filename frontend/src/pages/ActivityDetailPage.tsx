@@ -664,6 +664,7 @@ export default function ActivityDetailPage() {
               sportType={activity.sport_type}
               activeTab={activeTab}
               gearEvents={events}
+              activityId={activity.id}
             />
           )}
         </ChartTabs>
