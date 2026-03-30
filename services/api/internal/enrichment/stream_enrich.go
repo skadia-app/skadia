@@ -8,6 +8,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // EnrichmentStreamPoint is a single row from activity_streams loaded once and
@@ -122,6 +123,19 @@ func RunStreamEnrichment(ctx context.Context, db *database.DB, userID, activityI
 	if len(stream) == 0 {
 		slog.Debug("stream enrichment: empty stream, nothing to do", "activity_id", activityID)
 		return nil
+	}
+
+	// Skip stream enrichment for water-category sports (diving, swimming, etc.).
+	// Ascent detection, stop detection, and interval detection all rely on
+	// altitude/speed data that is meaningless or zero underwater.
+	if act, err := db.GetActivity(ctx, activityID); err == nil {
+		if def, ok := sport.GetSportDef(act.SportType); ok && def.CategoryKey == "water" {
+			slog.Debug("stream enrichment: skipping for water sport",
+				"activity_id", activityID,
+				"sport_type", act.SportType,
+			)
+			return nil
+		}
 	}
 
 	type module struct {
