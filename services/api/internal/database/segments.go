@@ -1296,6 +1296,37 @@ func encodeCursor(t time.Time, id string) string {
 	return base64.StdEncoding.EncodeToString([]byte(raw))
 }
 
+// GetSegmentsForExport returns minimal segment data needed for GPX/GeoJSON export.
+// Only returns segments the user can access (own or public).
+func (db *DB) GetSegmentsForExport(ctx context.Context, ids []string, userID string) ([]model.Segment, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT s.id, s.name, s.distance_m, s.elevation_gain_m,
+		       ST_AsGeoJSON(sv.track) AS track_geojson
+		FROM segments s
+		LEFT JOIN LATERAL (
+		    SELECT track FROM segment_versions
+		    WHERE segment_id = s.id
+		    ORDER BY version_number DESC LIMIT 1
+		) sv ON true
+		WHERE s.id = ANY($1)
+		  AND (s.visibility = 'public' OR s.created_by = $2)
+		  AND sv.track IS NOT NULL`, ids, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []model.Segment
+	for rows.Next() {
+		var seg model.Segment
+		if err := rows.Scan(&seg.ID, &seg.Name, &seg.DistanceM, &seg.ElevationGainM, &seg.TrackGeoJSON); err != nil {
+			return nil, err
+		}
+		result = append(result, seg)
+	}
+	return result, rows.Err()
+}
+
 func decodeCursor(cursor string) (time.Time, string, error) {
 	raw, err := base64.StdEncoding.DecodeString(cursor)
 	if err != nil {

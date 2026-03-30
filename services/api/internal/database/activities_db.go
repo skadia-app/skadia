@@ -799,6 +799,11 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 		conds = append(conds, fmt.Sprintf("sub_type = ANY($%d)", idx))
 		args = append(args, filters.SubTypes)
 	}
+	// NOTE: (started_at AT TIME ZONE COALESCE(timezone, 'UTC'))::date cannot use
+	// the (user_id, started_at) index because it's a non-deterministic expression
+	// over two columns. This is acceptable for per-user queries (filtered by user_id
+	// first). If performance becomes an issue with 10k+ activities, consider a
+	// stored generated local_date column.
 	if filters.DateFrom != "" {
 		idx++
 		conds = append(conds, fmt.Sprintf("(started_at AT TIME ZONE COALESCE(timezone, 'UTC'))::date >= $%d::date", idx))
