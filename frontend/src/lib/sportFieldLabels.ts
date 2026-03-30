@@ -20,6 +20,8 @@ export type FieldKey =
   | 'grit' | 'flow'
   // Garmin Stamina
   | 'potentialStamina' | 'staminaCurrent'
+  // Environmental
+  | 'pressure'
 
 // ── Pace / Speed Formatter ──────────────────────────────────────────────────────
 
@@ -155,6 +157,7 @@ const FIXED_LABELS: Partial<Record<FieldKey, FieldDef>> = {
   flow:                 { label: 'MTB Flow', unit: '' },
   potentialStamina:     { label: 'Stamina (Potential)', unit: '%' },
   staminaCurrent:       { label: 'Stamina (Aktuell)', unit: '%' },
+  pressure:             { label: 'Barometer', unit: 'hPa' },
 }
 
 // ── Sonderfälle ─────────────────────────────────────────────────────────────────
@@ -224,6 +227,7 @@ export function formatFieldValue(field: FieldKey, value: number, sportType: stri
     case 'flow': return value.toFixed(2)
     case 'potentialStamina':
     case 'staminaCurrent': return `${Math.round(value)}`
+    case 'pressure': return `${value.toFixed(1)} hPa`
     default: return String(value)
   }
 }

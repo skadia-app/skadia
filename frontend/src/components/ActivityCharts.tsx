@@ -50,7 +50,7 @@ const SUNSET_SVG = "image://data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2
 
 type XMode = 'distance' | 'time'
 
-type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'coreTemperature' | 'runningDynamics' | 'stepLength' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength' | 'grit' | 'flow' | 'gear' | 'potentialStamina' | 'staminaCurrent'
+type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'coreTemperature' | 'runningDynamics' | 'stepLength' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength' | 'grit' | 'flow' | 'gear' | 'potentialStamina' | 'staminaCurrent' | 'pressure'
 
 function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
   if (tab === CHART_TAB.alles) return null // show all
@@ -74,6 +74,7 @@ function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
     case CHART_TAB.sensoren: return ['temperature', 'coreTemperature']
     case CHART_TAB.mtb: return ['grit', 'flow']
     case CHART_TAB.ausdauer: return ['potentialStamina', 'staminaCurrent']
+    case CHART_TAB.barometer: return ['pressure']
     default: return null
   }
 }
@@ -106,6 +107,7 @@ interface ChartData {
   flow: number[]
   potentialStamina: number[]
   staminaCurrent: number[]
+  pressure: number[]
   paceMinKm: number[]
   garminGapMinKm: number[]
   re3Gap: number[]
@@ -143,6 +145,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const flow: number[] = []
   const potentialStamina: number[] = []
   const staminaCurrent: number[] = []
+  const pressure: number[] = []
   const paceMinKm: number[] = []
   const garminGapMinKm: number[] = []
   const re3Gap: number[] = []
@@ -182,6 +185,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     flow.push(s.flow ?? NaN)
     potentialStamina.push(s.potential_stamina ?? NaN)
     staminaCurrent.push(s.stamina ?? NaN)
+    pressure.push(s.absolute_pressure_pa != null ? s.absolute_pressure_pa / 100 : NaN) // Pa → hPa
 
     // GAP comparison: Pace, Garmin GAP, RE3 GAP — all in min/km
     const speedVal = s.speed_ms ?? 0
@@ -201,7 +205,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, paceMinKm, garminGapMinKm, re3Gap, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, pressure, paceMinKm, garminGapMinKm, re3Gap, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -773,6 +777,13 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         leftAxisName="%" rightAxisName="%"
         leftTooltipSuffix="Potential" rightTooltipSuffix="Aktuell"
         tooltipTitle="Garmin Stamina" />
+    </div>,
+  )
+  // Barometric Pressure
+  if (hasValidData(data.pressure)) panels.push(
+    <div key={k('pressure')} style={{ display: show('pressure') ? undefined : 'none' }}>
+      <ChartPanel chartId="pressure" {...common}
+        field="pressure" label="Barometer" unit="hPa" color="#78716c" />
     </div>,
   )
 
