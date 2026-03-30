@@ -57,6 +57,7 @@ function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
   const isSwim = getSegmentGroup(sportType) === 'swim'
   switch (tab) {
     case CHART_TAB.uebersicht: {
+      if (sportType === 'diving') return ['depth', 'heartRate', 'temperature']
       if (isSwim) return ['heartRate', 'cycleLength']
       return ['altitude', 'heartRate', 'speed']
     }
@@ -612,7 +613,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   // ECharts instances are never destroyed on tab switch — only hidden via CSS.
   const panels: React.ReactNode[] = []
 
-  if (hasValidData(data.altitude)) panels.push(
+  if (hasValidData(data.altitude) && sportType !== 'diving') panels.push(
     <div key={k('altitude')} style={{ display: show('altitude') ? undefined : 'none' }}>
       <ChartPanel chartId="altitude" {...common}
         field="altitude" label="Höhe" unit="m" color="#22c55e" area
