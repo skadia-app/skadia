@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,10 +24,35 @@ type Capabilities struct {
 	MLService       bool `json:"ml_service"`
 }
 
+const cacheTTL = 60 * time.Second
+
+var (
+	cacheMu      sync.Mutex
+	cachedCaps   Capabilities
+	cacheExpires time.Time
+)
+
+// InvalidateCache resets the capabilities cache so the next Detect call
+// performs a fresh probe. Call this after significant infrastructure changes
+// such as tile rebuilds or coverage builds.
+func InvalidateCache() {
+	cacheMu.Lock()
+	cacheExpires = time.Time{}
+	cacheMu.Unlock()
+}
+
 // Detect probes the database and BRouter to determine which features are
 // available at runtime. All checks are best-effort — failures are logged
-// and treated as "not available".
+// and treated as "not available". Results are cached for 60 seconds.
 func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL, tileDir string) Capabilities {
+	cacheMu.Lock()
+	if time.Now().Before(cacheExpires) {
+		cached := cachedCaps
+		cacheMu.Unlock()
+		return cached
+	}
+	cacheMu.Unlock()
+
 	caps := Capabilities{}
 
 	// Routing capability: check if osm_ways has data (CSR graph builder reads from osm_ways directly).
@@ -83,6 +109,11 @@ func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL, tileDir string)
 
 	// ML Service availability (cached from background probe)
 	caps.MLService = MLServiceAvailable()
+
+	cacheMu.Lock()
+	cachedCaps = caps
+	cacheExpires = time.Now().Add(cacheTTL)
+	cacheMu.Unlock()
 
 	return caps
 }
