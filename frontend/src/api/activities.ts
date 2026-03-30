@@ -1,6 +1,6 @@
 import { apiClient, apiDownload, API_BASE } from './client'
 import { triggerBlobDownload } from '@/lib/utils'
-import type { ActivitiesResponse, Activity, StreamPoint, Sensor, ZoneDistribution, PowerCurveResponse, Lap, Split, SplitSummary, SwimLength, ClimbProEvent, ActivitySet, ActivityJump, ActivityEvent } from './types'
+import type { ActivitiesResponse, Activity, StreamPoint, Sensor, ZoneDistribution, PowerCurveResponse, Lap, Split, SplitSummary, SwimLength, ClimbProEvent, ActivitySet, ActivityJump, ActivityEvent, DiveInfo } from './types'
 
 export interface ActivityFilterParams {
   sportTypes?: string[]
@@ -288,4 +288,8 @@ export async function downloadActivitiesZip(
 
 export async function ungroupActivity(id: string): Promise<void> {
   return apiClient<void>(`/activities/${id}/group`, { method: 'DELETE' })
+}
+
+export async function fetchDiveInfo(activityId: string): Promise<DiveInfo> {
+  return apiClient<DiveInfo>(`/activities/${activityId}/dive`)
 }

@@ -2,6 +2,10 @@ package database
 
 import (
 	"context"
+	"errors"
+	"fmt"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -27,6 +31,34 @@ func (db *DB) InsertDiveSettings(ctx context.Context, ds model.DiveSettings) err
 	return err
 }
 
+// GetDiveSettings returns the dive settings for the given activity, or nil if none.
+func (db *DB) GetDiveSettings(ctx context.Context, activityID string) (*model.DiveSettings, error) {
+	row := db.Pool.QueryRow(ctx, `
+		SELECT activity_id, gf_low, gf_high, water_type, water_density,
+			deco_model, po2_warn, po2_critical, po2_deco,
+			safety_stop_enabled, safety_stop_time_s, repeat_dive_interval_s,
+			ccr_low_setpoint, ccr_low_setpoint_depth_m,
+			ccr_high_setpoint, ccr_high_setpoint_depth_m
+		FROM activity_dive_settings
+		WHERE activity_id = $1`, activityID)
+
+	var ds model.DiveSettings
+	err := row.Scan(
+		&ds.ActivityID, &ds.GfLow, &ds.GfHigh, &ds.WaterType, &ds.WaterDensity,
+		&ds.DecoModel, &ds.Po2Warn, &ds.Po2Critical, &ds.Po2Deco,
+		&ds.SafetyStopEnabled, &ds.SafetyStopTimeS, &ds.RepeatDiveIntervalS,
+		&ds.CcrLowSetpoint, &ds.CcrLowSetpointDepthM,
+		&ds.CcrHighSetpoint, &ds.CcrHighSetpointDepthM,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get dive settings: %w", err)
+	}
+	return &ds, nil
+}
+
 // InsertDiveGases inserts all DiveGas records for the given activity.
 // On conflict (re-import, same gas_index) the existing row is left unchanged.
 func (db *DB) InsertDiveGases(ctx context.Context, gases []model.DiveGas) error {
@@ -43,4 +75,27 @@ func (db *DB) InsertDiveGases(ctx context.Context, gases []model.DiveGas) error 
 		}
 	}
 	return nil
+}
+
+// GetDiveGases returns all gas mixes for the given activity.
+func (db *DB) GetDiveGases(ctx context.Context, activityID string) ([]model.DiveGas, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT activity_id, gas_index, helium_pct, oxygen_pct, status, mode
+		FROM activity_dive_gases
+		WHERE activity_id = $1
+		ORDER BY gas_index`, activityID)
+	if err != nil {
+		return nil, fmt.Errorf("get dive gases: %w", err)
+	}
+	defer rows.Close()
+
+	var gases []model.DiveGas
+	for rows.Next() {
+		var g model.DiveGas
+		if err := rows.Scan(&g.ActivityID, &g.GasIndex, &g.HeliumPct, &g.OxygenPct, &g.Status, &g.Mode); err != nil {
+			return nil, err
+		}
+		gases = append(gases, g)
+	}
+	return gases, rows.Err()
 }
