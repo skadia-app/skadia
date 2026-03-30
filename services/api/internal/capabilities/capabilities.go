@@ -58,9 +58,11 @@ func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL, tileDir string)
 	// Routing capability: check if osm_ways has data (CSR graph builder reads from osm_ways directly).
 	// pgr_createTopology check removed — pgRouting 4.0+ removed it, and BadRouter's CSR graph
 	// builder computes topology in Go (routing/graph/topology.go), not via pgRouting.
-	var wayCount int
+	// Use EXISTS instead of COUNT(*) — returns immediately after finding 1 row
+	// instead of scanning the entire table (osm_ways can have millions of rows).
+	var hasWays bool
 	if err := pool.QueryRow(ctx,
-		"SELECT COUNT(*) FROM osm_ways WHERE highway IS NOT NULL").Scan(&wayCount); err == nil && wayCount > 0 {
+		"SELECT EXISTS(SELECT 1 FROM osm_ways WHERE highway IS NOT NULL LIMIT 1)").Scan(&hasWays); err == nil && hasWays {
 		caps.Routing = true
 		caps.SurfaceEnrich = true
 	}
@@ -77,9 +79,9 @@ func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL, tileDir string)
 	}
 
 	// DEM raster tiles available?
-	var demCount int
+	var hasDEM bool
 	if err := pool.QueryRow(ctx,
-		"SELECT COUNT(*) FROM dem.raster_tiles").Scan(&demCount); err == nil && demCount > 0 {
+		"SELECT EXISTS(SELECT 1 FROM dem.raster_tiles LIMIT 1)").Scan(&hasDEM); err == nil && hasDEM {
 		caps.DEMCorrection = true
 	}
 
