@@ -1447,8 +1447,6 @@ function SpeedPaceChartPanel({
           inverse: true,
           min: yMin,
           max: yMax,
-          name: paceUnit,
-          nameTextStyle: { fontSize: 10, color: '#666' },
           axisLabel: {
             fontSize: 11,
             color: '#666',
