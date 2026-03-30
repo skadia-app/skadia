@@ -23,7 +23,6 @@ import {
 } from '@/lib/utils'
 import { sportDetailLabel, getSegmentGroup, categoryForSport } from '@/lib/sportTaxonomy'
 import { defaultSpeedMode } from '@/lib/sportFieldLabels'
-import { SpeedPaceToggle } from '@/components/activity/SpeedPaceToggle'
 import WeatherBadge from '@/components/WeatherBadge'
 import GeoTagsList from '@/components/GeoTagsList'
 import GearSelector from '@/components/GearSelector'
@@ -452,14 +451,6 @@ export default function ActivityDetailPage() {
       {/* Stats — hide the standard grid for multisport parents (we show custom stats below) */}
       {activity.sport_type !== 'multisport' && (
         <div className="space-y-2">
-          {activity.avg_speed_ms != null && (
-            <div className="flex justify-end">
-              <SpeedPaceToggle
-                mode={speedMode}
-                onChange={handleSpeedModeChange}
-              />
-            </div>
-          )}
           <StatsGrid activity={activity} />
           {getSegmentGroup(activity.sport_type) === 'foot' && activity.avg_vertical_oscillation_mm != null && (
             <RunningDynamicsStats activity={activity} />
@@ -664,6 +655,7 @@ export default function ActivityDetailPage() {
               defaultXMode={!activity.has_gps ? 'time' : 'distance'}
               highlightRange={hoveredClimbRange}
               speedMode={speedMode}
+              onSpeedModeChange={handleSpeedModeChange}
               sportType={activity.sport_type}
               activeTab={activeTab}
               gearEvents={events}

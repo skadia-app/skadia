@@ -3,9 +3,10 @@ import * as echarts from 'echarts/core'
 import { useECharts } from '@/hooks/useECharts'
 import { LineChart, ScatterChart } from 'echarts/charts'
 import { getSegmentGroup } from '@/lib/sportTaxonomy'
-import { fieldLabel, fieldUnit, type FieldKey } from '@/lib/sportFieldLabels'
+import { fieldLabel, fieldUnit, defaultSpeedMode, type FieldKey } from '@/lib/sportFieldLabels'
 import {
   GridComponent,
+  TitleComponent,
   TooltipComponent,
   DataZoomComponent,
   AxisPointerComponent,
@@ -26,6 +27,7 @@ echarts.use([
   LineChart,
   ScatterChart,
   GridComponent,
+  TitleComponent,
   TooltipComponent,
   DataZoomComponent,
   AxisPointerComponent,
@@ -48,7 +50,7 @@ const SUNSET_SVG = "image://data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2
 
 type XMode = 'distance' | 'time'
 
-type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'coreTemperature' | 'runningDynamics' | 'stepLength' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength' | 'grit' | 'flow' | 'gear' | 'potentialStamina' | 'staminaCurrent' | 'gapSpeed'
+type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'coreTemperature' | 'runningDynamics' | 'stepLength' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength' | 'grit' | 'flow' | 'gear' | 'potentialStamina' | 'staminaCurrent'
 
 function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
   if (tab === CHART_TAB.alles) return null // show all
@@ -56,8 +58,6 @@ function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
   switch (tab) {
     case CHART_TAB.uebersicht: {
       if (isSwim) return ['heartRate', 'cycleLength']
-      const isFoot = getSegmentGroup(sportType) === 'foot'
-      if (isFoot) return ['altitude', 'heartRate', 'speed', 'gapSpeed']
       return ['altitude', 'heartRate', 'speed']
     }
     case CHART_TAB.leistung: {
@@ -106,7 +106,6 @@ interface ChartData {
   flow: number[]
   potentialStamina: number[]
   staminaCurrent: number[]
-  gapSpeed: number[]
   paceMinKm: number[]
   garminGapMinKm: number[]
   re3Gap: number[]
@@ -144,7 +143,6 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const flow: number[] = []
   const potentialStamina: number[] = []
   const staminaCurrent: number[] = []
-  const gapSpeed: number[] = []
   const paceMinKm: number[] = []
   const garminGapMinKm: number[] = []
   const re3Gap: number[] = []
@@ -184,7 +182,6 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     flow.push(s.flow ?? NaN)
     potentialStamina.push(s.potential_stamina ?? NaN)
     staminaCurrent.push(s.stamina ?? NaN)
-    gapSpeed.push(s.gap_speed_ms ?? NaN)
 
     // GAP comparison: Pace, Garmin GAP, RE3 GAP — all in min/km
     const speedVal = s.speed_ms ?? 0
@@ -204,7 +201,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, gapSpeed, paceMinKm, garminGapMinKm, re3Gap, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, paceMinKm, garminGapMinKm, re3Gap, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -292,6 +289,8 @@ interface Props {
   highlightRange?: { startKm: number; endKm: number } | null
   /** Speed/Pace toggle mode: 'speed' = km/h, 'pace' = min/km (inverted Y axis). */
   speedMode?: 'speed' | 'pace'
+  /** Callback fired when the user toggles the speed/pace mode inside the chart panel. */
+  onSpeedModeChange?: (mode: 'speed' | 'pace') => void
   /** Sport type used for tab-based chart filtering. */
   sportType?: string
   /** Active tab from ChartTabs. If set, only shows charts relevant to that tab. */
@@ -395,24 +394,9 @@ function computeGearData(
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode, highlightRange, speedMode, sportType, activeTab, gearEvents }: Props) {
+export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode, highlightRange, speedMode, onSpeedModeChange, sportType, activeTab, gearEvents }: Props) {
   const data = useMemo(() => buildChartData(streams), [streams])
   const segGroup = sportType ? getSegmentGroup(sportType) : 'generic'
-
-  // Pre-compute pace values — memoized so the array reference is stable across
-  // hover/zoom renders and does not trigger a full ECharts re-initialization
-  const paceValues = useMemo(() => {
-    if (speedMode !== 'pace' || !data) return undefined
-    const isRowingSport = sportType === 'rowing'
-    const isSwimSport = segGroup === 'swim'
-    const divisor = isRowingSport ? 500 : isSwimSport ? 100 : 1000
-    const maxPace = 30
-    return data.speedMs.map(ms => {
-      if (!ms || ms <= 0 || !isFinite(ms)) return NaN
-      const pace = divisor / ms / 60
-      return pace > maxPace ? NaN : pace
-    })
-  }, [data, speedMode, sportType])
 
   const [isZoomed, setIsZoomed] = useState(false)
   const [xMode, setXMode] = useState<XMode>(defaultXMode ?? 'distance')
@@ -651,40 +635,12 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         field="cadence" label={sportType ? fieldLabel('cadence', sportType) : 'Kadenz'} unit={sportType ? fieldUnit('cadence', sportType) : 'rpm'} color="#f97316" />
     </div>,
   )
-  if (hasValidData(data.speed)) {
-    // Speed/Pace: always render one panel with stable key to preserve ECharts instance
-    const isRowingSport = sportType === 'rowing'
-    const isSwimSport = segGroup === 'swim'
-
-    if (speedMode === 'pace') {
-      const paceUnit = isRowingSport ? 'min/500m' : isSwimSport ? 'min/100m' : 'min/km'
-      const paceFmt = (minPer: number): string => {
-        if (isNaN(minPer) || !isFinite(minPer)) return '—'
-        let min = Math.floor(minPer)
-        let sec = Math.round((minPer - min) * 60)
-        if (sec >= 60) { min += 1; sec = 0 }
-        return `${min}:${sec.toString().padStart(2, '0')}\u202f${paceUnit}`
-      }
-      panels.push(
-        <div key={k('speed')} style={{ display: show('speed') ? undefined : 'none' }}>
-          <ChartPanel chartId="speed" {...common}
-            field="speed" label="Pace" unit={paceUnit} color="#3b82f6"
-            overrideValues={paceValues} invertY tooltipValueFn={paceFmt} />
-        </div>,
-      )
-    } else {
-      panels.push(
-        <div key={k('speed')} style={{ display: show('speed') ? undefined : 'none' }}>
-          <ChartPanel chartId="speed" {...common}
-            field="speed" label={sportType ? fieldLabel('speed', sportType) : 'Geschwindigkeit'} unit="km/h" color="#3b82f6" />
-        </div>,
-      )
-    }
-  }
-  // GAP Comparison: only for running sports with valid pace data
-  if (segGroup === 'foot' && hasValidData(data.paceMinKm)) panels.push(
-    <div key={k('gapSpeed')} style={{ display: show('gapSpeed') ? undefined : 'none' }}>
-      <GAPComparisonPanel chartId="gapSpeed" {...common} />
+  if (hasValidData(data.speed)) panels.push(
+    <div key={k('speed')} style={{ display: show('speed') ? undefined : 'none' }}>
+      <SpeedPaceChartPanel chartId="speed" {...common}
+        speedMode={speedMode ?? defaultSpeedMode(sportType ?? '')}
+        onSpeedModeChange={onSpeedModeChange ?? (() => {})}
+        sportType={sportType ?? ''} />
     </div>,
   )
   if (hasValidData(data.temperature)) panels.push(
@@ -997,7 +953,7 @@ function PedalDualChartPanel({
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
 
-      const gridTop = (splitMarkers && splitMarkers.length > 0) ? 34 : 8
+      const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
       const xFormatter = xMode === 'distance'
         ? (v: number) => v.toFixed(1)
         : (v: number) => formatElapsed(v, data.maxElapsed)
@@ -1007,6 +963,13 @@ function PedalDualChartPanel({
       return {
         animation: false,
         grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
+
+        title: {
+          text: `${tooltipTitle} (${headerUnit})`,
+          left: 4,
+          top: 4,
+          textStyle: { fontSize: 11, fontWeight: 500, color: '#888' },
+        },
 
         brush: {
           toolbox: [],
@@ -1018,6 +981,13 @@ function PedalDualChartPanel({
           },
           throttleType: 'debounce',
           throttleDelay: 100,
+        },
+
+        toolbox: {
+          feature: {
+            brush: { show: false },
+            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: tooltipTitle },
+          },
         },
 
         tooltip: {
@@ -1140,20 +1110,7 @@ function PedalDualChartPanel({
   )
 }
 
-// ── GAP Comparison Tri-Line Chart Panel ────────────────────────────────────────
-
-interface GAPComparisonPanelProps {
-  chartId: string
-  data: ChartData
-  onHover: (index: number | null) => void
-  onBrushZoom: (startValue: number, endValue: number) => void
-  onSyncZoom: (start: number, end: number, sourceId: string) => void
-  onRegister: (id: string, chart: echarts.ECharts) => void
-  onUnregister: (id: string) => void
-  brushZoomLockRef: React.MutableRefObject<boolean>
-  xMode: XMode
-  splitMarkers?: SplitMarker[]
-}
+// ── Speed/Pace Unified Chart Panel ────────────────────────────────────────────
 
 /** 30-second simple moving average — smooths noisy per-second pace data. */
 function sma(arr: number[], window = 30): number[] {
@@ -1182,34 +1139,182 @@ const COLOR_PACE = '#3B82F6'
 const COLOR_GARMIN_GAP = '#F59E0B'
 const COLOR_RE3_GAP = '#10B981'
 
-function GAPComparisonPanel({
-  chartId, data, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
+interface SpeedPaceChartPanelProps {
+  chartId: string
+  data: ChartData
+  speedMode: 'speed' | 'pace'
+  onSpeedModeChange: (mode: 'speed' | 'pace') => void
+  sportType: string
+  onHover: (index: number | null) => void
+  onBrushZoom: (startValue: number, endValue: number) => void
+  onSyncZoom: (start: number, end: number, sourceId: string) => void
+  onRegister: (id: string, chart: echarts.ECharts) => void
+  onUnregister: (id: string) => void
+  brushZoomLockRef: React.MutableRefObject<boolean>
+  xMode: XMode
+  splitMarkers?: SplitMarker[]
+}
+
+function SpeedPaceChartPanel({
+  chartId, data, speedMode, onSpeedModeChange, sportType,
+  onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
   brushZoomLockRef, xMode, splitMarkers,
-}: GAPComparisonPanelProps) {
-  const hasGarminGap = hasValidData(data.garminGapMinKm)
+}: SpeedPaceChartPanelProps) {
+  const segGroup = getSegmentGroup(sportType)
+  const isRowingSport = sportType === 'rowing'
+  const isSwimSport = segGroup === 'swim'
+  const hasGarminGap = speedMode === 'pace' && hasValidData(data.garminGapMinKm)
+  const hasRe3Gap = speedMode === 'pace' && hasValidData(data.re3Gap)
+
+  const paceSmoothed = useMemo(() => {
+    if (speedMode !== 'pace') return null
+    const divisor = isRowingSport ? 500 : isSwimSport ? 100 : 1000
+    const maxPace = 30
+    const raw = data.speedMs.map(ms => {
+      if (!ms || ms <= 0 || !isFinite(ms)) return NaN
+      const p = divisor / ms / 60
+      return p > maxPace ? NaN : p
+    })
+    return sma(raw)
+  }, [data, speedMode, isRowingSport, isSwimSport])
+
+  const garminSmoothed = useMemo(() =>
+    hasGarminGap ? sma(data.garminGapMinKm) : null
+  , [data, hasGarminGap])
+
+  const re3Smoothed = useMemo(() =>
+    hasRe3Gap ? sma(data.re3Gap) : null
+  , [data, hasRe3Gap])
+
+  const paceUnit = isRowingSport ? 'min/500m' : isSwimSport ? 'min/100m' : 'min/km'
+  const speedLabel = fieldLabel('speed', sportType)
 
   const containerRef = useECharts(
     () => {
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
 
-      const gridTop = (splitMarkers && splitMarkers.length > 0) ? 34 : 8
+      const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
       const xFormatter = xMode === 'distance'
         ? (v: number) => v.toFixed(1)
         : (v: number) => formatElapsed(v, data.maxElapsed)
 
       const mlData = buildSplitMarkLines(splitMarkers, xMode)
 
-      // 30s SMA for all three series
-      const paceSmoothed = sma(data.paceMinKm)
-      const garminSmoothed = sma(data.garminGapMinKm)
-      const re3Smoothed = sma(data.re3Gap)
+      if (speedMode === 'speed') {
+        return {
+          animation: false,
+          grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
 
-      // Y-axis range: auto from valid smoothed values across all series
+          title: {
+            text: `${speedLabel} (km/h)`,
+            left: 4,
+            top: 4,
+            textStyle: { fontSize: 11, fontWeight: 500, color: '#888' },
+          },
+
+          brush: {
+            toolbox: [],
+            brushType: 'lineX',
+            brushStyle: {
+              borderWidth: 1,
+              color: 'rgba(249,115,22,0.12)',
+              borderColor: '#f97316',
+            },
+            throttleType: 'debounce',
+            throttleDelay: 100,
+          },
+
+          toolbox: {
+            feature: {
+              brush: { show: false },
+              saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: speedLabel },
+            },
+          },
+
+          tooltip: {
+            trigger: 'axis',
+            transitionDuration: 0,
+            confine: true,
+            backgroundColor: 'rgba(255,255,255,0.96)',
+            borderColor: '#e5e5e5',
+            borderWidth: 1,
+            padding: [8, 10],
+            textStyle: { fontSize: 12, color: '#333' },
+            axisPointer: {
+              type: 'line',
+              lineStyle: { color: '#f97316', width: 1, type: 'dashed' },
+              animation: false,
+            },
+            formatter: (params: unknown) => {
+              const arr = Array.isArray(params) ? params : [params]
+              const p = arr[0] as { dataIndex?: number }
+              if (p?.dataIndex == null) return ''
+              const idx = p.dataIndex
+              const v = data.speed[idx]
+              const xVal = xMode === 'distance' ? data.distanceKm[idx] : data.elapsedMin[idx]
+              const posLine = buildTooltipPosLine(xVal, xMode, data)
+              let html = `<div style="line-height:1.75;min-width:130px">`
+              html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
+              if (!isNaN(v)) html += `<div style="font-size:13px;color:#3b82f6"><strong>${v.toFixed(1)}\u202fkm/h</strong></div>`
+              return html + '</div>'
+            },
+          },
+
+          xAxis: {
+            type: 'value',
+            min: 0,
+            max: xMax,
+            axisLabel: { fontSize: 11, color: '#666', formatter: xFormatter },
+            splitLine: { show: false },
+            axisLine: { lineStyle: { color: '#ddd' } },
+            axisTick: { lineStyle: { color: '#ddd' } },
+          },
+
+          yAxis: {
+            type: 'value',
+            axisLabel: { fontSize: 11, color: '#666', margin: 8 },
+            splitLine: { lineStyle: { color: '#eee', type: 'dashed' } },
+            axisLine: { show: false },
+            axisTick: { show: false },
+          },
+
+          series: [{
+            type: 'line',
+            data: xData.map((x, i) => [x, data.speed[i]]),
+            showSymbol: false,
+            lineStyle: { width: 1.5, color: '#3b82f6' },
+            itemStyle: { color: '#3b82f6' },
+            connectNulls: false,
+            ...(mlData.length > 0 ? {
+              markLine: {
+                silent: true,
+                symbol: ['none', 'none'],
+                data: mlData,
+              },
+            } : {}),
+          }],
+
+          dataZoom: [{
+            type: 'inside',
+            xAxisIndex: 0,
+            filterMode: 'none',
+            zoomOnMouseWheel: true,
+            moveOnMouseMove: true,
+            moveOnMouseWheel: false,
+          }],
+        } as echarts.EChartsCoreOption
+      }
+
+      // Pace mode
+      const ps = paceSmoothed!
+      const gs = garminSmoothed
+      const rs = re3Smoothed
+
       const allValues = [
-        ...paceSmoothed,
-        ...(hasGarminGap ? garminSmoothed : []),
-        ...re3Smoothed,
+        ...ps,
+        ...(gs ?? []),
+        ...(rs ?? []),
       ].filter(v => !isNaN(v) && isFinite(v) && v > 0 && v < 30)
 
       const yMin = allValues.length > 0 ? Math.max(0, Math.floor(Math.min(...allValues) * 10) / 10 - 0.5) : 0
@@ -1219,7 +1324,7 @@ function GAPComparisonPanel({
         {
           type: 'line',
           name: 'Pace',
-          data: xData.map((x, i) => [x, paceSmoothed[i]]),
+          data: xData.map((x, i) => [x, ps[i]]),
           showSymbol: false,
           lineStyle: { width: 1.5, color: COLOR_PACE },
           itemStyle: { color: COLOR_PACE },
@@ -1232,29 +1337,36 @@ function GAPComparisonPanel({
             },
           } : {}),
         },
-        ...(hasGarminGap ? [{
+        ...(gs ? [{
           type: 'line' as const,
           name: 'Garmin GAP',
-          data: xData.map((x, i) => [x, garminSmoothed[i]]),
+          data: xData.map((x, i) => [x, gs[i]]),
           showSymbol: false,
           lineStyle: { width: 1.5, color: COLOR_GARMIN_GAP },
           itemStyle: { color: COLOR_GARMIN_GAP },
           connectNulls: false,
         }] : []),
-        {
-          type: 'line',
+        ...(rs ? [{
+          type: 'line' as const,
           name: 'RE3 GAP',
-          data: xData.map((x, i) => [x, re3Smoothed[i]]),
+          data: xData.map((x, i) => [x, rs[i]]),
           showSymbol: false,
           lineStyle: { width: 1.5, color: COLOR_RE3_GAP },
           itemStyle: { color: COLOR_RE3_GAP },
           connectNulls: false,
-        },
+        }] : []),
       ]
 
       return {
         animation: false,
-        grid: { left: 52, right: 16, top: gridTop, bottom: 36 },
+        grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
+
+        title: {
+          text: `Pace (${paceUnit})`,
+          left: 4,
+          top: 4,
+          textStyle: { fontSize: 11, fontWeight: 500, color: '#888' },
+        },
 
         brush: {
           toolbox: [],
@@ -1266,6 +1378,13 @@ function GAPComparisonPanel({
           },
           throttleType: 'debounce',
           throttleDelay: 100,
+        },
+
+        toolbox: {
+          feature: {
+            brush: { show: false },
+            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: `Pace (${paceUnit})` },
+          },
         },
 
         tooltip: {
@@ -1291,14 +1410,22 @@ function GAPComparisonPanel({
             const posLine = buildTooltipPosLine(xVal, xMode, data)
             let html = `<div style="line-height:1.75;min-width:180px">`
             html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
-            const pace = sma(data.paceMinKm)[idx]
-            if (!isNaN(pace)) html += `<div style="font-size:13px;color:${COLOR_PACE}"><strong>${formatMinKm(pace)}</strong> Pace</div>`
-            if (hasGarminGap) {
-              const gg = sma(data.garminGapMinKm)[idx]
-              if (!isNaN(gg)) html += `<div style="font-size:13px;color:${COLOR_GARMIN_GAP}"><strong>${formatMinKm(gg)}</strong> Garmin GAP</div>`
+            const pv = ps[idx]
+            if (!isNaN(pv)) {
+              // Primary pace: sport-specific unit
+              const min = Math.floor(pv)
+              let sec = Math.round((pv - min) * 60)
+              if (sec >= 60) { sec = 0 }
+              html += `<div style="font-size:13px;color:${COLOR_PACE}"><strong>${min}:${sec.toString().padStart(2, '0')}\u202f${paceUnit}</strong> Pace</div>`
             }
-            const re3 = sma(data.re3Gap)[idx]
-            if (!isNaN(re3)) html += `<div style="font-size:13px;color:${COLOR_RE3_GAP}"><strong>${formatMinKm(re3)}</strong> RE3 GAP</div>`
+            if (gs) {
+              const gv = gs[idx]
+              if (!isNaN(gv)) html += `<div style="font-size:13px;color:${COLOR_GARMIN_GAP}"><strong>${formatMinKm(gv)}</strong> Garmin GAP</div>`
+            }
+            if (rs) {
+              const rv = rs[idx]
+              if (!isNaN(rv)) html += `<div style="font-size:13px;color:${COLOR_RE3_GAP}"><strong>${formatMinKm(rv)}</strong> RE3 GAP</div>`
+            }
             return html + '</div>'
           },
         },
@@ -1337,19 +1464,17 @@ function GAPComparisonPanel({
 
         series,
 
-        dataZoom: [
-          {
-            type: 'inside',
-            xAxisIndex: 0,
-            filterMode: 'none',
-            zoomOnMouseWheel: true,
-            moveOnMouseMove: true,
-            moveOnMouseWheel: false,
-          },
-        ],
+        dataZoom: [{
+          type: 'inside',
+          xAxisIndex: 0,
+          filterMode: 'none',
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: true,
+          moveOnMouseWheel: false,
+        }],
       } as echarts.EChartsCoreOption
     },
-    [data, xMode, splitMarkers, hasGarminGap], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, speedMode, sportType, xMode, splitMarkers, paceSmoothed, garminSmoothed, re3Smoothed], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
       return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
@@ -1358,22 +1483,60 @@ function GAPComparisonPanel({
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-      <div className="flex items-center gap-4 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60">
-        <div className="flex items-center gap-2">
-          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLOR_PACE }} />
-          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Pace</span>
-        </div>
-        {hasGarminGap && (
-          <div className="flex items-center gap-2">
-            <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLOR_GARMIN_GAP }} />
-            <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Garmin GAP</span>
+      <div className="flex items-center gap-3 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60">
+        {speedMode === 'pace' ? (
+          <>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLOR_PACE }} />
+              <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Pace</span>
+            </div>
+            {hasGarminGap && (
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLOR_GARMIN_GAP }} />
+                <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Garmin GAP</span>
+              </div>
+            )}
+            {hasRe3Gap && (
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLOR_RE3_GAP }} />
+                <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">RE3 GAP</span>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#3b82f6' }} />
+            <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+              {speedLabel} <span className="font-normal text-neutral-400 dark:text-neutral-600">(km/h)</span>
+            </span>
           </div>
         )}
-        <div className="flex items-center gap-2">
-          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLOR_RE3_GAP }} />
-          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">RE3 GAP</span>
+        <div role="radiogroup" aria-label="Geschwindigkeitsformat" className="ml-auto inline-flex rounded-lg border border-neutral-200 dark:border-neutral-700 text-xs overflow-hidden">
+          <button
+            role="radio"
+            aria-checked={speedMode === 'pace'}
+            onClick={() => onSpeedModeChange('pace')}
+            className={`px-2.5 py-0.5 cursor-pointer transition-colors ${
+              speedMode === 'pace'
+                ? 'bg-accent-DEFAULT text-white'
+                : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
+            }`}
+          >
+            Pace
+          </button>
+          <button
+            role="radio"
+            aria-checked={speedMode === 'speed'}
+            onClick={() => onSpeedModeChange('speed')}
+            className={`px-2.5 py-0.5 cursor-pointer transition-colors ${
+              speedMode === 'speed'
+                ? 'bg-accent-DEFAULT text-white'
+                : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
+            }`}
+          >
+            Geschwindigkeit
+          </button>
         </div>
-        <span className="text-xs text-neutral-400 dark:text-neutral-600 ml-auto">Grade-Adjusted Pace</span>
       </div>
       <div ref={containerRef} className="h-[180px] w-full" />
     </div>
@@ -1406,7 +1569,7 @@ function RunningDynamicsChartPanel({
       const gctValues = data.groundContactTime
       const voValues = data.verticalOscillation
 
-      const gridTop = (splitMarkers && splitMarkers.length > 0) ? 34 : 8
+      const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
       const xFormatter = xMode === 'distance'
         ? (v: number) => v.toFixed(1)
         : (v: number) => formatElapsed(v, data.maxElapsed)
@@ -1416,6 +1579,13 @@ function RunningDynamicsChartPanel({
       return {
         animation: false,
         grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
+
+        title: {
+          text: 'Laufdynamik (GCT / VO)',
+          left: 4,
+          top: 4,
+          textStyle: { fontSize: 11, fontWeight: 500, color: '#888' },
+        },
 
         brush: {
           toolbox: [],
@@ -1427,6 +1597,13 @@ function RunningDynamicsChartPanel({
           },
           throttleType: 'debounce',
           throttleDelay: 100,
+        },
+
+        toolbox: {
+          feature: {
+            brush: { show: false },
+            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: 'Laufdynamik' },
+          },
         },
 
         tooltip: {
@@ -1588,7 +1765,7 @@ function ScatterChartPanel({
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
 
-      const gridTop = (splitMarkers && splitMarkers.length > 0) ? 34 : 8
+      const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
       const xFormatter = xMode === 'distance'
         ? (v: number) => v.toFixed(1)
         : (v: number) => formatElapsed(v, data.maxElapsed)
@@ -1622,6 +1799,13 @@ function ScatterChartPanel({
         animation: false,
         grid: { left: 52, right: 52, top: gridTop, bottom: 36 },
 
+        title: {
+          text: `${label} (${unit})`,
+          left: 4,
+          top: 4,
+          textStyle: { fontSize: 11, fontWeight: 500, color: '#888' },
+        },
+
         brush: {
           toolbox: [],
           brushType: 'lineX',
@@ -1632,6 +1816,13 @@ function ScatterChartPanel({
           },
           throttleType: 'debounce',
           throttleDelay: 100,
+        },
+
+        toolbox: {
+          feature: {
+            brush: { show: false },
+            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: label },
+          },
         },
 
         tooltip: {
@@ -1773,8 +1964,8 @@ function ChartPanel({
       if (yAxisFixed) { yAxisExtra.min = yAxisFixed[0]; yAxisExtra.max = yAxisFixed[1] }
       if (invertY) { yAxisExtra.inverse = true }
 
-      // Extra top padding for sunrise/sunset icons or split marker labels above the chart
-      const gridTop = (sunMarkLines && sunMarkLines.length > 0) || (splitMarkers && splitMarkers.length > 0) ? 34 : 8
+      // Extra top padding for title + sunrise/sunset icons or split marker labels above the chart
+      const gridTop = ((sunMarkLines && sunMarkLines.length > 0) || (splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
 
       // ── Mark lines ──────────────────────────────────────────────────────────
       const mlData: Record<string, unknown>[] = []
@@ -1832,6 +2023,13 @@ function ChartPanel({
         animation: false,
         grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
 
+        title: {
+          text: `${label} (${unit})`,
+          left: 4,
+          top: 4,
+          textStyle: { fontSize: 11, fontWeight: 500, color: '#888' },
+        },
+
         brush: {
           toolbox: [],
           brushType: 'lineX',
@@ -1842,6 +2040,13 @@ function ChartPanel({
           },
           throttleType: 'debounce',
           throttleDelay: 100,
+        },
+
+        toolbox: {
+          feature: {
+            brush: { show: false },
+            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: label },
+          },
         },
 
         tooltip: {
@@ -2073,7 +2278,7 @@ function GearChartPanel({
     () => {
       if (stepData.length === 0) return null as unknown as echarts.EChartsCoreOption
 
-      const gridTop = (splitMarkers && splitMarkers.length > 0) ? 34 : 8
+      const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
       const xFormatter = xMode === 'distance'
         ? (v: number) => v.toFixed(1)
         : (v: number) => formatElapsed(v, data.maxElapsed)
@@ -2089,6 +2294,13 @@ function GearChartPanel({
         animation: false,
         grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
 
+        title: {
+          text: 'Schaltung (Übersetzung)',
+          left: 4,
+          top: 4,
+          textStyle: { fontSize: 11, fontWeight: 500, color: '#888' },
+        },
+
         brush: {
           toolbox: [],
           brushType: 'lineX',
@@ -2099,6 +2311,13 @@ function GearChartPanel({
           },
           throttleType: 'debounce',
           throttleDelay: 100,
+        },
+
+        toolbox: {
+          feature: {
+            brush: { show: false },
+            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: 'Schaltung' },
+          },
         },
 
         tooltip: {
