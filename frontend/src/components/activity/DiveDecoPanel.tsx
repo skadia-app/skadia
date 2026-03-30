@@ -181,14 +181,14 @@ export function DiveDecoPanel({ activityId, streams }: DiveDecoPanelProps) {
         lineStyle: { color: '#f97316', width: 2, type: 'dashed' },
         itemStyle: { color: '#f97316' },
         connectNulls: false,
-        yAxisIndex: 0,
+        yAxisIndex: 2,
       })
     }
 
     const yAxes: object[] = [
       {
         type: 'value',
-        name: 'min / m',
+        name: 'min',
         nameTextStyle: { fontSize: 10, color: '#9ca3af' },
         axisLabel: { fontSize: 10, color: '#9ca3af' },
         splitLine: { lineStyle: { color: '#374151', type: 'dashed' } },
@@ -201,12 +201,22 @@ export function DiveDecoPanel({ activityId, streams }: DiveDecoPanelProps) {
         splitLine: { show: false },
         min: 0,
         max: 100,
+        position: 'right',
+      },
+      {
+        type: 'value',
+        name: 'm (Stopp)',
+        nameTextStyle: { fontSize: 10, color: '#f97316' },
+        axisLabel: { fontSize: 10, color: '#f97316' },
+        splitLine: { show: false },
+        position: 'right',
+        offset: 52,
       },
     ]
 
     chart.setOption({
       backgroundColor: 'transparent',
-      grid: { top: 36, bottom: 40, left: 52, right: 52 },
+      grid: { top: 36, bottom: 40, left: 52, right: 80 },
       tooltip: {
         trigger: 'axis',
         backgroundColor: '#1f2937',
@@ -228,7 +238,7 @@ export function DiveDecoPanel({ activityId, streams }: DiveDecoPanelProps) {
       yAxis: yAxes,
       dataZoom: [{ type: 'inside', filterMode: 'none' }],
       series,
-    })
+    }, { notMerge: true })
 
     return () => {
       // chart stays alive for re-use; only dispose on component unmount
@@ -283,36 +293,36 @@ export function DiveDecoPanel({ activityId, streams }: DiveDecoPanelProps) {
             <div>
               <dt className="text-xs text-neutral-500 dark:text-neutral-400">{LABELS.gfLabel}</dt>
               <dd className="font-medium text-neutral-900 dark:text-neutral-100">
-                {diveInfo.settings.gf_low}/{diveInfo.settings.gf_high}
+                {diveInfo.settings.gf_low?.toString() ?? '–'}/{diveInfo.settings.gf_high?.toString() ?? '–'}
               </dd>
             </div>
             <div>
               <dt className="text-xs text-neutral-500 dark:text-neutral-400">{LABELS.waterType}</dt>
               <dd className="font-medium text-neutral-900 dark:text-neutral-100">
-                {waterTypeLabel(diveInfo.settings.water_type)}
+                {diveInfo.settings.water_type ? waterTypeLabel(diveInfo.settings.water_type) : '–'}
               </dd>
             </div>
             <div>
               <dt className="text-xs text-neutral-500 dark:text-neutral-400">{LABELS.waterDensity}</dt>
               <dd className="font-medium text-neutral-900 dark:text-neutral-100">
-                {diveInfo.settings.water_density.toFixed(3)} kg/l
+                {diveInfo.settings.water_density?.toFixed(3) ?? '–'} kg/l
               </dd>
             </div>
             <div>
               <dt className="text-xs text-neutral-500 dark:text-neutral-400">{LABELS.po2Limits}</dt>
               <dd className="font-medium text-neutral-900 dark:text-neutral-100">
-                {diveInfo.settings.po2_warn.toFixed(1)} / {diveInfo.settings.po2_critical.toFixed(1)} / {diveInfo.settings.po2_deco.toFixed(1)} bar
+                {diveInfo.settings.po2_warn?.toFixed(1) ?? '–'} / {diveInfo.settings.po2_critical?.toFixed(1) ?? '–'} / {diveInfo.settings.po2_deco?.toFixed(1) ?? '–'} bar
               </dd>
             </div>
-            {(diveInfo.settings.ccr_low_setpoint > 0 || diveInfo.settings.ccr_high_setpoint > 0) && (
+            {((diveInfo.settings.ccr_low_setpoint ?? 0) > 0 || (diveInfo.settings.ccr_high_setpoint ?? 0) > 0) && (
               <div>
                 <dt className="text-xs text-neutral-500 dark:text-neutral-400">{LABELS.ccrSetpoints}</dt>
                 <dd className="font-medium text-neutral-900 dark:text-neutral-100">
-                  {LABELS.ccrLow}: {diveInfo.settings.ccr_low_setpoint.toFixed(2)} bar
-                  {' @ '}{diveInfo.settings.ccr_low_setpoint_depth_m} m
+                  {LABELS.ccrLow}: {diveInfo.settings.ccr_low_setpoint?.toFixed(2) ?? '–'} bar
+                  {' @ '}{diveInfo.settings.ccr_low_setpoint_depth_m ?? '–'} m
                   {' · '}
-                  {LABELS.ccrHigh}: {diveInfo.settings.ccr_high_setpoint.toFixed(2)} bar
-                  {' @ '}{diveInfo.settings.ccr_high_setpoint_depth_m} m
+                  {LABELS.ccrHigh}: {diveInfo.settings.ccr_high_setpoint?.toFixed(2) ?? '–'} bar
+                  {' @ '}{diveInfo.settings.ccr_high_setpoint_depth_m ?? '–'} m
                 </dd>
               </div>
             )}
