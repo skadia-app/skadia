@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, deleteSegments, recomputeSegment, type Segment } from '@/api/segments'
+import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, deleteSegments, recomputeSegment, exportSegments, type Segment } from '@/api/segments'
 import { getMe } from '@/api/auth'
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
@@ -187,6 +187,22 @@ export default function SegmentsPage() {
     },
   })
 
+  const handleBulkExport = async (format: 'gpx' | 'geojson') => {
+    try {
+      const { blob, filename } = await exportSegments([...selectedIds], format)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename ?? 'segments.zip'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      addToast({ type: 'error', title: 'Export fehlgeschlagen', message: 'Die Segmente konnten nicht exportiert werden', duration: 0 })
+    }
+  }
+
   const handleDelete = (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
     openModal({
@@ -351,6 +367,18 @@ export default function SegmentsPage() {
             className="px-2.5 py-1 text-xs font-medium rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
           >
             Auswahl aufheben
+          </button>
+          <button
+            onClick={() => handleBulkExport('gpx')}
+            className="px-2.5 py-1 text-xs font-medium rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
+          >
+            GPX exportieren
+          </button>
+          <button
+            onClick={() => handleBulkExport('geojson')}
+            className="px-2.5 py-1 text-xs font-medium rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
+          >
+            GeoJSON exportieren
           </button>
           <button
             onClick={() => setConfirmBulkDelete(true)}
