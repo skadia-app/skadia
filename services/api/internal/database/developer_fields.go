@@ -23,9 +23,13 @@ func (db *DB) GetDeveloperFieldsForActivity(ctx context.Context, activityID stri
 	rows, err := db.Pool.Query(ctx, `
 		WITH stream_keys AS (
 			SELECT DISTINCT jsonb_object_keys(developer_fields) AS field_key
-			FROM activity_streams
-			WHERE activity_id = $1
-			  AND developer_fields IS NOT NULL
+			FROM (
+				SELECT developer_fields
+				FROM activity_streams
+				WHERE activity_id = $1
+				  AND developer_fields IS NOT NULL
+				LIMIT 5000
+			) sub
 		)
 		SELECT DISTINCT ON (sk.field_key)
 			sk.field_key,

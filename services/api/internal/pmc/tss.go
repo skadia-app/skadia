@@ -3,6 +3,7 @@ package pmc
 import (
 	"math"
 
+	"github.com/muktihari/fit/profile/typedef"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -307,7 +308,8 @@ func DeduplicateStreamsByTimestamp(points []model.StreamPoint) []model.StreamPoi
 // isFootSport returns true for sports where Stryd foot-pod power is more
 // accurate than wrist-based estimates (running, hiking, walking).
 func isFootSport(sport int16) bool {
-	return sport == 1 || sport == 11 || sport == 17 || sport == 37
+	s := typedef.Sport(sport)
+	return s == typedef.SportRunning || s == typedef.SportWalking || s == typedef.SportHiking
 }
 
 // ExtractPowerStream extracts power values from StreamPoints as float64 slice.
