@@ -8,6 +8,7 @@ import { buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
 import { apiDownload } from '@/api/client'
 import { useToast } from '@/lib/toast'
 import AuthenticatedImage from '@/components/AuthenticatedImage'
+import { haversineM } from '@/lib/geoUtils'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -26,25 +27,11 @@ interface Props {
   onClose: () => void
 }
 
-// ── Haversine distance (meters) ───────────────────────────────────────────────
-
-function haversine(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371000
-  const dLat = ((lat2 - lat1) * Math.PI) / 180
-  const dLng = ((lng2 - lng1) * Math.PI) / 180
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLng / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
 function nearestTrackPoint(coords: [number, number][], lng: number, lat: number): number {
   let best = 0
   let bestDist = Infinity
   for (let i = 0; i < coords.length; i++) {
-    const d = haversine(lat, lng, coords[i][1], coords[i][0])
+    const d = haversineM(lat, lng, coords[i][1], coords[i][0])
     if (d < bestDist) {
       bestDist = d
       best = i

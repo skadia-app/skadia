@@ -416,8 +416,30 @@ export default function MapPage() {
       // Find the waypoint after which we insert
       const idx = planner.waypoints.findIndex(w => w.id === afterId)
       if (idx >= 0 && idx < planner.waypoints.length - 1) {
-        void planner.addWaypoint(latlng)
+        // Insert in the middle: splice new waypoint at idx+1, then recalculate
+        // the two flanking segments (prev→new and new→next).
+        const newWp: import('@/api/routes').RouteWaypoint = {
+          id: crypto.randomUUID(),
+          latlng,
+          type: 'via',
+        }
+        const newOrder = [
+          ...planner.waypoints.slice(0, idx + 1),
+          newWp,
+          ...planner.waypoints.slice(idx + 1),
+        ]
+        planner.reorderWaypoints(newOrder)
+        // reorderWaypoints clears all segments; recalculate the two affected ones.
+        // Use the locally-built newOrder (not planner.waypoints, which is stale
+        // in this closure) and setTimeout to let the state flush first.
+        const prevWp = planner.waypoints[idx]
+        const nextWp = planner.waypoints[idx + 1]
+        setTimeout(() => {
+          void planner.calculateSegment(prevWp, newWp)
+          void planner.calculateSegment(newWp, nextWp)
+        }, 0)
       } else {
+        // Append at end (afterId is last waypoint or not found)
         void planner.addWaypoint(latlng)
       }
     },

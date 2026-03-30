@@ -64,10 +64,13 @@ export default function StaticTrackMap({ geojsonStr, color, className }: Props) 
     }
     if (coords.length < 2) return null
 
-    const lngs = coords.map(c => c[0])
-    const lats = coords.map(c => c[1])
-    const minLng = Math.min(...lngs), maxLng = Math.max(...lngs)
-    const minLat = Math.min(...lats), maxLat = Math.max(...lats)
+    let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity
+    for (const [lng, lat] of coords) {
+      if (lng < minLng) minLng = lng
+      if (lng > maxLng) maxLng = lng
+      if (lat < minLat) minLat = lat
+      if (lat > maxLat) maxLat = lat
+    }
 
     // ViewBox-Dimensionen (5:3 – passt zum Karten-Vorschau-Seitenverhältnis)
     const VW = 500, VH = 300

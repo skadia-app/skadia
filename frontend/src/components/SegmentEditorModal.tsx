@@ -218,6 +218,24 @@ export default function SegmentEditorModal({
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(arrowSvg)
   }
 
+  function addHeatmapLayer(m: maplibregl.Map, userId: string) {
+    const layerId = 'editor-heatmap'
+    // Remove existing (URL may have changed due to userId update)
+    if (m.getLayer(layerId)) m.removeLayer(layerId)
+    if (m.getSource(layerId)) m.removeSource(layerId)
+    m.addSource(layerId, {
+      type: 'vector',
+      tiles: [`${window.location.origin}/tiles/heatmap_lines_mvt/{z}/{x}/{y}${userId ? `?user_id=${encodeURIComponent(userId)}` : ''}`],
+    })
+    m.addLayer({
+      id: layerId,
+      type: 'line',
+      source: layerId,
+      'source-layer': 'heatmap_lines_mvt',
+      paint: { 'line-color': '#f97316', 'line-width': 2, 'line-opacity': 0.5 },
+    })
+  }
+
   // Map Init
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return
@@ -253,24 +271,12 @@ export default function SegmentEditorModal({
     if (!map || !map.isStyleLoaded()) return
     const layerId = 'editor-heatmap'
     if (heatmapVisible) {
-      if (!map.getSource(layerId)) {
-        map.addSource(layerId, {
-          type: 'vector',
-          tiles: [`${window.location.origin}/tiles/heatmap_lines_mvt/{z}/{x}/{y}${currentUserId ? `?user_id=${encodeURIComponent(currentUserId)}` : ''}`],
-        })
-        map.addLayer({
-          id: layerId,
-          type: 'line',
-          source: layerId,
-          'source-layer': 'heatmap_lines_mvt',
-          paint: { 'line-color': '#f97316', 'line-width': 2, 'line-opacity': 0.5 },
-        })
-      }
+      addHeatmapLayer(map, currentUserId)
     } else {
       if (map.getLayer(layerId)) map.removeLayer(layerId)
       if (map.getSource(layerId)) map.removeSource(layerId)
     }
-  }, [heatmapVisible])
+  }, [heatmapVisible, currentUserId])
 
   // --- Track-Modus: Click Handler ---
   useEffect(() => {
@@ -432,20 +438,7 @@ export default function SegmentEditorModal({
                       map.once('style.load', () => {
                         registerArrowAndTrack(map)
                         if (heatmapVisible) {
-                          const layerId = 'editor-heatmap'
-                          if (!map.getSource(layerId)) {
-                            map.addSource(layerId, {
-                              type: 'vector',
-                              tiles: [`${window.location.origin}/tiles/heatmap_lines_mvt/{z}/{x}/{y}${currentUserId ? `?user_id=${encodeURIComponent(currentUserId)}` : ''}`],
-                            })
-                            map.addLayer({
-                              id: layerId,
-                              type: 'line',
-                              source: layerId,
-                              'source-layer': 'heatmap_lines_mvt',
-                              paint: { 'line-color': '#f97316', 'line-width': 2, 'line-opacity': 0.5 },
-                            })
-                          }
+                          addHeatmapLayer(map, currentUserId)
                         }
                       })
                     }}
