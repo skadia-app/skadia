@@ -17,7 +17,7 @@ import { fetchActivity, fetchActivityStreams } from '@/api/activities'
 import type { Activity, StreamPoint } from '@/api/types'
 import { formatDuration, formatDistance } from '@/lib/utils'
 import { sportLabel } from '@/lib/sportTaxonomy'
-import { formatSpeedKmh } from '@/lib/sportFieldLabels'
+import { formatSpeedValue, defaultSpeedMode } from '@/lib/sportFieldLabels'
 
 import { SportIcon } from '@/components/SportIcon'
 
@@ -130,7 +130,7 @@ const METRIC_ROWS: MetricRow[] = [
   },
   {
     label: 'Geschwindigkeit',
-    getValue: a => formatSpeedKmh(a.avg_speed_ms ?? 0),
+    getValue: a => formatSpeedValue(a.avg_speed_ms ?? 0, a.sport_type),
     getRawValue: a => a.avg_speed_ms,
     higherIsBetter: true,
   },
@@ -169,14 +169,9 @@ const METRIC_ROWS: MetricRow[] = [
   },
 ]
 
-// ── Chart Tab definitions ────────────────────────────────────────────────────
+// ── Chart Tab type ───────────────────────────────────────────────────────────
 
-const CHART_TABS: { key: ChartTab; label: string; unit: string; streamKey: keyof ProcessedStream }[] = [
-  { key: 'speed', label: 'Geschwindigkeit', unit: 'km/h', streamKey: 'speed' },
-  { key: 'heartRate', label: 'Herzfrequenz', unit: 'bpm', streamKey: 'heartRate' },
-  { key: 'altitude', label: 'Höhe', unit: 'm', streamKey: 'altitude' },
-  { key: 'power', label: 'Leistung', unit: 'W', streamKey: 'power' },
-]
+type ChartTabDef = { key: ChartTab; label: string; unit: string; streamKey: keyof ProcessedStream }
 
 // ── Main Component ───────────────────────────────────────────────────────────
 
@@ -207,6 +202,21 @@ export default function ActivityComparisonPage() {
   const activities = activityQueries.map(q => q.data).filter((a): a is Activity => !!a)
   const streams = streamQueries.map(q => q.data).filter((s): s is StreamPoint[] => !!s)
   const processedStreams = useMemo(() => streams.map(s => processStreams(s)), [streams])
+
+  const primarySport = activities[0]?.sport_type ?? 'generic'
+  const speedMode = defaultSpeedMode(primarySport)
+
+  const chartTabs = useMemo<ChartTabDef[]>(() => [
+    {
+      key: 'speed',
+      label: speedMode === 'pace' ? 'Pace' : 'Geschwindigkeit',
+      unit: speedMode === 'pace' ? 'min/km' : 'km/h',
+      streamKey: 'speed',
+    },
+    { key: 'heartRate', label: 'Herzfrequenz', unit: 'bpm', streamKey: 'heartRate' },
+    { key: 'altitude', label: 'Höhe', unit: 'm', streamKey: 'altitude' },
+    { key: 'power', label: 'Leistung', unit: 'W', streamKey: 'power' },
+  ], [speedMode])
 
   const isLoading = activityQueries.some(q => q.isLoading) || streamQueries.some(q => q.isLoading)
   const hasError = activityQueries.some(q => q.isError) || streamQueries.some(q => q.isError)
@@ -340,7 +350,7 @@ export default function ActivityComparisonPage() {
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex gap-1">
-            {CHART_TABS.map(tab => (
+            {chartTabs.map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setChartTab(tab.key)}
@@ -382,6 +392,9 @@ export default function ActivityComparisonPage() {
           processedStreams={processedStreams}
           tab={chartTab}
           xMode={xMode}
+          chartTabs={chartTabs}
+          primarySport={primarySport}
+          speedMode={speedMode}
         />
       </div>
 
@@ -403,16 +416,22 @@ function ComparisonChart({
   processedStreams,
   tab,
   xMode,
+  chartTabs,
+  primarySport,
+  speedMode,
 }: {
   activities: Activity[]
   processedStreams: ProcessedStream[]
   tab: ChartTab
   xMode: XMode
+  chartTabs: ChartTabDef[]
+  primarySport: string
+  speedMode: 'speed' | 'pace'
 }) {
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<echarts.ECharts | null>(null)
 
-  const tabDef = CHART_TABS.find(t => t.key === tab)!
+  const tabDef = chartTabs.find(t => t.key === tab)!
 
   useEffect(() => {
     if (!chartRef.current) return
@@ -469,6 +488,22 @@ function ComparisonChart({
         backgroundColor: isDark ? '#262626' : '#fff',
         borderColor: isDark ? '#525252' : '#e5e5e5',
         textStyle: { color: isDark ? '#e5e5e5' : '#262626', fontSize: 12 },
+        formatter: tab === 'speed'
+          ? (params: unknown) => {
+              const items = params as { seriesName: string; value: [number, number]; color: string }[]
+              if (!items || items.length === 0) return ''
+              const xLabel = xMode === 'distance'
+                ? `${items[0].value[0].toFixed(2)} km`
+                : `${items[0].value[0].toFixed(1)} min`
+              const lines = items.map(item => {
+                const kmhValue = item.value[1]
+                const speedMs = kmhValue / 3.6
+                const formatted = formatSpeedValue(speedMs, primarySport, speedMode)
+                return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${item.color};margin-right:4px;"></span>${item.seriesName}: <b>${formatted}</b>`
+              })
+              return `${xLabel}<br/>${lines.join('<br/>')}`
+            }
+          : undefined,
       },
       legend: {
         bottom: 0,
@@ -497,7 +532,7 @@ function ComparisonChart({
       ],
       series,
     }, true)
-  }, [activities, processedStreams, tab, xMode, tabDef])
+  }, [activities, processedStreams, tab, xMode, tabDef, primarySport, speedMode, chartTabs])
 
   return <div ref={chartRef} className="w-full h-80" />
 }
