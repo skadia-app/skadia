@@ -65,7 +65,7 @@ interface DeveloperFieldChartProps {
 
 export function DeveloperFieldChart({ streams, activityId }: DeveloperFieldChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
+  const instanceRef = useRef<echarts.ECharts | null>(null)
 
   const { data: devFieldInfos, isLoading, isError } = useQuery<DeveloperFieldInfo[]>({
     queryKey: ['developer-fields', activityId],
@@ -97,19 +97,31 @@ export function DeveloperFieldChart({ streams, activityId }: DeveloperFieldChart
       const vals = streams.map(s => {
         const v = s.developer_fields?.[field.field_key]
         if (v == null || typeof v !== 'number') return NaN
-        return v > 0 ? v : NaN
+        // Allow negative values (e.g. temperature in °C) and zero (e.g. ground contact time)
+        return isNaN(v) || !isFinite(v) ? NaN : v
       })
       fieldValues.set(field.field_key, vals)
     }
     return { timeLabels, fieldValues }
   }, [streams, fields])
 
+  // Dispose only on unmount — never dispose on data changes
+  useEffect(() => {
+    return () => {
+      instanceRef.current?.dispose()
+      instanceRef.current = null
+    }
+  }, [])
+
   useEffect(() => {
     if (!containerRef.current) return
     if (fields.length === 0) return
 
-    const chart = echarts.init(containerRef.current)
-    chartRef.current = chart
+    // Reuse existing instance; only init once per mount
+    if (!instanceRef.current) {
+      instanceRef.current = echarts.init(containerRef.current)
+    }
+    const chart = instanceRef.current
 
     const unitGroups = groupByUnit(fields)
     const yAxes: echarts.EChartsCoreOption['yAxis'] = []
@@ -169,11 +181,11 @@ export function DeveloperFieldChart({ streams, activityId }: DeveloperFieldChart
         trigger: 'axis',
         transitionDuration: 0,
         confine: true,
-        backgroundColor: 'rgba(255,255,255,0.96)',
-        borderColor: '#e5e5e5',
+        backgroundColor: '#1f2937',
+        borderColor: '#374151',
         borderWidth: 1,
         padding: [8, 10],
-        textStyle: { fontSize: 12, color: '#333' },
+        textStyle: { fontSize: 12, color: '#f9fafb' },
         axisPointer: {
           type: 'line',
           lineStyle: { color: '#f97316', width: 1, type: 'dashed' },
@@ -232,8 +244,7 @@ export function DeveloperFieldChart({ streams, activityId }: DeveloperFieldChart
 
     return () => {
       ro.disconnect()
-      chart.dispose()
-      chartRef.current = null
+      // Do not dispose here — instance is reused across re-renders
     }
   }, [fields, fieldValues, timeLabels]) // eslint-disable-line react-hooks/exhaustive-deps
 
