@@ -169,13 +169,17 @@ export default function ActivityDetailPage() {
   // Speed/Pace toggle — persisted per segment group
   const segGroup = activity ? getSegmentGroup(activity.sport_type) : 'generic'
   const speedStorageKey = `skadia-speed-format:${segGroup}`
-  const [speedMode, setSpeedMode] = useState<'speed' | 'pace'>(() => {
-    if (!activity) return 'speed'
+  const [speedMode, setSpeedMode] = useState<'speed' | 'pace'>('speed')
+  useEffect(() => {
+    if (!activity) return
     const key = `skadia-speed-format:${getSegmentGroup(activity.sport_type)}`
     const stored = localStorage.getItem(key)
-    if (stored === 'speed' || stored === 'pace') return stored
-    return defaultSpeedMode(activity.sport_type)
-  })
+    if (stored === 'speed' || stored === 'pace') {
+      setSpeedMode(stored)
+    } else {
+      setSpeedMode(defaultSpeedMode(activity.sport_type))
+    }
+  }, [activity?.id])
   const handleSpeedModeChange = (mode: 'speed' | 'pace') => {
     setSpeedMode(mode)
     localStorage.setItem(speedStorageKey, mode)
