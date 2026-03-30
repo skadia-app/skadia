@@ -9,24 +9,13 @@ import { useCreateLocationTag } from '@/hooks/useCreateLocationTag'
 import { getTagBadgeStyle } from '@/lib/tagUtils'
 import { useToast } from '@/lib/toast'
 import ColorPicker from '@/components/ColorPicker'
+import { buildRasterStyle } from '@/lib/mapStyles'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const MAP_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  sources: {
-    basemap: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxzoom: 19,
-    },
-  },
-  layers: [{ id: 'basemap-tiles', type: 'raster', source: 'basemap' }],
-}
+const MAP_STYLE = buildRasterStyle('osm')
 
 interface NominatimResult {
   place_id: number
@@ -51,6 +40,7 @@ function GeoSearchInline({ mapRef, onSelect }: GeoSearchInlineProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -65,16 +55,22 @@ function GeoSearchInline({ mapRef, onSelect }: GeoSearchInlineProps) {
 
   const searchNominatim = useCallback(async (q: string) => {
     if (q.length < 3) { setResults([]); setIsOpen(false); return }
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
     setIsLoading(true)
     try {
       const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=5`
-      const resp = await fetch(url, { headers: { 'User-Agent': 'Skadia/1.0' } })
+      const resp = await fetch(url, {
+        headers: { 'User-Agent': 'Skadia/1.0' },
+        signal: abortRef.current.signal,
+      })
       if (!resp.ok) throw new Error(`Nominatim: ${resp.status}`)
       const data: NominatimResult[] = await resp.json()
       setResults(data)
       setIsOpen(data.length > 0)
       setActiveIndex(-1)
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return
       console.error('Geocoding error:', err)
       setResults([])
       setIsOpen(false)
@@ -179,9 +175,11 @@ function LocationPickerMap({ onConfirm, onCancel }: LocationPickerMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
+  const mountedRef = useRef(true)
   const [pendingCoords, setPendingCoords] = useState<{ lat: number; lng: number } | null>(null)
 
   useEffect(() => {
+    mountedRef.current = true
     if (!mapContainer.current) return
 
     const map = new maplibregl.Map({
@@ -195,6 +193,7 @@ function LocationPickerMap({ onConfirm, onCancel }: LocationPickerMapProps) {
     mapRef.current = map
 
     map.on('click', (e) => {
+      if (!mountedRef.current) return
       const { lat, lng } = e.lngLat
       setPendingCoords({ lat, lng })
 
@@ -208,14 +207,15 @@ function LocationPickerMap({ onConfirm, onCancel }: LocationPickerMapProps) {
     })
 
     return () => {
+      mountedRef.current = false
       markerRef.current?.remove()
       markerRef.current = null
       map.remove()
-      mapRef.current = null
     }
   }, [])
 
   const handleGeoSelect = useCallback((lat: number, lng: number) => {
+    if (!mountedRef.current) return
     setPendingCoords({ lat, lng })
     if (markerRef.current) {
       markerRef.current.setLngLat([lng, lat])
