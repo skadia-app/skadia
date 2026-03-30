@@ -62,6 +62,8 @@ const DeviceDetailPage = lazy(() => import('@/pages/DeviceDetailPage'))
 const ManualActivityPage = lazy(() => import('@/pages/ManualActivityPage'))
 const AdminUsersPage = lazy(() => import('@/pages/admin/AdminUsersPage'))
 const AdminAuditLogPage = lazy(() => import('@/pages/admin/AdminAuditLogPage'))
+const WorkoutsPage = lazy(() => import('@/pages/WorkoutsPage'))
+const WorkoutDetailPage = lazy(() => import('@/pages/WorkoutDetailPage'))
 
 function ImportRedirect() {
   const [searchParams] = useSearchParams()
@@ -152,6 +154,8 @@ export default function App() {
                             <Route path="routes" element={<RoutesPage />} />
                             <Route path="segments" element={<SegmentsPage />} />
                             <Route path="segments/:id" element={<SegmentDetailPage />} />
+                            <Route path="workouts" element={<WorkoutsPage />} />
+                            <Route path="workouts/:id" element={<WorkoutDetailPage />} />
                             <Route path="workshop" element={<WorkshopPage />} />
                             <Route path="workshop/reprocess" element={<WorkshopReprocessPage />} />
                             <Route path="workshop/profile" element={<PhysiologicalProfilePage />} />
