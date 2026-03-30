@@ -8,6 +8,7 @@ import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 import { fmtDuration, fmtDist } from '@/lib/format'
+import { triggerBlobDownload } from '@/lib/utils'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
 import SegmentEditModal from '@/components/SegmentEditModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
@@ -189,15 +190,8 @@ export default function SegmentsPage() {
 
   const handleBulkExport = async (format: 'gpx' | 'geojson') => {
     try {
-      const { blob, filename } = await exportSegments([...selectedIds], format)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename ?? 'segments.zip'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+      const result = await exportSegments([...selectedIds], format)
+      triggerBlobDownload(result.blob, result.filename ?? 'segments.zip')
     } catch {
       addToast({ type: 'error', title: 'Export fehlgeschlagen', message: 'Die Segmente konnten nicht exportiert werden', duration: 0 })
     }
