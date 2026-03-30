@@ -22,12 +22,9 @@ export function formatElevationLoss(meters: number | null | undefined): string |
   return `−${Math.round(meters)} m`
 }
 
-// Sub-Types die Indoor schon semantisch implizieren – kein separates Badge noetig
-const implicitlyIndoorSubTypes = new Set(['bouldering', 'indoor_climbing'])
-
-export function showIndoorBadge(isIndoor: boolean, subType?: string | null): boolean {
-  if (!isIndoor) return false
-  return !implicitlyIndoorSubTypes.has(subType ?? '')
+/** Show blue "I" badge when activity is indoor. Always shown, no suppression. */
+export function showIndoorBadge(isIndoor: boolean): boolean {
+  return isIndoor
 }
 
 // Delay revoking the object URL so the browser has time to initiate the download.

@@ -15,7 +15,7 @@ import SportConflictModal from '@/components/SportConflictModal'
 import MergeDialog from '@/components/MergeDialog'
 import ReprocessScopeModal from '@/components/activity/ReprocessScopeModal'
 import { sportDetailLabel } from '@/lib/sportTaxonomy'
-import { showIndoorBadge, triggerBlobDownload } from '@/lib/utils'
+import { triggerBlobDownload } from '@/lib/utils'
 import { fmtActivityDate, fmtTimeFromDate } from '@/lib/format'
 
 interface ActivityHeaderProps {
@@ -238,9 +238,6 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
           <span>{label}</span>
           {activity.sport_conflict_pending && (
             <SportConflictBadge onClick={() => setConflictOpen(true)} />
-          )}
-          {showIndoorBadge(activity.is_indoor, activity.sub_type) && (
-            <span className="text-xs text-neutral-400 dark:text-neutral-600">indoor</span>
           )}
           <span>{fmtActivityDate(activity.started_at, activity.timezone)}</span>
           <span className="text-neutral-400 dark:text-neutral-600">{fmtTimeFromDate(date, activity.timezone)} Uhr</span>

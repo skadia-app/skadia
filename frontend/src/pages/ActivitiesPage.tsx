@@ -12,7 +12,7 @@ import { apiDownload } from '@/api/client'
 import { apiFetch } from '@/lib/auth'
 import {
   formatDuration, formatDistance,
-  formatElevationGain, formatElevationLoss, showIndoorBadge, triggerBlobDownload,
+  formatElevationGain, formatElevationLoss, triggerBlobDownload,
 } from '@/lib/utils'
 import { fmtActivityDateShort, fmtTimeFromDate } from '@/lib/format'
 import { sportLabel } from '@/lib/sportTaxonomy'
@@ -1430,11 +1430,10 @@ function ActivityRow({
       <td className="px-4 py-3">
         <span className="inline-flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
           <span className="w-4 text-center text-xs flex-shrink-0">
-            {activity.is_electric ? <span className="text-green-600 font-bold text-sm">E</span> : activity.is_virtual ? <span className="text-purple-500 font-bold">V</span> : activity.sport_type === 'multisport' ? <span className="text-red-800 font-bold">M</span> : ''}
+            {activity.is_indoor ? <span className="text-blue-500 font-bold text-sm">I</span> : activity.is_electric ? <span className="text-green-600 font-bold text-sm">E</span> : activity.is_virtual ? <span className="text-purple-500 font-bold text-sm">V</span> : activity.sport_type === 'multisport' ? <span className="text-red-800 font-bold text-sm">M</span> : null}
           </span>
           <SportIcon sport={activity.sport_type} subType={activity.sub_type} isElectric={activity.is_electric} className="w-4 h-4 flex-shrink-0" />
           <span className="text-xs">{label}</span>
-          {showIndoorBadge(activity.is_indoor, activity.sub_type) && <span className="text-neutral-400 dark:text-neutral-600 text-xs">indoor</span>}
           {activity.sport_conflict_pending && onConflictClick && (
             <span onClick={e => e.stopPropagation()}>
               <SportConflictBadge onClick={() => onConflictClick(activity)} />
