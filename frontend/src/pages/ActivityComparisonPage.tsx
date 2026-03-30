@@ -495,10 +495,11 @@ function ComparisonChart({
               const xLabel = xMode === 'distance'
                 ? `${items[0].value[0].toFixed(2)} km`
                 : `${items[0].value[0].toFixed(1)} min`
-              const lines = items.map(item => {
+              const lines = items.map((item, idx) => {
                 const kmhValue = item.value[1]
                 const speedMs = kmhValue / 3.6
-                const formatted = formatSpeedValue(speedMs, primarySport, speedMode)
+                const sportForActivity = activities[idx]?.sport_type ?? primarySport
+                const formatted = formatSpeedValue(speedMs, sportForActivity, defaultSpeedMode(sportForActivity))
                 return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${item.color};margin-right:4px;"></span>${item.seriesName}: <b>${formatted}</b>`
               })
               return `${xLabel}<br/>${lines.join('<br/>')}`
