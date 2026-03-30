@@ -745,7 +745,14 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 }
 
 // SetActivityTimezone sets the IANA timezone string on an activity.
+// It validates the timezone against the IANA database before writing to prevent
+// corrupt values from breaking all AT TIME ZONE queries for the user.
 func (db *DB) SetActivityTimezone(ctx context.Context, activityID, timezone string) error {
+	if timezone != "" {
+		if _, err := time.LoadLocation(timezone); err != nil {
+			return fmt.Errorf("invalid timezone %q: %w", timezone, err)
+		}
+	}
 	_, err := db.Pool.Exec(ctx,
 		`UPDATE activities SET timezone = $1 WHERE id = $2`,
 		timezone, activityID)

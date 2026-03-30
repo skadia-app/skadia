@@ -63,6 +63,18 @@ func detectFormatAndDecompress(fileBytes []byte, filename string, maxDecompresse
 	return fileBytes, format, nil
 }
 
+// sanitizeFilename replaces characters that are problematic inside
+// Content-Disposition header quoted strings with underscores.
+// Unicode letters and digits (including umlauts like ä, ö, ü, ß) are preserved.
+func sanitizeFilename(name string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '"' || r == '\\' || r == '\n' || r == '\r' {
+			return '_'
+		}
+		return r
+	}, name)
+}
+
 // isValidActivityFilename returns true if the filename has a valid activity extension.
 func isValidActivityFilename(name string) bool {
 	lower := strings.ToLower(name)

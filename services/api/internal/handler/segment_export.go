@@ -5,14 +5,11 @@ import (
 	"fmt"
 	"html"
 	"net/http"
-	"regexp"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
-
-var segmentExportUnsafeChars = regexp.MustCompile(`[^a-zA-Z0-9_\-.]`)
 
 // ExportSegment handles GET /api/v1/segments/{id}/export?format=gpx|geojson
 func (h *Handler) ExportSegment(w http.ResponseWriter, r *http.Request) {
@@ -42,7 +39,7 @@ func (h *Handler) ExportSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	safeName := segmentExportUnsafeChars.ReplaceAllString(seg.Name, "_")
+	safeName := sanitizeFilename(seg.Name)
 	if safeName == "" {
 		safeName = "segment"
 	}
