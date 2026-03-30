@@ -129,7 +129,7 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
       canvas.width = arrowSize
       canvas.height = arrowSize
       const ctx2d = canvas.getContext('2d')!
-      ctx2d.fillStyle = '#374151' // neutral-700
+      ctx2d.fillStyle = '#ffffff' // SDF: weiß = opaque, transparent = unsichtbar
       ctx2d.beginPath()
       ctx2d.moveTo(arrowSize / 2, 0)
       ctx2d.lineTo(arrowSize, arrowSize)
@@ -137,7 +137,7 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
       ctx2d.lineTo(0, arrowSize)
       ctx2d.closePath()
       ctx2d.fill()
-      map.addImage('heading-arrow', canvas, { sdf: false })
+      map.addImage('heading-arrow', canvas, { sdf: true })
 
       // Full track — greyed out when a segment is highlighted
       map.addSource('track', {
@@ -171,7 +171,7 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
 
       // Heading arrows: sample every ~50 points with valid heading
       const headingFeatures: GeoJSON.Feature[] = []
-      const step = Math.max(1, Math.floor(coordinates.length / 40))
+      const step = Math.max(1, Math.floor(streams.length / 40))
       for (let i = 0; i < streams.length; i += step) {
         const s = streams[i]
         if (s.heading != null && s.lat != null && s.lng != null) {
@@ -198,6 +198,9 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
             'icon-rotate': ['get', 'heading'],
             'icon-rotation-alignment': 'map',
             'icon-allow-overlap': true,
+          },
+          paint: {
+            'icon-color': '#dc2626', // red-600 — gut sichtbar auf OSM-Raster-Karten
           },
         })
       }
