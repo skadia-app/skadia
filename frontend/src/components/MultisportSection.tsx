@@ -137,7 +137,7 @@ export default function MultisportSection({ children, onHoverChild }: Props) {
             onMouseEnter={() => onHoverChild?.(child.id)}
             onMouseLeave={() => onHoverChild?.(null)}
           >
-            <SportIcon sport={child.sport_type} subType={child.sub_type} isEbike={child.is_ebike} className="w-5 h-5 shrink-0" />
+            <SportIcon sport={child.sport_type} subType={child.sub_type} isElectric={child.is_electric} className="w-5 h-5 shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="font-medium text-neutral-900 dark:text-neutral-100 truncate">
                 {child.title ?? sportLabel(child.sport_type, child.sub_type)}

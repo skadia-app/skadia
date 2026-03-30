@@ -1178,7 +1178,7 @@ export default function ActivitiesPage() {
                       {/* Titel + Sport + Datum */}
                       <td colSpan={3} className="py-1.5 px-4">
                         <div className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
-                          <SportIcon sport={child.sport_type} subType={child.sub_type} isEbike={child.is_ebike} className="w-4 h-4 shrink-0 text-neutral-400" />
+                          <SportIcon sport={child.sport_type} subType={child.sub_type} isElectric={child.is_electric} className="w-4 h-4 shrink-0 text-neutral-400" />
                           <span className="font-medium truncate">
                             {child.title ?? child.title_auto ?? sportLabel(child.sport_type, child.sub_type)}
                           </span>
@@ -1430,9 +1430,9 @@ function ActivityRow({
       <td className="px-4 py-3">
         <span className="inline-flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
           <span className="w-4 text-center text-xs flex-shrink-0">
-            {activity.is_ebike ? <span className="text-green-600 font-bold text-sm">E</span> : activity.is_virtual ? <span className="text-purple-500 font-bold">V</span> : activity.sport_type === 'multisport' ? <span className="text-red-800 font-bold">M</span> : ''}
+            {activity.is_electric ? <span className="text-green-600 font-bold text-sm">E</span> : activity.is_virtual ? <span className="text-purple-500 font-bold">V</span> : activity.sport_type === 'multisport' ? <span className="text-red-800 font-bold">M</span> : ''}
           </span>
-          <SportIcon sport={activity.sport_type} subType={activity.sub_type} isEbike={activity.is_ebike} className="w-4 h-4 flex-shrink-0" />
+          <SportIcon sport={activity.sport_type} subType={activity.sub_type} isElectric={activity.is_electric} className="w-4 h-4 flex-shrink-0" />
           <span className="text-xs">{label}</span>
           {showIndoorBadge(activity.is_indoor, activity.sub_type) && <span className="text-neutral-400 dark:text-neutral-600 text-xs">indoor</span>}
           {activity.sport_conflict_pending && onConflictClick && (
