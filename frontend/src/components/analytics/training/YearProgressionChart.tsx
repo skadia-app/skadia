@@ -153,6 +153,8 @@ export default function YearProgressionChart() {
             },
           },
           restore: { title: 'Zurücksetzen' },
+          brush: { show: false },
+          saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
         },
         iconStyle: { borderColor: '#6b7280' },
         emphasis: { iconStyle: { borderColor: '#d1d5db' } },
