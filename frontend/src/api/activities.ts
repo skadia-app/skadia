@@ -10,6 +10,7 @@ export interface ActivityFilterParams {
   isElectric?: boolean | null
   isVirtual?: boolean | null
   hasGPS?: boolean | null
+  hasLocation?: boolean | null
   gearId?: string
   search?: string
   includeTags?: string[]
@@ -64,6 +65,7 @@ export async function fetchActivities(
   if (filters?.isElectric !== null && filters?.isElectric !== undefined) params.set('is_electric', String(filters.isElectric))
   if (filters?.isVirtual !== null && filters?.isVirtual !== undefined) params.set('is_virtual', String(filters.isVirtual))
   if (filters?.hasGPS !== null && filters?.hasGPS !== undefined) params.set('has_gps', String(filters.hasGPS))
+  if (filters?.hasLocation !== null && filters?.hasLocation !== undefined) params.set('has_location', String(filters.hasLocation))
   if (filters?.gearId) params.set('gear_id', filters.gearId)
   if (filters?.search) params.set('search', filters.search)
   if (filters?.includeTags?.length) params.set('include_tags', filters.includeTags.join(','))
@@ -88,7 +90,7 @@ export async function fetchActivitySensors(id: string): Promise<Sensor[]> {
   return apiClient<Sensor[]>(`/activities/${id}/sensors`)
 }
 
-export async function updateActivity(id: string, data: Partial<Pick<Activity, 'title' | 'description' | 'sport_type' | 'sub_type' | 'tags' | 'visibility' | 'workout_feel' | 'workout_rpe'>> & { exclude_from_heatmap?: boolean; exclude_from_stats?: boolean }): Promise<Activity> {
+export async function updateActivity(id: string, data: Partial<Pick<Activity, 'title' | 'description' | 'sport_type' | 'sub_type' | 'tags' | 'visibility' | 'workout_feel' | 'workout_rpe' | 'location_lat' | 'location_lng'>> & { exclude_from_heatmap?: boolean; exclude_from_stats?: boolean }): Promise<Activity> {
   return apiClient<Activity>(`/activities/${id}`, { method: 'PATCH', body: data })
 }
 
