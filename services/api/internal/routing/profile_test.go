@@ -236,7 +236,7 @@ func TestEdgeCost_WetWeather(t *testing.T) {
 	cfgDry, _ := BuildCostConfig(ProfileConfig{Profile: "hiking"})
 	cfgWet, _ := BuildCostConfig(ProfileConfig{
 		Profile:    "hiking",
-		WetWeather: ptrBool(true),
+		WetWeather: new(true),
 	})
 	ecfDry := cfgDry.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
 	ecfWet := cfgWet.EdgeCost(g.EdgeTags1[0], g.EdgeTags2[0])
@@ -440,7 +440,7 @@ func TestBuildEdgeCostClosure_DefaultIdentity(t *testing.T) {
 			p := ProfileConfig{Profile: name}
 			setIfNotBlocked := func(dst **float32, cost float32) {
 				if cost < costBlocked {
-					*dst = ptr32(cost)
+					*dst = new(cost)
 				}
 			}
 			setIfNotBlocked(&p.PathCost, profileHighwayCostDefault(name, 16, 0))

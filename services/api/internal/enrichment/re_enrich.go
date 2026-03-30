@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -202,10 +203,8 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 // containsAny reports whether slice contains any of the given values.
 func containsAny(slice []string, values ...string) bool {
 	for _, v := range values {
-		for _, s := range slice {
-			if s == v {
-				return true
-			}
+		if slices.Contains(slice, v) {
+			return true
 		}
 	}
 	return false

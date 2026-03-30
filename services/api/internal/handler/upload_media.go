@@ -244,8 +244,8 @@ func (h *Handler) autoAssignPhoto(
 			FileName:    thumbName,
 			SizeBytes:   int64(len(thumbData)),
 			FileHash:    hash + "_thumb",
-			ParentType:  shadowfs.Ptr("photo"),
-			ParentID:    shadowfs.Ptr(photo.ID),
+			ParentType:  new("photo"),
+			ParentID:    new(photo.ID),
 		}, bytes.NewReader(thumbData))
 	}
 

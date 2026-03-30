@@ -782,7 +782,7 @@ func (h *Handler) appendSidecarEdits(ctx context.Context, userID, activityID str
 		ContentType: "application/json",
 		FileName:    fileName,
 		SizeBytes:   int64(len(data)),
-		ParentType:  shadowfs.Ptr("activity"),
+		ParentType:  new("activity"),
 		ParentID:    &activityID,
 	}, bytes.NewReader(data))
 	if putErr != nil {

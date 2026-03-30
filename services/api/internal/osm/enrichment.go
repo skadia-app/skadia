@@ -200,10 +200,7 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 	}
 	defer conn.Release()
 
-	workMemMB := availableRAMMB() * 10 / 100
-	if workMemMB > 512 {
-		workMemMB = 512
-	}
+	workMemMB := min(availableRAMMB()*10/100, 512)
 	if workMemMB < 64 {
 		workMemMB = 64
 	}
@@ -359,10 +356,7 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 	}
 	defer conn.Release()
 
-	workMemMB := availableRAMMB() * 10 / 100
-	if workMemMB > 512 {
-		workMemMB = 512
-	}
+	workMemMB := min(availableRAMMB()*10/100, 512)
 	if workMemMB < 64 {
 		workMemMB = 64
 	}
@@ -650,10 +644,7 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 	}
 	defer conn.Release()
 
-	workMemMB := availableRAMMB() * 10 / 100
-	if workMemMB > 512 {
-		workMemMB = 512
-	}
+	workMemMB := min(availableRAMMB()*10/100, 512)
 	if workMemMB < 64 {
 		workMemMB = 64
 	}

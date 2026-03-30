@@ -28,7 +28,7 @@ func (h *Handler) GetImports(w http.ResponseWriter, r *http.Request) {
 
 	var statusFilter []string
 	if raw := q.Get("status"); raw != "" {
-		for _, s := range strings.Split(raw, ",") {
+		for s := range strings.SplitSeq(raw, ",") {
 			s = strings.TrimSpace(s)
 			if s != "" {
 				statusFilter = append(statusFilter, s)

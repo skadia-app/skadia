@@ -1,5 +1,7 @@
 package shadowfs
 
+import "strings"
+
 import "testing"
 
 func TestRenderPath_Activity(t *testing.T) {
@@ -29,11 +31,11 @@ func TestRenderPath_Media(t *testing.T) {
 
 func TestRenderPath_Truncation(t *testing.T) {
 	r := NewSchemaRenderer()
-	longTitle := ""
+	var longTitle strings.Builder
 	for range 60 {
-		longTitle += "x"
+		longTitle.WriteString("x")
 	}
-	vars := map[string]string{"title": longTitle}
+	vars := map[string]string{"title": longTitle.String()}
 	got := r.RenderPath("route", "{title}", vars, "gpx")
 	if len(got) > 55 {
 		t.Errorf("path too long: %d chars", len(got))
@@ -72,11 +74,11 @@ func TestValidateSchema_OK(t *testing.T) {
 
 func TestValidateSchema_TooLong(t *testing.T) {
 	r := NewSchemaRenderer()
-	long := ""
+	var long strings.Builder
 	for range 200 {
-		long += "x"
+		long.WriteString("x")
 	}
-	warns, _ := r.ValidateSchema("activity", long+"/{year}")
+	warns, _ := r.ValidateSchema("activity", long.String()+"/{year}")
 	if len(warns) == 0 {
 		t.Error("expected path-length warning")
 	}

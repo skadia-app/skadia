@@ -530,8 +530,8 @@ func (h *Handler) RecomputePhotoPreviews(w http.ResponseWriter, r *http.Request)
 				FileName:    hash + "_preview.jpg",
 				SizeBytes:   int64(len(previewData)),
 				FileHash:    hash + "_preview",
-				ParentType:  shadowfs.Ptr("photo"),
-				ParentID:    shadowfs.Ptr(photo.ID),
+				ParentType:  new("photo"),
+				ParentID:    new(photo.ID),
 			}, bytes.NewReader(previewData))
 			if putErr != nil {
 				slog.Warn("recompute previews: put preview failed", "photo_id", photo.ID, "err", putErr)
@@ -628,8 +628,8 @@ func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Reques
 				FileName:    hash + "_thumb.jpg",
 				SizeBytes:   int64(len(thumbData)),
 				FileHash:    hash + "_thumb",
-				ParentType:  shadowfs.Ptr("photo"),
-				ParentID:    shadowfs.Ptr(photo.ID),
+				ParentType:  new("photo"),
+				ParentID:    new(photo.ID),
 			}, bytes.NewReader(thumbData))
 			if putErr != nil {
 				slog.Warn("recompute thumbs: put thumb failed", "photo_id", photo.ID, "err", putErr)

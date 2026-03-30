@@ -252,10 +252,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 
 	// PostgreSQL Import-Tuning (connection-level, not ALTER SYSTEM which affects all connections).
 	// Note: osm2pgsql manages its own connections — these settings apply to post-import queries only.
-	maintWorkMemMB := availableRAMMB() * 15 / 100
-	if maintWorkMemMB > 8192 {
-		maintWorkMemMB = 8192
-	}
+	maintWorkMemMB := min(availableRAMMB()*15/100, 8192)
 	if maintWorkMemMB < 256 {
 		maintWorkMemMB = 256
 	}
@@ -881,10 +878,7 @@ func buildVacuumTables(categories []string) []string {
 // Scales dynamically: uses 40% of available RAM, capped at 2x PBF size.
 func computeCacheMB(totalPBFBytes int64) int {
 	availMB := availableRAMMB()
-	pbfMB := totalPBFBytes / (1024 * 1024)
-	if pbfMB < 1 {
-		pbfMB = 1
-	}
+	pbfMB := max(totalPBFBytes/(1024*1024), 1)
 
 	// Mindestens 1 GB RAM frei → Cache verwenden
 	if availMB < 1024 {
@@ -916,7 +910,7 @@ func availableRAMMB() int64 {
 	if err != nil {
 		return 2048
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if strings.HasPrefix(line, "MemAvailable:") {
 			fields := strings.Fields(line)
 			if len(fields) >= 2 {
@@ -1347,10 +1341,7 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 	}
 
 	// PostgreSQL Import-Tuning (connection-level, not ALTER SYSTEM which affects all connections).
-	maintWorkMemMB := availableRAMMB() * 15 / 100
-	if maintWorkMemMB > 8192 {
-		maintWorkMemMB = 8192
-	}
+	maintWorkMemMB := min(availableRAMMB()*15/100, 8192)
 	if maintWorkMemMB < 256 {
 		maintWorkMemMB = 256
 	}

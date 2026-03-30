@@ -71,7 +71,9 @@ type ResolvedFile struct {
 
 // Ptr returns a pointer to the given string value.
 // Exported for use by handlers constructing FileEntry values.
-func Ptr(s string) *string { return &s }
+//
+//go:fix inline
+func Ptr(s string) *string { return new(s) }
 
 // fileTypeDirName maps file types to their directory names in the library.
 var fileTypeDirName = map[string]string{

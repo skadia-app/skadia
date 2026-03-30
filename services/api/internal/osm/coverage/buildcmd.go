@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 
 	graphpkg "github.com/skadia-app/skadia/services/api/internal/routing/graph"
@@ -16,7 +17,7 @@ import (
 type BuildCoverageOptions struct {
 	BaseDir    string
 	Layer      string
-	Region     string    // region name (e.g. austria, germany, switzerland) — informational only
+	Region     string     // region name (e.g. austria, germany, switzerland) — informational only
 	RegionBBox [4]float64 // [minLat, minLon, maxLat, maxLon]; used only when Region != ""
 	TileLat    int
 	TileLon    int
@@ -168,11 +169,12 @@ func discoverCoverageTiles(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 }
 
 func joinSQL(parts []string) string {
-	result := parts[0]
+	var result strings.Builder
+	result.WriteString(parts[0])
 	for _, p := range parts[1:] {
-		result += " UNION ALL " + p
+		result.WriteString(" UNION ALL " + p)
 	}
-	return result
+	return result.String()
 }
 
 // tileExprPoint builds the SQL expression that converts a point expression

@@ -142,7 +142,7 @@ func (h *Handler) PutActivityEdits(w http.ResponseWriter, r *http.Request) {
 		ContentType: "application/json",
 		FileName:    fileName,
 		SizeBytes:   int64(len(raw)),
-		ParentType:  shadowfs.Ptr("activity"),
+		ParentType:  new("activity"),
 		ParentID:    &activityID,
 	}, bytes.NewReader(raw))
 	if putErr != nil {

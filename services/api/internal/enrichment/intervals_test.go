@@ -215,4 +215,6 @@ func TestIntervalSmoothWindow_Constant(t *testing.T) {
 }
 
 // intPtr is a helper to create *int from a literal.
-func intPtr(v int) *int { return &v }
+//
+//go:fix inline
+func intPtr(v int) *int { return new(v) }

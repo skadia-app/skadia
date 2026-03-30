@@ -8,12 +8,13 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-func f64(v float64) *float64 { return &v }
+//go:fix inline
+func f64(v float64) *float64 { return new(v) }
 
 func mkSpeedPoint(speedMS float64, sec int) model.StreamPoint {
 	return model.StreamPoint{
 		Time:    time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC).Add(time.Duration(sec) * time.Second),
-		SpeedMS: f64(speedMS),
+		SpeedMS: new(speedMS),
 	}
 }
 

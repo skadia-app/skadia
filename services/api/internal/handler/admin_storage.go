@@ -345,8 +345,8 @@ func (h *Handler) BackfillThumbnails(w http.ResponseWriter, r *http.Request) {
 					FileName:    thumbName,
 					SizeBytes:   int64(len(thumbData)),
 					FileHash:    thumbHash,
-					ParentType:  shadowfs.Ptr("photo"),
-					ParentID:    shadowfs.Ptr(row.ParentID),
+					ParentType:  new("photo"),
+					ParentID:    new(row.ParentID),
 				}, bytes.NewReader(thumbData))
 				if putErr != nil {
 					slog.Warn("thumbnail backfill: ShadowFS.Put thumb failed", "parent_id", row.ParentID, "error", putErr)
@@ -596,9 +596,9 @@ func (h *Handler) BackfillMetaSidecars(w http.ResponseWriter, r *http.Request) {
 	})
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
-		"job_id":         jobID,
-		"queued":         total,
+		"job_id":            jobID,
+		"queued":            total,
 		"queued_activities": len(missing),
-		"queued_photos":  len(missingPhotos),
+		"queued_photos":     len(missingPhotos),
 	})
 }

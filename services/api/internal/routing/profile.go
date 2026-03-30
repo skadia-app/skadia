@@ -68,9 +68,14 @@ type ProfileConfig struct {
 
 // --- Pointer helpers ---
 
-func ptr32(v float32) *float32 { return &v }
-func ptrInt(v int) *int        { return &v }
-func ptrBool(v bool) *bool     { return &v }
+//go:fix inline
+func ptr32(v float32) *float32 { return new(v) }
+
+//go:fix inline
+func ptrInt(v int) *int { return new(v) }
+
+//go:fix inline
+func ptrBool(v bool) *bool { return new(v) }
 
 // --- Built-in profiles ---
 
@@ -84,8 +89,8 @@ var builtinProfiles = map[string]ProfileConfig{
 		ElevPenaltyBuffer: ptr32(5),
 		ElevMaxBuffer:     ptr32(10),
 		ElevBufferReduce:  ptr32(0),
-		AllowSteps:        ptrBool(true),
-		AllowFerries:      ptrBool(true),
+		AllowSteps:        new(true),
+		AllowFerries:      new(true),
 		CyclerouteBoost:   ptr32(0.6),
 		TurnCost:          ptr32(90),
 		Pass0Coefficient:  ptr32(3.0), // higher: downhillcost=60 inflates pass0 budget
@@ -99,9 +104,9 @@ var builtinProfiles = map[string]ProfileConfig{
 		ElevPenaltyBuffer: ptr32(5),
 		ElevMaxBuffer:     ptr32(10),
 		ElevBufferReduce:  ptr32(0.01),
-		MaxSacScale:       ptrInt(3),
-		SacPreferred:      ptrInt(1),
-		AllowSteps:        ptrBool(true),
+		MaxSacScale:       new(3),
+		SacPreferred:      new(1),
+		AllowSteps:        new(true),
 		ForestBonus:       ptr32(0.5),
 		NoisePenalty:      ptr32(0.4),
 		TrafficPenalty:    ptr32(0.6),
@@ -119,8 +124,8 @@ var builtinProfiles = map[string]ProfileConfig{
 		ElevPenaltyBuffer: ptr32(5),
 		ElevMaxBuffer:     ptr32(10),
 		ElevBufferReduce:  ptr32(0),
-		MaxMtbScale:       ptrInt(2),
-		AllowSteps:        ptrBool(false),
+		MaxMtbScale:       new(2),
+		AllowSteps:        new(false),
 		PathPreference:    ptr32(20),
 		ForestBonus:       ptr32(0.3),
 		NoisePenalty:      ptr32(0.2),
@@ -137,9 +142,9 @@ var builtinProfiles = map[string]ProfileConfig{
 		ElevPenaltyBuffer: ptr32(5),
 		ElevMaxBuffer:     ptr32(10),
 		ElevBufferReduce:  ptr32(0),
-		MaxSacScale:       ptrInt(1),
-		MaxMtbScale:       ptrInt(0),
-		AllowSteps:        ptrBool(false),
+		MaxSacScale:       new(1),
+		MaxMtbScale:       new(0),
+		AllowSteps:        new(false),
 		ForestBonus:       ptr32(0.3),
 		NoisePenalty:      ptr32(0.4),
 		TrafficPenalty:    ptr32(0.5),
@@ -156,7 +161,7 @@ var builtinProfiles = map[string]ProfileConfig{
 		ElevPenaltyBuffer: ptr32(5),
 		ElevMaxBuffer:     ptr32(10),
 		ElevBufferReduce:  ptr32(0),
-		AllowSteps:        ptrBool(false),
+		AllowSteps:        new(false),
 		TrafficPenalty:    ptr32(0.1),
 		TurnCost:          ptr32(90),
 		Pass0Coefficient:  ptr32(3.0), // higher: downhillcost=60 inflates pass0 budget
@@ -1023,12 +1028,12 @@ func BuildLandmarkEdgeCostClosure() func(tags1, tags2 uint64) EdgeCostFactors {
 		ElevPenaltyBuffer: ptr32(5),
 		ElevMaxBuffer:     ptr32(10),
 		ElevBufferReduce:  ptr32(0.01),
-		MaxSacScale:       ptrInt(6), // allow everything
-		SacPreferred:      ptrInt(0), // no preference penalty
-		MaxMtbScale:       ptrInt(5), // allow everything
-		MaxViaFerrata:     ptrInt(6), // allow everything
-		AllowSteps:        ptrBool(true),
-		AllowFerries:      ptrBool(true),
+		MaxSacScale:       new(6), // allow everything
+		SacPreferred:      new(0), // no preference penalty
+		MaxMtbScale:       new(5), // allow everything
+		MaxViaFerrata:     new(6), // allow everything
+		AllowSteps:        new(true),
+		AllowFerries:      new(true),
 		// ALL enrichment weights = 0 (lower bound guarantee)
 		ForestBonus:     ptr32(0),
 		NoisePenalty:    ptr32(0),
@@ -1036,7 +1041,7 @@ func BuildLandmarkEdgeCostClosure() func(tags1, tags2 uint64) EdgeCostFactors {
 		ProtectedBonus:  ptr32(0),
 		CyclerouteBoost: ptr32(0),
 		HikerouteBoost:  ptr32(0),
-		WetWeather:      ptrBool(false),
+		WetWeather:      new(false),
 		PathPreference:  ptr32(0),
 		TurnCost:        ptr32(0),
 		InitialCostRoad: ptr32(0),
@@ -1158,7 +1163,7 @@ func ProfileDefaults(name string) (*ProfileDefaultsResponse, error) {
 		if cost >= costBlocked {
 			*dst = nil
 		} else {
-			*dst = ptr32(cost)
+			*dst = new(cost)
 		}
 	}
 	setIfPassable(&r.PathCost, profileHighwayCostDefault(name, 16, 0))

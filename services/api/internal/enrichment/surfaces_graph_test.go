@@ -128,7 +128,7 @@ func TestViterbiMatch_MultiSegmentBacktrack(t *testing.T) {
 
 	candidates := make([][]graph.EdgeCandidate, n)
 	// Segment A
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		candidates[i] = []graph.EdgeCandidate{edge1}
 	}
 	// Gap 5-11: nil (offroad)

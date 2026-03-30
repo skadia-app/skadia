@@ -119,10 +119,7 @@ func ApplyDPToEdgeGeometry(
 ) (newGeomOff []uint32, newGeomLat, newGeomLon []int32) {
 	newGeomOff = make([]uint32, edgeCount+1)
 	// Pre-estimate: ~40% survival rate after DP
-	estimatedPoints := len(geomLat) * 2 / 5
-	if estimatedPoints < 1024 {
-		estimatedPoints = 1024
-	}
+	estimatedPoints := max(len(geomLat)*2/5, 1024)
 	newGeomLat = make([]int32, 0, estimatedPoints)
 	newGeomLon = make([]int32, 0, estimatedPoints)
 

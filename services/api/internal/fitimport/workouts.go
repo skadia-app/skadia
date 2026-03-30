@@ -66,8 +66,8 @@ func ExtractWorkout(workout *mesgdef.Workout) *model.WorkoutRecord {
 	}
 
 	// SourceHash: SHA256 of key fields
-	hash := sha256.Sum256([]byte(fmt.Sprintf("%s|%d|%d|%d",
-		workout.WktName, workout.Sport, workout.SubSport, workout.NumValidSteps)))
+	hash := sha256.Sum256(fmt.Appendf(nil, "%s|%d|%d|%d",
+		workout.WktName, workout.Sport, workout.SubSport, workout.NumValidSteps))
 	rec.SourceHash = hex.EncodeToString(hash[:])
 
 	return &rec

@@ -234,13 +234,13 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 
 		// Build base ActivityData (will be enriched if GPS file exists)
 		data := &model.ActivityData{
-			Source:    "Strava",
-			SportType: sportType,
-			SubType:   subType,
-			IsElectric:   isElectric,
-			IsVirtual: isVirtual,
-			StartedAt: startedAt,
-			EndedAt:   endedAt,
+			Source:     "Strava",
+			SportType:  sportType,
+			SubType:    subType,
+			IsElectric: isElectric,
+			IsVirtual:  isVirtual,
+			StartedAt:  startedAt,
+			EndedAt:    endedAt,
 		}
 		if activityName != "" {
 			data.OriginalName = activityName
@@ -457,7 +457,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				CreatedAt:      time.Now().UTC(),
 			}
 			// Deterministic hash (not from JSON bytes which contain CreatedAt)
-			detHash := sha256.Sum256([]byte(fmt.Sprintf("strava_csv|%d|%s|%s", stravaID, data.StartedAt.Format(time.RFC3339), data.SportType)))
+			detHash := sha256.Sum256(fmt.Appendf(nil, "strava_csv|%d|%s|%s", stravaID, data.StartedAt.Format(time.RFC3339), data.SportType))
 			hashStr = hex.EncodeToString(detHash[:])
 			jsonBytes, jsonErr := csvJSON.Marshal()
 			if jsonErr == nil {
@@ -650,7 +650,6 @@ func readStravaActivityFile(baseDir, relPath string) ([]byte, string, error) {
 	}
 	return raw, format, nil
 }
-
 
 // mergeActivityData merges parsedData (GPS/stream data) into base (CSV metadata).
 // GPS and stream fields from parsed file take precedence; CSV metrics fill gaps.

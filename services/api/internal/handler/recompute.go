@@ -292,9 +292,7 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 			case sem <- struct{}{}:
 			}
 
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				defer func() { <-sem }()
 
 				if err := h.reprocessActivity(ctx, id, userID, scope, 0, true, &coll); err != nil {
@@ -316,7 +314,7 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 						_ = h.DB.UpdateBackgroundJobProgress(ctx, dbJobID, n)
 					}
 				}
-			}()
+			})
 		}
 
 		wg.Wait()
@@ -519,7 +517,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			DistanceM:      mf.DistanceM,
 			ElevationGainM: mf.ElevationGainM,
 			ElevationLossM: mf.ElevationLossM,
-			IsElectric:        mf.IsElectric,
+			IsElectric:     mf.IsElectric,
 		}
 		if mf.ElapsedTimeS > 0 {
 			data.EndedAt = mf.StartedAt.Add(time.Duration(mf.ElapsedTimeS) * time.Second)

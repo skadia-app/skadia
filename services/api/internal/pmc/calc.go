@@ -13,7 +13,7 @@ import (
 func CalcACWR_RA(dailyTSS map[string]float64, today time.Time) float64 {
 	var acuteSum, chronicSum float64
 	var chronicDaysWithTraining int
-	for d := 0; d < 7; d++ {
+	for d := range 7 {
 		key := today.AddDate(0, 0, -d).Format("2006-01-02")
 		acuteSum += dailyTSS[key]
 	}

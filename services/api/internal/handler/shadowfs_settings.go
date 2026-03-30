@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -715,10 +716,5 @@ func isDigits(s string) bool {
 }
 
 func isAllowedFileType(ft string) bool {
-	for _, allowed := range allowedFileTypes {
-		if ft == allowed {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(allowedFileTypes, ft)
 }

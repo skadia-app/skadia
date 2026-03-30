@@ -1,9 +1,10 @@
 package database
 
 import (
-	"errors"
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -67,13 +68,7 @@ func (db *DB) UpsertHWDevice(ctx context.Context, d model.DeviceUpsert) (string,
 		// melden kann. Andere Hersteller (COROS, Apple etc.) erfordern exakten manufacturer_id-Match,
 		// damit verschiedene Hersteller mit gleicher Serial nicht kollisionieren.
 		garminFamily := []int{1, 13, 14, 89, 65535}
-		isGarminFamily := false
-		for _, gm := range garminFamily {
-			if d.ManufacturerID == gm {
-				isGarminFamily = true
-				break
-			}
-		}
+		isGarminFamily := slices.Contains(garminFamily, d.ManufacturerID)
 
 		if isGarminFamily {
 			// Garmin family: match serial across garmin/dynastream/invalid manufacturer IDs

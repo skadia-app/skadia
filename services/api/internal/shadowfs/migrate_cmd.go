@@ -311,9 +311,7 @@ func processBatch(
 
 	var wg sync.WaitGroup
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for rec := range ch {
 				if ctx.Err() != nil {
 					return
@@ -329,7 +327,7 @@ func processBatch(
 					printMigrProgress(m, grandTotal, b, start)
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -583,10 +581,7 @@ func printMigrProgress(done, total, bytes int64, start time.Time) {
 	}
 
 	const barWidth = 20
-	filled := int(pct / 100 * barWidth)
-	if filled > barWidth {
-		filled = barWidth
-	}
+	filled := min(int(pct/100*barWidth), barWidth)
 	bar := strings.Repeat("=", filled)
 	if filled < barWidth {
 		bar += ">"
