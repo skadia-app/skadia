@@ -341,6 +341,12 @@ export default function SegmentsPage() {
             {selectedIds.size === 1 ? '1 ausgewählt' : `${selectedIds.size} ausgewählt`}
           </span>
           <button
+            onClick={() => setSelectedIds(new Set(segments.map((s: Segment) => s.id)))}
+            className="px-2.5 py-1 text-xs font-medium rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
+          >
+            Alle auswählen
+          </button>
+          <button
             onClick={() => setSelectedIds(new Set())}
             className="px-2.5 py-1 text-xs font-medium rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
           >
