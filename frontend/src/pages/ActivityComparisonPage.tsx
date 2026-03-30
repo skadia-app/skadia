@@ -295,7 +295,7 @@ export default function ActivityComparisonPage() {
                       className="w-3 h-3 rounded-full flex-shrink-0"
                       style={{ backgroundColor: COMPARE_COLORS[i] }}
                     />
-                    <SportIcon sport={a.sport_type} subType={a.sub_type} isEbike={a.is_ebike} className="w-4 h-4 flex-shrink-0" />
+                    <SportIcon sport={a.sport_type} subType={a.sub_type} isElectric={a.is_electric} className="w-4 h-4 flex-shrink-0" />
                     <div className="min-w-0">
                       <div className="font-medium text-neutral-800 dark:text-neutral-200 truncate">
                         {a.title ?? a.title_auto ?? sportLabel(a.sport_type, a.sub_type)}

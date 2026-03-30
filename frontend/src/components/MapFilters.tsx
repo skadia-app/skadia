@@ -465,6 +465,9 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
             </div>
 
             {/* E-Bike tristate filter */}
+            {/* TODO(electric): When additional electric sport tags are added (e.g. E-Scooter),
+                generalize this filter to "Elektrisch" with sport-specific sub-options,
+                or add separate per-sport electric filters. */}
             <div>
               <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">🔌 E-Bike</div>
               <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
@@ -475,9 +478,9 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                 ] as [boolean | null, string][]).map(([val, label]) => (
                   <button
                     key={String(val)}
-                    onClick={() => onChange({ ...filters, isEbike: val })}
+                    onClick={() => onChange({ ...filters, isElectric: val })}
                     className={`flex-1 px-2 py-1.5 transition-colors cursor-pointer ${
-                      filters.isEbike === val
+                      filters.isElectric === val
                         ? 'bg-accent-DEFAULT text-white font-medium'
                         : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                     }`}
@@ -845,7 +848,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
 
             {/* Reset */}
 
-            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70 || filters.colorConfig.mode !== 'uniform' || filters.colorConfig.uniformColor !== '#F97316' || !filters.showLocationTags || filters.heatmapColor !== '#F97316' || (filters.tagFilters?.length ?? 0) > 0 || (filters.gearFilters?.length ?? 0) > 0 || filters.isEbike !== null) && (
+            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70 || filters.colorConfig.mode !== 'uniform' || filters.colorConfig.uniformColor !== '#F97316' || !filters.showLocationTags || filters.heatmapColor !== '#F97316' || (filters.tagFilters?.length ?? 0) > 0 || (filters.gearFilters?.length ?? 0) > 0 || filters.isElectric !== null) && (
               <button
                 onClick={() => onChange({
                   sportTypes: new Set(ALL_SPORT_KEYS),
@@ -857,7 +860,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                   heatmapColor: '#F97316',
                   tagFilters: [],
                   gearFilters: [],
-                  isEbike: null,
+                  isElectric: null,
                 })}
                 className="w-full text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
               >

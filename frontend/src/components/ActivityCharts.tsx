@@ -70,7 +70,7 @@ function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
     }
     case CHART_TAB.dynamik: return ['runningDynamics', 'stepLength']
     case CHART_TAB.pedal: return ['torqueEff', 'pedalSm']
-    case CHART_TAB.ebike: return ['motorPower', 'batteryLevel', 'travelRange']
+    case CHART_TAB.electric: return ['motorPower', 'batteryLevel', 'travelRange']
     case CHART_TAB.tauchgang: return ['depth']
     case CHART_TAB.sensoren: return ['temperature', 'coreTemperature']
     case CHART_TAB.mtb: return ['grit', 'flow']

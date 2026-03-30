@@ -20,7 +20,7 @@ export interface ActivityFilterState {
   dateTo: string
   isIndoor: boolean | null
   hasGPS: boolean | null
-  isEbike: boolean | null
+  isElectric: boolean | null
   isVirtual: boolean | null
   gearId: string
   tagFilters: TagFilter[]
@@ -35,7 +35,7 @@ export const EMPTY_FILTERS: ActivityFilterState = {
   dateTo: '',
   isIndoor: null,
   hasGPS: null,
-  isEbike: null,
+  isElectric: null,
   isVirtual: null,
   gearId: '',
   tagFilters: [],
@@ -54,7 +54,7 @@ export function filtersToParams(f: ActivityFilterState): URLSearchParams {
   if (f.dateTo) p.set('to', f.dateTo)
   if (f.isIndoor !== null) p.set('indoor', String(f.isIndoor))
   if (f.hasGPS !== null) p.set('gps', String(f.hasGPS))
-  if (f.isEbike !== null) p.set('ebike', String(f.isEbike))
+  if (f.isElectric !== null) p.set('ebike', String(f.isElectric))
   if (f.isVirtual !== null) p.set('virtual', String(f.isVirtual))
   if (f.gearId) p.set('gear', f.gearId)
   if (f.search) p.set('q', f.search)
@@ -85,7 +85,7 @@ export function paramsToFilters(p: URLSearchParams): ActivityFilterState {
   const gps = p.get('gps')
   if (gps !== null) f.hasGPS = gps === 'true'
   const ebike = p.get('ebike')
-  if (ebike !== null) f.isEbike = ebike === 'true'
+  if (ebike !== null) f.isElectric = ebike === 'true'
   const virtual_ = p.get('virtual')
   if (virtual_ !== null) f.isVirtual = virtual_ === 'true'
   f.gearId = p.get('gear') ?? ''
@@ -110,7 +110,7 @@ export function filtersToApiParams(f: ActivityFilterState) {
     dateTo: f.dateTo,
     isIndoor: f.isIndoor,
     hasGPS: f.hasGPS,
-    isEbike: f.isEbike,
+    isElectric: f.isElectric,
     isVirtual: f.isVirtual,
     gearId: f.gearId,
     search: f.search,
@@ -168,7 +168,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
     if (f.dateFrom) n++
     if (f.dateTo) n++
     if (f.hasGPS !== null) n++
-    if (f.isEbike !== null) n++
+    if (f.isElectric !== null) n++
     if (f.isVirtual !== null) n++
     if (f.gearId) n++
     if (f.tagFilters.length) n++
@@ -259,8 +259,8 @@ export default function ActivityFilters({ filters, onChange }: Props) {
   if (filters.hasGPS !== null) {
     chips.push({ label: filters.hasGPS ? 'Mit GPS' : 'Ohne GPS', onRemove: () => onChange({ ...filters, hasGPS: null }) })
   }
-  if (filters.isEbike !== null) {
-    chips.push({ label: filters.isEbike ? 'Nur E-Bike' : 'Ohne E-Bike', onRemove: () => onChange({ ...filters, isEbike: null }) })
+  if (filters.isElectric !== null) {
+    chips.push({ label: filters.isElectric ? 'Nur E-Bike' : 'Ohne E-Bike', onRemove: () => onChange({ ...filters, isElectric: null }) })
   }
   if (filters.isVirtual !== null) {
     chips.push({ label: filters.isVirtual ? 'Nur Virtuell' : 'Ohne Virtuell', onRemove: () => onChange({ ...filters, isVirtual: null }) })
@@ -435,6 +435,9 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                   ))}
                 </div>
               </div>
+              {/* TODO(electric): When additional electric sport tags are added (e.g. E-Scooter),
+                  generalize this filter to "Elektrisch" with sport-specific sub-options,
+                  or add separate per-sport electric filters. */}
               <div>
                 <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">E-Bike</div>
                 <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
@@ -445,9 +448,9 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                   ] as [boolean | null, string][]).map(([val, label]) => (
                     <button
                       key={String(val)}
-                      onClick={() => onChange({ ...filters, isEbike: val })}
+                      onClick={() => onChange({ ...filters, isElectric: val })}
                       className={`flex-1 px-2 py-1.5 transition-colors cursor-pointer ${
-                        filters.isEbike === val
+                        filters.isElectric === val
                           ? 'bg-accent-DEFAULT text-white font-medium'
                           : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                       }`}

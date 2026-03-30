@@ -111,8 +111,8 @@ export interface FusionQueueEntry {
   sport_type_b: string
   sub_type_a: string
   sub_type_b: string
-  is_ebike_a: boolean
-  is_ebike_b: boolean
+  is_electric_a: boolean
+  is_electric_b: boolean
   distance_m_a: number
   distance_m_b: number
   overlap_percent: number

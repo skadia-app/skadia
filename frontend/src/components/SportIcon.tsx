@@ -3,13 +3,13 @@ import { categoryForSport } from '@/lib/sportTaxonomy'
 interface Props {
   sport: string
   subType?: string | null
-  isEbike?: boolean
+  isElectric?: boolean
   className?: string
 }
 
-export function SportIcon({ sport, subType, isEbike, className = 'w-4 h-4' }: Props) {
+export function SportIcon({ sport, subType, isElectric, className = 'w-4 h-4' }: Props) {
   if (sport === 'cycling' || subType?.includes('bike') || subType?.includes('cycling')) {
-    if (isEbike) return <EBikeIcon className={className} />
+    if (isElectric) return <EBikeIcon className={className} />
     if (subType === 'mountain') return <MtbIcon className={className} />
     if (subType === 'road') return <RoadBikeIcon className={className} />
     return <BikeIcon className={className} />

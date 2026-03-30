@@ -12,7 +12,7 @@ export interface CreateManualActivityRequest {
   elevation_loss_m?: number
   tags?: string[]
   gear_id?: string
-  is_ebike?: boolean
+  is_electric?: boolean
   is_virtual?: boolean
   workout_feel?: number
   workout_rpe?: number

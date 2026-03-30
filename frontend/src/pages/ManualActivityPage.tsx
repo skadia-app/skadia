@@ -68,7 +68,7 @@ export default function ManualActivityPage() {
   // Rechte Spalte
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [gearId, setGearId] = useState('')
-  const [isEbike, setIsEbike] = useState(false)
+  const [isElectric, setIsElectric] = useState(false)
   const [isVirtual, setIsVirtual] = useState(false)
   const [rpe, setRpe] = useState<number | null>(null)
   const [feel, setFeel] = useState<number | null>(null)
@@ -94,7 +94,7 @@ export default function ManualActivityPage() {
     setSportType(newSport)
     setSubType('')
     if (SPORT_DEFS.find(d => d.sportType === newSport)?.categoryKey !== 'bike') {
-      setIsEbike(false)
+      setIsElectric(false)
     }
   }
 
@@ -130,7 +130,7 @@ export default function ManualActivityPage() {
         elevation_loss_m: elevLoss ? parseFloat(elevLoss) : undefined,
         tags: selectedTags.length ? selectedTags : undefined,
         gear_id: gearId || undefined,
-        is_ebike: isEbike || undefined,
+        is_electric: isElectric || undefined,
         is_virtual: isVirtual || undefined,
         workout_rpe: rpe ?? undefined,
         workout_feel: feel ?? undefined,
@@ -447,8 +447,8 @@ export default function ManualActivityPage() {
                   <p className="text-xs text-neutral-500">Elektrisch unterstützt</p>
                 </div>
                 <Toggle
-                  checked={isEbike}
-                  onChange={(v) => setIsEbike(v)}
+                  checked={isElectric}
+                  onChange={(v) => setIsElectric(v)}
                   aria-label="E-Bike"
                 />
               </div>

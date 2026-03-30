@@ -98,8 +98,8 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
                 </p>
                 <div className="flex gap-2">
                   {[
-                    { id: entry.activity_id_a, sport: entry.sport_type_a, subType: entry.sub_type_a, isEbike: entry.is_ebike_a },
-                    { id: entry.activity_id_b, sport: entry.sport_type_b, subType: entry.sub_type_b, isEbike: entry.is_ebike_b },
+                    { id: entry.activity_id_a, sport: entry.sport_type_a, subType: entry.sub_type_a, isElectric: entry.is_electric_a },
+                    { id: entry.activity_id_b, sport: entry.sport_type_b, subType: entry.sub_type_b, isElectric: entry.is_electric_b },
                   ].map(opt => (
                     <button
                       key={opt.id}
@@ -111,7 +111,7 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
                       }`}
                     >
                       {sportLabel(opt.sport, opt.subType)}
-                      {opt.isEbike && <span className="ml-1 opacity-75">⚡</span>}
+                      {opt.isElectric && <span className="ml-1 opacity-75">⚡</span>}
                     </button>
                   ))}
                 </div>

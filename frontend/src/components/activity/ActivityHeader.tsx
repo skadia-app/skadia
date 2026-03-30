@@ -205,7 +205,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
   return (
     <div className="flex items-start gap-4">
       <div className="mt-1">
-        <SportIcon sport={activity.sport_type} subType={activity.sub_type} isEbike={activity.is_ebike} className="w-8 h-8 text-neutral-500 dark:text-neutral-400" />
+        <SportIcon sport={activity.sport_type} subType={activity.sub_type} isElectric={activity.is_electric} className="w-8 h-8 text-neutral-500 dark:text-neutral-400" />
       </div>
       <div className="flex-1 min-w-0">
         {editing ? (
