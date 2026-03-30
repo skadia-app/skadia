@@ -1187,7 +1187,9 @@ function SpeedPaceChartPanel({
   , [data, hasRe3Gap])
 
   const paceUnit = isRowingSport ? 'min/500m' : isSwimSport ? 'min/100m' : 'min/km'
-  const speedLabel = fieldLabel('speed', sportType)
+  // fieldLabel('speed', ...) returns sport-specific label (e.g. "Pace" for foot) — but in
+  // speed mode we always want "Geschwindigkeit" regardless of sport type
+  const speedLabel = 'Geschwindigkeit'
 
   const containerRef = useECharts(
     () => {
