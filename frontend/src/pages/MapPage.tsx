@@ -46,8 +46,8 @@ import GeoSearch from '@/components/map/GeoSearch'
 export type { SportOption } from '@/lib/sportOptions'
 export { SPORT_OPTIONS, getAllSportKeys } from '@/lib/sportOptions'
 
-type ViewMode = 'tracks' | 'heatmap' | 'terra_incognita'
-const VALID_VIEW_MODES: readonly ViewMode[] = ['tracks', 'heatmap', 'terra_incognita']
+type ViewMode = 'off' | 'tracks' | 'heatmap' | 'terra_incognita'
+const VALID_VIEW_MODES: readonly ViewMode[] = ['off', 'tracks', 'heatmap', 'terra_incognita']
 
 const ALL_SPORT_KEYS = getAllSportKeys()
 
@@ -750,6 +750,9 @@ export default function MapPage() {
       // Sofortiger Nebel (bei fehlendem terraIncognitaData: volle Welt-Abdeckung als Fallback).
       const rings = terraIncognitaRef.current?.rings ?? []
       if (rings.length) addTerraIncognitaLayers(map, rings)
+    } else if (viewMode === 'off') {
+      removeOverlayLayers(map)
+      removeTerraIncognitaLayers(map)
     } else {
       removeOverlayLayers(map)
       removeTerraIncognitaLayers(map)
@@ -1937,6 +1940,23 @@ export default function MapPage() {
           <div className="flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md">
             <button
               onClick={() => {
+                const map = mapRef.current
+                if (map) {
+                  removeOverlayLayers(map)
+                  removeTerraIncognitaLayers(map)
+                }
+                setViewMode('off')
+              }}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                viewMode === 'off'
+                  ? 'bg-neutral-500 text-white'
+                  : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+              }`}
+            >
+              Aus
+            </button>
+            <button
+              onClick={() => {
                 // Direkter synchroner Layer-Wechsel via Refs für sofortiges visuelles Feedback.
                 // isStyleLoaded() wird NICHT geprüft: es gibt false zurück während Tiles noch
                 // von Web-Workern dekodiert werden (_hasPendingWorkerUpdate), obwohl der Style-JSON
@@ -2165,8 +2185,8 @@ export default function MapPage() {
                 }
                 setViewMode('heatmap')
               } else {
-                // Hide all track/heatmap layers — keep tracks mode but show nothing
-                setViewMode('tracks')
+                // Hide all track/heatmap layers
+                setViewMode('off')
               }
             }}
             onClearRoute={planner.clear}
