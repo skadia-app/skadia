@@ -483,6 +483,28 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 
+	// Indoor tag: if is_indoor is true, ensure "Indoor" tag is in tags array
+	// and link in activity_tags junction table (same pattern as E-Bike above).
+	if data.IsIndoor {
+		tagBase, _ := fields["tags"].([]string)
+		if tagBase == nil {
+			tagBase = data.Tags
+		}
+		fields["tags"] = appendTagIfMissing(tagBase, "Indoor")
+
+		// Upsert the "Indoor" system tag and link it to this activity.
+		var indoorTagID string
+		row := db.Pool.QueryRow(ctx, `
+			INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
+			VALUES ($1, 'Indoor', '#3B82F6', '#FFFFFF', true, false, 'Automatisch bei Indoor-Aktivitäten (Sync mit is_indoor)')
+			ON CONFLICT (user_id, name) DO UPDATE SET name = tags.name
+			RETURNING id
+		`, userID)
+		if err := row.Scan(&indoorTagID); err == nil {
+			_ = db.LinkActivityTag(ctx, activityID, indoorTagID, "auto")
+		}
+	}
+
 	// Virtual: exclude_from_heatmap erzwingen.
 	// Tag-Sync ("virtuell" ↔ is_virtual) läuft über DB-Trigger (Migration 000221),
 	// nicht über Enrichment — damit auch Aktivitäten ohne GPS den Tag bekommen.
