@@ -22,6 +22,10 @@ func SubSportToString(subSport typedef.SubSport) string {
 	if subSport == typedef.SubSportGeneric || subSport == typedef.SubSportInvalid {
 		return "generic"
 	}
+	// Garmin Descent: sub_sport 63 = apnea_diving (not in FIT SDK typedef)
+	if subSport == 63 {
+		return "apnea_diving"
+	}
 	s := subSport.String()
 	if s == "" || strings.HasPrefix(s, "SubSport(") {
 		return "generic"
