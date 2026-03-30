@@ -339,7 +339,8 @@ func (h *Handler) BackfillSunriseSunset(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// BackfillTimezones sets the IANA timezone for all GPS activities that don't have one yet.
+// BackfillTimezones sets the IANA timezone for all GPS activities that don't have one yet,
+// and upgrades fixed-offset timezones (e.g. "+01:00") to proper IANA names where GPS is available.
 func (h *Handler) BackfillTimezones(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID, ok := httputil.RequireUserID(w, r)
@@ -352,8 +353,8 @@ func (h *Handler) BackfillTimezones(w http.ResponseWriter, r *http.Request) {
          FROM activities
          WHERE user_id = $1
            AND has_gps = TRUE
-           AND timezone IS NULL
-           AND start_location IS NOT NULL`,
+           AND start_location IS NOT NULL
+           AND (timezone IS NULL OR timezone ~ '^[+-][0-9]{2}:[0-9]{2}')`,
 		userID)
 	if err != nil {
 		slog.Error("backfill timezones: query failed", "error", err)
@@ -380,13 +381,13 @@ func (h *Handler) BackfillTimezones(w http.ResponseWriter, r *http.Request) {
 		updated++
 	}
 
-	// Pass 2: Indoor activities with location tags but no timezone
+	// Pass 2: Indoor activities with location tags — no timezone or only fixed offset
 	rows2, err := h.DB.Pool.Query(ctx,
 		`SELECT a.id, a.location_lat, a.location_lng
 		 FROM activities a
 		 WHERE a.user_id = $1
 		   AND a.has_gps = FALSE AND a.is_virtual = FALSE
-		   AND a.timezone IS NULL
+		   AND (a.timezone IS NULL OR a.timezone ~ '^[+-][0-9]{2}:[0-9]{2}')
 		   AND a.location_lat IS NOT NULL AND a.location_lng IS NOT NULL`,
 		userID)
 	if err == nil {
