@@ -23,7 +23,7 @@ echarts.use([
 
 interface ProfilePoint {
   distanceKm: number
-  elevation: number
+  elevation: number       // always a real number (null points are filtered out)
   grade: number          // gradient in percent
   isOffroad: boolean
 }
@@ -52,7 +52,9 @@ function buildProfile(
   totalDistanceM: number,
   segments: RouteSegment[],
 ): ProfilePoint[] {
-  if (raw.length < 2) return []
+  // Filter out null elevations — backend sends null when DEM data is unavailable
+  const valid = raw.filter((pt): pt is ElevationPoint & { elevation: number } => pt.elevation !== null)
+  if (valid.length < 2) return []
 
   // Pre-compute offroad fraction ranges from segments
   const totalM = segments.reduce((s, sg) => s + sg.distance_m, 0) || totalDistanceM
@@ -66,26 +68,26 @@ function buildProfile(
     coveredFraction += len
   }
 
-  const points: ProfilePoint[] = raw.map((pt, i) => {
+  const points: ProfilePoint[] = valid.map((pt, i) => {
     const distanceKm = pt.fraction * totalDistanceM / 1000
 
     // Grade via centred difference
     let grade = 0
-    if (i > 0 && i < raw.length - 1) {
-      const prev = raw[i - 1]
-      const next = raw[i + 1]
+    if (i > 0 && i < valid.length - 1) {
+      const prev = valid[i - 1]
+      const next = valid[i + 1]
       const dElev = next.elevation - prev.elevation
       const dDist = (next.fraction - prev.fraction) * totalDistanceM
       grade = dDist > 0 ? (dElev / dDist) * 100 : 0
-    } else if (i === 0 && raw.length > 1) {
-      const next = raw[1]
-      const dElev = next.elevation - raw[0].elevation
-      const dDist = (next.fraction - raw[0].fraction) * totalDistanceM
+    } else if (i === 0 && valid.length > 1) {
+      const next = valid[1]
+      const dElev = next.elevation - valid[0].elevation
+      const dDist = (next.fraction - valid[0].fraction) * totalDistanceM
       grade = dDist > 0 ? (dElev / dDist) * 100 : 0
-    } else if (i === raw.length - 1 && raw.length > 1) {
-      const prev = raw[raw.length - 2]
-      const dElev = raw[i].elevation - prev.elevation
-      const dDist = (raw[i].fraction - prev.fraction) * totalDistanceM
+    } else if (i === valid.length - 1 && valid.length > 1) {
+      const prev = valid[valid.length - 2]
+      const dElev = valid[i].elevation - prev.elevation
+      const dDist = (valid[i].fraction - prev.fraction) * totalDistanceM
       grade = dDist > 0 ? (dElev / dDist) * 100 : 0
     }
 

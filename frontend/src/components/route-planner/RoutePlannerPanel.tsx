@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import type { RouteWaypoint, RouteSegment, PlannedRoute } from '@/api/routes'
 import { useToast } from '@/lib/toast'
 import type { ProfileConfig } from '@/lib/routingProfiles'
@@ -9,6 +9,23 @@ function formatElevation(m: number): string {
   return `${Math.round(m)} m`
 }
 
+
+function GripIcon() {
+  return (
+    <svg
+      className="w-3 h-3 text-neutral-300 dark:text-neutral-600 cursor-grab active:cursor-grabbing flex-shrink-0"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+    >
+      <circle cx="9" cy="6" r="1.5" />
+      <circle cx="15" cy="6" r="1.5" />
+      <circle cx="9" cy="12" r="1.5" />
+      <circle cx="15" cy="12" r="1.5" />
+      <circle cx="9" cy="18" r="1.5" />
+      <circle cx="15" cy="18" r="1.5" />
+    </svg>
+  )
+}
 
 function WaypointIcon({ type }: { type: RouteWaypoint['type'] }) {
   if (type === 'start') {
@@ -36,10 +53,17 @@ interface WaypointItemProps {
   waypoint: RouteWaypoint
   index: number
   total: number
+  isDragging: boolean
+  isDragOver: boolean
   onRemove: (id: string) => void
   onMoveUp: (id: string) => void
   onMoveDown: (id: string) => void
   onToggleMode: (id: string) => void
+  onDragStart: (e: React.DragEvent) => void
+  onDragOver: (e: React.DragEvent) => void
+  onDragLeave: () => void
+  onDrop: (e: React.DragEvent) => void
+  onDragEnd: () => void
   segmentAfter?: RouteSegment
 }
 
@@ -47,17 +71,44 @@ function WaypointItem({
   waypoint,
   index,
   total,
+  isDragging,
+  isDragOver,
   onRemove,
   onMoveUp,
   onMoveDown,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
   segmentAfter,
 }: WaypointItemProps) {
   const label = waypoint.poi_name
-    ?? `${waypoint.latlng[0].toFixed(5)}, ${waypoint.latlng[1].toFixed(5)}`
+    ?? `${waypoint.latlng[0].toFixed(4)}, ${waypoint.latlng[1].toFixed(4)}`
 
   return (
-    <div className="group flex items-start gap-1.5 py-1">
-      {/* Drag handle / move buttons */}
+    <div
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      className={[
+        'group flex items-start gap-1.5 py-1 rounded transition-colors',
+        isDragging ? 'opacity-40' : '',
+        isDragOver ? 'bg-accent-100/40 dark:bg-accent-DEFAULT/10 ring-1 ring-accent-DEFAULT/30' : '',
+      ].filter(Boolean).join(' ')}
+    >
+      {/* Grip handle for drag-to-reorder */}
+      <div
+        draggable
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        className="flex-shrink-0 pt-1 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
+        title="Verschieben"
+      >
+        <GripIcon />
+      </div>
+
+      {/* Up/Down arrows */}
       <div className="flex flex-col gap-0.5 pt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           onClick={() => onMoveUp(waypoint.id)}
@@ -166,6 +217,8 @@ export interface RoutePlannerPanelProps {
   onRemoveWaypoint: (id: string) => void
   onMoveWaypointUp: (id: string) => void
   onMoveWaypointDown: (id: string) => void
+  onReorderWaypoints: (waypoints: RouteWaypoint[]) => void
+  onRecalculateAll: () => void
   onToggleSegmentMode: (waypointId: string) => void
   onToggleHeatmap: (enabled: boolean) => void
   onClearRoute: () => void
@@ -195,6 +248,8 @@ export default function RoutePlannerPanel({
   onRemoveWaypoint,
   onMoveWaypointUp,
   onMoveWaypointDown,
+  onReorderWaypoints,
+  onRecalculateAll,
   onToggleSegmentMode,
   onToggleHeatmap,
   onClearRoute,
@@ -206,8 +261,49 @@ export default function RoutePlannerPanel({
 }: RoutePlannerPanelProps) {
   const { addToast } = useToast()
   const [collapsed, setCollapsed] = useState(false)
+  const dragIndexRef = useRef<number | null>(null)
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
 
   const hasRoute = waypoints.length >= 2
+
+  function handleDragStart(e: React.DragEvent, index: number) {
+    dragIndexRef.current = index
+    setDraggingIndex(index)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(index))
+  }
+
+  function handleDragOver(e: React.DragEvent, index: number) {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (dragIndexRef.current !== index) setDragOverIndex(index)
+  }
+
+  function handleDragLeave() {
+    setDragOverIndex(null)
+  }
+
+  function handleDrop(_e: React.DragEvent, dropIndex: number) {
+    const from = dragIndexRef.current
+    if (from === null || from === dropIndex) { setDragOverIndex(null); return }
+    const reordered = [...waypoints]
+    const [moved] = reordered.splice(from, 1)
+    reordered.splice(dropIndex, 0, moved)
+    const reassigned = reordered.map((wp, i) => ({
+      ...wp,
+      type: i === 0 ? ('start' as const) : i === reordered.length - 1 ? ('end' as const) : ('via' as const),
+    }))
+    onReorderWaypoints(reassigned)
+    void onRecalculateAll()
+    setDragOverIndex(null)
+  }
+
+  function handleDragEnd() {
+    dragIndexRef.current = null
+    setDraggingIndex(null)
+    setDragOverIndex(null)
+  }
 
   const handleClear = useCallback(() => {
     if (waypoints.length > 0) {
@@ -329,10 +425,17 @@ export default function RoutePlannerPanel({
                       waypoint={wp}
                       index={i}
                       total={waypoints.length}
+                      isDragging={draggingIndex === i}
+                      isDragOver={dragOverIndex === i}
                       onRemove={onRemoveWaypoint}
                       onMoveUp={onMoveWaypointUp}
                       onMoveDown={onMoveWaypointDown}
                       onToggleMode={onToggleSegmentMode}
+                      onDragStart={(e) => handleDragStart(e, i)}
+                      onDragOver={(e) => handleDragOver(e, i)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, i)}
+                      onDragEnd={handleDragEnd}
                       segmentAfter={segmentAfterWaypoint(wp, i)}
                     />
                   ))}

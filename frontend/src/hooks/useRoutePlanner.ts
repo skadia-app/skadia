@@ -93,7 +93,8 @@ export function useRoutePlanner() {
   const capabilitiesQuery = useQuery({
     queryKey: ['routing-capabilities'],
     queryFn: getCapabilities,
-    staleTime: 5 * 60 * 1000, // 5 min — changes only on server restart
+    staleTime: 30 * 1000, // 30s — matches backend cache TTL
+    retry: 1,
   })
 
   // Set default engine based on capabilities: if routing=false, fall back to brouter
@@ -143,22 +144,30 @@ export function useRoutePlanner() {
         poi_type: poi?.type,
       }
 
+      let prevWp: RouteWaypoint | undefined
+      let profileConfig: ProfileConfig | undefined
+      let routingEngine: RoutingEngine | undefined
+      let brouterProfile: string | undefined
+
       setState(s => {
         const updated = assignWaypointTypes([...s.waypoints, newWp])
+        // Capture values for side effect outside setState
+        if (updated.length >= 2) {
+          prevWp = updated[updated.length - 2]
+          profileConfig = s.profileConfig
+          routingEngine = s.routingEngine
+          brouterProfile = s.brouterProfile
+        }
         return { ...s, waypoints: updated }
       })
 
       // Calculate segment between previous last waypoint and the new one
-      setState(s => {
-        if (s.waypoints.length < 2) return s
-        const prevWp = s.waypoints[s.waypoints.length - 2]
-        // Trigger segment calculation async (state setter is synchronous guard only)
-        void _calculateSegment(prevWp, newWp, s.profileConfig, s.routingEngine, s.brouterProfile)
-        return s
-      })
+      // Side effect runs outside setState (Bug 4 fix)
+      if (prevWp && profileConfig && routingEngine && brouterProfile) {
+        void _calculateSegment(prevWp, newWp, profileConfig, routingEngine, brouterProfile)
+      }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [_calculateSegment],
   )
 
   const removeWaypoint = useCallback((wpId: string) => {
@@ -178,27 +187,36 @@ export function useRoutePlanner() {
 
   const moveWaypoint = useCallback(
     async (wpId: string, newLatlng: [number, number]) => {
-      setState(s => ({
-        ...s,
-        waypoints: s.waypoints.map(w =>
-          w.id === wpId ? { ...w, latlng: newLatlng } : w,
-        ),
-      }))
-      // Recalculate adjacent segments
+      let segmentsToCalc: Array<[RouteWaypoint, RouteWaypoint]> = []
+      let profileConfig: ProfileConfig | undefined
+      let routingEngine: RoutingEngine | undefined
+      let brouterProfile: string | undefined
+
       setState(s => {
-        const idx = s.waypoints.findIndex(w => w.id === wpId)
-        if (idx === -1) return s
-        if (idx > 0) {
-          void _calculateSegment(s.waypoints[idx - 1], s.waypoints[idx], s.profileConfig, s.routingEngine, s.brouterProfile)
+        const newWaypoints = s.waypoints.map(w =>
+          w.id === wpId ? { ...w, latlng: newLatlng } : w,
+        )
+        // Capture adjacent segment pairs for side effect outside setState (Bug 4 fix)
+        const idx = newWaypoints.findIndex(w => w.id === wpId)
+        if (idx !== -1) {
+          segmentsToCalc = []
+          if (idx > 0) segmentsToCalc.push([newWaypoints[idx - 1], newWaypoints[idx]])
+          if (idx < newWaypoints.length - 1) segmentsToCalc.push([newWaypoints[idx], newWaypoints[idx + 1]])
+          profileConfig = s.profileConfig
+          routingEngine = s.routingEngine
+          brouterProfile = s.brouterProfile
         }
-        if (idx < s.waypoints.length - 1) {
-          void _calculateSegment(s.waypoints[idx], s.waypoints[idx + 1], s.profileConfig, s.routingEngine, s.brouterProfile)
-        }
-        return s
+        return { ...s, waypoints: newWaypoints }
       })
+
+      // Side effect runs outside setState (Bug 4 fix)
+      if (profileConfig && routingEngine && brouterProfile) {
+        for (const [from, to] of segmentsToCalc) {
+          await _calculateSegment(from, to, profileConfig, routingEngine, brouterProfile)
+        }
+      }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [_calculateSegment],
   )
 
   const reorderWaypoints = useCallback((newOrder: RouteWaypoint[]) => {
@@ -210,14 +228,14 @@ export function useRoutePlanner() {
 
   // ── Segment calculation ─────────────────────────────────────────────────────
 
-  // Internal helper — not directly returned (use calculateSegment wrapper)
-  async function _calculateSegment(
+  // Internal helper — wrapped in useCallback so callers (recalculateAll, etc.) get a stable reference
+  const _calculateSegment = useCallback(async (
     from: RouteWaypoint,
     to: RouteWaypoint,
     profileConfig: ProfileConfig,
     engine: RoutingEngine = 'badrouter',
     brouterProf: string = 'hiking-mountain',
-  ): Promise<void> {
+  ): Promise<void> => {
     setState(s => ({ ...s, isCalculating: true, calculationError: null }))
     try {
       const result =
@@ -250,7 +268,8 @@ export function useRoutePlanner() {
         calculationError: message,
       }))
     }
-  }
+  // setState from useState is stable — no deps needed
+  }, [])
 
   const calculateSegment = useCallback(
     (from: RouteWaypoint, to: RouteWaypoint) => {
@@ -276,7 +295,6 @@ export function useRoutePlanner() {
       await _calculateSegment(currentWaypoints[i], currentWaypoints[i + 1], currentProfileConfig, currentEngine, currentBrouterProfile)
     }
     setState(s => ({ ...s, isCalculating: false }))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [_calculateSegment])
 
   // ── Offroad toggle ──────────────────────────────────────────────────────────
@@ -305,8 +323,7 @@ export function useRoutePlanner() {
       segments[segmentIndex] = seg
       return { ...s, segments }
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [_calculateSegment])
 
   // ── Profile ─────────────────────────────────────────────────────────────────
 
@@ -330,7 +347,6 @@ export function useRoutePlanner() {
       }
       setState(s => ({ ...s, isCalculating: false }))
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [_calculateSegment],
   )
 
@@ -386,9 +402,9 @@ export function useRoutePlanner() {
       if (s.routingEngine === engine) return s
       return { ...s, routingEngine: engine }
     })
-    // Recalculate all segments with the new engine
-    // Use setTimeout to ensure state is updated before recalculation reads it
-    setTimeout(() => recalculateAll(), 0)
+    // recalculateAll reads state via setState updater, so it sees the updated
+    // routingEngine immediately — no setTimeout needed
+    void recalculateAll()
   }, [recalculateAll])
 
   const setBrouterProfile = useCallback((profile: string) => {
@@ -421,14 +437,58 @@ export function useRoutePlanner() {
     },
   })
 
-  // ── Elevation profile query ─────────────────────────────────────────────────
+  // ── Elevation profile ───────────────────────────────────────────────────────
 
-  // Build combined geometry from all segments for elevation profile
+  // Build combined coordinate list from all segment geometries
   const combinedCoordinates = state.segments
     .flatMap(seg => seg.geometry?.coordinates ?? [])
 
+  // Check whether the geometry already carries elevation (3rd coordinate).
+  // BadRouter returns [lon, lat, ele]; BRouter returns [lon, lat] only.
+  const hasGeometryElevation =
+    combinedCoordinates.length >= 2 &&
+    combinedCoordinates[0].length >= 3
+
+  // If BadRouter-style elevation is present, derive the profile directly from
+  // coordinates — no extra API call needed.
+  const profileFromGeometry: ElevationPoint[] | null = hasGeometryElevation
+    ? (() => {
+        const coords = combinedCoordinates
+        // Haversine distance in meters between two [lon, lat] points
+        const haversineM = (a: number[], b: number[]): number => {
+          const R = 6371000
+          const dLat = (b[1] - a[1]) * Math.PI / 180
+          const dLon = (b[0] - a[0]) * Math.PI / 180
+          const sinDLat = Math.sin(dLat / 2)
+          const sinDLon = Math.sin(dLon / 2)
+          const h = sinDLat * sinDLat +
+            Math.cos(a[1] * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180) * sinDLon * sinDLon
+          return 2 * R * Math.asin(Math.sqrt(h))
+        }
+
+        const segLengths: number[] = []
+        for (let i = 1; i < coords.length; i++) {
+          segLengths.push(haversineM(coords[i - 1], coords[i]))
+        }
+        const totalLen = segLengths.reduce((a, b) => a + b, 0)
+        if (totalLen === 0) return null
+
+        const points: ElevationPoint[] = [{ fraction: 0, elevation: coords[0][2] ?? null }]
+        let cumLen = 0
+        for (let i = 0; i < segLengths.length; i++) {
+          cumLen += segLengths[i]
+          points.push({
+            fraction: cumLen / totalLen,
+            elevation: coords[i + 1][2] ?? null,
+          })
+        }
+        return points
+      })()
+    : null
+
+  // Fallback: POST /elevation/profile (for BRouter routes without 3D geometry)
   const combinedGeometry: GeoJSON.LineString | null =
-    combinedCoordinates.length >= 2
+    !hasGeometryElevation && combinedCoordinates.length >= 2
       ? { type: 'LineString', coordinates: combinedCoordinates }
       : null
 
@@ -437,6 +497,9 @@ export function useRoutePlanner() {
       'route-elevation-profile',
       state.editingRouteId,
       combinedCoordinates.length,
+      // Include first+last coordinate to detect waypoint moves with same point count
+      combinedCoordinates[0]?.toString(),
+      combinedCoordinates[combinedCoordinates.length - 1]?.toString(),
     ],
     queryFn: () => getElevationProfile(combinedGeometry!, 200),
     enabled: combinedGeometry !== null,
@@ -519,8 +582,9 @@ export function useRoutePlanner() {
     capabilitiesLoading: capabilitiesQuery.isLoading,
 
     // React Query: elevation profile
-    elevationProfile: elevationProfileQuery.data?.profile ?? null,
-    elevationProfileLoading: elevationProfileQuery.isLoading,
+    // Prefer geometry-embedded elevation (BadRouter), fall back to API query (BRouter)
+    elevationProfile: profileFromGeometry ?? elevationProfileQuery.data?.profile ?? null,
+    elevationProfileLoading: !profileFromGeometry && elevationProfileQuery.isLoading,
 
     // Factory queries (call in component)
     useRouteList,

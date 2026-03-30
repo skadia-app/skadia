@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	osmpkg "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
@@ -88,6 +89,7 @@ func (h *Handler) BuildCoverage(w http.ResponseWriter, r *http.Request) {
 			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true, err.Error())
 		} else {
 			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false, "")
+			capabilities.InvalidateCache()
 		}
 	})
 

@@ -73,7 +73,7 @@ export interface POIResult {
 
 export interface ElevationPoint {
   fraction: number
-  elevation: number
+  elevation: number | null
 }
 
 export interface IsochronePolygon {

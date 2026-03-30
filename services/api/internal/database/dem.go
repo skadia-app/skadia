@@ -9,10 +9,10 @@ import (
 
 // ElevationPoint represents a single point in an elevation profile.
 type ElevationPoint struct {
-	Fraction  float64  `json:"fraction"`
+	Fraction  float64 `json:"fraction"`
 	Elevation *float64 `json:"elevation"` // nil when no DEM coverage
-	Lat       float64  `json:"lat"`
-	Lng       float64  `json:"lng"`
+	Lat       float64 `json:"lat"`
+	Lng       float64 `json:"lng"`
 }
 
 // GetElevation queries DEM elevation for a list of [lng, lat] points using the

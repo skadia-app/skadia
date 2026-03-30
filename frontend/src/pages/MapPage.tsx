@@ -416,8 +416,9 @@ export default function MapPage() {
       // Find the waypoint after which we insert
       const idx = planner.waypoints.findIndex(w => w.id === afterId)
       if (idx >= 0 && idx < planner.waypoints.length - 1) {
-        // Insert in the middle: splice new waypoint at idx+1, then recalculate
-        // the two flanking segments (prev→new and new→next).
+        // Insert in the middle: splice new waypoint at idx+1, then recalculate all
+        // segments (reorderWaypoints clears all segments, so recalculateAll is needed
+        // to restore all N-1 segments, not just the 2 flanking ones — Bug 2 fix).
         const newWp: import('@/api/routes').RouteWaypoint = {
           id: crypto.randomUUID(),
           latlng,
@@ -429,15 +430,9 @@ export default function MapPage() {
           ...planner.waypoints.slice(idx + 1),
         ]
         planner.reorderWaypoints(newOrder)
-        // reorderWaypoints clears all segments; recalculate the two affected ones.
-        // Use the locally-built newOrder (not planner.waypoints, which is stale
-        // in this closure) and setTimeout to let the state flush first.
-        const prevWp = planner.waypoints[idx]
-        const nextWp = planner.waypoints[idx + 1]
-        setTimeout(() => {
-          void planner.calculateSegment(prevWp, newWp)
-          void planner.calculateSegment(newWp, nextWp)
-        }, 0)
+        // recalculateAll reads waypoints from state after the setState in reorderWaypoints
+        // has flushed; wrap in Promise.resolve() to defer past the current microtask.
+        void Promise.resolve().then(() => planner.recalculateAll())
       } else {
         // Append at end (afterId is last waypoint or not found)
         void planner.addWaypoint(latlng)
@@ -2142,6 +2137,7 @@ export default function MapPage() {
               const reordered = [...planner.waypoints]
               ;[reordered[idx - 1], reordered[idx]] = [reordered[idx], reordered[idx - 1]]
               planner.reorderWaypoints(reordered)
+              void planner.recalculateAll()
             }}
             onMoveWaypointDown={(id) => {
               const idx = planner.waypoints.findIndex(w => w.id === id)
@@ -2149,7 +2145,10 @@ export default function MapPage() {
               const reordered = [...planner.waypoints]
               ;[reordered[idx], reordered[idx + 1]] = [reordered[idx + 1], reordered[idx]]
               planner.reorderWaypoints(reordered)
+              void planner.recalculateAll()
             }}
+            onReorderWaypoints={planner.reorderWaypoints}
+            onRecalculateAll={planner.recalculateAll}
             onToggleSegmentMode={(waypointId) => {
               const segIdx = planner.segments.findIndex(s => s.from_waypoint === waypointId)
               if (segIdx >= 0) planner.toggleOffroad(segIdx)
@@ -2157,19 +2156,24 @@ export default function MapPage() {
             onToggleHeatmap={(enabled) => {
               const map = mapRef.current
               if (!map) return
-              const nextMode: ViewMode = enabled ? 'heatmap' : 'tracks'
               removeOverlayLayers(map)
               removeTerraIncognitaLayers(map)
-              if (filtersRef.current.sportTypes.size > 0) {
-                addOverlayLayers(map, filtersRef.current, nextMode, teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current)
+              if (enabled) {
+                // Show heatmap
+                if (filtersRef.current.sportTypes.size > 0) {
+                  addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current)
+                }
+                setViewMode('heatmap')
+              } else {
+                // Hide all track/heatmap layers — keep tracks mode but show nothing
+                setViewMode('tracks')
               }
-              setViewMode(nextMode)
             }}
             onClearRoute={planner.clear}
             onSave={() => setShowSaveDialog(true)}
             onSuggest={() => setShowSuggestionDialog(true)}
             onClose={handlePlannerClose}
-            editingRoute={planner.editingRouteId != null ? null : null}
+            editingRoute={null}
             isSaving={planner.isSaving}
           />
         )}

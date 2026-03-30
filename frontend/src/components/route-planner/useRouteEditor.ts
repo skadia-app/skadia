@@ -130,6 +130,9 @@ export function useRouteEditor(
   // Track last mouse-down position to distinguish click from drag.
   const mouseDownPtRef = useRef<maplibregl.Point | null>(null)
 
+  // Track whether map sources have been added (guards GeoJSON sync).
+  const sourcesReadyRef = useRef(false)
+
   // ── Layer setup / teardown ─────────────────────────────────────────────────
   const addLayers = useCallback((map: maplibregl.Map) => {
     // Route source (routed + offroad segments)
@@ -147,6 +150,14 @@ export function useRouteEditor(
         data: { type: 'FeatureCollection', features: [] },
       })
     }
+
+    // Sources are now ready — sync any already-available planner data immediately.
+    // This covers the case where the GeoJSON-sync effect fired before sources existed
+    // (Bug 1 fix: sources created after the sync effect already ran).
+    sourcesReadyRef.current = true
+    const { segments, waypoints } = plannerRef.current
+    ;(map.getSource(SOURCE_ROUTE) as maplibregl.GeoJSONSource).setData(buildRouteGeoJSON(segments))
+    ;(map.getSource(SOURCE_WP) as maplibregl.GeoJSONSource).setData(buildWaypointGeoJSON(waypoints))
 
     // Routed segments — solid orange line with white casing
     if (!map.getLayer(LAYER_ROUTED)) {
@@ -272,12 +283,15 @@ export function useRouteEditor(
     }
     if (map.getSource(SOURCE_ROUTE)) map.removeSource(SOURCE_ROUTE)
     if (map.getSource(SOURCE_WP))    map.removeSource(SOURCE_WP)
+    sourcesReadyRef.current = false
   }, [])
 
   // ── Sync GeoJSON data whenever planner state changes ──────────────────────
+  // Bug 1 fix: only sync when sources actually exist (sourcesReadyRef guards this).
+  // The initial data push happens in addLayers() right after sources are created.
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !active) return
+    if (!map || !active || !sourcesReadyRef.current) return
 
     const routeSrc = map.getSource(SOURCE_ROUTE) as maplibregl.GeoJSONSource | undefined
     const wpSrc    = map.getSource(SOURCE_WP)    as maplibregl.GeoJSONSource | undefined
@@ -293,6 +307,7 @@ export function useRouteEditor(
 
     if (!active) {
       removeLayers(map)
+      map.getCanvas().style.cursor = ''
       return
     }
 
@@ -304,15 +319,18 @@ export function useRouteEditor(
       map.once('style.load', setupLayers)
     }
 
+    // Set default cursor to crosshair when planner is active
+    map.getCanvas().style.cursor = 'crosshair'
+
     // ── Hover: route hit area ──────────────────────────────────────────────
     const onRouteEnter = () => { map.getCanvas().style.cursor = 'crosshair' }
-    const onRouteLeave = () => { map.getCanvas().style.cursor = '' }
+    const onRouteLeave = () => { map.getCanvas().style.cursor = 'crosshair' }
     map.on('mouseenter', LAYER_ROUTED + '-hit', onRouteEnter)
     map.on('mouseleave', LAYER_ROUTED + '-hit', onRouteLeave)
 
     // ── Hover: waypoint circles ────────────────────────────────────────────
     const onWpEnter = () => { map.getCanvas().style.cursor = 'grab' }
-    const onWpLeave = () => { map.getCanvas().style.cursor = '' }
+    const onWpLeave = () => { map.getCanvas().style.cursor = 'crosshair' }
     map.on('mouseenter', LAYER_WP_CIRCLE, onWpEnter)
     map.on('mouseleave', LAYER_WP_CIRCLE, onWpLeave)
 
@@ -405,7 +423,7 @@ export function useRouteEditor(
       if (!draggingRef.current) return
       draggingRef.current = null
       mouseDownPtRef.current = null
-      map.getCanvas().style.cursor = ''
+      map.getCanvas().style.cursor = 'crosshair'
       map.dragPan.enable()
     }
 
@@ -430,6 +448,7 @@ export function useRouteEditor(
       map.off('mouseup', onMouseUp)
       map.off('touchend', onTouchEnd)
       removeLayers(map)
+      map.getCanvas().style.cursor = ''
     }
   }, [active, mapRef, addLayers, removeLayers])
 }

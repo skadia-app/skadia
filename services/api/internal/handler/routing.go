@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
@@ -296,6 +297,7 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 		} else {
 			slog.Info("tile build completed", "job_id", jobID)
 			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false, "")
+			capabilities.InvalidateCache()
 		}
 	})
 
