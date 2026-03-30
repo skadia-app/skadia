@@ -1,12 +1,11 @@
 import type { ReactNode } from 'react'
 import type { Activity } from '@/api/types'
 import { formatDistance, formatDuration, formatElevationGain, formatElevationLoss } from '@/lib/utils'
-import { fieldLabel, fieldUnit, formatSpeedValue, cyclesLabel } from '@/lib/sportFieldLabels'
+import { fieldLabel, fieldUnit, formatSpeedValue, cyclesLabel, defaultSpeedMode } from '@/lib/sportFieldLabels'
 import { getSegmentGroup } from '@/lib/sportTaxonomy'
 
 interface StatsGridProps {
   activity: Activity
-  speedMode?: 'speed' | 'pace'
 }
 
 interface StatItem {
@@ -28,7 +27,7 @@ const TSS_METHOD_INFO: Record<string, { icon: string; label: string }> = {
 
 const STRENGTH_SPORT_TYPES = ['fitness_equipment', 'training', 'strength_training']
 
-export function StatsGrid({ activity, speedMode }: StatsGridProps) {
+export function StatsGrid({ activity }: StatsGridProps) {
   const sport = activity.sport_type
   const gain = formatElevationGain(activity.elevation_gain_m)
   const loss = formatElevationLoss(activity.elevation_loss_m)
@@ -52,17 +51,29 @@ export function StatsGrid({ activity, speedMode }: StatsGridProps) {
     },
     { label: 'Abstieg', value: loss },
 
-    // Ø Geschwindigkeit / Pace
-    activity.avg_speed_ms != null ? {
-      label: `Ø ${fieldLabel('speed', sport)}`,
-      value: formatSpeedValue(activity.avg_speed_ms, sport, speedMode),
-    } : null,
+    // Ø Pace + Ø Geschwindigkeit (pace-native sports get both; speed-native get only speed)
+    ...(activity.avg_speed_ms != null
+      ? defaultSpeedMode(sport) === 'pace'
+        ? [
+            { label: 'Ø Pace', value: formatSpeedValue(activity.avg_speed_ms, sport, 'pace') },
+            { label: `Ø ${fieldLabel('speed', sport)}`, value: formatSpeedValue(activity.avg_speed_ms, sport, 'speed') },
+          ]
+        : [
+            { label: `Ø ${fieldLabel('speed', sport)}`, value: formatSpeedValue(activity.avg_speed_ms, sport, 'speed') },
+          ]
+      : []),
 
-    // Max. Geschwindigkeit / Beste Pace
-    activity.max_speed_ms != null ? {
-      label: getSegmentGroup(sport) === 'foot' ? 'Beste Pace' : 'Max. Geschwindigkeit',
-      value: formatSpeedValue(activity.max_speed_ms, sport, speedMode),
-    } : null,
+    // Beste Pace + Max. Geschwindigkeit (same dual/single logic)
+    ...(activity.max_speed_ms != null
+      ? defaultSpeedMode(sport) === 'pace'
+        ? [
+            { label: 'Beste Pace', value: formatSpeedValue(activity.max_speed_ms, sport, 'pace') },
+            { label: 'Max. Geschwindigkeit', value: formatSpeedValue(activity.max_speed_ms, sport, 'speed') },
+          ]
+        : [
+            { label: 'Max. Geschwindigkeit', value: formatSpeedValue(activity.max_speed_ms, sport, 'speed') },
+          ]
+      : []),
 
     // Herzfrequenz
     activity.avg_heart_rate != null ? {

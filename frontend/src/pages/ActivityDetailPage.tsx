@@ -170,21 +170,13 @@ export default function ActivityDetailPage() {
   // Speed/Pace toggle — persisted per segment group
   const segGroup = activity ? getSegmentGroup(activity.sport_type) : 'generic'
   const speedStorageKey = `skadia-speed-format:${segGroup}`
-  const [speedMode, setSpeedMode] = useState<'speed' | 'pace'>('speed')
-  const speedModeInitRef = useRef(false)
-  useEffect(() => {
-    if (!activity || speedModeInitRef.current) return
-    speedModeInitRef.current = true
+  const [speedMode, setSpeedMode] = useState<'speed' | 'pace'>(() => {
+    if (!activity) return 'speed'
     const key = `skadia-speed-format:${getSegmentGroup(activity.sport_type)}`
     const stored = localStorage.getItem(key)
-    if (stored === 'speed' || stored === 'pace') {
-      setSpeedMode(stored)
-    } else {
-      setSpeedMode(defaultSpeedMode(activity.sport_type))
-    }
-  }, [activity])
-  // Reset speed mode init when navigating to a different activity
-  useEffect(() => { speedModeInitRef.current = false }, [id])
+    if (stored === 'speed' || stored === 'pace') return stored
+    return defaultSpeedMode(activity.sport_type)
+  })
   const handleSpeedModeChange = (mode: 'speed' | 'pace') => {
     setSpeedMode(mode)
     localStorage.setItem(speedStorageKey, mode)
@@ -468,7 +460,7 @@ export default function ActivityDetailPage() {
               />
             </div>
           )}
-          <StatsGrid activity={activity} speedMode={speedMode} />
+          <StatsGrid activity={activity} />
           {getSegmentGroup(activity.sport_type) === 'foot' && activity.avg_vertical_oscillation_mm != null && (
             <RunningDynamicsStats activity={activity} />
           )}
