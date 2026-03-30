@@ -587,7 +587,7 @@ export default function ActivityDetailPage() {
         </div>
       )}
 
-      {/* Pedal Power Phase Dial — Tretphasen-Diagramm */}
+      {/* Kraftphasen-Diagramm */}
       {activity.avg_left_power_phase_start_deg != null && (
         <PowerPhaseDial activity={activity} />
       )}
