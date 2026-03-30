@@ -1306,7 +1306,7 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	}
 
 	// Extract streams, track, sensors
-	data.Streams = ExtractStreams(records)
+	data.Streams = ExtractStreams(records, fieldDescs)
 	data.RRIntervals = rrIntervals
 	data.TrackPoints = ExtractTrackPoints(records)
 	data.Sensors = ExtractSensors(deviceInfos)

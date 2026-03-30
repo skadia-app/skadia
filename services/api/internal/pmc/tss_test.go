@@ -405,7 +405,7 @@ func TestExtractPowerStream_SkipsNullRows(t *testing.T) {
 
 	// Central dedup approach: dedup before extract (as done in service.go)
 	deduped := DeduplicateStreamsByTimestamp(points)
-	stream := ExtractPowerStream(deduped)
+	stream := ExtractPowerStream(deduped, 2)
 
 	// Should contain 60 values (one per unique timestamp), not 120
 	if len(stream) != 60 {

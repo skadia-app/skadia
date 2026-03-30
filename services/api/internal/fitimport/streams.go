@@ -3,6 +3,7 @@ package fitimport
 import (
 	"math"
 	"strconv"
+	"strings"
 
 	"github.com/muktihari/fit/profile/basetype"
 	"github.com/muktihari/fit/profile/mesgdef"
@@ -16,7 +17,27 @@ import (
 const semicirclesToDegrees = 180.0 / 2147483648.0
 const invalidSint32 = math.MaxInt32 // 0x7FFFFFFF
 
-func ExtractStreams(records []*mesgdef.Record) []model.StreamPoint {
+// devFieldKey identifies a developer field by its developer data index and field number.
+type devFieldKey struct {
+	devDataIndex uint8
+	fieldNum     uint8
+}
+
+func ExtractStreams(records []*mesgdef.Record, fieldDescs []*mesgdef.FieldDescription) []model.StreamPoint {
+	// Build lookup: (devDataIndex, fieldNum) → clear-text name
+	devFieldNames := make(map[devFieldKey]string, len(fieldDescs))
+	for _, fd := range fieldDescs {
+		if fd.DeveloperDataIndex == basetype.Uint8Invalid || fd.FieldDefinitionNumber == basetype.Uint8Invalid {
+			continue
+		}
+		if len(fd.FieldName) > 0 {
+			name := strings.Join(fd.FieldName, "")
+			if name != "" {
+				devFieldNames[devFieldKey{fd.DeveloperDataIndex, fd.FieldDefinitionNumber}] = name
+			}
+		}
+	}
+
 	streams := make([]model.StreamPoint, 0, len(records))
 
 	for _, rec := range records {
@@ -502,12 +523,14 @@ func ExtractStreams(records []*mesgdef.Record) []model.StreamPoint {
 		}
 
 		// --- FIT SDK — Developer Fields ---
-		// TODO: Full FieldDescription lookup will be handled in Task 14.
-		// For now, store raw developer field values keyed by field num.
+		// Use FieldDescription lookup for clear-text keys; fall back to numeric string.
 		if len(rec.DeveloperFields) > 0 {
 			devFields := make(map[string]any, len(rec.DeveloperFields))
 			for _, df := range rec.DeveloperFields {
 				key := strconv.Itoa(int(df.Num))
+				if name, ok := devFieldNames[devFieldKey{df.DeveloperDataIndex, df.Num}]; ok {
+					key = name
+				}
 				val := df.Value.Any()
 				// Sanitize NaN/Inf — JSONB cannot encode IEEE 754 special values
 				switch v := val.(type) {
