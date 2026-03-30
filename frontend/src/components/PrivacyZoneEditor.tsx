@@ -6,6 +6,7 @@ import { createPrivacyZone, updatePrivacyZone, type PrivacyZone } from '@/api/pr
 import ColorPicker from '@/components/ColorPicker'
 import Toggle from '@/components/Toggle'
 import { useToast } from '@/lib/toast'
+import { circlePolygon, formatRadius, clampToCircle, pointInPolygon, centroid, haversineM } from '@/lib/geoUtils'
 
 interface Props {
   zone: PrivacyZone | null
@@ -13,81 +14,6 @@ interface Props {
 }
 
 type ZoneMode = 'circle' | 'polygon'
-
-function circlePolygon(center: [number, number], radiusM: number, steps = 64): GeoJSON.Feature {
-  const coords: [number, number][] = []
-  const lat = center[1]
-  const lng = center[0]
-
-  for (let i = 0; i <= steps; i++) {
-    const angle = (i / steps) * 2 * Math.PI
-    const dx = radiusM * Math.cos(angle)
-    const dy = radiusM * Math.sin(angle)
-    const dlat = dy / 111320
-    const dlng = dx / (111320 * Math.cos((lat * Math.PI) / 180))
-    coords.push([lng + dlng, lat + dlat])
-  }
-
-  return {
-    type: 'Feature',
-    properties: {},
-    geometry: { type: 'Polygon', coordinates: [coords] },
-  }
-}
-
-function formatRadius(m: number): string {
-  if (m >= 1000) return `${(m / 1000).toFixed(1).replace('.0', '')} km`
-  return `${m} m`
-}
-
-/** Berechne Schwerpunkt eines Polygon-Punktearrays */
-function centroid(points: [number, number][]): [number, number] {
-  const sum = points.reduce(([ax, ay], [x, y]) => [ax + x, ay + y], [0, 0])
-  return [sum[0] / points.length, sum[1] / points.length]
-}
-
-/** Haversine distance in metres */
-function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000
-  const p1 = (lat1 * Math.PI) / 180
-  const p2 = (lat2 * Math.PI) / 180
-  const dp = ((lat2 - lat1) * Math.PI) / 180
-  const dl = ((lon2 - lon1) * Math.PI) / 180
-  const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
-/** Clamp a point to within radiusM of center */
-function clampToCircle(
-  point: [number, number],
-  center: [number, number],
-  radiusM: number,
-): [number, number] {
-  const [plng, plat] = point
-  const [clng, clat] = center
-  const dx = (plng - clng) * 111320 * Math.cos((clat * Math.PI) / 180)
-  const dy = (plat - clat) * 111320
-  const dist = Math.sqrt(dx * dx + dy * dy)
-  if (dist <= radiusM) return point
-  const scale = (radiusM * 0.95) / dist
-  return [
-    clng + (dx * scale) / (111320 * Math.cos((clat * Math.PI) / 180)),
-    clat + (dy * scale) / 111320,
-  ]
-}
-
-/** Ray-casting point-in-polygon */
-function pointInPolygon(pt: [number, number], ring: [number, number][]): boolean {
-  let inside = false
-  const [x, y] = pt
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i]
-    const [xj, yj] = ring[j]
-    const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi
-    if (intersect) inside = !inside
-  }
-  return inside
-}
 
 /** Convert a circle (center + radius) to a 64-point polygon ring */
 function circleToPolygonPoints(center: [number, number], radiusM: number, steps = 64): [number, number][] {
@@ -430,6 +356,27 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     pinMarkerRef.current = marker
   }, [])
 
+  function handleCenterDragEnd(marker: maplibregl.Marker, map: maplibregl.Map) {
+    const pos = marker.getLngLat()
+    setLat(pos.lat)
+    setLng(pos.lng)
+    latRef.current = pos.lat
+    lngRef.current = pos.lng
+    updateCircle(map, [pos.lng, pos.lat], radiusRef.current, colorRef.current)
+    if (offsetPinEnabledRef.current) {
+      const clamped = clampToCircle(
+        [pinLngRef.current, pinLatRef.current],
+        [pos.lng, pos.lat],
+        radiusRef.current,
+      )
+      setPinLat(clamped[1])
+      setPinLng(clamped[0])
+      pinLatRef.current = clamped[1]
+      pinLngRef.current = clamped[0]
+      pinMarkerRef.current?.setLngLat(clamped)
+    }
+  }
+
   // Initialize map
   useEffect(() => {
     if (!mapContainerRef.current) return
@@ -504,27 +451,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         const marker = new maplibregl.Marker({ color: colorRef.current, draggable: true })
           .setLngLat([lng, lat])
           .addTo(map)
-        marker.on('dragend', () => {
-          const pos = marker.getLngLat()
-          setLat(pos.lat)
-          setLng(pos.lng)
-          latRef.current = pos.lat
-          lngRef.current = pos.lng
-          updateCircle(map, [pos.lng, pos.lat], radiusRef.current, colorRef.current)
-          // Clamp pin if offset enabled
-          if (offsetPinEnabledRef.current) {
-            const clamped = clampToCircle(
-              [pinLngRef.current, pinLatRef.current],
-              [pos.lng, pos.lat],
-              radiusRef.current,
-            )
-            setPinLat(clamped[1])
-            setPinLng(clamped[0])
-            pinLatRef.current = clamped[1]
-            pinLngRef.current = clamped[0]
-            pinMarkerRef.current?.setLngLat(clamped)
-          }
-        })
+        marker.on('dragend', () => handleCenterDragEnd(marker, map))
         markerRef.current = marker
       }
 
@@ -558,27 +485,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
           const marker = new maplibregl.Marker({ color: colorRef.current, draggable: true })
             .setLngLat([newLng, newLat])
             .addTo(map)
-          marker.on('dragend', () => {
-            const pos = marker.getLngLat()
-            setLat(pos.lat)
-            setLng(pos.lng)
-            latRef.current = pos.lat
-            lngRef.current = pos.lng
-            updateCircle(map, [pos.lng, pos.lat], radiusRef.current, colorRef.current)
-            // Clamp pin
-            if (offsetPinEnabledRef.current) {
-              const clamped = clampToCircle(
-                [pinLngRef.current, pinLatRef.current],
-                [pos.lng, pos.lat],
-                radiusRef.current,
-              )
-              setPinLat(clamped[1])
-              setPinLng(clamped[0])
-              pinLatRef.current = clamped[1]
-              pinLngRef.current = clamped[0]
-              pinMarkerRef.current?.setLngLat(clamped)
-            }
-          })
+          marker.on('dragend', () => handleCenterDragEnd(marker, map))
           markerRef.current = marker
         }
         updateCircle(map, [newLng, newLat], radiusRef.current, colorRef.current)

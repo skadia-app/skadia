@@ -4,20 +4,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { listPrivacyZones, deletePrivacyZone, updatePrivacyZone, type PrivacyZone } from '@/api/privacy'
 import PrivacyZoneEditor from '@/components/PrivacyZoneEditor'
-
-function circlePolygon(center: [number, number], radiusM: number, steps = 64): GeoJSON.Feature {
-  const coords: [number, number][] = []
-  const [lng, lat] = center
-  for (let i = 0; i <= steps; i++) {
-    const angle = (i / steps) * 2 * Math.PI
-    const dx = radiusM * Math.cos(angle)
-    const dy = radiusM * Math.sin(angle)
-    const dlat = dy / 111320
-    const dlng = dx / (111320 * Math.cos((lat * Math.PI) / 180))
-    coords.push([lng + dlng, lat + dlat])
-  }
-  return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [coords] } }
-}
+import { circlePolygon } from '@/lib/geoUtils'
 
 // Photon reverse-geocoding (public endpoint, no API key required)
 interface PhotonResult {

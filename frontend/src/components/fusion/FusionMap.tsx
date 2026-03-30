@@ -123,36 +123,7 @@ const FusionMap = forwardRef<FusionMapHandle, FusionMapProps>(function FusionMap
         map.fitBounds(bounds, { padding: 40, maxZoom: 16 })
       }
 
-      tracks.forEach((track, idx) => {
-        if (track.stream.length === 0) return
-        const sourceId = `track-${track.activityId}`
-        const layerId = `track-line-${track.activityId}`
-
-        const lineWidth = idx === 0 ? 5 : idx === 1 ? 3 : 2
-        const lineOpacity = idx === 0 ? 0.9 : idx === 1 ? 0.85 : 0.8
-
-        const geojson: GeoJSON.Feature<GeoJSON.LineString> = {
-          type: 'Feature',
-          properties: { label: track.label },
-          geometry: {
-            type: 'LineString',
-            coordinates: track.stream.map(p => [p.lng, p.lat]),
-          },
-        }
-
-        map.addSource(sourceId, { type: 'geojson', data: geojson })
-        map.addLayer({
-          id: layerId,
-          type: 'line',
-          source: sourceId,
-          paint: {
-            'line-color': track.color,
-            'line-width': lineWidth,
-            'line-opacity': lineOpacity,
-          },
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-        })
-      })
+      tracks.forEach((track, idx) => addTrackToMap(map, track, idx))
     })
 
     map.on('style.load', () => {
