@@ -22,10 +22,12 @@ CREATE TRIGGER trg_sync_electric_from_tags
     FOR EACH ROW
     EXECUTE FUNCTION sync_electric_from_tags();
 
--- Step 4: Rename system_type in automation_rules
+-- Step 4: Drop old CHECK constraint, update data, then add new constraint
+ALTER TABLE automation_rules DROP CONSTRAINT IF EXISTS automation_rules_system_type_check;
+
+-- Step 5: Rename system_type in automation_rules (no constraint active during update)
 UPDATE automation_rules SET system_type = 'electric_sync' WHERE system_type = 'ebike_sync';
 
--- Step 5: Update CHECK constraint (add indoor_sync for 000261)
-ALTER TABLE automation_rules DROP CONSTRAINT IF EXISTS automation_rules_system_type_check;
+-- Step 6: Add new CHECK constraint (includes electric_sync + indoor_sync for 000261)
 ALTER TABLE automation_rules ADD CONSTRAINT automation_rules_system_type_check
     CHECK (system_type IN ('electric_sync', 'round_trip', 'frost', 'nacht', 'virtual_sync', 'indoor_sync'));
