@@ -256,6 +256,12 @@ export default function FusionMaximizeOverlay({ tracks, streams, onClose }: Fusi
         throttleType: 'debounce',
         throttleDelay: 100,
       },
+      toolbox: {
+        feature: {
+          brush: { show: false },
+          saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
+        },
+      },
       tooltip: {
         trigger: 'axis',
         backgroundColor: 'rgba(17,24,39,0.92)',

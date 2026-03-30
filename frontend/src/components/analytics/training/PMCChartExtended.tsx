@@ -205,6 +205,8 @@ export default function PMCChartExtended() {
               brushStyle: { borderWidth: 1, color: 'rgba(59,130,246,0.1)', borderColor: 'rgba(59,130,246,0.6)' },
             },
             restore: { title: 'Zurücksetzen' },
+            brush: { show: false },
+            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
           },
           iconStyle: { borderColor: '#6b7280' },
           emphasis: { iconStyle: { borderColor: '#d1d5db' } },

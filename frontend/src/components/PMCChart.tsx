@@ -147,6 +147,12 @@ export default function PMCChart() {
           throttleType: 'debounce',
           throttleDelay: 100,
         },
+        toolbox: {
+          feature: {
+            brush: { show: false },
+            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
+          },
+        },
         xAxis: {
           type: 'category',
           data: dates,
