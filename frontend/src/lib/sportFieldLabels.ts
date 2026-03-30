@@ -18,8 +18,8 @@ export type FieldKey =
   | 'coreTemperature' | 'depth'
   // MTB
   | 'grit' | 'flow'
-  // Garmin Stamina + GAP
-  | 'potentialStamina' | 'staminaCurrent' | 'gapSpeed'
+  // Garmin Stamina
+  | 'potentialStamina' | 'staminaCurrent'
 
 // ── Pace / Speed Formatter ──────────────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ export function formatPace(speedMs: number): string {
   const secPerKm = 1000 / speedMs
   const min = Math.floor(secPerKm / 60)
   const sec = Math.floor(secPerKm % 60)
-  return `${min}:${sec.toString().padStart(2, '0')} /km`
+  return `${min}:${sec.toString().padStart(2, '0')} min/km`
 }
 
 /** min/100m Pace (Schwimmen). speedMs=0 → '—' */
@@ -38,7 +38,7 @@ export function formatPace100m(speedMs: number): string {
   const secPer100 = 100 / speedMs
   const min = Math.floor(secPer100 / 60)
   const sec = Math.floor(secPer100 % 60)
-  return `${min}:${sec.toString().padStart(2, '0')} /100m`
+  return `${min}:${sec.toString().padStart(2, '0')} min/100m`
 }
 
 /** min/500m Pace (Rudern). speedMs=0 → '—' */
@@ -47,7 +47,7 @@ export function formatPace500m(speedMs: number): string {
   const secPer500 = 500 / speedMs
   const min = Math.floor(secPer500 / 60)
   const sec = Math.floor(secPer500 % 60)
-  return `${min}:${sec.toString().padStart(2, '0')} /500m`
+  return `${min}:${sec.toString().padStart(2, '0')} min/500m`
 }
 
 /** km/h Speed. speedMs=0 → '—' */
@@ -155,7 +155,6 @@ const FIXED_LABELS: Partial<Record<FieldKey, FieldDef>> = {
   flow:                 { label: 'MTB Flow', unit: '' },
   potentialStamina:     { label: 'Stamina (Potential)', unit: '%' },
   staminaCurrent:       { label: 'Stamina (Aktuell)', unit: '%' },
-  gapSpeed:             { label: 'Grade-Adjusted Pace', unit: 'min/km' },
 }
 
 // ── Sonderfälle ─────────────────────────────────────────────────────────────────
