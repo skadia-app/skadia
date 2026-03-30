@@ -15,7 +15,7 @@ import SportConflictModal from '@/components/SportConflictModal'
 import MergeDialog from '@/components/MergeDialog'
 import ReprocessScopeModal from '@/components/activity/ReprocessScopeModal'
 import { sportDetailLabel } from '@/lib/sportTaxonomy'
-import { triggerBlobDownload } from '@/lib/utils'
+import { triggerBlobDownload, cn } from '@/lib/utils'
 import { fmtActivityDate, fmtTimeFromDate } from '@/lib/format'
 
 interface ActivityHeaderProps {
@@ -252,6 +252,31 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
             <span className="text-neutral-400 dark:text-neutral-600">{activity.source_device}</span>
           ) : null}
         </div>
+        {(activity.vo2max_ml_kg_min != null || activity.gps_accuracy_m != null) && (
+          <div className="flex items-center gap-3 mt-1">
+            {activity.vo2max_ml_kg_min != null && (
+              <div className="flex items-center gap-1 text-sm">
+                <span className="font-medium text-emerald-600">
+                  VO₂max {activity.vo2max_ml_kg_min.toFixed(1)}
+                </span>
+                <span className="text-muted-foreground text-xs">ml/kg/min</span>
+                {activity.vo2max_calibrated === false && (
+                  <span className="text-amber-500 text-xs" title="Nicht kalibriert">~</span>
+                )}
+              </div>
+            )}
+            {activity.gps_accuracy_m != null && (
+              <span className={cn(
+                "text-xs px-1.5 py-0.5 rounded",
+                activity.gps_accuracy_m <= 3 ? "bg-emerald-100 text-emerald-700" :
+                activity.gps_accuracy_m <= 8 ? "bg-amber-100 text-amber-700" :
+                "bg-red-100 text-red-700"
+              )}>
+                GPS ±{activity.gps_accuracy_m}m
+              </span>
+            )}
+          </div>
+        )}
         {activity.fusion_sources && (
           <div className="flex items-center gap-2 mt-1">
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-violet-100 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
