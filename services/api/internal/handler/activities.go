@@ -85,9 +85,9 @@ func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 		b := v == "true"
 		filters.IsIndoor = &b
 	}
-	if v := r.URL.Query().Get("is_ebike"); v != "" {
+	if v := r.URL.Query().Get("is_electric"); v != "" {
 		b := v == "true"
-		filters.IsEbike = &b
+		filters.IsElectric = &b
 	}
 	if v := r.URL.Query().Get("is_virtual"); v != "" {
 		b := v == "true"

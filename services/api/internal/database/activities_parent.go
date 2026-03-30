@@ -39,7 +39,7 @@ func (db *DB) FindMultisportParentByHash(ctx context.Context, userID, fileHash s
 func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data *model.ActivityData, parentID string) (*model.Activity, error) {
 	var id string
 	var createdAt, updatedAt time.Time
-	var isEbike bool
+	var isElectric bool
 
 	// Re-use the same column set as InsertActivity, adding parent_id.
 	err := db.Pool.QueryRow(ctx, `
@@ -54,7 +54,7 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 			avg_heart_rate, max_heart_rate,
 			avg_power_w, max_power_w, normalized_power_w,
 			avg_cadence, avg_temperature_c,
-			tss, trimp, is_indoor, is_ebike, has_gps,
+			tss, trimp, is_indoor, is_electric, has_gps,
 			start_location, end_location,
 			original_filename, original_file_format,
 			source, source_device,
@@ -190,7 +190,7 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 			-- Bounding Box ($140-$143)
 			$140, $141, $142, $143
 		)
-		RETURNING id, is_ebike, created_at, updated_at`,
+		RETURNING id, is_electric, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType), // $1-$4
 		nilIfZeroI16(data.FitSportID), nilIfZeroI16(data.FitSubSportID), // $5-$6
 		data.StartedAt, nilIfZeroTime(data.EndedAt), nilIfZeroInt(data.ElapsedTimeS), nilIfZeroInt(data.MovingTimeS), // $7-$10
@@ -200,7 +200,7 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 		nilIfZeroF64(data.AvgHeartRate), nilIfZeroInt(data.MaxHeartRate), // $18-$19
 		nilIfZeroF64(data.AvgPowerW), nilIfZeroInt(data.MaxPowerW), nilIfZeroF64(data.NormalizedPowerW), // $20-$22
 		nilIfZeroF64(data.AvgCadence), nilIfZeroF64(data.AvgTemperatureC), // $23-$24
-		nilIfZeroF64(data.TSS), nilIfZeroF64(data.TRIMP), data.IsIndoor, data.IsEbike, data.HasGPS, // $25-$29
+		nilIfZeroF64(data.TSS), nilIfZeroF64(data.TRIMP), data.IsIndoor, data.IsElectric, data.HasGPS, // $25-$29
 		data.StartLat, data.StartLng, // $30-$31
 		data.EndLat, data.EndLng, // $32-$33
 		nilIfEmpty(data.OriginalName), nilIfEmpty(data.FileFormat), // $34-$35
@@ -245,7 +245,7 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 		data.AvgLapTimeS, data.BestLapIndex, data.NumLaps, data.FirstLapIndex, // $132-$135
 		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex, // $136-$139
 		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng, // $140-$143
-	).Scan(&id, &isEbike, &createdAt, &updatedAt)
+	).Scan(&id, &isElectric, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity with parent: %w", err)
 	}
@@ -258,7 +258,7 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 		Source:               ptrString(data.Source),
 		SourceDevice:         ptrString(data.SourceDevice),
 		StartedAt:            data.StartedAt,
-		IsEbike:              isEbike,
+		IsElectric:              isElectric,
 		IsIndoor:             data.IsIndoor,
 		HasGPS:               data.HasGPS,
 		NeedsClassification:  data.SportType == "unknown",

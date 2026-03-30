@@ -461,9 +461,9 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 
-	// E-Bike tag: if is_ebike is true, ensure "E-Bike" tag is in tags array
+	// E-Bike tag: if is_electric is true, ensure "E-Bike" tag is in tags array
 	// and link in activity_tags junction table (same pattern as "Wettkampf" above).
-	if data.IsEbike {
+	if data.IsElectric {
 		tagBase, _ := fields["tags"].([]string)
 		if tagBase == nil {
 			tagBase = data.Tags
@@ -471,15 +471,15 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		fields["tags"] = appendTagIfMissing(tagBase, "E-Bike")
 
 		// Upsert the "E-Bike" system tag and link it to this activity.
-		var ebikeTagID string
+		var electricTagID string
 		row := db.Pool.QueryRow(ctx, `
 			INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
-			VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', true, false, 'Automatisch bei E-Bike-Aktivitäten (Sync mit is_ebike)')
+			VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', true, false, 'Automatisch bei E-Bike-Aktivitäten (Sync mit is_electric)')
 			ON CONFLICT (user_id, name) DO UPDATE SET name = tags.name
 			RETURNING id
 		`, userID)
-		if err := row.Scan(&ebikeTagID); err == nil {
-			_ = db.LinkActivityTag(ctx, activityID, ebikeTagID, "auto")
+		if err := row.Scan(&electricTagID); err == nil {
+			_ = db.LinkActivityTag(ctx, activityID, electricTagID, "auto")
 		}
 	}
 

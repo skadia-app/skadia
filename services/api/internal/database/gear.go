@@ -843,7 +843,7 @@ func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationR
 		`SELECT ar.id, ar.user_id, ar.name, ar.is_active, ar.priority,
 		        ar.conditions, ar.conditions_logic, ar.condition_groups, ar.actions,
 		        CASE
-		            WHEN ar.system_type = 'ebike_sync'    THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = 'E-Bike'   LIMIT 1), 0)
+		            WHEN ar.system_type = 'electric_sync'    THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = 'E-Bike'   LIMIT 1), 0)
 		            WHEN ar.system_type = 'virtual_sync'  THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = 'virtuell' LIMIT 1), 0)
 		            ELSE ar.times_applied
 		        END,
@@ -919,7 +919,7 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 		}
 		return nil, err
 	}
-	if sysType != nil && (*sysType == "ebike_sync" || *sysType == "virtual_sync") {
+	if sysType != nil && (*sysType == "electric_sync" || *sysType == "virtual_sync") {
 		return nil, fmt.Errorf("this system rule is read-only")
 	}
 
@@ -1076,7 +1076,7 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	row := db.Pool.QueryRow(ctx, `
 		SELECT
 			a.sport_type, a.sub_type, a.source, a.intensity, a.title, a.description,
-			a.is_indoor, a.is_ebike, a.has_gps, a.visibility, a.hide_map, a.is_round_trip,
+			a.is_indoor, a.is_electric, a.has_gps, a.visibility, a.hide_map, a.is_round_trip,
 			a.elapsed_time_s, a.moving_time_s,
 			EXTRACT(DOW FROM a.started_at AT TIME ZONE 'UTC')::int AS weekday,
 			EXTRACT(MONTH FROM a.started_at AT TIME ZONE 'UTC')::int AS month,
@@ -1112,7 +1112,7 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 
 	var (
 		sportType, subType, source, intensity, title, description *string
-		isIndoor, isEbike, hasGPS, hideMap, isRoundTrip           bool
+		isIndoor, isElectric, hasGPS, hideMap, isRoundTrip           bool
 		visibility                                                *string
 		elapsedTimeS, movingTimeS                                 *int
 		weekday, month                                            *int
@@ -1141,7 +1141,7 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 
 	err := row.Scan(
 		&sportType, &subType, &source, &intensity, &title, &description,
-		&isIndoor, &isEbike, &hasGPS, &visibility, &hideMap, &isRoundTrip,
+		&isIndoor, &isElectric, &hasGPS, &visibility, &hideMap, &isRoundTrip,
 		&elapsedTimeS, &movingTimeS, &weekday, &month, &timeOfDay,
 		&distanceM,
 		&avgSpeedMS, &maxSpeedMS, &minSpeedMS,
@@ -1169,7 +1169,7 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 
 	m := map[string]any{
 		"is_indoor":          isIndoor,
-		"is_ebike":           isEbike,
+		"is_electric":           isElectric,
 		"has_gps":            hasGPS,
 		"hide_map":           hideMap,
 		"is_round_trip":      isRoundTrip,

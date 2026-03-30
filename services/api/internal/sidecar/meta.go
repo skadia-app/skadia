@@ -29,8 +29,9 @@ type MetaFile struct {
 	Visibility    string   `json:"visibility,omitempty"`
 	WorkoutFeel   *int     `json:"workout_feel,omitempty"`
 	WorkoutRpe    *int     `json:"workout_rpe,omitempty"`
-	IsEbike       bool     `json:"is_ebike,omitempty"`
-	IsVirtual     bool     `json:"is_virtual,omitempty"`
+	IsElectric    bool `json:"is_electric,omitempty"`
+	IsElectricOld bool `json:"is_ebike,omitempty"` // legacy compat for old exports
+	IsVirtual     bool `json:"is_virtual,omitempty"`
 	IsManualEntry bool     `json:"is_manual_entry,omitempty"`
 	Source        string   `json:"source,omitempty"`
 
@@ -100,7 +101,7 @@ func GenerateMetaFull(activityID string, data *model.ActivityData, activity *mod
 		m.Visibility = activity.Visibility
 		m.WorkoutFeel = activity.WorkoutFeel
 		m.WorkoutRpe = activity.WorkoutRpe
-		m.IsEbike = activity.IsEbike
+		m.IsElectric = activity.IsElectric
 		m.IsVirtual = activity.IsVirtual
 		m.IsManualEntry = activity.IsManualEntry
 		m.Source = derefStr(activity.Source)

@@ -400,10 +400,10 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 		}
 	}
 
-	// E-Bike system tag (no conditions — synced via automation rule with is_ebike column).
+	// E-Bike system tag (no conditions — synced via automation rule with is_electric column).
 	if _, err := db.Pool.Exec(ctx, `
 		INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
-		VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', true, false, 'Automatisch bei E-Bike-Aktivitäten (Sync mit is_ebike)')
+		VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', true, false, 'Automatisch bei E-Bike-Aktivitäten (Sync mit is_electric)')
 		ON CONFLICT (user_id, name) DO NOTHING`,
 		userID,
 	); err != nil {
@@ -454,7 +454,7 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 	// E-Bike rule (no conditions/actions — handled by import pipeline)
 	_, _ = db.Pool.Exec(ctx, `
 		INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
-		VALUES ($1, 'E-Bike', true, 'ebike_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
+		VALUES ($1, 'E-Bike', true, 'electric_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
 		ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
 		userID)
 

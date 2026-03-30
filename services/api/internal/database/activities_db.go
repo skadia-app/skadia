@@ -73,7 +73,7 @@ func (db *DB) InsertActivity(ctx context.Context, userID string, data *model.Act
 func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, data *model.ActivityData) (*model.Activity, error) {
 	var id string
 	var createdAt, updatedAt time.Time
-	var isEbike, isVirtual bool
+	var isElectric, isVirtual bool
 
 	err := q.QueryRow(ctx, `
 		INSERT INTO activities (
@@ -87,7 +87,7 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			avg_heart_rate, max_heart_rate,
 			avg_power_w, max_power_w, normalized_power_w,
 			avg_cadence, avg_temperature_c,
-			tss, trimp, is_indoor, is_ebike, has_gps,
+			tss, trimp, is_indoor, is_electric, has_gps,
 			is_virtual, exclude_from_heatmap, exclude_from_stats,
 			start_location, end_location,
 			original_filename, original_file_format,
@@ -243,7 +243,7 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			-- GPS quality ($158)
 			$158
 		)
-		RETURNING id, is_ebike, is_virtual, created_at, updated_at`,
+		RETURNING id, is_electric, is_virtual, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType), // $1-$4
 		nilIfZeroI16(data.FitSportID), nilIfZeroI16(data.FitSubSportID), // $5-$6
 		data.StartedAt, nilIfZeroTime(data.EndedAt), nilIfZeroInt(data.ElapsedTimeS), nilIfZeroInt(data.MovingTimeS), // $7-$10
@@ -253,7 +253,7 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		nilIfZeroF64(data.AvgHeartRate), nilIfZeroInt(data.MaxHeartRate), // $18-$19
 		nilIfZeroF64(data.AvgPowerW), nilIfZeroInt(data.MaxPowerW), nilIfZeroF64(data.NormalizedPowerW), // $20-$22
 		nilIfZeroF64(data.AvgCadence), nilIfZeroF64(data.AvgTemperatureC), // $23-$24
-		nilIfZeroF64(data.TSS), nilIfZeroF64(data.TRIMP), data.IsIndoor, data.IsEbike, data.HasGPS, // $25-$29
+		nilIfZeroF64(data.TSS), nilIfZeroF64(data.TRIMP), data.IsIndoor, data.IsElectric, data.HasGPS, // $25-$29
 		data.IsVirtual, data.IsVirtual, false, // $30-$32 (is_virtual, exclude_from_heatmap=is_virtual, exclude_from_stats=false)
 		data.StartLat, data.StartLng, // $33-$34
 		data.EndLat, data.EndLng, // $35-$36
@@ -304,7 +304,7 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		nilIfZeroInt(data.NumSessions),                                           // $153
 		data.Vo2MaxMlKgMin, data.Vo2MaxCalibrated, data.Vo2MaxHrSource, data.Vo2MaxSpeedSource, // $154-$157
 		nilIfZeroInt(data.GpsAccuracyM), // $158
-	).Scan(&id, &isEbike, &isVirtual, &createdAt, &updatedAt)
+	).Scan(&id, &isElectric, &isVirtual, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
 	}
@@ -317,7 +317,7 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		Source:               ptrString(data.Source),
 		SourceDevice:         ptrString(data.SourceDevice),
 		StartedAt:            data.StartedAt,
-		IsEbike:              isEbike,
+		IsElectric:              isElectric,
 		IsVirtual:            isVirtual,
 		ExcludeFromHeatmap:   isVirtual,
 		ExcludeFromStats:     false,
@@ -565,7 +565,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 	err := db.Pool.QueryRow(ctx, `
 		SELECT
 			a.id, a.user_id, a.file_hash, a.file_id, a.title, a.title_auto, a.description,
-			a.sport_type, a.sub_type, a.fit_sport_id, a.fit_sub_sport_id, a.is_ebike,
+			a.sport_type, a.sub_type, a.fit_sport_id, a.fit_sub_sport_id, a.is_electric,
 			a.is_virtual, a.exclude_from_heatmap, a.exclude_from_stats,
 			a.started_at, a.ended_at, a.elapsed_time_s, a.moving_time_s,
 			a.distance_m, a.elevation_gain_m, a.elevation_loss_m,
@@ -651,7 +651,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		WHERE a.id = $1`, id,
 	).Scan(
 		&a.ID, &a.UserID, &a.FileHash, &a.FileID, &a.Title, &a.TitleAuto, &a.Description,
-		&a.SportType, &a.SubType, &a.FitSportID, &a.FitSubSportID, &a.IsEbike,
+		&a.SportType, &a.SubType, &a.FitSportID, &a.FitSubSportID, &a.IsElectric,
 		&a.IsVirtual, &a.ExcludeFromHeatmap, &a.ExcludeFromStats,
 		&a.StartedAt, &a.EndedAt, &a.ElapsedTimeS, &a.MovingTimeS,
 		&a.DistanceM, &a.ElevationGainM, &a.ElevationLossM,
@@ -819,10 +819,10 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 		conds = append(conds, fmt.Sprintf("is_indoor = $%d", idx))
 		args = append(args, *filters.IsIndoor)
 	}
-	if filters.IsEbike != nil {
+	if filters.IsElectric != nil {
 		idx++
-		conds = append(conds, fmt.Sprintf("is_ebike = $%d", idx))
-		args = append(args, *filters.IsEbike)
+		conds = append(conds, fmt.Sprintf("is_electric = $%d", idx))
+		args = append(args, *filters.IsElectric)
 	}
 	if filters.IsVirtual != nil {
 		idx++
@@ -943,7 +943,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 	}
 
 	selectCols := `id, sport_type, sub_type, title, started_at, distance_m,
-		elapsed_time_s, elevation_gain_m, elevation_loss_m, is_indoor, is_ebike, is_virtual, exclude_from_heatmap, exclude_from_stats, visibility,
+		elapsed_time_s, elevation_gain_m, elevation_loss_m, is_indoor, is_electric, is_virtual, exclude_from_heatmap, exclude_from_stats, visibility,
 		created_at, updated_at, sport_conflict_pending, timezone`
 
 	// Build ORDER BY: primary sort column + tiebreaker id (same direction)
@@ -1059,7 +1059,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 		var a model.Activity
 		if err := rows.Scan(
 			&a.ID, &a.SportType, &a.SubType, &a.Title, &a.StartedAt, &a.DistanceM,
-			&a.ElapsedTimeS, &a.ElevationGainM, &a.ElevationLossM, &a.IsIndoor, &a.IsEbike, &a.IsVirtual, &a.ExcludeFromHeatmap, &a.ExcludeFromStats, &a.Visibility,
+			&a.ElapsedTimeS, &a.ElevationGainM, &a.ElevationLossM, &a.IsIndoor, &a.IsElectric, &a.IsVirtual, &a.ExcludeFromHeatmap, &a.ExcludeFromStats, &a.Visibility,
 			&a.CreatedAt, &a.UpdatedAt, &a.SportConflictPending, &a.Timezone,
 		); err != nil {
 			return nil, fmt.Errorf("scan activity: %w", err)
@@ -1836,8 +1836,8 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	args = append(args, nilIfZeroF64(data.TRIMP))
 	sets = append(sets, fmt.Sprintf("is_indoor = %s", idx()))
 	args = append(args, data.IsIndoor)
-	sets = append(sets, fmt.Sprintf("is_ebike = %s", idx()))
-	args = append(args, data.IsEbike)
+	sets = append(sets, fmt.Sprintf("is_electric = %s", idx()))
+	args = append(args, data.IsElectric)
 	sets = append(sets, fmt.Sprintf("is_virtual = %s", idx()))
 	args = append(args, data.IsVirtual)
 	sets = append(sets, fmt.Sprintf("has_gps = %s", idx()))

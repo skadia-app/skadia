@@ -23,7 +23,7 @@ type ManualActivityFile struct {
 	ElevationLossM float64           `json:"elevation_loss_m,omitempty"`
 	Tags           []string          `json:"tags,omitempty"`
 	GearID         string            `json:"gear_id,omitempty"`
-	IsEbike        bool              `json:"is_ebike,omitempty"`
+	IsElectric        bool              `json:"is_electric,omitempty"`
 	IsVirtual      bool              `json:"is_virtual,omitempty"`
 	Source         string            `json:"source,omitempty"`
 	SourceFields   map[string]string `json:"source_fields,omitempty"`

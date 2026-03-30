@@ -804,7 +804,7 @@ func applyMetaUserFields(ctx context.Context, db *database.DB, activityID string
 		field string
 		val   bool
 	}{
-		{"is_ebike", meta.IsEbike},
+		{"is_electric", meta.IsElectric || meta.IsElectricOld},
 		{"is_virtual", meta.IsVirtual},
 		{"is_manual_entry", meta.IsManualEntry},
 		{"exclude_from_heatmap", meta.ExcludeFromHeatmap},

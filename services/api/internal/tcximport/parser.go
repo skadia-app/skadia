@@ -132,10 +132,10 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	source, sourceDevice, recordingDevice := parseTCXCreator(act.Creator)
 
 	// E-Bike normalization
-	isEbike := false
+	isElectric := false
 	if sport == "e_biking" || sport == "e_bike" {
 		sport = "cycling"
-		isEbike = true
+		isElectric = true
 	}
 
 	data := &model.ActivityData{
@@ -145,7 +145,7 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 		SourceDevice:    sourceDevice,
 		SportType:       sport,
 		SubType:         subType,
-		IsEbike:         isEbike,
+		IsElectric:         isElectric,
 		RecordingDevice: recordingDevice,
 	}
 

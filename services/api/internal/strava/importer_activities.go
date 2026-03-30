@@ -151,10 +151,10 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		sportType, subType := mapStravaSportType(sportStr), ""
 
 		// E-Bike normalization
-		isEbike := false
+		isElectric := false
 		if sportType == "e_biking" || sportType == "e_bike" {
 			sportType = "cycling"
-			isEbike = true
+			isElectric = true
 		}
 
 		isVirtual := false
@@ -236,7 +236,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			Source:    "Strava",
 			SportType: sportType,
 			SubType:   subType,
-			IsEbike:   isEbike,
+			IsElectric:   isElectric,
 			IsVirtual: isVirtual,
 			StartedAt: startedAt,
 			EndedAt:   endedAt,
@@ -732,9 +732,9 @@ func mergeActivityData(base, parsed *model.ActivityData) {
 		}
 	}
 
-	// IsEbike: device data is authoritative (FIT has sub-sport ID for e-bike detection)
-	if parsed.IsEbike {
-		base.IsEbike = true
+	// IsElectric: device data is authoritative (FIT has sub-sport ID for e-bike detection)
+	if parsed.IsElectric {
+		base.IsElectric = true
 	}
 
 	// UserProfileImport from FIT
@@ -764,7 +764,7 @@ func mapStravaSportType(stravaSport string) string {
 	case "Radfahrt", "Radfahren":
 		return "cycling"
 	case "E-Bike-Radfahrt", "E-Bike":
-		return "e_biking" // normalized to cycling + is_ebike downstream
+		return "e_biking" // normalized to cycling + is_electric downstream
 	case "Mountainbiking":
 		return "mountain_biking"
 	case "Gravelbike", "Gravel-Radfahrt":

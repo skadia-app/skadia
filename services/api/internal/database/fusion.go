@@ -148,14 +148,14 @@ type FusionCandidateRow struct {
 	StartedAtA     time.Time
 	SportTypeA     string
 	SubTypeA       *string
-	IsEbikeA       bool
+	IsElectricA       bool
 	DistanceMA     *float64
 	TitleB         *string
 	TitleAutoB     *string
 	StartedAtB     time.Time
 	SportTypeB     string
 	SubTypeB       *string
-	IsEbikeB       bool
+	IsElectricB       bool
 	DistanceMB     *float64
 }
 
@@ -196,8 +196,8 @@ func (db *DB) GetCachedFusionCandidates(ctx context.Context, userID string, limi
 		SELECT
 			fc.activity_id_a, fc.activity_id_b,
 			fc.overlap_percent, fc.field_richness_a, fc.field_richness_b, fc.time_diff_sec,
-			a1.title, a1.title_auto, a1.started_at, a1.sport_type, a1.sub_type, a1.is_ebike, a1.distance_m,
-			a2.title, a2.title_auto, a2.started_at, a2.sport_type, a2.sub_type, a2.is_ebike, a2.distance_m
+			a1.title, a1.title_auto, a1.started_at, a1.sport_type, a1.sub_type, a1.is_electric, a1.distance_m,
+			a2.title, a2.title_auto, a2.started_at, a2.sport_type, a2.sub_type, a2.is_electric, a2.distance_m
 		FROM fusion_candidates fc
 		JOIN activities a1 ON a1.id = fc.activity_id_a
 		JOIN activities a2 ON a2.id = fc.activity_id_b
@@ -216,8 +216,8 @@ func (db *DB) GetCachedFusionCandidates(ctx context.Context, userID string, limi
 		if err := rows.Scan(
 			&r.ActivityIDA, &r.ActivityIDB,
 			&r.OverlapPercent, &r.FieldRichnessA, &r.FieldRichnessB, &r.TimeDiffSec,
-			&r.TitleA, &r.TitleAutoA, &r.StartedAtA, &r.SportTypeA, &r.SubTypeA, &r.IsEbikeA, &r.DistanceMA,
-			&r.TitleB, &r.TitleAutoB, &r.StartedAtB, &r.SportTypeB, &r.SubTypeB, &r.IsEbikeB, &r.DistanceMB,
+			&r.TitleA, &r.TitleAutoA, &r.StartedAtA, &r.SportTypeA, &r.SubTypeA, &r.IsElectricA, &r.DistanceMA,
+			&r.TitleB, &r.TitleAutoB, &r.StartedAtB, &r.SportTypeB, &r.SubTypeB, &r.IsElectricB, &r.DistanceMB,
 		); err != nil {
 			return nil, fmt.Errorf("scan fusion candidate row: %w", err)
 		}

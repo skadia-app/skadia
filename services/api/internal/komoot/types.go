@@ -101,7 +101,7 @@ type TimelineItem struct {
 type SportMapping struct {
 	SportType string
 	SubType   string
-	IsEbike   bool
+	IsElectric   bool
 }
 
 // KomootSportMapping maps Komoot sport strings to Skadia taxonomy.

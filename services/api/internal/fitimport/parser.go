@@ -463,19 +463,19 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	sportType, subType, fitSportID, fitSubSportID := ParseSportFromSession(session)
 
 	// E-Bike normalization: map e_biking sport and e_bike_* sub-sports to
-	// their non-electric counterparts and set IsEbike flag instead.
-	isEbike := false
+	// their non-electric counterparts and set IsElectric flag instead.
+	isElectric := false
 	if sportType == "e_biking" {
 		sportType = "cycling"
-		isEbike = true
+		isElectric = true
 	}
 	switch subType {
 	case "e_bike_fitness":
 		subType = "generic"
-		isEbike = true
+		isElectric = true
 	case "e_bike_mountain":
 		subType = "mountain"
-		isEbike = true
+		isElectric = true
 	}
 
 	// Virtual activity detection
@@ -508,7 +508,7 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		SubType:       subType,
 		FitSportID:    fitSportID,
 		FitSubSportID: fitSubSportID,
-		IsEbike:       isEbike,
+		IsElectric:       isElectric,
 		IsVirtual:     isVirtual,
 		StartedAt:     session.StartTime,
 		EndedAt:       session.Timestamp,

@@ -519,7 +519,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			DistanceM:      mf.DistanceM,
 			ElevationGainM: mf.ElevationGainM,
 			ElevationLossM: mf.ElevationLossM,
-			IsEbike:        mf.IsEbike,
+			IsElectric:        mf.IsElectric,
 		}
 		if mf.ElapsedTimeS > 0 {
 			data.EndedAt = mf.StartedAt.Add(time.Duration(mf.ElapsedTimeS) * time.Second)
