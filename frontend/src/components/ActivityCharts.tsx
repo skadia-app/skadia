@@ -20,6 +20,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import type { StreamPoint, ActivityEvent } from '@/api/types'
 import { CHART_TAB } from '@/components/activity/ChartTabs'
+import { DiveDecoPanel } from '@/components/activity/DiveDecoPanel'
 import { findClosestIdx } from '@/lib/utils'
 import { re3GradeAdjustedSpeed } from '@/lib/re3'
 
@@ -302,6 +303,8 @@ interface Props {
   activeTab?: string
   /** Gear-change events from the activity_events table. Only shown for bike activities. */
   gearEvents?: ActivityEvent[]
+  /** Activity ID — required for the Deko tab (DiveDecoPanel). */
+  activityId?: string
 }
 
 function computeSunMarkLines(
@@ -399,7 +402,7 @@ function computeGearData(
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode, highlightRange, speedMode, onSpeedModeChange, sportType, activeTab, gearEvents }: Props) {
+export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode, highlightRange, speedMode, onSpeedModeChange, sportType, activeTab, gearEvents, activityId }: Props) {
   const data = useMemo(() => buildChartData(streams), [streams])
   const segGroup = sportType ? getSegmentGroup(sportType) : 'generic'
 
@@ -788,7 +791,8 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     </div>,
   )
 
-  if (panels.length === 0) return null
+  const showDekoPanel = activeTab === CHART_TAB.deko && activityId != null
+  if (panels.length === 0 && !showDekoPanel) return null
 
   return (
     <div className="space-y-3">
@@ -819,6 +823,9 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         </div>
       </div>
       {panels}
+      {activeTab === CHART_TAB.deko && activityId && (
+        <DiveDecoPanel activityId={activityId} streams={streams} />
+      )}
       <p className="text-xs text-neutral-400 dark:text-neutral-600">
         Ziehen zum Auswählen · Mausrad zum Zoomen · Nach Auswahl: Ziehen zum Verschieben
       </p>
