@@ -158,13 +158,24 @@ export function parseContentDisposition(header: string | null): string | undefin
 }
 
 /** Authenticated binary download: fetches a protected URL with auth header and returns a Blob */
-export async function apiDownload(path: string): Promise<{ blob: Blob; filename?: string }> {
+export async function apiDownload(
+  path: string,
+  options?: { method?: string; body?: unknown },
+): Promise<{ blob: Blob; filename?: string }> {
   const token = getToken()
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`
+  const method = options?.method ?? 'GET'
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  if (method === 'POST' && options?.body !== undefined) {
+    headers['Content-Type'] = 'application/json'
+  }
   const res = await fetch(url, {
-    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    method,
+    headers,
     credentials: 'include',
     cache: 'no-cache',
+    body: method === 'POST' && options?.body !== undefined ? JSON.stringify(options.body) : undefined,
   })
   if (res.status === 401) {
     clearToken()
