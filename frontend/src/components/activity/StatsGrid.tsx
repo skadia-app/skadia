@@ -11,6 +11,8 @@ interface StatsGridProps {
 interface StatItem {
   label: string
   value: string | null
+  /** Smaller secondary value shown below the primary (e.g. speed below pace) */
+  secondary?: string
   badge?: ReactNode
   title?: string
 }
@@ -51,17 +53,17 @@ export function StatsGrid({ activity }: StatsGridProps) {
     },
     { label: 'Abstieg', value: loss },
 
-    // Ø Pace / Ø Geschwindigkeit — pace-native sports show both in one card
+    // Ø Pace / Ø Geschwindigkeit — pace-native sports show pace primary + speed secondary
     activity.avg_speed_ms != null ? (
       defaultSpeedMode(sport) === 'pace'
-        ? { label: 'Ø Pace', value: `${formatSpeedValue(activity.avg_speed_ms, sport, 'pace')} · ${formatSpeedValue(activity.avg_speed_ms, sport, 'speed')}` }
+        ? { label: 'Ø Pace', value: formatSpeedValue(activity.avg_speed_ms, sport, 'pace'), secondary: formatSpeedValue(activity.avg_speed_ms, sport, 'speed') }
         : { label: 'Ø Geschwindigkeit', value: formatSpeedValue(activity.avg_speed_ms, sport, 'speed') }
     ) : null,
 
     // Beste Pace / Max. Geschwindigkeit — same pattern
     activity.max_speed_ms != null ? (
       defaultSpeedMode(sport) === 'pace'
-        ? { label: 'Beste Pace', value: `${formatSpeedValue(activity.max_speed_ms, sport, 'pace')} · ${formatSpeedValue(activity.max_speed_ms, sport, 'speed')}` }
+        ? { label: 'Beste Pace', value: formatSpeedValue(activity.max_speed_ms, sport, 'pace'), secondary: formatSpeedValue(activity.max_speed_ms, sport, 'speed') }
         : { label: 'Max. Geschwindigkeit', value: formatSpeedValue(activity.max_speed_ms, sport, 'speed') }
     ) : null,
 
@@ -225,12 +227,15 @@ export function StatsGrid({ activity }: StatsGridProps) {
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-      {visible.map(({ label, value, badge, title }) => (
+      {visible.map(({ label, value, secondary, badge, title }) => (
         <div key={label} className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
           <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1" title={title}>{label}</div>
           <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
             {value}{badge}
           </div>
+          {secondary && (
+            <div className="text-xs text-neutral-400 dark:text-neutral-500 tabular-nums mt-0.5">{secondary}</div>
+          )}
         </div>
       ))}
     </div>
