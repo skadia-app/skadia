@@ -250,6 +250,25 @@ export interface Activity {
 
   // ── Timezone ──
   timezone?: string | null  // IANA timezone or UTC offset (e.g., "Europe/Berlin", "UTC+02:00")
+
+  // ── VO2max (from FIT max_met_data message) ──
+  vo2max_ml_kg_min?: number
+  vo2max_calibrated?: boolean
+  vo2max_hr_source?: string
+  vo2max_speed_source?: string
+
+  // ── GPS quality ──
+  gps_accuracy_m?: number
+
+  // ── Pedal Power Phase averages (degrees, 0° = TDC) ──
+  avg_left_power_phase_start_deg?: number
+  avg_left_power_phase_end_deg?: number
+  avg_left_power_phase_peak_start_deg?: number
+  avg_left_power_phase_peak_end_deg?: number
+  avg_right_power_phase_start_deg?: number
+  avg_right_power_phase_end_deg?: number
+  avg_right_power_phase_peak_start_deg?: number
+  avg_right_power_phase_peak_end_deg?: number
 }
 
 export interface ActivitiesResponse {
@@ -367,6 +386,9 @@ export interface StreamPoint {
 
   // ── Developer Fields ──
   developer_fields?: Record<string, unknown>
+
+  // ── Heading ──
+  heading?: number  // GPS heading in degrees (0-360)
 }
 
 export interface DataVisibility {
@@ -960,4 +982,56 @@ export interface WorkoutStep {
   secondary_target_value?: number
   secondary_custom_target_low?: number
   secondary_custom_target_high?: number
+}
+
+// ── Dive (Task 5) ──
+export interface DiveSettings {
+  activity_id: string
+  gf_low: number
+  gf_high: number
+  water_type: string
+  water_density: number
+  deco_model: string
+  po2_warn: number
+  po2_critical: number
+  po2_deco: number
+  safety_stop_enabled: boolean
+  safety_stop_time_s: number
+  repeat_dive_interval_s: number
+  ccr_low_setpoint: number
+  ccr_low_setpoint_depth_m: number
+  ccr_high_setpoint: number
+  ccr_high_setpoint_depth_m: number
+}
+
+export interface DiveGas {
+  activity_id: string
+  gas_index: number
+  helium_pct: number
+  oxygen_pct: number
+  status: string
+  mode: string
+}
+
+export interface DiveInfo {
+  settings?: DiveSettings
+  gases: DiveGas[]
+}
+
+// ── HealthContext (Task 7) ──
+export interface HealthContext {
+  sleep_duration_min?: number
+  sleep_score?: number
+  deep_sleep_min?: number
+  rem_sleep_min?: number
+  hrv_rmssd?: number
+  hrv_measured_at?: string
+  resting_hr?: number
+}
+
+// ── DeveloperFieldInfo (Task 3) ──
+export interface DeveloperFieldInfo {
+  field_key: string
+  units: string
+  app_id: string
 }
