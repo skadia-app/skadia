@@ -97,7 +97,7 @@ function drawSingleWheel(
   }
 }
 
-export function PowerPhaseRosette({ activity, size = 160 }: Props) {
+export function PowerPhaseDial({ activity, size = 160 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   const hasLeft = activity.avg_left_power_phase_start_deg != null && activity.avg_left_power_phase_end_deg != null
