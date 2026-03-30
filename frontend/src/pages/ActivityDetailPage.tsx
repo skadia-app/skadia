@@ -59,6 +59,7 @@ import TagsBadges from '@/components/activity/TagsBadges'
 import ZoneDistributionChart from '@/components/activity/ZoneDistributionChart'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
 import { PowerPhaseRosette } from '@/components/activity/PowerPhaseRosette'
+import { HealthContextCards } from '@/components/activity/HealthContextCards'
 import { useToast } from '@/lib/toast'
 
 function getSportEmoji(sportType: string): string {
@@ -460,6 +461,9 @@ export default function ActivityDetailPage() {
 
       {/* Ballsport Metriken */}
       {categoryForSport(activity.sport_type).key === 'game' && <BallSportStats activity={activity} />}
+
+      {/* Health context from the night before (sleep, HRV, resting HR) */}
+      <HealthContextCards activityId={activity.id} />
 
       {/* Multisport parent — combined view */}
       {activity.sport_type === 'multisport' && (
