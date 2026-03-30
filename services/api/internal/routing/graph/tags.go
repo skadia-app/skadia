@@ -175,10 +175,7 @@ func EncodeOSMTags(t *RawTags) uint64 {
 	}
 	v |= uint64(cyclewayEnum[t.Cycleway]) << 42
 	v |= uint64(ParseMaxspeed(t.Maxspeed)) << 45
-	lanes := min(t.Lanes, 7)
-	if lanes < 0 {
-		lanes = 0
-	}
+	lanes := max(min(t.Lanes, 7), 0)
 	v |= uint64(lanes) << 53
 	if t.Segregated {
 		v |= 1 << 56
@@ -454,10 +451,7 @@ func ParseWidth(s string) uint8 {
 		s = strings.Replace(s, ",", ".", 1)
 		if ft, err := strconv.ParseFloat(s, 64); err == nil && ft > 0 {
 			meters := ft * 0.3048
-			dm := int(math.Round(meters * 10))
-			if dm > 255 {
-				dm = 255
-			}
+			dm := min(int(math.Round(meters*10)), 255)
 			return uint8(dm)
 		}
 		return 0
@@ -470,10 +464,7 @@ func ParseWidth(s string) uint8 {
 	if err != nil || f <= 0 {
 		return 0
 	}
-	dm := int(math.Round(f * 10))
-	if dm > 255 {
-		dm = 255
-	}
+	dm := min(int(math.Round(f*10)), 255)
 	return uint8(dm)
 }
 
@@ -497,15 +488,12 @@ func ParseIncline(s string) uint8 {
 		return 128
 	}
 	// Degrees → percent conversion: tan(deg * pi/180) * 100
-	if strings.HasSuffix(s, "°") {
-		degStr := strings.TrimSuffix(s, "°")
+	if before, ok := strings.CutSuffix(s, "°"); ok {
+		degStr := before
 		degStr = strings.TrimSpace(degStr)
 		if deg, err := strconv.ParseFloat(degStr, 64); err == nil {
 			pct := math.Tan(deg*math.Pi/180) * 100
-			v := int(math.Round(pct)) + 128
-			if v < 0 {
-				v = 0
-			}
+			v := max(int(math.Round(pct))+128, 0)
 			if v > 255 {
 				v = 255
 			}
@@ -519,10 +507,7 @@ func ParseIncline(s string) uint8 {
 	if err != nil {
 		return 0
 	}
-	v := int(math.Round(f)) + 128
-	if v < 0 {
-		v = 0
-	}
+	v := max(int(math.Round(f))+128, 0)
 	if v > 255 {
 		v = 255
 	}

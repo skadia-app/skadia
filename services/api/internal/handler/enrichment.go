@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"time"
 
@@ -560,9 +561,7 @@ func (h *Handler) UpdateEnrichmentSettings(w http.ResponseWriter, r *http.Reques
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "unmarshal failed", r.URL.Path)
 		return
 	}
-	for k, v := range rawPatch {
-		merged[k] = v
-	}
+	maps.Copy(merged, rawPatch)
 	mergedJSON, err := json.Marshal(merged)
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "merge failed", r.URL.Path)

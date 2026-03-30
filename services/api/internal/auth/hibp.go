@@ -36,7 +36,7 @@ func CheckHIBP(password string) (bool, error) {
 		return false, fmt.Errorf("HIBP API read body: %w", err)
 	}
 
-	for _, line := range strings.Split(string(body), "\n") {
+	for line := range strings.SplitSeq(string(body), "\n") {
 		parts := strings.SplitN(strings.TrimSpace(line), ":", 2)
 		if len(parts) == 2 && strings.EqualFold(parts[0], suffix) {
 			return true, nil

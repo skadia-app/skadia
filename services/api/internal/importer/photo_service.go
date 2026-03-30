@@ -262,7 +262,7 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 			SizeBytes:   int64(len(photoBytes)),
 			FileHash:    fileHash,
 			ParentType:  &parentType,
-			ParentID:    shadowfs.Ptr(activityID),
+			ParentID:    new(activityID),
 		}, bytes.NewReader(photoBytes))
 		if putErr != nil {
 			slog.Warn("importer: ShadowFS.Put photo failed, falling back to S3", "err", putErr)
@@ -357,8 +357,8 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 				FileName:    fileHash + "_thumb.jpg",
 				SizeBytes:   int64(len(thumbData)),
 				FileHash:    fileHash + "_thumb",
-				ParentType:  shadowfs.Ptr("photo"),
-				ParentID:    shadowfs.Ptr(saved.ID),
+				ParentType:  new("photo"),
+				ParentID:    new(saved.ID),
 			}, bytes.NewReader(thumbData))
 			if thumbErr != nil {
 				slog.Warn("importer: ShadowFS.Put thumb failed", "photo_id", saved.ID, "err", thumbErr)
@@ -372,8 +372,8 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 				FileName:    fileHash + "_preview.jpg",
 				SizeBytes:   int64(len(previewData)),
 				FileHash:    fileHash + "_preview",
-				ParentType:  shadowfs.Ptr("photo"),
-				ParentID:    shadowfs.Ptr(saved.ID),
+				ParentType:  new("photo"),
+				ParentID:    new(saved.ID),
 			}, bytes.NewReader(previewData))
 			if previewErr != nil {
 				slog.Warn("importer: ShadowFS.Put preview failed", "photo_id", saved.ID, "err", previewErr)

@@ -839,10 +839,7 @@ func classifySegments(segs []intervalSegment, signal []float64, pts []intervalSt
 			}
 		}
 
-		durationS := int(seg.endT.Sub(seg.startT).Seconds())
-		if durationS < 1 {
-			durationS = 1
-		}
+		durationS := max(int(seg.endT.Sub(seg.startT).Seconds()), 1)
 
 		cs := classifiedSegment{
 			startT:    seg.startT,

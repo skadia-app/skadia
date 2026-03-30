@@ -8,7 +8,8 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-func fptr(v float64) *float64 { return &v }
+//go:fix inline
+func fptr(v float64) *float64 { return new(v) }
 
 // TestFillGaps_AllNilDistance — classic pre-2015 Garmin: no distance at all.
 // Should derive cumulative distance from GPS.
@@ -19,9 +20,9 @@ func TestFillGaps_AllNilDistance(t *testing.T) {
 	lat3, lng3 := 48.37, 10.92
 
 	points := []model.StreamPoint{
-		{Time: base, Lat: fptr(lat1), Lng: fptr(lng1)},
-		{Time: base.Add(60 * time.Second), Lat: fptr(lat2), Lng: fptr(lng2)},
-		{Time: base.Add(120 * time.Second), Lat: fptr(lat3), Lng: fptr(lng3)},
+		{Time: base, Lat: new(lat1), Lng: new(lng1)},
+		{Time: base.Add(60 * time.Second), Lat: new(lat2), Lng: new(lng2)},
+		{Time: base.Add(120 * time.Second), Lat: new(lat3), Lng: new(lng3)},
 	}
 
 	got := FillMissingDistanceAndSpeed(points)
@@ -52,9 +53,9 @@ func TestFillGaps_AllNilDistance(t *testing.T) {
 func TestFillGaps_AllHaveDistance(t *testing.T) {
 	base := time.Now()
 	points := []model.StreamPoint{
-		{Time: base, DistanceM: fptr(0), SpeedMS: fptr(5.0), Lat: fptr(48.0), Lng: fptr(10.0)},
-		{Time: base.Add(time.Second), DistanceM: fptr(500), SpeedMS: fptr(5.0), Lat: fptr(48.01), Lng: fptr(10.01)},
-		{Time: base.Add(2 * time.Second), DistanceM: fptr(1000), SpeedMS: fptr(5.0), Lat: fptr(48.02), Lng: fptr(10.02)},
+		{Time: base, DistanceM: fptr(0), SpeedMS: new(5.0), Lat: new(48.0), Lng: new(10.0)},
+		{Time: base.Add(time.Second), DistanceM: fptr(500), SpeedMS: new(5.0), Lat: new(48.01), Lng: new(10.01)},
+		{Time: base.Add(2 * time.Second), DistanceM: fptr(1000), SpeedMS: new(5.0), Lat: new(48.02), Lng: new(10.02)},
 	}
 
 	got := FillMissingDistanceAndSpeed(points)
@@ -76,14 +77,14 @@ func TestFillGaps_MiddleGap(t *testing.T) {
 
 	points := []model.StreamPoint{
 		// Session 1: has distance
-		{Time: base, DistanceM: fptr(0), Lat: fptr(lat), Lng: fptr(lng)},
-		{Time: base.Add(10 * time.Second), DistanceM: fptr(100), Lat: fptr(lat + 0.001), Lng: fptr(lng)},
+		{Time: base, DistanceM: fptr(0), Lat: new(lat), Lng: new(lng)},
+		{Time: base.Add(10 * time.Second), DistanceM: fptr(100), Lat: new(lat + 0.001), Lng: new(lng)},
 		// Session 2: NO distance (10h gap)
-		{Time: base.Add(10 * time.Hour), Lat: fptr(lat + 0.01), Lng: fptr(lng + 0.01)},
-		{Time: base.Add(10*time.Hour + 10*time.Second), Lat: fptr(lat + 0.02), Lng: fptr(lng + 0.01)},
+		{Time: base.Add(10 * time.Hour), Lat: new(lat + 0.01), Lng: new(lng + 0.01)},
+		{Time: base.Add(10*time.Hour + 10*time.Second), Lat: new(lat + 0.02), Lng: new(lng + 0.01)},
 		// Session 3: has distance again (resets from 0, but fixDistanceResets already ran)
-		{Time: base.Add(17 * time.Hour), DistanceM: fptr(5000), Lat: fptr(lat + 0.05), Lng: fptr(lng + 0.02)},
-		{Time: base.Add(17*time.Hour + 10*time.Second), DistanceM: fptr(5100), Lat: fptr(lat + 0.06), Lng: fptr(lng + 0.02)},
+		{Time: base.Add(17 * time.Hour), DistanceM: fptr(5000), Lat: new(lat + 0.05), Lng: new(lng + 0.02)},
+		{Time: base.Add(17*time.Hour + 10*time.Second), DistanceM: fptr(5100), Lat: new(lat + 0.06), Lng: new(lng + 0.02)},
 	}
 
 	got := FillMissingDistanceAndSpeed(points)
@@ -137,8 +138,8 @@ func TestFillGaps_NoGPS(t *testing.T) {
 func TestFillGaps_SpeedNotDerivedAcrossLargeGap(t *testing.T) {
 	base := time.Now()
 	points := []model.StreamPoint{
-		{Time: base, Lat: fptr(48.35), Lng: fptr(10.90)},
-		{Time: base.Add(10 * time.Hour), Lat: fptr(48.36), Lng: fptr(10.91)}, // 10h gap
+		{Time: base, Lat: new(48.35), Lng: new(10.90)},
+		{Time: base.Add(10 * time.Hour), Lat: new(48.36), Lng: new(10.91)}, // 10h gap
 	}
 	got := FillMissingDistanceAndSpeed(points)
 	// Distance SHOULD be derived (cumulative is always useful)
@@ -159,13 +160,13 @@ func TestFillGaps_MonotonicityWhenGPSOvershootsReal(t *testing.T) {
 	// Real: 500m, then 3 nil points where GPS adds ~700m, then real=500.1m (after fixDistanceResets).
 	// Without monotonicity guard: cumDist goes 500 → ~1200 → 500.1 (backwards jump!)
 	points := []model.StreamPoint{
-		{Time: base, DistanceM: fptr(500), Lat: fptr(48.35), Lng: fptr(10.90)},
+		{Time: base, DistanceM: fptr(500), Lat: new(48.35), Lng: new(10.90)},
 		// Gap with GPS (nil distance) — large Haversine jump
-		{Time: base.Add(10 * time.Second), Lat: fptr(48.36), Lng: fptr(10.91)}, // ~1.3km away
-		{Time: base.Add(20 * time.Second), Lat: fptr(48.37), Lng: fptr(10.92)}, // another ~1.3km
+		{Time: base.Add(10 * time.Second), Lat: new(48.36), Lng: new(10.91)}, // ~1.3km away
+		{Time: base.Add(20 * time.Second), Lat: new(48.37), Lng: new(10.92)}, // another ~1.3km
 		// Real value that is LESS than cumDist (fixDistanceResets output)
-		{Time: base.Add(30 * time.Second), DistanceM: fptr(500.1), Lat: fptr(48.38), Lng: fptr(10.93)},
-		{Time: base.Add(40 * time.Second), DistanceM: fptr(800), Lat: fptr(48.39), Lng: fptr(10.94)},
+		{Time: base.Add(30 * time.Second), DistanceM: new(500.1), Lat: new(48.38), Lng: new(10.93)},
+		{Time: base.Add(40 * time.Second), DistanceM: fptr(800), Lat: new(48.39), Lng: new(10.94)},
 	}
 
 	got := FillMissingDistanceAndSpeed(points)
@@ -194,9 +195,9 @@ func TestFillGaps_MonotonicityWhenGPSOvershootsReal(t *testing.T) {
 func TestFillGaps_FirstPointNilThenReal(t *testing.T) {
 	base := time.Now()
 	points := []model.StreamPoint{
-		{Time: base, Lat: fptr(48.35), Lng: fptr(10.90)},                                                 // nil dist
-		{Time: base.Add(10 * time.Second), Lat: fptr(48.3501), Lng: fptr(10.9001)},                       // nil dist
-		{Time: base.Add(20 * time.Second), DistanceM: fptr(500), Lat: fptr(48.3502), Lng: fptr(10.9002)}, // real
+		{Time: base, Lat: new(48.35), Lng: new(10.90)},                                                 // nil dist
+		{Time: base.Add(10 * time.Second), Lat: new(48.3501), Lng: new(10.9001)},                       // nil dist
+		{Time: base.Add(20 * time.Second), DistanceM: fptr(500), Lat: new(48.3502), Lng: new(10.9002)}, // real
 	}
 
 	got := FillMissingDistanceAndSpeed(points)
@@ -227,10 +228,10 @@ func TestFillGaps_FirstPointNilThenReal(t *testing.T) {
 func TestFixDistanceResets_Shared_SingleLap(t *testing.T) {
 	now := time.Now()
 	points := []model.StreamPoint{
-		{Time: now, DistanceM: fptr(0.0)},
-		{Time: now.Add(1 * time.Second), DistanceM: fptr(200.0)},
-		{Time: now.Add(2 * time.Second), DistanceM: fptr(500.0)},
-		{Time: now.Add(3 * time.Second), DistanceM: fptr(800.0)},
+		{Time: now, DistanceM: new(0.0)},
+		{Time: now.Add(1 * time.Second), DistanceM: new(200.0)},
+		{Time: now.Add(2 * time.Second), DistanceM: new(500.0)},
+		{Time: now.Add(3 * time.Second), DistanceM: new(800.0)},
 	}
 	got := FixDistanceResets(points)
 	want := []float64{0.0, 200.0, 500.0, 800.0}
@@ -248,12 +249,12 @@ func TestFixDistanceResets_Shared_SingleLap(t *testing.T) {
 func TestFixDistanceResets_Shared_TwoLapReset(t *testing.T) {
 	now := time.Now()
 	points := []model.StreamPoint{
-		{Time: now, DistanceM: fptr(200.0)},
-		{Time: now.Add(1 * time.Second), DistanceM: fptr(500.0)},
+		{Time: now, DistanceM: new(200.0)},
+		{Time: now.Add(1 * time.Second), DistanceM: new(500.0)},
 		// GOTOES Reset: dist drops near 0
-		{Time: now.Add(2 * time.Second), DistanceM: fptr(0.12)},
-		{Time: now.Add(3 * time.Second), DistanceM: fptr(300.0)},
-		{Time: now.Add(4 * time.Second), DistanceM: fptr(700.0)},
+		{Time: now.Add(2 * time.Second), DistanceM: new(0.12)},
+		{Time: now.Add(3 * time.Second), DistanceM: new(300.0)},
+		{Time: now.Add(4 * time.Second), DistanceM: new(700.0)},
 	}
 	got := FixDistanceResets(points)
 	want := []float64{200.0, 500.0, 500.12, 800.0, 1200.0}
@@ -271,10 +272,10 @@ func TestFixDistanceResets_Shared_TwoLapReset(t *testing.T) {
 func TestFixDistanceResets_Shared_NilDistances(t *testing.T) {
 	now := time.Now()
 	points := []model.StreamPoint{
-		{Time: now, DistanceM: fptr(200.0)},
+		{Time: now, DistanceM: new(200.0)},
 		{Time: now.Add(1 * time.Second), DistanceM: nil},
-		{Time: now.Add(2 * time.Second), DistanceM: fptr(0.5)}, // Reset after 200m
-		{Time: now.Add(3 * time.Second), DistanceM: fptr(300.0)},
+		{Time: now.Add(2 * time.Second), DistanceM: new(0.5)}, // Reset after 200m
+		{Time: now.Add(3 * time.Second), DistanceM: new(300.0)},
 	}
 	got := FixDistanceResets(points)
 	if got[1].DistanceM != nil {
@@ -292,9 +293,9 @@ func TestFixDistanceResets_Shared_NilDistances(t *testing.T) {
 func TestFixDistanceResets_Shared_SmallDrop(t *testing.T) {
 	now := time.Now()
 	points := []model.StreamPoint{
-		{Time: now, DistanceM: fptr(500.0)},
-		{Time: now.Add(1 * time.Second), DistanceM: fptr(498.0)},
-		{Time: now.Add(2 * time.Second), DistanceM: fptr(600.0)},
+		{Time: now, DistanceM: new(500.0)},
+		{Time: now.Add(1 * time.Second), DistanceM: new(498.0)},
+		{Time: now.Add(2 * time.Second), DistanceM: new(600.0)},
 	}
 	got := FixDistanceResets(points)
 	if math.Abs(*got[1].DistanceM-498.0) > 0.01 {
@@ -309,12 +310,12 @@ func TestFixDistanceResets_Shared_SmallDrop(t *testing.T) {
 func TestFixDistanceResets_Shared_ThreeSegments(t *testing.T) {
 	now := time.Now()
 	points := []model.StreamPoint{
-		{Time: now, DistanceM: fptr(0.0)},
-		{Time: now.Add(1 * time.Second), DistanceM: fptr(500.0)},
-		{Time: now.Add(2 * time.Second), DistanceM: fptr(0.1)},
-		{Time: now.Add(3 * time.Second), DistanceM: fptr(400.0)},
-		{Time: now.Add(4 * time.Second), DistanceM: fptr(0.2)},
-		{Time: now.Add(5 * time.Second), DistanceM: fptr(300.0)},
+		{Time: now, DistanceM: new(0.0)},
+		{Time: now.Add(1 * time.Second), DistanceM: new(500.0)},
+		{Time: now.Add(2 * time.Second), DistanceM: new(0.1)},
+		{Time: now.Add(3 * time.Second), DistanceM: new(400.0)},
+		{Time: now.Add(4 * time.Second), DistanceM: new(0.2)},
+		{Time: now.Add(5 * time.Second), DistanceM: new(300.0)},
 	}
 	got := FixDistanceResets(points)
 	want := []float64{0.0, 500.0, 500.1, 900.0, 900.2, 1200.0}

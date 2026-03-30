@@ -283,29 +283,29 @@ func TestDeriveGPSMetrics_MeringScenario(t *testing.T) {
 	// Simulate 3 clusters: 30min, 10h gap, 15min, 5h gap, 37min
 	var points []model.StreamPoint
 	// Cluster 1: 30 points over 30min
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		points = append(points, model.StreamPoint{
 			Time: base.Add(time.Duration(i) * time.Minute),
-			Lat:  fptr(lat + float64(i)*0.001),
-			Lng:  fptr(lng),
+			Lat:  new(lat + float64(i)*0.001),
+			Lng:  new(lng),
 		})
 	}
 	// 10.4h gap
 	gap1 := base.Add(10*time.Hour + 24*time.Minute)
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		points = append(points, model.StreamPoint{
 			Time: gap1.Add(time.Duration(i) * time.Minute),
-			Lat:  fptr(lat + 0.03 + float64(i)*0.001),
-			Lng:  fptr(lng + 0.01),
+			Lat:  new(lat + 0.03 + float64(i)*0.001),
+			Lng:  new(lng + 0.01),
 		})
 	}
 	// 5.1h gap
 	gap2 := gap1.Add(5*time.Hour + 6*time.Minute)
-	for i := 0; i < 37; i++ {
+	for i := range 37 {
 		points = append(points, model.StreamPoint{
 			Time: gap2.Add(time.Duration(i) * time.Minute),
-			Lat:  fptr(lat + 0.05 + float64(i)*0.001),
-			Lng:  fptr(lng + 0.02),
+			Lat:  new(lat + 0.05 + float64(i)*0.001),
+			Lng:  new(lng + 0.02),
 		})
 	}
 

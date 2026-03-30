@@ -11,7 +11,7 @@ import (
 // trustedCIDRs is a comma-separated list of CIDR ranges (e.g. "10.89.0.0/16,172.16.0.0/12").
 func TrustedProxyRealIP(trustedCIDRs string) func(http.Handler) http.Handler {
 	var networks []*net.IPNet
-	for _, cidr := range strings.Split(trustedCIDRs, ",") {
+	for cidr := range strings.SplitSeq(trustedCIDRs, ",") {
 		cidr = strings.TrimSpace(cidr)
 		if cidr == "" {
 			continue

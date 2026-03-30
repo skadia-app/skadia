@@ -176,8 +176,8 @@ func fetchCurrentSequence(ctx context.Context, replicationURL string) (int, erro
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "sequenceNumber=") {
-			val := strings.TrimPrefix(line, "sequenceNumber=")
+		if after, ok := strings.CutPrefix(line, "sequenceNumber="); ok {
+			val := after
 			seq, err := strconv.Atoi(strings.TrimSpace(val))
 			if err != nil {
 				return 0, fmt.Errorf("fetchCurrentSequence: parse sequenceNumber %q: %w", val, err)

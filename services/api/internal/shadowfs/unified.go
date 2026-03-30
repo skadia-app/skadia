@@ -207,10 +207,7 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 	}
 
 	// Content-type detection from first 512 bytes.
-	peekLen := 512
-	if len(allData) < peekLen {
-		peekLen = len(allData)
-	}
+	peekLen := min(len(allData), 512)
 	contentType := DetectContentType(entry.FileName, entry.ContentType, allData[:peekLen])
 
 	// Pre-compute hash (used by both local and S3 paths).

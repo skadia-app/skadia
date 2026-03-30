@@ -54,7 +54,7 @@ func TestExtractWorkout_SourceHash(t *testing.T) {
 	}
 
 	// SourceHash: SHA256 of "Test|1|0|3"
-	expected := sha256.Sum256([]byte(fmt.Sprintf("%s|%d|%d|%d", "Test", 1, 0, 3)))
+	expected := sha256.Sum256(fmt.Appendf(nil, "%s|%d|%d|%d", "Test", 1, 0, 3))
 	expectedHash := hex.EncodeToString(expected[:])
 	if result.SourceHash != expectedHash {
 		t.Errorf("SourceHash:\ngot  %s\nwant %s", result.SourceHash, expectedHash)

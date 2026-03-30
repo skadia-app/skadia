@@ -160,7 +160,7 @@ func TestFindRouteUnified_MultiEdgePath(t *testing.T) {
 	visited[src] = true
 
 	// All 5 nodes must be visited
-	for localID := uint32(0); localID < 5; localID++ {
+	for localID := range uint32(5) {
 		gid := MakeGlobalNodeID(0, localID)
 		if !visited[gid] {
 			t.Errorf("node %d not in parent chain", localID)

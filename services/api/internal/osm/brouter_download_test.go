@@ -1,5 +1,7 @@
 package osm
 
+import "slices"
+
 import "testing"
 
 func TestFormatBRouterTileID(t *testing.T) {
@@ -27,12 +29,7 @@ func TestBRouterTileIDs(t *testing.T) {
 		t.Fatalf("expected 2 tiles for Switzerland, got %d: %v", len(tiles), tiles)
 	}
 	has := func(id string) bool {
-		for _, tile := range tiles {
-			if tile == id {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(tiles, id)
 	}
 	if !has("E5_N45") {
 		t.Error("missing E5_N45")

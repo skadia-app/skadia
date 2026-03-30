@@ -158,7 +158,7 @@ func BuildCSRFromFile(nodes []Coord, nodeTags []uint8, edgeTmpPath string) (*Gra
 
 	// Build offsets from degree counts, then free degree array
 	g.Offsets = make([]uint32, nodeCount+1)
-	for i := uint32(0); i < nodeCount; i++ {
+	for i := range nodeCount {
 		g.Offsets[i+1] = g.Offsets[i] + degree[i]
 	}
 	degree = nil
@@ -284,10 +284,7 @@ func equirectangularDistDm(lat1, lon1, lat2, lon2 float64) uint16 {
 	meanLat := (lat1 + lat2) / 2.0 * degToRad
 	x := dLon * math.Cos(meanLat)
 	dist := math.Sqrt(dLat*dLat+x*x) * earthRadius
-	dm := min(int(math.Round(dist*10)), 65535)
-	if dm < 0 {
-		dm = 0
-	}
+	dm := max(min(int(math.Round(dist*10)), 65535), 0)
 	return uint16(dm)
 }
 

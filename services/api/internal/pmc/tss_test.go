@@ -12,7 +12,9 @@ import (
 
 func TestCalcNP_ConstantPower(t *testing.T) {
 	stream := make([]float64, 60)
-	for i := range stream { stream[i] = 200 }
+	for i := range stream {
+		stream[i] = 200
+	}
 	np := CalcNP(stream)
 	if math.Abs(np-200) > 0.1 {
 		t.Errorf("CalcNP constant 200W = %f, want 200", np)
@@ -23,8 +25,12 @@ func TestCalcNP_VariablePower(t *testing.T) {
 	// Blocks of 60s at 300W then 60s at 100W: variation is coarser than the
 	// 30s SMA window, so NP > average power (200W) due to the 4th-power weighting.
 	stream := make([]float64, 120)
-	for i := 0; i < 60; i++ { stream[i] = 300 }
-	for i := 60; i < 120; i++ { stream[i] = 100 }
+	for i := range 60 {
+		stream[i] = 300
+	}
+	for i := 60; i < 120; i++ {
+		stream[i] = 100
+	}
 	np := CalcNP(stream)
 	if np <= 200 {
 		t.Errorf("CalcNP variable power = %f, want > 200", np)
@@ -33,7 +39,9 @@ func TestCalcNP_VariablePower(t *testing.T) {
 
 func TestCalcNP_TooShort(t *testing.T) {
 	stream := make([]float64, 20)
-	for i := range stream { stream[i] = 200 }
+	for i := range stream {
+		stream[i] = 200
+	}
 	if np := CalcNP(stream); np != 0 {
 		t.Errorf("CalcNP short stream = %f, want 0", np)
 	}
@@ -41,7 +49,9 @@ func TestCalcNP_TooShort(t *testing.T) {
 
 func TestCalcNP_WithZeros(t *testing.T) {
 	stream := make([]float64, 60)
-	for i := 0; i < 30; i++ { stream[i] = 200 }
+	for i := range 30 {
+		stream[i] = 200
+	}
 	np := CalcNP(stream)
 	if np >= 200 {
 		t.Errorf("CalcNP with zeros = %f, want < 200", np)
@@ -58,9 +68,11 @@ func TestRepairDropouts(t *testing.T) {
 
 func TestRepairDropouts_LongGap(t *testing.T) {
 	stream := make([]float64, 20)
-	stream[0] = 200; stream[1] = 200
+	stream[0] = 200
+	stream[1] = 200
 	// Gap of 10 zeros
-	stream[12] = 200; stream[13] = 200
+	stream[12] = 200
+	stream[13] = 200
 	repaired := repairDropouts(stream)
 	if repaired[5] != 0 {
 		t.Error("repairDropouts should NOT interpolate gaps > 5 samples")
@@ -71,7 +83,9 @@ func TestRepairDropouts_LongGap(t *testing.T) {
 
 func TestCalcHrTSS_OneHourAtLTHR(t *testing.T) {
 	stream := make([]int, 3600)
-	for i := range stream { stream[i] = 170 }
+	for i := range stream {
+		stream[i] = 170
+	}
 	tss := CalcHrTSS(stream, 170, 60, 190)
 	if math.Abs(tss-100) > 1.0 {
 		t.Errorf("CalcHrTSS 1h at LTHR = %f, want ~100", tss)
@@ -80,7 +94,9 @@ func TestCalcHrTSS_OneHourAtLTHR(t *testing.T) {
 
 func TestCalcHrTSS_BelowRestingHR(t *testing.T) {
 	stream := make([]int, 60)
-	for i := range stream { stream[i] = 50 }
+	for i := range stream {
+		stream[i] = 50
+	}
 	tss := CalcHrTSS(stream, 170, 60, 190)
 	if tss != 0 {
 		t.Errorf("CalcHrTSS below resting = %f, want 0", tss)
@@ -89,7 +105,9 @@ func TestCalcHrTSS_BelowRestingHR(t *testing.T) {
 
 func TestCalcHrTSS_InvalidLTHR(t *testing.T) {
 	stream := make([]int, 60)
-	for i := range stream { stream[i] = 120 }
+	for i := range stream {
+		stream[i] = 120
+	}
 	tss := CalcHrTSS(stream, 50, 60, 190)
 	if tss != 0 {
 		t.Errorf("CalcHrTSS invalid LTHR = %f, want 0", tss)
@@ -109,7 +127,9 @@ func TestCalcEdwardsTRIMP_AllZone1(t *testing.T) {
 	maxHR, restHR := 200, 60
 	targetHR := restHR + int(0.55*float64(maxHR-restHR))
 	stream := make([]int, 60)
-	for i := range stream { stream[i] = targetHR }
+	for i := range stream {
+		stream[i] = targetHR
+	}
 	trimp := CalcEdwardsTRIMP(stream, restHR, maxHR)
 	if math.Abs(trimp-1.0) > 0.1 {
 		t.Errorf("Edwards TRIMP 60s zone1 = %f, want ~1.0", trimp)
@@ -120,7 +140,9 @@ func TestCalcEdwardsTRIMP_AllZone5(t *testing.T) {
 	maxHR, restHR := 200, 60
 	targetHR := restHR + int(0.95*float64(maxHR-restHR))
 	stream := make([]int, 60)
-	for i := range stream { stream[i] = targetHR }
+	for i := range stream {
+		stream[i] = targetHR
+	}
 	trimp := CalcEdwardsTRIMP(stream, restHR, maxHR)
 	if math.Abs(trimp-5.0) > 0.1 {
 		t.Errorf("Edwards TRIMP 60s zone5 = %f, want ~5.0", trimp)
@@ -154,7 +176,9 @@ func TestMinettiCr_Uphill10(t *testing.T) {
 func TestCalcNGP_FlatTerrain(t *testing.T) {
 	speeds := make([]float64, 60)
 	grades := make([]float64, 60)
-	for i := range speeds { speeds[i] = 3.0 }
+	for i := range speeds {
+		speeds[i] = 3.0
+	}
 	ngp := CalcNGP(speeds, grades, nil)
 	if math.Abs(ngp-3.0) > 0.1 {
 		t.Errorf("CalcNGP flat = %f, want ~3.0", ngp)
@@ -172,9 +196,15 @@ func TestCalcSwimTSS(t *testing.T) {
 }
 
 func TestCalcSwimTSS_ZeroInputs(t *testing.T) {
-	if CalcSwimTSS(0, 3300, 1.0) != 0 { t.Error("zero distance") }
-	if CalcSwimTSS(3000, 0, 1.0) != 0 { t.Error("zero time") }
-	if CalcSwimTSS(3000, 3300, 0) != 0 { t.Error("zero CSS") }
+	if CalcSwimTSS(0, 3300, 1.0) != 0 {
+		t.Error("zero distance")
+	}
+	if CalcSwimTSS(3000, 0, 1.0) != 0 {
+		t.Error("zero time")
+	}
+	if CalcSwimTSS(3000, 3300, 0) != 0 {
+		t.Error("zero CSS")
+	}
 }
 
 // --- ComputeTSS Orchestrator Tests ---
@@ -184,7 +214,10 @@ func TestComputeTSS_PowerPreferred(t *testing.T) {
 		Sources: map[string]string{}}
 	power := make([]float64, 60)
 	hr := make([]int, 60)
-	for i := range power { power[i] = 200; hr[i] = 150 }
+	for i := range power {
+		power[i] = 200
+		hr[i] = 150
+	}
 	r := ComputeTSS(2, 0, 3600, nil, nil, nil, power, hr, nil, nil, nil, th)
 	if r.TSSMethod != "power_np" {
 		t.Errorf("method = %s, want power_np", r.TSSMethod)
@@ -204,7 +237,9 @@ func TestComputeTSS_FallbackToHrTSS(t *testing.T) {
 	th := &Thresholds{FTP: 200, LTHR: 170, RestingHR: 60, MaxHR: 190,
 		Sources: map[string]string{}}
 	hr := make([]int, 3600)
-	for i := range hr { hr[i] = 150 }
+	for i := range hr {
+		hr[i] = 150
+	}
 	r := ComputeTSS(2, 0, 3600, nil, nil, nil, nil, hr, nil, nil, nil, th)
 	if r.TSSMethod != "hr_stream" {
 		t.Errorf("method = %s, want hr_stream", r.TSSMethod)
@@ -241,7 +276,9 @@ func TestComputeTSS_StrengthTraining(t *testing.T) {
 	th := &Thresholds{FTP: 200, LTHR: 170, RestingHR: 60, MaxHR: 190,
 		Sources: map[string]string{}}
 	hr := make([]int, 1800)
-	for i := range hr { hr[i] = 140 }
+	for i := range hr {
+		hr[i] = 140
+	}
 	r := ComputeTSS(10, 0, 1800, nil, nil, nil, nil, hr, nil, nil, nil, th)
 	if r.TSSMethod != "hr_stream" {
 		t.Errorf("strength training method = %s, want hr_stream", r.TSSMethod)
@@ -393,7 +430,7 @@ func TestExtractPowerStream_SkipsNullRows(t *testing.T) {
 	// The central dedup approach is now tested: dedup first, then extract.
 	points := make([]model.StreamPoint, 120)
 	now := time.Now()
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		points[i].Time = now.Add(time.Duration(i/2) * time.Second) // 2 rows per second
 		if i%2 == 0 {
 			// Power row

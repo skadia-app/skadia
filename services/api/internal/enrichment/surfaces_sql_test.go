@@ -2,7 +2,8 @@ package enrichment
 
 import "testing"
 
-func ptr[T any](v T) *T { return &v }
+//go:fix inline
+func ptr[T any](v T) *T { return new(v) }
 
 // makePoint is a convenience helper that creates a matchedPoint already
 // carrying pre-computed SurfaceClass and HighwayClass values (as the SQL
@@ -15,7 +16,7 @@ func makePoint(idx int, osmID *int64, surface, highway string) matchedPoint {
 		HighwayClass: highway,
 	}
 	if surface != "offroad" {
-		p.DistM = ptr(5.0) // within tolerance
+		p.DistM = new(5.0) // within tolerance
 	}
 	if surface != "offroad" && surface != "unknown" {
 		p.Surface = &surface
@@ -184,9 +185,9 @@ func TestAggregateByField_SortedDescending(t *testing.T) {
 func TestClassification_UnknownSurface(t *testing.T) {
 	p := matchedPoint{
 		Idx:     0,
-		DistM:   ptr(10.0),
+		DistM:   new(10.0),
 		Surface: nil,
-		Highway: ptr("track"),
+		Highway: new("track"),
 	}
 
 	// Reproduce the classification block from enrichSurfacesSQL.

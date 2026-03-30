@@ -45,7 +45,7 @@ func ComputeProjection(ctx context.Context, db *database.DB, userID string) erro
 
 	var ctlValues []float64
 	for rows.Next() {
-		var dateIgnored interface{}
+		var dateIgnored any
 		var ctl float64
 		if err := rows.Scan(&dateIgnored, &ctl); err != nil {
 			continue

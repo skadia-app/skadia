@@ -28,7 +28,7 @@ func calcNormalized(stream []float64) float64 {
 	const window = 30
 	sma := make([]float64, len(stream)-window+1)
 	var windowSum float64
-	for i := 0; i < window; i++ {
+	for i := range window {
 		windowSum += stream[i]
 	}
 	sma[0] = windowSum / float64(window)
@@ -67,7 +67,7 @@ func repairDropouts(power []float64) []float64 {
 		}
 		startVal := result[i-1]
 		endVal := result[gapEnd]
-		for j := 0; j < gapLen; j++ {
+		for j := range gapLen {
 			frac := float64(j+1) / float64(gapLen+1)
 			result[i+j] = startVal + (endVal-startVal)*frac
 		}
@@ -239,7 +239,7 @@ func CalcNGP(speeds, grades []float64, gapStream []float64) float64 {
 		return 0
 	}
 	gasStream := make([]float64, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if gapStream != nil && i < len(gapStream) && gapStream[i] > 0 {
 			gasStream[i] = gapStream[i] // Garmin native GAP preferred
 		} else if i < len(grades) {

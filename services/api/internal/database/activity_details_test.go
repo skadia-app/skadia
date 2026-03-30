@@ -45,7 +45,7 @@ func TestInsertLapsColumnAlignment(t *testing.T) {
 	colClean := commentRe.ReplaceAllString(colText, "")
 
 	colCount := 0
-	for _, tok := range strings.Split(colClean, ",") {
+	for tok := range strings.SplitSeq(colClean, ",") {
 		if strings.TrimSpace(tok) != "" {
 			colCount++
 		}

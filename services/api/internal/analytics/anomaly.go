@@ -111,10 +111,7 @@ func DetectAnomalies(ctx context.Context, db *database.DB, userID string) error 
 		}
 
 		for i := range values {
-			windowStart := i - windowDays
-			if windowStart < 0 {
-				windowStart = 0
-			}
+			windowStart := max(i-windowDays, 0)
 			window := values[windowStart:i]
 			if len(window) < 7 {
 				continue

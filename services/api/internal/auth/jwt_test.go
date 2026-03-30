@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/rand"
+	"slices"
 	"testing"
 	"time"
 
@@ -30,13 +31,7 @@ func TestIssueJWT_Roundtrip(t *testing.T) {
 		t.Errorf("expected subject user-123, got %q", token.Subject())
 	}
 
-	foundAud := false
-	for _, a := range token.Audience() {
-		if a == JWTAudience {
-			foundAud = true
-			break
-		}
-	}
+	foundAud := slices.Contains(token.Audience(), JWTAudience)
 	if !foundAud {
 		t.Errorf("expected audience to contain %q, got %v", JWTAudience, token.Audience())
 	}
