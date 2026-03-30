@@ -147,10 +147,12 @@ export const SPORT_DEFS: SportDef[] = [
   def('wakesurfing', 'water', 'generic', 'Wakesurfen', true),
   def('water_skiing', 'water', 'generic', 'Wasserski', true),
   def('water_tubing', 'water', 'generic', 'Tubing', true),
-  def('diving', 'water', 'generic', 'Tauchen', true, [
+  def('diving', 'water', 'generic', 'Tauchen', false, [
     sub('single_gas_diving', 'Eingas-Tauchen'),
     sub('multi_gas_diving', 'Mehrgas-Tauchen'),
+    sub('gauge_diving', 'Gauge-Tauchen'),
     sub('apnea_diving', 'Apnoe-Tauchen'),
+    sub('apnea_hunting', 'Apnoe-Jagdtauchen'),
   ]),
   def('snorkeling', 'water', 'generic', 'Schnorcheln', true),
   def('boating', 'water', 'generic', 'Bootfahren', true),
