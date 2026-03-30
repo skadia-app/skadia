@@ -14,6 +14,7 @@ export const CHART_TAB = {
   sensoren: 'sensoren',
   mtb: 'mtb',
   ausdauer: 'ausdauer',
+  barometer: 'barometer',
 } as const
 
 export type ChartTabValue = typeof CHART_TAB[keyof typeof CHART_TAB]
@@ -43,6 +44,7 @@ export function ChartTabs({ streams, children }: Props) {
       { value: CHART_TAB.ebike, label: 'E-Bike', visible: streams.some(s => s.motor_power_w != null) },
       { value: CHART_TAB.tauchgang, label: 'Tauchgang', visible: streams.some(s => s.depth_m != null) },
       { value: CHART_TAB.sensoren, label: 'Sensoren', visible: streams.some(s => s.core_temperature_c != null) },
+      { value: CHART_TAB.barometer, label: 'Barometer', visible: streams.some(s => s.absolute_pressure_pa != null) },
       { value: CHART_TAB.mtb, label: 'MTB', visible: streams.some(s => s.grit != null || s.flow != null) },
       { value: CHART_TAB.ausdauer, label: 'Ausdauer', visible: streams.some(s => s.potential_stamina != null) },
     ]
