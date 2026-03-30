@@ -123,6 +123,22 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
+      // Create heading arrow icon (simple triangle pointing up = 0°)
+      const arrowSize = 16
+      const canvas = document.createElement('canvas')
+      canvas.width = arrowSize
+      canvas.height = arrowSize
+      const ctx2d = canvas.getContext('2d')!
+      ctx2d.fillStyle = '#374151' // neutral-700
+      ctx2d.beginPath()
+      ctx2d.moveTo(arrowSize / 2, 0)
+      ctx2d.lineTo(arrowSize, arrowSize)
+      ctx2d.lineTo(arrowSize / 2, arrowSize * 0.7)
+      ctx2d.lineTo(0, arrowSize)
+      ctx2d.closePath()
+      ctx2d.fill()
+      map.addImage('heading-arrow', canvas, { sdf: false })
+
       // Full track — greyed out when a segment is highlighted
       map.addSource('track', {
         type: 'geojson',
@@ -152,6 +168,39 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
         layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' },
         paint: { 'line-color': sportColor, 'line-width': 4, 'line-opacity': 1 },
       })
+
+      // Heading arrows: sample every ~50 points with valid heading
+      const headingFeatures: GeoJSON.Feature[] = []
+      const step = Math.max(1, Math.floor(coordinates.length / 40))
+      for (let i = 0; i < streams.length; i += step) {
+        const s = streams[i]
+        if (s.heading != null && s.lat != null && s.lng != null) {
+          headingFeatures.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+            properties: { heading: s.heading },
+          })
+        }
+      }
+
+      if (headingFeatures.length > 0) {
+        map.addSource('heading-arrows', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: headingFeatures },
+        })
+        map.addLayer({
+          id: 'heading-arrows',
+          type: 'symbol',
+          source: 'heading-arrows',
+          layout: {
+            'icon-image': 'heading-arrow',
+            'icon-size': 0.6,
+            'icon-rotate': ['get', 'heading'],
+            'icon-rotation-alignment': 'map',
+            'icon-allow-overlap': true,
+          },
+        })
+      }
 
       // Gipfel-Pins aus GeoTags (category: summit/pass)
       const summitTags = (geoTags ?? []).filter(
@@ -297,6 +346,8 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
       photoMarkersRef.current = []
       photoBlobUrlsRef.current.forEach(u => URL.revokeObjectURL(u))
       photoBlobUrlsRef.current = []
+      if (map.getLayer('heading-arrows')) map.removeLayer('heading-arrows')
+      if (map.getSource('heading-arrows')) map.removeSource('heading-arrows')
       map.remove()
     }
   }, [hasTrack]) // eslint-disable-line react-hooks/exhaustive-deps
