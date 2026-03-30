@@ -47,6 +47,7 @@ import { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS } from '@/components/RecomputeModal'
 import SportConflictBadge from '@/components/SportConflictBadge'
 import SportConflictModal from '@/components/SportConflictModal'
 import MergeDialog from '@/components/MergeDialog'
+import { haversineM } from '@/lib/geoUtils'
 import MultisportSection from '@/components/MultisportSection'
 import { MultisportMap, type MultisportMapHandle } from '@/components/activity/MultisportMap'
 import MultisportEnrichments from '@/components/activity/MultisportEnrichments'
@@ -1797,21 +1798,13 @@ const SUMMIT_ICON_SVG = `data:image/svg+xml,${encodeURIComponent(
   '</svg>'
 )}`
 
-function haversineM([lng1, lat1]: [number, number], [lng2, lat2]: [number, number]): number {
-  const R = 6371000
-  const dLat = (lat2 - lat1) * Math.PI / 180
-  const dLng = (lng2 - lng1) * Math.PI / 180
-  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
-}
-
 /** Teilt Koordinaten bei Sprüngen > thresholdM in separate Segmente auf */
 function splitAtGaps(coords: [number, number][], thresholdM: number): [number, number][][] {
   if (coords.length < 2 || thresholdM <= 0) return [coords]
   const segments: [number, number][][] = []
   let current: [number, number][] = [coords[0]]
   for (let i = 1; i < coords.length; i++) {
-    if (haversineM(coords[i-1], coords[i]) > thresholdM) {
+    if (haversineM(coords[i-1][1], coords[i-1][0], coords[i][1], coords[i][0]) > thresholdM) {
       if (current.length >= 2) segments.push(current)
       current = [coords[i]]
     } else {
