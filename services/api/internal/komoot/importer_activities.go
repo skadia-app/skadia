@@ -164,8 +164,8 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			}
 
 			// E-Bike flag is always additive (Komoot knows if tour was e-bike)
-			if mapping.IsEbike {
-				data.IsEbike = true
+			if mapping.IsElectric {
+				data.IsElectric = true
 			}
 		}
 
@@ -271,7 +271,7 @@ func tourToActivityData(tour Tour) *model.ActivityData {
 	if mapping, ok := KomootSportMapping[tour.Sport]; ok {
 		data.SportType = mapping.SportType
 		data.SubType = mapping.SubType
-		data.IsEbike = mapping.IsEbike
+		data.IsElectric = mapping.IsElectric
 	} else {
 		data.SportType = "generic"
 	}

@@ -17,7 +17,7 @@ type Activity struct {
 	SubType                 *string          `json:"sub_type,omitempty"`
 	FitSportID              *int16           `json:"fit_sport_id,omitempty"`
 	FitSubSportID           *int16           `json:"fit_sub_sport_id,omitempty"`
-	IsEbike                 bool             `json:"is_ebike"`
+	IsElectric                 bool             `json:"is_electric"`
 	IsVirtual               bool             `json:"is_virtual"`
 	ExcludeFromHeatmap      bool             `json:"exclude_from_heatmap"`
 	ExcludeFromStats        bool             `json:"exclude_from_stats"`
@@ -325,7 +325,7 @@ type ActivityFilters struct {
 	DateFrom       string
 	DateTo         string
 	IsIndoor       *bool
-	IsEbike        *bool
+	IsElectric        *bool
 	IsVirtual      *bool
 	HasGPS         *bool
 	GearID         string

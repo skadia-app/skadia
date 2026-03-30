@@ -13,7 +13,7 @@ import (
 )
 
 // ApplyRulesToActivity evaluates all given rules against a single activity.
-// System rules (except ebike_sync) have retraction semantics:
+// System rules (except electric_sync) have retraction semantics:
 // - Match + no removal → add tag + set_field
 // - No match + tag present → remove tag + invert set_field (bool→false)
 // User rules only add, never retract.
@@ -33,8 +33,8 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 		if !rule.IsActive {
 			continue
 		}
-		// Skip ebike_sync / virtual_sync — managed by DB trigger, not rules engine
-		if rule.SystemType != nil && (*rule.SystemType == "ebike_sync" || *rule.SystemType == "virtual_sync") {
+		// Skip electric_sync / virtual_sync — managed by DB trigger, not rules engine
+		if rule.SystemType != nil && (*rule.SystemType == "electric_sync" || *rule.SystemType == "virtual_sync") {
 			continue
 		}
 
