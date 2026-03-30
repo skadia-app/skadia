@@ -412,14 +412,15 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 		})
 
 		// DP-simplified intermediate geometry for route display
-		// K08: Ele=-9999 sentinel for DP points (no elevation available)
 		// A04: EdgeGeometry returns ONLY intermediate points (start/end excluded by reader)
+		// Carry forward the network node's elevation for DP points (no per-point DEM available)
 		lats, lons := reader.EdgeGeometry(edgeHandle)
+		carriedEle := float64(nodeEle) / 10.0 // use this edge's start node elevation
 		for j := range lats {
 			coords = append(coords, LatLonEle{
 				Lat: float64(lats[j]) / 1e7,
 				Lon: float64(lons[j]) / 1e7,
-				Ele: -9999, // K08: sentinel — DP points have no elevation
+				Ele: carriedEle,
 			})
 		}
 
