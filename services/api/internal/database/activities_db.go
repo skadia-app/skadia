@@ -794,12 +794,12 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 	}
 	if filters.DateFrom != "" {
 		idx++
-		conds = append(conds, fmt.Sprintf("started_at::date >= $%d::date", idx))
+		conds = append(conds, fmt.Sprintf("(started_at AT TIME ZONE COALESCE(timezone, 'UTC'))::date >= $%d::date", idx))
 		args = append(args, filters.DateFrom)
 	}
 	if filters.DateTo != "" {
 		idx++
-		conds = append(conds, fmt.Sprintf("started_at::date <= $%d::date", idx))
+		conds = append(conds, fmt.Sprintf("(started_at AT TIME ZONE COALESCE(timezone, 'UTC'))::date <= $%d::date", idx))
 		args = append(args, filters.DateTo)
 	}
 	if filters.IsIndoor != nil {
