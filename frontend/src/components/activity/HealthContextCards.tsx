@@ -122,7 +122,7 @@ function HrvCard({ hc }: HrvCardProps) {
     <div className="flex-1 min-w-0 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3 space-y-1">
       <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">HRV</div>
       <div className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-        {Math.round(hc.hrv_rmssd!)} <span className="text-xs font-normal text-neutral-500 dark:text-neutral-400">ms</span>
+        {Math.round(hc.hrv_rmssd ?? 0)} <span className="text-xs font-normal text-neutral-500 dark:text-neutral-400">ms</span>
       </div>
       {hc.hrv_measured_at && (
         <div className="text-[11px] text-neutral-400 dark:text-neutral-500">
