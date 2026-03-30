@@ -67,7 +67,7 @@ func (db *DB) GetHRVCorrelation(ctx context.Context, userID string, from, to tim
 		FROM health_readiness_scores h
 		LEFT JOIN activities a
 			ON  a.user_id      = h.user_id
-			AND a.started_at::date = h.calendar_date - INTERVAL '1 day'
+			AND (a.started_at AT TIME ZONE COALESCE(a.timezone, 'UTC'))::date = h.calendar_date - INTERVAL '1 day'
 		WHERE h.user_id = $1
 		  AND h.hrv_weekly_avg_ms IS NOT NULL
 		  AND h.calendar_date BETWEEN $2::date AND $3::date

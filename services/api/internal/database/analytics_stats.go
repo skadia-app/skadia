@@ -30,7 +30,7 @@ func (db *DB) GetLifetimeStats(ctx context.Context, userID string, whereClause s
 			COALESCE(SUM(moving_time_s), 0)     AS total_moving_time_s,
 			COALESCE(SUM(elapsed_time_s), 0)    AS total_elapsed_time_s,
 			COALESCE(SUM(total_calories), 0)    AS total_calories,
-			COUNT(DISTINCT started_at::date)     AS active_days,
+			COUNT(DISTINCT (a.started_at AT TIME ZONE COALESCE(a.timezone, 'UTC'))::date) AS active_days,
 			COUNT(DISTINCT start_country)        AS countries
 		FROM activities a
 		WHERE a.user_id = $1` + whereClause
@@ -71,7 +71,7 @@ func (db *DB) GetEddingtonData(ctx context.Context, userID string, metric string
 		SELECT ` + aggExpr + ` AS value
 		FROM activities a
 		WHERE a.user_id = $1` + whereClause + `
-		GROUP BY started_at::date
+		GROUP BY (a.started_at AT TIME ZONE COALESCE(a.timezone, 'UTC'))::date
 		ORDER BY value DESC`
 
 	allArgs := append([]any{userID}, args...)
@@ -244,7 +244,7 @@ func (db *DB) GetYearlyOverview(ctx context.Context, userID string) ([]YearlyOve
 // Used for streak calculation.
 func (db *DB) GetActiveDays(ctx context.Context, userID string) ([]time.Time, error) {
 	query := `
-		SELECT DISTINCT started_at::date AS day
+		SELECT DISTINCT (started_at AT TIME ZONE COALESCE(timezone, 'UTC'))::date AS day
 		FROM activities
 		WHERE user_id = $1
 		ORDER BY day`
