@@ -1126,13 +1126,13 @@ function sma(arr: number[], window = 30): number[] {
   return result
 }
 
-/** Format a min/km value as "m:ss /km" for tooltip display. */
+/** Format a min/km value as "m:ss min/km" for tooltip display. */
 function formatMinKm(minKm: number): string {
   if (isNaN(minKm) || !isFinite(minKm) || minKm <= 0) return '—'
   const min = Math.floor(minKm)
   let sec = Math.round((minKm - min) * 60)
-  if (sec >= 60) { return `${min + 1}:00\u202f/km` }
-  return `${min}:${sec.toString().padStart(2, '0')}\u202f/km`
+  if (sec >= 60) { return `${min + 1}:00\u202fmin/km` }
+  return `${min}:${sec.toString().padStart(2, '0')}\u202fmin/km`
 }
 
 const COLOR_PACE = '#3B82F6'
@@ -1413,9 +1413,9 @@ function SpeedPaceChartPanel({
             const pv = ps[idx]
             if (!isNaN(pv)) {
               // Primary pace: sport-specific unit
-              const min = Math.floor(pv)
+              let min = Math.floor(pv)
               let sec = Math.round((pv - min) * 60)
-              if (sec >= 60) { sec = 0 }
+              if (sec >= 60) { min += 1; sec = 0 }
               html += `<div style="font-size:13px;color:${COLOR_PACE}"><strong>${min}:${sec.toString().padStart(2, '0')}\u202f${paceUnit}</strong> Pace</div>`
             }
             if (gs) {
@@ -1445,7 +1445,7 @@ function SpeedPaceChartPanel({
           inverse: true,
           min: yMin,
           max: yMax,
-          name: 'min/km',
+          name: paceUnit,
           nameTextStyle: { fontSize: 10, color: '#666' },
           axisLabel: {
             fontSize: 11,
