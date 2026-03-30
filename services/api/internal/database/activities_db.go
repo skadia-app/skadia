@@ -834,6 +834,13 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 		conds = append(conds, fmt.Sprintf("has_gps = $%d", idx))
 		args = append(args, *filters.HasGPS)
 	}
+	if filters.HasLocation != nil {
+		if *filters.HasLocation {
+			conds = append(conds, "location_lat IS NOT NULL AND location_lng IS NOT NULL")
+		} else {
+			conds = append(conds, "location_lat IS NULL")
+		}
+	}
 	if filters.GearID != "" {
 		idx++
 		conds = append(conds, fmt.Sprintf("gear_id = $%d", idx))

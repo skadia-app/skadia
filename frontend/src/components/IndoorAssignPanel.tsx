@@ -30,10 +30,10 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
   const [newLocName, setNewLocName] = useState('')
   const [newLocColor, setNewLocColor] = useState('#F97316')
 
-  // Fetch indoor activities (no GPS)
+  // Fetch unlocated activities (no GPS and no manually assigned location)
   const { data: activitiesData, isLoading } = useQuery({
-    queryKey: ['indoor-activities'],
-    queryFn: () => fetchActivities(undefined, 100, undefined, undefined, { hasGPS: false }),
+    queryKey: ['unlocated-activities'],
+    queryFn: () => fetchActivities(undefined, 100, undefined, undefined, { hasGPS: false, hasLocation: false }),
   })
   const activities = activitiesData?.activities ?? []
 
@@ -90,7 +90,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activities'] })
-      queryClient.invalidateQueries({ queryKey: ['indoor-activities'] })
+      queryClient.invalidateQueries({ queryKey: ['unlocated-activities'] })
       onAssigned()
       setSelectedIds(new Set())
       if (selectedTagId) syncTagLocation(selectedTagId).catch(() => {})
@@ -147,7 +147,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
     <div className="absolute top-4 right-[17.5rem] z-10 w-72 max-h-[calc(100vh-6rem)] flex flex-col rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
-        <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Indoor-Aktivitäten</span>
+        <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Standort zuweisen</span>
         <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer">
           <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
             <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -231,7 +231,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
         {isLoading ? (
           <div className="py-8 text-center text-xs text-neutral-400">Lade...</div>
         ) : filtered.length === 0 ? (
-          <div className="py-8 text-center text-xs text-neutral-400">Keine Indoor-Aktivitäten gefunden</div>
+          <div className="py-8 text-center text-xs text-neutral-400">Keine Aktivitäten ohne Standort gefunden</div>
         ) : (
           <>
             <div className="px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800">

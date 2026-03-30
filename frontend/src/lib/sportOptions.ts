@@ -76,11 +76,11 @@ function categoryGroup(catKey: string, label: string, sports: SportDef[]): Sport
 // ── GPS-relevant categories for map view ────────────────────────────────────────
 
 const GPS_CATEGORIES = ['run', 'bike', 'winter', 'water', 'climb', 'outdoor', 'multi']
-const INDOOR_CATEGORIES = ['fitness', 'game', 'other']
+const NON_GPS_CATEGORIES = ['fitness', 'game', 'other']
 
 /**
  * Sport filter options for map view.
- * Only includes GPS-relevant categories + a combined "Indoor & Sonstiges" group.
+ * Only includes GPS-relevant categories + a combined "Fitness & Sonstiges" group.
  */
 export function generateMapFilterOptions(): SportOption[] {
   const options: SportOption[] = []
@@ -98,13 +98,13 @@ export function generateMapFilterOptions(): SportOption[] {
     }
   }
 
-  // Collected indoor/non-GPS sports
-  const indoorSports: SportDef[] = []
-  for (const catKey of INDOOR_CATEGORIES) {
-    indoorSports.push(...sportsInCategory(catKey))
+  // Collected non-GPS sports
+  const nonGpsSports: SportDef[] = []
+  for (const catKey of NON_GPS_CATEGORIES) {
+    nonGpsSports.push(...sportsInCategory(catKey))
   }
-  if (indoorSports.length > 0) {
-    options.push(categoryGroup('indoor_other', 'Indoor & Sonstiges', indoorSports))
+  if (nonGpsSports.length > 0) {
+    options.push(categoryGroup('fitness_other', 'Fitness & Sonstiges', nonGpsSports))
   }
 
   return options

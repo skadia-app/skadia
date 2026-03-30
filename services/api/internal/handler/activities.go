@@ -97,6 +97,10 @@ func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 		b := v == "true"
 		filters.HasGPS = &b
 	}
+	if v := r.URL.Query().Get("has_location"); v != "" {
+		b := v == "true"
+		filters.HasLocation = &b
+	}
 	filters.GearID = r.URL.Query().Get("gear_id")
 	filters.Search = r.URL.Query().Get("search")
 	if v := r.URL.Query().Get("include_tags"); v != "" {

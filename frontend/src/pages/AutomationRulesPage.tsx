@@ -258,11 +258,12 @@ function RuleCard({
   onToggle: (active: boolean) => void
   onDelete: () => void
 }) {
-  const isReadonlySystem = rule.system_type === 'electric_sync' || rule.system_type === 'virtual_sync'
+  const isReadonlySystem = rule.system_type === 'electric_sync' || rule.system_type === 'virtual_sync' || rule.system_type === 'indoor_sync'
 
   const readonlyDescriptions: Record<string, string> = {
     electric_sync: 'Wird automatisch aus Gerätedaten erkannt. Diese Regel kann nicht bearbeitet werden.',
     virtual_sync: 'Wird automatisch über die Datenbankspalte is_virtual synchronisiert. Diese Regel kann nicht bearbeitet werden.',
+    indoor_sync: 'Wird automatisch aus der Sport-Taxonomy erkannt. Diese Regel kann nicht bearbeitet werden.',
   }
   const readonlyDescription = rule.system_type ? (readonlyDescriptions[rule.system_type] ?? 'System-Regel. Diese Regel kann nicht bearbeitet werden.') : ''
 

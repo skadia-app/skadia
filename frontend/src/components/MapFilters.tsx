@@ -657,8 +657,8 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
                   className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1 mt-0.5 flex-shrink-0"
                 />
                 <div>
-                  <span className="text-sm text-neutral-700 dark:text-neutral-300">Indoor-Standort-Pins</span>
-                  <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">Standorte für Aktivitäten ohne GPS-Daten (Indoor-Tagging)</p>
+                  <span className="text-sm text-neutral-700 dark:text-neutral-300">Standort-Pins</span>
+                  <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">Manuell zugewiesene Standorte</p>
                 </div>
               </label>
             </div>

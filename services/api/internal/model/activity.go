@@ -328,6 +328,7 @@ type ActivityFilters struct {
 	IsElectric        *bool
 	IsVirtual      *bool
 	HasGPS         *bool
+	HasLocation    *bool
 	GearID         string
 	Search         string
 	IncludeTags    []string

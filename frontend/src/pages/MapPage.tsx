@@ -1150,7 +1150,7 @@ export default function MapPage() {
         try {
           await assignActivitiesToTag(tag.id, activityIDs)
           queryClient.invalidateQueries({ queryKey: ['activities'] })
-          queryClient.invalidateQueries({ queryKey: ['indoor-activities'] })
+          queryClient.invalidateQueries({ queryKey: ['unlocated-activities'] })
           queryClient.invalidateQueries({ queryKey: ['tags'] })
           syncTagLocation(tag.id).catch(() => {})
           setTagActivitiesVersion(v => v + 1)
@@ -1205,7 +1205,7 @@ export default function MapPage() {
       }
       queryClient.invalidateQueries({ queryKey: ['tags'] })
       queryClient.invalidateQueries({ queryKey: ['activities'] })
-      queryClient.invalidateQueries({ queryKey: ['indoor-activities'] })
+      queryClient.invalidateQueries({ queryKey: ['unlocated-activities'] })
       syncTagLocation(newTag.id).catch(() => {})
       setSelectedLocationTagId(newTag.id)  // auto-open popup
     } catch (err) {
@@ -1372,7 +1372,7 @@ export default function MapPage() {
         try {
           await assignActivitiesToTag(tagId, activityIDs)
           queryClient.invalidateQueries({ queryKey: ['activities'] })
-          queryClient.invalidateQueries({ queryKey: ['indoor-activities'] })
+          queryClient.invalidateQueries({ queryKey: ['unlocated-activities'] })
           queryClient.invalidateQueries({ queryKey: ['tags'] })
           syncTagLocation(tagId).catch(() => {})
           setTagActivitiesVersion(v => v + 1)
@@ -2045,7 +2045,7 @@ export default function MapPage() {
                 : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
             }`}
           >
-            Indoor
+            Zuweisung
           </button>
           <button
             onClick={() => setShowSegments(!showSegments)}
