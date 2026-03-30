@@ -21,6 +21,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import type { StreamPoint, ActivityEvent } from '@/api/types'
 import { CHART_TAB } from '@/components/activity/ChartTabs'
 import { DiveDecoPanel } from '@/components/activity/DiveDecoPanel'
+import { DeveloperFieldChart } from '@/components/activity/DeveloperFieldChart'
 import { findClosestIdx } from '@/lib/utils'
 import { re3GradeAdjustedSpeed } from '@/lib/re3'
 
@@ -113,6 +114,8 @@ interface ChartData {
   paceMinKm: number[]
   garminGapMinKm: number[]
   re3Gap: number[]
+  strydNgpMinKm: number[]
+  strydPower: number[]
   maxDist: number
   maxElapsed: number
 }
@@ -151,6 +154,8 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const paceMinKm: number[] = []
   const garminGapMinKm: number[] = []
   const re3Gap: number[] = []
+  const strydNgpMinKm: number[] = []
+  const strydPower: number[] = []
 
   const t0 = streams.length > 0 ? new Date(streams[0].time).getTime() : 0
 
@@ -200,6 +205,12 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     } else {
       re3Gap.push(NaN)
     }
+
+    // Stryd developer fields
+    const ngpMs = s.developer_fields?.['ngp'] as number | undefined
+    strydNgpMinKm.push(ngpMs != null && ngpMs > 0.3 ? 1000 / ngpMs / 60 : NaN)
+    const strydPowerVal = s.developer_fields?.['Power'] as number | undefined
+    strydPower.push(strydPowerVal != null && strydPowerVal > 0 ? strydPowerVal : NaN)
   }
 
   const validDist = distanceKm.filter(v => !isNaN(v) && isFinite(v))
@@ -207,7 +218,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, pressure, paceMinKm, garminGapMinKm, re3Gap, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, pressure, paceMinKm, garminGapMinKm, re3Gap, strydNgpMinKm, strydPower, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -634,7 +645,8 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   if (hasValidData(data.power)) panels.push(
     <div key={k('power')} style={{ display: show('power') ? undefined : 'none' }}>
       <ChartPanel chartId="power" {...common}
-        field="power" label="Leistung" unit="W" color="#a855f7" />
+        field="power" label="Leistung" unit="W" color="#a855f7"
+        extraSeries={hasValidData(data.strydPower) ? [{ values: data.strydPower, name: 'Stryd', color: '#7c3aed' }] : undefined} />
     </div>,
   )
   if (hasValidData(data.cadence)) panels.push(
@@ -792,7 +804,8 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   )
 
   const showDekoPanel = activeTab === CHART_TAB.deko && activityId != null
-  if (panels.length === 0 && !showDekoPanel) return null
+  const showDeveloperFieldsPanel = activeTab === CHART_TAB.developerFields && activityId != null
+  if (panels.length === 0 && !showDekoPanel && !showDeveloperFieldsPanel) return null
 
   return (
     <div className="space-y-3">
@@ -825,6 +838,9 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       {panels}
       {activeTab === CHART_TAB.deko && activityId && (
         <DiveDecoPanel activityId={activityId} streams={streams} />
+      )}
+      {activeTab === CHART_TAB.developerFields && activityId && (
+        <DeveloperFieldChart streams={streams} activityId={activityId} />
       )}
       <p className="text-xs text-neutral-400 dark:text-neutral-600">
         Ziehen zum Auswählen · Mausrad zum Zoomen · Nach Auswahl: Ziehen zum Verschieben
@@ -1184,6 +1200,7 @@ function SpeedPaceChartPanel({
   const isSwimSport = segGroup === 'swim'
   const hasGarminGap = speedMode === 'pace' && hasValidData(data.garminGapMinKm)
   const hasRe3Gap = speedMode === 'pace' && hasValidData(data.re3Gap)
+  const hasStrydNgp = speedMode === 'pace' && hasValidData(data.strydNgpMinKm)
 
   const paceSmoothed = useMemo(() => {
     if (speedMode !== 'pace') return null
@@ -1204,6 +1221,10 @@ function SpeedPaceChartPanel({
   const re3Smoothed = useMemo(() =>
     hasRe3Gap ? sma(data.re3Gap) : null
   , [data, hasRe3Gap])
+
+  const strydNgpSmoothed = useMemo(() =>
+    hasStrydNgp ? sma(data.strydNgpMinKm) : null
+  , [data, hasStrydNgp])
 
   const paceUnit = isRowingSport ? 'min/500m' : isSwimSport ? 'min/100m' : 'min/km'
   // fieldLabel('speed', ...) returns sport-specific label (e.g. "Pace" for foot) — but in
@@ -1331,11 +1352,13 @@ function SpeedPaceChartPanel({
       const ps = paceSmoothed!
       const gs = garminSmoothed
       const rs = re3Smoothed
+      const ns = strydNgpSmoothed
 
       const allValues = [
         ...ps,
         ...(gs ?? []),
         ...(rs ?? []),
+        ...(ns ?? []),
       ].filter(v => !isNaN(v) && isFinite(v) && v > 0 && v < 30)
 
       const yMin = allValues.length > 0 ? Math.max(0, Math.floor(Math.min(...allValues) * 10) / 10 - 0.5) : 0
@@ -1374,6 +1397,17 @@ function SpeedPaceChartPanel({
           showSymbol: false,
           lineStyle: { width: 1.5, color: COLOR_RE3_GAP },
           itemStyle: { color: COLOR_RE3_GAP },
+          connectNulls: false,
+        }] : []),
+        ...(ns ? [{
+          type: 'line' as const,
+          name: 'Stryd NGP',
+          data: xData.map((x, i) => [x, ns[i]]),
+          showSymbol: false,
+          lineStyle: { width: 1.5, color: '#a855f7' },
+          itemStyle: { color: '#a855f7' },
+          symbol: 'none',
+          z: 1,
           connectNulls: false,
         }] : []),
       ]
@@ -1447,6 +1481,10 @@ function SpeedPaceChartPanel({
               const rv = rs[idx]
               if (!isNaN(rv)) html += `<div style="font-size:13px;color:${COLOR_RE3_GAP}"><strong>${formatMinKm(rv)}</strong> RE3 GAP</div>`
             }
+            if (ns) {
+              const nv = ns[idx]
+              if (!isNaN(nv)) html += `<div style="font-size:13px;color:#a855f7"><strong>${formatMinKm(nv)}</strong> Stryd NGP</div>`
+            }
             return html + '</div>'
           },
         },
@@ -1493,7 +1531,7 @@ function SpeedPaceChartPanel({
         }],
       } as echarts.EChartsCoreOption
     },
-    [data, speedMode, sportType, xMode, splitMarkers, paceSmoothed, garminSmoothed, re3Smoothed], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, speedMode, sportType, xMode, splitMarkers, paceSmoothed, garminSmoothed, re3Smoothed, strydNgpSmoothed], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
       return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
@@ -1519,6 +1557,12 @@ function SpeedPaceChartPanel({
               <div className="flex items-center gap-1.5">
                 <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLOR_RE3_GAP }} />
                 <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">RE3 GAP</span>
+              </div>
+            )}
+            {hasStrydNgp && (
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#a855f7' }} />
+                <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Stryd NGP</span>
               </div>
             )}
           </>
@@ -1960,13 +2004,15 @@ interface ChartPanelProps {
   tooltipValueFn?: (v: number) => string
   /** Fix Y axis to a specific [min, max] range (e.g. [0, 100] for battery %). */
   yAxisFixed?: [number, number]
+  /** Additional overlay series to render on the same chart. */
+  extraSeries?: Array<{ values: number[]; name: string; color: string }>
 }
 
 function ChartPanel({
   chartId, data, field, unit, label, color, area,
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
   brushZoomLockRef, markLines = 'none', altitudeSmartY, showGradeColor, xMode,
-  sunMarkLines, splitMarkers, overrideValues, invertY, tooltipValueFn, yAxisFixed,
+  sunMarkLines, splitMarkers, overrideValues, invertY, tooltipValueFn, yAxisFixed, extraSeries,
 }: ChartPanelProps) {
   const containerRef = useECharts(
     () => {
@@ -2021,7 +2067,16 @@ function ChartPanel({
 
         let html = `<div style="line-height:1.75;min-width:130px">`
         html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
-        html += `<div style="font-size:13px"><strong>${valStr}</strong></div>`
+        html += `<div style="font-size:13px;color:${color}"><strong>${valStr}</strong></div>`
+
+        if (extraSeries) {
+          for (const es of extraSeries) {
+            const ev = es.values[idx]
+            if (!isNaN(ev)) {
+              html += `<div style="font-size:13px;color:${es.color}"><strong>${ev.toFixed(decimals)}\u2009${unit}</strong> ${es.name}</div>`
+            }
+          }
+        }
 
         if (showGradeColor) {
           const gradeVal = data.grade[idx]
@@ -2202,6 +2257,16 @@ function ChartPanel({
                   },
                 } : {}),
               },
+              ...(extraSeries ?? []).map(es => ({
+                type: 'line' as const,
+                name: es.name,
+                data: xData.map((x, i) => [x, es.values[i]]),
+                showSymbol: false,
+                lineStyle: { width: 1.5, color: es.color, type: 'solid' as const },
+                itemStyle: { color: es.color },
+                connectNulls: false,
+                z: 2,
+              })),
             ],
 
         ...(showGradeColor ? {
@@ -2234,7 +2299,7 @@ function ChartPanel({
         ],
       } as echarts.EChartsCoreOption
     },
-    [data, field, xMode, splitMarkers, showGradeColor, overrideValues, invertY, yAxisFixed], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, field, xMode, splitMarkers, showGradeColor, overrideValues, invertY, yAxisFixed, extraSeries], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
       return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
@@ -2243,12 +2308,20 @@ function ChartPanel({
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60">
-        <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-        <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
-          {label}{' '}
-          <span className="font-normal text-neutral-400 dark:text-neutral-600">({unit})</span>
-        </span>
+      <div className="flex items-center gap-3 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60">
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+            {label}{' '}
+            <span className="font-normal text-neutral-400 dark:text-neutral-600">({unit})</span>
+          </span>
+        </div>
+        {extraSeries?.map(es => (
+          <div key={es.name} className="flex items-center gap-2">
+            <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: es.color }} />
+            <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">{es.name}</span>
+          </div>
+        ))}
       </div>
       <div ref={containerRef} className="h-[180px] w-full" />
     </div>
