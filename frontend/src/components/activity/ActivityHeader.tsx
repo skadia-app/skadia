@@ -4,11 +4,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useToast } from '@/lib/toast'
-import { updateActivity, reprocessActivity, reprocessAllActivities, type ExportFormat } from '@/api/activities'
+import { updateActivity, reprocessActivity, reprocessAllActivities, ungroupActivity, type ExportFormat } from '@/api/activities'
 import { revertFusion } from '@/api/fusion'
 import { getCapabilities, getWaypointsFromActivity } from '@/api/routes'
 import { apiDownload } from '@/api/client'
-import { apiFetch } from '@/lib/auth'
 import type { Activity } from '@/api/types'
 import { SportIcon } from '@/components/SportIcon'
 import SportConflictBadge from '@/components/SportConflictBadge'
@@ -78,11 +77,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
   })
 
   async function handleExcludeChange(field: 'exclude_from_heatmap' | 'exclude_from_stats', value: boolean) {
-    await apiFetch(`/api/v1/activities/${activity.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ [field]: value }),
-    })
+    await updateActivity(activity.id, { [field]: value })
     queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
   }
 
@@ -482,14 +477,10 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                 onClick={async () => {
                   setUngroupLoading(true)
                   try {
-                    const resp = await apiFetch(`/api/v1/activities/${activity.id}/group`, { method: 'DELETE' })
-                    if (resp.ok) {
-                      queryClient.invalidateQueries({ queryKey: ['activities'] })
-                      queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
-                      navigate('/activities')
-                    } else {
-                      addToast({ type: 'error', title: 'Fehler beim Auflösen der Gruppe', message: `Server antwortete mit Status ${resp.status}`, duration: 0 })
-                    }
+                    await ungroupActivity(activity.id)
+                    queryClient.invalidateQueries({ queryKey: ['activities'] })
+                    queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
+                    navigate('/activities')
                   } catch (err) {
                     addToast({ type: 'error', title: 'Fehler beim Auflösen der Gruppe', message: err instanceof Error ? err.message : 'Unbekannter Fehler', duration: 0 })
                   } finally {

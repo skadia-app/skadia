@@ -1,5 +1,4 @@
-import { apiClient, apiDownload, ApiError, parseContentDisposition } from './client'
-import { getToken, clearToken, redirectToLogin } from '@/lib/auth'
+import { apiClient, apiDownload } from './client'
 import type { DetectedLap } from './types'
 
 export interface Segment {
@@ -163,24 +162,5 @@ export async function exportSegment(id: string, format: 'gpx' | 'geojson'): Prom
 }
 
 export async function exportSegments(ids: string[], format: 'gpx' | 'geojson'): Promise<{ blob: Blob; filename?: string }> {
-  const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
-  const token = getToken()
-  const res = await fetch(`${API_BASE}/segments/export`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    credentials: 'include',
-    body: JSON.stringify({ ids, format }),
-  })
-  if (res.status === 401) {
-    clearToken()
-    redirectToLogin()
-    throw new ApiError(401, 'Unauthorized')
-  }
-  if (!res.ok) throw new ApiError(res.status, await res.text())
-  const blob = await res.blob()
-  const filename = parseContentDisposition(res.headers.get('Content-Disposition'))
-  return { blob, filename }
+  return apiDownload('/segments/export', { method: 'POST', body: { ids, format } })
 }

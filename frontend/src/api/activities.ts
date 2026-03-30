@@ -1,6 +1,4 @@
-import { apiClient, parseContentDisposition, API_BASE } from './client'
-import { getToken, clearToken, redirectToLogin } from '@/lib/auth'
-import { ApiError } from './client'
+import { apiClient, apiDownload, API_BASE } from './client'
 import { triggerBlobDownload } from '@/lib/utils'
 import type { ActivitiesResponse, Activity, StreamPoint, Sensor, ZoneDistribution, PowerCurveResponse, Lap, Split, SplitSummary, SwimLength, ClimbProEvent, ActivitySet, ActivityJump, ActivityEvent } from './types'
 
@@ -90,7 +88,7 @@ export async function fetchActivitySensors(id: string): Promise<Sensor[]> {
   return apiClient<Sensor[]>(`/activities/${id}/sensors`)
 }
 
-export async function updateActivity(id: string, data: Partial<Pick<Activity, 'title' | 'description' | 'sport_type' | 'sub_type' | 'tags' | 'visibility' | 'workout_feel' | 'workout_rpe'>>): Promise<Activity> {
+export async function updateActivity(id: string, data: Partial<Pick<Activity, 'title' | 'description' | 'sport_type' | 'sub_type' | 'tags' | 'visibility' | 'workout_feel' | 'workout_rpe'>> & { exclude_from_heatmap?: boolean; exclude_from_stats?: boolean }): Promise<Activity> {
   return apiClient<Activity>(`/activities/${id}`, { method: 'PATCH', body: data })
 }
 
@@ -282,24 +280,10 @@ export async function downloadActivitiesZip(
   ids: string[],
   format: ExportFormat = 'original',
 ): Promise<void> {
-  const token = getToken()
-  const url = `${API_BASE}/activities/export-zip`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-    },
-    credentials: 'include',
-    body: JSON.stringify({ ids, format }),
-  })
-  if (res.status === 401) {
-    clearToken()
-    redirectToLogin()
-    throw new ApiError(401, 'Unauthorized')
-  }
-  if (!res.ok) throw new ApiError(res.status, await res.text())
-  const blob = await res.blob()
-  const filename = parseContentDisposition(res.headers.get('Content-Disposition')) ?? 'skadia-export.zip'
-  triggerBlobDownload(blob, filename)
+  const { blob, filename } = await apiDownload('/activities/export-zip', { method: 'POST', body: { ids, format } })
+  triggerBlobDownload(blob, filename ?? 'skadia-export.zip')
+}
+
+export async function ungroupActivity(id: string): Promise<void> {
+  return apiClient<void>(`/activities/${id}/group`, { method: 'DELETE' })
 }
