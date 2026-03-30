@@ -958,6 +958,7 @@ func main() {
 			// Segments
 			r.Get("/segments", h.ListSegments)
 			r.Post("/segments", h.CreateSegment)
+			r.Delete("/segments", h.DeleteSegments)
 			r.Get("/segments/{id}", h.GetSegment)
 			r.Put("/segments/{id}", h.UpdateSegment)
 			r.Delete("/segments/{id}", h.DeleteSegment)
@@ -968,6 +969,7 @@ func main() {
 			r.Post("/segments/{id}/favorite", h.AddSegmentFavorite)
 			r.Delete("/segments/{id}/favorite", h.RemoveSegmentFavorite)
 			r.Get("/segments/{id}/performances", h.GetSegmentPerformances)
+			r.Get("/segments/{id}/export", h.ExportSegment)
 			r.Post("/segments/import-lifts", h.ImportLiftsFromOSM)
 			r.Get("/activities/{id}/segments", h.GetActivitySegmentEfforts)
 			r.Get("/activities/{id}/detected-laps", h.GetActivityDetectedLaps)

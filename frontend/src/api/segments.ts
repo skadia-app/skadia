@@ -1,4 +1,4 @@
-import { apiClient } from './client'
+import { apiClient, apiDownload } from './client'
 import type { DetectedLap } from './types'
 
 export interface Segment {
@@ -148,4 +148,8 @@ export async function recomputeSegment(segmentId: string): Promise<void> {
 
 export async function publishSegment(id: string): Promise<{ status: string; job_id: string }> {
   return apiClient<{ status: string; job_id: string }>(`/segments/${id}/publish`, { method: 'POST' })
+}
+
+export async function exportSegment(id: string, format: 'gpx' | 'geojson'): Promise<{ blob: Blob; filename?: string }> {
+  return apiDownload(`/segments/${id}/export?format=${format}`)
 }

@@ -3,11 +3,12 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Lock, Map, Pencil, RefreshCw, Trash2 } from 'lucide-react'
 import { getMe } from '@/api/auth'
-import { fetchSegment, recomputeSegment, publishSegment, deleteSegment } from '@/api/segments'
+import { fetchSegment, recomputeSegment, publishSegment, deleteSegment, exportSegment } from '@/api/segments'
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { fmtDist } from '@/lib/format'
+import { triggerBlobDownload } from '@/lib/utils'
 import { SegmentMinimap } from '@/components/SegmentDetail/SegmentMinimap'
 import { SegmentActivityList } from '@/components/SegmentDetail/SegmentActivityList'
 import { SegmentPerformanceChart } from '@/components/SegmentDetail/SegmentPerformanceChart'
@@ -82,6 +83,17 @@ export default function SegmentDetailPage() {
 
   const isRecomputing = recomputeMut.isPending || localPending || isJobActiveForEntity(id!)
 
+  const handleExport = async (format: 'gpx' | 'geojson') => {
+    try {
+      const ext = format === 'gpx' ? '.gpx' : '.geojson'
+      const { blob, filename } = await exportSegment(id!, format)
+      triggerBlobDownload(blob, filename ?? `segment${ext}`)
+    } catch (err) {
+      console.error('Segment-Export fehlgeschlagen', err)
+      addToast({ type: 'error', title: 'Export fehlgeschlagen', message: 'Der Export konnte nicht erstellt werden.', duration: 0 })
+    }
+  }
+
   const { data: segment, isLoading } = useQuery({
     queryKey: ['segment', id],
     queryFn: () => fetchSegment(id!),
@@ -124,6 +136,18 @@ export default function SegmentDetailPage() {
             title="Matching neu berechnen"
           >
             <RefreshCw size={14} className={isRecomputing ? 'animate-spin' : ''} /> {isRecomputing ? 'Läuft…' : 'Neu berechnen'}
+          </button>
+          <button
+            onClick={() => handleExport('gpx')}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+          >
+            GPX exportieren
+          </button>
+          <button
+            onClick={() => handleExport('geojson')}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+          >
+            GeoJSON exportieren
           </button>
           <button
             onClick={() => navigate('/map', { state: { activateSegmentsOverlay: true } })}
