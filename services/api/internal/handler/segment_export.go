@@ -43,6 +43,9 @@ func (h *Handler) ExportSegment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	safeName := segmentExportUnsafeChars.ReplaceAllString(seg.Name, "_")
+	if safeName == "" {
+		safeName = "segment"
+	}
 
 	switch format {
 	case "geojson":
@@ -102,7 +105,7 @@ func writeSegmentGPX(w http.ResponseWriter, name, trackGeoJSON string) {
 				continue
 			}
 			lon, lat := coord[0], coord[1]
-			if len(coord) >= 3 && coord[2] != 0 {
+			if len(coord) >= 3 {
 				fmt.Fprintf(w, `      <trkpt lat="%.7f" lon="%.7f"><ele>%.1f</ele></trkpt>
 `, lat, lon, coord[2])
 			} else {
