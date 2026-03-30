@@ -7,6 +7,7 @@ import (
 
 	"github.com/muktihari/fit/profile/basetype"
 	"github.com/muktihari/fit/profile/mesgdef"
+	"github.com/muktihari/fit/proto"
 
 	"github.com/skadia-app/skadia/services/api/internal/activityutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -150,7 +151,7 @@ func TestExtractStreams_BatterySocScale(t *testing.T) {
 		},
 	}
 
-	result := ExtractStreams(records)
+	result := ExtractStreams(records, nil)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 stream point, got %d", len(result))
 	}
@@ -175,7 +176,7 @@ func TestExtractStreams_Po2Scale(t *testing.T) {
 		},
 	}
 
-	result := ExtractStreams(records)
+	result := ExtractStreams(records, nil)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 stream point, got %d", len(result))
 	}
@@ -200,7 +201,7 @@ func TestExtractStreams_LeftPowerPhase(t *testing.T) {
 		},
 	}
 
-	result := ExtractStreams(records)
+	result := ExtractStreams(records, nil)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 stream point, got %d", len(result))
 	}
@@ -234,7 +235,7 @@ func TestExtractStreams_CycleLength16Priority(t *testing.T) {
 		},
 	}
 
-	result := ExtractStreams(records)
+	result := ExtractStreams(records, nil)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 stream point, got %d", len(result))
 	}
@@ -260,7 +261,7 @@ func TestExtractStreams_CycleLengthFallback(t *testing.T) {
 		},
 	}
 
-	result := ExtractStreams(records)
+	result := ExtractStreams(records, nil)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 stream point, got %d", len(result))
 	}
@@ -336,5 +337,77 @@ func TestDeriveGPSMetrics_MeringScenario(t *testing.T) {
 	// Total distance should be reasonable (not 0, not millions)
 	if prev < 1000 || prev > 100000 {
 		t.Errorf("total distance %f seems unreasonable", prev)
+	}
+}
+
+func TestExtractStreams_DeveloperFieldClearTextKeys(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+
+	fieldDescs := []*mesgdef.FieldDescription{
+		{
+			DeveloperDataIndex:    0,
+			FieldDefinitionNumber: 8,
+			FieldName:             []string{"Form Power"},
+			Units:                 []string{"Watts"},
+		},
+		{
+			DeveloperDataIndex:    0,
+			FieldDefinitionNumber: 9,
+			FieldName:             []string{"Leg Spring Stiffness"},
+			Units:                 []string{"kN/m"},
+		},
+	}
+
+	records := []*mesgdef.Record{
+		{
+			Timestamp: now,
+			DeveloperFields: []proto.DeveloperField{
+				{DeveloperDataIndex: 0, Num: 8, Value: proto.Float64(42.5)},
+				{DeveloperDataIndex: 0, Num: 9, Value: proto.Float64(9.8)},
+			},
+		},
+	}
+
+	streams := ExtractStreams(records, fieldDescs)
+	if len(streams) != 1 {
+		t.Fatalf("expected 1 stream point, got %d", len(streams))
+	}
+
+	df := streams[0].DeveloperFields
+	if df == nil {
+		t.Fatal("expected developer fields, got nil")
+	}
+
+	if _, ok := df["Form Power"]; !ok {
+		t.Errorf("expected key 'Form Power', got keys: %v", df)
+	}
+	if _, ok := df["Leg Spring Stiffness"]; !ok {
+		t.Errorf("expected key 'Leg Spring Stiffness', got keys: %v", df)
+	}
+	if _, ok := df["8"]; ok {
+		t.Error("numeric key '8' should not exist when clear-text name available")
+	}
+}
+
+func TestExtractStreams_DeveloperFieldFallbackNumeric(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+
+	records := []*mesgdef.Record{
+		{
+			Timestamp: now,
+			DeveloperFields: []proto.DeveloperField{
+				{DeveloperDataIndex: 0, Num: 5, Value: proto.Float64(1.23)},
+			},
+		},
+	}
+
+	streams := ExtractStreams(records, nil)
+	if len(streams) != 1 {
+		t.Fatalf("expected 1 stream point, got %d", len(streams))
+	}
+
+	df := streams[0].DeveloperFields
+	if _, ok := df["5"]; !ok {
+		t.Errorf("expected numeric fallback key '5', got keys: %v", df)
 	}
 }

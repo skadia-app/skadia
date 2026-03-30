@@ -304,15 +304,43 @@ func DeduplicateStreamsByTimestamp(points []model.StreamPoint) []model.StreamPoi
 	return result
 }
 
+// isFootSport returns true for sports where Stryd foot-pod power is more
+// accurate than wrist-based estimates (running, hiking, walking).
+func isFootSport(sport int16) bool {
+	return sport == 1 || sport == 11 || sport == 17 || sport == 37
+}
+
 // ExtractPowerStream extracts power values from StreamPoints as float64 slice.
 // Expects deduplicated input (one row per timestamp — see DeduplicateStreamsByTimestamp).
 // nil PowerW → 0 so coasting contributes to the rolling average.
-// *int16 → float64 conversion.
-func ExtractPowerStream(points []model.StreamPoint) []float64 {
+// For foot sports (running, hiking, walking), prefers the "Power" developer field
+// (e.g. Stryd foot-pod) over the native PowerW field.
+func ExtractPowerStream(points []model.StreamPoint, sport int16) []float64 {
 	result := make([]float64, len(points))
+	preferDevField := isFootSport(sport)
 	for i, p := range points {
+		if preferDevField && p.DeveloperFields != nil {
+			if v, ok := p.DeveloperFields["Power"]; ok {
+				switch val := v.(type) {
+				case float64:
+					result[i] = val
+				case float32:
+					result[i] = float64(val)
+				}
+				continue
+			}
+		}
 		if p.PowerW != nil {
 			result[i] = float64(*p.PowerW)
+		} else if p.DeveloperFields != nil {
+			if v, ok := p.DeveloperFields["Power"]; ok {
+				switch val := v.(type) {
+				case float64:
+					result[i] = val
+				case float32:
+					result[i] = float64(val)
+				}
+			}
 		}
 	}
 	return result
