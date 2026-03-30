@@ -28,6 +28,7 @@ import type { HealthDailySummary, HealthSleep, HealthHRVSnapshot } from '@/api/h
 import type { Activity } from '@/api/types'
 import type { PMCDataPoint } from '@/api/stats'
 import { sportColor, sportLabel } from '@/lib/sportTaxonomy'
+import { normTz } from '@/lib/format'
 import { formatDuration, formatDistance } from '@/lib/utils'
 import DateRangePopover from '@/components/DateRangePopover'
 
@@ -49,12 +50,13 @@ function dateKey(d: Date): string {
 }
 
 function toDateKey(iso: string, timezone?: string | null): string {
-  if (!timezone) return iso.slice(0, 10)
+  const tz = normTz(timezone)
+  if (!tz) return iso.slice(0, 10)
   try {
     const d = new Date(iso)
     return new Intl.DateTimeFormat('en-CA', {
       year: 'numeric', month: '2-digit', day: '2-digit',
-      timeZone: timezone,
+      timeZone: tz,
     }).format(d)
   } catch {
     return iso.slice(0, 10)

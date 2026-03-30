@@ -4,6 +4,7 @@ import { fetchActivities } from '@/api/activities'
 import { createTag, syncTagLocation, assignActivitiesToTag } from '@/api/tags'
 import type { Tag } from '@/api/tags'
 import { sportLabel } from '@/lib/sportTaxonomy'
+import { normTz } from '@/lib/format'
 import ColorPicker from '@/components/ColorPicker'
 
 interface Props {
@@ -249,7 +250,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
               const dateStr = act.started_at
                 ? new Date(act.started_at).toLocaleDateString('de-DE', {
                     weekday: 'short', day: '2-digit', month: '2-digit',
-                    ...(act.timezone ? { timeZone: act.timezone } : {}),
+                    ...(normTz(act.timezone) ? { timeZone: normTz(act.timezone) } : {}),
                   })
                 : ''
               const dur = act.elapsed_time_s

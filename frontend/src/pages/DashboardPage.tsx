@@ -8,6 +8,7 @@ import { fetchGear, fetchMaintenanceAlerts } from '@/api/gear'
 import { SportIcon } from '@/components/SportIcon'
 import { sportLabel, sportColor } from '@/lib/sportTaxonomy'
 import { formatDuration, formatDistance, formatElevationGain } from '@/lib/utils'
+import { normTz } from '@/lib/format'
 import { fetchInsightsReadiness, fetchHRVAnalysis } from '@/api/analytics'
 import type { ReadinessInsight, HRVAnalysis } from '@/api/analytics'
 import { toLocalISO } from '@/lib/dateUtils'
@@ -310,7 +311,7 @@ export default function DashboardPage() {
                 <span className="text-xs text-neutral-400 flex-shrink-0">
                   {new Date(a.started_at).toLocaleDateString('de-DE', {
                     day: '2-digit', month: 'short',
-                    ...(a.timezone ? { timeZone: a.timezone } : {}),
+                    ...(normTz(a.timezone) ? { timeZone: normTz(a.timezone) } : {}),
                   })}
                 </span>
                 <span className="text-xs text-neutral-400 flex-shrink-0 hidden sm:inline">

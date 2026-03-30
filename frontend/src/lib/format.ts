@@ -49,7 +49,7 @@ export function fmtDist(m?: number | null): string {
 
 // Old DB data may have "UTC+HH:MM" format from before the b2f4b2f6 fix.
 // Intl.DateTimeFormat rejects the "UTC" prefix with a RangeError — strip it.
-function normTz(tz: string | null | undefined): string | undefined {
+export function normTz(tz: string | null | undefined): string | undefined {
   if (!tz) return undefined
   return tz.replace(/^UTC([+-])/, '$1')
 }
