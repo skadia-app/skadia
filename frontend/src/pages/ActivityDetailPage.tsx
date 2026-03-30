@@ -598,6 +598,8 @@ export default function ActivityDetailPage() {
           activityId={activity.id}
           currentTags={activity.tags ?? []}
           locationTags={locationTagsForActivity}
+          locationLat={activity.location_lat}
+          locationLng={activity.location_lng}
           onUpdate={() => {}}
         />
       )}
