@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"fmt"
 	"html"
+	"io"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -46,29 +48,10 @@ func (h *Handler) ExportSegment(w http.ResponseWriter, r *http.Request) {
 
 	switch format {
 	case "geojson":
-		type featureProperties struct {
-			Name           string   `json:"name"`
-			DistanceM      *float64 `json:"distance_m,omitempty"`
-			ElevationGainM *float64 `json:"elevation_gain_m,omitempty"`
-		}
-		type feature struct {
-			Type       string            `json:"type"`
-			Properties featureProperties `json:"properties"`
-			Geometry   json.RawMessage   `json:"geometry"`
-		}
-		f := feature{
-			Type: "Feature",
-			Properties: featureProperties{
-				Name:           seg.Name,
-				DistanceM:      seg.DistanceM,
-				ElevationGainM: seg.ElevationGainM,
-			},
-			Geometry: json.RawMessage(*seg.TrackGeoJSON),
-		}
 		w.Header().Set("Content-Type", "application/geo+json; charset=utf-8")
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.geojson"`, safeName))
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(f)
+		writeSegmentGeoJSON(w, seg.Name, seg.DistanceM, seg.ElevationGainM, *seg.TrackGeoJSON)
 
 	case "gpx":
 		w.Header().Set("Content-Type", "application/gpx+xml; charset=utf-8")
@@ -81,8 +64,91 @@ func (h *Handler) ExportSegment(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ExportSegments handles POST /api/v1/segments/export
+// Body: {"ids": [...], "format": "gpx"|"geojson"}
+// Returns a ZIP archive containing one file per segment.
+func (h *Handler) ExportSegments(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		IDs    []string `json:"ids"`
+		Format string   `json:"format"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+		return
+	}
+	if len(body.IDs) == 0 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "ids must not be empty", r.URL.Path)
+		return
+	}
+	if len(body.IDs) > 500 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "too many ids, max 500", r.URL.Path)
+		return
+	}
+	format := body.Format
+	if format == "" {
+		format = "gpx"
+	}
+	if format != "gpx" && format != "geojson" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unsupported format, use gpx or geojson", r.URL.Path)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="segments.zip"`)
+	w.WriteHeader(http.StatusOK)
+
+	zw := zip.NewWriter(w)
+	defer zw.Close()
+
+	// Track used filenames to handle duplicates.
+	usedNames := make(map[string]int)
+
+	for _, id := range body.IDs {
+		seg, err := h.DB.GetSegment(r.Context(), id, userID, false)
+		if err != nil || seg == nil {
+			continue
+		}
+		if seg.TrackGeoJSON == nil || *seg.TrackGeoJSON == "" {
+			continue
+		}
+
+		baseName := sanitizeFilename(seg.Name)
+		if baseName == "" {
+			baseName = "segment"
+		}
+
+		// Build a unique filename within the archive.
+		key := baseName
+		count := usedNames[key]
+		usedNames[key]++
+		var entryName string
+		if count == 0 {
+			entryName = baseName + "." + format
+		} else {
+			entryName = fmt.Sprintf("%s_%d.%s", baseName, count, format)
+		}
+
+		entry, err := zw.Create(entryName)
+		if err != nil {
+			continue
+		}
+
+		switch format {
+		case "gpx":
+			writeSegmentGPX(entry, seg.Name, *seg.TrackGeoJSON)
+		case "geojson":
+			writeSegmentGeoJSON(entry, seg.Name, seg.DistanceM, seg.ElevationGainM, *seg.TrackGeoJSON)
+		}
+	}
+}
+
 // writeSegmentGPX renders a GPX 1.1 document for a segment track to w.
-func writeSegmentGPX(w http.ResponseWriter, name, trackGeoJSON string) {
+func writeSegmentGPX(w io.Writer, name, trackGeoJSON string) {
 	escapedName := html.EscapeString(name)
 
 	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
@@ -116,4 +182,28 @@ func writeSegmentGPX(w http.ResponseWriter, name, trackGeoJSON string) {
   </trk>
 </gpx>
 `)
+}
+
+// writeSegmentGeoJSON renders a GeoJSON Feature for a segment track to w.
+func writeSegmentGeoJSON(w io.Writer, name string, distanceM, elevationGainM *float64, trackGeoJSON string) {
+	type featureProperties struct {
+		Name           string   `json:"name"`
+		DistanceM      *float64 `json:"distance_m,omitempty"`
+		ElevationGainM *float64 `json:"elevation_gain_m,omitempty"`
+	}
+	type feature struct {
+		Type       string            `json:"type"`
+		Properties featureProperties `json:"properties"`
+		Geometry   json.RawMessage   `json:"geometry"`
+	}
+	f := feature{
+		Type: "Feature",
+		Properties: featureProperties{
+			Name:           name,
+			DistanceM:      distanceM,
+			ElevationGainM: elevationGainM,
+		},
+		Geometry: json.RawMessage(trackGeoJSON),
+	}
+	_ = json.NewEncoder(w).Encode(f)
 }
