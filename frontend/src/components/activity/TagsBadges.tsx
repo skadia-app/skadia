@@ -24,26 +24,20 @@ export default function TagsBadges({ tags, activityId, isVirtual }: TagsBadgesPr
     staleTime: 60_000, // 1 min — avoids redundant refetches while staying on the page
   })
 
-  const fallbackColors = [
-    { bg: '#F97316', text: '#FFFFFF' }, // Orange
-    { bg: '#3B82F6', text: '#FFFFFF' }, // Blue
-    { bg: '#22C55E', text: '#FFFFFF' }, // Emerald
-    { bg: '#A855F7', text: '#FFFFFF' }, // Purple
-    { bg: '#F43F5E', text: '#FFFFFF' }, // Rose
-    { bg: '#06B6D4', text: '#FFFFFF' }, // Cyan
-  ]
+  const fallbackColors = ['#F97316', '#3B82F6', '#22C55E', '#A855F7', '#F43F5E', '#06B6D4']
 
   function getTagStyle(tagName: string, index: number): CSSProperties {
     const tagObj = (allTags ?? []).find(t => t.name.toLowerCase() === tagName.toLowerCase())
     if (tagObj?.color) return getTagBadgeStyle(tagObj.color)
-    return getTagBadgeStyle(fallbackColors[index % fallbackColors.length].bg)
+    return getTagBadgeStyle(fallbackColors[index % fallbackColors.length])
   }
 
   const removeMut = useMutation({
     mutationFn: async (tagToRemove: string) => {
-      // Find the tag's ID from the loaded allTags list.
+      // Read fresh data from cache to avoid stale closure over allTags.
       // Tags with id === '' are "orphan" tags (in activities.tags TEXT[] but not in tags table).
-      const tagObj = (allTags ?? []).find(t => t.name.toLowerCase() === tagToRemove.toLowerCase())
+      const currentTags = queryClient.getQueryData<typeof allTags>(['tags']) ?? []
+      const tagObj = currentTags.find(t => t.name.toLowerCase() === tagToRemove.toLowerCase())
       if (tagObj && tagObj.id) {
         // Proper removal: delete from activity_tags junction table + sync TEXT[] cache.
         await unassignActivitiesFromTag(tagObj.id, [activityId])
@@ -62,7 +56,9 @@ export default function TagsBadges({ tags, activityId, isVirtual }: TagsBadgesPr
 
   const addMut = useMutation({
     mutationFn: async (tagToAdd: string) => {
-      const tagObj = (allTags ?? []).find(t => t.name.toLowerCase() === tagToAdd.toLowerCase())
+      // Read fresh data from cache to avoid stale closure over allTags.
+      const currentTags = queryClient.getQueryData<typeof allTags>(['tags']) ?? []
+      const tagObj = currentTags.find(t => t.name.toLowerCase() === tagToAdd.toLowerCase())
       if (tagObj?.id) {
         // Existing tag → use proper API (clears removal records)
         await assignActivitiesToTag(tagObj.id, [activityId])

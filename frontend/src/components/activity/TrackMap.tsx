@@ -22,7 +22,6 @@ interface TrackMapProps {
   locationPin?: { lat: number; lng: number; name: string; color: string }
 }
 
-/** Haversine-Distanz in Metern zwischen zwei [lng, lat]-Koordinaten */
 const SUMMIT_ICON_SVG = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">' +
   '<path d="M2 20 L8 8 L12 14 L16 8 L22 20 Z" fill="#f97316" stroke="white" stroke-width="1.5"/>' +
@@ -76,21 +75,21 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
     staleTime: Infinity,
   })
 
-  // Build GeoJSON from stream lat/lng
-  const coordinates = streams
-    .filter((s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null)
-    .map(s => [s.lng, s.lat] as [number, number])
-
-  const hasTrack = coordinates.length >= 2
-
-  const teleportThresholdM = heatmapSettings?.teleport_filter_activity
-    ? (heatmapSettings.teleport_threshold_m ?? 2000)
-    : 0
-  const trackSegments = splitAtGaps(coordinates, teleportThresholdM)
-
-  const trackGeometry = trackSegments.length === 1
-    ? { type: 'LineString' as const, coordinates: trackSegments[0] }
-    : { type: 'MultiLineString' as const, coordinates: trackSegments }
+  // Build GeoJSON from stream lat/lng — memoized to avoid recomputation on every hover render
+  const { coordinates, trackSegments, trackGeometry, hasTrack } = useMemo(() => {
+    const coordinates = streams
+      .filter((s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null)
+      .map(s => [s.lng, s.lat] as [number, number])
+    const hasTrack = coordinates.length >= 2
+    const teleportThresholdM = heatmapSettings?.teleport_filter_activity
+      ? (heatmapSettings.teleport_threshold_m ?? 2000)
+      : 0
+    const trackSegments = splitAtGaps(coordinates, teleportThresholdM)
+    const trackGeometry = trackSegments.length === 1
+      ? { type: 'LineString' as const, coordinates: trackSegments[0] }
+      : { type: 'MultiLineString' as const, coordinates: trackSegments }
+    return { coordinates, trackSegments, trackGeometry, hasTrack }
+  }, [streams, heatmapSettings])
 
   // Initialize map
   useEffect(() => {
