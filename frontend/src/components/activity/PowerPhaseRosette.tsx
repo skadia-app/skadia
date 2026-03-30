@@ -107,82 +107,100 @@ export function PowerPhaseRosette({ activity, size = 160 }: Props) {
     const canvas = canvasRef.current
     if (!canvas || (!hasLeft && !hasRight)) return
 
-    const isDark = document.documentElement.classList.contains('dark')
-    const ringColor = isDark ? COLORS.ring : COLORS.ringLight
-    const textColor = isDark ? COLORS.text : COLORS.textDark
-    const labelColor = isDark ? COLORS.label : COLORS.labelDark
+    const draw = () => {
+      const isDark = document.documentElement.classList.contains('dark')
+      const ringColor = isDark ? COLORS.ring : COLORS.ringLight
+      const textColor = isDark ? COLORS.text : COLORS.textDark
+      const labelColor = isDark ? COLORS.label : COLORS.labelDark
 
-    const cols = (hasLeft ? 1 : 0) + (hasRight ? 1 : 0)
-    const gap = 24
-    const totalW = cols * size + (cols > 1 ? gap : 0)
-    const totalH = size + 60
+      const cols = (hasLeft ? 1 : 0) + (hasRight ? 1 : 0)
+      const gap = 24
+      const totalW = cols * size + (cols > 1 ? gap : 0)
+      const totalH = size + 60
 
-    const dpr = window.devicePixelRatio || 1
-    canvas.width = totalW * dpr
-    canvas.height = totalH * dpr
-    canvas.style.width = `${totalW}px`
-    canvas.style.height = `${totalH}px`
+      const dpr = window.devicePixelRatio || 1
+      canvas.width = totalW * dpr
+      canvas.height = totalH * dpr
+      canvas.style.width = `${totalW}px`
+      canvas.style.height = `${totalH}px`
 
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.scale(dpr, dpr)
-    ctx.clearRect(0, 0, totalW, totalH)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      ctx.scale(dpr, dpr)
+      ctx.clearRect(0, 0, totalW, totalH)
 
-    const maxR = size / 2 - 4
-    const balance = activity.left_right_balance
-    let colIdx = 0
+      const maxR = size / 2 - 4
+      const balance = activity.left_right_balance
+      let colIdx = 0
 
-    if (hasLeft) {
-      const cx = size / 2
-      const cy = size / 2
-      const balStr = balance != null ? `${balance.toFixed(0)}%` : null
-      drawSingleWheel(ctx, cx, cy, maxR,
-        activity.avg_left_power_phase_start_deg!, activity.avg_left_power_phase_end_deg!,
-        activity.avg_left_power_phase_peak_start_deg, activity.avg_left_power_phase_peak_end_deg,
-        COLORS.leftFull, COLORS.leftPeak, ringColor, textColor, labelColor,
-        'LINKS', balStr,
-      )
-      ctx.fillStyle = textColor
-      ctx.font = '10px system-ui, sans-serif'
-      ctx.textAlign = 'center'
-      ctx.fillText(
-        `PP ${activity.avg_left_power_phase_start_deg!.toFixed(0)}°–${activity.avg_left_power_phase_end_deg!.toFixed(0)}°`,
-        cx, size + 14,
-      )
-      if (activity.avg_left_power_phase_peak_start_deg != null) {
-        ctx.fillText(
-          `Peak ${activity.avg_left_power_phase_peak_start_deg.toFixed(0)}°–${activity.avg_left_power_phase_peak_end_deg?.toFixed(0)}°`,
-          cx, size + 30,
+      if (hasLeft) {
+        const cx = size / 2
+        const cy = size / 2
+        const balStr = balance != null ? `${balance.toFixed(0)}%` : null
+        drawSingleWheel(ctx, cx, cy, maxR,
+          activity.avg_left_power_phase_start_deg!, activity.avg_left_power_phase_end_deg!,
+          activity.avg_left_power_phase_peak_start_deg, activity.avg_left_power_phase_peak_end_deg,
+          COLORS.leftFull, COLORS.leftPeak, ringColor, textColor, labelColor,
+          'LINKS', balStr,
         )
+        ctx.fillStyle = textColor
+        ctx.font = '10px system-ui, sans-serif'
+        ctx.textAlign = 'center'
+        ctx.fillText(
+          `PP ${activity.avg_left_power_phase_start_deg!.toFixed(0)}°–${activity.avg_left_power_phase_end_deg!.toFixed(0)}°`,
+          cx, size + 14,
+        )
+        if (
+          activity.avg_left_power_phase_peak_start_deg != null &&
+          activity.avg_left_power_phase_peak_end_deg != null
+        ) {
+          ctx.fillText(
+            `Peak ${activity.avg_left_power_phase_peak_start_deg.toFixed(0)}°–${activity.avg_left_power_phase_peak_end_deg.toFixed(0)}°`,
+            cx, size + 30,
+          )
+        }
+        colIdx++
       }
-      colIdx++
+
+      if (hasRight) {
+        const cx = colIdx * (size + gap) + size / 2
+        const cy = size / 2
+        const balStr = balance != null ? `${(100 - balance).toFixed(0)}%` : null
+        drawSingleWheel(ctx, cx, cy, maxR,
+          activity.avg_right_power_phase_start_deg!, activity.avg_right_power_phase_end_deg!,
+          activity.avg_right_power_phase_peak_start_deg, activity.avg_right_power_phase_peak_end_deg,
+          COLORS.rightFull, COLORS.rightPeak, ringColor, textColor, labelColor,
+          'RECHTS', balStr,
+        )
+        ctx.fillStyle = textColor
+        ctx.font = '10px system-ui, sans-serif'
+        ctx.textAlign = 'center'
+        const rcx = colIdx * (size + gap) + size / 2
+        ctx.fillText(
+          `PP ${activity.avg_right_power_phase_start_deg!.toFixed(0)}°–${activity.avg_right_power_phase_end_deg!.toFixed(0)}°`,
+          rcx, size + 14,
+        )
+        if (
+          activity.avg_right_power_phase_peak_start_deg != null &&
+          activity.avg_right_power_phase_peak_end_deg != null
+        ) {
+          ctx.fillText(
+            `Peak ${activity.avg_right_power_phase_peak_start_deg.toFixed(0)}°–${activity.avg_right_power_phase_peak_end_deg.toFixed(0)}°`,
+            rcx, size + 30,
+          )
+        }
+      }
     }
 
-    if (hasRight) {
-      const cx = colIdx * (size + gap) + size / 2
-      const cy = size / 2
-      const balStr = balance != null ? `${(100 - balance).toFixed(0)}%` : null
-      drawSingleWheel(ctx, cx, cy, maxR,
-        activity.avg_right_power_phase_start_deg!, activity.avg_right_power_phase_end_deg!,
-        activity.avg_right_power_phase_peak_start_deg, activity.avg_right_power_phase_peak_end_deg,
-        COLORS.rightFull, COLORS.rightPeak, ringColor, textColor, labelColor,
-        'RECHTS', balStr,
-      )
-      ctx.fillStyle = textColor
-      ctx.font = '10px system-ui, sans-serif'
-      ctx.textAlign = 'center'
-      const rcx = colIdx * (size + gap) + size / 2
-      ctx.fillText(
-        `PP ${activity.avg_right_power_phase_start_deg!.toFixed(0)}°–${activity.avg_right_power_phase_end_deg!.toFixed(0)}°`,
-        rcx, size + 14,
-      )
-      if (activity.avg_right_power_phase_peak_start_deg != null) {
-        ctx.fillText(
-          `Peak ${activity.avg_right_power_phase_peak_start_deg.toFixed(0)}°–${activity.avg_right_power_phase_peak_end_deg?.toFixed(0)}°`,
-          rcx, size + 30,
-        )
-      }
-    }
+    draw()
+
+    const observer = new MutationObserver(() => draw())
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    })
+
+    return () => observer.disconnect()
   }, [activity, size, hasLeft, hasRight])
 
   if (!hasLeft && !hasRight) return null

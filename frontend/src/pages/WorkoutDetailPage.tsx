@@ -45,7 +45,7 @@ export default function WorkoutDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { data: workout, isLoading, isError } = useQuery({
     queryKey: ['workout', id],
-    queryFn: () => fetchWorkout(id!),
+    queryFn: () => fetchWorkout(id ?? ''),
     enabled: !!id,
   })
 
