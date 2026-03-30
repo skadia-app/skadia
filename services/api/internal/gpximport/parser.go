@@ -11,6 +11,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/activityutil"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	sporttax "github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // GPX XML structures
@@ -254,7 +255,7 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	data.Streams = streams
 	data.TrackPoints = trackPoints
 	data.HasGPS = len(trackPoints) >= 2
-	data.IsIndoor = !data.HasGPS
+	data.IsIndoor = sporttax.IsIndoor(data.SportType, data.SubType)
 
 	if data.HasGPS {
 		data.StartLat = trackPoints[0].Lat
