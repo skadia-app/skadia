@@ -22,6 +22,7 @@ export interface SportDef {
   segmentGroup: 'bike' | 'foot' | 'swim' | 'ski' | 'paddle' | 'generic'
   label: string
   typicallyHasGPS: boolean
+  isIndoor: boolean
   subTypes: SubTypeDef[]
 }
 
@@ -50,9 +51,10 @@ function def(
   segmentGroup: 'bike' | 'foot' | 'swim' | 'ski' | 'paddle' | 'generic',
   label: string,
   typicallyHasGPS: boolean,
+  isIndoor: boolean = false,
   subTypes: SubTypeDef[] = [],
 ): SportDef {
-  return { sportType, categoryKey, segmentGroup, label, typicallyHasGPS, subTypes }
+  return { sportType, categoryKey, segmentGroup, label, typicallyHasGPS, isIndoor, subTypes }
 }
 
 function sub(subType: string, label: string, detail?: string): SubTypeDef {
@@ -63,7 +65,7 @@ function sub(subType: string, label: string, detail?: string): SubTypeDef {
 
 export const SPORT_DEFS: SportDef[] = [
   // ── run ──
-  def('running', 'run', 'foot', 'Laufen', true, [
+  def('running', 'run', 'foot', 'Laufen', true, false, [
     sub('treadmill', 'Laufband'),
     sub('street', 'Straße'),
     sub('trail', 'Trail'),
@@ -72,7 +74,7 @@ export const SPORT_DEFS: SportDef[] = [
     sub('ultra', 'Ultra'),
     sub('obstacle', 'Hindernislauf'),
   ]),
-  def('walking', 'run', 'foot', 'Gehen', true, [
+  def('walking', 'run', 'foot', 'Gehen', true, false, [
     sub('casual_walking', 'Gehen'),
     sub('speed_walking', 'Speedwalking'),
     sub('indoor_walking', 'Indoor'),
@@ -80,14 +82,14 @@ export const SPORT_DEFS: SportDef[] = [
   def('hiking', 'run', 'foot', 'Wandern', true),
   def('mountaineering', 'run', 'foot', 'Bergsteigen', true),
   def('snowshoeing', 'run', 'foot', 'Schneeschuhwandern', true),
-  def('floor_climbing', 'run', 'foot', 'Treppensteigen', false),
+  def('floor_climbing', 'run', 'foot', 'Treppensteigen', false, true),
   def('wheelchair_push_walk', 'run', 'foot', 'Rollstuhl (Fahren)', true),
   def('wheelchair_push_run', 'run', 'foot', 'Rollstuhl (Rennen)', true),
   def('trail_running', 'run', 'foot', 'Trailrunning', true),
-  def('treadmill_running', 'run', 'foot', 'Laufband', false),
+  def('treadmill_running', 'run', 'foot', 'Laufband', false, true),
 
   // ── bike ──
-  def('cycling', 'bike', 'bike', 'Radfahren', true, [
+  def('cycling', 'bike', 'bike', 'Radfahren', true, false, [
     sub('road', 'Rennrad'),
     sub('mountain', 'MTB'),
     sub('downhill', 'Downhill'),
@@ -104,17 +106,17 @@ export const SPORT_DEFS: SportDef[] = [
   ]),
   def('mountain_biking', 'bike', 'bike', 'Mountainbiken', true),
   def('gravel_cycling', 'bike', 'bike', 'Gravel', true),
-  def('indoor_cycling', 'bike', 'bike', 'Indoor-Radfahren', false),
+  def('indoor_cycling', 'bike', 'bike', 'Indoor-Radfahren', false, true),
   def('inline_skating', 'outdoor', 'generic', 'Inline-Skaten', true),
 
   // ── winter ──
-  def('alpine_skiing', 'winter', 'ski', 'Alpin-Ski', true, [
+  def('alpine_skiing', 'winter', 'ski', 'Alpin-Ski', true, false, [
     sub('resort', 'Piste'),
     sub('backcountry', 'Backcountry'),
     sub('indoor_skiing', 'Indoor'),
   ]),
   def('backcountry_skiing', 'winter', 'ski', 'Skitour', true),
-  def('cross_country_skiing', 'winter', 'ski', 'Langlauf', true, [
+  def('cross_country_skiing', 'winter', 'ski', 'Langlauf', true, false, [
     sub('skate_skiing', 'Skating'),
   ]),
   def('snowboarding', 'winter', 'ski', 'Snowboard', true),
@@ -124,18 +126,18 @@ export const SPORT_DEFS: SportDef[] = [
   def('skiing', 'winter', 'ski', 'Skifahren', true),
 
   // ── water ──
-  def('swimming', 'water', 'swim', 'Schwimmen', true, [
+  def('swimming', 'water', 'swim', 'Schwimmen', true, false, [
     sub('lap_swimming', 'Hallenbad'),
     sub('open_water', 'Freiwasser'),
   ]),
-  def('lap_swimming', 'water', 'swim', 'Bahnschwimmen', false),
+  def('lap_swimming', 'water', 'swim', 'Bahnschwimmen', false, true),
   def('open_water_swimming', 'water', 'swim', 'Freiwasserschwimmen', true),
   def('paddling', 'water', 'paddle', 'Wassersport', true),
-  def('kayaking', 'water', 'paddle', 'Kajak', true, [
+  def('kayaking', 'water', 'paddle', 'Kajak', true, false, [
     sub('whitewater', 'Wildwasser'),
   ]),
   def('stand_up_paddleboarding', 'water', 'paddle', 'SUP', true),
-  def('rowing', 'water', 'paddle', 'Rudern', true, [
+  def('rowing', 'water', 'paddle', 'Rudern', true, false, [
     sub('indoor_rowing', 'Indoor-Rudern'),
   ]),
   def('rafting', 'water', 'paddle', 'Rafting', true),
@@ -147,7 +149,7 @@ export const SPORT_DEFS: SportDef[] = [
   def('wakesurfing', 'water', 'generic', 'Wakesurfen', true),
   def('water_skiing', 'water', 'generic', 'Wasserski', true),
   def('water_tubing', 'water', 'generic', 'Tubing', true),
-  def('diving', 'water', 'generic', 'Tauchen', false, [
+  def('diving', 'water', 'generic', 'Tauchen', false, false, [
     sub('single_gas_diving', 'Eingas-Tauchen'),
     sub('multi_gas_diving', 'Mehrgas-Tauchen'),
     sub('gauge_diving', 'Gauge-Tauchen'),
@@ -156,39 +158,39 @@ export const SPORT_DEFS: SportDef[] = [
   ]),
   def('snorkeling', 'water', 'generic', 'Schnorcheln', true),
   def('boating', 'water', 'generic', 'Bootfahren', true),
-  def('sailing', 'water', 'generic', 'Segeln', true, [
+  def('sailing', 'water', 'generic', 'Segeln', true, false, [
     sub('sail_race', 'Regatta'),
   ]),
   def('fishing', 'water', 'generic', 'Angeln', true),
 
   // ── fitness ──
-  def('training', 'fitness', 'generic', 'Training', false, [
+  def('training', 'fitness', 'generic', 'Training', false, true, [
     sub('strength_training', 'Krafttraining'),
     sub('flexibility_training', 'Flexibilität'),
     sub('cardio_training', 'Cardio'),
     sub('yoga', 'Yoga'),
     sub('pilates', 'Pilates'),
   ]),
-  def('fitness_equipment', 'fitness', 'generic', 'Fitnessgerät', false, [
+  def('fitness_equipment', 'fitness', 'generic', 'Fitnessgerät', false, true, [
     sub('elliptical', 'Crosstrainer'),
     sub('stair_climbing', 'Treppensteiger'),
   ]),
-  def('strength_training', 'fitness', 'generic', 'Krafttraining', false, [
+  def('strength_training', 'fitness', 'generic', 'Krafttraining', false, true, [
     sub('amrap', 'AMRAP', 'As Many Reps As Possible'),
     sub('emom', 'EMOM', 'Every Minute On the Minute'),
   ]),
-  def('hiit', 'fitness', 'generic', 'HIIT', false, [
+  def('hiit', 'fitness', 'generic', 'HIIT', false, true, [
     sub('tabata', 'Tabata'),
   ]),
-  def('yoga', 'fitness', 'generic', 'Yoga', false),
-  def('pilates', 'fitness', 'generic', 'Pilates', false),
-  def('dance', 'fitness', 'generic', 'Tanzen', false),
-  def('jump_rope', 'fitness', 'generic', 'Seilspringen', false),
-  def('meditation', 'fitness', 'generic', 'Meditation', false),
-  def('strength', 'fitness', 'generic', 'Krafttraining', false),
+  def('yoga', 'fitness', 'generic', 'Yoga', false, true),
+  def('pilates', 'fitness', 'generic', 'Pilates', false, true),
+  def('dance', 'fitness', 'generic', 'Tanzen', false, true),
+  def('jump_rope', 'fitness', 'generic', 'Seilspringen', false, true),
+  def('meditation', 'fitness', 'generic', 'Meditation', false, true),
+  def('strength', 'fitness', 'generic', 'Krafttraining', false, true),
 
   // ── game ──
-  def('soccer', 'game', 'generic', 'Fußball', false, [
+  def('soccer', 'game', 'generic', 'Fußball', false, false, [
     sub('warm_up', 'Aufwärmen'),
     sub('match', 'Spiel'),
     sub('exercise', 'Übung'),
@@ -200,7 +202,7 @@ export const SPORT_DEFS: SportDef[] = [
   def('hockey', 'game', 'generic', 'Hockey', false),
   def('volleyball', 'game', 'generic', 'Volleyball', false),
   def('tennis', 'game', 'generic', 'Tennis', true),
-  def('racket', 'game', 'generic', 'Schlägersport', false, [
+  def('racket', 'game', 'generic', 'Schlägersport', false, false, [
     sub('pickleball', 'Pickleball'),
     sub('padel', 'Padel'),
     sub('squash', 'Squash'),
@@ -214,7 +216,7 @@ export const SPORT_DEFS: SportDef[] = [
   def('disc_golf', 'game', 'generic', 'Disc Golf', true),
 
   // ── climb ──
-  def('rock_climbing', 'climb', 'generic', 'Klettern', true, [
+  def('rock_climbing', 'climb', 'generic', 'Klettern', true, false, [
     sub('bouldering', 'Bouldern'),
     sub('indoor_climbing', 'Klettern (Halle)'),
   ]),
@@ -228,8 +230,8 @@ export const SPORT_DEFS: SportDef[] = [
   def('hunting', 'outdoor', 'generic', 'Jagen', true),
   def('motorcycling', 'outdoor', 'generic', 'Motorrad', true),
   def('driving', 'outdoor', 'generic', 'Autofahren', true),
-  def('boxing', 'fitness', 'generic', 'Boxen', false),
-  def('mixed_martial_arts', 'fitness', 'generic', 'MMA', false),
+  def('boxing', 'fitness', 'generic', 'Boxen', false, true),
+  def('mixed_martial_arts', 'fitness', 'generic', 'MMA', false, true),
   def('tactical', 'outdoor', 'generic', 'Taktisch', false),
 
   // ── multi ──
