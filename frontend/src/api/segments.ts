@@ -134,6 +134,13 @@ export async function deleteSegment(id: string): Promise<void> {
   return apiClient<void>(`/segments/${id}`, { method: 'DELETE' })
 }
 
+export async function deleteSegments(ids: string[]): Promise<{ deleted: number }> {
+  return apiClient<{ deleted: number }>('/segments', {
+    method: 'DELETE',
+    body: { ids },
+  })
+}
+
 export async function fetchActivitySegments(activityId: string): Promise<SegmentEffort[]> {
   return apiClient<SegmentEffort[]>(`/activities/${activityId}/segments`)
 }

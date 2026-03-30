@@ -493,6 +493,25 @@ func (db *DB) DeleteSegment(ctx context.Context, userID, segmentID string, isAdm
 	return nil
 }
 
+// DeleteSegments bulk-deletes segments owned by userID.
+// OSM-imported lift segments (segment_type='lift' AND osm_lift_id IS NOT NULL) are silently skipped.
+// Returns the number of rows actually deleted.
+func (db *DB) DeleteSegments(ctx context.Context, ids []string, userID string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	res, err := db.Pool.Exec(ctx,
+		`DELETE FROM segments
+		 WHERE id = ANY($1::uuid[])
+		   AND created_by = $2
+		   AND NOT (segment_type = 'lift' AND osm_lift_id IS NOT NULL)`,
+		ids, userID)
+	if err != nil {
+		return 0, fmt.Errorf("delete segments: %w", err)
+	}
+	return res.RowsAffected(), nil
+}
+
 // PublishSegment sets a private segment to public.
 // Only the creator may publish. Returns false if segment not found, not owned, or already public.
 func (db *DB) PublishSegment(ctx context.Context, segmentID, creatorID string) (bool, error) {

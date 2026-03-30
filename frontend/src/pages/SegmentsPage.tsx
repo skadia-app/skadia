@@ -1,9 +1,10 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, recomputeSegment, type Segment } from '@/api/segments'
+import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, deleteSegments, recomputeSegment, type Segment } from '@/api/segments'
 import { getMe } from '@/api/auth'
 import { useModal } from '@/lib/modal'
+import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 import { fmtDuration, fmtDist } from '@/lib/format'
@@ -50,6 +51,7 @@ export default function SegmentsPage() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const { openModal } = useModal()
+  const { addToast } = useToast()
   const { isJobActiveForEntity } = useActiveJobs()
   const { hideUnused } = useGlobalSportSettings()
   const [localPendingIds, setLocalPendingIds] = useState<Set<string>>(new Set())
@@ -61,6 +63,9 @@ export default function SegmentsPage() {
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
   const [editorMode, setEditorMode] = useState<'draw' | null>(null)
   const [editingSegment, setEditingSegment] = useState<Segment | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
 
   const { data: me } = useQuery({
     queryKey: ['me'],
@@ -158,6 +163,30 @@ export default function SegmentsPage() {
     },
   })
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const bulkDeleteMut = useMutation({
+    mutationFn: () => deleteSegments([...selectedIds]),
+    onSuccess: ({ deleted }) => {
+      const msg = deleted === 1 ? '1 Segment gelöscht' : `${deleted} Segmente gelöscht`
+      addToast({ type: 'success', title: msg })
+      setSelectedIds(new Set())
+      setSelectionMode(false)
+      setConfirmBulkDelete(false)
+      queryClient.invalidateQueries({ queryKey: ['segments'] })
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Löschen fehlgeschlagen', message: 'Die Segmente konnten nicht gelöscht werden', duration: 0 })
+      setConfirmBulkDelete(false)
+    },
+  })
+
   const handleDelete = (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
     openModal({
@@ -215,6 +244,16 @@ export default function SegmentsPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
             Segment zeichnen
+          </button>
+          <button
+            onClick={() => { setSelectionMode(m => !m); setSelectedIds(new Set()) }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border cursor-pointer transition-colors ${
+              selectionMode
+                ? 'border-neutral-400 dark:border-neutral-500 bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200'
+                : 'border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-600'
+            }`}
+          >
+            {selectionMode ? 'Fertig' : 'Auswählen'}
           </button>
         </div>
       </div>
@@ -295,6 +334,57 @@ export default function SegmentsPage() {
         </div>
       </div>
 
+      {/* Bulk Action Toolbar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 p-3 bg-neutral-100 dark:bg-neutral-800 rounded-lg mb-4">
+          <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+            {selectedIds.size === 1 ? '1 ausgewählt' : `${selectedIds.size} ausgewählt`}
+          </span>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="px-2.5 py-1 text-xs font-medium rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
+          >
+            Auswahl aufheben
+          </button>
+          <button
+            onClick={() => setConfirmBulkDelete(true)}
+            className="px-2.5 py-1 text-xs font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 cursor-pointer transition-colors"
+          >
+            Löschen
+          </button>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Dialog */}
+      {confirmBulkDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setConfirmBulkDelete(false)}>
+          <div className="bg-white dark:bg-neutral-900 p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-neutral-900 dark:text-neutral-100 mb-2">Segmente löschen?</h3>
+            <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-5">
+              {selectedIds.size === 1
+                ? '1 Segment wird unwiderruflich gelöscht.'
+                : `${selectedIds.size} Segmente werden unwiderruflich gelöscht.`}
+              {' '}OSM-Liftabschnitte werden dabei übersprungen.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setConfirmBulkDelete(false)}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={() => bulkDeleteMut.mutate()}
+                disabled={bulkDeleteMut.isPending}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              >
+                {bulkDeleteMut.isPending ? 'Lösche...' : 'Endgültig löschen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Segment Cards */}
       {segments.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-48 text-neutral-400 dark:text-neutral-500">
@@ -308,14 +398,27 @@ export default function SegmentsPage() {
           {segments.map(segment => (
             <div
               key={segment.id}
-              onClick={() => navigate(`/segments/${segment.id}`)}
-              className={`rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-sm transition-all cursor-pointer group ${
+              onClick={() => selectionMode ? toggleSelect(segment.id) : navigate(`/segments/${segment.id}`)}
+              className={`relative rounded-xl border p-4 transition-all cursor-pointer group ${
+                selectionMode && selectedIds.has(segment.id)
+                  ? 'border-accent-DEFAULT dark:border-accent-DEFAULT bg-accent-50 dark:bg-accent-900/20 shadow-sm'
+                  : 'border-neutral-200 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-sm'
+              } ${
                 segment.visibility === 'private' && segment.created_by !== me?.user_id
                   ? 'opacity-60 ring-1 ring-neutral-600'
                   : ''
               }`}
             >
-              <div className="flex items-start justify-between mb-2">
+              {selectionMode && (
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(segment.id)}
+                  onChange={() => toggleSelect(segment.id)}
+                  onClick={e => e.stopPropagation()}
+                  className="absolute top-3 left-3 h-4 w-4 accent-primary z-10 cursor-pointer"
+                />
+              )}
+              <div className={`flex items-start justify-between mb-2 ${selectionMode ? 'pl-6' : ''}`}>
                 <div className="flex items-center gap-2 min-w-0">
                   <svg className={`w-5 h-5 flex-shrink-0 ${SPORT_GROUP_COLORS[segment.sport_group] ?? 'text-neutral-500'}`} viewBox="0 0 24 24" fill="currentColor">
                     <path d={SPORT_GROUP_ICONS[segment.sport_group] ?? SPORT_GROUP_ICONS.generic} />
@@ -330,7 +433,7 @@ export default function SegmentsPage() {
                     <DifficultyBadge meta={segment.segment_type_meta ?? {}} />
                   )}
                 </div>
-                <div className={`flex items-center gap-1 flex-shrink-0 ${isSegmentRecomputing(segment.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                <div className={`flex items-center gap-1 flex-shrink-0 ${selectionMode ? 'hidden' : isSegmentRecomputing(segment.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                   <button
                     onClick={(e) => { e.stopPropagation(); setEditingSegment(segment) }}
                     className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-100/20 cursor-pointer transition-colors"
