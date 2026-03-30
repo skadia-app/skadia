@@ -47,17 +47,26 @@ export function fmtDist(m?: number | null): string {
   return `${Math.round(m)} m`
 }
 
+// Old DB data may have "UTC+HH:MM" format from before the b2f4b2f6 fix.
+// Intl.DateTimeFormat rejects the "UTC" prefix with a RangeError — strip it.
+function normTz(tz: string | null | undefined): string | undefined {
+  if (!tz) return undefined
+  return tz.replace(/^UTC([+-])/, '$1')
+}
+
 /** Format an ISO date string as HH:MM (de-DE locale). Optional timezone (IANA or UTC offset). */
 export function fmtTime(iso: string, timezone?: string | null): string {
   const opts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }
-  if (timezone) opts.timeZone = timezone
+  const tz = normTz(timezone)
+  if (tz) opts.timeZone = tz
   return new Date(iso).toLocaleTimeString('de-DE', opts)
 }
 
 /** Format a Date object as HH:MM (de-DE locale). Optional timezone (IANA or UTC offset). */
 export function fmtTimeFromDate(date: Date, timezone?: string | null): string {
   const opts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }
-  if (timezone) opts.timeZone = timezone
+  const tz = normTz(timezone)
+  if (tz) opts.timeZone = tz
   return date.toLocaleTimeString('de-DE', opts)
 }
 
@@ -70,7 +79,8 @@ export function fmtActivityDate(iso: string, timezone?: string | null): string {
   const opts: Intl.DateTimeFormatOptions = {
     weekday: 'long', day: '2-digit', month: 'long', year: 'numeric',
   }
-  if (timezone) opts.timeZone = timezone
+  const tz = normTz(timezone)
+  if (tz) opts.timeZone = tz
   return new Date(iso).toLocaleDateString('de-DE', opts)
 }
 
@@ -82,7 +92,8 @@ export function fmtActivityDateShort(iso: string, timezone?: string | null): str
   const opts: Intl.DateTimeFormatOptions = {
     weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
   }
-  if (timezone) opts.timeZone = timezone
+  const tz = normTz(timezone)
+  if (tz) opts.timeZone = tz
   return new Date(iso).toLocaleDateString('de-DE', opts)
 }
 
@@ -95,7 +106,8 @@ export function fmtDateTime(iso: string, timezone?: string | null): string {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit',
   }
-  if (timezone) opts.timeZone = timezone
+  const tz = normTz(timezone)
+  if (tz) opts.timeZone = tz
   return new Date(iso).toLocaleString('de-DE', opts)
 }
 
@@ -105,7 +117,8 @@ export function fmtDateTime(iso: string, timezone?: string | null): string {
  */
 export function fmtDateCompact(iso: string, timezone?: string | null): string {
   const opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit', year: 'numeric' }
-  if (timezone) opts.timeZone = timezone
+  const tz = normTz(timezone)
+  if (tz) opts.timeZone = tz
   return new Date(iso).toLocaleDateString('de-DE', opts)
 }
 
@@ -115,6 +128,7 @@ export function fmtDateCompact(iso: string, timezone?: string | null): string {
  */
 export function fmtDateMedium(iso: string, timezone?: string | null): string {
   const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }
-  if (timezone) opts.timeZone = timezone
+  const tz = normTz(timezone)
+  if (tz) opts.timeZone = tz
   return new Date(iso).toLocaleDateString('de-DE', opts)
 }
