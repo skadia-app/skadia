@@ -58,7 +58,7 @@ import TrackMap from '@/components/activity/TrackMap'
 import TagsBadges from '@/components/activity/TagsBadges'
 import ZoneDistributionChart from '@/components/activity/ZoneDistributionChart'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
-import { PowerPhaseRosette } from '@/components/activity/PowerPhaseRosette'
+import { PowerPhaseDial } from '@/components/activity/PowerPhaseDial'
 import { HealthContextCards } from '@/components/activity/HealthContextCards'
 import { useToast } from '@/lib/toast'
 
@@ -587,9 +587,9 @@ export default function ActivityDetailPage() {
         </div>
       )}
 
-      {/* Pedal Power Phase Rosette */}
+      {/* Pedal Power Phase Dial — Tretphasen-Diagramm */}
       {activity.avg_left_power_phase_start_deg != null && (
-        <PowerPhaseRosette activity={activity} />
+        <PowerPhaseDial activity={activity} />
       )}
 
       {/* Weather */}
