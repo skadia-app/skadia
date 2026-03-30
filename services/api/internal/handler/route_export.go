@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"html"
 	"net/http"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -34,12 +33,7 @@ func (h *Handler) ExportRouteGPX(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sanitise filename: replace characters problematic in Content-Disposition headers.
-	safeName := strings.Map(func(r rune) rune {
-		if r == '"' || r == '\\' || r == '\n' || r == '\r' {
-			return '_'
-		}
-		return r
-	}, route.Name)
+	safeName := sanitizeFilename(route.Name)
 
 	w.Header().Set("Content-Type", "application/gpx+xml; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.gpx"`, safeName))
