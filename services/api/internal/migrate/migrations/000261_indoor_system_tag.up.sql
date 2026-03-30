@@ -56,6 +56,10 @@ DECLARE
     v_tag_id UUID;
 BEGIN
     -- ── Direction A: tags TEXT[] changed → derive boolean flags ──
+    -- NOTE: When tags and is_indoor/is_electric are set simultaneously in one UPDATE,
+    -- Direction A runs first and may override the direct flag value. This is intentional:
+    -- explicit tag changes are authoritative. Application code should not set both
+    -- in a single statement with conflicting intent.
     IF NEW.tags IS DISTINCT FROM OLD.tags THEN
         NEW.is_indoor := 'Indoor' = ANY(COALESCE(NEW.tags, '{}'));
         NEW.is_electric := 'E-Bike' = ANY(COALESCE(NEW.tags, '{}'));
