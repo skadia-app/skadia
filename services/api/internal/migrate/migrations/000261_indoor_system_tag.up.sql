@@ -117,7 +117,7 @@ CREATE TRIGGER trg_sync_system_flags_and_tags
 -- ══════════════════════════════════════════════════════════════════════
 -- Step 5: Create system rule (skipped by rules engine)
 -- ══════════════════════════════════════════════════════════════════════
-INSERT INTO automation_rules (id, user_id, name, is_active, system_type, priority, conditions, match_mode, actions)
+INSERT INTO automation_rules (id, user_id, name, is_active, system_type, priority, conditions, conditions_logic, actions)
 SELECT gen_random_uuid(), u.id, 'Indoor-Sync', true, 'indoor_sync', -100, '[]'::jsonb, 'and', '[]'::jsonb
 FROM users u
 WHERE NOT EXISTS (
