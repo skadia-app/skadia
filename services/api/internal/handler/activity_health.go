@@ -27,5 +27,9 @@ func (h *Handler) GetActivityHealthContext(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if hc == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	httputil.WriteJSON(w, http.StatusOK, hc)
 }
