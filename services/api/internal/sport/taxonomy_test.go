@@ -162,3 +162,63 @@ func TestSportDetailLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestIsIndoor(t *testing.T) {
+	tests := []struct {
+		sport, sub string
+		want       bool
+	}{
+		// Sport-level IsIndoor: true
+		{"training", "", true},
+		{"fitness_equipment", "", true},
+		{"strength_training", "", true},
+		{"indoor_cycling", "", true},
+		{"lap_swimming", "", true},
+		{"yoga", "", true},
+		{"pilates", "", true},
+		{"treadmill_running", "", true},
+		{"hiit", "", true},
+		{"dance", "", true},
+		{"jump_rope", "", true},
+		{"meditation", "", true},
+		{"boxing", "", true},
+		{"mixed_martial_arts", "", true},
+		{"floor_climbing", "", true},
+		{"strength", "", true}, // alias
+
+		// Sport-level IsIndoor: false
+		{"running", "", false},
+		{"cycling", "", false},
+		{"hiking", "", false},
+		{"diving", "", false},
+		{"swimming", "", false},
+		{"rock_climbing", "", false},
+		{"open_water_swimming", "", false},
+
+		// SubType patterns
+		{"running", "indoor_running", true},
+		{"running", "treadmill", true},
+		{"cycling", "indoor_cycling", true},
+		{"cycling", "spin", true},
+		{"swimming", "lap_swimming", true},
+		{"rowing", "indoor_rowing", true},
+		{"alpine_skiing", "indoor_skiing", true},
+		{"walking", "indoor_walking", true},
+		{"rock_climbing", "indoor_climbing", true},
+
+		// SubType: not indoor
+		{"running", "street", false},
+		{"running", "trail", false},
+		{"cycling", "road", false},
+		{"swimming", "open_water", false},
+
+		// Unknown sport
+		{"nonexistent_sport", "", false},
+	}
+	for _, tt := range tests {
+		got := IsIndoor(tt.sport, tt.sub)
+		if got != tt.want {
+			t.Errorf("IsIndoor(%q, %q) = %v, want %v", tt.sport, tt.sub, got, tt.want)
+		}
+	}
+}
