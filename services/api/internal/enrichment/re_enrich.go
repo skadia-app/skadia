@@ -125,8 +125,18 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 	// nicht da). Stattdessen: Module sind self-contained — sie loeschen
 	// ihre eigenen alten Daten als ersten Schritt ihres Laufs.
 
-	// Run stream modules
-	if hasStream && len(stream) > 0 {
+	// Run stream modules — skip entirely for water-category sports (diving, swimming, etc.)
+	// where altitude/speed data is meaningless underwater.
+	isWaterSport := false
+	if hasStream {
+		if act, err := db.GetActivity(ctx, activityID); err == nil {
+			if def, ok := sport.GetSportDef(act.SportType); ok {
+				isWaterSport = def.CategoryKey == "water"
+			}
+		}
+	}
+
+	if hasStream && len(stream) > 0 && !isWaterSport {
 		for _, m := range modules {
 			switch m {
 			case "stops":
