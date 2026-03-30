@@ -58,6 +58,7 @@ import TrackMap from '@/components/activity/TrackMap'
 import TagsBadges from '@/components/activity/TagsBadges'
 import ZoneDistributionChart from '@/components/activity/ZoneDistributionChart'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
+import { PowerPhaseRosette } from '@/components/activity/PowerPhaseRosette'
 import { useToast } from '@/lib/toast'
 
 function getSportEmoji(sportType: string): string {
@@ -580,6 +581,11 @@ export default function ActivityDetailPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Pedal Power Phase Rosette */}
+      {activity.avg_left_power_phase_start_deg != null && (
+        <PowerPhaseRosette activity={activity} />
       )}
 
       {/* Weather */}
