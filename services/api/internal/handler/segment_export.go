@@ -98,6 +98,12 @@ func (h *Handler) ExportSegments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	segments, err := h.DB.GetSegmentsForExport(r.Context(), body.IDs, userID)
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch segments", r.URL.Path)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="segments.zip"`)
 	w.WriteHeader(http.StatusOK)
@@ -108,14 +114,8 @@ func (h *Handler) ExportSegments(w http.ResponseWriter, r *http.Request) {
 	// Track used filenames to handle duplicates.
 	usedNames := make(map[string]int)
 
-	for _, id := range body.IDs {
-		seg, err := h.DB.GetSegment(r.Context(), id, userID, false)
-		if err != nil || seg == nil {
-			continue
-		}
-		if seg.TrackGeoJSON == nil || *seg.TrackGeoJSON == "" {
-			continue
-		}
+	for i := range segments {
+		seg := &segments[i]
 
 		baseName := sanitizeFilename(seg.Name)
 		if baseName == "" {
