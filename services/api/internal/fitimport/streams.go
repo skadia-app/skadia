@@ -115,6 +115,8 @@ func ExtractStreams(records []*mesgdef.Record) []model.StreamPoint {
 		// --- FIT SDK — Terrain & Movement ---
 
 		// Grade (int16, Scale: 100 → %)
+		// Note: Some newer devices (e.g. Fenix 8) omit grade from Record messages entirely.
+		// They compute GAP internally (field 140) but don't expose the raw grade.
 		if rec.Grade != basetype.Sint16Invalid {
 			v := rec.GradeScaled()
 			sp.GradePct = &v
