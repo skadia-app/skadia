@@ -18,6 +18,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/activityutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // ParseMultiSessionFIT parses a FIT file and returns one ActivityData per session.
@@ -1497,8 +1498,11 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		}
 	}
 
-	// Indoor detection
-	data.IsIndoor = !data.HasGPS
+	// Indoor detection: taxonomy + subtype + FIT SubSport override
+	data.IsIndoor = sport.IsIndoor(data.SportType, data.SubType)
+	if !data.IsIndoor {
+		data.IsIndoor = isIndoorFITSubSport(data.FitSubSportID)
+	}
 
 	// === FIT SDK — VO2max (max_met_data message) ===
 	if maxMetData != nil {
@@ -1960,4 +1964,24 @@ func extractTimeInZoneEntries(tiz *mesgdef.TimeInZone) []model.TimeInZoneData {
 		}
 	}
 	return zones
+}
+
+// isIndoorFITSubSport returns true for FIT SubSport IDs that explicitly
+// indicate an indoor activity. Safety net for cases where SubType mapping
+// didn't produce an indoor_ prefix.
+func isIndoorFITSubSport(id int16) bool {
+	switch typedef.SubSport(id) {
+	case typedef.SubSportTreadmill,
+		typedef.SubSportIndoorCycling,
+		typedef.SubSportIndoorRowing,
+		typedef.SubSportIndoorSkiing,
+		typedef.SubSportIndoorWalking,
+		typedef.SubSportIndoorRunning,
+		typedef.SubSportIndoorClimbing,
+		typedef.SubSportIndoorWheelchairWalk,
+		typedef.SubSportIndoorWheelchairRun,
+		typedef.SubSportIndoorHandCycling:
+		return true
+	}
+	return false
 }

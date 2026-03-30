@@ -228,8 +228,9 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			endedAt = startedAt.Add(time.Duration(movingTimeS) * time.Second)
 		}
 
-		// Is indoor: true when no GPS file and no GPS data
-		isIndoor := filename == ""
+		// Strava: filename=="" is a valuable signal (no GPS file = often indoor).
+		// Combine with taxonomy-based classification.
+		isIndoor := sport.IsIndoor(sportType, subType) || filename == ""
 
 		// Build base ActivityData (will be enriched if GPS file exists)
 		data := &model.ActivityData{
