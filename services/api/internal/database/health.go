@@ -940,3 +940,64 @@ func (db *DB) UpsertHealthHRVNightValuesBatch(ctx context.Context, userID string
 	}
 	return db.Pool.SendBatch(ctx, batch).Close()
 }
+
+// HealthContext contains health data from the night/morning before an activity.
+type HealthContext struct {
+	SleepDurationMin *int     `json:"sleep_duration_min,omitempty"`
+	SleepScore       *int     `json:"sleep_score,omitempty"`
+	DeepSleepMin     *int     `json:"deep_sleep_min,omitempty"`
+	RemSleepMin      *int     `json:"rem_sleep_min,omitempty"`
+	HrvRmssd         *float64 `json:"hrv_rmssd,omitempty"`
+	HrvMeasuredAt    *string  `json:"hrv_measured_at,omitempty"`
+	RestingHR        *int     `json:"resting_hr,omitempty"`
+}
+
+// GetHealthContextForActivity returns health context (sleep, HRV, resting HR)
+// from the night/morning before the given activity start time.
+func (db *DB) GetHealthContextForActivity(ctx context.Context, userID string, activityStartedAt time.Time) (*HealthContext, error) {
+	hc := &HealthContext{}
+
+	activityDate := activityStartedAt.Format("2006-01-02")
+	prevDate := activityStartedAt.AddDate(0, 0, -1).Format("2006-01-02")
+
+	// Sleep: prefer the sleep record on activityDate, fall back to previous night.
+	// Duration = (sleep_end_utc - sleep_start_utc) in minutes.
+	row := db.Pool.QueryRow(ctx, `
+		SELECT
+			EXTRACT(EPOCH FROM (sleep_end_utc - sleep_start_utc))::int / 60,
+			score_overall,
+			deep_seconds / 60,
+			rem_seconds / 60
+		FROM health_sleep
+		WHERE user_id = $1
+		  AND calendar_date = ANY($2::date[])
+		ORDER BY calendar_date DESC
+		LIMIT 1
+	`, userID, []string{activityDate, prevDate})
+	_ = row.Scan(&hc.SleepDurationMin, &hc.SleepScore, &hc.DeepSleepMin, &hc.RemSleepMin)
+
+	// HRV: most recent night measurement before the activity start.
+	row = db.Pool.QueryRow(ctx, `
+		SELECT rmssd_ms, ts::text
+		FROM health_hrv_night_values
+		WHERE user_id = $1
+		  AND ts < $2
+		ORDER BY ts DESC
+		LIMIT 1
+	`, userID, activityStartedAt)
+	_ = row.Scan(&hc.HrvRmssd, &hc.HrvMeasuredAt)
+
+	// Resting HR from daily summary on activity date.
+	row = db.Pool.QueryRow(ctx, `
+		SELECT resting_heart_rate
+		FROM health_daily_summary
+		WHERE user_id = $1
+		  AND calendar_date = $2::date
+	`, userID, activityDate)
+	_ = row.Scan(&hc.RestingHR)
+
+	if hc.SleepDurationMin == nil && hc.HrvRmssd == nil && hc.RestingHR == nil {
+		return nil, nil
+	}
+	return hc, nil
+}

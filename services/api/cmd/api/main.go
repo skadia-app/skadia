@@ -809,6 +809,7 @@ func main() {
 			r.Get("/activities/{id}/hr-data", h.HandleGetActivityHrData)
 			r.Get("/activities/{id}/segment-laps", h.HandleGetActivitySegmentLaps)
 			r.Get("/activities/{id}/dive", h.GetActivityDiveInfo)
+			r.Get("/activities/{id}/health-context", h.GetActivityHealthContext)
 			r.Get("/workouts", h.HandleListWorkouts)
 			r.Get("/workouts/{id}", h.HandleGetWorkout)
 			r.Get("/stats/pmc", h.GetPMC)
