@@ -28,6 +28,7 @@ type SportDef struct {
 	SegmentGroup     string                `json:"segment_group"`
 	TypicallyHasGPS  bool                  `json:"typically_has_gps"`
 	MovingThreshold  float64               `json:"moving_threshold"`
+	IsIndoor         bool                  `json:"is_indoor"`
 	SubTypePromotion bool                  `json:"sub_type_promotion"`
 	SubTypes         map[string]SubTypeDef `json:"sub_types,omitempty"`
 }
@@ -104,7 +105,7 @@ func init() {
 		},
 		{
 			SportType: "floor_climbing", CategoryKey: "run", LabelDE: "Treppensteigen", AutoTitleDE: "Treppensteigen",
-			SegmentGroup: "foot", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "foot", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 		},
 		{
 			SportType: "wheelchair_push_walk", CategoryKey: "run", LabelDE: "Rollstuhl (Fahren)", AutoTitleDE: "Rollstuhl-Spaziergang",
@@ -151,7 +152,7 @@ func init() {
 		},
 		{
 			SportType: "indoor_cycling", CategoryKey: "bike", LabelDE: "Indoor-Radfahren", AutoTitleDE: "Indoor-Radfahrt",
-			SegmentGroup: "bike", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "bike", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 		},
 		{
 			SportType: "inline_skating", CategoryKey: "outdoor", LabelDE: "Inline-Skaten", AutoTitleDE: "Inline-Skaten",
@@ -213,7 +214,7 @@ func init() {
 		},
 		{
 			SportType: "lap_swimming", CategoryKey: "water", LabelDE: "Bahnschwimmen", AutoTitleDE: "Bahnschwimmen",
-			SegmentGroup: "swim", TypicallyHasGPS: false, MovingThreshold: 0.1,
+			SegmentGroup: "swim", TypicallyHasGPS: false, MovingThreshold: 0.1, IsIndoor: true,
 		},
 		{
 			SportType: "paddling", CategoryKey: "water", LabelDE: "Wassersport", AutoTitleDE: "Wassersport-Tour",
@@ -306,7 +307,7 @@ func init() {
 		// ── Fitness ──
 		{
 			SportType: "training", CategoryKey: "fitness", LabelDE: "Training", AutoTitleDE: "Training",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 			SubTypePromotion: true,
 			SubTypes: map[string]SubTypeDef{
 				"strength_training":    {SubType: "strength_training", LabelDE: "Krafttraining", DetailDE: "Krafttraining", AutoTitleDE: "Krafttraining"},
@@ -319,7 +320,7 @@ func init() {
 		},
 		{
 			SportType: "fitness_equipment", CategoryKey: "fitness", LabelDE: "Fitnessgerät", AutoTitleDE: "Fitnessgerät",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 			SubTypePromotion: true,
 			SubTypes: map[string]SubTypeDef{
 				"treadmill":           {SubType: "treadmill", LabelDE: "Laufband", DetailDE: "Laufband", AutoTitleDE: "Laufband"},
@@ -335,7 +336,7 @@ func init() {
 		},
 		{
 			SportType: "strength_training", CategoryKey: "fitness", LabelDE: "Krafttraining", AutoTitleDE: "Krafttraining",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 			SubTypes: map[string]SubTypeDef{
 				"amrap": {SubType: "amrap", LabelDE: "AMRAP", DetailDE: "As Many Reps As Possible", AutoTitleDE: "AMRAP"},
 				"emom":  {SubType: "emom", LabelDE: "EMOM", DetailDE: "Every Minute On the Minute", AutoTitleDE: "EMOM"},
@@ -343,30 +344,30 @@ func init() {
 		},
 		{
 			SportType: "hiit", CategoryKey: "fitness", LabelDE: "HIIT", AutoTitleDE: "HIIT",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 			SubTypes: map[string]SubTypeDef{
 				"tabata": {SubType: "tabata", LabelDE: "Tabata", DetailDE: "Tabata", AutoTitleDE: "Tabata"},
 			},
 		},
 		{
 			SportType: "dance", CategoryKey: "fitness", LabelDE: "Tanzen", AutoTitleDE: "Tanzen",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 		},
 		{
 			SportType: "jump_rope", CategoryKey: "fitness", LabelDE: "Seilspringen", AutoTitleDE: "Seilspringen",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 		},
 		{
 			SportType: "meditation", CategoryKey: "fitness", LabelDE: "Meditation", AutoTitleDE: "Meditation",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 		},
 		{
 			SportType: "yoga", CategoryKey: "fitness", LabelDE: "Yoga", AutoTitleDE: "Yoga",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 		},
 		{
 			SportType: "pilates", CategoryKey: "fitness", LabelDE: "Pilates", AutoTitleDE: "Pilates",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 		},
 
 		// ── Game ──
@@ -500,11 +501,11 @@ func init() {
 		},
 		{
 			SportType: "boxing", CategoryKey: "fitness", LabelDE: "Boxen", AutoTitleDE: "Boxen",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 		},
 		{
 			SportType: "mixed_martial_arts", CategoryKey: "fitness", LabelDE: "MMA", AutoTitleDE: "MMA",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 		},
 		{
 			SportType: "tactical", CategoryKey: "outdoor", LabelDE: "Taktisch", AutoTitleDE: "Taktisches Training",
@@ -543,11 +544,11 @@ func init() {
 		},
 		{
 			SportType: "treadmill_running", CategoryKey: "run", LabelDE: "Laufband", AutoTitleDE: "Laufband",
-			SegmentGroup: "foot", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "foot", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 		},
 		{
 			SportType: "strength", CategoryKey: "fitness", LabelDE: "Krafttraining", AutoTitleDE: "Krafttraining",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 		},
 		{
 			SportType: "canoeing", CategoryKey: "water", LabelDE: "Kanu", AutoTitleDE: "Kanutour",
@@ -699,4 +700,21 @@ func titleCase(s string) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+// IsIndoor returns true when the given sport/sub-type combination
+// represents an indoor activity. Three sources of truth:
+//  1. SportDef.IsIndoor flag (sport types that are always indoor)
+//  2. SubType name pattern (indoor_* prefix or explicit list)
+//
+// Indoor SubType patterns. New indoor sub-types MUST use "indoor_" prefix
+// or be added here explicitly. See SportDef.IsIndoor for sport-level defaults.
+func IsIndoor(sportType, subType string) bool {
+	if d, ok := registry[sportType]; ok && d.IsIndoor {
+		return true
+	}
+	return strings.HasPrefix(subType, "indoor_") ||
+		subType == "treadmill" ||
+		subType == "spin" ||
+		subType == "lap_swimming"
 }
