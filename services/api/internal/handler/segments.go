@@ -237,6 +237,42 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, segment)
 }
 
+// DeleteSegments bulk-deletes multiple segments owned by the authenticated user.
+//
+// DELETE /api/v1/segments
+// Body: {"ids": ["uuid1", "uuid2", ...]}
+// OSM-imported lift segments are silently skipped (not counted in the response).
+func (h *Handler) DeleteSegments(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	body, ok := httputil.DecodeJSON[struct {
+		IDs []string `json:"ids"`
+	}](w, r)
+	if !ok {
+		return
+	}
+	if len(body.IDs) == 0 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "ids array required", r.URL.Path)
+		return
+	}
+	if len(body.IDs) > 500 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "max 500 ids per request", r.URL.Path)
+		return
+	}
+
+	count, err := h.DB.DeleteSegments(r.Context(), body.IDs, userID)
+	if err != nil {
+		slog.Error("bulk delete segments failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete segments", r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]int64{"deleted": count})
+}
+
 func (h *Handler) DeleteSegment(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
