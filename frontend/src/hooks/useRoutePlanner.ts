@@ -128,6 +128,52 @@ export function useRoutePlanner() {
     })
   }
 
+  // ── Segment calculation ─────────────────────────────────────────────────────
+
+  // Internal helper — wrapped in useCallback so callers (recalculateAll, etc.) get a stable reference
+  // MUST be declared before addWaypoint/moveWaypoint which reference it
+  const _calculateSegment = useCallback(async (
+    from: RouteWaypoint,
+    to: RouteWaypoint,
+    profileConfig: ProfileConfig,
+    engine: RoutingEngine = 'badrouter',
+    brouterProf: string = 'hiking-mountain',
+  ): Promise<void> => {
+    setState(s => ({ ...s, isCalculating: true, calculationError: null }))
+    try {
+      const result =
+        engine === 'brouter'
+          ? await computeRoute([from.latlng, to.latlng], brouterProf)
+          : await computeInternalRoute(from.latlng, to.latlng, profileConfig)
+      const feature = result.features[0]
+      const isFallback = feature?.properties?.fallback === true
+
+      const segment = buildSegmentFromFeature(from, to, feature, isFallback)
+
+      setState(s => {
+        // Replace existing segment between these two waypoints, or append
+        const idx = s.segments.findIndex(
+          seg =>
+            seg.from_waypoint === from.id && seg.to_waypoint === to.id,
+        )
+        const newSegments =
+          idx >= 0
+            ? s.segments.map((seg, i) => (i === idx ? segment : seg))
+            : [...s.segments, segment]
+        return { ...s, segments: newSegments, isCalculating: false }
+      })
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Routenberechnung fehlgeschlagen'
+      setState(s => ({
+        ...s,
+        isCalculating: false,
+        calculationError: message,
+      }))
+    }
+  // setState from useState is stable — no deps needed
+  }, [])
+
   // ── Waypoint management ─────────────────────────────────────────────────────
 
   const addWaypoint = useCallback(
@@ -224,51 +270,6 @@ export function useRoutePlanner() {
       const retyped = assignWaypointTypes(newOrder)
       return { ...s, waypoints: retyped, segments: [] } // segments are invalid after reorder
     })
-  }, [])
-
-  // ── Segment calculation ─────────────────────────────────────────────────────
-
-  // Internal helper — wrapped in useCallback so callers (recalculateAll, etc.) get a stable reference
-  const _calculateSegment = useCallback(async (
-    from: RouteWaypoint,
-    to: RouteWaypoint,
-    profileConfig: ProfileConfig,
-    engine: RoutingEngine = 'badrouter',
-    brouterProf: string = 'hiking-mountain',
-  ): Promise<void> => {
-    setState(s => ({ ...s, isCalculating: true, calculationError: null }))
-    try {
-      const result =
-        engine === 'brouter'
-          ? await computeRoute([from.latlng, to.latlng], brouterProf)
-          : await computeInternalRoute(from.latlng, to.latlng, profileConfig)
-      const feature = result.features[0]
-      const isFallback = feature?.properties?.fallback === true
-
-      const segment = buildSegmentFromFeature(from, to, feature, isFallback)
-
-      setState(s => {
-        // Replace existing segment between these two waypoints, or append
-        const idx = s.segments.findIndex(
-          seg =>
-            seg.from_waypoint === from.id && seg.to_waypoint === to.id,
-        )
-        const newSegments =
-          idx >= 0
-            ? s.segments.map((seg, i) => (i === idx ? segment : seg))
-            : [...s.segments, segment]
-        return { ...s, segments: newSegments, isCalculating: false }
-      })
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Routenberechnung fehlgeschlagen'
-      setState(s => ({
-        ...s,
-        isCalculating: false,
-        calculationError: message,
-      }))
-    }
-  // setState from useState is stable — no deps needed
   }, [])
 
   const calculateSegment = useCallback(
