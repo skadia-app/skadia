@@ -51,29 +51,19 @@ export function StatsGrid({ activity }: StatsGridProps) {
     },
     { label: 'Abstieg', value: loss },
 
-    // Ø Pace + Ø Geschwindigkeit (pace-native sports get both; speed-native get only speed)
-    ...(activity.avg_speed_ms != null
-      ? defaultSpeedMode(sport) === 'pace'
-        ? [
-            { label: 'Ø Pace', value: formatSpeedValue(activity.avg_speed_ms, sport, 'pace') },
-            { label: `Ø ${fieldLabel('speed', sport)}`, value: formatSpeedValue(activity.avg_speed_ms, sport, 'speed') },
-          ]
-        : [
-            { label: `Ø ${fieldLabel('speed', sport)}`, value: formatSpeedValue(activity.avg_speed_ms, sport, 'speed') },
-          ]
-      : []),
+    // Ø Pace / Ø Geschwindigkeit — pace-native sports show both in one card
+    activity.avg_speed_ms != null ? (
+      defaultSpeedMode(sport) === 'pace'
+        ? { label: 'Ø Pace', value: `${formatSpeedValue(activity.avg_speed_ms, sport, 'pace')} · ${formatSpeedValue(activity.avg_speed_ms, sport, 'speed')}` }
+        : { label: 'Ø Geschwindigkeit', value: formatSpeedValue(activity.avg_speed_ms, sport, 'speed') }
+    ) : null,
 
-    // Beste Pace + Max. Geschwindigkeit (same dual/single logic)
-    ...(activity.max_speed_ms != null
-      ? defaultSpeedMode(sport) === 'pace'
-        ? [
-            { label: 'Beste Pace', value: formatSpeedValue(activity.max_speed_ms, sport, 'pace') },
-            { label: 'Max. Geschwindigkeit', value: formatSpeedValue(activity.max_speed_ms, sport, 'speed') },
-          ]
-        : [
-            { label: 'Max. Geschwindigkeit', value: formatSpeedValue(activity.max_speed_ms, sport, 'speed') },
-          ]
-      : []),
+    // Beste Pace / Max. Geschwindigkeit — same pattern
+    activity.max_speed_ms != null ? (
+      defaultSpeedMode(sport) === 'pace'
+        ? { label: 'Beste Pace', value: `${formatSpeedValue(activity.max_speed_ms, sport, 'pace')} · ${formatSpeedValue(activity.max_speed_ms, sport, 'speed')}` }
+        : { label: 'Max. Geschwindigkeit', value: formatSpeedValue(activity.max_speed_ms, sport, 'speed') }
+    ) : null,
 
     // Herzfrequenz
     activity.avg_heart_rate != null ? {
