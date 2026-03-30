@@ -16,6 +16,7 @@ export const CHART_TAB = {
   mtb: 'mtb',
   ausdauer: 'ausdauer',
   barometer: 'barometer',
+  developerFields: 'developer-fields',
 } as const
 
 export type ChartTabValue = typeof CHART_TAB[keyof typeof CHART_TAB]
@@ -49,6 +50,7 @@ export function ChartTabs({ streams, children }: Props) {
       { value: CHART_TAB.barometer, label: 'Barometer', visible: streams.some(s => s.absolute_pressure_pa != null) },
       { value: CHART_TAB.mtb, label: 'MTB', visible: streams.some(s => s.grit != null || s.flow != null) },
       { value: CHART_TAB.ausdauer, label: 'Ausdauer', visible: streams.some(s => s.potential_stamina != null) },
+      { value: CHART_TAB.developerFields, label: 'Entwickler-Felder', visible: streams.some(s => s.developer_fields != null && Object.keys(s.developer_fields as object).length > 0) },
     ]
     return tabs.filter(t => t.visible)
   }, [streams])

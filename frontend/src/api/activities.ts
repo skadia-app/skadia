@@ -1,6 +1,6 @@
 import { apiClient, apiDownload, API_BASE } from './client'
 import { triggerBlobDownload } from '@/lib/utils'
-import type { ActivitiesResponse, Activity, StreamPoint, Sensor, ZoneDistribution, PowerCurveResponse, Lap, Split, SplitSummary, SwimLength, ClimbProEvent, ActivitySet, ActivityJump, ActivityEvent, DiveInfo, HealthContext } from './types'
+import type { ActivitiesResponse, Activity, StreamPoint, Sensor, ZoneDistribution, PowerCurveResponse, Lap, Split, SplitSummary, SwimLength, ClimbProEvent, ActivitySet, ActivityJump, ActivityEvent, DiveInfo, HealthContext, DeveloperFieldInfo } from './types'
 
 export interface ActivityFilterParams {
   sportTypes?: string[]
@@ -296,4 +296,8 @@ export async function fetchDiveInfo(activityId: string): Promise<DiveInfo> {
 
 export async function fetchHealthContext(activityId: string): Promise<HealthContext | null> {
   return apiClient<HealthContext | null>(`/activities/${activityId}/health-context`)
+}
+
+export async function fetchDeveloperFields(activityId: string): Promise<DeveloperFieldInfo[]> {
+  return apiClient<DeveloperFieldInfo[]>(`/activities/${activityId}/developer-fields`)
 }
