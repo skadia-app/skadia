@@ -79,6 +79,8 @@ function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
     case CHART_TAB.mtb: return ['grit', 'flow']
     case CHART_TAB.ausdauer: return ['potentialStamina', 'staminaCurrent']
     case CHART_TAB.barometer: return ['pressure']
+    case CHART_TAB.deko: return ['depth']
+    case CHART_TAB.developerFields: return []
     default: return null
   }
 }
@@ -853,8 +855,10 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     </div>,
   )
 
-  const showDekoPanel = activeTab === CHART_TAB.deko && activityId != null
-  const showDeveloperFieldsPanel = activeTab === CHART_TAB.developerFields && activityId != null
+  const hasDekoData = streams.some(s => s.ndl_time_s != null || s.cns_load_pct != null)
+  const hasDevFields = streams.some(s => s.developer_fields && Object.keys(s.developer_fields).length > 0)
+  const showDekoPanel = (activeTab === CHART_TAB.deko || activeTab === CHART_TAB.alles) && activityId != null && hasDekoData
+  const showDeveloperFieldsPanel = (activeTab === CHART_TAB.developerFields || activeTab === CHART_TAB.alles) && activityId != null && hasDevFields
   if (panels.length === 0 && !showDekoPanel && !showDeveloperFieldsPanel) return null
 
   return (
@@ -886,10 +890,10 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         </div>
       </div>
       {panels}
-      {activeTab === CHART_TAB.deko && activityId && (
+      {(activeTab === CHART_TAB.deko || activeTab === CHART_TAB.alles) && activityId && streams.some(s => s.ndl_time_s != null || s.cns_load_pct != null) && (
         <DiveDecoPanel activityId={activityId} streams={streams} />
       )}
-      {activeTab === CHART_TAB.developerFields && activityId && (
+      {(activeTab === CHART_TAB.developerFields || activeTab === CHART_TAB.alles) && activityId && streams.some(s => s.developer_fields && Object.keys(s.developer_fields).length > 0) && (
         <DeveloperFieldChart streams={streams} activityId={activityId} />
       )}
       <p className="text-xs text-neutral-400 dark:text-neutral-600">
