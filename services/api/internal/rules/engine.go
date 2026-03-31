@@ -572,7 +572,7 @@ func Apply(actions []Action) []ActivityChange {
 			if p.Field != "" {
 				// Whitelist: nur erlaubte Felder
 				switch p.Field {
-				case "is_round_trip", "is_indoor":
+				case "is_round_trip", "is_indoor", "exclude_from_stats", "exclude_from_heatmap", "hide_map":
 					changes = append(changes, ActivityChange{Field: p.Field, Value: p.Value})
 				}
 			}

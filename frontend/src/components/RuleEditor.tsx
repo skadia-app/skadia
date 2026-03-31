@@ -301,6 +301,9 @@ const ACTION_TYPES = [
   { value: 'set_name',        label: 'Titel setzen' },
   { value: 'set_intensity',   label: 'Intensität setzen' },
   { value: 'set_indoor',      label: 'Indoor-Flag setzen' },
+  { value: 'set_exclude_from_stats',   label: 'Aus Statistiken ausschließen' },
+  { value: 'set_exclude_from_heatmap', label: 'Aus Heatmap ausschließen' },
+  { value: 'set_hide_map',             label: 'Karte verstecken' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -1352,7 +1355,76 @@ function ActionParams({
       </select>
     )
   }
+  if (action === 'set_exclude_from_stats') {
+    return (
+      <select
+        value={String(params.value ?? 'true')}
+        onChange={(e) => onChange({ value: e.target.value === 'true' })}
+        className={inputClass + ' flex-1 min-w-0'}
+      >
+        <option value="true">Ja (ausschließen)</option>
+        <option value="false">Nein (einschließen)</option>
+      </select>
+    )
+  }
+  if (action === 'set_exclude_from_heatmap') {
+    return (
+      <select
+        value={String(params.value ?? 'true')}
+        onChange={(e) => onChange({ value: e.target.value === 'true' })}
+        className={inputClass + ' flex-1 min-w-0'}
+      >
+        <option value="true">Ja (ausschließen)</option>
+        <option value="false">Nein (einschließen)</option>
+      </select>
+    )
+  }
+  if (action === 'set_hide_map') {
+    return (
+      <div className="flex flex-col gap-1 flex-1 min-w-0">
+        <select
+          value={String(params.value ?? 'true')}
+          onChange={(e) => onChange({ value: e.target.value === 'true' })}
+          className={inputClass + ' w-full'}
+        >
+          <option value="true">Ja (Karte verstecken)</option>
+          <option value="false">Nein (Karte anzeigen)</option>
+        </select>
+        <p className="text-xs text-amber-600 mt-1">
+          Achtung: Diese Aktion versteckt die Karte dauerhaft. Prüfe ob die Bedingungen korrekt sind.
+        </p>
+      </div>
+    )
+  }
   return null
+}
+
+// ---------------------------------------------------------------------------
+// set_field action normalisation helpers
+// ---------------------------------------------------------------------------
+
+// Frontend-only action types that map to the generic set_field backend action.
+// This lets us show dedicated dropdowns in the UI while storing canonical JSON.
+const SET_FIELD_ACTION_TO_FIELD: Record<string, string> = {
+  set_exclude_from_stats:   'exclude_from_stats',
+  set_exclude_from_heatmap: 'exclude_from_heatmap',
+  set_hide_map:             'hide_map',
+}
+
+const SET_FIELD_FIELD_TO_ACTION: Record<string, string> = {
+  exclude_from_stats:   'set_exclude_from_stats',
+  exclude_from_heatmap: 'set_exclude_from_heatmap',
+  hide_map:             'set_hide_map',
+}
+
+/** When loading saved rules, translate set_field actions back to frontend action types. */
+function denormaliseActions(raw: RuleAction[]): RuleAction[] {
+  return raw.map((a) => {
+    if (a.action === 'set_field' && a.params?.field && SET_FIELD_FIELD_TO_ACTION[a.params.field]) {
+      return { action: SET_FIELD_FIELD_TO_ACTION[a.params.field], params: { value: a.params.value ?? false } }
+    }
+    return a
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -1373,7 +1445,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
   const [name, setName] = useState(seed?.name ?? '')
   const [priority, setPriority] = useState(seed?.priority ?? 0)
   const [groups, setGroups] = useState<RuleConditionGroup[]>(() => normaliseGroups(rule))
-  const [actions, setActions] = useState<RuleAction[]>(seed?.actions ?? [])
+  const [actions, setActions] = useState<RuleAction[]>(() => denormaliseActions(seed?.actions ?? []))
 
   const { data: gearList } = useQuery({
     queryKey: ['gear-list'],
@@ -1420,6 +1492,17 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
 
   const totalConditions = groups.reduce((s, g) => s + g.conditions.length, 0)
 
+  /** Before saving, translate frontend action types back to canonical set_field JSON. */
+  function normaliseActions(raw: RuleAction[]): RuleAction[] {
+    return raw.map((a) => {
+      const fieldName = SET_FIELD_ACTION_TO_FIELD[a.action]
+      if (fieldName) {
+        return { action: 'set_field', params: { field: fieldName, value: a.params.value ?? false } }
+      }
+      return a
+    })
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim() || totalConditions === 0 || actions.length === 0) return
@@ -1431,7 +1514,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
       // Also send flat for backward compatibility:
       conditions: flat.conditions,
       conditions_logic: flat.conditions_logic,
-      actions,
+      actions: normaliseActions(actions),
     })
   }
 

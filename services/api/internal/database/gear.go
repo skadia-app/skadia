@@ -1465,6 +1465,15 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 	case "is_round_trip":
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET is_round_trip = $1 WHERE id = $2`, value, activityID)
 		return err
+	case "exclude_from_stats":
+		_, err := db.Pool.Exec(ctx, `UPDATE activities SET exclude_from_stats = $1 WHERE id = $2`, value, activityID)
+		return err
+	case "exclude_from_heatmap":
+		_, err := db.Pool.Exec(ctx, `UPDATE activities SET exclude_from_heatmap = $1 WHERE id = $2`, value, activityID)
+		return err
+	case "hide_map":
+		_, err := db.Pool.Exec(ctx, `UPDATE activities SET hide_map = $1 WHERE id = $2`, value, activityID)
+		return err
 	case "set_name_template":
 		title, ok := value.(string)
 		if !ok {

@@ -85,8 +85,11 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 			// - User rules do NOT retract: non-matching leaves the activity unchanged.
 			//   This preserves manual user edits and avoids unexpected data loss.
 			setFieldDefaults := map[string]any{
-				"is_round_trip": false,
-				"is_indoor":     false,
+				"is_round_trip":        false,
+				"is_indoor":            false,
+				"exclude_from_stats":   false,
+				"exclude_from_heatmap": false,
+				"hide_map":             false,
 			}
 			for _, change := range changes {
 				switch change.Field {
