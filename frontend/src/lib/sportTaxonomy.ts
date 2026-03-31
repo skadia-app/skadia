@@ -155,6 +155,8 @@ export const SPORT_DEFS: SportDef[] = [
     sub('gauge_diving', 'Gauge-Tauchen'),
     sub('apnea_diving', 'Apnoe-Tauchen'),
     sub('apnea_hunting', 'Apnoe-Jagdtauchen'),
+    sub('apnea_pool', 'Apnoetauchen im Pool'),
+    sub('ccr_diving', 'CCR-Tauchgang'),
   ]),
   def('snorkeling', 'water', 'generic', 'Schnorcheln', true),
   def('boating', 'water', 'generic', 'Bootfahren', true),
