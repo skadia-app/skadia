@@ -7,8 +7,15 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// dbQuerier abstracts *pgxpool.Pool and pgx.Tx for stitcher SQL operations.
+type dbQuerier interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults
+}
 
 // StreamPoint repräsentiert einen GPS-Punkt mit Zeitstempel
 type StreamPoint struct {
@@ -35,7 +42,7 @@ type StitchConfig struct {
 // 4. Ergebnis per UPSERT in Target-Stream schreiben
 func StitchGPSTracks(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	q dbQuerier,
 	targetID string,
 	sourceIDs []string,
 	config *StitchConfig,
@@ -47,7 +54,7 @@ func StitchGPSTracks(
 	// 1. Alle Streams laden
 	streams := make(map[string][]StreamPoint, len(allIDs))
 	for _, id := range allIDs {
-		points, err := loadGPSStream(ctx, pool, id)
+		points, err := loadGPSStream(ctx, q, id)
 		if err != nil {
 			return fmt.Errorf("load stream %s: %w", id, err)
 		}
@@ -127,11 +134,11 @@ func StitchGPSTracks(
 	}
 
 	// 5. Ergebnis in Target-Stream schreiben
-	return writeStitchedStream(ctx, pool, targetID, result)
+	return writeStitchedStream(ctx, q, targetID, result)
 }
 
-func loadGPSStream(ctx context.Context, pool *pgxpool.Pool, activityID string) ([]StreamPoint, error) {
-	rows, err := pool.Query(ctx, `
+func loadGPSStream(ctx context.Context, q dbQuerier, activityID string) ([]StreamPoint, error) {
+	rows, err := q.Query(ctx, `
 		SELECT time, lat, lng, altitude_m, speed_ms, distance_m
 		FROM activity_streams
 		WHERE activity_id = $1
@@ -153,7 +160,7 @@ func loadGPSStream(ctx context.Context, pool *pgxpool.Pool, activityID string) (
 	return points, rows.Err()
 }
 
-func writeStitchedStream(ctx context.Context, pool *pgxpool.Pool, targetID string, points []StreamPoint) error {
+func writeStitchedStream(ctx context.Context, q dbQuerier, targetID string, points []StreamPoint) error {
 	const upsertSQL = `
 		INSERT INTO activity_streams (activity_id, time, lat, lng, altitude_m, speed_ms, distance_m)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -171,7 +178,7 @@ func writeStitchedStream(ctx context.Context, pool *pgxpool.Pool, targetID strin
 		batch.Queue(upsertSQL, targetID, p.Time, p.Lat, p.Lng, p.AltitudeM, p.SpeedMS, p.DistanceM)
 	}
 	if batch.Len() > 0 {
-		br := pool.SendBatch(ctx, batch)
+		br := q.SendBatch(ctx, batch)
 		for i := 0; i < batch.Len(); i++ {
 			if _, err := br.Exec(); err != nil {
 				br.Close()
@@ -184,7 +191,7 @@ func writeStitchedStream(ctx context.Context, pool *pgxpool.Pool, targetID strin
 	}
 
 	// Distanz neu berechnen (kumulativ aus GPS-Punkten)
-	_, err := pool.Exec(ctx, `
+	_, err := q.Exec(ctx, `
 		WITH ordered AS (
 			SELECT time, lat, lng,
 				   LAG(lat) OVER (ORDER BY time) AS prev_lat,
@@ -213,7 +220,7 @@ func writeStitchedStream(ctx context.Context, pool *pgxpool.Pool, targetID strin
 	}
 
 	// Gesamtdistanz auf Activity aktualisieren
-	_, err = pool.Exec(ctx, `
+	_, err = q.Exec(ctx, `
 		UPDATE activities SET
 			distance_m = (SELECT MAX(distance_m) FROM activity_streams WHERE activity_id = $1 AND distance_m IS NOT NULL),
 			has_edits = true

@@ -12,6 +12,7 @@ package handler
 import (
 	"context"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/fusion"
 )
 
@@ -33,7 +34,7 @@ type GPSFusionConfig struct {
 // targetID: Aktivität, in die der fusionierte Track geschrieben wird.
 // sourceIDs: Bis zu 2 weitere Aktivitäten als GPS-Quellen (max. 3 gesamt inkl. Target).
 // config: Optionale Konfiguration; nil bedeutet Target ist Primary, kein Extend.
-func (h *Handler) fuseGPSTracks(ctx context.Context, targetID string, sourceIDs []string, config *GPSFusionConfig) error {
+func (h *Handler) fuseGPSTracks(ctx context.Context, q database.Querier, targetID string, sourceIDs []string, config *GPSFusionConfig) error {
 	var stitchConfig *fusion.StitchConfig
 	if config != nil {
 		stitchConfig = &fusion.StitchConfig{
@@ -41,5 +42,5 @@ func (h *Handler) fuseGPSTracks(ctx context.Context, targetID string, sourceIDs 
 			ExtendTrack:   config.ExtendTrack,
 		}
 	}
-	return fusion.StitchGPSTracks(ctx, h.DB.Pool, targetID, sourceIDs, stitchConfig)
+	return fusion.StitchGPSTracks(ctx, q, targetID, sourceIDs, stitchConfig)
 }
