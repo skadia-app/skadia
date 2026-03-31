@@ -123,3 +123,24 @@ func TestApply_SetField_UnknownFieldIgnored(t *testing.T) {
 		t.Errorf("expected 0 changes for unknown field, got %d", len(changes))
 	}
 }
+
+func TestEvalCondition_HasTag_Neq(t *testing.T) {
+	activity := map[string]any{
+		"tags": []string{"indoor", "frost"},
+	}
+	makeGroups := func(c rules.Condition) []rules.ConditionGroup {
+		return []rules.ConditionGroup{{Logic: "and", Conditions: []rules.Condition{c}}}
+	}
+	// neq = tag is NOT present → true
+	if !rules.EvaluateGroups(makeGroups(rules.Condition{Field: "has_tag", Op: "neq", Value: "outdoor"}), activity) {
+		t.Fatal("expected neq to return true when tag is absent")
+	}
+	// neq = tag IS present → false
+	if rules.EvaluateGroups(makeGroups(rules.Condition{Field: "has_tag", Op: "neq", Value: "indoor"}), activity) {
+		t.Fatal("expected neq to return false when tag is present")
+	}
+	// no tags at all → neq should be true (tag is absent)
+	if !rules.EvaluateGroups(makeGroups(rules.Condition{Field: "has_tag", Op: "neq", Value: "anything"}), map[string]any{}) {
+		t.Fatal("expected neq to return true when activity has no tags")
+	}
+}

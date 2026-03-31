@@ -275,7 +275,7 @@ function opsForField(cf: ConditionField): string[] {
     case 'enum': return ['eq', 'neq', 'in']
     case 'text': return ['eq', 'neq', 'contains']
     case 'number': return ['gt', 'lt', 'gte', 'lte', 'eq']
-    case 'tag': return ['eq']
+    case 'tag': return ['eq', 'neq']
     case 'segment': return ['eq']
     case 'geofence': return ['eq']
     case 'geofence_zone': return ['eq']
