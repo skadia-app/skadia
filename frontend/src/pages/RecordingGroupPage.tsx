@@ -14,6 +14,7 @@ import { getSourceColor } from '@/lib/comparisonColors'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { formatDistance, formatDuration } from '@/lib/utils'
 import { useToast } from '@/lib/toast'
+import SportConflictBanner from '@/components/fusion/SportConflictBanner'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -114,42 +115,6 @@ function SourceCard({
           {sportLabel(sportType)}
         </span>
       </p>
-    </div>
-  )
-}
-
-// ── Sport type mismatch banner ────────────────────────────────────────────────
-
-interface SportTypeBannerProps {
-  sportTypes: string[]
-  selectedSportType: string | null
-  onSelect: (st: string) => void
-  isSaving: boolean
-}
-
-function SportTypeBanner({ sportTypes, selectedSportType, onSelect, isSaving }: SportTypeBannerProps) {
-  return (
-    <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3 mb-6">
-      <p className="text-amber-700 dark:text-amber-400 text-sm font-medium mb-2">
-        Unterschiedliche Sportarten erkannt — bitte eine Sportart für die Gruppe wählen
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {sportTypes.map(st => (
-          <button
-            key={st}
-            onClick={() => onSelect(st)}
-            disabled={isSaving}
-            className={[
-              'px-3 py-1.5 rounded-lg text-sm border-2 transition-colors cursor-pointer disabled:opacity-50',
-              selectedSportType === st
-                ? 'border-amber-500 bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 font-semibold'
-                : 'border-transparent bg-white dark:bg-neutral-800 hover:border-amber-400 text-neutral-700 dark:text-neutral-200',
-            ].join(' ')}
-          >
-            {sportLabel(st)}
-          </button>
-        ))}
-      </div>
     </div>
   )
 }
@@ -298,7 +263,7 @@ export default function RecordingGroupPage() {
 
         {/* Sport type conflict banner */}
         {hasSportTypeConflict && (
-          <SportTypeBanner
+          <SportConflictBanner
             sportTypes={uniqueSportTypes}
             selectedSportType={group.sport_type}
             onSelect={st => setSportTypeMutation.mutate(st)}
