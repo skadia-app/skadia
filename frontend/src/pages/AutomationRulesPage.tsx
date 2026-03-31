@@ -19,6 +19,8 @@ export default function AutomationRulesPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [applyResult, setApplyResult] = useState<{ applied: number; errors: number } | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [showSystemRules, setShowSystemRules] = useState(false)
+  const [search, setSearch] = useState('')
 
   // Build initial rule data from URL params
   const initialRuleData: Partial<AutomationRule> | undefined = urlNew && (urlTagName || urlTagId)
@@ -80,8 +82,23 @@ export default function AutomationRulesPage() {
     },
   })
 
-  const systemRules = rules?.filter(r => r.is_system) ?? []
-  const userRules = rules?.filter(r => !r.is_system) ?? []
+  const syncSystemTypes = ['electric_sync', 'virtual_sync', 'indoor_sync', 'commute_sync']
+
+  const visibleRules = (rules ?? []).filter(r => {
+    if (!showSystemRules && r.is_system && r.system_type && syncSystemTypes.includes(r.system_type)) {
+      return false
+    }
+    if (search) {
+      const q = search.toLowerCase()
+      if (r.name.toLowerCase().includes(q)) return true
+      const raw = JSON.stringify(r.conditions) + JSON.stringify(r.condition_groups) + JSON.stringify(r.actions)
+      return raw.toLowerCase().includes(q)
+    }
+    return true
+  })
+
+  const systemRules = visibleRules.filter(r => r.is_system)
+  const userRules = visibleRules.filter(r => !r.is_system)
 
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Regeln...</div>
@@ -99,6 +116,15 @@ export default function AutomationRulesPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Automatisierungsregeln</h1>
         <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showSystemRules}
+              onChange={e => setShowSystemRules(e.target.checked)}
+              className="rounded"
+            />
+            System-Regeln anzeigen
+          </label>
           <button
             onClick={() => applyMutation.mutate()}
             disabled={applyMutation.isPending}
@@ -123,6 +149,15 @@ export default function AutomationRulesPage() {
           </span>
         </div>
       )}
+
+      {/* Search */}
+      <input
+        type="text"
+        placeholder="Regeln durchsuchen..."
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        className="w-full border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
+      />
 
       {/* Create form */}
       {creating && (
