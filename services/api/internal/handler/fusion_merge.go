@@ -135,6 +135,14 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 1b. FieldMap-aware metadata overrides: NULL external IDs, override aggregates
+	// from designated sources, COALESCE session-only fields from other sources.
+	if err := applyFusionMetadataOverrides(ctx, tx, merged.ID, targetID, req.FieldMap, activities, allIDs); err != nil {
+		slog.Error("fusion-merge: metadata overrides failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to apply metadata overrides", r.URL.Path)
+		return
+	}
+
 	// 2. Streams der Target-Aktivität in neue Aktivität kopieren (alle Spalten).
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO activity_streams (
@@ -789,6 +797,198 @@ func createMergedActivity(ctx context.Context, q database.Querier, src *model.Ac
 	return &result, nil
 }
 
+// fieldMapAggregates maps FieldMap keys to the correlated aggregate columns in the
+// activities table. When the user chose a stream field from a non-richest source,
+// the corresponding aggregates must be overwritten from that source.
+var fieldMapAggregates = map[string][]string{
+	"hr":          {"avg_heart_rate", "max_heart_rate", "min_heart_rate"},
+	"power":       {"avg_power_w", "max_power_w", "min_power_w", "normalized_power_w", "threshold_power_w"},
+	"cadence":     {"avg_cadence", "max_cadence"},
+	"speed":       {"avg_speed_ms", "max_speed_ms", "min_speed_ms"},
+	"altitude":    {"elevation_gain_m", "elevation_loss_m", "max_elevation_m", "min_elevation_m"},
+	"temperature": {"avg_temperature_c", "min_temperature_c", "max_temperature_c"},
+	"gps":         {"distance_m", "has_gps", "start_location", "end_location"},
+}
+
+// sessionOnlyCOALESCECols are nullable session-only columns that enrichment does NOT
+// recompute. They are filled via COALESCE from other sources when the richest source
+// has NULL. Excludes: enrichment-computed fields (time_of_day, timezone, sunrise_at,
+// sunset_at, start_city, end_city, etc.), FieldMap-correlated fields (handled separately),
+// and external IDs (NULLed out explicitly).
+var sessionOnlyCOALESCECols = []string{
+	// Training / health
+	"training_load_peak", "aerobic_training_effect", "anaerobic_training_effect",
+	"avg_spo2_pct", "avg_respiration_rate", "max_respiration_rate", "min_respiration_rate",
+	"avg_stress_level", "workout_rpe", "workout_feel",
+	"session_rmssd_ms", "sdrr_hrv_ms",
+	"avg_core_temperature_c", "min_core_temperature_c", "max_core_temperature_c",
+	"total_calories",
+	// Computed metrics (from enrichment but session-sourced)
+	"tss", "trimp",
+	"variability_index", "efficiency_factor", "aerobic_decoupling",
+	"computed_tss", "computed_np_w", "computed_ngp_mps", "tss_method", "computed_if",
+	"intensity_factor", "left_right_balance",
+	// Movement / cycles
+	"total_cycles", "total_work_j", "total_fat_calories", "metabolic_calories",
+	"total_moving_time_s",
+	// Swimming
+	"swim_stroke", "pool_length_m", "pool_length_unit",
+	"num_lengths", "num_active_lengths",
+	"avg_stroke_count", "avg_stroke_distance_m", "stroke_count",
+	"zone_count",
+	// Cadence extended
+	"avg_fractional_cadence", "max_fractional_cadence", "total_fractional_cycles",
+	// Running dynamics
+	"avg_vertical_oscillation_mm",
+	"avg_stance_time_ms", "avg_stance_time_pct", "avg_stance_time_balance_pct",
+	"avg_step_length_mm", "avg_vertical_ratio_pct",
+	// Grade
+	"avg_grade_pct", "avg_pos_grade_pct", "avg_neg_grade_pct",
+	"max_pos_grade_pct", "max_neg_grade_pct",
+	// Vertical speed
+	"avg_pos_vertical_speed_ms", "avg_neg_vertical_speed_ms",
+	"max_pos_vertical_speed_ms", "max_neg_vertical_speed_ms",
+	"avg_vam_ms",
+	// Altitude extended
+	"avg_altitude_m", "total_fractional_ascent_m", "total_fractional_descent_m",
+	// Pedal analytics
+	"avg_left_torque_effectiveness_pct", "avg_right_torque_effectiveness_pct",
+	"avg_left_pedal_smoothness_pct", "avg_right_pedal_smoothness_pct",
+	"avg_combined_pedal_smoothness_pct",
+	"avg_left_pco_mm", "avg_right_pco_mm",
+	"avg_left_power_phase_start_deg", "avg_left_power_phase_end_deg",
+	"avg_left_power_phase_peak_start_deg", "avg_left_power_phase_peak_end_deg",
+	"avg_right_power_phase_start_deg", "avg_right_power_phase_end_deg",
+	"avg_right_power_phase_peak_start_deg", "avg_right_power_phase_peak_end_deg",
+	// Power/cadence by position
+	"avg_power_position_w", "max_power_position_w",
+	"avg_cadence_position", "max_cadence_position",
+	// Standing/sitting
+	"time_standing_s", "stand_count",
+	// E-Bike
+	"avg_lev_motor_power_w", "max_lev_motor_power_w", "lev_battery_consumption_pct",
+	// MTB Grit/Flow
+	"total_grit", "total_flow", "avg_grit", "avg_flow",
+	// Jumps
+	"jump_count",
+	// Ball sports
+	"max_ball_speed_ms", "avg_ball_speed_ms",
+	"player_score", "opponent_score", "opponent_name",
+	// Hemoglobin
+	"avg_total_hemoglobin_conc", "min_total_hemoglobin_conc", "max_total_hemoglobin_conc",
+	"avg_saturated_hemoglobin_pct", "min_saturated_hemoglobin_pct", "max_saturated_hemoglobin_pct",
+	// Diving
+	"avg_depth_m", "max_depth_m",
+	"surface_interval_s", "dive_number",
+	"start_cns_pct", "end_cns_pct", "start_n2_pct", "end_n2_pct", "o2_toxicity_otu",
+	// Laps
+	"avg_lap_time_s", "best_lap_index", "num_laps", "first_lap_index",
+	// Misc session
+	"sport_profile_name", "sport_index",
+	"nec_lat", "nec_lng", "swc_lat", "swc_lng",
+	// VO2max
+	"vo2max_ml_kg_min", "vo2max_calibrated", "vo2max_hr_source", "vo2max_speed_source",
+	// GPS metadata
+	"gps_accuracy_m",
+	// Lift stats
+	"lift_count", "lift_distance_m", "lift_ascent_m", "lift_descent_m", "lift_duration_s",
+	"net_distance_m", "net_ascent_m", "net_descent_m",
+	// Weather
+	"weather_temp_min_c", "weather_temp_max_c", "weather_wind_speed_max_ms",
+	// Misc
+	"num_sessions",
+}
+
+// applyFusionMetadataOverrides performs 3 post-INSERT steps on the merged activity:
+//  1. NULL out external IDs and set source = 'fusion'
+//  2. Override FieldMap-correlated aggregates from designated sources
+//  3. COALESCE session-only fields from non-richest sources
+func applyFusionMetadataOverrides(
+	ctx context.Context,
+	q database.Querier,
+	mergedID string,
+	richestSourceID string,
+	fieldMap map[string]string,
+	allActivities map[string]*model.Activity,
+	allSourceIDs []string,
+) error {
+	// Step 1: NULL out external IDs + set source = 'fusion'.
+	if _, err := q.Exec(ctx, `UPDATE activities SET
+		garmin_activity_id = NULL,
+		strava_activity_id = NULL,
+		komoot_tour_id = NULL,
+		source = 'fusion',
+		source_device = NULL
+	WHERE id = $1`, mergedID); err != nil {
+		return fmt.Errorf("null external IDs: %w", err)
+	}
+
+	// Step 2: FieldMap-correlated aggregates.
+	// For each FieldMap entry where the designated source differs from the richest
+	// source (the one we INSERT-SELECT'd from), UPDATE the correlated aggregates.
+	for field, sourceID := range fieldMap {
+		if sourceID == richestSourceID || sourceID == "fuse" {
+			continue // already correct from INSERT SELECT, or GPS fuse
+		}
+		cols, ok := fieldMapAggregates[field]
+		if !ok {
+			continue
+		}
+		// Build SET clause: col1 = s.col1, col2 = s.col2, ...
+		var setClauses []string
+		for _, c := range cols {
+			setClauses = append(setClauses, fmt.Sprintf("%s = s.%s", c, c))
+		}
+		query := fmt.Sprintf(
+			`UPDATE activities t SET %s FROM activities s WHERE t.id = $1 AND s.id = $2`,
+			strings.Join(setClauses, ", "),
+		)
+		if _, err := q.Exec(ctx, query, mergedID, sourceID); err != nil {
+			slog.Warn("fusion metadata: fieldmap aggregate override failed",
+				"field", field, "source", sourceID, "error", err)
+		}
+	}
+
+	// Step 3: COALESCE session-only fields from non-richest sources.
+	// Build a list of other sources sorted by field-richness DESC (excluding richest).
+	type scoredSource struct {
+		id    string
+		score int
+	}
+	var otherSources []scoredSource
+	for _, id := range allSourceIDs {
+		if id == richestSourceID {
+			continue
+		}
+		if act, ok := allActivities[id]; ok {
+			otherSources = append(otherSources, scoredSource{id: id, score: activityFieldRichness(act)})
+		}
+	}
+	slices.SortFunc(otherSources, func(a, b scoredSource) int {
+		return b.score - a.score // DESC
+	})
+
+	if len(otherSources) > 0 && len(sessionOnlyCOALESCECols) > 0 {
+		// Build SET clause: col = COALESCE(t.col, s.col) for each session-only column.
+		var setClauses []string
+		for _, c := range sessionOnlyCOALESCECols {
+			setClauses = append(setClauses, fmt.Sprintf("%s = COALESCE(t.%s, s.%s)", c, c, c))
+		}
+		coalQuery := fmt.Sprintf(
+			`UPDATE activities t SET %s FROM activities s WHERE t.id = $1 AND s.id = $2`,
+			strings.Join(setClauses, ", "),
+		)
+		for _, src := range otherSources {
+			if _, err := q.Exec(ctx, coalQuery, mergedID, src.id); err != nil {
+				slog.Warn("fusion metadata: COALESCE session fields failed",
+					"source", src.id, "error", err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // FusionMergeRequestV2 describes the body for POST /api/v1/fusion-merge (no target).
 // All sources are equal — the unified timeline is built from ALL timestamps.
 type FusionMergeRequestV2 struct {
@@ -887,6 +1087,13 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("fusion-merge-v2: create merged activity failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to create merged activity", r.URL.Path)
+		return
+	}
+
+	// 1b. FieldMap-aware metadata overrides.
+	if err := applyFusionMetadataOverrides(ctx, tx, merged.ID, metadataSource.ID, req.FieldMap, activities, req.Sources); err != nil {
+		slog.Error("fusion-merge-v2: metadata overrides failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to apply metadata overrides", r.URL.Path)
 		return
 	}
 
