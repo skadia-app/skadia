@@ -606,12 +606,18 @@ export function useRouteEditor(
 
     // ── Drag waypoint markers ──────────────────────────────────────────────
     const onWpMouseDown = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
-      const { waypoints: wps } = plannerRef.current
-      const nearestWp = nearestWaypoint(map, e.point, wps)
-      if (!nearestWp) return
+      // Use the feature id from MapLibre's event directly instead of the pixel-based
+      // nearestWaypoint search. MapLibre already fires this event only when the mouse is
+      // on the waypoint layer, so queryRenderedFeatures gives us the exact clicked feature.
+      // This avoids the pixel-snap ambiguity at dense waypoint placement where the
+      // nearest-pixel search could resolve to a different waypoint than the one clicked.
+      const features = e.features ?? map.queryRenderedFeatures(e.point, { layers: [LAYER_WP_CIRCLE] })
+      if (features.length === 0) return
+      const wpId = features[0].properties?.id as string | undefined
+      if (!wpId) return
 
       e.preventDefault()
-      draggingRef.current = nearestWp.id
+      draggingRef.current = wpId
       mouseDownPtRef.current = e.point
       map.getCanvas().style.cursor = 'grabbing'
       map.dragPan.disable()
