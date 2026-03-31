@@ -435,7 +435,7 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 		conditions string
 	}
 	tagRules := []tagRule{
-		{"Rundtour", "round_trip", -99, `[{"field":"start_end_distance_m","op":"lte","value":500}]`},
+		{"Rundtour", "round_trip", -99, `[{"field":"start_end_distance_m","op":"lte","value":200}]`},
 		{"Frost", "frost", -98, `[{"field":"min_temperature_c","op":"lte","value":0}]`},
 		{"Nacht", "nacht", -97, `[{"field":"sun_elevation","op":"lte","value":-6}]`},
 	}
