@@ -1084,13 +1084,7 @@ function DecoChartPanel({
 
       return {
         animation: false,
-        grid: { left: 60, right: 140, top: gridTop, bottom: 36 },
-
-        title: {
-          text: 'Deko-Zeitreihen (NDL / CNS / N₂ / Stopp)',
-          left: 4, top: 4,
-          textStyle: { fontSize: 11, fontWeight: 500, color: '#888' },
-        },
+        grid: { left: 52, right: 110, top: 8, bottom: 36 },
 
         brush: {
           toolbox: [],
@@ -1131,19 +1125,13 @@ function DecoChartPanel({
             let html = `<div style="line-height:1.75;min-width:150px">`
             html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
             for (const item of arr as Array<{ seriesName: string; value: number; marker: string }>) {
-              const v = item.value
-              if (v == null || isNaN(v)) continue
+              const v = Array.isArray(item.value) ? item.value[1] : item.value
+              if (v == null || isNaN(v as number)) continue
               const u = units[item.seriesName] ?? ''
-              html += `<div style="font-size:12px">${item.marker} ${item.seriesName} <strong style="float:right;margin-left:12px">${Math.round(v)}${u}</strong></div>`
+              html += `<div style="font-size:12px">${item.marker} ${item.seriesName} <strong style="float:right;margin-left:12px">${Math.round(v as number)}${u}</strong></div>`
             }
             return html + '</div>'
           },
-        },
-
-        legend: {
-          top: 0,
-          textStyle: { color: '#888', fontSize: 11 },
-          itemWidth: 16, itemHeight: 10,
         },
 
         xAxis: {
@@ -1155,22 +1143,24 @@ function DecoChartPanel({
         },
 
         yAxis: [
-          { type: 'value', name: 'NDL (min)', nameTextStyle: { fontSize: 10, color: '#22c55e' },
+          { type: 'value', name: 'min', nameTextStyle: { fontSize: 10, color: '#9ca3af' },
             axisLabel: { fontSize: 10, color: '#9ca3af' },
             splitLine: { lineStyle: { color: '#f5f5f5', type: 'dashed' } },
             min: 0, max: 60 },
-          { type: 'value', name: 'CNS%', nameTextStyle: { fontSize: 10, color: '#ef4444' },
+          { type: 'value', name: '%', nameTextStyle: { fontSize: 10, color: '#9ca3af' },
             axisLabel: { fontSize: 10, color: '#9ca3af' },
             splitLine: { show: false }, min: 0, max: 100, position: 'right' },
-          { type: 'value', name: 'N₂%', nameTextStyle: { fontSize: 10, color: '#3b82f6' },
-            axisLabel: { fontSize: 10, color: '#9ca3af' },
-            splitLine: { show: false }, min: 0, position: 'right', offset: 45 },
-          { type: 'value', name: 'm (Stopp)', nameTextStyle: { fontSize: 10, color: '#f97316' },
+          { type: 'value', axisLabel: { show: false }, nameTextStyle: { show: false },
+            splitLine: { show: false }, min: 0, position: 'right' },
+          { type: 'value', name: 'm', nameTextStyle: { fontSize: 10, color: '#9ca3af' },
             axisLabel: { fontSize: 10, color: '#f97316' },
-            splitLine: { show: false }, position: 'right', offset: 90 },
+            splitLine: { show: false }, position: 'right', offset: 40 },
         ],
 
-        dataZoom: [{ type: 'inside', filterMode: 'none' }],
+        dataZoom: [
+          { type: 'inside', xAxisIndex: 0, filterMode: 'none',
+            zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false },
+        ],
         series,
       }
     },
@@ -1181,7 +1171,45 @@ function DecoChartPanel({
     },
   )
 
-  return <div ref={containerRef} className="h-52 w-full" />
+  return (
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+      <div className="flex items-center gap-4 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60 flex-wrap">
+        {hasNdl && (
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#22c55e' }} />
+            <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+              NDL <span className="font-normal text-neutral-400 dark:text-neutral-600">(min)</span>
+            </span>
+          </div>
+        )}
+        {hasCns && (
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#ef4444' }} />
+            <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+              CNS <span className="font-normal text-neutral-400 dark:text-neutral-600">(%)</span>
+            </span>
+          </div>
+        )}
+        {hasN2 && (
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#3b82f6' }} />
+            <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+              N₂-Loading <span className="font-normal text-neutral-400 dark:text-neutral-600">(%)</span>
+            </span>
+          </div>
+        )}
+        {hasDecoStop && (
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#f97316' }} />
+            <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+              Deko-Stop <span className="font-normal text-neutral-400 dark:text-neutral-600">(m)</span>
+            </span>
+          </div>
+        )}
+      </div>
+      <div ref={containerRef} className="h-[180px] w-full" />
+    </div>
+  )
 }
 
 // ── Power Phase Gauge (Pedal Analytics) ──────────────────────────────────────
