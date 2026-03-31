@@ -1,3 +1,12 @@
+/** Compose a short device label from source_device / source / original_file_format fields. */
+export function deviceLabel(device?: string | null, source?: string | null, format?: string | null): string | null {
+  const devicePart = device || source || null
+  const formatPart = format ? format.toUpperCase() : null
+  if (!devicePart && !formatPart) return null
+  if (devicePart && formatPart) return `${devicePart} · ${formatPart}`
+  return devicePart ?? formatPart
+}
+
 export function connectionTypeLabel(sourceType?: string | null): string | null {
   switch (sourceType) {
     case 'antplus': return 'ANT+'

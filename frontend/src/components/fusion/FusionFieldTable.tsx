@@ -1,5 +1,26 @@
 import type { FusionActivityInfo } from '@/pages/FusionPage'
 
+// ── Field key constants ────────────────────────────────────────────────────────
+
+export const FUSION_FIELDS = {
+  GPS: 'gps',
+  HR: 'hr',
+  POWER: 'power',
+  ALTITUDE: 'altitude',
+  CADENCE: 'cadence',
+  TEMPERATURE: 'temperature',
+  SPEED: 'speed',
+  GCT: 'gct',
+  VERTICAL_OSCILLATION: 'vertical_oscillation',
+  STANCE_TIME: 'stance_time',
+  STEP_LENGTH: 'step_length',
+  LEFT_RIGHT_BALANCE: 'left_right_balance',
+  TORQUE_EFFECTIVENESS_L: 'torque_effectiveness_l',
+  TORQUE_EFFECTIVENESS_R: 'torque_effectiveness_r',
+  PEDAL_SMOOTHNESS_L: 'pedal_smoothness_l',
+  PEDAL_SMOOTHNESS_R: 'pedal_smoothness_r',
+} as const
+
 // ── Field definitions ─────────────────────────────────────────────────────────
 
 type FieldCategory = 'core' | 'running' | 'pedal'
@@ -14,9 +35,8 @@ interface FieldDef {
 }
 
 const FIELDS: FieldDef[] = [
-  // Core
   {
-    key: 'gps',
+    key: FUSION_FIELDS.GPS,
     label: 'GPS-Track',
     category: 'core',
     hasKey: 'has_gps',
@@ -24,107 +44,105 @@ const FIELDS: FieldDef[] = [
     getDisplay: a => `${Math.round((a.distance_m / 1000) * 10) / 10} km`,
   },
   {
-    key: 'hr',
+    key: FUSION_FIELDS.HR,
     label: 'Herzfrequenz',
     category: 'core',
     hasKey: 'has_hr',
     allowFuse: false,
   },
   {
-    key: 'power',
+    key: FUSION_FIELDS.POWER,
     label: 'Leistung',
     category: 'core',
     hasKey: 'has_power',
     allowFuse: false,
   },
   {
-    key: 'altitude',
+    key: FUSION_FIELDS.ALTITUDE,
     label: 'Höhenprofil',
     category: 'core',
     hasKey: 'has_altitude',
     allowFuse: false,
   },
   {
-    key: 'cadence',
+    key: FUSION_FIELDS.CADENCE,
     label: 'Kadenz',
     category: 'core',
     hasKey: 'has_cadence',
     allowFuse: false,
   },
   {
-    key: 'temperature',
+    key: FUSION_FIELDS.TEMPERATURE,
     label: 'Temperatur',
     category: 'core',
     hasKey: 'has_temperature',
     allowFuse: false,
   },
   {
-    key: 'speed',
+    key: FUSION_FIELDS.SPEED,
     label: 'Geschwindigkeit',
     category: 'core',
     hasKey: 'has_gps',
     allowFuse: false,
   },
-  // Running Dynamics
   {
-    key: 'gct',
+    key: FUSION_FIELDS.GCT,
     label: 'Ground Contact Time',
     category: 'running',
-    hasKey: 'has_hr', // proxied — GCT available when running dynamics present (HR sensor)
+    hasKey: 'has_running_dynamics',
     allowFuse: false,
   },
   {
-    key: 'vertical_oscillation',
+    key: FUSION_FIELDS.VERTICAL_OSCILLATION,
     label: 'Vertical Oscillation',
     category: 'running',
-    hasKey: 'has_hr',
+    hasKey: 'has_running_dynamics',
     allowFuse: false,
   },
   {
-    key: 'stance_time',
+    key: FUSION_FIELDS.STANCE_TIME,
     label: 'Stance Time',
     category: 'running',
-    hasKey: 'has_hr',
+    hasKey: 'has_running_dynamics',
     allowFuse: false,
   },
   {
-    key: 'step_length',
+    key: FUSION_FIELDS.STEP_LENGTH,
     label: 'Step Length',
     category: 'running',
-    hasKey: 'has_hr',
+    hasKey: 'has_running_dynamics',
     allowFuse: false,
   },
   {
-    key: 'left_right_balance',
+    key: FUSION_FIELDS.LEFT_RIGHT_BALANCE,
     label: 'L/R Balance',
     category: 'running',
-    hasKey: 'has_hr',
+    hasKey: 'has_running_dynamics',
     allowFuse: false,
   },
-  // Pedal Analytics
   {
-    key: 'torque_effectiveness_l',
+    key: FUSION_FIELDS.TORQUE_EFFECTIVENESS_L,
     label: 'Torque Eff. (L)',
     category: 'pedal',
     hasKey: 'has_power',
     allowFuse: false,
   },
   {
-    key: 'torque_effectiveness_r',
+    key: FUSION_FIELDS.TORQUE_EFFECTIVENESS_R,
     label: 'Torque Eff. (R)',
     category: 'pedal',
     hasKey: 'has_power',
     allowFuse: false,
   },
   {
-    key: 'pedal_smoothness_l',
+    key: FUSION_FIELDS.PEDAL_SMOOTHNESS_L,
     label: 'Pedal Smooth. (L)',
     category: 'pedal',
     hasKey: 'has_power',
     allowFuse: false,
   },
   {
-    key: 'pedal_smoothness_r',
+    key: FUSION_FIELDS.PEDAL_SMOOTHNESS_R,
     label: 'Pedal Smooth. (R)',
     category: 'pedal',
     hasKey: 'has_power',
