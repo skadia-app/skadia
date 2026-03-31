@@ -2170,8 +2170,8 @@ export default function MapPage() {
             onReorderWaypoints={planner.reorderWaypoints}
             onRecalculateAll={planner.recalculateAll}
             onToggleSegmentMode={(waypointId) => {
-              const segIdx = planner.segments.findIndex(s => s.from_waypoint === waypointId)
-              if (segIdx >= 0) planner.toggleOffroad(segIdx)
+              const seg = planner.segments.find(s => s.from_waypoint === waypointId)
+              if (seg) planner.toggleOffroad({ from: seg.from_waypoint, to: seg.to_waypoint })
             }}
             onToggleHeatmap={(enabled) => {
               const map = mapRef.current
