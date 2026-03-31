@@ -75,7 +75,11 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 				slog.Warn("increment rule applied", "rule_id", rule.ID, "error", err)
 			}
 		} else if rule.IsSystem {
-			// Retraction: remove tags + reset set_field for system rules
+			// Retraction semantics:
+			// - System rules retract: if conditions no longer match, tags/set_field values are reset to defaults.
+			//   This keeps system-managed fields (is_round_trip, is_indoor) in sync with current activity data.
+			// - User rules do NOT retract: non-matching leaves the activity unchanged.
+			//   This preserves manual user edits and avoids unexpected data loss.
 			setFieldDefaults := map[string]any{
 				"is_round_trip": false,
 				"is_indoor":     false,
