@@ -78,6 +78,52 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 		changes := rules.Apply(actions)
 
 		if matched {
+			// Check for branches (ELSE/ELSE-IF) — overrides default actions if present.
+			// Branches are evaluated sequentially; first matching branch wins.
+			// Old rules without branches fall through to the default actions block.
+			if len(rule.Branches) > 0 && string(rule.Branches) != "null" {
+				type branch struct {
+					Type            string                 `json:"type"` // "if", "else_if", "else"
+					ConditionGroups []rules.ConditionGroup `json:"condition_groups"`
+					Actions         json.RawMessage        `json:"actions"`
+				}
+				var branches []branch
+				if err := json.Unmarshal(rule.Branches, &branches); err == nil && len(branches) > 0 {
+					for _, br := range branches {
+						branchMatched := false
+						if br.Type == "else" {
+							branchMatched = true
+						} else if len(br.ConditionGroups) > 0 {
+							branchMatched = rules.EvaluateGroups(br.ConditionGroups, actMap)
+						}
+						if branchMatched {
+							var branchActions []rules.Action
+							if err2 := json.Unmarshal(br.Actions, &branchActions); err2 == nil {
+								for _, change := range rules.Apply(branchActions) {
+									val := change.Value
+									if change.Field == "set_name_template" {
+										if tmpl, ok := val.(string); ok {
+											val = resolveNameTemplate(tmpl, actMap)
+										}
+									}
+									if err3 := db.ApplyRuleChange(ctx, activityID, change.Field, val); err3 != nil {
+										slog.Warn("apply branch change", "activity_id", activityID, "rule_id", rule.ID, "field", change.Field, "error", err3)
+									}
+								}
+							}
+							break // first matching branch wins
+						}
+					}
+					if err := db.IncrementRuleApplied(ctx, rule.ID); err != nil {
+						slog.Warn("increment rule applied", "rule_id", rule.ID, "error", err)
+					}
+					if rule.StopOnMatch {
+						break
+					}
+					continue
+				}
+			}
+
 			for _, change := range changes {
 				val := change.Value
 				if change.Field == "set_name_template" {
