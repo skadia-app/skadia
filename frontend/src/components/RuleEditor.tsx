@@ -254,6 +254,35 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
     { field: 'surface_trail_pct', label: 'Trail-Anteil', inputType: 'number', unit: '%' },
     { field: 'surface_unknown_pct', label: 'Unbekannt-Anteil', inputType: 'number', unit: '%' },
   ]},
+  { key: 'swimming', label: 'Schwimmen', fields: [
+    { field: 'swim_stroke', label: 'Schwimmstil', inputType: 'enum', options: [
+      { value: 'freestyle', label: 'Kraul' },
+      { value: 'backstroke', label: 'Rücken' },
+      { value: 'breaststroke', label: 'Brust' },
+      { value: 'butterfly', label: 'Schmetterling' },
+      { value: 'mixed', label: 'Gemischt' },
+    ]},
+    { field: 'pool_length_m', label: 'Bahnlänge', inputType: 'number', unit: 'm' },
+    { field: 'num_active_lengths', label: 'Aktive Bahnen', inputType: 'number' },
+  ]},
+  { key: 'diving', label: 'Tauchen', fields: [
+    { field: 'max_depth_m', label: 'Max. Tiefe', inputType: 'number', unit: 'm' },
+    { field: 'avg_depth_m', label: 'Ø Tiefe', inputType: 'number', unit: 'm' },
+    { field: 'end_cns_pct', label: 'End-CNS', inputType: 'number', unit: '%' },
+  ]},
+  { key: 'mtb', label: 'MTB', fields: [
+    { field: 'jump_count', label: 'Sprünge', inputType: 'number' },
+    { field: 'total_grit', label: 'Grit (Garmin)', inputType: 'number' },
+    { field: 'avg_flow', label: 'Flow (Garmin)', inputType: 'number' },
+  ]},
+  { key: 'ebike', label: 'E-Bike', fields: [
+    { field: 'avg_lev_motor_power_w', label: 'Ø Motorleistung', inputType: 'number', unit: 'W' },
+    { field: 'lev_battery_consumption_pct', label: 'Batterieverbrauch', inputType: 'number', unit: '%' },
+  ]},
+  { key: 'multisport', label: 'Multisport', fields: [
+    { field: 'is_multisport_child', label: 'Ist Sub-Session', inputType: 'bool' },
+    { field: 'is_multisport_parent', label: 'Ist Multisport-Event', inputType: 'bool' },
+  ]},
 ]
 
 // Internal-only fields not shown in category dropdown (geofence, round-trip)

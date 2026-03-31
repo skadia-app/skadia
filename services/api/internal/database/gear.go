@@ -1139,7 +1139,12 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 			iv.has_structured_intervals, iv.interval_count,
 			hc.has_hc_climb,
 			sf.surface_paved_pct, sf.surface_gravel_pct, sf.surface_trail_pct, sf.surface_unknown_pct,
-			a.is_commute
+			a.is_commute,
+			a.swim_stroke, a.pool_length_m, a.num_active_lengths,
+			a.max_depth_m, a.avg_depth_m, a.end_cns_pct,
+			a.jump_count, a.total_grit, a.avg_flow,
+			a.avg_lev_motor_power_w, a.lev_battery_consumption_pct,
+			a.parent_id, a.num_sessions
 		FROM activities a
 		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS cnt FROM activity_photos GROUP BY activity_id) pc ON pc.activity_id = a.id
 		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS cnt FROM activity_detected_laps GROUP BY activity_id) lc ON lc.activity_id = a.id
@@ -1226,6 +1231,17 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		hasPass, hasGastroStop, hasStructuredIntervals, hasHCClimb bool
 		surfacePavedPct, surfaceGravelPct, surfaceTrailPct, surfaceUnknownPct float64
 		isCommute                                                bool
+		swimStroke                                               *string
+		poolLengthM                                              *float64
+		numActiveLengths                                         *int
+		maxDepthM, avgDepthM                                     *float64
+		endCnsPct                                                *int16
+		jumpCount                                                *int
+		totalGrit, avgFlow                                       *float64
+		avgLevMotorPowerW                                        *int
+		levBatteryPct                                            *float64
+		parentID                                                 *string
+		numSessions                                              *int16
 	)
 
 	err := row.Scan(
@@ -1257,6 +1273,11 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		&hasHCClimb,
 		&surfacePavedPct, &surfaceGravelPct, &surfaceTrailPct, &surfaceUnknownPct,
 		&isCommute,
+		&swimStroke, &poolLengthM, &numActiveLengths,
+		&maxDepthM, &avgDepthM, &endCnsPct,
+		&jumpCount, &totalGrit, &avgFlow,
+		&avgLevMotorPowerW, &levBatteryPct,
+		&parentID, &numSessions,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -1439,6 +1460,27 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	m["surface_trail_pct"] = surfaceTrailPct
 	m["surface_unknown_pct"] = surfaceUnknownPct
 	m["commute_detected"] = isCommute
+
+	// Sport-specific fields
+	derefInt16 := func(i *int16) any {
+		if i == nil {
+			return nil
+		}
+		return int(*i)
+	}
+	setNN("swim_stroke", derefStr(swimStroke))
+	setNN("pool_length_m", derefF(poolLengthM))
+	setNN("num_active_lengths", derefInt(numActiveLengths))
+	setNN("max_depth_m", derefF(maxDepthM))
+	setNN("avg_depth_m", derefF(avgDepthM))
+	setNN("end_cns_pct", derefInt16(endCnsPct))
+	setNN("jump_count", derefInt(jumpCount))
+	setNN("total_grit", derefF(totalGrit))
+	setNN("avg_flow", derefF(avgFlow))
+	setNN("avg_lev_motor_power_w", derefInt(avgLevMotorPowerW))
+	setNN("lev_battery_consumption_pct", derefF(levBatteryPct))
+	m["is_multisport_child"] = parentID != nil
+	m["is_multisport_parent"] = numSessions != nil && *numSessions > 1
 
 	return m, nil
 }
