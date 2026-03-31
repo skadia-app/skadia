@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="de" class="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skadia — Recording Groups Mockup</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwindcss.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        skadia: { 50: '#FFF7ED', 100: '#FFEDD5', 200: '#FED7AA', 500: '#F97316', 600: '#EA580C', 700: '#C2410C' },
+        source: {
+          a: '#EF4444', b: '#3B82F6', c: '#22C55E', d: '#F59E0B', e: '#8B5CF6', f: '#EC4899'
+        }
+      }
+    }
+  }
+}
+</script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
+  .nav-active { border-bottom: 2px solid #F97316; color: #F97316; font-weight: 600; }
+  .minimap { background: linear-gradient(135deg, #e8f4e8 0%, #d4e8d4 30%, #c8dcc8 60%, #b8d0b8 100%); position: relative; overflow: hidden; }
+  .minimap::before { content: ''; position: absolute; inset: 0; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 120'%3E%3Cpath d='M20,80 Q60,30 100,60 T180,40 T260,70' stroke='%23EF4444' fill='none' stroke-width='2.5' opacity='0.9'/%3E%3Cpath d='M22,82 Q62,32 102,62 T182,42 T262,72' stroke='%233B82F6' fill='none' stroke-width='2' stroke-dasharray='6,3' opacity='0.85'/%3E%3Cpath d='M18,78 Q58,28 98,58 T178,38 T258,68' stroke='%2322C55E' fill='none' stroke-width='1.5' stroke-dasharray='3,3' opacity='0.8'/%3E%3C/svg%3E") center/contain no-repeat; }
+  .tab-btn { transition: all 0.15s; }
+  .tab-btn.active { background: #F97316; color: white; }
+  .tab-btn:not(.active):hover { background: #FED7AA; }
+  .view-tab { cursor: pointer; padding: 0.75rem 1.25rem; border-bottom: 3px solid transparent; transition: all 0.15s; }
+  .view-tab.active { border-bottom-color: #F97316; color: #F97316; font-weight: 600; }
+  .view-tab:hover:not(.active) { border-bottom-color: #FED7AA; }
+  .card-hover:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); transform: translateY(-1px); transition: all 0.15s; }
+  .source-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 9999px; font-weight: 600; }
+</style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+
+<!-- Navigation -->
+<nav class="bg-white border-b border-gray-200 px-6 py-0 flex items-center gap-6 text-sm sticky top-0 z-50">
+  <span class="text-skadia-500 font-bold text-lg mr-4 py-3">skadia</span>
+  <a href="#" class="py-3 text-gray-500 hover:text-gray-700">Dashboard</a>
+  <a href="#" class="py-3 text-gray-500 hover:text-gray-700">Aktivit&auml;ten</a>
+  <a href="#" class="py-3 text-gray-500 hover:text-gray-700">Karte</a>
+  <a href="#" class="py-3 nav-active">Werkstatt</a>
+  <a href="#" class="py-3 text-gray-500 hover:text-gray-700">Einstellungen</a>
+</nav>
+
+<!-- View Switcher -->
+<div class="bg-white border-b border-gray-200 flex gap-0 px-6 text-sm">
+  <div class="view-tab active" onclick="showView('queue')">1. Fusionskandidaten (Queue)</div>
+  <div class="view-tab" onclick="showView('actlist')">2. Aktivit&auml;tsliste (F-Badge)</div>
+  <div class="view-tab" onclick="showView('grouppage')">3. Aufnahmegruppen-Ansicht</div>
+  <div class="view-tab" onclick="showView('editor')">4. Fusion-Editor (N Sources)</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- VIEW 1: FUSION QUEUE PAGE (Gruppen statt Paare) -->
+<!-- ============================================================ -->
+<div id="view-queue" class="max-w-5xl mx-auto px-6 py-8">
+  <h1 class="text-2xl font-bold mb-1">Fusionskandidaten</h1>
+  <p class="text-gray-500 text-sm mb-2">Aktivit&auml;ten die m&ouml;glicherweise mit mehreren Ger&auml;ten aufgezeichnet wurden.</p>
+  <p class="text-gray-400 text-sm mb-8">12 Aufnahmegruppen erkannt. W&auml;hle f&uuml;r jede Gruppe ob die Aktivit&auml;ten zusammengeh&ouml;ren.</p>
+
+  <!-- Gruppe 1: 3 Geräte, gleiche Sportart -->
+  <div class="bg-white rounded-xl border border-gray-200 p-5 mb-6 shadow-sm">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="badge bg-green-100 text-green-700">92-100% &Uuml;bereinstimmung</span>
+      <span class="text-gray-400 text-xs">&middot; Zeitdifferenz: 0-2 min &middot; 3 Aufnahmen</span>
+    </div>
+
+    <div class="flex gap-4 mb-4">
+      <!-- Card 1 (Mehr Daten) -->
+      <div class="flex-1 border border-gray-200 rounded-lg p-3 bg-orange-50/40">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs text-skadia-600 font-semibold">Mehr Daten</span>
+          <span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">Laufen</span>
+        </div>
+        <p class="font-semibold text-sm">Lauf</p>
+        <p class="text-xs text-gray-500">13.09.24, 18:04</p>
+        <p class="text-xs text-gray-500">10.29 km &middot; 8 Felder</p>
+        <p class="text-xs text-gray-400 mt-1">Garmin FR965 &middot; FIT</p>
+      </div>
+      <!-- Card 2 -->
+      <div class="flex-1 border border-gray-200 rounded-lg p-3">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs text-transparent font-semibold">&nbsp;</span>
+          <span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">Laufen</span>
+        </div>
+        <p class="font-semibold text-sm">Lauf</p>
+        <p class="text-xs text-gray-500">13.09.24, 18:04</p>
+        <p class="text-xs text-gray-500">10.18 km &middot; 7 Felder</p>
+        <p class="text-xs text-gray-400 mt-1">Suunto Race S &middot; FIT</p>
+      </div>
+      <!-- Card 3 -->
+      <div class="flex-1 border border-gray-200 rounded-lg p-3">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs text-transparent font-semibold">&nbsp;</span>
+          <span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">Laufen</span>
+        </div>
+        <p class="font-semibold text-sm">Run</p>
+        <p class="text-xs text-gray-500">13.09.24, 18:06</p>
+        <p class="text-xs text-gray-500">10.22 km &middot; 6 Felder</p>
+        <p class="text-xs text-gray-400 mt-1">COROS Pace 3 &middot; FIT</p>
+      </div>
+    </div>
+
+    <!-- Mini-Map -->
+    <div class="minimap rounded-lg h-28 mb-4 border border-gray-200 flex items-end justify-end p-2">
+      <div class="flex gap-2 bg-white/80 rounded px-2 py-1 text-[10px]">
+        <span><span class="source-dot" style="background:#EF4444"></span> FR965</span>
+        <span><span class="source-dot" style="background:#3B82F6"></span> Suunto</span>
+        <span><span class="source-dot" style="background:#22C55E"></span> COROS</span>
+      </div>
+    </div>
+
+    <div class="flex gap-3">
+      <button class="flex-1 bg-skadia-500 hover:bg-skadia-600 text-white py-2.5 rounded-lg text-sm font-medium transition-colors">Gruppe ansehen</button>
+      <button class="flex-1 bg-skadia-500/80 hover:bg-skadia-600 text-white py-2.5 rounded-lg text-sm font-medium transition-colors">Editor &ouml;ffnen</button>
+      <button class="flex-1 border border-gray-300 hover:bg-gray-50 text-gray-700 py-2.5 rounded-lg text-sm font-medium transition-colors">Separate Aktivit&auml;ten</button>
+    </div>
+  </div>
+
+  <!-- Gruppe 2: 2 Geräte, unterschiedliche Sportart -->
+  <div class="bg-white rounded-xl border border-gray-200 p-5 mb-6 shadow-sm">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="badge bg-green-100 text-green-700">100% &Uuml;bereinstimmung</span>
+      <span class="text-gray-400 text-xs">&middot; Zeitdifferenz: 0 min &middot; 2 Aufnahmen</span>
+    </div>
+
+    <div class="flex gap-4 mb-4">
+      <div class="flex-1 border border-gray-200 rounded-lg p-3 bg-orange-50/40">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs text-skadia-600 font-semibold">Mehr Daten</span>
+          <span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">Laufen</span>
+        </div>
+        <p class="font-semibold text-sm">Lauf</p>
+        <p class="text-xs text-gray-500">29.10.24, 20:05</p>
+        <p class="text-xs text-gray-500">11.22 km &middot; 7 Felder</p>
+        <p class="text-xs text-gray-400 mt-1">Watch7.5 &middot; FIT</p>
+      </div>
+      <div class="flex-1 border border-gray-200 rounded-lg p-3">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs text-transparent font-semibold">&nbsp;</span>
+          <span class="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-medium">Wandern</span>
+        </div>
+        <p class="font-semibold text-sm">Wanderung</p>
+        <p class="text-xs text-gray-500">29.10.24, 20:05</p>
+        <p class="text-xs text-gray-500">11.32 km &middot; 6 Felder</p>
+        <p class="text-xs text-gray-400 mt-1">Suunto Race S &middot; FIT</p>
+      </div>
+    </div>
+
+    <!-- Sportart-Warnung -->
+    <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4">
+      <p class="text-amber-700 text-sm font-medium mb-2">Unterschiedliche Sportarten erkannt</p>
+      <div class="flex gap-3">
+        <button class="flex-1 border-2 border-transparent hover:border-amber-400 bg-white rounded-lg py-2 text-sm text-center transition-colors">Laufen</button>
+        <button class="flex-1 border-2 border-transparent hover:border-amber-400 bg-white rounded-lg py-2 text-sm text-center transition-colors">Wandern</button>
+      </div>
+    </div>
+
+    <div class="minimap rounded-lg h-24 mb-4 border border-gray-200"></div>
+
+    <div class="flex gap-3">
+      <button class="flex-1 bg-skadia-500 hover:bg-skadia-600 text-white py-2.5 rounded-lg text-sm font-medium transition-colors">Gruppe ansehen</button>
+      <button class="flex-1 bg-gray-300 text-gray-500 py-2.5 rounded-lg text-sm font-medium cursor-not-allowed" disabled title="Sportart muss zuerst gew&auml;hlt werden">Editor &ouml;ffnen</button>
+      <button class="flex-1 border border-gray-300 hover:bg-gray-50 text-gray-700 py-2.5 rounded-lg text-sm font-medium transition-colors">Separate Aktivit&auml;ten</button>
+    </div>
+    <p class="text-xs text-amber-600 mt-2 ml-1">Sportart w&auml;hlen um den Editor zu &ouml;ffnen, oder in der Gruppenansicht entscheiden.</p>
+  </div>
+
+  <!-- Gruppe 3: 6 Geräte (DCR Rainmaker Szenario) -->
+  <div class="bg-white rounded-xl border border-gray-200 p-5 mb-6 shadow-sm">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="badge bg-green-100 text-green-700">85-100% &Uuml;bereinstimmung</span>
+      <span class="text-gray-400 text-xs">&middot; Zeitdifferenz: 0-4 min &middot; 6 Aufnahmen</span>
+    </div>
+
+    <div class="grid grid-cols-3 gap-3 mb-4">
+      <div class="border border-gray-200 rounded-lg p-3 bg-orange-50/40">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs text-skadia-600 font-semibold">Mehr Daten</span>
+          <span class="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium">Radfahren</span>
+        </div>
+        <p class="font-semibold text-sm">Ride</p>
+        <p class="text-xs text-gray-500">15.03.26, 09:00</p>
+        <p class="text-xs text-gray-500">42.5 km &middot; 12 Felder</p>
+        <p class="text-xs text-gray-400 mt-1">Garmin Edge 1050 &middot; FIT</p>
+      </div>
+      <div class="border border-gray-200 rounded-lg p-3">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs text-transparent">&nbsp;</span>
+          <span class="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium">Radfahren</span>
+        </div>
+        <p class="font-semibold text-sm">Cycling</p>
+        <p class="text-xs text-gray-500">15.03.26, 09:01</p>
+        <p class="text-xs text-gray-500">42.3 km &middot; 10 Felder</p>
+        <p class="text-xs text-gray-400 mt-1">Wahoo ELEMNT Ace &middot; FIT</p>
+      </div>
+      <div class="border border-gray-200 rounded-lg p-3">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs text-transparent">&nbsp;</span>
+          <span class="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium">Radfahren</span>
+        </div>
+        <p class="font-semibold text-sm">Ride</p>
+        <p class="text-xs text-gray-500">15.03.26, 09:00</p>
+        <p class="text-xs text-gray-500">42.4 km &middot; 8 Felder</p>
+        <p class="text-xs text-gray-400 mt-1">Hammerhead K2 &middot; FIT</p>
+      </div>
+      <div class="border border-gray-200 rounded-lg p-3">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs text-transparent">&nbsp;</span>
+          <span class="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium">Radfahren</span>
+        </div>
+        <p class="font-semibold text-sm">Cycling</p>
+        <p class="text-xs text-gray-500">15.03.26, 09:02</p>
+        <p class="text-xs text-gray-500">42.1 km &middot; 9 Felder</p>
+        <p class="text-xs text-gray-400 mt-1">Garmin Fenix 8 &middot; FIT</p>
+      </div>
+      <div class="border border-gray-200 rounded-lg p-3">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs text-transparent">&nbsp;</span>
+          <span class="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium">Radfahren</span>
+        </div>
+        <p class="font-semibold text-sm">Radfahren</p>
+        <p class="text-xs text-gray-500">15.03.26, 09:03</p>
+        <p class="text-xs text-gray-500">42.6 km &middot; 7 Felder</p>
+        <p class="text-xs text-gray-400 mt-1">COROS Pace Pro &middot; FIT</p>
+      </div>
+      <div class="border border-gray-200 rounded-lg p-3">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs text-transparent">&nbsp;</span>
+          <span class="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium">Radfahren</span>
+        </div>
+        <p class="font-semibold text-sm">Cycling</p>
+        <p class="text-xs text-gray-500">15.03.26, 09:01</p>
+        <p class="text-xs text-gray-500">42.2 km &middot; 6 Felder</p>
+        <p class="text-xs text-gray-400 mt-1">Suunto Race S &middot; FIT</p>
+      </div>
+    </div>
+
+    <div class="minimap rounded-lg h-28 mb-4 border border-gray-200 flex items-end justify-end p-2">
+      <div class="flex flex-wrap gap-2 bg-white/80 rounded px-2 py-1 text-[10px]">
+        <span><span class="source-dot" style="background:#EF4444"></span> Edge 1050</span>
+        <span><span class="source-dot" style="background:#3B82F6"></span> ELEMNT</span>
+        <span><span class="source-dot" style="background:#22C55E"></span> K2</span>
+        <span><span class="source-dot" style="background:#F59E0B"></span> Fenix 8</span>
+        <span><span class="source-dot" style="background:#8B5CF6"></span> COROS</span>
+        <span><span class="source-dot" style="background:#EC4899"></span> Suunto</span>
+      </div>
+    </div>
+
+    <div class="flex gap-3">
+      <button class="flex-1 bg-skadia-500 hover:bg-skadia-600 text-white py-2.5 rounded-lg text-sm font-medium transition-colors">Gruppe ansehen</button>
+      <button class="flex-1 bg-skadia-500/80 hover:bg-skadia-600 text-white py-2.5 rounded-lg text-sm font-medium transition-colors">Editor &ouml;ffnen</button>
+      <button class="flex-1 border border-gray-300 hover:bg-gray-50 text-gray-700 py-2.5 rounded-lg text-sm font-medium transition-colors">Separate Aktivit&auml;ten</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- VIEW 2: ACTIVITY LIST (F Badge + Expand) -->
+<!-- ============================================================ -->
+<div id="view-actlist" class="max-w-6xl mx-auto px-6 py-8" style="display:none">
+  <h1 class="text-2xl font-bold mb-6">Aktivit&auml;ten</h1>
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-200 text-left text-xs text-gray-500 uppercase tracking-wide">
+          <th class="py-3 px-4 w-8"></th>
+          <th class="py-3 px-2 w-5"></th>
+          <th class="py-3 px-2">Datum</th>
+          <th class="py-3 px-2">Sport</th>
+          <th class="py-3 px-2">Titel</th>
+          <th class="py-3 px-2 text-right">Distanz</th>
+          <th class="py-3 px-2 text-right">Zeit</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Normal activity -->
+        <tr class="border-b border-gray-100 hover:bg-gray-50 cursor-pointer">
+          <td class="py-3 px-4"><input type="checkbox" class="rounded"></td>
+          <td class="py-3 px-2"></td>
+          <td class="py-3 px-2 text-gray-600">Sa., 15. M&auml;rz 2026 <span class="text-gray-400 text-xs">14:30</span></td>
+          <td class="py-3 px-2"><span class="text-orange-500">&#x1f6b2;</span> Radfahren</td>
+          <td class="py-3 px-2 font-medium">K&ouml;nigsbrunn Runde</td>
+          <td class="py-3 px-2 text-right">37.29 km</td>
+          <td class="py-3 px-2 text-right">1h 46min</td>
+        </tr>
+
+        <!-- Recording Group (F Badge) - collapsed -->
+        <tr class="border-b border-gray-100 hover:bg-orange-50/30 cursor-pointer" onclick="toggleGroupExpand(this)">
+          <td class="py-3 px-4"><input type="checkbox" class="rounded"></td>
+          <td class="py-3 px-2 w-5 text-center">
+            <span class="text-skadia-600 font-bold text-sm" title="Aufnahmegruppe (3 Ger&auml;te)">F</span>
+          </td>
+          <td class="py-3 px-2 text-gray-600">Sa., 13. Sep. 2024 <span class="text-gray-400 text-xs">18:04</span></td>
+          <td class="py-3 px-2"><span class="text-blue-500">&#x1f3c3;</span> Laufen</td>
+          <td class="py-3 px-2 font-medium">
+            <span class="inline-flex items-center gap-1">
+              <svg class="w-4 h-4 text-gray-400 transition-transform expand-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+              Abendlauf Amsterdam
+            </span>
+          </td>
+          <td class="py-3 px-2 text-right">10.29 km</td>
+          <td class="py-3 px-2 text-right">42min</td>
+        </tr>
+
+        <!-- Expanded children (hidden by default) -->
+        <tr class="expand-row border-b border-gray-100 bg-gray-50/50" style="display:none">
+          <td colspan="7" class="py-0 px-4">
+            <div class="border-l-2 border-skadia-200 ml-6 pl-4 py-3 flex flex-col gap-2">
+              <div class="flex items-center gap-3 text-xs">
+                <span class="source-dot" style="background:#EF4444"></span>
+                <span class="font-medium w-32">Garmin FR965</span>
+                <span class="text-gray-400">FIT &middot; 8 Felder &middot; 10.29 km</span>
+                <span class="ml-auto badge bg-skadia-100 text-skadia-700">&#9733; Prim&auml;r</span>
+              </div>
+              <div class="flex items-center gap-3 text-xs">
+                <span class="source-dot" style="background:#3B82F6"></span>
+                <span class="font-medium w-32">Suunto Race S</span>
+                <span class="text-gray-400">FIT &middot; 7 Felder &middot; 10.18 km</span>
+              </div>
+              <div class="flex items-center gap-3 text-xs">
+                <span class="source-dot" style="background:#22C55E"></span>
+                <span class="font-medium w-32">COROS Pace 3</span>
+                <span class="text-gray-400">FIT &middot; 6 Felder &middot; 10.22 km</span>
+              </div>
+              <a href="#" class="text-skadia-600 text-xs hover:underline mt-1 inline-flex items-center gap-1">
+                Gruppenansicht &ouml;ffnen &rarr;
+              </a>
+            </div>
+          </td>
+        </tr>
+
+        <!-- Multisport (M Badge) for comparison -->
+        <tr class="border-b border-gray-100 hover:bg-gray-50 cursor-pointer">
+          <td class="py-3 px-4"><input type="checkbox" class="rounded"></td>
+          <td class="py-3 px-2 w-5 text-center">
+            <span class="text-red-800 font-bold text-sm">M</span>
+          </td>
+          <td class="py-3 px-2 text-gray-600">Fr., 27. Feb. 2026 <span class="text-gray-400 text-xs">16:18</span></td>
+          <td class="py-3 px-2"><span class="text-gray-500">&#x1f3c6;</span> Multisport</td>
+          <td class="py-3 px-2 font-medium">
+            <span class="inline-flex items-center gap-1">
+              <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+              Beispielwald Nord
+            </span>
+          </td>
+          <td class="py-3 px-2 text-right">&mdash;</td>
+          <td class="py-3 px-2 text-right">0min</td>
+        </tr>
+
+        <!-- Recording Group with fusion result -->
+        <tr class="border-b border-gray-100 hover:bg-orange-50/30 cursor-pointer" onclick="toggleGroupExpand(this)">
+          <td class="py-3 px-4"><input type="checkbox" class="rounded"></td>
+          <td class="py-3 px-2 w-5 text-center">
+            <span class="text-skadia-600 font-bold text-sm" title="Aufnahmegruppe (fusioniert)">F</span>
+          </td>
+          <td class="py-3 px-2 text-gray-600">So., 07. Sep. 2024 <span class="text-gray-400 text-xs">17:29</span></td>
+          <td class="py-3 px-2"><span class="text-blue-500">&#x1f3c3;</span> Laufen</td>
+          <td class="py-3 px-2 font-medium">
+            <span class="inline-flex items-center gap-1">
+              <svg class="w-4 h-4 text-gray-400 transition-transform expand-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+              Mallorca Abendlauf
+              <span class="badge bg-purple-100 text-purple-700 ml-2">&#9889; Fusioniert</span>
+            </span>
+          </td>
+          <td class="py-3 px-2 text-right">5.06 km</td>
+          <td class="py-3 px-2 text-right">28min</td>
+        </tr>
+        <tr class="expand-row border-b border-gray-100 bg-gray-50/50" style="display:none">
+          <td colspan="7" class="py-0 px-4">
+            <div class="border-l-2 border-purple-200 ml-6 pl-4 py-3 flex flex-col gap-2">
+              <div class="flex items-center gap-3 text-xs">
+                <span class="source-dot" style="background:#8B5CF6"></span>
+                <span class="font-medium w-32">Fusionsergebnis</span>
+                <span class="text-gray-400">HR: FR965, GPS: Fenix8</span>
+                <span class="ml-auto badge bg-skadia-100 text-skadia-700">&#9733; Prim&auml;r</span>
+              </div>
+              <div class="flex items-center gap-3 text-xs text-gray-400">
+                <span class="source-dot" style="background:#EF4444"></span>
+                <span class="font-medium w-32">Garmin FR965</span>
+                <span>FIT &middot; 7 Felder &middot; 5.06 km</span>
+              </div>
+              <div class="flex items-center gap-3 text-xs text-gray-400">
+                <span class="source-dot" style="background:#3B82F6"></span>
+                <span class="font-medium w-32">Garmin Fenix8</span>
+                <span>TCX &middot; 2 Felder &middot; 4.99 km</span>
+              </div>
+              <a href="#" class="text-skadia-600 text-xs hover:underline mt-1 inline-flex items-center gap-1">
+                Gruppenansicht &ouml;ffnen &rarr;
+              </a>
+            </div>
+          </td>
+        </tr>
+
+        <!-- Virtual activity -->
+        <tr class="border-b border-gray-100 hover:bg-gray-50 cursor-pointer">
+          <td class="py-3 px-4"><input type="checkbox" class="rounded"></td>
+          <td class="py-3 px-2 w-5 text-center"><span class="text-purple-500 font-bold text-sm">V</span></td>
+          <td class="py-3 px-2 text-gray-600">Mo., 23. M&auml;rz 2026 <span class="text-gray-400 text-xs">23:32</span></td>
+          <td class="py-3 px-2"><span class="text-orange-500">&#x1f6b2;</span> Radfahren</td>
+          <td class="py-3 px-2 font-medium italic text-gray-400">Kein Titel</td>
+          <td class="py-3 px-2 text-right">15.00 km</td>
+          <td class="py-3 px-2 text-right">29min</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- VIEW 3: RECORDING GROUP PAGE -->
+<!-- ============================================================ -->
+<div id="view-grouppage" class="max-w-6xl mx-auto px-6 py-8" style="display:none">
+  <a href="#" class="text-skadia-600 text-sm hover:underline">&larr; Aktivit&auml;ten</a>
+  <div class="flex items-center gap-3 mt-2 mb-6">
+    <h1 class="text-2xl font-bold">Lauf &middot; 13. Sep. 2024</h1>
+    <span class="badge bg-skadia-100 text-skadia-700">3 Aufnahmen</span>
+  </div>
+
+  <!-- Source Cards (klickbar!) -->
+  <div class="grid grid-cols-3 gap-4 mb-6">
+    <a href="#" class="block bg-white border-2 border-skadia-300 rounded-xl p-4 card-hover relative">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="source-dot" style="background:#EF4444"></span>
+        <span class="font-semibold text-sm">Garmin FR965</span>
+        <span class="ml-auto badge bg-skadia-100 text-skadia-700">&#9733; Prim&auml;r</span>
+      </div>
+      <p class="text-xs text-gray-500">FIT &middot; 8 Felder &middot; 10.29 km &middot; 42:18</p>
+      <p class="text-xs text-gray-400 mt-1">Sportart: <span class="text-gray-600">Laufen</span></p>
+    </a>
+    <a href="#" class="block bg-white border border-gray-200 rounded-xl p-4 card-hover">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="source-dot" style="background:#3B82F6"></span>
+        <span class="font-semibold text-sm">Suunto Race S</span>
+        <button class="ml-auto text-xs text-gray-400 hover:text-skadia-600 border border-gray-200 hover:border-skadia-300 rounded px-2 py-0.5 transition-colors">Prim&auml;r setzen</button>
+      </div>
+      <p class="text-xs text-gray-500">FIT &middot; 7 Felder &middot; 10.18 km &middot; 41:52</p>
+      <p class="text-xs text-gray-400 mt-1">Sportart: <span class="text-gray-600">Laufen</span></p>
+    </a>
+    <a href="#" class="block bg-white border border-gray-200 rounded-xl p-4 card-hover">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="source-dot" style="background:#22C55E"></span>
+        <span class="font-semibold text-sm">COROS Pace 3</span>
+        <button class="ml-auto text-xs text-gray-400 hover:text-skadia-600 border border-gray-200 hover:border-skadia-300 rounded px-2 py-0.5 transition-colors">Prim&auml;r setzen</button>
+      </div>
+      <p class="text-xs text-gray-500">FIT &middot; 6 Felder &middot; 10.22 km &middot; 42:05</p>
+      <p class="text-xs text-gray-400 mt-1">Sportart: <span class="text-gray-600">Laufen</span></p>
+    </a>
+  </div>
+
+  <!-- Map + Chart Row -->
+  <div class="grid grid-cols-2 gap-4 mb-6">
+    <!-- Map -->
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div class="minimap h-72 relative">
+        <!-- Map controls mockup -->
+        <div class="absolute top-2 left-2 flex gap-1">
+          <button class="tab-btn active text-xs px-2 py-1 rounded">OSM</button>
+          <button class="tab-btn text-xs px-2 py-1 rounded bg-white border border-gray-200">Satellit</button>
+          <button class="tab-btn text-xs px-2 py-1 rounded bg-white border border-gray-200">Topo</button>
+        </div>
+        <div class="absolute bottom-2 left-2 bg-white/90 rounded-lg px-3 py-2 text-xs flex flex-col gap-1">
+          <span class="flex items-center gap-2"><span class="inline-block w-6 h-0.5 rounded" style="background:#EF4444"></span> FR965</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-6 h-0.5 rounded border-b-2 border-dashed" style="border-color:#3B82F6"></span> Suunto</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-6 h-0.5 rounded border-b-2 border-dotted" style="border-color:#22C55E"></span> COROS</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stream Chart -->
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-gray-700">Stream-Vergleich</h3>
+        <button class="text-xs text-gray-400 hover:text-skadia-600 flex items-center gap-1">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+          Maximieren
+        </button>
+      </div>
+      <div class="flex gap-1 mb-3">
+        <button class="tab-btn active text-xs px-3 py-1.5 rounded-full">Herzfrequenz</button>
+        <button class="tab-btn text-xs px-3 py-1.5 rounded-full bg-gray-100">Leistung</button>
+        <button class="tab-btn text-xs px-3 py-1.5 rounded-full bg-gray-100">Speed</button>
+        <button class="tab-btn text-xs px-3 py-1.5 rounded-full bg-gray-100">H&ouml;he</button>
+        <button class="tab-btn text-xs px-3 py-1.5 rounded-full bg-gray-100">Kadenz</button>
+        <button class="tab-btn text-xs px-3 py-1.5 rounded-full bg-gray-100">GCT</button>
+      </div>
+      <!-- Fake chart -->
+      <div class="h-48 bg-gray-50 rounded-lg relative overflow-hidden border border-gray-100">
+        <div class="absolute inset-0 flex items-center justify-center text-gray-300 text-xs">
+          <svg viewBox="0 0 500 180" class="w-full h-full p-4">
+            <text x="10" y="15" font-size="10" fill="#9ca3af">bpm</text>
+            <text x="10" y="35" font-size="9" fill="#d1d5db">180</text>
+            <text x="10" y="75" font-size="9" fill="#d1d5db">150</text>
+            <text x="10" y="115" font-size="9" fill="#d1d5db">120</text>
+            <text x="10" y="155" font-size="9" fill="#d1d5db">90</text>
+            <!-- FR965 (solid red) -->
+            <path d="M40,100 Q80,70 120,85 T200,65 T280,80 T360,55 T440,75 T480,60" stroke="#EF4444" fill="none" stroke-width="2" opacity="0.9"/>
+            <!-- Suunto (dashed blue) -->
+            <path d="M40,105 Q80,75 120,88 T200,70 T280,83 T360,58 T440,78 T480,63" stroke="#3B82F6" fill="none" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.85"/>
+            <!-- COROS (dotted green) -->
+            <path d="M40,98 Q80,68 120,83 T200,63 T280,78 T360,53 T440,73 T480,58" stroke="#22C55E" fill="none" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.8"/>
+            <!-- Legende -->
+            <line x1="350" y1="12" x2="370" y2="12" stroke="#EF4444" stroke-width="2"/>
+            <text x="374" y="15" font-size="9" fill="#6b7280">FR965</text>
+            <line x1="410" y1="12" x2="430" y2="12" stroke="#3B82F6" stroke-width="1.5" stroke-dasharray="6,3"/>
+            <text x="434" y="15" font-size="9" fill="#6b7280">Suunto</text>
+          </svg>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 mt-2">
+        <button class="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded px-2 py-1">Nach Zeit</button>
+        <button class="text-xs text-skadia-600 border border-skadia-200 bg-skadia-50 rounded px-2 py-1 font-medium">Nach Distanz</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Comparison Summary Table -->
+  <div class="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+    <h3 class="text-sm font-semibold text-gray-700 mb-3">Vergleich</h3>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-xs text-gray-400 border-b border-gray-100">
+          <th class="py-2 text-left font-normal">Metrik</th>
+          <th class="py-2 text-right font-normal"><span class="source-dot mr-1" style="background:#EF4444"></span>FR965</th>
+          <th class="py-2 text-right font-normal"><span class="source-dot mr-1" style="background:#3B82F6"></span>Suunto</th>
+          <th class="py-2 text-right font-normal"><span class="source-dot mr-1" style="background:#22C55E"></span>COROS</th>
+        </tr>
+      </thead>
+      <tbody class="text-gray-600">
+        <tr class="border-b border-gray-50">
+          <td class="py-2">Distanz</td>
+          <td class="py-2 text-right font-semibold text-gray-900">10.29 km</td>
+          <td class="py-2 text-right">10.18 km</td>
+          <td class="py-2 text-right">10.22 km</td>
+        </tr>
+        <tr class="border-b border-gray-50">
+          <td class="py-2">Dauer</td>
+          <td class="py-2 text-right">42:18</td>
+          <td class="py-2 text-right font-semibold text-gray-900">41:52</td>
+          <td class="py-2 text-right">42:05</td>
+        </tr>
+        <tr class="border-b border-gray-50">
+          <td class="py-2">Avg Pace</td>
+          <td class="py-2 text-right">4:07/km</td>
+          <td class="py-2 text-right font-semibold text-gray-900">4:06/km</td>
+          <td class="py-2 text-right">4:07/km</td>
+        </tr>
+        <tr class="border-b border-gray-50">
+          <td class="py-2">Avg HR</td>
+          <td class="py-2 text-right">152 bpm</td>
+          <td class="py-2 text-right">151 bpm</td>
+          <td class="py-2 text-right font-semibold text-gray-900">153 bpm</td>
+        </tr>
+        <tr class="border-b border-gray-50">
+          <td class="py-2">Max HR</td>
+          <td class="py-2 text-right font-semibold text-gray-900">178 bpm</td>
+          <td class="py-2 text-right">176 bpm</td>
+          <td class="py-2 text-right">177 bpm</td>
+        </tr>
+        <tr class="border-b border-gray-50">
+          <td class="py-2">H&ouml;henmeter</td>
+          <td class="py-2 text-right font-semibold text-gray-900">124 m</td>
+          <td class="py-2 text-right">118 m</td>
+          <td class="py-2 text-right">121 m</td>
+        </tr>
+        <tr>
+          <td class="py-2">Avg Cadence</td>
+          <td class="py-2 text-right font-semibold text-gray-900">182 spm</td>
+          <td class="py-2 text-right">181 spm</td>
+          <td class="py-2 text-right">182 spm</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="text-[10px] text-gray-400 mt-2">Bester Wert pro Metrik ist hervorgehoben. Bei aktivem Zoom werden nur die sichtbaren Daten ber&uuml;cksichtigt.</p>
+  </div>
+
+  <!-- Actions -->
+  <div class="flex gap-3 items-center">
+    <button class="bg-skadia-500 hover:bg-skadia-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium transition-colors">
+      Aktivit&auml;ten fusionieren
+    </button>
+    <div class="flex-1"></div>
+    <button class="text-red-500 hover:text-red-700 text-sm border border-red-200 hover:border-red-300 px-4 py-2.5 rounded-lg transition-colors">
+      Gruppe aufl&ouml;sen
+    </button>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- VIEW 4: FUSION EDITOR (Dynamic N Sources) -->
+<!-- ============================================================ -->
+<div id="view-editor" class="max-w-6xl mx-auto px-6 py-8" style="display:none">
+  <a href="#" class="text-skadia-600 text-sm hover:underline">&larr; Gruppenansicht</a>
+  <h1 class="text-2xl font-bold mt-2 mb-1">Aktivit&auml;ten fusionieren</h1>
+  <p class="text-gray-500 text-sm mb-1">Kombiniere GPS, HR, Power und andere Streams aus bis zu 6 Aktivit&auml;ten</p>
+  <p class="text-xs text-gray-400 mb-6">Es wird eine neue Aktivit&auml;t erstellt &mdash; alle Originale bleiben erhalten.</p>
+
+  <!-- Dynamic Source Selection — alle gleichberechtigt -->
+  <div class="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+    <h3 class="text-sm font-semibold text-gray-700 mb-3">Quell-Aktivit&auml;ten</h3>
+
+    <!-- Source A -->
+    <div class="flex items-center gap-3 py-2 border-b border-gray-100">
+      <span class="source-dot" style="background:#EF4444"></span>
+      <span class="text-sm font-medium w-8">A</span>
+      <select class="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white">
+        <option selected>Garmin FR965 &mdash; 13.09.2024 &mdash; 10.29 km &mdash; 8 Felder &mdash; FIT</option>
+        <option>Suunto Race S &mdash; 13.09.2024 &mdash; 10.18 km &mdash; 7 Felder &mdash; FIT</option>
+        <option>COROS Pace 3 &mdash; 13.09.2024 &mdash; 10.22 km &mdash; 6 Felder &mdash; FIT</option>
+      </select>
+      <button class="text-gray-400 hover:text-red-500 p-1" title="Entfernen">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- Source B -->
+    <div class="flex items-center gap-3 py-2 border-b border-gray-100">
+      <span class="source-dot" style="background:#3B82F6"></span>
+      <span class="text-sm font-medium w-8">B</span>
+      <select class="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white">
+        <option selected>Suunto Race S &mdash; 13.09.2024 &mdash; 10.18 km &mdash; 7 Felder &mdash; FIT</option>
+        <option>COROS Pace 3 &mdash; 13.09.2024 &mdash; 10.22 km &mdash; 6 Felder &mdash; FIT</option>
+      </select>
+      <button class="text-gray-400 hover:text-red-500 p-1" title="Entfernen">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- Source C -->
+    <div class="flex items-center gap-3 py-2 border-b border-gray-100">
+      <span class="source-dot" style="background:#22C55E"></span>
+      <span class="text-sm font-medium w-8">C</span>
+      <select class="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white">
+        <option selected>COROS Pace 3 &mdash; 13.09.2024 &mdash; 10.22 km &mdash; 6 Felder &mdash; FIT</option>
+      </select>
+      <button class="text-gray-400 hover:text-red-500 p-1" title="Entfernen">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- Add Source Button -->
+    <button class="flex items-center gap-2 text-sm text-skadia-600 hover:text-skadia-700 py-2 mt-1">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      Weitere Quelle hinzuf&uuml;gen
+      <span class="text-xs text-gray-400">(max. 6 Quellen)</span>
+    </button>
+  </div>
+
+  <!-- Map + Chart (same layout as group page, uses shared components) -->
+  <div class="grid grid-cols-2 gap-4 mb-6">
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div class="minimap h-64 relative">
+        <div class="absolute bottom-2 left-2 bg-white/90 rounded-lg px-3 py-2 text-xs flex flex-col gap-1">
+          <span class="flex items-center gap-2"><span class="inline-block w-6 h-0.5 rounded" style="background:#EF4444"></span> A &middot; FR965</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-6 h-0.5 rounded border-b-2 border-dashed" style="border-color:#3B82F6"></span> B &middot; Suunto</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-6 h-0.5 rounded border-b-2 border-dotted" style="border-color:#22C55E"></span> C &middot; COROS</span>
+        </div>
+      </div>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-gray-700">Stream-Vorschau</h3>
+        <button class="text-xs text-gray-400 hover:text-skadia-600">Maximieren</button>
+      </div>
+      <div class="flex gap-1 mb-3 flex-wrap">
+        <button class="tab-btn active text-xs px-3 py-1.5 rounded-full">HR</button>
+        <button class="tab-btn text-xs px-3 py-1.5 rounded-full bg-gray-100">Power</button>
+        <button class="tab-btn text-xs px-3 py-1.5 rounded-full bg-gray-100">Speed</button>
+        <button class="tab-btn text-xs px-3 py-1.5 rounded-full bg-gray-100">H&ouml;he</button>
+        <button class="tab-btn text-xs px-3 py-1.5 rounded-full bg-gray-100">Kadenz</button>
+        <button class="tab-btn text-xs px-3 py-1.5 rounded-full bg-gray-100">Temperatur</button>
+        <button class="tab-btn text-xs px-3 py-1.5 rounded-full bg-gray-100">GCT</button>
+        <button class="tab-btn text-xs px-3 py-1.5 rounded-full bg-gray-100">Vert. Osc.</button>
+      </div>
+      <div class="h-44 bg-gray-50 rounded-lg border border-gray-100 flex items-center justify-center text-gray-300 text-xs">
+        [StreamChart — gleiche Shared-Komponente wie Gruppenansicht]
+      </div>
+    </div>
+  </div>
+
+  <!-- Extended Field Table -->
+  <div class="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+    <h3 class="text-sm font-semibold text-gray-700 mb-3">Datenquellen pro Feld w&auml;hlen</h3>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm min-w-[600px]">
+        <thead>
+          <tr class="text-xs text-gray-400 border-b border-gray-200">
+            <th class="py-2 text-left font-normal w-36">Feld</th>
+            <th class="py-2 text-center font-normal">
+              <span class="badge" style="background:#FEE2E2;color:#DC2626">A</span><br>
+              <span class="text-[10px] text-gray-400">Garmin FR965 &middot; FIT</span>
+            </th>
+            <th class="py-2 text-center font-normal">
+              <span class="badge" style="background:#DBEAFE;color:#2563EB">B</span><br>
+              <span class="text-[10px] text-gray-400">Suunto Race S &middot; FIT</span>
+            </th>
+            <th class="py-2 text-center font-normal">
+              <span class="badge" style="background:#DCFCE7;color:#16A34A">C</span><br>
+              <span class="text-[10px] text-gray-400">COROS Pace 3 &middot; FIT</span>
+            </th>
+            <th class="py-2 text-center font-normal w-16">Fuse</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="border-b border-gray-100">
+            <td class="py-2.5 font-medium">GPS-Track</td>
+            <td class="py-2.5 text-center"><input type="radio" name="gps" checked> <span class="text-xs text-gray-500">10.29 km</span></td>
+            <td class="py-2.5 text-center"><input type="radio" name="gps"> <span class="text-xs text-gray-500">10.18 km</span></td>
+            <td class="py-2.5 text-center"><input type="radio" name="gps"> <span class="text-xs text-gray-500">10.22 km</span></td>
+            <td class="py-2.5 text-center"><input type="radio" name="gps"> <span class="text-xs text-skadia-600 font-medium">Fuse</span></td>
+          </tr>
+          <tr class="border-b border-gray-100">
+            <td class="py-2.5 font-medium">Herzfrequenz</td>
+            <td class="py-2.5 text-center"><input type="radio" name="hr" checked></td>
+            <td class="py-2.5 text-center"><input type="radio" name="hr"></td>
+            <td class="py-2.5 text-center"><input type="radio" name="hr"></td>
+            <td class="py-2.5 text-center text-gray-300">&mdash;</td>
+          </tr>
+          <tr class="border-b border-gray-100">
+            <td class="py-2.5 font-medium">Leistung</td>
+            <td class="py-2.5 text-center"><input type="radio" name="power" checked></td>
+            <td class="py-2.5 text-center"><input type="radio" name="power" disabled class="opacity-30"></td>
+            <td class="py-2.5 text-center"><input type="radio" name="power" disabled class="opacity-30"></td>
+            <td class="py-2.5 text-center text-gray-300">&mdash;</td>
+          </tr>
+          <tr class="border-b border-gray-100">
+            <td class="py-2.5 font-medium">H&ouml;henprofil</td>
+            <td class="py-2.5 text-center"><input type="radio" name="alt" checked></td>
+            <td class="py-2.5 text-center"><input type="radio" name="alt"></td>
+            <td class="py-2.5 text-center"><input type="radio" name="alt"></td>
+            <td class="py-2.5 text-center text-gray-300">&mdash;</td>
+          </tr>
+          <tr class="border-b border-gray-100">
+            <td class="py-2.5 font-medium">Kadenz</td>
+            <td class="py-2.5 text-center"><input type="radio" name="cad" checked></td>
+            <td class="py-2.5 text-center"><input type="radio" name="cad"></td>
+            <td class="py-2.5 text-center"><input type="radio" name="cad"></td>
+            <td class="py-2.5 text-center text-gray-300">&mdash;</td>
+          </tr>
+          <tr class="border-b border-gray-100">
+            <td class="py-2.5 font-medium">Speed</td>
+            <td class="py-2.5 text-center"><input type="radio" name="spd" checked></td>
+            <td class="py-2.5 text-center"><input type="radio" name="spd"></td>
+            <td class="py-2.5 text-center"><input type="radio" name="spd"></td>
+            <td class="py-2.5 text-center text-gray-300">&mdash;</td>
+          </tr>
+          <tr class="border-b border-gray-100">
+            <td class="py-2.5 font-medium">Temperatur</td>
+            <td class="py-2.5 text-center"><input type="radio" name="temp" checked></td>
+            <td class="py-2.5 text-center"><input type="radio" name="temp"></td>
+            <td class="py-2.5 text-center"><input type="radio" name="temp" disabled class="opacity-30"></td>
+            <td class="py-2.5 text-center text-gray-300">&mdash;</td>
+          </tr>
+          <tr class="border-b border-gray-100 bg-blue-50/30">
+            <td class="py-2.5 font-medium text-blue-700">Running Dynamics</td>
+            <td colspan="4" class="py-2.5 text-xs text-blue-600 text-center">&darr; Erweiterte Felder</td>
+          </tr>
+          <tr class="border-b border-gray-100">
+            <td class="py-2.5 pl-4 text-gray-600">Ground Contact Time</td>
+            <td class="py-2.5 text-center"><input type="radio" name="gct" checked></td>
+            <td class="py-2.5 text-center"><input type="radio" name="gct"></td>
+            <td class="py-2.5 text-center"><input type="radio" name="gct" disabled class="opacity-30"></td>
+            <td class="py-2.5 text-center text-gray-300">&mdash;</td>
+          </tr>
+          <tr class="border-b border-gray-100">
+            <td class="py-2.5 pl-4 text-gray-600">Vertical Oscillation</td>
+            <td class="py-2.5 text-center"><input type="radio" name="vo" checked></td>
+            <td class="py-2.5 text-center"><input type="radio" name="vo"></td>
+            <td class="py-2.5 text-center"><input type="radio" name="vo" disabled class="opacity-30"></td>
+            <td class="py-2.5 text-center text-gray-300">&mdash;</td>
+          </tr>
+          <tr class="border-b border-gray-100">
+            <td class="py-2.5 pl-4 text-gray-600">L/R Balance</td>
+            <td class="py-2.5 text-center"><input type="radio" name="lr" checked></td>
+            <td class="py-2.5 text-center"><input type="radio" name="lr" disabled class="opacity-30"></td>
+            <td class="py-2.5 text-center"><input type="radio" name="lr" disabled class="opacity-30"></td>
+            <td class="py-2.5 text-center text-gray-300">&mdash;</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Titel + Tags -->
+    <div class="mt-4 pt-4 border-t border-gray-200">
+      <div class="flex items-center gap-4 mb-2">
+        <span class="text-sm font-medium w-36">Titel</span>
+        <label class="text-sm"><input type="radio" name="title" checked class="mr-1"> Garmin FR965</label>
+        <label class="text-sm"><input type="radio" name="title" class="mr-1"> Suunto Race S</label>
+        <label class="text-sm"><input type="radio" name="title" class="mr-1"> COROS Pace 3</label>
+      </div>
+      <div class="flex items-center gap-4">
+        <span class="text-sm font-medium w-36">Tags</span>
+        <label class="text-sm"><input type="checkbox" class="mr-1 rounded"> Tags aus allen Quellen zusammenf&uuml;hren</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fusion Button -->
+  <div class="flex gap-3">
+    <button class="bg-skadia-500 hover:bg-skadia-600 text-white px-8 py-3 rounded-lg text-sm font-medium transition-colors">
+      Fusionieren
+    </button>
+    <button class="border border-gray-300 hover:bg-gray-50 text-gray-700 px-6 py-3 rounded-lg text-sm font-medium transition-colors">
+      Abbrechen
+    </button>
+  </div>
+</div>
+
+<script>
+function showView(id) {
+  document.querySelectorAll('[id^="view-"]').forEach(el => el.style.display = 'none');
+  document.getElementById('view-' + id).style.display = 'block';
+  document.querySelectorAll('.view-tab').forEach(el => el.classList.remove('active'));
+  event.target.classList.add('active');
+}
+
+function toggleGroupExpand(row) {
+  const expandRow = row.nextElementSibling;
+  if (expandRow && expandRow.classList.contains('expand-row')) {
+    const isHidden = expandRow.style.display === 'none';
+    expandRow.style.display = isHidden ? 'table-row' : 'none';
+    const chevron = row.querySelector('.expand-chevron');
+    if (chevron) {
+      chevron.style.transform = isHidden ? 'rotate(90deg)' : '';
+    }
+  }
+}
+</script>
+</body>
+</html>
