@@ -61,17 +61,6 @@ function waterTypeLabel(raw: string): string {
   }
 }
 
-// ── Helper: gas mode display ──────────────────────────────────────────────────
-
-function gasModeLabel(mode: string): string {
-  switch (mode.toLowerCase()) {
-    case 'oc_gas': return 'OC'
-    case 'cc_diluent': return 'Diluent (CCR)'
-    case 'cc_o2': return 'O₂ (CCR)'
-    default: return mode
-  }
-}
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function DiveDecoPanel({ activityId, streams }: DiveDecoPanelProps) {
@@ -157,64 +146,6 @@ export function DiveDecoPanel({ activityId, streams }: DiveDecoPanelProps) {
               </div>
             )}
           </dl>
-        </div>
-      )}
-
-      {/* B) Gas Mix Table */}
-      {diveInfo && diveInfo.gases.length > 0 && (
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-4">
-          <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">
-            {LABELS.gasMixes}
-          </h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-neutral-200 dark:border-neutral-800">
-                  <th className="text-left text-xs text-neutral-500 dark:text-neutral-400 pb-2 pr-4">{LABELS.gasIndex}</th>
-                  <th className="text-right text-xs text-neutral-500 dark:text-neutral-400 pb-2 pr-4">{LABELS.oxygen}</th>
-                  <th className="text-right text-xs text-neutral-500 dark:text-neutral-400 pb-2 pr-4">{LABELS.helium}</th>
-                  <th className="text-left text-xs text-neutral-500 dark:text-neutral-400 pb-2 pr-4">{LABELS.status}</th>
-                  <th className="text-left text-xs text-neutral-500 dark:text-neutral-400 pb-2">{LABELS.mode}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {diveInfo.gases.map(gas => {
-                  const isTrimix = gas.helium_pct > 0
-                  const isDiluent = gas.mode.toLowerCase().includes('diluent')
-                  const isBailout = gas.status.toLowerCase() === 'bailout'
-                  const rowClass = isDiluent
-                    ? 'text-blue-700 dark:text-blue-400'
-                    : isBailout
-                      ? 'text-amber-700 dark:text-amber-400'
-                      : 'text-neutral-900 dark:text-neutral-100'
-                  const gasLabel = isTrimix
-                    ? `Trimix ${gas.oxygen_pct}/${gas.helium_pct}`
-                    : gas.oxygen_pct === 21
-                      ? 'Air'
-                      : `EAN${gas.oxygen_pct}`
-                  return (
-                    <tr key={gas.gas_index} className="border-b border-neutral-100 dark:border-neutral-900 last:border-0">
-                      <td className={`py-1.5 pr-4 font-medium ${rowClass}`}>
-                        {gasLabel}
-                      </td>
-                      <td className={`py-1.5 pr-4 text-right tabular-nums ${rowClass}`}>
-                        {gas.oxygen_pct}%
-                      </td>
-                      <td className={`py-1.5 pr-4 text-right tabular-nums ${rowClass}`}>
-                        {gas.helium_pct > 0 ? `${gas.helium_pct}%` : '—'}
-                      </td>
-                      <td className={`py-1.5 pr-4 capitalize ${rowClass}`}>
-                        {gas.status}
-                      </td>
-                      <td className={`py-1.5 capitalize ${rowClass}`}>
-                        {gasModeLabel(gas.mode)}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
         </div>
       )}
 

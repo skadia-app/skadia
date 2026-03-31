@@ -96,6 +96,7 @@ export interface Activity {
   visibility: Visibility
   source?: string | null
   source_device?: string | null
+  original_file_format?: string | null
   enrichment_status: string
   needs_classification: boolean
   has_gps: boolean
@@ -1013,9 +1014,17 @@ export interface DiveGas {
   mode: string
 }
 
+export interface DivePo2Stats {
+  min_po2: number
+  min_po2_depth_m?: number
+  max_po2: number
+  max_po2_depth_m?: number
+}
+
 export interface DiveInfo {
   settings?: DiveSettings
   gases: DiveGas[]
+  po2_stats?: DivePo2Stats
 }
 
 // ── HealthContext (Task 7) ──
