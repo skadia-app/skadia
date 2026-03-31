@@ -828,7 +828,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   if (hasValidData(data.depth)) panels.push(
     <div key={k('depth')} style={{ display: show('depth') ? undefined : 'none' }}>
       <ChartPanel chartId="depth" {...common}
-        label="Tiefe" unit="m" color="#3B82F6" area
+        field="altitude" label="Tiefe" unit="m" color="#3B82F6" area
         overrideValues={data.depth} invertY
         extraSeries={decoExtraSeries}
       />
@@ -1120,7 +1120,7 @@ function DecoChartPanel({
         brush: {
           toolbox: [],
           brushType: 'lineX',
-          brushStyle: { borderWidth: 1, color: 'rgba(249,115,22,0.15)', borderColor: '#f97316' },
+          brushStyle: { borderWidth: 1, color: 'rgba(249,115,22,0.12)', borderColor: '#f97316' },
           throttleType: 'debounce', throttleDelay: 100,
         },
 
@@ -1532,7 +1532,7 @@ function PedalDualChartPanel({
           brushType: 'lineX',
           brushStyle: {
             borderWidth: 1,
-            color: 'rgba(249,115,22,0.15)',
+            color: 'rgba(249,115,22,0.12)',
             borderColor: '#f97316',
           },
           throttleType: 'debounce',
@@ -1781,7 +1781,7 @@ function SpeedPaceChartPanel({
             brushType: 'lineX',
             brushStyle: {
               borderWidth: 1,
-              color: 'rgba(249,115,22,0.15)',
+              color: 'rgba(249,115,22,0.12)',
               borderColor: '#f97316',
             },
             throttleType: 'debounce',
@@ -1949,7 +1949,7 @@ function SpeedPaceChartPanel({
           brushType: 'lineX',
           brushStyle: {
             borderWidth: 1,
-            color: 'rgba(249,115,22,0.15)',
+            color: 'rgba(249,115,22,0.12)',
             borderColor: '#f97316',
           },
           throttleType: 'debounce',
@@ -2176,7 +2176,7 @@ function RunningDynamicsChartPanel({
           brushType: 'lineX',
           brushStyle: {
             borderWidth: 1,
-            color: 'rgba(249,115,22,0.15)',
+            color: 'rgba(249,115,22,0.12)',
             borderColor: '#f97316',
           },
           throttleType: 'debounce',
@@ -2395,7 +2395,7 @@ function ScatterChartPanel({
           brushType: 'lineX',
           brushStyle: {
             borderWidth: 1,
-            color: 'rgba(249,115,22,0.15)',
+            color: 'rgba(249,115,22,0.12)',
             borderColor: '#f97316',
           },
           throttleType: 'debounce',
@@ -2643,7 +2643,7 @@ function ChartPanel({
           brushType: 'lineX',
           brushStyle: {
             borderWidth: 1,
-            color: 'rgba(249,115,22,0.15)',
+            color: 'rgba(249,115,22,0.12)',
             borderColor: '#f97316',
           },
           throttleType: 'debounce',
@@ -2795,13 +2795,13 @@ function ChartPanel({
                 type: 'line' as const,
                 name: es.name,
                 data: xData.map((x, i) => [x, es.values[i]]),
-                showSymbol: es.symbol === 'none' ? false : false,
+                showSymbol: false,
                 symbol: es.symbol ?? 'none',
                 lineStyle: es.lineStyle
                   ? { ...es.lineStyle, type: 'solid' as const }
                   : { width: 1.5, color: es.color, type: 'solid' as const },
                 itemStyle: { color: es.color },
-                areaStyle: es.areaStyle ?? undefined,
+                ...(es.areaStyle != null ? { areaStyle: es.areaStyle } : {}),
                 connectNulls: es.connectNulls ?? false,
                 z: es.z ?? 2,
                 ...(es.silent != null ? { silent: es.silent } : {}),
@@ -2937,7 +2937,7 @@ function GearChartPanel({
           brushType: 'lineX',
           brushStyle: {
             borderWidth: 1,
-            color: 'rgba(249,115,22,0.15)',
+            color: 'rgba(249,115,22,0.12)',
             borderColor: '#f97316',
           },
           throttleType: 'debounce',
