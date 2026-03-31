@@ -145,6 +145,30 @@ func TestEvalCondition_Between(t *testing.T) {
 	}
 }
 
+func TestEvalCondition_EnrichmentFields(t *testing.T) {
+	activity := map[string]any{
+		"has_summit":               true,
+		"summit_count":             2,
+		"surface_gravel_pct":       float64(65.0),
+		"has_structured_intervals": true,
+	}
+	makeGroups := func(c rules.Condition) []rules.ConditionGroup {
+		return []rules.ConditionGroup{{Logic: "and", Conditions: []rules.Condition{c}}}
+	}
+	if !rules.EvaluateGroups(makeGroups(rules.Condition{Field: "has_summit", Op: "eq", Value: true}), activity) {
+		t.Fatal("has_summit should match")
+	}
+	if !rules.EvaluateGroups(makeGroups(rules.Condition{Field: "surface_gravel_pct", Op: "gte", Value: float64(50)}), activity) {
+		t.Fatal("surface_gravel_pct >= 50 should match")
+	}
+	if !rules.EvaluateGroups(makeGroups(rules.Condition{Field: "has_structured_intervals", Op: "eq", Value: true}), activity) {
+		t.Fatal("has_structured_intervals should match")
+	}
+	if rules.EvaluateGroups(makeGroups(rules.Condition{Field: "surface_gravel_pct", Op: "gte", Value: float64(80)}), activity) {
+		t.Fatal("surface_gravel_pct >= 80 should not match (only 65)")
+	}
+}
+
 func TestEvalCondition_HasTag_Neq(t *testing.T) {
 	activity := map[string]any{
 		"tags": []string{"indoor", "frost"},
