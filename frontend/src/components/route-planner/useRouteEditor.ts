@@ -18,12 +18,14 @@ import type { SegmentKey } from '@/hooks/useRoutePlanner'
 import { nearestPointOnPolyline } from '@/lib/catmull-rom'
 
 // ── Layer / Source IDs ──────────────────────────────────────────────────────
-const SOURCE_ROUTE   = 'route-planner-source'
-const SOURCE_WP      = 'route-planner-waypoints-source'
-const SOURCE_CP      = 'route-planner-control-points-source'
+const SOURCE_ROUTE    = 'route-planner-source'
+const SOURCE_WP       = 'route-planner-waypoints-source'
+const SOURCE_CP       = 'route-planner-control-points-source'
+const SOURCE_APPROACH = 'route-planner-approach-source'
 
-const LAYER_ROUTED   = 'route-planner-line'
-const LAYER_OFFROAD  = 'route-planner-offroad'
+const LAYER_ROUTED    = 'route-planner-line'
+const LAYER_OFFROAD   = 'route-planner-offroad'
+const LAYER_APPROACH  = 'route-planner-approach'
 const LAYER_WP_CIRCLE = 'route-planner-waypoints'
 const LAYER_WP_LABEL  = 'route-planner-waypoints-label'
 const LAYER_CP_CIRCLE = 'route-planner-control-points'
@@ -106,6 +108,30 @@ function buildControlPointGeoJSON(
           // GeoJSON coordinates are [lng, lat]; control_points are [lat, lng]
           coordinates: [cps[i][1], cps[i][0]],
         },
+      })
+    }
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+// ── Build GeoJSON for approach lines ────────────────────────────────────────
+function buildApproachGeoJSON(
+  segments: RouteSegment[],
+): GeoJSON.FeatureCollection<GeoJSON.LineString> {
+  const features: GeoJSON.Feature<GeoJSON.LineString>[] = []
+  for (const seg of segments) {
+    if (seg.approach_from && seg.approach_from.length >= 2) {
+      features.push({
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'LineString', coordinates: seg.approach_from },
+      })
+    }
+    if (seg.approach_to && seg.approach_to.length >= 2) {
+      features.push({
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'LineString', coordinates: seg.approach_to },
       })
     }
   }
@@ -212,6 +238,14 @@ export function useRouteEditor(
       })
     }
 
+    // Approach lines source (snap distance > threshold)
+    if (!map.getSource(SOURCE_APPROACH)) {
+      map.addSource(SOURCE_APPROACH, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+    }
+
     // Sources are now ready — sync any already-available planner data immediately.
     // This covers the case where the GeoJSON-sync effect fired before sources existed
     // (Bug 1 fix: sources created after the sync effect already ran).
@@ -220,6 +254,7 @@ export function useRouteEditor(
     ;(map.getSource(SOURCE_ROUTE) as maplibregl.GeoJSONSource).setData(buildRouteGeoJSON(segments))
     ;(map.getSource(SOURCE_WP) as maplibregl.GeoJSONSource).setData(buildWaypointGeoJSON(waypoints))
     ;(map.getSource(SOURCE_CP) as maplibregl.GeoJSONSource).setData(buildControlPointGeoJSON(segments))
+    ;(map.getSource(SOURCE_APPROACH) as maplibregl.GeoJSONSource).setData(buildApproachGeoJSON(segments))
 
     // Routed segments — solid orange line with white casing
     if (!map.getLayer(LAYER_ROUTED)) {
@@ -267,6 +302,22 @@ export function useRouteEditor(
           'line-width': 3,
           'line-dasharray': [4, 3],
           'line-opacity': 0.9,
+        },
+      })
+    }
+
+    // Approach lines — dashed violet, thinner than offroad
+    if (!map.getLayer(LAYER_APPROACH)) {
+      map.addLayer({
+        id: LAYER_APPROACH,
+        type: 'line',
+        source: SOURCE_APPROACH,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#A855F7',
+          'line-width': 2,
+          'line-dasharray': [3, 3],
+          'line-opacity': 0.7,
         },
       })
     }
@@ -354,15 +405,17 @@ export function useRouteEditor(
       LAYER_CP_CIRCLE,
       LAYER_ROUTED + '-hit',
       LAYER_OFFROAD,
+      LAYER_APPROACH,
       LAYER_ROUTED,
       LAYER_ROUTED + '-casing',
     ]
     for (const id of layers) {
       if (map.getLayer(id)) map.removeLayer(id)
     }
-    if (map.getSource(SOURCE_ROUTE)) map.removeSource(SOURCE_ROUTE)
-    if (map.getSource(SOURCE_WP))    map.removeSource(SOURCE_WP)
-    if (map.getSource(SOURCE_CP))    map.removeSource(SOURCE_CP)
+    if (map.getSource(SOURCE_ROUTE))    map.removeSource(SOURCE_ROUTE)
+    if (map.getSource(SOURCE_WP))       map.removeSource(SOURCE_WP)
+    if (map.getSource(SOURCE_CP))       map.removeSource(SOURCE_CP)
+    if (map.getSource(SOURCE_APPROACH)) map.removeSource(SOURCE_APPROACH)
     sourcesReadyRef.current = false
   }, [])
 
@@ -373,13 +426,15 @@ export function useRouteEditor(
     const map = mapRef.current
     if (!map || !active || !sourcesReadyRef.current) return
 
-    const routeSrc = map.getSource(SOURCE_ROUTE) as maplibregl.GeoJSONSource | undefined
-    const wpSrc    = map.getSource(SOURCE_WP)    as maplibregl.GeoJSONSource | undefined
-    const cpSrc    = map.getSource(SOURCE_CP)    as maplibregl.GeoJSONSource | undefined
+    const routeSrc    = map.getSource(SOURCE_ROUTE)    as maplibregl.GeoJSONSource | undefined
+    const wpSrc       = map.getSource(SOURCE_WP)       as maplibregl.GeoJSONSource | undefined
+    const cpSrc       = map.getSource(SOURCE_CP)       as maplibregl.GeoJSONSource | undefined
+    const approachSrc = map.getSource(SOURCE_APPROACH) as maplibregl.GeoJSONSource | undefined
 
-    if (routeSrc) routeSrc.setData(buildRouteGeoJSON(planner.segments))
-    if (wpSrc)    wpSrc.setData(buildWaypointGeoJSON(planner.waypoints))
-    if (cpSrc)    cpSrc.setData(buildControlPointGeoJSON(planner.segments))
+    if (routeSrc)    routeSrc.setData(buildRouteGeoJSON(planner.segments))
+    if (wpSrc)       wpSrc.setData(buildWaypointGeoJSON(planner.waypoints))
+    if (cpSrc)       cpSrc.setData(buildControlPointGeoJSON(planner.segments))
+    if (approachSrc) approachSrc.setData(buildApproachGeoJSON(planner.segments))
   }, [active, planner.segments, planner.waypoints])
 
   // ── Map interactions (click, drag, context menu) ──────────────────────────

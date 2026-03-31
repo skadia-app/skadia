@@ -24,6 +24,8 @@ export interface RouteSegment {
   elevation_gain: number          // DEM-based
   elevation_loss: number
   elevation_estimated?: boolean   // true for offroad segments (no DEM lookup)
+  approach_from?: number[][]      // [lon, lat] pairs: click point → edge projection
+  approach_to?: number[][]        // [lon, lat] pairs: edge projection → click point
 }
 
 export interface RoutePhoto {

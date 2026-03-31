@@ -165,10 +165,10 @@ function WaypointItem({
           <div className="flex items-center gap-2 mt-0.5 text-[10px] text-neutral-400 dark:text-neutral-500">
             <span>{fmtDist(segmentAfter.distance_m)}</span>
             {segmentAfter.elevation_gain > 0 && (
-              <span className="text-green-600 dark:text-green-500">↑{formatElevation(segmentAfter.elevation_gain)}</span>
+              <span className="text-green-600 dark:text-green-500">↑{segmentAfter.elevation_estimated ? '~' : ''}{formatElevation(segmentAfter.elevation_gain)}</span>
             )}
             {segmentAfter.elevation_loss > 0 && (
-              <span className="text-red-500 dark:text-red-400">↓{formatElevation(segmentAfter.elevation_loss)}</span>
+              <span className="text-red-500 dark:text-red-400">↓{segmentAfter.elevation_estimated ? '~' : ''}{formatElevation(segmentAfter.elevation_loss)}</span>
             )}
             <span className={`px-1 rounded text-[9px] font-medium ${
               segmentAfter.mode === 'offroad'
@@ -225,6 +225,9 @@ export interface RoutePlannerPanelProps {
   onSave: () => void              // opens RouteSaveDialog in parent
   onSuggest: () => void           // opens RouteSuggestionDialog in parent
   onClose: () => void
+  // Error state
+  calculationError?: string | null
+  onClearError?: () => void
   // Optional: existing route being edited
   editingRoute?: PlannedRoute | null
   isSaving?: boolean
@@ -256,6 +259,8 @@ export default function RoutePlannerPanel({
   onSave,
   onSuggest,
   onClose,
+  calculationError,
+  onClearError,
   editingRoute,
   isSaving = false,
 }: RoutePlannerPanelProps) {
@@ -311,6 +316,8 @@ export default function RoutePlannerPanel({
       addToast({ type: 'info', title: 'Route geleert' })
     }
   }, [waypoints.length, onClearRoute, addToast])
+
+  const anyElevationEstimated = segments.some(s => s.elevation_estimated === true)
 
   // Find the segment between waypoint[i] and waypoint[i+1]
   function segmentAfterWaypoint(waypoint: RouteWaypoint, index: number): RouteSegment | undefined {
@@ -468,6 +475,38 @@ export default function RoutePlannerPanel({
               )}
             </div>
 
+            {/* No-route inline dialog */}
+            {calculationError === 'no_route' && (
+              <div className="mx-3 mb-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2.5">
+                <p className="text-xs text-amber-800 dark:text-amber-300 font-medium mb-2">
+                  Keine Route gefunden
+                </p>
+                <p className="text-[10px] text-amber-600 dark:text-amber-400 mb-2.5">
+                  Zwischen den Wegpunkten gibt es keinen Weg im Netzwerk.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      const lastWpIdx = waypoints.length - 1
+                      if (lastWpIdx >= 1) {
+                        onToggleSegmentMode(waypoints[lastWpIdx - 1].id)
+                      }
+                      onClearError?.()
+                    }}
+                    className="flex-1 px-2 py-1.5 rounded-md bg-amber-500 text-white text-xs font-medium hover:bg-amber-600 transition-colors cursor-pointer"
+                  >
+                    Offroad-Segment anlegen
+                  </button>
+                  <button
+                    onClick={() => onClearError?.()}
+                    className="px-2 py-1.5 rounded-md border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 text-xs font-medium hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors cursor-pointer"
+                  >
+                    Abbrechen
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Route statistics */}
             {hasRoute && (
               <div className="mx-3 mb-2 rounded-lg bg-neutral-50 dark:bg-neutral-800/60 px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-1">
@@ -486,13 +525,13 @@ export default function RoutePlannerPanel({
                 <div>
                   <div className="text-[10px] text-green-600 dark:text-green-500 uppercase tracking-wide">Aufstieg</div>
                   <div className="text-sm font-semibold text-green-700 dark:text-green-400">
-                    {totalElevationGain > 0 ? `↑ ${formatElevation(totalElevationGain)}` : '—'}
+                    {totalElevationGain > 0 ? `↑ ${anyElevationEstimated ? '~' : ''}${formatElevation(totalElevationGain)}` : '—'}
                   </div>
                 </div>
                 <div>
                   <div className="text-[10px] text-red-500 dark:text-red-400 uppercase tracking-wide">Abstieg</div>
                   <div className="text-sm font-semibold text-red-600 dark:text-red-400">
-                    {totalElevationLoss > 0 ? `↓ ${formatElevation(totalElevationLoss)}` : '—'}
+                    {totalElevationLoss > 0 ? `↓ ${anyElevationEstimated ? '~' : ''}${formatElevation(totalElevationLoss)}` : '—'}
                   </div>
                 </div>
               </div>

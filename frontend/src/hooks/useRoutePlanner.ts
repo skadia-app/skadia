@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useToast } from '@/lib/toast'
 import type {
   RouteWaypoint,
   RouteSegment,
@@ -76,16 +75,23 @@ function buildSegmentFromFeature(
   const distance = Number(props['distance_m'] ?? props['track-length']) || 0
   const gain = Number(props['ascent_m'] ?? props['filtered ascend']) || 0
   const loss = Number(props['descent_m'] ?? props['filtered descend']) || 0
+
+  const geometry = feature?.geometry as GeoJSON.LineString | undefined
+  const approachFrom = props['approach_from'] as number[][] | undefined
+  const approachTo = props['approach_to'] as number[][] | undefined
+
   return {
     from_waypoint: from.id,
     to_waypoint: to.id,
     mode: isFallback ? 'offroad' : 'routed',
-    geometry: feature?.geometry as GeoJSON.LineString | undefined,
+    geometry,
     control_points: isFallback ? [from.latlng, to.latlng] : [],
     smooth: true,
     distance_m: distance,
     elevation_gain: gain,
     elevation_loss: loss,
+    approach_from: approachFrom,
+    approach_to: approachTo,
   }
 }
 
@@ -110,7 +116,6 @@ function rebuildOffroadGeometry(seg: RouteSegment): RouteSegment {
 export function useRoutePlanner() {
   const [state, setState] = useState<RoutePlannerState>(INITIAL_STATE)
   const queryClient = useQueryClient()
-  const { addToast } = useToast()
 
   // ── Capabilities ────────────────────────────────────────────────────────────
 
@@ -177,11 +182,6 @@ export function useRoutePlanner() {
           isCalculating: false,
           calculationError: 'no_route',
         }))
-        addToast({
-          type: 'warning',
-          title: 'Keine Route gefunden',
-          message: 'Segment als Offroad markieren?',
-        })
         return
       }
       const isFallback = feature?.properties?.fallback === true
@@ -209,8 +209,8 @@ export function useRoutePlanner() {
         calculationError: message,
       }))
     }
-  // addToast from useToast is stable — setState from useState is stable
-  }, [addToast])
+  // setState from useState is stable
+  }, [])
 
   // ── Waypoint management ─────────────────────────────────────────────────────
 
@@ -500,6 +500,10 @@ export function useRoutePlanner() {
     }))
   }, [])
 
+  const clearError = useCallback(() => {
+    setState(s => ({ ...s, calculationError: null }))
+  }, [])
+
   // ── Routing engine ──────────────────────────────────────────────────────────
 
   const setRoutingEngine = useCallback((engine: RoutingEngine) => {
@@ -678,6 +682,7 @@ export function useRoutePlanner() {
     loadRoute,
     loadWaypoints,
     clear,
+    clearError,
 
     // React Query: save
     saveRoute: saveRouteMutation.mutate,

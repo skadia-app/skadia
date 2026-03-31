@@ -2197,6 +2197,8 @@ export default function MapPage() {
             onSave={() => setShowSaveDialog(true)}
             onSuggest={() => setShowSuggestionDialog(true)}
             onClose={handlePlannerClose}
+            calculationError={planner.calculationError}
+            onClearError={planner.clearError}
             editingRoute={null}
             isSaving={planner.isSaving}
           />

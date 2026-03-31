@@ -142,6 +142,9 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 			cfg.ElevMaxBuffer = *req.Config.ElevMaxBuffer
 		}
 		cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCost, cfg.DownhillCost)
+		if req.Config.SnapThresholdM != nil {
+			cfg.SnapThresholdM = *req.Config.SnapThresholdM
+		}
 	} else {
 		cfg = routing.DefaultCostConfig()
 	}

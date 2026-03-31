@@ -85,89 +85,89 @@ func ptrBool(v bool) *bool { return new(v) }
 var builtinProfiles = map[string]ProfileConfig{
 	"trekking": {
 		Profile:           "trekking",
-		UphillCost:        ptr32(0),
-		DownhillCost:      ptr32(60),
-		UphillCutoffPct:   ptr32(1.5),
-		DownhillCutoffPct: ptr32(1.5),
-		ElevPenaltyBuffer: ptr32(5),
-		ElevMaxBuffer:     ptr32(10),
-		ElevBufferReduce:  ptr32(0),
+		UphillCost:        new(float32(0)),
+		DownhillCost:      new(float32(60)),
+		UphillCutoffPct:   new(float32(1.5)),
+		DownhillCutoffPct: new(float32(1.5)),
+		ElevPenaltyBuffer: new(float32(5)),
+		ElevMaxBuffer:     new(float32(10)),
+		ElevBufferReduce:  new(float32(0)),
 		AllowSteps:        new(true),
 		AllowFerries:      new(true),
-		CyclerouteBoost:   ptr32(0.6),
-		TurnCost:          ptr32(90),
-		Pass0Coefficient:  ptr32(3.0), // higher: downhillcost=60 inflates pass0 budget
+		CyclerouteBoost:   new(float32(0.6)),
+		TurnCost:          new(float32(90)),
+		Pass0Coefficient:  new(float32(3.0)), // higher: downhillcost=60 inflates pass0 budget
 	},
 	"hiking": {
 		Profile:           "hiking",
-		UphillCost:        ptr32(7),
-		DownhillCost:      ptr32(7),
-		UphillCutoffPct:   ptr32(3),
-		DownhillCutoffPct: ptr32(3),
-		ElevPenaltyBuffer: ptr32(5),
-		ElevMaxBuffer:     ptr32(10),
-		ElevBufferReduce:  ptr32(0.01),
+		UphillCost:        new(float32(7)),
+		DownhillCost:      new(float32(7)),
+		UphillCutoffPct:   new(float32(3)),
+		DownhillCutoffPct: new(float32(3)),
+		ElevPenaltyBuffer: new(float32(5)),
+		ElevMaxBuffer:     new(float32(10)),
+		ElevBufferReduce:  new(float32(0.01)),
 		MaxSacScale:       new(3),
 		SacPreferred:      new(1),
 		AllowSteps:        new(true),
-		ForestBonus:       ptr32(0.5),
-		NoisePenalty:      ptr32(0.4),
-		TrafficPenalty:    ptr32(0.6),
-		ProtectedBonus:    ptr32(0.3),
-		HikerouteBoost:    ptr32(0.2),
-		TurnCost:          ptr32(0),
-		Pass0Coefficient:  ptr32(2.5), // higher: elevation costs inflate pass0 budget
+		ForestBonus:       new(float32(0.5)),
+		NoisePenalty:      new(float32(0.4)),
+		TrafficPenalty:    new(float32(0.6)),
+		ProtectedBonus:    new(float32(0.3)),
+		HikerouteBoost:    new(float32(0.2)),
+		TurnCost:          new(float32(0)),
+		Pass0Coefficient:  new(float32(2.5)), // higher: elevation costs inflate pass0 budget
 	},
 	"mtb": {
 		Profile:           "mtb",
-		UphillCost:        ptr32(0),
-		DownhillCost:      ptr32(0),
-		UphillCutoffPct:   ptr32(1.5),
-		DownhillCutoffPct: ptr32(1.5),
-		ElevPenaltyBuffer: ptr32(5),
-		ElevMaxBuffer:     ptr32(10),
-		ElevBufferReduce:  ptr32(0),
+		UphillCost:        new(float32(0)),
+		DownhillCost:      new(float32(0)),
+		UphillCutoffPct:   new(float32(1.5)),
+		DownhillCutoffPct: new(float32(1.5)),
+		ElevPenaltyBuffer: new(float32(5)),
+		ElevMaxBuffer:     new(float32(10)),
+		ElevBufferReduce:  new(float32(0)),
 		MaxMtbScale:       new(2),
 		AllowSteps:        new(false),
-		PathPreference:    ptr32(20),
-		ForestBonus:       ptr32(0.3),
-		NoisePenalty:      ptr32(0.2),
-		CyclerouteBoost:   ptr32(0.2),
-		TurnCost:          ptr32(30),
-		Pass0Coefficient:  ptr32(1.5),
+		PathPreference:    new(float32(20)),
+		ForestBonus:       new(float32(0.3)),
+		NoisePenalty:      new(float32(0.2)),
+		CyclerouteBoost:   new(float32(0.2)),
+		TurnCost:          new(float32(30)),
+		Pass0Coefficient:  new(float32(1.5)),
 	},
 	"gravel": {
 		Profile:           "gravel",
-		UphillCost:        ptr32(80),
-		DownhillCost:      ptr32(40),
-		UphillCutoffPct:   ptr32(1.5),
-		DownhillCutoffPct: ptr32(1.5),
-		ElevPenaltyBuffer: ptr32(5),
-		ElevMaxBuffer:     ptr32(10),
-		ElevBufferReduce:  ptr32(0),
+		UphillCost:        new(float32(80)),
+		DownhillCost:      new(float32(40)),
+		UphillCutoffPct:   new(float32(1.5)),
+		DownhillCutoffPct: new(float32(1.5)),
+		ElevPenaltyBuffer: new(float32(5)),
+		ElevMaxBuffer:     new(float32(10)),
+		ElevBufferReduce:  new(float32(0)),
 		MaxSacScale:       new(1),
 		MaxMtbScale:       new(0),
 		AllowSteps:        new(false),
-		ForestBonus:       ptr32(0.3),
-		NoisePenalty:      ptr32(0.4),
-		TrafficPenalty:    ptr32(0.5),
-		CyclerouteBoost:   ptr32(0.3),
-		TurnCost:          ptr32(65),
-		Pass0Coefficient:  ptr32(3.0), // higher: uphillcost=80 inflates pass0 budget
+		ForestBonus:       new(float32(0.3)),
+		NoisePenalty:      new(float32(0.4)),
+		TrafficPenalty:    new(float32(0.5)),
+		CyclerouteBoost:   new(float32(0.3)),
+		TurnCost:          new(float32(65)),
+		Pass0Coefficient:  new(float32(3.0)), // higher: uphillcost=80 inflates pass0 budget
 	},
 	"road": {
 		Profile:           "road",
-		UphillCost:        ptr32(0),
-		DownhillCost:      ptr32(60),
-		UphillCutoffPct:   ptr32(1.5),
-		DownhillCutoffPct: ptr32(1.5),
-		ElevPenaltyBuffer: ptr32(5),
-		ElevMaxBuffer:     ptr32(10),
-		ElevBufferReduce:  ptr32(0),
+		UphillCost:        new(float32(0)),
+		DownhillCost:      new(float32(60)),
+		UphillCutoffPct:   new(float32(1.5)),
+		DownhillCutoffPct: new(float32(1.5)),
+		ElevPenaltyBuffer: new(float32(5)),
+		ElevMaxBuffer:     new(float32(10)),
+		ElevBufferReduce:  new(float32(0)),
 		AllowSteps:        new(false),
-		TrafficPenalty:    ptr32(0.1),
-		TurnCost:          ptr32(90),
-		Pass0Coefficient:  ptr32(3.0), // higher: downhillcost=60 inflates pass0 budget
+		TrafficPenalty:    new(float32(0.1)),
+		TurnCost:          new(float32(90)),
+		Pass0Coefficient:  new(float32(3.0)), // higher: downhillcost=60 inflates pass0 budget
 	},
 }
 
@@ -213,7 +213,7 @@ func BuildCostConfig(p ProfileConfig) (*CostConfig, error) {
 	if merged.SnapThresholdM != nil {
 		cfg.SnapThresholdM = *merged.SnapThresholdM
 	} else {
-		cfg.SnapThresholdM = 100 // default
+		cfg.SnapThresholdM = 30 // default
 	}
 
 	return cfg, nil
@@ -1032,13 +1032,13 @@ func surfaceDownhillMod(sf uint8, wet bool) float32 {
 func BuildLandmarkEdgeCostClosure() func(tags1, tags2 uint64) EdgeCostFactors {
 	p := ProfileConfig{
 		Profile:           "hiking",
-		UphillCost:        ptr32(0), // overridden per LandmarkCostConfig
-		DownhillCost:      ptr32(0), // overridden per LandmarkCostConfig
-		UphillCutoffPct:   ptr32(3),
-		DownhillCutoffPct: ptr32(3),
-		ElevPenaltyBuffer: ptr32(5),
-		ElevMaxBuffer:     ptr32(10),
-		ElevBufferReduce:  ptr32(0.01),
+		UphillCost:        new(float32(0)), // overridden per LandmarkCostConfig
+		DownhillCost:      new(float32(0)), // overridden per LandmarkCostConfig
+		UphillCutoffPct:   new(float32(3)),
+		DownhillCutoffPct: new(float32(3)),
+		ElevPenaltyBuffer: new(float32(5)),
+		ElevMaxBuffer:     new(float32(10)),
+		ElevBufferReduce:  new(float32(0.01)),
 		MaxSacScale:       new(6), // allow everything
 		SacPreferred:      new(0), // no preference penalty
 		MaxMtbScale:       new(5), // allow everything
@@ -1046,16 +1046,16 @@ func BuildLandmarkEdgeCostClosure() func(tags1, tags2 uint64) EdgeCostFactors {
 		AllowSteps:        new(true),
 		AllowFerries:      new(true),
 		// ALL enrichment weights = 0 (lower bound guarantee)
-		ForestBonus:     ptr32(0),
-		NoisePenalty:    ptr32(0),
-		TrafficPenalty:  ptr32(0),
-		ProtectedBonus:  ptr32(0),
-		CyclerouteBoost: ptr32(0),
-		HikerouteBoost:  ptr32(0),
+		ForestBonus:     new(float32(0)),
+		NoisePenalty:    new(float32(0)),
+		TrafficPenalty:  new(float32(0)),
+		ProtectedBonus:  new(float32(0)),
+		CyclerouteBoost: new(float32(0)),
+		HikerouteBoost:  new(float32(0)),
 		WetWeather:      new(false),
-		PathPreference:  ptr32(0),
-		TurnCost:        ptr32(0),
-		InitialCostRoad: ptr32(0),
+		PathPreference:  new(float32(0)),
+		TurnCost:        new(float32(0)),
+		InitialCostRoad: new(float32(0)),
 	}
 	return buildEdgeCostClosure(p)
 }

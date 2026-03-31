@@ -72,8 +72,8 @@ func TestBuildCostConfig_TrekkingDefaults(t *testing.T) {
 func TestBuildCostConfig_OverrideMerge(t *testing.T) {
 	cfg, err := BuildCostConfig(ProfileConfig{
 		Profile:    "hiking",
-		UphillCost: ptr32(99),
-		TurnCost:   ptr32(42),
+		UphillCost: new(float32(99)),
+		TurnCost:   new(float32(42)),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -215,7 +215,7 @@ func TestEdgeCost_CyclerouteBoost_Lerp(t *testing.T) {
 	// Use full cycleroute boost = 1.0 → should LERP to 1.0
 	cfg, _ := BuildCostConfig(ProfileConfig{
 		Profile:         "trekking",
-		CyclerouteBoost: ptr32(1.0),
+		CyclerouteBoost: new(float32(1.0)),
 	})
 	ecfCR := cfg.EdgeCost(gCR.EdgeTags1[0], gCR.EdgeTags2[0])
 	ecfNone := cfg.EdgeCost(gNone.EdgeTags1[0], gNone.EdgeTags2[0])
@@ -414,9 +414,9 @@ func TestBuildCostConfig_CutoffConversion(t *testing.T) {
 
 func TestMergeProfile_HighwayCostOverride(t *testing.T) {
 	override := ProfileConfig{
-		PrimaryCost:     ptr32(2.0),
-		CyclewayCost:    ptr32(1.5),
-		TrackGrade1Cost: ptr32(0.8),
+		PrimaryCost:     new(float32(2.0)),
+		CyclewayCost:    new(float32(1.5)),
+		TrackGrade1Cost: new(float32(0.8)),
 	}
 
 	merged := mergeProfile(builtinProfiles["gravel"], override)

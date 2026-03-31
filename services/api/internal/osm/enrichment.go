@@ -200,10 +200,7 @@ func EnrichNoiseScore(ctx context.Context, pool *pgxpool.Pool, bboxClause string
 	}
 	defer conn.Release()
 
-	workMemMB := min(availableRAMMB()*10/100, 512)
-	if workMemMB < 64 {
-		workMemMB = 64
-	}
+	workMemMB := max(min(availableRAMMB()*10/100, 512), 64)
 	if _, err := conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)); err != nil {
 		slog.Warn("enrichment noise_score: SET work_mem failed (non-fatal)", "error", err)
 	}
@@ -356,10 +353,7 @@ func EnrichTrafficClass(ctx context.Context, pool *pgxpool.Pool, bboxClause stri
 	}
 	defer conn.Release()
 
-	workMemMB := min(availableRAMMB()*10/100, 512)
-	if workMemMB < 64 {
-		workMemMB = 64
-	}
+	workMemMB := max(min(availableRAMMB()*10/100, 512), 64)
 	if _, err := conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)); err != nil {
 		slog.Warn("enrichment traffic_class: SET work_mem failed (non-fatal)", "error", err)
 	}
@@ -644,10 +638,7 @@ func EnrichRouteMembership(ctx context.Context, pool *pgxpool.Pool, bboxClause s
 	}
 	defer conn.Release()
 
-	workMemMB := min(availableRAMMB()*10/100, 512)
-	if workMemMB < 64 {
-		workMemMB = 64
-	}
+	workMemMB := max(min(availableRAMMB()*10/100, 512), 64)
 	if _, err := conn.Exec(ctx, fmt.Sprintf("SET work_mem = '%dMB'", workMemMB)); err != nil {
 		slog.Warn("enrichment route_membership: SET work_mem failed (non-fatal)", "error", err)
 	}
