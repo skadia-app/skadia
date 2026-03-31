@@ -100,6 +100,7 @@ function rebuildOffroadGeometry(seg: RouteSegment): RouteSegment {
       ? { type: 'LineString', coordinates: geoCoords }
       : undefined,
     distance_m: polylineDistanceM(lineCoords),
+    elevation_estimated: true,
   }
 }
 
