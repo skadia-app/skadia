@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -216,4 +217,136 @@ func resolveNameTemplate(tmpl string, act map[string]any) string {
 		result = strings.ReplaceAll(result, "{sport}", sport)
 	}
 	return result
+}
+
+// ApplySingleRule evaluates a single rule against all activities for the user.
+// POST /api/v1/automation-rules/{id}/apply?dry_run=true|false
+func (h *Handler) ApplySingleRule(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	ruleID := chi.URLParam(r, "id")
+	dryRun := r.URL.Query().Get("dry_run") == "true"
+
+	allRules, err := h.DB.ListRules(r.Context(), userID)
+	if err != nil {
+		slog.Error("apply single rule: list rules", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list rules", r.URL.Path)
+		return
+	}
+	var targetRule *model.AutomationRule
+	for i := range allRules {
+		if allRules[i].ID == ruleID {
+			targetRule = &allRules[i]
+			break
+		}
+	}
+	if targetRule == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "rule not found", r.URL.Path)
+		return
+	}
+
+	if dryRun {
+		h.applySingleRuleDryRun(w, r, userID, *targetRule)
+		return
+	}
+
+	jobName := fmt.Sprintf("Regel '%s' anwenden", targetRule.Name)
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "rule_apply", &ruleID, &jobName, 0)
+	if err != nil {
+		slog.Error("apply single rule: insert job", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
+		return
+	}
+	rule := *targetRule
+	go func() {
+		ctx := context.Background()
+		applyErr := h.applySingleRuleToAll(ctx, userID, rule, jobID)
+		failed := applyErr != nil
+		errText := ""
+		if applyErr != nil {
+			errText = applyErr.Error()
+		}
+		if err := h.DB.CompleteBackgroundJob(ctx, jobID, failed, errText); err != nil {
+			slog.Warn("apply single rule: complete job", "job_id", jobID, "error", err)
+		}
+	}()
+
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+}
+
+func (h *Handler) applySingleRuleDryRun(w http.ResponseWriter, r *http.Request, userID string, rule model.AutomationRule) {
+	limit := 50
+	offset := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	activityIDs, err := h.DB.ListActivityIDsForUser(r.Context(), userID)
+	if err != nil {
+		slog.Error("apply single rule dry-run: list activities", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
+		return
+	}
+
+	type matchResult struct {
+		ActivityID    string `json:"activity_id"`
+		ActivityTitle string `json:"activity_title"`
+	}
+
+	var matches []matchResult
+	totalMatches := 0
+
+	for _, actID := range activityIDs {
+		actMap, err := h.DB.GetActivityAsMap(r.Context(), actID)
+		if err != nil || actMap == nil {
+			continue
+		}
+		if automation.EvaluateRule(rule, actMap) {
+			totalMatches++
+			if totalMatches > offset && len(matches) < limit {
+				title, _ := actMap["title"].(string)
+				matches = append(matches, matchResult{ActivityID: actID, ActivityTitle: title})
+			}
+		}
+	}
+
+	// Ensure nil slice serialises as [] not null
+	if matches == nil {
+		matches = []matchResult{}
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"matches":       matches,
+		"total_matches": totalMatches,
+		"truncated":     totalMatches > offset+limit,
+	})
+}
+
+func (h *Handler) applySingleRuleToAll(ctx context.Context, userID string, rule model.AutomationRule, jobID string) error {
+	actIDs, err := h.DB.ListActivityIDsForUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	singleRule := []model.AutomationRule{rule}
+	for i, actID := range actIDs {
+		if err := automation.ApplyRulesToActivity(ctx, h.DB, actID, userID, singleRule, ""); err != nil {
+			slog.Warn("apply single rule to activity", "activity_id", actID, "rule_id", rule.ID, "error", err)
+		}
+		if i%50 == 0 || i == len(actIDs)-1 {
+			if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1)); err != nil {
+				slog.Warn("apply single rule: update progress", "job_id", jobID, "error", err)
+			}
+		}
+	}
+	slog.Info("apply single rule: done", "user_id", userID, "rule_id", rule.ID, "total", len(actIDs))
+	return nil
 }
