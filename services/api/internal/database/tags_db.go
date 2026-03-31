@@ -509,7 +509,94 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 		return fmt.Errorf("seed virtuell tag: %w", err)
 	}
 
+	db.SeedRecommendedRules(ctx, userID)
+
 	return nil
+}
+
+// SeedRecommendedRules creates recommended (user-owned, deletable/editable) rules and tags for a new user.
+// All inserts are idempotent: tags via ON CONFLICT DO NOTHING, rules via WHERE NOT EXISTS.
+func (db *DB) SeedRecommendedRules(ctx context.Context, userID string) {
+	// Seed tags (is_system=false, user-owned)
+	seedTags := []struct{ name, color string }{
+		{"Ultramarathon", "#7C3AED"},
+		{"Marathon", "#D97706"},
+		{"Halbmarathon", "#9CA3AF"},
+		{"Intervall-Training", "#EA580C"},
+		{"Mit Einkehr", "#16A34A"},
+		{"Grenzquerung", "#0891B2"},
+	}
+	tagIDs := map[string]string{}
+	for _, t := range seedTags {
+		var tagID string
+		err := db.Pool.QueryRow(ctx,
+			`INSERT INTO tags (user_id, name, color)
+			 VALUES ($1, $2, $3)
+			 ON CONFLICT (user_id, name) DO UPDATE SET name = EXCLUDED.name
+			 RETURNING id`,
+			userID, t.name, t.color,
+		).Scan(&tagID)
+		if err == nil {
+			tagIDs[t.name] = tagID
+		}
+	}
+
+	// Helper: insert a rule only if no rule with the same user_id + name + is_system=false exists yet.
+	createRule := func(name string, priority int, conditions, actions, triggerEvent string) {
+		_, _ = db.Pool.Exec(ctx, `
+			INSERT INTO automation_rules
+				(user_id, name, is_active, priority, conditions, conditions_logic, actions,
+				 trigger_event, stop_on_match, apply_retroactively)
+			SELECT $1, $2, true, $3, $4::jsonb, 'and', $5::jsonb, $6, false, true
+			WHERE NOT EXISTS (
+				SELECT 1 FROM automation_rules
+				WHERE user_id = $1 AND name = $2 AND is_system = false
+			)`,
+			userID, name, priority, conditions, actions, triggerEvent)
+	}
+
+	// Ultramarathon: running, distance >= 42196 m (full marathon + 1 m)
+	if id, ok := tagIDs["Ultramarathon"]; ok {
+		createRule("Ultramarathon", 10,
+			`[{"field":"distance_m","op":"gte","value":42196},{"field":"sport_type","op":"eq","value":"running"}]`,
+			`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
+			"on_import")
+	}
+	// Marathon: running, distance between 42000 and 42195 m
+	if id, ok := tagIDs["Marathon"]; ok {
+		createRule("Marathon", 20,
+			`[{"field":"distance_m","op":"between","value":"42000,42195"},{"field":"sport_type","op":"eq","value":"running"}]`,
+			`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
+			"on_import")
+	}
+	// Halbmarathon: running, distance between 21000 and 41999 m
+	if id, ok := tagIDs["Halbmarathon"]; ok {
+		createRule("Halbmarathon", 30,
+			`[{"field":"distance_m","op":"between","value":"21000,41999"},{"field":"sport_type","op":"eq","value":"running"}]`,
+			`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
+			"on_import")
+	}
+	// Intervall-Training: enrichment field has_structured_intervals = true
+	if id, ok := tagIDs["Intervall-Training"]; ok {
+		createRule("Intervall-Training", 40,
+			`[{"field":"has_structured_intervals","op":"eq","value":true}]`,
+			`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
+			"on_enrichment_complete")
+	}
+	// Mit Einkehr: enrichment field has_gastronomy_stop = true
+	if id, ok := tagIDs["Mit Einkehr"]; ok {
+		createRule("Mit Einkehr", 50,
+			`[{"field":"has_gastronomy_stop","op":"eq","value":true}]`,
+			`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
+			"on_enrichment_complete")
+	}
+	// Grenzquerung: border_crossing_count > 0
+	if id, ok := tagIDs["Grenzquerung"]; ok {
+		createRule("Grenzquerung", 60,
+			`[{"field":"border_crossing_count","op":"gt","value":0}]`,
+			`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
+			"on_enrichment_complete")
+	}
 }
 
 // migrateExistingTagsToTable scans all activities.tags TEXT[] and creates missing entries in tags table.
