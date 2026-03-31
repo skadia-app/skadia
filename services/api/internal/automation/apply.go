@@ -109,8 +109,6 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 		// Evaluate conditions
 		matched := EvaluateRule(rule, actMap)
 
-		changes := rules.Apply(actions)
-
 		if matched {
 			// Check for branches (ELSE/ELSE-IF) — overrides default actions if present.
 			// Branches are evaluated sequentially; first matching branch wins.
@@ -123,6 +121,7 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 				}
 				var branches []branch
 				if err := json.Unmarshal(rule.Branches, &branches); err == nil && len(branches) > 0 {
+					anyBranchMatched := false
 					for _, br := range branches {
 						branchMatched := false
 						if br.Type == "else" {
@@ -131,6 +130,7 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 							branchMatched = rules.EvaluateGroups(br.ConditionGroups, actMap)
 						}
 						if branchMatched {
+							anyBranchMatched = true
 							var branchActions []rules.Action
 							if err2 := json.Unmarshal(br.Actions, &branchActions); err2 == nil {
 								for _, change := range rules.Apply(branchActions) {
@@ -161,17 +161,20 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 							break // first matching branch wins
 						}
 					}
-					if err := db.IncrementRuleApplied(ctx, rule.ID); err != nil {
-						slog.Warn("increment rule applied", "rule_id", rule.ID, "error", err)
-					}
-					ruleMatchCounts[rule.ID]++
-					if rule.StopOnMatch {
-						break
+					if anyBranchMatched {
+						if err := db.IncrementRuleApplied(ctx, rule.ID); err != nil {
+							slog.Warn("increment rule applied", "rule_id", rule.ID, "error", err)
+						}
+						ruleMatchCounts[rule.ID]++
+						if rule.StopOnMatch {
+							break
+						}
 					}
 					continue
 				}
 			}
 
+			changes := rules.Apply(actions)
 			for _, change := range changes {
 				val := change.Value
 				if change.Field == "set_name_template" {
@@ -210,6 +213,7 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 			//   This keeps system-managed fields (is_round_trip, is_indoor) in sync with current activity data.
 			// - User rules do NOT retract: non-matching leaves the activity unchanged.
 			//   This preserves manual user edits and avoids unexpected data loss.
+			changes := rules.Apply(actions)
 			setFieldDefaults := map[string]any{
 				"is_round_trip":        false,
 				"is_indoor":            false,
@@ -270,23 +274,6 @@ func EvaluateRule(rule model.AutomationRule, actMap map[string]any) bool {
 	return false
 }
 
-// toFloat converts common numeric types to float64. Returns 0 for unsupported types.
-func toFloat(v any) float64 {
-	switch n := v.(type) {
-	case float64:
-		return n
-	case float32:
-		return float64(n)
-	case int:
-		return float64(n)
-	case int32:
-		return float64(n)
-	case int64:
-		return float64(n)
-	}
-	return 0
-}
-
 var reToken = regexp.MustCompile(`\{([^}]+)\}`)
 
 // resolveNameTemplate substitutes {token} and {token|fallback} placeholders in
@@ -319,7 +306,7 @@ func resolveNameTemplate(tmpl string, actMap map[string]any) string {
 		switch field {
 		case "distance_km":
 			if d, ok := actMap["distance_m"]; ok && d != nil {
-				return fmt.Sprintf("%d km", int(math.Round(toFloat(d)/1000)))
+				return fmt.Sprintf("%d km", int(math.Round(rules.ToFloat(d)/1000)))
 			}
 		case "weekday":
 			if t, ok := actMap["started_at"].(time.Time); ok {
@@ -328,11 +315,11 @@ func resolveNameTemplate(tmpl string, actMap map[string]any) string {
 			}
 		case "elevation_gain":
 			if v, ok := actMap["elevation_gain_m"]; ok && v != nil {
-				return fmt.Sprintf("%.0f", toFloat(v))
+				return fmt.Sprintf("%.0f", rules.ToFloat(v))
 			}
 		case "duration":
 			if v, ok := actMap["moving_time_s"]; ok && v != nil {
-				s := int(toFloat(v))
+				s := int(rules.ToFloat(v))
 				if s >= 3600 {
 					return fmt.Sprintf("%dh%02dm", s/3600, (s%3600)/60)
 				}
