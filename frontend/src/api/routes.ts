@@ -23,6 +23,7 @@ export interface RouteSegment {
   distance_m: number
   elevation_gain: number          // DEM-based
   elevation_loss: number
+  elevation_estimated?: boolean   // true for offroad segments (no DEM lookup)
 }
 
 export interface RoutePhoto {
