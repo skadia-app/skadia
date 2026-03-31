@@ -636,7 +636,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		a.timezone,
 		a.num_sessions,
 		a.vo2max_ml_kg_min, a.vo2max_calibrated, a.vo2max_hr_source, a.vo2max_speed_source,
-		a.gps_accuracy_m
+		a.gps_accuracy_m,
+		a.is_group_secondary
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		LEFT JOIN LATERAL (
@@ -723,6 +724,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.NumSessions,
 		&a.Vo2MaxMlKgMin, &a.Vo2MaxCalibrated, &a.Vo2MaxHrSource, &a.Vo2MaxSpeedSource,
 		&a.GpsAccuracyM,
+		&a.IsGroupSecondary,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
