@@ -8,39 +8,52 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
 
-// privateRanges contains IP ranges that are blocked by default for SSRF protection.
-var privateRanges = func() []net.IPNet {
-	ranges := []string{
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
-		"127.0.0.0/8",
-		"169.254.0.0/16", // link-local
-		"::1/128",        // IPv6 loopback
-		"fc00::/7",       // IPv6 unique local
+// isBlockedIP checks whether an IP string is private, loopback, link-local, or unspecified.
+// Mirrors the same function in handler/import_url.go.
+func isBlockedIP(ipStr string) bool {
+	if after, ok := strings.CutPrefix(ipStr, "::ffff:"); ok {
+		ipStr = after
 	}
-	var result []net.IPNet
-	for _, r := range ranges {
-		_, network, err := net.ParseCIDR(r)
-		if err == nil {
-			result = append(result, *network)
-		}
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
 	}
-	return result
-}()
+	if ip.Equal(net.IPv4zero) || ipStr == "0.0.0.0" {
+		return true
+	}
+	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsPrivate() || ip.IsUnspecified()
+}
 
-// isPrivateIP checks if an IP address is in a private/local range.
-func isPrivateIP(ip net.IP) bool {
-	for _, r := range privateRanges {
-		if r.Contains(ip) {
-			return true
+// ssrfTransport is a package-level transport with SSRF protection: resolves the hostname once,
+// checks all resolved IPs, and pins the connection to the first IP to prevent DNS rebinding.
+var ssrfTransport http.RoundTripper = &http.Transport{
+	DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
 		}
-	}
-	return false
+		ips, err := net.DefaultResolver.LookupHost(ctx, host)
+		if err != nil {
+			return nil, fmt.Errorf("webhook DNS resolution failed: %w", err)
+		}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("webhook DNS resolution returned no addresses")
+		}
+		for _, ipStr := range ips {
+			if isBlockedIP(ipStr) {
+				return nil, fmt.Errorf("webhook URL resolves to private IP %s (SSRF blocked)", ipStr)
+			}
+		}
+		// Pin to first resolved IP — prevents DNS rebinding on second lookup
+		var d net.Dialer
+		return d.DialContext(ctx, network, net.JoinHostPort(ips[0], port))
+	},
 }
 
 // SendWebhook sends a POST request to the given URL with the provided payload.
@@ -55,46 +68,10 @@ func SendWebhook(webhookURL string, payload []byte, allowlist []string) error {
 	}
 	hostname := parsed.Hostname()
 
-	// Allowlist check
-	inAllowlist := false
-	for _, allowed := range allowlist {
-		if strings.EqualFold(allowed, hostname) {
-			inAllowlist = true
-			break
-		}
-	}
-
-	var transport http.RoundTripper
-	if inAllowlist {
+	transport := http.RoundTripper(ssrfTransport)
+	if slices.ContainsFunc(allowlist, func(s string) bool { return strings.EqualFold(s, hostname) }) {
 		// Allowlisted: use default transport (trusted local endpoint)
 		transport = http.DefaultTransport
-	} else {
-		// SSRF protection: custom dialer that resolves once, checks all IPs,
-		// and pins the connection to the resolved IP to prevent DNS rebinding.
-		baseDialer := &net.Dialer{Timeout: 5 * time.Second}
-		transport = &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				host, port, err := net.SplitHostPort(addr)
-				if err != nil {
-					return nil, err
-				}
-				ips, err := net.DefaultResolver.LookupHost(ctx, host)
-				if err != nil {
-					return nil, fmt.Errorf("webhook DNS resolution failed: %w", err)
-				}
-				if len(ips) == 0 {
-					return nil, fmt.Errorf("webhook DNS resolution returned no addresses")
-				}
-				for _, ipStr := range ips {
-					ip := net.ParseIP(ipStr)
-					if ip != nil && isPrivateIP(ip) {
-						return nil, fmt.Errorf("webhook URL resolves to private IP %s (SSRF blocked)", ipStr)
-					}
-				}
-				// Pin to first resolved IP — prevents DNS rebinding on second lookup
-				return baseDialer.DialContext(ctx, network, net.JoinHostPort(ips[0], port))
-			},
-		}
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second, Transport: transport}
