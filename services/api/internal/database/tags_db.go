@@ -410,6 +410,16 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 		return fmt.Errorf("seed E-Bike tag: %w", err)
 	}
 
+	// Pendeln system tag (synced via is_commute column, analogous to E-Bike/Indoor).
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
+		VALUES ($1, 'Pendeln', '#6B7280', '#FFFFFF', true, false, 'Automatisch bei Pendel-Aktivitäten (Sync mit is_commute)')
+		ON CONFLICT (user_id, name) DO NOTHING`,
+		userID,
+	); err != nil {
+		return fmt.Errorf("seed Pendeln tag: %w", err)
+	}
+
 	// Indoor system tag (synced via is_indoor column, analogous to E-Bike).
 	if _, err := db.Pool.Exec(ctx, `
 		INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
@@ -472,6 +482,13 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 	_, _ = db.Pool.Exec(ctx, `
 		INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
 		VALUES ($1, 'Indoor-Sync', true, 'indoor_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
+		ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
+		userID)
+
+	// Commute sync rule (no conditions/actions — handled by import pipeline + trigger)
+	_, _ = db.Pool.Exec(ctx, `
+		INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
+		VALUES ($1, 'Pendeln-Sync', true, 'commute_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
 		ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
 		userID)
 

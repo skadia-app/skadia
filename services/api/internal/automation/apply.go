@@ -51,8 +51,8 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 				}
 			}
 		}
-		// Skip electric_sync / virtual_sync / indoor_sync — managed by DB trigger, not rules engine
-		if rule.SystemType != nil && (*rule.SystemType == "electric_sync" || *rule.SystemType == "virtual_sync" || *rule.SystemType == "indoor_sync") {
+		// Skip electric_sync / virtual_sync / indoor_sync / commute_sync — managed by DB trigger, not rules engine
+		if rule.SystemType != nil && (*rule.SystemType == "electric_sync" || *rule.SystemType == "virtual_sync" || *rule.SystemType == "indoor_sync" || *rule.SystemType == "commute_sync") {
 			continue
 		}
 
