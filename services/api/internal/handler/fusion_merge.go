@@ -275,10 +275,10 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 8. Alle Quellen (inkl. Target) via parent_id verstecken.
+	// 8. Alle Quellen (inkl. Target) via parent_id verstecken + als Fusion-Quelle markieren.
 	for _, id := range allIDs {
 		if _, err := tx.Exec(ctx,
-			`UPDATE activities SET parent_id = $2 WHERE id = $1 AND user_id = $3`,
+			`UPDATE activities SET parent_id = $2, is_fusion_source = TRUE WHERE id = $1 AND user_id = $3`,
 			id, merged.ID, userID,
 		); err != nil {
 			slog.Warn("fusion-merge: hide source failed", "id", id, "error", err)
@@ -1055,9 +1055,13 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Alle versteckten Quellen (parent_id = id) wiederherstellen.
+	// Alle versteckten Quellen (parent_id = id) wiederherstellen + is_fusion_source zurücksetzen.
+	// Für Group-Fusions (V2): parent_id war nie gesetzt, daher ist das ein No-Op für parent_id,
+	// aber is_fusion_source = FALSE ist in jedem Fall korrekt (Legacy-Bugfix).
+	// CASCADE entfernt die Fusion-Aktivität aus recording_group_members; der DEFERRED-Trigger
+	// berechnet is_group_secondary + primary_activity_id neu.
 	if _, err := h.DB.Pool.Exec(ctx,
-		`UPDATE activities SET parent_id = NULL WHERE parent_id = $1 AND user_id = $2`,
+		`UPDATE activities SET parent_id = NULL, is_fusion_source = FALSE WHERE parent_id = $1 AND user_id = $2`,
 		id, userID,
 	); err != nil {
 		slog.Error("revert-fusion: restore sources failed", "error", err)
