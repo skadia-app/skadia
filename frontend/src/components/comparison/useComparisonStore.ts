@@ -17,7 +17,7 @@ interface ComparisonState {
 
 type Listener = () => void
 
-const state: ComparisonState = {
+let state: ComparisonState = {
   hoverTimestamp: null,
   hoverPoints: null,
   timeRange: null,
@@ -41,17 +41,17 @@ function getSnapshot(): ComparisonState {
 // ── Setters ──────────────────────────────────────────────────────────────────
 
 export function setHoverTimestamp(ts: number | null): void {
-  state.hoverTimestamp = ts
+  state = { ...state, hoverTimestamp: ts }
   notify()
 }
 
 export function setHoverPoints(points: HoverGpsPoint[] | null): void {
-  state.hoverPoints = points
+  state = { ...state, hoverPoints: points }
   notify()
 }
 
 export function setTimeRange(range: [number, number] | null): void {
-  state.timeRange = range
+  state = { ...state, timeRange: range }
   notify()
 }
 
