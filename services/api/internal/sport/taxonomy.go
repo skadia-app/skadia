@@ -275,6 +275,8 @@ func init() {
 				"gauge_diving":      {SubType: "gauge_diving", LabelDE: "Gauge", DetailDE: "Gauge-Tauchen", AutoTitleDE: "Tauchen"},
 				"apnea_diving":      {SubType: "apnea_diving", LabelDE: "Apnoe", DetailDE: "Apnoe-Tauchen", AutoTitleDE: "Apnoe-Tauchen"},
 				"apnea_hunting":     {SubType: "apnea_hunting", LabelDE: "Apnoe-Jagd", DetailDE: "Apnoe-Jagdtauchen", AutoTitleDE: "Apnoe-Tauchen"},
+				"ccr_diving":        {SubType: "ccr_diving", LabelDE: "CCR", DetailDE: "Kreislauftauchen (CCR)", AutoTitleDE: "CCR-Tauchen"},
+				"apnea_pool":        {SubType: "apnea_pool", LabelDE: "Apnoe Pool", DetailDE: "Apnoe-Tauchen (Pool)", AutoTitleDE: "Apnoe-Tauchen"},
 			},
 		},
 		{
