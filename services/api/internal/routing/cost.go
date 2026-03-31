@@ -69,6 +69,11 @@ type CostConfig struct {
 	// Used to convert time-based isochrone budgets to cost budgets.
 	AvgCostPerKm float32
 
+	// SnapThresholdM controls when approach segments are emitted. If the snap
+	// distance exceeds this value (in meters), a straight-line approach segment
+	// is added. Zero means default (100m).
+	SnapThresholdM float32
+
 	// Edge cost function — receives packed tag words directly, no Graph pointer needed.
 	// Enables GraphReader abstraction where only tags are available (Phase 2+).
 	EdgeCost func(tags1, tags2 uint64) EdgeCostFactors
