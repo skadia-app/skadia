@@ -2,7 +2,9 @@ package automation
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -51,38 +53,51 @@ func SendWebhook(webhookURL string, payload []byte, allowlist []string) error {
 	if err != nil {
 		return fmt.Errorf("invalid webhook URL: %w", err)
 	}
-
 	hostname := parsed.Hostname()
 
-	// Check allowlist first
+	// Allowlist check
+	inAllowlist := false
 	for _, allowed := range allowlist {
 		if strings.EqualFold(allowed, hostname) {
-			// Allowed host — skip SSRF check
-			goto performRequest
+			inAllowlist = true
+			break
 		}
 	}
 
-	// Resolve DNS and check for private IPs
-	{
-		addrs, err := net.LookupHost(hostname)
-		if err != nil {
-			return fmt.Errorf("webhook DNS resolution failed: %w", err)
-		}
-		for _, addr := range addrs {
-			ip := net.ParseIP(addr)
-			if ip == nil {
-				continue
-			}
-			if isPrivateIP(ip) {
-				return fmt.Errorf("webhook URL resolves to private IP %s (SSRF blocked)", addr)
-			}
+	var transport http.RoundTripper
+	if inAllowlist {
+		// Allowlisted: use default transport (trusted local endpoint)
+		transport = http.DefaultTransport
+	} else {
+		// SSRF protection: custom dialer that resolves once, checks all IPs,
+		// and pins the connection to the resolved IP to prevent DNS rebinding.
+		baseDialer := &net.Dialer{Timeout: 5 * time.Second}
+		transport = &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				host, port, err := net.SplitHostPort(addr)
+				if err != nil {
+					return nil, err
+				}
+				ips, err := net.DefaultResolver.LookupHost(ctx, host)
+				if err != nil {
+					return nil, fmt.Errorf("webhook DNS resolution failed: %w", err)
+				}
+				if len(ips) == 0 {
+					return nil, fmt.Errorf("webhook DNS resolution returned no addresses")
+				}
+				for _, ipStr := range ips {
+					ip := net.ParseIP(ipStr)
+					if ip != nil && isPrivateIP(ip) {
+						return nil, fmt.Errorf("webhook URL resolves to private IP %s (SSRF blocked)", ipStr)
+					}
+				}
+				// Pin to first resolved IP — prevents DNS rebinding on second lookup
+				return baseDialer.DialContext(ctx, network, net.JoinHostPort(ips[0], port))
+			},
 		}
 	}
 
-performRequest:
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
+	client := &http.Client{Timeout: 5 * time.Second, Transport: transport}
 	req, err := http.NewRequest(http.MethodPost, webhookURL, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("failed to create webhook request: %w", err)
@@ -96,9 +111,8 @@ performRequest:
 	}
 	defer resp.Body.Close()
 
-	// Drain response body (limit to prevent memory exhaustion)
-	buf := make([]byte, 1024*1024) // 1MB limit
-	resp.Body.Read(buf)            //nolint:errcheck
+	// Drain response body to allow connection reuse, limit to prevent memory exhaustion.
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) //nolint:errcheck
 
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("webhook returned HTTP %d", resp.StatusCode)
