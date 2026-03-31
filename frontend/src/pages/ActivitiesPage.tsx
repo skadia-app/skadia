@@ -5,8 +5,7 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { fetchActivities, downloadActivitiesZip } from '@/api/activities'
-import { getFusionQueue } from '@/api/importWizard'
-import { fetchRecordingGroup } from '@/api/recordingGroups'
+import { fetchRecordingGroup, fetchRecordingGroups } from '@/api/recordingGroups'
 import type { Activity, RecordingGroupMember } from '@/api/types'
 import type { ExportFormat } from '@/api/activities'
 import { apiDownload } from '@/api/client'
@@ -723,11 +722,11 @@ export default function ActivitiesPage() {
 
   // ── Fusionskandidaten-Badge ───────────────────────────────────────────────
   const { data: fusionData } = useQuery({
-    queryKey: ['fusion-queue'],
-    queryFn: () => getFusionQueue(50),
+    queryKey: ['recording-groups-badge'],
+    queryFn: () => fetchRecordingGroups(1000),
     staleTime: 60_000,
   })
-  const fusionCount = fusionData?.items?.length ?? 0
+  const fusionCount = fusionData?.length ?? 0
 
   // ── Paginierter Modus ────────────────────────────────────────────────────
   const { data: pageData, isLoading: pageLoading, isFetching: pageFetching } = useQuery({
