@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -297,27 +296,6 @@ func (h *Handler) dryRunAllRules(w http.ResponseWriter, r *http.Request, userID 
 		"total_matches": totalMatches,
 		"truncated":     totalMatches > offset+limit,
 	})
-}
-
-// resolveNameTemplate substitutes a fixed set of {token} placeholders in tmpl
-// with values from the activity map. The substitution is a simple sequential
-// strings.ReplaceAll pass — tokens cannot be nested or escaped. Adding a new
-// token requires explicitly extending this function.
-//
-// Known limitation: there is no escaping mechanism, so a literal "{city}" in
-// an intended output cannot be produced.
-func resolveNameTemplate(tmpl string, act map[string]any) string {
-	result := tmpl
-	if city, ok := act["start_city"].(string); ok {
-		result = strings.ReplaceAll(result, "{city}", city)
-	}
-	if dist, ok := act["distance_m"].(float64); ok {
-		result = strings.ReplaceAll(result, "{distance_km}", fmt.Sprintf("%.0f km", dist/1000))
-	}
-	if sport, ok := act["sport_type"].(string); ok {
-		result = strings.ReplaceAll(result, "{sport}", sport)
-	}
-	return result
 }
 
 // ApplySingleRule evaluates a single rule against all activities for the user.
