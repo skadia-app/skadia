@@ -120,14 +120,15 @@ func (h *Handler) GetFusionQueue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Check staleness + maybe trigger background recompute
-	stale, _, err := h.DB.IsFusionCacheStale(r.Context(), userID)
+	// Check staleness + maybe trigger background recompute.
+	// Use triggerFusionQueueCompute directly to avoid a second IsFusionCacheStale call.
+	stale, invalidationSeq, err := h.DB.IsFusionCacheStale(r.Context(), userID)
 	if err != nil {
 		slog.Error("fusion queue: cache check failed", "error", err)
 	}
 	computing := stale
 	if err == nil && stale {
-		h.MaybeTriggerFusionQueueCompute(r.Context(), userID)
+		h.triggerFusionQueueCompute(r.Context(), userID, invalidationSeq)
 	}
 
 	// Return cached results (may be empty on first load)
@@ -156,6 +157,13 @@ func (h *Handler) MaybeTriggerFusionQueueCompute(ctx context.Context, userID str
 	if err != nil || !stale {
 		return
 	}
+	h.triggerFusionQueueCompute(ctx, userID, invalidationSeq)
+}
+
+// triggerFusionQueueCompute enqueues a background fusion-queue recompute job using an
+// already-known invalidation sequence number, skipping the staleness re-check.
+// Callers that already hold the stale flag + sequence should use this directly.
+func (h *Handler) triggerFusionQueueCompute(ctx context.Context, userID string, invalidationSeq int64) {
 	running, _ := h.DB.HasRunningJob(ctx, userID, "fusion_queue_compute")
 	if running {
 		return
@@ -296,6 +304,23 @@ func (h *Handler) runCliqueIntegration(ctx context.Context, userID string, thres
 
 	cliques := fusion.BuildCliques(filtered, threshold)
 
+	// Collect all activity IDs across all cliques for a single batch membership lookup.
+	allCliqueIDs := make([]string, 0)
+	for _, clique := range cliques {
+		if len(clique) >= 2 {
+			allCliqueIDs = append(allCliqueIDs, clique...)
+		}
+	}
+	if len(allCliqueIDs) == 0 {
+		return nil
+	}
+
+	// Single query: activity_id → *RecordingGroup for all clique members.
+	membershipMap, err := h.DB.GetRecordingGroupsForActivities(ctx, allCliqueIDs)
+	if err != nil {
+		return fmt.Errorf("batch load recording group memberships: %w", err)
+	}
+
 	for _, clique := range cliques {
 		if len(clique) < 2 {
 			continue
@@ -304,12 +329,7 @@ func (h *Handler) runCliqueIntegration(ctx context.Context, userID string, thres
 		// Prüfen ob eines der Clique-Mitglieder bereits in einer Gruppe ist.
 		var existingGroup *database.RecordingGroup
 		for _, memberID := range clique {
-			g, err := h.DB.GetRecordingGroupForActivity(ctx, memberID)
-			if err != nil {
-				slog.Warn("clique integration: get recording group failed", "activity_id", memberID, "error", err)
-				continue
-			}
-			if g != nil {
+			if g := membershipMap[memberID]; g != nil {
 				existingGroup = g
 				break
 			}
@@ -318,12 +338,7 @@ func (h *Handler) runCliqueIntegration(ctx context.Context, userID string, thres
 		if existingGroup != nil {
 			// Gruppe erweitern: neue Mitglieder hinzufügen die noch nicht drin sind.
 			for _, memberID := range clique {
-				g, err := h.DB.GetRecordingGroupForActivity(ctx, memberID)
-				if err != nil {
-					slog.Warn("clique integration: membership check failed", "activity_id", memberID, "error", err)
-					continue
-				}
-				if g == nil {
+				if membershipMap[memberID] == nil {
 					if err := h.DB.AddRecordingGroupMember(ctx, existingGroup.ID, memberID); err != nil {
 						slog.Warn("clique integration: add member failed", "group_id", existingGroup.ID, "activity_id", memberID, "error", err)
 					}

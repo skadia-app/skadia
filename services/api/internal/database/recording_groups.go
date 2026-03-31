@@ -9,6 +9,16 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// fieldRichnessExpr is the SQL CASE expression that counts non-nil data-rich
+// fields on an activity row. Used in all recording-group queries that return
+// RecordingGroupMemberDetail.field_richness.
+const fieldRichnessExpr = `(CASE WHEN a.avg_heart_rate IS NOT NULL THEN 1 ELSE 0 END +
+				 CASE WHEN a.avg_power_w IS NOT NULL THEN 1 ELSE 0 END +
+				 CASE WHEN a.has_gps THEN 1 ELSE 0 END +
+				 CASE WHEN a.avg_temperature_c IS NOT NULL THEN 1 ELSE 0 END +
+				 CASE WHEN a.avg_cadence IS NOT NULL THEN 1 ELSE 0 END +
+				 CASE WHEN a.elevation_gain_m IS NOT NULL THEN 1 ELSE 0 END)`
+
 // RecordingGroup represents a group of N recordings of the same event.
 type RecordingGroup struct {
 	ID                string    `json:"id"`
@@ -147,6 +157,41 @@ func (db *DB) GetRecordingGroupForActivity(ctx context.Context, activityID strin
 	return &g, nil
 }
 
+// GetRecordingGroupsForActivities returns a map of activityID → *RecordingGroup for all
+// activity IDs in the given slice that belong to a recording group.
+// Activities not in any group are absent from the returned map.
+// A single WHERE activity_id = ANY($1) query replaces N individual lookups.
+func (db *DB) GetRecordingGroupsForActivities(ctx context.Context, activityIDs []string) (map[string]*RecordingGroup, error) {
+	if len(activityIDs) == 0 {
+		return map[string]*RecordingGroup{}, nil
+	}
+	rows, err := db.Pool.Query(ctx,
+		`SELECT rgm.activity_id, rg.id, rg.user_id, rg.primary_activity_id, rg.sport_type, rg.created_at, rg.confirmed
+		 FROM recording_group_members rgm
+		 JOIN recording_groups rg ON rg.id = rgm.group_id
+		 WHERE rgm.activity_id = ANY($1)`,
+		activityIDs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get recording groups for activities: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]*RecordingGroup, len(activityIDs))
+	for rows.Next() {
+		var actID string
+		var g RecordingGroup
+		if err := rows.Scan(&actID, &g.ID, &g.UserID, &g.PrimaryActivityID, &g.SportType, &g.CreatedAt, &g.Confirmed); err != nil {
+			return nil, fmt.Errorf("scan recording group for activity: %w", err)
+		}
+		result[actID] = &g
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate recording groups for activities: %w", err)
+	}
+	return result, nil
+}
+
 // GetRecordingGroupsForUser returns all recording groups for a user with member details.
 // Uses a CTE to limit groups first, then JOINs members — prevents LIMIT applying to joined rows.
 // When limit <= 0, all groups are returned (GDPR export). offset is ignored when limit <= 0.
@@ -171,12 +216,7 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 				(lg.primary_activity_id = rgm.activity_id) AS is_primary,
 				a.title, a.title_auto, a.started_at, a.sport_type,
 				a.source_device, a.source, a.original_file_format, a.distance_m, a.elapsed_time_s,
-				(CASE WHEN a.avg_heart_rate IS NOT NULL THEN 1 ELSE 0 END +
-				 CASE WHEN a.avg_power_w IS NOT NULL THEN 1 ELSE 0 END +
-				 CASE WHEN a.has_gps THEN 1 ELSE 0 END +
-				 CASE WHEN a.avg_temperature_c IS NOT NULL THEN 1 ELSE 0 END +
-				 CASE WHEN a.avg_cadence IS NOT NULL THEN 1 ELSE 0 END +
-				 CASE WHEN a.elevation_gain_m IS NOT NULL THEN 1 ELSE 0 END) AS field_richness,
+				`+fieldRichnessExpr+` AS field_richness,
 				a.has_gps
 			FROM limited_groups lg
 			JOIN recording_group_members rgm ON rgm.group_id = lg.id
@@ -191,12 +231,7 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 				(rg.primary_activity_id = rgm.activity_id) AS is_primary,
 				a.title, a.title_auto, a.started_at, a.sport_type,
 				a.source_device, a.source, a.original_file_format, a.distance_m, a.elapsed_time_s,
-				(CASE WHEN a.avg_heart_rate IS NOT NULL THEN 1 ELSE 0 END +
-				 CASE WHEN a.avg_power_w IS NOT NULL THEN 1 ELSE 0 END +
-				 CASE WHEN a.has_gps THEN 1 ELSE 0 END +
-				 CASE WHEN a.avg_temperature_c IS NOT NULL THEN 1 ELSE 0 END +
-				 CASE WHEN a.avg_cadence IS NOT NULL THEN 1 ELSE 0 END +
-				 CASE WHEN a.elevation_gain_m IS NOT NULL THEN 1 ELSE 0 END) AS field_richness,
+				`+fieldRichnessExpr+` AS field_richness,
 				a.has_gps
 			FROM recording_groups rg
 			JOIN recording_group_members rgm ON rgm.group_id = rg.id
@@ -249,51 +284,42 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 	return result, nil
 }
 
-// AddRecordingGroupMember adds an activity to an existing recording group.
-// The DEFERRABLE CONSTRAINT TRIGGER fires at commit of the caller's transaction,
-// so this function uses its own transaction to ensure trigger execution.
-func (db *DB) AddRecordingGroupMember(ctx context.Context, groupID, activityID string) error {
+// addMember inserts an activity into a recording group, optionally marking it as fused.
+// Runs in its own transaction so the DEFERRABLE CONSTRAINT TRIGGER fires at commit.
+func (db *DB) addMember(ctx context.Context, groupID, activityID string, isFused bool) error {
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	tag, err := tx.Exec(ctx,
-		`INSERT INTO recording_group_members (group_id, activity_id) VALUES ($1, $2)`,
-		groupID, activityID,
-	)
+	var query string
+	if isFused {
+		query = `INSERT INTO recording_group_members (group_id, activity_id, is_fused) VALUES ($1, $2, TRUE)`
+	} else {
+		query = `INSERT INTO recording_group_members (group_id, activity_id) VALUES ($1, $2)`
+	}
+	tag, err := tx.Exec(ctx, query, groupID, activityID)
 	if err != nil {
 		return fmt.Errorf("add recording group member: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("add recording group member: no rows affected")
 	}
-
 	return tx.Commit(ctx)
+}
+
+// AddRecordingGroupMember adds an activity to an existing recording group.
+// The DEFERRABLE CONSTRAINT TRIGGER fires at commit of the caller's transaction,
+// so this function uses its own transaction to ensure trigger execution.
+func (db *DB) AddRecordingGroupMember(ctx context.Context, groupID, activityID string) error {
+	return db.addMember(ctx, groupID, activityID, false)
 }
 
 // AddRecordingGroupMemberFused adds an activity to an existing recording group with is_fused = TRUE.
 // Used when a unified-timeline fusion result is added to its source group.
 func (db *DB) AddRecordingGroupMemberFused(ctx context.Context, groupID, activityID string) error {
-	tx, err := db.Pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	tag, err := tx.Exec(ctx,
-		`INSERT INTO recording_group_members (group_id, activity_id, is_fused) VALUES ($1, $2, TRUE)`,
-		groupID, activityID,
-	)
-	if err != nil {
-		return fmt.Errorf("add fused recording group member: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("add fused recording group member: no rows affected")
-	}
-
-	return tx.Commit(ctx)
+	return db.addMember(ctx, groupID, activityID, true)
 }
 
 // RemoveRecordingGroupMember removes an activity from a recording group.
@@ -399,12 +425,7 @@ func (db *DB) GetRecordingGroupMembers(ctx context.Context, groupID string) ([]R
 			(rg.primary_activity_id = rgm.activity_id) AS is_primary,
 			a.title, a.title_auto, a.started_at, a.sport_type,
 			a.source_device, a.source, a.original_file_format, a.distance_m, a.elapsed_time_s,
-			(CASE WHEN a.avg_heart_rate IS NOT NULL THEN 1 ELSE 0 END +
-			 CASE WHEN a.avg_power_w IS NOT NULL THEN 1 ELSE 0 END +
-			 CASE WHEN a.has_gps THEN 1 ELSE 0 END +
-			 CASE WHEN a.avg_temperature_c IS NOT NULL THEN 1 ELSE 0 END +
-			 CASE WHEN a.avg_cadence IS NOT NULL THEN 1 ELSE 0 END +
-			 CASE WHEN a.elevation_gain_m IS NOT NULL THEN 1 ELSE 0 END) AS field_richness,
+			`+fieldRichnessExpr+` AS field_richness,
 			a.has_gps
 		FROM recording_group_members rgm
 		JOIN recording_groups rg ON rg.id = rgm.group_id

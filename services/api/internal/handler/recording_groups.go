@@ -5,9 +5,32 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 )
+
+// requireGroupOwner loads the recording group identified by the "id" URL param,
+// checks that it belongs to userID, and returns it.
+// On error it writes the appropriate HTTP response and returns (nil, false).
+func (h *Handler) requireGroupOwner(w http.ResponseWriter, r *http.Request, userID, groupID string) (*database.RecordingGroupWithMembers, bool) {
+	group, err := h.DB.GetRecordingGroup(r.Context(), groupID)
+	if err != nil {
+		slog.Error("get recording group", "group_id", groupID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get recording group", r.URL.Path)
+		return nil, false
+	}
+	if group == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "recording group not found", r.URL.Path)
+		return nil, false
+	}
+	if group.UserID != userID {
+		httputil.WriteError(w, http.StatusForbidden, "Forbidden", "access denied", r.URL.Path)
+		return nil, false
+	}
+	// Wrap in RecordingGroupWithMembers for a uniform return type; members are not loaded here.
+	return &database.RecordingGroupWithMembers{RecordingGroup: *group}, true
+}
 
 // GetRecordingGroups godoc
 // GET /api/v1/recording-groups?limit=50&offset=0
@@ -34,11 +57,13 @@ func (h *Handler) GetRecordingGroups(w http.ResponseWriter, r *http.Request) {
 	// Trigger clique integration if fusion cache is stale.
 	// This ensures recording_groups is populated even when the client never
 	// called the old /fusion-queue endpoint.
-	stale, _, err := h.DB.IsFusionCacheStale(r.Context(), userID)
+	// Pass the already-known invalidation sequence to avoid a second DB call inside
+	// MaybeTriggerFusionQueueCompute.
+	stale, invalidationSeq, err := h.DB.IsFusionCacheStale(r.Context(), userID)
 	if err != nil {
 		slog.Warn("get recording groups: cache staleness check failed", "error", err)
 	} else if stale {
-		h.MaybeTriggerFusionQueueCompute(r.Context(), userID)
+		h.triggerFusionQueueCompute(r.Context(), userID, invalidationSeq)
 	}
 
 	groups, err := h.DB.GetRecordingGroupsForUser(r.Context(), userID, limit, offset)
@@ -60,18 +85,8 @@ func (h *Handler) GetRecordingGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	groupID := chi.URLParam(r, "id")
 
-	group, err := h.DB.GetRecordingGroup(r.Context(), groupID)
-	if err != nil {
-		slog.Error("get recording group", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get recording group", r.URL.Path)
-		return
-	}
-	if group == nil {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "recording group not found", r.URL.Path)
-		return
-	}
-	if group.UserID != userID {
-		httputil.WriteError(w, http.StatusForbidden, "Forbidden", "access denied", r.URL.Path)
+	group, ok := h.requireGroupOwner(w, r, userID, groupID)
+	if !ok {
 		return
 	}
 
@@ -87,18 +102,7 @@ func (h *Handler) GetRecordingGroupMembers(w http.ResponseWriter, r *http.Reques
 	}
 	groupID := chi.URLParam(r, "id")
 
-	group, err := h.DB.GetRecordingGroup(r.Context(), groupID)
-	if err != nil {
-		slog.Error("get recording group for members", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get recording group", r.URL.Path)
-		return
-	}
-	if group == nil {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "recording group not found", r.URL.Path)
-		return
-	}
-	if group.UserID != userID {
-		httputil.WriteError(w, http.StatusForbidden, "Forbidden", "access denied", r.URL.Path)
+	if _, ok := h.requireGroupOwner(w, r, userID, groupID); !ok {
 		return
 	}
 
@@ -121,18 +125,7 @@ func (h *Handler) DissolveRecordingGroup(w http.ResponseWriter, r *http.Request)
 	}
 	groupID := chi.URLParam(r, "id")
 
-	group, err := h.DB.GetRecordingGroup(r.Context(), groupID)
-	if err != nil {
-		slog.Error("get recording group for dissolve", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get recording group", r.URL.Path)
-		return
-	}
-	if group == nil {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "recording group not found", r.URL.Path)
-		return
-	}
-	if group.UserID != userID {
-		httputil.WriteError(w, http.StatusForbidden, "Forbidden", "access denied", r.URL.Path)
+	if _, ok := h.requireGroupOwner(w, r, userID, groupID); !ok {
 		return
 	}
 
@@ -164,18 +157,7 @@ func (h *Handler) SetRecordingGroupPrimary(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	group, err := h.DB.GetRecordingGroup(r.Context(), groupID)
-	if err != nil {
-		slog.Error("get recording group for set primary", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get recording group", r.URL.Path)
-		return
-	}
-	if group == nil {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "recording group not found", r.URL.Path)
-		return
-	}
-	if group.UserID != userID {
-		httputil.WriteError(w, http.StatusForbidden, "Forbidden", "access denied", r.URL.Path)
+	if _, ok := h.requireGroupOwner(w, r, userID, groupID); !ok {
 		return
 	}
 
@@ -207,18 +189,7 @@ func (h *Handler) SetRecordingGroupSportType(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	group, err := h.DB.GetRecordingGroup(r.Context(), groupID)
-	if err != nil {
-		slog.Error("get recording group for set sport type", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get recording group", r.URL.Path)
-		return
-	}
-	if group == nil {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "recording group not found", r.URL.Path)
-		return
-	}
-	if group.UserID != userID {
-		httputil.WriteError(w, http.StatusForbidden, "Forbidden", "access denied", r.URL.Path)
+	if _, ok := h.requireGroupOwner(w, r, userID, groupID); !ok {
 		return
 	}
 
