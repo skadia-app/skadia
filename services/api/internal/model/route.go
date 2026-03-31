@@ -2,6 +2,11 @@ package model
 
 import "time"
 
+type GeoJSONLineString struct {
+	Type        string      `json:"type"`
+	Coordinates [][]float64 `json:"coordinates"`
+}
+
 type RouteWaypoint struct {
 	ID      string     `json:"id"`
 	LatLng  [2]float64 `json:"latlng"`
@@ -12,14 +17,15 @@ type RouteWaypoint struct {
 }
 
 type RouteSegment struct {
-	FromWaypoint  string       `json:"from_waypoint"`
-	ToWaypoint    string       `json:"to_waypoint"`
-	Mode          string       `json:"mode"` // routed, offroad
-	ControlPoints [][2]float64 `json:"control_points,omitempty"`
-	Smooth        bool         `json:"smooth"`
-	DistanceM     float64      `json:"distance_m"`
-	ElevationGain float64      `json:"elevation_gain"`
-	ElevationLoss float64      `json:"elevation_loss"`
+	FromWaypoint  string             `json:"from_waypoint"`
+	ToWaypoint    string             `json:"to_waypoint"`
+	Mode          string             `json:"mode"` // routed, offroad
+	ControlPoints [][2]float64       `json:"control_points,omitempty"`
+	Smooth        bool               `json:"smooth"`
+	DistanceM     float64            `json:"distance_m"`
+	ElevationGain float64            `json:"elevation_gain"`
+	ElevationLoss float64            `json:"elevation_loss"`
+	Geometry      *GeoJSONLineString `json:"geometry,omitempty"`
 }
 
 type PlannedRoute struct {
