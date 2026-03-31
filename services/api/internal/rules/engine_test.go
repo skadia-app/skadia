@@ -124,6 +124,27 @@ func TestApply_SetField_UnknownFieldIgnored(t *testing.T) {
 	}
 }
 
+func TestEvalCondition_Between(t *testing.T) {
+	activity := map[string]any{
+		"distance_m": float64(25000),
+	}
+	// Value is "min,max" string
+	c := rules.Condition{Field: "distance_m", Op: "between", Value: "21097,42195"}
+	if !rules.EvaluateGroups([]rules.ConditionGroup{{Logic: "and", Conditions: []rules.Condition{c}}}, activity) {
+		t.Fatal("expected 25000 to be between 21097 and 42195")
+	}
+	// Outside range
+	c2 := rules.Condition{Field: "distance_m", Op: "between", Value: "42195,100000"}
+	if rules.EvaluateGroups([]rules.ConditionGroup{{Logic: "and", Conditions: []rules.Condition{c2}}}, activity) {
+		t.Fatal("expected 25000 to NOT be between 42195 and 100000")
+	}
+	// Edge: exactly at min boundary (inclusive)
+	c3 := rules.Condition{Field: "distance_m", Op: "between", Value: "25000,30000"}
+	if !rules.EvaluateGroups([]rules.ConditionGroup{{Logic: "and", Conditions: []rules.Condition{c3}}}, activity) {
+		t.Fatal("expected 25000 to be between 25000 and 30000 (inclusive)")
+	}
+}
+
 func TestEvalCondition_HasTag_Neq(t *testing.T) {
 	activity := map[string]any{
 		"tags": []string{"indoor", "frost"},

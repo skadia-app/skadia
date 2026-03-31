@@ -274,7 +274,7 @@ function opsForField(cf: ConditionField): string[] {
     case 'bool': return ['eq']
     case 'enum': return ['eq', 'neq', 'in']
     case 'text': return ['eq', 'neq', 'contains']
-    case 'number': return ['gt', 'lt', 'gte', 'lte', 'eq']
+    case 'number': return ['gt', 'lt', 'gte', 'lte', 'eq', 'between']
     case 'tag': return ['eq', 'neq']
     case 'segment': return ['eq']
     case 'geofence': return ['eq']
@@ -286,6 +286,7 @@ function opsForField(cf: ConditionField): string[] {
 const OP_LABELS: Record<string, string> = {
   eq: '=', neq: '!=', gt: '>', lt: '<', gte: '>=', lte: '<=',
   contains: 'enthält', not_contains: 'enthält nicht', in: 'in',
+  between: 'zwischen',
 }
 
 const ACTION_TYPES = [
