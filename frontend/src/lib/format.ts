@@ -132,3 +132,23 @@ export function fmtDateMedium(iso: string, timezone?: string | null): string {
   if (tz) opts.timeZone = tz
   return new Date(iso).toLocaleDateString('de-DE', opts)
 }
+
+// ── Comparison / summary formatters ──────────────────────────────────────────
+
+/** Format a heart-rate value in bpm. Returns '—' for null/NaN. */
+export function fmtHr(v: number | null | undefined): string {
+  if (v == null || isNaN(v)) return '\u2014'
+  return `${Math.round(v)} bpm`
+}
+
+/** Format a power value in Watts. Returns '—' for null/NaN. */
+export function fmtPower(v: number | null | undefined): string {
+  if (v == null || isNaN(v)) return '\u2014'
+  return `${Math.round(v)} W`
+}
+
+/** Format an elevation gain value in metres. Returns '—' for null/NaN/zero. */
+export function fmtElevation(v: number | null | undefined): string {
+  if (v == null || isNaN(v) || v <= 0) return '\u2014'
+  return `${Math.round(v)} m`
+}

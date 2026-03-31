@@ -11,17 +11,9 @@ import { apiClient } from '@/api/client'
 import ColorPicker from '@/components/ColorPicker'
 import { buildRasterStyle, BASE_STYLES, type BaseStyle } from '@/lib/mapStyles'
 import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl, loadHeatmapColor, saveHeatmapColor } from '@/lib/mapHeatmap'
+import { getSourceLineStyle, type SourceLineStyle } from '@/lib/comparisonColors'
 import { useSources } from './SourcesContext'
 import { useComparisonStore } from './useComparisonStore'
-
-// ── Line styles per index ─────────────────────────────────────────────────────
-
-const LINE_STYLES = ['solid', 'dashed', 'dotted'] as const
-type LineStyle = typeof LINE_STYLES[number]
-
-function getLineStyle(idx: number): LineStyle {
-  return LINE_STYLES[idx % LINE_STYLES.length]
-}
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -163,23 +155,39 @@ export default function MultiTrackMap({
   }, [visibleSources])
 
   // ── Hover markers ───────────────────────────────────────────────────────────
+  // Reposition existing markers via setLngLat() to avoid DOM thrashing at 60fps.
+  // Only create/remove marker DOM elements when the source count changes.
   useEffect(() => {
-    hoverMarkersRef.current.forEach(m => m.remove())
-    hoverMarkersRef.current = []
     const map = mapRef.current
-    if (!map || !hoverPoints || hoverPoints.length === 0) return
-    hoverPoints.forEach(point => {
+    const points = hoverPoints ?? []
+    const existing = hoverMarkersRef.current
+
+    // Add markers for any new sources (count grew)
+    for (let i = existing.length; i < points.length; i++) {
       const el = document.createElement('div')
       el.style.width = '10px'
       el.style.height = '10px'
       el.style.borderRadius = '50%'
       el.style.backgroundColor = 'white'
+      el.style.border = `2px solid ${points[i].color}`
+      el.style.boxShadow = `0 0 4px ${points[i].color}`
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([points[i].lng, points[i].lat])
+      if (map) marker.addTo(map)
+      existing.push(marker)
+    }
+
+    // Remove markers for sources that no longer exist (count shrank)
+    while (existing.length > points.length) {
+      existing.pop()!.remove()
+    }
+
+    // Reposition + update color for all remaining markers
+    points.forEach((point, i) => {
+      existing[i].setLngLat([point.lng, point.lat])
+      const el = existing[i].getElement()
       el.style.border = `2px solid ${point.color}`
       el.style.boxShadow = `0 0 4px ${point.color}`
-      const marker = new maplibregl.Marker({ element: el })
-        .setLngLat([point.lng, point.lat])
-        .addTo(map)
-      hoverMarkersRef.current.push(marker)
     })
   }, [hoverPoints])
 
@@ -245,7 +253,7 @@ export default function MultiTrackMap({
       {hasData && (
         <div className="absolute bottom-3 left-3 bg-white/90 dark:bg-neutral-900/90 backdrop-blur-sm rounded-lg px-3 py-2 space-y-1 pointer-events-none">
           {visibleSources.map((src, idx) => {
-            const lineStyle = getLineStyle(idx)
+            const lineStyle = getSourceLineStyle(idx)
             return (
               <div key={src.id} className="flex items-center gap-2">
                 <LegendLine color={src.color} lineStyle={lineStyle} />
@@ -270,7 +278,7 @@ export default function MultiTrackMap({
 
 // ── Legend line indicator ─────────────────────────────────────────────────────
 
-function LegendLine({ color, lineStyle }: { color: string; lineStyle: LineStyle }) {
+function LegendLine({ color, lineStyle }: { color: string; lineStyle: SourceLineStyle }) {
   if (lineStyle === 'solid') {
     return (
       <div className="rounded-full flex-shrink-0" style={{ backgroundColor: color, width: '16px', height: '3px' }} />
@@ -310,7 +318,7 @@ function addTrackLayer(
   const layerId = `track-line-${id}`
   if (map.getSource(sourceId) || coords.length < 2) return
 
-  const lineType = idx % 3 === 0 ? 'solid' : idx % 3 === 1 ? [4, 2] : [2, 2]
+  const dasharray = idx % 3 === 0 ? undefined : idx % 3 === 1 ? [4, 2] : [2, 2]
   const lineWidth = idx === 0 ? 4 : idx === 1 ? 3 : 2.5
 
   map.addSource(sourceId, {
@@ -326,7 +334,7 @@ function addTrackLayer(
       'line-color': color,
       'line-width': lineWidth,
       'line-opacity': 0.88,
-      ...(lineType !== 'solid' ? { 'line-dasharray': lineType as number[] } : {}),
+      ...(dasharray ? { 'line-dasharray': dasharray } : {}),
     },
   })
 }

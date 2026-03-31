@@ -67,34 +67,41 @@ export interface GpsPoint {
   lng: number
 }
 
-function extractGpsPoints(streams: StreamPoint[]): GpsPoint[] {
-  if (streams.length === 0) return []
-  const t0 = new Date(streams[0].time).getTime()
-  return streams
-    .filter(s => s.lat != null && s.lng != null)
-    .map(s => ({
-      elapsed: (new Date(s.time).getTime() - t0) / 1000,
-      lat: s.lat!,
-      lng: s.lng!,
-    }))
-}
-
 // ── Data extraction helpers ───────────────────────────────────────────────────
+
+/** Pre-compute elapsed seconds for every stream point in one pass. */
+function buildElapsedMap(streams: StreamPoint[]): Float64Array {
+  const t0 = new Date(streams[0].time).getTime()
+  const elapsed = new Float64Array(streams.length)
+  for (let i = 0; i < streams.length; i++) {
+    elapsed[i] = (new Date(streams[i].time).getTime() - t0) / 1000
+  }
+  return elapsed
+}
 
 function extractTimeSeries(
   streams: StreamPoint[],
+  elapsed: Float64Array,
   getValue: (s: StreamPoint, elapsed: number) => number | null | undefined,
   downsampleTo = 1500,
 ): [number, number][] {
-  if (streams.length === 0) return []
-  const t0 = new Date(streams[0].time).getTime()
   const raw: [number, number][] = []
-  for (const s of streams) {
-    const elapsed = (new Date(s.time).getTime() - t0) / 1000
-    const v = getValue(s, elapsed)
-    if (v != null && isFinite(v) && v >= 0) raw.push([elapsed, v])
+  for (let i = 0; i < streams.length; i++) {
+    const v = getValue(streams[i], elapsed[i])
+    if (v != null && isFinite(v) && v >= 0) raw.push([elapsed[i], v])
   }
   return lttb(raw, downsampleTo)
+}
+
+function extractGpsPoints(streams: StreamPoint[], elapsed: Float64Array): GpsPoint[] {
+  const points: GpsPoint[] = []
+  for (let i = 0; i < streams.length; i++) {
+    const s = streams[i]
+    if (s.lat != null && s.lng != null) {
+      points.push({ elapsed: elapsed[i], lat: s.lat, lng: s.lng })
+    }
+  }
+  return points
 }
 
 // ── Main hook ─────────────────────────────────────────────────────────────────
@@ -136,19 +143,32 @@ export function useStreamData(
     const s = streams ?? []
     const isPaceMode = defaultSpeedMode(sportType) === 'pace'
 
+    if (s.length === 0) {
+      return {
+        hrData: [], powerData: [], altitudeData: [], speedData: [],
+        cadenceData: [], temperatureData: [], groundContactTimeData: [],
+        verticalOscillationData: [], stanceTimePercentData: [],
+        stepLengthData: [], leftRightBalanceData: [],
+        gpsPoints: [], isPaceMode,
+      }
+    }
+
+    // Single-pass elapsed time pre-computation shared by all extractors.
+    const elapsed = buildElapsedMap(s)
+
     return {
-      hrData:                 extractTimeSeries(s, p => p.heart_rate),
-      powerData:              extractTimeSeries(s, p => p.power_w),
-      altitudeData:           extractTimeSeries(s, p => p.altitude_m),
-      speedData:              extractTimeSeries(s, p => p.speed_ms != null ? speedToDisplay(p.speed_ms, sportType) : null),
-      cadenceData:            extractTimeSeries(s, p => p.cadence),
-      temperatureData:        extractTimeSeries(s, p => p.temperature_c),
-      groundContactTimeData:  extractTimeSeries(s, p => p.ground_contact_time_ms),
-      verticalOscillationData: extractTimeSeries(s, p => p.vertical_oscillation_mm),
-      stanceTimePercentData:  extractTimeSeries(s, p => p.stance_time_percent),
-      stepLengthData:         extractTimeSeries(s, p => p.step_length_mm),
-      leftRightBalanceData:   extractTimeSeries(s, p => p.left_right_balance),
-      gpsPoints:              extractGpsPoints(s),
+      hrData:                  extractTimeSeries(s, elapsed, p => p.heart_rate),
+      powerData:               extractTimeSeries(s, elapsed, p => p.power_w),
+      altitudeData:            extractTimeSeries(s, elapsed, p => p.altitude_m),
+      speedData:               extractTimeSeries(s, elapsed, p => p.speed_ms != null ? speedToDisplay(p.speed_ms, sportType) : null),
+      cadenceData:             extractTimeSeries(s, elapsed, p => p.cadence),
+      temperatureData:         extractTimeSeries(s, elapsed, p => p.temperature_c),
+      groundContactTimeData:   extractTimeSeries(s, elapsed, p => p.ground_contact_time_ms),
+      verticalOscillationData: extractTimeSeries(s, elapsed, p => p.vertical_oscillation_mm),
+      stanceTimePercentData:   extractTimeSeries(s, elapsed, p => p.stance_time_percent),
+      stepLengthData:          extractTimeSeries(s, elapsed, p => p.step_length_mm),
+      leftRightBalanceData:    extractTimeSeries(s, elapsed, p => p.left_right_balance),
+      gpsPoints:               extractGpsPoints(s, elapsed),
       isPaceMode,
     }
   }, [streams, sportType])

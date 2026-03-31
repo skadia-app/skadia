@@ -9,23 +9,7 @@ import { useComparisonStore } from './useComparisonStore'
 import type { Activity, StreamPoint } from '@/api/types'
 import { formatDuration, formatDistance } from '@/lib/utils'
 import { formatSpeedValue, defaultSpeedMode, formatPace } from '@/lib/sportFieldLabels'
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmtHr(v: number | null | undefined): string {
-  if (v == null || isNaN(v)) return '\u2014'
-  return `${Math.round(v)} bpm`
-}
-
-function fmtPower(v: number | null | undefined): string {
-  if (v == null || isNaN(v)) return '\u2014'
-  return `${Math.round(v)} W`
-}
-
-function fmtElevation(v: number | null | undefined): string {
-  if (v == null || isNaN(v) || v <= 0) return '\u2014'
-  return `${Math.round(v)} m`
-}
+import { fmtHr, fmtPower, fmtElevation } from '@/lib/format'
 
 function nanFallback(v: number): number | null {
   return isNaN(v) ? null : v
