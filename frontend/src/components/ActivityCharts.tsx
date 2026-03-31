@@ -811,7 +811,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   if (hasValidData(data.depth)) panels.push(
     <div key={k('depth')} style={{ display: show('depth') ? undefined : 'none' }}>
       <ChartPanel chartId="depth" {...common}
-        field="altitude" label="Tiefe" unit="m" color="#3B82F6" area
+        label="Tiefe" unit="m" color="#3B82F6" area
         overrideValues={data.depth} invertY
         extraSeries={hasValidData(data.decoStopM) ? [{
           values: data.decoStopM,
@@ -821,6 +821,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
           areaStyle: { color: 'rgba(239,68,68,0.25)' },
           symbol: 'none',
           z: 1,
+          connectNulls: true,
         }] : undefined}
       />
     </div>,
@@ -891,7 +892,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   if (hasValidData(data.po2)) panels.push(
     <div key={k('po2')} style={{ display: show('decoTimeSeries') ? undefined : 'none' }}>
       <ChartPanel chartId="po2" {...common}
-        field="depth" label="pO₂" unit="bar" color="#f59e0b"
+        label="pO₂" unit="bar" color="#f59e0b"
         overrideValues={data.po2}
       />
     </div>,
@@ -2490,7 +2491,8 @@ function ScatterChartPanel({
 interface ChartPanelProps {
   chartId: string
   data: ChartData
-  field: FieldKey
+  /** Data field key. Optional when overrideValues is provided (overrideValues takes precedence). */
+  field?: FieldKey
   label: string
   unit: string
   color: string
@@ -2525,6 +2527,8 @@ interface ChartPanelProps {
     areaStyle?: { color?: string }
     symbol?: string
     z?: number
+    /** Connect NaN gaps so the filled area stays contiguous (useful for sparse deco-stop data). */
+    connectNulls?: boolean
   }>
 }
 
@@ -2536,7 +2540,7 @@ function ChartPanel({
 }: ChartPanelProps) {
   const containerRef = useECharts(
     () => {
-      const values = overrideValues ?? data[field]
+      const values = overrideValues ?? (field ? data[field] : [])
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
 
@@ -2575,7 +2579,7 @@ function ChartPanel({
       mlData.push(...buildSplitMarkLines(splitMarkers, xMode))
 
       // ── Tooltip builder ─────────────────────────────────────────────────────
-      const decimals = field === 'altitude' || field === 'temperature' ? 0 : 1
+      const decimals = field === 'altitude' || field === 'temperature' ? 0 : 1 // field-independent when overrideValues is used
 
       const buildTooltip = (idx: number): string => {
         const v = values[idx]
@@ -2788,7 +2792,7 @@ function ChartPanel({
                   : { width: 1.5, color: es.color, type: 'solid' as const },
                 itemStyle: { color: es.color },
                 areaStyle: es.areaStyle ?? undefined,
-                connectNulls: false,
+                connectNulls: es.connectNulls ?? false,
                 z: es.z ?? 2,
               })),
             ],
