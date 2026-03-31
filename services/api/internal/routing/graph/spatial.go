@@ -251,7 +251,10 @@ func (g *Graph) searchEdgesInRadius(lat, lon, cosLat float64, centerRow, centerC
 	grid := g.Grid
 	best := EdgeProjection{DistanceM: math.MaxFloat64}
 	found := false
-	seen := make(map[uint32]bool)
+	// seen tracks visited edges within this tile using the local edge index (uint32).
+	// uint32 is sufficient because FindNearestEdgeLocal operates on a single graph tile;
+	// cross-tile deduplication is handled by TiledGraphReader, which calls this per-tile.
+	seen := make(map[uint32]bool, 256)
 
 	for dr := -radius; dr <= radius; dr++ {
 		for dc := -radius; dc <= radius; dc++ {

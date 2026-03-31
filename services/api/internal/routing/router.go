@@ -282,14 +282,26 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 		segments := FindValleySegments(pass0Path, r.reader, 1000.0)
 
 		if len(segments) >= 2 {
-			// Valley-seg: route each segment node-to-node (nil VEs).
+			// Valley-seg: route each segment individually.
+			// First segment starts at the projected source (srcVE); last segment ends at
+			// the projected destination (dstVE). Interior segments use node-to-node (nil VEs).
 			var legs []*RouteResult
 			allOK := true
 
-			for _, seg := range segments {
+			for i, seg := range segments {
+				// Pass edge-projection endpoints only at the route boundaries so that
+				// the route starts/ends at the exact clicked coordinates, not at graph nodes.
+				var segSrcVE, segDstVE *VirtualEndpoint
+				if i == 0 {
+					segSrcVE = srcVE // first segment starts at projected source
+				}
+				if i == len(segments)-1 {
+					segDstVE = dstVE // last segment ends at projected destination
+				}
+
 				segTrackIdx := buildTrackIndexUnified(res0.state, seg.To, seg.From)
 				segMax := segmentMaxCost(res0.state, seg.From, seg.To, cfg)
-				segRes, segErr := findRouteUnified(ctx, r.reader, nil, nil, seg.From, seg.To, cfg,
+				segRes, segErr := findRouteUnified(ctx, r.reader, segSrcVE, segDstVE, seg.From, seg.To, cfg,
 					0, segMax, segTrackIdx, nil, nil)
 				if segErr != nil {
 					slog.Warn("segment failed, falling back",
@@ -298,7 +310,7 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 					break
 				}
 
-				legResult := retrackUnified(r.reader, segRes.state, segRes.bestDstNode, nil, nil)
+				legResult := retrackUnified(r.reader, segRes.state, segRes.bestDstNode, segSrcVE, segDstVE)
 				if legResult == nil {
 					slog.Warn("segment retrack failed, falling back",
 						"from_idx", seg.FromIdx, "to_idx", seg.ToIdx)

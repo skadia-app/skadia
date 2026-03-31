@@ -107,6 +107,11 @@ func FindNearEdges(g *Graph, lat, lng float64) []EdgeCandidate {
 
 // getEdgeGeometry assembles the full polyline for an edge:
 // [fromNode, intermediate..., toNode].
+//
+// EdgeGeomOff/EdgeGeomLat/EdgeGeomLon store ONLY the intermediate (shape)
+// points between the two endpoint nodes — endpoints are NOT stored in the
+// geometry arrays. Therefore fromNode and toNode are prepended/appended
+// explicitly without risk of duplication.
 func getEdgeGeometry(g *Graph, edgeIdx, fromNode, toNode uint32) []geoPoint {
 	fromLat := float64(g.NodeLat[fromNode]) / 1e7
 	fromLng := float64(g.NodeLon[fromNode]) / 1e7
