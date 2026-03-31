@@ -4,7 +4,7 @@ import { fetchGear } from '@/api/gear'
 import { fetchTags } from '@/api/tags'
 import { fetchDevices } from '@/api/hardware'
 import type { Device } from '@/api/hardware'
-import type { AutomationRule, RuleCondition, RuleConditionGroup, RuleAction } from '@/api/types'
+import type { AutomationRule, RuleCondition, RuleConditionGroup, RuleAction, RuleBranch } from '@/api/types'
 import { SPORT_DEFS } from '@/lib/sportTaxonomy'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -1499,6 +1499,14 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
   const [stopOnMatch, setStopOnMatch] = useState(seed?.stop_on_match ?? false)
   const [groups, setGroups] = useState<RuleConditionGroup[]>(() => normaliseGroups(rule))
   const [actions, setActions] = useState<RuleAction[]>(() => denormaliseActions(seed?.actions ?? []))
+  const [branches, setBranches] = useState<RuleBranch[]>(() => {
+    const raw = seed?.branches
+    if (!raw) return []
+    if (typeof raw === 'string') {
+      try { return JSON.parse(raw) } catch { return [] }
+    }
+    return raw as RuleBranch[]
+  })
 
   const { data: gearList } = useQuery({
     queryKey: ['gear-list'],
@@ -1543,6 +1551,53 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
     setActions(actions.map((a, i) => (i === idx ? { action, params } : a)))
   }
 
+  // Branch mutations
+  function addBranch(type: 'else_if' | 'else') {
+    setBranches(prev => [...prev, { type, condition_groups: [], actions: [] }])
+  }
+  function removeBranch(idx: number) {
+    setBranches(prev => prev.filter((_, i) => i !== idx))
+  }
+  function addBranchAction(branchIdx: number) {
+    setBranches(prev => prev.map((b, i) =>
+      i === branchIdx ? { ...b, actions: [...b.actions, { action: 'add_tag', params: {} }] } : b
+    ))
+  }
+  function removeBranchAction(branchIdx: number, actionIdx: number) {
+    setBranches(prev => prev.map((b, i) =>
+      i === branchIdx ? { ...b, actions: b.actions.filter((_, ai) => ai !== actionIdx) } : b
+    ))
+  }
+  function updateBranchAction(branchIdx: number, actionIdx: number, action: string, params: Record<string, any>) {
+    setBranches(prev => prev.map((b, i) =>
+      i === branchIdx ? {
+        ...b,
+        actions: b.actions.map((a, ai) => ai === actionIdx ? { action, params } : a),
+      } : b
+    ))
+  }
+  function addBranchGroup(branchIdx: number) {
+    setBranches(prev => prev.map((b, i) =>
+      i === branchIdx ? { ...b, condition_groups: [...b.condition_groups, defaultGroup()] } : b
+    ))
+  }
+  function updateBranchGroup(branchIdx: number, groupIdx: number, g: RuleConditionGroup) {
+    setBranches(prev => prev.map((b, i) =>
+      i === branchIdx ? {
+        ...b,
+        condition_groups: b.condition_groups.map((old, gi) => gi === groupIdx ? g : old),
+      } : b
+    ))
+  }
+  function removeBranchGroup(branchIdx: number, groupIdx: number) {
+    setBranches(prev => prev.map((b, i) =>
+      i === branchIdx ? {
+        ...b,
+        condition_groups: b.condition_groups.filter((_, gi) => gi !== groupIdx),
+      } : b
+    ))
+  }
+
   const totalConditions = groups.reduce((s, g) => s + g.conditions.length, 0)
 
   /** Before saving, translate frontend action types back to canonical set_field JSON. */
@@ -1570,6 +1625,10 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
       conditions: flat.conditions,
       conditions_logic: flat.conditions_logic,
       actions: normaliseActions(actions),
+      branches: branches.length > 0 ? branches.map(b => ({
+        ...b,
+        actions: normaliseActions(b.actions),
+      })) : undefined,
     })
   }
 
@@ -1835,6 +1894,136 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Branches (ELSE-IF / ELSE) */}
+      {branches.map((branch, branchIdx) => (
+        <div key={branchIdx} className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 space-y-3">
+          {/* Branch header */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
+              {branch.type === 'else' ? 'Sonst' : 'Sonst wenn'}
+            </span>
+            <button
+              type="button"
+              onClick={() => removeBranch(branchIdx)}
+              className="ml-auto text-xs text-rose-500 hover:text-rose-700 dark:hover:text-rose-400 cursor-pointer"
+            >
+              Zweig entfernen
+            </button>
+          </div>
+
+          {/* Conditions for else_if branches */}
+          {branch.type === 'else_if' && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Bedingungen</span>
+                <button
+                  type="button"
+                  onClick={() => addBranchGroup(branchIdx)}
+                  className="text-xs text-accent-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 cursor-pointer"
+                >
+                  + Gruppe
+                </button>
+              </div>
+              {branch.condition_groups.length === 0 && (
+                <p className="text-xs text-neutral-400 italic">Keine Bedingungen — Zweig greift immer.</p>
+              )}
+              <div className="space-y-2">
+                {branch.condition_groups.map((g, gi) => (
+                  <div key={gi}>
+                    {gi > 0 && (
+                      <div className="flex items-center gap-2 my-1">
+                        <div className="flex-1 border-t border-dashed border-neutral-300 dark:border-neutral-700" />
+                        <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide px-2">UND</span>
+                        <div className="flex-1 border-t border-dashed border-neutral-300 dark:border-neutral-700" />
+                      </div>
+                    )}
+                    <ConditionGroupBlock
+                      group={g}
+                      groupIndex={gi}
+                      totalGroups={branch.condition_groups.length}
+                      onChange={(updated) => updateBranchGroup(branchIdx, gi, updated)}
+                      onRemove={() => removeBranchGroup(branchIdx, gi)}
+                      tags={tags}
+                      recorders={recorders}
+                      sensors={sensors}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Actions for this branch */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Dann</span>
+              <button
+                type="button"
+                onClick={() => addBranchAction(branchIdx)}
+                className="text-xs text-accent-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 cursor-pointer"
+              >
+                + Aktion
+              </button>
+            </div>
+            {branch.actions.length === 0 && (
+              <p className="text-xs text-neutral-400 italic">Keine Aktionen.</p>
+            )}
+            <div className="space-y-2">
+              {branch.actions.map((act, actionIdx) => (
+                <div key={actionIdx} className="flex items-center gap-2">
+                  <select
+                    value={act.action}
+                    onChange={(e) => updateBranchAction(branchIdx, actionIdx, e.target.value, {})}
+                    className={inputClass}
+                  >
+                    {ACTION_TYPES.map(a => (
+                      <option key={a.value} value={a.value}>{a.label}</option>
+                    ))}
+                  </select>
+                  <ActionParams
+                    action={act.action}
+                    params={act.params}
+                    gearList={gearList ?? []}
+                    tags={tags}
+                    onChange={(params) => updateBranchAction(branchIdx, actionIdx, act.action, params)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeBranchAction(branchIdx, actionIdx)}
+                    className="text-neutral-400 hover:text-rose-500 transition-colors cursor-pointer"
+                    title="Aktion entfernen"
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ))}
+
+      {/* Add-branch buttons */}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => addBranch('else_if')}
+          className="text-sm border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 cursor-pointer transition-colors"
+        >
+          + Sonst wenn
+        </button>
+        {!branches.some(b => b.type === 'else') && (
+          <button
+            type="button"
+            onClick={() => addBranch('else')}
+            className="text-sm border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 cursor-pointer transition-colors"
+          >
+            + Sonst
+          </button>
+        )}
       </div>
 
       {/* Submit */}

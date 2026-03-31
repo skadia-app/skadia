@@ -694,6 +694,12 @@ export interface GearDocument {
   created_at: string
 }
 
+export interface RuleBranch {
+  type: 'else_if' | 'else'
+  condition_groups: RuleConditionGroup[]
+  actions: RuleAction[]
+}
+
 export interface AutomationRule {
   id: string
   user_id: string
@@ -708,6 +714,7 @@ export interface AutomationRule {
   // Optional group-based structure — multiple groups are AND-ed; within each group logic applies
   condition_groups?: RuleConditionGroup[] | null
   actions: RuleAction[]
+  branches?: RuleBranch[] | null
   times_applied: number
   last_evaluated_at?: string
   last_matched_count?: number
