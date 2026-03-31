@@ -86,18 +86,9 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	allIDs := append([]string{targetID}, req.Sources...)
 
 	// Alle Aktivitäten laden + Ownership prüfen.
-	activities := make(map[string]*model.Activity, len(allIDs))
-	for _, id := range allIDs {
-		act, err := h.DB.GetActivity(r.Context(), id)
-		if err != nil || act == nil {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", fmt.Sprintf("activity %s not found", id), r.URL.Path)
-			return
-		}
-		if act.UserID != userID {
-			httputil.WriteError(w, http.StatusForbidden, "Forbidden", "not your activity", r.URL.Path)
-			return
-		}
-		activities[id] = act
+	activities, ok := h.loadAndVerifyActivities(w, r, userID, allIDs)
+	if !ok {
+		return
 	}
 
 	// FieldMap validieren.
@@ -137,7 +128,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 
 	// 1b. FieldMap-aware metadata overrides: NULL external IDs, override aggregates
 	// from designated sources, COALESCE session-only fields from other sources.
-	if err := applyFusionMetadataOverrides(ctx, tx, merged.ID, targetID, req.FieldMap, activities, allIDs); err != nil {
+	if err := applyFusionMetadataOverrides(ctx, tx, merged.ID, targetID, req.FieldMap, activities); err != nil {
 		slog.Error("fusion-merge: metadata overrides failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to apply metadata overrides", r.URL.Path)
 		return
@@ -240,48 +231,33 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 4. Titel aus Quell-Aktivität übernehmen.
-	if req.TitleSource != nil && *req.TitleSource != targetID {
-		if src, ok := activities[*req.TitleSource]; ok && src.Title != nil {
-			if _, err := tx.Exec(ctx,
-				`UPDATE activities SET title = $2, has_edits = true WHERE id = $1`,
-				merged.ID, *src.Title,
-			); err != nil {
-				slog.Warn("fusion-merge: update title failed", "error", err)
-			}
-		}
+	// 4-7 + rebuild + audit log: shared finalization within transaction.
+	auditData, _ := json.Marshal(map[string]any{
+		"type":      "fusion_merge",
+		"sources":   allIDs,
+		"field_map": req.FieldMap,
+	})
+	// V1: skip title override when the designated source is the target itself
+	// (the merged activity already has the target's title from createMergedActivity).
+	titleSource := req.TitleSource
+	if titleSource != nil && *titleSource == targetID {
+		titleSource = nil
 	}
-
-	// 5. Gear übernehmen.
-	if req.GearSource != nil {
-		if src, ok := activities[*req.GearSource]; ok && src.GearID != nil {
-			tx.Exec(ctx, `UPDATE activities SET gear_id = $2, has_edits = true WHERE id = $1`, merged.ID, src.GearID) //nolint:errcheck
-		}
+	fp := fusionFinalizeParams{
+		userID:            userID,
+		merged:            merged,
+		allSourceIDs:      allIDs,
+		activities:        activities,
+		fieldMap:          req.FieldMap,
+		titleSource:       titleSource,
+		tagsMerge:         req.TagsMerge,
+		gearSource:        req.GearSource,
+		fitLevel:          req.FitLevel,
+		fitLevelTargetID:  targetID,
+		fitLevelSourceIDs: req.Sources,
+		auditData:         auditData,
 	}
-
-	// 6. Tags aus allen Quell-Aktivitäten zusammenführen.
-	if req.TagsMerge {
-		for _, srcID := range allIDs {
-			if err := fusionMergeActivityTags(ctx, tx, merged.ID, srcID); err != nil {
-				slog.Warn("fusion-merge: merge tags failed", "source", srcID, "error", err)
-			}
-		}
-	}
-
-	// 7. fusion_sources auf neue Aktivität setzen (für Info-Anzeige im Frontend).
-	sourceMap := make(database.FusionSources, len(req.FieldMap))
-	maps.Copy(sourceMap, req.FieldMap)
-	sourcesJSON, err := json.Marshal(sourceMap)
-	if err != nil {
-		slog.Warn("fusion-merge: marshal fusion sources failed", "error", err)
-	} else {
-		if _, err := tx.Exec(ctx,
-			`UPDATE activities SET fusion_sources = $2 WHERE id = $1 AND user_id = $3`,
-			merged.ID, sourcesJSON, userID,
-		); err != nil {
-			slog.Warn("fusion-merge: set fusion sources failed", "error", err)
-		}
-	}
+	h.applyFusionTxExtras(ctx, tx, fp)
 
 	// 8. Alle Quellen (inkl. Target) via parent_id verstecken + als Fusion-Quelle markieren.
 	for _, id := range allIDs {
@@ -293,36 +269,6 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 9. activity_tracks für neue Aktivität berechnen — uses db.Pool internally,
-	// so it runs within its own connection (outside tx). Execute before commit
-	// so track data is ready, but note it won't be rolled back on tx failure.
-	// These are best-effort rebuilds; their failure is non-fatal.
-	if merged.HasGPS {
-		if err := h.DB.RebuildActivityTrack(ctx, merged.ID); err != nil {
-			slog.Warn("fusion-merge: rebuild track failed", "error", err)
-		}
-		if !merged.ExcludeFromHeatmap {
-			if err := h.DB.RebuildHeatmapData(ctx, merged.ID); err != nil {
-				slog.Warn("fusion-merge: rebuild heatmap failed", "error", err)
-			}
-		}
-		h.DB.InvalidateTerraIncognitaCache(ctx, userID)
-	}
-
-	// 10. Audit-Log (inside transaction).
-	auditData, _ := json.Marshal(map[string]any{
-		"type":      "fusion_merge",
-		"sources":   allIDs,
-		"field_map": req.FieldMap,
-	})
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO activity_edits (activity_id, user_id, edit_type, edit_data)
-		 VALUES ($1, $2, 'fusion_merge', $3)`,
-		merged.ID, userID, auditData,
-	); err != nil {
-		slog.Warn("fusion-merge: failed to insert audit record", "id", merged.ID, "error", err)
-	}
-
 	// Commit transaction — all DB mutations are now durable.
 	if err := tx.Commit(ctx); err != nil {
 		slog.Error("fusion-merge: commit transaction failed", "error", err)
@@ -330,31 +276,157 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 11. FIT-Level-Merge: Original-FIT-Dateien zusammenführen (non-DB, after commit).
-	if req.FitLevel {
-		if err := h.fitLevelMerge(ctx, userID, targetID, merged.ID, req.Sources, req.FieldMap, activities); err != nil {
-			slog.Error("fusion-merge: FIT-level merge failed", "target", merged.ID, "error", err)
-			// Non-fatal: DB-level merge was already successful.
-		} else {
-			slog.Info("fusion-merge: FIT-level merge completed", "target", merged.ID)
+	// Post-commit: FIT-level merge, sidecar write, candidate cache cleanup.
+	h.postCommitFusionCleanup(ctx, fp)
+
+	slog.Info("fusion-merge: completed", "new_id", merged.ID, "sources", allIDs)
+	httputil.WriteJSON(w, http.StatusCreated, map[string]string{"id": merged.ID})
+}
+
+// loadAndVerifyActivities loads all activities in ids, checks ownership against userID,
+// and returns a map of id → *model.Activity.
+// On any error it writes the appropriate HTTP response and returns (nil, false).
+func (h *Handler) loadAndVerifyActivities(w http.ResponseWriter, r *http.Request, userID string, ids []string) (map[string]*model.Activity, bool) {
+	activities := make(map[string]*model.Activity, len(ids))
+	for _, id := range ids {
+		act, err := h.DB.GetActivity(r.Context(), id)
+		if err != nil || act == nil {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", fmt.Sprintf("activity %s not found", id), r.URL.Path)
+			return nil, false
+		}
+		if act.UserID != userID {
+			httputil.WriteError(w, http.StatusForbidden, "Forbidden", "not your activity", r.URL.Path)
+			return nil, false
+		}
+		activities[id] = act
+	}
+	return activities, true
+}
+
+// fusionFinalizeParams holds all inputs needed by finalizeFusionActivity.
+type fusionFinalizeParams struct {
+	// userID is the authenticated user.
+	userID string
+	// merged is the newly created merged activity (result of createMergedActivity).
+	merged *model.Activity
+	// allSourceIDs is the list of all source activity IDs (target + extras in V1; req.Sources in V2).
+	allSourceIDs []string
+	// activities is the full activity map for title/gear lookups.
+	activities map[string]*model.Activity
+	// fieldMap maps stream fields to source IDs.
+	fieldMap map[string]string
+	// titleSource, if non-nil, designates the source for the title.
+	titleSource *string
+	// tagsMerge, if true, merges tags from all sources.
+	tagsMerge bool
+	// gearSource, if non-nil, designates the source for gear.
+	gearSource *string
+	// fitLevel, if true, triggers a FIT-protocol-level merge post-commit.
+	fitLevel bool
+	// fitLevelTargetID is the "target" activity for fitLevelMerge (targetID in V1, Sources[0] in V2).
+	fitLevelTargetID string
+	// fitLevelSourceIDs are the extra sources for fitLevelMerge (req.Sources in V1, req.Sources[1:] in V2).
+	fitLevelSourceIDs []string
+	// auditData is marshalled JSON for the activity_edits record.
+	auditData []byte
+}
+
+// applyFusionTxExtras applies the shared in-transaction finalization steps to the merged activity:
+// title update (step 4), gear copy (step 5), tags merge (step 6), fusion_sources (step 7),
+// RebuildActivityTrack + RebuildHeatmapData + InvalidateTerraIncognitaCache (pre-commit rebuilds),
+// and audit log insert.
+// Must be called before tx.Commit. Does not commit.
+func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, p fusionFinalizeParams) {
+	// Step 4: Title from designated source.
+	if p.titleSource != nil {
+		if src, ok := p.activities[*p.titleSource]; ok && src.Title != nil {
+			if _, err := tx.Exec(ctx,
+				`UPDATE activities SET title = $2, has_edits = true WHERE id = $1`,
+				p.merged.ID, *src.Title,
+			); err != nil {
+				slog.Warn("fusion-merge: update title failed", "error", err)
+			}
 		}
 	}
 
-	// 12. Write .meta companion for merged activity (ShadowFS, after commit).
-	mergedAct, _ := h.DB.GetActivity(ctx, merged.ID)
-	if mergedAct != nil && mergedAct.FileID != nil && *mergedAct.FileID != "" {
-		sidecar.WriteMetaCompanion(ctx, h.ShadowFS, h.DB, userID, merged.ID, *mergedAct.FileID, nil, mergedAct)
+	// Step 5: Gear from designated source.
+	if p.gearSource != nil {
+		if src, ok := p.activities[*p.gearSource]; ok && src.GearID != nil {
+			tx.Exec(ctx, `UPDATE activities SET gear_id = $2, has_edits = true WHERE id = $1`, p.merged.ID, src.GearID) //nolint:errcheck
+		}
 	}
 
-	// 13. Remove cached entries for all source activities so they don't appear as stale candidates.
-	for _, id := range allIDs {
+	// Step 6: Tags merge from all source activities.
+	if p.tagsMerge {
+		for _, srcID := range p.allSourceIDs {
+			if err := fusionMergeActivityTags(ctx, tx, p.merged.ID, srcID); err != nil {
+				slog.Warn("fusion-merge: merge tags failed", "source", srcID, "error", err)
+			}
+		}
+	}
+
+	// Step 7: Set fusion_sources on new activity.
+	sourceMap := make(database.FusionSources, len(p.fieldMap))
+	maps.Copy(sourceMap, p.fieldMap)
+	sourcesJSON, err := json.Marshal(sourceMap)
+	if err != nil {
+		slog.Warn("fusion-merge: marshal fusion sources failed", "error", err)
+	} else {
+		if _, err := tx.Exec(ctx,
+			`UPDATE activities SET fusion_sources = $2 WHERE id = $1 AND user_id = $3`,
+			p.merged.ID, sourcesJSON, p.userID,
+		); err != nil {
+			slog.Warn("fusion-merge: set fusion sources failed", "error", err)
+		}
+	}
+
+	// Rebuild track + heatmap (best-effort, uses db.Pool internally — outside tx).
+	if p.merged.HasGPS {
+		if err := h.DB.RebuildActivityTrack(ctx, p.merged.ID); err != nil {
+			slog.Warn("fusion-merge: rebuild track failed", "error", err)
+		}
+		if !p.merged.ExcludeFromHeatmap {
+			if err := h.DB.RebuildHeatmapData(ctx, p.merged.ID); err != nil {
+				slog.Warn("fusion-merge: rebuild heatmap failed", "error", err)
+			}
+		}
+		h.DB.InvalidateTerraIncognitaCache(ctx, p.userID)
+	}
+
+	// Audit log (inside transaction).
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO activity_edits (activity_id, user_id, edit_type, edit_data)
+		 VALUES ($1, $2, 'fusion_merge', $3)`,
+		p.merged.ID, p.userID, p.auditData,
+	); err != nil {
+		slog.Warn("fusion-merge: failed to insert audit record", "id", p.merged.ID, "error", err)
+	}
+}
+
+// postCommitFusionCleanup runs the shared post-commit steps:
+// FIT-level merge (if requested), sidecar .meta write, and fusion candidate cache invalidation.
+func (h *Handler) postCommitFusionCleanup(ctx context.Context, p fusionFinalizeParams) {
+	// FIT-level merge (non-DB, after commit, non-fatal).
+	if p.fitLevel && p.fitLevelTargetID != "" {
+		if err := h.fitLevelMerge(ctx, p.userID, p.fitLevelTargetID, p.merged.ID, p.fitLevelSourceIDs, p.fieldMap, p.activities); err != nil {
+			slog.Error("fusion-merge: FIT-level merge failed", "target", p.merged.ID, "error", err)
+		} else {
+			slog.Info("fusion-merge: FIT-level merge completed", "target", p.merged.ID)
+		}
+	}
+
+	// Write .meta companion for merged activity (ShadowFS).
+	mergedAct, _ := h.DB.GetActivity(ctx, p.merged.ID)
+	if mergedAct != nil && mergedAct.FileID != nil && *mergedAct.FileID != "" {
+		sidecar.WriteMetaCompanion(ctx, h.ShadowFS, h.DB, p.userID, p.merged.ID, *mergedAct.FileID, nil, mergedAct)
+	}
+
+	// Remove cached fusion candidates for all source activities.
+	for _, id := range p.allSourceIDs {
 		if err := h.DB.DeleteFusionCandidatesForActivity(ctx, id); err != nil {
 			slog.Warn("fusion-merge: delete cached candidates failed", "id", id, "error", err)
 		}
 	}
-
-	slog.Info("fusion-merge: completed", "new_id", merged.ID, "sources", allIDs)
-	httputil.WriteJSON(w, http.StatusCreated, map[string]string{"id": merged.ID})
 }
 
 // fusionMergeStreamColumn kopiert eine einzelne Stream-Spalte von sourceID → targetID
@@ -903,6 +975,8 @@ var sessionOnlyCOALESCECols = []string{
 //  1. NULL out external IDs and set source = 'fusion'
 //  2. Override FieldMap-correlated aggregates from designated sources
 //  3. COALESCE session-only fields from non-richest sources
+//
+// allSourceIDs is derived from the keys of allActivities; callers no longer pass it separately.
 func applyFusionMetadataOverrides(
 	ctx context.Context,
 	q database.Querier,
@@ -910,8 +984,12 @@ func applyFusionMetadataOverrides(
 	richestSourceID string,
 	fieldMap map[string]string,
 	allActivities map[string]*model.Activity,
-	allSourceIDs []string,
 ) error {
+	// Derive allSourceIDs from the map so callers don't duplicate this.
+	allSourceIDs := make([]string, 0, len(allActivities))
+	for id := range allActivities {
+		allSourceIDs = append(allSourceIDs, id)
+	}
 	// Step 1: NULL out external IDs + set source = 'fusion'.
 	if _, err := q.Exec(ctx, `UPDATE activities SET
 		garmin_activity_id = NULL,
@@ -1025,18 +1103,9 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load all activities + ownership check.
-	activities := make(map[string]*model.Activity, len(req.Sources))
-	for _, id := range req.Sources {
-		act, err := h.DB.GetActivity(r.Context(), id)
-		if err != nil || act == nil {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", fmt.Sprintf("activity %s not found", id), r.URL.Path)
-			return
-		}
-		if act.UserID != userID {
-			httputil.WriteError(w, http.StatusForbidden, "Forbidden", "not your activity", r.URL.Path)
-			return
-		}
-		activities[id] = act
+	activities, ok := h.loadAndVerifyActivities(w, r, userID, req.Sources)
+	if !ok {
+		return
 	}
 
 	// Validate FieldMap.
@@ -1091,7 +1160,7 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 1b. FieldMap-aware metadata overrides.
-	if err := applyFusionMetadataOverrides(ctx, tx, merged.ID, metadataSource.ID, req.FieldMap, activities, req.Sources); err != nil {
+	if err := applyFusionMetadataOverrides(ctx, tx, merged.ID, metadataSource.ID, req.FieldMap, activities); err != nil {
 		slog.Error("fusion-merge-v2: metadata overrides failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to apply metadata overrides", r.URL.Path)
 		return
@@ -1149,55 +1218,39 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 4. Title from designated source.
-	if req.TitleSource != nil {
-		if src, ok := activities[*req.TitleSource]; ok && src.Title != nil {
-			if _, err := tx.Exec(ctx,
-				`UPDATE activities SET title = $2, has_edits = true WHERE id = $1`,
-				merged.ID, *src.Title,
-			); err != nil {
-				slog.Warn("fusion-merge-v2: update title failed", "error", err)
-			}
-		}
+	// 4-7 + rebuild + audit log: shared finalization within transaction.
+	auditData, _ := json.Marshal(map[string]any{
+		"type":      "fusion_merge_v2",
+		"sources":   req.Sources,
+		"field_map": req.FieldMap,
+		"group_id":  req.GroupID,
+	})
+	var fitLevelTargetID string
+	var fitLevelSourceIDs []string
+	if req.FitLevel && len(req.Sources) >= 2 {
+		fitLevelTargetID = req.Sources[0]
+		fitLevelSourceIDs = req.Sources[1:]
 	}
-
-	// 5. Gear from designated source.
-	if req.GearSource != nil {
-		if src, ok := activities[*req.GearSource]; ok && src.GearID != nil {
-			tx.Exec(ctx, `UPDATE activities SET gear_id = $2, has_edits = true WHERE id = $1`, merged.ID, src.GearID) //nolint:errcheck
-		}
+	fp := fusionFinalizeParams{
+		userID:            userID,
+		merged:            merged,
+		allSourceIDs:      req.Sources,
+		activities:        activities,
+		fieldMap:          req.FieldMap,
+		titleSource:       req.TitleSource,
+		tagsMerge:         req.TagsMerge,
+		gearSource:        req.GearSource,
+		fitLevel:          req.FitLevel,
+		fitLevelTargetID:  fitLevelTargetID,
+		fitLevelSourceIDs: fitLevelSourceIDs,
+		auditData:         auditData,
 	}
-
-	// 6. Tags merge.
-	if req.TagsMerge {
-		for _, srcID := range req.Sources {
-			if err := fusionMergeActivityTags(ctx, tx, merged.ID, srcID); err != nil {
-				slog.Warn("fusion-merge-v2: merge tags failed", "source", srcID, "error", err)
-			}
-		}
-	}
-
-	// 7. Set fusion_sources on new activity.
-	sourceMap := make(database.FusionSources, len(req.FieldMap))
-	maps.Copy(sourceMap, req.FieldMap)
-	sourcesJSON, err := json.Marshal(sourceMap)
-	if err != nil {
-		slog.Warn("fusion-merge-v2: marshal fusion sources failed", "error", err)
-	} else {
-		if _, err := tx.Exec(ctx,
-			`UPDATE activities SET fusion_sources = $2 WHERE id = $1 AND user_id = $3`,
-			merged.ID, sourcesJSON, userID,
-		); err != nil {
-			slog.Warn("fusion-merge-v2: set fusion sources failed", "error", err)
-		}
-	}
+	h.applyFusionTxExtras(ctx, tx, fp)
 
 	// 8. Source visibility: group-aware vs legacy.
-	if req.GroupID != nil && *req.GroupID != "" {
-		// Group mode: sources stay visible, fused activity joins the group with is_fused = TRUE.
-		// This is done AFTER commit (see below) because AddRecordingGroupMemberFused uses its own tx.
-	} else {
+	if req.GroupID == nil || *req.GroupID == "" {
 		// Legacy ad-hoc mode: hide sources via parent_id.
+		// Group mode: sources stay visible; fused activity joins the group post-commit.
 		for _, id := range req.Sources {
 			if _, err := tx.Exec(ctx,
 				`UPDATE activities SET parent_id = $2 WHERE id = $1 AND user_id = $3`,
@@ -1217,34 +1270,6 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("fusion-merge-v2: update time bounds failed", "error", err)
 	}
 
-	// 10. Rebuild track + heatmap (best-effort, outside tx).
-	if merged.HasGPS {
-		if err := h.DB.RebuildActivityTrack(ctx, merged.ID); err != nil {
-			slog.Warn("fusion-merge-v2: rebuild track failed", "error", err)
-		}
-		if !merged.ExcludeFromHeatmap {
-			if err := h.DB.RebuildHeatmapData(ctx, merged.ID); err != nil {
-				slog.Warn("fusion-merge-v2: rebuild heatmap failed", "error", err)
-			}
-		}
-		h.DB.InvalidateTerraIncognitaCache(ctx, userID)
-	}
-
-	// 11. Audit log (inside transaction).
-	auditData, _ := json.Marshal(map[string]any{
-		"type":      "fusion_merge_v2",
-		"sources":   req.Sources,
-		"field_map": req.FieldMap,
-		"group_id":  req.GroupID,
-	})
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO activity_edits (activity_id, user_id, edit_type, edit_data)
-		 VALUES ($1, $2, 'fusion_merge', $3)`,
-		merged.ID, userID, auditData,
-	); err != nil {
-		slog.Warn("fusion-merge-v2: failed to insert audit record", "id", merged.ID, "error", err)
-	}
-
 	// Commit transaction.
 	if err := tx.Commit(ctx); err != nil {
 		slog.Error("fusion-merge-v2: commit transaction failed", "error", err)
@@ -1260,28 +1285,8 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Post-commit: FIT-level merge.
-	if req.FitLevel && len(req.Sources) >= 2 {
-		// Use first source as "target" for FIT-level merge (best-effort).
-		if err := h.fitLevelMerge(ctx, userID, req.Sources[0], merged.ID, req.Sources[1:], req.FieldMap, activities); err != nil {
-			slog.Error("fusion-merge-v2: FIT-level merge failed", "target", merged.ID, "error", err)
-		} else {
-			slog.Info("fusion-merge-v2: FIT-level merge completed", "target", merged.ID)
-		}
-	}
-
-	// Post-commit: write .meta companion (ShadowFS).
-	mergedAct, _ := h.DB.GetActivity(ctx, merged.ID)
-	if mergedAct != nil && mergedAct.FileID != nil && *mergedAct.FileID != "" {
-		sidecar.WriteMetaCompanion(ctx, h.ShadowFS, h.DB, userID, merged.ID, *mergedAct.FileID, nil, mergedAct)
-	}
-
-	// Post-commit: remove cached fusion candidates.
-	for _, id := range req.Sources {
-		if err := h.DB.DeleteFusionCandidatesForActivity(ctx, id); err != nil {
-			slog.Warn("fusion-merge-v2: delete cached candidates failed", "id", id, "error", err)
-		}
-	}
+	// Post-commit: FIT-level merge, sidecar write, candidate cache cleanup.
+	h.postCommitFusionCleanup(ctx, fp)
 
 	slog.Info("fusion-merge-v2: completed", "new_id", merged.ID, "sources", req.Sources)
 	httputil.WriteJSON(w, http.StatusCreated, map[string]string{"id": merged.ID})
