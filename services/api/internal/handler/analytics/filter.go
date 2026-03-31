@@ -341,6 +341,8 @@ func (f *AnalyticsFilter) BuildWhereClause(startIdx int) (string, []any) {
 	}
 	// Always exclude activities marked as excluded from stats in analytics aggregations.
 	conditions = append(conditions, "NOT a.exclude_from_stats")
+	// Always exclude group-secondary activities (duplicate recordings in recording groups).
+	conditions = append(conditions, "NOT a.is_group_secondary")
 
 	if len(conditions) == 0 {
 		return "", nil

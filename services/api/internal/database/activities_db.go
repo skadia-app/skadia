@@ -946,7 +946,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 
 	var total int
 	if err := db.Pool.QueryRow(ctx,
-		fmt.Sprintf(`SELECT COUNT(*) FROM activities WHERE user_id = $1 AND parent_id IS NULL %s`, countFilterSQL), countArgs...,
+		fmt.Sprintf(`SELECT COUNT(*) FROM activities WHERE user_id = $1 AND parent_id IS NULL AND NOT is_group_secondary %s`, countFilterSQL), countArgs...,
 	).Scan(&total); err != nil {
 		return nil, fmt.Errorf("count activities: %w", err)
 	}
@@ -985,6 +985,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 					FROM activities
 					WHERE user_id = $1
 						AND parent_id IS NULL
+						AND NOT is_group_secondary
 						AND (%s, id) %s ($2, $3)
 						%s
 					ORDER BY %s
@@ -1005,6 +1006,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 				FROM activities
 				WHERE user_id = $1
 					AND parent_id IS NULL
+					AND NOT is_group_secondary
 					AND %s IS NULL
 					AND id %s $2
 					%s
@@ -1030,6 +1032,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 					FROM activities
 					WHERE user_id = $1
 						AND parent_id IS NULL
+						AND NOT is_group_secondary
 						%s
 						%s
 					ORDER BY %s
@@ -1052,6 +1055,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 			FROM activities
 			WHERE user_id = $1
 			AND parent_id IS NULL
+			AND NOT is_group_secondary
 			%s
 			ORDER BY %s
 			LIMIT $%d`, selectCols, filterSQL, orderClause, limitIdx)

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/fusion"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
@@ -243,6 +244,98 @@ func (h *Handler) runFusionQueueCompute(ctx context.Context, jobID, userID strin
 		return
 	}
 
+	// Clique-Integration: Gruppen von Duplikaten automatisch als RecordingGroups anlegen.
+	if err := h.runCliqueIntegration(ctx, userID, threshold); err != nil {
+		// Nicht-fataler Fehler: Clique-Integration schlägt den Job nicht fehl.
+		slog.Warn("fusion queue compute: clique integration failed", "error", err)
+	}
+
 	slog.Info("fusion queue compute: done", "user_id", userID, "candidates", len(candidates), "duration", time.Since(start))
 	h.DB.CompleteBackgroundJob(ctx, jobID, false, "") //nolint:errcheck
+}
+
+// runCliqueIntegration lädt alle Fusion-Kandidatenpaare, baut Cliquen und
+// legt für jede Clique eine RecordingGroup an (oder erweitert eine bestehende).
+func (h *Handler) runCliqueIntegration(ctx context.Context, userID string, threshold float64) error {
+	pairs, err := h.DB.GetAllFusionCandidatePairs(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("load fusion candidate pairs: %w", err)
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+
+	// Alle Aktivitäts-IDs aus den Paaren sammeln.
+	idSet := make(map[string]bool, len(pairs)*2)
+	for _, p := range pairs {
+		idSet[p.ActivityIDA] = true
+		idSet[p.ActivityIDB] = true
+	}
+	allIDs := make([]string, 0, len(idSet))
+	for id := range idSet {
+		allIDs = append(allIDs, id)
+	}
+
+	// Multisport-Kinder herausfiltern (parent_id IS NOT NULL).
+	children, err := h.DB.GetMultisportChildIDs(ctx, allIDs)
+	if err != nil {
+		return fmt.Errorf("get multisport child ids: %w", err)
+	}
+
+	// Paare filtern: beide IDs dürfen keine Multisport-Kinder sein.
+	filtered := pairs[:0]
+	for _, p := range pairs {
+		if !children[p.ActivityIDA] && !children[p.ActivityIDB] {
+			filtered = append(filtered, p)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+
+	cliques := fusion.BuildCliques(filtered, threshold)
+
+	for _, clique := range cliques {
+		if len(clique) < 2 {
+			continue
+		}
+
+		// Prüfen ob eines der Clique-Mitglieder bereits in einer Gruppe ist.
+		var existingGroup *database.RecordingGroup
+		for _, memberID := range clique {
+			g, err := h.DB.GetRecordingGroupForActivity(ctx, memberID)
+			if err != nil {
+				slog.Warn("clique integration: get recording group failed", "activity_id", memberID, "error", err)
+				continue
+			}
+			if g != nil {
+				existingGroup = g
+				break
+			}
+		}
+
+		if existingGroup != nil {
+			// Gruppe erweitern: neue Mitglieder hinzufügen die noch nicht drin sind.
+			for _, memberID := range clique {
+				g, err := h.DB.GetRecordingGroupForActivity(ctx, memberID)
+				if err != nil {
+					slog.Warn("clique integration: membership check failed", "activity_id", memberID, "error", err)
+					continue
+				}
+				if g == nil {
+					if err := h.DB.AddRecordingGroupMember(ctx, existingGroup.ID, memberID); err != nil {
+						slog.Warn("clique integration: add member failed", "group_id", existingGroup.ID, "activity_id", memberID, "error", err)
+					}
+				}
+			}
+		} else {
+			// Neue Gruppe erstellen.
+			primaryID := fusion.BestPrimary(filtered, clique)
+			members := []string(clique)
+			if _, err := h.DB.CreateRecordingGroup(ctx, userID, members, primaryID, ""); err != nil {
+				slog.Warn("clique integration: create recording group failed", "error", err)
+			}
+		}
+	}
+	return nil
 }
