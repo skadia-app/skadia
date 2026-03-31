@@ -131,6 +131,43 @@ func normalizeDir(dx, dy float32) (float32, float32) {
 	return 0, 0
 }
 
+// routeSameEdge handles the special case where source and destination project
+// to the same edge. The direct path on the edge is always optimal (triangle inequality).
+func (r *UnifiedRouter) routeSameEdge(srcVE, dstVE *VirtualEndpoint, cfg *CostConfig) *RouteResult {
+	proj := srcVE.Proj
+	fracFrom := srcVE.Proj.FractionAB
+	fracTo := dstVE.Proj.FractionAB
+
+	if fracFrom > fracTo {
+		fracFrom, fracTo = fracTo, fracFrom
+	}
+
+	directFraction := fracTo - fracFrom
+	directDist := directFraction * proj.EdgeDistM
+
+	eleFrom := float64(proj.EleA_dm) + fracFrom*float64(proj.EleB_dm-proj.EleA_dm)
+	eleTo := float64(proj.EleA_dm) + fracTo*float64(proj.EleB_dm-proj.EleA_dm)
+	var ascent, descent float64
+	diff := (eleTo - eleFrom) / 10.0 // dm → m
+	if diff > 0 {
+		ascent = diff
+	} else {
+		descent = -diff
+	}
+
+	coords := []LatLonEle{
+		{Lat: srcVE.Proj.ProjLat, Lon: srcVE.Proj.ProjLon, Ele: float64(srcVE.Proj.ProjEleDm) / 10.0},
+		{Lat: dstVE.Proj.ProjLat, Lon: dstVE.Proj.ProjLon, Ele: float64(dstVE.Proj.ProjEleDm) / 10.0},
+	}
+
+	return &RouteResult{
+		Coordinates: coords,
+		DistanceM:   directDist,
+		AscentM:     ascent,
+		DescentM:    descent,
+	}
+}
+
 // Route computes a route from start to destination using findRouteUnified
 // (pass0 -> buildTrackIndexUnified -> pass1 -> retrackUnified).
 func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
