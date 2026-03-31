@@ -1194,40 +1194,53 @@ export default function ActivitiesPage() {
                 {activity.recording_group_id && expandedGroupIds.has(activity.id) && (() => {
                   const groupData = groupMembersMap[activity.id]
                   const members = groupData?.members ?? []
-                  const primaryId = groupData?.primaryActivityId
                   return (
                     <tr key={`group-${activity.id}`}>
                       <td colSpan={8} className="py-0 px-4">
-                        <div className="border-l-2 border-orange-300 dark:border-orange-700 ml-6 pl-4 py-3 flex flex-col gap-2">
+                        <div className="border-l-2 border-orange-200 dark:border-orange-800 ml-6 pl-4 py-3 flex flex-col gap-2">
                           {members.length === 0 && !groupData && (
                             <span className="text-xs text-neutral-400">Lade...</span>
                           )}
-                          {members.map((member, i) => (
-                            <div key={member.activity_id} className="flex items-center gap-3 text-xs">
-                              <span
-                                className="w-2.5 h-2.5 rounded-full shrink-0"
-                                style={{ background: getSourceColor(i) }}
-                              />
-                              <span className="font-medium w-32 truncate text-neutral-700 dark:text-neutral-300">
-                                {member.source_device ?? member.source ?? 'Unbekannt'}
-                              </span>
-                              <span className="text-neutral-400">
-                                {member.original_file_format ?? '—'}
-                                {member.field_richness != null ? ` · ${member.field_richness} Felder` : ''}
-                                {member.distance_m ? ` · ${formatDistance(member.distance_m)}` : ''}
-                              </span>
-                              {member.activity_id === primaryId && (
-                                <span className="ml-auto shrink-0 px-1.5 py-0.5 rounded text-orange-700 dark:text-orange-300 bg-orange-100 dark:bg-orange-900/30 text-xs font-medium">
-                                  ★ Primär
+                          {members.map((member, i) => {
+                            const formatInfo = [
+                              member.original_file_format?.toUpperCase() ?? '—',
+                              member.field_richness != null ? `${member.field_richness} Felder` : null,
+                            ].filter(Boolean).join(' · ')
+                            return (
+                              <div key={member.activity_id} className="flex items-center gap-3 text-xs">
+                                {/* LEFT: dot + device + format */}
+                                <span
+                                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                                  style={{ background: getSourceColor(i) }}
+                                />
+                                <span className="font-medium w-32 truncate text-neutral-700 dark:text-neutral-300">
+                                  {member.source_device ?? member.source ?? 'Unbekannt'}
                                 </span>
-                              )}
-                              {member.is_fused && (
-                                <span className="shrink-0 px-1.5 py-0.5 rounded text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/30 text-xs font-medium">
-                                  ⚡ Fusioniert
+                                <span className="text-neutral-400 truncate flex-1 min-w-0">
+                                  {formatInfo}
                                 </span>
-                              )}
-                            </div>
-                          ))}
+                                {/* RIGHT: distance */}
+                                <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400 w-20 text-right">
+                                  {member.distance_m ? formatDistance(member.distance_m) : '—'}
+                                </span>
+                                {/* RIGHT: time */}
+                                <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400 w-16 text-right">
+                                  {member.elapsed_time_s ? formatDuration(member.elapsed_time_s) : '—'}
+                                </span>
+                                {/* badges */}
+                                {(member.is_primary || member.activity_id === groupData?.primaryActivityId) && (
+                                  <span className="shrink-0 px-1.5 py-0.5 rounded text-orange-700 dark:text-orange-300 bg-orange-100 dark:bg-orange-900/30 text-xs font-medium">
+                                    ★ Primär
+                                  </span>
+                                )}
+                                {member.is_fused && (
+                                  <span className="shrink-0 px-1.5 py-0.5 rounded text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/30 text-xs font-medium">
+                                    ⚡ Fusioniert
+                                  </span>
+                                )}
+                              </div>
+                            )
+                          })}
                           <Link
                             to={`/activities/group/${activity.recording_group_id}`}
                             className="text-orange-600 dark:text-orange-400 text-xs hover:underline mt-1 inline-flex items-center gap-1"

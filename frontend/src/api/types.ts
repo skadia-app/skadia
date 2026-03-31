@@ -1073,10 +1073,13 @@ export interface RecordingGroup {
 export interface RecordingGroupMember {
   activity_id: string
   is_fused: boolean
-  title: string
+  is_primary: boolean
+  title: string | null
+  title_auto: string | null
   started_at: string
   sport_type: string
-  distance_m: number
+  distance_m: number | null
+  elapsed_time_s: number | null
   field_richness: number
   source_device: string | null
   source: string | null
