@@ -110,6 +110,15 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 											val = resolveNameTemplate(tmpl, actMap)
 										}
 									}
+									if change.Field == "notify" {
+										if tmpl, ok := val.(string); ok && tmpl != "" {
+											body := resolveNameTemplate(tmpl, actMap)
+											if err3 := db.CreateNotification(ctx, userID, "rule", rule.Name, body); err3 != nil {
+												slog.Warn("rule notify (branch)", "activity_id", activityID, "rule_id", rule.ID, "error", err3)
+											}
+										}
+										continue
+									}
 									if err3 := db.ApplyRuleChange(ctx, activityID, change.Field, val); err3 != nil {
 										slog.Warn("apply branch change", "activity_id", activityID, "rule_id", rule.ID, "field", change.Field, "error", err3)
 									}
@@ -135,6 +144,15 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 					if tmpl, ok := val.(string); ok {
 						val = resolveNameTemplate(tmpl, actMap)
 					}
+				}
+				if change.Field == "notify" {
+					if tmpl, ok := val.(string); ok && tmpl != "" {
+						body := resolveNameTemplate(tmpl, actMap)
+						if err := db.CreateNotification(ctx, userID, "rule", rule.Name, body); err != nil {
+							slog.Warn("rule notify", "activity_id", activityID, "rule_id", rule.ID, "error", err)
+						}
+					}
+					continue
 				}
 				if err := db.ApplyRuleChange(ctx, activityID, change.Field, val); err != nil {
 					slog.Warn("apply rule change", "activity_id", activityID, "rule_id", rule.ID, "field", change.Field, "error", err)

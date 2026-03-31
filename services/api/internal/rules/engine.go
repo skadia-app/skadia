@@ -576,6 +576,10 @@ func Apply(actions []Action) []ActivityChange {
 					changes = append(changes, ActivityChange{Field: p.Field, Value: p.Value})
 				}
 			}
+		case "notify":
+			if p.Template != "" {
+				changes = append(changes, ActivityChange{Field: "notify", Value: p.Template})
+			}
 		}
 	}
 	return changes
