@@ -51,6 +51,8 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 	// Inconsistency risk is low: each ApplyRuleChange is idempotent
 	// (ON CONFLICT DO NOTHING for add_tag, simple UPDATE for fields).
 	// A future refactor could introduce a querier interface.
+	ruleMatchCounts := map[string]int{}
+	ruleEvaluatedIDs := map[string]bool{}
 	for _, rule := range allRules {
 		if !shouldEvaluateRule(rule, triggerEvent) {
 			continue
@@ -71,6 +73,8 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 		if err := json.Unmarshal(rule.Actions, &actions); err != nil {
 			continue
 		}
+
+		ruleEvaluatedIDs[rule.ID] = true
 
 		// Evaluate conditions
 		matched := EvaluateRule(rule, actMap)
@@ -117,6 +121,7 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 					if err := db.IncrementRuleApplied(ctx, rule.ID); err != nil {
 						slog.Warn("increment rule applied", "rule_id", rule.ID, "error", err)
 					}
+					ruleMatchCounts[rule.ID]++
 					if rule.StopOnMatch {
 						break
 					}
@@ -138,6 +143,7 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 			if err := db.IncrementRuleApplied(ctx, rule.ID); err != nil {
 				slog.Warn("increment rule applied", "rule_id", rule.ID, "error", err)
 			}
+			ruleMatchCounts[rule.ID]++
 			// Stop-processing: if this rule matched and has stop_on_match, skip remaining rules
 			if rule.StopOnMatch {
 				break
@@ -171,6 +177,24 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 		}
 		// User rules: no match → do nothing (no retraction)
 	}
+
+	// Update last_evaluated_at and last_matched_count for each matched rule.
+	now := time.Now()
+	for ruleID, matchCount := range ruleMatchCounts {
+		db.Pool.Exec(ctx,
+			`UPDATE automation_rules SET last_evaluated_at = $1, last_matched_count = $2 WHERE id = $3`,
+			now, matchCount, ruleID)
+	}
+	// Update last_evaluated_at for evaluated-but-unmatched rules.
+	for ruleID := range ruleEvaluatedIDs {
+		if _, alreadyUpdated := ruleMatchCounts[ruleID]; alreadyUpdated {
+			continue
+		}
+		db.Pool.Exec(ctx,
+			`UPDATE automation_rules SET last_evaluated_at = $1 WHERE id = $2`,
+			now, ruleID)
+	}
+
 	return nil
 }
 

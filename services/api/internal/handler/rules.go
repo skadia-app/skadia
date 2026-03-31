@@ -438,8 +438,10 @@ func (h *Handler) applySingleRuleToAll(ctx context.Context, userID string, rule 
 		return err
 	}
 	singleRule := []model.AutomationRule{rule}
+	var errorCount int
 	for i, actID := range actIDs {
 		if err := automation.ApplyRulesToActivity(ctx, h.DB, actID, userID, singleRule, ""); err != nil {
+			errorCount++
 			slog.Warn("apply single rule to activity", "activity_id", actID, "rule_id", rule.ID, "error", err)
 		}
 		if i%50 == 0 || i == len(actIDs)-1 {
@@ -448,6 +450,9 @@ func (h *Handler) applySingleRuleToAll(ctx context.Context, userID string, rule 
 			}
 		}
 	}
-	slog.Info("apply single rule: done", "user_id", userID, "rule_id", rule.ID, "total", len(actIDs))
+	slog.Info("apply single rule: done", "user_id", userID, "rule_id", rule.ID, "total", len(actIDs), "errors", errorCount)
+	if errorCount > 0 {
+		return fmt.Errorf("%d errors processing %d activities", errorCount, len(actIDs))
+	}
 	return nil
 }
