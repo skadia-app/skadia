@@ -415,9 +415,8 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	// - strength_training/hiit + emom  → tag "EMOM"
 	// - sail_race / ultra sub_type     → tag "Wettkampf"
 	if data.SubType == "commuting" && data.SportType == "cycling" {
-		tagBase := data.Tags
-		tagBase = appendTagIfMissing(tagBase, "Pendeln")
-		fields["tags"] = tagBase
+		// Set is_commute=true; the DB trigger will sync the Pendeln tag bidirectionally.
+		fields["is_commute"] = true
 		fields["sub_type"] = ""
 		data.SubType = "" // prevent downstream use
 	}
