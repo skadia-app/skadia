@@ -146,6 +146,8 @@ export interface Activity {
   child_count?: number
   // Fusion result: maps stream fields to source activity IDs.
   fusion_sources?: Record<string, string> | null
+  // Recording group this activity belongs to.
+  recording_group_id?: string | null
   // Platform IDs for deep-linking back to the source platform.
   garmin_activity_id?: number | null
   strava_activity_id?: number | null
@@ -1043,4 +1045,41 @@ export interface DeveloperFieldInfo {
   field_key: string
   units: string
   app_id: string
+}
+
+// ── Recording Groups ──
+export interface RecordingGroup {
+  id: string
+  user_id: string
+  primary_activity_id: string | null
+  sport_type: string | null
+  created_at: string
+  confirmed: boolean
+  members: RecordingGroupMember[]
+}
+
+export interface RecordingGroupMember {
+  activity_id: string
+  is_fused: boolean
+  title: string
+  started_at: string
+  sport_type: string
+  distance_m: number
+  field_richness: number
+  source_device: string | null
+  source: string | null
+  original_file_format: string | null
+  has_gps: boolean
+}
+
+// ── Fusion Merge V2 ──
+export interface FusionMergeRequestV2 {
+  sources: string[]
+  field_map: Record<string, string>
+  gps_fusion_config?: { primary_source: string; extend_track: boolean }
+  title_source?: string
+  tags_merge: boolean
+  gear_source?: string
+  fit_level: boolean
+  group_id?: string
 }
