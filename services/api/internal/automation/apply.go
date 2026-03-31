@@ -74,6 +74,10 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 			if err := db.IncrementRuleApplied(ctx, rule.ID); err != nil {
 				slog.Warn("increment rule applied", "rule_id", rule.ID, "error", err)
 			}
+			// Stop-processing: if this rule matched and has stop_on_match, skip remaining rules
+			if rule.StopOnMatch {
+				break
+			}
 		} else if rule.IsSystem {
 			// Retraction semantics:
 			// - System rules retract: if conditions no longer match, tags/set_field values are reset to defaults.
