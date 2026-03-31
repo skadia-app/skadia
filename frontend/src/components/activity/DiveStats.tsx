@@ -13,8 +13,9 @@ function fmtTime(isoString?: string): string | null {
 }
 
 function fmtWaterType(waterType: string): string {
-  if (waterType === 'freshwater') return 'Süßwasser'
-  if (waterType === 'saltwater') return 'Salzwasser'
+  if (waterType === 'fresh') return 'Süßwasser'
+  if (waterType === 'salt') return 'Salzwasser'
+  if (waterType === 'en13319') return 'EN 13319'
   return waterType
 }
 
