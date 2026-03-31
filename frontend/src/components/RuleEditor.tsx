@@ -236,6 +236,24 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
       operators: ['contains'],
     },
   ]},
+  { key: 'enrichment', label: 'Enrichment', fields: [
+    { field: 'has_summit', label: 'Gipfel erkannt', inputType: 'bool' },
+    { field: 'summit_count', label: 'Anzahl Gipfel', inputType: 'number' },
+    { field: 'has_pass', label: 'Pass erkannt', inputType: 'bool' },
+    { field: 'border_crossing_count', label: 'Grenzquerungen', inputType: 'number' },
+    { field: 'has_gastronomy_stop', label: 'Einkehr erkannt', inputType: 'bool' },
+    { field: 'stop_count', label: 'Anzahl POI-Stops', inputType: 'number' },
+    { field: 'commute_detected', label: 'Pendeln erkannt', inputType: 'bool' },
+    { field: 'has_structured_intervals', label: 'Intervalle erkannt', inputType: 'bool' },
+    { field: 'interval_count', label: 'Anzahl Intervalle', inputType: 'number' },
+    { field: 'has_hc_climb', label: 'HC-Anstieg', inputType: 'bool' },
+  ]},
+  { key: 'surface', label: 'Oberfläche', fields: [
+    { field: 'surface_paved_pct', label: 'Asphalt-Anteil', inputType: 'number', unit: '%' },
+    { field: 'surface_gravel_pct', label: 'Gravel-Anteil', inputType: 'number', unit: '%' },
+    { field: 'surface_trail_pct', label: 'Trail-Anteil', inputType: 'number', unit: '%' },
+    { field: 'surface_unknown_pct', label: 'Unbekannt-Anteil', inputType: 'number', unit: '%' },
+  ]},
 ]
 
 // Internal-only fields not shown in category dropdown (geofence, round-trip)
