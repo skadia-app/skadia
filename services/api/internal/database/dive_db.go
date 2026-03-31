@@ -77,6 +77,43 @@ func (db *DB) InsertDiveGases(ctx context.Context, gases []model.DiveGas) error 
 	return nil
 }
 
+// GetDivePo2Stats returns min/max pO₂ and the depth at those exact points.
+// Uses window functions to correlate pO₂ extremes with their depth reading.
+func (db *DB) GetDivePo2Stats(ctx context.Context, activityID string) (*model.DivePo2Stats, error) {
+	const q = `
+        WITH ranked AS (
+            SELECT
+                po2,
+                depth_m,
+                ROW_NUMBER() OVER (ORDER BY po2 ASC)  AS rn_min,
+                ROW_NUMBER() OVER (ORDER BY po2 DESC) AS rn_max
+            FROM activity_streams
+            WHERE activity_id = $1
+              AND po2 IS NOT NULL
+              AND po2 > 0
+        )
+        SELECT
+            (SELECT po2     FROM ranked WHERE rn_min = 1) AS min_po2,
+            (SELECT depth_m FROM ranked WHERE rn_min = 1) AS min_po2_depth,
+            (SELECT po2     FROM ranked WHERE rn_max = 1) AS max_po2,
+            (SELECT depth_m FROM ranked WHERE rn_max = 1) AS max_po2_depth
+    `
+	var s model.DivePo2Stats
+	var minDepth, maxDepth *float64
+	err := db.Pool.QueryRow(ctx, q, activityID).Scan(
+		&s.MinPo2, &minDepth, &s.MaxPo2, &maxDepth,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if s.MinPo2 == 0 && s.MaxPo2 == 0 {
+		return nil, nil // no pO₂ data
+	}
+	s.MinPo2Depth = minDepth
+	s.MaxPo2Depth = maxDepth
+	return &s, nil
+}
+
 // GetDiveGases returns all gas mixes for the given activity.
 func (db *DB) GetDiveGases(ctx context.Context, activityID string) ([]model.DiveGas, error) {
 	rows, err := db.Pool.Query(ctx, `
