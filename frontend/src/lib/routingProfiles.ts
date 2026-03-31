@@ -28,6 +28,8 @@ export interface ProfileConfig {
   turn_cost?: number
   initial_cost_road?: number
   pass0_coefficient?: number
+  // Offroad / snap
+  snap_threshold_m?: number
   // Highway cost overrides (null from API = blocked type)
   path_cost?: number
   track_cost?: number
