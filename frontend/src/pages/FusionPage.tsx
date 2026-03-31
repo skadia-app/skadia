@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { fetchActivity, fetchActivityStreams } from '@/api/activities'
@@ -8,13 +8,13 @@ import {
   executeFusionMergeV2,
   setGroupPrimary,
 } from '@/api/recordingGroups'
-import type { RecordingGroupMember } from '@/api/types'
 import { fmtDateCompact } from '@/lib/format'
+import { deviceLabel } from '@/lib/deviceUtils'
 import { getSourceColor } from '@/lib/comparisonColors'
 import { SourcesProvider, type SourceInfo } from '@/components/comparison/SourcesContext'
 import MultiTrackMap from '@/components/comparison/MultiTrackMap'
 import StreamChartContainer from '@/components/comparison/StreamChartContainer'
-import FusionFieldTable from '@/components/fusion/FusionFieldTable'
+import FusionFieldTable, { FUSION_FIELDS } from '@/components/fusion/FusionFieldTable'
 import { useToast } from '@/lib/toast'
 
 // ── Source letter labels ───────────────────────────────────────────────────────
@@ -23,16 +23,6 @@ const SOURCE_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'] as const
 
 function sourceLabel(index: number): string {
   return SOURCE_LETTERS[index] ?? String(index + 1)
-}
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-function deviceLabel(device?: string | null, source?: string | null, format?: string | null): string | null {
-  const devicePart = device || source || null
-  const formatPart = format ? format.toUpperCase() : null
-  if (!devicePart && !formatPart) return null
-  if (devicePart && formatPart) return `${devicePart} · ${formatPart}`
-  return devicePart ?? formatPart
 }
 
 // ── Activity metadata for the field table ─────────────────────────────────────
@@ -49,6 +39,7 @@ export interface FusionActivityInfo {
   has_altitude: boolean
   has_cadence: boolean
   has_temperature: boolean
+  has_running_dynamics: boolean
   distance_m: number
 }
 
@@ -72,6 +63,7 @@ export default function FusionPage() {
   const [isMerging, setIsMerging] = useState(false)
   const [showGroupPrimaryDialog, setShowGroupPrimaryDialog] = useState(false)
   const [fusedActivityId, setFusedActivityId] = useState<string | null>(null)
+  const initialisedRef = useRef(false)
 
   // ── Data loading ─────────────────────────────────────────────────────────────
 
@@ -88,21 +80,21 @@ export default function FusionPage() {
     enabled: !!groupId,
   })
 
-  // Auto-populate sources from group members on first load
+  // Auto-populate sources on first load — from group members or ?ids= param.
+  // Uses a ref so that neither branch can fire twice and they don't race each other.
   useEffect(() => {
-    if (groupMembers.length === 0) return
-    if (selectedSources.length > 0) return // already set
-    const ids = groupMembers.slice(0, 6).map(m => m.activity_id)
-    setSelectedSources(ids)
-  }, [groupMembers])
-
-  // Auto-populate sources from ?ids= on first load
-  useEffect(() => {
-    if (!idsParam) return
-    if (selectedSources.length > 0) return
-    const ids = idsParam.split(',').filter(Boolean).slice(0, 6)
-    if (ids.length > 0) setSelectedSources(ids)
-  }, [idsParam])
+    if (initialisedRef.current) return
+    if (groupMembers.length > 0) {
+      initialisedRef.current = true
+      setSelectedSources(groupMembers.slice(0, 6).map(m => m.activity_id))
+    } else if (idsParam) {
+      const ids = idsParam.split(',').filter(Boolean).slice(0, 6)
+      if (ids.length > 0) {
+        initialisedRef.current = true
+        setSelectedSources(ids)
+      }
+    }
+  }, [groupMembers, idsParam])
 
   // Build the pool of available activity IDs for the dropdowns
   // When from group: all group members. When from ids: just those ids (no extra candidates).
@@ -138,10 +130,14 @@ export default function FusionPage() {
   const a5 = useQuery({ queryKey: ['activity', s5Id], queryFn: () => fetchActivity(s5Id!), enabled: !!s5Id && groupMembers.length === 0 })
   const activityQueries = [a0, a1, a2, a3, a4, a5]
 
-  // ── Build SourceInfo for shared components ────────────────────────────────────
+  // ── Build SourceInfo + FusionActivityInfo in a single pass ───────────────────
 
-  const sources: SourceInfo[] = useMemo(() => {
-    return selectedSources.map((id, i) => {
+  const { sources, fusionActivities } = useMemo(() => {
+    const srcs: SourceInfo[] = []
+    const fusions: FusionActivityInfo[] = []
+
+    for (let i = 0; i < selectedSources.length; i++) {
+      const id = selectedSources[i]
       const member = groupMembers.find(m => m.activity_id === id)
       const streams = streamQueries[i]?.data
       const act = activityQueries[i]?.data
@@ -150,56 +146,46 @@ export default function FusionPage() {
         ? deviceLabel(member.source_device, member.source, member.original_file_format)
         : deviceLabel(act?.source_device, act?.source, act?.original_file_format)
 
-      const label = `${sourceLabel(i)}${dl ? ` · ${dl}` : ''}`
-
-      return {
+      srcs.push({
         id,
-        label,
+        label: `${sourceLabel(i)}${dl ? ` · ${dl}` : ''}`,
         color: getSourceColor(i),
         activity: act,
         streams,
+      })
+
+      // Single pass over stream points to detect all capability flags
+      const pts = streams ?? []
+      let hasGpsStream = false, hasHr = false, hasPower = false
+      let hasAlt = false, hasCad = false, hasTemp = false, hasRunDyn = false
+      for (const p of pts) {
+        if (!hasGpsStream && p.lat != null) hasGpsStream = true
+        if (!hasHr && p.heart_rate != null) hasHr = true
+        if (!hasPower && p.power_w != null) hasPower = true
+        if (!hasAlt && p.altitude_m != null) hasAlt = true
+        if (!hasCad && p.cadence != null) hasCad = true
+        if (!hasTemp && p.temperature_c != null) hasTemp = true
+        if (!hasRunDyn && p.ground_contact_time_ms != null) hasRunDyn = true
+        if (hasGpsStream && hasHr && hasPower && hasAlt && hasCad && hasTemp && hasRunDyn) break
       }
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSources, groupMembers,
-    q0.data, q1.data, q2.data, q3.data, q4.data, q5.data,
-    a0.data, a1.data, a2.data, a3.data, a4.data, a5.data,
-  ])
 
-  // ── Build FusionActivityInfo for the field table ──────────────────────────────
-
-  const fusionActivities: FusionActivityInfo[] = useMemo(() => {
-    return selectedSources.map((id, i) => {
-      const member = groupMembers.find(m => m.activity_id === id)
-      const act = activityQueries[i]?.data
-      const dl = member
-        ? deviceLabel(member.source_device, member.source, member.original_file_format)
-        : deviceLabel(act?.source_device, act?.source, act?.original_file_format)
-
-      // Derive capability from streams if member data is insufficient
-      const streams = streamQueries[i]?.data ?? []
-      const hasGps = member?.has_gps ?? streams.some(p => p.lat != null)
-      const hasHr = streams.some(p => p.heart_rate != null)
-      const hasPower = streams.some(p => p.power_w != null)
-      const hasAlt = streams.some(p => p.altitude_m != null)
-      const hasCad = streams.some(p => p.cadence != null)
-      const hasTemp = streams.some(p => p.temperature_c != null)
-      const dist = member?.distance_m ?? act?.distance_m ?? 0
-
-      return {
+      fusions.push({
         id,
         label: sourceLabel(i),
         color: getSourceColor(i),
         deviceLabel: dl,
-        has_gps: hasGps,
+        has_gps: member?.has_gps ?? hasGpsStream,
         has_hr: hasHr,
         has_power: hasPower,
         has_altitude: hasAlt,
         has_cadence: hasCad,
         has_temperature: hasTemp,
-        distance_m: dist,
-      }
-    })
+        has_running_dynamics: hasRunDyn,
+        distance_m: member?.distance_m ?? act?.distance_m ?? 0,
+      })
+    }
+
+    return { sources: srcs, fusionActivities: fusions }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSources, groupMembers,
     q0.data, q1.data, q2.data, q3.data, q4.data, q5.data,
@@ -218,12 +204,12 @@ export default function FusionPage() {
     }, fusionActivities[0])
     if (!richer) return
     const auto: Record<string, string> = {}
-    if (richer.has_gps) auto['gps'] = richer.id
-    if (richer.has_hr) auto['hr'] = richer.id
-    if (richer.has_power) auto['power'] = richer.id
-    if (richer.has_altitude) auto['altitude'] = richer.id
-    if (richer.has_cadence) auto['cadence'] = richer.id
-    if (richer.has_temperature) auto['temperature'] = richer.id
+    if (richer.has_gps) auto[FUSION_FIELDS.GPS] = richer.id
+    if (richer.has_hr) auto[FUSION_FIELDS.HR] = richer.id
+    if (richer.has_power) auto[FUSION_FIELDS.POWER] = richer.id
+    if (richer.has_altitude) auto[FUSION_FIELDS.ALTITUDE] = richer.id
+    if (richer.has_cadence) auto[FUSION_FIELDS.CADENCE] = richer.id
+    if (richer.has_temperature) auto[FUSION_FIELDS.TEMPERATURE] = richer.id
     setFieldMap(auto)
   }, [fusionActivities.map(a => a.id).join(',')])
 
@@ -274,7 +260,7 @@ export default function FusionPage() {
         sources: selectedSources,
         field_map: fieldMap,
         gps_fusion_config:
-          fieldMap['gps'] === 'fuse'
+          fieldMap[FUSION_FIELDS.GPS] === 'fuse'
             ? { primary_source: gpsPrimarySource || selectedSources[0], extend_track: gpsExtendTrack }
             : undefined,
         title_source: titleSource ?? undefined,
@@ -474,7 +460,7 @@ export default function FusionPage() {
           />
 
           {/* GPS-Fusion-Konfiguration */}
-          {fieldMap['gps'] === 'fuse' && (
+          {fieldMap[FUSION_FIELDS.GPS] === 'fuse' && (
             <div className="mt-4 p-3 bg-neutral-50 dark:bg-neutral-800 rounded-lg space-y-2">
               <p className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
                 GPS-Fusion-Konfiguration
