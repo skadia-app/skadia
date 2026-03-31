@@ -15,6 +15,36 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/rules"
 )
 
+// sendWebhookChange fires a webhook from an ActivityChange with field=="webhook".
+// It extracts url/allowlist from the value map and delegates to SendWebhook.
+// Errors are logged as warnings and do not propagate (best-effort delivery).
+func sendWebhookChange(activityID string, rule model.AutomationRule, change rules.ActivityChange) {
+	urlMap, ok := change.Value.(map[string]any)
+	if !ok {
+		return
+	}
+	webhookURL, _ := urlMap["url"].(string)
+	if webhookURL == "" {
+		return
+	}
+	var allowlist []string
+	if al, ok := urlMap["allowlist"].([]interface{}); ok {
+		for _, a := range al {
+			if s, ok := a.(string); ok {
+				allowlist = append(allowlist, s)
+			}
+		}
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"activity_id": activityID,
+		"rule_id":     rule.ID,
+		"rule_name":   rule.Name,
+	})
+	if err := SendWebhook(webhookURL, payload, allowlist); err != nil {
+		slog.Warn("webhook failed", "rule_id", rule.ID, "url", webhookURL, "error", err)
+	}
+}
+
 // shouldEvaluateRule checks if a rule should be evaluated for the given trigger event.
 func shouldEvaluateRule(rule model.AutomationRule, triggerEvent string) bool {
 	if !rule.IsActive {
@@ -119,6 +149,10 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 										}
 										continue
 									}
+									if change.Field == "webhook" {
+										sendWebhookChange(activityID, rule, change)
+										continue
+									}
 									if err3 := db.ApplyRuleChange(ctx, activityID, change.Field, val); err3 != nil {
 										slog.Warn("apply branch change", "activity_id", activityID, "rule_id", rule.ID, "field", change.Field, "error", err3)
 									}
@@ -152,6 +186,10 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 							slog.Warn("rule notify", "activity_id", activityID, "rule_id", rule.ID, "error", err)
 						}
 					}
+					continue
+				}
+				if change.Field == "webhook" {
+					sendWebhookChange(activityID, rule, change)
 					continue
 				}
 				if err := db.ApplyRuleChange(ctx, activityID, change.Field, val); err != nil {

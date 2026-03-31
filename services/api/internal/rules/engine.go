@@ -515,16 +515,18 @@ func compareFloat(actual, want float64, op string) bool {
 // actionParams is the consolidated struct for all action parameter fields.
 // A single Unmarshal covers all action types, eliminating repeated per-case allocations.
 type actionParams struct {
-	GearID     string `json:"gear_id"`
-	TagID      string `json:"tag_id"`
-	Visibility string `json:"visibility"`
-	SportType  string `json:"sport_type"`
-	SubType    string `json:"sub_type"`
-	Template   string `json:"template"`
-	Intensity  string `json:"intensity"`
-	Indoor     bool   `json:"indoor"`
-	Field      string `json:"field"`
-	Value      any    `json:"value"`
+	GearID    string   `json:"gear_id"`
+	TagID     string   `json:"tag_id"`
+	Visibility string  `json:"visibility"`
+	SportType  string  `json:"sport_type"`
+	SubType    string  `json:"sub_type"`
+	Template   string  `json:"template"`
+	Intensity  string  `json:"intensity"`
+	Indoor     bool    `json:"indoor"`
+	Field      string  `json:"field"`
+	Value      any     `json:"value"`
+	URL        string   `json:"url,omitempty"`
+	Allowlist  []string `json:"allowlist,omitempty"`
 }
 
 func Apply(actions []Action) []ActivityChange {
@@ -579,6 +581,13 @@ func Apply(actions []Action) []ActivityChange {
 		case "notify":
 			if p.Template != "" {
 				changes = append(changes, ActivityChange{Field: "notify", Value: p.Template})
+			}
+		case "webhook":
+			if p.URL != "" {
+				changes = append(changes, ActivityChange{Field: "webhook", Value: map[string]any{
+					"url":       p.URL,
+					"allowlist": p.Allowlist,
+				}})
 			}
 		}
 	}
