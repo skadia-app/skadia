@@ -20,24 +20,30 @@ import (
 // Wanderung auf einem Radcomputer als "cycling" und auf einem GPSmap als "hiking" geloggt wurde.
 // In diesem Fall wählt der Nutzer im DuplicateReviewPanel welchen Sport-Typ er behalten will.
 type FusionQueueEntry struct {
-	ActivityIDA    string  `json:"activity_id_a"`
-	ActivityIDB    string  `json:"activity_id_b"`
-	TitleA         string  `json:"title_a"`
-	TitleB         string  `json:"title_b"`
-	StartedAtA     string  `json:"started_at_a"`
-	StartedAtB     string  `json:"started_at_b"`
-	SportTypeA     string  `json:"sport_type_a"`
-	SportTypeB     string  `json:"sport_type_b"`
-	SubTypeA       string  `json:"sub_type_a"`
-	SubTypeB       string  `json:"sub_type_b"`
-	IsElectricA       bool    `json:"is_electric_a"`
-	IsElectricB       bool    `json:"is_electric_b"`
-	DistanceMa     float64 `json:"distance_m_a"`
-	DistanceMb     float64 `json:"distance_m_b"`
-	OverlapPercent float64 `json:"overlap_percent"`
-	FieldRichnessA int     `json:"field_richness_a"`
-	FieldRichnessB int     `json:"field_richness_b"`
-	TimeDiffSec    float64 `json:"time_diff_sec"`
+	ActivityIDA         string  `json:"activity_id_a"`
+	ActivityIDB         string  `json:"activity_id_b"`
+	TitleA              string  `json:"title_a"`
+	TitleB              string  `json:"title_b"`
+	StartedAtA          string  `json:"started_at_a"`
+	StartedAtB          string  `json:"started_at_b"`
+	SportTypeA          string  `json:"sport_type_a"`
+	SportTypeB          string  `json:"sport_type_b"`
+	SubTypeA            string  `json:"sub_type_a"`
+	SubTypeB            string  `json:"sub_type_b"`
+	IsElectricA         bool    `json:"is_electric_a"`
+	IsElectricB         bool    `json:"is_electric_b"`
+	DistanceMa          float64 `json:"distance_m_a"`
+	DistanceMb          float64 `json:"distance_m_b"`
+	OverlapPercent      float64 `json:"overlap_percent"`
+	FieldRichnessA      int     `json:"field_richness_a"`
+	FieldRichnessB      int     `json:"field_richness_b"`
+	TimeDiffSec         float64 `json:"time_diff_sec"`
+	SourceDeviceA       string  `json:"source_device_a"`
+	SourceA             string  `json:"source_a"`
+	OriginalFileFormatA string  `json:"original_file_format_a"`
+	SourceDeviceB       string  `json:"source_device_b"`
+	SourceB             string  `json:"source_b"`
+	OriginalFileFormatB string  `json:"original_file_format_b"`
 }
 
 type fusionQueueResponse struct {
@@ -71,24 +77,30 @@ func derefStr(s *string) string {
 
 func fusionRowToEntry(row database.FusionCandidateRow) FusionQueueEntry {
 	return FusionQueueEntry{
-		ActivityIDA:    row.ActivityIDA,
-		ActivityIDB:    row.ActivityIDB,
-		TitleA:         resolveTitle(row.TitleA, row.TitleAutoA),
-		TitleB:         resolveTitle(row.TitleB, row.TitleAutoB),
-		StartedAtA:     row.StartedAtA.Format("2006-01-02T15:04:05Z"),
-		StartedAtB:     row.StartedAtB.Format("2006-01-02T15:04:05Z"),
-		SportTypeA:     row.SportTypeA,
-		SportTypeB:     row.SportTypeB,
-		SubTypeA:       derefStr(row.SubTypeA),
-		SubTypeB:       derefStr(row.SubTypeB),
-		IsElectricA:       row.IsElectricA,
-		IsElectricB:       row.IsElectricB,
-		DistanceMa:     derefFloat(row.DistanceMA),
-		DistanceMb:     derefFloat(row.DistanceMB),
-		OverlapPercent: math.Round(row.OverlapPercent*10) / 10,
-		FieldRichnessA: row.FieldRichnessA,
-		FieldRichnessB: row.FieldRichnessB,
-		TimeDiffSec:    row.TimeDiffSec,
+		ActivityIDA:         row.ActivityIDA,
+		ActivityIDB:         row.ActivityIDB,
+		TitleA:              resolveTitle(row.TitleA, row.TitleAutoA),
+		TitleB:              resolveTitle(row.TitleB, row.TitleAutoB),
+		StartedAtA:          row.StartedAtA.Format("2006-01-02T15:04:05Z"),
+		StartedAtB:          row.StartedAtB.Format("2006-01-02T15:04:05Z"),
+		SportTypeA:          row.SportTypeA,
+		SportTypeB:          row.SportTypeB,
+		SubTypeA:            derefStr(row.SubTypeA),
+		SubTypeB:            derefStr(row.SubTypeB),
+		IsElectricA:         row.IsElectricA,
+		IsElectricB:         row.IsElectricB,
+		DistanceMa:          derefFloat(row.DistanceMA),
+		DistanceMb:          derefFloat(row.DistanceMB),
+		OverlapPercent:      math.Round(row.OverlapPercent*10) / 10,
+		FieldRichnessA:      row.FieldRichnessA,
+		FieldRichnessB:      row.FieldRichnessB,
+		TimeDiffSec:         row.TimeDiffSec,
+		SourceDeviceA:       derefStr(row.SourceDeviceA),
+		SourceA:             derefStr(row.SourceA),
+		OriginalFileFormatA: derefStr(row.OriginalFileFormatA),
+		SourceDeviceB:       derefStr(row.SourceDeviceB),
+		SourceB:             derefStr(row.SourceB),
+		OriginalFileFormatB: derefStr(row.OriginalFileFormatB),
 	}
 }
 

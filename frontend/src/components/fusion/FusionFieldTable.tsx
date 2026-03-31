@@ -6,6 +6,7 @@ interface ActivityInfo {
   color: string   // #EF4444, #3B82F6, #22C55E
   candidate: FusionCandidate | null
   isTarget: boolean
+  deviceLabel?: string | null
 }
 
 function colorPillClasses(hex: string): string {
@@ -101,11 +102,18 @@ export default function FusionFieldTable({
             </th>
             {activities.map(a => (
               <th key={a.id} className="text-center py-2 px-2 font-medium">
-                <span
-                  className={`inline-block px-2 py-0.5 rounded-full text-xs ${colorPillClasses(a.color)}`}
-                >
-                  {a.label}
-                </span>
+                <div className="flex flex-col items-center gap-1">
+                  <span
+                    className={`inline-block px-2 py-0.5 rounded-full text-xs ${colorPillClasses(a.color)}`}
+                  >
+                    {a.label}
+                  </span>
+                  {a.deviceLabel && (
+                    <span className="text-xs font-normal text-neutral-400 dark:text-neutral-500 whitespace-nowrap">
+                      {a.deviceLabel}
+                    </span>
+                  )}
+                </div>
               </th>
             ))}
             <th className="text-center py-2 px-2 font-medium text-neutral-600 dark:text-neutral-400 text-xs">

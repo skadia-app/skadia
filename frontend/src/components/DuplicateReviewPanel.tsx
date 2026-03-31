@@ -65,29 +65,39 @@ export default function DuplicateReviewPanel({ entries, onDone, doneLabel = 'Wei
             {/* Side-by-side */}
             <div className="grid grid-cols-2 gap-3">
               {[
-                { id: entry.activity_id_a, title: entry.title_a, startedAt: entry.started_at_a, dist: entry.distance_m_a, richness: entry.field_richness_a, isRicher: richerIsA },
-                { id: entry.activity_id_b, title: entry.title_b, startedAt: entry.started_at_b, dist: entry.distance_m_b, richness: entry.field_richness_b, isRicher: !richerIsA },
-              ].map(side => (
+                { id: entry.activity_id_a, title: entry.title_a, startedAt: entry.started_at_a, dist: entry.distance_m_a, richness: entry.field_richness_a, isRicher: richerIsA, sourceDevice: entry.source_device_a, source: entry.source_a, fileFormat: entry.original_file_format_a },
+                { id: entry.activity_id_b, title: entry.title_b, startedAt: entry.started_at_b, dist: entry.distance_m_b, richness: entry.field_richness_b, isRicher: !richerIsA, sourceDevice: entry.source_device_b, source: entry.source_b, fileFormat: entry.original_file_format_b },
+              ].map(side => {
+                const device = side.sourceDevice || side.source || null
+                const format = side.fileFormat ? side.fileFormat.toUpperCase() : null
+                const deviceLine = device && format ? `${device} · ${format}` : (device ?? format ?? null)
+                return (
                 <div
                   key={side.id}
-                  className={`rounded-lg border p-3 text-sm space-y-1 ${
+                  className={`rounded-lg border p-3 text-sm flex flex-col justify-between ${
                     side.isRicher
                       ? 'border-accent-DEFAULT/40 bg-accent-100 dark:bg-accent-DEFAULT/10'
                       : 'border-neutral-200 dark:border-neutral-700'
                   }`}
                 >
-                  {side.isRicher && (
-                    <span className="text-xs text-accent-DEFAULT font-medium">Mehr Daten</span>
-                  )}
-                  <div className="font-medium text-neutral-900 dark:text-neutral-100 truncate">{side.title}</div>
-                  <div className="text-neutral-500 dark:text-neutral-400">
-                    {new Date(side.startedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}
+                  <div className="space-y-1">
+                    {side.isRicher && (
+                      <span className="text-xs text-accent-DEFAULT font-medium">Mehr Daten</span>
+                    )}
+                    <div className="font-medium text-neutral-900 dark:text-neutral-100 truncate">{side.title}</div>
+                    <div className="text-neutral-500 dark:text-neutral-400">
+                      {new Date(side.startedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}
+                    </div>
+                    <div className="text-neutral-500 dark:text-neutral-400">
+                      {fmtDist(side.dist)} · {side.richness} Felder
+                    </div>
                   </div>
-                  <div className="text-neutral-500 dark:text-neutral-400">
-                    {fmtDist(side.dist)} · {side.richness} Felder
+                  <div className="text-xs text-neutral-400 dark:text-neutral-500 truncate mt-2">
+                    {deviceLine ?? <span className="invisible">—</span>}
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
 
             {/* Sport-Auswahl (nur wenn unterschiedliche Sport-Typen) */}

@@ -46,19 +46,22 @@ func (h *Handler) SetActivityFusion(w http.ResponseWriter, r *http.Request) {
 
 // FusionCandidate beschreibt eine Aktivität die als Fusionsquelle in Frage kommt.
 type FusionCandidate struct {
-	ID             string    `json:"id"`
-	Title          string    `json:"title"`
-	StartedAt      time.Time `json:"started_at"`
-	DistanceM      float64   `json:"distance_m"`
-	SportType      string    `json:"sport_type"`
-	HasHR          bool      `json:"has_hr"`
-	HasPower       bool      `json:"has_power"`
-	HasGPS         bool      `json:"has_gps"`
-	HasTemperature bool      `json:"has_temperature"`
-	HasCadence     bool      `json:"has_cadence"`
-	HasAltitude    bool      `json:"has_altitude"`
-	OverlapPct     float64   `json:"overlap_pct"`
-	Timezone       *string   `json:"timezone,omitempty"`
+	ID                 string    `json:"id"`
+	Title              string    `json:"title"`
+	StartedAt          time.Time `json:"started_at"`
+	DistanceM          float64   `json:"distance_m"`
+	SportType          string    `json:"sport_type"`
+	HasHR              bool      `json:"has_hr"`
+	HasPower           bool      `json:"has_power"`
+	HasGPS             bool      `json:"has_gps"`
+	HasTemperature     bool      `json:"has_temperature"`
+	HasCadence         bool      `json:"has_cadence"`
+	HasAltitude        bool      `json:"has_altitude"`
+	OverlapPct         float64   `json:"overlap_pct"`
+	Timezone           *string   `json:"timezone,omitempty"`
+	SourceDevice       *string   `json:"source_device,omitempty"`
+	Source             *string   `json:"source,omitempty"`
+	OriginalFileFormat *string   `json:"original_file_format,omitempty"`
 }
 
 // GetFusionCandidates godoc
@@ -107,7 +110,10 @@ func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 					))
 				) / GREATEST(1.0, EXTRACT(EPOCH FROM (b.ended_at - b.started_at)))
 			ELSE 0.0 END AS overlap_pct,
-			b.timezone
+			b.timezone,
+			b.source_device,
+			b.source,
+			b.original_file_format
 		FROM activities a
 		JOIN activities b
 			ON b.user_id = a.user_id
@@ -152,6 +158,9 @@ func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 			&c.HasAltitude,
 			&c.OverlapPct,
 			&c.Timezone,
+			&c.SourceDevice,
+			&c.Source,
+			&c.OriginalFileFormat,
 		); err != nil {
 			slog.Warn("scan fusion candidate failed", "error", err)
 			continue
