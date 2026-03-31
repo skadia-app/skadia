@@ -24,7 +24,14 @@ func (h *Handler) GetRecordingGroups(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	groups, err := h.DB.GetRecordingGroupsForUser(r.Context(), userID, limit)
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	groups, err := h.DB.GetRecordingGroupsForUser(r.Context(), userID, limit, offset)
 	if err != nil {
 		slog.Error("get recording groups", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get recording groups", r.URL.Path)
