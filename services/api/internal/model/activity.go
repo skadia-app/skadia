@@ -791,8 +791,9 @@ type AutomationRuleCreate struct {
 	ConditionGroups json.RawMessage `json:"condition_groups"`
 	Actions         json.RawMessage `json:"actions"`
 	TriggerEvent    string          `json:"trigger_event"`
-	StopOnMatch     bool            `json:"stop_on_match"`
-	Branches        json.RawMessage `json:"branches,omitempty"`
+	StopOnMatch      bool            `json:"stop_on_match"`
+	ApplyRetroactive bool            `json:"apply_retroactively"`
+	Branches         json.RawMessage `json:"branches,omitempty"`
 }
 
 // AutomationRuleUpdate is the request body for updating an automation rule.

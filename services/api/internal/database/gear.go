@@ -894,11 +894,11 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 	}
 	var r model.AutomationRule
 	err := db.Pool.QueryRow(ctx,
-		`INSERT INTO automation_rules (user_id, name, priority, conditions, conditions_logic, condition_groups, actions, trigger_event, stop_on_match, branches)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`INSERT INTO automation_rules (user_id, name, priority, conditions, conditions_logic, condition_groups, actions, trigger_event, stop_on_match, apply_retroactively, branches)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		 RETURNING `+ruleSelectCols,
 		userID, create.Name, create.Priority, create.Conditions, condLogic, create.ConditionGroups, create.Actions,
-		triggerEvent, create.StopOnMatch, create.Branches,
+		triggerEvent, create.StopOnMatch, create.ApplyRetroactive, create.Branches,
 	).Scan(
 		&r.ID, &r.UserID, &r.Name, &r.IsActive, &r.Priority,
 		&r.Conditions, &r.ConditionsLogic, &r.ConditionGroups,
@@ -1373,6 +1373,8 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	setNN("gear_id", derefStr(gearID))
 	setNN("start_lat", derefF(startLat))
 	setNN("start_lon", derefF(startLon))
+	setNN("end_lat", derefF(endLat))
+	setNN("end_lon", derefF(endLon))
 	setNN("lift_count", derefInt(liftCount))
 	setNN("lift_ascent_m", derefF(liftAscentM))
 	setNN("lift_descent_m", derefF(liftDescentM))
@@ -1390,6 +1392,7 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	setNN("weather_wind_gusts_ms", derefF(weatherWindGustsMS))
 	setNN("weather_condition", derefStr(weatherCondition))
 	m["created_at"] = activityCreatedAt
+	m["started_at"] = startedAt
 	if len(timeOfDay) > 0 {
 		m["time_of_day"] = timeOfDay
 	}
