@@ -2,17 +2,21 @@ package routing
 
 import (
 	"encoding/json"
+
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 )
 
 // RouteResult holds the complete routing result.
 type RouteResult struct {
-	Coordinates []LatLonEle    `json:"-"`
-	DistanceM   float64        `json:"distance_m"`
-	AscentM     float64        `json:"ascent_m"`
-	DescentM    float64        `json:"descent_m"`
-	Cost        float64        `json:"cost"`
-	Segments    []RouteSegment `json:"segments"`
-	PassStats   PassStats      `json:"stats"`
+	Coordinates  []LatLonEle    `json:"-"`
+	DistanceM    float64        `json:"distance_m"`
+	AscentM      float64        `json:"ascent_m"`
+	DescentM     float64        `json:"descent_m"`
+	Cost         float64        `json:"cost"`
+	Segments     []RouteSegment `json:"segments"`
+	PassStats    PassStats      `json:"stats"`
+	ApproachFrom []LatLonEle    `json:"-"` // Straight line: click point → edge projection (start)
+	ApproachTo   []LatLonEle    `json:"-"` // Straight line: edge projection → click point (end)
 }
 
 // LatLonEle is a coordinate with elevation.
@@ -64,14 +68,7 @@ func (r *RouteResult) ToGeoJSON() json.RawMessage {
 				"type":        "LineString",
 				"coordinates": coords,
 			},
-			"properties": map[string]any{
-				"distance_m": int(r.DistanceM),
-				"ascent_m":   int(r.AscentM),
-				"descent_m":  int(r.DescentM),
-				"cost":       int(r.Cost),
-				"segments":   r.Segments,
-				"stats":      r.PassStats,
-			},
+			"properties": r.buildProperties(),
 		}},
 	}
 
@@ -81,6 +78,42 @@ func (r *RouteResult) ToGeoJSON() json.RawMessage {
 		return json.RawMessage(`{"type":"FeatureCollection","features":[]}`)
 	}
 	return b
+}
+
+func (r *RouteResult) buildProperties() map[string]any {
+	props := map[string]any{
+		"distance_m": int(r.DistanceM),
+		"ascent_m":   int(r.AscentM),
+		"descent_m":  int(r.DescentM),
+		"cost":       int(r.Cost),
+		"segments":   r.Segments,
+		"stats":      r.PassStats,
+	}
+	if len(r.ApproachFrom) > 0 {
+		ac := make([][]float64, len(r.ApproachFrom))
+		for i, c := range r.ApproachFrom {
+			ac[i] = []float64{c.Lon, c.Lat}
+		}
+		props["approach_from"] = ac
+		props["approach_from_m"] = int(haversineSum(r.ApproachFrom))
+	}
+	if len(r.ApproachTo) > 0 {
+		ac := make([][]float64, len(r.ApproachTo))
+		for i, c := range r.ApproachTo {
+			ac[i] = []float64{c.Lon, c.Lat}
+		}
+		props["approach_to"] = ac
+		props["approach_to_m"] = int(haversineSum(r.ApproachTo))
+	}
+	return props
+}
+
+func haversineSum(pts []LatLonEle) float64 {
+	var sum float64
+	for i := 1; i < len(pts); i++ {
+		sum += geo.DistanceHaversine(pts[i-1].Lat, pts[i-1].Lon, pts[i].Lat, pts[i].Lon)
+	}
+	return sum
 }
 
 // mergeLegs concatenates multiple RouteResults (via-point legs) into one.
