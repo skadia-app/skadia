@@ -318,6 +318,14 @@ function RuleCard({
             )}
             <span className="text-xs text-neutral-400 tabular-nums">Prio {rule.priority}</span>
             <span className="text-xs text-neutral-400 tabular-nums">{rule.times_applied}x angewendet</span>
+            {rule.last_evaluated_at && (
+              <span className="text-xs text-neutral-400 tabular-nums">
+                · Zuletzt: {new Date(rule.last_evaluated_at).toLocaleDateString('de-DE')}
+                {rule.last_matched_count != null && (
+                  <> ({rule.last_matched_count} Treffer)</>
+                )}
+              </span>
+            )}
           </div>
           {isReadonlySystem ? (
             <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400 italic">

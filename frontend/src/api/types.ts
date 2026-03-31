@@ -700,12 +700,17 @@ export interface AutomationRule {
   name: string
   is_active: boolean
   priority: number
+  trigger_event: 'on_import' | 'on_enrichment_complete' | 'on_manual_apply'
+  stop_on_match: boolean
+  apply_retroactively: boolean
   conditions: RuleCondition[]
   conditions_logic?: 'and' | 'or' | null
   // Optional group-based structure — multiple groups are AND-ed; within each group logic applies
   condition_groups?: RuleConditionGroup[] | null
   actions: RuleAction[]
   times_applied: number
+  last_evaluated_at?: string
+  last_matched_count?: number
   is_system: boolean
   system_type: string | null
   created_at: string
