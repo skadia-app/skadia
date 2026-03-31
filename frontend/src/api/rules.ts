@@ -17,7 +17,7 @@ export async function deleteRule(id: string): Promise<void> {
   return apiClient(`/automation-rules/${id}`, { method: 'DELETE' })
 }
 
-export async function applyRules(): Promise<{ applied: number; errors: number }> {
+export async function applyRules(): Promise<{ status?: string; job_id: string | null; applied?: number; affected?: number }> {
   return apiClient('/automation-rules/apply', { method: 'POST' })
 }
 
