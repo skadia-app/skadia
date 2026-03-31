@@ -234,6 +234,29 @@ func (db *DB) AddRecordingGroupMember(ctx context.Context, groupID, activityID s
 	return tx.Commit(ctx)
 }
 
+// AddRecordingGroupMemberFused adds an activity to an existing recording group with is_fused = TRUE.
+// Used when a unified-timeline fusion result is added to its source group.
+func (db *DB) AddRecordingGroupMemberFused(ctx context.Context, groupID, activityID string) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	tag, err := tx.Exec(ctx,
+		`INSERT INTO recording_group_members (group_id, activity_id, is_fused) VALUES ($1, $2, TRUE)`,
+		groupID, activityID,
+	)
+	if err != nil {
+		return fmt.Errorf("add fused recording group member: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("add fused recording group member: no rows affected")
+	}
+
+	return tx.Commit(ctx)
+}
+
 // RemoveRecordingGroupMember removes an activity from a recording group.
 // If fewer than 2 members remain, the DB trigger dissolves the group automatically.
 func (db *DB) RemoveRecordingGroupMember(ctx context.Context, groupID, activityID string) error {

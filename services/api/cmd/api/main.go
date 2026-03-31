@@ -996,6 +996,7 @@ func main() {
 			r.Post("/activities/{id}/split", h.SplitActivity)
 			r.Post("/activities/{id}/merge", h.MergeActivities)
 			r.Post("/activities/{id}/fusion-merge", h.FusionMerge)
+			r.Post("/fusion-merge", h.FusionMergeV2) // unified timeline, no target
 			r.Post("/activities/{id}/revert-fusion", h.RevertFusion)
 
 			// Media Upload (multi-file, EXIF auto-assignment)
