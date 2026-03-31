@@ -173,8 +173,8 @@ export function DiveDecoPanel({ activityId, streams }: DiveDecoPanelProps) {
           const timeStr = h > 0 ? `${h}h${m.toString().padStart(2, '0')}` : `${m} min`
           const units: Record<string, string> = {
             [LABELS.ndlLine]: ' min',
-            [LABELS.cnsLine]: '%',
-            [LABELS.n2Line]: '%',
+            [LABELS.cnsLine]: ' %',
+            [LABELS.n2Line]: ' %',
             [LABELS.decoStopLine]: ' m',
           }
           let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${timeStr}</div>`
