@@ -12,7 +12,7 @@ import {
   applySingleRule,
 } from '@/api/rules'
 import type { AutomationRule } from '@/api/types'
-import type { DryRunAllResult, DryRunSingleResult } from '@/api/rules'
+import type { ApplyResult, DryRunAllResult, DryRunSingleResult } from '@/api/rules'
 import RuleEditor from '@/components/RuleEditor'
 import Toggle from '@/components/Toggle'
 import { useToast } from '@/lib/toast'
@@ -30,7 +30,7 @@ export default function AutomationRulesPage() {
 
   const [creating, setCreating] = useState(urlNew)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [applyResult, setApplyResult] = useState<{ status?: string; job_id: string | null; applied?: number; affected?: number } | null>(null)
+  const [applyResult, setApplyResult] = useState<ApplyResult | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [showSystemRules, setShowSystemRules] = useState(false)
   const [search, setSearch] = useState('')
