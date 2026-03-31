@@ -37,7 +37,7 @@ func newBidiTestGraph() *SingleGraphReader {
 func TestRunBackwardSearchBasic(t *testing.T) {
 	reader := newBidiTestGraph()
 	cfg := DefaultCostConfig()
-	result := RunBackwardSearch(reader, 4, cfg, 100000)
+	result := RunBackwardSearch(reader, 4, 4, 0, 0, cfg, 100000)
 
 	if cost, ok := result.LowerBound[4]; !ok || cost > 0.01 {
 		t.Errorf("dst cost = %v, want ~0", cost)
@@ -52,7 +52,7 @@ func TestRunBackwardSearchRespectsUpperBound(t *testing.T) {
 	cfg := DefaultCostConfig()
 	// Each edge is 10m (1000cm) with default costfactor ~1.0 → ~10 cost units per hop.
 	// Upper bound of 5 is too small to reach node 0 (4 hops away).
-	result := RunBackwardSearch(reader, 4, cfg, 5)
+	result := RunBackwardSearch(reader, 4, 4, 0, 0, cfg, 5)
 
 	if _, ok := result.LowerBound[0]; ok {
 		t.Error("node 0 should not be reachable with tiny upper bound")
@@ -77,7 +77,7 @@ func TestRunBackwardSearchDisconnected(t *testing.T) {
 	}
 	reader := &SingleGraphReader{G: g}
 	cfg := DefaultCostConfig()
-	result := RunBackwardSearch(reader, 2, cfg, 100000)
+	result := RunBackwardSearch(reader, 2, 2, 0, 0, cfg, 100000)
 	// Node 2 has incoming edges (0→2 is not present, only 0→1, 1→0), so backward
 	// via reverse edges: node 2 has no incoming edges → only itself in LowerBound
 	if len(result.LowerBound) != 1 {
@@ -106,7 +106,7 @@ func TestRunBackwardSearchDirectedGraph(t *testing.T) {
 	cfg := DefaultCostConfig()
 
 	// Backward from node 3: should find 2→3, 1→2, 0→1 (via reverse edges)
-	result := RunBackwardSearch(reader, MakeGlobalNodeID(0, 3), cfg, 100000)
+	result := RunBackwardSearch(reader, MakeGlobalNodeID(0, 3), MakeGlobalNodeID(0, 3), 0, 0, cfg, 100000)
 
 	// All nodes should be reachable via reverse traversal
 	for i := range 4 {
@@ -117,7 +117,7 @@ func TestRunBackwardSearchDirectedGraph(t *testing.T) {
 	}
 
 	// Backward from node 0: no incoming edges → only node 0 reachable
-	result0 := RunBackwardSearch(reader, MakeGlobalNodeID(0, 0), cfg, 100000)
+	result0 := RunBackwardSearch(reader, MakeGlobalNodeID(0, 0), MakeGlobalNodeID(0, 0), 0, 0, cfg, 100000)
 	if len(result0.LowerBound) != 1 {
 		t.Errorf("backward from node 0: expected 1 reachable, got %d", len(result0.LowerBound))
 	}
@@ -175,6 +175,27 @@ func TestForEachInEdgeDirected(t *testing.T) {
 	}
 	if inDist2 != 2000 {
 		t.Errorf("incoming edge dist = %d, want 2000", inDist2)
+	}
+}
+
+func TestRunBackwardSearch_DualSeeds(t *testing.T) {
+	g := makeChainGraph(5)
+	reader := &SingleGraphReader{G: g, TileID: 0}
+	cfg := DefaultCostConfig()
+
+	dstA := MakeGlobalNodeID(0, 3)
+	dstB := MakeGlobalNodeID(0, 4)
+
+	result := RunBackwardSearch(reader, dstA, dstB, 1.0, 2.0, cfg, 1000)
+
+	if _, ok := result.LowerBound[dstA]; !ok {
+		t.Error("dstA should be in LowerBound")
+	}
+	if _, ok := result.LowerBound[dstB]; !ok {
+		t.Error("dstB should be in LowerBound")
+	}
+	if lb := result.LowerBound[dstA]; lb < 0.9 || lb > 1.1 {
+		t.Errorf("dstA lower bound: expected ~1.0, got %.3f", lb)
 	}
 }
 
