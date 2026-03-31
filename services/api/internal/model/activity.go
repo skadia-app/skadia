@@ -779,6 +779,7 @@ type AutomationRule struct {
 	ApplyRetroactive bool           `json:"apply_retroactively"    db:"apply_retroactively"`
 	LastEvaluatedAt *time.Time      `json:"last_evaluated_at,omitempty" db:"last_evaluated_at"`
 	LastMatchedCount int            `json:"last_matched_count"     db:"last_matched_count"`
+	Branches        json.RawMessage `json:"branches,omitempty"     db:"branches"`
 }
 
 // AutomationRuleCreate is the request body for creating an automation rule.
@@ -791,6 +792,7 @@ type AutomationRuleCreate struct {
 	Actions         json.RawMessage `json:"actions"`
 	TriggerEvent    string          `json:"trigger_event"`
 	StopOnMatch     bool            `json:"stop_on_match"`
+	Branches        json.RawMessage `json:"branches,omitempty"`
 }
 
 // AutomationRuleUpdate is the request body for updating an automation rule.
@@ -805,6 +807,7 @@ type AutomationRuleUpdate struct {
 	TriggerEvent     *string          `json:"trigger_event,omitempty"`
 	StopOnMatch      *bool            `json:"stop_on_match,omitempty"`
 	ApplyRetroactive *bool            `json:"apply_retroactively,omitempty"`
+	Branches         json.RawMessage  `json:"branches,omitempty"`
 }
 
 // BikeSetup represents a saved bike configuration/setup.

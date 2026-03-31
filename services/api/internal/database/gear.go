@@ -819,7 +819,7 @@ func (db *DB) GetMaintenanceAlerts(ctx context.Context, userID string) ([]model.
 
 // --- Automation Rules ---
 
-const ruleSelectCols = `id, user_id, name, is_active, priority, conditions, conditions_logic, condition_groups, actions, times_applied, created_at, is_system, system_type, trigger_event, stop_on_match, apply_retroactively, last_evaluated_at, last_matched_count`
+const ruleSelectCols = `id, user_id, name, is_active, priority, conditions, conditions_logic, condition_groups, actions, times_applied, created_at, is_system, system_type, trigger_event, stop_on_match, apply_retroactively, last_evaluated_at, last_matched_count, branches`
 
 func scanRule(row pgx.Row) (*model.AutomationRule, error) {
 	var r model.AutomationRule
@@ -829,7 +829,7 @@ func scanRule(row pgx.Row) (*model.AutomationRule, error) {
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
 		&r.IsSystem, &r.SystemType,
 		&r.TriggerEvent, &r.StopOnMatch, &r.ApplyRetroactive,
-		&r.LastEvaluatedAt, &r.LastMatchedCount,
+		&r.LastEvaluatedAt, &r.LastMatchedCount, &r.Branches,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -851,7 +851,7 @@ func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationR
 		        END,
 		        ar.created_at, ar.is_system, ar.system_type,
 		        ar.trigger_event, ar.stop_on_match, ar.apply_retroactively,
-		        ar.last_evaluated_at, ar.last_matched_count
+		        ar.last_evaluated_at, ar.last_matched_count, ar.branches
 		 FROM automation_rules ar WHERE ar.user_id = $1 ORDER BY ar.priority, ar.name`, userID,
 	)
 	if err != nil {
@@ -868,7 +868,7 @@ func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationR
 			&r.Actions, &r.TimesApplied, &r.CreatedAt,
 			&r.IsSystem, &r.SystemType,
 			&r.TriggerEvent, &r.StopOnMatch, &r.ApplyRetroactive,
-			&r.LastEvaluatedAt, &r.LastMatchedCount,
+			&r.LastEvaluatedAt, &r.LastMatchedCount, &r.Branches,
 		); err != nil {
 			return nil, fmt.Errorf("scan rule: %w", err)
 		}
@@ -894,18 +894,18 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 	}
 	var r model.AutomationRule
 	err := db.Pool.QueryRow(ctx,
-		`INSERT INTO automation_rules (user_id, name, priority, conditions, conditions_logic, condition_groups, actions, trigger_event, stop_on_match)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`INSERT INTO automation_rules (user_id, name, priority, conditions, conditions_logic, condition_groups, actions, trigger_event, stop_on_match, branches)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		 RETURNING `+ruleSelectCols,
 		userID, create.Name, create.Priority, create.Conditions, condLogic, create.ConditionGroups, create.Actions,
-		triggerEvent, create.StopOnMatch,
+		triggerEvent, create.StopOnMatch, create.Branches,
 	).Scan(
 		&r.ID, &r.UserID, &r.Name, &r.IsActive, &r.Priority,
 		&r.Conditions, &r.ConditionsLogic, &r.ConditionGroups,
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
 		&r.IsSystem, &r.SystemType,
 		&r.TriggerEvent, &r.StopOnMatch, &r.ApplyRetroactive,
-		&r.LastEvaluatedAt, &r.LastMatchedCount,
+		&r.LastEvaluatedAt, &r.LastMatchedCount, &r.Branches,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create rule: %w", err)
@@ -968,6 +968,9 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 	if update.ApplyRetroactive != nil {
 		b.Set("apply_retroactively", *update.ApplyRetroactive)
 	}
+	if update.Branches != nil {
+		b.Set("branches", update.Branches)
+	}
 
 	if !b.HasSets() {
 		// No changes
@@ -994,7 +997,7 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
 		&r.IsSystem, &r.SystemType,
 		&r.TriggerEvent, &r.StopOnMatch, &r.ApplyRetroactive,
-		&r.LastEvaluatedAt, &r.LastMatchedCount,
+		&r.LastEvaluatedAt, &r.LastMatchedCount, &r.Branches,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
