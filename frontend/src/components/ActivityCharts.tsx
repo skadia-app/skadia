@@ -53,7 +53,7 @@ const SUNSET_SVG = "image://data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2
 
 type XMode = 'distance' | 'time'
 
-type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'coreTemperature' | 'runningDynamics' | 'stepLength' | 'powerPhase' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength' | 'grit' | 'flow' | 'gear' | 'potentialStamina' | 'staminaCurrent' | 'pressure'
+type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'coreTemperature' | 'runningDynamics' | 'stepLength' | 'powerPhase' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength' | 'grit' | 'flow' | 'gear' | 'potentialStamina' | 'staminaCurrent' | 'pressure' | 'decoTimeSeries'
 
 function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
   if (tab === CHART_TAB.alles) return null // show all
@@ -79,7 +79,7 @@ function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
     case CHART_TAB.mtb: return ['grit', 'flow']
     case CHART_TAB.ausdauer: return ['potentialStamina', 'staminaCurrent']
     case CHART_TAB.barometer: return ['pressure']
-    case CHART_TAB.deko: return ['depth']
+    case CHART_TAB.deko: return ['depth', 'decoTimeSeries']
     case CHART_TAB.developerFields: return []
     default: return null
   }
@@ -119,6 +119,10 @@ interface ChartData {
   re3Gap: number[]
   strydNgpMinKm: number[]
   strydPower: number[]
+  ndlMin: number[]
+  cnsPct: number[]
+  n2Pct: number[]
+  decoStopM: number[]
   maxDist: number
   maxElapsed: number
 }
@@ -159,6 +163,10 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const re3Gap: number[] = []
   const strydNgpMinKm: number[] = []
   const strydPower: number[] = []
+  const ndlMin: number[] = []
+  const cnsPct: number[] = []
+  const n2Pct: number[] = []
+  const decoStopM: number[] = []
 
   const t0 = streams.length > 0 ? new Date(streams[0].time).getTime() : 0
 
@@ -214,6 +222,12 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     strydNgpMinKm.push(ngpMs != null && ngpMs > 0.3 ? 1000 / ngpMs / 60 : NaN)
     const strydPowerVal = s.developer_fields?.['Power'] as number | undefined
     strydPower.push(strydPowerVal != null && strydPowerVal > 0 ? strydPowerVal : NaN)
+
+    // Deco data (diving)
+    ndlMin.push(s.ndl_time_s != null ? Math.min(Math.round(s.ndl_time_s / 60), 60) : NaN)
+    cnsPct.push(s.cns_load_pct ?? NaN)
+    n2Pct.push(s.n2_load_pct ?? NaN)
+    decoStopM.push((s.next_stop_depth_m ?? 0) > 0 ? s.next_stop_depth_m! : NaN)
   }
 
   const validDist = distanceKm.filter(v => !isNaN(v) && isFinite(v))
@@ -221,7 +235,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, pressure, paceMinKm, garminGapMinKm, re3Gap, strydNgpMinKm, strydPower, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, pressure, paceMinKm, garminGapMinKm, re3Gap, strydNgpMinKm, strydPower, ndlMin, cnsPct, n2Pct, decoStopM, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -854,6 +868,12 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         field="pressure" label="Barometer" unit="hPa" color="#78716c" />
     </div>,
   )
+  // Deco Time Series (Diving: NDL, CNS%, N₂%, Deko-Stop)
+  if (hasValidData(data.ndlMin) || hasValidData(data.cnsPct) || hasValidData(data.n2Pct)) panels.push(
+    <div key={k('deco-ts')} style={{ display: show('decoTimeSeries') ? undefined : 'none' }}>
+      <DecoChartPanel chartId="deco-ts" {...common} />
+    </div>,
+  )
 
   const hasDekoData = streams.some(s => s.ndl_time_s != null || s.cns_load_pct != null)
   const hasDevFields = streams.some(s => s.developer_fields && Object.keys(s.developer_fields).length > 0)
@@ -998,6 +1018,164 @@ function setupChartInteractions(opts: ChartInteractionOpts): () => void {
   })
 
   return () => onUnregister(chartId)
+}
+
+// ── Deco Time Series Chart Panel (Diving) ────────────────────────────────────
+
+interface DecoChartPanelProps {
+  chartId: string
+  data: ChartData
+  onHover: (index: number | null) => void
+  onBrushZoom: (startValue: number, endValue: number) => void
+  onSyncZoom: (start: number, end: number, sourceId: string) => void
+  onRegister: (id: string, chart: echarts.ECharts) => void
+  onUnregister: (id: string) => void
+  brushZoomLockRef: React.MutableRefObject<boolean>
+  xMode: XMode
+  splitMarkers?: SplitMarker[]
+}
+
+function DecoChartPanel({
+  chartId, data, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
+  brushZoomLockRef, xMode, splitMarkers,
+}: DecoChartPanelProps) {
+  const hasNdl = hasValidData(data.ndlMin)
+  const hasCns = hasValidData(data.cnsPct)
+  const hasN2 = hasValidData(data.n2Pct)
+  const hasDecoStop = hasValidData(data.decoStopM)
+
+  const containerRef = useECharts(
+    () => {
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+      const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
+
+      const xFormatter = xMode === 'distance'
+        ? (v: number) => v.toFixed(1)
+        : (v: number) => formatElapsed(v, data.maxElapsed)
+
+      const mlData = buildSplitMarkLines(splitMarkers, xMode)
+
+      const series: Record<string, unknown>[] = []
+      if (hasNdl) series.push({
+        name: 'NDL', type: 'line', data: data.ndlMin, symbol: 'none',
+        lineStyle: { color: '#22c55e', width: 2 }, itemStyle: { color: '#22c55e' },
+        yAxisIndex: 0, markLine: mlData.length > 0 ? { data: mlData, silent: true } : undefined,
+      })
+      if (hasCns) series.push({
+        name: 'CNS%', type: 'line', data: data.cnsPct, symbol: 'none',
+        lineStyle: { color: '#ef4444', width: 2 }, itemStyle: { color: '#ef4444' },
+        yAxisIndex: 1,
+      })
+      if (hasN2) series.push({
+        name: 'N₂%', type: 'line', data: data.n2Pct, symbol: 'none',
+        lineStyle: { color: '#3b82f6', width: 2 }, itemStyle: { color: '#3b82f6' },
+        yAxisIndex: 2,
+      })
+      if (hasDecoStop) series.push({
+        name: 'Deko-Stop', type: 'line', data: data.decoStopM, symbol: 'none',
+        step: 'end',
+        lineStyle: { color: '#f97316', width: 2, type: 'dashed' }, itemStyle: { color: '#f97316' },
+        yAxisIndex: 3,
+      })
+
+      return {
+        animation: false,
+        grid: { left: 60, right: 140, top: gridTop, bottom: 36 },
+
+        title: {
+          text: 'Deko-Zeitreihen (NDL / CNS / N₂ / Stopp)',
+          left: 4, top: 4,
+          textStyle: { fontSize: 11, fontWeight: 500, color: '#888' },
+        },
+
+        brush: {
+          toolbox: [],
+          brushType: 'lineX',
+          brushStyle: { borderWidth: 1, color: 'rgba(249,115,22,0.12)', borderColor: '#f97316' },
+          throttleType: 'debounce', throttleDelay: 100,
+        },
+
+        toolbox: {
+          feature: {
+            brush: { show: false },
+            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: 'Deko-Zeitreihen' },
+          },
+        },
+
+        tooltip: {
+          trigger: 'axis',
+          transitionDuration: 0,
+          confine: true,
+          backgroundColor: 'rgba(255,255,255,0.96)',
+          borderColor: '#e5e5e5',
+          borderWidth: 1,
+          padding: [8, 10],
+          textStyle: { fontSize: 12, color: '#333' },
+          axisPointer: {
+            type: 'line',
+            lineStyle: { color: '#f97316', width: 1, type: 'dashed' },
+            animation: false,
+          },
+          formatter: (params: unknown) => {
+            const arr = Array.isArray(params) ? params : [params]
+            const p = arr[0] as { dataIndex?: number }
+            if (p?.dataIndex == null) return ''
+            const idx = p.dataIndex
+            const xVal = xMode === 'distance' ? data.distanceKm[idx] : data.elapsedMin[idx]
+            const posLine = buildTooltipPosLine(xVal, xMode, data)
+            const units: Record<string, string> = { NDL: ' min', 'CNS%': ' %', 'N₂%': ' %', 'Deko-Stop': ' m' }
+            let html = `<div style="line-height:1.75;min-width:150px">`
+            html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
+            for (const item of arr as Array<{ seriesName: string; value: number; marker: string }>) {
+              const v = item.value
+              if (v == null || isNaN(v)) continue
+              const u = units[item.seriesName] ?? ''
+              html += `<div style="font-size:12px">${item.marker} ${item.seriesName} <strong style="float:right;margin-left:12px">${Math.round(v)}${u}</strong></div>`
+            }
+            return html + '</div>'
+          },
+        },
+
+        legend: {
+          top: 0,
+          textStyle: { color: '#888', fontSize: 11 },
+          itemWidth: 16, itemHeight: 10,
+        },
+
+        xAxis: {
+          type: 'value',
+          min: 0, max: xMax,
+          axisLabel: { fontSize: 10, color: '#aaa', formatter: xFormatter },
+          axisTick: { show: false },
+          splitLine: { show: false },
+        },
+
+        yAxis: [
+          { type: 'value', name: 'NDL (min)', nameTextStyle: { fontSize: 10, color: '#22c55e' },
+            axisLabel: { fontSize: 10, color: '#9ca3af' },
+            splitLine: { lineStyle: { color: '#f5f5f5', type: 'dashed' } },
+            min: 0, max: 60 },
+          { type: 'value', name: 'CNS%', nameTextStyle: { fontSize: 10, color: '#ef4444' },
+            axisLabel: { fontSize: 10, color: '#9ca3af' },
+            splitLine: { show: false }, min: 0, max: 100, position: 'right' },
+          { type: 'value', name: 'N₂%', nameTextStyle: { fontSize: 10, color: '#3b82f6' },
+            axisLabel: { fontSize: 10, color: '#9ca3af' },
+            splitLine: { show: false }, min: 0, position: 'right', offset: 45 },
+          { type: 'value', name: 'm (Stopp)', nameTextStyle: { fontSize: 10, color: '#f97316' },
+            axisLabel: { fontSize: 10, color: '#f97316' },
+            splitLine: { show: false }, position: 'right', offset: 90 },
+        ],
+
+        dataZoom: [{ type: 'inside', filterMode: 'none' }],
+        series,
+      }
+    },
+    [data, xMode, splitMarkers, hasNdl, hasCns, hasN2, hasDecoStop],
+    (chart) => bindChartInteractions(chart, chartId, data, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMode),
+  )
+
+  return <div ref={containerRef} className="h-52 w-full" />
 }
 
 // ── Power Phase Gauge (Pedal Analytics) ──────────────────────────────────────
