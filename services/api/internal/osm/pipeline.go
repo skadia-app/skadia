@@ -252,10 +252,7 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 
 	// PostgreSQL Import-Tuning (connection-level, not ALTER SYSTEM which affects all connections).
 	// Note: osm2pgsql manages its own connections — these settings apply to post-import queries only.
-	maintWorkMemMB := min(availableRAMMB()*15/100, 8192)
-	if maintWorkMemMB < 256 {
-		maintWorkMemMB = 256
-	}
+	maintWorkMemMB := max(min(availableRAMMB()*15/100, 8192), 256)
 
 	importConn, err := p.Pool.Acquire(ctx)
 	if err != nil {
@@ -1341,10 +1338,7 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 	}
 
 	// PostgreSQL Import-Tuning (connection-level, not ALTER SYSTEM which affects all connections).
-	maintWorkMemMB := min(availableRAMMB()*15/100, 8192)
-	if maintWorkMemMB < 256 {
-		maintWorkMemMB = 256
-	}
+	maintWorkMemMB := max(min(availableRAMMB()*15/100, 8192), 256)
 	regionImportConn, err := p.Pool.Acquire(ctx)
 	if err != nil {
 		slog.Warn("osm import: failed to acquire tuning conn (non-fatal)", "error", err)

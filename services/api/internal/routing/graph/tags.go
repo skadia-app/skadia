@@ -493,10 +493,7 @@ func ParseIncline(s string) uint8 {
 		degStr = strings.TrimSpace(degStr)
 		if deg, err := strconv.ParseFloat(degStr, 64); err == nil {
 			pct := math.Tan(deg*math.Pi/180) * 100
-			v := max(int(math.Round(pct))+128, 0)
-			if v > 255 {
-				v = 255
-			}
+			v := min(max(int(math.Round(pct))+128, 0), 255)
 			return uint8(v)
 		}
 		return 0
@@ -507,9 +504,6 @@ func ParseIncline(s string) uint8 {
 	if err != nil {
 		return 0
 	}
-	v := max(int(math.Round(f))+128, 0)
-	if v > 255 {
-		v = 255
-	}
+	v := min(max(int(math.Round(f))+128, 0), 255)
 	return uint8(v)
 }

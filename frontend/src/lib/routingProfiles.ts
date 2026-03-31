@@ -346,7 +346,7 @@ export const PROFILES: ProfileMeta[] = [
       path_preference: 0.8,
       turn_cost: 0.0,
       initial_cost_road: 1.2,
-      pass0_coefficient: 1.0,
+      // pass0_coefficient intentionally omitted — backend profile default is authoritative
     },
   },
   {
@@ -378,7 +378,7 @@ export const PROFILES: ProfileMeta[] = [
       path_preference: 0.75,
       turn_cost: 0.1,
       initial_cost_road: 1.5,
-      pass0_coefficient: 1.0,
+      // pass0_coefficient intentionally omitted — backend profile default is authoritative
     },
   },
   {
@@ -410,7 +410,7 @@ export const PROFILES: ProfileMeta[] = [
       path_preference: 0.85,
       turn_cost: 0.15,
       initial_cost_road: 1.3,
-      pass0_coefficient: 1.0,
+      // pass0_coefficient intentionally omitted — backend profile default is authoritative
     },
   },
   {
@@ -442,7 +442,7 @@ export const PROFILES: ProfileMeta[] = [
       path_preference: 0.88,
       turn_cost: 0.1,
       initial_cost_road: 1.1,
-      pass0_coefficient: 1.0,
+      // pass0_coefficient intentionally omitted — backend profile default is authoritative
     },
   },
   {
@@ -474,7 +474,7 @@ export const PROFILES: ProfileMeta[] = [
       path_preference: 1.5,
       turn_cost: 0.2,
       initial_cost_road: 0.8,
-      pass0_coefficient: 1.0,
+      // pass0_coefficient intentionally omitted — backend profile default is authoritative
     },
   },
 ]

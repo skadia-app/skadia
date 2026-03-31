@@ -53,9 +53,9 @@ func TestFillGaps_AllNilDistance(t *testing.T) {
 func TestFillGaps_AllHaveDistance(t *testing.T) {
 	base := time.Now()
 	points := []model.StreamPoint{
-		{Time: base, DistanceM: fptr(0), SpeedMS: new(5.0), Lat: new(48.0), Lng: new(10.0)},
-		{Time: base.Add(time.Second), DistanceM: fptr(500), SpeedMS: new(5.0), Lat: new(48.01), Lng: new(10.01)},
-		{Time: base.Add(2 * time.Second), DistanceM: fptr(1000), SpeedMS: new(5.0), Lat: new(48.02), Lng: new(10.02)},
+		{Time: base, DistanceM: new(float64(0)), SpeedMS: new(5.0), Lat: new(48.0), Lng: new(10.0)},
+		{Time: base.Add(time.Second), DistanceM: new(float64(500)), SpeedMS: new(5.0), Lat: new(48.01), Lng: new(10.01)},
+		{Time: base.Add(2 * time.Second), DistanceM: new(float64(1000)), SpeedMS: new(5.0), Lat: new(48.02), Lng: new(10.02)},
 	}
 
 	got := FillMissingDistanceAndSpeed(points)
@@ -77,14 +77,14 @@ func TestFillGaps_MiddleGap(t *testing.T) {
 
 	points := []model.StreamPoint{
 		// Session 1: has distance
-		{Time: base, DistanceM: fptr(0), Lat: new(lat), Lng: new(lng)},
-		{Time: base.Add(10 * time.Second), DistanceM: fptr(100), Lat: new(lat + 0.001), Lng: new(lng)},
+		{Time: base, DistanceM: new(float64(0)), Lat: new(lat), Lng: new(lng)},
+		{Time: base.Add(10 * time.Second), DistanceM: new(float64(100)), Lat: new(lat + 0.001), Lng: new(lng)},
 		// Session 2: NO distance (10h gap)
 		{Time: base.Add(10 * time.Hour), Lat: new(lat + 0.01), Lng: new(lng + 0.01)},
 		{Time: base.Add(10*time.Hour + 10*time.Second), Lat: new(lat + 0.02), Lng: new(lng + 0.01)},
 		// Session 3: has distance again (resets from 0, but fixDistanceResets already ran)
-		{Time: base.Add(17 * time.Hour), DistanceM: fptr(5000), Lat: new(lat + 0.05), Lng: new(lng + 0.02)},
-		{Time: base.Add(17*time.Hour + 10*time.Second), DistanceM: fptr(5100), Lat: new(lat + 0.06), Lng: new(lng + 0.02)},
+		{Time: base.Add(17 * time.Hour), DistanceM: new(float64(5000)), Lat: new(lat + 0.05), Lng: new(lng + 0.02)},
+		{Time: base.Add(17*time.Hour + 10*time.Second), DistanceM: new(float64(5100)), Lat: new(lat + 0.06), Lng: new(lng + 0.02)},
 	}
 
 	got := FillMissingDistanceAndSpeed(points)
@@ -160,13 +160,13 @@ func TestFillGaps_MonotonicityWhenGPSOvershootsReal(t *testing.T) {
 	// Real: 500m, then 3 nil points where GPS adds ~700m, then real=500.1m (after fixDistanceResets).
 	// Without monotonicity guard: cumDist goes 500 → ~1200 → 500.1 (backwards jump!)
 	points := []model.StreamPoint{
-		{Time: base, DistanceM: fptr(500), Lat: new(48.35), Lng: new(10.90)},
+		{Time: base, DistanceM: new(float64(500)), Lat: new(48.35), Lng: new(10.90)},
 		// Gap with GPS (nil distance) — large Haversine jump
 		{Time: base.Add(10 * time.Second), Lat: new(48.36), Lng: new(10.91)}, // ~1.3km away
 		{Time: base.Add(20 * time.Second), Lat: new(48.37), Lng: new(10.92)}, // another ~1.3km
 		// Real value that is LESS than cumDist (fixDistanceResets output)
 		{Time: base.Add(30 * time.Second), DistanceM: new(500.1), Lat: new(48.38), Lng: new(10.93)},
-		{Time: base.Add(40 * time.Second), DistanceM: fptr(800), Lat: new(48.39), Lng: new(10.94)},
+		{Time: base.Add(40 * time.Second), DistanceM: new(float64(800)), Lat: new(48.39), Lng: new(10.94)},
 	}
 
 	got := FillMissingDistanceAndSpeed(points)
@@ -195,9 +195,9 @@ func TestFillGaps_MonotonicityWhenGPSOvershootsReal(t *testing.T) {
 func TestFillGaps_FirstPointNilThenReal(t *testing.T) {
 	base := time.Now()
 	points := []model.StreamPoint{
-		{Time: base, Lat: new(48.35), Lng: new(10.90)},                                                 // nil dist
-		{Time: base.Add(10 * time.Second), Lat: new(48.3501), Lng: new(10.9001)},                       // nil dist
-		{Time: base.Add(20 * time.Second), DistanceM: fptr(500), Lat: new(48.3502), Lng: new(10.9002)}, // real
+		{Time: base, Lat: new(48.35), Lng: new(10.90)},                                                         // nil dist
+		{Time: base.Add(10 * time.Second), Lat: new(48.3501), Lng: new(10.9001)},                               // nil dist
+		{Time: base.Add(20 * time.Second), DistanceM: new(float64(500)), Lat: new(48.3502), Lng: new(10.9002)}, // real
 	}
 
 	got := FillMissingDistanceAndSpeed(points)
