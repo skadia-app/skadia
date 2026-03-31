@@ -1660,6 +1660,11 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 		// ApplyRuleChange is intentionally not called for this field; this case
 		// exists only so the default branch never fires for "notify".
 		return nil
+	case "webhook":
+		// Handled upstream in ApplyRulesToActivity (requires HTTP call).
+		// ApplyRuleChange is intentionally not called for this field; this case
+		// exists only so the default branch never fires for "webhook".
+		return nil
 	default:
 		return fmt.Errorf("unknown field: %s", field)
 	}
