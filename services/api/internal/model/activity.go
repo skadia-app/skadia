@@ -106,6 +106,8 @@ type Activity struct {
 	ChildCount int     `json:"child_count,omitempty"` // Computed, not in DB
 	// Fusion result: maps stream fields to source activity IDs.
 	FusionSources json.RawMessage `json:"fusion_sources,omitempty"`
+	// Recording group: true if this activity is a secondary (non-primary) member of a recording group.
+	IsGroupSecondary bool `json:"is_group_secondary"`
 	// Platform IDs for deep-linking back to the source platform.
 	GarminActivityID *int64 `json:"garmin_activity_id,omitempty"`
 	StravaActivityID *int64 `json:"strava_activity_id,omitempty"`
