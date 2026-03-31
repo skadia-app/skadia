@@ -64,6 +64,7 @@ const AdminUsersPage = lazy(() => import('@/pages/admin/AdminUsersPage'))
 const AdminAuditLogPage = lazy(() => import('@/pages/admin/AdminAuditLogPage'))
 const WorkoutsPage = lazy(() => import('@/pages/WorkoutsPage'))
 const WorkoutDetailPage = lazy(() => import('@/pages/WorkoutDetailPage'))
+const RecordingGroupPage = lazy(() => import('@/pages/RecordingGroupPage'))
 
 function ImportRedirect() {
   const [searchParams] = useSearchParams()
@@ -137,6 +138,7 @@ export default function App() {
                             <Route path="activities" element={<ActivitiesPage />} />
                             <Route path="activities/manual" element={<ManualActivityPage />} />
                             <Route path="activities/compare" element={<ActivityComparisonPage />} />
+                            <Route path="activities/group/:groupId" element={<RecordingGroupPage />} />
                             <Route path="fusion" element={<FusionPage />} />
                             <Route path="activities/:id" element={<ActivityDetailPage />} />
                             <Route path="activities/:id/edit" element={<ActivityEditorPage />} />
