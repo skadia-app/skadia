@@ -506,15 +506,24 @@ export function useRoutePlanner() {
 
   // ── Routing engine ──────────────────────────────────────────────────────────
 
-  const setRoutingEngine = useCallback((engine: RoutingEngine) => {
+  const setRoutingEngine = useCallback(async (engine: RoutingEngine) => {
+    let currentWaypoints: RouteWaypoint[] = []
+    let currentBrouterProfile = 'hiking-mountain'
+    let currentProfileConfig: ProfileConfig = getProfileDefaults('hiking')
     setState(s => {
       if (s.routingEngine === engine) return s
-      return { ...s, routingEngine: engine }
+      currentWaypoints = s.waypoints
+      currentBrouterProfile = s.brouterProfile
+      currentProfileConfig = s.profileConfig
+      return { ...s, routingEngine: engine, segments: [], isCalculating: true, calculationError: null }
     })
-    // recalculateAll reads state via setState updater, so it sees the updated
-    // routingEngine immediately — no setTimeout needed
-    void recalculateAll()
-  }, [recalculateAll])
+    // Pass the new engine value explicitly — do NOT read from state here,
+    // as React batches setState updates and s.routingEngine would still be stale.
+    for (let i = 0; i < currentWaypoints.length - 1; i++) {
+      await _calculateSegment(currentWaypoints[i], currentWaypoints[i + 1], currentProfileConfig, engine, currentBrouterProfile)
+    }
+    setState(s => ({ ...s, isCalculating: false }))
+  }, [_calculateSegment])
 
   const setBrouterProfile = useCallback((profile: string) => {
     setState(s => ({ ...s, brouterProfile: profile }))
