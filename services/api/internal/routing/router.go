@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"slices"
 	"time"
@@ -40,6 +41,94 @@ func NewUnifiedRouter(reader GraphReader, maxConcurrent int) *UnifiedRouter {
 		sem:    make(chan struct{}, maxConcurrent),
 		isoSem: make(chan struct{}, 2),
 	}
+}
+
+// VirtualEndpoint represents a point projected onto a graph edge, with
+// pre-computed costs and node states for the two adjacent real nodes.
+type VirtualEndpoint struct {
+	Proj    graph.EdgeProjection
+	GlobalA uint64
+	GlobalB uint64
+	CostA   float32
+	CostB   float32
+	StateA  nodeState
+	StateB  nodeState
+	OrigLat float64
+	OrigLon float64
+}
+
+// snapToEdge projects (lat, lon) onto the nearest passable graph edge and
+// returns a VirtualEndpoint with pre-computed partial-edge costs to both
+// adjacent nodes. This is the foundation for sub-edge start/destination
+// placement (edge projection routing).
+func (r *UnifiedRouter) snapToEdge(lat, lon float64, cfg *CostConfig) (*VirtualEndpoint, error) {
+	filter := func(tags1 uint64) bool {
+		return cfg.EdgeCost(tags1, 0).Flat < costBlocked
+	}
+	proj, ok := r.reader.FindNearestEdge(lat, lon, filter)
+	if !ok {
+		return nil, ErrNoRoute
+	}
+
+	ve := &VirtualEndpoint{
+		Proj:    proj,
+		GlobalA: MakeGlobalNodeID(proj.TileID, proj.NodeA),
+		GlobalB: MakeGlobalNodeID(proj.TileID, proj.NodeB),
+		OrigLat: lat,
+		OrigLon: lon,
+	}
+
+	edgeCostFactors := cfg.EdgeCost(proj.EdgeTags1, 0)
+
+	// Partial distances from projection point to each endpoint (in cm and mm).
+	distA_cm := proj.FractionAB * proj.EdgeDistM * 100
+	distB_cm := (1 - proj.FractionAB) * proj.EdgeDistM * 100
+
+	// Elevation deltas from projection point to each endpoint (dm → mm).
+	deltaEleA_mm := (proj.EleA_dm - proj.ProjEleDm) * 100
+	deltaEleB_mm := (proj.EleB_dm - proj.ProjEleDm) * 100
+
+	hystA := propagateHysteresis(PathState{}, deltaEleA_mm, int32(distA_cm)*10, cfg)
+	hystB := propagateHysteresis(PathState{}, deltaEleB_mm, int32(distB_cm)*10, cfg)
+
+	ve.CostA = float32(distA_cm)/100.0*edgeCostFactors.Flat + hystA.ElevCost
+	ve.CostB = float32(distB_cm)/100.0*edgeCostFactors.Flat + hystB.ElevCost
+
+	// Direction vectors from projection point to each endpoint.
+	nodeALat, nodeALon, _ := r.reader.NodeCoord(ve.GlobalA)
+	nodeBLat, nodeBLon, _ := r.reader.NodeCoord(ve.GlobalB)
+	projLat7 := int32(proj.ProjLat * 1e7)
+	projLon7 := int32(proj.ProjLon * 1e7)
+
+	dxA, dyA := normalizeDir(float32(nodeALon-projLon7), float32(nodeALat-projLat7))
+	dxB, dyB := normalizeDir(float32(nodeBLon-projLon7), float32(nodeBLat-projLat7))
+	wayClass := edgeCostFactors.WayClass
+
+	effA := ve.CostA + hystA.State.elevationCorrection(cfg)
+	effB := ve.CostB + hystB.State.elevationCorrection(cfg)
+
+	ve.StateA = nodeState{
+		BestCost: ve.CostA, EffectiveCost: effA, FrontierCost: effA,
+		PathState: hystA.State, LastEdgeDX: dxA, LastEdgeDY: dyA,
+		LastWayClass: wayClass, EdgeHandle: proj.EdgeHandle, EdgeTags1: proj.EdgeTags1,
+	}
+	ve.StateB = nodeState{
+		BestCost: ve.CostB, EffectiveCost: effB, FrontierCost: effB,
+		PathState: hystB.State, LastEdgeDX: dxB, LastEdgeDY: dyB,
+		LastWayClass: wayClass, EdgeHandle: proj.EdgeHandle, EdgeTags1: proj.EdgeTags1,
+	}
+
+	return ve, nil
+}
+
+// normalizeDir returns a unit-length direction vector. Returns (0,0) for zero-length input.
+func normalizeDir(dx, dy float32) (float32, float32) {
+	lenSq := dx*dx + dy*dy
+	if lenSq > 0 {
+		invLen := 1.0 / float32(math.Sqrt(float64(lenSq)))
+		return dx * invLen, dy * invLen
+	}
+	return 0, 0
 }
 
 // Route computes a route from start to destination using findRouteUnified
