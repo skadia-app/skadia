@@ -30,7 +30,7 @@ export default function AutomationRulesPage() {
 
   const [creating, setCreating] = useState(urlNew)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [applyResult, setApplyResult] = useState<{ applied: number; errors: number } | null>(null)
+  const [applyResult, setApplyResult] = useState<{ status?: string; job_id: string | null; applied?: number; affected?: number } | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [showSystemRules, setShowSystemRules] = useState(false)
   const [search, setSearch] = useState('')
@@ -178,8 +178,11 @@ export default function AutomationRulesPage() {
       {applyResult && (
         <div className="rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/20 px-4 py-3 text-sm">
           <span className="text-emerald-700 dark:text-emerald-400">
-            {applyResult.applied} Regel(n) angewendet
-            {applyResult.errors > 0 && `, ${applyResult.errors} Fehler`}
+            {applyResult.job_id
+              ? 'Regelanwendung gestartet'
+              : applyResult.applied != null
+                ? `${applyResult.applied} Regel(n) angewendet`
+                : 'Regelanwendung abgeschlossen'}
           </span>
         </div>
       )}

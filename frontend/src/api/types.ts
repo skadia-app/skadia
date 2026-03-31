@@ -695,7 +695,7 @@ export interface GearDocument {
 }
 
 export interface RuleBranch {
-  type: 'else_if' | 'else'
+  type: 'if' | 'else_if' | 'else'
   condition_groups: RuleConditionGroup[]
   actions: RuleAction[]
 }
