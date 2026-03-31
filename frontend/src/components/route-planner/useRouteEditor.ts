@@ -31,6 +31,12 @@ const LAYER_CP_CIRCLE = 'route-planner-control-points'
 // Pixel radius for "close enough to waypoint" snap on click
 const CLICK_SNAP_PX = 20
 
+// ── Segment context menu labels ──────────────────────────────────────────────
+const SEGMENT_MENU_LABELS = {
+  drawOffroad: 'Offroad zeichnen',
+  routeOnRoads: 'Auf Wegen routen',
+} as const
+
 // ── Minimal planner interface required by this hook ─────────────────────────
 // Mirrors what useRoutePlanner will expose (Task 27).
 export interface RoutePlannerState {
@@ -560,7 +566,7 @@ export function useRouteEditor(
       // Close any existing popup
       segmentPopupRef.current?.remove()
 
-      const label = mode === 'routed' ? 'Offroad zeichnen' : 'Auf Wegen routen'
+      const label = mode === 'routed' ? SEGMENT_MENU_LABELS.drawOffroad : SEGMENT_MENU_LABELS.routeOnRoads
 
       const container = document.createElement('div')
       container.className = 'flex flex-col gap-1 p-1'

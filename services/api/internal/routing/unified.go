@@ -190,23 +190,24 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 			}
 
 			if passCoeff > 0 {
-				dstAExpanded := false
-				dstBExpanded := false
-				if nsA, ok := state.nodes[effectiveDstA]; ok {
-					dstAExpanded = nsA.Expanded
-				}
-				if nsB, ok := state.nodes[effectiveDstB]; ok {
-					dstBExpanded = nsB.Expanded
-				}
-				if effectiveDstA == effectiveDstB {
-					dstBExpanded = dstAExpanded
-				}
-				if dstAExpanded && dstBExpanded && bestDstCost < math.MaxFloat32 {
-					return &routeResult{
-						state: state, totalCost: bestDstCost,
-						expansions: expansions, durationMs: time.Since(start).Milliseconds(),
-						bestDstNode: bestDstNode,
-					}, nil
+				// Pass0 (inadmissible): terminate once any destination is reached and expanded.
+				// Both-expanded is unnecessary — inadmissible A* provides no optimality guarantee.
+				if bestDstCost < math.MaxFloat32 {
+					dstAExpanded := false
+					dstBExpanded := false
+					if nsA, ok := state.nodes[effectiveDstA]; ok {
+						dstAExpanded = nsA.Expanded
+					}
+					if nsB, ok := state.nodes[effectiveDstB]; ok {
+						dstBExpanded = nsB.Expanded
+					}
+					if dstAExpanded || dstBExpanded {
+						return &routeResult{
+							state: state, totalCost: bestDstCost,
+							expansions: expansions, durationMs: time.Since(start).Milliseconds(),
+							bestDstNode: bestDstNode,
+						}, nil
+					}
 				}
 			}
 
