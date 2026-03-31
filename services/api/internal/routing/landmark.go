@@ -34,6 +34,11 @@ type LandmarkHeuristic struct {
 	pageByteBuf [landmarkPageSize * LandmarksPerSet * 4]byte
 	pageTileID  uint32
 	pageNum     int32 // -1 = invalid / not yet loaded
+
+	// Dual-destination mode (for edge-projected destinations).
+	dstDistsB *[LandmarksPerSet]float32 // nil = single-destination mode
+	costA     float32                    // partial edge cost for dstA
+	costB     float32                    // partial edge cost for dstB
 }
 
 // NewLandmarkHeuristic creates a heuristic pre-loaded with destination distances.
@@ -48,6 +53,37 @@ func NewLandmarkHeuristic(reader GraphReader, dstNode uint64, setID LandmarkSetI
 		copy(h.dstDists[:], dists)
 		h.valid = true
 	}
+	return h
+}
+
+// NewDualLandmarkHeuristic creates a heuristic for two destination nodes.
+// The LowerBound returns min(h(n→A) + costA, h(n→B) + costB) — admissible.
+func NewDualLandmarkHeuristic(reader GraphReader, dstA, dstB uint64,
+	costA, costB float32, setID LandmarkSetID) *LandmarkHeuristic {
+
+	h := &LandmarkHeuristic{
+		reader:  reader,
+		setID:   setID,
+		pageNum: -1,
+	}
+
+	distsA := reader.LandmarkDists(setID, dstA)
+	if distsA != nil && len(distsA) == LandmarksPerSet {
+		copy(h.dstDists[:], distsA)
+		h.valid = true
+	}
+
+	if dstB != dstA {
+		distsB := reader.LandmarkDists(setID, dstB)
+		if distsB != nil && len(distsB) == LandmarksPerSet {
+			h.dstDistsB = new([LandmarksPerSet]float32)
+			copy(h.dstDistsB[:], distsB)
+			h.costA = costA
+			h.costB = costB
+			h.valid = true
+		}
+	}
+
 	return h
 }
 
@@ -72,7 +108,7 @@ func (h *LandmarkHeuristic) LowerBound(nodeID uint64) float32 {
 		if page == nil {
 			// Fallback: single-node read (e.g. cold section unavailable).
 			nodeDists := h.reader.LandmarkDistsInto(h.setID, nodeID, h.nodeBuf[:], h.byteBuf[:])
-			return h.lowerBoundFromDists(nodeDists)
+			return h.lowerBoundDual(nodeDists)
 		}
 		h.pageNum = pageNum
 		h.pageTileID = tileID
@@ -81,7 +117,7 @@ func (h *LandmarkHeuristic) LowerBound(nodeID uint64) float32 {
 	// Page cache hit: extract the LandmarksPerSet floats for this node.
 	// Stride is LandmarksPerSet (16), not landmarkPageSize (64).
 	off := (localID % landmarkPageSize) * LandmarksPerSet
-	return h.lowerBoundFromDists(h.pageBuf[off : off+LandmarksPerSet])
+	return h.lowerBoundDual(h.pageBuf[off : off+LandmarksPerSet])
 }
 
 // lowerBoundFromDists computes max |nodeDists[k] - dstDists[k]| over all landmarks.
@@ -103,6 +139,36 @@ func (h *LandmarkHeuristic) lowerBoundFromDists(nodeDists []float32) float32 {
 		}
 	}
 	return best
+}
+
+// lowerBoundDual computes the admissible lower bound for dual-destination mode.
+// Single-destination: delegates to lowerBoundFromDists.
+// Dual-destination: min(hA + costA, hB + costB).
+func (h *LandmarkHeuristic) lowerBoundDual(nodeDists []float32) float32 {
+	hA := h.lowerBoundFromDists(nodeDists)
+
+	if h.dstDistsB == nil {
+		return hA // single-destination mode
+	}
+
+	// Compute hB using dstDistsB
+	var hB float32
+	if nodeDists != nil {
+		for k := range LandmarksPerSet {
+			if nodeDists[k] >= math.MaxFloat32 || h.dstDistsB[k] >= math.MaxFloat32 {
+				continue
+			}
+			diff := nodeDists[k] - h.dstDistsB[k]
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff > hB {
+				hB = diff
+			}
+		}
+	}
+
+	return min(hA+h.costA, hB+h.costB)
 }
 
 // SelectLandmarkSet returns the appropriate landmark set for the given cost config.
