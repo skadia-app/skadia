@@ -1133,7 +1133,13 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 			w.condition AS weather_condition,
 			wm.temp_min AS weather_temp_min_c,
 			wm.temp_max AS weather_temp_max_c,
-			a.created_at AS activity_created_at
+			a.created_at AS activity_created_at,
+			gt.summit_count, gt.has_pass, gt.border_crossing_count,
+			st.has_gastronomy_stop, st.stop_count,
+			iv.has_structured_intervals, iv.interval_count,
+			hc.has_hc_climb,
+			sf.surface_paved_pct, sf.surface_gravel_pct, sf.surface_trail_pct, sf.surface_unknown_pct,
+			a.is_commute
 		FROM activities a
 		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS cnt FROM activity_photos GROUP BY activity_id) pc ON pc.activity_id = a.id
 		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS cnt FROM activity_detected_laps GROUP BY activity_id) lc ON lc.activity_id = a.id
@@ -1149,6 +1155,37 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 			SELECT MIN(temp_c) AS temp_min, MAX(temp_c) AS temp_max
 			FROM activity_weather WHERE activity_id = a.id
 		) wm ON true
+		LEFT JOIN LATERAL (
+			SELECT
+				COUNT(*) FILTER (WHERE category = 'summit')::int AS summit_count,
+				(COUNT(*) FILTER (WHERE category = 'pass') > 0) AS has_pass,
+				COUNT(*) FILTER (WHERE category = 'border')::int AS border_crossing_count
+			FROM activity_geo_tags WHERE activity_id = a.id
+		) gt ON true
+		LEFT JOIN LATERAL (
+			SELECT
+				(COUNT(*) FILTER (WHERE poi_category = 'gastronomy') > 0) AS has_gastronomy_stop,
+				COUNT(*)::int AS stop_count
+			FROM activity_stops WHERE activity_id = a.id
+		) st ON true
+		LEFT JOIN LATERAL (
+			SELECT
+				(COUNT(*) > 0) AS has_structured_intervals,
+				COUNT(*)::int AS interval_count
+			FROM activity_intervals WHERE activity_id = a.id
+		) iv ON true
+		LEFT JOIN LATERAL (
+			SELECT (COUNT(*) FILTER (WHERE category = 'HC') > 0) AS has_hc_climb
+			FROM activity_climbs WHERE activity_id = a.id
+		) hc ON true
+		LEFT JOIN LATERAL (
+			SELECT
+				COALESCE(SUM(percentage) FILTER (WHERE surface_type IN ('asphalt','paved','concrete','concrete:plates','concrete:lanes','paving_stones','sett')), 0) AS surface_paved_pct,
+				COALESCE(SUM(percentage) FILTER (WHERE surface_type IN ('gravel','compacted','fine_gravel','pebblestone')), 0) AS surface_gravel_pct,
+				COALESCE(SUM(percentage) FILTER (WHERE surface_type IN ('ground','dirt','earth','grass','mud','sand','wood','woodchips','rock','stepping_stones')), 0) AS surface_trail_pct,
+				COALESCE(SUM(percentage) FILTER (WHERE surface_type NOT IN ('asphalt','paved','concrete','concrete:plates','concrete:lanes','paving_stones','sett','gravel','compacted','fine_gravel','pebblestone','ground','dirt','earth','grass','mud','sand','wood','woodchips','rock','stepping_stones') OR surface_type IS NULL), 0) AS surface_unknown_pct
+			FROM activity_surfaces WHERE activity_id = a.id
+		) sf ON true
 		WHERE a.id = $1`,
 		activityID,
 	)
@@ -1185,6 +1222,10 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		weatherCondition                                         *string
 		weatherTempMinC, weatherTempMaxC                         *float64
 		activityCreatedAt                                        time.Time
+		summitCount, borderCrossingCount, stopCount, intervalCount int
+		hasPass, hasGastroStop, hasStructuredIntervals, hasHCClimb bool
+		surfacePavedPct, surfaceGravelPct, surfaceTrailPct, surfaceUnknownPct float64
+		isCommute                                                bool
 	)
 
 	err := row.Scan(
@@ -1210,6 +1251,12 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		&weatherTempC, &weatherHumidity, &weatherWindSpeedMS, &weatherWindGustsMS,
 		&weatherCondition, &weatherTempMinC, &weatherTempMaxC,
 		&activityCreatedAt,
+		&summitCount, &hasPass, &borderCrossingCount,
+		&hasGastroStop, &stopCount,
+		&hasStructuredIntervals, &intervalCount,
+		&hasHCClimb,
+		&surfacePavedPct, &surfaceGravelPct, &surfaceTrailPct, &surfaceUnknownPct,
+		&isCommute,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -1376,6 +1423,22 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	if len(sensorDeviceIDs) > 0 {
 		m["sensor_device_ids"] = sensorDeviceIDs
 	}
+
+	// Enrichment-derived conditions
+	m["has_summit"] = summitCount > 0
+	m["summit_count"] = summitCount
+	m["has_pass"] = hasPass
+	m["border_crossing_count"] = borderCrossingCount
+	m["has_gastronomy_stop"] = hasGastroStop
+	m["stop_count"] = stopCount
+	m["has_structured_intervals"] = hasStructuredIntervals
+	m["interval_count"] = intervalCount
+	m["has_hc_climb"] = hasHCClimb
+	m["surface_paved_pct"] = surfacePavedPct
+	m["surface_gravel_pct"] = surfaceGravelPct
+	m["surface_trail_pct"] = surfaceTrailPct
+	m["surface_unknown_pct"] = surfaceUnknownPct
+	m["commute_detected"] = isCommute
 
 	return m, nil
 }
