@@ -815,13 +815,14 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         overrideValues={data.depth} invertY
         extraSeries={hasValidData(data.decoStopM) ? [{
           values: data.decoStopM,
-          name: 'Dekotiefe',
+          name: 'Dekotiefe (m)',
           color: '#ef4444',
           lineStyle: { color: '#ef4444', width: 0 },
           areaStyle: { color: 'rgba(239,68,68,0.25)' },
           symbol: 'none',
           z: 1,
           connectNulls: true,
+          silent: true,
         }] : undefined}
       />
     </div>,
@@ -875,8 +876,8 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         tooltipTitle="Garmin Stamina" />
     </div>,
   )
-  // Barometric Pressure
-  if (hasValidData(data.pressure)) panels.push(
+  // Barometric Pressure — hide for dive activities (depth data present)
+  if (hasValidData(data.pressure) && !hasValidData(data.depth)) panels.push(
     <div key={k('pressure')} style={{ display: show('pressure') ? undefined : 'none' }}>
       <ChartPanel chartId="pressure" {...common}
         field="pressure" label="Barometer" unit="hPa" color="#78716c" />
@@ -2529,6 +2530,8 @@ interface ChartPanelProps {
     z?: number
     /** Connect NaN gaps so the filled area stays contiguous (useful for sparse deco-stop data). */
     connectNulls?: boolean
+    /** Disable mouse events on this series (prevents blocking brush/zoom). */
+    silent?: boolean
   }>
 }
 
@@ -2794,6 +2797,7 @@ function ChartPanel({
                 areaStyle: es.areaStyle ?? undefined,
                 connectNulls: es.connectNulls ?? false,
                 z: es.z ?? 2,
+                ...(es.silent != null ? { silent: es.silent } : {}),
               })),
             ],
 
