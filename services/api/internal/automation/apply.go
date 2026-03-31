@@ -13,6 +13,23 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/rules"
 )
 
+// shouldEvaluateRule checks if a rule should be evaluated for the given trigger event.
+func shouldEvaluateRule(rule model.AutomationRule, triggerEvent string) bool {
+	if !rule.IsActive {
+		return false
+	}
+	if triggerEvent != "" && rule.TriggerEvent != triggerEvent {
+		return false
+	}
+	if rule.SystemType != nil {
+		switch *rule.SystemType {
+		case "electric_sync", "virtual_sync", "indoor_sync", "commute_sync":
+			return false
+		}
+	}
+	return true
+}
+
 // ApplyRulesToActivity evaluates rules against a single activity.
 // triggerEvent filters which rules to evaluate: "on_import", "on_enrichment_complete",
 // "on_manual_apply", or "" for all (used by "Regeln anwenden" button).
@@ -33,11 +50,7 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 	// (ON CONFLICT DO NOTHING for add_tag, simple UPDATE for fields).
 	// A future refactor could introduce a querier interface.
 	for _, rule := range allRules {
-		if !rule.IsActive {
-			continue
-		}
-		// Filter by trigger event (empty = all)
-		if triggerEvent != "" && rule.TriggerEvent != triggerEvent {
+		if !shouldEvaluateRule(rule, triggerEvent) {
 			continue
 		}
 		// apply_retroactively filter: on_import only evaluates new activities
@@ -50,10 +63,6 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 					continue
 				}
 			}
-		}
-		// Skip electric_sync / virtual_sync / indoor_sync / commute_sync — managed by DB trigger, not rules engine
-		if rule.SystemType != nil && (*rule.SystemType == "electric_sync" || *rule.SystemType == "virtual_sync" || *rule.SystemType == "indoor_sync" || *rule.SystemType == "commute_sync") {
-			continue
 		}
 
 		var actions []rules.Action
