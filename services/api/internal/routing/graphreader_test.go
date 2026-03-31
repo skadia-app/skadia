@@ -209,6 +209,33 @@ func TestSingleGraphReaderEdgeGeometry_IntermediateOnly(t *testing.T) {
 	}
 }
 
+func TestSingleGraphReaderFindNearestEdge(t *testing.T) {
+	g := makePassableTestGraph()
+	reader := &SingleGraphReader{G: g, TileID: 0}
+
+	proj, ok := reader.FindNearestEdge(47.05, 8.05, nil)
+	if !ok {
+		t.Fatal("expected to find an edge")
+	}
+	if proj.DistanceM > 5000 {
+		t.Errorf("distance too large: %.1f m", proj.DistanceM)
+	}
+	if proj.TileID != 0 {
+		t.Errorf("expected tile 0, got %d", proj.TileID)
+	}
+}
+
+func TestSingleGraphReaderFindNearestEdge_Filter(t *testing.T) {
+	g := makePassableTestGraph()
+	reader := &SingleGraphReader{G: g, TileID: 0}
+
+	blockAll := func(tags1 uint64) bool { return false }
+	_, ok := reader.FindNearestEdge(47.05, 8.05, blockAll)
+	if ok {
+		t.Error("expected no edge when filter blocks all")
+	}
+}
+
 func makeSimpleTestGraph() *graph.Graph {
 	g := &graph.Graph{
 		NodeCount: 3, EdgeCount: 2,

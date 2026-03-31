@@ -40,6 +40,11 @@ type GraphReader interface {
 	// NearestNode finds the closest graph node to the given coordinates.
 	NearestNode(lat, lon float64) (nodeID uint64, dist float64, ok bool)
 
+	// FindNearestEdge finds the nearest graph edge to the given coordinates.
+	// If filter is non-nil, edges where filter(tags1) returns false are skipped.
+	// Returns the edge projection and true, or zero-value and false if none found.
+	FindNearestEdge(lat, lon float64, filter func(tags1 uint64) bool) (graph.EdgeProjection, bool)
+
 	// === Hysteresis (pass1) ===
 
 	// EdgeElevProfile returns the full-resolution elevation profile and
@@ -160,6 +165,13 @@ func (r *SingleGraphReader) NearestNode(lat, lon float64) (uint64, float64, bool
 		return 0, 0, false
 	}
 	return MakeGlobalNodeID(r.TileID, nodeID), float64(distDm) / 10.0, true
+}
+
+func (r *SingleGraphReader) FindNearestEdge(lat, lon float64, filter func(tags1 uint64) bool) (graph.EdgeProjection, bool) {
+	if r.G == nil {
+		return graph.EdgeProjection{}, false
+	}
+	return r.G.FindNearestEdgeLocal(lat, lon, filter)
 }
 
 func (r *SingleGraphReader) EdgeElevProfile(handle uint64) ([]int32, []uint16) {
