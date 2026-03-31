@@ -129,6 +129,7 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
   ]},
   { key: 'distance', label: 'Distanz', fields: [
     { field: 'distance_m', label: 'Distanz', inputType: 'number', unit: 'm' },
+    { field: 'start_end_distance_m', label: 'Start-End-Abstand', inputType: 'number', unit: 'm' },
   ]},
   { key: 'speed', label: 'Geschwindigkeit', fields: [
     { field: 'avg_speed_ms', label: 'Ø Geschwindigkeit', inputType: 'number', unit: 'm/s' },
@@ -192,6 +193,7 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
     { field: 'photo_count', label: 'Anzahl Fotos', inputType: 'number' },
     { field: 'detected_lap_count', label: 'Anzahl Runden', inputType: 'number' },
     { field: 'hide_map', label: 'Karte verborgen', inputType: 'bool' },
+    { field: 'sun_elevation', label: 'Sonnenstand', inputType: 'number', unit: '°' },
   ]},
   { key: 'lift', label: 'Lift', fields: [
     { field: 'has_lift', label: 'Lift genutzt', inputType: 'bool' },
