@@ -1056,24 +1056,27 @@ function DecoChartPanel({
 
       const mlData = buildSplitMarkLines(splitMarkers, xMode)
 
+      // Map to [x, y] pairs — required for type:'value' xAxis
+      const xy = (values: number[]) => values.map((v, i) => [xData[i], v])
+
       const series: Record<string, unknown>[] = []
       if (hasNdl) series.push({
-        name: 'NDL', type: 'line', data: data.ndlMin, symbol: 'none',
+        name: 'NDL', type: 'line', data: xy(data.ndlMin), symbol: 'none',
         lineStyle: { color: '#22c55e', width: 2 }, itemStyle: { color: '#22c55e' },
         yAxisIndex: 0, markLine: mlData.length > 0 ? { data: mlData, silent: true } : undefined,
       })
       if (hasCns) series.push({
-        name: 'CNS%', type: 'line', data: data.cnsPct, symbol: 'none',
+        name: 'CNS%', type: 'line', data: xy(data.cnsPct), symbol: 'none',
         lineStyle: { color: '#ef4444', width: 2 }, itemStyle: { color: '#ef4444' },
         yAxisIndex: 1,
       })
       if (hasN2) series.push({
-        name: 'N₂%', type: 'line', data: data.n2Pct, symbol: 'none',
+        name: 'N₂%', type: 'line', data: xy(data.n2Pct), symbol: 'none',
         lineStyle: { color: '#3b82f6', width: 2 }, itemStyle: { color: '#3b82f6' },
         yAxisIndex: 2,
       })
       if (hasDecoStop) series.push({
-        name: 'Deko-Stop', type: 'line', data: data.decoStopM, symbol: 'none',
+        name: 'Deko-Stop', type: 'line', data: xy(data.decoStopM), symbol: 'none',
         step: 'end',
         lineStyle: { color: '#f97316', width: 2, type: 'dashed' }, itemStyle: { color: '#f97316' },
         yAxisIndex: 3,
