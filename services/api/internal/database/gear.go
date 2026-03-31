@@ -1563,6 +1563,10 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 		if !ok {
 			return fmt.Errorf("add_tag value must be a tag_id string")
 		}
+		// Note: adding system tags 'Indoor', 'E-Bike', or 'Pendeln' via this path
+		// triggers sync_system_flags_and_tags (migration 000268) which automatically
+		// sets is_indoor, is_electric, or is_commute on the activities row.
+		// This is intentional — the DB trigger keeps boolean flags and tags in sync.
 		// Resolve tag name
 		var tagName string
 		var isSystem bool
