@@ -41,8 +41,7 @@ type RouteRequest struct {
 
 // RouteViabrouter proxies a routing request to the BRouter service and returns
 // a GeoJSON FeatureCollection. If BRouter is unavailable or returns an error,
-// a straight-line (as-the-crow-flies) fallback GeoJSON is returned instead so
-// the frontend always has a drawable geometry.
+// a structured JSON error with a "status" field is returned.
 //
 // POST /api/v1/routing/route
 func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
@@ -72,8 +71,11 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 
 	brouterURL := h.brouterBaseURL()
 	if brouterURL == "" {
-		slog.Warn("BRouter URL not configured, using straight-line fallback")
-		h.straightLineFallback(w, req.Waypoints)
+		slog.Warn("BRouter URL not configured")
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
+			"status": "brouter_unavailable",
+			"error":  "BRouter nicht verfügbar",
+		})
 		return
 	}
 
@@ -104,27 +106,36 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		slog.Warn("BRouter: failed to create request", "error", err)
-		h.straightLineFallback(w, req.Waypoints)
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
+			"status": "brouter_unavailable",
+			"error":  "BRouter nicht erreichbar",
+		})
 		return
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		slog.Warn("BRouter request failed, using straight-line fallback",
+		slog.Warn("BRouter request failed",
 			"error", err,
 			"url", queryURL.String(),
 		)
-		h.straightLineFallback(w, req.Waypoints)
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
+			"status": "brouter_unavailable",
+			"error":  "BRouter nicht erreichbar",
+		})
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		slog.Warn("BRouter returned non-200, using straight-line fallback",
+		slog.Warn("BRouter returned non-200",
 			"status", resp.StatusCode,
 			"body", string(body),
 		)
-		h.straightLineFallback(w, req.Waypoints)
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
+			"status": "no_route",
+			"error":  string(body),
+		})
 		return
 	}
 
@@ -133,34 +144,6 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 	if _, err := io.Copy(w, resp.Body); err != nil {
 		slog.Warn("BRouter proxy: failed to copy response body", "error", err)
 	}
-}
-
-// straightLineFallback writes a minimal GeoJSON FeatureCollection with a
-// single LineString connecting the given waypoints. It is used whenever
-// BRouter is unavailable so the frontend can still display a route.
-func (h *Handler) straightLineFallback(w http.ResponseWriter, waypoints [][2]float64) {
-	coords := make([]any, len(waypoints))
-	for i, wp := range waypoints {
-		// Input is [lat, lon], GeoJSON needs [lon, lat]
-		coords[i] = [2]float64{wp[1], wp[0]}
-	}
-	result := map[string]any{
-		"type": "FeatureCollection",
-		"features": []map[string]any{
-			{
-				"type": "Feature",
-				"properties": map[string]any{
-					"creator":  "Skadia-fallback",
-					"fallback": true,
-				},
-				"geometry": map[string]any{
-					"type":        "LineString",
-					"coordinates": coords,
-				},
-			},
-		},
-	}
-	httputil.WriteJSON(w, http.StatusOK, result)
 }
 
 // isValidProfileParam validates BRouter profile parameter keys and values.
