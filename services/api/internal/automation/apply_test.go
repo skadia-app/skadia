@@ -3,6 +3,7 @@ package automation
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -201,25 +202,25 @@ func TestResolveNameTemplate_MultipleTokens(t *testing.T) {
 func TestResolveNameTemplate_MissingCityKey(t *testing.T) {
 	actMap := map[string]any{}
 	result := resolveNameTemplate("{city}", actMap)
-	// Missing key — placeholder stays
-	if result != "{city}" {
-		t.Errorf("got %q, expected placeholder preserved", result)
+	// Missing key — empty string (use {city|fallback} to provide a default)
+	if result != "" {
+		t.Errorf("got %q, expected empty string for missing key", result)
 	}
 }
 
 func TestResolveNameTemplate_MissingDistanceKey(t *testing.T) {
 	actMap := map[string]any{}
 	result := resolveNameTemplate("{distance_km}", actMap)
-	if result != "{distance_km}" {
-		t.Errorf("got %q, expected placeholder preserved", result)
+	if result != "" {
+		t.Errorf("got %q, expected empty string for missing key", result)
 	}
 }
 
 func TestResolveNameTemplate_MissingSportKey(t *testing.T) {
 	actMap := map[string]any{}
 	result := resolveNameTemplate("{sport}", actMap)
-	if result != "{sport}" {
-		t.Errorf("got %q, expected placeholder preserved", result)
+	if result != "" {
+		t.Errorf("got %q, expected empty string for missing key", result)
 	}
 }
 
@@ -243,12 +244,45 @@ func TestResolveNameTemplate_EmptyTemplate(t *testing.T) {
 }
 
 func TestResolveNameTemplate_WrongType(t *testing.T) {
-	// If distance_m is not float64 (e.g. int), substitution is skipped
+	// toFloat handles int as well as float64
 	actMap := map[string]any{
 		"distance_m": 10000, // int, not float64
 	}
 	result := resolveNameTemplate("{distance_km}", actMap)
-	if result != "{distance_km}" {
-		t.Errorf("got %q, expected placeholder preserved for wrong type", result)
+	if result != "10 km" {
+		t.Errorf("got %q, want %q", result, "10 km")
+	}
+}
+
+func TestResolveNameTemplate(t *testing.T) {
+	actMap := map[string]any{
+		"start_city":       "München",
+		"distance_m":       float64(42500),
+		"sport_type":       "running",
+		"elevation_gain_m": float64(1200),
+		"started_at":       time.Date(2026, 3, 15, 10, 0, 0, 0, time.UTC),
+	}
+	tests := []struct{ tmpl, want string }{
+		// Legacy aliases
+		{"{city}", "München"},
+		{"{distance_km}", "43 km"},
+		{"{sport}", "running"},
+		// New tokens
+		{"{weekday}", "Sonntag"},
+		{"{elevation_gain}", "1200"},
+		{"{start_city}", "München"},
+		// NULL fallback
+		{"{start_state|unbekannt}", "unbekannt"},
+		{"{start_city|egal}", "München"},
+		// Combined
+		{"{weekday}slauf in {city}", "Sonntagslauf in München"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.tmpl, func(t *testing.T) {
+			got := resolveNameTemplate(tt.tmpl, actMap)
+			if got != tt.want {
+				t.Errorf("resolveNameTemplate(%q) = %q, want %q", tt.tmpl, got, tt.want)
+			}
+		})
 	}
 }
