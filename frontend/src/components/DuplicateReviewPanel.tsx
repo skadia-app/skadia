@@ -1,19 +1,20 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueries } from '@tanstack/react-query'
 import { useToast } from '@/lib/toast'
 import { type RecordingGroup, type RecordingGroupMember } from '@/api/types'
 import { dissolveRecordingGroup } from '@/api/recordingGroups'
+import { fetchActivityStreams } from '@/api/activities'
 import { sportLabel, sportColor } from '@/lib/sportTaxonomy'
 import { fmtDist } from '@/lib/format'
+import { getSourceColor } from '@/lib/comparisonColors'
+import { deviceLabel } from '@/lib/deviceUtils'
 import QueueMiniMap, { type MiniMapTrack } from '@/components/fusion/QueueMiniMap'
-
-// Color palette for tracks — same order as mockup
-const TRACK_COLORS = ['#EF4444', '#3B82F6', '#22C55E', '#F59E0B', '#8B5CF6', '#EC4899']
+import SportConflictBanner from '@/components/fusion/SportConflictBanner'
 
 interface DuplicateReviewPanelProps {
   groups: RecordingGroup[]
   onDone: () => void
-  trackData?: Record<string, MiniMapTrack[]> // groupId → tracks
 }
 
 function sportBadgeClass(sportType: string): string {
@@ -64,9 +65,7 @@ interface GroupCardProps {
 }
 
 function GroupCard({ member, isRichest }: GroupCardProps) {
-  const device = member.source_device || member.source || null
-  const format = member.original_file_format ? member.original_file_format.toUpperCase() : null
-  const deviceLine = device && format ? `${device} · ${format}` : (device ?? format ?? null)
+  const dl = deviceLabel(member.source_device, member.source, member.original_file_format)
 
   return (
     <div
@@ -94,7 +93,7 @@ function GroupCard({ member, isRichest }: GroupCardProps) {
         {fmtDist(member.distance_m)} · {member.field_richness} Felder
       </p>
       <p className="text-xs text-neutral-400 dark:text-neutral-500 truncate mt-1">
-        {deviceLine ?? <span className="invisible">—</span>}
+        {dl ?? <span className="invisible">—</span>}
       </p>
     </div>
   )
@@ -139,6 +138,8 @@ function GroupItem({ group, tracks, onDissolved }: GroupItemProps) {
   // Cards: up to 3 per row, then grid-cols-3 for ≥4
   const useGrid = members.length > 3
 
+  const timeDiff = timeDiffText(members)
+
   return (
     <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 mb-6 shadow-sm">
       {/* Header */}
@@ -147,7 +148,7 @@ function GroupItem({ group, tracks, onDissolved }: GroupItemProps) {
           {overlapBadgeText(members)}
         </span>
         <span className="text-neutral-400 text-xs">
-          {timeDiffText(members) && `· ${timeDiffText(members)}`}
+          {timeDiff && `· ${timeDiff}`}
           {` · ${members.length} Aufnahmen`}
         </span>
       </div>
@@ -165,26 +166,11 @@ function GroupItem({ group, tracks, onDissolved }: GroupItemProps) {
 
       {/* Sport conflict warning */}
       {hasSportConflict && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3 mb-4">
-          <p className="text-amber-700 dark:text-amber-400 text-sm font-medium mb-2">
-            Unterschiedliche Sportarten erkannt
-          </p>
-          <div className="flex gap-3">
-            {sportTypes.map(st => (
-              <button
-                key={st}
-                onClick={() => setSelectedSport(st)}
-                className={`flex-1 rounded-lg py-2 text-sm text-center transition-colors border-2 cursor-pointer ${
-                  selectedSport === st
-                    ? 'border-amber-400 bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-300 font-medium'
-                    : 'border-transparent bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:border-amber-300'
-                }`}
-              >
-                {sportLabel(st)}
-              </button>
-            ))}
-          </div>
-        </div>
+        <SportConflictBanner
+          sportTypes={sportTypes}
+          selectedSportType={selectedSport}
+          onSelect={setSelectedSport}
+        />
       )}
 
       {/* Mini-Map */}
@@ -226,10 +212,42 @@ function GroupItem({ group, tracks, onDissolved }: GroupItemProps) {
   )
 }
 
-export default function DuplicateReviewPanel({ groups, onDone, trackData = {} }: DuplicateReviewPanelProps) {
+export default function DuplicateReviewPanel({ groups, onDone }: DuplicateReviewPanelProps) {
   const [dissolved, setDissolved] = useState<Set<string>>(new Set())
 
   const visible = groups.filter(g => !dissolved.has(g.id))
+
+  // Collect all members that have GPS across all visible groups
+  const gpsMembers = visible.flatMap(g =>
+    g.members.filter(m => m.has_gps).map(m => ({ groupId: g.id, member: m }))
+  )
+
+  // Load GPS streams for all GPS-capable members in parallel
+  const streamQueries = useQueries({
+    queries: gpsMembers.map(({ member }) => ({
+      queryKey: ['activity-streams', member.activity_id],
+      queryFn: () => fetchActivityStreams(member.activity_id),
+      staleTime: 5 * 60 * 1000, // 5 min — group data is stable
+    })),
+  })
+
+  // Build a lookup: groupId → MiniMapTrack[]
+  const tracksByGroup: Record<string, MiniMapTrack[]> = {}
+  for (const g of visible) {
+    const memberTracks: MiniMapTrack[] = g.members.map((m, i) => {
+      const gpsIdx = gpsMembers.findIndex(gm => gm.member.activity_id === m.activity_id)
+      const streams = gpsIdx >= 0 ? (streamQueries[gpsIdx]?.data ?? []) : []
+      const points = streams
+        .filter(p => p.lat != null && p.lng != null)
+        .map(p => ({ lat: p.lat!, lng: p.lng! }))
+      return {
+        points,
+        color: getSourceColor(i),
+        label: deviceLabel(m.source_device, m.source, m.original_file_format) ?? `Aufnahme ${i + 1}`,
+      }
+    })
+    tracksByGroup[g.id] = memberTracks
+  }
 
   if (visible.length === 0) {
     return (
@@ -250,23 +268,14 @@ export default function DuplicateReviewPanel({ groups, onDone, trackData = {} }:
         Wähle für jede Gruppe ob die Aktivitäten zusammengehören.
       </p>
 
-      {visible.map((group, idx) => {
-        // Build tracks from trackData or empty placeholder
-        const tracks: MiniMapTrack[] = trackData[group.id] ?? group.members.map((m, i) => ({
-          points: [],
-          color: TRACK_COLORS[i % TRACK_COLORS.length],
-          label: m.source_device || m.source || `Aufnahme ${i + 1}`,
-        }))
-
-        return (
-          <GroupItem
-            key={group.id}
-            group={group}
-            tracks={tracks}
-            onDissolved={() => setDissolved(prev => new Set([...prev, group.id]))}
-          />
-        )
-      })}
+      {visible.map(group => (
+        <GroupItem
+          key={group.id}
+          group={group}
+          tracks={tracksByGroup[group.id] ?? []}
+          onDissolved={() => setDissolved(prev => new Set([...prev, group.id]))}
+        />
+      ))}
 
       <div className="pt-2 mb-8">
         <button
