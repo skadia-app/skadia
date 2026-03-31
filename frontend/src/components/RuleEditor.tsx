@@ -283,6 +283,16 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
     { field: 'is_multisport_child', label: 'Ist Sub-Session', inputType: 'bool' },
     { field: 'is_multisport_parent', label: 'Ist Multisport-Event', inputType: 'bool' },
   ]},
+  { key: 'training', label: 'Training-Metriken', fields: [
+    { field: 'aerobic_training_effect', label: 'Aerobes TE', inputType: 'number' },
+    { field: 'anaerobic_training_effect', label: 'Anaerobes TE', inputType: 'number' },
+    { field: 'aerobic_decoupling', label: 'Aerobic Decoupling', inputType: 'number', unit: '%' },
+    { field: 'variability_index', label: 'Variability Index', inputType: 'number' },
+    { field: 'efficiency_factor', label: 'Efficiency Factor', inputType: 'number' },
+    { field: 'intensity_factor', label: 'Intensity Factor', inputType: 'number' },
+    { field: 'workout_rpe', label: 'RPE (subjektiv)', inputType: 'number' },
+    { field: 'workout_feel', label: 'Gefühl (subjektiv)', inputType: 'number' },
+  ]},
 ]
 
 // Internal-only fields not shown in category dropdown (geofence, round-trip)
