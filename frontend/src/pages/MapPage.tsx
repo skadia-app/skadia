@@ -441,6 +441,10 @@ export default function MapPage() {
     setWaypointType: (_id: string, _type: import('@/api/routes').RouteWaypoint['type']) => {
       // type assignment is managed automatically by useRoutePlanner
     },
+    toggleOffroad: planner.toggleOffroad,
+    updateControlPoint: planner.updateControlPoint,
+    insertControlPoint: planner.insertControlPoint,
+    removeControlPoint: planner.removeControlPoint,
   }), [planner])
 
   // Register MapLibre click handlers for route editing
