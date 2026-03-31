@@ -328,3 +328,58 @@ func (db *DB) DissolveRecordingGroup(ctx context.Context, groupID string) error 
 
 	return tx.Commit(ctx)
 }
+
+// GetRecordingGroupMembers returns the member details for a recording group.
+func (db *DB) GetRecordingGroupMembers(ctx context.Context, groupID string) ([]RecordingGroupMemberDetail, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT
+			rgm.activity_id, rgm.is_fused,
+			(rg.primary_activity_id = rgm.activity_id) AS is_primary,
+			a.title, a.title_auto, a.started_at, a.sport_type,
+			a.source_device, a.source, a.distance_m, a.elapsed_time_s
+		FROM recording_group_members rgm
+		JOIN recording_groups rg ON rg.id = rgm.group_id
+		JOIN activities a ON a.id = rgm.activity_id
+		WHERE rgm.group_id = $1
+		ORDER BY a.started_at`, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("query recording group members: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]RecordingGroupMemberDetail, 0)
+	for rows.Next() {
+		var m RecordingGroupMemberDetail
+		if err := rows.Scan(
+			&m.ActivityID, &m.IsFused, &m.IsPrimary,
+			&m.Title, &m.TitleAuto, &m.StartedAt, &m.SportType,
+			&m.SourceDevice, &m.Source, &m.DistanceM, &m.ElapsedTimeS,
+		); err != nil {
+			return nil, fmt.Errorf("scan recording group member: %w", err)
+		}
+		result = append(result, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate recording group members: %w", err)
+	}
+	return result, nil
+}
+
+// SetRecordingGroupSportType updates the sport_type of a recording group.
+func (db *DB) SetRecordingGroupSportType(ctx context.Context, groupID, sportType string) error {
+	var sportTypeArg any
+	if sportType != "" {
+		sportTypeArg = sportType
+	}
+	tag, err := db.Pool.Exec(ctx,
+		`UPDATE recording_groups SET sport_type = $2 WHERE id = $1`,
+		groupID, sportTypeArg,
+	)
+	if err != nil {
+		return fmt.Errorf("set recording group sport type: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("set recording group sport type: group %s not found", groupID)
+	}
+	return nil
+}

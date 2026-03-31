@@ -1070,6 +1070,14 @@ func main() {
 			// Fusion Queue (Tier-2 GPS-Similarity)
 			r.Get("/fusion-queue", h.GetFusionQueue)
 
+			// Recording Groups
+			r.Get("/recording-groups", h.GetRecordingGroups)
+			r.Get("/recording-groups/{id}", h.GetRecordingGroup)
+			r.Get("/recording-groups/{id}/members", h.GetRecordingGroupMembers)
+			r.Post("/recording-groups/{id}/dissolve", h.DissolveRecordingGroup)
+			r.Patch("/recording-groups/{id}/primary", h.SetRecordingGroupPrimary)
+			r.Patch("/recording-groups/{id}/sport-type", h.SetRecordingGroupSportType)
+
 			// Chat
 			r.Mount("/chat", h.ChatRoutes())
 
