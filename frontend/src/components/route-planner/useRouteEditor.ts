@@ -166,8 +166,12 @@ export function useRouteEditor(
 
   // Track which waypoint is currently being dragged (by its ID).
   const draggingRef = useRef<string | null>(null)
+  // Track the latest dragged waypoint position (visual only during drag; committed on mouseup).
+  const draggedWpPositionRef = useRef<[number, number] | null>(null)
   // Track which control point is currently being dragged.
   const draggingCpRef = useRef<{ key: SegmentKey; cpIndex: number } | null>(null)
+  // Track the latest dragged control point position (visual only during drag; committed on mouseup).
+  const draggedCpPositionRef = useRef<[number, number] | null>(null)
   // Track last mouse-down position to distinguish click from drag.
   const mouseDownPtRef = useRef<maplibregl.Point | null>(null)
   // Track segment context menu popup.
@@ -446,21 +450,12 @@ export function useRouteEditor(
       if (bestSegIdx >= 0) {
         const seg = segments[bestSegIdx]
         if (seg.mode === 'offroad') {
-          // Insert control point on offroad segment
-          const cps = seg.control_points ?? []
-          if (cps.length >= 2 && plannerRef.current.insertControlPoint) {
-            const result = nearestPointOnPolyline(latlng, cps)
-            plannerRef.current.insertControlPoint(
-              { from: seg.from_waypoint, to: seg.to_waypoint },
-              result.insertAfter,
-              latlng,
-            )
-          }
-        } else {
-          // Insert waypoint on routed segment
-          const afterWpId = seg.from_waypoint
-          plannerRef.current.insertWaypoint(afterWpId, latlng)
+          // F5: Let onOffroadClick handle offroad segment clicks to prevent double insertControlPoint
+          return
         }
+        // Insert waypoint on routed segment
+        const afterWpId = seg.from_waypoint
+        plannerRef.current.insertWaypoint(afterWpId, latlng)
       }
     }
     map.on('click', LAYER_ROUTED + '-hit', onRouteClick)
@@ -499,7 +494,7 @@ export function useRouteEditor(
     const onMapClick = (e: maplibregl.MapMouseEvent) => {
       // Ignore if click was on route line, waypoint, or control point
       const routeFeatures = map.queryRenderedFeatures(e.point, {
-        layers: [LAYER_ROUTED + '-hit'],
+        layers: map.getLayer(LAYER_ROUTED + '-hit') ? [LAYER_ROUTED + '-hit'] : [],
       })
       if (routeFeatures.length > 0) return
 
@@ -636,32 +631,71 @@ export function useRouteEditor(
     const onMouseMove = (e: maplibregl.MapMouseEvent) => {
       const latlng: [number, number] = [e.lngLat.lat, e.lngLat.lng]
 
+      // F1: During waypoint drag, only update visual position via GeoJSON source.
+      // The planner state (and routing API) is only updated on mouseup.
       if (draggingRef.current) {
-        plannerRef.current.moveWaypoint(draggingRef.current, latlng)
+        draggedWpPositionRef.current = latlng
+        const { waypoints } = plannerRef.current
+        const updated = waypoints.map(wp =>
+          wp.id === draggingRef.current ? { ...wp, latlng } : wp,
+        )
+        const wpSrc = map.getSource(SOURCE_WP) as maplibregl.GeoJSONSource | undefined
+        wpSrc?.setData(buildWaypointGeoJSON(updated))
         return
       }
 
+      // F3: During control point drag, only update visual position via GeoJSON source.
+      // The planner state (spline rebuild) is only updated on mouseup.
       if (draggingCpRef.current) {
+        draggedCpPositionRef.current = latlng
+        const { segments } = plannerRef.current
         const { key, cpIndex } = draggingCpRef.current
-        plannerRef.current.updateControlPoint?.(key, cpIndex, latlng)
+        const updatedSegments = segments.map(seg => {
+          if (seg.from_waypoint !== key.from || seg.to_waypoint !== key.to) return seg
+          const cps = [...(seg.control_points ?? [])]
+          cps[cpIndex] = latlng
+          return { ...seg, control_points: cps }
+        })
+        const cpSrc = map.getSource(SOURCE_CP) as maplibregl.GeoJSONSource | undefined
+        cpSrc?.setData(buildControlPointGeoJSON(updatedSegments))
         return
       }
     }
 
-    const onMouseUp = () => {
+    const onMouseUp = (e?: maplibregl.MapMouseEvent) => {
+      // F1: Commit waypoint position to planner state on mouseup (triggers routing API once).
       if (draggingRef.current) {
+        const wpId = draggingRef.current
+        // Use the last tracked drag position; fall back to mouseup lngLat if no mousemove occurred.
+        const finalPos: [number, number] = draggedWpPositionRef.current
+          ?? (e ? [e.lngLat.lat, e.lngLat.lng] : null)
+          ?? plannerRef.current.waypoints.find(w => w.id === wpId)?.latlng
+          ?? [0, 0]
         draggingRef.current = null
+        draggedWpPositionRef.current = null
         mouseDownPtRef.current = null
         map.getCanvas().style.cursor = 'crosshair'
         map.dragPan.enable()
+        plannerRef.current.moveWaypoint(wpId, finalPos)
         return
       }
 
+      // F3: Commit control point position to planner state on mouseup (triggers spline rebuild once).
       if (draggingCpRef.current) {
+        const { key, cpIndex } = draggingCpRef.current
+        // Use the last tracked drag position; fall back to mouseup lngLat if no mousemove occurred.
+        const finalPos: [number, number] = draggedCpPositionRef.current
+          ?? (e ? [e.lngLat.lat, e.lngLat.lng] : null)
+          ?? plannerRef.current.segments
+              .find(s => s.from_waypoint === key.from && s.to_waypoint === key.to)
+              ?.control_points?.[cpIndex]
+          ?? [0, 0]
         draggingCpRef.current = null
+        draggedCpPositionRef.current = null
         mouseDownPtRef.current = null
         map.getCanvas().style.cursor = 'crosshair'
         map.dragPan.enable()
+        plannerRef.current.updateControlPoint?.(key, cpIndex, finalPos)
         return
       }
     }
