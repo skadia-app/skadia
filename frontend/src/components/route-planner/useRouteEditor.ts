@@ -14,15 +14,19 @@
 import { useEffect, useRef, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
 import type { RouteWaypoint, RouteSegment } from '@/api/routes'
+import type { SegmentKey } from '@/hooks/useRoutePlanner'
+import { nearestPointOnPolyline } from '@/lib/catmull-rom'
 
 // ── Layer / Source IDs ──────────────────────────────────────────────────────
 const SOURCE_ROUTE   = 'route-planner-source'
 const SOURCE_WP      = 'route-planner-waypoints-source'
+const SOURCE_CP      = 'route-planner-control-points-source'
 
 const LAYER_ROUTED   = 'route-planner-line'
 const LAYER_OFFROAD  = 'route-planner-offroad'
 const LAYER_WP_CIRCLE = 'route-planner-waypoints'
 const LAYER_WP_LABEL  = 'route-planner-waypoints-label'
+const LAYER_CP_CIRCLE = 'route-planner-control-points'
 
 // Pixel radius for "close enough to waypoint" snap on click
 const CLICK_SNAP_PX = 20
@@ -37,6 +41,10 @@ export interface RoutePlannerState {
   removeWaypoint: (id: string) => void
   insertWaypoint: (afterId: string, latlng: [number, number]) => void
   setWaypointType: (id: string, type: RouteWaypoint['type']) => void
+  toggleOffroad?: (key: SegmentKey) => void
+  updateControlPoint?: (key: SegmentKey, cpIndex: number, latlng: [number, number]) => void
+  insertControlPoint?: (key: SegmentKey, afterCpIndex: number, latlng: [number, number]) => void
+  removeControlPoint?: (key: SegmentKey, cpIndex: number) => void
 }
 
 // ── Context menu (right-click on waypoint) ──────────────────────────────────
@@ -60,9 +68,40 @@ function buildRouteGeoJSON(
     if (!seg.geometry || seg.geometry.coordinates.length < 2) continue
     features.push({
       type: 'Feature',
-      properties: { mode: seg.mode },
+      properties: {
+        mode: seg.mode,
+        segment_from: seg.from_waypoint,
+        segment_to: seg.to_waypoint,
+      },
       geometry: seg.geometry,
     })
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+// ── Build GeoJSON for control points ────────────────────────────────────────
+function buildControlPointGeoJSON(
+  segments: RouteSegment[],
+): GeoJSON.FeatureCollection<GeoJSON.Point> {
+  const features: GeoJSON.Feature<GeoJSON.Point>[] = []
+  for (const seg of segments) {
+    if (seg.mode !== 'offroad') continue
+    const cps = seg.control_points ?? []
+    for (let i = 0; i < cps.length; i++) {
+      features.push({
+        type: 'Feature',
+        properties: {
+          segment_from: seg.from_waypoint,
+          segment_to: seg.to_waypoint,
+          cp_index: i,
+        },
+        geometry: {
+          type: 'Point',
+          // GeoJSON coordinates are [lng, lat]; control_points are [lat, lng]
+          coordinates: [cps[i][1], cps[i][0]],
+        },
+      })
+    }
   }
   return { type: 'FeatureCollection', features }
 }
@@ -127,8 +166,12 @@ export function useRouteEditor(
 
   // Track which waypoint is currently being dragged (by its ID).
   const draggingRef = useRef<string | null>(null)
+  // Track which control point is currently being dragged.
+  const draggingCpRef = useRef<{ key: SegmentKey; cpIndex: number } | null>(null)
   // Track last mouse-down position to distinguish click from drag.
   const mouseDownPtRef = useRef<maplibregl.Point | null>(null)
+  // Track segment context menu popup.
+  const segmentPopupRef = useRef<maplibregl.Popup | null>(null)
 
   // Track whether map sources have been added (guards GeoJSON sync).
   const sourcesReadyRef = useRef(false)
@@ -151,6 +194,14 @@ export function useRouteEditor(
       })
     }
 
+    // Control points source (offroad segments)
+    if (!map.getSource(SOURCE_CP)) {
+      map.addSource(SOURCE_CP, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+    }
+
     // Sources are now ready — sync any already-available planner data immediately.
     // This covers the case where the GeoJSON-sync effect fired before sources existed
     // (Bug 1 fix: sources created after the sync effect already ran).
@@ -158,6 +209,7 @@ export function useRouteEditor(
     const { segments, waypoints } = plannerRef.current
     ;(map.getSource(SOURCE_ROUTE) as maplibregl.GeoJSONSource).setData(buildRouteGeoJSON(segments))
     ;(map.getSource(SOURCE_WP) as maplibregl.GeoJSONSource).setData(buildWaypointGeoJSON(waypoints))
+    ;(map.getSource(SOURCE_CP) as maplibregl.GeoJSONSource).setData(buildControlPointGeoJSON(segments))
 
     // Routed segments — solid orange line with white casing
     if (!map.getLayer(LAYER_ROUTED)) {
@@ -224,6 +276,22 @@ export function useRouteEditor(
       })
     }
 
+    // Control point circles (offroad segments — orange, smaller than waypoints)
+    if (!map.getLayer(LAYER_CP_CIRCLE)) {
+      map.addLayer({
+        id: LAYER_CP_CIRCLE,
+        type: 'circle',
+        source: SOURCE_CP,
+        paint: {
+          'circle-radius': 5,
+          'circle-color': '#F97316',
+          'circle-opacity': 0.7,
+          'circle-stroke-color': '#FFFFFF',
+          'circle-stroke-width': 1.5,
+        },
+      })
+    }
+
     // Waypoint circles
     if (!map.getLayer(LAYER_WP_CIRCLE)) {
       map.addLayer({
@@ -273,6 +341,7 @@ export function useRouteEditor(
     const layers = [
       LAYER_WP_LABEL,
       LAYER_WP_CIRCLE,
+      LAYER_CP_CIRCLE,
       LAYER_ROUTED + '-hit',
       LAYER_OFFROAD,
       LAYER_ROUTED,
@@ -283,6 +352,7 @@ export function useRouteEditor(
     }
     if (map.getSource(SOURCE_ROUTE)) map.removeSource(SOURCE_ROUTE)
     if (map.getSource(SOURCE_WP))    map.removeSource(SOURCE_WP)
+    if (map.getSource(SOURCE_CP))    map.removeSource(SOURCE_CP)
     sourcesReadyRef.current = false
   }, [])
 
@@ -295,9 +365,11 @@ export function useRouteEditor(
 
     const routeSrc = map.getSource(SOURCE_ROUTE) as maplibregl.GeoJSONSource | undefined
     const wpSrc    = map.getSource(SOURCE_WP)    as maplibregl.GeoJSONSource | undefined
+    const cpSrc    = map.getSource(SOURCE_CP)    as maplibregl.GeoJSONSource | undefined
 
     if (routeSrc) routeSrc.setData(buildRouteGeoJSON(planner.segments))
     if (wpSrc)    wpSrc.setData(buildWaypointGeoJSON(planner.waypoints))
+    if (cpSrc)    cpSrc.setData(buildControlPointGeoJSON(planner.segments))
   }, [active, planner.segments, planner.waypoints])
 
   // ── Map interactions (click, drag, context menu) ──────────────────────────
@@ -334,19 +406,29 @@ export function useRouteEditor(
     map.on('mouseenter', LAYER_WP_CIRCLE, onWpEnter)
     map.on('mouseleave', LAYER_WP_CIRCLE, onWpLeave)
 
-    // ── Click on route line → insert waypoint ─────────────────────────────
+    // ── Hover: control point circles ───────────────────────────────────────
+    const onCpEnter = () => { map.getCanvas().style.cursor = 'grab' }
+    const onCpLeave = () => {
+      if (!draggingCpRef.current) map.getCanvas().style.cursor = 'crosshair'
+    }
+    map.on('mouseenter', LAYER_CP_CIRCLE, onCpEnter)
+    map.on('mouseleave', LAYER_CP_CIRCLE, onCpLeave)
+
+    // ── Click on route line → insert waypoint (routed) or control point (offroad)
     const onRouteClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
-      // Don't handle if a waypoint was clicked (handled by onWpClick)
+      // Don't handle if a waypoint or control point was clicked
       const { waypoints } = plannerRef.current
       const nearest = nearestWaypoint(map, e.point, waypoints)
       if (nearest) return // too close to existing waypoint
 
-      // Find the segment whose geometry was clicked and determine insertion point
+      // Check if click is on a control point
+      const cpFeatures = map.queryRenderedFeatures(e.point, { layers: [LAYER_CP_CIRCLE] })
+      if (cpFeatures.length > 0) return
+
       const { segments } = plannerRef.current
       const latlng: [number, number] = [e.lngLat.lat, e.lngLat.lng]
 
-      // Insert after the waypoint whose segment was clicked.
-      // For simplicity we find the segment closest to the click point.
+      // Find the segment whose geometry was clicked
       let bestSegIdx = -1
       let bestDist = Infinity
       for (let i = 0; i < segments.length; i++) {
@@ -362,19 +444,74 @@ export function useRouteEditor(
       }
 
       if (bestSegIdx >= 0) {
-        const afterWpId = segments[bestSegIdx].from_waypoint
-        plannerRef.current.insertWaypoint(afterWpId, latlng)
+        const seg = segments[bestSegIdx]
+        if (seg.mode === 'offroad') {
+          // Insert control point on offroad segment
+          const cps = seg.control_points ?? []
+          if (cps.length >= 2 && plannerRef.current.insertControlPoint) {
+            const result = nearestPointOnPolyline(latlng, cps)
+            plannerRef.current.insertControlPoint(
+              { from: seg.from_waypoint, to: seg.to_waypoint },
+              result.insertAfter,
+              latlng,
+            )
+          }
+        } else {
+          // Insert waypoint on routed segment
+          const afterWpId = seg.from_waypoint
+          plannerRef.current.insertWaypoint(afterWpId, latlng)
+        }
       }
     }
     map.on('click', LAYER_ROUTED + '-hit', onRouteClick)
 
+    // Also listen for clicks on offroad line (for inserting control points)
+    const onOffroadClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      // Check if click is on a control point — if so, skip
+      const cpFeatures = map.queryRenderedFeatures(e.point, { layers: [LAYER_CP_CIRCLE] })
+      if (cpFeatures.length > 0) return
+
+      const features = e.features ?? []
+      if (features.length === 0) return
+      const props = features[0].properties
+      if (!props) return
+
+      const segFrom = props['segment_from'] as string
+      const segTo = props['segment_to'] as string
+      const { segments } = plannerRef.current
+      const seg = segments.find(s => s.from_waypoint === segFrom && s.to_waypoint === segTo)
+      if (!seg || seg.mode !== 'offroad') return
+
+      const latlng: [number, number] = [e.lngLat.lat, e.lngLat.lng]
+      const cps = seg.control_points ?? []
+      if (cps.length >= 2 && plannerRef.current.insertControlPoint) {
+        const result = nearestPointOnPolyline(latlng, cps)
+        plannerRef.current.insertControlPoint(
+          { from: segFrom, to: segTo },
+          result.insertAfter,
+          latlng,
+        )
+      }
+    }
+    map.on('click', LAYER_OFFROAD, onOffroadClick)
+
     // ── Click on map background → add waypoint ────────────────────────────
     const onMapClick = (e: maplibregl.MapMouseEvent) => {
-      // Ignore if click was on route line or waypoint
+      // Ignore if click was on route line, waypoint, or control point
       const routeFeatures = map.queryRenderedFeatures(e.point, {
         layers: [LAYER_ROUTED + '-hit'],
       })
       if (routeFeatures.length > 0) return
+
+      const offroadFeatures = map.queryRenderedFeatures(e.point, {
+        layers: map.getLayer(LAYER_OFFROAD) ? [LAYER_OFFROAD] : [],
+      })
+      if (offroadFeatures.length > 0) return
+
+      const cpFeatures = map.queryRenderedFeatures(e.point, {
+        layers: map.getLayer(LAYER_CP_CIRCLE) ? [LAYER_CP_CIRCLE] : [],
+      })
+      if (cpFeatures.length > 0) return
 
       const { waypoints } = plannerRef.current
       const nearest = nearestWaypoint(map, e.point, waypoints)
@@ -385,15 +522,81 @@ export function useRouteEditor(
     }
     map.on('click', onMapClick)
 
-    // ── Right-click on waypoint → context menu ─────────────────────────────
-    const onContextMenu = (e: maplibregl.MapMouseEvent) => {
+    // ── Right-click on control point → delete ─────────────────────────────
+    const onCpContextMenu = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      e.preventDefault()
+      const features = e.features ?? map.queryRenderedFeatures(e.point, { layers: [LAYER_CP_CIRCLE] })
+      if (features.length === 0) return
+      const props = features[0].properties
+      if (!props) return
+
+      const segFrom = props['segment_from'] as string
+      const segTo = props['segment_to'] as string
+      const cpIndex = props['cp_index'] as number
+
+      plannerRef.current.removeControlPoint?.(
+        { from: segFrom, to: segTo },
+        cpIndex,
+      )
+    }
+    map.on('contextmenu', LAYER_CP_CIRCLE, onCpContextMenu)
+
+    // ── Right-click on route line → segment context menu (toggle offroad) ─
+    const onSegmentContextMenu = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      // Don't show if right-click was on a waypoint or control point
       const { waypoints } = plannerRef.current
       const nearest = nearestWaypoint(map, e.point, waypoints)
-      if (!nearest) return
+      if (nearest) return
+
+      const cpFeatures = map.queryRenderedFeatures(e.point, { layers: [LAYER_CP_CIRCLE] })
+      if (cpFeatures.length > 0) return
+
+      const features = e.features ?? []
+      if (features.length === 0) return
+      const props = features[0].properties
+      if (!props) return
+
+      const segFrom = props['segment_from'] as string
+      const segTo = props['segment_to'] as string
+      const mode = props['mode'] as string
+
+      e.preventDefault()
+
+      // Close any existing popup
+      segmentPopupRef.current?.remove()
+
+      const label = mode === 'routed' ? 'Offroad zeichnen' : 'Auf Wegen routen'
+
+      const container = document.createElement('div')
+      container.className = 'flex flex-col gap-1 p-1'
+      const btn = document.createElement('button')
+      btn.textContent = label
+      btn.className = 'text-sm px-3 py-1.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-700 text-left whitespace-nowrap cursor-pointer'
+      btn.addEventListener('click', () => {
+        plannerRef.current.toggleOffroad?.({ from: segFrom, to: segTo })
+        segmentPopupRef.current?.remove()
+        segmentPopupRef.current = null
+      })
+      container.appendChild(btn)
+
+      const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: true })
+        .setLngLat(e.lngLat)
+        .setDOMContent(container)
+        .addTo(map)
+      segmentPopupRef.current = popup
+    }
+    map.on('contextmenu', LAYER_ROUTED + '-hit', onSegmentContextMenu)
+    map.on('contextmenu', LAYER_OFFROAD, onSegmentContextMenu)
+
+    // ── Right-click on waypoint → context menu ─────────────────────────────
+    const onContextMenu = (e: maplibregl.MapMouseEvent) => {
+      const { waypoints: wps } = plannerRef.current
+      const nearestWp = nearestWaypoint(map, e.point, wps)
+      if (!nearestWp) return
 
       e.preventDefault()
       optionsRef.current.onContextMenu?.({
-        waypointId: nearest.id,
+        waypointId: nearestWp.id,
         screenX: e.originalEvent.clientX,
         screenY: e.originalEvent.clientY,
       })
@@ -402,32 +605,69 @@ export function useRouteEditor(
 
     // ── Drag waypoint markers ──────────────────────────────────────────────
     const onWpMouseDown = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
-      const { waypoints } = plannerRef.current
-      const nearest = nearestWaypoint(map, e.point, waypoints)
-      if (!nearest) return
+      const { waypoints: wps } = plannerRef.current
+      const nearestWp = nearestWaypoint(map, e.point, wps)
+      if (!nearestWp) return
 
       e.preventDefault()
-      draggingRef.current = nearest.id
+      draggingRef.current = nearestWp.id
+      mouseDownPtRef.current = e.point
+      map.getCanvas().style.cursor = 'grabbing'
+      map.dragPan.disable()
+    }
+
+    // ── Drag control points ────────────────────────────────────────────────
+    const onCpMouseDown = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      const features = e.features ?? map.queryRenderedFeatures(e.point, { layers: [LAYER_CP_CIRCLE] })
+      if (features.length === 0) return
+      const props = features[0].properties
+      if (!props) return
+
+      e.preventDefault()
+      draggingCpRef.current = {
+        key: { from: props['segment_from'] as string, to: props['segment_to'] as string },
+        cpIndex: props['cp_index'] as number,
+      }
       mouseDownPtRef.current = e.point
       map.getCanvas().style.cursor = 'grabbing'
       map.dragPan.disable()
     }
 
     const onMouseMove = (e: maplibregl.MapMouseEvent) => {
-      if (!draggingRef.current) return
       const latlng: [number, number] = [e.lngLat.lat, e.lngLat.lng]
-      plannerRef.current.moveWaypoint(draggingRef.current, latlng)
+
+      if (draggingRef.current) {
+        plannerRef.current.moveWaypoint(draggingRef.current, latlng)
+        return
+      }
+
+      if (draggingCpRef.current) {
+        const { key, cpIndex } = draggingCpRef.current
+        plannerRef.current.updateControlPoint?.(key, cpIndex, latlng)
+        return
+      }
     }
 
     const onMouseUp = () => {
-      if (!draggingRef.current) return
-      draggingRef.current = null
-      mouseDownPtRef.current = null
-      map.getCanvas().style.cursor = 'crosshair'
-      map.dragPan.enable()
+      if (draggingRef.current) {
+        draggingRef.current = null
+        mouseDownPtRef.current = null
+        map.getCanvas().style.cursor = 'crosshair'
+        map.dragPan.enable()
+        return
+      }
+
+      if (draggingCpRef.current) {
+        draggingCpRef.current = null
+        mouseDownPtRef.current = null
+        map.getCanvas().style.cursor = 'crosshair'
+        map.dragPan.enable()
+        return
+      }
     }
 
     map.on('mousedown', LAYER_WP_CIRCLE, onWpMouseDown)
+    map.on('mousedown', LAYER_CP_CIRCLE, onCpMouseDown)
     map.on('mousemove', onMouseMove)
     map.on('mouseup', onMouseUp)
 
@@ -440,13 +680,22 @@ export function useRouteEditor(
       map.off('mouseleave', LAYER_ROUTED + '-hit', onRouteLeave)
       map.off('mouseenter', LAYER_WP_CIRCLE, onWpEnter)
       map.off('mouseleave', LAYER_WP_CIRCLE, onWpLeave)
+      map.off('mouseenter', LAYER_CP_CIRCLE, onCpEnter)
+      map.off('mouseleave', LAYER_CP_CIRCLE, onCpLeave)
       map.off('click', LAYER_ROUTED + '-hit', onRouteClick)
+      map.off('click', LAYER_OFFROAD, onOffroadClick)
       map.off('click', onMapClick)
+      map.off('contextmenu', LAYER_CP_CIRCLE, onCpContextMenu)
+      map.off('contextmenu', LAYER_ROUTED + '-hit', onSegmentContextMenu)
+      map.off('contextmenu', LAYER_OFFROAD, onSegmentContextMenu)
       map.off('contextmenu', onContextMenu)
       map.off('mousedown', LAYER_WP_CIRCLE, onWpMouseDown)
+      map.off('mousedown', LAYER_CP_CIRCLE, onCpMouseDown)
       map.off('mousemove', onMouseMove)
       map.off('mouseup', onMouseUp)
       map.off('touchend', onTouchEnd)
+      segmentPopupRef.current?.remove()
+      segmentPopupRef.current = null
       removeLayers(map)
       map.getCanvas().style.cursor = ''
     }
