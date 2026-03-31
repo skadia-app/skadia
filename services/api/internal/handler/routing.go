@@ -175,8 +175,10 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	duration := time.Since(start)
 
 	if err != nil {
-		status := "no_route"
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		status := "error"
+		if errors.Is(err, routing.ErrNoRoute) {
+			status = "no_route"
+		} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			status = "timeout"
 		}
 		slog.Warn("route failed",
