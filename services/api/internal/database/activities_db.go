@@ -637,7 +637,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		a.num_sessions,
 		a.vo2max_ml_kg_min, a.vo2max_calibrated, a.vo2max_hr_source, a.vo2max_speed_source,
 		a.gps_accuracy_m,
-		a.is_group_secondary
+		a.is_group_secondary,
+		rgm.group_id
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		LEFT JOIN LATERAL (
@@ -649,6 +650,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			LIMIT 1
 		) iq ON true
 		LEFT JOIN devices rd ON rd.id = a.recording_device_id
+		LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
 		WHERE a.id = $1`, id,
 	).Scan(
 		&a.ID, &a.UserID, &a.FileHash, &a.FileID, &a.Title, &a.TitleAuto, &a.Description,
@@ -725,6 +727,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.Vo2MaxMlKgMin, &a.Vo2MaxCalibrated, &a.Vo2MaxHrSource, &a.Vo2MaxSpeedSource,
 		&a.GpsAccuracyM,
 		&a.IsGroupSecondary,
+		&a.RecordingGroupID,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -951,9 +954,9 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 		return nil, fmt.Errorf("count activities: %w", err)
 	}
 
-	selectCols := `id, sport_type, sub_type, title, started_at, distance_m,
+	selectCols := `activities.id, sport_type, sub_type, title, started_at, distance_m,
 		elapsed_time_s, elevation_gain_m, elevation_loss_m, is_indoor, is_electric, is_virtual, exclude_from_heatmap, exclude_from_stats, visibility,
-		created_at, updated_at, sport_conflict_pending, timezone`
+		created_at, updated_at, sport_conflict_pending, timezone, rgm.group_id`
 
 	// Build ORDER BY: primary sort column + tiebreaker id (same direction)
 	orderClause := fmt.Sprintf("%s %s, id %s", sqlCol, strings.ToUpper(sortDir), strings.ToUpper(sortDir))
@@ -983,10 +986,11 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 				query := fmt.Sprintf(`
 					SELECT %s
 					FROM activities
+					LEFT JOIN recording_group_members rgm ON rgm.activity_id = activities.id
 					WHERE user_id = $1
 						AND parent_id IS NULL
 						AND NOT is_group_secondary
-						AND (%s, id) %s ($2, $3)
+						AND (%s, activities.id) %s ($2, $3)
 						%s
 					ORDER BY %s
 					LIMIT $%d`, selectCols, sqlCol, cmpOp, filterSQL, orderClause, limitIdx)
@@ -1004,11 +1008,12 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 			query := fmt.Sprintf(`
 				SELECT %s
 				FROM activities
+				LEFT JOIN recording_group_members rgm ON rgm.activity_id = activities.id
 				WHERE user_id = $1
 					AND parent_id IS NULL
 					AND NOT is_group_secondary
 					AND %s IS NULL
-					AND id %s $2
+					AND activities.id %s $2
 					%s
 				ORDER BY %s
 				LIMIT $%d`, selectCols, sqlCol, cmpOp, filterSQL, orderClause, limitIdx)
@@ -1026,10 +1031,11 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 				limitIdx := len(allArgs) + 1
 				allArgs = append(allArgs, limit+1)
 
-				nullClause := fmt.Sprintf(`AND ((%s, id) %s ($2, $3) OR %s IS NULL)`, sqlCol, cmpOp, sqlCol)
+				nullClause := fmt.Sprintf(`AND ((%s, activities.id) %s ($2, $3) OR %s IS NULL)`, sqlCol, cmpOp, sqlCol)
 				query := fmt.Sprintf(`
 					SELECT %s
 					FROM activities
+					LEFT JOIN recording_group_members rgm ON rgm.activity_id = activities.id
 					WHERE user_id = $1
 						AND parent_id IS NULL
 						AND NOT is_group_secondary
@@ -1053,6 +1059,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 		query := fmt.Sprintf(`
 			SELECT %s
 			FROM activities
+			LEFT JOIN recording_group_members rgm ON rgm.activity_id = activities.id
 			WHERE user_id = $1
 			AND parent_id IS NULL
 			AND NOT is_group_secondary
@@ -1073,7 +1080,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 		if err := rows.Scan(
 			&a.ID, &a.SportType, &a.SubType, &a.Title, &a.StartedAt, &a.DistanceM,
 			&a.ElapsedTimeS, &a.ElevationGainM, &a.ElevationLossM, &a.IsIndoor, &a.IsElectric, &a.IsVirtual, &a.ExcludeFromHeatmap, &a.ExcludeFromStats, &a.Visibility,
-			&a.CreatedAt, &a.UpdatedAt, &a.SportConflictPending, &a.Timezone,
+			&a.CreatedAt, &a.UpdatedAt, &a.SportConflictPending, &a.Timezone, &a.RecordingGroupID,
 		); err != nil {
 			return nil, fmt.Errorf("scan activity: %w", err)
 		}

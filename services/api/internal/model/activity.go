@@ -108,6 +108,8 @@ type Activity struct {
 	FusionSources json.RawMessage `json:"fusion_sources,omitempty"`
 	// Recording group: true if this activity is a secondary (non-primary) member of a recording group.
 	IsGroupSecondary bool `json:"is_group_secondary"`
+	// RecordingGroupID is the ID of the recording group this activity belongs to, if any.
+	RecordingGroupID *string `json:"recording_group_id,omitempty"`
 	// Platform IDs for deep-linking back to the source platform.
 	GarminActivityID *int64 `json:"garmin_activity_id,omitempty"`
 	StravaActivityID *int64 `json:"strava_activity_id,omitempty"`
