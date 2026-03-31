@@ -100,7 +100,7 @@ func (s *Service) PostProcess(
 	enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true, s.GraphReader, true)
 
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
-		_ = automation.ApplyRulesToActivity(ctx, s.DB, activityID, userID, allRules)
+		_ = automation.ApplyRulesToActivity(ctx, s.DB, activityID, userID, allRules, "on_import")
 	}
 
 	// ── Phase 1 (parallel groups) ─────────────────────────────────────────

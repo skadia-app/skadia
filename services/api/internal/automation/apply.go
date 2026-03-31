@@ -6,18 +6,21 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/rules"
 )
 
-// ApplyRulesToActivity evaluates all given rules against a single activity.
+// ApplyRulesToActivity evaluates rules against a single activity.
+// triggerEvent filters which rules to evaluate: "on_import", "on_enrichment_complete",
+// "on_manual_apply", or "" for all (used by "Regeln anwenden" button).
 // System rules (except electric_sync) have retraction semantics:
 // - Match + no removal → add tag + set_field
 // - No match + tag present → remove tag + invert set_field (bool→false)
 // User rules only add, never retract.
-func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, userID string, allRules []model.AutomationRule) error {
+func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, userID string, allRules []model.AutomationRule, triggerEvent string) error {
 	actMap, err := db.GetActivityAsMap(ctx, activityID)
 	if err != nil || actMap == nil {
 		return err
@@ -32,6 +35,21 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 	for _, rule := range allRules {
 		if !rule.IsActive {
 			continue
+		}
+		// Filter by trigger event (empty = all)
+		if triggerEvent != "" && rule.TriggerEvent != triggerEvent {
+			continue
+		}
+		// apply_retroactively filter: on_import only evaluates new activities
+		// unless the rule is retroactive or a system rule.
+		// "created_at" = Upload-Zeitpunkt (nicht started_at, weil started_at bei Garmin-Sync in der Vergangenheit sein kann).
+		// "" (manual apply) skips this check entirely.
+		if triggerEvent == "on_import" && !rule.ApplyRetroactive && !rule.IsSystem {
+			if actCreatedAt, ok := actMap["created_at"].(time.Time); ok {
+				if actCreatedAt.Before(rule.CreatedAt) {
+					continue
+				}
+			}
 		}
 		// Skip electric_sync / virtual_sync / indoor_sync — managed by DB trigger, not rules engine
 		if rule.SystemType != nil && (*rule.SystemType == "electric_sync" || *rule.SystemType == "virtual_sync" || *rule.SystemType == "indoor_sync") {

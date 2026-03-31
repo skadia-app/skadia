@@ -165,7 +165,7 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 		failed := false
 
 		for i, activityID := range activityIDs {
-			if err := h.ApplyRulesToActivity(ctx, activityID, userID, activeRules); err != nil {
+			if err := h.ApplyRulesToActivity(ctx, activityID, userID, activeRules, ""); err != nil {
 				slog.Warn("apply rules to activity", "activity_id", activityID, "error", err)
 			}
 
@@ -193,8 +193,8 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 
 // ApplyRulesToActivity is a thin wrapper around automation.ApplyRulesToActivity
 // for use in handler contexts.
-func (h *Handler) ApplyRulesToActivity(ctx context.Context, activityID, userID string, allRules []model.AutomationRule) error {
-	return automation.ApplyRulesToActivity(ctx, h.DB, activityID, userID, allRules)
+func (h *Handler) ApplyRulesToActivity(ctx context.Context, activityID, userID string, allRules []model.AutomationRule, triggerEvent string) error {
+	return automation.ApplyRulesToActivity(ctx, h.DB, activityID, userID, allRules, triggerEvent)
 }
 
 // resolveNameTemplate substitutes a fixed set of {token} placeholders in tmpl
