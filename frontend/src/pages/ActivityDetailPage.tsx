@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, getZoneDistribution, correctActivityElevation, resetActivityElevation, correctActivityDistance, resetActivityDistance, fetchActivitySets, fetchActivityJumps, fetchActivityEvents } from '@/api/activities'
+import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, getZoneDistribution, correctActivityElevation, resetActivityElevation, correctActivityDistance, resetActivityDistance, fetchActivitySets, fetchActivityJumps, fetchActivityEvents, fetchDiveInfo } from '@/api/activities'
 import { fetchWorkout } from '@/api/workouts'
 import { getWeatherSettings } from '@/api/settings'
 import { fetchTags } from '@/api/tags'
@@ -43,6 +43,7 @@ import { ChartTabs } from '@/components/activity/ChartTabs'
 import { StatsGrid } from '@/components/activity/StatsGrid'
 import { RunningDynamicsStats } from '@/components/activity/RunningDynamicsStats'
 import { DiveStats } from '@/components/activity/DiveStats'
+import { DiveGasTable } from '@/components/activity/DiveGasTable'
 import { DataCorrectionsSection } from '@/components/activity/DataCorrections'
 import { VisibilitySettings } from '@/components/activity/VisibilitySettings'
 import { SunInfo } from '@/components/activity/SunInfo'
@@ -154,6 +155,13 @@ export default function ActivityDetailPage() {
       return (json as { children: Activity[] }).children ?? []
     },
     enabled: !!id && activity?.sport_type === 'multisport',
+  })
+
+  const { data: diveInfo } = useQuery({
+    queryKey: ['dive-info', id],
+    queryFn: () => fetchDiveInfo(id!),
+    enabled: !!id && activity?.sport_type === 'diving',
+    staleTime: Infinity,
   })
 
   // Speed/Pace toggle — persisted per segment group
@@ -450,7 +458,10 @@ export default function ActivityDetailPage() {
             <RunningDynamicsStats activity={activity} />
           )}
           {activity.sport_type === 'diving' && (
-            <DiveStats activity={activity} />
+            <DiveStats activity={activity} diveInfo={diveInfo} />
+          )}
+          {activity.sport_type === 'diving' && diveInfo && diveInfo.gases.length > 0 && (
+            <DiveGasTable gases={diveInfo.gases} />
           )}
         </div>
       )}
