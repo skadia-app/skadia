@@ -138,7 +138,9 @@ func (r *UnifiedRouter) routeSameEdge(srcVE, dstVE *VirtualEndpoint, cfg *CostCo
 	fracFrom := srcVE.Proj.FractionAB
 	fracTo := dstVE.Proj.FractionAB
 
-	if fracFrom > fracTo {
+	// Determine travel direction: from source to destination (may go A→B or B→A).
+	reversed := fracFrom > fracTo
+	if reversed {
 		fracFrom, fracTo = fracTo, fracFrom
 	}
 
@@ -155,6 +157,36 @@ func (r *UnifiedRouter) routeSameEdge(srcVE, dstVE *VirtualEndpoint, cfg *CostCo
 		descent = -diff
 	}
 
+	// Compute cost using slope-weighted edge cost factors and hysteresis.
+	ecf := cfg.EdgeCost(proj.EdgeTags1, 0)
+	distCm := directDist * 100
+	// Elevation delta: from source projection to destination projection (in dm).
+	var deltaEleDm int32
+	if reversed {
+		// Travel from fracTo to fracFrom (B→A direction).
+		deltaEleDm = int32(eleFrom) - int32(eleTo)
+	} else {
+		// Travel from fracFrom to fracTo (A→B direction).
+		deltaEleDm = int32(eleTo) - int32(eleFrom)
+	}
+	hyst := propagateHysteresis(PathState{}, deltaEleDm*100, int32(distCm)*10, cfg)
+
+	// Slope-weighted cost factor interpolation.
+	cfUp := ecf.Up
+	cfDown := ecf.Down
+	if cfUp == 0 {
+		cfUp = ecf.Flat
+	}
+	if cfDown == 0 {
+		cfDown = ecf.Flat
+	}
+	flatW := float32(1.0) - hyst.UpWeight - hyst.DownWeight
+	if flatW < 0 {
+		flatW = 0
+	}
+	cf := cfUp*hyst.UpWeight + ecf.Flat*flatW + cfDown*hyst.DownWeight
+	cost := float64(float32(distCm)/100.0*cf + hyst.ElevCost)
+
 	coords := []LatLonEle{
 		{Lat: srcVE.Proj.ProjLat, Lon: srcVE.Proj.ProjLon, Ele: float64(srcVE.Proj.ProjEleDm) / 10.0},
 		{Lat: dstVE.Proj.ProjLat, Lon: dstVE.Proj.ProjLon, Ele: float64(dstVE.Proj.ProjEleDm) / 10.0},
@@ -165,10 +197,11 @@ func (r *UnifiedRouter) routeSameEdge(srcVE, dstVE *VirtualEndpoint, cfg *CostCo
 		DistanceM:   directDist,
 		AscentM:     ascent,
 		DescentM:    descent,
+		Cost:        cost,
 	}
 }
 
-// Route computes a route from start to destination using findRouteUnified
+// Route computes a route from start to destination using edge projection
 // (pass0 -> buildTrackIndexUnified -> pass1 -> retrackUnified).
 func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 	cfg *CostConfig) (*RouteResult, error) {
@@ -182,48 +215,48 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 
 	totalStart := time.Now()
 
-	src, _, ok := r.snapWithFallback(req.FromLat, req.FromLon, cfg)
-	if !ok {
-		return nil, fmt.Errorf("no graph node within 5km of start coordinate")
+	// Edge projection: snap start/destination to nearest passable edge.
+	srcVE, err := r.snapToEdge(req.FromLat, req.FromLon, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("no passable edge within range of start coordinate")
 	}
-	dst, _, ok := r.snapWithFallback(req.ToLat, req.ToLon, cfg)
-	if !ok {
-		return nil, fmt.Errorf("no graph node within 5km of destination coordinate")
-	}
-
-	if src == dst {
-		lat, lon, ele := r.reader.NodeCoord(src)
-		return &RouteResult{
-			Coordinates: []LatLonEle{{
-				Lat: float64(lat) / 1e7,
-				Lon: float64(lon) / 1e7,
-				Ele: float64(ele) / 10.0,
-			}},
-		}, nil
+	dstVE, err := r.snapToEdge(req.ToLat, req.ToLon, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("no passable edge within range of destination coordinate")
 	}
 
-	// Landmark-Heuristik initialisieren
+	// Same-edge shortcut: if both endpoints project onto the same edge,
+	// the direct on-edge path is always optimal (triangle inequality).
+	if srcVE.Proj.EdgeHandle == dstVE.Proj.EdgeHandle {
+		result := r.routeSameEdge(srcVE, dstVE, cfg)
+		r.addApproach(result, srcVE, dstVE, cfg, true, true)
+		result.PassStats.TotalDurationMs = time.Since(totalStart).Milliseconds()
+		return result, nil
+	}
+
+	// Dual-destination landmark heuristic (admissible: min over both endpoints).
 	meta := r.reader.LandmarkMeta()
 	setID := SelectLandmarkSet(cfg, meta)
 	var landmarkH *LandmarkHeuristic
 	if !altDisabled && meta != nil && meta.LandmarkCount > 0 {
-		landmarkH = NewLandmarkHeuristic(r.reader, dst, setID)
+		landmarkH = NewDualLandmarkHeuristic(r.reader,
+			dstVE.GlobalA, dstVE.GlobalB, dstVE.CostA, dstVE.CostB, setID)
 	}
 
-	// Bidirectional backward search (pruning boundary for Pass0)
+	// Bidirectional backward search with dual seeds (pruning boundary for Pass0).
 	var bwd *BackwardResult
 	if routingBidirectional {
-		srcLat, srcLon, _ := r.reader.NodeCoord(src)
-		dstLat, dstLon, _ := r.reader.NodeCoord(dst)
 		euclidDist := geo.DistanceHaversine(
-			float64(srcLat)/1e7, float64(srcLon)/1e7,
-			float64(dstLat)/1e7, float64(dstLon)/1e7,
+			srcVE.OrigLat, srcVE.OrigLon,
+			dstVE.OrigLat, dstVE.OrigLon,
 		)
 		// Skip backward search for short routes — overhead > benefit under 10km
 		if euclidDist >= 10_000 {
 			bwdStart := time.Now()
 			initialUB := float32(euclidDist) * 2.0 * cfg.AvgCostPerKm / 1000.0
-			bwdResult := RunBackwardSearch(r.reader, dst, dst, 0, 0, cfg, initialUB)
+			bwdResult := RunBackwardSearch(r.reader,
+				dstVE.GlobalA, dstVE.GlobalB, dstVE.CostA, dstVE.CostB,
+				cfg, initialUB)
 			bwd = &bwdResult
 			slog.Info("backward search complete",
 				"nodes_reached", len(bwd.LowerBound),
@@ -232,8 +265,8 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 		}
 	}
 
-	// Pass 0: inadmissible A* (passCoeff > 1), MIT Landmark-Heuristik
-	res0, err := findRouteUnified(ctx, r.reader, nil, nil, src, dst, cfg,
+	// Pass 0: inadmissible A* (passCoeff > 1), with dual landmark heuristic.
+	res0, err := findRouteUnified(ctx, r.reader, srcVE, dstVE, 0, 0, cfg,
 		cfg.Pass0Coefficient, 0, nil, landmarkH, bwd)
 	if err != nil {
 		return nil, fmt.Errorf("pass0: %w", err)
@@ -252,8 +285,7 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 		segments := FindValleySegments(pass0Path, r.reader, 1000.0)
 
 		if len(segments) >= 2 {
-			// Route each segment independently and retrack per-segment.
-			// This avoids the broken-parent-chain problem of merging states.
+			// Valley-seg: route each segment node-to-node (nil VEs).
 			var legs []*RouteResult
 			allOK := true
 
@@ -292,23 +324,17 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 		}
 	}
 
-	// Unsegmented Pass1 (default or fallback)
+	// Unsegmented Pass1 (default or fallback from failed segmentation).
 	if result == nil {
-		trackIndex := buildTrackIndexUnified(res0.state, res0.bestDstNode, 0)
-		pass1MaxCost := res0.totalCost * cfg.Pass0Coefficient * cfg.Pass0Coefficient
-		res1, err := findRouteUnified(ctx, r.reader, nil, nil, src, dst, cfg,
-			0, pass1MaxCost, trackIndex, nil, nil)
-		if err != nil {
-			return nil, fmt.Errorf("pass1: %w", err)
+		var legErr error
+		result, legErr = r.routeLegPass1(ctx, srcVE, dstVE, cfg, res0)
+		if legErr != nil {
+			return nil, legErr
 		}
-		pass1Exp = res1.expansions
-		pass1Ms = res1.durationMs
-
-		result = retrackUnified(r.reader, res1.state, res1.bestDstNode, nil, nil)
-		if result == nil {
-			return nil, fmt.Errorf("retrack failed: broken parent chain")
-		}
+		pass1Exp = result.PassStats.Pass1Expansions
+		pass1Ms = result.PassStats.Pass1DurationMs
 	}
+
 	result.PassStats = PassStats{
 		Pass0Expansions: res0.expansions,
 		Pass0DurationMs: res0.durationMs,
@@ -316,11 +342,16 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 		Pass1DurationMs: pass1Ms,
 		TotalDurationMs: time.Since(totalStart).Milliseconds(),
 	}
+
+	// Approach segments for edge-projected start/destination.
+	r.addApproach(result, srcVE, dstVE, cfg, true, true)
+
 	return result, nil
 }
 
-// RouteVia computes a route through multiple waypoints.
+// RouteVia computes a route through multiple waypoints using edge projection.
 // Hysteresis state is NOT transferred between legs (reset at via-points, like BRouter).
+// Approach segments are only added at the first and last waypoint.
 func (r *UnifiedRouter) RouteVia(ctx context.Context, waypoints []LatLon,
 	cfg *CostConfig) (*RouteResult, error) {
 
@@ -328,18 +359,70 @@ func (r *UnifiedRouter) RouteVia(ctx context.Context, waypoints []LatLon,
 		return nil, fmt.Errorf("need at least 2 waypoints")
 	}
 
+	select {
+	case r.sem <- struct{}{}:
+		defer func() { <-r.sem }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	totalStart := time.Now()
+
+	// Snap all waypoints once upfront.
+	ves := make([]*VirtualEndpoint, len(waypoints))
+	for i, wp := range waypoints {
+		ve, err := r.snapToEdge(wp.Lat, wp.Lon, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("waypoint %d: no passable edge within range", i)
+		}
+		ves[i] = ve
+	}
+
+	// Route each leg: pass0 + routeLegPass1.
 	var legs []*RouteResult
 	for i := range len(waypoints) - 1 {
-		leg, err := r.Route(ctx, RouteRequest{
-			FromLat: waypoints[i].Lat, FromLon: waypoints[i].Lon,
-			ToLat: waypoints[i+1].Lat, ToLon: waypoints[i+1].Lon,
-		}, cfg)
+		srcVE := ves[i]
+		dstVE := ves[i+1]
+
+		// Same-edge shortcut.
+		if srcVE.Proj.EdgeHandle == dstVE.Proj.EdgeHandle {
+			leg := r.routeSameEdge(srcVE, dstVE, cfg)
+			legs = append(legs, leg)
+			continue
+		}
+
+		// Dual landmark heuristic per leg.
+		meta := r.reader.LandmarkMeta()
+		setID := SelectLandmarkSet(cfg, meta)
+		var landmarkH *LandmarkHeuristic
+		if !altDisabled && meta != nil && meta.LandmarkCount > 0 {
+			landmarkH = NewDualLandmarkHeuristic(r.reader,
+				dstVE.GlobalA, dstVE.GlobalB, dstVE.CostA, dstVE.CostB, setID)
+		}
+
+		// Pass 0.
+		res0, err := findRouteUnified(ctx, r.reader, srcVE, dstVE, 0, 0, cfg,
+			cfg.Pass0Coefficient, 0, nil, landmarkH, nil)
+		if err != nil {
+			return nil, fmt.Errorf("leg %d pass0: %w", i, err)
+		}
+
+		// Pass 1 + retrack.
+		leg, err := r.routeLegPass1(ctx, srcVE, dstVE, cfg, res0)
 		if err != nil {
 			return nil, fmt.Errorf("leg %d: %w", i, err)
 		}
 		legs = append(legs, leg)
 	}
-	return mergeLegs(legs), nil
+
+	result := mergeLegs(legs)
+
+	// Approach segments only at first and last waypoint.
+	r.addApproach(result, ves[0], ves[len(ves)-1], cfg, true, true)
+
+	// Aggregate pass stats.
+	result.PassStats.TotalDurationMs = time.Since(totalStart).Milliseconds()
+	return result, nil
 }
 
 // FindReachable finds all nodes reachable within the given cost budget.
@@ -355,7 +438,7 @@ func (r *UnifiedRouter) FindReachable(ctx context.Context,
 		return nil, false, ctx.Err()
 	}
 
-	src, _, ok := r.snapWithFallback(lat, lon, cfg)
+	src, _, ok := r.snapToNode(lat, lon, cfg)
 	if !ok {
 		return nil, false, fmt.Errorf("no graph node within 5km of coordinate")
 	}
@@ -376,14 +459,13 @@ type ReachableNode struct {
 // Reader returns the underlying GraphReader.
 func (r *UnifiedRouter) Reader() GraphReader { return r.reader }
 
-// snapWithFallback snaps (lat, lon) to the nearest graph node that has at
+// snapToNode snaps (lat, lon) to the nearest graph node that has at
 // least one non-blocked outgoing edge for cfg. Uses NearestNodeFiltered on the
 // underlying graph tile to skip motorway/trunk nodes that the profile blocks.
 //
-// This prevents coordinates near motorways from snapping onto blocked nodes,
-// which would cause Pass0 to expand millions of nodes without ever reaching
-// the destination (30s timeout).
-func (r *UnifiedRouter) snapWithFallback(lat, lon float64, cfg *CostConfig) (uint64, float64, bool) {
+// Used by FindReachable/FindReachableWithCoords (isochrone). For routing,
+// use snapToEdge instead (edge projection).
+func (r *UnifiedRouter) snapToNode(lat, lon float64, cfg *CostConfig) (uint64, float64, bool) {
 	// First try unfiltered NearestNode (fast path — works when nearest node is usable).
 	nodeID, dist, ok := r.reader.NearestNode(lat, lon)
 	if ok && r.nodeHasUsableEdge(nodeID, cfg) {
@@ -462,6 +544,51 @@ func (r *UnifiedRouter) FindReachableWithCoords(ctx context.Context,
 		})
 	}
 	return result, truncated, nil
+}
+
+// routeLegPass1 runs Pass1 + Retrack for a single leg given a Pass0 result.
+func (r *UnifiedRouter) routeLegPass1(ctx context.Context,
+	srcVE, dstVE *VirtualEndpoint, cfg *CostConfig,
+	res0 *routeResult,
+) (*RouteResult, error) {
+	trackIndex := buildTrackIndexUnified(res0.state, res0.bestDstNode, 0)
+	pass1MaxCost := res0.totalCost * cfg.Pass0Coefficient * cfg.Pass0Coefficient
+	res1, err := findRouteUnified(ctx, r.reader, srcVE, dstVE, 0, 0, cfg,
+		0, pass1MaxCost, trackIndex, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("pass1: %w", err)
+	}
+	result := retrackUnified(r.reader, res1.state, res1.bestDstNode, srcVE, dstVE)
+	if result == nil {
+		return nil, fmt.Errorf("retrack failed: broken parent chain")
+	}
+	result.PassStats.Pass1Expansions = res1.expansions
+	result.PassStats.Pass1DurationMs = res1.durationMs
+	return result, nil
+}
+
+// addApproach adds approach segments (straight lines) to a result when the
+// snap distance from the original coordinate to the edge projection exceeds
+// a threshold. This visualizes the gap between where the user clicked and
+// where the route actually starts/ends on the graph.
+func (r *UnifiedRouter) addApproach(result *RouteResult, srcVE, dstVE *VirtualEndpoint,
+	cfg *CostConfig, includeFrom, includeTo bool) {
+	snapThreshold := float64(100)
+	if cfg.SnapThresholdM > 0 {
+		snapThreshold = float64(cfg.SnapThresholdM)
+	}
+	if includeFrom && srcVE.Proj.DistanceM > snapThreshold {
+		result.ApproachFrom = []LatLonEle{
+			{Lat: srcVE.OrigLat, Lon: srcVE.OrigLon, Ele: float64(srcVE.Proj.ProjEleDm) / 10.0},
+			{Lat: srcVE.Proj.ProjLat, Lon: srcVE.Proj.ProjLon, Ele: float64(srcVE.Proj.ProjEleDm) / 10.0},
+		}
+	}
+	if includeTo && dstVE.Proj.DistanceM > snapThreshold {
+		result.ApproachTo = []LatLonEle{
+			{Lat: dstVE.Proj.ProjLat, Lon: dstVE.Proj.ProjLon, Ele: float64(dstVE.Proj.ProjEleDm) / 10.0},
+			{Lat: dstVE.OrigLat, Lon: dstVE.OrigLon, Ele: float64(dstVE.Proj.ProjEleDm) / 10.0},
+		}
+	}
 }
 
 // extractPath reconstructs the node path from state by following parent pointers.

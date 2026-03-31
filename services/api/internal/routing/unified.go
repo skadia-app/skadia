@@ -175,7 +175,10 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 				} else {
 					totalCost += dstVE.CostB
 				}
-				if totalCost < bestDstCost {
+				// Use <= (not <) so that a non-seed destination with equal cost
+				// replaces a seed destination. This prevents the bestDstNode from
+				// being stuck on an unrelaxed seed when src/dst VEs share a node.
+				if totalCost <= bestDstCost {
 					bestDstCost = totalCost
 					bestDstNode = entry.NodeID
 				}
@@ -202,7 +205,16 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 				}
 			}
 
-			if passCoeff == 0 && bestDstCost < math.MaxFloat32 && frontier.PeekCost() > bestDstCost {
+			// Pass1 Dijkstra termination: if min frontier cost exceeds best
+			// known destination cost, no remaining path can improve. However,
+			// skip termination when the bestDstNode is an unrelaxed source seed
+			// — its cost comes from partial edge seeding, not real edge traversal.
+			// Terminating early in this case would prevent discovery of better
+			// paths through the other seed node (shared src/dst VE node).
+			bestIsUnrelaxedSeed := (bestDstNode == state.srcSeedA || bestDstNode == state.srcSeedB) &&
+				state.nodes[bestDstNode].Parent == 0
+			if passCoeff == 0 && bestDstCost < math.MaxFloat32 && !bestIsUnrelaxedSeed &&
+				frontier.PeekCost() > bestDstCost {
 				return &routeResult{
 					state: state, totalCost: bestDstCost,
 					expansions: expansions, durationMs: time.Since(start).Milliseconds(),
