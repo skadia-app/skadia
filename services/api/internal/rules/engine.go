@@ -612,7 +612,6 @@ func toFloat(v any) float64 {
 	}
 }
 
-// ToFloat exports the package-internal toFloat for use by the automation package.
 func ToFloat(v any) float64 { return toFloat(v) }
 
 func evalIn(val, list any) bool {
