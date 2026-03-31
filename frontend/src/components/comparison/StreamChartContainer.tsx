@@ -36,25 +36,6 @@ const METRIC_DEFS: MetricDef[] = [
   { key: 'lrBalance',   label: 'L/R Balance',        unit: '%',      dataKey: 'leftRightBalanceData',    priority: 2 },
 ]
 
-// ── Per-source data hook ──────────────────────────────────────────────────────
-
-function SourceStreamData({
-  sourceId,
-  sportType,
-  streams,
-  onData,
-}: {
-  sourceId: string
-  sportType: string
-  streams: import('@/api/types').StreamPoint[] | undefined
-  onData: (id: string, data: PreparedStreamData) => void
-}) {
-  const data = useStreamData(streams, sportType)
-  // Notify parent — use a stable callback pattern
-  onData(sourceId, data)
-  return null
-}
-
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface StreamChartContainerProps {
@@ -63,41 +44,13 @@ interface StreamChartContainerProps {
 }
 
 export default function StreamChartContainer({ chartHeight = 140 }: StreamChartContainerProps) {
-  const { visibleSources } = useSources()
   const [selectedKey, setSelectedKey] = useState<MetricKey | null>(null)
-
-  // Collect prepared data for all sources (using a ref-based accumulator pattern)
-  const preparedMap = useMemo(() => new Map<string, PreparedStreamData>(), [])
-
-  // Build series for a given metric key and prepared data map
-  function buildSeries(key: MetricKey, pMap: Map<string, PreparedStreamData>): StreamSeries[] {
-    const def = METRIC_DEFS.find(m => m.key === key)
-    if (!def) return []
-    return visibleSources
-      .map(src => {
-        const pd = pMap.get(src.id)
-        if (!pd) return null
-        const data = pd[def.dataKey] as [number, number][]
-        if (data.length === 0) return null
-        return { label: src.label, color: src.color, data }
-      })
-      .filter((s): s is StreamSeries => s !== null)
-  }
-
-  // We need a component that renders per-source to call hooks — but here we
-  // take a simpler approach: build data inline using useMemo per-source would
-  // violate hooks rules if sources change length. Instead we use a render-based
-  // accumulation: render null children that populate preparedMap.
-  //
-  // The actual approach: use a flat useMemo over all source streams (safe
-  // because array length is stable for a given set of sources).
 
   return (
     <StreamChartContainerInner
       chartHeight={chartHeight}
       selectedKey={selectedKey}
       setSelectedKey={setSelectedKey}
-      preparedMap={preparedMap}
     />
   )
 }
@@ -109,12 +62,10 @@ function StreamChartContainerInner({
   chartHeight,
   selectedKey,
   setSelectedKey,
-  preparedMap: _preparedMap,
 }: {
   chartHeight: number
   selectedKey: MetricKey | null
   setSelectedKey: (k: MetricKey | null) => void
-  preparedMap: Map<string, PreparedStreamData>
 }) {
   const { visibleSources } = useSources()
 

@@ -1,7 +1,7 @@
 // StreamChart — slim ECharts wrapper for one metric, N sources.
 // Handles brush zoom, hover sync, resize, and zoom-reset button.
 
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -14,8 +14,11 @@ import {
   ToolboxComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useECharts } from '@/hooks/useECharts'
 import { useBrushZoom } from '@/hooks/useBrushZoom'
 import { useHoverSync, type SourceGpsData } from '@/hooks/useHoverSync'
+import { fmtDuration } from '@/lib/format'
+import { getSourceLineStyle, getSourceChartLineWidth } from '@/lib/comparisonColors'
 
 echarts.use([
   LineChart, GridComponent, TooltipComponent, LegendComponent,
@@ -77,7 +80,7 @@ function buildOption(
         ? (params: unknown) => {
             const items = params as Array<{ seriesName: string; value: [number, number]; color: string }>
             if (!items?.length) return ''
-            const xLabel = formatElapsed(items[0].value[0])
+            const xLabel = fmtDuration(items[0].value[0])
             const lines = items.map(it =>
               `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${it.color};margin-right:4px;"></span>${it.seriesName}: <b>${formatTooltipValue(it.value[1])}</b>`
             )
@@ -101,7 +104,7 @@ function buildOption(
       axisLabel: {
         fontSize: 9,
         color: '#6b7280',
-        formatter: (v: number) => formatElapsed(v),
+        formatter: (v: number) => fmtDuration(v),
       },
       splitLine: { show: false },
       axisLine: { show: false },
@@ -133,20 +136,13 @@ function buildOption(
       data: s.data,
       lineStyle: {
         color: s.color,
-        width: idx === 0 ? 2.5 : idx === 1 ? 1.5 : 1.5,
-        type: idx === 0 ? 'solid' : idx === 1 ? 'dashed' : 'dotted',
+        width: getSourceChartLineWidth(idx),
+        type: getSourceLineStyle(idx),
       },
       itemStyle: { color: s.color },
       emphasis: { focus: 'none' },
     })),
   }
-}
-
-function formatElapsed(s: number): string {
-  const m = Math.floor(s / 60)
-  const h = Math.floor(m / 60)
-  if (h > 0) return `${h}:${String(m % 60).padStart(2, '0')}h`
-  return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -158,53 +154,35 @@ export default function StreamChart({
   height = 130,
   formatTooltipValue,
 }: StreamChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
   const [isZoomed, setIsZoomed] = useState(false)
 
   const { bindBrushZoom, resetZoom } = useBrushZoom(setIsZoomed)
   const { attachHover, detachHover } = useHoverSync(sourcesGps)
 
-  // Init chart
-  useEffect(() => {
-    if (!containerRef.current) return
-    if (chartRef.current) chartRef.current.dispose()
-    const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
+  const containerRef = useECharts(
+    () => buildOption(series, unit, formatTooltipValue),
+    [series, unit, formatTooltipValue],
+    (chart) => {
+      const xMax = series.reduce((m, s) => {
+        const last = s.data[s.data.length - 1]
+        return last ? Math.max(m, last[0]) : m
+      }, 1)
+      bindBrushZoom(chart, xMax)
 
-    const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(containerRef.current)
-    const container = containerRef.current
-    attachHover(container, chart)
-
-    return () => {
-      detachHover(container)
-      observer.disconnect()
-      chart.dispose()
-      chartRef.current = null
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Update option when series/unit changes
-  useEffect(() => {
-    const chart = chartRef.current
-    if (!chart || series.length === 0) return
-    const option = buildOption(series, unit, formatTooltipValue)
-    chart.setOption(option, { notMerge: true })
-
-    const xMax = series.reduce((m, s) => {
-      const last = s.data[s.data.length - 1]
-      return last ? Math.max(m, last[0]) : m
-    }, 1)
-    bindBrushZoom(chart, xMax)
-  }, [series, unit, formatTooltipValue, bindBrushZoom])
+      const container = chart.getDom()
+      attachHover(container, chart)
+      return () => detachHover(container)
+    },
+  )
 
   const handleReset = useCallback(() => {
-    const chart = chartRef.current
+    // Access chart instance via the DOM element for reset
+    const container = containerRef.current
+    if (!container) return
+    const chart = echarts.getInstanceByDom(container)
     if (!chart) return
     resetZoom(chart)
-  }, [resetZoom])
+  }, [resetZoom, containerRef])
 
   return (
     <div className="relative">
