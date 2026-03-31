@@ -106,8 +106,17 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
+	// Begin transaction — all DB mutations are wrapped here.
+	tx, err := h.DB.Pool.Begin(ctx)
+	if err != nil {
+		slog.Error("fusion-merge: begin transaction failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to begin transaction", r.URL.Path)
+		return
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
 	// 1. Neue Aktivität erstellen (Kopie der Target-Metadaten).
-	merged, err := createMergedActivity(ctx, h.DB, activities[targetID])
+	merged, err := createMergedActivity(ctx, tx, activities[targetID])
 	if err != nil {
 		slog.Error("fusion-merge: create merged activity failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to create merged activity", r.URL.Path)
@@ -115,7 +124,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Streams der Target-Aktivität in neue Aktivität kopieren (alle Spalten).
-	if _, err := h.DB.Pool.Exec(ctx,
+	if _, err := tx.Exec(ctx,
 		`INSERT INTO activity_streams (
 		     activity_id, time,
 		     lat, lng, altitude_m, speed_ms, distance_m,
@@ -176,8 +185,6 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		targetID, merged.ID,
 	); err != nil {
 		slog.Error("fusion-merge: copy streams failed", "error", err)
-		// Rollback: neu erstellte Aktivität löschen
-		h.DB.Pool.Exec(ctx, `DELETE FROM activities WHERE id = $1`, merged.ID) //nolint:errcheck
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to copy streams", r.URL.Path)
 		return
 	}
@@ -191,12 +198,12 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 
 		if field == "gps" {
 			if sourceID == "fuse" {
-				if err := h.fuseGPSTracks(ctx, merged.ID, req.Sources, req.GPSFusionConfig); err != nil {
+				if err := h.fuseGPSTracks(ctx, tx, merged.ID, req.Sources, req.GPSFusionConfig); err != nil {
 					httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 					return
 				}
 			} else {
-				if err := h.mergeGPSFromSource(ctx, merged.ID, sourceID); err != nil {
+				if err := fusionMergeGPSFromSource(ctx, tx, merged.ID, sourceID); err != nil {
 					slog.Error("fusion-merge: GPS merge failed", "error", err)
 					httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "GPS merge failed", r.URL.Path)
 					return
@@ -206,7 +213,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		}
 
 		col := validStreamFields[field]
-		if err := h.fusionMergeStreamColumn(ctx, merged.ID, sourceID, col); err != nil {
+		if err := fusionMergeStreamColumn(ctx, tx, merged.ID, sourceID, col); err != nil {
 			slog.Error("fusion-merge: stream column merge failed", "field", field, "col", col, "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", fmt.Sprintf("merge field %s failed", field), r.URL.Path)
 			return
@@ -216,7 +223,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	// 4. Titel aus Quell-Aktivität übernehmen.
 	if req.TitleSource != nil && *req.TitleSource != targetID {
 		if src, ok := activities[*req.TitleSource]; ok && src.Title != nil {
-			if _, err := h.DB.Pool.Exec(ctx,
+			if _, err := tx.Exec(ctx,
 				`UPDATE activities SET title = $2, has_edits = true WHERE id = $1`,
 				merged.ID, *src.Title,
 			); err != nil {
@@ -228,14 +235,14 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	// 5. Gear übernehmen.
 	if req.GearSource != nil {
 		if src, ok := activities[*req.GearSource]; ok && src.GearID != nil {
-			h.DB.Pool.Exec(ctx, `UPDATE activities SET gear_id = $2, has_edits = true WHERE id = $1`, merged.ID, src.GearID) //nolint:errcheck
+			tx.Exec(ctx, `UPDATE activities SET gear_id = $2, has_edits = true WHERE id = $1`, merged.ID, src.GearID) //nolint:errcheck
 		}
 	}
 
 	// 6. Tags aus allen Quell-Aktivitäten zusammenführen.
 	if req.TagsMerge {
 		for _, srcID := range allIDs {
-			if err := h.mergeActivityTags(ctx, merged.ID, srcID, userID); err != nil {
+			if err := fusionMergeActivityTags(ctx, tx, merged.ID, srcID); err != nil {
 				slog.Warn("fusion-merge: merge tags failed", "source", srcID, "error", err)
 			}
 		}
@@ -244,13 +251,21 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	// 7. fusion_sources auf neue Aktivität setzen (für Info-Anzeige im Frontend).
 	sourceMap := make(database.FusionSources, len(req.FieldMap))
 	maps.Copy(sourceMap, req.FieldMap)
-	if err := h.DB.SetFusionSources(ctx, merged.ID, userID, sourceMap); err != nil {
-		slog.Warn("fusion-merge: set fusion sources failed", "error", err)
+	sourcesJSON, err := json.Marshal(sourceMap)
+	if err != nil {
+		slog.Warn("fusion-merge: marshal fusion sources failed", "error", err)
+	} else {
+		if _, err := tx.Exec(ctx,
+			`UPDATE activities SET fusion_sources = $2 WHERE id = $1 AND user_id = $3`,
+			merged.ID, sourcesJSON, userID,
+		); err != nil {
+			slog.Warn("fusion-merge: set fusion sources failed", "error", err)
+		}
 	}
 
 	// 8. Alle Quellen (inkl. Target) via parent_id verstecken.
 	for _, id := range allIDs {
-		if _, err := h.DB.Pool.Exec(ctx,
+		if _, err := tx.Exec(ctx,
 			`UPDATE activities SET parent_id = $2 WHERE id = $1 AND user_id = $3`,
 			id, merged.ID, userID,
 		); err != nil {
@@ -258,7 +273,10 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 9. activity_tracks für neue Aktivität berechnen.
+	// 9. activity_tracks für neue Aktivität berechnen — uses db.Pool internally,
+	// so it runs within its own connection (outside tx). Execute before commit
+	// so track data is ready, but note it won't be rolled back on tx failure.
+	// These are best-effort rebuilds; their failure is non-fatal.
 	if merged.HasGPS {
 		if err := h.DB.RebuildActivityTrack(ctx, merged.ID); err != nil {
 			slog.Warn("fusion-merge: rebuild track failed", "error", err)
@@ -271,7 +289,28 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		h.DB.InvalidateTerraIncognitaCache(ctx, userID)
 	}
 
-	// 10. FIT-Level-Merge: Original-FIT-Dateien zusammenführen.
+	// 10. Audit-Log (inside transaction).
+	auditData, _ := json.Marshal(map[string]any{
+		"type":      "fusion_merge",
+		"sources":   allIDs,
+		"field_map": req.FieldMap,
+	})
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO activity_edits (activity_id, user_id, edit_type, edit_data)
+		 VALUES ($1, $2, 'fusion_merge', $3)`,
+		merged.ID, userID, auditData,
+	); err != nil {
+		slog.Warn("fusion-merge: failed to insert audit record", "id", merged.ID, "error", err)
+	}
+
+	// Commit transaction — all DB mutations are now durable.
+	if err := tx.Commit(ctx); err != nil {
+		slog.Error("fusion-merge: commit transaction failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to commit transaction", r.URL.Path)
+		return
+	}
+
+	// 11. FIT-Level-Merge: Original-FIT-Dateien zusammenführen (non-DB, after commit).
 	if req.FitLevel {
 		if err := h.fitLevelMerge(ctx, userID, targetID, merged.ID, req.Sources, req.FieldMap, activities); err != nil {
 			slog.Error("fusion-merge: FIT-level merge failed", "target", merged.ID, "error", err)
@@ -281,27 +320,13 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 11. Audit-Log.
-	auditData, _ := json.Marshal(map[string]any{
-		"type":      "fusion_merge",
-		"sources":   allIDs,
-		"field_map": req.FieldMap,
-	})
-	if _, err := h.DB.Pool.Exec(ctx,
-		`INSERT INTO activity_edits (activity_id, user_id, edit_type, edit_data)
-		 VALUES ($1, $2, 'fusion_merge', $3)`,
-		merged.ID, userID, auditData,
-	); err != nil {
-		slog.Warn("fusion-merge: failed to insert audit record", "id", merged.ID, "error", err)
-	}
-
-	// Write .meta companion for merged activity.
+	// 12. Write .meta companion for merged activity (ShadowFS, after commit).
 	mergedAct, _ := h.DB.GetActivity(ctx, merged.ID)
 	if mergedAct != nil && mergedAct.FileID != nil && *mergedAct.FileID != "" {
 		sidecar.WriteMetaCompanion(ctx, h.ShadowFS, h.DB, userID, merged.ID, *mergedAct.FileID, nil, mergedAct)
 	}
 
-	// Remove cached entries for all source activities so they don't appear as stale candidates
+	// 13. Remove cached entries for all source activities so they don't appear as stale candidates.
 	for _, id := range allIDs {
 		if err := h.DB.DeleteFusionCandidatesForActivity(ctx, id); err != nil {
 			slog.Warn("fusion-merge: delete cached candidates failed", "id", id, "error", err)
@@ -314,7 +339,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 
 // fusionMergeStreamColumn kopiert eine einzelne Stream-Spalte von sourceID → targetID
 // (nur für Zeitpunkte die in beiden Aktivitäten vorhanden sind).
-func (h *Handler) fusionMergeStreamColumn(ctx context.Context, targetID, sourceID, column string) error {
+func fusionMergeStreamColumn(ctx context.Context, q database.Querier, targetID, sourceID, column string) error {
 	query := fmt.Sprintf(`
 		UPDATE activity_streams t
 		SET %s = s.%s
@@ -324,13 +349,13 @@ func (h *Handler) fusionMergeStreamColumn(ctx context.Context, targetID, sourceI
 		  AND t.time = s.time
 		  AND s.%s IS NOT NULL`,
 		column, column, column)
-	_, err := h.DB.Pool.Exec(ctx, query, targetID, sourceID)
+	_, err := q.Exec(ctx, query, targetID, sourceID)
 	return err
 }
 
-// mergeGPSFromSource kopiert lat/lng von sourceID → targetID (timestamp-matched).
-func (h *Handler) mergeGPSFromSource(ctx context.Context, targetID, sourceID string) error {
-	_, err := h.DB.Pool.Exec(ctx, `
+// fusionMergeGPSFromSource kopiert lat/lng von sourceID → targetID (timestamp-matched).
+func fusionMergeGPSFromSource(ctx context.Context, q database.Querier, targetID, sourceID string) error {
+	_, err := q.Exec(ctx, `
 		UPDATE activity_streams t
 		SET lat = s.lat, lng = s.lng
 		FROM activity_streams s
@@ -341,6 +366,66 @@ func (h *Handler) mergeGPSFromSource(ctx context.Context, targetID, sourceID str
 		  AND s.lng IS NOT NULL`,
 		targetID, sourceID)
 	return err
+}
+
+// fusionMergeActivityTags copies all tag associations from sourceID to targetID
+// using the provided Querier (pool or transaction).
+func fusionMergeActivityTags(ctx context.Context, q database.Querier, targetID, sourceID string) error {
+	// Get all tag IDs from source.
+	rows, err := q.Query(ctx,
+		`SELECT tag_id FROM activity_tags WHERE activity_id = $1`, sourceID,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var tagIDs []string
+	for rows.Next() {
+		var tagID string
+		if err := rows.Scan(&tagID); err != nil {
+			return err
+		}
+		tagIDs = append(tagIDs, tagID)
+	}
+	rows.Close()
+
+	if len(tagIDs) == 0 {
+		return nil
+	}
+
+	// Link each tag to target (ON CONFLICT DO NOTHING to skip existing links).
+	for _, tagID := range tagIDs {
+		if _, err := q.Exec(ctx,
+			`INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES ($1, $2, 'merge')
+			 ON CONFLICT (activity_id, tag_id) DO NOTHING`,
+			targetID, tagID,
+		); err != nil {
+			slog.Warn("fusion-merge: link tag failed", "tag_id", tagID, "error", err)
+		}
+		// Update denormalized activity_count.
+		q.Exec(ctx, //nolint:errcheck
+			`UPDATE tags
+			 SET activity_count = (SELECT COUNT(DISTINCT activity_id) FROM activity_tags WHERE tag_id = $1)
+			 WHERE id = $1`,
+			tagID,
+		)
+	}
+
+	// Sync the denormalized tags TEXT[] cache on the target.
+	_, _ = q.Exec(ctx, `
+		UPDATE activities a
+		SET tags = COALESCE(
+			ARRAY(
+				SELECT DISTINCT t.name
+				FROM activity_tags at_join
+				JOIN tags t ON t.id = at_join.tag_id
+				WHERE at_join.activity_id = a.id
+			), '{}'::TEXT[]
+		)
+		WHERE a.id = $1`, targetID,
+	)
+	return nil
 }
 
 // fitLevelMerge lädt die Original-FIT-Dateien (via ShadowFS oder S3-Fallback),
@@ -476,10 +561,10 @@ func (h *Handler) fitLevelMerge(
 
 // createMergedActivity erstellt eine neue Aktivität als Kopie von src mit einer neuen UUID.
 // Streams werden NICHT kopiert — das übernimmt der Aufrufer.
-func createMergedActivity(ctx context.Context, db *database.DB, src *model.Activity) (*model.Activity, error) {
+func createMergedActivity(ctx context.Context, q database.Querier, src *model.Activity) (*model.Activity, error) {
 	newID := uuid.New().String()
 	var createdAt, updatedAt time.Time
-	err := db.Pool.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		INSERT INTO activities (
 			id, user_id, sport_type, sub_type,
 			parsed_sport_type, parsed_sub_type,

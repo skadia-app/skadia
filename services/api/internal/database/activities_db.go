@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/geo"
@@ -58,6 +59,15 @@ func (db *DB) CheckTimeOverlap(ctx context.Context, userID string, startedAt, en
 // rowQuerier abstracts pgxpool.Pool and pgx.Tx for InsertActivity.
 type rowQuerier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// Querier is implemented by both *pgxpool.Pool and pgx.Tx.
+// Use it to pass either a pool or a transaction to functions that execute SQL.
+type Querier interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults
 }
 
 // InsertActivityTx inserts an activity using an existing pgx.Tx.
