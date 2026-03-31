@@ -1436,6 +1436,8 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
   const seed = rule ?? initialData
   const [name, setName] = useState(seed?.name ?? '')
   const [priority, setPriority] = useState(seed?.priority ?? 0)
+  const [triggerEvent, setTriggerEvent] = useState<'on_import' | 'on_enrichment_complete' | 'on_manual_apply'>(seed?.trigger_event ?? 'on_import')
+  const [stopOnMatch, setStopOnMatch] = useState(seed?.stop_on_match ?? false)
   const [groups, setGroups] = useState<RuleConditionGroup[]>(() => normaliseGroups(rule))
   const [actions, setActions] = useState<RuleAction[]>(() => denormaliseActions(seed?.actions ?? []))
 
@@ -1502,6 +1504,8 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
     onSave({
       name: name.trim(),
       priority,
+      trigger_event: triggerEvent,
+      stop_on_match: stopOnMatch,
       condition_groups: groups,
       // Also send flat for backward compatibility:
       conditions: flat.conditions,
@@ -1534,6 +1538,33 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
             min={0}
             className={inputClass + ' w-full'}
           />
+        </div>
+      </div>
+
+      {/* Trigger Event & Stop-on-Match */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Auslöser</label>
+          <select
+            value={triggerEvent}
+            onChange={e => setTriggerEvent(e.target.value as typeof triggerEvent)}
+            className={inputClass + ' w-full'}
+          >
+            <option value="on_import">Beim Import</option>
+            <option value="on_enrichment_complete">Nach Enrichment</option>
+            <option value="on_manual_apply">Nur manuell</option>
+          </select>
+        </div>
+        <div className="flex items-end pb-1">
+          <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={stopOnMatch}
+              onChange={e => setStopOnMatch(e.target.checked)}
+              className="rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT"
+            />
+            Weitere Regeln stoppen
+          </label>
         </div>
       </div>
 
