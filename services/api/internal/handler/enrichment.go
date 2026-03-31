@@ -252,7 +252,7 @@ func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Apply automation rules for all activities — Frost/Nacht don't need GPS
-		_ = h.ApplyRulesToActivity(r.Context(), a.ID, userID, allRules)
+		_ = h.ApplyRulesToActivity(r.Context(), a.ID, userID, allRules, "")
 		processed++
 	}
 

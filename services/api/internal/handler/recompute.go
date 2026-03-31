@@ -857,7 +857,7 @@ func (h *Handler) reprocessTags(ctx context.Context, activityID, userID string) 
 	if err != nil {
 		return fmt.Errorf("list rules: %w", err)
 	}
-	return h.ApplyRulesToActivity(ctx, activityID, userID, allRules)
+	return h.ApplyRulesToActivity(ctx, activityID, userID, allRules, "")
 }
 
 // RecomputeAllTSS starts an async background job that recomputes TSS for all

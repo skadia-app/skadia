@@ -1132,7 +1132,8 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 			w.wind_gusts_ms AS weather_wind_gusts_ms,
 			w.condition AS weather_condition,
 			wm.temp_min AS weather_temp_min_c,
-			wm.temp_max AS weather_temp_max_c
+			wm.temp_max AS weather_temp_max_c,
+			a.created_at AS activity_created_at
 		FROM activities a
 		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS cnt FROM activity_photos GROUP BY activity_id) pc ON pc.activity_id = a.id
 		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS cnt FROM activity_detected_laps GROUP BY activity_id) lc ON lc.activity_id = a.id
@@ -1183,6 +1184,7 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		weatherWindSpeedMS, weatherWindGustsMS                   *float64
 		weatherCondition                                         *string
 		weatherTempMinC, weatherTempMaxC                         *float64
+		activityCreatedAt                                        time.Time
 	)
 
 	err := row.Scan(
@@ -1207,6 +1209,7 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		&climbCount, &climbCategoryMax,
 		&weatherTempC, &weatherHumidity, &weatherWindSpeedMS, &weatherWindGustsMS,
 		&weatherCondition, &weatherTempMinC, &weatherTempMaxC,
+		&activityCreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -1306,6 +1309,7 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	setNN("weather_wind_speed_ms", derefF(weatherWindSpeedMS))
 	setNN("weather_wind_gusts_ms", derefF(weatherWindGustsMS))
 	setNN("weather_condition", derefStr(weatherCondition))
+	m["created_at"] = activityCreatedAt
 	if len(timeOfDay) > 0 {
 		m["time_of_day"] = timeOfDay
 	}
