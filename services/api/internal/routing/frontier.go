@@ -1,5 +1,7 @@
 package routing
 
+import "math"
+
 // R07: HeapIdx from Spec §9.2 deliberately omitted — this implementation
 // uses lazy deletion (stale-entry check in A* loop) instead of decrease-key.
 type FrontierEntry struct {
@@ -43,6 +45,15 @@ func (f *Frontier) Pop() FrontierEntry {
 		f.siftDown(0)
 	}
 	return min
+}
+
+// PeekCost returns the cost of the minimum entry without removing it.
+// Returns math.MaxFloat32 if the frontier is empty.
+func (f *Frontier) PeekCost() float32 {
+	if f.size == 0 {
+		return math.MaxFloat32
+	}
+	return f.entries[0].Cost
 }
 
 func (f *Frontier) key(i int) float32 {

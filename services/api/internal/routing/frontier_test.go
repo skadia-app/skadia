@@ -2,6 +2,7 @@
 package routing
 
 import (
+	"math"
 	"math/rand"
 	"testing"
 )
@@ -77,6 +78,27 @@ func TestFrontier_Reset(t *testing.T) {
 	f.Push(FrontierEntry{Cost: 42})
 	if f.Len() != 1 {
 		t.Errorf("expected len 1 after re-push")
+	}
+}
+
+func TestFrontierPeekCost(t *testing.T) {
+	f := Frontier{entries: make([]FrontierEntry, 0, 8)}
+
+	if got := f.PeekCost(); got != math.MaxFloat32 {
+		t.Errorf("empty PeekCost: expected MaxFloat32, got %f", got)
+	}
+
+	f.Push(FrontierEntry{NodeID: 1, Cost: 5.0})
+	f.Push(FrontierEntry{NodeID: 2, Cost: 3.0})
+	f.Push(FrontierEntry{NodeID: 3, Cost: 7.0})
+
+	if got := f.PeekCost(); got != 3.0 {
+		t.Errorf("PeekCost: expected 3.0, got %f", got)
+	}
+
+	f.Pop()
+	if got := f.PeekCost(); got != 5.0 {
+		t.Errorf("after pop, PeekCost: expected 5.0, got %f", got)
 	}
 }
 

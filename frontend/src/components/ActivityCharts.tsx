@@ -1,7 +1,7 @@
 import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import * as echarts from 'echarts/core'
 import { useECharts } from '@/hooks/useECharts'
-import { LineChart, ScatterChart } from 'echarts/charts'
+import { LineChart, ScatterChart, GaugeChart } from 'echarts/charts'
 import { getSegmentGroup } from '@/lib/sportTaxonomy'
 import { fieldLabel, fieldUnit, defaultSpeedMode, type FieldKey } from '@/lib/sportFieldLabels'
 import {
@@ -28,6 +28,7 @@ import { re3GradeAdjustedSpeed } from '@/lib/re3'
 echarts.use([
   LineChart,
   ScatterChart,
+  GaugeChart,
   GridComponent,
   TitleComponent,
   TooltipComponent,
@@ -52,7 +53,7 @@ const SUNSET_SVG = "image://data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2
 
 type XMode = 'distance' | 'time'
 
-type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'coreTemperature' | 'runningDynamics' | 'stepLength' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength' | 'grit' | 'flow' | 'gear' | 'potentialStamina' | 'staminaCurrent' | 'pressure'
+type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'coreTemperature' | 'runningDynamics' | 'stepLength' | 'powerPhase' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength' | 'grit' | 'flow' | 'gear' | 'potentialStamina' | 'staminaCurrent' | 'pressure'
 
 function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
   if (tab === CHART_TAB.alles) return null // show all
@@ -71,7 +72,7 @@ function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
       return charts
     }
     case CHART_TAB.dynamik: return ['runningDynamics', 'stepLength']
-    case CHART_TAB.pedal: return ['torqueEff', 'pedalSm']
+    case CHART_TAB.pedal: return ['powerPhase', 'torqueEff', 'pedalSm']
     case CHART_TAB.electric: return ['motorPower', 'batteryLevel', 'travelRange']
     case CHART_TAB.tauchgang: return ['depth']
     case CHART_TAB.sensoren: return ['temperature', 'coreTemperature']
@@ -417,6 +418,49 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   const data = useMemo(() => buildChartData(streams), [streams])
   const segGroup = sportType ? getSegmentGroup(sportType) : 'generic'
 
+  // Track hover index internally for power phase gauge live update
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+  const hoverIdxRef = useRef<number | null>(null)
+  const wrappedOnHover = useCallback((idx: number | null) => {
+    hoverIdxRef.current = idx
+    // RAF throttle — gauge update at most once per frame
+    requestAnimationFrame(() => {
+      setHoverIdx(hoverIdxRef.current)
+    })
+    onHover(idx)
+  }, [onHover])
+
+  // Power phase averages for gauge diagram (pedal analytics)
+  // Uses circular mean (atan2) because start angles cluster around 350°/0° boundary —
+  // arithmetic mean of [350°, 5°] = 177° (wrong), circular mean = 357° (correct).
+  const powerPhaseAvg = useMemo<PowerPhaseAvg | null>(() => {
+    const pts = streams.filter(s => s.left_power_phase_start_deg != null && s.right_power_phase_start_deg != null)
+    if (pts.length === 0) return null
+    const circAvg = (arr: (number | undefined | null)[]) => {
+      const valid = arr.filter((v): v is number => v != null)
+      if (valid.length === 0) return 0
+      const sinSum = valid.reduce((s, a) => s + Math.sin(a * Math.PI / 180), 0)
+      const cosSum = valid.reduce((s, a) => s + Math.cos(a * Math.PI / 180), 0)
+      let mean = Math.atan2(sinSum / valid.length, cosSum / valid.length) * 180 / Math.PI
+      if (mean < 0) mean += 360
+      return mean
+    }
+    // Balance: arithmetic mean is fine (0-100 range, no wrap)
+    const balances = pts.map(s => s.left_right_balance).filter((v): v is number => v != null)
+    const avgBal = balances.length > 0 ? balances.reduce((a, b) => a + b, 0) / balances.length : null
+    return {
+      leftStart: circAvg(pts.map(s => s.left_power_phase_start_deg)),
+      leftEnd: circAvg(pts.map(s => s.left_power_phase_end_deg)),
+      leftPeakStart: circAvg(pts.map(s => s.left_power_phase_peak_start_deg)),
+      leftPeakEnd: circAvg(pts.map(s => s.left_power_phase_peak_end_deg)),
+      rightStart: circAvg(pts.map(s => s.right_power_phase_start_deg)),
+      rightEnd: circAvg(pts.map(s => s.right_power_phase_end_deg)),
+      rightPeakStart: circAvg(pts.map(s => s.right_power_phase_peak_start_deg)),
+      rightPeakEnd: circAvg(pts.map(s => s.right_power_phase_peak_end_deg)),
+      leftBalance: avgBal,
+    }
+  }, [streams])
+
   const [isZoomed, setIsZoomed] = useState(false)
   const [xMode, setXMode] = useState<XMode>(defaultXMode ?? 'distance')
 
@@ -610,7 +654,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   const k = (id: string) => `${id}-${xMode}`
 
   const common = {
-    data, onHover,
+    data, onHover: wrappedOnHover,
     onBrushZoom: stableBrushZoom,
     onSyncZoom: syncZoom,
     onRegister: registerChart,
@@ -688,6 +732,12 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       <ChartPanel chartId="step-length" {...common}
         field="stepLength" label="Schrittlänge" unit="m" color="#0891b2"
         overrideValues={data.stepLength} />
+    </div>,
+  )
+  // Pedal Analytics: Power Phase Gauge
+  if (powerPhaseAvg) panels.push(
+    <div key={k('power-phase')} style={{ display: show('powerPhase') ? undefined : 'none' }}>
+      <PowerPhaseGaugePanel phaseData={powerPhaseAvg} streams={streams} hoverIdx={hoverIdx} />
     </div>,
   )
   // Pedal Analytics: Torque Effectiveness L/R
@@ -944,6 +994,230 @@ function setupChartInteractions(opts: ChartInteractionOpts): () => void {
   })
 
   return () => onUnregister(chartId)
+}
+
+// ── Power Phase Gauge (Pedal Analytics) ──────────────────────────────────────
+
+interface PowerPhaseAvg {
+  leftStart: number; leftEnd: number
+  leftPeakStart: number; leftPeakEnd: number
+  rightStart: number; rightEnd: number
+  rightPeakStart: number; rightPeakEnd: number
+  leftBalance: number | null
+}
+
+function buildGaugeOption(
+  startDeg: number, endDeg: number,
+  peakStartDeg: number, peakEndDeg: number,
+  fullColor: string, peakColor: string,
+  ringColor: string, label: string, balance: string | null,
+): Record<string, unknown> {
+  // ECharts gauge: startAngle=90 means 12 o'clock (TDC), clockwise
+  // Gauge angles are counter-clockwise in ECharts, so we invert
+  const toGaugeAngle = (deg: number) => 90 - deg
+
+  return {
+    type: 'gauge',
+    center: ['50%', '50%'],
+    radius: '90%',
+    startAngle: 90,
+    endAngle: -270,
+    min: 0,
+    max: 360,
+    splitNumber: 4,
+    pointer: { show: false },
+    progress: { show: false },
+    axisTick: { show: false },
+    splitLine: {
+      show: true,
+      length: 8,
+      distance: 2,
+      lineStyle: { width: 2, color: '#737373' },
+    },
+    axisLabel: {
+      show: true,
+      distance: 35,
+      fontSize: 10,
+      color: '#a3a3a3',
+      formatter: (value: number) => {
+        if (value === 0) return 'TDC'
+        if (value === 180) return 'BDC'
+        return ''
+      },
+    },
+    title: {
+      show: true,
+      offsetCenter: [0, balance ? '-15%' : '0%'],
+      fontSize: 13,
+      fontWeight: 'bold',
+      color: '#737373',
+    },
+    detail: balance ? {
+      show: true,
+      offsetCenter: [0, '10%'],
+      fontSize: 12,
+      color: '#a3a3a3',
+      formatter: balance,
+    } : { show: false },
+    data: [{ name: label, value: 0 }],
+    axisLine: {
+      lineStyle: {
+        width: 22,
+        color: buildGaugeColors(startDeg, endDeg, fullColor, ringColor),
+      },
+    },
+    // Overlay for peak phase via markLine is not supported,
+    // so we use a second gauge series for the peak
+  }
+}
+
+function buildGaugeColors(startDeg: number, endDeg: number, color: string, ring: string): [number, string][] {
+  // Handle wrap-around (e.g. 346° → 201°)
+  const s = startDeg / 360
+  const e = endDeg > startDeg ? endDeg / 360 : 1  // if wraps, fill to end
+  const colors: [number, string][] = []
+
+  if (endDeg > startDeg) {
+    // No wrap: ring → active → ring
+    if (s > 0) colors.push([s, ring])
+    colors.push([e, color])
+    if (e < 1) colors.push([1, ring])
+  } else {
+    // Wrap-around: active → ring → active
+    colors.push([endDeg / 360, color])
+    if (endDeg / 360 < s) colors.push([s, ring])
+    colors.push([1, color])
+  }
+  return colors
+}
+
+function PowerPhaseGaugePanel({ phaseData, streams, hoverIdx }: {
+  phaseData: PowerPhaseAvg
+  streams: StreamPoint[]
+  hoverIdx: number | null
+}) {
+  // Live data: use hovered stream point, or fall back to averages
+  const liveData = useMemo<PowerPhaseAvg>(() => {
+    if (hoverIdx == null || hoverIdx < 0 || hoverIdx >= streams.length) return phaseData
+    const s = streams[hoverIdx]
+    if (s.left_power_phase_start_deg == null) return phaseData
+    return {
+      leftStart: s.left_power_phase_start_deg ?? phaseData.leftStart,
+      leftEnd: s.left_power_phase_end_deg ?? phaseData.leftEnd,
+      leftPeakStart: s.left_power_phase_peak_start_deg ?? phaseData.leftPeakStart,
+      leftPeakEnd: s.left_power_phase_peak_end_deg ?? phaseData.leftPeakEnd,
+      rightStart: s.right_power_phase_start_deg ?? phaseData.rightStart,
+      rightEnd: s.right_power_phase_end_deg ?? phaseData.rightEnd,
+      rightPeakStart: s.right_power_phase_peak_start_deg ?? phaseData.rightPeakStart,
+      rightPeakEnd: s.right_power_phase_peak_end_deg ?? phaseData.rightPeakEnd,
+      leftBalance: s.left_right_balance ?? phaseData.leftBalance,
+    }
+  }, [hoverIdx, streams, phaseData])
+
+  const containerRef = useECharts(() => {
+    const d = liveData
+    const isDark = document.documentElement.classList.contains('dark')
+    const ringColor = isDark ? '#404040' : '#e5e5e5'
+    const balL = d.leftBalance != null ? `${d.leftBalance.toFixed(0)}%` : null
+    const balR = d.leftBalance != null ? `${(100 - d.leftBalance).toFixed(0)}%` : null
+    const isLive = hoverIdx != null
+
+    const leftFull = buildGaugeOption(
+      d.leftStart, d.leftEnd,
+      d.leftPeakStart, d.leftPeakEnd,
+      '#34d399', '#10b981', ringColor, 'LINKS', balL,
+    )
+    const leftPeak = {
+      ...buildGaugeOption(
+        d.leftPeakStart, d.leftPeakEnd,
+        d.leftPeakStart, d.leftPeakEnd,
+        '#10b981', '#10b981', 'transparent', '', null,
+      ),
+      title: { show: false },
+      axisLine: {
+        lineStyle: {
+          width: 16,
+          color: buildGaugeColors(d.leftPeakStart, d.leftPeakEnd, '#10b981', 'transparent'),
+        },
+      },
+    }
+
+    const rightFull = buildGaugeOption(
+      d.rightStart, d.rightEnd,
+      d.rightPeakStart, d.rightPeakEnd,
+      '#60a5fa', '#3b82f6', ringColor, 'RECHTS', balR,
+    )
+    const rightPeak = {
+      ...buildGaugeOption(
+        d.rightPeakStart, d.rightPeakEnd,
+        d.rightPeakStart, d.rightPeakEnd,
+        '#3b82f6', '#3b82f6', 'transparent', '', null,
+      ),
+      title: { show: false },
+      axisLine: {
+        lineStyle: {
+          width: 16,
+          color: buildGaugeColors(d.rightPeakStart, d.rightPeakEnd, '#3b82f6', 'transparent'),
+        },
+      },
+    }
+
+    // Two gauges side by side — center in upper 75% to leave room for labels below
+    const cy = '44%'
+    leftFull.center = ['25%', cy]
+    leftPeak.center = ['25%', cy]
+    rightFull.center = ['75%', cy]
+    rightPeak.center = ['75%', cy]
+    const r = '70%'
+    leftFull.radius = r
+    leftPeak.radius = r
+    rightFull.radius = r
+    rightPeak.radius = r
+
+    return {
+      animation: false,
+      title: {
+        text: isLive ? 'Kraftphasen (live)' : 'Kraftphasen (Ø)',
+        left: 4, top: 4,
+        textStyle: { fontSize: 11, fontWeight: 500, color: isLive ? '#10b981' : '#888' },
+      },
+      series: [leftFull, leftPeak, rightFull, rightPeak],
+    }
+  }, [liveData, hoverIdx])
+
+  const d = liveData
+
+  return (
+    <div>
+      <div ref={containerRef} className="h-[240px] w-full" />
+      {/* Degree labels below */}
+      <div className="flex justify-around text-center -mt-1 mb-1">
+        <div className="text-xs text-neutral-500 dark:text-neutral-400">
+          <div>PP {d.leftStart.toFixed(0)}°–{d.leftEnd.toFixed(0)}°</div>
+          <div className="text-[10px] text-neutral-400 dark:text-neutral-500">
+            Peak {d.leftPeakStart.toFixed(0)}°–{d.leftPeakEnd.toFixed(0)}°
+          </div>
+        </div>
+        <div className="text-xs text-neutral-500 dark:text-neutral-400">
+          <div>PP {d.rightStart.toFixed(0)}°–{d.rightEnd.toFixed(0)}°</div>
+          <div className="text-[10px] text-neutral-400 dark:text-neutral-500">
+            Peak {d.rightPeakStart.toFixed(0)}°–{d.rightPeakEnd.toFixed(0)}°
+          </div>
+        </div>
+      </div>
+      {/* Legend */}
+      <div className="flex justify-center gap-6 text-xs text-neutral-500">
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#10b981' }} />
+          L Power Phase
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#3b82f6' }} />
+          R Power Phase
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ── Pedal Analytics Dual-Axis Chart Panel ─────────────────────────────────────
