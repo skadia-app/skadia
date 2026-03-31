@@ -11,10 +11,8 @@ function gasLabel(gas: DiveGas): string {
 }
 
 function modeLabel(mode: string): string {
-  const lower = mode.toLowerCase()
-  if (lower === 'cc_diluent' || lower === 'closed_circuit_diluent') return 'Diluent (CCR)'
-  if (lower === 'cc_o2') return 'O₂ (CCR)'
-  if (lower === 'oc_gas' || lower === 'open_circuit') return 'OC'
+  if (mode === 'closed_circuit_diluent') return 'Diluent (CCR)'
+  if (mode === 'open_circuit') return 'OC'
   return mode
 }
 

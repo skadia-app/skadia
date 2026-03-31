@@ -40,16 +40,6 @@ interface DiveDecoPanelProps {
   streams: StreamPoint[]
 }
 
-// ── Helper: last non-null value ────────────────────────────────────────────────
-
-function lastNonNull(streams: StreamPoint[], key: keyof StreamPoint): number | null {
-  for (let i = streams.length - 1; i >= 0; i--) {
-    const v = streams[i][key]
-    if (v != null) return v as number
-  }
-  return null
-}
-
 // ── Helper: water type display ────────────────────────────────────────────────
 
 function waterTypeLabel(raw: string): string {
