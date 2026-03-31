@@ -1113,7 +1113,7 @@ function DecoChartPanel({
         brush: {
           toolbox: [],
           brushType: 'lineX',
-          brushStyle: { borderWidth: 2, color: 'transparent', borderColor: '#f97316' },
+          brushStyle: { borderWidth: 2, color: 'rgba(249,115,22,0.15)', borderColor: '#f97316' },
           throttleType: 'debounce', throttleDelay: 100,
         },
 
@@ -1525,7 +1525,7 @@ function PedalDualChartPanel({
           brushType: 'lineX',
           brushStyle: {
             borderWidth: 2,
-            color: 'transparent',
+            color: 'rgba(249,115,22,0.15)',
             borderColor: '#f97316',
           },
           throttleType: 'debounce',
@@ -1774,7 +1774,7 @@ function SpeedPaceChartPanel({
             brushType: 'lineX',
             brushStyle: {
               borderWidth: 2,
-              color: 'transparent',
+              color: 'rgba(249,115,22,0.15)',
               borderColor: '#f97316',
             },
             throttleType: 'debounce',
@@ -1942,7 +1942,7 @@ function SpeedPaceChartPanel({
           brushType: 'lineX',
           brushStyle: {
             borderWidth: 2,
-            color: 'transparent',
+            color: 'rgba(249,115,22,0.15)',
             borderColor: '#f97316',
           },
           throttleType: 'debounce',
@@ -2169,7 +2169,7 @@ function RunningDynamicsChartPanel({
           brushType: 'lineX',
           brushStyle: {
             borderWidth: 2,
-            color: 'transparent',
+            color: 'rgba(249,115,22,0.15)',
             borderColor: '#f97316',
           },
           throttleType: 'debounce',
@@ -2388,7 +2388,7 @@ function ScatterChartPanel({
           brushType: 'lineX',
           brushStyle: {
             borderWidth: 2,
-            color: 'transparent',
+            color: 'rgba(249,115,22,0.15)',
             borderColor: '#f97316',
           },
           throttleType: 'debounce',
@@ -2636,7 +2636,7 @@ function ChartPanel({
           brushType: 'lineX',
           brushStyle: {
             borderWidth: 2,
-            color: 'transparent',
+            color: 'rgba(249,115,22,0.15)',
             borderColor: '#f97316',
           },
           throttleType: 'debounce',
@@ -2930,7 +2930,7 @@ function GearChartPanel({
           brushType: 'lineX',
           brushStyle: {
             borderWidth: 2,
-            color: 'transparent',
+            color: 'rgba(249,115,22,0.15)',
             borderColor: '#f97316',
           },
           throttleType: 'debounce',
