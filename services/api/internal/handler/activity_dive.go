@@ -12,6 +12,7 @@ import (
 type DiveInfo struct {
 	Settings *model.DiveSettings `json:"settings,omitempty"`
 	Gases    []model.DiveGas     `json:"gases"`
+	Po2Stats *model.DivePo2Stats `json:"po2_stats,omitempty"`
 }
 
 // GetActivityDiveInfo returns the dive settings and gas mixes for an activity.
@@ -42,5 +43,15 @@ func (h *Handler) GetActivityDiveInfo(w http.ResponseWriter, r *http.Request) {
 		gases = []model.DiveGas{}
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, DiveInfo{Settings: settings, Gases: gases})
+	po2Stats, err := h.DB.GetDivePo2Stats(r.Context(), activityID)
+	if err != nil {
+		slog.Warn("get dive po2 stats failed", "activity_id", activityID, "error", err)
+		po2Stats = nil // non-fatal: pO₂ data may not exist
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, DiveInfo{
+		Settings: settings,
+		Gases:    gases,
+		Po2Stats: po2Stats,
+	})
 }

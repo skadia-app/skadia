@@ -21,6 +21,14 @@ type DiveSettings struct {
 	CcrHighSetpointDepthM   float64 `json:"ccr_high_setpoint_depth_m"`
 }
 
+// DivePo2Stats aggregates pO₂ extremes from activity_streams.
+type DivePo2Stats struct {
+	MinPo2      float64  `json:"min_po2"`
+	MinPo2Depth *float64 `json:"min_po2_depth_m,omitempty"`
+	MaxPo2      float64  `json:"max_po2"`
+	MaxPo2Depth *float64 `json:"max_po2_depth_m,omitempty"`
+}
+
 // DiveGas holds breathing gas configuration from a FIT DiveGas message
 // (MesgNum 259). Stored 1:N per activity (2–4 gases per dive).
 type DiveGas struct {
