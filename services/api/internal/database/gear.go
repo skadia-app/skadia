@@ -1411,12 +1411,18 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		m["segment_efforts"] = segEfforts
 	}
 
-	// recording_device_id
-	var recDeviceID *string
-	_ = db.Pool.QueryRow(ctx, `SELECT recording_device_id::TEXT FROM activities WHERE id = $1`, activityID).Scan(&recDeviceID)
+	// recording_device_id + device metadata
+	var recDeviceID, recDevProductName, recDevManufacturer *string
+	_ = db.Pool.QueryRow(ctx, `
+		SELECT a.recording_device_id::TEXT, d.product_name, d.manufacturer
+		FROM activities a
+		LEFT JOIN devices d ON d.id = a.recording_device_id
+		WHERE a.id = $1`, activityID).Scan(&recDeviceID, &recDevProductName, &recDevManufacturer)
 	if recDeviceID != nil {
 		m["recording_device_id"] = *recDeviceID
 	}
+	setNN("recording_device_product_name", derefStr(recDevProductName))
+	setNN("recording_device_manufacturer", derefStr(recDevManufacturer))
 
 	// has_sensor_type — aggregated sensor types from activity_sensors
 	var sensorTypes []string
