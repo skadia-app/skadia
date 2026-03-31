@@ -177,6 +177,7 @@ export default function RouteProfileChart({
         },
         tooltip: {
           trigger: 'axis',
+          appendToBody: true,
           axisPointer: {
             type: 'cross',
             crossStyle: { color: '#6b7280', width: 1 },
