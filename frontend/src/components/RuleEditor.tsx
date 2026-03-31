@@ -273,7 +273,7 @@ function opsForField(cf: ConditionField): string[] {
   switch (cf.inputType) {
     case 'bool': return ['eq']
     case 'enum': return ['eq', 'neq', 'in']
-    case 'text': return ['eq', 'neq', 'contains']
+    case 'text': return ['eq', 'neq', 'contains', 'not_contains', 'starts_with', 'ends_with']
     case 'number': return ['gt', 'lt', 'gte', 'lte', 'eq', 'between']
     case 'tag': return ['eq', 'neq']
     case 'segment': return ['eq']
@@ -285,7 +285,8 @@ function opsForField(cf: ConditionField): string[] {
 
 const OP_LABELS: Record<string, string> = {
   eq: '=', neq: '!=', gt: '>', lt: '<', gte: '>=', lte: '<=',
-  contains: 'enthält', not_contains: 'enthält nicht', in: 'in',
+  contains: 'enthält', not_contains: 'enthält nicht',
+  starts_with: 'beginnt mit', ends_with: 'endet mit', in: 'in',
   between: 'zwischen',
 }
 
