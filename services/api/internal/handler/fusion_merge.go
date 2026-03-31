@@ -624,6 +624,417 @@ func createMergedActivity(ctx context.Context, q database.Querier, src *model.Ac
 	return &result, nil
 }
 
+// FusionMergeRequestV2 describes the body for POST /api/v1/fusion-merge (no target).
+// All sources are equal — the unified timeline is built from ALL timestamps.
+type FusionMergeRequestV2 struct {
+	Sources         []string          `json:"sources"`            // all equal, min 2, max 6
+	FieldMap        map[string]string `json:"field_map"`          // "hr" → "uuid-B", "gps" → "fuse"
+	GPSFusionConfig *GPSFusionConfig  `json:"gps_fusion_config,omitempty"`
+	TitleSource     *string           `json:"title_source,omitempty"`
+	TagsMerge       bool              `json:"tags_merge"`
+	GearSource      *string           `json:"gear_source,omitempty"`
+	FitLevel        bool              `json:"fit_level"`
+	GroupID         *string           `json:"group_id,omitempty"` // if fusing from a recording group
+}
+
+// FusionMergeV2 implements the unified-timeline merge without a target activity.
+// POST /api/v1/fusion-merge
+func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	req, ok := httputil.DecodeJSON[FusionMergeRequestV2](w, r)
+	if !ok {
+		return
+	}
+
+	if len(req.Sources) < 2 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "at least 2 sources required", r.URL.Path)
+		return
+	}
+	if len(req.Sources) > 6 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "max 6 sources", r.URL.Path)
+		return
+	}
+
+	// Load all activities + ownership check.
+	activities := make(map[string]*model.Activity, len(req.Sources))
+	for _, id := range req.Sources {
+		act, err := h.DB.GetActivity(r.Context(), id)
+		if err != nil || act == nil {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", fmt.Sprintf("activity %s not found", id), r.URL.Path)
+			return
+		}
+		if act.UserID != userID {
+			httputil.WriteError(w, http.StatusForbidden, "Forbidden", "not your activity", r.URL.Path)
+			return
+		}
+		activities[id] = act
+	}
+
+	// Validate FieldMap.
+	for field, sourceID := range req.FieldMap {
+		if _, ok := validStreamFields[field]; !ok {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", fmt.Sprintf("unknown field: %s", field), r.URL.Path)
+			return
+		}
+		if sourceID != "fuse" && !slices.Contains(req.Sources, sourceID) {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", fmt.Sprintf("source %s not in sources list", sourceID), r.URL.Path)
+			return
+		}
+		if sourceID == "fuse" && field != "gps" {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "fuse only allowed for gps field", r.URL.Path)
+			return
+		}
+	}
+
+	// Validate group_id if provided.
+	if req.GroupID != nil && *req.GroupID != "" {
+		group, err := h.DB.GetRecordingGroup(r.Context(), *req.GroupID)
+		if err != nil || group == nil {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "recording group not found", r.URL.Path)
+			return
+		}
+		if group.UserID != userID {
+			httputil.WriteError(w, http.StatusForbidden, "Forbidden", "not your recording group", r.URL.Path)
+			return
+		}
+	}
+
+	ctx := r.Context()
+
+	// Determine the richest source for metadata (most non-nil summary fields).
+	metadataSource := pickRichestSource(activities, req.Sources)
+
+	// Begin transaction.
+	tx, err := h.DB.Pool.Begin(ctx)
+	if err != nil {
+		slog.Error("fusion-merge-v2: begin transaction failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to begin transaction", r.URL.Path)
+		return
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// 1. Create new activity from the richest source's metadata.
+	merged, err := createMergedActivity(ctx, tx, metadataSource)
+	if err != nil {
+		slog.Error("fusion-merge-v2: create merged activity failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to create merged activity", r.URL.Path)
+		return
+	}
+
+	// 2. Build unified timeline: INSERT skeleton rows for all unique timestamps across
+	//    all source activities referenced in the FieldMap.
+	sourceSet := make(map[string]struct{})
+	for _, srcID := range req.FieldMap {
+		if srcID != "fuse" {
+			sourceSet[srcID] = struct{}{}
+		}
+	}
+	// For "fuse" GPS mode, all sources contribute timestamps.
+	if req.FieldMap["gps"] == "fuse" {
+		for _, id := range req.Sources {
+			sourceSet[id] = struct{}{}
+		}
+	}
+
+	uniqueSources := make([]string, 0, len(sourceSet))
+	for id := range sourceSet {
+		uniqueSources = append(uniqueSources, id)
+	}
+
+	if err := insertUnifiedTimeline(ctx, tx, merged.ID, uniqueSources); err != nil {
+		slog.Error("fusion-merge-v2: build unified timeline failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to build unified timeline", r.URL.Path)
+		return
+	}
+
+	// 3. For each field in FieldMap, overlay data from the designated source.
+	for field, sourceID := range req.FieldMap {
+		if field == "gps" {
+			if sourceID == "fuse" {
+				if err := h.fuseGPSTracks(ctx, tx, merged.ID, req.Sources, req.GPSFusionConfig); err != nil {
+					httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
+					return
+				}
+			} else {
+				if err := fusionMergeGPSFromSource(ctx, tx, merged.ID, sourceID); err != nil {
+					slog.Error("fusion-merge-v2: GPS merge failed", "error", err)
+					httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "GPS merge failed", r.URL.Path)
+					return
+				}
+			}
+			continue
+		}
+
+		col := validStreamFields[field]
+		if err := fusionMergeStreamColumn(ctx, tx, merged.ID, sourceID, col); err != nil {
+			slog.Error("fusion-merge-v2: stream column merge failed", "field", field, "col", col, "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", fmt.Sprintf("merge field %s failed", field), r.URL.Path)
+			return
+		}
+	}
+
+	// 4. Title from designated source.
+	if req.TitleSource != nil {
+		if src, ok := activities[*req.TitleSource]; ok && src.Title != nil {
+			if _, err := tx.Exec(ctx,
+				`UPDATE activities SET title = $2, has_edits = true WHERE id = $1`,
+				merged.ID, *src.Title,
+			); err != nil {
+				slog.Warn("fusion-merge-v2: update title failed", "error", err)
+			}
+		}
+	}
+
+	// 5. Gear from designated source.
+	if req.GearSource != nil {
+		if src, ok := activities[*req.GearSource]; ok && src.GearID != nil {
+			tx.Exec(ctx, `UPDATE activities SET gear_id = $2, has_edits = true WHERE id = $1`, merged.ID, src.GearID) //nolint:errcheck
+		}
+	}
+
+	// 6. Tags merge.
+	if req.TagsMerge {
+		for _, srcID := range req.Sources {
+			if err := fusionMergeActivityTags(ctx, tx, merged.ID, srcID); err != nil {
+				slog.Warn("fusion-merge-v2: merge tags failed", "source", srcID, "error", err)
+			}
+		}
+	}
+
+	// 7. Set fusion_sources on new activity.
+	sourceMap := make(database.FusionSources, len(req.FieldMap))
+	maps.Copy(sourceMap, req.FieldMap)
+	sourcesJSON, err := json.Marshal(sourceMap)
+	if err != nil {
+		slog.Warn("fusion-merge-v2: marshal fusion sources failed", "error", err)
+	} else {
+		if _, err := tx.Exec(ctx,
+			`UPDATE activities SET fusion_sources = $2 WHERE id = $1 AND user_id = $3`,
+			merged.ID, sourcesJSON, userID,
+		); err != nil {
+			slog.Warn("fusion-merge-v2: set fusion sources failed", "error", err)
+		}
+	}
+
+	// 8. Source visibility: group-aware vs legacy.
+	if req.GroupID != nil && *req.GroupID != "" {
+		// Group mode: sources stay visible, fused activity joins the group with is_fused = TRUE.
+		// This is done AFTER commit (see below) because AddRecordingGroupMemberFused uses its own tx.
+	} else {
+		// Legacy ad-hoc mode: hide sources via parent_id.
+		for _, id := range req.Sources {
+			if _, err := tx.Exec(ctx,
+				`UPDATE activities SET parent_id = $2 WHERE id = $1 AND user_id = $3`,
+				id, merged.ID, userID,
+			); err != nil {
+				slog.Warn("fusion-merge-v2: hide source failed", "id", id, "error", err)
+			}
+		}
+	}
+
+	// 9. Update started_at/ended_at from the unified timeline.
+	if _, err := tx.Exec(ctx, `
+		UPDATE activities SET
+			started_at = COALESCE((SELECT MIN(time) FROM activity_streams WHERE activity_id = $1), started_at),
+			ended_at   = COALESCE((SELECT MAX(time) FROM activity_streams WHERE activity_id = $1), ended_at)
+		WHERE id = $1`, merged.ID); err != nil {
+		slog.Warn("fusion-merge-v2: update time bounds failed", "error", err)
+	}
+
+	// 10. Rebuild track + heatmap (best-effort, outside tx).
+	if merged.HasGPS {
+		if err := h.DB.RebuildActivityTrack(ctx, merged.ID); err != nil {
+			slog.Warn("fusion-merge-v2: rebuild track failed", "error", err)
+		}
+		if !merged.ExcludeFromHeatmap {
+			if err := h.DB.RebuildHeatmapData(ctx, merged.ID); err != nil {
+				slog.Warn("fusion-merge-v2: rebuild heatmap failed", "error", err)
+			}
+		}
+		h.DB.InvalidateTerraIncognitaCache(ctx, userID)
+	}
+
+	// 11. Audit log (inside transaction).
+	auditData, _ := json.Marshal(map[string]any{
+		"type":      "fusion_merge_v2",
+		"sources":   req.Sources,
+		"field_map": req.FieldMap,
+		"group_id":  req.GroupID,
+	})
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO activity_edits (activity_id, user_id, edit_type, edit_data)
+		 VALUES ($1, $2, 'fusion_merge', $3)`,
+		merged.ID, userID, auditData,
+	); err != nil {
+		slog.Warn("fusion-merge-v2: failed to insert audit record", "id", merged.ID, "error", err)
+	}
+
+	// Commit transaction.
+	if err := tx.Commit(ctx); err != nil {
+		slog.Error("fusion-merge-v2: commit transaction failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to commit transaction", r.URL.Path)
+		return
+	}
+
+	// Post-commit: group integration.
+	if req.GroupID != nil && *req.GroupID != "" {
+		if err := h.DB.AddRecordingGroupMemberFused(ctx, *req.GroupID, merged.ID); err != nil {
+			slog.Error("fusion-merge-v2: add fused member to group failed", "group", *req.GroupID, "error", err)
+			// Non-fatal: the merge itself succeeded.
+		}
+	}
+
+	// Post-commit: FIT-level merge.
+	if req.FitLevel && len(req.Sources) >= 2 {
+		// Use first source as "target" for FIT-level merge (best-effort).
+		if err := h.fitLevelMerge(ctx, userID, req.Sources[0], merged.ID, req.Sources[1:], req.FieldMap, activities); err != nil {
+			slog.Error("fusion-merge-v2: FIT-level merge failed", "target", merged.ID, "error", err)
+		} else {
+			slog.Info("fusion-merge-v2: FIT-level merge completed", "target", merged.ID)
+		}
+	}
+
+	// Post-commit: write .meta companion (ShadowFS).
+	mergedAct, _ := h.DB.GetActivity(ctx, merged.ID)
+	if mergedAct != nil && mergedAct.FileID != nil && *mergedAct.FileID != "" {
+		sidecar.WriteMetaCompanion(ctx, h.ShadowFS, h.DB, userID, merged.ID, *mergedAct.FileID, nil, mergedAct)
+	}
+
+	// Post-commit: remove cached fusion candidates.
+	for _, id := range req.Sources {
+		if err := h.DB.DeleteFusionCandidatesForActivity(ctx, id); err != nil {
+			slog.Warn("fusion-merge-v2: delete cached candidates failed", "id", id, "error", err)
+		}
+	}
+
+	slog.Info("fusion-merge-v2: completed", "new_id", merged.ID, "sources", req.Sources)
+	httputil.WriteJSON(w, http.StatusCreated, map[string]string{"id": merged.ID})
+}
+
+// insertUnifiedTimeline creates skeleton rows in activity_streams for the merged activity
+// using the UNION of all timestamps from the given source activities.
+// Each row has only (activity_id, time) — field data is overlaid afterwards.
+func insertUnifiedTimeline(ctx context.Context, q database.Querier, mergedID string, sourceIDs []string) error {
+	if len(sourceIDs) == 0 {
+		return nil
+	}
+
+	// Build a UNION ALL query for all source timestamps, then INSERT DISTINCT into merged.
+	// Using a parameterized approach: $1 = mergedID, $2..$N+1 = sourceIDs.
+	args := make([]any, 0, len(sourceIDs)+1)
+	args = append(args, mergedID)
+
+	var unions []string
+	for i, id := range sourceIDs {
+		paramIdx := i + 2
+		unions = append(unions, fmt.Sprintf(
+			`SELECT DISTINCT time FROM activity_streams WHERE activity_id = $%d`, paramIdx))
+		args = append(args, id)
+	}
+
+	query := fmt.Sprintf(`
+		INSERT INTO activity_streams (activity_id, time)
+		SELECT $1, t.time FROM (
+			%s
+		) t
+		GROUP BY t.time
+		ORDER BY t.time ASC`,
+		strings.Join(unions, " UNION ALL "))
+
+	_, err := q.Exec(ctx, query, args...)
+	return err
+}
+
+// pickRichestSource returns the activity with the most non-nil summary fields.
+// This determines which source provides metadata (sport, times, etc.) for the merged activity.
+func pickRichestSource(activities map[string]*model.Activity, sourceIDs []string) *model.Activity {
+	var best *model.Activity
+	bestScore := -1
+
+	for _, id := range sourceIDs {
+		act := activities[id]
+		if act == nil {
+			continue
+		}
+		score := activityFieldRichness(act)
+		if score > bestScore {
+			bestScore = score
+			best = act
+		}
+	}
+	return best
+}
+
+// activityFieldRichness counts how many optional summary fields are non-nil on an activity.
+func activityFieldRichness(a *model.Activity) int {
+	score := 0
+	if a.Title != nil {
+		score++
+	}
+	if a.Description != nil {
+		score++
+	}
+	if a.EndedAt != nil {
+		score++
+	}
+	if a.ElapsedTimeS != nil {
+		score++
+	}
+	if a.MovingTimeS != nil {
+		score++
+	}
+	if a.DistanceM != nil {
+		score++
+	}
+	if a.ElevationGainM != nil {
+		score++
+	}
+	if a.ElevationLossM != nil {
+		score++
+	}
+	if a.AvgSpeedMS != nil {
+		score++
+	}
+	if a.MaxSpeedMS != nil {
+		score++
+	}
+	if a.AvgHeartRate != nil {
+		score++
+	}
+	if a.MaxHeartRate != nil {
+		score++
+	}
+	if a.AvgPowerW != nil {
+		score++
+	}
+	if a.MaxPowerW != nil {
+		score++
+	}
+	if a.NormalizedPowerW != nil {
+		score++
+	}
+	if a.AvgCadence != nil {
+		score++
+	}
+	if a.AvgTemperatureC != nil {
+		score++
+	}
+	if a.TSS != nil {
+		score++
+	}
+	if a.GearID != nil {
+		score++
+	}
+	if a.HasGPS {
+		score++
+	}
+	return score
+}
+
 // RevertFusion löscht eine Fusion-Ergebnis-Aktivität und stellt die Quellen wieder her.
 // POST /api/v1/activities/{id}/revert-fusion
 func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
