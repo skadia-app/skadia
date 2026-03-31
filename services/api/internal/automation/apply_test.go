@@ -1,6 +1,150 @@
 package automation
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/model"
+)
+
+func ptr(s string) *string { return &s }
+
+func TestShouldEvaluateRule(t *testing.T) {
+	tests := []struct {
+		name         string
+		rule         model.AutomationRule
+		triggerEvent string
+		want         bool
+	}{
+		{
+			"active on_import matches on_import",
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_import"},
+			"on_import", true,
+		},
+		{
+			"active on_enrichment skipped by on_import filter",
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_enrichment_complete"},
+			"on_import", false,
+		},
+		{
+			"empty trigger matches all (manual apply)",
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_enrichment_complete"},
+			"", true,
+		},
+		{
+			"inactive rule always skipped",
+			model.AutomationRule{IsActive: false, TriggerEvent: "on_import"},
+			"on_import", false,
+		},
+		{
+			"electric_sync always skipped",
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: ptr("electric_sync")},
+			"on_import", false,
+		},
+		{
+			"indoor_sync always skipped",
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: ptr("indoor_sync")},
+			"", false,
+		},
+		{
+			"commute_sync always skipped (DB trigger managed)",
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: ptr("commute_sync")},
+			"on_import", false,
+		},
+		{
+			"round_trip system rule NOT skipped",
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: ptr("round_trip")},
+			"on_import", true,
+		},
+		{
+			"frost system rule NOT skipped",
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: ptr("frost")},
+			"on_import", true,
+		},
+		{
+			"on_manual_apply only matches empty trigger",
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_manual_apply"},
+			"on_import", false,
+		},
+		{
+			"on_manual_apply matches manual trigger",
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_manual_apply"},
+			"on_manual_apply", true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldEvaluateRule(tt.rule, tt.triggerEvent); got != tt.want {
+				t.Errorf("shouldEvaluateRule() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEvaluateRule(t *testing.T) {
+	actMap := map[string]any{
+		"sport_type": "running",
+		"distance_m": float64(25000),
+		"tags":       []string{"outdoor"},
+	}
+
+	tests := []struct {
+		name       string
+		conditions string
+		want       bool
+	}{
+		{
+			"simple eq match",
+			`[{"field":"sport_type","op":"eq","value":"running"}]`,
+			true,
+		},
+		{
+			"simple eq no match",
+			`[{"field":"sport_type","op":"eq","value":"cycling"}]`,
+			false,
+		},
+		{
+			"numeric gte match",
+			`[{"field":"distance_m","op":"gte","value":20000}]`,
+			true,
+		},
+		{
+			"between match",
+			`[{"field":"distance_m","op":"between","value":"21000,42195"}]`,
+			true,
+		},
+		{
+			"has_tag eq match",
+			`[{"field":"has_tag","op":"eq","value":"outdoor"}]`,
+			true,
+		},
+		{
+			"has_tag neq match (tag absent)",
+			`[{"field":"has_tag","op":"neq","value":"indoor"}]`,
+			true,
+		},
+		{
+			"has_tag neq no match (tag present)",
+			`[{"field":"has_tag","op":"neq","value":"outdoor"}]`,
+			false,
+		},
+		{
+			"empty conditions = vacuously true (match-all)",
+			`[]`,
+			true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rule := model.AutomationRule{
+				Conditions: json.RawMessage(tt.conditions),
+			}
+			if got := EvaluateRule(rule, actMap); got != tt.want {
+				t.Errorf("EvaluateRule() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestResolveNameTemplate_CitySubstitution(t *testing.T) {
 	actMap := map[string]any{
