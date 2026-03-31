@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchRecordingGroup, setGroupPrimary, setGroupSportType, dissolveRecordingGroup } from '@/api/recordingGroups'
-import { fetchActivity, fetchActivityStreams } from '@/api/activities'
+import { fetchActivityStreams } from '@/api/activities'
 import { SourcesProvider, type SourceInfo } from '@/components/comparison/SourcesContext'
 import MultiTrackMap from '@/components/comparison/MultiTrackMap'
 import StreamChartContainer from '@/components/comparison/StreamChartContainer'
@@ -14,17 +14,6 @@ import { getSourceColor } from '@/lib/comparisonColors'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { formatDistance, formatDuration } from '@/lib/utils'
 import { useToast } from '@/lib/toast'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -189,14 +178,6 @@ export default function RecordingGroupPage() {
     })),
   })
 
-  const activityQueries = useQueries({
-    queries: (group?.members ?? []).map(m => ({
-      queryKey: ['activity', m.activity_id],
-      queryFn: () => fetchActivity(m.activity_id),
-      enabled: !!group,
-    })),
-  })
-
   // ── Build SourceInfo[] ────────────────────────────────────────────────────
 
   const sources = useMemo<SourceInfo[]>(() => {
@@ -205,10 +186,9 @@ export default function RecordingGroupPage() {
       id: m.activity_id,
       label: m.source_device ?? m.source ?? `Quelle ${i + 1}`,
       color: getSourceColor(i),
-      activity: activityQueries[i]?.data,
       streams: streamQueries[i]?.data,
     }))
-  }, [group, activityQueries, streamQueries])
+  }, [group, streamQueries])
 
   // ── Mutations ─────────────────────────────────────────────────────────────
 
@@ -335,7 +315,6 @@ export default function RecordingGroupPage() {
               : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
         }`}>
           {group.members.map((member, i) => {
-            const activity = activityQueries[i]?.data
             return (
               <SourceCard
                 key={member.activity_id}
@@ -345,8 +324,8 @@ export default function RecordingGroupPage() {
                 deviceName={member.source_device ?? member.source ?? `Quelle ${i + 1}`}
                 fileFormat={member.original_file_format}
                 fieldCount={member.field_richness}
-                distanceM={activity?.distance_m ?? member.distance_m}
-                durationS={activity?.elapsed_time_s}
+                distanceM={member.distance_m}
+                durationS={member.elapsed_time_s}
                 sportType={member.sport_type}
                 onSetPrimary={() => setPrimaryMutation.mutate({ activityId: member.activity_id })}
                 isSettingPrimary={settingPrimaryId === member.activity_id}
@@ -382,36 +361,20 @@ export default function RecordingGroupPage() {
             Aktivitäten fusionieren
           </button>
 
-          {/* Dissolve group button (right, red outline + confirm dialog) */}
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <button
-                className="border border-red-400 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 dark:text-red-400 dark:border-red-700 px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={dissolveMutation.isPending}
-              >
-                {dissolveMutation.isPending ? 'Wird aufgelöst…' : 'Gruppe auflösen'}
-              </button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Gruppe auflösen?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Die Aufnahmegruppe wird aufgelöst. Die einzelnen Aktivitäten bleiben
-                  erhalten, werden aber nicht mehr als zusammengehörig behandelt.
-                  Diese Aktion kann nicht rückgängig gemacht werden.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => dissolveMutation.mutate()}
-                  className="bg-red-600 hover:bg-red-700 text-white"
-                >
-                  Gruppe auflösen
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          {/* Dissolve group button (right, red outline + confirm) */}
+          <button
+            className="border border-red-400 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 dark:text-red-400 dark:border-red-700 px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={dissolveMutation.isPending}
+            onClick={() => {
+              if (window.confirm(
+                'Gruppe auflösen?\n\nDie Aufnahmegruppe wird aufgelöst. Die einzelnen Aktivitäten bleiben erhalten, werden aber nicht mehr als zusammengehörig behandelt. Diese Aktion kann nicht rückgängig gemacht werden.'
+              )) {
+                dissolveMutation.mutate()
+              }
+            }}
+          >
+            {dissolveMutation.isPending ? 'Wird aufgelöst…' : 'Gruppe auflösen'}
+          </button>
         </div>
       </div>
     </SourcesProvider>
