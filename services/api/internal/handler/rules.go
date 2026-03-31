@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/rules"
 )
 
 func (h *Handler) ListRules(w http.ResponseWriter, r *http.Request) {
@@ -120,6 +122,11 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.URL.Query().Get("dry_run") == "true" {
+		h.dryRunAllRules(w, r, userID)
+		return
+	}
+
 	// Load all active rules upfront (fast, no heavy work in the request goroutine).
 	allRules, err := h.DB.ListRules(r.Context(), userID)
 	if err != nil {
@@ -196,6 +203,100 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 // for use in handler contexts.
 func (h *Handler) ApplyRulesToActivity(ctx context.Context, activityID, userID string, allRules []model.AutomationRule, triggerEvent string) error {
 	return automation.ApplyRulesToActivity(ctx, h.DB, activityID, userID, allRules, triggerEvent)
+}
+
+func (h *Handler) dryRunAllRules(w http.ResponseWriter, r *http.Request, userID string) {
+	limit := 50
+	offset := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	allRules, err := h.DB.ListRules(r.Context(), userID)
+	if err != nil {
+		slog.Error("dry-run all rules: list rules", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list rules", r.URL.Path)
+		return
+	}
+	actIDs, err := h.DB.ListActivityIDsForUser(r.Context(), userID)
+	if err != nil {
+		slog.Error("dry-run all rules: list activities", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
+		return
+	}
+
+	syncSystemTypes := map[string]bool{
+		"electric_sync": true,
+		"virtual_sync":  true,
+		"indoor_sync":   true,
+		"commute_sync":  true,
+	}
+
+	type ruleMatch struct {
+		RuleName string `json:"rule_name"`
+		Action   string `json:"action"`
+	}
+	type matchResult struct {
+		ActivityID    string      `json:"activity_id"`
+		ActivityTitle string      `json:"activity_title"`
+		Rules         []ruleMatch `json:"rules"`
+	}
+
+	var matches []matchResult
+	totalMatches := 0
+
+	for _, actID := range actIDs {
+		actMap, err := h.DB.GetActivityAsMap(r.Context(), actID)
+		if err != nil || actMap == nil {
+			continue
+		}
+
+		var actRules []ruleMatch
+		for _, rule := range allRules {
+			if !rule.IsActive {
+				continue
+			}
+			if rule.SystemType != nil && syncSystemTypes[*rule.SystemType] {
+				continue
+			}
+			if automation.EvaluateRule(rule, actMap) {
+				var actions []rules.Action
+				_ = json.Unmarshal(rule.Actions, &actions)
+				for _, a := range actions {
+					actRules = append(actRules, ruleMatch{RuleName: rule.Name, Action: a.Action})
+				}
+			}
+		}
+
+		if len(actRules) > 0 {
+			totalMatches++
+			if totalMatches > offset && len(matches) < limit {
+				title, _ := actMap["title"].(string)
+				matches = append(matches, matchResult{
+					ActivityID:    actID,
+					ActivityTitle: title,
+					Rules:         actRules,
+				})
+			}
+		}
+	}
+
+	if matches == nil {
+		matches = []matchResult{}
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"matches":       matches,
+		"total_matches": totalMatches,
+		"truncated":     totalMatches > offset+limit,
+	})
 }
 
 // resolveNameTemplate substitutes a fixed set of {token} placeholders in tmpl
