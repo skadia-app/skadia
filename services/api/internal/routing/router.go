@@ -111,11 +111,13 @@ func (r *UnifiedRouter) snapToEdge(lat, lon float64, cfg *CostConfig) (*VirtualE
 		BestCost: ve.CostA, EffectiveCost: effA, FrontierCost: effA,
 		PathState: hystA.State, LastEdgeDX: dxA, LastEdgeDY: dyA,
 		LastWayClass: wayClass, EdgeHandle: proj.EdgeHandle, EdgeTags1: proj.EdgeTags1,
+		Parent: noParent,
 	}
 	ve.StateB = nodeState{
 		BestCost: ve.CostB, EffectiveCost: effB, FrontierCost: effB,
 		PathState: hystB.State, LastEdgeDX: dxB, LastEdgeDY: dyB,
 		LastWayClass: wayClass, EdgeHandle: proj.EdgeHandle, EdgeTags1: proj.EdgeTags1,
+		Parent: noParent,
 	}
 
 	return ve, nil
@@ -147,10 +149,11 @@ func (r *UnifiedRouter) routeSameEdge(srcVE, dstVE *VirtualEndpoint, cfg *CostCo
 	directFraction := fracTo - fracFrom
 	directDist := directFraction * proj.EdgeDistM
 
-	eleFrom := float64(proj.EleA_dm) + fracFrom*float64(proj.EleB_dm-proj.EleA_dm)
-	eleTo := float64(proj.EleA_dm) + fracTo*float64(proj.EleB_dm-proj.EleA_dm)
+	// Use actual src/dst projection elevations — correct regardless of travel direction.
+	srcEle := float64(srcVE.Proj.ProjEleDm) / 10.0
+	dstEle := float64(dstVE.Proj.ProjEleDm) / 10.0
 	var ascent, descent float64
-	diff := (eleTo - eleFrom) / 10.0 // dm → m
+	diff := dstEle - srcEle
 	if diff > 0 {
 		ascent = diff
 	} else {
@@ -161,14 +164,8 @@ func (r *UnifiedRouter) routeSameEdge(srcVE, dstVE *VirtualEndpoint, cfg *CostCo
 	ecf := cfg.EdgeCost(proj.EdgeTags1, 0)
 	distCm := directDist * 100
 	// Elevation delta: from source projection to destination projection (in dm).
-	var deltaEleDm int32
-	if reversed {
-		// Travel from fracTo to fracFrom (B→A direction).
-		deltaEleDm = int32(eleFrom) - int32(eleTo)
-	} else {
-		// Travel from fracFrom to fracTo (A→B direction).
-		deltaEleDm = int32(eleTo) - int32(eleFrom)
-	}
+	// srcVE/dstVE already represent actual travel direction — no reversed branch needed.
+	deltaEleDm := dstVE.Proj.ProjEleDm - srcVE.Proj.ProjEleDm
 	hyst := propagateHysteresis(PathState{}, deltaEleDm*100, int32(distCm)*10, cfg)
 
 	// Slope-weighted cost factor interpolation.
@@ -218,11 +215,11 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 	// Edge projection: snap start/destination to nearest passable edge.
 	srcVE, err := r.snapToEdge(req.FromLat, req.FromLon, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("no passable edge within range of start coordinate")
+		return nil, fmt.Errorf("snap source: %w", err)
 	}
 	dstVE, err := r.snapToEdge(req.ToLat, req.ToLon, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("no passable edge within range of destination coordinate")
+		return nil, fmt.Errorf("snap destination: %w", err)
 	}
 
 	// Same-edge shortcut: if both endpoints project onto the same edge,

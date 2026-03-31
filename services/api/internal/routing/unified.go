@@ -15,6 +15,11 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
+// noParent is the sentinel value for nodeState.Parent indicating no predecessor
+// (seed nodes and unrelaxed virtual endpoint states).
+// MaxUint64 is used because NodeID 0 is a valid graph node.
+const noParent = ^uint64(0)
+
 // nodeState holds per-node routing state in the sparse map.
 // Value-type (not pointer) to reduce GC pressure (C19).
 // ~64 bytes padded — small enough for value-type map semantics.
@@ -119,7 +124,7 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 		state.srcSeedA = srcVE.GlobalA
 		state.srcSeedB = srcVE.GlobalB
 	} else {
-		state.nodes[srcNode] = nodeState{BestCost: 0, EffectiveCost: 0, FrontierCost: 0}
+		state.nodes[srcNode] = nodeState{BestCost: 0, EffectiveCost: 0, FrontierCost: 0, Parent: noParent}
 		frontier.Push(FrontierEntry{NodeID: srcNode, Cost: 0})
 		state.srcSeedA = srcNode
 		state.srcSeedB = srcNode
@@ -212,7 +217,7 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 			// Terminating early in this case would prevent discovery of better
 			// paths through the other seed node (shared src/dst VE node).
 			bestIsUnrelaxedSeed := (bestDstNode == state.srcSeedA || bestDstNode == state.srcSeedB) &&
-				state.nodes[bestDstNode].Parent == 0
+				state.nodes[bestDstNode].Parent == noParent
 			if passCoeff == 0 && bestDstCost < math.MaxFloat32 && !bestIsUnrelaxedSeed &&
 				frontier.PeekCost() > bestDstCost {
 				return &routeResult{
