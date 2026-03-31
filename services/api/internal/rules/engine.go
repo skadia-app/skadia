@@ -385,22 +385,25 @@ func evalSeason(c Condition, activity map[string]any) bool {
 func evalHasTag(c Condition, activity map[string]any) bool {
 	tags, ok := activity["tags"]
 	if !ok {
-		return false
+		return c.Op == "neq" // no tags → tag is absent → neq is true
 	}
 	wantTag := toStringValue(c.Value)
+	found := false
 	switch ts := tags.(type) {
 	case []string:
-		if slices.Contains(ts, wantTag) {
-			return true
-		}
+		found = slices.Contains(ts, wantTag)
 	case []any:
 		for _, t := range ts {
 			if toStringValue(t) == wantTag {
-				return true
+				found = true
+				break
 			}
 		}
 	}
-	return false
+	if c.Op == "neq" {
+		return !found
+	}
+	return found
 }
 
 func evalArrayContains(c Condition, activity map[string]any) bool {
