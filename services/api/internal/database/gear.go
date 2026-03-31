@@ -1655,6 +1655,11 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 		}
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET title = $1, title_is_manual = true WHERE id = $2`, title, activityID)
 		return err
+	case "notify":
+		// Handled upstream in ApplyRulesToActivity (requires userID).
+		// ApplyRuleChange is intentionally not called for this field; this case
+		// exists only so the default branch never fires for "notify".
+		return nil
 	default:
 		return fmt.Errorf("unknown field: %s", field)
 	}
