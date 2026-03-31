@@ -494,6 +494,23 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     [streams, data, xMode, gearEvents],
   )
 
+  // Stable reference for deco extra series — prevents useECharts re-init on every hover
+  // (inline object literal would be a new reference each render → setOption on every hover → lag + brush reset)
+  const decoExtraSeries = useMemo(
+    () => hasValidData(data.decoStopM) ? [{
+      values: data.decoStopM,
+      name: 'Dekotiefe (m)',
+      color: '#ef4444',
+      lineStyle: { color: '#ef4444', width: 0 },
+      areaStyle: { color: 'rgba(239,68,68,0.25)' },
+      symbol: 'none',
+      z: 1,
+      connectNulls: true,
+      silent: true,
+    }] : undefined,
+    [data.decoStopM],
+  )
+
   const chartInstancesRef = useRef<Map<string, echarts.ECharts>>(new Map())
   const isSyncingRef = useRef(false)
   // Shared lock across all ChartPanel instances to prevent cascading brushEnd
@@ -813,17 +830,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       <ChartPanel chartId="depth" {...common}
         label="Tiefe" unit="m" color="#3B82F6" area
         overrideValues={data.depth} invertY
-        extraSeries={hasValidData(data.decoStopM) ? [{
-          values: data.decoStopM,
-          name: 'Dekotiefe (m)',
-          color: '#ef4444',
-          lineStyle: { color: '#ef4444', width: 0 },
-          areaStyle: { color: 'rgba(239,68,68,0.25)' },
-          symbol: 'none',
-          z: 1,
-          connectNulls: true,
-          silent: true,
-        }] : undefined}
+        extraSeries={decoExtraSeries}
       />
     </div>,
   )
@@ -1113,7 +1120,7 @@ function DecoChartPanel({
         brush: {
           toolbox: [],
           brushType: 'lineX',
-          brushStyle: { borderWidth: 2, color: 'rgba(249,115,22,0.15)', borderColor: '#f97316' },
+          brushStyle: { borderWidth: 1, color: 'rgba(249,115,22,0.15)', borderColor: '#f97316' },
           throttleType: 'debounce', throttleDelay: 100,
         },
 
@@ -1524,7 +1531,7 @@ function PedalDualChartPanel({
           toolbox: [],
           brushType: 'lineX',
           brushStyle: {
-            borderWidth: 2,
+            borderWidth: 1,
             color: 'rgba(249,115,22,0.15)',
             borderColor: '#f97316',
           },
@@ -1773,7 +1780,7 @@ function SpeedPaceChartPanel({
             toolbox: [],
             brushType: 'lineX',
             brushStyle: {
-              borderWidth: 2,
+              borderWidth: 1,
               color: 'rgba(249,115,22,0.15)',
               borderColor: '#f97316',
             },
@@ -1941,7 +1948,7 @@ function SpeedPaceChartPanel({
           toolbox: [],
           brushType: 'lineX',
           brushStyle: {
-            borderWidth: 2,
+            borderWidth: 1,
             color: 'rgba(249,115,22,0.15)',
             borderColor: '#f97316',
           },
@@ -2168,7 +2175,7 @@ function RunningDynamicsChartPanel({
           toolbox: [],
           brushType: 'lineX',
           brushStyle: {
-            borderWidth: 2,
+            borderWidth: 1,
             color: 'rgba(249,115,22,0.15)',
             borderColor: '#f97316',
           },
@@ -2387,7 +2394,7 @@ function ScatterChartPanel({
           toolbox: [],
           brushType: 'lineX',
           brushStyle: {
-            borderWidth: 2,
+            borderWidth: 1,
             color: 'rgba(249,115,22,0.15)',
             borderColor: '#f97316',
           },
@@ -2635,7 +2642,7 @@ function ChartPanel({
           toolbox: [],
           brushType: 'lineX',
           brushStyle: {
-            borderWidth: 2,
+            borderWidth: 1,
             color: 'rgba(249,115,22,0.15)',
             borderColor: '#f97316',
           },
@@ -2929,7 +2936,7 @@ function GearChartPanel({
           toolbox: [],
           brushType: 'lineX',
           brushStyle: {
-            borderWidth: 2,
+            borderWidth: 1,
             color: 'rgba(249,115,22,0.15)',
             borderColor: '#f97316',
           },
