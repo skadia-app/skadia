@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query'
-import { useECharts } from '@/hooks/useECharts'
 import { fetchDiveInfo } from '@/api/activities'
 import type { StreamPoint } from '@/api/types'
 
@@ -92,147 +91,8 @@ export function DiveDecoPanel({ activityId, streams }: DiveDecoPanelProps) {
   }
   const ndlMin = minNdlSec != null ? Math.round(minNdlSec / 60) : null
 
-  // ── Build deco chart data from streams ────────────────────────────────────────
-
-  const ndlData: number[] = []
-  const cnsData: number[] = []
-  const n2Data: number[] = []
-  const decoStopData: (number | null)[] = []
-  const xLabels: number[] = []
-
-  const t0 = streams.length > 0 ? new Date(streams[0].time).getTime() : 0
-  for (let i = 0; i < streams.length; i++) {
-    const s = streams[i]
-    const elapsedMin = (new Date(s.time).getTime() - t0) / 60000
-    xLabels.push(elapsedMin)
-    ndlData.push(s.ndl_time_s != null ? Math.round(s.ndl_time_s / 60) : NaN)
-    cnsData.push(s.cns_load_pct ?? NaN)
-    n2Data.push(s.n2_load_pct ?? NaN)
-    const stopDepth = (s.next_stop_depth_m ?? 0) > 0 ? s.next_stop_depth_m! : null
-    decoStopData.push(stopDepth)
-  }
-
-  const hasNdl = ndlData.some(v => !isNaN(v))
-  const hasCns = cnsData.some(v => !isNaN(v))
-  const hasN2 = n2Data.some(v => !isNaN(v))
-  const hasDecoStop = decoStopData.some(v => v != null && v > 0)
-
-  // ── Deco EChart via useECharts (same lifecycle as all other charts) ────────
-
-  // Clamp NDL to 60 min — values 800+ at surface depth make the chart unreadable
-  const ndlClamped = ndlData.map(v => isNaN(v) ? NaN : Math.min(v, 60))
-
-  const decoChartRef = useECharts(() => {
-    const series: Record<string, unknown>[] = []
-
-    if (hasNdl) {
-      series.push({
-        name: LABELS.ndlLine, type: 'line', data: ndlClamped,
-        symbol: 'none', lineStyle: { color: '#22c55e', width: 2 },
-        itemStyle: { color: '#22c55e' }, yAxisIndex: 0,
-      })
-    }
-    if (hasCns) {
-      series.push({
-        name: LABELS.cnsLine, type: 'line', data: cnsData,
-        symbol: 'none', lineStyle: { color: '#ef4444', width: 2 },
-        itemStyle: { color: '#ef4444' }, yAxisIndex: 1,
-      })
-    }
-    if (hasN2) {
-      series.push({
-        name: LABELS.n2Line, type: 'line', data: n2Data,
-        symbol: 'none', lineStyle: { color: '#3b82f6', width: 2 },
-        itemStyle: { color: '#3b82f6' }, yAxisIndex: 2,
-      })
-    }
-    if (hasDecoStop) {
-      series.push({
-        name: LABELS.decoStopLine, type: 'line',
-        data: decoStopData.map(v => v ?? NaN),
-        symbol: 'none', step: 'end',
-        lineStyle: { color: '#f97316', width: 2, type: 'dashed' },
-        itemStyle: { color: '#f97316' }, yAxisIndex: 3,
-      })
-    }
-
-    return {
-      backgroundColor: 'transparent',
-      grid: { top: 36, bottom: 40, left: 60, right: 140 },
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: '#1f2937',
-        borderColor: '#374151',
-        textStyle: { color: '#f9fafb', fontSize: 12 },
-        formatter: (params: unknown) => {
-          const items = params as Array<{ seriesName: string; value: number; color: string; marker: string }>
-          if (!items.length) return ''
-          const mins = xLabels[items[0].value != null ? (items as Array<{ dataIndex: number }>)[0].dataIndex : 0]
-          const h = Math.floor(mins / 60)
-          const m = Math.floor(mins % 60)
-          const timeStr = h > 0 ? `${h}h${m.toString().padStart(2, '0')}` : `${m} min`
-          const units: Record<string, string> = {
-            [LABELS.ndlLine]: ' min',
-            [LABELS.cnsLine]: ' %',
-            [LABELS.n2Line]: ' %',
-            [LABELS.decoStopLine]: ' m',
-          }
-          let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${timeStr}</div>`
-          for (const item of items) {
-            const v = typeof item.value === 'number' && !isNaN(item.value) ? item.value : null
-            if (v == null) continue
-            const u = units[item.seriesName] ?? ''
-            html += `<div>${item.marker} ${item.seriesName}<span style="float:right;margin-left:16px;font-weight:600">${Math.round(v)}${u}</span></div>`
-          }
-          return html
-        },
-      },
-      legend: {
-        top: 0,
-        textStyle: { color: '#9ca3af', fontSize: 11 },
-        itemWidth: 16, itemHeight: 10,
-      },
-      xAxis: {
-        type: 'category', data: xLabels, show: false, boundaryGap: false,
-      },
-      yAxis: [
-        // Y0: NDL (min) — left, clamped to 0-60
-        {
-          type: 'value', name: 'NDL (min)',
-          nameTextStyle: { fontSize: 10, color: '#22c55e' },
-          axisLabel: { fontSize: 10, color: '#9ca3af' },
-          splitLine: { lineStyle: { color: '#e5e5e5', type: 'dashed' } },
-          min: 0, max: 60,
-        },
-        // Y1: CNS% — right, 0-100
-        {
-          type: 'value', name: 'CNS%',
-          nameTextStyle: { fontSize: 10, color: '#ef4444' },
-          axisLabel: { fontSize: 10, color: '#9ca3af' },
-          splitLine: { show: false },
-          min: 0, max: 100, position: 'right',
-        },
-        // Y2: N₂-Loading% — right offset (can exceed 100% = tissue supersaturation)
-        {
-          type: 'value', name: 'N₂%',
-          nameTextStyle: { fontSize: 10, color: '#3b82f6' },
-          axisLabel: { fontSize: 10, color: '#9ca3af' },
-          splitLine: { show: false },
-          min: 0, position: 'right', offset: 45,
-        },
-        // Y3: Deko-Stop depth (m)
-        {
-          type: 'value', name: 'm (Stopp)',
-          nameTextStyle: { fontSize: 10, color: '#f97316' },
-          axisLabel: { fontSize: 10, color: '#f97316' },
-          splitLine: { show: false },
-          position: 'right', offset: 90,
-        },
-      ],
-      dataZoom: [{ type: 'inside', filterMode: 'none' }],
-      series,
-    }
-  }, [streams, hasNdl, hasCns, hasN2, hasDecoStop, ndlClamped, cnsData, n2Data, decoStopData, xLabels])
+  // Deco chart data is now rendered by DecoChartPanel in ActivityCharts.tsx
+  const hasAnyDecoStreams = streams.some(s => s.ndl_time_s != null || s.cns_load_pct != null)
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -243,8 +103,6 @@ export function DiveDecoPanel({ activityId, streams }: DiveDecoPanelProps) {
       </div>
     )
   }
-
-  const hasAnyDecoData = hasNdl || hasCns || hasN2
 
   return (
     <div className="space-y-4">
@@ -395,17 +253,7 @@ export function DiveDecoPanel({ activityId, streams }: DiveDecoPanelProps) {
         </div>
       )}
 
-      {/* D) Deco Charts */}
-      {hasAnyDecoData && (
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-4">
-          <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">
-            {LABELS.decoCharts}
-          </h3>
-          <div ref={decoChartRef} className="w-full h-52" />
-        </div>
-      )}
-
-      {!hasAnyDecoData && !diveInfo?.settings && (
+      {!hasAnyDecoStreams && !diveInfo?.settings && (
         <div className="text-sm text-neutral-500 dark:text-neutral-400 py-4 text-center">
           {LABELS.noData}
         </div>
