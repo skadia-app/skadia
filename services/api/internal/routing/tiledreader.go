@@ -283,6 +283,40 @@ func (r *TiledGraphReader) NearestNode(lat, lon float64) (uint64, float64, bool)
 	return MakeGlobalNodeID(bestTile, bestLocal), bestDist, true
 }
 
+func (r *TiledGraphReader) FindNearestEdge(lat, lon float64, filter func(tags1 uint64) bool) (graph.EdgeProjection, bool) {
+	primaryTileID := graph.TileIDFromCoord(lat, lon)
+	g := r.tile(primaryTileID)
+	if g == nil {
+		return graph.EdgeProjection{}, false
+	}
+
+	best, found := g.FindNearestEdgeLocal(lat, lon, filter)
+
+	// Cross-tile probe: if near tile border (< 500m ≈ 0.005°), also check neighbor tile
+	bbox := graph.TileBBox(primaryTileID)
+	const borderCheckDist = 0.005 // ~500m
+	nearBorder := (lat-bbox[0] < borderCheckDist || bbox[2]-lat < borderCheckDist ||
+		lon-bbox[1] < borderCheckDist || bbox[3]-lon < borderCheckDist)
+
+	if nearBorder {
+		nids, ncount := graph.NeighborTileIDs(primaryTileID)
+		for i := range ncount {
+			neighborTileID := nids[i]
+			gNeighbor := r.tile(neighborTileID)
+			if gNeighbor == nil {
+				continue
+			}
+			candidate, candidateFound := gNeighbor.FindNearestEdgeLocal(lat, lon, filter)
+			if candidateFound && (!found || candidate.DistanceM < best.DistanceM) {
+				best = candidate
+				found = true
+			}
+		}
+	}
+
+	return best, found
+}
+
 func (r *TiledGraphReader) EdgeElevProfile(handle uint64) ([]int32, []uint16) {
 	tileID, edgeIdx := SplitGlobalNodeID(handle)
 	g := r.tile(tileID)

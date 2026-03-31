@@ -35,7 +35,10 @@ func (r *segMockReader) LandmarkDistsPageInto(_ LandmarkSetID, _ uint32, _, _ ui
 }
 func (r *segMockReader) LandmarkMeta() *graph.LandmarkMetaData { return nil }
 func (r *segMockReader) GraphAt(_, _ float64) *graph.Graph     { return nil }
-func (r *segMockReader) HasTilesFor(_, _, _, _ float64) bool   { return false }
+func (r *segMockReader) HasTilesFor(_, _, _, _ float64) bool { return false }
+func (r *segMockReader) FindNearestEdge(_, _ float64, _ func(uint64) bool) (graph.EdgeProjection, bool) {
+	return graph.EdgeProjection{}, false
+}
 
 func TestFindValleySegmentsTwoValleys(t *testing.T) {
 	// Profile: pass → valley → pass → valley → pass (starts and ends high).
