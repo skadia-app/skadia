@@ -774,6 +774,11 @@ type AutomationRule struct {
 	CreatedAt       time.Time       `json:"created_at"`
 	IsSystem        bool            `json:"is_system"`
 	SystemType      *string         `json:"system_type"`
+	TriggerEvent    string          `json:"trigger_event"          db:"trigger_event"`
+	StopOnMatch     bool            `json:"stop_on_match"          db:"stop_on_match"`
+	ApplyRetroactive bool           `json:"apply_retroactively"    db:"apply_retroactively"`
+	LastEvaluatedAt *time.Time      `json:"last_evaluated_at,omitempty" db:"last_evaluated_at"`
+	LastMatchedCount int            `json:"last_matched_count"     db:"last_matched_count"`
 }
 
 // AutomationRuleCreate is the request body for creating an automation rule.
@@ -784,17 +789,22 @@ type AutomationRuleCreate struct {
 	ConditionsLogic string          `json:"conditions_logic"`
 	ConditionGroups json.RawMessage `json:"condition_groups"`
 	Actions         json.RawMessage `json:"actions"`
+	TriggerEvent    string          `json:"trigger_event"`
+	StopOnMatch     bool            `json:"stop_on_match"`
 }
 
 // AutomationRuleUpdate is the request body for updating an automation rule.
 type AutomationRuleUpdate struct {
-	Name            *string          `json:"name,omitempty"`
-	IsActive        *bool            `json:"is_active,omitempty"`
-	Priority        *int             `json:"priority,omitempty"`
-	Conditions      *json.RawMessage `json:"conditions,omitempty"`
-	ConditionsLogic *string          `json:"conditions_logic,omitempty"`
-	ConditionGroups *json.RawMessage `json:"condition_groups,omitempty"`
-	Actions         *json.RawMessage `json:"actions,omitempty"`
+	Name             *string          `json:"name,omitempty"`
+	IsActive         *bool            `json:"is_active,omitempty"`
+	Priority         *int             `json:"priority,omitempty"`
+	Conditions       *json.RawMessage `json:"conditions,omitempty"`
+	ConditionsLogic  *string          `json:"conditions_logic,omitempty"`
+	ConditionGroups  *json.RawMessage `json:"condition_groups,omitempty"`
+	Actions          *json.RawMessage `json:"actions,omitempty"`
+	TriggerEvent     *string          `json:"trigger_event,omitempty"`
+	StopOnMatch      *bool            `json:"stop_on_match,omitempty"`
+	ApplyRetroactive *bool            `json:"apply_retroactively,omitempty"`
 }
 
 // BikeSetup represents a saved bike configuration/setup.
