@@ -31,6 +31,16 @@ func (h *Handler) GetRecordingGroups(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Trigger clique integration if fusion cache is stale.
+	// This ensures recording_groups is populated even when the client never
+	// called the old /fusion-queue endpoint.
+	stale, _, err := h.DB.IsFusionCacheStale(r.Context(), userID)
+	if err != nil {
+		slog.Warn("get recording groups: cache staleness check failed", "error", err)
+	} else if stale {
+		h.MaybeTriggerFusionQueueCompute(r.Context(), userID)
+	}
+
 	groups, err := h.DB.GetRecordingGroupsForUser(r.Context(), userID, limit, offset)
 	if err != nil {
 		slog.Error("get recording groups", "error", err)
