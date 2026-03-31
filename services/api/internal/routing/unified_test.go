@@ -126,7 +126,7 @@ func TestFindRouteUnified_MultiEdgePath(t *testing.T) {
 	dst := MakeGlobalNodeID(0, 4)
 
 	// Pass0
-	pass0, err := findRouteUnified(context.Background(), reader, src, dst, cfg, cfg.Pass0Coefficient, 0, nil, nil, nil)
+	pass0, err := findRouteUnified(context.Background(), reader, nil, nil, src, dst, cfg, cfg.Pass0Coefficient, 0, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("pass0 failed: %v", err)
 	}
@@ -134,13 +134,13 @@ func TestFindRouteUnified_MultiEdgePath(t *testing.T) {
 		t.Errorf("pass0 totalCost should be > 0, got %f", pass0.totalCost)
 	}
 
-	trackIndex := buildTrackIndexUnified(pass0.state, src, dst)
+	trackIndex := buildTrackIndexUnified(pass0.state, dst, 0)
 	if trackIndex == nil {
 		t.Fatal("trackIndex should not be nil")
 	}
 
 	// Pass1
-	pass1, err := findRouteUnified(context.Background(), reader, src, dst, cfg, 0, pass0.totalCost*cfg.Pass0Coefficient*cfg.Pass0Coefficient, trackIndex, nil, nil)
+	pass1, err := findRouteUnified(context.Background(), reader, nil, nil, src, dst, cfg, 0, pass0.totalCost*cfg.Pass0Coefficient*cfg.Pass0Coefficient, trackIndex, nil, nil)
 	if err != nil {
 		t.Fatalf("pass1 failed: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestFindRouteUnified_MultiEdgePath(t *testing.T) {
 	}
 
 	// Retrack and check distance: 4 edges × 100m = 400m (haversine may differ slightly)
-	result := retrackUnified(reader, pass1.state, src, dst)
+	result := retrackUnified(reader, pass1.state, src, pass1.bestDstNode)
 	if result == nil {
 		t.Fatal("retrack returned nil")
 	}
@@ -215,7 +215,7 @@ func TestFindRouteUnified_NoRoute(t *testing.T) {
 	dst := MakeGlobalNodeID(0, 1)
 	cfg := DefaultCostConfig()
 
-	_, err := findRouteUnified(context.Background(), reader, src, dst, cfg, cfg.Pass0Coefficient, 0, nil, nil, nil)
+	_, err := findRouteUnified(context.Background(), reader, nil, nil, src, dst, cfg, cfg.Pass0Coefficient, 0, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for disconnected nodes, got nil")
 	}
@@ -235,18 +235,18 @@ func TestRetrackUnified_CoordinateCount(t *testing.T) {
 	src := MakeGlobalNodeID(0, 0)
 	dst := MakeGlobalNodeID(0, 3)
 
-	pass0, err := findRouteUnified(context.Background(), reader, src, dst, cfg, cfg.Pass0Coefficient, 0, nil, nil, nil)
+	pass0, err := findRouteUnified(context.Background(), reader, nil, nil, src, dst, cfg, cfg.Pass0Coefficient, 0, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("pass0 failed: %v", err)
 	}
-	trackIndex := buildTrackIndexUnified(pass0.state, src, dst)
+	trackIndex := buildTrackIndexUnified(pass0.state, dst, 0)
 
-	pass1, err := findRouteUnified(context.Background(), reader, src, dst, cfg, 0, pass0.totalCost*cfg.Pass0Coefficient*cfg.Pass0Coefficient, trackIndex, nil, nil)
+	pass1, err := findRouteUnified(context.Background(), reader, nil, nil, src, dst, cfg, 0, pass0.totalCost*cfg.Pass0Coefficient*cfg.Pass0Coefficient, trackIndex, nil, nil)
 	if err != nil {
 		t.Fatalf("pass1 failed: %v", err)
 	}
 
-	result := retrackUnified(reader, pass1.state, src, dst)
+	result := retrackUnified(reader, pass1.state, src, pass1.bestDstNode)
 	if result == nil {
 		t.Fatal("retrack returned nil")
 	}
@@ -317,18 +317,18 @@ func TestRetrackUnified_AscentDescent(t *testing.T) {
 	src := MakeGlobalNodeID(0, 0)
 	dst := MakeGlobalNodeID(0, 2)
 
-	pass0, err := findRouteUnified(context.Background(), reader, src, dst, cfg, cfg.Pass0Coefficient, 0, nil, nil, nil)
+	pass0, err := findRouteUnified(context.Background(), reader, nil, nil, src, dst, cfg, cfg.Pass0Coefficient, 0, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("pass0 failed: %v", err)
 	}
-	trackIndex := buildTrackIndexUnified(pass0.state, src, dst)
+	trackIndex := buildTrackIndexUnified(pass0.state, dst, 0)
 
-	pass1, err := findRouteUnified(context.Background(), reader, src, dst, cfg, 0, pass0.totalCost*cfg.Pass0Coefficient*cfg.Pass0Coefficient, trackIndex, nil, nil)
+	pass1, err := findRouteUnified(context.Background(), reader, nil, nil, src, dst, cfg, 0, pass0.totalCost*cfg.Pass0Coefficient*cfg.Pass0Coefficient, trackIndex, nil, nil)
 	if err != nil {
 		t.Fatalf("pass1 failed: %v", err)
 	}
 
-	result := retrackUnified(reader, pass1.state, src, dst)
+	result := retrackUnified(reader, pass1.state, src, pass1.bestDstNode)
 	if result == nil {
 		t.Fatal("retrack returned nil")
 	}
@@ -353,12 +353,12 @@ func TestBuildTrackIndex_RemainingCosts(t *testing.T) {
 	src := MakeGlobalNodeID(0, 0)
 	dst := MakeGlobalNodeID(0, 3)
 
-	pass0, err := findRouteUnified(context.Background(), reader, src, dst, cfg, cfg.Pass0Coefficient, 0, nil, nil, nil)
+	pass0, err := findRouteUnified(context.Background(), reader, nil, nil, src, dst, cfg, cfg.Pass0Coefficient, 0, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("pass0 failed: %v", err)
 	}
 
-	trackIndex := buildTrackIndexUnified(pass0.state, src, dst)
+	trackIndex := buildTrackIndexUnified(pass0.state, dst, 0)
 	if trackIndex == nil {
 		t.Fatal("trackIndex must not be nil")
 	}
@@ -399,7 +399,7 @@ func TestExpandedFlag_PreventsCycle(t *testing.T) {
 	cfg, _ := BuildCostConfig(ProfileConfig{Profile: "gravel"})
 
 	res, err := findRouteUnified(context.Background(), reader,
-		MakeGlobalNodeID(0, 0), MakeGlobalNodeID(0, 9),
+		nil, nil, MakeGlobalNodeID(0, 0), MakeGlobalNodeID(0, 9),
 		cfg, 0, 0, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("findRouteUnified failed: %v", err)
@@ -412,7 +412,7 @@ func TestExpandedFlag_PreventsCycle(t *testing.T) {
 	}
 
 	result := retrackUnified(reader, res.state,
-		MakeGlobalNodeID(0, 0), MakeGlobalNodeID(0, 9))
+		MakeGlobalNodeID(0, 0), res.bestDstNode)
 	if result == nil {
 		t.Fatal("retrackUnified returned nil — broken parent chain")
 	}
@@ -431,7 +431,7 @@ func TestFindRouteUnified_BasicRoute(t *testing.T) {
 	cfg := DefaultCostConfig()
 
 	// Pass0
-	pass0, err := findRouteUnified(context.Background(), reader, src, dst, cfg, cfg.Pass0Coefficient, 0, nil, nil, nil)
+	pass0, err := findRouteUnified(context.Background(), reader, nil, nil, src, dst, cfg, cfg.Pass0Coefficient, 0, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("pass0 failed: %v", err)
 	}
@@ -439,19 +439,19 @@ func TestFindRouteUnified_BasicRoute(t *testing.T) {
 		t.Error("pass0 cost should be > 0")
 	}
 
-	trackIndex := buildTrackIndexUnified(pass0.state, src, dst)
+	trackIndex := buildTrackIndexUnified(pass0.state, dst, 0)
 	if trackIndex == nil {
 		t.Fatal("trackIndex should not be nil")
 	}
 
 	// Pass1
-	pass1, err := findRouteUnified(context.Background(), reader, src, dst, cfg, 0, pass0.totalCost*cfg.Pass0Coefficient*cfg.Pass0Coefficient, trackIndex, nil, nil)
+	pass1, err := findRouteUnified(context.Background(), reader, nil, nil, src, dst, cfg, 0, pass0.totalCost*cfg.Pass0Coefficient*cfg.Pass0Coefficient, trackIndex, nil, nil)
 	if err != nil {
 		t.Fatalf("pass1 failed: %v", err)
 	}
 
 	// Retrack
-	result := retrackUnified(reader, pass1.state, src, dst)
+	result := retrackUnified(reader, pass1.state, src, pass1.bestDstNode)
 	if result == nil {
 		t.Fatal("retrack returned nil")
 	}

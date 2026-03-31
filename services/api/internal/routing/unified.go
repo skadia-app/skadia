@@ -7,6 +7,7 @@ package routing
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"time"
 
@@ -35,7 +36,9 @@ type nodeState struct {
 // C19: map[uint64]nodeState (value-type, not pointer) — eliminates per-entry
 // heap allocation and GC pressure.
 type SparseRouterState struct {
-	nodes map[uint64]nodeState
+	nodes    map[uint64]nodeState
+	srcSeedA uint64 // source seed node A (for retrack termination)
+	srcSeedB uint64 // source seed node B (same as A for legacy)
 }
 
 func newSparseRouterState(hint int) *SparseRouterState {
@@ -44,10 +47,11 @@ func newSparseRouterState(hint int) *SparseRouterState {
 
 // routeResult is the internal result of a single findRouteUnified call.
 type routeResult struct {
-	state      *SparseRouterState
-	totalCost  float32
-	expansions int
-	durationMs int64
+	state       *SparseRouterState
+	totalCost   float32
+	expansions  int
+	durationMs  int64
+	bestDstNode uint64 // which destination node was reached (for VE retrack)
 }
 
 const (
@@ -64,7 +68,9 @@ const (
 //
 // Returns routeResult with state, totalCost, expansions, and duration.
 func findRouteUnified(ctx context.Context, reader GraphReader,
-	src, dst uint64, cfg *CostConfig,
+	srcVE *VirtualEndpoint, dstVE *VirtualEndpoint,
+	srcNode, dstNode uint64, // used only when corresponding VE is nil
+	cfg *CostConfig,
 	passCoeff float32, maxCost float32,
 	trackIndex map[uint64]float32,
 	landmarkH *LandmarkHeuristic, // nil = nur euklidische Heuristik
@@ -73,18 +79,51 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 
 	start := time.Now()
 
+	var srcLat, srcLon int32
+	var dstLat, dstLon, dstEle int32
+
+	// Determine effective destination nodes
+	var effectiveDstA, effectiveDstB uint64
+	if dstVE != nil {
+		effectiveDstA = dstVE.GlobalA
+		effectiveDstB = dstVE.GlobalB
+		dstLat = int32(dstVE.OrigLat * 1e7)
+		dstLon = int32(dstVE.OrigLon * 1e7)
+		_, _, dstEle = reader.NodeCoord(effectiveDstA)
+	} else {
+		effectiveDstA = dstNode
+		effectiveDstB = dstNode
+		dstLat, dstLon, dstEle = reader.NodeCoord(dstNode)
+	}
+
+	if srcVE != nil {
+		srcLat = int32(srcVE.OrigLat * 1e7)
+		srcLon = int32(srcVE.OrigLon * 1e7)
+	} else {
+		srcLat, srcLon, _ = reader.NodeCoord(srcNode)
+	}
+
 	// Pre-size based on euclidean distance: ~30,000 nodes per km of air distance.
 	// Eliminates ~10 rehash cycles for long routes (e.g. 2.6M expansions with 8192 hint).
-	srcLat, srcLon, _ := reader.NodeCoord(src)
-	dstLat, dstLon, dstEle := reader.NodeCoord(dst)
 	euclidKm := equirectDistKm(srcLat, srcLon, dstLat, dstLon)
 	stateHint := max(8192, int(euclidKm*30_000))
 	state := newSparseRouterState(stateHint)
 	frontier := Frontier{entries: make([]FrontierEntry, 0, 8192)} // K17: capacity hint
 
-	// Seed source node
-	state.nodes[src] = nodeState{BestCost: 0, EffectiveCost: 0, FrontierCost: 0}
-	frontier.Push(FrontierEntry{NodeID: src, Cost: 0})
+	// Seed source
+	if srcVE != nil {
+		state.nodes[srcVE.GlobalA] = srcVE.StateA
+		frontier.Push(FrontierEntry{NodeID: srcVE.GlobalA, Cost: srcVE.StateA.EffectiveCost})
+		state.nodes[srcVE.GlobalB] = srcVE.StateB
+		frontier.Push(FrontierEntry{NodeID: srcVE.GlobalB, Cost: srcVE.StateB.EffectiveCost})
+		state.srcSeedA = srcVE.GlobalA
+		state.srcSeedB = srcVE.GlobalB
+	} else {
+		state.nodes[srcNode] = nodeState{BestCost: 0, EffectiveCost: 0, FrontierCost: 0}
+		frontier.Push(FrontierEntry{NodeID: srcNode, Cost: 0})
+		state.srcSeedA = srcNode
+		state.srcSeedB = srcNode
+	}
 
 	// h_elev pre-computation: min(UphillCost, DownhillCost) for elevation heuristic.
 	// For 3 of 5 profiles this is 0 (no elevation heuristic, no overhead).
@@ -92,6 +131,8 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 	// (e.g. Gravel minElevCost=40 would make h_elev dominate and slow Pass0).
 	minElevCost := min(cfg.UphillCost, cfg.DownhillCost, 10)
 
+	var bestDstCost float32 = math.MaxFloat32
+	var bestDstNode uint64
 	expansions := 0
 
 	for frontier.Len() > 0 {
@@ -125,16 +166,58 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 		ns.Expanded = true
 		state.nodes[entry.NodeID] = ns
 
-		// Reached destination — return result.
-		// totalCost = EffectiveCost (includes elevationCorrection) because
-		// pass1 uses it as maxCost bound against EffectiveCost comparisons.
-		if entry.NodeID == dst {
-			return &routeResult{
-				state:      state,
-				totalCost:  ns.EffectiveCost,
-				expansions: expansions,
-				durationMs: time.Since(start).Milliseconds(),
-			}, nil
+		// Dual destination termination
+		if dstVE != nil {
+			if entry.NodeID == effectiveDstA || entry.NodeID == effectiveDstB {
+				totalCost := ns.EffectiveCost
+				if entry.NodeID == effectiveDstA {
+					totalCost += dstVE.CostA
+				} else {
+					totalCost += dstVE.CostB
+				}
+				if totalCost < bestDstCost {
+					bestDstCost = totalCost
+					bestDstNode = entry.NodeID
+				}
+			}
+
+			if passCoeff > 0 {
+				dstAExpanded := false
+				dstBExpanded := false
+				if nsA, ok := state.nodes[effectiveDstA]; ok {
+					dstAExpanded = nsA.Expanded
+				}
+				if nsB, ok := state.nodes[effectiveDstB]; ok {
+					dstBExpanded = nsB.Expanded
+				}
+				if effectiveDstA == effectiveDstB {
+					dstBExpanded = dstAExpanded
+				}
+				if dstAExpanded && dstBExpanded && bestDstCost < math.MaxFloat32 {
+					return &routeResult{
+						state: state, totalCost: bestDstCost,
+						expansions: expansions, durationMs: time.Since(start).Milliseconds(),
+						bestDstNode: bestDstNode,
+					}, nil
+				}
+			}
+
+			if passCoeff == 0 && bestDstCost < math.MaxFloat32 && frontier.PeekCost() > bestDstCost {
+				return &routeResult{
+					state: state, totalCost: bestDstCost,
+					expansions: expansions, durationMs: time.Since(start).Milliseconds(),
+					bestDstNode: bestDstNode,
+				}, nil
+			}
+		} else {
+			// Legacy single destination
+			if entry.NodeID == effectiveDstA {
+				return &routeResult{
+					state: state, totalCost: ns.EffectiveCost,
+					expansions: expansions, durationMs: time.Since(start).Milliseconds(),
+					bestDstNode: effectiveDstA,
+				}, nil
+			}
 		}
 
 		// Cost-cutting via trackIndex (pass1 only).
@@ -297,16 +380,24 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 		})
 	}
 
-	return nil, fmt.Errorf("no route found (expanded %d nodes)", expansions)
+	return nil, ErrNoRoute
 }
 
 // buildTrackIndexUnified creates a mapping from pass0 path nodes to remaining cost.
 // remainingCost = totalCost - costAtNode (clamped to >= 0).
 // Used by pass1 for dynamic bound-tightening (C02).
-func buildTrackIndexUnified(state *SparseRouterState, src, dst uint64) map[uint64]float32 {
-	// Walk parent chain from dst -> src
+func buildTrackIndexUnified(state *SparseRouterState, dst uint64, stopAt uint64) map[uint64]float32 {
+	// Walk parent chain from dst -> source seed (or stopAt)
 	path := []uint64{dst}
-	for path[len(path)-1] != src {
+
+	isTerminal := func(nodeID uint64) bool {
+		if stopAt != 0 {
+			return nodeID == stopAt
+		}
+		return nodeID == state.srcSeedA || nodeID == state.srcSeedB
+	}
+
+	for !isTerminal(path[len(path)-1]) {
 		ns, ok := state.nodes[path[len(path)-1]]
 		if !ok {
 			return nil // broken chain

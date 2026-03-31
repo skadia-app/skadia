@@ -196,7 +196,7 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 	}
 
 	// Pass 0: inadmissible A* (passCoeff > 1), MIT Landmark-Heuristik
-	res0, err := findRouteUnified(ctx, r.reader, src, dst, cfg,
+	res0, err := findRouteUnified(ctx, r.reader, nil, nil, src, dst, cfg,
 		cfg.Pass0Coefficient, 0, nil, landmarkH, bwd)
 	if err != nil {
 		return nil, fmt.Errorf("pass0: %w", err)
@@ -211,7 +211,7 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 	var pass1Ms int64
 
 	if routingValleSeg {
-		pass0Path := extractPath(res0.state, src, dst)
+		pass0Path := extractPath(res0.state, res0.bestDstNode)
 		segments := FindValleySegments(pass0Path, r.reader, 1000.0)
 
 		if len(segments) >= 2 {
@@ -221,9 +221,9 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 			allOK := true
 
 			for _, seg := range segments {
-				segTrackIdx := buildTrackIndexUnified(res0.state, seg.From, seg.To)
+				segTrackIdx := buildTrackIndexUnified(res0.state, seg.To, seg.From)
 				segMax := segmentMaxCost(res0.state, seg.From, seg.To, cfg)
-				segRes, segErr := findRouteUnified(ctx, r.reader, seg.From, seg.To, cfg,
+				segRes, segErr := findRouteUnified(ctx, r.reader, nil, nil, seg.From, seg.To, cfg,
 					0, segMax, segTrackIdx, nil, nil)
 				if segErr != nil {
 					slog.Warn("segment failed, falling back",
@@ -232,7 +232,7 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 					break
 				}
 
-				legResult := retrackUnified(r.reader, segRes.state, seg.From, seg.To)
+				legResult := retrackUnified(r.reader, segRes.state, seg.From, segRes.bestDstNode)
 				if legResult == nil {
 					slog.Warn("segment retrack failed, falling back",
 						"from_idx", seg.FromIdx, "to_idx", seg.ToIdx)
@@ -257,9 +257,9 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 
 	// Unsegmented Pass1 (default or fallback)
 	if result == nil {
-		trackIndex := buildTrackIndexUnified(res0.state, src, dst)
+		trackIndex := buildTrackIndexUnified(res0.state, res0.bestDstNode, 0)
 		pass1MaxCost := res0.totalCost * cfg.Pass0Coefficient * cfg.Pass0Coefficient
-		res1, err := findRouteUnified(ctx, r.reader, src, dst, cfg,
+		res1, err := findRouteUnified(ctx, r.reader, nil, nil, src, dst, cfg,
 			0, pass1MaxCost, trackIndex, nil, nil)
 		if err != nil {
 			return nil, fmt.Errorf("pass1: %w", err)
@@ -267,7 +267,7 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 		pass1Exp = res1.expansions
 		pass1Ms = res1.durationMs
 
-		result = retrackUnified(r.reader, res1.state, src, dst)
+		result = retrackUnified(r.reader, res1.state, src, res1.bestDstNode)
 		if result == nil {
 			return nil, fmt.Errorf("retrack failed: broken parent chain")
 		}
@@ -428,10 +428,11 @@ func (r *UnifiedRouter) FindReachableWithCoords(ctx context.Context,
 }
 
 // extractPath reconstructs the node path from state by following parent pointers.
-func extractPath(state *SparseRouterState, src, dst uint64) []uint64 {
+// Terminates at the source seed node(s) stored in state.
+func extractPath(state *SparseRouterState, dst uint64) []uint64 {
 	var path []uint64
 	node := dst
-	for node != src {
+	for node != state.srcSeedA && node != state.srcSeedB {
 		path = append(path, node)
 		ns, ok := state.nodes[node]
 		if !ok {
@@ -442,7 +443,7 @@ func extractPath(state *SparseRouterState, src, dst uint64) []uint64 {
 			return nil
 		}
 	}
-	path = append(path, src)
+	path = append(path, node)
 	slices.Reverse(path)
 	return path
 }
