@@ -96,14 +96,6 @@ const TIME_OF_DAY_OPTIONS = [
   { value: 'nachmittag', label: 'Nachmittag' },
   { value: 'abend', label: 'Abend' },
 ]
-const WEATHER_CONDITION_OPTIONS = [
-  { value: 'clear', label: 'Sonnig' },
-  { value: 'cloudy', label: 'Bewölkt' },
-  { value: 'rain', label: 'Regen' },
-  { value: 'snow', label: 'Schnee' },
-  { value: 'fog', label: 'Nebel' },
-  { value: 'storm', label: 'Gewitter' },
-]
 
 const CONDITION_CATEGORIES: ConditionCategory[] = [
   { key: 'title', label: 'Titel', fields: [{ field: 'title', label: 'Titel', inputType: 'text' }] },
@@ -175,10 +167,10 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
     { field: 'weather_temp_c', label: 'Wetter-Temperatur', inputType: 'number', unit: '°C' },
     { field: 'weather_temp_min_c', label: 'Min. Wetter-Temp.', inputType: 'number', unit: '°C' },
     { field: 'weather_temp_max_c', label: 'Max. Wetter-Temp.', inputType: 'number', unit: '°C' },
-    { field: 'weather_condition', label: 'Wetterlage', inputType: 'enum', options: WEATHER_CONDITION_OPTIONS },
+    { field: 'weather_condition', label: 'Wetterlage', inputType: 'text' },
     { field: 'weather_humidity', label: 'Luftfeuchtigkeit', inputType: 'number', unit: '%' },
     { field: 'weather_wind_speed_ms', label: 'Windgeschwindigkeit', inputType: 'number', unit: 'm/s' },
-    { field: 'weather_wind_speed_max_ms', label: 'Max. Windgeschwindigkeit', inputType: 'number', unit: 'm/s' },
+    { field: 'weather_wind_gusts_ms', label: 'Windböen', inputType: 'number', unit: 'm/s' },
   ]},
   { key: 'location', label: 'Ort', fields: [
     { field: 'start_city', label: 'Startort', inputType: 'text' },

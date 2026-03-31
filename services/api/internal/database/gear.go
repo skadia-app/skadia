@@ -1125,11 +1125,29 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 			a.lift_count, a.lift_ascent_m, a.lift_descent_m, a.lift_distance_m, a.lift_duration_s,
 			a.net_ascent_m, a.net_descent_m, a.net_distance_m,
 			COALESCE(cd.climb_count, 0) AS climb_count,
-			cd.max_category AS climb_category_max
+			cd.max_category AS climb_category_max,
+			w.temp_c AS weather_temp_c,
+			w.humidity AS weather_humidity,
+			w.wind_speed_ms AS weather_wind_speed_ms,
+			w.wind_gusts_ms AS weather_wind_gusts_ms,
+			w.condition AS weather_condition,
+			wm.temp_min AS weather_temp_min_c,
+			wm.temp_max AS weather_temp_max_c
 		FROM activities a
 		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS cnt FROM activity_photos GROUP BY activity_id) pc ON pc.activity_id = a.id
 		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS cnt FROM activity_detected_laps GROUP BY activity_id) lc ON lc.activity_id = a.id
 		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS climb_count, MIN(category)::int AS max_category FROM activity_climbs GROUP BY activity_id) cd ON cd.activity_id = a.id
+		LEFT JOIN LATERAL (
+			SELECT temp_c, humidity, wind_speed_ms, wind_gusts_ms, condition
+			FROM activity_weather
+			WHERE activity_id = a.id
+			ORDER BY CASE reading_type WHEN 'single' THEN 0 WHEN 'start' THEN 1 ELSE 2 END
+			LIMIT 1
+		) w ON true
+		LEFT JOIN LATERAL (
+			SELECT MIN(temp_c) AS temp_min, MAX(temp_c) AS temp_max
+			FROM activity_weather WHERE activity_id = a.id
+		) wm ON true
 		WHERE a.id = $1`,
 		activityID,
 	)
@@ -1161,6 +1179,10 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		netAscentM, netDescentM, netDistM                         *float64
 		climbCount                                                int
 		climbCategoryMax                                          *int
+		weatherTempC, weatherHumidity                            *float64
+		weatherWindSpeedMS, weatherWindGustsMS                   *float64
+		weatherCondition                                         *string
+		weatherTempMinC, weatherTempMaxC                         *float64
 	)
 
 	err := row.Scan(
@@ -1183,6 +1205,8 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		&liftCount, &liftAscentM, &liftDescentM, &liftDistM, &liftDurationS,
 		&netAscentM, &netDescentM, &netDistM,
 		&climbCount, &climbCategoryMax,
+		&weatherTempC, &weatherHumidity, &weatherWindSpeedMS, &weatherWindGustsMS,
+		&weatherCondition, &weatherTempMinC, &weatherTempMaxC,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -1275,6 +1299,13 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	setNN("net_descent_m", derefF(netDescentM))
 	setNN("net_distance_m", derefF(netDistM))
 	setNN("climb_category_max", derefInt(climbCategoryMax))
+	setNN("weather_temp_c", derefF(weatherTempC))
+	setNN("weather_temp_min_c", derefF(weatherTempMinC))
+	setNN("weather_temp_max_c", derefF(weatherTempMaxC))
+	setNN("weather_humidity", derefF(weatherHumidity))
+	setNN("weather_wind_speed_ms", derefF(weatherWindSpeedMS))
+	setNN("weather_wind_gusts_ms", derefF(weatherWindGustsMS))
+	setNN("weather_condition", derefStr(weatherCondition))
 	if len(timeOfDay) > 0 {
 		m["time_of_day"] = timeOfDay
 	}
