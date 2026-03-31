@@ -390,10 +390,35 @@ export default function RoutePlannerPanel({
 
             {/* Profile editor (BadRouter) or BRouter profile selector */}
             {routingEngine === 'badrouter' ? (
-              <ProfileEditor
-                config={profileConfig}
-                onChange={onProfileChange}
-              />
+              <>
+                <ProfileEditor
+                  config={profileConfig}
+                  onChange={onProfileChange}
+                />
+                {/* Offroad snap threshold (BadRouter only) */}
+                <div className="px-3 py-2 border-t border-neutral-100 dark:border-neutral-800">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-neutral-700 dark:text-neutral-300">Offroad-Schwelle</span>
+                      <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400 tabular-nums">
+                        {profileConfig.snap_threshold_m ?? 100} m
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={10}
+                      max={500}
+                      step={10}
+                      value={profileConfig.snap_threshold_m ?? 100}
+                      onChange={e => onProfileChange({ ...profileConfig, snap_threshold_m: parseInt(e.target.value, 10) })}
+                      className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-[var(--color-accent-DEFAULT,#F97316)] bg-neutral-200 dark:bg-neutral-700"
+                    />
+                    <p className="text-[10px] text-neutral-400 dark:text-neutral-500 leading-snug">
+                      Maximale Distanz zum nächsten Weg beim Snap
+                    </p>
+                  </div>
+                </div>
+              </>
             ) : (
               <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800">
                 <label className="block text-[10px] text-neutral-400 dark:text-neutral-500 uppercase tracking-wide mb-1">
