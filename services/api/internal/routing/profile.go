@@ -48,6 +48,9 @@ type ProfileConfig struct {
 	// A*
 	Pass0Coefficient *float32 `json:"pass0_coefficient,omitempty"`
 
+	// Snap
+	SnapThresholdM *float32 `json:"snap_threshold_m,omitempty"` // 10-500, default 100
+
 	// Highway cost overrides (nil = profile default)
 	PathCost         *float32 `json:"path_cost,omitempty"`
 	TrackCost        *float32 `json:"track_cost,omitempty"`
@@ -206,6 +209,13 @@ func BuildCostConfig(p ProfileConfig) (*CostConfig, error) {
 	cfg.MaxLatentCost = cfg.ElevMaxBuffer * max(cfg.UphillCost, cfg.DownhillCost)
 	cfg.EdgeCost = buildEdgeCostClosure(merged)
 	setAvgCostPerKm(cfg, p.Profile)
+
+	if merged.SnapThresholdM != nil {
+		cfg.SnapThresholdM = *merged.SnapThresholdM
+	} else {
+		cfg.SnapThresholdM = 100 // default
+	}
+
 	return cfg, nil
 }
 
@@ -245,6 +255,7 @@ func mergeProfile(base, override ProfileConfig) ProfileConfig {
 	mergePtr(&m.TurnCost, override.TurnCost)
 	mergePtr(&m.InitialCostRoad, override.InitialCostRoad)
 	mergePtr(&m.Pass0Coefficient, override.Pass0Coefficient)
+	mergePtr(&m.SnapThresholdM, override.SnapThresholdM)
 	mergePtr(&m.PathCost, override.PathCost)
 	mergePtr(&m.TrackCost, override.TrackCost)
 	mergePtr(&m.TrackGrade1Cost, override.TrackGrade1Cost)
