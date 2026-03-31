@@ -58,7 +58,6 @@ import TrackMap from '@/components/activity/TrackMap'
 import TagsBadges from '@/components/activity/TagsBadges'
 import ZoneDistributionChart from '@/components/activity/ZoneDistributionChart'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
-import { PowerPhaseDial } from '@/components/activity/PowerPhaseDial'
 import { HealthContextCards } from '@/components/activity/HealthContextCards'
 import { useToast } from '@/lib/toast'
 
@@ -585,11 +584,6 @@ export default function ActivityDetailPage() {
             </div>
           )}
         </div>
-      )}
-
-      {/* Kraftphasen-Diagramm */}
-      {activity.avg_left_power_phase_start_deg != null && (
-        <PowerPhaseDial activity={activity} />
       )}
 
       {/* Weather */}
