@@ -14,6 +14,9 @@ export interface FusionCandidate {
   has_altitude: boolean
   overlap_pct: number
   timezone?: string | null
+  source_device?: string | null
+  source?: string | null
+  original_file_format?: string | null
 }
 
 export interface GPSFusionConfig {

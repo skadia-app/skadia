@@ -119,6 +119,12 @@ export interface FusionQueueEntry {
   field_richness_a: number
   field_richness_b: number
   time_diff_sec: number
+  source_device_a: string
+  source_a: string
+  original_file_format_a: string
+  source_device_b: string
+  source_b: string
+  original_file_format_b: string
 }
 
 export interface FusionQueueResponse {

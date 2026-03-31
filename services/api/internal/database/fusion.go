@@ -137,26 +137,32 @@ func (db *DB) FindFusionCandidates(ctx context.Context, userID string, activityI
 // FusionCandidateRow ist das Ergebnis einer GetCachedFusionCandidates-Abfrage,
 // inklusive der zugehörigen Aktivitäts-Metadaten für beide Seiten des Paares.
 type FusionCandidateRow struct {
-	ActivityIDA    string
-	ActivityIDB    string
-	OverlapPercent float64
-	FieldRichnessA int
-	FieldRichnessB int
-	TimeDiffSec    float64
-	TitleA         *string
-	TitleAutoA     *string
-	StartedAtA     time.Time
-	SportTypeA     string
-	SubTypeA       *string
-	IsElectricA       bool
-	DistanceMA     *float64
-	TitleB         *string
-	TitleAutoB     *string
-	StartedAtB     time.Time
-	SportTypeB     string
-	SubTypeB       *string
-	IsElectricB       bool
-	DistanceMB     *float64
+	ActivityIDA        string
+	ActivityIDB        string
+	OverlapPercent     float64
+	FieldRichnessA     int
+	FieldRichnessB     int
+	TimeDiffSec        float64
+	TitleA             *string
+	TitleAutoA         *string
+	StartedAtA         time.Time
+	SportTypeA         string
+	SubTypeA           *string
+	IsElectricA        bool
+	DistanceMA         *float64
+	SourceDeviceA      *string
+	SourceA            *string
+	OriginalFileFormatA *string
+	TitleB             *string
+	TitleAutoB         *string
+	StartedAtB         time.Time
+	SportTypeB         string
+	SubTypeB           *string
+	IsElectricB        bool
+	DistanceMB         *float64
+	SourceDeviceB      *string
+	SourceB            *string
+	OriginalFileFormatB *string
 }
 
 // FusionCandidateInsert beschreibt einen einzelnen Eintrag für ReplaceFusionCandidates.
@@ -197,7 +203,9 @@ func (db *DB) GetCachedFusionCandidates(ctx context.Context, userID string, limi
 			fc.activity_id_a, fc.activity_id_b,
 			fc.overlap_percent, fc.field_richness_a, fc.field_richness_b, fc.time_diff_sec,
 			a1.title, a1.title_auto, a1.started_at, a1.sport_type, a1.sub_type, a1.is_electric, a1.distance_m,
-			a2.title, a2.title_auto, a2.started_at, a2.sport_type, a2.sub_type, a2.is_electric, a2.distance_m
+			a1.source_device, a1.source, a1.original_file_format,
+			a2.title, a2.title_auto, a2.started_at, a2.sport_type, a2.sub_type, a2.is_electric, a2.distance_m,
+			a2.source_device, a2.source, a2.original_file_format
 		FROM fusion_candidates fc
 		JOIN activities a1 ON a1.id = fc.activity_id_a
 		JOIN activities a2 ON a2.id = fc.activity_id_b
@@ -217,7 +225,9 @@ func (db *DB) GetCachedFusionCandidates(ctx context.Context, userID string, limi
 			&r.ActivityIDA, &r.ActivityIDB,
 			&r.OverlapPercent, &r.FieldRichnessA, &r.FieldRichnessB, &r.TimeDiffSec,
 			&r.TitleA, &r.TitleAutoA, &r.StartedAtA, &r.SportTypeA, &r.SubTypeA, &r.IsElectricA, &r.DistanceMA,
+			&r.SourceDeviceA, &r.SourceA, &r.OriginalFileFormatA,
 			&r.TitleB, &r.TitleAutoB, &r.StartedAtB, &r.SportTypeB, &r.SubTypeB, &r.IsElectricB, &r.DistanceMB,
+			&r.SourceDeviceB, &r.SourceB, &r.OriginalFileFormatB,
 		); err != nil {
 			return nil, fmt.Errorf("scan fusion candidate row: %w", err)
 		}

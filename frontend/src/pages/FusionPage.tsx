@@ -7,7 +7,7 @@ import {
   type FusionCandidate,
 } from '@/api/fusion'
 import { fmtDateCompact } from '@/lib/format'
-import { fetchActivityStreams } from '@/api/activities'
+import { fetchActivityStreams, fetchActivity } from '@/api/activities'
 import type { StreamPoint } from '@/api/types'
 import FusionMap, { type TrackInfo, type FusionMapHandle } from '@/components/fusion/FusionMap'
 import FusionFieldTable from '@/components/fusion/FusionFieldTable'
@@ -17,6 +17,14 @@ import { useToast } from '@/lib/toast'
 
 const TRACK_COLORS = ['#EF4444', '#3B82F6', '#22C55E'] as const
 const TRACK_LABELS = ['Kandidat A', 'Kandidat B', 'Kandidat C'] as const
+
+function deviceLabel(device?: string | null, source?: string | null, format?: string | null): string | null {
+  const devicePart = device || source || null
+  const formatPart = format ? format.toUpperCase() : null
+  if (!devicePart && !formatPart) return null
+  if (devicePart && formatPart) return `${devicePart} · ${formatPart}`
+  return devicePart ?? formatPart
+}
 
 function streamToGPS(points: StreamPoint[]): Array<{ lat: number; lng: number }> {
   return points
@@ -108,6 +116,7 @@ interface ActivityInfo {
   color: string
   candidate: FusionCandidate | null
   isTarget: boolean
+  deviceLabel?: string | null
 }
 
 export default function FusionPage() {
@@ -135,6 +144,12 @@ export default function FusionPage() {
   const { data: candidates = [], isLoading: loadingCandidates } = useQuery({
     queryKey: ['fusion-candidates', targetId],
     queryFn: () => fetchFusionCandidates(targetId),
+    enabled: !!targetId,
+  })
+
+  const { data: targetActivity } = useQuery({
+    queryKey: ['activity', targetId],
+    queryFn: () => fetchActivity(targetId),
     enabled: !!targetId,
   })
 
@@ -212,13 +227,20 @@ export default function FusionPage() {
   })
 
   // Build activities info for field table
-  const activities: ActivityInfo[] = allIds.map((id, i) => ({
-    id,
-    label: TRACK_LABELS[i] ?? `Kandidat ${i + 1}`,
-    color: TRACK_COLORS[i] ?? '#888888',
-    candidate: id === targetId ? null : (candidates.find(c => c.id === id) ?? null),
-    isTarget: id === targetId,
-  }))
+  const activities: ActivityInfo[] = allIds.map((id, i) => {
+    const candidate = id === targetId ? null : (candidates.find(c => c.id === id) ?? null)
+    const dl = id === targetId
+      ? deviceLabel(targetActivity?.source_device, targetActivity?.source, targetActivity?.original_file_format)
+      : deviceLabel(candidate?.source_device, candidate?.source, candidate?.original_file_format)
+    return {
+      id,
+      label: TRACK_LABELS[i] ?? `Kandidat ${i + 1}`,
+      color: TRACK_COLORS[i] ?? '#888888',
+      candidate,
+      isTarget: id === targetId,
+      deviceLabel: dl,
+    }
+  })
 
   const handleSourceChange = (slotIndex: number, value: string) => {
     setSelectedSources(prev => {
@@ -330,6 +352,11 @@ export default function FusionPage() {
             <div className="flex-1 text-sm text-neutral-700 dark:text-neutral-300 bg-neutral-50 dark:bg-neutral-800 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700">
               <span className="font-medium">Kandidat A</span>
               <span className="text-neutral-400 ml-2 font-mono text-xs">{targetId.slice(0, 8)}…</span>
+              {targetActivity && deviceLabel(targetActivity.source_device, targetActivity.source, targetActivity.original_file_format) && (
+                <span className="ml-2 text-xs text-neutral-500 dark:text-neutral-400">
+                  {deviceLabel(targetActivity.source_device, targetActivity.source, targetActivity.original_file_format)}
+                </span>
+              )}
               <span className="ml-2 text-xs text-neutral-400">(Aus den Kandidaten wird eine neue Aktivität erstellt — Originale bleiben erhalten)</span>
             </div>
           </div>
@@ -341,15 +368,17 @@ export default function FusionPage() {
                 className="inline-block w-3 h-3 rounded-full flex-shrink-0"
                 style={{ backgroundColor: TRACK_COLORS[slotIndex + 1] }}
               />
-              <select
+              <div className="flex-1 flex items-center rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 overflow-hidden focus-within:ring-2 focus-within:ring-accent-DEFAULT/40 transition-shadow">
+                <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300 px-3 py-1.5 flex-shrink-0 border-r border-neutral-200 dark:border-neutral-700">
+                  {TRACK_LABELS[slotIndex + 1]}
+                </span>
+                <select
                 value={selectedSources[slotIndex] ?? ''}
                 onChange={e => handleSourceChange(slotIndex, e.target.value)}
                 disabled={loadingCandidates}
-                className="flex-1 text-sm rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT/40 transition-colors"
+                className="flex-1 text-sm bg-transparent px-3 py-1.5 focus:outline-none"
               >
-                <option value="">
-                  {TRACK_LABELS[slotIndex + 1]} — nicht ausgewählt
-                </option>
+                <option value="">— nicht ausgewählt</option>
                 {candidates
                   .filter(
                     c =>
@@ -360,11 +389,14 @@ export default function FusionPage() {
                     <option key={c.id} value={c.id}>
                       {c.title ?? 'Ohne Titel'} —{' '}
                       {fmtDateCompact(c.started_at, c.timezone)} —{' '}
-                      {Math.round((c.distance_m / 1000) * 10) / 10} km —{' '}
-                      {Math.round(c.overlap_pct * 100)}% Überlappung
+                      {Math.round((c.distance_m / 1000) * 10) / 10} km
+                      {deviceLabel(c.source_device, c.source, c.original_file_format)
+                        ? ` — ${deviceLabel(c.source_device, c.source, c.original_file_format)}`
+                        : ''}
                     </option>
                   ))}
               </select>
+              </div>
             </div>
           ))}
 
