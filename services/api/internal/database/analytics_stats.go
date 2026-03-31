@@ -214,6 +214,7 @@ func (db *DB) GetYearlyOverview(ctx context.Context, userID string) ([]YearlyOve
 			COALESCE(SUM(moving_time_s), 0)     AS duration_s
 		FROM activities
 		WHERE user_id = $1
+		  AND NOT is_group_secondary
 		GROUP BY year, month
 		ORDER BY year DESC, month`
 
@@ -247,6 +248,7 @@ func (db *DB) GetActiveDays(ctx context.Context, userID string) ([]time.Time, er
 		SELECT DISTINCT (started_at AT TIME ZONE COALESCE(timezone, 'UTC'))::date AS day
 		FROM activities
 		WHERE user_id = $1
+		  AND NOT is_group_secondary
 		ORDER BY day`
 
 	rows, err := db.Pool.Query(ctx, query, userID)

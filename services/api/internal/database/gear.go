@@ -1034,10 +1034,10 @@ func (db *DB) IncrementRuleApplied(ctx context.Context, id string) error {
 func (db *DB) UpdateGearStats(ctx context.Context, gearID string) error {
 	_, err := db.Pool.Exec(ctx,
 		`UPDATE gear SET
-		   total_distance_m = COALESCE((SELECT SUM(COALESCE(a.distance_m, 0)) FROM activities a WHERE a.gear_id = $1), 0),
-		   total_time_s = COALESCE((SELECT SUM(COALESCE(a.elapsed_time_s, 0)) FROM activities a WHERE a.gear_id = $1), 0),
-		   total_elevation_gain_m = COALESCE((SELECT SUM(COALESCE(a.elevation_gain_m, 0)) FROM activities a WHERE a.gear_id = $1), 0),
-		   total_activities = COALESCE((SELECT COUNT(*) FROM activities a WHERE a.gear_id = $1), 0)
+		   total_distance_m = COALESCE((SELECT SUM(COALESCE(a.distance_m, 0)) FROM activities a WHERE a.gear_id = $1 AND NOT a.is_group_secondary), 0),
+		   total_time_s = COALESCE((SELECT SUM(COALESCE(a.elapsed_time_s, 0)) FROM activities a WHERE a.gear_id = $1 AND NOT a.is_group_secondary), 0),
+		   total_elevation_gain_m = COALESCE((SELECT SUM(COALESCE(a.elevation_gain_m, 0)) FROM activities a WHERE a.gear_id = $1 AND NOT a.is_group_secondary), 0),
+		   total_activities = COALESCE((SELECT COUNT(*) FROM activities a WHERE a.gear_id = $1 AND NOT a.is_group_secondary), 0)
 		 WHERE id = $1`, gearID,
 	)
 	if err != nil {

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // GetFusionQueueActivities gibt Aktivitäten eines Users zurück
@@ -19,6 +21,7 @@ func (db *DB) GetFusionQueueActivities(ctx context.Context, userID string, limit
 		FROM activities a
 		WHERE a.user_id = $1
 		  AND a.is_fusion_source = FALSE
+		  AND a.is_group_secondary = FALSE
 		  AND a.fusion_sources IS NULL
 		  AND a.has_gps = TRUE
 		ORDER BY a.started_at DESC`
@@ -173,6 +176,65 @@ type FusionCandidateInsert struct {
 	FieldRichnessA int
 	FieldRichnessB int
 	TimeDiffSec    float64
+}
+
+// GetAllFusionCandidatePairs gibt alle Paar-Daten aus fusion_candidates für einen User zurück,
+// sortiert nach overlap_percent DESC. Wird für die Clique-Berechnung verwendet.
+func (db *DB) GetAllFusionCandidatePairs(ctx context.Context, userID string) ([]model.PairData, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT activity_id_a, activity_id_b, overlap_percent, field_richness_a, field_richness_b, time_diff_sec
+		FROM fusion_candidates
+		WHERE user_id = $1
+		ORDER BY overlap_percent DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get all fusion candidate pairs: %w", err)
+	}
+	defer rows.Close()
+
+	var pairs []model.PairData
+	for rows.Next() {
+		var p model.PairData
+		if err := rows.Scan(&p.ActivityIDA, &p.ActivityIDB, &p.OverlapPercent, &p.FieldRichnessA, &p.FieldRichnessB, &p.TimeDiffSec); err != nil {
+			return nil, fmt.Errorf("scan fusion candidate pair: %w", err)
+		}
+		pairs = append(pairs, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate fusion candidate pairs: %w", err)
+	}
+	if pairs == nil {
+		pairs = []model.PairData{}
+	}
+	return pairs, nil
+}
+
+// GetMultisportChildIDs gibt die Teilmenge der übergebenen IDs zurück,
+// die einen parent_id haben (d.h. Multisport-Teilaktivitäten sind).
+// Wird in der Clique-Berechnung verwendet um Kinder herauszufiltern.
+func (db *DB) GetMultisportChildIDs(ctx context.Context, activityIDs []string) (map[string]bool, error) {
+	if len(activityIDs) == 0 {
+		return map[string]bool{}, nil
+	}
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id FROM activities WHERE id = ANY($1) AND parent_id IS NOT NULL`,
+		activityIDs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get multisport child ids: %w", err)
+	}
+	defer rows.Close()
+
+	children := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan multisport child id: %w", err)
+		}
+		children[id] = true
+	}
+	return children, rows.Err()
 }
 
 // IsFusionCacheStale prüft ob der Fusion-Cache eines Users veraltet ist.
