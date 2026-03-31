@@ -19,6 +19,12 @@ import {
 } from '@/api/routes'
 import type { ProfileConfig } from '@/lib/routingProfiles'
 import { getProfileDefaults } from '@/lib/routingProfiles'
+import { catmullRom, polylineDistanceM } from '@/lib/catmull-rom'
+
+// ─── Exported types ──────────────────────────────────────────────────────────
+
+/** Identifies a segment by its from/to waypoint IDs. */
+export type SegmentKey = { from: string; to: string }
 
 // ─── Internal state ───────────────────────────────────────────────────────────
 
@@ -79,6 +85,21 @@ function buildSegmentFromFeature(
     distance_m: distance,
     elevation_gain: gain,
     elevation_loss: loss,
+  }
+}
+
+/** Rebuild geometry for an offroad segment from its control points. */
+function rebuildOffroadGeometry(seg: RouteSegment): RouteSegment {
+  const cps = seg.control_points ?? []
+  const lineCoords = seg.smooth ? catmullRom(cps) : [...cps]
+  // Convert to GeoJSON [lng, lat] for geometry
+  const geoCoords = lineCoords.map(([lat, lng]) => [lng, lat] as [number, number])
+  return {
+    ...seg,
+    geometry: geoCoords.length >= 2
+      ? { type: 'LineString', coordinates: geoCoords }
+      : undefined,
+    distance_m: polylineDistanceM(lineCoords),
   }
 }
 
@@ -300,10 +321,14 @@ export function useRoutePlanner() {
 
   // ── Offroad toggle ──────────────────────────────────────────────────────────
 
-  const toggleOffroad = useCallback((segmentIndex: number) => {
+  const toggleOffroad = useCallback((key: SegmentKey) => {
     setState(s => {
       const segments = [...s.segments]
-      const seg = { ...segments[segmentIndex] }
+      const idx = segments.findIndex(
+        seg => seg.from_waypoint === key.from && seg.to_waypoint === key.to,
+      )
+      if (idx < 0) return s
+      const seg = { ...segments[idx] }
       if (seg.mode === 'routed') {
         seg.mode = 'offroad'
         const fromWp = s.waypoints.find(w => w.id === seg.from_waypoint)
@@ -311,9 +336,11 @@ export function useRoutePlanner() {
         seg.control_points =
           fromWp && toWp ? [fromWp.latlng, toWp.latlng] : seg.control_points
         seg.geometry = undefined
+        segments[idx] = rebuildOffroadGeometry(seg)
       } else {
         seg.mode = 'routed'
         seg.control_points = []
+        segments[idx] = seg
         // Trigger recalculation asynchronously
         const fromWp = s.waypoints.find(w => w.id === seg.from_waypoint)
         const toWp = s.waypoints.find(w => w.id === seg.to_waypoint)
@@ -321,10 +348,61 @@ export function useRoutePlanner() {
           void _calculateSegment(fromWp, toWp, s.profileConfig, s.routingEngine, s.brouterProfile)
         }
       }
-      segments[segmentIndex] = seg
       return { ...s, segments }
     })
   }, [_calculateSegment])
+
+  // ── Control point CRUD ──────────────────────────────────────────────────────
+
+  const updateControlPoint = useCallback((key: SegmentKey, cpIndex: number, latlng: [number, number]) => {
+    setState(s => {
+      const segments = [...s.segments]
+      const idx = segments.findIndex(
+        seg => seg.from_waypoint === key.from && seg.to_waypoint === key.to,
+      )
+      if (idx < 0) return s
+      const seg = { ...segments[idx] }
+      const cps = [...(seg.control_points ?? [])]
+      if (cpIndex < 0 || cpIndex >= cps.length) return s
+      cps[cpIndex] = latlng
+      seg.control_points = cps
+      segments[idx] = rebuildOffroadGeometry(seg)
+      return { ...s, segments }
+    })
+  }, [])
+
+  const insertControlPoint = useCallback((key: SegmentKey, afterCpIndex: number, latlng: [number, number]) => {
+    setState(s => {
+      const segments = [...s.segments]
+      const idx = segments.findIndex(
+        seg => seg.from_waypoint === key.from && seg.to_waypoint === key.to,
+      )
+      if (idx < 0) return s
+      const seg = { ...segments[idx] }
+      const cps = [...(seg.control_points ?? [])]
+      cps.splice(afterCpIndex + 1, 0, latlng)
+      seg.control_points = cps
+      segments[idx] = rebuildOffroadGeometry(seg)
+      return { ...s, segments }
+    })
+  }, [])
+
+  const removeControlPoint = useCallback((key: SegmentKey, cpIndex: number) => {
+    setState(s => {
+      const segments = [...s.segments]
+      const idx = segments.findIndex(
+        seg => seg.from_waypoint === key.from && seg.to_waypoint === key.to,
+      )
+      if (idx < 0) return s
+      const seg = { ...segments[idx] }
+      const cps = [...(seg.control_points ?? [])]
+      if (cpIndex < 0 || cpIndex >= cps.length) return s
+      cps.splice(cpIndex, 1)
+      seg.control_points = cps
+      segments[idx] = rebuildOffroadGeometry(seg)
+      return { ...s, segments }
+    })
+  }, [])
 
   // ── Profile ─────────────────────────────────────────────────────────────────
 
@@ -557,6 +635,9 @@ export function useRoutePlanner() {
     calculateSegment,
     recalculateAll,
     toggleOffroad,
+    updateControlPoint,
+    insertControlPoint,
+    removeControlPoint,
 
     // Profile/sport
     setProfile,
