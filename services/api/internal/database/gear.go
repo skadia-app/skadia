@@ -1616,6 +1616,12 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET visibility = $1 WHERE id = $2`, value, activityID)
 		return err
 	case "sport_type":
+		// Guard: don't override manually set sport types
+		var isManual bool
+		_ = db.Pool.QueryRow(ctx, `SELECT sport_type_is_manual FROM activities WHERE id = $1`, activityID).Scan(&isManual)
+		if isManual {
+			return nil // skip — user corrected this manually
+		}
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET sport_type = $1 WHERE id = $2`, value, activityID)
 		return err
 	case "sub_type":
