@@ -210,6 +210,8 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
       inputType: 'enum',
       options: [], // dynamically filled via devices query in RuleEditor
     },
+    { field: 'recording_device_product_name', label: 'Gerätename', inputType: 'text' },
+    { field: 'recording_device_manufacturer', label: 'Hersteller', inputType: 'text' },
     {
       field: 'has_sensor_type',
       label: 'Sensortyp vorhanden',
