@@ -207,6 +207,18 @@ func evalCondition(c Condition, activity map[string]any) bool {
 		return val == nil
 	case "is_not_null":
 		return val != nil
+	case "between":
+		parts := strings.SplitN(toStringValue(c.Value), ",", 2)
+		if len(parts) != 2 {
+			return false
+		}
+		fVal := toFloat(val)
+		lo, err1 := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+		hi, err2 := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+		if err1 != nil || err2 != nil {
+			return false
+		}
+		return fVal >= lo && fVal <= hi
 	default:
 		return false
 	}
