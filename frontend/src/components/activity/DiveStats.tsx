@@ -27,8 +27,8 @@ export function DiveStats({ activity, diveInfo }: Props) {
     activity.max_depth_m != null ? { label: 'Max. Tiefe', value: `${activity.max_depth_m.toFixed(1)} m` } : null,
     activity.avg_depth_m != null ? { label: 'Ø Tiefe', value: `${activity.avg_depth_m.toFixed(1)} m` } : null,
     activity.dive_number != null ? { label: 'Tauchgang Nr.', value: `${activity.dive_number}` } : null,
-    entryTime != null ? { label: 'Eintauchzeit', value: entryTime } : null,
-    exitTime != null ? { label: 'Auftauchzeit', value: exitTime } : null,
+    entryTime != null ? { label: 'Tauchbeginn', value: entryTime } : null,
+    exitTime != null ? { label: 'Tauchende', value: exitTime } : null,
     diveInfo?.settings?.water_type
       ? { label: 'Gewässerart', value: fmtWaterType(diveInfo.settings.water_type) }
       : null,
