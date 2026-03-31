@@ -6,7 +6,8 @@ import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { fetchActivities, downloadActivitiesZip } from '@/api/activities'
 import { getFusionQueue } from '@/api/importWizard'
-import type { Activity } from '@/api/types'
+import { fetchRecordingGroup } from '@/api/recordingGroups'
+import type { Activity, RecordingGroupMember } from '@/api/types'
 import type { ExportFormat } from '@/api/activities'
 import { apiDownload } from '@/api/client'
 import { apiFetch } from '@/lib/auth'
@@ -16,6 +17,7 @@ import {
 } from '@/lib/utils'
 import { fmtActivityDateShort, fmtTimeFromDate } from '@/lib/format'
 import { sportLabel } from '@/lib/sportTaxonomy'
+import { getSourceColor } from '@/lib/comparisonColors'
 import { SportIcon } from '@/components/SportIcon'
 import ActivityFilters, { paramsToFilters, filtersToParams, filtersToApiParams } from '@/components/ActivityFilters'
 import type { ActivityFilterState } from '@/components/ActivityFilters'
@@ -520,6 +522,28 @@ export default function ActivitiesPage() {
         const json = await resp.json() as { children: Activity[] }
         setChildrenMap(prev => ({ ...prev, [id]: json.children ?? [] }))
       }
+    }
+  }
+
+  // Recording-Group-Expand-State
+  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set())
+  const [groupMembersMap, setGroupMembersMap] = useState<Record<string, { members: RecordingGroupMember[]; primaryActivityId: string | null }>>({})
+
+  const toggleGroupExpand = async (activityId: string, groupId: string) => {
+    setExpandedGroupIds(prev => {
+      const next = new Set(prev)
+      if (next.has(activityId)) {
+        next.delete(activityId)
+      } else {
+        next.add(activityId)
+      }
+      return next
+    })
+    if (!groupMembersMap[activityId]) {
+      try {
+        const group = await fetchRecordingGroup(groupId)
+        setGroupMembersMap(prev => ({ ...prev, [activityId]: { members: group.members ?? [], primaryActivityId: group.primary_activity_id } }))
+      } catch (_) { /* ignore */ }
     }
   }
 
@@ -1146,6 +1170,8 @@ export default function ActivitiesPage() {
                   isMultisport={activity.sport_type === 'multisport'}
                   isExpanded={expandedIds.has(activity.id)}
                   onExpand={toggleExpand}
+                  isGroupExpanded={expandedGroupIds.has(activity.id)}
+                  onGroupExpand={toggleGroupExpand}
                   onNavigate={(id) => {
                     saveLastActivity(id)
                     setLastActivityId(id)
@@ -1166,6 +1192,55 @@ export default function ActivitiesPage() {
                   }}
                   onConflictClick={setConflictActivity}
                 />
+                {activity.recording_group_id && expandedGroupIds.has(activity.id) && (() => {
+                  const groupData = groupMembersMap[activity.id]
+                  const members = groupData?.members ?? []
+                  const primaryId = groupData?.primaryActivityId
+                  return (
+                    <tr key={`group-${activity.id}`}>
+                      <td colSpan={8} className="py-0 px-4">
+                        <div className="border-l-2 border-orange-300 dark:border-orange-700 ml-6 pl-4 py-3 flex flex-col gap-2">
+                          {members.length === 0 && !groupData && (
+                            <span className="text-xs text-neutral-400">Lade...</span>
+                          )}
+                          {members.map((member, i) => (
+                            <div key={member.activity_id} className="flex items-center gap-3 text-xs">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full shrink-0"
+                                style={{ background: getSourceColor(i) }}
+                              />
+                              <span className="font-medium w-32 truncate text-neutral-700 dark:text-neutral-300">
+                                {member.source_device ?? member.source ?? 'Unbekannt'}
+                              </span>
+                              <span className="text-neutral-400">
+                                {member.original_file_format ?? '—'}
+                                {member.field_richness != null ? ` · ${member.field_richness} Felder` : ''}
+                                {member.distance_m ? ` · ${formatDistance(member.distance_m)}` : ''}
+                              </span>
+                              {member.activity_id === primaryId && (
+                                <span className="ml-auto shrink-0 px-1.5 py-0.5 rounded text-orange-700 dark:text-orange-300 bg-orange-100 dark:bg-orange-900/30 text-xs font-medium">
+                                  ★ Primär
+                                </span>
+                              )}
+                              {member.is_fused && (
+                                <span className="shrink-0 px-1.5 py-0.5 rounded text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/30 text-xs font-medium">
+                                  ⚡ Fusioniert
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                          <Link
+                            to={`/activities/group/${activity.recording_group_id}`}
+                            className="text-orange-600 dark:text-orange-400 text-xs hover:underline mt-1 inline-flex items-center gap-1"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            Gruppenansicht öffnen →
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })()}
                 {activity.sport_type === 'multisport' && expandedIds.has(activity.id) &&
                   (childrenMap[activity.id] ?? []).map(child => (
                     <tr key={child.id} className="bg-neutral-50/80 dark:bg-neutral-800/30 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800/50 transition-colors"
@@ -1361,6 +1436,8 @@ interface ActivityRowProps {
   isMultisport?: boolean
   isExpanded?: boolean
   onExpand?: (id: string) => void
+  isGroupExpanded?: boolean
+  onGroupExpand?: (activityId: string, groupId: string) => void
   onNavigate: (id: string) => void
   onContextMenu: (e: React.MouseEvent, id: string, title: string | null | undefined, sportType: string) => void
   onToggleSelect: (id: string, idx: number, shiftKey: boolean) => void
@@ -1377,6 +1454,8 @@ function ActivityRow({
   isMultisport,
   isExpanded,
   onExpand,
+  isGroupExpanded,
+  onGroupExpand,
   onNavigate,
   onContextMenu,
   onToggleSelect,
@@ -1430,7 +1509,7 @@ function ActivityRow({
       <td className="px-4 py-3">
         <span className="inline-flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
           <span className="w-4 text-center text-xs flex-shrink-0">
-            {activity.is_indoor ? <span className="text-blue-500 font-bold text-sm">I</span> : activity.is_electric ? <span className="text-green-600 font-bold text-sm">E</span> : activity.is_virtual ? <span className="text-purple-500 font-bold text-sm">V</span> : activity.sport_type === 'multisport' ? <span className="text-red-800 font-bold text-sm">M</span> : null}
+            {activity.is_indoor ? <span className="text-blue-500 font-bold text-sm">I</span> : activity.is_electric ? <span className="text-green-600 font-bold text-sm">E</span> : activity.is_virtual ? <span className="text-purple-500 font-bold text-sm">V</span> : activity.sport_type === 'multisport' ? <span className="text-red-800 font-bold text-sm">M</span> : activity.recording_group_id ? <span className="text-orange-600 font-bold text-sm" title="Aufnahmegruppe">F</span> : null}
           </span>
           <SportIcon sport={activity.sport_type} subType={activity.sub_type} isElectric={activity.is_electric} className="w-4 h-4 flex-shrink-0" />
           <span className="text-xs">{label}</span>
@@ -1450,6 +1529,17 @@ function ActivityRow({
               title="Disziplinen anzeigen"
             >
               <svg className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+              </svg>
+            </button>
+          )}
+          {activity.recording_group_id && (
+            <button
+              onClick={e => { e.stopPropagation(); onGroupExpand?.(activity.id, activity.recording_group_id!) }}
+              className="text-orange-400 hover:text-orange-600 dark:hover:text-orange-300 cursor-pointer transition-colors shrink-0"
+              title="Aufnahmegruppe anzeigen"
+            >
+              <svg className={`w-3 h-3 transition-transform ${isGroupExpanded ? 'rotate-90' : ''}`} fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
               </svg>
             </button>
