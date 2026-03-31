@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
+	"regexp"
 	"strings"
 	"time"
 
@@ -142,19 +144,87 @@ func EvaluateRule(rule model.AutomationRule, actMap map[string]any) bool {
 	return false
 }
 
-// resolveNameTemplate substitutes a fixed set of {token} placeholders in tmpl
-// with values from the activity map. The substitution is a simple sequential
-// strings.ReplaceAll pass — tokens cannot be nested or escaped.
-func resolveNameTemplate(tmpl string, act map[string]any) string {
-	result := tmpl
-	if city, ok := act["start_city"].(string); ok {
-		result = strings.ReplaceAll(result, "{city}", city)
+// toFloat converts common numeric types to float64. Returns 0 for unsupported types.
+func toFloat(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case float32:
+		return float64(n)
+	case int:
+		return float64(n)
+	case int32:
+		return float64(n)
+	case int64:
+		return float64(n)
 	}
-	if dist, ok := act["distance_m"].(float64); ok {
-		result = strings.ReplaceAll(result, "{distance_km}", fmt.Sprintf("%.0f km", dist/1000))
+	return 0
+}
+
+var reToken = regexp.MustCompile(`\{([^}]+)\}`)
+
+// resolveNameTemplate substitutes {token} and {token|fallback} placeholders in
+// tmpl with values from the activity map. Supported tokens:
+//
+//   - Legacy aliases: {city} → start_city, {sport} → sport_type
+//   - Computed:       {distance_km}, {weekday}, {elevation_gain}, {duration}
+//   - Direct fields:  {start_city}, {start_state}, {start_country}, …
+//
+// If a field is missing or nil and no fallback is provided, the token is
+// replaced with an empty string.
+func resolveNameTemplate(tmpl string, actMap map[string]any) string {
+	// Token aliases for backwards compatibility
+	aliases := map[string]string{
+		"city":  "start_city",
+		"sport": "sport_type",
 	}
-	if sport, ok := act["sport_type"].(string); ok {
-		result = strings.ReplaceAll(result, "{sport}", sport)
-	}
-	return result
+
+	return reToken.ReplaceAllStringFunc(tmpl, func(match string) string {
+		inner := match[1 : len(match)-1] // strip { and }
+		field, fallback, hasFallback := strings.Cut(inner, "|")
+		field = strings.TrimSpace(field)
+
+		// Apply alias
+		if alias, ok := aliases[field]; ok {
+			field = alias
+		}
+
+		// Special computed tokens
+		switch field {
+		case "distance_km":
+			if d, ok := actMap["distance_m"]; ok && d != nil {
+				return fmt.Sprintf("%d km", int(math.Round(toFloat(d)/1000)))
+			}
+		case "weekday":
+			if t, ok := actMap["started_at"].(time.Time); ok {
+				days := []string{"Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"}
+				return days[t.Weekday()]
+			}
+		case "elevation_gain":
+			if v, ok := actMap["elevation_gain_m"]; ok && v != nil {
+				return fmt.Sprintf("%.0f", toFloat(v))
+			}
+		case "duration":
+			if v, ok := actMap["moving_time_s"]; ok && v != nil {
+				s := int(toFloat(v))
+				if s >= 3600 {
+					return fmt.Sprintf("%dh%02dm", s/3600, (s%3600)/60)
+				}
+				return fmt.Sprintf("%dm", s/60)
+			}
+		case "country":
+			field = "start_country"
+		}
+
+		// Direct field lookup
+		if val, ok := actMap[field]; ok && val != nil {
+			return fmt.Sprintf("%v", val)
+		}
+
+		// Fallback or empty string
+		if hasFallback {
+			return fallback
+		}
+		return ""
+	})
 }
