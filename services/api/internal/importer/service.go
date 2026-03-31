@@ -125,8 +125,8 @@ func (s *Service) PostProcess(
 			return fmt.Errorf("insert track: %w", err)
 		}
 
-		// Heatmap (best-effort, logged only; skip for heatmap-excluded activities)
-		if len(data.TrackPoints) >= 2 && !activity.ExcludeFromHeatmap {
+		// Heatmap (best-effort, logged only; skip for heatmap-excluded and group-secondary activities)
+		if len(data.TrackPoints) >= 2 && !activity.ExcludeFromHeatmap && !activity.IsGroupSecondary {
 			var subTypePtr *string
 			if data.SubType != "" {
 				subTypePtr = &data.SubType

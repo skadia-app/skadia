@@ -544,15 +544,16 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 	argIdx := 2
 
 	if onlyUserID != "" {
-		// "Nur ich": show all own efforts including from private activities.
+		// "Nur ich": show all own efforts including from private activities, but exclude group-secondary.
 		query += `
+		JOIN activities act ON act.id = se.activity_id AND NOT act.is_group_secondary
 		WHERE se.segment_id = $1 AND se.in_leaderboard = true AND se.user_id = $` + fmt.Sprint(argIdx)
 		args = append(args, onlyUserID)
 		argIdx++
 	} else {
-		// "Alle": JOIN activities to exclude efforts from private activities.
+		// "Alle": JOIN activities to exclude efforts from private or group-secondary activities.
 		query += `
-		JOIN activities act ON act.id = se.activity_id AND act.visibility = 'public'
+		JOIN activities act ON act.id = se.activity_id AND act.visibility = 'public' AND NOT act.is_group_secondary
 		WHERE se.segment_id = $1 AND se.in_leaderboard = true`
 	}
 
@@ -696,7 +697,7 @@ func (db *DB) UpdateSegmentEffortRanks(ctx context.Context, segmentID string) er
 			           ORDER BY se.elapsed_time_s ASC
 			       ) = 1) AS is_record
 			FROM segment_efforts se
-			JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public'
+			JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public' AND NOT a.is_group_secondary
 			WHERE se.segment_id = $1 AND se.in_leaderboard = true
 		),
 		personal_ranked AS (
@@ -719,17 +720,17 @@ func (db *DB) UpdateSegmentEffortRanks(ctx context.Context, segmentID string) er
 		return fmt.Errorf("update effort ranks: %w", err)
 	}
 
-	// Update effort_count and athlete_count: public activities only.
+	// Update effort_count and athlete_count: public, non-group-secondary activities only.
 	_, err = db.Pool.Exec(ctx, `
 		UPDATE segments SET
 			effort_count = (
 				SELECT COUNT(*) FROM segment_efforts se
-				JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public'
+				JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public' AND NOT a.is_group_secondary
 				WHERE se.segment_id = $1
 			),
 			athlete_count = (
 				SELECT COUNT(DISTINCT se.user_id) FROM segment_efforts se
-				JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public'
+				JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public' AND NOT a.is_group_secondary
 				WHERE se.segment_id = $1
 			)
 		WHERE id = $1`, segmentID)

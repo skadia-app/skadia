@@ -117,6 +117,7 @@ func (db *DB) BackfillHeatmapAll(ctx context.Context, userID string, intervalM i
 		  WHERE a.user_id = $1
 		    AND t.track_full IS NOT NULL
 		    AND NOT a.exclude_from_heatmap
+		    AND NOT a.is_group_secondary
 		    AND (
 		        NOT EXISTS (SELECT 1 FROM heatmap_lines h WHERE h.activity_id = a.id)
 		        OR NOT EXISTS (SELECT 1 FROM heatmap_points h WHERE h.activity_id = a.id)
