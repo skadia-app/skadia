@@ -108,6 +108,7 @@ func (db *DB) FindFusionCandidates(ctx context.Context, userID string, activityI
         JOIN activities b ON b.user_id = a.user_id
             AND b.id != a.id
             AND b.is_fusion_source = FALSE
+            AND b.is_group_secondary = FALSE
             AND (
                 -- Zeitlicher Overlap: Aktivitäten überschneiden sich
                 (b.ended_at IS NOT NULL AND a.ended_at IS NOT NULL
@@ -211,14 +212,15 @@ func (db *DB) GetAllFusionCandidatePairs(ctx context.Context, userID string) ([]
 }
 
 // GetMultisportChildIDs gibt die Teilmenge der übergebenen IDs zurück,
-// die einen parent_id haben (d.h. Multisport-Teilaktivitäten sind).
-// Wird in der Clique-Berechnung verwendet um Kinder herauszufiltern.
+// die aus der Clique-Bildung ausgeschlossen werden müssen:
+// Multisport-Teilaktivitäten (parent_id IS NOT NULL) oder
+// Fusion-Quell-Aktivitäten (is_fusion_source = TRUE, Spec §3.4).
 func (db *DB) GetMultisportChildIDs(ctx context.Context, activityIDs []string) (map[string]bool, error) {
 	if len(activityIDs) == 0 {
 		return map[string]bool{}, nil
 	}
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id FROM activities WHERE id = ANY($1) AND parent_id IS NOT NULL`,
+		`SELECT id FROM activities WHERE id = ANY($1) AND (parent_id IS NOT NULL OR is_fusion_source = TRUE)`,
 		activityIDs,
 	)
 	if err != nil {

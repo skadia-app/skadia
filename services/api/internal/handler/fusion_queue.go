@@ -276,13 +276,14 @@ func (h *Handler) runCliqueIntegration(ctx context.Context, userID string, thres
 		allIDs = append(allIDs, id)
 	}
 
-	// Multisport-Kinder herausfiltern (parent_id IS NOT NULL).
+	// Ausgeschlossene Aktivitäten herausfiltern: Multisport-Kinder (parent_id IS NOT NULL)
+	// und Fusion-Quellen (is_fusion_source = TRUE, Spec §3.4).
 	children, err := h.DB.GetMultisportChildIDs(ctx, allIDs)
 	if err != nil {
 		return fmt.Errorf("get multisport child ids: %w", err)
 	}
 
-	// Paare filtern: beide IDs dürfen keine Multisport-Kinder sein.
+	// Paare filtern: beide IDs dürfen weder Multisport-Kinder noch Fusion-Quellen sein.
 	filtered := pairs[:0]
 	for _, p := range pairs {
 		if !children[p.ActivityIDA] && !children[p.ActivityIDB] {
