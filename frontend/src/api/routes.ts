@@ -331,11 +331,6 @@ export async function getProfileDefaults(name: string): Promise<ProfileDefaultsR
 
 // === Internal Router (BadRouter) ===
 
-export interface ApproachSegment {
-  coords: [number, number][]  // [lon, lat] pairs
-  distanceM: number
-}
-
 export async function computeInternalRoute(
   from: [number, number],
   to: [number, number],
