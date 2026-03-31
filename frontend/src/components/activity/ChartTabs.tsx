@@ -45,7 +45,7 @@ export function ChartTabs({ streams, children }: Props) {
       { value: CHART_TAB.pedal, label: 'Pedal-Analytik', visible: streams.some(s => s.left_torque_effectiveness_pct != null) },
       { value: CHART_TAB.electric, label: 'E-Bike', visible: streams.some(s => s.motor_power_w != null) },
       { value: CHART_TAB.tauchgang, label: 'Tauchgang', visible: streams.some(s => s.depth_m != null) },
-      { value: CHART_TAB.deko, label: 'Deko', visible: streams.some(s => s.ndl_time_s != null || s.cns_load_pct != null) },
+      { value: CHART_TAB.deko, label: 'Deko', visible: streams.some(s => s.ndl_time_s != null || s.cns_load_pct != null || (s.po2 != null && s.po2 > 0)) },
       { value: CHART_TAB.sensoren, label: 'Sensoren', visible: streams.some(s => s.core_temperature_c != null) },
       { value: CHART_TAB.barometer, label: 'Barometer', visible: streams.some(s => s.absolute_pressure_pa != null)
           && !streams.some(s => s.depth_m != null) },  // Hide for dive activities
