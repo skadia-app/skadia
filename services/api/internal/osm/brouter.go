@@ -50,7 +50,8 @@ func (p *Pipeline) BuildBRouterSegments(ctx context.Context, regions []Region,
 	}
 	defer os.RemoveAll(tmpBase)
 
-	for _, sub := range []string{"nodetiles", "waytiles", "waytiles55", "nodes55", "unodes55"} {
+	tmpOutput := filepath.Join(tmpBase, "output")
+	for _, sub := range []string{"nodetiles", "waytiles", "waytiles55", "nodes55", "unodes55", "output"} {
 		if err := os.MkdirAll(filepath.Join(tmpBase, sub), 0o755); err != nil {
 			return fmt.Errorf("create %s dir: %w", sub, err)
 		}
@@ -139,7 +140,7 @@ func (p *Pipeline) BuildBRouterSegments(ctx context.Context, regions []Region,
 				filepath.Join(tmpBase, "restrictions.dat"),
 				lookups,
 				allBrf,
-				segmentsDir,
+				tmpOutput, // Write to temp dir, then merge with size-guard
 				"rd5",
 			),
 		},
@@ -165,8 +166,64 @@ func (p *Pipeline) BuildBRouterSegments(ctx context.Context, regions []Region,
 		slog.Info("brouter: step complete", "step", s.name)
 	}
 
+	// 6. Move built segments from tmpOutput into segmentsDir.
+	// CRITICAL: Only overwrite existing rd5 files if the new file is LARGER.
+	// Local PBF builds only cover a small region (e.g. Slowenien) but BRouter's
+	// WayLinker writes rd5 tiles for the entire 5°×5° grid that the PBF overlaps.
+	// These partial tiles are much smaller than pre-downloaded full tiles from
+	// brouter.de. Overwriting a 120MB downloaded E10_N45.rd5 with a 9MB
+	// Slowenien-only build destroys routing for Bayern/Österreich.
+	matches, _ := filepath.Glob(filepath.Join(tmpOutput, "*.rd5"))
+	var kept, replaced, added int
+	for _, src := range matches {
+		name := filepath.Base(src)
+		dst := filepath.Join(segmentsDir, name)
+
+		srcInfo, err := os.Stat(src)
+		if err != nil {
+			continue
+		}
+
+		dstInfo, dstErr := os.Stat(dst)
+		if dstErr == nil && dstInfo.Size() >= srcInfo.Size() {
+			// Existing file is same size or larger — keep it.
+			kept++
+			slog.Info("brouter: keeping existing segment (larger/equal)",
+				"file", name,
+				"existing_bytes", dstInfo.Size(),
+				"new_bytes", srcInfo.Size())
+			continue
+		}
+
+		// Copy new file (either doesn't exist or new is larger).
+		data, err := os.ReadFile(src)
+		if err != nil {
+			slog.Warn("brouter: failed to read built segment", "file", name, "error", err)
+			continue
+		}
+		if err := os.WriteFile(dst, data, 0o644); err != nil {
+			slog.Warn("brouter: failed to write segment", "file", name, "error", err)
+			continue
+		}
+
+		if dstErr == nil {
+			replaced++
+			slog.Info("brouter: replaced segment (new is larger)",
+				"file", name,
+				"old_bytes", dstInfo.Size(),
+				"new_bytes", srcInfo.Size())
+		} else {
+			added++
+			slog.Info("brouter: added new segment", "file", name, "bytes", srcInfo.Size())
+		}
+	}
+
 	reporter.SetProgress(100)
-	slog.Info("brouter: segment build complete", "segments_dir", segmentsDir)
+	slog.Info("brouter: segment build complete",
+		"segments_dir", segmentsDir,
+		"added", added,
+		"replaced", replaced,
+		"kept_existing", kept)
 	return nil
 }
 
