@@ -26,7 +26,7 @@ import (
 )
 
 // FusionMergeRequest beschreibt den Body für POST /activities/{id}/fusion-merge.
-// Sources enthält bis zu 2 zusätzliche Quell-Aktivitäts-IDs.
+// Sources enthält bis zu 5 zusätzliche Quell-Aktivitäts-IDs.
 // FieldMap mappt Stream-Felder auf Quell-IDs ("hr" → "uuid-B", "gps" → "fuse").
 type FusionMergeRequest struct {
 	Sources         []string          `json:"sources"`
@@ -43,6 +43,7 @@ type FusionMergeRequest struct {
 
 // validStreamFields mappt logische Feld-Namen auf activity_streams-Spaltennamen.
 var validStreamFields = map[string]string{
+	// Kern
 	"hr":          "heart_rate",
 	"power":       "power_w",
 	"cadence":     "cadence",
@@ -50,6 +51,17 @@ var validStreamFields = map[string]string{
 	"gps":         "gps",
 	"altitude":    "altitude_m",
 	"speed":       "speed_ms",
+	// Running Dynamics
+	"gct":                  "ground_contact_time_ms",
+	"vertical_oscillation": "vertical_oscillation_mm",
+	"stance_time":          "stance_time_percent",
+	"step_length":          "step_length_mm",
+	"left_right_balance":   "left_right_balance",
+	// Pedal Analytics
+	"torque_effectiveness_l": "left_torque_effectiveness_pct",
+	"torque_effectiveness_r": "right_torque_effectiveness_pct",
+	"pedal_smoothness_l":     "left_pedal_smoothness_pct",
+	"pedal_smoothness_r":     "right_pedal_smoothness_pct",
 }
 
 // FusionMerge führt eine 3-Quellen-Fusion durch und erstellt eine neue Aktivität:
@@ -66,8 +78,8 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(req.Sources) > 2 {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "max 2 additional sources allowed", r.URL.Path)
+	if len(req.Sources) > 5 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "max 6 activities total", r.URL.Path)
 		return
 	}
 
