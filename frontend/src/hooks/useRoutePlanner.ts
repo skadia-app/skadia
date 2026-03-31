@@ -166,7 +166,16 @@ export function useRoutePlanner() {
         engine === 'brouter'
           ? await computeRoute([from.latlng, to.latlng], brouterProf)
           : await computeInternalRoute(from.latlng, to.latlng, profileConfig)
-      const feature = result.features[0]
+      const feature = result.features?.[0]
+      const props = feature?.properties ?? {}
+      if (props.status === 'no_route') {
+        setState(s => ({
+          ...s,
+          isCalculating: false,
+          calculationError: 'no_route',
+        }))
+        return
+      }
       const isFallback = feature?.properties?.fallback === true
 
       const segment = buildSegmentFromFeature(from, to, feature, isFallback)
