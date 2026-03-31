@@ -573,7 +573,7 @@ export default function RoutePlannerPanel({
               {!hasRoute && waypoints.length === 0 && (
                 <p className="text-[10px] text-neutral-400 dark:text-neutral-500 text-center leading-snug">
                   Klicke auf die Karte um Start und Ziel zu setzen.{' '}
-                  Oder nutze "Route vorschlagen" fur eine KI-generierte Route.
+                  Oder nutze "Route vorschlagen" für eine KI-generierte Route.
                 </p>
               )}
             </div>

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useToast } from '@/lib/toast'
 import type {
   RouteWaypoint,
   RouteSegment,
@@ -81,7 +82,7 @@ function buildSegmentFromFeature(
     mode: isFallback ? 'offroad' : 'routed',
     geometry: feature?.geometry as GeoJSON.LineString | undefined,
     control_points: isFallback ? [from.latlng, to.latlng] : [],
-    smooth: false,
+    smooth: true,
     distance_m: distance,
     elevation_gain: gain,
     elevation_loss: loss,
@@ -109,6 +110,7 @@ function rebuildOffroadGeometry(seg: RouteSegment): RouteSegment {
 export function useRoutePlanner() {
   const [state, setState] = useState<RoutePlannerState>(INITIAL_STATE)
   const queryClient = useQueryClient()
+  const { addToast } = useToast()
 
   // ── Capabilities ────────────────────────────────────────────────────────────
 
@@ -175,6 +177,11 @@ export function useRoutePlanner() {
           isCalculating: false,
           calculationError: 'no_route',
         }))
+        addToast({
+          type: 'warning',
+          title: 'Keine Route gefunden',
+          message: 'Segment als Offroad markieren?',
+        })
         return
       }
       const isFallback = feature?.properties?.fallback === true
@@ -202,8 +209,8 @@ export function useRoutePlanner() {
         calculationError: message,
       }))
     }
-  // setState from useState is stable — no deps needed
-  }, [])
+  // addToast from useToast is stable — setState from useState is stable
+  }, [addToast])
 
   // ── Waypoint management ─────────────────────────────────────────────────────
 
@@ -332,6 +339,9 @@ export function useRoutePlanner() {
   // ── Offroad toggle ──────────────────────────────────────────────────────────
 
   const toggleOffroad = useCallback((key: SegmentKey) => {
+    type RecalcArgs = { from: RouteWaypoint; to: RouteWaypoint; config: ProfileConfig; engine: RoutingEngine; profile: string }
+    let needsRecalc: RecalcArgs | null = null
+
     setState(s => {
       const segments = [...s.segments]
       const idx = segments.findIndex(
@@ -351,15 +361,21 @@ export function useRoutePlanner() {
         seg.mode = 'routed'
         seg.control_points = []
         segments[idx] = seg
-        // Trigger recalculation asynchronously
+        // Capture values for side effect outside setState
         const fromWp = s.waypoints.find(w => w.id === seg.from_waypoint)
         const toWp = s.waypoints.find(w => w.id === seg.to_waypoint)
         if (fromWp && toWp) {
-          void _calculateSegment(fromWp, toWp, s.profileConfig, s.routingEngine, s.brouterProfile)
+          needsRecalc = { from: fromWp, to: toWp, config: s.profileConfig, engine: s.routingEngine, profile: s.brouterProfile }
         }
       }
       return { ...s, segments }
     })
+
+    // Side-effect OUTSIDE setState
+    if (needsRecalc) {
+      const { from, to, config, engine, profile } = needsRecalc as RecalcArgs
+      void _calculateSegment(from, to, config, engine, profile)
+    }
   }, [_calculateSegment])
 
   // ── Control point CRUD ──────────────────────────────────────────────────────

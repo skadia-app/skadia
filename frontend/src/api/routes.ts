@@ -340,17 +340,13 @@ export async function computeInternalRoute(
   from: [number, number],
   to: [number, number],
   config?: ProfileConfig,
-  snapThresholdM?: number,
 ): Promise<GeoJSON.FeatureCollection> {
   return apiClient('/routing/route-internal', {
     method: 'POST',
     body: {
       from,
       to,
-      config: {
-        ...(config ?? { profile: 'hiking' }),
-        ...(snapThresholdM !== undefined ? { snap_threshold_m: snapThresholdM } : {}),
-      },
+      config: config ?? { profile: 'hiking' },
     },
   })
 }
