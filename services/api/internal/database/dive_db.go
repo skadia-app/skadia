@@ -93,9 +93,9 @@ func (db *DB) GetDivePo2Stats(ctx context.Context, activityID string) (*model.Di
               AND po2 > 0
         )
         SELECT
-            (SELECT po2     FROM ranked WHERE rn_min = 1) AS min_po2,
+            COALESCE((SELECT po2     FROM ranked WHERE rn_min = 1), 0) AS min_po2,
             (SELECT depth_m FROM ranked WHERE rn_min = 1) AS min_po2_depth,
-            (SELECT po2     FROM ranked WHERE rn_max = 1) AS max_po2,
+            COALESCE((SELECT po2     FROM ranked WHERE rn_max = 1), 0) AS max_po2,
             (SELECT depth_m FROM ranked WHERE rn_max = 1) AS max_po2_depth
     `
 	var s model.DivePo2Stats
