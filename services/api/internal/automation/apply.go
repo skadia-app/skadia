@@ -62,18 +62,7 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 		}
 
 		// Evaluate conditions
-		matched := false
-		if len(rule.ConditionGroups) > 0 && string(rule.ConditionGroups) != "null" {
-			var groups []rules.ConditionGroup
-			if err := json.Unmarshal(rule.ConditionGroups, &groups); err == nil && len(groups) > 0 {
-				matched = rules.EvaluateGroups(groups, actMap)
-			}
-		} else if len(rule.Conditions) > 0 {
-			var conditions []rules.Condition
-			if err := json.Unmarshal(rule.Conditions, &conditions); err == nil {
-				matched = rules.Evaluate(conditions, actMap)
-			}
-		}
+		matched := EvaluateRule(rule, actMap)
 
 		changes := rules.Apply(actions)
 
@@ -126,6 +115,22 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 		// User rules: no match → do nothing (no retraction)
 	}
 	return nil
+}
+
+// EvaluateRule checks whether a rule's conditions match the given activity map.
+func EvaluateRule(rule model.AutomationRule, actMap map[string]any) bool {
+	if len(rule.ConditionGroups) > 0 && string(rule.ConditionGroups) != "null" {
+		var groups []rules.ConditionGroup
+		if err := json.Unmarshal(rule.ConditionGroups, &groups); err == nil && len(groups) > 0 {
+			return rules.EvaluateGroups(groups, actMap)
+		}
+	} else if len(rule.Conditions) > 0 {
+		var conditions []rules.Condition
+		if err := json.Unmarshal(rule.Conditions, &conditions); err == nil {
+			return rules.Evaluate(conditions, actMap)
+		}
+	}
+	return false
 }
 
 // resolveNameTemplate substitutes a fixed set of {token} placeholders in tmpl

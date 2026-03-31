@@ -912,6 +912,7 @@ func main() {
 			r.Put("/automation-rules/{id}", h.UpdateRule)
 			r.Delete("/automation-rules/{id}", h.DeleteRule)
 			r.Post("/automation-rules/apply", h.ApplyRules)
+			r.Post("/automation-rules/{id}/apply", h.ApplySingleRule)
 
 			// Custom Maps
 			r.Get("/custom-maps", h.ListCustomMaps)
