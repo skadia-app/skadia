@@ -47,7 +47,8 @@ export function ChartTabs({ streams, children }: Props) {
       { value: CHART_TAB.tauchgang, label: 'Tauchgang', visible: streams.some(s => s.depth_m != null) },
       { value: CHART_TAB.deko, label: 'Deko', visible: streams.some(s => s.ndl_time_s != null || s.cns_load_pct != null) },
       { value: CHART_TAB.sensoren, label: 'Sensoren', visible: streams.some(s => s.core_temperature_c != null) },
-      { value: CHART_TAB.barometer, label: 'Barometer', visible: streams.some(s => s.absolute_pressure_pa != null) },
+      { value: CHART_TAB.barometer, label: 'Barometer', visible: streams.some(s => s.absolute_pressure_pa != null)
+          && !streams.some(s => s.depth_m != null) },  // Hide for dive activities
       { value: CHART_TAB.mtb, label: 'MTB', visible: streams.some(s => s.grit != null || s.flow != null) },
       { value: CHART_TAB.ausdauer, label: 'Ausdauer', visible: streams.some(s => s.potential_stamina != null) },
       { value: CHART_TAB.developerFields, label: 'Entwickler-Felder', visible: streams.some(s => s.developer_fields != null && Object.keys(s.developer_fields as object).length > 0) },
