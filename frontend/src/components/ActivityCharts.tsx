@@ -1172,7 +1172,10 @@ function DecoChartPanel({
       }
     },
     [data, xMode, splitMarkers, hasNdl, hasCns, hasN2, hasDecoStop],
-    (chart) => bindChartInteractions(chart, chartId, data, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMode),
+    (chart) => {
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
+    },
   )
 
   return <div ref={containerRef} className="h-52 w-full" />
