@@ -123,6 +123,7 @@ interface ChartData {
   cnsPct: number[]
   n2Pct: number[]
   decoStopM: number[]
+  po2: number[]
   maxDist: number
   maxElapsed: number
 }
@@ -167,6 +168,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const cnsPct: number[] = []
   const n2Pct: number[] = []
   const decoStopM: number[] = []
+  const po2: number[] = []
 
   const t0 = streams.length > 0 ? new Date(streams[0].time).getTime() : 0
 
@@ -228,6 +230,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     cnsPct.push(s.cns_load_pct ?? NaN)
     n2Pct.push(s.n2_load_pct ?? NaN)
     decoStopM.push((s.next_stop_depth_m ?? 0) > 0 ? s.next_stop_depth_m! : NaN)
+    po2.push(s.po2 != null && s.po2 > 0 ? s.po2 : NaN)
   }
 
   const validDist = distanceKm.filter(v => !isNaN(v) && isFinite(v))
@@ -235,7 +238,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, pressure, paceMinKm, garminGapMinKm, re3Gap, strydNgpMinKm, strydPower, ndlMin, cnsPct, n2Pct, decoStopM, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, pressure, paceMinKm, garminGapMinKm, re3Gap, strydNgpMinKm, strydPower, ndlMin, cnsPct, n2Pct, decoStopM, po2, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -809,7 +812,17 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     <div key={k('depth')} style={{ display: show('depth') ? undefined : 'none' }}>
       <ChartPanel chartId="depth" {...common}
         field="altitude" label="Tiefe" unit="m" color="#3B82F6" area
-        overrideValues={data.depth} invertY />
+        overrideValues={data.depth} invertY
+        extraSeries={hasValidData(data.decoStopM) ? [{
+          values: data.decoStopM,
+          name: 'Dekotiefe',
+          color: '#ef4444',
+          lineStyle: { color: '#ef4444', width: 0 },
+          areaStyle: { color: 'rgba(239,68,68,0.25)' },
+          symbol: 'none',
+          z: 1,
+        }] : undefined}
+      />
     </div>,
   )
   // Cycle Length (stroke/stroke distance) — only for swim + paddle sports
@@ -872,6 +885,15 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   if (hasValidData(data.ndlMin) || hasValidData(data.cnsPct) || hasValidData(data.n2Pct)) panels.push(
     <div key={k('deco-ts')} style={{ display: show('decoTimeSeries') ? undefined : 'none' }}>
       <DecoChartPanel chartId="deco-ts" {...common} />
+    </div>,
+  )
+  // pO₂ (Diving: partial pressure of oxygen)
+  if (hasValidData(data.po2)) panels.push(
+    <div key={k('po2')} style={{ display: show('decoTimeSeries') ? undefined : 'none' }}>
+      <ChartPanel chartId="po2" {...common}
+        field="depth" label="pO₂" unit="bar" color="#f59e0b"
+        overrideValues={data.po2}
+      />
     </div>,
   )
 
@@ -2495,7 +2517,15 @@ interface ChartPanelProps {
   /** Fix Y axis to a specific [min, max] range (e.g. [0, 100] for battery %). */
   yAxisFixed?: [number, number]
   /** Additional overlay series to render on the same chart. */
-  extraSeries?: Array<{ values: number[]; name: string; color: string }>
+  extraSeries?: Array<{
+    values: number[]
+    name: string
+    color: string
+    lineStyle?: { color?: string; width?: number }
+    areaStyle?: { color?: string }
+    symbol?: string
+    z?: number
+  }>
 }
 
 function ChartPanel({
@@ -2751,11 +2781,15 @@ function ChartPanel({
                 type: 'line' as const,
                 name: es.name,
                 data: xData.map((x, i) => [x, es.values[i]]),
-                showSymbol: false,
-                lineStyle: { width: 1.5, color: es.color, type: 'solid' as const },
+                showSymbol: es.symbol === 'none' ? false : false,
+                symbol: es.symbol ?? 'none',
+                lineStyle: es.lineStyle
+                  ? { ...es.lineStyle, type: 'solid' as const }
+                  : { width: 1.5, color: es.color, type: 'solid' as const },
                 itemStyle: { color: es.color },
+                areaStyle: es.areaStyle ?? undefined,
                 connectNulls: false,
-                z: 2,
+                z: es.z ?? 2,
               })),
             ],
 
