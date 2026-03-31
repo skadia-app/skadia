@@ -7,50 +7,50 @@ import (
 
 // Activity is the DB/API representation of an activity.
 type Activity struct {
-	ID                      string           `json:"id"`
-	UserID                  string           `json:"user_id"`
-	FileHash                *string          `json:"file_hash,omitempty"`
-	Title                   *string          `json:"title"`
-	TitleAuto               *string          `json:"title_auto,omitempty"`
-	Description             *string          `json:"description,omitempty"`
-	SportType               string           `json:"sport_type"`
-	SubType                 *string          `json:"sub_type,omitempty"`
-	FitSportID              *int16           `json:"fit_sport_id,omitempty"`
-	FitSubSportID           *int16           `json:"fit_sub_sport_id,omitempty"`
-	IsElectric                 bool             `json:"is_electric"`
-	IsVirtual               bool             `json:"is_virtual"`
-	ExcludeFromHeatmap      bool             `json:"exclude_from_heatmap"`
-	ExcludeFromStats        bool             `json:"exclude_from_stats"`
-	IsManualEntry           bool             `json:"is_manual_entry"`
-	StartedAt               time.Time        `json:"started_at"`
-	EndedAt                 *time.Time       `json:"ended_at,omitempty"`
-	ElapsedTimeS            *int             `json:"elapsed_time_s,omitempty"`
-	MovingTimeS             *int             `json:"moving_time_s,omitempty"`
-	DistanceM               *float64         `json:"distance_m,omitempty"`
-	ElevationGainM          *float64         `json:"elevation_gain_m,omitempty"`
-	ElevationLossM          *float64         `json:"elevation_loss_m,omitempty"`
-	MaxElevationM           *float64         `json:"max_elevation_m,omitempty"`
-	MinElevationM           *float64         `json:"min_elevation_m,omitempty"`
-	AvgSpeedMS              *float64         `json:"avg_speed_ms,omitempty"`
-	MaxSpeedMS              *float64         `json:"max_speed_ms,omitempty"`
-	AvgHeartRate            *float64         `json:"avg_heart_rate,omitempty"`
-	MaxHeartRate            *int             `json:"max_heart_rate,omitempty"`
-	AvgPowerW               *float64         `json:"avg_power_w,omitempty"`
-	MaxPowerW               *int             `json:"max_power_w,omitempty"`
-	NormalizedPowerW        *float64         `json:"normalized_power_w,omitempty"`
-	AvgCadence              *float64         `json:"avg_cadence,omitempty"`
-	MaxCadence              *int             `json:"max_cadence,omitempty"`
-	AvgTemperatureC         *float64         `json:"avg_temperature_c,omitempty"`
-	MinTemperatureC         *float64         `json:"min_temperature_c,omitempty"`
-	MaxTemperatureC         *float64         `json:"max_temperature_c,omitempty"`
-	TSS                     *float64         `json:"tss,omitempty"`
-	TRIMP                   *float64         `json:"trimp,omitempty"`
+	ID                 string     `json:"id"`
+	UserID             string     `json:"user_id"`
+	FileHash           *string    `json:"file_hash,omitempty"`
+	Title              *string    `json:"title"`
+	TitleAuto          *string    `json:"title_auto,omitempty"`
+	Description        *string    `json:"description,omitempty"`
+	SportType          string     `json:"sport_type"`
+	SubType            *string    `json:"sub_type,omitempty"`
+	FitSportID         *int16     `json:"fit_sport_id,omitempty"`
+	FitSubSportID      *int16     `json:"fit_sub_sport_id,omitempty"`
+	IsElectric         bool       `json:"is_electric"`
+	IsVirtual          bool       `json:"is_virtual"`
+	ExcludeFromHeatmap bool       `json:"exclude_from_heatmap"`
+	ExcludeFromStats   bool       `json:"exclude_from_stats"`
+	IsManualEntry      bool       `json:"is_manual_entry"`
+	StartedAt          time.Time  `json:"started_at"`
+	EndedAt            *time.Time `json:"ended_at,omitempty"`
+	ElapsedTimeS       *int       `json:"elapsed_time_s,omitempty"`
+	MovingTimeS        *int       `json:"moving_time_s,omitempty"`
+	DistanceM          *float64   `json:"distance_m,omitempty"`
+	ElevationGainM     *float64   `json:"elevation_gain_m,omitempty"`
+	ElevationLossM     *float64   `json:"elevation_loss_m,omitempty"`
+	MaxElevationM      *float64   `json:"max_elevation_m,omitempty"`
+	MinElevationM      *float64   `json:"min_elevation_m,omitempty"`
+	AvgSpeedMS         *float64   `json:"avg_speed_ms,omitempty"`
+	MaxSpeedMS         *float64   `json:"max_speed_ms,omitempty"`
+	AvgHeartRate       *float64   `json:"avg_heart_rate,omitempty"`
+	MaxHeartRate       *int       `json:"max_heart_rate,omitempty"`
+	AvgPowerW          *float64   `json:"avg_power_w,omitempty"`
+	MaxPowerW          *int       `json:"max_power_w,omitempty"`
+	NormalizedPowerW   *float64   `json:"normalized_power_w,omitempty"`
+	AvgCadence         *float64   `json:"avg_cadence,omitempty"`
+	MaxCadence         *int       `json:"max_cadence,omitempty"`
+	AvgTemperatureC    *float64   `json:"avg_temperature_c,omitempty"`
+	MinTemperatureC    *float64   `json:"min_temperature_c,omitempty"`
+	MaxTemperatureC    *float64   `json:"max_temperature_c,omitempty"`
+	TSS                *float64   `json:"tss,omitempty"`
+	TRIMP              *float64   `json:"trimp,omitempty"`
 	// Self-computed metrics (canonical values for PMC pipeline)
-	ComputedTSS    *float64 `json:"computed_tss,omitempty"`
-	ComputedNPW    *float64 `json:"computed_np_w,omitempty"`
-	ComputedNGPMps *float64 `json:"computed_ngp_mps,omitempty"`
-	TSSMethod      *string  `json:"tss_method,omitempty"`
-	ComputedIF     *float64 `json:"computed_if,omitempty"`
+	ComputedTSS             *float64         `json:"computed_tss,omitempty"`
+	ComputedNPW             *float64         `json:"computed_np_w,omitempty"`
+	ComputedNGPMps          *float64         `json:"computed_ngp_mps,omitempty"`
+	TSSMethod               *string          `json:"tss_method,omitempty"`
+	ComputedIF              *float64         `json:"computed_if,omitempty"`
 	MinHeartRate            *int             `json:"min_heart_rate,omitempty"`
 	TotalCalories           *int             `json:"total_calories,omitempty"`
 	AerobicTrainingEffect   *float64         `json:"aerobic_training_effect,omitempty"`
@@ -329,7 +329,7 @@ type ActivityFilters struct {
 	DateFrom       string
 	DateTo         string
 	IsIndoor       *bool
-	IsElectric        *bool
+	IsElectric     *bool
 	IsVirtual      *bool
 	HasGPS         *bool
 	HasLocation    *bool
@@ -352,9 +352,9 @@ type UploadResponse struct {
 // PMCDay contains mixed temporal semantics (Banister convention):
 //
 // Calculation order per day:
-//   1. TSB = CTL_previous - ATL_previous  (readiness AT START of today)
-//   2. CTL = update with today's TSS       (fitness AFTER today's training)
-//   3. ATL = update with today's TSS       (fatigue AFTER today's training)
+//  1. TSB = CTL_previous - ATL_previous  (readiness AT START of today)
+//  2. CTL = update with today's TSS       (fitness AFTER today's training)
+//  3. ATL = update with today's TSS       (fatigue AFTER today's training)
 //
 // This is intentional: TSB describes readiness before today's load, while CTL
 // and ATL describe fitness/fatigue after today's load.
@@ -761,36 +761,36 @@ type MaintenanceAlert struct {
 
 // AutomationRule represents a user-defined automation rule.
 type AutomationRule struct {
-	ID              string          `json:"id"`
-	UserID          string          `json:"user_id"`
-	Name            string          `json:"name"`
-	IsActive        bool            `json:"is_active"`
-	Priority        int             `json:"priority"`
-	Conditions      json.RawMessage `json:"conditions"`
-	ConditionsLogic string          `json:"conditions_logic"`
-	ConditionGroups json.RawMessage `json:"condition_groups"`
-	Actions         json.RawMessage `json:"actions"`
-	TimesApplied    int             `json:"times_applied"`
-	CreatedAt       time.Time       `json:"created_at"`
-	IsSystem        bool            `json:"is_system"`
-	SystemType      *string         `json:"system_type"`
-	TriggerEvent    string          `json:"trigger_event"          db:"trigger_event"`
-	StopOnMatch     bool            `json:"stop_on_match"          db:"stop_on_match"`
-	ApplyRetroactive bool           `json:"apply_retroactively"    db:"apply_retroactively"`
-	LastEvaluatedAt *time.Time      `json:"last_evaluated_at,omitempty" db:"last_evaluated_at"`
-	LastMatchedCount int            `json:"last_matched_count"     db:"last_matched_count"`
-	Branches        json.RawMessage `json:"branches,omitempty"     db:"branches"`
+	ID               string          `json:"id"`
+	UserID           string          `json:"user_id"`
+	Name             string          `json:"name"`
+	IsActive         bool            `json:"is_active"`
+	Priority         int             `json:"priority"`
+	Conditions       json.RawMessage `json:"conditions"`
+	ConditionsLogic  string          `json:"conditions_logic"`
+	ConditionGroups  json.RawMessage `json:"condition_groups"`
+	Actions          json.RawMessage `json:"actions"`
+	TimesApplied     int             `json:"times_applied"`
+	CreatedAt        time.Time       `json:"created_at"`
+	IsSystem         bool            `json:"is_system"`
+	SystemType       *string         `json:"system_type"`
+	TriggerEvent     string          `json:"trigger_event"          db:"trigger_event"`
+	StopOnMatch      bool            `json:"stop_on_match"          db:"stop_on_match"`
+	ApplyRetroactive bool            `json:"apply_retroactively"    db:"apply_retroactively"`
+	LastEvaluatedAt  *time.Time      `json:"last_evaluated_at,omitempty" db:"last_evaluated_at"`
+	LastMatchedCount int             `json:"last_matched_count"     db:"last_matched_count"`
+	Branches         json.RawMessage `json:"branches,omitempty"     db:"branches"`
 }
 
 // AutomationRuleCreate is the request body for creating an automation rule.
 type AutomationRuleCreate struct {
-	Name            string          `json:"name"`
-	Priority        int             `json:"priority"`
-	Conditions      json.RawMessage `json:"conditions"`
-	ConditionsLogic string          `json:"conditions_logic"`
-	ConditionGroups json.RawMessage `json:"condition_groups"`
-	Actions         json.RawMessage `json:"actions"`
-	TriggerEvent    string          `json:"trigger_event"`
+	Name             string          `json:"name"`
+	Priority         int             `json:"priority"`
+	Conditions       json.RawMessage `json:"conditions"`
+	ConditionsLogic  string          `json:"conditions_logic"`
+	ConditionGroups  json.RawMessage `json:"condition_groups"`
+	Actions          json.RawMessage `json:"actions"`
+	TriggerEvent     string          `json:"trigger_event"`
 	StopOnMatch      bool            `json:"stop_on_match"`
 	ApplyRetroactive bool            `json:"apply_retroactively"`
 	Branches         json.RawMessage `json:"branches,omitempty"`
