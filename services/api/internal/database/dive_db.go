@@ -103,6 +103,9 @@ func (db *DB) GetDivePo2Stats(ctx context.Context, activityID string) (*model.Di
 	err := db.Pool.QueryRow(ctx, q, activityID).Scan(
 		&s.MinPo2, &minDepth, &s.MaxPo2, &maxDepth,
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
