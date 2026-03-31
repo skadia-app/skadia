@@ -1144,7 +1144,10 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 			a.max_depth_m, a.avg_depth_m, a.end_cns_pct,
 			a.jump_count, a.total_grit, a.avg_flow,
 			a.avg_lev_motor_power_w, a.lev_battery_consumption_pct,
-			a.parent_id, a.num_sessions
+			a.parent_id, a.num_sessions,
+			a.aerobic_training_effect, a.anaerobic_training_effect,
+			a.aerobic_decoupling, a.variability_index, a.efficiency_factor,
+			a.intensity_factor, a.workout_rpe, a.workout_feel
 		FROM activities a
 		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS cnt FROM activity_photos GROUP BY activity_id) pc ON pc.activity_id = a.id
 		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS cnt FROM activity_detected_laps GROUP BY activity_id) lc ON lc.activity_id = a.id
@@ -1242,6 +1245,10 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		levBatteryPct                                            *float64
 		parentID                                                 *string
 		numSessions                                              *int16
+		aerobicTE, anaerobicTE                                  *float64
+		aerobicDecoupling, variabilityIndex                     *float64
+		efficiencyFactor, intensityFactor                       *float64
+		workoutRPE, workoutFeel                                 *int
 	)
 
 	err := row.Scan(
@@ -1278,6 +1285,8 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		&jumpCount, &totalGrit, &avgFlow,
 		&avgLevMotorPowerW, &levBatteryPct,
 		&parentID, &numSessions,
+		&aerobicTE, &anaerobicTE, &aerobicDecoupling, &variabilityIndex,
+		&efficiencyFactor, &intensityFactor, &workoutRPE, &workoutFeel,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -1481,6 +1490,16 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	setNN("lev_battery_consumption_pct", derefF(levBatteryPct))
 	m["is_multisport_child"] = parentID != nil
 	m["is_multisport_parent"] = numSessions != nil && *numSessions > 1
+
+	// Training metrics
+	setNN("aerobic_training_effect", derefF(aerobicTE))
+	setNN("anaerobic_training_effect", derefF(anaerobicTE))
+	setNN("aerobic_decoupling", derefF(aerobicDecoupling))
+	setNN("variability_index", derefF(variabilityIndex))
+	setNN("efficiency_factor", derefF(efficiencyFactor))
+	setNN("intensity_factor", derefF(intensityFactor))
+	setNN("workout_rpe", derefInt(workoutRPE))
+	setNN("workout_feel", derefInt(workoutFeel))
 
 	return m, nil
 }
