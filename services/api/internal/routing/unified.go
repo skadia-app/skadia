@@ -436,18 +436,18 @@ func buildTrackIndexUnified(state *SparseRouterState, dst uint64, stopAt uint64)
 // Segments: Contiguous edges with the same OSM way ID are grouped into
 // RouteSegments with highway/surface/sac_scale/mtb_scale/tracktype metadata.
 func retrackUnified(reader GraphReader, state *SparseRouterState,
-	src, dst uint64) *RouteResult {
+	bestDstNode uint64, srcVE *VirtualEndpoint, dstVE *VirtualEndpoint) *RouteResult {
 
-	// Walk parent chain from dst -> src
+	// Walk parent chain from bestDstNode -> src seed
 	type pathEdge struct {
 		nodeID     uint64
 		edgeHandle uint64
 	}
 
 	var chain []pathEdge
-	node := dst
+	node := bestDstNode
 	maxIter := 1_000_000
-	for node != src && maxIter > 0 {
+	for node != state.srcSeedA && node != state.srcSeedB && maxIter > 0 {
 		ns, ok := state.nodes[node]
 		if !ok {
 			return nil // broken chain
@@ -459,24 +459,23 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 	if maxIter == 0 {
 		return nil // safety: infinite loop guard
 	}
-
-	// chain is dst->...->src-adjacent; add src and reverse
-	chain = append(chain, pathEdge{nodeID: src})
+	// node is now the actual seed (srcSeedA or srcSeedB)
+	chain = append(chain, pathEdge{nodeID: node})
 	slices.Reverse(chain)
-	// Now chain[0] = src, chain[len-1] = dst
+	// Now chain[0] = seed, chain[len-1] = bestDstNode
 	// chain[i+1].edgeHandle = edge from chain[i] to chain[i+1]
 
 	nEdges := len(chain) - 1
 	if nEdges <= 0 {
-		// src == dst: single-point route
-		lat, lon, ele := reader.NodeCoord(src)
+		// single-point route
+		lat, lon, ele := reader.NodeCoord(chain[0].nodeID)
 		return &RouteResult{
 			Coordinates: []LatLonEle{{
 				Lat: float64(lat) / 1e7,
 				Lon: float64(lon) / 1e7,
 				Ele: float64(ele) / 10.0,
 			}},
-			Cost: float64(state.nodes[dst].BestCost),
+			Cost: float64(state.nodes[bestDstNode].BestCost),
 		}
 	}
 
@@ -531,29 +530,55 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 	}
 
 	// Add last node (destination)
-	dstLat, dstLon, dstEle := reader.NodeCoord(dst)
+	dstLat, dstLon, dstEle := reader.NodeCoord(bestDstNode)
 	coords = append(coords, LatLonEle{
 		Lat: float64(dstLat) / 1e7,
 		Lon: float64(dstLon) / 1e7,
 		Ele: float64(dstEle) / 10.0,
 	})
 
+	// Build RouteSegments: group contiguous edges with same Tags1
+	segments := buildSegmentsUnified(nEdges, edgeCoordStart,
+		edgeTags1, len(coords)-1)
+
+	// Source-side VE projection prepend
+	if srcVE != nil {
+		srcCoord := LatLonEle{
+			Lat: srcVE.Proj.ProjLat,
+			Lon: srcVE.Proj.ProjLon,
+			Ele: float64(srcVE.Proj.ProjEleDm) / 10.0,
+		}
+		coords = append([]LatLonEle{srcCoord}, coords...)
+		// Prepend shifted all segment indices by +1
+		for i := range segments {
+			segments[i].FromIdx++
+			segments[i].ToIdx++
+		}
+	}
+
+	// Destination-side VE projection append
+	if dstVE != nil {
+		dstCoord := LatLonEle{
+			Lat: dstVE.Proj.ProjLat,
+			Lon: dstVE.Proj.ProjLon,
+			Ele: float64(dstVE.Proj.ProjEleDm) / 10.0,
+		}
+		coords = append(coords, dstCoord)
+	}
+
 	// K09: Calculate total distance from coordinates using geo.DistanceHaversine
+	// (after VE prepend/append so projected endpoints are included)
 	var totalDist float64
 	for i := 1; i < len(coords); i++ {
 		totalDist += geo.DistanceHaversine(coords[i-1].Lat, coords[i-1].Lon, coords[i].Lat, coords[i].Lon)
 	}
-
-	// Build RouteSegments: group contiguous edges with same Tags1
-	segments := buildSegmentsUnified(nEdges, edgeCoordStart,
-		edgeTags1, len(coords)-1)
 
 	return &RouteResult{
 		Coordinates: coords,
 		DistanceM:   totalDist,
 		AscentM:     totalAscent,
 		DescentM:    totalDescent,
-		Cost:        float64(state.nodes[dst].BestCost),
+		Cost:        float64(state.nodes[bestDstNode].BestCost),
 		Segments:    segments,
 	}
 }

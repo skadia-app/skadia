@@ -269,7 +269,7 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 					break
 				}
 
-				legResult := retrackUnified(r.reader, segRes.state, seg.From, segRes.bestDstNode)
+				legResult := retrackUnified(r.reader, segRes.state, segRes.bestDstNode, nil, nil)
 				if legResult == nil {
 					slog.Warn("segment retrack failed, falling back",
 						"from_idx", seg.FromIdx, "to_idx", seg.ToIdx)
@@ -304,7 +304,7 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 		pass1Exp = res1.expansions
 		pass1Ms = res1.durationMs
 
-		result = retrackUnified(r.reader, res1.state, src, res1.bestDstNode)
+		result = retrackUnified(r.reader, res1.state, res1.bestDstNode, nil, nil)
 		if result == nil {
 			return nil, fmt.Errorf("retrack failed: broken parent chain")
 		}
