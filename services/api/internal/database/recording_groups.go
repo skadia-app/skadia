@@ -148,34 +148,62 @@ func (db *DB) GetRecordingGroupForActivity(ctx context.Context, activityID strin
 }
 
 // GetRecordingGroupsForUser returns all recording groups for a user with member details.
-// Uses a single JOIN query — no N+1. When limit <= 0, all groups are returned (GDPR export).
-func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limit int) ([]RecordingGroupWithMembers, error) {
-	query := `
-		SELECT
-			rg.id, rg.user_id, rg.primary_activity_id, rg.sport_type, rg.created_at, rg.confirmed,
-			rgm.activity_id, rgm.is_fused,
-			(rg.primary_activity_id = rgm.activity_id) AS is_primary,
-			a.title, a.title_auto, a.started_at, a.sport_type,
-			a.source_device, a.source, a.original_file_format, a.distance_m, a.elapsed_time_s,
-			(CASE WHEN a.avg_heart_rate IS NOT NULL THEN 1 ELSE 0 END +
-			 CASE WHEN a.avg_power_w IS NOT NULL THEN 1 ELSE 0 END +
-			 CASE WHEN a.has_gps THEN 1 ELSE 0 END +
-			 CASE WHEN a.avg_temperature_c IS NOT NULL THEN 1 ELSE 0 END +
-			 CASE WHEN a.avg_cadence IS NOT NULL THEN 1 ELSE 0 END +
-			 CASE WHEN a.elevation_gain_m IS NOT NULL THEN 1 ELSE 0 END) AS field_richness,
-			a.has_gps
-		FROM recording_groups rg
-		JOIN recording_group_members rgm ON rgm.group_id = rg.id
-		JOIN activities a ON a.id = rgm.activity_id
-		WHERE rg.user_id = $1
-		ORDER BY rg.created_at DESC, rgm.activity_id`
+// Uses a CTE to limit groups first, then JOINs members — prevents LIMIT applying to joined rows.
+// When limit <= 0, all groups are returned (GDPR export). offset is ignored when limit <= 0.
+func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limit, offset int) ([]RecordingGroupWithMembers, error) {
+	var (
+		rows pgx.Rows
+		err  error
+	)
 
-	var rows pgx.Rows
-	var err error
 	if limit > 0 {
-		rows, err = db.Pool.Query(ctx, query+" LIMIT $2", userID, limit)
+		rows, err = db.Pool.Query(ctx, `
+			WITH limited_groups AS (
+				SELECT id, user_id, primary_activity_id, sport_type, created_at, confirmed
+				FROM recording_groups
+				WHERE user_id = $1
+				ORDER BY created_at DESC
+				LIMIT $2 OFFSET $3
+			)
+			SELECT
+				lg.id, lg.user_id, lg.primary_activity_id, lg.sport_type, lg.created_at, lg.confirmed,
+				rgm.activity_id, rgm.is_fused,
+				(lg.primary_activity_id = rgm.activity_id) AS is_primary,
+				a.title, a.title_auto, a.started_at, a.sport_type,
+				a.source_device, a.source, a.original_file_format, a.distance_m, a.elapsed_time_s,
+				(CASE WHEN a.avg_heart_rate IS NOT NULL THEN 1 ELSE 0 END +
+				 CASE WHEN a.avg_power_w IS NOT NULL THEN 1 ELSE 0 END +
+				 CASE WHEN a.has_gps THEN 1 ELSE 0 END +
+				 CASE WHEN a.avg_temperature_c IS NOT NULL THEN 1 ELSE 0 END +
+				 CASE WHEN a.avg_cadence IS NOT NULL THEN 1 ELSE 0 END +
+				 CASE WHEN a.elevation_gain_m IS NOT NULL THEN 1 ELSE 0 END) AS field_richness,
+				a.has_gps
+			FROM limited_groups lg
+			JOIN recording_group_members rgm ON rgm.group_id = lg.id
+			JOIN activities a ON a.id = rgm.activity_id
+			ORDER BY lg.created_at DESC, rgm.activity_id`,
+			userID, limit, offset)
 	} else {
-		rows, err = db.Pool.Query(ctx, query, userID)
+		rows, err = db.Pool.Query(ctx, `
+			SELECT
+				rg.id, rg.user_id, rg.primary_activity_id, rg.sport_type, rg.created_at, rg.confirmed,
+				rgm.activity_id, rgm.is_fused,
+				(rg.primary_activity_id = rgm.activity_id) AS is_primary,
+				a.title, a.title_auto, a.started_at, a.sport_type,
+				a.source_device, a.source, a.original_file_format, a.distance_m, a.elapsed_time_s,
+				(CASE WHEN a.avg_heart_rate IS NOT NULL THEN 1 ELSE 0 END +
+				 CASE WHEN a.avg_power_w IS NOT NULL THEN 1 ELSE 0 END +
+				 CASE WHEN a.has_gps THEN 1 ELSE 0 END +
+				 CASE WHEN a.avg_temperature_c IS NOT NULL THEN 1 ELSE 0 END +
+				 CASE WHEN a.avg_cadence IS NOT NULL THEN 1 ELSE 0 END +
+				 CASE WHEN a.elevation_gain_m IS NOT NULL THEN 1 ELSE 0 END) AS field_richness,
+				a.has_gps
+			FROM recording_groups rg
+			JOIN recording_group_members rgm ON rgm.group_id = rg.id
+			JOIN activities a ON a.id = rgm.activity_id
+			WHERE rg.user_id = $1
+			ORDER BY rg.created_at DESC, rgm.activity_id`,
+			userID)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("query recording groups: %w", err)

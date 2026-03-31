@@ -23,7 +23,7 @@ func (h *Handler) ExportUserData(w http.ResponseWriter, r *http.Request) {
 	zw := zip.NewWriter(&buf)
 
 	// Recording Groups
-	groups, _ := h.DB.GetRecordingGroupsForUser(ctx, userID, 0)
+	groups, _ := h.DB.GetRecordingGroupsForUser(ctx, userID, 0, 0)
 	if len(groups) > 0 {
 		writeJSON(zw, "recording_groups.json", groups)
 	}
