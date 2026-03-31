@@ -50,7 +50,6 @@ export function DiveStats({ activity, diveInfo }: Props) {
         : `${diveInfo.po2_stats.max_po2.toFixed(2)} bar`,
     } : null,
     activity.surface_interval_s != null ? { label: 'Oberflächenintervall', value: fmtDuration(activity.surface_interval_s, 'short') } : null,
-    activity.total_calories != null ? { label: 'Kalorien', value: `${activity.total_calories} kcal` } : null,
   ].filter(Boolean) as { label: string; value: string }[]
 
   if (stats.length === 0) return null
