@@ -10,23 +10,24 @@ type BackwardResult struct {
 // RunBackwardSearch runs a Dijkstra with cost_min from dst.
 // cost_min = min(ecf.Flat, ecf.Up, ecf.Down) — most optimistic cost for any state.
 // Stops when top_cost > initialUpperBound.
-func RunBackwardSearch(reader GraphReader, dst uint64, cfg *CostConfig,
-	initialUpperBound float32) BackwardResult {
+func RunBackwardSearch(reader GraphReader, dstA, dstB uint64,
+	initCostA, initCostB float32,
+	cfg *CostConfig, initialUpperBound float32) BackwardResult {
 
 	// Pre-size map based on expected expansion radius.
-	// At cost_min ~1.0/100m, initialUpperBound of N corresponds to ~N*100m radius.
-	// Rough estimate: 1 node per 50m² in dense areas → hint avoids rehashing.
-	hint := min(max(8192, int(initialUpperBound/10)),
-		// cap to avoid over-allocation
-		5_000_000)
+	hint := min(max(8192, int(initialUpperBound/10)), 5_000_000)
 	result := BackwardResult{
 		LowerBound: make(map[uint64]float32, hint),
 		UpperBound: initialUpperBound,
 	}
 
 	frontier := Frontier{entries: make([]FrontierEntry, 0, min(hint, 65536))}
-	result.LowerBound[dst] = 0
-	frontier.Push(FrontierEntry{NodeID: dst, Cost: 0})
+	result.LowerBound[dstA] = initCostA
+	frontier.Push(FrontierEntry{NodeID: dstA, Cost: initCostA})
+	if dstB != dstA {
+		result.LowerBound[dstB] = initCostB
+		frontier.Push(FrontierEntry{NodeID: dstB, Cost: initCostB})
+	}
 
 	for frontier.Len() > 0 {
 		entry := frontier.Pop()

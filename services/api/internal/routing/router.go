@@ -223,7 +223,7 @@ func (r *UnifiedRouter) Route(ctx context.Context, req RouteRequest,
 		if euclidDist >= 10_000 {
 			bwdStart := time.Now()
 			initialUB := float32(euclidDist) * 2.0 * cfg.AvgCostPerKm / 1000.0
-			bwdResult := RunBackwardSearch(r.reader, dst, cfg, initialUB)
+			bwdResult := RunBackwardSearch(r.reader, dst, dst, 0, 0, cfg, initialUB)
 			bwd = &bwdResult
 			slog.Info("backward search complete",
 				"nodes_reached", len(bwd.LowerBound),
