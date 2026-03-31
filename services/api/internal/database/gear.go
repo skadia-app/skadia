@@ -819,7 +819,7 @@ func (db *DB) GetMaintenanceAlerts(ctx context.Context, userID string) ([]model.
 
 // --- Automation Rules ---
 
-const ruleSelectCols = `id, user_id, name, is_active, priority, conditions, conditions_logic, condition_groups, actions, times_applied, created_at, is_system, system_type`
+const ruleSelectCols = `id, user_id, name, is_active, priority, conditions, conditions_logic, condition_groups, actions, times_applied, created_at, is_system, system_type, trigger_event, stop_on_match, apply_retroactively, last_evaluated_at, last_matched_count`
 
 func scanRule(row pgx.Row) (*model.AutomationRule, error) {
 	var r model.AutomationRule
@@ -828,6 +828,8 @@ func scanRule(row pgx.Row) (*model.AutomationRule, error) {
 		&r.Conditions, &r.ConditionsLogic, &r.ConditionGroups,
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
 		&r.IsSystem, &r.SystemType,
+		&r.TriggerEvent, &r.StopOnMatch, &r.ApplyRetroactive,
+		&r.LastEvaluatedAt, &r.LastMatchedCount,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -847,7 +849,9 @@ func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationR
 		            WHEN ar.system_type = 'virtual_sync'  THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = 'virtuell' LIMIT 1), 0)
 		            ELSE ar.times_applied
 		        END,
-		        ar.created_at, ar.is_system, ar.system_type
+		        ar.created_at, ar.is_system, ar.system_type,
+		        ar.trigger_event, ar.stop_on_match, ar.apply_retroactively,
+		        ar.last_evaluated_at, ar.last_matched_count
 		 FROM automation_rules ar WHERE ar.user_id = $1 ORDER BY ar.priority, ar.name`, userID,
 	)
 	if err != nil {
@@ -863,6 +867,8 @@ func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationR
 			&r.Conditions, &r.ConditionsLogic, &r.ConditionGroups,
 			&r.Actions, &r.TimesApplied, &r.CreatedAt,
 			&r.IsSystem, &r.SystemType,
+			&r.TriggerEvent, &r.StopOnMatch, &r.ApplyRetroactive,
+			&r.LastEvaluatedAt, &r.LastMatchedCount,
 		); err != nil {
 			return nil, fmt.Errorf("scan rule: %w", err)
 		}
@@ -882,17 +888,24 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 	if condLogic == "" {
 		condLogic = "and"
 	}
+	triggerEvent := create.TriggerEvent
+	if triggerEvent == "" {
+		triggerEvent = "on_import"
+	}
 	var r model.AutomationRule
 	err := db.Pool.QueryRow(ctx,
-		`INSERT INTO automation_rules (user_id, name, priority, conditions, conditions_logic, condition_groups, actions)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`INSERT INTO automation_rules (user_id, name, priority, conditions, conditions_logic, condition_groups, actions, trigger_event, stop_on_match)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING `+ruleSelectCols,
 		userID, create.Name, create.Priority, create.Conditions, condLogic, create.ConditionGroups, create.Actions,
+		triggerEvent, create.StopOnMatch,
 	).Scan(
 		&r.ID, &r.UserID, &r.Name, &r.IsActive, &r.Priority,
 		&r.Conditions, &r.ConditionsLogic, &r.ConditionGroups,
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
 		&r.IsSystem, &r.SystemType,
+		&r.TriggerEvent, &r.StopOnMatch, &r.ApplyRetroactive,
+		&r.LastEvaluatedAt, &r.LastMatchedCount,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create rule: %w", err)
@@ -946,6 +959,15 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 	if update.Actions != nil {
 		b.Set("actions", *update.Actions)
 	}
+	if update.TriggerEvent != nil {
+		b.Set("trigger_event", *update.TriggerEvent)
+	}
+	if update.StopOnMatch != nil {
+		b.Set("stop_on_match", *update.StopOnMatch)
+	}
+	if update.ApplyRetroactive != nil {
+		b.Set("apply_retroactively", *update.ApplyRetroactive)
+	}
 
 	if !b.HasSets() {
 		// No changes
@@ -971,6 +993,8 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 		&r.Conditions, &r.ConditionsLogic, &r.ConditionGroups,
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
 		&r.IsSystem, &r.SystemType,
+		&r.TriggerEvent, &r.StopOnMatch, &r.ApplyRetroactive,
+		&r.LastEvaluatedAt, &r.LastMatchedCount,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
