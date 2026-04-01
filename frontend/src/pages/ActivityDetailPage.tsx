@@ -77,14 +77,20 @@ function getSportEmoji(sportType: string): string {
 
 
 export default function ActivityDetailPage() {
-  const { id } = useParams<{ id: string }>()
+  const { id: urlId } = useParams<{ id: string }>()
+  const [activeActivityId, setActiveActivityId] = useState(urlId!)
   const queryClient = useQueryClient()
   const { addToast } = useToast()
 
+  // Sync when URL changes from external navigation (not tab clicks)
+  useEffect(() => {
+    setActiveActivityId(urlId!)
+  }, [urlId])
+
   const { data: activity, isLoading } = useQuery({
-    queryKey: ['activity', id],
-    queryFn: () => fetchActivity(id!),
-    enabled: !!id,
+    queryKey: ['activity', activeActivityId],
+    queryFn: () => fetchActivity(activeActivityId!),
+    enabled: !!activeActivityId,
   })
 
   const { data: weatherPrefs } = useQuery({
@@ -95,74 +101,74 @@ export default function ActivityDetailPage() {
   const weatherDisplayFields = weatherPrefs?.display_fields
 
   const { data: streams } = useQuery({
-    queryKey: ['activity-streams', id],
-    queryFn: () => fetchActivityStreams(id!),
-    enabled: !!id,
+    queryKey: ['activity-streams', activeActivityId],
+    queryFn: () => fetchActivityStreams(activeActivityId!),
+    enabled: !!activeActivityId,
   })
 
   const { data: sensors } = useQuery({
-    queryKey: ['activity-sensors', id],
-    queryFn: () => fetchActivitySensors(id!),
-    enabled: !!id,
+    queryKey: ['activity-sensors', activeActivityId],
+    queryFn: () => fetchActivitySensors(activeActivityId!),
+    enabled: !!activeActivityId,
   })
 
   const { data: zoneDistribution } = useQuery({
-    queryKey: ['zone-distribution', id],
-    queryFn: () => getZoneDistribution(id!),
-    enabled: !!id,
+    queryKey: ['zone-distribution', activeActivityId],
+    queryFn: () => getZoneDistribution(activeActivityId!),
+    enabled: !!activeActivityId,
   })
 
   const { data: laps } = useQuery({
-    queryKey: ['activity-laps', id],
-    queryFn: () => fetchActivityLaps(id!),
-    enabled: !!id,
+    queryKey: ['activity-laps', activeActivityId],
+    queryFn: () => fetchActivityLaps(activeActivityId!),
+    enabled: !!activeActivityId,
   })
 
   const { data: splitsData } = useQuery({
-    queryKey: ['activity-splits', id],
-    queryFn: () => fetchActivitySplits(id!),
-    enabled: !!id,
+    queryKey: ['activity-splits', activeActivityId],
+    queryFn: () => fetchActivitySplits(activeActivityId!),
+    enabled: !!activeActivityId,
   })
 
   const { data: lengths } = useQuery({
-    queryKey: ['activity-lengths', id],
-    queryFn: () => fetchActivityLengths(id!),
-    enabled: !!id,
+    queryKey: ['activity-lengths', activeActivityId],
+    queryFn: () => fetchActivityLengths(activeActivityId!),
+    enabled: !!activeActivityId,
   })
 
   const { data: climbPro } = useQuery({
-    queryKey: ['activity-climbpro', id],
-    queryFn: () => fetchActivityClimbPro(id!),
-    enabled: !!id,
+    queryKey: ['activity-climbpro', activeActivityId],
+    queryFn: () => fetchActivityClimbPro(activeActivityId!),
+    enabled: !!activeActivityId,
   })
 
   const { data: geoTags } = useQuery<GeoTag[]>({
-    queryKey: ['activity-geo-tags', id],
-    queryFn: () => fetchGeoTags(id!),
-    enabled: !!id && (activity?.has_gps ?? false),
+    queryKey: ['activity-geo-tags', activeActivityId],
+    queryFn: () => fetchGeoTags(activeActivityId!),
+    enabled: !!activeActivityId && (activity?.has_gps ?? false),
   })
 
   const { data: stops } = useQuery<ActivityStop[]>({
-    queryKey: ['activity-stops', id],
-    queryFn: () => fetchStops(id!),
-    enabled: !!id,
+    queryKey: ['activity-stops', activeActivityId],
+    queryFn: () => fetchStops(activeActivityId!),
+    enabled: !!activeActivityId,
   })
 
   // Load child activities for multisport parent
   const { data: childActivities } = useQuery<Activity[]>({
-    queryKey: ['activity-children', id],
+    queryKey: ['activity-children', activeActivityId],
     queryFn: async () => {
-      const resp = await apiFetch(`/api/v1/activities/${id}/children`)
+      const resp = await apiFetch(`/api/v1/activities/${activeActivityId}/children`)
       const json = await resp.json()
       return (json as { children: Activity[] }).children ?? []
     },
-    enabled: !!id && activity?.sport_type === 'multisport',
+    enabled: !!activeActivityId && activity?.sport_type === 'multisport',
   })
 
   const { data: diveInfo } = useQuery({
-    queryKey: ['dive-info', id],
-    queryFn: () => fetchDiveInfo(id!),
-    enabled: !!id && activity?.sport_type === 'diving',
+    queryKey: ['dive-info', activeActivityId],
+    queryFn: () => fetchDiveInfo(activeActivityId!),
+    enabled: !!activeActivityId && activity?.sport_type === 'diving',
     staleTime: Infinity,
   })
 
@@ -208,16 +214,23 @@ export default function ActivityDetailPage() {
   // Per-activity module visibility (persisted in localStorage)
   const [hiddenModules, setHiddenModules] = useState<Set<string>>(() => {
     try {
-      const raw = localStorage.getItem(`skadia-hidden-modules-${id ?? ''}`)
+      const raw = localStorage.getItem(`skadia-hidden-modules-${urlId ?? ''}`)
       return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
     } catch { return new Set() }
   })
+  // Reload hidden modules when active activity changes
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(`skadia-hidden-modules-${activeActivityId ?? ''}`)
+      setHiddenModules(raw ? new Set(JSON.parse(raw) as string[]) : new Set())
+    } catch { setHiddenModules(new Set()) }
+  }, [activeActivityId])
   const toggleModule = (name: string) => {
     setHiddenModules(prev => {
       const next = new Set(prev)
       if (next.has(name)) next.delete(name)
       else next.add(name)
-      try { localStorage.setItem(`skadia-hidden-modules-${id ?? ''}`, JSON.stringify([...next])) } catch { /* ignore */ }
+      try { localStorage.setItem(`skadia-hidden-modules-${activeActivityId ?? ''}`, JSON.stringify([...next])) } catch { /* ignore */ }
       return next
     })
   }
@@ -250,19 +263,19 @@ export default function ActivityDetailPage() {
   // Bubble phase: handles actual upload — stopped by ImportHub's stopPropagation(), so no double-upload
   const handleDrop = useCallback((e: DragEvent) => {
     e.preventDefault()
-    if (!id) return
+    if (!activeActivityId) return
     const files = e.dataTransfer?.files
     if (!files || files.length === 0) return
     const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'))
     if (imageFiles.length === 0) return
-    Promise.allSettled(imageFiles.map(f => uploadActivityPhoto(id, f))).then((results) => {
-      queryClient.invalidateQueries({ queryKey: ['activity-photos', id] })
+    Promise.allSettled(imageFiles.map(f => uploadActivityPhoto(activeActivityId, f))).then((results) => {
+      queryClient.invalidateQueries({ queryKey: ['activity-photos', activeActivityId] })
       const duplicates = results.filter(r => r.status === 'fulfilled' && r.value.status === 'duplicate').length
       if (duplicates > 0) {
         addToast({ type: 'warning', title: `${duplicates} Foto${duplicates > 1 ? 's' : ''} bereits vorhanden`, message: 'Duplikate wurden nicht erneut hochgeladen.' })
       }
     })
-  }, [id, queryClient])
+  }, [activeActivityId, queryClient])
 
   useEffect(() => {
     window.addEventListener('dragenter', handleDragEnter)
@@ -281,7 +294,7 @@ export default function ActivityDetailPage() {
 
   // Load child streams for multisport combined chart
   const { data: childStreams } = useQuery({
-    queryKey: ['multisport-streams', id, childActivities?.map(c => c.id)],
+    queryKey: ['multisport-streams', activeActivityId, childActivities?.map(c => c.id)],
     queryFn: async () => {
       if (!childActivities || childActivities.length === 0) return null
       const results = await Promise.all(
@@ -289,7 +302,7 @@ export default function ActivityDetailPage() {
       )
       return results // StreamPoint[][] — one array per child
     },
-    enabled: !!id && activity?.sport_type === 'multisport' && !!childActivities && childActivities.length > 0,
+    enabled: !!activeActivityId && activity?.sport_type === 'multisport' && !!childActivities && childActivities.length > 0,
   })
 
   // Compute merged streams + split markers for multisport combined chart
@@ -360,8 +373,8 @@ export default function ActivityDetailPage() {
   const assignedLocationTag = locationTagsForActivity.find(t => (activity?.tags ?? []).includes(t.name)) ?? null
 
   const { data: sets } = useQuery<ActivitySet[]>({
-    queryKey: ['activity-sets', id],
-    queryFn: () => fetchActivitySets(id!),
+    queryKey: ['activity-sets', activeActivityId],
+    queryFn: () => fetchActivitySets(activeActivityId!),
     enabled: !!activity && ['strength_training', 'training', 'strength'].includes(activity.sport_type),
   })
 
@@ -372,14 +385,14 @@ export default function ActivityDetailPage() {
   })
 
   const { data: jumps } = useQuery<ActivityJump[]>({
-    queryKey: ['activity-jumps', id],
-    queryFn: () => fetchActivityJumps(id!),
+    queryKey: ['activity-jumps', activeActivityId],
+    queryFn: () => fetchActivityJumps(activeActivityId!),
     enabled: !!activity && (activity.jump_count ?? 0) > 0,
   })
 
   const { data: events } = useQuery<ActivityEvent[]>({
-    queryKey: ['activity-events', id],
-    queryFn: () => fetchActivityEvents(id!),
+    queryKey: ['activity-events', activeActivityId],
+    queryFn: () => fetchActivityEvents(activeActivityId!),
     enabled: !!activity && activity.has_gps && getSegmentGroup(activity.sport_type) === 'bike',
   })
 
@@ -394,7 +407,7 @@ export default function ActivityDetailPage() {
   useEffect(() => {
     if (!recordingGroup?.members) return
     for (const member of recordingGroup.members) {
-      if (member.activity_id === id) continue
+      if (member.activity_id === activeActivityId) continue
       queryClient.prefetchQuery({
         queryKey: ['activity', member.activity_id],
         queryFn: () => fetchActivity(member.activity_id),
@@ -406,7 +419,7 @@ export default function ActivityDetailPage() {
         staleTime: 5 * 60 * 1000,
       })
     }
-  }, [recordingGroup, id, queryClient])
+  }, [recordingGroup, activeActivityId, queryClient])
 
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Aktivität...</div>
@@ -472,13 +485,17 @@ export default function ActivityDetailPage() {
       {recordingGroup && recordingGroup.members.length > 1 && (
         <div className="flex items-center gap-1 border-b border-neutral-200 dark:border-neutral-700 -mx-4 px-4">
           {recordingGroup.members.map((member, i) => {
-            const isActive = member.activity_id === id
+            const isActive = member.activity_id === activeActivityId
             const color = getSourceColor(i)
             const label = member.source_device || member.source || `Quelle ${i + 1}`
             return (
-              <Link
+              <button
                 key={member.activity_id}
-                to={`/activities/${member.activity_id}`}
+                type="button"
+                onClick={() => {
+                  setActiveActivityId(member.activity_id)
+                  window.history.replaceState(null, '', `/activities/${member.activity_id}`)
+                }}
                 className={`flex items-center gap-2 px-3 py-2 text-sm border-b-2 transition-colors ${
                   isActive
                     ? 'border-orange-500 text-orange-600 dark:text-orange-400 font-medium'
@@ -487,7 +504,7 @@ export default function ActivityDetailPage() {
               >
                 <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color }} />
                 {label}
-              </Link>
+              </button>
             )
           })}
           <Link
