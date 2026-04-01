@@ -1870,9 +1870,6 @@ export default function MapPage() {
         />
 
 
-        {/* Geocoding search */}
-        <GeoSearch mapRef={mapRef} />
-
         {/* Base style switcher */}
         <div className="absolute bottom-4 left-4 z-10 flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md">
           {(Object.keys(BASE_STYLES) as BaseStyle[]).map((key) => {
@@ -2026,8 +2023,12 @@ export default function MapPage() {
 
         </div>
 
-        {/* Toggle buttons for custom maps + photos + segments + indoor */}
-        <div className="absolute top-4 right-[17.5rem] z-10 flex gap-1.5 flex-wrap justify-end">
+        {/* Top control bar: geocoding search (center) + toggle buttons (right), responsive flex-wrap */}
+        <div className="absolute top-3 left-4 right-[17.5rem] z-10 flex flex-wrap items-start gap-x-2 gap-y-2">
+          <div className="flex-1 flex justify-center min-w-[16rem]">
+            <GeoSearch mapRef={mapRef} inline />
+          </div>
+        <div className="flex gap-1.5 flex-wrap justify-end flex-shrink-0">
           {/* Route Planner toggle button */}
           {(() => {
             const plannerAvailable = planner.capabilities?.routing ?? false
@@ -2101,6 +2102,7 @@ export default function MapPage() {
           >
             Eigene Karten
           </button>
+        </div>
         </div>
 
         {/* Segments Overlay — Segment-Linien als Karten-Ebene */}

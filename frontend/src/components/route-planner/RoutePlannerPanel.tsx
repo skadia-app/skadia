@@ -329,11 +329,11 @@ export default function RoutePlannerPanel({
   }
 
   return (
-    <div className="absolute top-4 left-4 z-10 w-72">
-      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg overflow-hidden">
+    <div className="absolute top-4 left-4 z-10 w-72 max-h-[calc(100vh-6rem)] flex flex-col">
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg overflow-hidden flex flex-col min-h-0">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-100 dark:border-neutral-800">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-100 dark:border-neutral-800 flex-shrink-0">
           <button
             onClick={() => setCollapsed(!collapsed)}
             className="flex-1 flex items-center gap-2 hover:text-accent-DEFAULT cursor-pointer transition-colors"
@@ -365,7 +365,7 @@ export default function RoutePlannerPanel({
         </div>
 
         {!collapsed && (
-          <div className="flex flex-col">
+          <div className="flex flex-col overflow-y-auto min-h-0">
 
             {/* Routing engine toggle */}
             <div className="px-3 pt-2.5 pb-1.5 border-b border-neutral-100 dark:border-neutral-800">

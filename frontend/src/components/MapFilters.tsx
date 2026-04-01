@@ -223,7 +223,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
   }
 
   return (
-    <div className={`absolute top-4 right-4 z-10 w-64${forceDark ? ' dark' : ''}`} ref={datePickerRef}>
+    <div className={`absolute top-3 right-4 z-10 w-64${forceDark ? ' dark' : ''}`} ref={datePickerRef}>
       {/* DayPicker-Popup – links vom Panel, außerhalb overflow-hidden */}
       {datePickerOpen && (
         <div className="absolute top-0 right-full mr-2 z-50 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-xl overflow-hidden">
