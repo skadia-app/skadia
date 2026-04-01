@@ -69,9 +69,16 @@ export interface GpsPoint {
 
 // ── Data extraction helpers ───────────────────────────────────────────────────
 
-/** Pre-compute elapsed seconds for every stream point in one pass. */
-function buildElapsedMap(streams: StreamPoint[]): Float64Array {
-  const t0 = new Date(streams[0].time).getTime()
+/**
+ * Pre-compute elapsed seconds for every stream point in one pass.
+ *
+ * @param streams  - raw stream points
+ * @param globalStartMs - shared time base in ms-epoch (use earliest start across
+ *   all sources). When 0 or omitted, falls back to this stream's own first point
+ *   (single-source / legacy behaviour).
+ */
+function buildElapsedMap(streams: StreamPoint[], globalStartMs = 0): Float64Array {
+  const t0 = globalStartMs > 0 ? globalStartMs : new Date(streams[0].time).getTime()
   const elapsed = new Float64Array(streams.length)
   for (let i = 0; i < streams.length; i++) {
     elapsed[i] = (new Date(streams[i].time).getTime() - t0) / 1000
@@ -138,6 +145,9 @@ export interface PreparedStreamData {
 export function useStreamData(
   streams: StreamPoint[] | undefined,
   sportType: string,
+  /** Shared time base (ms epoch) from SourcesContext.globalStartMs. Pass 0 for
+   *  single-source views — falls back to per-stream first-point time. */
+  globalStartMs = 0,
 ): PreparedStreamData {
   return useMemo(() => {
     const s = streams ?? []
@@ -154,7 +164,9 @@ export function useStreamData(
     }
 
     // Single-pass elapsed time pre-computation shared by all extractors.
-    const elapsed = buildElapsedMap(s)
+    // Uses globalStartMs as the shared time base when provided (>0), so that
+    // all sources in a comparison produce compatible X-values.
+    const elapsed = buildElapsedMap(s, globalStartMs)
 
     return {
       hrData:                  extractTimeSeries(s, elapsed, p => p.heart_rate),
@@ -171,5 +183,5 @@ export function useStreamData(
       gpsPoints:               extractGpsPoints(s, elapsed),
       isPaceMode,
     }
-  }, [streams, sportType])
+  }, [streams, sportType, globalStartMs])
 }
