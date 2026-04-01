@@ -23,6 +23,7 @@ const SOURCE_WP          = 'route-planner-waypoints-source'
 const SOURCE_CP          = 'route-planner-control-points-source'
 const SOURCE_APPROACH    = 'route-planner-approach-source'
 const SOURCE_CALCULATING = 'route-planner-calculating-source'
+const SOURCE_HIGHLIGHT   = 'route-planner-highlight-source'
 
 const LAYER_ROUTED           = 'route-planner-line'
 const LAYER_OFFROAD          = 'route-planner-offroad'
@@ -31,6 +32,7 @@ const LAYER_WP_CIRCLE        = 'route-planner-waypoints'
 const LAYER_WP_LABEL         = 'route-planner-waypoints-label'
 const LAYER_CP_CIRCLE        = 'route-planner-control-points'
 const LAYER_CALCULATING      = 'route-planner-calculating'
+const LAYER_HIGHLIGHT        = 'route-planner-highlight'
 const LAYER_CALCULATING_GLOW = 'route-planner-calculating-glow'
 
 // Pixel radius for "close enough to waypoint" snap on click
@@ -48,6 +50,7 @@ export interface RoutePlannerState {
   waypoints: RouteWaypoint[]
   segments: RouteSegment[]
   isCalculating?: boolean
+  highlightedType?: { kind: 'highway' | 'surface'; key: string } | null
   addWaypoint: (latlng: [number, number]) => void
   moveWaypoint: (id: string, latlng: [number, number]) => void
   removeWaypoint: (id: string) => void
@@ -461,6 +464,18 @@ export function useRouteEditor(
       })
     }
 
+    // Highlight overlay (yellow sub-segments on hover/pin — rendered on top of route)
+    if (!map.getSource(SOURCE_HIGHLIGHT)) {
+      map.addSource(SOURCE_HIGHLIGHT, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+    }
+    if (!map.getLayer(LAYER_HIGHLIGHT)) {
+      map.addLayer({
+        id: LAYER_HIGHLIGHT, type: 'line', source: SOURCE_HIGHLIGHT,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#FACC15', 'line-width': 6, 'line-opacity': 0.9 },
+      })
+    }
+
     // Waypoint labels (A / B)
     if (!map.getLayer(LAYER_WP_LABEL)) {
       map.addLayer({
@@ -487,6 +502,7 @@ export function useRouteEditor(
 
   const removeLayers = useCallback((map: maplibregl.Map) => {
     const layers = [
+      LAYER_HIGHLIGHT,
       LAYER_WP_LABEL,
       LAYER_WP_CIRCLE,
       LAYER_CP_CIRCLE,
@@ -506,6 +522,7 @@ export function useRouteEditor(
     if (map.getSource(SOURCE_CP))          map.removeSource(SOURCE_CP)
     if (map.getSource(SOURCE_APPROACH))    map.removeSource(SOURCE_APPROACH)
     if (map.getSource(SOURCE_CALCULATING)) map.removeSource(SOURCE_CALCULATING)
+    if (map.getSource(SOURCE_HIGHLIGHT))  map.removeSource(SOURCE_HIGHLIGHT)
     sourcesReadyRef.current = false
   }, [])
 
@@ -531,6 +548,52 @@ export function useRouteEditor(
   // calculation starts/stops (clears the placeholder line on completion).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, planner.segments, planner.waypoints, planner.isCalculating ?? false])
+
+  // ── Highlight overlay: yellow sub-segments on hover/pin ───────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !active || !sourcesReadyRef.current) return
+    const src = map.getSource(SOURCE_HIGHLIGHT) as maplibregl.GeoJSONSource | undefined
+    if (!src) return
+
+    const ht = planner.highlightedType
+    if (!ht) {
+      src.setData({ type: 'FeatureCollection', features: [] })
+      return
+    }
+
+    // Surface grouping table (same as surfaceConstants.ts)
+    const SG: Record<string, string> = {
+      asphalt: 'Asphalt', concrete: 'Beton', concrete_lanes: 'Beton', concrete_plates: 'Beton',
+      paved: 'Befestigt', paving_stones: 'Pflaster', sett: 'Pflaster', cobblestone: 'Pflaster',
+      compacted: 'Schotter', fine_gravel: 'Schotter', gravel: 'Schotter', pebblestone: 'Schotter',
+      ground: 'Naturweg', earth: 'Naturweg', dirt: 'Naturweg', mud: 'Naturweg', clay: 'Naturweg',
+      sand: 'Sand', grass: 'Gras', grass_paver: 'Gras', wood: 'Holz', woodchips: 'Holz',
+      rock: 'Fels', unpaved: 'Unbefestigt', unknown: 'Unbekannt', offroad: 'Offroad',
+    }
+
+    const features: GeoJSON.Feature<GeoJSON.LineString>[] = []
+    for (const seg of plannerRef.current.segments) {
+      if (!seg.sub_segments?.length || !seg.geometry?.coordinates?.length) continue
+      const coords = seg.geometry.coordinates
+      for (const ss of seg.sub_segments) {
+        const sub = ss as { from_idx: number; to_idx: number; highway: string; surface: string }
+        const match = ht.kind === 'highway'
+          ? sub.highway === ht.key
+          : (SG[sub.surface] ?? sub.surface) === ht.key
+        if (!match) continue
+        const start = Math.max(0, sub.from_idx)
+        const end = Math.min(coords.length - 1, sub.to_idx)
+        if (end - start < 1) continue
+        features.push({
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'LineString', coordinates: coords.slice(start, end + 1) },
+        })
+      }
+    }
+    src.setData({ type: 'FeatureCollection', features })
+  }, [active, planner.highlightedType]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Animation loop: pulse glow on calculating layer ───────────────────────
   useEffect(() => {
