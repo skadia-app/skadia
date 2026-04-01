@@ -17,6 +17,81 @@ import RuleEditor from '@/components/RuleEditor'
 import Toggle from '@/components/Toggle'
 import { useToast } from '@/lib/toast'
 
+interface DryRunMatch {
+  activity_id: string
+  activity_title: string
+  started_at?: string
+  sport_type?: string
+  distance_m?: number
+  rules: { rule_name: string; action: string }[]
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  sport_type: 'Sportart', sub_type: 'Sub-Typ', source: 'Quelle',
+  intensity: 'Intensität', is_indoor: 'Indoor', has_gps: 'GPS',
+  visibility: 'Sichtbarkeit', title: 'Titel', description: 'Beschreibung',
+  elapsed_time_s: 'Gesamtzeit', moving_time_s: 'Bewegungszeit',
+  weekday: 'Wochentag', month: 'Monat', season: 'Jahreszeit',
+  time_of_day: 'Tageszeit', distance_m: 'Distanz',
+  avg_speed_ms: 'Ø Geschwindigkeit', max_speed_ms: 'Max. Geschwindigkeit',
+  elevation_gain_m: 'Höhenmeter', elevation_loss_m: 'Höhenverlust',
+  max_elevation_m: 'Max. Höhe', min_elevation_m: 'Min. Höhe',
+  avg_heart_rate: 'Ø HF', max_heart_rate: 'Max. HF', min_heart_rate: 'Min. HF',
+  avg_cadence: 'Ø Kadenz', max_cadence: 'Max. Kadenz',
+  avg_power_w: 'Ø Leistung', max_power_w: 'Max. Leistung',
+  normalized_power_w: 'NP', tss: 'TSS', trimp: 'TRIMP',
+  avg_temperature_c: 'Ø Temperatur', min_temperature_c: 'Min. Temperatur',
+  max_temperature_c: 'Max. Temperatur',
+  start_city: 'Startort', start_state: 'Region', start_country: 'Land',
+  end_city: 'Endort', gear_id: 'Ausrüstung',
+  has_tag: 'Tag', photo_count: 'Fotos', detected_lap_count: 'Runden',
+  hide_map: 'Karte verborgen', sun_elevation: 'Sonnenstand',
+  start_end_distance_m: 'Start-End-Abstand',
+  has_lift: 'Lift', lift_count: 'Lifte',
+  climb_count: 'Anstiege', climb_category_max: 'Härteste Kategorie',
+  has_summit: 'Gipfel', summit_count: 'Anz. Gipfel',
+  has_pass: 'Pass', border_crossing_count: 'Grenzquerungen',
+  has_gastronomy_stop: 'Einkehr', commute_detected: 'Pendeln',
+  has_structured_intervals: 'Intervalle', has_hc_climb: 'HC-Anstieg',
+  surface_paved_pct: 'Asphalt %', surface_gravel_pct: 'Gravel %',
+  surface_trail_pct: 'Trail %',
+  swim_stroke: 'Schwimmstil', pool_length_m: 'Bahnlänge',
+  max_depth_m: 'Max. Tiefe', jump_count: 'Sprünge',
+  weather_temp_c: 'Wetter-Temp.', weather_condition: 'Wetterlage',
+}
+
+const OP_DISPLAY: Record<string, string> = {
+  eq: '=', neq: '≠', gt: '>', lt: '<', gte: '≥', lte: '≤',
+  contains: 'enthält', not_contains: 'enthält nicht',
+  starts_with: 'beginnt mit', ends_with: 'endet mit',
+  between: 'zwischen', in: 'in',
+}
+
+function formatConditionValue(c: { field: string; op: string; value: unknown }): string {
+  if (typeof c.value === 'boolean') return c.value ? 'Ja' : 'Nein'
+  if (c.value === null || c.value === undefined) return ''
+  return String(c.value)
+}
+
+function formatActionParams(action: string, params: Record<string, unknown> | undefined, tags?: { id: string; name: string }[]): string {
+  if (!params) return ''
+  if ((action === 'add_tag' || action === 'remove_tag') && params.tag_id) {
+    const tag = tags?.find((t) => t.id === params.tag_id)
+    return tag ? `"${tag.name}"` : String(params.tag_id)
+  }
+  if (action === 'set_field' && params.field) {
+    const label = FIELD_LABELS[String(params.field)] || String(params.field)
+    return `${label} = ${params.value}`
+  }
+  if (action === 'set_sport_type') return String(params.sport_type || '')
+  if (action === 'set_name') return `"${params.template || ''}"`
+  if (action === 'set_visibility') return String(params.visibility || '')
+  if (action === 'set_intensity') return String(params.intensity || '')
+  if (action === 'set_indoor') return params.indoor ? 'Ja' : 'Nein'
+  if (action === 'set_gear' && params.gear_id) return String(params.gear_id)
+  return JSON.stringify(params)
+}
+
 export default function AutomationRulesPage() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -232,6 +307,7 @@ export default function AutomationRulesPage() {
                     onEdit={() => setEditingId(rule.id)}
                     onToggle={(active) => toggleMutation.mutate({ id: rule.id, is_active: active })}
                     onDelete={() => setDeleteConfirmId(rule.id)}
+                    onBackfill={addToast}
                   />
                 )}
               </div>
@@ -311,11 +387,24 @@ export default function AutomationRulesPage() {
             </p>
             {dryRunResults.matches.length > 0 && (
               <div className="overflow-y-auto flex-1 space-y-2">
-                {dryRunResults.matches.map((m) => (
+                {(dryRunResults.matches as DryRunMatch[]).map((m) => (
                   <div key={m.activity_id} className="rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2">
-                    <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">
+                    <a
+                      href={`/activities/${m.activity_id}`}
+                      className="text-sm font-medium text-neutral-900 dark:text-neutral-100 hover:text-accent-DEFAULT truncate block"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       {m.activity_title || m.activity_id}
-                    </div>
+                      {m.started_at && (
+                        <span className="text-neutral-400 font-normal ml-2">{m.started_at}</span>
+                      )}
+                      {m.sport_type && (
+                        <span className="text-neutral-400 font-normal ml-2">{m.sport_type}</span>
+                      )}
+                      {m.distance_m != null && m.distance_m > 0 && (
+                        <span className="text-neutral-400 font-normal ml-2">{(m.distance_m / 1000).toFixed(1)} km</span>
+                      )}
+                    </a>
                     <div className="mt-0.5 flex flex-wrap gap-1.5">
                       {m.rules.map((rm, i) => (
                         <span key={i} className="inline-flex items-center gap-1 text-xs bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-800 rounded px-1.5 py-0.5">
@@ -358,11 +447,11 @@ export default function AutomationRulesPage() {
               className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700 p-6 shadow-xl max-w-sm w-full mx-4 space-y-4"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Regel loschen?</h3>
+              <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Regel löschen?</h3>
               <p className="text-sm text-neutral-600 dark:text-neutral-400">
                 Soll die Automatisierungsregel{' '}
                 <span className="font-semibold text-neutral-900 dark:text-neutral-100">"{ruleToDelete.name}"</span>{' '}
-                wirklich geloscht werden? Diese Aktion kann nicht ruckgangig gemacht werden.
+                wirklich gelöscht werden? Diese Aktion kann nicht rückgängig gemacht werden.
               </p>
               <div className="flex items-center justify-end gap-3">
                 <button
@@ -377,7 +466,7 @@ export default function AutomationRulesPage() {
                   disabled={deleteMutation.isPending}
                   className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 >
-                  {deleteMutation.isPending ? 'Wird geloscht...' : 'Loschen'}
+                  {deleteMutation.isPending ? 'Wird gelöscht...' : 'Löschen'}
                 </button>
               </div>
             </div>
@@ -432,14 +521,17 @@ function RuleCard({
     }
   }
 
-  const isReadonlySystem = rule.system_type === 'electric_sync' || rule.system_type === 'virtual_sync' || rule.system_type === 'indoor_sync'
+  const isReadonlySystem = rule.system_type === 'electric_sync' || rule.system_type === 'virtual_sync' || rule.system_type === 'indoor_sync' || rule.system_type === 'commute_sync'
 
   const readonlyDescriptions: Record<string, string> = {
     electric_sync: 'Wird automatisch aus Gerätedaten erkannt. Diese Regel kann nicht bearbeitet werden.',
     virtual_sync: 'Wird automatisch über die Datenbankspalte is_virtual synchronisiert. Diese Regel kann nicht bearbeitet werden.',
     indoor_sync: 'Wird automatisch aus der Sport-Taxonomy erkannt. Diese Regel kann nicht bearbeitet werden.',
+    commute_sync: 'Wird automatisch über die Datenbankspalte is_commute synchronisiert. Diese Regel kann nicht bearbeitet werden.',
   }
   const readonlyDescription = rule.system_type ? (readonlyDescriptions[rule.system_type] ?? 'System-Regel. Diese Regel kann nicht bearbeitet werden.') : ''
+
+  const { data: tags } = useQuery({ queryKey: ['tags'], queryFn: () => fetch('/api/v1/tags').then(r => r.json()) })
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4">
@@ -450,12 +542,20 @@ function RuleCard({
         >
           <div className="flex items-center gap-3">
             <h3 className="text-base font-medium text-neutral-900 dark:text-neutral-100">{rule.name}</h3>
-            {rule.is_system && (
+            {rule.is_system && isReadonlySystem && (
               <span className="text-xs bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 px-1.5 py-0.5 rounded font-medium">
                 System
               </span>
             )}
             <span className="text-xs text-neutral-400 tabular-nums">Prio {rule.priority}</span>
+            {rule.trigger_event && rule.trigger_event !== 'on_import' && (
+              <span className="text-xs text-neutral-400 tabular-nums">
+                · {rule.trigger_event === 'on_enrichment_complete' ? 'Nach Enrichment' : 'Nur manuell'}
+              </span>
+            )}
+            {rule.stop_on_match && (
+              <span className="text-xs text-amber-500 tabular-nums">· Stoppt</span>
+            )}
             <span className="text-xs text-neutral-400 tabular-nums">{rule.times_applied}x angewendet</span>
             {rule.last_evaluated_at && (
               <span className="text-xs text-neutral-400 tabular-nums">
@@ -474,12 +574,12 @@ function RuleCard({
             <>
               <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
                 <span className="font-mono text-xs">
-                  WENN {rule.conditions.map((c) => `${c.field} ${c.op} ${JSON.stringify(c.value)}`).join(' UND ')}
+                  WENN {rule.conditions.map((c) => `${FIELD_LABELS[c.field] || c.field} ${OP_DISPLAY[c.op] || c.op} ${formatConditionValue(c)}`).join(' UND ')}
                 </span>
               </div>
               <div className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
                 <span className="font-mono text-xs">
-                  DANN {rule.actions.map((a) => `${actionLabel(a.action)}(${JSON.stringify(a.params)})`).join(', ')}
+                  DANN {rule.actions.map((a) => `${actionLabel(a.action)}(${formatActionParams(a.action, a.params as Record<string, unknown> | undefined, tags)})`).join(', ')}
                 </span>
               </div>
             </>
@@ -494,8 +594,8 @@ function RuleCard({
               onChange={(active) => onToggle(active)}
               aria-label={`${rule.name} aktivieren`}
             />
-            {/* Backfill button: only for non-system rules */}
-            {!rule.is_system && onBackfill && (
+            {/* Backfill button: for all non-readonly system rules */}
+            {!isReadonlySystem && onBackfill && (
               <button
                 onClick={handleBackfillPreview}
                 disabled={backfillLoading || backfillApplying}
@@ -566,7 +666,13 @@ function actionLabel(action: string): string {
   const labels: Record<string, string> = {
     set_gear: 'Ausrüstung',
     add_tag: 'Tag',
+    remove_tag: 'Tag entfernen',
     set_visibility: 'Sichtbarkeit',
+    set_sport_type: 'Sportart',
+    set_name: 'Titel',
+    set_intensity: 'Intensität',
+    set_indoor: 'Indoor',
+    set_field: 'Feld setzen',
   }
   return labels[action] ?? action
 }
