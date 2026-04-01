@@ -578,6 +578,25 @@ function RuleCard({
             <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400 italic">
               {readonlyDescription}
             </div>
+          ) : rule.branches && rule.branches.length > 0 ? (
+            <div className="mt-1 space-y-0.5">
+              {rule.branches.map((branch, i) => {
+                const condStr = branch.condition_groups?.flatMap(g => g.conditions).map(c =>
+                  `${FIELD_LABELS[c.field] || c.field} ${OP_DISPLAY[c.op] || c.op} ${formatConditionValue(c)}`
+                ).join(' UND ') || ''
+                const actStr = branch.actions.map(a =>
+                  `${actionLabel(a.action)}(${formatActionParams(a.action, a.params as Record<string, unknown> | undefined, tags)})`
+                ).join(', ')
+                const prefix = branch.type === 'if' ? 'WENN' : branch.type === 'else' ? 'SONST' : 'SONST WENN'
+                return (
+                  <div key={i} className="text-sm text-neutral-500 dark:text-neutral-400">
+                    <span className="font-mono text-xs">
+                      {prefix}{condStr ? ` ${condStr}` : ''} → {actStr}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
           ) : (
             <>
               <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
