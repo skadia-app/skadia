@@ -559,29 +559,24 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 	segments := buildSegmentsUnified(nEdges, edgeCoordStart,
 		edgeTags1, len(coords)-1)
 
-	// Source-side VE projection prepend
+	// Source-side: insert partial edge geometry from projection point to seed node.
+	// Without this, there's a straight line (Luftlinie) from the projection to the
+	// first network node — visually cutting across roads/bridges/water.
 	if srcVE != nil {
-		srcCoord := LatLonEle{
-			Lat: srcVE.Proj.ProjLat,
-			Lon: srcVE.Proj.ProjLon,
-			Ele: float64(srcVE.Proj.ProjEleDm) / 10.0,
-		}
-		coords = append([]LatLonEle{srcCoord}, coords...)
-		// Prepend shifted all segment indices by +1
-		for i := range segments {
-			segments[i].FromIdx++
-			segments[i].ToIdx++
+		partialCoords := extractPartialEdgeGeometry(reader, srcVE, chain[0].nodeID, true)
+		if len(partialCoords) > 0 {
+			coords = append(partialCoords, coords...)
+			for i := range segments {
+				segments[i].FromIdx += len(partialCoords)
+				segments[i].ToIdx += len(partialCoords)
+			}
 		}
 	}
 
-	// Destination-side VE projection append
+	// Destination-side: insert partial edge geometry from last node to projection point.
 	if dstVE != nil {
-		dstCoord := LatLonEle{
-			Lat: dstVE.Proj.ProjLat,
-			Lon: dstVE.Proj.ProjLon,
-			Ele: float64(dstVE.Proj.ProjEleDm) / 10.0,
-		}
-		coords = append(coords, dstCoord)
+		partialCoords := extractPartialEdgeGeometry(reader, dstVE, bestDstNode, false)
+		coords = append(coords, partialCoords...)
 	}
 
 	// K09: Calculate total distance from coordinates using geo.DistanceHaversine
@@ -628,6 +623,117 @@ func buildSegmentsUnified(nEdges int,
 	segments = append(segments, makeSegmentFromTags(segFromCoord, lastCoordIdx, curTags))
 
 	return segments
+}
+
+// extractPartialEdgeGeometry builds the coordinate sequence for the partial edge
+// between a VirtualEndpoint's projection point and the seed node that A* used.
+//
+// For source-side (isSource=true): returns [projPoint, ...intermediates..., seedNode].
+// The seed node is where the VE connects to the A* graph (GlobalA or GlobalB).
+// The route already starts at the seed node, so this partial geometry fills the
+// gap between the projection point and the seed — following the actual road geometry
+// instead of a straight line (Luftlinie).
+//
+// For destination-side (isSource=false): returns [seedNode, ...intermediates..., projPoint].
+// Note: the seed node coordinate is NOT included in the output (it's already the last
+// coord from the main retrack loop). Only intermediate + projection point are returned.
+func extractPartialEdgeGeometry(reader GraphReader, ve *VirtualEndpoint,
+	seedNode uint64, isSource bool) []LatLonEle {
+
+	proj := ve.Proj
+
+	// Build full edge polyline: [NodeA, ...intermediates..., NodeB]
+	nodeALat, nodeALon, nodeAEle := reader.NodeCoord(ve.GlobalA)
+	nodeBLat, nodeBLon, nodeBEle := reader.NodeCoord(ve.GlobalB)
+	intermLats, intermLons := reader.EdgeGeometry(proj.EdgeHandle)
+
+	type pt struct{ lat, lon, ele float64 }
+	full := make([]pt, 0, len(intermLats)+2)
+	full = append(full, pt{float64(nodeALat) / 1e7, float64(nodeALon) / 1e7, float64(nodeAEle) / 10.0})
+	for i := range intermLats {
+		// Intermediate points don't have elevation — interpolate linearly
+		frac := float64(i+1) / float64(len(intermLats)+1)
+		ele := float64(nodeAEle)/10.0 + frac*(float64(nodeBEle)/10.0-float64(nodeAEle)/10.0)
+		full = append(full, pt{float64(intermLats[i]) / 1e7, float64(intermLons[i]) / 1e7, ele})
+	}
+	full = append(full, pt{float64(nodeBLat) / 1e7, float64(nodeBLon) / 1e7, float64(nodeBEle) / 10.0})
+
+	if len(full) < 2 {
+		// Degenerate edge — just return the projection point
+		return []LatLonEle{{
+			Lat: proj.ProjLat, Lon: proj.ProjLon,
+			Ele: float64(proj.ProjEleDm) / 10.0,
+		}}
+	}
+
+	// Compute cumulative distances to find where FractionAB falls
+	cumDist := make([]float64, len(full))
+	for i := 1; i < len(full); i++ {
+		cumDist[i] = cumDist[i-1] + geo.DistanceHaversine(full[i-1].lat, full[i-1].lon, full[i].lat, full[i].lon)
+	}
+	totalLen := cumDist[len(cumDist)-1]
+	if totalLen == 0 {
+		return []LatLonEle{{Lat: proj.ProjLat, Lon: proj.ProjLon, Ele: float64(proj.ProjEleDm) / 10.0}}
+	}
+
+	projDist := proj.FractionAB * totalLen // distance from NodeA to projection point
+
+	// Find which segment of the polyline the projection falls on
+	projSegIdx := 0
+	for i := 1; i < len(cumDist); i++ {
+		if cumDist[i] >= projDist {
+			projSegIdx = i - 1
+			break
+		}
+	}
+
+	projPt := pt{proj.ProjLat, proj.ProjLon, float64(proj.ProjEleDm) / 10.0}
+
+	// Determine which end of the edge the seed node is on
+	seedIsA := seedNode == ve.GlobalA
+
+	var result []LatLonEle
+	if isSource {
+		// Source side: projection → seed node direction
+		// We need points FROM projPt TO the seed.
+		if seedIsA {
+			// Proj → NodeA: go backwards along the polyline
+			// Points: projPt, full[projSegIdx], full[projSegIdx-1], ..., full[0]=NodeA
+			result = append(result, LatLonEle{Lat: projPt.lat, Lon: projPt.lon, Ele: projPt.ele})
+			for i := projSegIdx; i >= 0; i-- {
+				result = append(result, LatLonEle{Lat: full[i].lat, Lon: full[i].lon, Ele: full[i].ele})
+			}
+		} else {
+			// Proj → NodeB: go forwards along the polyline
+			// Points: projPt, full[projSegIdx+1], ..., full[last]=NodeB
+			result = append(result, LatLonEle{Lat: projPt.lat, Lon: projPt.lon, Ele: projPt.ele})
+			for i := projSegIdx + 1; i < len(full); i++ {
+				result = append(result, LatLonEle{Lat: full[i].lat, Lon: full[i].lon, Ele: full[i].ele})
+			}
+		}
+		// Remove the last point (seed node) — it's already in the main retrack chain
+		if len(result) > 1 {
+			result = result[:len(result)-1]
+		}
+	} else {
+		// Destination side: seed node → projection point
+		// Seed node is already the last coord from retrack. We only add intermediates + proj.
+		if seedIsA {
+			// NodeA → Proj: go forwards
+			for i := 1; i <= projSegIdx; i++ {
+				result = append(result, LatLonEle{Lat: full[i].lat, Lon: full[i].lon, Ele: full[i].ele})
+			}
+			result = append(result, LatLonEle{Lat: projPt.lat, Lon: projPt.lon, Ele: projPt.ele})
+		} else {
+			// NodeB → Proj: go backwards
+			for i := len(full) - 2; i > projSegIdx; i-- {
+				result = append(result, LatLonEle{Lat: full[i].lat, Lon: full[i].lon, Ele: full[i].ele})
+			}
+			result = append(result, LatLonEle{Lat: projPt.lat, Lon: projPt.lon, Ele: projPt.ele})
+		}
+	}
+
+	return result
 }
 
 // makeSegmentFromTags creates a RouteSegment from tag-encoded metadata.

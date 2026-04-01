@@ -28,7 +28,7 @@ func sendWebhookChange(activityID string, rule model.AutomationRule, change rule
 		return
 	}
 	var allowlist []string
-	if al, ok := urlMap["allowlist"].([]interface{}); ok {
+	if al, ok := urlMap["allowlist"].([]any); ok {
 		for _, a := range al {
 			if s, ok := a.(string); ok {
 				allowlist = append(allowlist, s)

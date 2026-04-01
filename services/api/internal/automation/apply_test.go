@@ -8,7 +8,8 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-func ptr(s string) *string { return &s }
+//go:fix inline
+func ptr(s string) *string { return new(s) }
 
 func TestShouldEvaluateRule(t *testing.T) {
 	tests := []struct {
@@ -39,27 +40,27 @@ func TestShouldEvaluateRule(t *testing.T) {
 		},
 		{
 			"electric_sync always skipped",
-			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: ptr("electric_sync")},
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: new("electric_sync")},
 			"on_import", false,
 		},
 		{
 			"indoor_sync always skipped",
-			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: ptr("indoor_sync")},
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: new("indoor_sync")},
 			"", false,
 		},
 		{
 			"commute_sync always skipped (DB trigger managed)",
-			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: ptr("commute_sync")},
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: new("commute_sync")},
 			"on_import", false,
 		},
 		{
 			"round_trip system rule NOT skipped",
-			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: ptr("round_trip")},
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: new("round_trip")},
 			"on_import", true,
 		},
 		{
 			"frost system rule NOT skipped",
-			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: ptr("frost")},
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: new("frost")},
 			"on_import", true,
 		},
 		{
