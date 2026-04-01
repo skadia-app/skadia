@@ -106,113 +106,59 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 
 		ruleEvaluatedIDs[rule.ID] = true
 
-		// Evaluate conditions
+		// === Branches-rules: evaluate each branch independently ===
+		if len(rule.Branches) > 0 && string(rule.Branches) != "null" {
+			type branch struct {
+				Type            string                 `json:"type"` // "if", "else_if", "else"
+				ConditionGroups []rules.ConditionGroup `json:"condition_groups"`
+				Actions         json.RawMessage        `json:"actions"`
+			}
+			var branches []branch
+			if err := json.Unmarshal(rule.Branches, &branches); err == nil && len(branches) > 0 {
+				anyBranchMatched := false
+				for _, br := range branches {
+					branchMatched := false
+					if br.Type == "else" {
+						branchMatched = true
+					} else if len(br.ConditionGroups) > 0 {
+						branchMatched = rules.EvaluateGroups(br.ConditionGroups, actMap)
+					}
+					if branchMatched {
+						anyBranchMatched = true
+						var branchActions []rules.Action
+						if err2 := json.Unmarshal(br.Actions, &branchActions); err2 == nil {
+							applyChanges(ctx, db, activityID, userID, rule, branchActions, actMap)
+						}
+						break // first matching branch wins
+					}
+				}
+				if anyBranchMatched {
+					if err := db.IncrementRuleApplied(ctx, rule.ID); err != nil {
+						slog.Warn("increment rule applied", "rule_id", rule.ID, "error", err)
+					}
+					ruleMatchCounts[rule.ID]++
+					if rule.StopOnMatch {
+						break
+					}
+				}
+			}
+			continue // branches-rule handled, skip flat evaluation
+		}
+
+		// === Flat-condition rules ===
 		matched := EvaluateRule(rule, actMap)
 
 		if matched {
-			// Check for branches (ELSE/ELSE-IF) — overrides default actions if present.
-			// Branches are evaluated sequentially; first matching branch wins.
-			// Old rules without branches fall through to the default actions block.
-			if len(rule.Branches) > 0 && string(rule.Branches) != "null" {
-				type branch struct {
-					Type            string                 `json:"type"` // "if", "else_if", "else"
-					ConditionGroups []rules.ConditionGroup `json:"condition_groups"`
-					Actions         json.RawMessage        `json:"actions"`
-				}
-				var branches []branch
-				if err := json.Unmarshal(rule.Branches, &branches); err == nil && len(branches) > 0 {
-					anyBranchMatched := false
-					for _, br := range branches {
-						branchMatched := false
-						if br.Type == "else" {
-							branchMatched = true
-						} else if len(br.ConditionGroups) > 0 {
-							branchMatched = rules.EvaluateGroups(br.ConditionGroups, actMap)
-						}
-						if branchMatched {
-							anyBranchMatched = true
-							var branchActions []rules.Action
-							if err2 := json.Unmarshal(br.Actions, &branchActions); err2 == nil {
-								for _, change := range rules.Apply(branchActions) {
-									val := change.Value
-									if change.Field == "set_name_template" {
-										if tmpl, ok := val.(string); ok {
-											val = resolveNameTemplate(tmpl, actMap)
-										}
-									}
-									if change.Field == "notify" {
-										if tmpl, ok := val.(string); ok && tmpl != "" {
-											body := resolveNameTemplate(tmpl, actMap)
-											if err3 := db.CreateNotification(ctx, userID, "rule", rule.Name, body); err3 != nil {
-												slog.Warn("rule notify (branch)", "activity_id", activityID, "rule_id", rule.ID, "error", err3)
-											}
-										}
-										continue
-									}
-									if change.Field == "webhook" {
-										sendWebhookChange(activityID, rule, change)
-										continue
-									}
-									if err3 := db.ApplyRuleChange(ctx, activityID, change.Field, val); err3 != nil {
-										slog.Warn("apply branch change", "activity_id", activityID, "rule_id", rule.ID, "field", change.Field, "error", err3)
-									}
-								}
-							}
-							break // first matching branch wins
-						}
-					}
-					if anyBranchMatched {
-						if err := db.IncrementRuleApplied(ctx, rule.ID); err != nil {
-							slog.Warn("increment rule applied", "rule_id", rule.ID, "error", err)
-						}
-						ruleMatchCounts[rule.ID]++
-						if rule.StopOnMatch {
-							break
-						}
-					}
-					continue
-				}
-			}
-
-			changes := rules.Apply(actions)
-			for _, change := range changes {
-				val := change.Value
-				if change.Field == "set_name_template" {
-					if tmpl, ok := val.(string); ok {
-						val = resolveNameTemplate(tmpl, actMap)
-					}
-				}
-				if change.Field == "notify" {
-					if tmpl, ok := val.(string); ok && tmpl != "" {
-						body := resolveNameTemplate(tmpl, actMap)
-						if err := db.CreateNotification(ctx, userID, "rule", rule.Name, body); err != nil {
-							slog.Warn("rule notify", "activity_id", activityID, "rule_id", rule.ID, "error", err)
-						}
-					}
-					continue
-				}
-				if change.Field == "webhook" {
-					sendWebhookChange(activityID, rule, change)
-					continue
-				}
-				if err := db.ApplyRuleChange(ctx, activityID, change.Field, val); err != nil {
-					slog.Warn("apply rule change", "activity_id", activityID, "rule_id", rule.ID, "field", change.Field, "error", err)
-				}
-			}
+			applyChanges(ctx, db, activityID, userID, rule, actions, actMap)
 			if err := db.IncrementRuleApplied(ctx, rule.ID); err != nil {
 				slog.Warn("increment rule applied", "rule_id", rule.ID, "error", err)
 			}
 			ruleMatchCounts[rule.ID]++
-			// Stop-processing: if this rule matched and has stop_on_match, skip remaining rules
 			if rule.StopOnMatch {
 				break
 			}
 		} else if rule.IsSystem {
-			// Retraction semantics:
-			// - System rules retract: if conditions no longer match, tags/set_field values are reset to defaults.
-			//   This keeps system-managed fields (is_round_trip, is_indoor) in sync with current activity data.
-			// - User rules do NOT retract: non-matching leaves the activity unchanged.
-			//   This preserves manual user edits and avoids unexpected data loss.
+			// Retraction: system rules reset tags/fields when conditions no longer match
 			changes := rules.Apply(actions)
 			setFieldDefaults := map[string]any{
 				"is_round_trip":        false,
@@ -259,15 +205,39 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 }
 
 // EvaluateRule checks whether a rule's conditions match the given activity map.
+// EvaluateRule checks whether a rule matches the given activity.
+// For branches-rules, returns true if ANY branch matches.
+// For flat-condition rules, evaluates conditions normally.
 func EvaluateRule(rule model.AutomationRule, actMap map[string]any) bool {
+	// Branches-rules: check if any branch matches
+	if len(rule.Branches) > 0 && string(rule.Branches) != "null" {
+		type branch struct {
+			Type            string                 `json:"type"`
+			ConditionGroups []rules.ConditionGroup `json:"condition_groups"`
+		}
+		var branches []branch
+		if err := json.Unmarshal(rule.Branches, &branches); err == nil && len(branches) > 0 {
+			for _, br := range branches {
+				if br.Type == "else" {
+					return true // else always matches if reached
+				}
+				if len(br.ConditionGroups) > 0 && rules.EvaluateGroups(br.ConditionGroups, actMap) {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	// Flat conditions
 	if len(rule.ConditionGroups) > 0 && string(rule.ConditionGroups) != "null" {
 		var groups []rules.ConditionGroup
 		if err := json.Unmarshal(rule.ConditionGroups, &groups); err == nil && len(groups) > 0 {
 			return rules.EvaluateGroups(groups, actMap)
 		}
-	} else if len(rule.Conditions) > 0 {
+	}
+	if len(rule.Conditions) > 0 {
 		var conditions []rules.Condition
-		if err := json.Unmarshal(rule.Conditions, &conditions); err == nil {
+		if err := json.Unmarshal(rule.Conditions, &conditions); err == nil && len(conditions) > 0 {
 			return rules.Evaluate(conditions, actMap)
 		}
 	}
@@ -283,6 +253,35 @@ var reToken = regexp.MustCompile(`\{([^}]+)\}`)
 //   - Computed:       {distance_km}, {weekday}, {elevation_gain}, {duration}
 //   - Direct fields:  {start_city}, {start_state}, {start_country}, …
 //
+// applyChanges applies a set of rule actions to an activity, handling
+// template resolution, notifications, webhooks, and DB changes.
+func applyChanges(ctx context.Context, db *database.DB, activityID, userID string, rule model.AutomationRule, ruleActions []rules.Action, actMap map[string]any) {
+	for _, change := range rules.Apply(ruleActions) {
+		val := change.Value
+		if change.Field == "set_name_template" {
+			if tmpl, ok := val.(string); ok {
+				val = resolveNameTemplate(tmpl, actMap)
+			}
+		}
+		if change.Field == "notify" {
+			if tmpl, ok := val.(string); ok && tmpl != "" {
+				body := resolveNameTemplate(tmpl, actMap)
+				if err := db.CreateNotification(ctx, userID, "rule", rule.Name, body); err != nil {
+					slog.Warn("rule notify", "activity_id", activityID, "rule_id", rule.ID, "error", err)
+				}
+			}
+			continue
+		}
+		if change.Field == "webhook" {
+			sendWebhookChange(activityID, rule, change)
+			continue
+		}
+		if err := db.ApplyRuleChange(ctx, activityID, change.Field, val); err != nil {
+			slog.Warn("apply rule change", "activity_id", activityID, "rule_id", rule.ID, "field", change.Field, "error", err)
+		}
+	}
+}
+
 // If a field is missing or nil and no fallback is provided, the token is
 // replaced with an empty string.
 func resolveNameTemplate(tmpl string, actMap map[string]any) string {
