@@ -1,0 +1,1 @@
+-- No revert needed — adding sport_type condition is always correct

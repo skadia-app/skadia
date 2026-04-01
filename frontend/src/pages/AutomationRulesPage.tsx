@@ -68,10 +68,43 @@ const OP_DISPLAY: Record<string, string> = {
   between: 'zwischen', in: 'in',
 }
 
+// Sport type value → German label
+const SPORT_LABELS: Record<string, string> = {
+  running: 'Laufen', cycling: 'Radfahren', hiking: 'Wandern',
+  trail_running: 'Trailrunning', swimming: 'Schwimmen', walking: 'Gehen',
+  mountaineering: 'Bergsteigen', skiing: 'Skifahren', snowboarding: 'Snowboard',
+  strength_training: 'Krafttraining', yoga: 'Yoga', diving: 'Tauchen',
+  indoor_cycling: 'Indoor-Radfahren', treadmill_running: 'Laufband',
+  lap_swimming: 'Bahnschwimmen', open_water_swimming: 'Freiwasserschwimmen',
+  mountain_biking: 'Mountainbike', gravel_cycling: 'Gravel',
+}
+
 function formatConditionValue(c: { field: string; op: string; value: unknown }): string {
   if (typeof c.value === 'boolean') return c.value ? 'Ja' : 'Nein'
   if (c.value === null || c.value === undefined) return ''
-  return String(c.value)
+  const v = String(c.value)
+  // Sport type → German label
+  if (c.field === 'sport_type') return SPORT_LABELS[v] || v
+  // Distance in meters → formatted with unit
+  if (c.field === 'distance_m' || c.field === 'start_end_distance_m' || c.field === 'net_distance_m') {
+    const n = Number(v)
+    if (!isNaN(n)) return n >= 10000 ? `${(n / 1000).toFixed(1)} km` : `${n} m`
+  }
+  // Elevation → with unit
+  if (c.field.includes('elevation') || c.field.includes('ascent') || c.field.includes('descent')) {
+    const n = Number(v)
+    if (!isNaN(n)) return `${n} m`
+  }
+  // Between: "min,max" → formatted
+  if (c.op === 'between' && v.includes(',')) {
+    const [lo, hi] = v.split(',', 2)
+    const loN = Number(lo), hiN = Number(hi)
+    if (c.field === 'distance_m' && !isNaN(loN) && !isNaN(hiN)) {
+      return `${(loN / 1000).toFixed(1)}–${(hiN / 1000).toFixed(1)} km`
+    }
+    return `${lo}–${hi}`
+  }
+  return v
 }
 
 function formatActionParams(action: string, params: Record<string, unknown> | undefined, tags?: { id: string; name: string }[]): string {
