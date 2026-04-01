@@ -387,7 +387,26 @@ export default function ActivityDetailPage() {
     queryKey: ['recording-group', activity?.recording_group_id],
     queryFn: () => fetchRecordingGroup(activity!.recording_group_id!),
     enabled: !!activity?.recording_group_id,
+    staleTime: 5 * 60 * 1000,
   })
+
+  // Prefetch sibling activities so tab switches are instant
+  useEffect(() => {
+    if (!recordingGroup?.members) return
+    for (const member of recordingGroup.members) {
+      if (member.activity_id === id) continue
+      queryClient.prefetchQuery({
+        queryKey: ['activity', member.activity_id],
+        queryFn: () => fetchActivity(member.activity_id),
+        staleTime: 5 * 60 * 1000,
+      })
+      queryClient.prefetchQuery({
+        queryKey: ['activity-streams', member.activity_id],
+        queryFn: () => fetchActivityStreams(member.activity_id),
+        staleTime: 5 * 60 * 1000,
+      })
+    }
+  }, [recordingGroup, id, queryClient])
 
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Aktivität...</div>
