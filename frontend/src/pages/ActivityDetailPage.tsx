@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, getZoneDistribution, correctActivityElevation, resetActivityElevation, correctActivityDistance, resetActivityDistance, fetchActivitySets, fetchActivityJumps, fetchActivityEvents, fetchDiveInfo } from '@/api/activities'
 import { fetchWorkout } from '@/api/workouts'
+import { fetchRecordingGroup } from '@/api/recordingGroups'
+import { getSourceColor } from '@/lib/comparisonColors'
 import { getWeatherSettings } from '@/api/settings'
 import { fetchTags } from '@/api/tags'
 import ActivityLocationTagSection from '@/components/ActivityLocationTagSection'
@@ -381,6 +383,12 @@ export default function ActivityDetailPage() {
     enabled: !!activity && activity.has_gps && getSegmentGroup(activity.sport_type) === 'bike',
   })
 
+  const { data: recordingGroup } = useQuery({
+    queryKey: ['recording-group', activity?.recording_group_id],
+    queryFn: () => fetchRecordingGroup(activity!.recording_group_id!),
+    enabled: !!activity?.recording_group_id,
+  })
+
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Aktivität...</div>
   }
@@ -439,6 +447,37 @@ export default function ActivityDetailPage() {
         <p className="text-sm text-neutral-600 dark:text-neutral-400 whitespace-pre-wrap leading-relaxed">
           {activity.description}
         </p>
+      )}
+
+      {/* Recording group device tabs */}
+      {recordingGroup && recordingGroup.members.length > 1 && (
+        <div className="flex items-center gap-1 border-b border-neutral-200 dark:border-neutral-700 -mx-4 px-4">
+          {recordingGroup.members.map((member, i) => {
+            const isActive = member.activity_id === id
+            const color = getSourceColor(i)
+            const label = member.source_device || member.source || `Quelle ${i + 1}`
+            return (
+              <Link
+                key={member.activity_id}
+                to={`/activities/${member.activity_id}`}
+                className={`flex items-center gap-2 px-3 py-2 text-sm border-b-2 transition-colors ${
+                  isActive
+                    ? 'border-orange-500 text-orange-600 dark:text-orange-400 font-medium'
+                    : 'border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:border-neutral-300 dark:hover:border-neutral-600'
+                }`}
+              >
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color }} />
+                {label}
+              </Link>
+            )
+          })}
+          <Link
+            to={`/activities/group/${activity.recording_group_id}`}
+            className="ml-auto text-xs text-orange-600 dark:text-orange-400 hover:underline flex items-center gap-1 px-3 py-2 whitespace-nowrap"
+          >
+            Vergleichsansicht →
+          </Link>
+        </div>
       )}
 
       {/* Sunrise / Sunset */}
