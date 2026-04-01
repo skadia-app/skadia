@@ -481,21 +481,21 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 	// Indoor sync rule (no conditions/actions — handled by import pipeline + trigger)
 	_, _ = db.Pool.Exec(ctx, `
 		INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
-		VALUES ($1, 'Indoor-Sync', true, 'indoor_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
+		VALUES ($1, 'Indoor', true, 'indoor_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
 		ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
 		userID)
 
 	// Commute sync rule (no conditions/actions — handled by import pipeline + trigger)
 	_, _ = db.Pool.Exec(ctx, `
 		INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
-		VALUES ($1, 'Pendeln-Sync', true, 'commute_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
+		VALUES ($1, 'Pendeln', true, 'commute_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
 		ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
 		userID)
 
 	// Virtual activity rule (no conditions/actions — synced via is_virtual column)
 	_, _ = db.Pool.Exec(ctx, `
 		INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
-		VALUES ($1, 'virtuell', true, 'virtual_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
+		VALUES ($1, 'Virtuell', true, 'virtual_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
 		ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
 		userID)
 
