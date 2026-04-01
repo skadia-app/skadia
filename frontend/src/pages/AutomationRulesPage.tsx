@@ -634,7 +634,12 @@ function RuleCard({
             <>
               <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
                 <span className="font-mono text-xs">
-                  WENN {rule.conditions.map((c) => `${FIELD_LABELS[c.field] || c.field} ${OP_DISPLAY[c.op] || c.op} ${formatConditionValue(c)}`).join(' UND ')}
+                  {(() => {
+                    const displayConditions = rule.conditions.length > 0
+                      ? rule.conditions
+                      : (rule.condition_groups ?? []).flatMap(g => g.conditions)
+                    return `WENN ${displayConditions.map((c) => `${FIELD_LABELS[c.field] || c.field} ${OP_DISPLAY[c.op] || c.op} ${formatConditionValue(c)}`).join(' UND ')}`
+                  })()}
                 </span>
               </div>
               <div className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">

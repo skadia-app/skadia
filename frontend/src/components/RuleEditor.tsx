@@ -2008,21 +2008,28 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
       </div>
 
       {/* Submit */}
-      <div className="flex gap-3 justify-end pt-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="px-4 py-2 rounded-lg text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
-        >
-          Abbrechen
-        </button>
-        <button
-          type="submit"
-          disabled={isSaving || !name.trim() || totalConditions === 0 || actions.length === 0}
-          className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
-        >
-          {isSaving ? 'Speichert...' : 'Speichern'}
-        </button>
+      <div className="flex flex-col items-end gap-1 pt-2">
+        {(!name.trim() || totalConditions === 0 || actions.length === 0) && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            {!name.trim() ? 'Name ist erforderlich' : totalConditions === 0 ? 'Mindestens eine Bedingung erforderlich' : 'Mindestens eine Aktion erforderlich'}
+          </p>
+        )}
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
+          >
+            Abbrechen
+          </button>
+          <button
+            type="submit"
+            disabled={isSaving || !name.trim() || totalConditions === 0 || actions.length === 0}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          >
+            {isSaving ? 'Speichert...' : 'Speichern'}
+          </button>
+        </div>
       </div>
     </form>
   )
