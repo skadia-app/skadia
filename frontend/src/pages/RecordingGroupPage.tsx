@@ -340,28 +340,33 @@ export default function RecordingGroupPage() {
         </div>
 
         {/* Map + Stream chart */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-          {/* Map */}
-          <MultiTrackMap
-            height="288px"
-            showHeatmap={false}
-          />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6 items-stretch">
+          {/* Map — stretches to full grid row height */}
+          <div className="h-full min-h-[288px]">
+            <MultiTrackMap
+              height="100%"
+              showHeatmap={false}
+            />
+          </div>
 
-          {/* Stream chart with maximize button */}
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-end">
-              <button
-                onClick={openFullscreen}
-                title="Karte & Streams maximieren"
-                className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100 border border-neutral-200 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500 rounded px-2.5 py-1 transition-colors cursor-pointer"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-                  <path d="M13.28 7.78l3.22-3.22v2.69a.75.75 0 001.5 0v-4.5a.75.75 0 00-.75-.75h-4.5a.75.75 0 000 1.5h2.69l-3.22 3.22a.75.75 0 001.06 1.06zM2 17.25v-4.5a.75.75 0 011.5 0v2.69l3.22-3.22a.75.75 0 011.06 1.06L4.56 16.5h2.69a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75z" />
-                </svg>
-                Maximieren
-              </button>
-            </div>
-            <StreamChartContainer chartHeight={180} />
+          {/* Stream chart — same height as map, maximize button in header */}
+          <div className="h-full min-h-[288px] flex flex-col">
+            <StreamChartContainer
+              chartHeight={180}
+              className="flex-1"
+              headerRight={
+                <button
+                  onClick={openFullscreen}
+                  title="Karte & Streams maximieren"
+                  className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100 border border-neutral-200 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500 rounded px-2.5 py-1 transition-colors cursor-pointer"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                    <path d="M13.28 7.78l3.22-3.22v2.69a.75.75 0 001.5 0v-4.5a.75.75 0 00-.75-.75h-4.5a.75.75 0 000 1.5h2.69l-3.22 3.22a.75.75 0 001.06 1.06zM2 17.25v-4.5a.75.75 0 011.5 0v2.69l3.22-3.22a.75.75 0 011.06 1.06L4.56 16.5h2.69a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75z" />
+                  </svg>
+                  Maximieren
+                </button>
+              }
+            />
           </div>
         </div>
 
