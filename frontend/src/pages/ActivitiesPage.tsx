@@ -485,9 +485,16 @@ export default function ActivitiesPage() {
     if (stored && stored.length > initialPageFromUrl) return initialPageFromUrl
     return 0
   })
+  // Wenn URL ?page=X angibt, aber sessionStorage leer ist, muss nach dem ersten
+  // Render per jumpToPage gesprungen werden (Cursors sind erst nach Fetches bekannt).
+  const needsMountJumpRef = useRef(
+    initialPageFromUrl > 0 &&
+    (() => { const s = loadCursors(); return !s || s.length <= initialPageFromUrl })()
+  )
   const [pageInput, setPageInput] = useState(() => String(pageIndex + 1))
   const [total, setTotal] = useState<number | null>(null)
   const [isJumping, setIsJumping] = useState(false)
+  const isJumpingRef = useRef(false)
   const [jumpDate, setJumpDate] = useState('')
   const [infiniteKey, setInfiniteKey] = useState(0)
   const [infiniteInitialCursor, setInfiniteInitialCursor] = useState<string | undefined>(undefined)
@@ -526,7 +533,7 @@ export default function ActivitiesPage() {
 
   // Recording-Group-Expand-State
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set())
-  const [groupMembersMap, setGroupMembersMap] = useState<Record<string, { members: RecordingGroupMember[]; primaryActivityId: string | null }>>({})
+  const [groupMembersMap, setGroupMembersMap] = useState<Record<string, { members: RecordingGroupMember[]; primaryActivityId: string | null; error?: boolean }>>({})
 
   const toggleGroupExpand = async (activityId: string, groupId: string) => {
     setExpandedGroupIds(prev => {
@@ -541,8 +548,10 @@ export default function ActivitiesPage() {
     if (!groupMembersMap[activityId]) {
       try {
         const group = await fetchRecordingGroup(groupId)
-        setGroupMembersMap(prev => ({ ...prev, [activityId]: { members: group.members ?? [], primaryActivityId: group.primary_activity_id } }))
-      } catch (_) { /* ignore */ }
+        setGroupMembersMap(prev => ({ ...prev, [activityId]: { members: group.members ?? [], primaryActivityId: group.primary_activity_id ?? null } }))
+      } catch {
+        setGroupMembersMap(prev => ({ ...prev, [activityId]: { members: [], primaryActivityId: null, error: true } }))
+      }
     }
   }
 
@@ -788,10 +797,27 @@ export default function ActivitiesPage() {
 
   // ── Navigation ───────────────────────────────────────────────────────────
   function goToPage(idx: number) {
-    if (idx < 0 || idx >= cursors.length) return
-    setPageIndex(idx)
-    setPageInput(String(idx + 1))
-    clearSelection()
+    if (idx < 0) return
+    // Cursor already in state → navigate directly
+    if (idx < cursors.length) {
+      setPageIndex(idx)
+      setPageInput(String(idx + 1))
+      clearSelection()
+      return
+    }
+    // Race condition: button is enabled because pageData.next_cursor != null,
+    // but the useEffect that stores it in cursors hasn't run yet after the render.
+    // Store the cursor inline so navigation succeeds immediately.
+    if (idx === cursors.length && pageData?.next_cursor != null) {
+      setCursors(prev => {
+        const next = [...prev]
+        next[idx] = pageData!.next_cursor!
+        return next
+      })
+      setPageIndex(idx)
+      setPageInput(String(idx + 1))
+      clearSelection()
+    }
   }
 
   function onPageSizeChange(size: PageSize) {
@@ -822,6 +848,9 @@ export default function ActivitiesPage() {
       return
     }
 
+    // Prevent parallel jump calls: setState is async, so we use a ref as immediate guard
+    if (isJumpingRef.current) return
+    isJumpingRef.current = true
     setIsJumping(true)
     let localCursors = [...cursors]
     try {
@@ -842,6 +871,7 @@ export default function ActivitiesPage() {
       setPageInput(String(targetIdx + 1))
       clearSelection()
     } finally {
+      isJumpingRef.current = false
       setIsJumping(false)
     }
   }
@@ -851,6 +881,14 @@ export default function ActivitiesPage() {
     if (isNaN(n)) { setPageInput(String(pageIndex + 1)); return }
     void jumpToPage(n - 1)
   }
+
+  // URL-Seite wiederherstellen wenn sessionStorage leer war (nur einmal beim Mount)
+  useEffect(() => {
+    if (needsMountJumpRef.current) {
+      needsMountJumpRef.current = false
+      void jumpToPage(initialPageFromUrl)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Datumssprung ─────────────────────────────────────────────────────────
   const isDateJumpEnabled = sortBy === null || sortBy === 'started_at'
@@ -1195,40 +1233,54 @@ export default function ActivitiesPage() {
                   const groupData = groupMembersMap[activity.id]
                   const members = groupData?.members ?? []
                   return (
-                    <tr key={`group-${activity.id}`}>
-                      <td colSpan={8} className="py-0 px-4">
-                        <div className="border-l-2 border-orange-200 dark:border-orange-800 ml-6 pl-4 py-3 flex flex-col gap-2">
-                          {members.length === 0 && !groupData && (
-                            <span className="text-xs text-neutral-400">Lade...</span>
-                          )}
-                          {members.map((member, i) => {
-                            const formatInfo = [
-                              member.original_file_format?.toUpperCase() ?? '—',
-                              member.field_richness != null ? `${member.field_richness} Felder` : null,
-                            ].filter(Boolean).join(' · ')
-                            return (
-                              <div key={member.activity_id} className="flex items-center gap-3 text-xs">
-                                {/* LEFT: dot + device + format */}
+                    <>
+                      {/* Loading state */}
+                      {!groupData && (
+                        <tr key={`group-loading-${activity.id}`} className="bg-orange-50/40 dark:bg-orange-900/10">
+                          <td className="py-1.5 pl-3 pr-2 w-8">
+                            <div className="w-4 h-4 border-l-2 border-b-2 border-orange-300 dark:border-orange-700 ml-2" />
+                          </td>
+                          <td colSpan={7} className="py-1.5 px-4 text-xs text-neutral-400">Lade...</td>
+                        </tr>
+                      )}
+                      {/* Error state */}
+                      {groupData?.error && (
+                        <tr key={`group-error-${activity.id}`} className="bg-orange-50/40 dark:bg-orange-900/10">
+                          <td className="py-1.5 pl-3 pr-2 w-8">
+                            <div className="w-4 h-4 border-l-2 border-b-2 border-orange-300 dark:border-orange-700 ml-2" />
+                          </td>
+                          <td colSpan={7} className="py-1.5 px-4 text-xs text-red-500">Fehler beim Laden der Aufnahmegruppe</td>
+                        </tr>
+                      )}
+                      {/* Member rows */}
+                      {members.map((member, i) => {
+                        const isPrimary = member.is_primary || member.activity_id === groupData?.primaryActivityId
+                        const formatInfo = [
+                          member.original_file_format?.toUpperCase(),
+                          member.field_richness != null ? `${member.field_richness} Felder` : null,
+                        ].filter(Boolean).join(' · ')
+                        return (
+                          <tr key={member.activity_id} className="bg-orange-50/40 dark:bg-orange-900/10 hover:bg-orange-50/70 dark:hover:bg-orange-900/20 transition-colors">
+                            {/* Indent marker */}
+                            <td className="py-1.5 pl-3 pr-2 w-8">
+                              <div className="w-4 h-4 border-l-2 border-b-2 border-orange-300 dark:border-orange-700 ml-2" />
+                            </td>
+                            {/* Color dot + Device name + format — spans date+sport+title columns */}
+                            <td colSpan={3} className="py-1.5 px-4">
+                              <div className="flex items-center gap-2 text-sm">
                                 <span
                                   className="w-2.5 h-2.5 rounded-full shrink-0"
                                   style={{ background: getSourceColor(i) }}
                                 />
-                                <span className="font-medium w-32 truncate text-neutral-700 dark:text-neutral-300">
+                                <span className="font-medium truncate text-neutral-700 dark:text-neutral-300">
                                   {member.source_device ?? member.source ?? 'Unbekannt'}
                                 </span>
-                                <span className="text-neutral-400 truncate flex-1 min-w-0">
-                                  {formatInfo}
-                                </span>
-                                {/* RIGHT: distance */}
-                                <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400 w-20 text-right">
-                                  {member.distance_m ? formatDistance(member.distance_m) : '—'}
-                                </span>
-                                {/* RIGHT: time */}
-                                <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400 w-16 text-right">
-                                  {member.elapsed_time_s ? formatDuration(member.elapsed_time_s) : '—'}
-                                </span>
-                                {/* badges */}
-                                {(member.is_primary || member.activity_id === groupData?.primaryActivityId) && (
+                                {formatInfo && (
+                                  <span className="text-neutral-400 dark:text-neutral-500 text-xs truncate">
+                                    {formatInfo}
+                                  </span>
+                                )}
+                                {isPrimary && (
                                   <span className="shrink-0 px-1.5 py-0.5 rounded text-orange-700 dark:text-orange-300 bg-orange-100 dark:bg-orange-900/30 text-xs font-medium">
                                     ★ Primär
                                   </span>
@@ -1239,18 +1291,38 @@ export default function ActivitiesPage() {
                                   </span>
                                 )}
                               </div>
-                            )
-                          })}
+                            </td>
+                            {/* Distance */}
+                            <td className="py-1.5 px-4 text-right text-xs text-neutral-500 dark:text-neutral-400 tabular-nums">
+                              {member.distance_m ? formatDistance(member.distance_m) : '—'}
+                            </td>
+                            {/* Time */}
+                            <td className="py-1.5 px-4 text-right text-xs text-neutral-500 dark:text-neutral-400 tabular-nums">
+                              {member.elapsed_time_s ? formatDuration(member.elapsed_time_s) : '—'}
+                            </td>
+                            {/* Elevation (empty for members) */}
+                            <td className="py-1.5 px-4" />
+                            {/* 3-dot placeholder */}
+                            <td className="w-8" />
+                          </tr>
+                        )
+                      })}
+                      {/* Gruppenansicht link row */}
+                      <tr key={`group-link-${activity.id}`} className="bg-orange-50/20 dark:bg-orange-900/5">
+                        <td className="py-1 pl-3 pr-2 w-8">
+                          <div className="w-4 h-4 border-l-2 border-orange-200 dark:border-orange-800 ml-2" />
+                        </td>
+                        <td colSpan={7} className="py-1 px-4">
                           <Link
                             to={`/activities/group/${activity.recording_group_id}`}
-                            className="text-orange-600 dark:text-orange-400 text-xs hover:underline mt-1 inline-flex items-center gap-1"
+                            className="text-orange-600 dark:text-orange-400 text-xs hover:underline inline-flex items-center gap-1"
                             onClick={e => e.stopPropagation()}
                           >
                             Gruppenansicht öffnen →
                           </Link>
-                        </div>
-                      </td>
-                    </tr>
+                        </td>
+                      </tr>
+                    </>
                   )
                 })()}
                 {activity.sport_type === 'multisport' && expandedIds.has(activity.id) &&
@@ -1403,6 +1475,7 @@ export default function ActivitiesPage() {
               min={1}
               max={maxNavigablePage}
               value={pageInput}
+              disabled={isJumping}
               onChange={(e) => setPageInput(e.target.value)}
               onBlur={(e) => submitPageInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') submitPageInput(pageInput) }}
@@ -1410,7 +1483,8 @@ export default function ActivitiesPage() {
                          rounded px-1 py-0.5 text-sm
                          bg-white dark:bg-neutral-900
                          text-neutral-800 dark:text-neutral-200
-                         focus:outline-none focus:ring-1 focus:ring-neutral-400"
+                         focus:outline-none focus:ring-1 focus:ring-neutral-400
+                         disabled:opacity-40 disabled:cursor-not-allowed"
             />
             {totalPages != null && (
               <span className="text-neutral-400 dark:text-neutral-600">
