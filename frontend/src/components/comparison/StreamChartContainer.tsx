@@ -1,7 +1,7 @@
 // StreamChartContainer — metric tab navigation + dynamic metric detection.
 // Renders a StreamChart for the active metric across all visible sources.
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, type ReactNode } from 'react'
 import StreamChart, { type StreamSeries } from './StreamChart'
 import { useSources } from './SourcesContext'
 import { useStreamData, type PreparedStreamData } from '@/hooks/useStreamData'
@@ -41,9 +41,13 @@ const METRIC_DEFS: MetricDef[] = [
 interface StreamChartContainerProps {
   /** Override chart height in px */
   chartHeight?: number
+  /** Optional element rendered on the right side of the metric tab row */
+  headerRight?: ReactNode
+  /** Additional CSS classes on the outer container */
+  className?: string
 }
 
-export default function StreamChartContainer({ chartHeight = 140 }: StreamChartContainerProps) {
+export default function StreamChartContainer({ chartHeight = 140, headerRight, className }: StreamChartContainerProps) {
   const [selectedKey, setSelectedKey] = useState<MetricKey | null>(null)
 
   return (
@@ -51,6 +55,8 @@ export default function StreamChartContainer({ chartHeight = 140 }: StreamChartC
       chartHeight={chartHeight}
       selectedKey={selectedKey}
       setSelectedKey={setSelectedKey}
+      headerRight={headerRight}
+      className={className}
     />
   )
 }
@@ -62,10 +68,14 @@ function StreamChartContainerInner({
   chartHeight,
   selectedKey,
   setSelectedKey,
+  headerRight,
+  className,
 }: {
   chartHeight: number
   selectedKey: MetricKey | null
   setSelectedKey: (k: MetricKey | null) => void
+  headerRight?: ReactNode
+  className?: string
 }) {
   const { visibleSources } = useSources()
 
@@ -157,29 +167,36 @@ function StreamChartContainerInner({
 
   if (available.length === 0) {
     return (
-      <div className="flex items-center justify-center h-32 text-neutral-400 text-xs rounded-xl border border-neutral-200 dark:border-neutral-800">
+      <div className={`flex items-center justify-center h-32 text-neutral-400 text-xs rounded-xl border border-neutral-200 dark:border-neutral-800 ${className ?? ''}`}>
         Keine Zeitreihendaten verfügbar
       </div>
     )
   }
 
   return (
-    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3 space-y-2">
-      {/* Metric tabs */}
-      <div className="flex flex-wrap gap-1">
-        {available.map(m => (
-          <button
-            key={m.key}
-            onClick={() => setSelectedKey(m.key)}
-            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors cursor-pointer ${
-              m.key === activeKey
-                ? 'bg-neutral-800 dark:bg-neutral-200 text-white dark:text-neutral-900'
-                : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'
-            }`}
-          >
-            {m.label}
-          </button>
-        ))}
+    <div className={`rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3 space-y-2 ${className ?? ''}`}>
+      {/* Metric tabs row with optional right-side slot */}
+      <div className="flex items-center gap-1 flex-wrap">
+        <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+          {available.map(m => (
+            <button
+              key={m.key}
+              onClick={() => setSelectedKey(m.key)}
+              className={`px-2 py-0.5 rounded text-xs font-medium transition-colors cursor-pointer ${
+                m.key === activeKey
+                  ? 'bg-neutral-800 dark:bg-neutral-200 text-white dark:text-neutral-900'
+                  : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        {headerRight && (
+          <div className="flex-shrink-0 ml-1">
+            {headerRight}
+          </div>
+        )}
       </div>
 
       {/* Chart */}
