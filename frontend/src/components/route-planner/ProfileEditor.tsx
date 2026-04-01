@@ -77,25 +77,59 @@ interface SliderFieldProps {
   unit?: string
   hint?: string
   onChange: (v: number) => void
+  fieldKey: string
+  editingField: string | null
+  editValue: string
+  onStartEdit: (key: string, currentValue: number) => void
+  onEditChange: (v: string) => void
+  onCommitEdit: (key: string, min: number) => void
+  onCancelEdit: () => void
 }
 
-function SliderField({ label, value, min, max, step, unit, hint, onChange }: SliderFieldProps) {
+function SliderField({ label, value, min, max, step, unit, hint, onChange, fieldKey, editingField, editValue, onStartEdit, onEditChange, onCommitEdit, onCancelEdit }: SliderFieldProps) {
   const display = step < 0.1 ? value.toFixed(2) : step < 1 ? value.toFixed(2) : String(Math.round(value))
+  const isEditing = editingField === fieldKey
+  const isOverMax = value > max
 
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
         <span className="text-xs text-neutral-700 dark:text-neutral-300">{label}</span>
-        <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400 tabular-nums">
-          {display}{unit ? ` ${unit}` : ''}
-        </span>
+        {isEditing ? (
+          <input
+            type="number"
+            step="any"
+            autoFocus
+            value={editValue}
+            onChange={e => onEditChange(e.target.value)}
+            onFocus={e => e.target.select()}
+            onBlur={() => onCommitEdit(fieldKey, min)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') onCommitEdit(fieldKey, min)
+              else if (e.key === 'Escape') onCancelEdit()
+            }}
+            className="w-16 text-xs font-mono tabular-nums text-right bg-neutral-100 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded px-1 py-0 focus:outline-none focus:border-[var(--color-accent-DEFAULT,#F97316)]"
+          />
+        ) : (
+          <button
+            onClick={() => onStartEdit(fieldKey, value)}
+            title="Klicken zum Bearbeiten"
+            className={`text-xs font-mono tabular-nums cursor-pointer hover:opacity-70 transition-opacity ${
+              isOverMax
+                ? 'text-orange-500'
+                : 'text-neutral-500 dark:text-neutral-400'
+            }`}
+          >
+            {display}{unit ? ` ${unit}` : ''}
+          </button>
+        )}
       </div>
       <input
         type="range"
         min={min}
         max={max}
         step={step}
-        value={value}
+        value={Math.min(value, max)}
         onChange={e => onChange(parseFloat(e.target.value))}
         className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-[var(--color-accent-DEFAULT,#F97316)] bg-neutral-200 dark:bg-neutral-700"
       />
@@ -187,6 +221,13 @@ interface HighwayCostSliderProps {
   isModified: boolean
   onChange: (v: number) => void
   onReset: () => void
+  fieldKey: string
+  editingField: string | null
+  editValue: string
+  onStartEdit: (key: string, currentValue: number) => void
+  onEditChange: (v: string) => void
+  onCommitEdit: (key: string, min: number) => void
+  onCancelEdit: () => void
 }
 
 function HighwayCostSlider({
@@ -197,10 +238,21 @@ function HighwayCostSlider({
   isModified,
   onChange,
   onReset,
+  fieldKey,
+  editingField,
+  editValue,
+  onStartEdit,
+  onEditChange,
+  onCommitEdit,
+  onCancelEdit,
 }: HighwayCostSliderProps) {
   const blocked = defaultValue === null
   const displayVal = value.toFixed(1)
   const defaultDisplay = defaultValue !== null ? defaultValue.toFixed(1) : 'gesperrt'
+  const isEditing = editingField === fieldKey
+  const hwMin = 0.5
+  const hwMax = 10
+  const isOverMax = value > hwMax
 
   return (
     <div className={`space-y-1 ${blocked ? 'opacity-40' : ''}`}>
@@ -220,17 +272,46 @@ function HighwayCostSlider({
               </svg>
             </button>
           )}
-          <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400 tabular-nums w-8 text-right">
-            {blocked ? '--' : displayVal}
-          </span>
+          {blocked ? (
+            <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400 tabular-nums w-8 text-right">
+              --
+            </span>
+          ) : isEditing ? (
+            <input
+              type="number"
+              step="any"
+              autoFocus
+              value={editValue}
+              onChange={e => onEditChange(e.target.value)}
+              onFocus={e => e.target.select()}
+              onBlur={() => onCommitEdit(fieldKey, hwMin)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') onCommitEdit(fieldKey, hwMin)
+                else if (e.key === 'Escape') onCancelEdit()
+              }}
+              className="w-14 text-xs font-mono tabular-nums text-right bg-neutral-100 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded px-1 py-0 focus:outline-none focus:border-[var(--color-accent-DEFAULT,#F97316)]"
+            />
+          ) : (
+            <button
+              onClick={() => onStartEdit(fieldKey, value)}
+              title="Klicken zum Bearbeiten"
+              className={`text-xs font-mono tabular-nums w-8 text-right cursor-pointer hover:opacity-70 transition-opacity ${
+                isOverMax
+                  ? 'text-orange-500'
+                  : 'text-neutral-500 dark:text-neutral-400'
+              }`}
+            >
+              {displayVal}
+            </button>
+          )}
         </div>
       </div>
       <input
         type="range"
-        min={0.5}
-        max={10}
+        min={hwMin}
+        max={hwMax}
         step={0.5}
-        value={blocked ? 0.5 : value}
+        value={blocked ? hwMin : Math.min(value, hwMax)}
         disabled={blocked}
         onChange={e => onChange(parseFloat(e.target.value))}
         title={`Standard: ${defaultDisplay}`}
@@ -305,6 +386,27 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
   const currentProfile = config.profile ?? 'hiking'
   // getProfileDefaults now prefers cached server defaults over TS PROFILES
   const defaults = getProfileDefaults(currentProfile)
+
+  // Inline editing state
+  const [editingField, setEditingField] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
+
+  function handleStartEdit(key: string, currentValue: number) {
+    setEditingField(key)
+    setEditValue(String(currentValue))
+  }
+
+  function handleCommitEdit(key: string, min: number) {
+    const parsed = parseFloat(editValue)
+    if (!isNaN(parsed)) {
+      onChange({ ...config, [key]: Math.max(min, parsed) })
+    }
+    setEditingField(null)
+  }
+
+  function handleCancelEdit() {
+    setEditingField(null)
+  }
 
   // Server-side defaults (includes highway costs with null for blocked types)
   const [serverDefaults, setServerDefaults] = useState<ProfileDefaultsResponse | null>(null)
@@ -480,6 +582,13 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
                   unit={field.unit}
                   hint={field.hint}
                   onChange={v => updateField(field.key, v as ProfileConfig[typeof field.key])}
+                  fieldKey={field.key}
+                  editingField={editingField}
+                  editValue={editValue}
+                  onStartEdit={handleStartEdit}
+                  onEditChange={setEditValue}
+                  onCommitEdit={handleCommitEdit}
+                  onCancelEdit={handleCancelEdit}
                 />
               )
             })}
@@ -532,6 +641,13 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
                         delete patch[def.key]
                         onChange(patch)
                       }}
+                      fieldKey={def.key}
+                      editingField={editingField}
+                      editValue={editValue}
+                      onStartEdit={handleStartEdit}
+                      onEditChange={setEditValue}
+                      onCommitEdit={handleCommitEdit}
+                      onCancelEdit={handleCancelEdit}
                     />
                   )
                 })}

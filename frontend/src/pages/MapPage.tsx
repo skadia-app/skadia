@@ -369,6 +369,7 @@ export default function MapPage() {
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [showProfileChart, setShowProfileChart] = useState(false)
   const [bottomBarCollapsed, setBottomBarCollapsed] = useState(false)
+  const [highlightedType, setHighlightedType] = useState<{ kind: 'highway' | 'surface'; key: string } | null>(null)
   const [filterPanelVisible, setFilterPanelVisible] = useState(() => {
     try {
       const saved = localStorage.getItem('skadia-filter-panel-visible')
@@ -446,7 +447,8 @@ export default function MapPage() {
     updateControlPoint: planner.updateControlPoint,
     insertControlPoint: planner.insertControlPoint,
     removeControlPoint: planner.removeControlPoint,
-  }), [planner])
+    highlightedType,
+  }), [planner, highlightedType])
 
   // Register MapLibre click handlers for route editing
   useRouteEditor(mapRef, routeEditorState, plannerActive)
@@ -2655,7 +2657,7 @@ export default function MapPage() {
                   segments={planner.segments}
                   height={140}
                 />
-                <RouteSurfacesBar segments={planner.segments} />
+                <RouteSurfacesBar segments={planner.segments} onHighlight={setHighlightedType} />
               </div>
             )}
           </div>

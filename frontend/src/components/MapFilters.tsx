@@ -225,7 +225,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
   }
 
   return (
-    <div className={docked ? `w-64 h-full${forceDark ? ' dark' : ''}` : `absolute top-3 right-4 z-10 w-64${forceDark ? ' dark' : ''}`} ref={datePickerRef}>
+    <div className={docked ? `h-full w-full${forceDark ? ' dark' : ''}` : `absolute top-3 right-4 z-10 w-64${forceDark ? ' dark' : ''}`} ref={datePickerRef}>
       {/* DayPicker-Popup – links vom Panel, außerhalb overflow-hidden */}
       {datePickerOpen && (
         <div className="absolute top-0 right-full mr-2 z-50 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-xl overflow-hidden">
@@ -251,7 +251,7 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
         </div>
       )}
       <div className={docked
-        ? 'h-full bg-white dark:bg-neutral-900 overflow-hidden flex flex-col'
+        ? 'h-full bg-white dark:bg-neutral-900 overflow-y-auto flex flex-col'
         : 'rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg overflow-hidden max-h-[calc(100vh-6rem)] flex flex-col'
       }>
         {/* Header */}
