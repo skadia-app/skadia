@@ -43,6 +43,15 @@ interface StreamChartProps {
   formatTooltipValue?: (value: number) => string
 }
 
+// ── Tooltip value formatting ──────────────────────────────────────────────────
+
+/** Round value based on unit type: whole numbers for HR/power/cadence/ms/mm, 1 decimal otherwise. */
+function formatValueWithUnit(value: number, unit: string): string {
+  const wholeUnits = ['bpm', 'W', 'rpm', 'ms', 'mm']
+  const rounded = wholeUnits.includes(unit) ? Math.round(value) : parseFloat(value.toFixed(1))
+  return `${rounded} ${unit}`
+}
+
 // ── Chart option builder ──────────────────────────────────────────────────────
 
 function buildOption(
@@ -76,17 +85,18 @@ function buildOption(
       backgroundColor: 'rgba(17,24,39,0.92)',
       borderColor: '#374151',
       textStyle: { color: '#f3f4f6', fontSize: 11 },
-      formatter: formatTooltipValue
-        ? (params: unknown) => {
-            const items = params as Array<{ seriesName: string; value: [number, number]; color: string }>
-            if (!items?.length) return ''
-            const xLabel = fmtDuration(items[0].value[0])
-            const lines = items.map(it =>
-              `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${it.color};margin-right:4px;"></span>${it.seriesName}: <b>${formatTooltipValue(it.value[1])}</b>`
-            )
-            return `${xLabel}<br/>${lines.join('<br/>')}`
-          }
-        : undefined,
+      formatter: (params: unknown) => {
+        const items = params as Array<{ seriesName: string; value: [number, number]; color: string }>
+        if (!items?.length) return ''
+        const xLabel = fmtDuration(items[0].value[0])
+        const lines = items.map(it => {
+          const formatted = formatTooltipValue
+            ? formatTooltipValue(it.value[1])
+            : formatValueWithUnit(it.value[1], unit)
+          return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${it.color};margin-right:4px;"></span>${it.seriesName}: <b>${formatted}</b>`
+        })
+        return `${xLabel}<br/>${lines.join('<br/>')}`
+      },
     },
     legend: {
       top: 4,
