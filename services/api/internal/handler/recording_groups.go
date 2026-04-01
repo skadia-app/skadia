@@ -90,6 +90,14 @@ func (h *Handler) GetRecordingGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	members, err := h.DB.GetRecordingGroupMembers(r.Context(), groupID)
+	if err != nil {
+		slog.Error("get recording group members", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get recording group members", r.URL.Path)
+		return
+	}
+	group.Members = members
+
 	httputil.WriteJSON(w, http.StatusOK, group)
 }
 

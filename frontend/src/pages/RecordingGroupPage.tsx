@@ -147,7 +147,7 @@ export default function RecordingGroupPage() {
 
   const sources = useMemo<SourceInfo[]>(() => {
     if (!group) return []
-    return group.members.map((m, i) => ({
+    return (group.members ?? []).map((m, i) => ({
       id: m.activity_id,
       label: m.source_device ?? m.source ?? `Quelle ${i + 1}`,
       color: getSourceColor(i),

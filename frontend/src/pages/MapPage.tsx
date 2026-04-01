@@ -2023,12 +2023,11 @@ export default function MapPage() {
 
         </div>
 
-        {/* Top control bar: geocoding search (center) + toggle buttons (right), responsive flex-wrap */}
-        <div className="absolute top-3 left-4 right-[17.5rem] z-10 flex flex-wrap items-start gap-x-2 gap-y-2">
-          <div className="flex-1 flex justify-center min-w-[16rem]">
-            <GeoSearch mapRef={mapRef} inline />
-          </div>
-        <div className="flex gap-1.5 flex-wrap justify-end flex-shrink-0">
+        {/* Geocoding search — centered on full map width */}
+        <GeoSearch mapRef={mapRef} />
+
+        {/* Toggle buttons — top right, left of filter panel */}
+        <div className="absolute top-3 right-[17.5rem] z-10 flex gap-1.5 flex-wrap justify-end">
           {/* Route Planner toggle button */}
           {(() => {
             const plannerAvailable = planner.capabilities?.routing ?? false
@@ -2102,7 +2101,6 @@ export default function MapPage() {
           >
             Eigene Karten
           </button>
-        </div>
         </div>
 
         {/* Segments Overlay — Segment-Linien als Karten-Ebene */}

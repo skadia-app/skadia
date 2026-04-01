@@ -10,7 +10,7 @@ interface NominatimResult {
   addresstype: string
 }
 
-export default function GeoSearch({ mapRef, inline }: { mapRef: React.RefObject<maplibregl.Map | null>, inline?: boolean }) {
+export default function GeoSearch({ mapRef }: { mapRef: React.RefObject<maplibregl.Map | null> }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<NominatimResult[]>([])
   const [isOpen, setIsOpen] = useState(false)
@@ -104,7 +104,7 @@ export default function GeoSearch({ mapRef, inline }: { mapRef: React.RefObject<
   }
 
   return (
-    <div ref={containerRef} className={inline ? "w-80 max-w-full" : "absolute top-3 left-1/2 -translate-x-1/2 z-10 w-80"}>
+    <div ref={containerRef} className="absolute top-3 left-1/2 -translate-x-1/2 z-10 w-80">
       <div className="relative">
         <input
           type="text"
