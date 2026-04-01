@@ -118,6 +118,7 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
     { field: 'month', label: 'Monat', inputType: 'enum', options: MONTH_OPTIONS },
     { field: 'season', label: 'Jahreszeit', inputType: 'enum', options: SEASON_OPTIONS },
     { field: 'time_of_day', label: 'Tageszeit', inputType: 'enum', options: TIME_OF_DAY_OPTIONS },
+    { field: 'sun_elevation', label: 'Sonnenstand', inputType: 'number', unit: '°' },
   ]},
   { key: 'distance', label: 'Distanz', fields: [
     { field: 'distance_m', label: 'Distanz', inputType: 'number', unit: 'm' },
@@ -185,7 +186,6 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
     { field: 'photo_count', label: 'Anzahl Fotos', inputType: 'number' },
     { field: 'detected_lap_count', label: 'Anzahl Runden', inputType: 'number' },
     { field: 'hide_map', label: 'Karte verborgen', inputType: 'bool' },
-    { field: 'sun_elevation', label: 'Sonnenstand', inputType: 'number', unit: '°' },
   ]},
   { key: 'lift', label: 'Lift', fields: [
     { field: 'has_lift', label: 'Lift genutzt', inputType: 'bool' },
@@ -297,12 +297,11 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
   ]},
 ]
 
-// Internal-only fields not shown in category dropdown (geofence, round-trip)
+// Internal-only fields not shown in category dropdown (geofence)
 const INTERNAL_FIELDS: ConditionField[] = [
   { field: 'geofence', label: 'Geofence', inputType: 'geofence' },
   { field: 'geofence_zone', label: 'In Zone', inputType: 'geofence_zone' },
   { field: 'geofence_proximity', label: 'Nähe zum Pin', inputType: 'geofence_proximity' },
-  { field: 'is_round_trip', label: 'Rundtour', inputType: 'bool' },
 ]
 
 // Flat lookup: find a ConditionField by its field name
@@ -1813,38 +1812,6 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
           </div>
         </div>
 
-        {/* Round trip block */}
-        {(() => {
-          const hasRoundTripCondition = groups.some(g => g.conditions.some(c => c.field === 'is_round_trip'))
-          const toggleRoundTrip = (checked: boolean) => {
-            if (checked) {
-              const newCond: RuleCondition = { field: 'is_round_trip', op: 'eq', value: true }
-              if (groups.length > 0) {
-                updateGroup(0, { ...groups[0], conditions: [...groups[0].conditions, newCond] })
-              } else {
-                setGroups([{ logic: 'and', conditions: [newCond] }])
-              }
-            } else {
-              setGroups(groups.map(g => ({
-                ...g,
-                conditions: g.conditions.filter(c => c.field !== 'is_round_trip'),
-              })).filter(g => g.conditions.length > 0))
-            }
-          }
-          return (
-            <div className="flex items-center gap-3 rounded-lg border border-neutral-200 dark:border-neutral-700 p-3">
-              <svg className="w-4 h-4 text-neutral-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 109 9"/><path d="M3 12V6h6"/></svg>
-              <span className="text-sm font-medium">Rundtour</span>
-              <div className="ml-auto">
-                <Toggle
-                  checked={hasRoundTripCondition}
-                  onChange={() => toggleRoundTrip(!hasRoundTripCondition)}
-                  aria-label="Rundtour"
-                />
-              </div>
-            </div>
-          )
-        })()}
       </div>
 
       {/* Actions */}
