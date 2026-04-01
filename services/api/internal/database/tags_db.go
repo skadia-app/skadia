@@ -555,26 +555,27 @@ func (db *DB) SeedRecommendedRules(ctx context.Context, userID string) {
 			userID, name, priority, conditions, actions, triggerEvent)
 	}
 
-	// Ultramarathon: running, distance >= 42196 m (full marathon + 1 m)
-	if id, ok := tagIDs["Ultramarathon"]; ok {
-		createRule("Ultramarathon", 10,
-			`[{"field":"distance_m","op":"gte","value":42196},{"field":"sport_type","op":"eq","value":"running"}]`,
-			`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
-			"on_import")
-	}
-	// Marathon: running, distance between 42000 and 42195 m
-	if id, ok := tagIDs["Marathon"]; ok {
-		createRule("Marathon", 20,
-			`[{"field":"distance_m","op":"between","value":"42000,42195"},{"field":"sport_type","op":"eq","value":"running"}]`,
-			`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
-			"on_import")
-	}
-	// Halbmarathon: running, distance between 21000 and 41999 m
-	if id, ok := tagIDs["Halbmarathon"]; ok {
-		createRule("Halbmarathon", 30,
-			`[{"field":"distance_m","op":"between","value":"21000,41999"},{"field":"sport_type","op":"eq","value":"running"}]`,
-			`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
-			"on_import")
+	// Laufdistanz: ONE rule with ELSE-IF branches (Ultra/Marathon/Halb)
+	ultraID, hasUltra := tagIDs["Ultramarathon"]
+	maraID, hasMara := tagIDs["Marathon"]
+	halbID, hasHalb := tagIDs["Halbmarathon"]
+	if hasUltra && hasMara && hasHalb {
+		branches := `[` +
+			`{"type":"if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":42196}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + ultraID + `"}}]},` +
+			`{"type":"else_if","condition_groups":[{"logic":"and","conditions":[{"field":"distance_m","op":"gte","value":42000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + maraID + `"}}]},` +
+			`{"type":"else_if","condition_groups":[{"logic":"and","conditions":[{"field":"distance_m","op":"gte","value":21000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + halbID + `"}}]}` +
+			`]`
+		_, _ = db.Pool.Exec(ctx, `
+			INSERT INTO automation_rules
+				(user_id, name, is_active, priority, conditions, conditions_logic, actions,
+				 branches, trigger_event, stop_on_match, apply_retroactively)
+			SELECT $1, 'Laufdistanz', true, 10, '[]'::jsonb, 'and', '[]'::jsonb,
+				$2::jsonb, 'on_import', false, true
+			WHERE NOT EXISTS (
+				SELECT 1 FROM automation_rules
+				WHERE user_id = $1 AND name = 'Laufdistanz' AND is_system = false
+			)`,
+			userID, branches)
 	}
 	// Intervall-Training: enrichment field has_structured_intervals = true
 	if id, ok := tagIDs["Intervall-Training"]; ok {
