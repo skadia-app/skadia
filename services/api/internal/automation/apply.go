@@ -114,12 +114,18 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 				Actions         json.RawMessage        `json:"actions"`
 			}
 			var branches []branch
-			if err := json.Unmarshal(rule.Branches, &branches); err == nil && len(branches) > 0 {
+			if err := json.Unmarshal(rule.Branches, &branches); err != nil {
+				slog.Warn("malformed branches JSON", "rule_id", rule.ID, "error", err)
+			} else if len(branches) > 0 {
 				anyBranchMatched := false
-				for _, br := range branches {
+				for i, br := range branches {
 					branchMatched := false
 					if br.Type == "else" {
-						branchMatched = true
+						if i > 0 { // ELSE only valid after at least one IF/ELSE_IF
+							branchMatched = true
+						} else {
+							continue // skip lone ELSE at position 0
+						}
 					} else if len(br.ConditionGroups) > 0 {
 						branchMatched = rules.EvaluateGroups(br.ConditionGroups, actMap)
 					}
@@ -140,6 +146,9 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 					if rule.StopOnMatch {
 						break
 					}
+				} else if rule.IsSystem {
+					// Retraction for branches-rules is not implemented; warn so it doesn't silently do nothing.
+					slog.Warn("system rule with branches did not match — retraction for branches not implemented", "rule_id", rule.ID)
 				}
 			}
 			continue // branches-rule handled, skip flat evaluation
@@ -217,9 +226,12 @@ func EvaluateRule(rule model.AutomationRule, actMap map[string]any) bool {
 		}
 		var branches []branch
 		if err := json.Unmarshal(rule.Branches, &branches); err == nil && len(branches) > 0 {
-			for _, br := range branches {
+			for i, br := range branches {
 				if br.Type == "else" {
-					return true // else always matches if reached
+					if i > 0 { // ELSE only valid after at least one IF/ELSE_IF
+						return true
+					}
+					continue // skip lone ELSE at position 0
 				}
 				if len(br.ConditionGroups) > 0 && rules.EvaluateGroups(br.ConditionGroups, actMap) {
 					return true
