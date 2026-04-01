@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -231,6 +232,14 @@ func (h *Handler) dryRunAllRules(w http.ResponseWriter, r *http.Request, userID 
 		return
 	}
 
+	// Tag-Namen vorladen für menschenlesbare Action-Strings
+	tagNameByID := map[string]string{}
+	if tags, err := h.DB.ListTags(r.Context(), userID); err == nil {
+		for _, t := range tags {
+			tagNameByID[t.ID] = t.Name
+		}
+	}
+
 	syncSystemTypes := map[string]bool{
 		"electric_sync": true,
 		"virtual_sync":  true,
@@ -245,6 +254,9 @@ func (h *Handler) dryRunAllRules(w http.ResponseWriter, r *http.Request, userID 
 	type matchResult struct {
 		ActivityID    string      `json:"activity_id"`
 		ActivityTitle string      `json:"activity_title"`
+		StartedAt     string      `json:"started_at"`
+		SportType     string      `json:"sport_type"`
+		DistanceM     float64     `json:"distance_m"`
 		Rules         []ruleMatch `json:"rules"`
 	}
 
@@ -269,7 +281,17 @@ func (h *Handler) dryRunAllRules(w http.ResponseWriter, r *http.Request, userID 
 				var actions []rules.Action
 				_ = json.Unmarshal(rule.Actions, &actions)
 				for _, a := range actions {
-					actRules = append(actRules, ruleMatch{RuleName: rule.Name, Action: a.Action})
+					actionStr := a.Action
+					if a.Action == "add_tag" || a.Action == "remove_tag" {
+						var p struct {
+							TagID string `json:"tag_id"`
+						}
+						_ = json.Unmarshal(a.Params, &p)
+						if name, ok := tagNameByID[p.TagID]; ok {
+							actionStr = a.Action + ": " + name
+						}
+					}
+					actRules = append(actRules, ruleMatch{RuleName: rule.Name, Action: actionStr})
 				}
 			}
 		}
@@ -278,9 +300,32 @@ func (h *Handler) dryRunAllRules(w http.ResponseWriter, r *http.Request, userID 
 			totalMatches++
 			if totalMatches > offset && len(matches) < limit {
 				title, _ := actMap["title"].(string)
+				sportType, _ := actMap["sport_type"].(string)
+				distanceM, _ := actMap["distance_m"].(float64)
+
+				// Fallback-Titel aus Sport + Stadt
+				if title == "" {
+					city, _ := actMap["start_city"].(string)
+					if sportType != "" && city != "" {
+						title = sportType + " in " + city
+					} else if sportType != "" {
+						title = sportType
+					}
+				}
+
+				startedAtStr := ""
+				if sa, ok := actMap["started_at"]; ok && sa != nil {
+					if t, ok := sa.(time.Time); ok {
+						startedAtStr = t.Format("2006-01-02")
+					}
+				}
+
 				matches = append(matches, matchResult{
 					ActivityID:    actID,
 					ActivityTitle: title,
+					StartedAt:     startedAtStr,
+					SportType:     sportType,
+					DistanceM:     distanceM,
 					Rules:         actRules,
 				})
 			}
@@ -377,8 +422,11 @@ func (h *Handler) applySingleRuleDryRun(w http.ResponseWriter, r *http.Request, 
 	}
 
 	type matchResult struct {
-		ActivityID    string `json:"activity_id"`
-		ActivityTitle string `json:"activity_title"`
+		ActivityID    string  `json:"activity_id"`
+		ActivityTitle string  `json:"activity_title"`
+		StartedAt     string  `json:"started_at"`
+		SportType     string  `json:"sport_type"`
+		DistanceM     float64 `json:"distance_m"`
 	}
 
 	var matches []matchResult
@@ -393,7 +441,33 @@ func (h *Handler) applySingleRuleDryRun(w http.ResponseWriter, r *http.Request, 
 			totalMatches++
 			if totalMatches > offset && len(matches) < limit {
 				title, _ := actMap["title"].(string)
-				matches = append(matches, matchResult{ActivityID: actID, ActivityTitle: title})
+				sportType, _ := actMap["sport_type"].(string)
+				distanceM, _ := actMap["distance_m"].(float64)
+
+				// Fallback-Titel aus Sport + Stadt
+				if title == "" {
+					city, _ := actMap["start_city"].(string)
+					if sportType != "" && city != "" {
+						title = sportType + " in " + city
+					} else if sportType != "" {
+						title = sportType
+					}
+				}
+
+				startedAtStr := ""
+				if sa, ok := actMap["started_at"]; ok && sa != nil {
+					if t, ok := sa.(time.Time); ok {
+						startedAtStr = t.Format("2006-01-02")
+					}
+				}
+
+				matches = append(matches, matchResult{
+					ActivityID:    actID,
+					ActivityTitle: title,
+					StartedAt:     startedAtStr,
+					SportType:     sportType,
+					DistanceM:     distanceM,
+				})
 			}
 		}
 	}
