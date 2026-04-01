@@ -1,7 +1,8 @@
 // RecordingGroupPage — View and manage a single recording group.
 // Shows member cards, multi-track map, stream chart comparison, and summary table.
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchRecordingGroup, setGroupPrimary, setGroupSportType, dissolveRecordingGroup } from '@/api/recordingGroups'
@@ -10,6 +11,7 @@ import { SourcesProvider, type SourceInfo } from '@/components/comparison/Source
 import MultiTrackMap from '@/components/comparison/MultiTrackMap'
 import StreamChartContainer from '@/components/comparison/StreamChartContainer'
 import ComparisonSummaryTable from '@/components/comparison/ComparisonSummaryTable'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { getSourceColor } from '@/lib/comparisonColors'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { formatDistance, formatDuration } from '@/lib/utils'
@@ -167,19 +169,48 @@ export default function RecordingGroupPage() {
   // ── Mutations ─────────────────────────────────────────────────────────────
 
   const [settingPrimaryId, setSettingPrimaryId] = useState<string | null>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  const openFullscreen = useCallback(() => setIsFullscreen(true), [])
+  const closeFullscreen = useCallback(() => setIsFullscreen(false), [])
+
+  useEscapeKey(closeFullscreen, isFullscreen)
+
+  // Lock body scroll when fullscreen is active
+  useEffect(() => {
+    if (!isFullscreen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [isFullscreen])
 
   const setPrimaryMutation = useMutation({
     mutationFn: ({ activityId }: { activityId: string }) =>
       setGroupPrimary(groupId!, activityId),
-    onMutate: ({ activityId }) => { setSettingPrimaryId(activityId) },
+    onMutate: async ({ activityId }) => {
+      setSettingPrimaryId(activityId)
+      await queryClient.cancelQueries({ queryKey: ['recording-group', groupId] })
+      const previous = queryClient.getQueryData(['recording-group', groupId])
+      queryClient.setQueryData(['recording-group', groupId], (old: typeof group) => {
+        if (!old) return old
+        return { ...old, primary_activity_id: activityId }
+      })
+      return { previous }
+    },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['recording-group', groupId] })
       addToast({ type: 'success', title: 'Primäre Aufnahme gesetzt' })
     },
-    onError: () => {
+    onError: (_err, _vars, context) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(['recording-group', groupId], context.previous)
+      }
       addToast({ type: 'error', title: 'Fehler beim Setzen der primären Aufnahme', duration: 0 })
     },
-    onSettled: () => { setSettingPrimaryId(null) },
+    onSettled: () => {
+      setSettingPrimaryId(null)
+      // Soft background refetch — does not block UI
+      void queryClient.invalidateQueries({ queryKey: ['recording-group', groupId] })
+    },
   })
 
   const setSportTypeMutation = useMutation({
@@ -316,9 +347,52 @@ export default function RecordingGroupPage() {
             showHeatmap={false}
           />
 
-          {/* Stream chart */}
-          <StreamChartContainer chartHeight={180} />
+          {/* Stream chart with maximize button */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-end">
+              <button
+                onClick={openFullscreen}
+                title="Karte & Streams maximieren"
+                className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100 border border-neutral-200 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500 rounded px-2.5 py-1 transition-colors cursor-pointer"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                  <path d="M13.28 7.78l3.22-3.22v2.69a.75.75 0 001.5 0v-4.5a.75.75 0 00-.75-.75h-4.5a.75.75 0 000 1.5h2.69l-3.22 3.22a.75.75 0 001.06 1.06zM2 17.25v-4.5a.75.75 0 011.5 0v2.69l3.22-3.22a.75.75 0 011.06 1.06L4.56 16.5h2.69a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75z" />
+                </svg>
+                Maximieren
+              </button>
+            </div>
+            <StreamChartContainer chartHeight={180} />
+          </div>
         </div>
+
+        {/* Fullscreen overlay — map on top, chart at bottom */}
+        {isFullscreen && createPortal(
+          <div className="fixed inset-0 z-50 flex flex-col bg-black">
+            {/* Map fills top */}
+            <div className="relative flex-1 min-h-0">
+              <MultiTrackMap
+                height="100%"
+                className="!rounded-none !border-0"
+                showHeatmap={false}
+              />
+              {/* Close button floating over map */}
+              <button
+                onClick={closeFullscreen}
+                title="Schließen (Esc)"
+                className="absolute top-3 right-14 z-10 flex items-center justify-center w-9 h-9 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm text-neutral-700 dark:text-neutral-200 shadow-md hover:bg-white dark:hover:bg-neutral-700 transition-colors cursor-pointer"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                </svg>
+              </button>
+            </div>
+            {/* Chart strip at bottom */}
+            <div className="flex-none bg-white/90 dark:bg-neutral-900/90 backdrop-blur-sm border-t border-neutral-200/50 dark:border-neutral-700/50">
+              <StreamChartContainer chartHeight={200} />
+            </div>
+          </div>,
+          document.body
+        )}
 
         {/* Summary table */}
         <div className="mb-8">
