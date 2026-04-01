@@ -144,6 +144,7 @@ function buildOption(
       smooth: true,
       symbol: 'none',
       data: s.data,
+      z: idx === 0 ? 10 : 2, // primary/first source on top layer
       lineStyle: {
         color: s.color,
         width: getSourceChartLineWidth(idx),

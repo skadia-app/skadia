@@ -130,7 +130,10 @@ export default function MultiTrackMap({
     const map = mapRef.current
     if (!map || !map.loaded()) return
 
-    visibleSources.forEach((src, idx) => {
+    // Render in reverse order so primary (index 0) is drawn LAST = top layer
+    const reversed = [...visibleSources].reverse()
+    reversed.forEach((src) => {
+      const idx = visibleSources.indexOf(src)
       const coords = buildCoords(src)
       const sourceId = `track-${src.id}`
       const layerId = `track-line-${src.id}`
