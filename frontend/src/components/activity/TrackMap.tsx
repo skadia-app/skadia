@@ -124,20 +124,28 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
 
     map.on('load', () => {
       // Create heading arrow icon (simple triangle pointing up = 0°)
+      // MapLibre requires ImageData (not HTMLCanvasElement) for reliable dimension detection.
+      // Wrapped in try/catch so a failure here never blocks track/source loading below.
       const arrowSize = 16
-      const canvas = document.createElement('canvas')
-      canvas.width = arrowSize
-      canvas.height = arrowSize
-      const ctx2d = canvas.getContext('2d')!
-      ctx2d.fillStyle = '#ffffff' // SDF: weiß = opaque, transparent = unsichtbar
-      ctx2d.beginPath()
-      ctx2d.moveTo(arrowSize / 2, 0)
-      ctx2d.lineTo(arrowSize, arrowSize)
-      ctx2d.lineTo(arrowSize / 2, arrowSize * 0.7)
-      ctx2d.lineTo(0, arrowSize)
-      ctx2d.closePath()
-      ctx2d.fill()
-      map.addImage('heading-arrow', canvas, { sdf: true })
+      const arrowCanvas = document.createElement('canvas')
+      arrowCanvas.width = arrowSize
+      arrowCanvas.height = arrowSize
+      const ctx2d = arrowCanvas.getContext('2d')
+      if (ctx2d) {
+        ctx2d.fillStyle = '#ffffff' // SDF: weiß = opaque, transparent = unsichtbar
+        ctx2d.beginPath()
+        ctx2d.moveTo(arrowSize / 2, 0)
+        ctx2d.lineTo(arrowSize, arrowSize)
+        ctx2d.lineTo(arrowSize / 2, arrowSize * 0.7)
+        ctx2d.lineTo(0, arrowSize)
+        ctx2d.closePath()
+        ctx2d.fill()
+        try {
+          map.addImage('heading-arrow', ctx2d.getImageData(0, 0, arrowSize, arrowSize), { sdf: true })
+        } catch {
+          // heading arrows not available in this MapLibre version/context
+        }
+      }
 
       // Full track — greyed out when a segment is highlighted
       map.addSource('track', {
@@ -183,7 +191,7 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
         }
       }
 
-      if (headingFeatures.length > 0) {
+      if (headingFeatures.length > 0 && map.hasImage('heading-arrow')) {
         map.addSource('heading-arrows', {
           type: 'geojson',
           data: { type: 'FeatureCollection', features: headingFeatures },
