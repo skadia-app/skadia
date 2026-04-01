@@ -561,9 +561,9 @@ func (db *DB) SeedRecommendedRules(ctx context.Context, userID string) {
 	halbID, hasHalb := tagIDs["Halbmarathon"]
 	if hasUltra && hasMara && hasHalb {
 		branches := `[` +
-			`{"type":"if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":42196}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + ultraID + `"}}]},` +
-			`{"type":"else_if","condition_groups":[{"logic":"and","conditions":[{"field":"distance_m","op":"gte","value":42000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + maraID + `"}}]},` +
-			`{"type":"else_if","condition_groups":[{"logic":"and","conditions":[{"field":"distance_m","op":"gte","value":21000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + halbID + `"}}]}` +
+			`{"type":"if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":50000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + ultraID + `"}}]},` +
+			`{"type":"else_if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":42000},{"field":"distance_m","op":"lt","value":50000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + maraID + `"}}]},` +
+			`{"type":"else_if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":21000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + halbID + `"}}]}` +
 			`]`
 		_, _ = db.Pool.Exec(ctx, `
 			INSERT INTO automation_rules

@@ -1496,16 +1496,26 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
   const [priority, setPriority] = useState(seed?.priority ?? 0)
   const [triggerEvent, setTriggerEvent] = useState<'on_import' | 'on_enrichment_complete' | 'on_manual_apply'>(seed?.trigger_event ?? 'on_import')
   const [stopOnMatch, setStopOnMatch] = useState(seed?.stop_on_match ?? false)
-  const [groups, setGroups] = useState<RuleConditionGroup[]>(() => normaliseGroups(rule))
-  const [actions, setActions] = useState<RuleAction[]>(() => denormaliseActions(seed?.actions ?? []))
-  const [branches, setBranches] = useState<RuleBranch[]>(() => {
+  // When a rule uses branches, the 'if' branch becomes the main conditions/actions,
+  // and only 'else_if'/'else' branches are shown as SONST WENN/SONST blocks.
+  const parsedBranches: RuleBranch[] = (() => {
     const raw = seed?.branches
     if (!raw) return []
     if (typeof raw === 'string') {
       try { return JSON.parse(raw) } catch { return [] }
     }
     return raw as RuleBranch[]
-  })
+  })()
+  const ifBranch = parsedBranches.find(b => b.type === 'if')
+  const elseIfBranches = parsedBranches.filter(b => b.type !== 'if')
+
+  const [groups, setGroups] = useState<RuleConditionGroup[]>(() =>
+    ifBranch ? ifBranch.condition_groups : normaliseGroups(rule)
+  )
+  const [actions, setActions] = useState<RuleAction[]>(() =>
+    ifBranch ? denormaliseActions(ifBranch.actions) : denormaliseActions(seed?.actions ?? [])
+  )
+  const [branches, setBranches] = useState<RuleBranch[]>(elseIfBranches)
 
   const { data: gearList } = useQuery({
     queryKey: ['gear-list'],
@@ -1624,10 +1634,14 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
       conditions: flat.conditions,
       conditions_logic: flat.conditions_logic,
       actions: normaliseActions(actions),
-      branches: branches.length > 0 ? branches.map(b => ({
-        ...b,
-        actions: normaliseActions(b.actions),
-      })) : undefined,
+      // When branches exist, reconstruct: main groups/actions become the 'if' branch
+      branches: branches.length > 0 ? [
+        { type: 'if' as const, condition_groups: groups, actions: normaliseActions(actions) },
+        ...branches.map(b => ({
+          ...b,
+          actions: normaliseActions(b.actions),
+        })),
+      ] : undefined,
     })
   }
 
