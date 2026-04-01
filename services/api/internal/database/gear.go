@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"time"
 
@@ -915,7 +916,7 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 		UPDATE tags t SET has_automation = EXISTS (
 			SELECT 1 FROM automation_rules ar
 			WHERE ar.user_id = t.user_id AND ar.is_active = true
-			  AND ar.actions::text LIKE '%' || t.id::text || '%'
+			  AND (ar.actions::text LIKE '%' || t.id::text || '%' OR COALESCE(ar.branches::text, '') LIKE '%' || t.id::text || '%')
 		) WHERE t.user_id = $1`, userID) //nolint:errcheck
 	return &r, nil
 }
@@ -1010,7 +1011,7 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 		UPDATE tags t SET has_automation = EXISTS (
 			SELECT 1 FROM automation_rules ar
 			WHERE ar.user_id = t.user_id AND ar.is_active = true
-			  AND ar.actions::text LIKE '%' || t.id::text || '%'
+			  AND (ar.actions::text LIKE '%' || t.id::text || '%' OR COALESCE(ar.branches::text, '') LIKE '%' || t.id::text || '%')
 		) WHERE t.user_id = $1`, userID) //nolint:errcheck
 	return &r, nil
 }
@@ -1043,7 +1044,7 @@ func (db *DB) DeleteRule(ctx context.Context, id string, userID string) error {
 		UPDATE tags t SET has_automation = EXISTS (
 			SELECT 1 FROM automation_rules ar
 			WHERE ar.user_id = t.user_id AND ar.is_active = true
-			  AND ar.actions::text LIKE '%' || t.id::text || '%'
+			  AND (ar.actions::text LIKE '%' || t.id::text || '%' OR COALESCE(ar.branches::text, '') LIKE '%' || t.id::text || '%')
 		) WHERE t.user_id = $1`, userID) //nolint:errcheck
 	return nil
 }
@@ -1573,6 +1574,10 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 		if err := db.Pool.QueryRow(ctx,
 			`SELECT name, is_system FROM tags WHERE id = $1`, tagID,
 		).Scan(&tagName, &isSystem); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				slog.Warn("add_tag: tag no longer exists, skipping", "tag_id", tagID, "activity_id", activityID)
+				return nil
+			}
 			return fmt.Errorf("add_tag: resolve tag: %w", err)
 		}
 		// System-Tags: respect activity_tag_removals
