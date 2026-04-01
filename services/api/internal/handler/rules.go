@@ -47,13 +47,16 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
 		return
 	}
-	if len(create.Conditions) == 0 && len(create.ConditionGroups) == 0 {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "conditions or condition_groups are required", r.URL.Path)
-		return
-	}
-	if len(create.Actions) == 0 {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "actions are required", r.URL.Path)
-		return
+	hasBranches := len(create.Branches) > 0 && string(create.Branches) != "null"
+	if !hasBranches {
+		if len(create.Conditions) == 0 && len(create.ConditionGroups) == 0 {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "conditions or condition_groups are required", r.URL.Path)
+			return
+		}
+		if len(create.Actions) == 0 {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "actions are required", r.URL.Path)
+			return
+		}
 	}
 
 	rule, err := h.DB.CreateRule(r.Context(), userID, &create)
@@ -279,7 +282,28 @@ func (h *Handler) dryRunAllRules(w http.ResponseWriter, r *http.Request, userID 
 			}
 			if automation.EvaluateRule(rule, actMap) {
 				var actions []rules.Action
-				_ = json.Unmarshal(rule.Actions, &actions)
+				if len(rule.Branches) > 0 && string(rule.Branches) != "null" {
+					type branchInfo struct {
+						Type            string                 `json:"type"`
+						ConditionGroups []rules.ConditionGroup `json:"condition_groups"`
+						Actions         json.RawMessage        `json:"actions"`
+					}
+					var branches []branchInfo
+					if err := json.Unmarshal(rule.Branches, &branches); err == nil {
+						for _, br := range branches {
+							matched := br.Type == "else"
+							if !matched && len(br.ConditionGroups) > 0 {
+								matched = rules.EvaluateGroups(br.ConditionGroups, actMap)
+							}
+							if matched {
+								_ = json.Unmarshal(br.Actions, &actions)
+								break
+							}
+						}
+					}
+				} else {
+					_ = json.Unmarshal(rule.Actions, &actions)
+				}
 				for _, a := range actions {
 					actionStr := a.Action
 					if a.Action == "add_tag" || a.Action == "remove_tag" {
@@ -376,8 +400,15 @@ func (h *Handler) ApplySingleRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	actIDs, err := h.DB.ListActivityIDsForUser(r.Context(), userID)
+	if err != nil {
+		slog.Error("apply single rule: list activities", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
+		return
+	}
+
 	jobName := fmt.Sprintf("Regel '%s' anwenden", targetRule.Name)
-	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "rule_apply", &ruleID, &jobName, 0)
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "rule_apply", &ruleID, &jobName, int64(len(actIDs)))
 	if err != nil {
 		slog.Error("apply single rule: insert job", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)
