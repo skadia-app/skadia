@@ -15,11 +15,9 @@ export function getSourceColor(index: number): string {
 
 export type SourceLineStyle = 'solid' | 'dashed' | 'dotted'
 
-const LINE_STYLES: SourceLineStyle[] = ['solid', 'dashed', 'dotted']
-
-/** Returns the line style for a source at the given index (cycles every 3). */
-export function getSourceLineStyle(idx: number): SourceLineStyle {
-  return LINE_STYLES[idx % LINE_STYLES.length]
+/** Returns the line style for a source at the given index. Always solid — differentiation by color only. */
+export function getSourceLineStyle(_idx: number): SourceLineStyle {
+  return 'solid'
 }
 
 /** Returns the line width for a source at the given index. */
@@ -35,10 +33,7 @@ export function getSourceChartLineWidth(idx: number): number {
   return 1.5
 }
 
-/** Returns the MapLibre line-dasharray for a source (undefined = solid). */
-export function getSourceMapDasharray(idx: number): number[] | undefined {
-  const style = getSourceLineStyle(idx)
-  if (style === 'dashed') return [4, 2]
-  if (style === 'dotted') return [2, 2]
+/** Returns the MapLibre line-dasharray for a source. Always solid — differentiation by color only. */
+export function getSourceMapDasharray(_idx: number): number[] | undefined {
   return undefined
 }
