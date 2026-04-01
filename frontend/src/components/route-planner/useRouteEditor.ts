@@ -16,6 +16,7 @@ import maplibregl from 'maplibre-gl'
 import type { RouteWaypoint, RouteSegment } from '@/api/routes'
 import type { SegmentKey } from '@/hooks/useRoutePlanner'
 import { nearestPointOnPolyline } from '@/lib/catmull-rom'
+import { SURFACE_GROUPS } from '@/lib/surfaceConstants'
 
 // ── Layer / Source IDs ──────────────────────────────────────────────────────
 const SOURCE_ROUTE       = 'route-planner-source'
@@ -562,25 +563,15 @@ export function useRouteEditor(
       return
     }
 
-    // Surface grouping table (same as surfaceConstants.ts)
-    const SG: Record<string, string> = {
-      asphalt: 'Asphalt', concrete: 'Beton', concrete_lanes: 'Beton', concrete_plates: 'Beton',
-      paved: 'Befestigt', paving_stones: 'Pflaster', sett: 'Pflaster', cobblestone: 'Pflaster',
-      compacted: 'Schotter', fine_gravel: 'Schotter', gravel: 'Schotter', pebblestone: 'Schotter',
-      ground: 'Naturweg', earth: 'Naturweg', dirt: 'Naturweg', mud: 'Naturweg', clay: 'Naturweg',
-      sand: 'Sand', grass: 'Gras', grass_paver: 'Gras', wood: 'Holz', woodchips: 'Holz',
-      rock: 'Fels', unpaved: 'Unbefestigt', unknown: 'Unbekannt', offroad: 'Offroad',
-    }
-
     const features: GeoJSON.Feature<GeoJSON.LineString>[] = []
-    for (const seg of plannerRef.current.segments) {
+    for (const seg of planner.segments) {
       if (!seg.sub_segments?.length || !seg.geometry?.coordinates?.length) continue
       const coords = seg.geometry.coordinates
       for (const ss of seg.sub_segments) {
         const sub = ss as { from_idx: number; to_idx: number; highway: string; surface: string }
         const match = ht.kind === 'highway'
           ? sub.highway === ht.key
-          : (SG[sub.surface] ?? sub.surface) === ht.key
+          : (SURFACE_GROUPS[sub.surface] ?? sub.surface) === ht.key
         if (!match) continue
         const start = Math.max(0, sub.from_idx)
         const end = Math.min(coords.length - 1, sub.to_idx)
@@ -593,12 +584,13 @@ export function useRouteEditor(
       }
     }
     src.setData({ type: 'FeatureCollection', features })
-  }, [active, planner.highlightedType]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active, planner.highlightedType, planner.segments])
 
-  // ── Animation loop: pulse glow on calculating layer ───────────────────────
+  // ── Animation loop: pulse glow on calculating layer (only when calculating) ─
+  const isCalculating = planner.isCalculating ?? false
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !active) return
+    if (!map || !active || !isCalculating) return
 
     let animFrame: number | null = null
 
@@ -626,7 +618,7 @@ export function useRouteEditor(
     return () => {
       if (animFrame !== null) cancelAnimationFrame(animFrame)
     }
-  }, [active, mapRef])
+  }, [active, isCalculating])
 
   // ── Map interactions (click, drag, context menu) ──────────────────────────
   useEffect(() => {
@@ -979,6 +971,14 @@ export function useRouteEditor(
     const onTouchEnd = () => onMouseUp()
     map.on('touchend', onTouchEnd)
 
+    // Window mouseup fallback — if user releases mouse outside canvas, re-enable dragPan
+    const onWindowMouseUp = () => {
+      if (draggingRef.current || draggingCpRef.current) {
+        onMouseUp()
+      }
+    }
+    window.addEventListener('mouseup', onWindowMouseUp)
+
     return () => {
       map.off('mouseenter', LAYER_ROUTED + '-hit', onRouteEnter)
       map.off('mouseleave', LAYER_ROUTED + '-hit', onRouteLeave)
@@ -998,6 +998,7 @@ export function useRouteEditor(
       map.off('mousemove', onMouseMove)
       map.off('mouseup', onMouseUp)
       map.off('touchend', onTouchEnd)
+      window.removeEventListener('mouseup', onWindowMouseUp)
       segmentPopupRef.current?.remove()
       segmentPopupRef.current = null
       removeLayers(map)

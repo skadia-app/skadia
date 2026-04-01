@@ -448,6 +448,7 @@ export default function MapPage() {
     insertControlPoint: planner.insertControlPoint,
     removeControlPoint: planner.removeControlPoint,
     highlightedType,
+    isCalculating: planner.isCalculating,
   }), [planner, highlightedType])
 
   // Register MapLibre click handlers for route editing
@@ -1886,22 +1887,6 @@ export default function MapPage() {
             estimatedTimeMin={undefined}
             onProfileChange={planner.setProfileAndRecalculate}
             onRemoveWaypoint={planner.removeWaypoint}
-            onMoveWaypointUp={(id) => {
-              const idx = planner.waypoints.findIndex(w => w.id === id)
-              if (idx <= 0) return
-              const reordered = [...planner.waypoints]
-              ;[reordered[idx - 1], reordered[idx]] = [reordered[idx], reordered[idx - 1]]
-              planner.reorderWaypoints(reordered)
-              void planner.recalculateAll()
-            }}
-            onMoveWaypointDown={(id) => {
-              const idx = planner.waypoints.findIndex(w => w.id === id)
-              if (idx < 0 || idx >= planner.waypoints.length - 1) return
-              const reordered = [...planner.waypoints]
-              ;[reordered[idx], reordered[idx + 1]] = [reordered[idx + 1], reordered[idx]]
-              planner.reorderWaypoints(reordered)
-              void planner.recalculateAll()
-            }}
             onReorderWaypoints={planner.reorderWaypoints}
             onRecalculateAll={planner.recalculateAll}
             onToggleSegmentMode={(waypointId) => {

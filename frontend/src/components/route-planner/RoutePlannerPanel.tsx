@@ -187,8 +187,6 @@ export interface RoutePlannerPanelProps {
   // Callbacks
   onProfileChange: (config: ProfileConfig) => void
   onRemoveWaypoint: (id: string) => void
-  onMoveWaypointUp: (id: string) => void
-  onMoveWaypointDown: (id: string) => void
   onReorderWaypoints: (waypoints: RouteWaypoint[]) => void
   onRecalculateAll: () => void
   onToggleSegmentMode: (waypointId: string) => void
@@ -221,8 +219,6 @@ export default function RoutePlannerPanel({
   estimatedTimeMin,
   onProfileChange,
   onRemoveWaypoint,
-  onMoveWaypointUp,
-  onMoveWaypointDown,
   onReorderWaypoints,
   onRecalculateAll,
   onToggleSegmentMode,
