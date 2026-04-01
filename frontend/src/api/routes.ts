@@ -1,6 +1,9 @@
 import { apiClient, apiUpload, apiDownload } from './client'
 import type { Tag } from './tags'
 import type { ProfileConfig } from '@/lib/routingProfiles'
+import type { RouteSubSegment } from '@/lib/routeSurfaceAggregation'
+
+export type { RouteSubSegment }
 
 // === Types ===
 
@@ -26,6 +29,7 @@ export interface RouteSegment {
   elevation_estimated?: boolean   // true for offroad segments (no DEM lookup)
   approach_from?: number[][]      // [lon, lat] pairs: click point → edge projection
   approach_to?: number[][]        // [lon, lat] pairs: edge projection → click point
+  sub_segments?: RouteSubSegment[] // From BadRouter GeoJSON properties.segments
 }
 
 export interface RoutePhoto {

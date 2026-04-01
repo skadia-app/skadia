@@ -18,17 +18,20 @@ import type { SegmentKey } from '@/hooks/useRoutePlanner'
 import { nearestPointOnPolyline } from '@/lib/catmull-rom'
 
 // ── Layer / Source IDs ──────────────────────────────────────────────────────
-const SOURCE_ROUTE    = 'route-planner-source'
-const SOURCE_WP       = 'route-planner-waypoints-source'
-const SOURCE_CP       = 'route-planner-control-points-source'
-const SOURCE_APPROACH = 'route-planner-approach-source'
+const SOURCE_ROUTE       = 'route-planner-source'
+const SOURCE_WP          = 'route-planner-waypoints-source'
+const SOURCE_CP          = 'route-planner-control-points-source'
+const SOURCE_APPROACH    = 'route-planner-approach-source'
+const SOURCE_CALCULATING = 'route-planner-calculating-source'
 
-const LAYER_ROUTED    = 'route-planner-line'
-const LAYER_OFFROAD   = 'route-planner-offroad'
-const LAYER_APPROACH  = 'route-planner-approach'
-const LAYER_WP_CIRCLE = 'route-planner-waypoints'
-const LAYER_WP_LABEL  = 'route-planner-waypoints-label'
-const LAYER_CP_CIRCLE = 'route-planner-control-points'
+const LAYER_ROUTED           = 'route-planner-line'
+const LAYER_OFFROAD          = 'route-planner-offroad'
+const LAYER_APPROACH         = 'route-planner-approach'
+const LAYER_WP_CIRCLE        = 'route-planner-waypoints'
+const LAYER_WP_LABEL         = 'route-planner-waypoints-label'
+const LAYER_CP_CIRCLE        = 'route-planner-control-points'
+const LAYER_CALCULATING      = 'route-planner-calculating'
+const LAYER_CALCULATING_GLOW = 'route-planner-calculating-glow'
 
 // Pixel radius for "close enough to waypoint" snap on click
 const CLICK_SNAP_PX = 20
@@ -44,10 +47,11 @@ const SEGMENT_MENU_LABELS = {
 export interface RoutePlannerState {
   waypoints: RouteWaypoint[]
   segments: RouteSegment[]
+  isCalculating?: boolean
   addWaypoint: (latlng: [number, number]) => void
   moveWaypoint: (id: string, latlng: [number, number]) => void
   removeWaypoint: (id: string) => void
-  insertWaypoint: (afterId: string, latlng: [number, number]) => void
+  insertWaypoint: (afterId: string, latlng: [number, number]) => string | null
   setWaypointType: (id: string, type: RouteWaypoint['type']) => void
   toggleOffroad?: (key: SegmentKey) => void
   updateControlPoint?: (key: SegmentKey, cpIndex: number, latlng: [number, number]) => void
@@ -134,6 +138,49 @@ function buildApproachGeoJSON(
         geometry: { type: 'LineString', coordinates: seg.approach_to },
       })
     }
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+// ── Build GeoJSON for "calculating" segments (straight lines between unconnected consecutive waypoints) ──
+// A pair of consecutive waypoints is "calculating" when no segment connects them yet, OR when an
+// existing routed segment has no geometry (calculation still in progress).
+function buildCalculatingGeoJSON(
+  segments: RouteSegment[],
+  waypoints: RouteWaypoint[],
+): GeoJSON.FeatureCollection<GeoJSON.LineString> {
+  const features: GeoJSON.Feature<GeoJSON.LineString>[] = []
+  if (waypoints.length < 2) return { type: 'FeatureCollection', features }
+
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    const from = waypoints[i]
+    const to   = waypoints[i + 1]
+
+    // Find the segment connecting this pair
+    const seg = segments.find(
+      s => s.from_waypoint === from.id && s.to_waypoint === to.id,
+    )
+
+    // Show calculating line when:
+    // - No segment exists yet (just added waypoint, calculation not started)
+    // - Segment exists but is routed with no geometry (in-flight calculation)
+    const isCalculating =
+      !seg ||
+      (seg.mode === 'routed' && (!seg.geometry || seg.geometry.coordinates.length < 2))
+
+    if (!isCalculating) continue
+
+    features.push({
+      type: 'Feature',
+      properties: {},
+      geometry: {
+        type: 'LineString',
+        coordinates: [
+          [from.latlng[1], from.latlng[0]], // GeoJSON: [lng, lat]
+          [to.latlng[1],   to.latlng[0]],
+        ],
+      },
+    })
   }
   return { type: 'FeatureCollection', features }
 }
@@ -246,6 +293,14 @@ export function useRouteEditor(
       })
     }
 
+    // Calculating segments source (straight placeholder lines while routing is in progress)
+    if (!map.getSource(SOURCE_CALCULATING)) {
+      map.addSource(SOURCE_CALCULATING, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+    }
+
     // Sources are now ready — sync any already-available planner data immediately.
     // This covers the case where the GeoJSON-sync effect fired before sources existed
     // (Bug 1 fix: sources created after the sync effect already ran).
@@ -255,6 +310,38 @@ export function useRouteEditor(
     ;(map.getSource(SOURCE_WP) as maplibregl.GeoJSONSource).setData(buildWaypointGeoJSON(waypoints))
     ;(map.getSource(SOURCE_CP) as maplibregl.GeoJSONSource).setData(buildControlPointGeoJSON(segments))
     ;(map.getSource(SOURCE_APPROACH) as maplibregl.GeoJSONSource).setData(buildApproachGeoJSON(segments))
+    ;(map.getSource(SOURCE_CALCULATING) as maplibregl.GeoJSONSource).setData(buildCalculatingGeoJSON(segments, waypoints))
+
+    // Calculating segments — glow + dashed line for in-progress route computations
+    if (!map.getLayer(LAYER_CALCULATING_GLOW)) {
+      map.addLayer({
+        id: LAYER_CALCULATING_GLOW,
+        type: 'line',
+        source: SOURCE_CALCULATING,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#F97316',
+          'line-width': 10,
+          'line-opacity': 0.15,
+          'line-blur': 4,
+        },
+      })
+    }
+
+    if (!map.getLayer(LAYER_CALCULATING)) {
+      map.addLayer({
+        id: LAYER_CALCULATING,
+        type: 'line',
+        source: SOURCE_CALCULATING,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#F97316',
+          'line-width': 2.5,
+          'line-dasharray': [2, 2],
+          'line-opacity': 0.6,
+        },
+      })
+    }
 
     // Routed segments — solid orange line with white casing
     if (!map.getLayer(LAYER_ROUTED)) {
@@ -408,14 +495,17 @@ export function useRouteEditor(
       LAYER_APPROACH,
       LAYER_ROUTED,
       LAYER_ROUTED + '-casing',
+      LAYER_CALCULATING,
+      LAYER_CALCULATING_GLOW,
     ]
     for (const id of layers) {
       if (map.getLayer(id)) map.removeLayer(id)
     }
-    if (map.getSource(SOURCE_ROUTE))    map.removeSource(SOURCE_ROUTE)
-    if (map.getSource(SOURCE_WP))       map.removeSource(SOURCE_WP)
-    if (map.getSource(SOURCE_CP))       map.removeSource(SOURCE_CP)
-    if (map.getSource(SOURCE_APPROACH)) map.removeSource(SOURCE_APPROACH)
+    if (map.getSource(SOURCE_ROUTE))       map.removeSource(SOURCE_ROUTE)
+    if (map.getSource(SOURCE_WP))          map.removeSource(SOURCE_WP)
+    if (map.getSource(SOURCE_CP))          map.removeSource(SOURCE_CP)
+    if (map.getSource(SOURCE_APPROACH))    map.removeSource(SOURCE_APPROACH)
+    if (map.getSource(SOURCE_CALCULATING)) map.removeSource(SOURCE_CALCULATING)
     sourcesReadyRef.current = false
   }, [])
 
@@ -426,16 +516,54 @@ export function useRouteEditor(
     const map = mapRef.current
     if (!map || !active || !sourcesReadyRef.current) return
 
-    const routeSrc    = map.getSource(SOURCE_ROUTE)    as maplibregl.GeoJSONSource | undefined
-    const wpSrc       = map.getSource(SOURCE_WP)       as maplibregl.GeoJSONSource | undefined
-    const cpSrc       = map.getSource(SOURCE_CP)       as maplibregl.GeoJSONSource | undefined
-    const approachSrc = map.getSource(SOURCE_APPROACH) as maplibregl.GeoJSONSource | undefined
+    const routeSrc       = map.getSource(SOURCE_ROUTE)       as maplibregl.GeoJSONSource | undefined
+    const wpSrc          = map.getSource(SOURCE_WP)          as maplibregl.GeoJSONSource | undefined
+    const cpSrc          = map.getSource(SOURCE_CP)          as maplibregl.GeoJSONSource | undefined
+    const approachSrc    = map.getSource(SOURCE_APPROACH)    as maplibregl.GeoJSONSource | undefined
+    const calcSrc        = map.getSource(SOURCE_CALCULATING) as maplibregl.GeoJSONSource | undefined
 
     if (routeSrc)    routeSrc.setData(buildRouteGeoJSON(planner.segments))
     if (wpSrc)       wpSrc.setData(buildWaypointGeoJSON(planner.waypoints))
     if (cpSrc)       cpSrc.setData(buildControlPointGeoJSON(planner.segments))
     if (approachSrc) approachSrc.setData(buildApproachGeoJSON(planner.segments))
-  }, [active, planner.segments, planner.waypoints])
+    if (calcSrc)     calcSrc.setData(buildCalculatingGeoJSON(planner.segments, planner.waypoints))
+  // planner.isCalculating is optional — include it so the effect re-runs when
+  // calculation starts/stops (clears the placeholder line on completion).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, planner.segments, planner.waypoints, planner.isCalculating ?? false])
+
+  // ── Animation loop: pulse glow on calculating layer ───────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !active) return
+
+    let animFrame: number | null = null
+
+    const animate = () => {
+      if (!map.getLayer(LAYER_CALCULATING_GLOW) || !map.getLayer(LAYER_CALCULATING)) return
+      const t = performance.now() / 1000
+      // Pulse glow opacity between 0.08 and 0.25
+      const glowOpacity = 0.08 + 0.17 * (0.5 + 0.5 * Math.sin(t * Math.PI * 1.5))
+      map.setPaintProperty(LAYER_CALCULATING_GLOW, 'line-opacity', glowOpacity)
+      // Shift dash pattern to simulate marching ants (cycle through 4 dash-phase variants)
+      const phase = Math.floor(t * 6) % 4
+      // Each phase shifts the dash array by 1 unit, creating a crawling effect
+      const dashArrays: number[][] = [
+        [2, 2],
+        [1, 2, 1, 0],
+        [0, 1, 2, 1],
+        [0, 2, 2, 0],
+      ]
+      map.setPaintProperty(LAYER_CALCULATING, 'line-dasharray', dashArrays[phase])
+      animFrame = requestAnimationFrame(animate)
+    }
+
+    animFrame = requestAnimationFrame(animate)
+
+    return () => {
+      if (animFrame !== null) cancelAnimationFrame(animFrame)
+    }
+  }, [active, mapRef])
 
   // ── Map interactions (click, drag, context menu) ──────────────────────────
   useEffect(() => {
@@ -460,7 +588,7 @@ export function useRouteEditor(
     map.getCanvas().style.cursor = 'crosshair'
 
     // ── Hover: route hit area ──────────────────────────────────────────────
-    const onRouteEnter = () => { map.getCanvas().style.cursor = 'crosshair' }
+    const onRouteEnter = () => { map.getCanvas().style.cursor = 'grab' }
     const onRouteLeave = () => { map.getCanvas().style.cursor = 'crosshair' }
     map.on('mouseenter', LAYER_ROUTED + '-hit', onRouteEnter)
     map.on('mouseleave', LAYER_ROUTED + '-hit', onRouteLeave)
@@ -479,8 +607,11 @@ export function useRouteEditor(
     map.on('mouseenter', LAYER_CP_CIRCLE, onCpEnter)
     map.on('mouseleave', LAYER_CP_CIRCLE, onCpLeave)
 
-    // ── Click on route line → insert waypoint (routed) or control point (offroad)
-    const onRouteClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+    // ── Mousedown on route line → insert waypoint + start drag ──────────────
+    // Instead of click-to-insert, we do mousedown → insert → drag → mouseup.
+    // The new waypoint is inserted immediately and enters drag mode so the user
+    // can position it interactively. Routing only starts on mouseup.
+    const onRouteMouseDown = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       // Don't handle if a waypoint or control point was clicked
       const { waypoints } = plannerRef.current
       const nearest = nearestWaypoint(map, e.point, waypoints)
@@ -514,12 +645,21 @@ export function useRouteEditor(
           // F5: Let onOffroadClick handle offroad segment clicks to prevent double insertControlPoint
           return
         }
-        // Insert waypoint on routed segment
+        // Insert waypoint on routed segment and immediately start dragging it
+        e.preventDefault()
         const afterWpId = seg.from_waypoint
-        plannerRef.current.insertWaypoint(afterWpId, latlng)
+        const newId = plannerRef.current.insertWaypoint(afterWpId, latlng)
+        if (newId) {
+          // Enter drag mode for the newly inserted waypoint
+          draggingRef.current = newId
+          draggedWpPositionRef.current = latlng
+          mouseDownPtRef.current = e.point
+          map.getCanvas().style.cursor = 'grabbing'
+          map.dragPan.disable()
+        }
       }
     }
-    map.on('click', LAYER_ROUTED + '-hit', onRouteClick)
+    map.on('mousedown', LAYER_ROUTED + '-hit', onRouteMouseDown)
 
     // Also listen for clicks on offroad line (for inserting control points)
     const onOffroadClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
@@ -783,7 +923,7 @@ export function useRouteEditor(
       map.off('mouseleave', LAYER_WP_CIRCLE, onWpLeave)
       map.off('mouseenter', LAYER_CP_CIRCLE, onCpEnter)
       map.off('mouseleave', LAYER_CP_CIRCLE, onCpLeave)
-      map.off('click', LAYER_ROUTED + '-hit', onRouteClick)
+      map.off('mousedown', LAYER_ROUTED + '-hit', onRouteMouseDown)
       map.off('click', LAYER_OFFROAD, onOffroadClick)
       map.off('click', onMapClick)
       map.off('contextmenu', LAYER_CP_CIRCLE, onCpContextMenu)

@@ -10,10 +10,10 @@ function formatElevation(m: number): string {
 }
 
 
-function GripIcon() {
+function GripIcon({ dragging }: { dragging?: boolean }) {
   return (
     <svg
-      className="w-3 h-3 text-neutral-300 dark:text-neutral-600 cursor-grab active:cursor-grabbing flex-shrink-0"
+      className={`w-4 h-4 text-neutral-400 dark:text-neutral-500 flex-shrink-0 ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
       viewBox="0 0 24 24"
       fill="currentColor"
     >
@@ -56,8 +56,6 @@ interface WaypointItemProps {
   isDragging: boolean
   isDragOver: boolean
   onRemove: (id: string) => void
-  onMoveUp: (id: string) => void
-  onMoveDown: (id: string) => void
   onToggleMode: (id: string) => void
   onDragStart: (e: React.DragEvent) => void
   onDragOver: (e: React.DragEvent) => void
@@ -74,8 +72,6 @@ function WaypointItem({
   isDragging,
   isDragOver,
   onRemove,
-  onMoveUp,
-  onMoveDown,
   onDragStart,
   onDragOver,
   onDragLeave,
@@ -92,44 +88,20 @@ function WaypointItem({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       className={[
-        'group flex items-start gap-1.5 py-1 rounded transition-colors',
+        'flex items-start gap-1.5 py-1 rounded transition-colors',
         isDragging ? 'opacity-40' : '',
         isDragOver ? 'bg-accent-100/40 dark:bg-accent-DEFAULT/10 ring-1 ring-accent-DEFAULT/30' : '',
       ].filter(Boolean).join(' ')}
     >
-      {/* Grip handle for drag-to-reorder */}
+      {/* Grip handle for drag-to-reorder — always visible */}
       <div
         draggable
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
-        className="flex-shrink-0 pt-1 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
+        className="flex-shrink-0 pt-1"
         title="Verschieben"
       >
-        <GripIcon />
-      </div>
-
-      {/* Up/Down arrows */}
-      <div className="flex flex-col gap-0.5 pt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          onClick={() => onMoveUp(waypoint.id)}
-          disabled={index === 0}
-          className="p-0.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
-          title="Nach oben"
-        >
-          <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M14.77 12.79a.75.75 0 01-1.06-.02L10 8.832 6.29 12.77a.75.75 0 11-1.08-1.04l4.25-4.5a.75.75 0 011.08 0l4.25 4.5a.75.75 0 01-.02 1.06z" clipRule="evenodd" />
-          </svg>
-        </button>
-        <button
-          onClick={() => onMoveDown(waypoint.id)}
-          disabled={index === total - 1}
-          className="p-0.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
-          title="Nach unten"
-        >
-          <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-          </svg>
-        </button>
+        <GripIcon dragging={isDragging} />
       </div>
 
       {/* Waypoint type indicator + connector line */}
@@ -146,14 +118,14 @@ function WaypointItem({
           <span className="text-xs text-neutral-700 dark:text-neutral-300 truncate flex-1" title={label}>
             {label}
           </span>
-          {/* Remove button */}
+          {/* Remove button — always visible, dezent */}
           {total > 2 && (
             <button
               onClick={() => onRemove(waypoint.id)}
-              className="p-0.5 text-neutral-300 hover:text-red-500 dark:text-neutral-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer flex-shrink-0"
+              className="w-5 h-5 flex items-center justify-center text-neutral-300 hover:text-red-500 dark:text-neutral-600 dark:hover:text-red-400 transition-colors cursor-pointer flex-shrink-0"
               title="Wegpunkt entfernen"
             >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                 <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
               </svg>
             </button>
@@ -329,8 +301,8 @@ export default function RoutePlannerPanel({
   }
 
   return (
-    <div className="absolute top-4 left-4 z-10 w-72 max-h-[calc(100vh-6rem)] flex flex-col">
-      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg overflow-hidden flex flex-col min-h-0">
+    <div className="h-full w-72 flex flex-col border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 flex-shrink-0">
+      <div className="flex flex-col overflow-hidden flex-1 min-h-0">
 
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-100 dark:border-neutral-800 flex-shrink-0">
@@ -460,8 +432,6 @@ export default function RoutePlannerPanel({
                       isDragging={draggingIndex === i}
                       isDragOver={dragOverIndex === i}
                       onRemove={onRemoveWaypoint}
-                      onMoveUp={onMoveWaypointUp}
-                      onMoveDown={onMoveWaypointDown}
                       onToggleMode={onToggleSegmentMode}
                       onDragStart={(e) => handleDragStart(e, i)}
                       onDragOver={(e) => handleDragOver(e, i)}
@@ -507,9 +477,15 @@ export default function RoutePlannerPanel({
               </div>
             )}
 
+          </div>
+        )}
+
+        {/* ── Fixierter unterer Bereich (Stats + Buttons) ──────────────── */}
+        {!collapsed && (
+          <div className="flex-shrink-0 border-t border-neutral-100 dark:border-neutral-800">
             {/* Route statistics */}
             {hasRoute && (
-              <div className="mx-3 mb-2 rounded-lg bg-neutral-50 dark:bg-neutral-800/60 px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-1">
+              <div className="mx-3 mt-2 mb-2 rounded-lg bg-neutral-50 dark:bg-neutral-800/60 px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-1">
                 <div>
                   <div className="text-[10px] text-neutral-400 dark:text-neutral-500 uppercase tracking-wide">Distanz</div>
                   <div className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
@@ -538,7 +514,7 @@ export default function RoutePlannerPanel({
             )}
 
             {/* Heatmap toggle */}
-            <div className="px-3 py-2 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
+            <div className="px-3 py-2 flex items-center justify-between">
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <button
                   role="switch"
