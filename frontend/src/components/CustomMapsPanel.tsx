@@ -130,7 +130,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
   }
 
   return (
-    <div className="absolute top-4 right-[17.5rem] z-10 w-64">
+    <div className="absolute top-[3.5rem] right-[17.5rem] z-10 w-64">
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg overflow-hidden">
         {/* Header */}
         <div className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-neutral-900 dark:text-neutral-100 border-b border-neutral-100 dark:border-neutral-800">

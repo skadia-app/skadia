@@ -144,7 +144,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
   }
 
   return (
-    <div className="absolute top-4 right-[17.5rem] z-10 w-72 max-h-[calc(100vh-6rem)] flex flex-col rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg overflow-hidden">
+    <div className="absolute top-[3.5rem] right-[17.5rem] z-10 w-72 max-h-[calc(100vh-8.75rem)] flex flex-col rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
         <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Standort zuweisen</span>
