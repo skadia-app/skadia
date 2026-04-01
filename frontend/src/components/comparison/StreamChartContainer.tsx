@@ -36,6 +36,67 @@ const METRIC_DEFS: MetricDef[] = [
   { key: 'lrBalance',   label: 'L/R Balance',        unit: '%',      dataKey: 'leftRightBalanceData',    priority: 2 },
 ]
 
+// ── Timeline alignment ────────────────────────────────────────────────────────
+// When multiple sources have slightly different timestamps (e.g. Device A records
+// at 0,1,2,3... Device B at 0.5,1.5,2.5...), ECharts trigger:'axis' only shows
+// series at the EXACT x-value being hovered. This function aligns all series to
+// a common timeline so every tooltip shows all sources.
+//
+// Algorithm:
+// 1. Collect all x-values from all series, deduplicate by rounding to nearest integer second.
+// 2. Sort the unified timeline.
+// 3. For each series: for each unified x, binary-search for the nearest original
+//    point within TOLERANCE_S. Use null when nothing is close enough (gap).
+//
+// Binary-search is O(T * S * log N) where T=timeline length, S=series count, N=points per series.
+// For 1500 downsampled points per source this is fast enough.
+
+const ALIGNMENT_TOLERANCE_S = 2
+
+/** Binary-search: index of the element in xs[] closest to target (xs must be sorted). */
+function nearestIndex(xs: number[], target: number): number {
+  let lo = 0, hi = xs.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (xs[mid] < target) lo = mid + 1
+    else hi = mid
+  }
+  // lo is now the first index >= target; check lo-1 as well
+  if (lo > 0 && (target - xs[lo - 1]) < (xs[lo] - target)) return lo - 1
+  return lo
+}
+
+function alignSeries(allSeries: StreamSeries[]): StreamSeries[] {
+  if (allSeries.length <= 1) return allSeries
+
+  // 1. Collect and deduplicate all x-values (round to nearest second)
+  const xSet = new Set<number>()
+  for (const s of allSeries) {
+    for (const [x] of s.data) xSet.add(Math.round(x))
+  }
+  const timeline = Array.from(xSet).sort((a, b) => a - b)
+  if (timeline.length === 0) return allSeries
+
+  // 2. Align each series
+  return allSeries.map(s => {
+    // Pre-extract x-coordinates for binary search
+    const xs = s.data.map(([x]) => x)
+    const aligned: ([number, number] | [number, null])[] = []
+
+    for (const tx of timeline) {
+      const idx = nearestIndex(xs, tx)
+      const [ox, oy] = s.data[idx]
+      if (Math.abs(ox - tx) <= ALIGNMENT_TOLERANCE_S) {
+        aligned.push([tx, oy])
+      } else {
+        aligned.push([tx, null])
+      }
+    }
+
+    return { ...s, data: aligned as [number, number][] }
+  })
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface StreamChartContainerProps {
@@ -125,10 +186,12 @@ function StreamChartContainerInner({
   const activeKey = available.find(m => m.key === selectedKey)?.key ?? available[0]?.key ?? null
   const activeDef = METRIC_DEFS.find(m => m.key === activeKey) ?? null
 
-  // Build series for active metric
+  // Build series for active metric, then align all sources to a common timeline
+  // so that ECharts trigger:'axis' shows all sources in the tooltip even when
+  // devices recorded at slightly different timestamps.
   const series = useMemo<StreamSeries[]>(() => {
     if (!activeDef) return []
-    return visibleSources
+    const raw = visibleSources
       .map(src => {
         const pd = dataMap.get(src.id)
         if (!pd) return null
@@ -137,6 +200,7 @@ function StreamChartContainerInner({
         return { label: src.label, color: src.color, data }
       })
       .filter((s): s is StreamSeries => s !== null)
+    return alignSeries(raw)
   }, [activeDef, visibleSources, dataMap])
 
   // GPS data for hover sync
