@@ -11,6 +11,7 @@ import {
   dryRunSingleRule,
   applySingleRule,
 } from '@/api/rules'
+import { fetchTags } from '@/api/tags'
 import type { AutomationRule } from '@/api/types'
 import type { ApplyResult, DryRunAllResult, DryRunSingleResult } from '@/api/rules'
 import RuleEditor from '@/components/RuleEditor'
@@ -135,6 +136,11 @@ export default function AutomationRulesPage() {
   const { data: rules, isLoading } = useQuery({
     queryKey: ['automation-rules'],
     queryFn: fetchRules,
+  })
+
+  const { data: allTags } = useQuery({
+    queryKey: ['tags'],
+    queryFn: fetchTags,
   })
 
   function clearUrlParams() {
@@ -304,6 +310,7 @@ export default function AutomationRulesPage() {
                 ) : (
                   <RuleCard
                     rule={rule}
+                    tags={allTags}
                     onEdit={() => setEditingId(rule.id)}
                     onToggle={(active) => toggleMutation.mutate({ id: rule.id, is_active: active })}
                     onDelete={() => setDeleteConfirmId(rule.id)}
@@ -338,6 +345,7 @@ export default function AutomationRulesPage() {
                 ) : (
                   <RuleCard
                     rule={rule}
+                    tags={allTags}
                     onEdit={() => setEditingId(rule.id)}
                     onToggle={(active) => toggleMutation.mutate({ id: rule.id, is_active: active })}
                     onDelete={() => setDeleteConfirmId(rule.id)}
@@ -479,12 +487,14 @@ export default function AutomationRulesPage() {
 
 function RuleCard({
   rule,
+  tags,
   onEdit,
   onToggle,
   onDelete,
   onBackfill,
 }: {
   rule: AutomationRule
+  tags?: { id: string; name: string }[]
   onEdit: () => void
   onToggle: (active: boolean) => void
   onDelete: () => void
@@ -530,8 +540,6 @@ function RuleCard({
     commute_sync: 'Wird automatisch über die Datenbankspalte is_commute synchronisiert. Diese Regel kann nicht bearbeitet werden.',
   }
   const readonlyDescription = rule.system_type ? (readonlyDescriptions[rule.system_type] ?? 'System-Regel. Diese Regel kann nicht bearbeitet werden.') : ''
-
-  const { data: tags } = useQuery({ queryKey: ['tags'], queryFn: () => fetch('/api/v1/tags').then(r => r.json()) })
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4">
