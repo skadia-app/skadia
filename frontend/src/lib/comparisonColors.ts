@@ -21,15 +21,12 @@ export function getSourceLineStyle(_idx: number): SourceLineStyle {
 }
 
 /** Returns the line width for a source at the given index. */
-export function getSourceLineWidth(idx: number): number {
-  if (idx === 0) return 4
-  if (idx === 1) return 3
-  return 2.5
+export function getSourceLineWidth(_idx: number): number {
+  return 3
 }
 
-/** Returns the ECharts line width for a source (slightly thinner than map lines). */
-export function getSourceChartLineWidth(idx: number): number {
-  if (idx === 0) return 2.5
+/** Returns the ECharts line width for a source. All equal — differentiation by color only. */
+export function getSourceChartLineWidth(_idx: number): number {
   return 1.5
 }
 
