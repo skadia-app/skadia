@@ -441,6 +441,60 @@ export default function FusionPage() {
         </SourcesProvider>
       )}
 
+      {/* Titel + Tags */}
+      {selectedSources.length >= 2 && (
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-5 space-y-4">
+          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+            Titel &amp; Tags
+          </h2>
+
+          {/* Titel */}
+          <div>
+            <p className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-2">
+              Titel — Quelle wählen
+            </p>
+            <div className="flex flex-wrap gap-3">
+              {fusionActivities.map(a => (
+                <label key={a.id} className="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="title-source"
+                    value={a.id}
+                    checked={titleSource === a.id}
+                    onChange={() => setTitleSource(a.id)}
+                    className="accent-accent-DEFAULT"
+                  />
+                  <span
+                    className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                    style={{ background: `${a.color}22`, color: a.color }}
+                  >
+                    {a.label}
+                  </span>
+                  {a.deviceLabel && (
+                    <span className="text-xs text-neutral-400">{a.deviceLabel}</span>
+                  )}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Tags */}
+          <div>
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={tagsMerge}
+                onChange={e => setTagsMerge(e.target.checked)}
+                className="accent-accent-DEFAULT"
+              />
+              <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                Tags aus allen Quellen zusammenführen
+              </span>
+            </label>
+          </div>
+        </div>
+      )}
+
       {/* Feld-Tabelle */}
       {selectedSources.length >= 2 && (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-5">
@@ -453,10 +507,6 @@ export default function FusionPage() {
             onFieldChange={(field, sourceId) =>
               setFieldMap(prev => ({ ...prev, [field]: sourceId }))
             }
-            tagsMerge={tagsMerge}
-            onTagsMergeChange={setTagsMerge}
-            titleSource={titleSource}
-            onTitleSourceChange={setTitleSource}
           />
 
           {/* GPS-Fusion-Konfiguration */}

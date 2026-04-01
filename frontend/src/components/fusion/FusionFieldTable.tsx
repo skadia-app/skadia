@@ -172,10 +172,6 @@ interface FusionFieldTableProps {
   activities: FusionActivityInfo[]
   fieldMap: Record<string, string>
   onFieldChange: (field: string, sourceId: string) => void
-  tagsMerge: boolean
-  onTagsMergeChange: (v: boolean) => void
-  titleSource: string | null
-  onTitleSourceChange: (id: string) => void
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -184,10 +180,6 @@ export default function FusionFieldTable({
   activities,
   fieldMap,
   onFieldChange,
-  tagsMerge,
-  onTagsMergeChange,
-  titleSource,
-  onTitleSourceChange,
 }: FusionFieldTableProps) {
   const manyColumns = activities.length > 4
 
@@ -308,54 +300,6 @@ export default function FusionFieldTable({
         </thead>
         <tbody>
           {rows}
-
-          {/* Divider before Titel/Tags */}
-          <tr className="border-b border-neutral-200 dark:border-neutral-700">
-            <td colSpan={activities.length + 2} className="pt-3" />
-          </tr>
-
-          {/* Titel row */}
-          <tr className="border-b border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800/30 transition-colors">
-            <td className="py-2 pr-4 text-neutral-700 dark:text-neutral-300 font-medium text-xs">
-              Titel
-            </td>
-            {activities.map(a => (
-              <td key={a.id} className="text-center py-2 px-2">
-                <label className="inline-flex flex-col items-center gap-1 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="title-source"
-                    value={a.id}
-                    checked={titleSource === a.id}
-                    onChange={() => onTitleSourceChange(a.id)}
-                    className="accent-accent-DEFAULT"
-                  />
-                  <span className="text-xs text-neutral-400">{a.label}</span>
-                </label>
-              </td>
-            ))}
-            <td />
-          </tr>
-
-          {/* Tags row */}
-          <tr>
-            <td className="py-2 pr-4 text-neutral-700 dark:text-neutral-300 font-medium text-xs">
-              Tags
-            </td>
-            <td colSpan={activities.length + 1} className="py-2 px-2">
-              <label className="inline-flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={tagsMerge}
-                  onChange={e => onTagsMergeChange(e.target.checked)}
-                  className="accent-accent-DEFAULT"
-                />
-                <span className="text-xs text-neutral-600 dark:text-neutral-400">
-                  Tags aus allen Quellen zusammenführen
-                </span>
-              </label>
-            </td>
-          </tr>
         </tbody>
       </table>
     </div>
