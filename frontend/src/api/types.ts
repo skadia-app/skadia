@@ -1085,6 +1085,8 @@ export interface RecordingGroupMember {
   source: string | null
   original_file_format: string | null
   has_gps: boolean
+  elevation_gain_m: number | null
+  elevation_loss_m: number | null
 }
 
 // ── Fusion Merge V2 ──

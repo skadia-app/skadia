@@ -190,7 +190,7 @@ function GroupItem({ group, tracks, onDissolved }: GroupItemProps) {
           onClick={() => navigate(`/fusion?group=${group.id}`)}
           disabled={editorDisabled}
           title={editorDisabled ? 'Sportart muss zuerst gewählt werden' : undefined}
-          className="flex-1 bg-accent-DEFAULT/80 hover:bg-accent-600 disabled:bg-neutral-300 dark:disabled:bg-neutral-700 disabled:text-neutral-500 disabled:cursor-not-allowed text-white py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer"
+          className="flex-1 bg-accent-DEFAULT hover:bg-accent-600 disabled:bg-neutral-300 dark:disabled:bg-neutral-700 disabled:text-neutral-500 disabled:cursor-not-allowed text-white py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer"
         >
           Editor öffnen
         </button>

@@ -1260,7 +1260,11 @@ export default function ActivitiesPage() {
                           member.field_richness != null ? `${member.field_richness} Felder` : null,
                         ].filter(Boolean).join(' · ')
                         return (
-                          <tr key={member.activity_id} className="bg-orange-50/40 dark:bg-orange-900/10 hover:bg-orange-50/70 dark:hover:bg-orange-900/20 transition-colors">
+                          <tr
+                            key={member.activity_id}
+                            className="bg-orange-50/40 dark:bg-orange-900/10 hover:bg-orange-50/70 dark:hover:bg-orange-900/20 transition-colors cursor-pointer"
+                            onClick={() => { navigate(`/activities/${member.activity_id}`) }}
+                          >
                             {/* Indent marker */}
                             <td className="py-1.5 pl-3 pr-2 w-8">
                               <div className="w-4 h-4 border-l-2 border-b-2 border-orange-300 dark:border-orange-700 ml-2" />
@@ -1300,8 +1304,24 @@ export default function ActivitiesPage() {
                             <td className="py-1.5 px-4 text-right text-xs text-neutral-500 dark:text-neutral-400 tabular-nums">
                               {member.elapsed_time_s ? formatDuration(member.elapsed_time_s) : '—'}
                             </td>
-                            {/* Elevation (empty for members) */}
-                            <td className="py-1.5 px-4" />
+                            {/* Elevation */}
+                            <td className="py-1.5 px-4">
+                              {(formatElevationGain(member.elevation_gain_m) ?? formatElevationLoss(member.elevation_loss_m)) ? (
+                                <div className="flex items-center justify-end gap-1 tabular-nums text-xs">
+                                  <span className="inline-block w-[4rem] text-right text-emerald-600 dark:text-emerald-500">
+                                    {formatElevationGain(member.elevation_gain_m) ?? ''}
+                                  </span>
+                                  <span className="text-neutral-300 dark:text-neutral-700 w-3 text-center">
+                                    {formatElevationGain(member.elevation_gain_m) && formatElevationLoss(member.elevation_loss_m) ? '/' : ''}
+                                  </span>
+                                  <span className="inline-block w-[4rem] text-right text-rose-500 dark:text-rose-400">
+                                    {formatElevationLoss(member.elevation_loss_m) ?? ''}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="text-right text-neutral-400 dark:text-neutral-600 text-xs">—</div>
+                              )}
+                            </td>
                             {/* 3-dot placeholder */}
                             <td className="w-8" />
                           </tr>
