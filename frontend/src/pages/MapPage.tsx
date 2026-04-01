@@ -11,6 +11,7 @@ import RoutePlannerPanel from '@/components/route-planner/RoutePlannerPanel'
 import RouteSuggestionDialog from '@/components/route-planner/RouteSuggestionDialog'
 import RouteSaveDialog from '@/components/route-planner/RouteSaveDialog'
 import RouteProfileChart from '@/components/route-planner/RouteProfileChart'
+import RouteSurfacesBar from '@/components/route-planner/RouteSurfacesBar'
 import { useRoutePlanner } from '@/hooks/useRoutePlanner'
 import { getTagTextColor, getTagBadgeStyle } from '@/lib/tagUtils'
 import { fmtDateCompact } from '@/lib/format'
@@ -367,6 +368,13 @@ export default function MapPage() {
   const [showSuggestionDialog, setShowSuggestionDialog] = useState(false)
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [showProfileChart, setShowProfileChart] = useState(false)
+  const [bottomBarCollapsed, setBottomBarCollapsed] = useState(false)
+  const [filterPanelVisible, setFilterPanelVisible] = useState(() => {
+    try {
+      const saved = localStorage.getItem('skadia-filter-panel-visible')
+      return saved !== null ? saved === 'true' : true
+    } catch { return true }
+  })
 
   const planner = useRoutePlanner()
   const { addToast } = useToast()
@@ -412,30 +420,23 @@ export default function MapPage() {
     addWaypoint: (latlng: [number, number]) => void planner.addWaypoint(latlng),
     moveWaypoint: planner.moveWaypoint,
     removeWaypoint: planner.removeWaypoint,
-    insertWaypoint: (afterId: string, latlng: [number, number]) => {
+    insertWaypoint: (afterId: string, latlng: [number, number]): string | null => {
       // Find the waypoint after which we insert
       const idx = planner.waypoints.findIndex(w => w.id === afterId)
       if (idx >= 0 && idx < planner.waypoints.length - 1) {
-        // Insert in the middle: splice new waypoint at idx+1, then recalculate all
-        // segments (reorderWaypoints clears all segments, so recalculateAll is needed
-        // to restore all N-1 segments, not just the 2 flanking ones — Bug 2 fix).
         const newWp: import('@/api/routes').RouteWaypoint = {
           id: crypto.randomUUID(),
           latlng,
           type: 'via',
         }
-        const newOrder = [
-          ...planner.waypoints.slice(0, idx + 1),
-          newWp,
-          ...planner.waypoints.slice(idx + 1),
-        ]
-        planner.reorderWaypoints(newOrder)
-        // recalculateAll reads waypoints from state after the setState in reorderWaypoints
-        // has flushed; wrap in Promise.resolve() to defer past the current microtask.
-        void Promise.resolve().then(() => planner.recalculateAll())
+        // Insert waypoint into the list and remove only the affected segment.
+        // Do NOT start calculation here — the point enters drag mode immediately.
+        // moveWaypoint (on mouseup) will calculate the 2 flanking segments.
+        planner.insertViaWaypoint(afterId, newWp)
+        return newWp.id
       } else {
-        // Append at end (afterId is last waypoint or not found)
         void planner.addWaypoint(latlng)
+        return null
       }
     },
     setWaypointType: (_id: string, _type: import('@/api/routes').RouteWaypoint['type']) => {
@@ -1863,14 +1864,85 @@ export default function MapPage() {
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col" style={{ top: '3.5rem' }}>
-      <div className="relative flex-1 min-h-0">
+      <div className="flex flex-row flex-1 min-h-0">
+
+        {/* ── Planner-Spalte (links, volle Höhe) ────────────────────────── */}
+        {plannerActive && (
+          <RoutePlannerPanel
+            waypoints={planner.waypoints}
+            segments={planner.segments}
+            profileConfig={planner.profileConfig}
+            showHeatmap={viewMode === 'heatmap'}
+            routingEngine={planner.routingEngine}
+            brouterProfile={planner.brouterProfile}
+            badRouterAvailable={planner.capabilities?.routing ?? false}
+            onRoutingEngineChange={planner.setRoutingEngine}
+            onBrouterProfileChange={planner.setBrouterProfile}
+            totalDistanceM={planner.totals.distance_m}
+            totalElevationGain={planner.totals.elevation_gain}
+            totalElevationLoss={planner.totals.elevation_loss}
+            estimatedTimeMin={undefined}
+            onProfileChange={planner.setProfileAndRecalculate}
+            onRemoveWaypoint={planner.removeWaypoint}
+            onMoveWaypointUp={(id) => {
+              const idx = planner.waypoints.findIndex(w => w.id === id)
+              if (idx <= 0) return
+              const reordered = [...planner.waypoints]
+              ;[reordered[idx - 1], reordered[idx]] = [reordered[idx], reordered[idx - 1]]
+              planner.reorderWaypoints(reordered)
+              void planner.recalculateAll()
+            }}
+            onMoveWaypointDown={(id) => {
+              const idx = planner.waypoints.findIndex(w => w.id === id)
+              if (idx < 0 || idx >= planner.waypoints.length - 1) return
+              const reordered = [...planner.waypoints]
+              ;[reordered[idx], reordered[idx + 1]] = [reordered[idx + 1], reordered[idx]]
+              planner.reorderWaypoints(reordered)
+              void planner.recalculateAll()
+            }}
+            onReorderWaypoints={planner.reorderWaypoints}
+            onRecalculateAll={planner.recalculateAll}
+            onToggleSegmentMode={(waypointId) => {
+              const seg = planner.segments.find(s => s.from_waypoint === waypointId)
+              if (seg) planner.toggleOffroad({ from: seg.from_waypoint, to: seg.to_waypoint })
+            }}
+            onToggleHeatmap={(enabled) => {
+              const map = mapRef.current
+              if (!map) return
+              removeOverlayLayers(map)
+              removeTerraIncognitaLayers(map)
+              if (enabled) {
+                if (filtersRef.current.sportTypes.size > 0) {
+                  addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current)
+                }
+                setViewMode('heatmap')
+              } else {
+                setViewMode('off')
+              }
+            }}
+            onClearRoute={planner.clear}
+            onSave={() => setShowSaveDialog(true)}
+            onSuggest={() => setShowSuggestionDialog(true)}
+            onClose={handlePlannerClose}
+            calculationError={planner.calculationError}
+            onClearError={planner.clearError}
+            editingRoute={null}
+            isSaving={planner.isSaving}
+          />
+        )}
+
+        {/* ── Mittlere Spalte: Karte + Bottom-Bar ───────────────────────── */}
+        <div className="flex flex-col flex-1 min-h-0 min-w-0">
+
+        {/* ── Kartenbereich ─────────────────────────────────────────────── */}
+        <div className="relative flex-1 min-h-0">
         <div
           ref={mapContainerRef}
           className="w-full h-full"
         />
 
 
-        {/* Base style switcher */}
+        {/* ── Kartenstil-Buttons — links unten ────────────────────────── */}
         <div className="absolute bottom-4 left-4 z-10 flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md">
           {(Object.keys(BASE_STYLES) as BaseStyle[]).map((key) => {
             const isOfflineStyle = key === 'local' || key === 'offline'
@@ -1891,7 +1963,7 @@ export default function MapPage() {
                   setBaseStyle(key)
                 }}
                 title={disabled ? 'Lokale Kartendaten nicht verfügbar. Aktiviere sie in den Einstellungen.' : undefined}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                className={`px-2.5 py-1 text-xs font-medium transition-colors ${
                   disabled
                     ? 'opacity-40 cursor-not-allowed text-neutral-600 dark:text-neutral-300'
                     : baseStyle === key
@@ -1905,13 +1977,10 @@ export default function MapPage() {
           })}
         </div>
 
-        {/* View mode toggle + Lade-Indikator + Terra-Incognita-Badge
-            Gemeinsamer Wrapper: flex-col + items-stretch → alle Kinder teilen automatisch
-            die gleiche Breite (bestimmt durch den breitesten Inhalt, i.d.R. die Tabs).
-            Wächst nur breiter, wenn ein Kind breiter ist; niemals schmäler als die Tabs. */}
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex flex-col items-stretch gap-1.5">
+        {/* ── View-Mode + Badges — mittig unten ────────────────────────── */}
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-1.5">
 
-          {/* Lade-Indikator — erscheint während Tiles/API laden */}
+          {/* Lade-Indikator */}
           {(isMapTilesLoading || (viewMode === 'terra_incognita' && terraIncognitaFetching)) && (
             <div className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm border border-neutral-300 dark:border-neutral-600 shadow-md pointer-events-none">
               <div className="w-3 h-3 rounded-full border-2 border-neutral-300 dark:border-neutral-600 border-t-orange-500 animate-spin flex-shrink-0" />
@@ -1928,7 +1997,7 @@ export default function MapPage() {
             </div>
           )}
 
-          {/* Terra Incognita Flächen-Badge — erst sichtbar nachdem Ladevorgang abgeschlossen */}
+          {/* Terra Incognita Flächen-Badge */}
           {viewMode === 'terra_incognita' && terraIncognitaData && !isMapTilesLoading && !terraIncognitaFetching && (
             <div className="flex justify-center px-3 py-1.5 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm border border-neutral-300 dark:border-neutral-600 shadow-md">
               <span className="text-xs font-medium text-neutral-700 dark:text-neutral-200 whitespace-nowrap">
@@ -1937,97 +2006,92 @@ export default function MapPage() {
             </div>
           )}
 
-          {/* View mode tabs */}
+          {/* View-Mode-Gruppe */}
           <div className="flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md">
-            <button
-              onClick={() => {
-                const map = mapRef.current
-                if (map) {
-                  removeOverlayLayers(map)
-                  removeTerraIncognitaLayers(map)
-                }
-                setViewMode('off')
-              }}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                viewMode === 'off'
-                  ? 'bg-neutral-500 text-white'
-                  : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
-              }`}
-            >
-              Aus
-            </button>
-            <button
-              onClick={() => {
-                // Direkter synchroner Layer-Wechsel via Refs für sofortiges visuelles Feedback.
-                // isStyleLoaded() wird NICHT geprüft: es gibt false zurück während Tiles noch
-                // von Web-Workern dekodiert werden (_hasPendingWorkerUpdate), obwohl der Style-JSON
-                // fertig ist und addSource/addLayer problemlos funktionieren.
-                const map = mapRef.current
-                if (map) {
-                  removeOverlayLayers(map)
-                  removeTerraIncognitaLayers(map)
-                  if (filtersRef.current.sportTypes.size > 0) {
-                    addOverlayLayers(map, filtersRef.current, 'tracks', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current)
+              <button
+                onClick={() => {
+                  const map = mapRef.current
+                  if (map) {
+                    removeOverlayLayers(map)
+                    removeTerraIncognitaLayers(map)
                   }
-                }
-                setViewMode('tracks')
-              }}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                viewMode === 'tracks'
-                  ? 'bg-accent-DEFAULT text-white'
-                  : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
-              }`}
-            >
-              Tracks
-            </button>
-            <button
-              onClick={() => {
-                const map = mapRef.current
-                if (map) {
-                  removeOverlayLayers(map)
-                  removeTerraIncognitaLayers(map)
-                  if (filtersRef.current.sportTypes.size > 0) {
-                    addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current)
+                  setViewMode('off')
+                }}
+                className={`px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                  viewMode === 'off'
+                    ? 'bg-neutral-500 text-white'
+                    : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+                }`}
+              >
+                Aus
+              </button>
+              <button
+                onClick={() => {
+                  const map = mapRef.current
+                  if (map) {
+                    removeOverlayLayers(map)
+                    removeTerraIncognitaLayers(map)
+                    if (filtersRef.current.sportTypes.size > 0) {
+                      addOverlayLayers(map, filtersRef.current, 'tracks', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current)
+                    }
                   }
-                }
-                setViewMode('heatmap')
-              }}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                viewMode === 'heatmap'
-                  ? 'bg-accent-DEFAULT text-white'
-                  : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
-              }`}
-            >
-              Heatmap
-            </button>
-            <button
-              onClick={() => {
-                const map = mapRef.current
-                if (map) {
-                  removeOverlayLayers(map)
-                  removeTerraIncognitaLayers(map)
-                  const rings = terraIncognitaRef.current?.rings ?? []
-                  if (rings.length) addTerraIncognitaLayers(map, rings)
-                }
-                setViewMode('terra_incognita')
-              }}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                viewMode === 'terra_incognita'
-                  ? 'bg-accent-DEFAULT text-white'
-                  : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
-              }`}
-            >
-              Terra Incognita
-            </button>
+                  setViewMode('tracks')
+                }}
+                className={`px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                  viewMode === 'tracks'
+                    ? 'bg-accent-DEFAULT text-white'
+                    : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+                }`}
+              >
+                Tracks
+              </button>
+              <button
+                onClick={() => {
+                  const map = mapRef.current
+                  if (map) {
+                    removeOverlayLayers(map)
+                    removeTerraIncognitaLayers(map)
+                    if (filtersRef.current.sportTypes.size > 0) {
+                      addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current)
+                    }
+                  }
+                  setViewMode('heatmap')
+                }}
+                className={`px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                  viewMode === 'heatmap'
+                    ? 'bg-accent-DEFAULT text-white'
+                    : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+                }`}
+              >
+                Heatmap
+              </button>
+              <button
+                onClick={() => {
+                  const map = mapRef.current
+                  if (map) {
+                    removeOverlayLayers(map)
+                    removeTerraIncognitaLayers(map)
+                    const rings = terraIncognitaRef.current?.rings ?? []
+                    if (rings.length) addTerraIncognitaLayers(map, rings)
+                  }
+                  setViewMode('terra_incognita')
+                }}
+                className={`px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                  viewMode === 'terra_incognita'
+                    ? 'bg-accent-DEFAULT text-white'
+                    : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+                }`}
+              >
+                Terra Inc.
+              </button>
           </div>
-
         </div>
 
         {/* Geocoding search — centered on full map width */}
         <GeoSearch mapRef={mapRef} />
 
-        {/* Toggle buttons — top right, left of filter panel */}
-        <div className="absolute top-3 right-[17.5rem] z-10 flex gap-1.5 flex-wrap justify-end">
+        {/* Toggle buttons — top right, links vom Filter-Toggle-Button */}
+        <div className="absolute top-3 right-[5.5rem] z-10 flex gap-1.5 flex-wrap justify-end">
           {/* Route Planner toggle button */}
           {(() => {
             const plannerAvailable = planner.capabilities?.routing ?? false
@@ -2137,99 +2201,6 @@ export default function MapPage() {
           />
         )}
 
-        {/* Route Planner Panel — sidebar on the left, above the map */}
-        {plannerActive && (
-          <RoutePlannerPanel
-            waypoints={planner.waypoints}
-            segments={planner.segments}
-            profileConfig={planner.profileConfig}
-            showHeatmap={viewMode === 'heatmap'}
-            routingEngine={planner.routingEngine}
-            brouterProfile={planner.brouterProfile}
-            badRouterAvailable={planner.capabilities?.routing ?? false}
-            onRoutingEngineChange={planner.setRoutingEngine}
-            onBrouterProfileChange={planner.setBrouterProfile}
-            totalDistanceM={planner.totals.distance_m}
-            totalElevationGain={planner.totals.elevation_gain}
-            totalElevationLoss={planner.totals.elevation_loss}
-            estimatedTimeMin={undefined}
-            onProfileChange={planner.setProfileAndRecalculate}
-            onRemoveWaypoint={planner.removeWaypoint}
-            onMoveWaypointUp={(id) => {
-              const idx = planner.waypoints.findIndex(w => w.id === id)
-              if (idx <= 0) return
-              const reordered = [...planner.waypoints]
-              ;[reordered[idx - 1], reordered[idx]] = [reordered[idx], reordered[idx - 1]]
-              planner.reorderWaypoints(reordered)
-              void planner.recalculateAll()
-            }}
-            onMoveWaypointDown={(id) => {
-              const idx = planner.waypoints.findIndex(w => w.id === id)
-              if (idx < 0 || idx >= planner.waypoints.length - 1) return
-              const reordered = [...planner.waypoints]
-              ;[reordered[idx], reordered[idx + 1]] = [reordered[idx + 1], reordered[idx]]
-              planner.reorderWaypoints(reordered)
-              void planner.recalculateAll()
-            }}
-            onReorderWaypoints={planner.reorderWaypoints}
-            onRecalculateAll={planner.recalculateAll}
-            onToggleSegmentMode={(waypointId) => {
-              const seg = planner.segments.find(s => s.from_waypoint === waypointId)
-              if (seg) planner.toggleOffroad({ from: seg.from_waypoint, to: seg.to_waypoint })
-            }}
-            onToggleHeatmap={(enabled) => {
-              const map = mapRef.current
-              if (!map) return
-              removeOverlayLayers(map)
-              removeTerraIncognitaLayers(map)
-              if (enabled) {
-                // Show heatmap
-                if (filtersRef.current.sportTypes.size > 0) {
-                  addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current)
-                }
-                setViewMode('heatmap')
-              } else {
-                // Hide all track/heatmap layers
-                setViewMode('off')
-              }
-            }}
-            onClearRoute={planner.clear}
-            onSave={() => setShowSaveDialog(true)}
-            onSuggest={() => setShowSuggestionDialog(true)}
-            onClose={handlePlannerClose}
-            calculationError={planner.calculationError}
-            onClearError={planner.clearError}
-            editingRoute={null}
-            isSaving={planner.isSaving}
-          />
-        )}
-
-        {/* Route Profile Chart — bottom panel when planner has elevation data */}
-        {plannerActive && showProfileChart && planner.elevationProfile && planner.elevationProfile.length > 0 && (
-          <div className="absolute bottom-16 left-4 right-4 z-10 max-w-2xl mx-auto">
-            <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg p-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Höhenprofil</span>
-                <button
-                  onClick={() => setShowProfileChart(false)}
-                  className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
-                  aria-label="Höhenprofil schließen"
-                >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                  </svg>
-                </button>
-              </div>
-              <RouteProfileChart
-                profile={planner.elevationProfile}
-                totalDistanceM={planner.totals.distance_m}
-                segments={planner.segments}
-                height={140}
-              />
-            </div>
-          </div>
-        )}
-
         {/* Route Suggestion Dialog */}
         {showSuggestionDialog && (() => {
           const map = mapRef.current
@@ -2320,23 +2291,6 @@ export default function MapPage() {
             </button>
           </div>
         )}
-
-        {/* Filters panel — immer sichtbar; in Terra Incognita werden nur Kartenebenen angezeigt */}
-        <MapFilters
-          filters={filters}
-          onChange={handleFilterChange}
-          forceDark={baseStyle === 'dark'}
-          viewMode={viewMode}
-          overlayState={overlayState}
-          onOverlayChange={updateOverlay}
-          segmentFilters={segmentFilters}
-          onSegmentFiltersChange={(f) => setSegmentFilters(f)}
-          segmentColors={segmentColors}
-          onSegmentColorsChange={(c) => setSegmentColors(c)}
-          coverageState={coverageState}
-          onCoverageUpdate={updateComposite}
-          onCoverageToggleLayer={toggleCoverageLayer}
-        />
 
         {/* Drag-to-merge Bestätigungs-Dialog */}
         {tagMergeDialog && (
@@ -2662,7 +2616,93 @@ export default function MapPage() {
             </div>
           </div>
         )}
-      </div>
+        </div>{/* Ende: Kartenbereich (relative flex-1 min-h-0) */}
+
+        {/* ── Bottom-Bar: Höhenprofil (gedockt, ein-/ausklappbar) ────────── */}
+        {plannerActive && showProfileChart && planner.elevationProfile && planner.elevationProfile.length > 0 && (
+          <div className="flex-shrink-0 border-t border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+            {/* Toggle-Tab */}
+            <div className="flex items-center justify-between px-4 py-1.5 border-b border-neutral-100 dark:border-neutral-800">
+              <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Höhenprofil</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setBottomBarCollapsed(c => !c)}
+                  className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
+                  aria-label={bottomBarCollapsed ? 'Höhenprofil einblenden' : 'Höhenprofil ausblenden'}
+                  title={bottomBarCollapsed ? 'Einblenden' : 'Ausblenden'}
+                >
+                  <svg className={`w-3.5 h-3.5 transition-transform ${bottomBarCollapsed ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => setShowProfileChart(false)}
+                  className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
+                  aria-label="Höhenprofil schließen"
+                  title="Schließen"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            {!bottomBarCollapsed && (
+              <div className="px-3 py-2">
+                <RouteProfileChart
+                  profile={planner.elevationProfile}
+                  totalDistanceM={planner.totals.distance_m}
+                  segments={planner.segments}
+                  height={140}
+                />
+                <RouteSurfacesBar segments={planner.segments} />
+              </div>
+            )}
+          </div>
+        )}
+
+        </div>{/* Ende: Mittlere Spalte (flex flex-col flex-1 min-h-0 min-w-0) */}
+
+        {/* ── Filter-Panel-Spalte (rechts, volle Höhe, ein-/ausklappbar) ── */}
+        <div className={`flex-shrink-0 flex transition-[width] duration-200 ease-in-out ${filterPanelVisible ? 'w-64' : 'w-5'}`}>
+          {/* Collapse toggle tab */}
+          <button
+            onClick={() => {
+              const next = !filterPanelVisible
+              setFilterPanelVisible(next)
+              try { localStorage.setItem('skadia-filter-panel-visible', String(next)) } catch { /* ignore */ }
+            }}
+            className="w-5 flex-shrink-0 flex items-center justify-center bg-neutral-50 dark:bg-neutral-800 border-l border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+            title={filterPanelVisible ? 'Filter ausblenden' : 'Filter einblenden'}
+          >
+            <svg className={`w-3 h-3 transition-transform ${filterPanelVisible ? '' : 'rotate-180'}`} viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+            </svg>
+          </button>
+          {/* Panel content */}
+          {filterPanelVisible && (
+            <div className="flex-1 border-l border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 overflow-y-auto">
+              <MapFilters
+                filters={filters}
+                onChange={handleFilterChange}
+                forceDark={baseStyle === 'dark'}
+                viewMode={viewMode}
+                overlayState={overlayState}
+                onOverlayChange={updateOverlay}
+                segmentFilters={segmentFilters}
+                onSegmentFiltersChange={(f) => setSegmentFilters(f)}
+                segmentColors={segmentColors}
+                onSegmentColorsChange={(c) => setSegmentColors(c)}
+                coverageState={coverageState}
+                onCoverageUpdate={updateComposite}
+                onCoverageToggleLayer={toggleCoverageLayer}
+                docked
+              />
+            </div>
+          )}
+        </div>
+
+      </div>{/* Ende: Zeilen-Wrapper (flex flex-row flex-1 min-h-0) */}
     </div>
   )
 }

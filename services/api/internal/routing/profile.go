@@ -333,6 +333,7 @@ func buildEdgeCostClosure(p ProfileConfig) func(tags1, tags2 uint64) EdgeCostFac
 	trafficWeight := deref32(p.TrafficPenalty)
 	protectedWeight := deref32(p.ProtectedBonus)
 
+
 	cyclerouteBoost := deref32(p.CyclerouteBoost)
 	hikerouteBoost := deref32(p.HikerouteBoost)
 

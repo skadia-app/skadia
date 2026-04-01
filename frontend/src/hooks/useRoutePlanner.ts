@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type {
   RouteWaypoint,
   RouteSegment,
+  RouteSubSegment,
   PlannedRoute,
   ListRoutesParams,
 } from '@/api/routes'
@@ -79,6 +80,7 @@ function buildSegmentFromFeature(
   const geometry = feature?.geometry as GeoJSON.LineString | undefined
   const approachFrom = props['approach_from'] as number[][] | undefined
   const approachTo = props['approach_to'] as number[][] | undefined
+  const subSegments = (props['segments'] as RouteSubSegment[] | undefined) ?? []
 
   return {
     from_waypoint: from.id,
@@ -92,6 +94,7 @@ function buildSegmentFromFeature(
     elevation_loss: loss,
     approach_from: approachFrom,
     approach_to: approachTo,
+    sub_segments: subSegments,
   }
 }
 
@@ -228,28 +231,20 @@ export function useRoutePlanner() {
         poi_type: poi?.type,
       }
 
-      let prevWp: RouteWaypoint | undefined
-      let profileConfig: ProfileConfig | undefined
-      let routingEngine: RoutingEngine | undefined
-      let brouterProfile: string | undefined
-
+      // Read current state synchronously via setState updater, then trigger
+      // the segment calculation inside the updater itself (guaranteed to see
+      // the latest state, even with React 19 concurrent batching).
       setState(s => {
         const updated = assignWaypointTypes([...s.waypoints, newWp])
-        // Capture values for side effect outside setState
         if (updated.length >= 2) {
-          prevWp = updated[updated.length - 2]
-          profileConfig = s.profileConfig
-          routingEngine = s.routingEngine
-          brouterProfile = s.brouterProfile
+          const prevWp = updated[updated.length - 2]
+          // Fire segment calculation outside the render cycle via microtask
+          void Promise.resolve().then(() =>
+            _calculateSegment(prevWp, newWp, s.profileConfig, s.routingEngine, s.brouterProfile),
+          )
         }
         return { ...s, waypoints: updated }
       })
-
-      // Calculate segment between previous last waypoint and the new one
-      // Side effect runs outside setState (Bug 4 fix)
-      if (prevWp && profileConfig && routingEngine && brouterProfile) {
-        void _calculateSegment(prevWp, newWp, profileConfig, routingEngine, brouterProfile)
-      }
     },
     [_calculateSegment],
   )
@@ -271,34 +266,24 @@ export function useRoutePlanner() {
 
   const moveWaypoint = useCallback(
     async (wpId: string, newLatlng: [number, number]) => {
-      let segmentsToCalc: Array<[RouteWaypoint, RouteWaypoint]> = []
-      let profileConfig: ProfileConfig | undefined
-      let routingEngine: RoutingEngine | undefined
-      let brouterProfile: string | undefined
-
       setState(s => {
         const newWaypoints = s.waypoints.map(w =>
           w.id === wpId ? { ...w, latlng: newLatlng } : w,
         )
-        // Capture adjacent segment pairs for side effect outside setState (Bug 4 fix)
         const idx = newWaypoints.findIndex(w => w.id === wpId)
         if (idx !== -1) {
-          segmentsToCalc = []
-          if (idx > 0) segmentsToCalc.push([newWaypoints[idx - 1], newWaypoints[idx]])
-          if (idx < newWaypoints.length - 1) segmentsToCalc.push([newWaypoints[idx], newWaypoints[idx + 1]])
-          profileConfig = s.profileConfig
-          routingEngine = s.routingEngine
-          brouterProfile = s.brouterProfile
+          const pairs: Array<[RouteWaypoint, RouteWaypoint]> = []
+          if (idx > 0) pairs.push([newWaypoints[idx - 1], newWaypoints[idx]])
+          if (idx < newWaypoints.length - 1) pairs.push([newWaypoints[idx], newWaypoints[idx + 1]])
+          // Fire calculation as microtask (React 19 safe)
+          void Promise.resolve().then(async () => {
+            for (const [from, to] of pairs) {
+              await _calculateSegment(from, to, s.profileConfig, s.routingEngine, s.brouterProfile)
+            }
+          })
         }
         return { ...s, waypoints: newWaypoints }
       })
-
-      // Side effect runs outside setState (Bug 4 fix)
-      if (profileConfig && routingEngine && brouterProfile) {
-        for (const [from, to] of segmentsToCalc) {
-          await _calculateSegment(from, to, profileConfig, routingEngine, brouterProfile)
-        }
-      }
     },
     [_calculateSegment],
   )
@@ -307,6 +292,25 @@ export function useRoutePlanner() {
     setState(s => {
       const retyped = assignWaypointTypes(newOrder)
       return { ...s, waypoints: retyped, segments: [] } // segments are invalid after reorder
+    })
+  }, [])
+
+  /** Insert a via waypoint after `afterId`, removing only the affected segment. */
+  const insertViaWaypoint = useCallback((afterId: string, newWp: RouteWaypoint) => {
+    setState(s => {
+      const idx = s.waypoints.findIndex(w => w.id === afterId)
+      if (idx < 0 || idx >= s.waypoints.length - 1) return s
+      const nextWp = s.waypoints[idx + 1]
+      const newWaypoints = assignWaypointTypes([
+        ...s.waypoints.slice(0, idx + 1),
+        newWp,
+        ...s.waypoints.slice(idx + 1),
+      ])
+      // Remove only the segment between afterId and nextWp (it will be replaced by two new ones)
+      const newSegments = s.segments.filter(
+        seg => !(seg.from_waypoint === afterId && seg.to_waypoint === nextWp.id),
+      )
+      return { ...s, waypoints: newWaypoints, segments: newSegments }
     })
   }, [])
 
@@ -669,6 +673,7 @@ export function useRoutePlanner() {
     removeWaypoint,
     moveWaypoint,
     reorderWaypoints,
+    insertViaWaypoint,
 
     // Segment actions
     calculateSegment,
