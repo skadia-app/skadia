@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchRecordingGroup, setGroupPrimary, setGroupSportType, dissolveRecordingGroup } from '@/api/recordingGroups'
-import { fetchActivityStreams } from '@/api/activities'
+import { fetchActivity, fetchActivityStreams } from '@/api/activities'
 import { SourcesProvider, type SourceInfo } from '@/components/comparison/SourcesContext'
 import MultiTrackMap from '@/components/comparison/MultiTrackMap'
 import StreamChartContainer from '@/components/comparison/StreamChartContainer'
@@ -143,6 +143,14 @@ export default function RecordingGroupPage() {
     })),
   })
 
+  const activityQueries = useQueries({
+    queries: (group?.members ?? []).map(m => ({
+      queryKey: ['activity', m.activity_id],
+      queryFn: () => fetchActivity(m.activity_id),
+      enabled: !!group,
+    })),
+  })
+
   // ── Build SourceInfo[] ────────────────────────────────────────────────────
 
   const sources = useMemo<SourceInfo[]>(() => {
@@ -151,9 +159,10 @@ export default function RecordingGroupPage() {
       id: m.activity_id,
       label: m.source_device ?? m.source ?? `Quelle ${i + 1}`,
       color: getSourceColor(i),
+      activity: activityQueries[i]?.data,
       streams: streamQueries[i]?.data,
     }))
-  }, [group, streamQueries])
+  }, [group, activityQueries, streamQueries])
 
   // ── Mutations ─────────────────────────────────────────────────────────────
 
