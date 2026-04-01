@@ -51,7 +51,7 @@ const METRIC_DEFS: MetricDef[] = [
 // Binary-search is O(T * S * log N) where T=timeline length, S=series count, N=points per series.
 // For 1500 downsampled points per source this is fast enough.
 
-const ALIGNMENT_TOLERANCE_S = 2
+const ALIGNMENT_TOLERANCE_S = 1
 
 /** Binary-search: index of the element in xs[] closest to target (xs must be sorted). */
 function nearestIndex(xs: number[], target: number): number {
@@ -138,31 +138,33 @@ function StreamChartContainerInner({
   headerRight?: ReactNode
   className?: string
 }) {
-  const { visibleSources } = useSources()
+  const { visibleSources, globalStartMs } = useSources()
 
   // Prepare data for each source (one hook call per source index — sources array
   // length must be stable for this to be valid. In practice it is stable enough
   // for comparison contexts where sources are set up front).
   // We pad to a max of 8 to keep hooks count stable.
+  // All calls receive the same globalStartMs so all sources share a common time
+  // base: elapsed = (point_time - earliest_source_start) / 1000.
   const MAX_SOURCES = 8
   const padded = [...visibleSources, ...Array(Math.max(0, MAX_SOURCES - visibleSources.length)).fill(null)]
 
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  const d0 = useStreamData(padded[0]?.streams, padded[0]?.activity?.sport_type ?? 'generic')
+  const d0 = useStreamData(padded[0]?.streams, padded[0]?.activity?.sport_type ?? 'generic', globalStartMs)
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  const d1 = useStreamData(padded[1]?.streams, padded[1]?.activity?.sport_type ?? 'generic')
+  const d1 = useStreamData(padded[1]?.streams, padded[1]?.activity?.sport_type ?? 'generic', globalStartMs)
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  const d2 = useStreamData(padded[2]?.streams, padded[2]?.activity?.sport_type ?? 'generic')
+  const d2 = useStreamData(padded[2]?.streams, padded[2]?.activity?.sport_type ?? 'generic', globalStartMs)
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  const d3 = useStreamData(padded[3]?.streams, padded[3]?.activity?.sport_type ?? 'generic')
+  const d3 = useStreamData(padded[3]?.streams, padded[3]?.activity?.sport_type ?? 'generic', globalStartMs)
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  const d4 = useStreamData(padded[4]?.streams, padded[4]?.activity?.sport_type ?? 'generic')
+  const d4 = useStreamData(padded[4]?.streams, padded[4]?.activity?.sport_type ?? 'generic', globalStartMs)
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  const d5 = useStreamData(padded[5]?.streams, padded[5]?.activity?.sport_type ?? 'generic')
+  const d5 = useStreamData(padded[5]?.streams, padded[5]?.activity?.sport_type ?? 'generic', globalStartMs)
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  const d6 = useStreamData(padded[6]?.streams, padded[6]?.activity?.sport_type ?? 'generic')
+  const d6 = useStreamData(padded[6]?.streams, padded[6]?.activity?.sport_type ?? 'generic', globalStartMs)
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  const d7 = useStreamData(padded[7]?.streams, padded[7]?.activity?.sport_type ?? 'generic')
+  const d7 = useStreamData(padded[7]?.streams, padded[7]?.activity?.sport_type ?? 'generic', globalStartMs)
 
   const allData = [d0, d1, d2, d3, d4, d5, d6, d7].slice(0, visibleSources.length)
 

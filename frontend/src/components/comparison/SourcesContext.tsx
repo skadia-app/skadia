@@ -39,6 +39,12 @@ interface SourcesContextValue {
   setXMode: (mode: XMode) => void
   /** Filtered sources list (only visible ones) */
   visibleSources: SourceInfo[]
+  /**
+   * Earliest stream start time (ms since epoch) across ALL sources.
+   * Used as shared time-base so all sources produce the same elapsed-X values.
+   * 0 when no sources have streams.
+   */
+  globalStartMs: number
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -80,9 +86,18 @@ export function SourcesProvider({ sources, children }: SourcesProviderProps) {
     [sources, visibility]
   )
 
+  const globalStartMs = useMemo(() => {
+    if (sources.length === 0) return 0
+    const earliest = Math.min(...sources.map(s => {
+      if (!s.streams?.length) return Infinity
+      return new Date(s.streams[0].time).getTime()
+    }))
+    return isFinite(earliest) ? earliest : 0
+  }, [sources])
+
   const value = useMemo<SourcesContextValue>(
-    () => ({ sources, visibility, toggleVisibility, xMode, setXMode, visibleSources }),
-    [sources, visibility, toggleVisibility, xMode, visibleSources]
+    () => ({ sources, visibility, toggleVisibility, xMode, setXMode, visibleSources, globalStartMs }),
+    [sources, visibility, toggleVisibility, xMode, visibleSources, globalStartMs]
   )
 
   return (
