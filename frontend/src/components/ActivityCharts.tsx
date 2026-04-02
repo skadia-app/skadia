@@ -724,7 +724,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         sunMarkLines={sunMarkLines} />
     </div>,
   )
-  if (segGroup === 'run' && hasValidData(data.speed)) panels.push(
+  if (segGroup === 'foot' && hasValidData(data.speed)) panels.push(
     <div key={k('speed')} style={{ display: show('speed') ? undefined : 'none' }}>
       <SpeedPaceChartPanel chartId="speed" {...common}
         speedMode={speedMode ?? defaultSpeedMode(sportType ?? '')}
@@ -752,7 +752,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         field="cadence" label={sportType ? fieldLabel('cadence', sportType) : 'Kadenz'} unit={sportType ? fieldUnit('cadence', sportType) : 'rpm'} color="#f97316" />
     </div>,
   )
-  if (segGroup !== 'run' && hasValidData(data.speed)) panels.push(
+  if (segGroup !== 'foot' && hasValidData(data.speed)) panels.push(
     <div key={k('speed')} style={{ display: show('speed') ? undefined : 'none' }}>
       <SpeedPaceChartPanel chartId="speed" {...common}
         speedMode={speedMode ?? defaultSpeedMode(sportType ?? '')}
