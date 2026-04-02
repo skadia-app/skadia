@@ -22,6 +22,8 @@ var nonGarminProducts = map[[2]uint16]string{
 	{32, 41}: "Wahoo PowrLink",
 	{32, 43}: "Wahoo ELEMNT BOLT v2",
 	{32, 47}: "Wahoo ELEMNT ROAM v2",
+	{32, 63}: "Wahoo ELEMNT ROAM v3",
+	{32, 64}: "Wahoo ELEMNT BOLT v3",
 
 	// Polar Electro (123)
 	{123, 1}:  "Polar V800",
@@ -121,6 +123,7 @@ var nonGarminProducts = map[[2]uint16]string{
 	{258, 11}: "Lezyne Mega XL GPS",
 
 	// Suunto (23)
+	// Legacy IDs (pre-2021, from FIT SDK reference):
 	{23, 19}: "Suunto Ambit3 Peak",
 	{23, 20}: "Suunto 3 Fitness",
 	{23, 22}: "Suunto Ambit3 Run",
@@ -139,8 +142,18 @@ var nonGarminProducts = map[[2]uint16]string{
 	{23, 39}: "Suunto Vertical",
 	{23, 40}: "Suunto Race S",
 	{23, 41}: "Suunto Ocean",
+	// Current IDs (2021+, verified from actual FIT files):
+	{23, 42}: "Suunto 9 Peak",
+	{23, 58}: "Suunto 9 Peak Pro",
+	{23, 59}: "Suunto Vertical",
+	{23, 60}: "Suunto Race",
+	{23, 61}: "Suunto Race S",
+	{23, 67}: "Suunto Vertical 2",
+	// Note: Suunto Run uses product_id=65535 (invalid) with no product_name string
+	// — cannot be identified via map lookup alone; requires product_name string in FIT.
 
 	// COROS (294)
+	// Legacy IDs (unconfirmed, from third-party references):
 	{294, 1}:  "COROS PACE",
 	{294, 2}:  "COROS PACE 2",
 	{294, 3}:  "COROS PACE 3",
@@ -155,6 +168,16 @@ var nonGarminProducts = map[[2]uint16]string{
 	{294, 12}: "COROS POD 2",
 	{294, 14}: "COROS DURA",
 	{294, 15}: "COROS PACE Pro",
+	// Current IDs (verified from actual FIT files):
+	{294, 802}: "COROS PACE 2",
+	{294, 804}: "COROS PACE 3",
+	{294, 812}: "COROS APEX 2",
+	{294, 822}: "COROS APEX 2 Pro",
+	{294, 831}: "COROS VERTIX",
+	{294, 832}: "COROS VERTIX 2",
+	{294, 851}: "COROS DURA",
+	// Note: product_id=899 ("COROS Wearables") is a generic ID used by PACE 4,
+	// APEX 4, NOMAD, VERTIX 2S — cannot distinguish models via ID alone.
 
 	// Magene (107)
 	{107, 20}: "Magene C406",
@@ -169,6 +192,7 @@ var nonGarminProducts = map[[2]uint16]string{
 	// Hammerhead (289)
 	{289, 1}: "Hammerhead Karoo",
 	{289, 2}: "Hammerhead Karoo 2",
+	{289, 3}: "Hammerhead Karoo 3",
 
 	// TomTom (71)
 	{71, 2015}: "TomTom Runner 3 Cardio",

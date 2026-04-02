@@ -1808,7 +1808,16 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 			sn := int64(fileId.SerialNumber)
 			serialNumber = &sn
 		}
-		productName := ResolveProductName(mfrID, prodID, "")
+		// For non-Development devices, pass the resolved device name as a hint to
+		// ResolveProductName. This ensures that when a FIT file includes an explicit
+		// product name string (e.g. "COROS DURA", "Suunto Vertical 2") in its file_id
+		// or device_info message, that name is used for the device record instead of
+		// falling back to just the manufacturer name.
+		productHint := ""
+		if mfrID != uint16(typedef.ManufacturerDevelopment) {
+			productHint = device
+		}
+		productName := ResolveProductName(mfrID, prodID, productHint)
 		mfrStr := typedef.Manufacturer(mfrID).String()
 		mfrDisplay := FormatManufacturer(mfrStr)
 
