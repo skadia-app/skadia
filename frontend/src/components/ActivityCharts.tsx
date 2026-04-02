@@ -118,6 +118,7 @@ interface ChartData {
   garminGapMinKm: number[]
   re3Gap: number[]
   strydNgpMinKm: number[]
+  corosEffortPaceMinKm: number[]
   strydPower: number[]
   ndlMin: number[]
   cnsPct: number[]
@@ -129,6 +130,11 @@ interface ChartData {
 }
 
 // ── Data processing ────────────────────────────────────────────────────────────
+
+/** Convert m/s to min/km. Returns NaN for speeds ≤ 0.3 m/s (stationary noise). */
+function msToMinPerKm(ms: number | null | undefined): number {
+  return ms != null && ms > 0.3 ? 1000 / ms / 60 : NaN
+}
 
 function buildChartData(streams: StreamPoint[]): ChartData {
   const distanceKm: number[] = []
@@ -163,6 +169,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const garminGapMinKm: number[] = []
   const re3Gap: number[] = []
   const strydNgpMinKm: number[] = []
+  const corosEffortPaceMinKm: number[] = []
   const strydPower: number[] = []
   const ndlMin: number[] = []
   const cnsPct: number[] = []
@@ -220,8 +227,10 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     }
 
     // Stryd developer fields
-    const ngpMs = s.developer_fields?.['ngp'] as number | undefined
-    strydNgpMinKm.push(ngpMs != null && ngpMs > 0.3 ? 1000 / ngpMs / 60 : NaN)
+    strydNgpMinKm.push(msToMinPerKm(s.developer_fields?.['ngp'] as number | undefined))
+
+    // Coros developer fields — "Effort Pace" in m/s like GAP
+    corosEffortPaceMinKm.push(msToMinPerKm(s.developer_fields?.['Effort Pace'] as number | undefined))
     const strydPowerVal = s.developer_fields?.['Power'] as number | undefined
     strydPower.push(strydPowerVal != null && strydPowerVal > 0 ? strydPowerVal : NaN)
 
@@ -238,7 +247,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, pressure, paceMinKm, garminGapMinKm, re3Gap, strydNgpMinKm, strydPower, ndlMin, cnsPct, n2Pct, decoStopM, po2, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, pressure, paceMinKm, garminGapMinKm, re3Gap, strydNgpMinKm, corosEffortPaceMinKm, strydPower, ndlMin, cnsPct, n2Pct, decoStopM, po2, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -944,8 +953,20 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       {(activeTab === CHART_TAB.deko || activeTab === CHART_TAB.alles) && activityId && streams.some(s => s.ndl_time_s != null || s.cns_load_pct != null) && (
         <DiveDecoPanel activityId={activityId} streams={streams} />
       )}
-      {(activeTab === CHART_TAB.developerFields || activeTab === CHART_TAB.alles) && activityId && streams.some(s => s.developer_fields && Object.keys(s.developer_fields).length > 0) && (
-        <DeveloperFieldChart streams={streams} activityId={activityId} />
+      {showDeveloperFieldsPanel && (
+        <DeveloperFieldChart
+          streams={streams}
+          activityId={activityId}
+          hoverIdx={hoverIdx}
+          onHover={wrappedOnHover}
+          onRegister={registerChart}
+          onUnregister={unregisterChart}
+          onBrushZoom={(startPct, endPct) => {
+            const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+            stableBrushZoom((startPct / 100) * xMax, (endPct / 100) * xMax)
+          }}
+          brushZoomLockRef={brushZoomLockRef}
+        />
       )}
       <p className="text-xs text-neutral-400 dark:text-neutral-600">
         Ziehen zum Auswählen · Mausrad zum Zoomen · Nach Auswahl: Ziehen zum Verschieben
@@ -1428,6 +1449,11 @@ function PowerPhaseGaugePanel({ phaseData, streams, hoverIdx }: {
         left: 4, top: 4,
         textStyle: { fontSize: 11, fontWeight: 500, color: isLive ? '#10b981' : '#888' },
       },
+      toolbox: {
+        feature: {
+          saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: 'Kraftphasen' },
+        },
+      },
       series: [leftFull, leftPeak, rightFull, rightPeak],
     }
   }, [liveData, hoverIdx])
@@ -1435,7 +1461,7 @@ function PowerPhaseGaugePanel({ phaseData, streams, hoverIdx }: {
   const d = liveData
 
   return (
-    <div>
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
       <div ref={containerRef} className="h-[240px] w-full" />
       {/* Degree labels below */}
       <div className="flex justify-around text-center -mt-1 mb-1">
@@ -1694,6 +1720,7 @@ function formatMinKm(minKm: number): string {
 const COLOR_PACE = '#3B82F6'
 const COLOR_GARMIN_GAP = '#F59E0B'
 const COLOR_RE3_GAP = '#10B981'
+const COLOR_COROS_EFFORT = '#06B6D4'
 
 interface SpeedPaceChartPanelProps {
   chartId: string
@@ -1722,6 +1749,7 @@ function SpeedPaceChartPanel({
   const hasGarminGap = speedMode === 'pace' && hasValidData(data.garminGapMinKm)
   const hasRe3Gap = speedMode === 'pace' && hasValidData(data.re3Gap)
   const hasStrydNgp = speedMode === 'pace' && hasValidData(data.strydNgpMinKm)
+  const hasCorosEffort = speedMode === 'pace' && hasValidData(data.corosEffortPaceMinKm)
 
   const paceSmoothed = useMemo(() => {
     if (speedMode !== 'pace') return null
@@ -1746,6 +1774,10 @@ function SpeedPaceChartPanel({
   const strydNgpSmoothed = useMemo(() =>
     hasStrydNgp ? sma(data.strydNgpMinKm) : null
   , [data, hasStrydNgp])
+
+  const corosEffortSmoothed = useMemo(() =>
+    hasCorosEffort ? sma(data.corosEffortPaceMinKm) : null
+  , [data, hasCorosEffort])
 
   const paceUnit = isRowingSport ? 'min/500m' : isSwimSport ? 'min/100m' : 'min/km'
   // fieldLabel('speed', ...) returns sport-specific label (e.g. "Pace" for foot) — but in
@@ -1874,12 +1906,14 @@ function SpeedPaceChartPanel({
       const gs = garminSmoothed
       const rs = re3Smoothed
       const ns = strydNgpSmoothed
+      const cs = corosEffortSmoothed
 
       const allValues = [
         ...ps,
         ...(gs ?? []),
         ...(rs ?? []),
         ...(ns ?? []),
+        ...(cs ?? []),
       ].filter(v => !isNaN(v) && isFinite(v) && v > 0 && v < 30)
 
       const yMin = allValues.length > 0 ? Math.max(0, Math.floor(Math.min(...allValues) * 10) / 10 - 0.5) : 0
@@ -1929,6 +1963,15 @@ function SpeedPaceChartPanel({
           itemStyle: { color: '#a855f7' },
           symbol: 'none',
           z: 1,
+          connectNulls: false,
+        }] : []),
+        ...(cs ? [{
+          type: 'line' as const,
+          name: 'Coros Effort Pace',
+          data: xData.map((x, i) => [x, cs[i]]),
+          showSymbol: false,
+          lineStyle: { width: 1.5, color: COLOR_COROS_EFFORT },
+          itemStyle: { color: COLOR_COROS_EFFORT },
           connectNulls: false,
         }] : []),
       ]
@@ -2006,6 +2049,10 @@ function SpeedPaceChartPanel({
               const nv = ns[idx]
               if (!isNaN(nv)) html += `<div style="font-size:13px;color:#a855f7"><strong>${formatMinKm(nv)}</strong> Stryd NGP</div>`
             }
+            if (cs) {
+              const cv = cs[idx]
+              if (!isNaN(cv)) html += `<div style="font-size:13px;color:${COLOR_COROS_EFFORT}"><strong>${formatMinKm(cv)}</strong> Coros Effort Pace</div>`
+            }
             return html + '</div>'
           },
         },
@@ -2052,7 +2099,7 @@ function SpeedPaceChartPanel({
         }],
       } as echarts.EChartsCoreOption
     },
-    [data, speedMode, sportType, xMode, splitMarkers, paceSmoothed, garminSmoothed, re3Smoothed, strydNgpSmoothed], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, speedMode, sportType, xMode, splitMarkers, paceSmoothed, garminSmoothed, re3Smoothed, strydNgpSmoothed, corosEffortSmoothed], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
       return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
@@ -2084,6 +2131,12 @@ function SpeedPaceChartPanel({
               <div className="flex items-center gap-1.5">
                 <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#a855f7' }} />
                 <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Stryd NGP</span>
+              </div>
+            )}
+            {hasCorosEffort && (
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLOR_COROS_EFFORT }} />
+                <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Coros Effort Pace</span>
               </div>
             )}
           </>

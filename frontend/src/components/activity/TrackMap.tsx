@@ -95,6 +95,9 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
   useEffect(() => {
     if (!mapContainerRef.current || !hasTrack) return
 
+    // Previous map instance was destroyed in cleanup — any markerRef pointing to it is invalid
+    markerRef.current = null
+
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
       style: {
@@ -360,6 +363,7 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
       if (map.getLayer('heading-arrows')) map.removeLayer('heading-arrows')
       if (map.getSource('heading-arrows')) map.removeSource('heading-arrows')
       map.remove()
+      mapRef.current = null
     }
   }, [hasTrack]) // eslint-disable-line react-hooks/exhaustive-deps
 
