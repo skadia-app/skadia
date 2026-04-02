@@ -966,6 +966,15 @@ export interface ActivityEvent {
 }
 
 // ── Workouts ──
+export interface WorkoutActivityRef {
+  id: string
+  title?: string
+  started_at: string
+  sport_type: string
+  distance_m?: number
+  elapsed_time_s?: number
+}
+
 export interface Workout {
   id: string
   name?: string
@@ -975,7 +984,9 @@ export interface Workout {
   num_valid_steps?: number
   pool_length_m?: number
   pool_length_unit?: string
+  activity_count?: number
   steps: WorkoutStep[]
+  activities?: WorkoutActivityRef[]
 }
 
 export interface WorkoutStep {

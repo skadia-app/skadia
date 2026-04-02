@@ -630,6 +630,17 @@ type WorkoutRecord struct {
 	PoolLengthM    *float64 `json:"pool_length_m,omitempty"`
 	PoolLengthUnit *string  `json:"pool_length_unit,omitempty"`
 	SourceHash     string   `json:"source_hash"`
+	ActivityCount  *int     `json:"activity_count,omitempty"`
+}
+
+// WorkoutActivityRef is a lightweight activity reference returned alongside workout details.
+type WorkoutActivityRef struct {
+	ID           string    `json:"id"`
+	Title        *string   `json:"title,omitempty"`
+	StartedAt    time.Time `json:"started_at"`
+	SportType    string    `json:"sport_type"`
+	DistanceM    *float64  `json:"distance_m,omitempty"`
+	ElapsedTimeS *int      `json:"elapsed_time_s,omitempty"`
 }
 
 // WorkoutStepRecord holds structured workout step data from FIT workout_step messages.
