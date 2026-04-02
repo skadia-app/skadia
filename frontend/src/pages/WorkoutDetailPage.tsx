@@ -3,7 +3,8 @@ import { useParams, Link } from 'react-router-dom'
 import { fetchWorkout } from '@/api/workouts'
 import { WorkoutOverview } from '@/components/activity/WorkoutOverview'
 import type { WorkoutStep } from '@/api/types'
-import { fmtDuration } from '@/lib/format'
+import { fmtDuration, fmtDateCompact } from '@/lib/format'
+import type { WorkoutActivityRef } from '@/api/types'
 
 const INTENSITY_LABELS: Record<number, string> = {
   0: 'Intervall',
@@ -154,6 +155,51 @@ export default function WorkoutDetailPage() {
       {workout.steps.length === 0 && (
         <p className="text-neutral-400 text-sm">Keine Schritte vorhanden.</p>
       )}
+
+      {/* Absolvierte Aktivitäten */}
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+        <div className="px-4 py-3 bg-neutral-50 dark:bg-neutral-900/60 border-b border-neutral-200 dark:border-neutral-800 flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+            Absolviert
+          </h2>
+          {(workout.activities?.length ?? 0) > 0 && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+              {workout.activities!.length}×
+            </span>
+          )}
+        </div>
+        {(workout.activities?.length ?? 0) === 0 ? (
+          <p className="px-4 py-3 text-sm text-neutral-400">Noch nicht absolviert.</p>
+        ) : (
+          <div className="divide-y divide-neutral-100 dark:divide-neutral-800/60">
+            {workout.activities!.map((a: WorkoutActivityRef) => (
+              <Link
+                key={a.id}
+                to={`/activities/${a.id}`}
+                className="flex items-center gap-3 px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-900/40 transition-colors"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate text-sm">
+                    {a.title || a.sport_type}
+                  </div>
+                  <div className="text-xs text-neutral-400 mt-0.5">
+                    {fmtDateCompact(a.started_at)}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-neutral-400 shrink-0 tabular-nums">
+                  {a.distance_m != null && (
+                    <span>{(a.distance_m / 1000).toFixed(1)} km</span>
+                  )}
+                  {a.elapsed_time_s != null && (
+                    <span>{fmtDuration(a.elapsed_time_s, 'short')}</span>
+                  )}
+                  <span aria-hidden="true" className="text-neutral-300 dark:text-neutral-600">→</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

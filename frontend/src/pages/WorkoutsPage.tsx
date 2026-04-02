@@ -42,8 +42,13 @@ export default function WorkoutsPage() {
                   <div className="text-sm text-neutral-500 truncate">{w.description}</div>
                 )}
               </div>
-              <div className="text-sm text-neutral-400">
-                {w.num_valid_steps ?? 0} Schritte
+              <div className="flex items-center gap-3 text-sm text-neutral-400 shrink-0">
+                {(w.activity_count ?? 0) > 0 && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+                    {w.activity_count}× absolviert
+                  </span>
+                )}
+                <span>{w.num_valid_steps ?? 0} Schritte</span>
               </div>
             </Link>
           ))}

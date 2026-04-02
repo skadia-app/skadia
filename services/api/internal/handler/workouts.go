@@ -35,9 +35,9 @@ func (h *Handler) HandleGetWorkout(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing workout ID", r.URL.Path)
 		return
 	}
-	workout, steps, err := h.DB.GetWorkout(r.Context(), workoutID, userID)
+	workout, steps, activities, err := h.DB.GetWorkout(r.Context(), workoutID, userID)
 	if httputil.HandleDBErr(w, r, err, "workout not found") {
 		return
 	}
-	httputil.WriteJSON(w, http.StatusOK, map[string]any{"workout": workout, "steps": steps})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"workout": workout, "steps": steps, "activities": activities})
 }

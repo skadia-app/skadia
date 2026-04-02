@@ -89,7 +89,7 @@ func (db *DB) UpsertWorkout(ctx context.Context, userID string, workout model.Wo
 	return workoutID, nil
 }
 
-func (db *DB) GetWorkout(ctx context.Context, workoutID, userID string) (*model.WorkoutRecord, []model.WorkoutStepRecord, error) {
+func (db *DB) GetWorkout(ctx context.Context, workoutID, userID string) (*model.WorkoutRecord, []model.WorkoutStepRecord, []model.WorkoutActivityRef, error) {
 	var w model.WorkoutRecord
 	err := db.Pool.QueryRow(ctx, `
 		SELECT id, name, description, sport, sub_sport,
@@ -104,7 +104,7 @@ func (db *DB) GetWorkout(ctx context.Context, workoutID, userID string) (*model.
 		&w.SourceHash,
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("get workout: %w", err)
+		return nil, nil, nil, fmt.Errorf("get workout: %w", err)
 	}
 
 	rows, err := db.Pool.Query(ctx, `
@@ -121,7 +121,7 @@ func (db *DB) GetWorkout(ctx context.Context, workoutID, userID string) (*model.
 		workoutID,
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("get workout steps: %w", err)
+		return nil, nil, nil, fmt.Errorf("get workout steps: %w", err)
 	}
 	defer rows.Close()
 
@@ -137,28 +137,58 @@ func (db *DB) GetWorkout(ctx context.Context, workoutID, userID string) (*model.
 			&s.SecondaryTargetType, &s.SecondaryTargetValue,
 			&s.SecondaryCustomTargetLow, &s.SecondaryCustomTargetHigh,
 		); err != nil {
-			return nil, nil, fmt.Errorf("scan workout step: %w", err)
+			return nil, nil, nil, fmt.Errorf("scan workout step: %w", err)
 		}
 		steps = append(steps, s)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, fmt.Errorf("get workout steps: %w", err)
+		return nil, nil, nil, fmt.Errorf("get workout steps: %w", err)
 	}
 	if steps == nil {
 		steps = []model.WorkoutStepRecord{}
 	}
 
-	return &w, steps, nil
+	actRows, err := db.Pool.Query(ctx, `
+		SELECT id, COALESCE(title, title_auto), started_at, sport_type, distance_m, elapsed_time_s
+		FROM activities
+		WHERE workout_id = $1 AND user_id = $2
+		ORDER BY started_at DESC`,
+		workoutID, userID,
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("get workout activities: %w", err)
+	}
+	defer actRows.Close()
+
+	var activities []model.WorkoutActivityRef
+	for actRows.Next() {
+		var a model.WorkoutActivityRef
+		if err := actRows.Scan(&a.ID, &a.Title, &a.StartedAt, &a.SportType, &a.DistanceM, &a.ElapsedTimeS); err != nil {
+			return nil, nil, nil, fmt.Errorf("scan workout activity: %w", err)
+		}
+		activities = append(activities, a)
+	}
+	if err := actRows.Err(); err != nil {
+		return nil, nil, nil, fmt.Errorf("get workout activities: %w", err)
+	}
+	if activities == nil {
+		activities = []model.WorkoutActivityRef{}
+	}
+
+	return &w, steps, activities, nil
 }
 
 func (db *DB) ListWorkouts(ctx context.Context, userID string, limit, offset int) ([]model.WorkoutRecord, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, name, description, sport, sub_sport,
-			capabilities, num_valid_steps, pool_length_m, pool_length_unit,
-			source_hash
-		FROM workouts
-		WHERE user_id = $1
-		ORDER BY created_at DESC
+		SELECT w.id, w.name, w.description, w.sport, w.sub_sport,
+			w.capabilities, w.num_valid_steps, w.pool_length_m, w.pool_length_unit,
+			w.source_hash,
+			COUNT(a.id) AS activity_count
+		FROM workouts w
+		LEFT JOIN activities a ON a.workout_id = w.id AND a.user_id = w.user_id
+		WHERE w.user_id = $1
+		GROUP BY w.id
+		ORDER BY w.created_at DESC
 		LIMIT $2 OFFSET $3`,
 		userID, limit, offset,
 	)
@@ -173,7 +203,7 @@ func (db *DB) ListWorkouts(ctx context.Context, userID string, limit, offset int
 		if err := rows.Scan(
 			&w.ID, &w.Name, &w.Description, &w.Sport, &w.SubSport,
 			&w.Capabilities, &w.NumValidSteps, &w.PoolLengthM, &w.PoolLengthUnit,
-			&w.SourceHash,
+			&w.SourceHash, &w.ActivityCount,
 		); err != nil {
 			return nil, fmt.Errorf("scan workout: %w", err)
 		}
