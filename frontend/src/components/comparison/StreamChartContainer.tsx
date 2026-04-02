@@ -202,7 +202,7 @@ function StreamChartContainerInner({
         return { label: src.label, color: src.color, data }
       })
       .filter((s): s is StreamSeries => s !== null)
-    return alignSeries(raw)
+    return raw
   }, [activeDef, visibleSources, dataMap])
 
   // GPS data for hover sync
