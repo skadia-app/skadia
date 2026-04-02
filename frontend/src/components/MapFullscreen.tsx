@@ -593,7 +593,7 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
               if (!item.value || isNaN(item.value[1])) continue
               const stream = availableStreams.find(s => s.label === item.seriesName)
               if (!stream) continue
-              const decimals = stream.key === 'altitude' || stream.key === 'temperature' ? 0 : 1
+              const decimals = ['altitude', 'temperature', 'heartRate', 'power', 'cadence'].includes(stream.key) ? 0 : 1
               html += `<div style="font-size:12px">`
               html += `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${stream.color};margin-right:4px;vertical-align:middle"></span>`
               html += `<strong>${item.value[1].toFixed(decimals)}</strong>\u2009${stream.unit}`
@@ -643,12 +643,29 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
         brushOption: { brushType: 'lineX', brushMode: 'single' },
       })
 
-      // Hover -> map marker
-      chart.on('showTip', (params: unknown) => {
-        const typed = params as { dataIndex?: number }
-        if (typed.dataIndex != null) moveMarker(typed.dataIndex)
-      })
-      chart.on('hideTip', () => moveMarker(null))
+      // Use ZRender for reliable hover-to-map-marker sync
+      // (type:'value' xAxis showTip does not include dataIndex for real hover)
+      const zr = chart.getZr()
+      const chartXData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      let lastMarkerIdx: number | null = null
+
+      const zrMarkerMove = (e: unknown) => {
+        const event = e as { offsetX?: number; offsetY?: number }
+        if (event.offsetX == null || event.offsetY == null) return
+        if (!chart.containPixel({ gridIndex: 0 }, [event.offsetX, event.offsetY])) {
+          if (lastMarkerIdx !== null) { lastMarkerIdx = null; moveMarker(null) }
+          return
+        }
+        const xVal = chart.convertFromPixel({ xAxisIndex: 0 }, event.offsetX) as number | null
+        if (xVal == null) { if (lastMarkerIdx !== null) { lastMarkerIdx = null; moveMarker(null) } return }
+        const idx = findClosestIdx(chartXData, xVal)
+        if (idx !== lastMarkerIdx) { lastMarkerIdx = idx; moveMarker(idx) }
+      }
+      const zrMarkerOut = () => {
+        if (lastMarkerIdx !== null) { lastMarkerIdx = null; moveMarker(null) }
+      }
+      zr.on('mousemove', zrMarkerMove)
+      zr.on('mouseout', zrMarkerOut)
 
       // Legend toggle -> update enabledStreams
       chart.on('legendselectchanged', (params: unknown) => {
@@ -742,7 +759,11 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
         }
       })
 
-      return () => { chartInstanceRef.current = null }
+      return () => {
+        chartInstanceRef.current = null
+        zr.off('mousemove', zrMarkerMove)
+        zr.off('mouseout', zrMarkerOut)
+      }
     },
   )
 
