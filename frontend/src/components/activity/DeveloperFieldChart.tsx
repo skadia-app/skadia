@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo } from 'react'
+import React, { useRef, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -7,13 +7,14 @@ import {
   TooltipComponent,
   LegendComponent,
   DataZoomComponent,
-  TitleComponent,
+  ToolboxComponent,
+  BrushComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchDeveloperFields } from '@/api/activities'
 import type { StreamPoint, DeveloperFieldInfo } from '@/api/types'
 
-echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, TitleComponent, CanvasRenderer])
+echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, ToolboxComponent, BrushComponent, CanvasRenderer])
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -21,8 +22,9 @@ const MEANINGFUL_UNITS = new Set([
   'Watts', 'kN/m', 'Milliseconds', 'Centimeters', 'bw/s', 'C', 'deg C', 'm/s', 'N', 'rpm', '',
 ])
 
-// Skip GPS metadata fields that are numeric but meaningless as charts
-const SKIP_KEYS = new Set(['Sat', 'hdop', 'idx', 'ehdop', 'evdop', 'vdop'])
+// Skip GPS metadata fields that are numeric but meaningless as charts.
+// "Effort Pace" (Coros) is handled in the Pace chart alongside Garmin GAP / Stryd NGP.
+const SKIP_KEYS = new Set(['Sat', 'hdop', 'idx', 'ehdop', 'evdop', 'vdop', 'Effort Pace'])
 
 const FIELD_COLORS: Record<string, string> = {
   'Form Power': '#f59e0b',
@@ -61,9 +63,17 @@ function groupByUnit(fields: DeveloperFieldInfo[]): Map<string, DeveloperFieldIn
 interface DeveloperFieldChartProps {
   streams: StreamPoint[]
   activityId: string
+  hoverIdx?: number | null
+  onHover?: (idx: number | null) => void
+  onRegister?: (id: string, chart: echarts.ECharts) => void
+  onUnregister?: (id: string) => void
+  onBrushZoom?: (startPct: number, endPct: number) => void
+  brushZoomLockRef?: React.MutableRefObject<boolean>
 }
 
-export function DeveloperFieldChart({ streams, activityId }: DeveloperFieldChartProps) {
+export function DeveloperFieldChart({
+  streams, activityId, hoverIdx, onHover, onRegister, onUnregister, onBrushZoom, brushZoomLockRef,
+}: DeveloperFieldChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const instanceRef = useRef<echarts.ECharts | null>(null)
 
@@ -105,13 +115,22 @@ export function DeveloperFieldChart({ streams, activityId }: DeveloperFieldChart
     return { timeLabels, fieldValues }
   }, [streams, fields])
 
+  // ResizeObserver: mount once, tied to container lifetime
+  useEffect(() => {
+    if (!containerRef.current) return
+    const ro = new ResizeObserver(() => instanceRef.current?.resize())
+    ro.observe(containerRef.current)
+    return () => ro.disconnect()
+  }, [])
+
   // Dispose only on unmount — never dispose on data changes
   useEffect(() => {
     return () => {
+      onUnregister?.('developer-fields')
       instanceRef.current?.dispose()
       instanceRef.current = null
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -120,6 +139,7 @@ export function DeveloperFieldChart({ streams, activityId }: DeveloperFieldChart
     // Reuse existing instance; only init once per mount
     if (!instanceRef.current) {
       instanceRef.current = echarts.init(containerRef.current)
+      onRegister?.('developer-fields', instanceRef.current)
     }
     const chart = instanceRef.current
 
@@ -170,12 +190,16 @@ export function DeveloperFieldChart({ streams, activityId }: DeveloperFieldChart
 
     chart.setOption({
       animation: false,
-      grid: { left: 52, right: rightPad, top: 36, bottom: 56 },
-      title: {
-        text: 'Entwickler-Felder',
-        left: 4,
-        top: 4,
-        textStyle: { fontSize: 11, fontWeight: 500, color: '#888' },
+      grid: { left: 52, right: rightPad, top: 8, bottom: 56 },
+      toolbox: {
+        feature: {
+          brush: { type: ['lineX'] },
+          saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: 'Entwickler-Felder' },
+        },
+      },
+      brush: {
+        toolbox: ['lineX'],
+        xAxisIndex: 0,
       },
       tooltip: {
         trigger: 'axis',
@@ -239,14 +263,66 @@ export function DeveloperFieldChart({ streams, activityId }: DeveloperFieldChart
       }],
     } as echarts.EChartsCoreOption)
 
-    const ro = new ResizeObserver(() => chart.resize())
-    ro.observe(containerRef.current)
+    chart.off('showTip')
+    chart.off('hideTip')
+    chart.off('brushEnd')
+
+    chart.on('showTip', (params: unknown) => {
+      const p = params as { dataIndex?: number }
+      if (p.dataIndex != null) onHover?.(p.dataIndex)
+    })
+    chart.on('hideTip', () => onHover?.(null))
+
+    chart.on('brushEnd', (params: unknown) => {
+      if (brushZoomLockRef?.current) return
+      type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
+      const p = params as { areas?: BrushArea[]; batch?: Array<{ areas?: BrushArea[] }> }
+      const areas = p.areas ?? p.batch?.[0]?.areas
+      const area = areas?.[0]
+      if (!area) return
+      const total = streams.length
+      if (total === 0) return
+
+      let startIdx: number, endIdx: number
+      if (area.coordRange) {
+        ;[startIdx, endIdx] = area.coordRange
+      } else if (area.range) {
+        // category xAxis: convertFromPixel returns the integer category index
+        const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
+        const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
+        if (s == null || e == null) return
+        startIdx = s as number
+        endIdx = e as number
+      } else {
+        return
+      }
+
+      if (endIdx <= startIdx) return
+      if (brushZoomLockRef) brushZoomLockRef.current = true
+      onBrushZoom?.(
+        Math.max(0, (startIdx / total) * 100),
+        Math.min(100, (endIdx / total) * 100),
+      )
+      chart.dispatchAction({ type: 'brush', command: 'clear', areas: [] })
+      chart.dispatchAction({ type: 'takeGlobalCursor', key: 'brush', brushOption: { brushType: false } })
+      requestAnimationFrame(() => { if (brushZoomLockRef) brushZoomLockRef.current = false })
+    })
 
     return () => {
-      ro.disconnect()
       // Do not dispose here — instance is reused across re-renders
     }
   }, [fields, fieldValues, timeLabels]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync tooltip position with other charts via hoverIdx
+  useEffect(() => {
+    const chart = instanceRef.current
+    if (!chart) return
+    if (hoverIdx == null) {
+      chart.dispatchAction({ type: 'hideTip' })
+    } else {
+      chart.dispatchAction({ type: 'showTip', seriesIndex: 0, dataIndex: hoverIdx })
+    }
+  }, [hoverIdx])
 
   if (isLoading) {
     return (
@@ -274,6 +350,10 @@ export function DeveloperFieldChart({ streams, activityId }: DeveloperFieldChart
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60">
+        <span className="w-2 h-2 rounded-full shrink-0 bg-violet-500" />
+        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Entwickler-Felder</span>
+      </div>
       <div ref={containerRef} className="h-[240px] w-full" />
     </div>
   )
