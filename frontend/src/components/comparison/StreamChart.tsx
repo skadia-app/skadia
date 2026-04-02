@@ -82,19 +82,29 @@ function buildOption(
     toolbox: { feature: { brush: { show: false } } },
     tooltip: {
       trigger: 'axis',
+      // snap:false prevents the axis pointer from snapping to the nearest data point.
+      // Without this, sparse metrics (speed after LTTB, altitude, temperature) cause
+      // the tooltip to appear frozen because the snap target only changes at the
+      // midpoint between two far-apart data points.
+      axisPointer: { snap: false },
       backgroundColor: 'rgba(17,24,39,0.92)',
       borderColor: '#374151',
       textStyle: { color: '#f3f4f6', fontSize: 11 },
       formatter: (params: unknown) => {
-        const items = params as Array<{ seriesName: string; value: [number, number]; color: string }>
+        const items = params as Array<{ seriesName: string; value: [number, number]; color: string; axisValue?: number }>
         if (!items?.length) return ''
-        const xLabel = fmtDuration(items[0].value[0])
-        const lines = items.map(it => {
-          const formatted = formatTooltipValue
-            ? formatTooltipValue(it.value[1])
-            : formatValueWithUnit(it.value[1], unit)
-          return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${it.color};margin-right:4px;"></span>${it.seriesName}: <b>${formatted}</b>`
-        })
+        // axisValue is the actual mouse x-position; value[0] is the nearest data
+        // point's x. Use axisValue so the timestamp always follows the cursor.
+        const xLabel = fmtDuration(items[0].axisValue ?? items[0].value[0])
+        const lines = items
+          .filter(it => it.value[1] != null)
+          .map(it => {
+            const formatted = formatTooltipValue
+              ? formatTooltipValue(it.value[1])
+              : formatValueWithUnit(it.value[1], unit)
+            return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${it.color};margin-right:4px;"></span>${it.seriesName}: <b>${formatted}</b>`
+          })
+        if (lines.length === 0) return ''
         return `${xLabel}<br/>${lines.join('<br/>')}`
       },
     },
