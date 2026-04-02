@@ -724,6 +724,14 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         sunMarkLines={sunMarkLines} />
     </div>,
   )
+  if (segGroup === 'run' && hasValidData(data.speed)) panels.push(
+    <div key={k('speed')} style={{ display: show('speed') ? undefined : 'none' }}>
+      <SpeedPaceChartPanel chartId="speed" {...common}
+        speedMode={speedMode ?? defaultSpeedMode(sportType ?? '')}
+        onSpeedModeChange={onSpeedModeChange ?? (() => {})}
+        sportType={sportType ?? ''} />
+    </div>,
+  )
   if (hasValidData(data.heartRate)) panels.push(
     <div key={k('hr')} style={{ display: show('heartRate') ? undefined : 'none' }}>
       <ChartPanel chartId="hr" {...common}
@@ -744,7 +752,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         field="cadence" label={sportType ? fieldLabel('cadence', sportType) : 'Kadenz'} unit={sportType ? fieldUnit('cadence', sportType) : 'rpm'} color="#f97316" />
     </div>,
   )
-  if (hasValidData(data.speed)) panels.push(
+  if (segGroup !== 'run' && hasValidData(data.speed)) panels.push(
     <div key={k('speed')} style={{ display: show('speed') ? undefined : 'none' }}>
       <SpeedPaceChartPanel chartId="speed" {...common}
         speedMode={speedMode ?? defaultSpeedMode(sportType ?? '')}
@@ -996,10 +1004,11 @@ interface ChartInteractionOpts {
   onUnregister: (id: string) => void
   brushZoomLockRef: React.MutableRefObject<boolean>
   xMax: number
+  xData: number[]
 }
 
 function setupChartInteractions(opts: ChartInteractionOpts): () => void {
-  const { chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax } = opts
+  const { chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData } = opts
 
   onRegister(chartId, chart)
 
@@ -1009,11 +1018,45 @@ function setupChartInteractions(opts: ChartInteractionOpts): () => void {
     brushOption: { brushType: 'lineX', brushMode: 'single' },
   })
 
+  // ZRender mousemove for reliable real-hover detection.
+  // For type:'value' xAxis, showTip does NOT include dataIndex in real-hover params,
+  // so we use ZRender directly and convert pixel → axis value → closest stream index.
+  const zr = chart.getZr()
+  let lastHoverIdx: number | null = null
+
+  const zrMouseMove = (e: unknown) => {
+    const event = e as { offsetX?: number; offsetY?: number }
+    if (event.offsetX == null || event.offsetY == null) return
+    const inGrid = chart.containPixel({ gridIndex: 0 }, [event.offsetX, event.offsetY])
+    if (!inGrid) {
+      if (lastHoverIdx !== null) { lastHoverIdx = null; onHover(null) }
+      return
+    }
+    const xVal = chart.convertFromPixel({ xAxisIndex: 0 }, event.offsetX) as number | null
+    if (xVal == null) { if (lastHoverIdx !== null) { lastHoverIdx = null; onHover(null) } return }
+    const idx = findClosestIdx(xData, xVal)
+    if (idx !== lastHoverIdx) { lastHoverIdx = idx; onHover(idx) }
+  }
+
+  const zrMouseOut = () => {
+    if (lastHoverIdx !== null) { lastHoverIdx = null; onHover(null) }
+  }
+
+  zr.on('mousemove', zrMouseMove)
+  zr.on('mouseout', zrMouseOut)
+
+  // Keep showTip/hideTip for programmatic sync from DeveloperFieldChart
+  // (DeveloperFieldChart dispatches showTip with explicit dataIndex via echarts.connect)
   chart.on('showTip', (params: unknown) => {
     const typed = params as { dataIndex?: number }
-    if (typed.dataIndex != null) onHover(typed.dataIndex)
+    if (typed.dataIndex != null) {
+      const idx = typed.dataIndex
+      if (idx !== lastHoverIdx) { lastHoverIdx = idx; onHover(idx) }
+    }
   })
-  chart.on('hideTip', () => onHover(null))
+  chart.on('hideTip', () => {
+    if (lastHoverIdx !== null) { lastHoverIdx = null; onHover(null) }
+  })
 
   type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
 
@@ -1069,7 +1112,11 @@ function setupChartInteractions(opts: ChartInteractionOpts): () => void {
     if (z != null) onSyncZoom(z.start, z.end, chartId)
   })
 
-  return () => onUnregister(chartId)
+  return () => {
+    onUnregister(chartId)
+    zr.off('mousemove', zrMouseMove)
+    zr.off('mouseout', zrMouseOut)
+  }
 }
 
 // ── Deco Time Series Chart Panel (Diving) ────────────────────────────────────
@@ -1219,7 +1266,8 @@ function DecoChartPanel({
     [data, xMode, splitMarkers, hasNdl, hasCns, hasN2, hasDecoStop],
     (chart) => {
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
     },
   )
 
@@ -1667,7 +1715,8 @@ function PedalDualChartPanel({
     [data, xMode, splitMarkers, leftValues, rightValues, leftColor, rightColor, tooltipTitle], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
     },
   )
 
@@ -2102,7 +2151,8 @@ function SpeedPaceChartPanel({
     [data, speedMode, sportType, xMode, splitMarkers, paceSmoothed, garminSmoothed, re3Smoothed, strydNgpSmoothed, corosEffortSmoothed], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
     },
   )
 
@@ -2348,7 +2398,8 @@ function RunningDynamicsChartPanel({
     [data, xMode, splitMarkers], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
     },
   )
 
@@ -2530,7 +2581,8 @@ function ScatterChartPanel({
     [data, values, xMode, splitMarkers],
     (chart) => {
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
     },
   )
 
@@ -2642,7 +2694,7 @@ function ChartPanel({
       mlData.push(...buildSplitMarkLines(splitMarkers, xMode))
 
       // ── Tooltip builder ─────────────────────────────────────────────────────
-      const decimals = field === 'altitude' || field === 'temperature' ? 0 : 1 // field-independent when overrideValues is used
+      const decimals = ['altitude', 'temperature', 'heartRate', 'power', 'cadence'].includes(field ?? '') ? 0 : 1
 
       const buildTooltip = (idx: number): string => {
         const v = values[idx]
@@ -2894,7 +2946,8 @@ function ChartPanel({
     [data, field, xMode, splitMarkers, showGradeColor, overrideValues, invertY, yAxisFixed, extraSeries], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
     },
   )
 
@@ -3106,7 +3159,8 @@ function GearChartPanel({
     },
     [data, stepData, gearPoints, xMode, splitMarkers, xMax], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
-      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax })
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
     },
   )
 
