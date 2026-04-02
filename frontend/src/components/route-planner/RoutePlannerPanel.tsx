@@ -412,7 +412,7 @@ export default function RoutePlannerPanel({
             )}
 
             {/* Waypoint list */}
-            <div className="px-3 pt-2 pb-1 max-h-56 overflow-y-auto">
+            <div className="px-3 pt-2 pb-1">
               {waypoints.length === 0 ? (
                 <div className="text-xs text-neutral-400 dark:text-neutral-500 text-center py-4">
                   Klicke auf die Karte, um Wegpunkte zu setzen

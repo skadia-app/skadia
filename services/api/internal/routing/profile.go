@@ -463,17 +463,17 @@ func buildEdgeCostClosure(p ProfileConfig) func(tags1, tags2 uint64) EdgeCostFac
 		// --- Tracktype ---
 		tracktype := uint8(graph.DecodeField(tags1, 11, 3)) // bits 11-13
 
-		// Road-profile: block unpaved residential/service/unclassified/track
-		// sf==0 (unknown surface) passes through for all types — slightly more
-		// permissive than the original roadHighwayCost which blocked track with sf==0.
-		// This is intentional: many OSM tracks lack surface tags, cost 4.0 is
-		// prohibitive enough to avoid them unless no alternative exists.
+		// Road-profile: heavy penalty for unpaved residential/service/unclassified/track.
+		// Previously costBlocked, but that disconnects graph components in rural areas
+		// where paved roads are only reachable through unpaved connectors.
+		// sf==0 (unknown surface) passes through — many OSM roads lack surface tags,
+		// cost 4.0 is prohibitive enough to avoid them unless no alternative exists.
 		if roadIsPavedBlock {
 			isPaved := sf >= 1 && sf <= 7
 			if !isPaved && sf != 0 {
 				switch hw {
 				case 11, 12, 13, 14, 15:
-					return EdgeCostFactors{Flat: costBlocked}
+					return EdgeCostFactors{Flat: 15.0}
 				}
 			}
 		}
