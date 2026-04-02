@@ -55,6 +55,13 @@ type XMode = 'distance' | 'time'
 
 type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'coreTemperature' | 'runningDynamics' | 'stepLength' | 'powerPhase' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength' | 'grit' | 'flow' | 'gear' | 'potentialStamina' | 'staminaCurrent' | 'pressure' | 'decoTimeSeries'
 
+interface ChartMeta {
+  id: string
+  label: string
+  color: string
+  tabKey: ChartKey | null
+}
+
 function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
   if (tab === CHART_TAB.alles) return null // show all
   const isSwim = getSegmentGroup(sportType) === 'swim'
@@ -492,6 +499,19 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   const [isZoomed, setIsZoomed] = useState(false)
   const [xMode, setXMode] = useState<XMode>(defaultXMode ?? 'distance')
 
+  // Persistent chart order & visibility (per segGroup)
+  const storageKey = `skadia-charts-${segGroup}`
+  const [chartOrder, setChartOrder] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(`${storageKey}-order`) ?? 'null') ?? [] } catch { return [] }
+  })
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(`${storageKey}-hidden`) ?? '[]')) } catch { return new Set() }
+  })
+
+  // Drag state
+  const dragIdRef = useRef<string | null>(null)
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null)
+
   const sunMarkLines = useMemo(
     () => computeSunMarkLines(streams, data, xMode, sunriseAt, sunsetAt),
     [streams, data, xMode, sunriseAt, sunsetAt],
@@ -519,6 +539,37 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     }] : undefined,
     [data.decoStopM],
   )
+
+  const toggleChart = useCallback((id: string) => {
+    setHiddenIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      localStorage.setItem(`${storageKey}-hidden`, JSON.stringify([...next]))
+      return next
+    })
+  }, [storageKey])
+
+  const handleChartDrop = useCallback((targetId: string) => {
+    const from = dragIdRef.current
+    setDropTargetId(null)
+    dragIdRef.current = null
+    if (!from || from === targetId) return
+    setChartOrder(prev => {
+      const next = [...prev]
+      const fi = next.indexOf(from)
+      const ti = next.indexOf(targetId)
+      if (fi === -1 || ti === -1) return prev
+      next.splice(fi, 1)
+      next.splice(ti, 0, from)
+      localStorage.setItem(`${storageKey}-order`, JSON.stringify(next))
+      return next
+    })
+  }, [storageKey])
+
+  const handleChartDragEnd = useCallback(() => {
+    dragIdRef.current = null
+    setDropTargetId(null)
+  }, [])
 
   const chartInstancesRef = useRef<Map<string, echarts.ECharts>>(new Map())
   const isSyncingRef = useRef(false)
@@ -695,9 +746,6 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
 
   if (streams.length === 0) return null
 
-  // xMode in the key forces a clean remount when mode is toggled
-  const k = (id: string) => `${id}-${xMode}`
-
   const common = {
     data, onHover: wrappedOnHover,
     onBrushZoom: stableBrushZoom,
@@ -710,186 +758,153 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   }
 
   const tabCharts = activeTab ? getTabCharts(activeTab, sportType ?? '') : null
-  const show = (key: ChartKey) => tabCharts === null || tabCharts.includes(key)
+  const show = (key: ChartKey | null) => key === null || tabCharts === null || tabCharts.includes(key)
 
-  // Build all panels that have data, always. Wrap each in a visibility div so
-  // ECharts instances are never destroyed on tab switch — only hidden via CSS.
-  const panels: React.ReactNode[] = []
+  // ── Build panel map ────────────────────────────────────────────────────────────
+  // panelMap: id → ReactNode (without display:none wrapper — visibility controlled below)
+  // panelMetas: ordered list of available chart metadata for the legend bar
 
-  if (hasValidData(data.altitude) && sportType !== 'diving') panels.push(
-    <div key={k('altitude')} style={{ display: show('altitude') ? undefined : 'none' }}>
+  const panelMap = new Map<string, React.ReactNode>()
+  const panelMetas: ChartMeta[] = []
+
+  function addPanel(meta: ChartMeta, node: React.ReactNode) {
+    panelMap.set(meta.id, node)
+    panelMetas.push(meta)
+  }
+
+  const speedLabelText = (speedMode ?? defaultSpeedMode(sportType ?? '')) === 'pace' ? 'Pace' : 'Geschwindigkeit'
+  const speedColor = segGroup === 'foot' ? '#3b82f6' : '#f97316'
+
+  if (hasValidData(data.altitude) && sportType !== 'diving')
+    addPanel({ id: 'altitude', label: 'Höhe', color: '#22c55e', tabKey: 'altitude' },
       <ChartPanel chartId="altitude" {...common}
         field="altitude" label="Höhe" unit="m" color="#22c55e" area
         markLines="minmax" altitudeSmartY showGradeColor
-        sunMarkLines={sunMarkLines} />
-    </div>,
-  )
-  if (segGroup === 'foot' && hasValidData(data.speed)) panels.push(
-    <div key={k('speed')} style={{ display: show('speed') ? undefined : 'none' }}>
+        sunMarkLines={sunMarkLines} />)
+  if (segGroup === 'foot' && hasValidData(data.speed))
+    addPanel({ id: 'speed', label: speedLabelText, color: speedColor, tabKey: 'speed' },
       <SpeedPaceChartPanel chartId="speed" {...common}
         speedMode={speedMode ?? defaultSpeedMode(sportType ?? '')}
         onSpeedModeChange={onSpeedModeChange ?? (() => {})}
-        sportType={sportType ?? ''} />
-    </div>,
-  )
-  if (hasValidData(data.heartRate)) panels.push(
-    <div key={k('hr')} style={{ display: show('heartRate') ? undefined : 'none' }}>
+        sportType={sportType ?? ''} />)
+
+  if (hasValidData(data.heartRate))
+    addPanel({ id: 'hr', label: 'Herzfrequenz', color: '#ef4444', tabKey: 'heartRate' },
       <ChartPanel chartId="hr" {...common}
         field="heartRate" label="Herzfrequenz" unit="bpm" color="#ef4444"
-        markLines="max" />
-    </div>,
-  )
-  if (hasValidData(data.power)) panels.push(
-    <div key={k('power')} style={{ display: show('power') ? undefined : 'none' }}>
+        markLines="max" />)
+
+  if (hasValidData(data.power))
+    addPanel({ id: 'power', label: 'Leistung', color: '#a855f7', tabKey: 'power' },
       <ChartPanel chartId="power" {...common}
         field="power" label="Leistung" unit="W" color="#a855f7"
-        extraSeries={hasValidData(data.strydPower) ? [{ values: data.strydPower, name: 'Stryd', color: '#7c3aed' }] : undefined} />
-    </div>,
-  )
-  if (hasValidData(data.cadence)) panels.push(
-    <div key={k('cadence')} style={{ display: show('cadence') ? undefined : 'none' }}>
+        extraSeries={hasValidData(data.strydPower) ? [{ values: data.strydPower, name: 'Stryd', color: '#7c3aed' }] : undefined} />)
+
+  if (hasValidData(data.cadence))
+    addPanel({ id: 'cadence', label: sportType ? fieldLabel('cadence', sportType) : 'Kadenz', color: '#f97316', tabKey: 'cadence' },
       <ChartPanel chartId="cadence" {...common}
-        field="cadence" label={sportType ? fieldLabel('cadence', sportType) : 'Kadenz'} unit={sportType ? fieldUnit('cadence', sportType) : 'rpm'} color="#f97316" />
-    </div>,
-  )
-  if (segGroup !== 'foot' && hasValidData(data.speed)) panels.push(
-    <div key={k('speed')} style={{ display: show('speed') ? undefined : 'none' }}>
+        field="cadence" label={sportType ? fieldLabel('cadence', sportType) : 'Kadenz'} unit={sportType ? fieldUnit('cadence', sportType) : 'rpm'} color="#f97316" />)
+
+  if (segGroup !== 'foot' && hasValidData(data.speed))
+    addPanel({ id: 'speed', label: speedLabelText, color: speedColor, tabKey: 'speed' },
       <SpeedPaceChartPanel chartId="speed" {...common}
         speedMode={speedMode ?? defaultSpeedMode(sportType ?? '')}
         onSpeedModeChange={onSpeedModeChange ?? (() => {})}
-        sportType={sportType ?? ''} />
-    </div>,
-  )
-  if (hasValidData(data.temperature)) panels.push(
-    <div key={k('temperature')} style={{ display: show('temperature') ? undefined : 'none' }}>
+        sportType={sportType ?? ''} />)
+
+  if (hasValidData(data.temperature))
+    addPanel({ id: 'temperature', label: 'Temperatur', color: '#06b6d4', tabKey: 'temperature' },
       <ChartPanel chartId="temperature" {...common}
         field="temperature" label="Temperatur" unit="°C" color="#06b6d4"
-        markLines="minmax" />
-    </div>,
-  )
-  if (hasValidData(data.coreTemperature)) panels.push(
-    <div key={k('core-temp')} style={{ display: show('coreTemperature') ? undefined : 'none' }}>
+        markLines="minmax" />)
+
+  if (hasValidData(data.coreTemperature))
+    addPanel({ id: 'core-temp', label: 'Kerntemperatur', color: '#f43f5e', tabKey: 'coreTemperature' },
       <ChartPanel chartId="core-temp" {...common}
-        field="coreTemperature" label="Kerntemperatur" unit="°C" color="#f43f5e" />
-    </div>,
-  )
-  // Running Dynamics: dual-axis GCT + VO chart
-  if (hasValidData(data.groundContactTime) || hasValidData(data.verticalOscillation)) panels.push(
-    <div key={k('running-dynamics')} style={{ display: show('runningDynamics') ? undefined : 'none' }}>
-      <RunningDynamicsChartPanel chartId="running-dynamics" {...common} />
-    </div>,
-  )
-  // Step Length: single series
-  if (hasValidData(data.stepLength)) panels.push(
-    <div key={k('step-length')} style={{ display: show('stepLength') ? undefined : 'none' }}>
+        field="coreTemperature" label="Kerntemperatur" unit="°C" color="#f43f5e" />)
+
+  if (hasValidData(data.groundContactTime) || hasValidData(data.verticalOscillation))
+    addPanel({ id: 'running-dynamics', label: 'Laufdynamik', color: '#10b981', tabKey: 'runningDynamics' },
+      <RunningDynamicsChartPanel chartId="running-dynamics" {...common} />)
+
+  if (hasValidData(data.stepLength))
+    addPanel({ id: 'step-length', label: 'Schrittlänge', color: '#0891b2', tabKey: 'stepLength' },
       <ChartPanel chartId="step-length" {...common}
         field="stepLength" label="Schrittlänge" unit="m" color="#0891b2"
-        overrideValues={data.stepLength} />
-    </div>,
-  )
-  // Pedal Analytics: Power Phase Gauge
-  if (powerPhaseAvg) panels.push(
-    <div key={k('power-phase')} style={{ display: show('powerPhase') ? undefined : 'none' }}>
-      <PowerPhaseGaugePanel phaseData={powerPhaseAvg} streams={streams} hoverIdx={hoverIdx} />
-    </div>,
-  )
-  // Pedal Analytics: Torque Effectiveness L/R
-  if (hasValidData(data.torqueEffL) || hasValidData(data.torqueEffR)) panels.push(
-    <div key={k('torque-eff')} style={{ display: show('torqueEff') ? undefined : 'none' }}>
+        overrideValues={data.stepLength} />)
+
+  if (powerPhaseAvg)
+    addPanel({ id: 'power-phase', label: 'Pedalphase', color: '#ec4899', tabKey: 'powerPhase' },
+      <PowerPhaseGaugePanel phaseData={powerPhaseAvg} streams={streams} hoverIdx={hoverIdx} />)
+
+  if (hasValidData(data.torqueEffL) || hasValidData(data.torqueEffR))
+    addPanel({ id: 'torque-eff', label: 'Drehmoment-Eff.', color: '#ec4899', tabKey: 'torqueEff' },
       <PedalDualChartPanel chartId="torque-eff" {...common}
         leftValues={data.torqueEffL} rightValues={data.torqueEffR}
         leftLabel="Drehmoment-Eff. Links" rightLabel="Drehmoment-Eff. Rechts"
         leftColor="#EC4899" rightColor="#A855F7"
         leftAxisName="Links\n(%)" rightAxisName="Rechts\n(%)"
         tooltipTitle="Drehmoment-Eff."
-        leftTooltipSuffix="Links" rightTooltipSuffix="Rechts" />
-    </div>,
-  )
-  // Pedal Analytics: Pedal Smoothness L/R
-  if (hasValidData(data.pedalSmL) || hasValidData(data.pedalSmR)) panels.push(
-    <div key={k('pedal-sm')} style={{ display: show('pedalSm') ? undefined : 'none' }}>
+        leftTooltipSuffix="Links" rightTooltipSuffix="Rechts" />)
+
+  if (hasValidData(data.pedalSmL) || hasValidData(data.pedalSmR))
+    addPanel({ id: 'pedal-sm', label: 'Tritt-Gleichm.', color: '#a855f7', tabKey: 'pedalSm' },
       <PedalDualChartPanel chartId="pedal-sm" {...common}
         leftValues={data.pedalSmL} rightValues={data.pedalSmR}
         leftLabel="Tritt-Gleichm. Links" rightLabel="Tritt-Gleichm. Rechts"
         leftColor="#A855F7" rightColor="#8B5CF6"
         leftAxisName="Links\n(%)" rightAxisName="Rechts\n(%)"
         tooltipTitle="Tritt-Gleichm."
-        leftTooltipSuffix="Links" rightTooltipSuffix="Rechts" />
-    </div>,
-  )
-  // E-Bike: Motor Power
-  if (hasValidData(data.motorPower)) panels.push(
-    <div key={k('motor-power')} style={{ display: show('motorPower') ? undefined : 'none' }}>
+        leftTooltipSuffix="Links" rightTooltipSuffix="Rechts" />)
+
+  if (hasValidData(data.motorPower))
+    addPanel({ id: 'motor-power', label: 'Motorleistung', color: '#9333ea', tabKey: 'motorPower' },
       <ChartPanel chartId="motor-power" {...common}
         field="power" label="Motorleistung" unit="W" color="#9333EA"
-        overrideValues={data.motorPower} />
-    </div>,
-  )
-  // E-Bike: Battery Level (fixed 0–100 % Y axis)
-  if (hasValidData(data.batteryLevel)) panels.push(
-    <div key={k('battery')} style={{ display: show('batteryLevel') ? undefined : 'none' }}>
+        overrideValues={data.motorPower} />)
+
+  if (hasValidData(data.batteryLevel))
+    addPanel({ id: 'battery', label: 'Akku-Level', color: '#22c55e', tabKey: 'batteryLevel' },
       <ChartPanel chartId="battery" {...common}
         field="power" label="Akku-Level" unit="%" color="#22C55E"
-        overrideValues={data.batteryLevel} yAxisFixed={[0, 100]} />
-    </div>,
-  )
-  // E-Bike: Travel Range
-  if (hasValidData(data.travelRange)) panels.push(
-    <div key={k('travel-range')} style={{ display: show('travelRange') ? undefined : 'none' }}>
+        overrideValues={data.batteryLevel} yAxisFixed={[0, 100]} />)
+
+  if (hasValidData(data.travelRange))
+    addPanel({ id: 'travel-range', label: 'Reichweite', color: '#6b7280', tabKey: 'travelRange' },
       <ChartPanel chartId="travel-range" {...common}
         field="power" label="Reichweite" unit="km" color="#6B7280"
-        overrideValues={data.travelRange} />
-    </div>,
-  )
-  // Dive: Depth profile — Y axis inverted so surface = top, depth = bottom
-  if (hasValidData(data.depth)) panels.push(
-    <div key={k('depth')} style={{ display: show('depth') ? undefined : 'none' }}>
+        overrideValues={data.travelRange} />)
+
+  if (hasValidData(data.depth))
+    addPanel({ id: 'depth', label: 'Tiefe', color: '#3b82f6', tabKey: 'depth' },
       <ChartPanel chartId="depth" {...common}
         field="altitude" label="Tiefe" unit="m" color="#3B82F6" area
         overrideValues={data.depth} invertY
-        extraSeries={decoExtraSeries}
-      />
-    </div>,
-  )
-  // Cycle Length (stroke/stroke distance) — only for swim + paddle sports
-  // For running: step_length_mm chart already exists. For cycling: cycle_length = pedal revolution (not useful as chart).
-  {
-    if ((segGroup === 'swim' || segGroup === 'paddle') && hasValidData(data.cycleLength)) {
-      const cycleLengthLabel = segGroup === 'swim' ? 'Distanz/Zug' : 'Distanz/Schlag'
-      panels.push(
-        <div key={k('cycle-length')} style={{ display: show('cycleLength') ? undefined : 'none' }}>
-          <ScatterChartPanel chartId="cycle-length" {...common}
-            values={data.cycleLength} label={cycleLengthLabel} unit="m" color="#0EA5E9" />
-        </div>,
-      )
-    }
+        extraSeries={decoExtraSeries} />)
+
+  if ((segGroup === 'swim' || segGroup === 'paddle') && hasValidData(data.cycleLength)) {
+    const cycleLengthLabel = segGroup === 'swim' ? 'Distanz/Zug' : 'Distanz/Schlag'
+    addPanel({ id: 'cycle-length', label: cycleLengthLabel, color: '#0ea5e9', tabKey: 'cycleLength' },
+      <ScatterChartPanel chartId="cycle-length" {...common}
+        values={data.cycleLength} label={cycleLengthLabel} unit="m" color="#0EA5E9" />)
   }
-  // Gangschaltung — nur für Rad-Aktivitäten mit Gear-Events
-  if (gearPoints.length > 0) {
-    panels.push(
-      <div key={k('gear')} style={{ display: show('gear') ? undefined : 'none' }}>
-        <GearChartPanel chartId="gear" {...common}
-          gearPoints={gearPoints} />
-      </div>,
-    )
-  }
-  // MTB: Grit — nur für Rad-Aktivitäten mit Grit-Daten
-  if (segGroup === 'bike' && hasValidData(data.grit)) panels.push(
-    <div key={k('grit')} style={{ display: show('grit') ? undefined : 'none' }}>
+
+  if (gearPoints.length > 0)
+    addPanel({ id: 'gear', label: 'Gangschaltung', color: '#94a3b8', tabKey: 'gear' },
+      <GearChartPanel chartId="gear" {...common} gearPoints={gearPoints} />)
+
+  if (segGroup === 'bike' && hasValidData(data.grit))
+    addPanel({ id: 'grit', label: 'MTB Grit', color: '#d97706', tabKey: 'grit' },
       <ChartPanel chartId="grit" {...common}
-        field="grit" label="MTB Grit" unit="" color="#D97706" />
-    </div>,
-  )
-  // MTB: Flow — nur für Rad-Aktivitäten mit Flow-Daten
-  if (segGroup === 'bike' && hasValidData(data.flow)) panels.push(
-    <div key={k('flow')} style={{ display: show('flow') ? undefined : 'none' }}>
+        field="grit" label="MTB Grit" unit="" color="#D97706" />)
+
+  if (segGroup === 'bike' && hasValidData(data.flow))
+    addPanel({ id: 'flow', label: 'MTB Flow', color: '#10b981', tabKey: 'flow' },
       <ChartPanel chartId="flow" {...common}
-        field="flow" label="MTB Flow" unit="" color="#10B981" />
-    </div>,
-  )
-  // Garmin Stamina — Dual-Line Chart: Potential Stamina + Stamina (Aktuell)
-  if (hasValidData(data.potentialStamina) || hasValidData(data.staminaCurrent)) panels.push(
-    <div key={k('potentialStamina')} style={{ display: show('potentialStamina') ? undefined : 'none' }}>
+        field="flow" label="MTB Flow" unit="" color="#10B981" />)
+
+  if (hasValidData(data.potentialStamina) || hasValidData(data.staminaCurrent))
+    addPanel({ id: 'potentialStamina', label: 'Garmin Stamina', color: '#8b5cf6', tabKey: 'potentialStamina' },
       <PedalDualChartPanel chartId="potentialStamina" {...common}
         leftValues={data.potentialStamina}
         rightValues={data.staminaCurrent}
@@ -897,40 +912,46 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         leftColor="#8B5CF6" rightColor="#EC4899"
         leftAxisName="%" rightAxisName="%"
         leftTooltipSuffix="Potential" rightTooltipSuffix="Aktuell"
-        tooltipTitle="Garmin Stamina" />
-    </div>,
-  )
-  // Barometric Pressure — hide for dive activities (depth data present)
-  if (hasValidData(data.pressure) && !hasValidData(data.depth)) panels.push(
-    <div key={k('pressure')} style={{ display: show('pressure') ? undefined : 'none' }}>
+        tooltipTitle="Garmin Stamina" />)
+
+  if (hasValidData(data.pressure) && !hasValidData(data.depth))
+    addPanel({ id: 'pressure', label: 'Barometer', color: '#78716c', tabKey: 'pressure' },
       <ChartPanel chartId="pressure" {...common}
-        field="pressure" label="Barometer" unit="hPa" color="#78716c" />
-    </div>,
-  )
-  // Deco Time Series (Diving: NDL, CNS%, N₂%, Deko-Stop)
-  if (hasValidData(data.ndlMin) || hasValidData(data.cnsPct) || hasValidData(data.n2Pct)) panels.push(
-    <div key={k('deco-ts')} style={{ display: show('decoTimeSeries') ? undefined : 'none' }}>
-      <DecoChartPanel chartId="deco-ts" {...common} />
-    </div>,
-  )
-  // pO₂ (Diving: partial pressure of oxygen)
-  if (hasValidData(data.po2)) panels.push(
-    <div key={k('po2')} style={{ display: show('decoTimeSeries') ? undefined : 'none' }}>
+        field="pressure" label="Barometer" unit="hPa" color="#78716c" />)
+
+  if (hasValidData(data.ndlMin) || hasValidData(data.cnsPct) || hasValidData(data.n2Pct))
+    addPanel({ id: 'deco-ts', label: 'Deko-Daten', color: '#3b82f6', tabKey: 'decoTimeSeries' },
+      <DecoChartPanel chartId="deco-ts" {...common} />)
+
+  if (hasValidData(data.po2))
+    addPanel({ id: 'po2', label: 'pO₂', color: '#f59e0b', tabKey: 'decoTimeSeries' },
       <ChartPanel chartId="po2" {...common}
         label="pO₂" unit="bar" color="#f59e0b"
-        overrideValues={data.po2}
-      />
-    </div>,
-  )
+        overrideValues={data.po2} />)
+
+  // Sync chartOrder with available ids:
+  // - Keep persisted order, remove unavailable ids, append new ones at the end
+  const availableIds = panelMetas.map(m => m.id)
+  const effectiveOrder = [
+    ...chartOrder.filter(id => availableIds.includes(id)),
+    ...availableIds.filter(id => !chartOrder.includes(id)),
+  ]
+  // Save if it differs from current (first render or new charts)
+  if (effectiveOrder.join(',') !== chartOrder.join(',')) {
+    // Use setTimeout to avoid setState during render
+    setTimeout(() => setChartOrder(effectiveOrder), 0)
+  }
+  const metaById = new Map(panelMetas.map(m => [m.id, m]))
 
   const hasDekoData = streams.some(s => s.ndl_time_s != null || s.cns_load_pct != null)
   const hasDevFields = streams.some(s => s.developer_fields && Object.keys(s.developer_fields).length > 0)
   const showDekoPanel = (activeTab === CHART_TAB.deko || activeTab === CHART_TAB.alles) && activityId != null && hasDekoData
   const showDeveloperFieldsPanel = (activeTab === CHART_TAB.developerFields || activeTab === CHART_TAB.alles) && activityId != null && hasDevFields
-  if (panels.length === 0 && !showDekoPanel && !showDeveloperFieldsPanel) return null
+  if (panelMap.size === 0 && !showDekoPanel && !showDeveloperFieldsPanel) return null
 
   return (
     <div className="space-y-3">
+      {/* ── Title row ── */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Datenströme</h2>
         <div className="flex items-center gap-2">
@@ -957,7 +978,92 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
           </div>
         </div>
       </div>
-      {panels}
+
+      {/* ── Chart legend chip bar ── */}
+      {panelMetas.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 py-1">
+          {effectiveOrder.map(id => {
+            const meta = metaById.get(id)
+            if (!meta) return null
+            const isHidden = hiddenIds.has(id)
+            const isDragOver = dropTargetId === id
+            return (
+              <button
+                key={id}
+                draggable
+                onDragStart={e => { e.stopPropagation(); dragIdRef.current = id }}
+                onDragOver={e => { e.preventDefault(); setDropTargetId(id) }}
+                onDrop={() => handleChartDrop(id)}
+                onDragLeave={() => setDropTargetId(null)}
+                onDragEnd={handleChartDragEnd}
+                onClick={() => toggleChart(id)}
+                title={isHidden ? `${meta.label} einblenden` : `${meta.label} ausblenden`}
+                className={[
+                  'flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium',
+                  'border transition-all cursor-grab active:cursor-grabbing select-none',
+                  isHidden
+                    ? 'opacity-35 border-neutral-200 dark:border-neutral-700 text-neutral-400 dark:text-neutral-600'
+                    : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400 dark:hover:border-neutral-500',
+                  isDragOver ? 'ring-2 ring-orange-400 ring-offset-1' : '',
+                ].join(' ')}
+              >
+                <span
+                  className="w-2 h-2 rounded-full shrink-0 transition-opacity"
+                  style={{ backgroundColor: meta.color, opacity: isHidden ? 0.4 : 1 }}
+                />
+                <span className={isHidden ? 'line-through' : ''}>{meta.label}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── Charts in user-controlled order ── */}
+      {effectiveOrder.map(id => {
+        const meta = metaById.get(id)
+        const node = panelMap.get(id)
+        if (!meta || !node) return null
+        const visible = show(meta.tabKey) && !hiddenIds.has(id)
+        const isDragOver = dropTargetId === id
+        return (
+          <div
+            key={`${id}-${xMode}`}
+            style={{ display: visible ? undefined : 'none' }}
+            className={`relative group/chart ${isDragOver ? 'outline outline-2 outline-orange-400 outline-offset-2 rounded-xl' : ''}`}
+            onDragOver={e => { e.preventDefault(); setDropTargetId(id) }}
+            onDrop={() => handleChartDrop(id)}
+            onDragLeave={e => {
+              // Only clear if leaving the chart wrapper entirely (not entering a child)
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTargetId(null)
+            }}
+          >
+            {/* Drag handle — visible on hover, left side */}
+            <div
+              draggable
+              onDragStart={e => { e.stopPropagation(); dragIdRef.current = id }}
+              onDragEnd={handleChartDragEnd}
+              className="absolute left-0 top-0 bottom-0 w-5 z-10 cursor-grab active:cursor-grabbing
+                         flex items-center justify-center rounded-l-xl
+                         opacity-0 group-hover/chart:opacity-100 transition-opacity
+                         hover:bg-neutral-100/80 dark:hover:bg-neutral-800/80"
+              title="Verschieben"
+            >
+              <svg width="10" height="16" viewBox="0 0 10 16" fill="none" className="text-neutral-400 dark:text-neutral-500">
+                <circle cx="2.5" cy="2" r="1.5" fill="currentColor"/>
+                <circle cx="7.5" cy="2" r="1.5" fill="currentColor"/>
+                <circle cx="2.5" cy="6" r="1.5" fill="currentColor"/>
+                <circle cx="7.5" cy="6" r="1.5" fill="currentColor"/>
+                <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
+                <circle cx="7.5" cy="10" r="1.5" fill="currentColor"/>
+                <circle cx="2.5" cy="14" r="1.5" fill="currentColor"/>
+                <circle cx="7.5" cy="14" r="1.5" fill="currentColor"/>
+              </svg>
+            </div>
+            {node}
+          </div>
+        )
+      })}
+
       {(activeTab === CHART_TAB.deko || activeTab === CHART_TAB.alles) && activityId && streams.some(s => s.ndl_time_s != null || s.cns_load_pct != null) && (
         <DiveDecoPanel activityId={activityId} streams={streams} />
       )}
