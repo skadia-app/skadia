@@ -72,15 +72,20 @@ export function ChartTabs({ streams, children }: Props) {
   if (!showTabs) return <>{children(CHART_TAB.alles)}</>
 
   return (
-    <Tabs value={validTab} onValueChange={handleTabChange}>
-      <TabsList className="mb-4">
-        {visibleTabs.map(t => (
-          <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>
-        ))}
-      </TabsList>
-      <div className="mt-2">
-        {children(validTab)}
-      </div>
-    </Tabs>
+    // --chart-tabs-height is read by ActivityCharts to offset its own sticky header
+    <div style={{ '--chart-tabs-height': '44px' } as React.CSSProperties}>
+      <Tabs value={validTab} onValueChange={handleTabChange}>
+        <div className="sticky top-14 z-40 bg-white dark:bg-neutral-950 -mx-4 px-4 sm:-mx-6 sm:px-6 pb-2">
+          <TabsList>
+            {visibleTabs.map(t => (
+              <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
+        <div className="mt-2">
+          {children(validTab)}
+        </div>
+      </Tabs>
+    </div>
   )
 }

@@ -1,5 +1,6 @@
 import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import * as echarts from 'echarts/core'
+import { useQuery } from '@tanstack/react-query'
 import { useECharts } from '@/hooks/useECharts'
 import { LineChart, ScatterChart, GaugeChart } from 'echarts/charts'
 import { getSegmentGroup } from '@/lib/sportTaxonomy'
@@ -8,6 +9,7 @@ import {
   GridComponent,
   TitleComponent,
   TooltipComponent,
+  LegendComponent,
   DataZoomComponent,
   AxisPointerComponent,
   BrushComponent,
@@ -18,10 +20,10 @@ import {
   VisualMapComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import type { StreamPoint, ActivityEvent } from '@/api/types'
+import type { StreamPoint, ActivityEvent, DeveloperFieldInfo } from '@/api/types'
+import { fetchDeveloperFields } from '@/api/activities'
 import { CHART_TAB } from '@/components/activity/ChartTabs'
 import { DiveDecoPanel } from '@/components/activity/DiveDecoPanel'
-import { DeveloperFieldChart } from '@/components/activity/DeveloperFieldChart'
 import { findClosestIdx } from '@/lib/utils'
 import { re3GradeAdjustedSpeed } from '@/lib/re3'
 
@@ -32,6 +34,7 @@ echarts.use([
   GridComponent,
   TitleComponent,
   TooltipComponent,
+  LegendComponent,
   DataZoomComponent,
   AxisPointerComponent,
   BrushComponent,
@@ -929,6 +932,28 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         label="pO₂" unit="bar" color="#f59e0b"
         overrideValues={data.po2} />)
 
+  // Developer fields — added via addPanel so chip, drag-reorder, and visibility toggle
+  // work identically to all other charts. Must happen BEFORE availableIds is computed.
+  const hasDekoData = streams.some(s => s.ndl_time_s != null || s.cns_load_pct != null)
+  const hasDevFields = streams.some(s => s.developer_fields && Object.keys(s.developer_fields).length > 0)
+  const showDekoPanel = (activeTab === CHART_TAB.deko || activeTab === CHART_TAB.alles) && activityId != null && hasDekoData
+  const showDeveloperFieldsPanel = (activeTab === CHART_TAB.developerFields || activeTab === CHART_TAB.alles) && activityId != null && hasDevFields
+  if (showDeveloperFieldsPanel) {
+    addPanel({ id: 'developer-fields', label: 'Entwickler-Felder', color: '#8b5cf6', tabKey: null },
+      <DeveloperFieldChart
+        activityId={activityId!}
+        streams={streams}
+        data={data}
+        xMode={xMode}
+        onHover={wrappedOnHover}
+        onBrushZoom={stableBrushZoom}
+        onSyncZoom={syncZoom}
+        onRegister={registerChart}
+        onUnregister={unregisterChart}
+        brushZoomLockRef={brushZoomLockRef}
+      />)
+  }
+
   // Sync chartOrder with available ids:
   // - Keep persisted order, remove unavailable ids, append new ones at the end
   const availableIds = panelMetas.map(m => m.id)
@@ -941,16 +966,15 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     // Use setTimeout to avoid setState during render
     setTimeout(() => setChartOrder(effectiveOrder), 0)
   }
-  const metaById = new Map(panelMetas.map(m => [m.id, m]))
 
-  const hasDekoData = streams.some(s => s.ndl_time_s != null || s.cns_load_pct != null)
-  const hasDevFields = streams.some(s => s.developer_fields && Object.keys(s.developer_fields).length > 0)
-  const showDekoPanel = (activeTab === CHART_TAB.deko || activeTab === CHART_TAB.alles) && activityId != null && hasDekoData
-  const showDeveloperFieldsPanel = (activeTab === CHART_TAB.developerFields || activeTab === CHART_TAB.alles) && activityId != null && hasDevFields
+  const metaById = new Map(panelMetas.map(m => [m.id, m]))
   if (panelMap.size === 0 && !showDekoPanel && !showDeveloperFieldsPanel) return null
 
   return (
     <div className="space-y-3">
+      {/* ── Sticky header: title row + chip bar ── */}
+      <div className="sticky z-30 bg-white dark:bg-neutral-950 pb-1 -mx-4 px-4 sm:-mx-6 sm:px-6"
+           style={{ top: 'calc(3.5rem + var(--chart-tabs-height, 0px))' }}>
       {/* ── Title row ── */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Datenströme</h2>
@@ -1017,6 +1041,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
           })}
         </div>
       )}
+      </div>{/* end sticky header */}
 
       {/* ── Charts in user-controlled order ── */}
       {effectiveOrder.map(id => {
@@ -1067,21 +1092,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       {(activeTab === CHART_TAB.deko || activeTab === CHART_TAB.alles) && activityId && streams.some(s => s.ndl_time_s != null || s.cns_load_pct != null) && (
         <DiveDecoPanel activityId={activityId} streams={streams} />
       )}
-      {showDeveloperFieldsPanel && (
-        <DeveloperFieldChart
-          streams={streams}
-          activityId={activityId}
-          hoverIdx={hoverIdx}
-          onHover={wrappedOnHover}
-          onRegister={registerChart}
-          onUnregister={unregisterChart}
-          onBrushZoom={(startPct, endPct) => {
-            const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-            stableBrushZoom((startPct / 100) * xMax, (endPct / 100) * xMax)
-          }}
-          brushZoomLockRef={brushZoomLockRef}
-        />
-      )}
+
       <p className="text-xs text-neutral-400 dark:text-neutral-600">
         Ziehen zum Auswählen · Mausrad zum Zoomen · Nach Auswahl: Ziehen zum Verschieben
       </p>
@@ -1223,6 +1234,185 @@ function setupChartInteractions(opts: ChartInteractionOpts): () => void {
     zr.off('mousemove', zrMouseMove)
     zr.off('mouseout', zrMouseOut)
   }
+}
+
+// ── Developer Field Chart ─────────────────────────────────────────────────────
+
+const DEV_FIELD_MEANINGFUL_UNITS = new Set([
+  'Watts', 'kN/m', 'Milliseconds', 'Centimeters', 'bw/s', 'C', 'deg C', '°C', '°', 'm/s', 'N', 'rpm', '',
+])
+const DEV_FIELD_SKIP_KEYS = new Set(['Sat', 'hdop', 'idx', 'ehdop', 'evdop', 'vdop', 'Effort Pace'])
+const DEV_FIELD_COLORS: Record<string, string> = {
+  'Form Power': '#f59e0b', 'Air Power': '#0ea5e9', 'Leg Spring Stiffness': '#10b981',
+  'Power': '#a855f7', 'Ground Time': '#f97316', 'Vertical Oscillation': '#06b6d4',
+  'Cadence': '#3b82f6', 'ngp': '#8b5cf6',
+}
+const DEV_FIELD_PALETTE = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc']
+
+function groupDevFieldsByUnit(fields: DeveloperFieldInfo[]): Map<string, DeveloperFieldInfo[]> {
+  const map = new Map<string, DeveloperFieldInfo[]>()
+  for (const f of fields) {
+    const existing = map.get(f.units)
+    if (existing) existing.push(f)
+    else map.set(f.units, [f])
+  }
+  return map
+}
+
+interface DeveloperFieldChartProps {
+  activityId: string
+  streams: StreamPoint[]
+  data: ChartData
+  xMode: XMode
+  onHover: (index: number | null) => void
+  onBrushZoom: (startValue: number, endValue: number) => void
+  onSyncZoom: (start: number, end: number, sourceId: string) => void
+  onRegister: (id: string, chart: echarts.ECharts) => void
+  onUnregister: (id: string) => void
+  brushZoomLockRef: React.MutableRefObject<boolean>
+}
+
+function DeveloperFieldChart({
+  activityId, streams, data, xMode,
+  onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef,
+}: DeveloperFieldChartProps) {
+  const { data: devFieldInfos, isLoading } = useQuery<DeveloperFieldInfo[]>({
+    queryKey: ['developer-fields', activityId],
+    queryFn: () => fetchDeveloperFields(activityId),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const fields = useMemo(() => {
+    if (!devFieldInfos) return []
+    return devFieldInfos.filter(f => {
+      const displayName = f.field_name ?? f.field_key
+      return DEV_FIELD_MEANINGFUL_UNITS.has(f.units) && !DEV_FIELD_SKIP_KEYS.has(f.field_key) && !DEV_FIELD_SKIP_KEYS.has(displayName)
+    })
+  }, [devFieldInfos])
+
+  const fieldValues = useMemo(() => {
+    const map = new Map<string, (number | null)[]>()
+    for (const field of fields) {
+      map.set(field.field_key, streams.map(s => {
+        const v = s.developer_fields?.[field.field_key]
+        if (v == null || typeof v !== 'number' || isNaN(v) || !isFinite(v)) return null
+        return v
+      }))
+    }
+    return map
+  }, [streams, fields])
+
+  const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+  const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+
+  const containerRef = useECharts(
+    () => {
+      const unitGroups = groupDevFieldsByUnit(fields)
+      const yAxes: echarts.EChartsCoreOption['yAxis'] = []
+      const fieldYAxisIndex = new Map<string, number>()
+      let axisIdx = 0
+      for (const [unit, groupFields] of unitGroups) {
+        for (const f of groupFields) fieldYAxisIndex.set(f.field_key, axisIdx)
+        yAxes.push({
+          type: 'value', name: unit || '',
+          nameTextStyle: { fontSize: 10, color: '#666' },
+          axisLabel: { fontSize: 11, color: '#666', margin: 8 },
+          splitLine: axisIdx === 0 ? { lineStyle: { color: '#eee', type: 'dashed' } } : { show: false },
+          axisLine: { show: false }, axisTick: { show: false },
+          position: axisIdx % 2 === 0 ? 'left' : 'right',
+          offset: axisIdx > 1 ? Math.floor(axisIdx / 2) * 50 : 0,
+        })
+        axisIdx++
+      }
+
+      const series: echarts.EChartsCoreOption['series'] = []
+      let colorIdx = 0
+      for (const field of fields) {
+        const displayName = field.field_name ?? field.field_key
+        const vals = fieldValues.get(field.field_key) ?? []
+        const color = DEV_FIELD_COLORS[displayName] ?? DEV_FIELD_PALETTE[colorIdx % DEV_FIELD_PALETTE.length]
+        if (!DEV_FIELD_COLORS[displayName]) colorIdx++
+        series.push({
+          type: 'line', name: displayName,
+          data: xData.map((x, i) => [x, vals[i] ?? null]),
+          showSymbol: false,
+          lineStyle: { width: 1.5, color }, itemStyle: { color },
+          connectNulls: false,
+          yAxisIndex: fieldYAxisIndex.get(field.field_key) ?? 0,
+        })
+      }
+
+      const xFormatter = xMode === 'distance'
+        ? (v: number) => v.toFixed(1)
+        : (v: number) => formatElapsed(v, xMax)
+
+      return {
+        animation: false,
+        grid: { left: 52, right: unitGroups.size > 1 ? 76 : 52, top: 8, bottom: 56 },
+        toolbox: { feature: {
+          brush: { type: ['lineX'] },
+          saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: 'Entwickler-Felder' },
+        }},
+        brush: {
+          toolbox: ['lineX'],
+          xAxisIndex: 0,
+          brushStyle: { borderWidth: 1, color: 'rgba(249,115,22,0.12)', borderColor: '#f97316' },
+        },
+        tooltip: {
+          trigger: 'axis', transitionDuration: 0, confine: true,
+          backgroundColor: '#1f2937', borderColor: '#374151', borderWidth: 1, padding: [8, 10],
+          textStyle: { fontSize: 12, color: '#f9fafb' },
+          axisPointer: { type: 'line', lineStyle: { color: '#f97316', width: 1, type: 'dashed' }, animation: false },
+          formatter: (params: unknown) => {
+            const arr = Array.isArray(params) ? params : [params]
+            if (!arr.length) return ''
+            const dataIndex = (arr[0] as { dataIndex?: number }).dataIndex
+            if (dataIndex == null) return ''
+            const posStr = buildTooltipPosLine(xData[dataIndex] ?? 0, xMode, data)
+            let html = `<div style="line-height:1.75;min-width:150px">`
+            html += `<div style="color:#888;font-size:11px;margin-bottom:2px">${posStr}</div>`
+            for (const p of arr) {
+              const tp = p as { seriesName?: string; color?: string; value?: [number, number | null] }
+              const v = tp.value?.[1]
+              if (v == null || isNaN(v)) continue
+              const field = fields.find(f => (f.field_name ?? f.field_key) === tp.seriesName)
+              const unit = field?.units ?? ''
+              const color = DEV_FIELD_COLORS[tp.seriesName ?? ''] ?? tp.color ?? '#888'
+              html += `<div style="font-size:13px;color:${color}"><strong>${v.toFixed(1)}\u202f${unit}</strong> ${tp.seriesName}</div>`
+            }
+            return html + '</div>'
+          },
+        },
+        legend: { type: 'scroll', bottom: 4, textStyle: { fontSize: 11, color: '#666' }, pageTextStyle: { color: '#666' } },
+        xAxis: {
+          type: 'value', min: 0, max: xMax,
+          axisLabel: { fontSize: 11, color: '#666', formatter: xFormatter },
+          splitLine: { show: false },
+          axisLine: { lineStyle: { color: '#ddd' } },
+          axisTick: { lineStyle: { color: '#ddd' } },
+        },
+        yAxis: yAxes,
+        series,
+        dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none', zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false }],
+      }
+    },
+    [fields, fieldValues, xData, xMax, xMode],
+    (chart) => {
+      return setupChartInteractions({ chart, chartId: 'developer-fields', onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
+    }
+  )
+
+  return (
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60">
+        <span className="w-2 h-2 rounded-full shrink-0 bg-violet-500" />
+        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Entwickler-Felder</span>
+      </div>
+      {isLoading
+        ? <div className="h-[240px] flex items-center justify-center text-sm text-neutral-400 dark:text-neutral-600">Lade…</div>
+        : <div ref={containerRef} className="h-[240px] w-full" />}
+    </div>
+  )
 }
 
 // ── Deco Time Series Chart Panel (Diving) ────────────────────────────────────
