@@ -318,6 +318,8 @@ func FormatManufacturer(s string) string {
 	switch s {
 	case "srm":
 		return "SRM"
+	case "sram":
+		return "SRAM"
 	case "whoop":
 		return "WHOOP"
 	case "sigmasport":
@@ -338,24 +340,95 @@ func FormatManufacturer(s string) string {
 	return strings.Join(words, " ")
 }
 
+// garminEnumAcronyms maps known acronyms used in FIT SDK enum strings to their display form.
+var garminEnumAcronyms = map[string]string{
+	"fr":     "FR",
+	"lte":    "LTE",
+	"hrm":    "HRM",
+	"amoled": "AMOLED",
+	"marq":   "MARQ",
+	"bsm":    "BSM",
+	"ohr":    "OHR",
+	"rct":    "RCT",
+	"gps":    "GPS",
+	"hr":     "HR",
+}
+
 // formatDeviceNameFromEnum converts a FIT SDK enum string to a human-readable device name.
 // Prepends the brand prefix if not already present.
-// Examples: "edge_1040" → "Garmin Edge 1040", "assioma_duo" → "Favero Assioma Duo"
+// Examples:
+//   - "edge_1040"              → "Garmin Edge 1040"
+//   - "fenix6x"               → "Garmin Fenix 6X"
+//   - "fr955"                 → "Garmin FR955"
+//   - "fr945_lte"             → "Garmin FR945 LTE"
+//   - "instinct3_amoled_50mm" → "Garmin Instinct 3 AMOLED 50mm"
+//   - "marq_gen2"             → "Garmin MARQ Gen 2"
+//   - "assioma_duo"           → "Favero Assioma Duo"
 func formatDeviceNameFromEnum(brand, enumStr string) string {
-	enumStr = strings.ReplaceAll(enumStr, "_", " ")
-	words := strings.Fields(enumStr)
-	for i, w := range words {
-		if len(w) <= 2 {
-			words[i] = strings.ToUpper(w) // "2x" → "2X", "xr" → "XR"
-		} else {
-			runes := []rune(w)
-			runes[0] = unicode.ToUpper(runes[0])
-			words[i] = string(runes)
-		}
+	parts := strings.FieldsFunc(enumStr, func(r rune) bool { return r == '_' })
+	var tokens []string
+	for _, part := range parts {
+		tokens = append(tokens, formatEnumToken(part)...)
 	}
-	name := strings.Join(words, " ")
+	name := strings.Join(tokens, " ")
 	if brand != "" && !strings.HasPrefix(strings.ToLower(name), strings.ToLower(brand)) {
 		name = brand + " " + name
 	}
 	return name
+}
+
+// formatEnumToken splits and formats a single underscore-delimited enum token.
+// Handles alpha+digit+suffix combinations (e.g. "fenix6x" → ["Fenix", "6X"])
+// and known acronyms (e.g. "fr945" → ["FR945"], "lte" → ["LTE"]).
+func formatEnumToken(token string) []string {
+	runes := []rune(token)
+	if len(runes) == 0 {
+		return nil
+	}
+
+	// Find the index of the first digit
+	alphaEnd := -1
+	for i, r := range runes {
+		if unicode.IsDigit(r) {
+			alphaEnd = i
+			break
+		}
+	}
+
+	// No digit: pure alphabetic token
+	if alphaEnd < 0 {
+		lower := strings.ToLower(token)
+		if a, ok := garminEnumAcronyms[lower]; ok {
+			return []string{a}
+		}
+		if len(runes) <= 2 && unicode.IsLetter(runes[0]) {
+			return []string{strings.ToUpper(token)}
+		}
+		runes[0] = unicode.ToUpper(runes[0])
+		return []string{string(runes)}
+	}
+
+	// Starts with digit: return as-is (e.g. "50mm", "1040")
+	if alphaEnd == 0 {
+		return []string{token}
+	}
+
+	// alpha+digit[+suffix]: split at digit boundary
+	alpha := string(runes[:alphaEnd])
+	digitEnd := alphaEnd
+	for digitEnd < len(runes) && unicode.IsDigit(runes[digitEnd]) {
+		digitEnd++
+	}
+	num := string(runes[alphaEnd:digitEnd])
+	suffix := strings.ToUpper(string(runes[digitEnd:])) // "x"→"X", "s"→"S", ""→""
+
+	alphaLower := strings.ToLower(alpha)
+	if a, ok := garminEnumAcronyms[alphaLower]; ok {
+		// Acronym prefix: number (and variant suffix) attached directly — "FR945", "FR945LTE"
+		return []string{a + num + suffix}
+	}
+	// Normal word + number — variant suffix attached to number: "Fenix" "6X", "Instinct" "3"
+	alphaRunes := []rune(alpha)
+	alphaRunes[0] = unicode.ToUpper(alphaRunes[0])
+	return []string{string(alphaRunes), num + suffix}
 }

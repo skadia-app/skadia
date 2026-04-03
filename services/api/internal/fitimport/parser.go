@@ -1756,8 +1756,10 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 			}
 		}
 
-		// Try ProductName from FileId
-		if fileId.ProductName != "" {
+		// Try ProductName from FileId.
+		// Skip for Development manufacturer: ResolveDevelopmentManufacturer already resolved
+		// the raw model string (e.g. "Watch5,10") into a human-readable name.
+		if fileId.ProductName != "" && mfr != typedef.ManufacturerDevelopment {
 			device = fileId.ProductName
 		}
 
