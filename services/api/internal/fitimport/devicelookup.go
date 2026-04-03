@@ -189,6 +189,11 @@ var nonGarminProducts = map[[2]uint16]string{
 	{73, 29}: "Wattbike Icon",
 	{73, 30}: "Wattbike Atom X",
 
+	// Garmin — newer models not yet in GarminProduct SDK enum (manufacturer_id=1)
+	// These are looked up after SDK resolution fails.
+	{1, 4565}: "Garmin FR970",
+	{1, 4574}: "Garmin FR570",
+
 	// Hammerhead (289)
 	{289, 1}: "Hammerhead Karoo",
 	{289, 2}: "Hammerhead Karoo 2",
@@ -269,7 +274,10 @@ func ResolveProductName(manufacturerID, productID uint16, productName string) st
 				return formatDeviceNameFromEnum("Garmin", gpStr)
 			}
 		}
-		// Unknown Garmin product — no useful name available
+		// SDK doesn't know this product yet — check our extension map for newer models
+		if name, ok := nonGarminProducts[[2]uint16{manufacturerID, productID}]; ok {
+			return name
+		}
 		return ""
 	}
 
