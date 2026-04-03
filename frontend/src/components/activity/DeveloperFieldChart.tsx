@@ -86,9 +86,10 @@ export function DeveloperFieldChart({
   // Filter to fields with meaningful units, excluding GPS metadata
   const fields = useMemo(() => {
     if (!devFieldInfos) return []
-    return devFieldInfos.filter(f =>
-      MEANINGFUL_UNITS.has(f.units) && !SKIP_KEYS.has(f.field_key)
-    )
+    return devFieldInfos.filter(f => {
+      const displayName = f.field_name ?? f.field_key
+      return MEANINGFUL_UNITS.has(f.units) && !SKIP_KEYS.has(f.field_key) && !SKIP_KEYS.has(displayName)
+    })
   }, [devFieldInfos])
 
   // Extract time labels and per-field values from streams
@@ -171,12 +172,13 @@ export function DeveloperFieldChart({
     const series: echarts.EChartsCoreOption['series'] = []
     let colorIdx = 0
     for (const field of fields) {
+      const displayName = field.field_name ?? field.field_key
       const vals = fieldValues.get(field.field_key) ?? []
-      const color = FIELD_COLORS[field.field_key] ?? DEFAULT_PALETTE[colorIdx % DEFAULT_PALETTE.length]
-      if (!FIELD_COLORS[field.field_key]) colorIdx++
+      const color = FIELD_COLORS[displayName] ?? DEFAULT_PALETTE[colorIdx % DEFAULT_PALETTE.length]
+      if (!FIELD_COLORS[displayName]) colorIdx++
       series.push({
         type: 'line',
-        name: field.field_key,
+        name: displayName,
         data: vals,
         showSymbol: false,
         lineStyle: { width: 1.5, color },
@@ -225,7 +227,7 @@ export function DeveloperFieldChart({
           for (const p of arr) {
             const tp = p as { seriesName?: string; color?: string; value?: number }
             if (tp.value == null || isNaN(tp.value as number)) continue
-            const field = fields.find(f => f.field_key === tp.seriesName)
+            const field = fields.find(f => (f.field_name ?? f.field_key) === tp.seriesName)
             const unit = field?.units ?? ''
             const color = FIELD_COLORS[tp.seriesName ?? ''] ?? tp.color ?? '#888'
             html += `<div style="font-size:13px;color:${color}"><strong>${(tp.value as number).toFixed(1)}\u202f${unit}</strong> ${tp.seriesName}</div>`
