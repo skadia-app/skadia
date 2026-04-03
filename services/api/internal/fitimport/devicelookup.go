@@ -8,11 +8,12 @@ import (
 	"github.com/muktihari/fit/profile/typedef"
 )
 
-// nonGarminProducts maps [manufacturerID, productID] to a human-readable product name.
+// productNameMap maps [manufacturerID, productID] to a human-readable product name.
 // IDs are verified from the FIT SDK where available and device FIT files.
-// Garmin-Produkte (manufacturer_id=1) sind NICHT enthalten — die kommen via GarminProduct.String().
+// Garmin-Produkte (manufacturer_id=1): nur Modelle die noch nicht im GarminProduct-Enum
+// des FIT SDK enthalten sind — alle bekannten Modelle kommen via GarminProduct.String().
 // Tacx-Produkte post-Akquisition sind ebenfalls unter GarminProduct (IDs 4265–4276, mfr=1).
-var nonGarminProducts = map[[2]uint16]string{
+var productNameMap = map[[2]uint16]string{
 	// Wahoo Fitness (32) — verifiziert: ELEMNT prod=28 aus echtem FIT-File
 	{32, 8}:  "Wahoo TICKR",
 	{32, 28}: "Wahoo ELEMNT",
@@ -232,7 +233,7 @@ var nonGarminProducts = map[[2]uint16]string{
 // Priority order:
 //  1. productName string from FIT (explicit device name) — prepend manufacturer if not already present
 //  2. GarminProduct enum string from SDK (for Garmin/Dynastream/Tacx manufacturers)
-//  3. Lookup in nonGarminProducts map by [manufacturerID, productID]
+//  3. Lookup in productNameMap by [manufacturerID, productID]
 //  4. Manufacturer name as fallback
 //
 // Returns "" for ManufacturerInvalid (65535).
@@ -275,7 +276,7 @@ func ResolveProductName(manufacturerID, productID uint16, productName string) st
 			}
 		}
 		// SDK doesn't know this product yet — check our extension map for newer models
-		if name, ok := nonGarminProducts[[2]uint16{manufacturerID, productID}]; ok {
+		if name, ok := productNameMap[[2]uint16{manufacturerID, productID}]; ok {
 			return name
 		}
 		return ""
@@ -293,7 +294,7 @@ func ResolveProductName(manufacturerID, productID uint16, productName string) st
 	}
 
 	// 3. Lookup in static non-Garmin product map
-	if name, ok := nonGarminProducts[[2]uint16{manufacturerID, productID}]; ok {
+	if name, ok := productNameMap[[2]uint16{manufacturerID, productID}]; ok {
 		return name
 	}
 
