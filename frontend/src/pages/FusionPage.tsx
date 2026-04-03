@@ -143,7 +143,7 @@ export default function FusionPage() {
       const act = activityQueries[i]?.data
 
       const dl = member
-        ? deviceLabel(member.source_device, member.source, member.original_file_format)
+        ? deviceLabel(member.recording_device_name ?? member.source_device, member.source, member.original_file_format)
         : deviceLabel(act?.source_device, act?.source, act?.original_file_format)
 
       srcs.push({
@@ -242,7 +242,7 @@ export default function FusionPage() {
   function poolItemLabel(id: string): string {
     const member = groupMembers.find(m => m.activity_id === id)
     if (member) {
-      const dl = deviceLabel(member.source_device, member.source, member.original_file_format) ?? ''
+      const dl = deviceLabel(member.recording_device_name ?? member.source_device, member.source, member.original_file_format) ?? ''
       const dist = `${Math.round((member.distance_m / 1000) * 10) / 10} km`
       const date = fmtDateCompact(member.started_at, null)
       return [member.title || 'Ohne Titel', date, dist, dl].filter(Boolean).join(' — ')

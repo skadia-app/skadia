@@ -1066,6 +1066,7 @@ export interface HealthContext {
 // ── DeveloperFieldInfo (Task 3) ──
 export interface DeveloperFieldInfo {
   field_key: string
+  field_name?: string // human-readable name; equals field_key for named-key format
   units: string
   app_id: string
 }
@@ -1094,6 +1095,7 @@ export interface RecordingGroupMember {
   field_richness: number
   source_device: string | null
   source: string | null
+  recording_device_name?: string | null
   original_file_format: string | null
   has_gps: boolean
   elevation_gain_m: number | null

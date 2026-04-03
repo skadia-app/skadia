@@ -11,14 +11,19 @@ import (
 
 // DeveloperFieldInfo describes a single developer field key present in an activity's streams.
 type DeveloperFieldInfo struct {
-	FieldKey string `json:"field_key"`
-	Units    string `json:"units,omitempty"`
-	AppID    string `json:"app_id,omitempty"`
+	FieldKey  string `json:"field_key"`
+	FieldName string `json:"field_name,omitempty"` // human-readable name; equals FieldKey for named-key format
+	Units     string `json:"units,omitempty"`
+	AppID     string `json:"app_id,omitempty"`
 }
 
 // GetDeveloperFieldsForActivity returns the distinct developer field keys
 // actually present in the streams of the given activity, enriched with
 // metadata (units, app name) from developer_field_definitions where possible.
+//
+// Streams may use either named keys ("Power") written by the current parser
+// or legacy numeric keys ("0") from pre-Phase-3c imports. Both formats are
+// resolved to a human-readable field_name via the definition lookup.
 func (db *DB) GetDeveloperFieldsForActivity(ctx context.Context, activityID string) ([]DeveloperFieldInfo, error) {
 	rows, err := db.Pool.Query(ctx, `
 		WITH stream_keys AS (
@@ -30,14 +35,42 @@ func (db *DB) GetDeveloperFieldsForActivity(ctx context.Context, activityID stri
 				  AND developer_fields IS NOT NULL
 				LIMIT 5000
 			) sub
+		),
+		-- For legacy numeric keys: find the app that covers the most stream keys.
+		-- This resolves ambiguity when multiple apps share the same field_definition_number.
+		-- NULL application_id entries are excluded (no useful metadata).
+		best_app AS (
+			SELECT dfd.application_id, dfd.developer_data_index
+			FROM stream_keys sk
+			JOIN developer_field_definitions dfd
+				ON sk.field_key ~ '^\d+$'
+				AND dfd.field_definition_number = sk.field_key::smallint
+				AND dfd.application_id IS NOT NULL
+			GROUP BY dfd.application_id, dfd.developer_data_index
+			ORDER BY COUNT(*) DESC
+			LIMIT 1
 		)
 		SELECT DISTINCT ON (sk.field_key)
 			sk.field_key,
+			COALESCE(dfd.field_name, sk.field_key) AS field_name,
 			COALESCE(dfd.units, '') AS units,
 			COALESCE(encode(dfd.application_id, 'hex'), '') AS app_id
 		FROM stream_keys sk
-		LEFT JOIN developer_field_definitions dfd
-			ON dfd.field_name = sk.field_key
+		LEFT JOIN developer_field_definitions dfd ON (
+			-- Named keys (new format): direct match on field_name
+			dfd.field_name = sk.field_key
+			OR (
+				-- Numeric keys (legacy format): match via best app's field_definition_number
+				sk.field_key ~ '^\d+$'
+				AND dfd.field_definition_number = sk.field_key::smallint
+				AND dfd.application_id IS NOT NULL
+				AND EXISTS (
+					SELECT 1 FROM best_app ba
+					WHERE ba.application_id = dfd.application_id
+					  AND ba.developer_data_index = dfd.developer_data_index
+				)
+			)
+		)
 		ORDER BY sk.field_key, dfd.units DESC NULLS LAST
 	`, activityID)
 	if err != nil {
@@ -48,7 +81,7 @@ func (db *DB) GetDeveloperFieldsForActivity(ctx context.Context, activityID stri
 	var result []DeveloperFieldInfo
 	for rows.Next() {
 		var info DeveloperFieldInfo
-		if err := rows.Scan(&info.FieldKey, &info.Units, &info.AppID); err != nil {
+		if err := rows.Scan(&info.FieldKey, &info.FieldName, &info.Units, &info.AppID); err != nil {
 			return nil, err
 		}
 		result = append(result, info)

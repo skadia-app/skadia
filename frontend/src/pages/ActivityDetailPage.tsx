@@ -487,7 +487,7 @@ export default function ActivityDetailPage() {
           {recordingGroup.members.map((member, i) => {
             const isActive = member.activity_id === activeActivityId
             const color = getSourceColor(i)
-            const label = member.source_device || member.source || `Quelle ${i + 1}`
+            const label = member.recording_device_name || member.source_device || member.source || `Quelle ${i + 1}`
             return (
               <button
                 key={member.activity_id}

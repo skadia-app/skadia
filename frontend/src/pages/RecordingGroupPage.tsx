@@ -326,7 +326,7 @@ export default function RecordingGroupPage() {
                 activityId={member.activity_id}
                 color={getSourceColor(i)}
                 isPrimary={member.activity_id === group.primary_activity_id}
-                deviceName={member.source_device ?? member.source ?? `Quelle ${i + 1}`}
+                deviceName={member.recording_device_name ?? member.source_device ?? member.source ?? `Quelle ${i + 1}`}
                 fileFormat={member.original_file_format}
                 fieldCount={member.field_richness}
                 distanceM={member.distance_m}

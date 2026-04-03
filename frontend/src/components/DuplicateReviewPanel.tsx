@@ -65,7 +65,7 @@ interface GroupCardProps {
 }
 
 function GroupCard({ member, isRichest }: GroupCardProps) {
-  const dl = deviceLabel(member.source_device, member.source, member.original_file_format)
+  const dl = deviceLabel(member.recording_device_name ?? member.source_device, member.source, member.original_file_format)
 
   return (
     <div

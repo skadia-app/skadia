@@ -45,15 +45,16 @@ type RecordingGroupMemberDetail struct {
 	TitleAuto          *string   `json:"title_auto,omitempty"`
 	StartedAt          time.Time `json:"started_at"`
 	SportType          string    `json:"sport_type"`
-	SourceDevice       *string   `json:"source_device,omitempty"`
-	Source             *string   `json:"source,omitempty"`
-	OriginalFileFormat *string   `json:"original_file_format,omitempty"`
-	DistanceM          *float64  `json:"distance_m,omitempty"`
-	ElapsedTimeS       *int      `json:"elapsed_time_s,omitempty"`
-	FieldRichness      int       `json:"field_richness"`
-	HasGPS             bool      `json:"has_gps"`
-	ElevationGainM     *float64  `json:"elevation_gain_m,omitempty"`
-	ElevationLossM     *float64  `json:"elevation_loss_m,omitempty"`
+	SourceDevice        *string   `json:"source_device,omitempty"`
+	Source              *string   `json:"source,omitempty"`
+	RecordingDeviceName *string   `json:"recording_device_name,omitempty"`
+	OriginalFileFormat  *string   `json:"original_file_format,omitempty"`
+	DistanceM           *float64  `json:"distance_m,omitempty"`
+	ElapsedTimeS        *int      `json:"elapsed_time_s,omitempty"`
+	FieldRichness       int       `json:"field_richness"`
+	HasGPS              bool      `json:"has_gps"`
+	ElevationGainM      *float64  `json:"elevation_gain_m,omitempty"`
+	ElevationLossM      *float64  `json:"elevation_loss_m,omitempty"`
 }
 
 // RecordingGroupWithMembers is a RecordingGroup together with its member details.
@@ -217,12 +218,14 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 				rgm.activity_id, rgm.is_fused,
 				(lg.primary_activity_id = rgm.activity_id) AS is_primary,
 				a.title, a.title_auto, a.started_at, a.sport_type,
-				a.source_device, a.source, a.original_file_format, a.distance_m, a.elapsed_time_s,
+				a.source_device, a.source, COALESCE(rd.custom_name, rd.product_name) AS recording_device_name,
+				a.original_file_format, a.distance_m, a.elapsed_time_s,
 				`+fieldRichnessExpr+` AS field_richness,
 				a.has_gps, a.elevation_gain_m, a.elevation_loss_m
 			FROM limited_groups lg
 			JOIN recording_group_members rgm ON rgm.group_id = lg.id
 			JOIN activities a ON a.id = rgm.activity_id
+			LEFT JOIN devices rd ON rd.id = a.recording_device_id
 			ORDER BY lg.created_at DESC, rgm.activity_id`,
 			userID, limit, offset)
 	} else {
@@ -232,12 +235,14 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 				rgm.activity_id, rgm.is_fused,
 				(rg.primary_activity_id = rgm.activity_id) AS is_primary,
 				a.title, a.title_auto, a.started_at, a.sport_type,
-				a.source_device, a.source, a.original_file_format, a.distance_m, a.elapsed_time_s,
+				a.source_device, a.source, COALESCE(rd.custom_name, rd.product_name) AS recording_device_name,
+				a.original_file_format, a.distance_m, a.elapsed_time_s,
 				`+fieldRichnessExpr+` AS field_richness,
 				a.has_gps, a.elevation_gain_m, a.elevation_loss_m
 			FROM recording_groups rg
 			JOIN recording_group_members rgm ON rgm.group_id = rg.id
 			JOIN activities a ON a.id = rgm.activity_id
+			LEFT JOIN devices rd ON rd.id = a.recording_device_id
 			WHERE rg.user_id = $1
 			ORDER BY rg.created_at DESC, rgm.activity_id`,
 			userID)
@@ -260,7 +265,7 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 			&g.ID, &g.UserID, &g.PrimaryActivityID, &g.SportType, &g.CreatedAt, &g.Confirmed,
 			&member.ActivityID, &member.IsFused, &member.IsPrimary,
 			&member.Title, &member.TitleAuto, &member.StartedAt, &member.SportType,
-			&member.SourceDevice, &member.Source, &member.OriginalFileFormat, &member.DistanceM, &member.ElapsedTimeS,
+			&member.SourceDevice, &member.Source, &member.RecordingDeviceName, &member.OriginalFileFormat, &member.DistanceM, &member.ElapsedTimeS,
 			&member.FieldRichness, &member.HasGPS, &member.ElevationGainM, &member.ElevationLossM,
 		); err != nil {
 			return nil, fmt.Errorf("scan recording group row: %w", err)
@@ -426,12 +431,14 @@ func (db *DB) GetRecordingGroupMembers(ctx context.Context, groupID string) ([]R
 			rgm.activity_id, rgm.is_fused,
 			(rg.primary_activity_id = rgm.activity_id) AS is_primary,
 			a.title, a.title_auto, a.started_at, a.sport_type,
-			a.source_device, a.source, a.original_file_format, a.distance_m, a.elapsed_time_s,
+			a.source_device, a.source, COALESCE(rd.custom_name, rd.product_name) AS recording_device_name,
+			a.original_file_format, a.distance_m, a.elapsed_time_s,
 			`+fieldRichnessExpr+` AS field_richness,
 			a.has_gps, a.elevation_gain_m, a.elevation_loss_m
 		FROM recording_group_members rgm
 		JOIN recording_groups rg ON rg.id = rgm.group_id
 		JOIN activities a ON a.id = rgm.activity_id
+		LEFT JOIN devices rd ON rd.id = a.recording_device_id
 		WHERE rgm.group_id = $1
 		ORDER BY a.started_at`, groupID)
 	if err != nil {
@@ -445,7 +452,7 @@ func (db *DB) GetRecordingGroupMembers(ctx context.Context, groupID string) ([]R
 		if err := rows.Scan(
 			&m.ActivityID, &m.IsFused, &m.IsPrimary,
 			&m.Title, &m.TitleAuto, &m.StartedAt, &m.SportType,
-			&m.SourceDevice, &m.Source, &m.OriginalFileFormat, &m.DistanceM, &m.ElapsedTimeS,
+			&m.SourceDevice, &m.Source, &m.RecordingDeviceName, &m.OriginalFileFormat, &m.DistanceM, &m.ElapsedTimeS,
 			&m.FieldRichness, &m.HasGPS, &m.ElevationGainM, &m.ElevationLossM,
 		); err != nil {
 			return nil, fmt.Errorf("scan recording group member: %w", err)
