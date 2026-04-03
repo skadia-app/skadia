@@ -17,6 +17,7 @@ import {
 import { fmtActivityDateShort, fmtTimeFromDate } from '@/lib/format'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { getSourceColor } from '@/lib/comparisonColors'
+import { deviceLabel } from '@/lib/deviceUtils'
 import { SportIcon } from '@/components/SportIcon'
 import ActivityFilters, { paramsToFilters, filtersToParams, filtersToApiParams } from '@/components/ActivityFilters'
 import type { ActivityFilterState } from '@/components/ActivityFilters'
@@ -1277,7 +1278,7 @@ export default function ActivitiesPage() {
                                   style={{ background: getSourceColor(i) }}
                                 />
                                 <span className="font-medium truncate text-neutral-700 dark:text-neutral-300">
-                                  {member.recording_device_name ?? member.source_device ?? member.source ?? 'Unbekannt'}
+                                  {deviceLabel(member.recording_device_name ?? member.source_device, member.source) ?? 'Unbekannt'}
                                 </span>
                                 {formatInfo && (
                                   <span className="text-neutral-400 dark:text-neutral-500 text-xs truncate">

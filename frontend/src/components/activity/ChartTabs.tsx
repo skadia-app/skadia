@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef, useEffect, useState } from 'react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useSearchParams } from 'react-router-dom'
 import type { StreamPoint } from '@/api/types'
@@ -69,13 +69,27 @@ export function ChartTabs({ streams, children }: Props) {
 
   const validTab = visibleTabs.find(t => t.value === activeTab) ? activeTab : CHART_TAB.alles
 
+  const stickyRef = useRef<HTMLDivElement>(null)
+  const [tabsHeight, setTabsHeight] = useState(44)
+
+  useEffect(() => {
+    const el = stickyRef.current
+    if (!el) return
+    const observer = new ResizeObserver(entries => {
+      const height = entries[0]?.borderBoxSize[0]?.blockSize
+      if (height != null) setTabsHeight(height)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
   if (!showTabs) return <>{children(CHART_TAB.alles)}</>
 
   return (
     // --chart-tabs-height is read by ActivityCharts to offset its own sticky header
-    <div style={{ '--chart-tabs-height': '44px' } as React.CSSProperties}>
+    <div style={{ '--chart-tabs-height': `${tabsHeight}px` } as React.CSSProperties}>
       <Tabs value={validTab} onValueChange={handleTabChange}>
-        <div className="sticky top-14 z-40 bg-white dark:bg-neutral-950 -mx-4 px-4 sm:-mx-6 sm:px-6 pb-2">
+        <div ref={stickyRef} className="sticky top-14 z-40 bg-white dark:bg-neutral-950 -mx-4 px-4 sm:-mx-6 sm:px-6 pb-2">
           <TabsList>
             {visibleTabs.map(t => (
               <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>

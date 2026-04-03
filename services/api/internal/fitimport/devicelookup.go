@@ -124,7 +124,8 @@ var productNameMap = map[[2]uint16]string{
 	{258, 11}: "Lezyne Mega XL GPS",
 
 	// Suunto (23)
-	// Legacy IDs (pre-2021, from FIT SDK reference):
+	// Legacy IDs (pre-2021, from FIT SDK reference) map to the same display name as current IDs.
+	// Both are kept to handle files from older firmware versions.
 	{23, 19}: "Suunto Ambit3 Peak",
 	{23, 20}: "Suunto 3 Fitness",
 	{23, 22}: "Suunto Ambit3 Run",
@@ -154,7 +155,8 @@ var productNameMap = map[[2]uint16]string{
 	// — cannot be identified via map lookup alone; requires product_name string in FIT.
 
 	// COROS (294)
-	// Legacy IDs (unconfirmed, from third-party references):
+	// Legacy IDs (unconfirmed, from third-party references) map to the same display name as current IDs.
+	// Both are kept to handle files from older firmware versions.
 	{294, 1}:  "COROS PACE",
 	{294, 2}:  "COROS PACE 2",
 	{294, 3}:  "COROS PACE 3",
@@ -424,10 +426,11 @@ func formatEnumToken(token string) []string {
 
 	alphaLower := strings.ToLower(alpha)
 	if a, ok := garminEnumAcronyms[alphaLower]; ok {
-		// Acronym prefix: number (and variant suffix) attached directly — "FR945", "FR945LTE"
+		// Acronym prefix: keep number and variant suffix attached (e.g. "FR945", "FR945S").
+		// Separate suffix tokens like "lte" are handled as their own underscore part.
 		return []string{a + num + suffix}
 	}
-	// Normal word + number — variant suffix attached to number: "Fenix" "6X", "Instinct" "3"
+	// Regular word: split at digit boundary so variant suffix stays with the number ("6X", not "Fenix6X").
 	alphaRunes := []rune(alpha)
 	alphaRunes[0] = unicode.ToUpper(alphaRunes[0])
 	return []string{string(alphaRunes), num + suffix}

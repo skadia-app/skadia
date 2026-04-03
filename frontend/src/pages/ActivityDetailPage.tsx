@@ -5,6 +5,7 @@ import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivit
 import { fetchWorkout } from '@/api/workouts'
 import { fetchRecordingGroup } from '@/api/recordingGroups'
 import { getSourceColor } from '@/lib/comparisonColors'
+import { deviceLabel } from '@/lib/deviceUtils'
 import { getWeatherSettings } from '@/api/settings'
 import { fetchTags } from '@/api/tags'
 import ActivityLocationTagSection from '@/components/ActivityLocationTagSection'
@@ -487,7 +488,7 @@ export default function ActivityDetailPage() {
           {recordingGroup.members.map((member, i) => {
             const isActive = member.activity_id === activeActivityId
             const color = getSourceColor(i)
-            const label = member.recording_device_name || member.source_device || member.source || `Quelle ${i + 1}`
+            const label = deviceLabel(member.recording_device_name ?? member.source_device, member.source, member.original_file_format) ?? `Quelle ${i + 1}`
             return (
               <button
                 key={member.activity_id}

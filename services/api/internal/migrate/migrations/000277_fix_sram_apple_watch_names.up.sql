@@ -60,7 +60,7 @@ SET product_name = CASE product_name
     WHEN 'Watch7,9'  THEN 'Apple Watch Series 10 46mm'
     WHEN 'Watch7,10' THEN 'Apple Watch Series 10 42mm Cellular'
     WHEN 'Watch7,11' THEN 'Apple Watch Series 10 46mm Cellular'
-    WHEN 'Watch7,12' THEN 'Apple Watch Ultra 3'
+    WHEN 'Watch7,12' THEN 'Apple Watch Ultra 2'
     WHEN 'Watch7,13' THEN 'Apple Watch SE 3 42mm'
     WHEN 'Watch7,14' THEN 'Apple Watch SE 3 46mm'
     WHEN 'Watch7,15' THEN 'Apple Watch SE 3 42mm Cellular'

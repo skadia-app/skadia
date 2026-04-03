@@ -246,7 +246,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
               to={`/hardware/detail/${activity.recording_device_id}`}
               className="text-neutral-400 dark:text-neutral-600 hover:text-accent-DEFAULT transition-colors"
             >
-              {activity.source_device || activity.recording_device_name}
+              {activity.recording_device_name || activity.source_device}
             </Link>
           ) : activity.source_device ? (
             <span className="text-neutral-400 dark:text-neutral-600">{activity.source_device}</span>

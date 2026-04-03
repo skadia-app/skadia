@@ -710,6 +710,14 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   useEffect(() => { brushHandlerRef.current = handleBrushZoomFn }, [handleBrushZoomFn])
   const stableBrushZoom = useCallback((s: number, e: number) => brushHandlerRef.current(s, e), [])
 
+  const pendingChartOrderRef = useRef<string[] | null>(null)
+  useEffect(() => {
+    if (pendingChartOrderRef.current !== null) {
+      setChartOrder(pendingChartOrderRef.current)
+      pendingChartOrderRef.current = null
+    }
+  })
+
   // ── Reset zoom: restore full view, reactivate brush ─────────────────────
   const handleResetZoom = useCallback(() => {
     lastSyncRef.current = null
@@ -938,10 +946,10 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   const hasDevFields = streams.some(s => s.developer_fields && Object.keys(s.developer_fields).length > 0)
   const showDekoPanel = (activeTab === CHART_TAB.deko || activeTab === CHART_TAB.alles) && activityId != null && hasDekoData
   const showDeveloperFieldsPanel = (activeTab === CHART_TAB.developerFields || activeTab === CHART_TAB.alles) && activityId != null && hasDevFields
-  if (showDeveloperFieldsPanel) {
-    addPanel({ id: 'developer-fields', label: 'Entwickler-Felder', color: '#8b5cf6', tabKey: null },
+  if (showDeveloperFieldsPanel && activityId != null) {
+    addPanel({ id: 'developer-fields', label: 'Entwickler-Felder', color: DEV_FIELD_COLOR, tabKey: null },
       <DeveloperFieldChart
-        activityId={activityId!}
+        activityId={activityId}
         streams={streams}
         data={data}
         xMode={xMode}
@@ -963,8 +971,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   ]
   // Save if it differs from current (first render or new charts)
   if (effectiveOrder.join(',') !== chartOrder.join(',')) {
-    // Use setTimeout to avoid setState during render
-    setTimeout(() => setChartOrder(effectiveOrder), 0)
+    pendingChartOrderRef.current = effectiveOrder
   }
 
   const metaById = new Map(panelMetas.map(m => [m.id, m]))
@@ -1162,8 +1169,7 @@ function setupChartInteractions(opts: ChartInteractionOpts): () => void {
   zr.on('mousemove', zrMouseMove)
   zr.on('mouseout', zrMouseOut)
 
-  // Keep showTip/hideTip for programmatic sync from DeveloperFieldChart
-  // (DeveloperFieldChart dispatches showTip with explicit dataIndex via echarts.connect)
+  // showTip/hideTip sync: echarts.connect propagates tooltip events across all group members
   chart.on('showTip', (params: unknown) => {
     const typed = params as { dataIndex?: number }
     if (typed.dataIndex != null) {
@@ -1258,6 +1264,8 @@ function groupDevFieldsByUnit(fields: DeveloperFieldInfo[]): Map<string, Develop
   }
   return map
 }
+
+const DEV_FIELD_COLOR = '#8b5cf6'
 
 interface DeveloperFieldChartProps {
   activityId: string
@@ -1405,11 +1413,13 @@ function DeveloperFieldChart({
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60">
-        <span className="w-2 h-2 rounded-full shrink-0 bg-violet-500" />
+        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: DEV_FIELD_COLOR }} />
         <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Entwickler-Felder</span>
       </div>
       {isLoading
         ? <div className="h-[240px] flex items-center justify-center text-sm text-neutral-400 dark:text-neutral-600">Lade…</div>
+        : fields.length === 0
+        ? <div className="h-[240px] flex items-center justify-center text-sm text-neutral-400 dark:text-neutral-600">Keine Entwickler-Felder</div>
         : <div ref={containerRef} className="h-[240px] w-full" />}
     </div>
   )
