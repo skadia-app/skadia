@@ -243,7 +243,7 @@ export default function DuplicateReviewPanel({ groups, onDone }: DuplicateReview
       return {
         points,
         color: getSourceColor(i),
-        label: deviceLabel(m.source_device, m.source, m.original_file_format) ?? `Aufnahme ${i + 1}`,
+        label: deviceLabel(m.recording_device_name ?? m.source_device, m.source, m.original_file_format) ?? `Aufnahme ${i + 1}`,
       }
     })
     tracksByGroup[g.id] = memberTracks

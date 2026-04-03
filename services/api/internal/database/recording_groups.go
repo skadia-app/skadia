@@ -19,6 +19,11 @@ const fieldRichnessExpr = `(CASE WHEN a.avg_heart_rate IS NOT NULL THEN 1 ELSE 0
 				 CASE WHEN a.avg_cadence IS NOT NULL THEN 1 ELSE 0 END +
 				 CASE WHEN a.elevation_gain_m IS NOT NULL THEN 1 ELSE 0 END)`
 
+const (
+	deviceNameSelect = "COALESCE(rd.custom_name, rd.product_name) AS recording_device_name"
+	deviceNameJoin   = "LEFT JOIN devices rd ON rd.id = a.recording_device_id"
+)
+
 // RecordingGroup represents a group of N recordings of the same event.
 type RecordingGroup struct {
 	ID                string    `json:"id"`
@@ -218,14 +223,14 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 				rgm.activity_id, rgm.is_fused,
 				(lg.primary_activity_id = rgm.activity_id) AS is_primary,
 				a.title, a.title_auto, a.started_at, a.sport_type,
-				a.source_device, a.source, COALESCE(rd.custom_name, rd.product_name) AS recording_device_name,
+				a.source_device, a.source, `+deviceNameSelect+`,
 				a.original_file_format, a.distance_m, a.elapsed_time_s,
 				`+fieldRichnessExpr+` AS field_richness,
 				a.has_gps, a.elevation_gain_m, a.elevation_loss_m
 			FROM limited_groups lg
 			JOIN recording_group_members rgm ON rgm.group_id = lg.id
 			JOIN activities a ON a.id = rgm.activity_id
-			LEFT JOIN devices rd ON rd.id = a.recording_device_id
+			`+deviceNameJoin+`
 			ORDER BY lg.created_at DESC, rgm.activity_id`,
 			userID, limit, offset)
 	} else {
@@ -235,14 +240,14 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 				rgm.activity_id, rgm.is_fused,
 				(rg.primary_activity_id = rgm.activity_id) AS is_primary,
 				a.title, a.title_auto, a.started_at, a.sport_type,
-				a.source_device, a.source, COALESCE(rd.custom_name, rd.product_name) AS recording_device_name,
+				a.source_device, a.source, `+deviceNameSelect+`,
 				a.original_file_format, a.distance_m, a.elapsed_time_s,
 				`+fieldRichnessExpr+` AS field_richness,
 				a.has_gps, a.elevation_gain_m, a.elevation_loss_m
 			FROM recording_groups rg
 			JOIN recording_group_members rgm ON rgm.group_id = rg.id
 			JOIN activities a ON a.id = rgm.activity_id
-			LEFT JOIN devices rd ON rd.id = a.recording_device_id
+			`+deviceNameJoin+`
 			WHERE rg.user_id = $1
 			ORDER BY rg.created_at DESC, rgm.activity_id`,
 			userID)
@@ -431,14 +436,14 @@ func (db *DB) GetRecordingGroupMembers(ctx context.Context, groupID string) ([]R
 			rgm.activity_id, rgm.is_fused,
 			(rg.primary_activity_id = rgm.activity_id) AS is_primary,
 			a.title, a.title_auto, a.started_at, a.sport_type,
-			a.source_device, a.source, COALESCE(rd.custom_name, rd.product_name) AS recording_device_name,
+			a.source_device, a.source, `+deviceNameSelect+`,
 			a.original_file_format, a.distance_m, a.elapsed_time_s,
 			`+fieldRichnessExpr+` AS field_richness,
 			a.has_gps, a.elevation_gain_m, a.elevation_loss_m
 		FROM recording_group_members rgm
 		JOIN recording_groups rg ON rg.id = rgm.group_id
 		JOIN activities a ON a.id = rgm.activity_id
-		LEFT JOIN devices rd ON rd.id = a.recording_device_id
+		`+deviceNameJoin+`
 		WHERE rgm.group_id = $1
 		ORDER BY a.started_at`, groupID)
 	if err != nil {

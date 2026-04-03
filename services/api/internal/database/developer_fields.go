@@ -12,7 +12,7 @@ import (
 // DeveloperFieldInfo describes a single developer field key present in an activity's streams.
 type DeveloperFieldInfo struct {
 	FieldKey  string `json:"field_key"`
-	FieldName string `json:"field_name,omitempty"` // human-readable name; equals FieldKey for named-key format
+	FieldName string `json:"field_name,omitempty"` // human-readable display name
 	Units     string `json:"units,omitempty"`
 	AppID     string `json:"app_id,omitempty"`
 }
@@ -39,6 +39,9 @@ func (db *DB) GetDeveloperFieldsForActivity(ctx context.Context, activityID stri
 		-- For legacy numeric keys: find the app that covers the most stream keys.
 		-- This resolves ambiguity when multiple apps share the same field_definition_number.
 		-- NULL application_id entries are excluded (no useful metadata).
+		-- developer_field_definitions is a global lookup table (not per-activity).
+		-- Activity-specific context comes from stream_keys above.
+		-- We pick the app whose field_definition_numbers best cover THIS activity's keys.
 		best_app AS (
 			SELECT dfd.application_id, dfd.developer_data_index
 			FROM stream_keys sk

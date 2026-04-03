@@ -52,12 +52,25 @@ BEGIN
         n := replace(n, ' 6s', ' 6S');
         n := replace(n, ' 7s', ' 7S');
         n := replace(n, ' 8s', ' 8S');
+        n := replace(n, ' 2s', ' 2S');
         n := replace(n, ' 3s', ' 3S');
+        n := replace(n, ' 4s', ' 4S');
+        n := replace(n, ' 5s', ' 5S');
         n := replace(n, ' 6sl', ' 6SL');
         n := replace(n, ' 7sl', ' 7SL');
 
         IF n <> r.product_name THEN
-            UPDATE devices SET product_name = n WHERE product_name = r.product_name;
+            UPDATE devices d
+            SET product_name = n
+            WHERE d.product_name = r.product_name
+              AND NOT EXISTS (
+                SELECT 1 FROM devices d2
+                WHERE d2.user_id = d.user_id
+                  AND d2.type = d.type
+                  AND d2.manufacturer_id = d.manufacturer_id
+                  AND d2.product_name = n
+                  AND d2.id != d.id
+              );
             RAISE NOTICE 'devices: renamed "%" → "%"', r.product_name, n;
         END IF;
     END LOOP;

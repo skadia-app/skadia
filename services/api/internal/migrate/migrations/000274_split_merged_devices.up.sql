@@ -44,10 +44,12 @@ BEGIN
             VALUES (
                 old_dev.user_id, old_dev.type,
                 old_dev.manufacturer, old_dev.manufacturer_id,
-                src.source_device, old_dev.product_id, old_dev.source_type,
+                src.source_device, 0, old_dev.source_type,
                 src.first_seen, src.last_seen, NOW()
             )
-            ON CONFLICT DO NOTHING;
+            ON CONFLICT (user_id, type, COALESCE(manufacturer_id, 0), product_name)
+                WHERE serial_number IS NULL AND ant_device_number IS NULL
+                DO NOTHING;
 
             SELECT id INTO new_id
             FROM devices
@@ -56,7 +58,9 @@ BEGIN
               AND COALESCE(manufacturer_id, 0) = COALESCE(old_dev.manufacturer_id, 0)
               AND product_name = src.source_device
               AND serial_number IS NULL
-              AND ant_device_number IS NULL;
+              AND ant_device_number IS NULL
+            ORDER BY id
+            LIMIT 1;
 
             IF new_id IS NOT NULL THEN
                 -- Relink activities that have this specific source_device
