@@ -620,6 +620,31 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 				}
 			}
 		}
+
+		// Delete + re-insert developer apps.
+		if err := h.DB.DeleteDeveloperApps(ctx, activityID); err != nil {
+			return fmt.Errorf("delete developer apps: %w", err)
+		}
+		if err := h.DB.InsertDeveloperApps(ctx, activityID, data.DeveloperApps); err != nil {
+			return fmt.Errorf("insert developer apps: %w", err)
+		}
+
+		// Register Developer App Device FKs.
+		for _, app := range data.DeveloperApps {
+			deviceID, err := h.DB.UpsertHWDevice(ctx, model.DeviceUpsert{
+				UserID:      userID,
+				Type:        "sensor",
+				ProductName: app.AppName,
+				SeenAt:      data.StartedAt,
+			})
+			if err != nil {
+				slog.Error("recompute: upsert developer app device failed", "error", err)
+				continue
+			}
+			if deviceID != "" {
+				_ = h.DB.SetDeveloperAppDeviceID(ctx, activityID, app.ApplicationID, deviceID)
+			}
+		}
 	}
 
 	// 5b. Delete + re-insert activity details (laps, splits, lengths, climb pro, events, sets, jumps, hr data, segment laps, time-in-zone).

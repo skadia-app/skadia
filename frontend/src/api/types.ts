@@ -414,6 +414,7 @@ export interface Sensor {
   manufacturer?: string
   product_name?: string
   serial_number?: number
+  serial_text?: string   // Developer Apps (TEXT, z.B. FORM)
   ant_device_number?: number
   software_version?: string
   battery_status?: string

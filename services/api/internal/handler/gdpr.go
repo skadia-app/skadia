@@ -29,8 +29,10 @@ func (h *Handler) ExportUserData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Developer Apps
-	devApps, _ := h.DB.GetDeveloperAppsForGDPR(ctx, userID)
-	if len(devApps) > 0 {
+	devApps, err := h.DB.GetDeveloperAppsForGDPR(ctx, userID)
+	if err != nil {
+		slog.Error("gdpr export: get developer apps failed", "user", userID, "error", err)
+	} else if len(devApps) > 0 {
 		writeJSON(zw, "developer_apps.json", devApps)
 	}
 

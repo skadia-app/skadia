@@ -1428,6 +1428,7 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		data.WorkoutSteps = ExtractWorkoutSteps(workoutSteps)
 	}
 	data.DeveloperFieldDefs = ExtractDeveloperFieldDefs(devDataIds, fieldDescs)
+	data.DeveloperApps = ExtractDeveloperApps(devDataIds)
 
 	// For merged files (multi-source GPX exports and FIT-stitching tools) the session's TotalElapsedTime can be
 	// the span from first to last timestamp (e.g. 17h) rather than actual recording

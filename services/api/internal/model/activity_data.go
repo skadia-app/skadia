@@ -123,8 +123,9 @@ type ActivityData struct {
 	SegmentLaps        []SegmentLapRecord  `json:"-"`
 	Workout            *WorkoutRecord      `json:"-"`
 	WorkoutSteps       []WorkoutStepRecord `json:"-"`
-	DeveloperFieldDefs []DeveloperFieldDef `json:"-"`
-	WorkoutID          *string             `json:"workout_id,omitempty"`
+	DeveloperFieldDefs []DeveloperFieldDef  `json:"-"`
+	DeveloperApps      []DeveloperAppRecord `json:"-"`
+	WorkoutID          *string              `json:"workout_id,omitempty"`
 
 	// FIT SDK — Movement / Cycles
 	TotalCycles       *int32   `json:"-"`
@@ -286,6 +287,14 @@ type TrackPoint struct {
 	Lng float64
 }
 
+// DeveloperAppRecord holds extracted developer app info from FIT DeveloperDataId messages.
+type DeveloperAppRecord struct {
+	ApplicationID []byte
+	AppName       string
+	AppCategory   string
+	SerialNumber  string // leer für fast alle; FORM: aus Stream-JSONB extrahiert
+}
+
 // SensorRecord holds extracted sensor info from FIT device_info messages.
 type SensorRecord struct {
 	DeviceIndex       int16
@@ -317,6 +326,7 @@ type SensorResponse struct {
 	Manufacturer     string   `json:"manufacturer,omitempty"`
 	ProductName      string   `json:"product_name,omitempty"`
 	SerialNumber     *int64   `json:"serial_number,omitempty"`
+	SerialText       *string  `json:"serial_text,omitempty"`       // Developer Apps: text (z.B. FORM)
 	AntDeviceNumber  *int32   `json:"ant_device_number,omitempty"`
 	SoftwareVersion  string   `json:"software_version,omitempty"`
 	BatteryStatus    string   `json:"battery_status,omitempty"`
