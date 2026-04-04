@@ -20,6 +20,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -404,7 +405,8 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 }
 
 // postCommitFusionCleanup runs the shared post-commit steps:
-// FIT-level merge (if requested), sidecar .meta write, and fusion candidate cache invalidation.
+// FIT-level merge (if requested), sidecar .meta write, fusion candidate cache invalidation,
+// and best-effort computation for the newly created merged activity.
 func (h *Handler) postCommitFusionCleanup(ctx context.Context, p fusionFinalizeParams) {
 	// FIT-level merge (non-DB, after commit, non-fatal).
 	if p.fitLevel && p.fitLevelTargetID != "" {
@@ -426,6 +428,27 @@ func (h *Handler) postCommitFusionCleanup(ctx context.Context, p fusionFinalizeP
 		if err := h.DB.DeleteFusionCandidatesForActivity(ctx, id); err != nil {
 			slog.Warn("fusion-merge: delete cached candidates failed", "id", id, "error", err)
 		}
+	}
+
+	// Compute best efforts for the newly merged activity (background, non-fatal).
+	if h.BestEfforts != nil {
+		mergedID := p.merged.ID
+		svc := h.BestEfforts
+		shutdown.Go("best-efforts-fusion-merge:"+mergedID, func(ctx context.Context) {
+			info, err := h.DB.GetBestEffortActivityInfo(ctx, mergedID)
+			if err != nil || info == nil {
+				slog.Warn("fusion-merge: get best effort info failed", "id", mergedID, "error", err)
+				return
+			}
+			stream, err := h.DB.GetStreamPoints(ctx, mergedID)
+			if err != nil {
+				slog.Warn("fusion-merge: get stream points for best efforts failed", "id", mergedID, "error", err)
+				return
+			}
+			if _, err := svc.ComputeForActivity(ctx, *info, stream); err != nil {
+				slog.Warn("fusion-merge: compute best efforts failed", "id", mergedID, "error", err)
+			}
+		})
 	}
 }
 
@@ -1432,6 +1455,20 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Collect source IDs before the UPDATE (parent_id will be NULL afterwards).
+	var sourceIDs []string
+	if rows, qErr := h.DB.Pool.Query(ctx,
+		`SELECT id FROM activities WHERE parent_id = $1 AND user_id = $2`, id, userID,
+	); qErr == nil {
+		for rows.Next() {
+			var sid string
+			if err := rows.Scan(&sid); err == nil {
+				sourceIDs = append(sourceIDs, sid)
+			}
+		}
+		rows.Close()
+	}
+
 	// Alle versteckten Quellen (parent_id = id) wiederherstellen + is_fusion_source zurücksetzen.
 	// Für Group-Fusions (V2): parent_id war nie gesetzt, daher ist das ein No-Op für parent_id,
 	// aber is_fusion_source = FALSE ist in jedem Fall korrekt (Legacy-Bugfix).
@@ -1461,5 +1498,29 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("revert-fusion: delete cached candidates failed", "id", id, "error", err)
 	}
 	h.DB.InvalidateTerraIncognitaCache(ctx, userID)
+
+	// Recompute best efforts for each restored source activity (background, non-fatal).
+	if h.BestEfforts != nil {
+		for _, sid := range sourceIDs {
+			actID := sid
+			svc := h.BestEfforts
+			shutdown.Go("best-efforts-fusion-restore:"+actID, func(ctx context.Context) {
+				info, err := h.DB.GetBestEffortActivityInfo(ctx, actID)
+				if err != nil || info == nil {
+					slog.Warn("revert-fusion: get best effort info failed", "id", actID, "error", err)
+					return
+				}
+				stream, err := h.DB.GetStreamPoints(ctx, actID)
+				if err != nil {
+					slog.Warn("revert-fusion: get stream points failed", "id", actID, "error", err)
+					return
+				}
+				if _, err := svc.ComputeForActivity(ctx, *info, stream); err != nil {
+					slog.Warn("revert-fusion: compute best efforts failed", "id", actID, "error", err)
+				}
+			})
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
