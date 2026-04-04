@@ -1112,6 +1112,10 @@ func main() {
 			// ML Status
 			r.Get("/ml/status", analyticsHandler.GetMLStatus)
 
+			// Running Form
+			r.Get("/running-form/baseline", h.GetRunningFormBaseline)
+			r.Get("/running-form/trend", h.GetRunningFormTrend)
+
 			// Mobile: Device Registration (FCM/APNs)
 			r.Post("/devices/register", h.RegisterDevice)
 			r.Get("/devices", h.ListDevices)

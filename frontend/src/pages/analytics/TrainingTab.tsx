@@ -5,6 +5,7 @@ import TrainingVolumeChart from '@/components/analytics/training/TrainingVolumeC
 import ZoneDistributionChart from '@/components/analytics/training/ZoneDistributionChart'
 import PowerDurationCurve from '@/components/analytics/training/PowerDurationCurve'
 import PersonalRecordsTable from '@/components/analytics/training/PersonalRecordsTable'
+import RunningFormTrend from '@/components/analytics/RunningFormTrend'
 import ErrorBoundary from '@/components/ErrorBoundary'
 
 function CardSkeleton({ height = 'h-[300px]' }: { height?: string }) {
@@ -66,6 +67,15 @@ export default function TrainingTab() {
         <ErrorBoundary>
           <Suspense fallback={<CardSkeleton height="h-[240px]" />}>
             <PersonalRecordsTable />
+          </Suspense>
+        </ErrorBoundary>
+      </section>
+
+      {/* Running Form Trend — full width */}
+      <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <ErrorBoundary>
+          <Suspense fallback={<CardSkeleton height="h-[320px]" />}>
+            <RunningFormTrend />
           </Suspense>
         </ErrorBoundary>
       </section>

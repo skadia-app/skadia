@@ -473,3 +473,37 @@ export async function fetchHealthFitnessAge(from: string, to: string): Promise<H
   const params = new URLSearchParams({ from, to }).toString()
   return apiClient(`/health/fitness-age?${params}`)
 }
+
+// === Running Form Types ===
+
+export interface RunningFormBaseline {
+  duty_factor_median: number | null
+  vertical_ratio_median: number | null
+  gct_asymmetry_median: number | null
+  activity_count: number
+}
+
+export interface RunningFormPoint {
+  activity_id: string
+  date: string
+  duty_factor: number | null
+  vertical_ratio: number | null
+  gct_asymmetry: number | null
+  tier: number
+}
+
+export interface RunningFormTrendResponse {
+  points: RunningFormPoint[]
+}
+
+export async function fetchRunningFormBaseline(): Promise<RunningFormBaseline> {
+  return apiClient('/running-form/baseline')
+}
+
+export async function fetchRunningFormTrend(from?: string, to?: string): Promise<RunningFormTrendResponse> {
+  const params = new URLSearchParams()
+  if (from) params.set('from', from)
+  if (to) params.set('to', to)
+  const qs = params.toString()
+  return apiClient(`/running-form/trend${qs ? `?${qs}` : ''}`)
+}
