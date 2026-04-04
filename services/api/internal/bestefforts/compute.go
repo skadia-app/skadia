@@ -25,7 +25,7 @@ const gpsJumpThresholdM = 200.0
 // past the jump so the window never straddles a glitch.
 // Nil DistanceM points are skipped (not counted toward the window).
 // Returns nil when the stream is shorter than the target distance.
-func ComputeDistanceBestEffort(stream []model.StreamPoint, cat Category) *EffortResult {
+func ComputeDistanceBestEffort[T model.BestEffortPoint](stream []T, cat Category) *EffortResult {
 	target := cat.DistanceM
 	n := len(stream)
 	if n == 0 || target <= 0 {
@@ -39,11 +39,11 @@ func ComputeDistanceBestEffort(stream []model.StreamPoint, cat Category) *Effort
 	}
 	valid := make([]validPt, 0, n)
 	for i, p := range stream {
-		if p.GpsAccuracyM != nil && *p.GpsAccuracyM > 50 {
+		if acc := p.BEGpsAccuracyM(); acc != nil && *acc > 50 {
 			continue
 		}
-		if p.DistanceM != nil {
-			valid = append(valid, validPt{orig: i, distM: *p.DistanceM})
+		if d := p.BEDistanceM(); d != nil {
+			valid = append(valid, validPt{orig: i, distM: *d})
 		}
 	}
 	if len(valid) < 2 {
@@ -67,7 +67,7 @@ func ComputeDistanceBestEffort(stream []model.StreamPoint, cat Category) *Effort
 		for left < right {
 			windowDist := valid[right].distM - valid[left].distM
 			if windowDist >= target {
-				elapsed := int(stream[valid[right].orig].Time.Sub(stream[valid[left].orig].Time).Seconds())
+				elapsed := int(stream[valid[right].orig].BETime().Sub(stream[valid[left].orig].BETime()).Seconds())
 				if elapsed < bestElapsed {
 					bestElapsed = elapsed
 					bestStart = valid[left].orig
@@ -97,7 +97,7 @@ func ComputeDistanceBestEffort(stream []model.StreamPoint, cat Category) *Effort
 // liftIndices contains stream indices corresponding to ski-lift or similar
 // assisted ascent segments; positive deltas at those indices are excluded.
 // Returns nil when the stream never reaches the target gain.
-func ComputeElevationBestEffort(stream []model.StreamPoint, cat Category, liftIndices map[int]bool) *EffortResult {
+func ComputeElevationBestEffort[T model.BestEffortPoint](stream []T, cat Category, liftIndices map[int]bool) *EffortResult {
 	target := cat.ElevationM
 	n := len(stream)
 	if n == 0 || target <= 0 {
@@ -108,11 +108,12 @@ func ComputeElevationBestEffort(stream []model.StreamPoint, cat Category, liftIn
 	cumGain := make([]float64, n)
 	cumGain[0] = 0
 	for i := 1; i < n; i++ {
-		prev := stream[i-1].AltitudeM
-		curr := stream[i].AltitudeM
+		prev := stream[i-1].BEAltitudeM()
+		curr := stream[i].BEAltitudeM()
 		var delta float64
-		gpsOK := (stream[i].GpsAccuracyM == nil || *stream[i].GpsAccuracyM <= 50) &&
-			(stream[i-1].GpsAccuracyM == nil || *stream[i-1].GpsAccuracyM <= 50)
+		accI := stream[i].BEGpsAccuracyM()
+		accPrev := stream[i-1].BEGpsAccuracyM()
+		gpsOK := (accI == nil || *accI <= 50) && (accPrev == nil || *accPrev <= 50)
 		if prev != nil && curr != nil && !liftIndices[i] && gpsOK {
 			d := *curr - *prev
 			if d > 0 {
@@ -130,7 +131,7 @@ func ComputeElevationBestEffort(stream []model.StreamPoint, cat Category, liftIn
 		for left < right {
 			windowGain := cumGain[right] - cumGain[left]
 			if windowGain >= target {
-				elapsed := int(stream[right].Time.Sub(stream[left].Time).Seconds())
+				elapsed := int(stream[right].BETime().Sub(stream[left].BETime()).Seconds())
 				if elapsed < bestElapsed {
 					bestElapsed = elapsed
 					bestStart = left
@@ -168,7 +169,7 @@ func ComputeElevationBestEffort(stream []model.StreamPoint, cat Category, liftIn
 //
 // The window advances by time[right] - time[left] >= targetDuration.
 // Returns nil when the stream is shorter than the target duration.
-func ComputePowerBestEffort(stream []model.StreamPoint, cat Category) *EffortResult {
+func ComputePowerBestEffort[T model.BestEffortPoint](stream []T, cat Category) *EffortResult {
 	targetDuration := float64(cat.DurationS)
 	n := len(stream)
 	if n == 0 || targetDuration <= 0 {
@@ -178,7 +179,7 @@ func ComputePowerBestEffort(stream []model.StreamPoint, cat Category) *EffortRes
 	// Precompute per-sample duration (seconds to next sample; 1 s for last).
 	dt := make([]float64, n)
 	for i := 0; i < n-1; i++ {
-		d := stream[i+1].Time.Sub(stream[i].Time).Seconds()
+		d := stream[i+1].BETime().Sub(stream[i].BETime()).Seconds()
 		if d <= 0 {
 			d = 1
 		}
@@ -189,8 +190,8 @@ func ComputePowerBestEffort(stream []model.StreamPoint, cat Category) *EffortRes
 	// Precompute power values (nil → 0).
 	power := make([]float64, n)
 	for i, p := range stream {
-		if p.PowerW != nil {
-			power[i] = float64(*p.PowerW)
+		if pw := p.BEPowerW(); pw != nil {
+			power[i] = float64(*pw)
 		}
 	}
 
@@ -199,7 +200,7 @@ func ComputePowerBestEffort(stream []model.StreamPoint, cat Category) *EffortRes
 	//          (cumTime[right+1]      - cumTime[left])
 	cumPowerTime := make([]float64, n+1)
 	cumTime := make([]float64, n+1)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		cumPowerTime[i+1] = cumPowerTime[i] + power[i]*dt[i]
 		cumTime[i+1] = cumTime[i] + dt[i]
 	}
@@ -210,17 +211,17 @@ func ComputePowerBestEffort(stream []model.StreamPoint, cat Category) *EffortRes
 
 	left := 0
 	for right := 1; right < n; right++ {
-		windowSec := stream[right].Time.Sub(stream[left].Time).Seconds()
+		windowSec := stream[right].BETime().Sub(stream[left].BETime()).Seconds()
 		// Advance left to keep window at exactly the target duration.
 		for left < right-1 {
-			nextWindowSec := stream[right].Time.Sub(stream[left+1].Time).Seconds()
+			nextWindowSec := stream[right].BETime().Sub(stream[left+1].BETime()).Seconds()
 			if nextWindowSec >= targetDuration {
 				left++
 			} else {
 				break
 			}
 		}
-		windowSec = stream[right].Time.Sub(stream[left].Time).Seconds()
+		windowSec = stream[right].BETime().Sub(stream[left].BETime()).Seconds()
 		if windowSec < targetDuration {
 			continue
 		}
