@@ -103,26 +103,32 @@ export interface IsochroneResult {
   truncated?: boolean
 }
 
+export interface LandscapePreferences {
+  forest: number      // 0-10
+  water: number       // 0-10
+  protected: number   // 0-10
+  low_noise: number   // 0-10
+  low_traffic: number // 0-10
+}
+
 export interface RouteSuggestionParams {
   start: [number, number]
   end?: [number, number]
   round_trip: boolean
   direction_point?: [number, number]
   target_distance_m: number
-  target_elevation_gain: number
   sport_type: string
   profile: string
   prefer_unknown?: boolean  // Terra Incognita bias
-  landscape_prefs: {
-    forest: number    // 0-10
-    water: number     // 0-10
-    meadow: number    // 0-10
-  }
-  surface_prefs: {
-    trail: number        // 0-10
-    forest_road: number  // 0-10
-    asphalt: number      // 0-10
-  }
+  landscape_prefs?: LandscapePreferences
+  surface_tendency?: 'trails' | 'forest_roads' | 'mixed' | 'paved'
+  max_sac_scale?: number
+  max_mtb_scale?: number
+}
+
+export interface RouteSuggestionResponse {
+  suggestions: RouteSuggestion[]
+  coverage_available: boolean
 }
 
 export interface ListRoutesResponse {
@@ -361,12 +367,13 @@ export interface RouteSuggestion {
   distance_m: number
   ascent_m: number
   descent_m: number
-  geojson: GeoJSON.FeatureCollection
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  geojson: any  // Backend sends json.RawMessage — access as geojson.features directly
   is_fallback: boolean
 }
 
 export async function suggestRoute(
   params: RouteSuggestionParams,
-): Promise<{ suggestions: RouteSuggestion[] }> {
+): Promise<RouteSuggestionResponse> {
   return apiClient('/routes/suggest', { method: 'POST', body: params })
 }
