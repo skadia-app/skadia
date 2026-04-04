@@ -702,6 +702,7 @@ func main() {
 				r.Post("/backfill-sunrise-sunset", h.BackfillSunriseSunset)
 				r.Post("/backfill-timezones", h.BackfillTimezones)
 				r.Post("/phash-backfill", h.StartPhashBackfill)
+				r.Post("/backfill-developer-apps", h.BackfillDeveloperApps)
 				r.Post("/detect-max-hr", h.DetectMaxHR)
 				r.Post("/activities/recompute-all", h.RecomputeAllActivities)
 				r.Get("/activities/recompute-status", h.RecomputeStatus)
@@ -728,6 +729,8 @@ func main() {
 				r.Post("/routing/build-brouter-segments", h.BuildBRouterSegments)
 				r.Post("/routing/download-brouter-segments", h.DownloadBRouterSegments)
 				r.Put("/routing/cache-budget", h.SetCacheBudget)
+				r.Post("/routing/brouter-profiles", h.HandleUploadBrouterProfile)
+				r.Delete("/routing/brouter-profiles/{name}", h.HandleDeleteBrouterProfile)
 				r.Post("/build-coverage", h.BuildCoverage)
 
 				// LLM config (system-level)
@@ -1118,7 +1121,15 @@ func main() {
 			r.Post("/routes/suggest", h.SuggestRoutes)
 			r.Get("/routing/status", h.RoutingGraphStatus)
 			r.Post("/routing/route-internal", h.RouteCalculate)
-			r.Get("/routing/profiles/{name}", h.HandleGetProfileDefaults)
+			r.Route("/routing/profiles", func(r chi.Router) {
+				r.Get("/", h.HandleListProfiles)
+				r.Post("/", h.HandleCreateProfile)
+				r.Post("/import", h.HandleImportProfiles)
+				r.Get("/{name}", h.HandleGetProfileDefaults)
+				r.Put("/{id}", h.HandleUpdateProfile)
+				r.Delete("/{id}", h.HandleDeleteProfile)
+				r.Get("/{id}/export", h.HandleExportProfile)
+			})
 
 			// Planned Routes (CRUD)
 			r.Get("/routes", h.ListRoutes)
