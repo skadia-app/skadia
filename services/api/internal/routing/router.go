@@ -463,6 +463,13 @@ type ReachableNode struct {
 	Lat     float64
 	Lon     float64
 	Unknown bool // Terra Incognita: incoming edge OSM-ID not in visited set
+	// Path-averaged coverage scores, normalized [0, 1]
+	ForestPct      float32
+	NoiseScore     float32
+	ProtectedArea  float32
+	Urbanization   float32
+	RiverProximity float32
+	TrafficClass   float32
 }
 
 // Reader returns the underlying GraphReader.
@@ -545,11 +552,17 @@ func (r *UnifiedRouter) FindReachableWithCoords(ctx context.Context,
 			}
 		}
 		result = append(result, ReachableNode{
-			NodeID:  nodeID,
-			Cost:    rn.Cost,
-			Lat:     float64(nodeLat) / 1e7,
-			Lon:     float64(nodeLon) / 1e7,
-			Unknown: unknown,
+			NodeID:         nodeID,
+			Cost:           rn.Cost,
+			Lat:            float64(nodeLat) / 1e7,
+			Lon:            float64(nodeLon) / 1e7,
+			Unknown:        unknown,
+			ForestPct:      rn.ForestPct,
+			NoiseScore:     rn.NoiseScore,
+			ProtectedArea:  rn.ProtectedArea,
+			Urbanization:   rn.Urbanization,
+			RiverProximity: rn.RiverProximity,
+			TrafficClass:   rn.TrafficClass,
 		})
 	}
 	return result, truncated, nil

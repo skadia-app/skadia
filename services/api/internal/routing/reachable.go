@@ -8,6 +8,7 @@ import (
 	"math"
 	"sort"
 
+	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 	"github.com/fogleman/delaunay"
 	"github.com/paulmach/orb"
 )
@@ -16,6 +17,13 @@ import (
 type reachableNode struct {
 	Cost       float32 // accumulated cost to reach this node
 	EdgeHandle uint64  // handle of the incoming edge (for EdgeOSMID lookup)
+	// Path-averaged coverage scores, normalized [0, 1]
+	ForestPct      float32
+	NoiseScore     float32
+	ProtectedArea  float32
+	Urbanization   float32
+	RiverProximity float32
+	TrafficClass   float32
 }
 
 const reachableCheckCancel = 4096
@@ -37,6 +45,15 @@ func findReachable(ctx context.Context, reader GraphReader, src uint64,
 		lastDY    float32
 		lastWC    uint8
 		handle    uint64 // incoming edge handle
+		// Coverage accumulators: distance-weighted sums (normalized_value * meters)
+		// Divide by covDistSum for path-average [0, 1]
+		covForestSum    float32
+		covNoiseSum     float32
+		covProtectedSum float32
+		covUrbanSum     float32
+		covRiverSum     float32 // includes lake proximity
+		covTrafficSum   float32
+		covDistSum      float32
 	}
 
 	state := make(map[uint64]dijkState, 8192)
@@ -116,26 +133,61 @@ func findReachable(ctx context.Context, reader GraphReader, src uint64,
 				return
 			}
 
+			// Accumulate distance-weighted coverage scores
+			covDist := float32(ev.Dist) / 100.0 // centimeters to meters
+			newCovForest := ns.covForestSum + float32(graph.DecodeForestPct(ev.Tags2))/100.0*covDist
+			newCovNoise := ns.covNoiseSum + float32(graph.DecodeNoiseScore(ev.Tags2))/100.0*covDist
+			newCovProtected := ns.covProtectedSum + float32(graph.DecodeProtectedArea(ev.Tags2))/3.0*covDist
+			newCovUrban := ns.covUrbanSum + float32(graph.DecodeUrbanization(ev.Tags2))/7.0*covDist
+			newCovRiver := ns.covRiverSum + float32(graph.DecodeRiverProximity(ev.Tags2))/7.0*covDist
+			newCovTraffic := ns.covTrafficSum + float32(graph.DecodeTrafficClass(ev.Tags2))/6.0*covDist
+			newCovDistSum := ns.covDistSum + covDist
+
 			existing, exists := state[ev.Target]
 			if !exists || newCost < existing.cost {
 				state[ev.Target] = dijkState{
-					cost:      newCost,
-					pathState: hr.State,
-					lastDX:    newDX,
-					lastDY:    newDY,
-					lastWC:    ecf.WayClass,
-					handle:    ev.ElevHandle,
+					cost:            newCost,
+					pathState:       hr.State,
+					lastDX:          newDX,
+					lastDY:          newDY,
+					lastWC:          ecf.WayClass,
+					handle:          ev.ElevHandle,
+					covForestSum:    newCovForest,
+					covNoiseSum:     newCovNoise,
+					covProtectedSum: newCovProtected,
+					covUrbanSum:     newCovUrban,
+					covRiverSum:     newCovRiver,
+					covTrafficSum:   newCovTraffic,
+					covDistSum:      newCovDistSum,
 				}
 				frontier.Push(FrontierEntry{NodeID: ev.Target, Cost: newCost})
 			}
 		})
 	}
 
-	// Convert to exported type
+	// Convert to exported type with path-averaged coverage scores
 	result := make(map[uint64]reachableNode, len(state))
 	for nodeID, ds := range state {
 		if ds.cost <= maxBudget {
-			result[nodeID] = reachableNode{Cost: ds.cost, EdgeHandle: ds.handle}
+			var forest, noise, prot, urban, river, traffic float32
+			if ds.covDistSum > 0 {
+				forest = ds.covForestSum / ds.covDistSum
+				noise = ds.covNoiseSum / ds.covDistSum
+				prot = ds.covProtectedSum / ds.covDistSum
+				urban = ds.covUrbanSum / ds.covDistSum
+				river = ds.covRiverSum / ds.covDistSum
+				traffic = ds.covTrafficSum / ds.covDistSum
+			}
+			result[nodeID] = reachableNode{
+				Cost:           ds.cost,
+				EdgeHandle:     ds.handle,
+				ForestPct:      forest,
+				NoiseScore:     noise,
+				ProtectedArea:  prot,
+				Urbanization:   urban,
+				RiverProximity: river,
+				TrafficClass:   traffic,
+			}
 		}
 	}
 	return result, truncated
