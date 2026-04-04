@@ -75,10 +75,11 @@ export interface OSMImportRegion {
   pbf_size_bytes: number | null
   import_duration_s: number | null
   categories: string[]
-  status: 'importing' | 'imported' | 'failed'
+  status: 'importing' | 'imported' | 'failed' | 'needs_redownload'
   data_date: string | null        // Datum der OSM-Kartendaten
   update_interval: string         // 'manual' | 'weekly' | 'monthly'
   replication_url: string | null  // Replication-URL für Updates
+  last_updated_at: string | null  // Letzter erfolgreicher Patch/Import
 }
 
 export interface OSMDiskUsage {
@@ -152,5 +153,11 @@ export async function buildCoverageGrids(regions?: string[]): Promise<{ job_id: 
   return apiClient<{ job_id: string; status: string }>('/admin/build-coverage', {
     method: 'POST',
     ...(regions && regions.length > 0 ? { body: { regions } } : {}),
+  })
+}
+
+export async function triggerOSMRegionUpdate(regionID: string): Promise<{ job_id: string }> {
+  return apiClient<{ job_id: string }>(`/admin/osm-regions/${regionID}/update`, {
+    method: 'POST',
   })
 }
