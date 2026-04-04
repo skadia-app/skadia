@@ -12,7 +12,8 @@ import {
   type BestEffortRanked,
   type BestEffortExclusion,
 } from '@/api/bestEfforts'
-import { fmtDateMedium } from '@/lib/format'
+import { fetchSegmentPRs, type SegmentEffort } from '@/api/segments'
+import { fmtDateMedium, fmtDuration } from '@/lib/format'
 import { useToast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 import { CATEGORY_LABELS, categoryLabel as getCategoryLabel, formatBestEffortValue } from '@/lib/bestEffortLabels'
@@ -41,6 +42,9 @@ const DIST_PREFIX = 'dist_'
 const ELEV_PREFIX = 'elev_'
 const POWER_PREFIX = 'power_'
 const SUP_PREFIX = 'sup_'
+
+// E-9: Extracted once to avoid O(n) indexOf inside sort comparator
+const CATEGORY_KEYS = Object.keys(CATEGORY_LABELS)
 
 // ── Rank Badge ─────────────────────────────────────────────────────────────
 
@@ -96,11 +100,10 @@ function RecordsTable({ records, showPowerNote, onExclude, excludingKey }: Recor
       if (!map.has(r.category)) map.set(r.category, [])
       map.get(r.category)!.push(r)
     }
-    // Sort by category order: use the CATEGORY_LABELS key order as a proxy
+    // Sort by category order: use CATEGORY_KEYS (computed once outside component)
     return Array.from(map.entries()).sort(([a], [b]) => {
-      const keys = Object.keys(CATEGORY_LABELS)
-      const ia = keys.indexOf(a)
-      const ib = keys.indexOf(b)
+      const ia = CATEGORY_KEYS.indexOf(a)
+      const ib = CATEGORY_KEYS.indexOf(b)
       if (ia === -1 && ib === -1) return a.localeCompare(b)
       if (ia === -1) return 1
       if (ib === -1) return -1
@@ -166,6 +169,90 @@ function RecordsTable({ records, showPowerNote, onExclude, excludingKey }: Recor
                 </div>
               )
             })}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Segment PRs Table ──────────────────────────────────────────────────────
+
+interface SegmentPRsTableProps {
+  efforts: SegmentEffort[]
+}
+
+function SegmentPRsTable({ efforts }: SegmentPRsTableProps) {
+  // Group by segment_name, then sort by personal_rank within each segment
+  const grouped = useMemo(() => {
+    const map = new Map<string, SegmentEffort[]>()
+    for (const e of efforts) {
+      const name = e.segment_name ?? e.segment_id
+      if (!map.has(name)) map.set(name, [])
+      map.get(name)!.push(e)
+    }
+    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b, 'de'))
+  }, [efforts])
+
+  if (efforts.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-3 text-neutral-400 dark:text-neutral-500">
+        <MapPin className="w-10 h-10 opacity-30" />
+        <p className="text-sm text-center">
+          Noch keine Segment-Bestzeiten (Platz 1–3)
+        </p>
+        <Link
+          to="/segments"
+          className="text-sm text-accent-DEFAULT hover:underline"
+        >
+          Zu den Segmenten
+        </Link>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-1">
+      {grouped.map(([segmentName, entries]) => (
+        <div
+          key={segmentName}
+          className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-hidden"
+        >
+          <div className="px-4 py-2.5 bg-neutral-50 dark:bg-neutral-800/60 border-b border-neutral-100 dark:border-neutral-800 flex items-center gap-2">
+            <MapPin className="w-3.5 h-3.5 text-neutral-400 dark:text-neutral-500 shrink-0" />
+            <Link
+              to={`/segments/${entries[0].segment_id}`}
+              className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 hover:text-accent-DEFAULT dark:hover:text-accent-DEFAULT transition-colors truncate"
+            >
+              {segmentName}
+            </Link>
+          </div>
+          <div className="divide-y divide-neutral-50 dark:divide-neutral-800/50">
+            {entries
+              .slice()
+              .sort((a, b) => (a.personal_rank ?? 99) - (b.personal_rank ?? 99))
+              .map((effort) => (
+                <div
+                  key={effort.id}
+                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/40 transition-colors"
+                >
+                  <RankBadge rank={effort.personal_rank ?? 0} />
+                  <div className="flex-1 min-w-0">
+                    <Link
+                      to={`/activities/${effort.activity_id}`}
+                      className="text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:text-accent-DEFAULT dark:hover:text-accent-DEFAULT transition-colors truncate block"
+                    >
+                      Aktivität ansehen
+                    </Link>
+                    <span className="text-xs text-neutral-400">
+                      {fmtDateMedium(effort.started_at)}
+                    </span>
+                  </div>
+                  <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums shrink-0">
+                    {fmtDuration(effort.elapsed_time_s)}
+                  </span>
+                </div>
+              ))}
           </div>
         </div>
       ))}
@@ -256,6 +343,13 @@ export default function PersonalRecordsPage() {
     queryFn: fetchExclusions,
     staleTime: 60 * 1000,
   })
+
+  const { data: segmentPRsData } = useQuery({
+    queryKey: ['segment-prs'],
+    queryFn: fetchSegmentPRs,
+    staleTime: 5 * 60 * 1000,
+  })
+  const segmentPRs = segmentPRsData?.efforts ?? []
 
   const excludeMutation = useMutation({
     mutationFn: ({ activityId, category }: { activityId: string; category: string }) =>
@@ -428,7 +522,12 @@ export default function PersonalRecordsPage() {
                 <span className="ml-1.5 text-xs opacity-60">({supRecords.length})</span>
               )}
             </TabsTrigger>
-            <TabsTrigger value="segmente">Segmente</TabsTrigger>
+            <TabsTrigger value="segmente">
+              Segmente
+              {segmentPRs.length > 0 && (
+                <span className="ml-1.5 text-xs opacity-60">({segmentPRs.length})</span>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="ausgeschlossen">
               Ausgeschlossen
               {excluded.length > 0 && (
@@ -471,18 +570,7 @@ export default function PersonalRecordsPage() {
           </TabsContent>
 
           <TabsContent value="segmente" className="mt-4">
-            <div className="flex flex-col items-center justify-center py-16 gap-4 text-neutral-400 dark:text-neutral-500">
-              <MapPin className="w-10 h-10 opacity-30" />
-              <p className="text-sm text-center">
-                Segment-Bestzeiten — kommt in einem zukünftigen Update
-              </p>
-              <Link
-                to="/segments"
-                className="text-sm text-accent-DEFAULT hover:underline"
-              >
-                Zu den Segmenten
-              </Link>
-            </div>
+            <SegmentPRsTable efforts={segmentPRs} />
           </TabsContent>
 
           <TabsContent value="ausgeschlossen" className="mt-4">

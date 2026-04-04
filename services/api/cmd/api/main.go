@@ -984,6 +984,7 @@ func main() {
 			r.Post("/isochrone", h.Isochrone)
 
 			// Segments
+			r.Get("/segment-prs", h.GetSegmentPRs)
 			r.Get("/segments", h.ListSegments)
 			r.Post("/segments", h.CreateSegment)
 			r.Delete("/segments", h.DeleteSegments)
