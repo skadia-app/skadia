@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
@@ -547,9 +548,32 @@ func (h *Handler) checkAndRunScheduledUpdates(ctx context.Context) {
 		}
 
 		slog.Info("osm scheduler: update due", "region", regionID, "label", label, "interval", interval)
-		// TODO(T5): trigger patchPBF + reimport as background job (next task)
-		slog.Warn("osm scheduler: update due but auto-update not yet wired — next task completes this",
-			"region", regionID, "interval", interval)
+
+		// Guard: no running import or update
+		if running, _ := h.DB.HasRunningJobGlobal(ctx, "osm_import"); running {
+			slog.Info("osm scheduler: skipping, import already running")
+			continue
+		}
+		if running, _ := h.DB.HasRunningJobGlobal(ctx, "osm_update"); running {
+			slog.Info("osm scheduler: skipping, update already running")
+			continue
+		}
+
+		entityName := "OSM Update: " + label
+		jobID, created, err := h.DB.InsertBackgroundJobGuarded(ctx, "system", "osm_update", nil, &entityName, 0)
+		if err != nil || !created {
+			slog.Info("osm scheduler: osm_update job conflict", "region", regionID, "error", err)
+			continue
+		}
+
+		// Capture loop variables for goroutine
+		rID, rLabel, rReplURL, rPbfPath, rLastSeq := regionID, label, replURL, pbfPath, lastSeq
+		shutdown.Go(jobID, func(jobCtx context.Context) {
+			h.runRegionUpdate(jobCtx, jobID, rID, rLabel, rReplURL, rPbfPath, rLastSeq)
+		})
+
+		// Only one region per scheduler tick (sequential, OOM-safe)
+		break
 	}
 }
 
@@ -576,4 +600,83 @@ func isUpdateDue(interval string, weekday, day, hour int, lastUpdatedAt time.Tim
 		return monthsSince >= 1 && now.Hour() == hour
 	}
 	return false
+}
+
+// runRegionUpdate patches a region's PBF and then runs a full reimport via RunPerRegion.
+// Called both by the scheduler and by the manual TriggerOSMRegionUpdate endpoint.
+// NOTE: jobReporter is defined in osm_import.go (same package).
+func (h *Handler) runRegionUpdate(ctx context.Context, jobID, regionID, label, replURL, pbfPath string, lastSeq int) {
+	slog.Info("osm update: starting", "region", regionID, "seq", lastSeq)
+
+	// Phase 1: Patch PBF (download .osc.gz diffs + osmium apply-changes)
+	newSeq, err := osmregions.PatchPBF(ctx, pbfPath, replURL, lastSeq)
+	if errors.Is(err, osmregions.ErrTooOld) {
+		slog.Warn("osm update: PBF too old for incremental update", "region", regionID)
+		// Recovery path: user re-imports the region via the Import Assistant.
+		// RunPerRegion uses ON CONFLICT DO UPDATE SET status='importing', which works
+		// regardless of the previous status — so 'needs_redownload' is a valid starting point.
+		h.DB.Pool.Exec(ctx, `UPDATE osm_import_regions SET status = 'needs_redownload' WHERE region_id = $1`, regionID)
+		h.DB.CompleteBackgroundJob(ctx, jobID, true, "PBF zu alt für inkrementelles Update — bitte neu herunterladen")
+		return
+	}
+	if err != nil {
+		slog.Error("osm update: patchPBF failed", "region", regionID, "error", err)
+		h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
+		return
+	}
+
+	// Phase 2: Full reimport from patched PBF (osmium filter → osm2pgsql → merge)
+	// RunPerRegion skips PBF download because patched file has fresh ModTime (< 7d threshold).
+	// It also updates replication_url, last_sequence_number, data_date from PBF header.
+	dataDir := os.Getenv("OSM_DATA_DIR")
+	if dataDir == "" {
+		dataDir = "/data/osm"
+	}
+	reg, ok := osmregions.RegionByID(regionID)
+	if !ok {
+		slog.Error("osm update: region not in catalog", "region", regionID)
+		h.DB.CompleteBackgroundJob(ctx, jobID, true, "Region nicht im Katalog: "+regionID)
+		return
+	}
+
+	reporter := &jobReporter{db: h.DB, jobID: jobID}
+	pipeline := &osmregions.Pipeline{Pool: h.DB.Pool, DataDir: dataDir, DBURL: os.Getenv("DATABASE_URL")}
+
+	// Load categories from DB (what was imported last time)
+	var categories []string
+	h.DB.Pool.QueryRow(ctx,
+		`SELECT categories FROM osm_import_regions WHERE region_id = $1`, regionID).Scan(&categories)
+	if len(categories) == 0 {
+		// Fallback: use all known categories
+		categories = allCategoryIDs()
+	}
+
+	config := osmregions.PipelineConfig{Categories: categories}
+	success := pipeline.RunPerRegion(ctx, reg, config, reporter)
+	if !success {
+		slog.Error("osm update: reimport failed", "region", regionID)
+		// RunPerRegion already calls reporter.Fail, job status is set via reporter
+		return
+	}
+
+	// Phase 3: Update last_updated_at (imported_at is already set by RunPerRegion)
+	h.DB.Pool.Exec(ctx, `
+		UPDATE osm_import_regions SET last_updated_at = now()
+		WHERE region_id = $1`, regionID)
+
+	// Phase 4: Enrichment (synchronous — OOM-safe, one region at a time)
+	reporter.SetPhase("enrichment")
+	pipeline.RunEnrichmentAndSplitting(ctx, regionID, reporter)
+
+	slog.Info("osm update: completed", "region", regionID, "new_seq", newSeq)
+	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
+}
+
+// allCategoryIDs returns all known OSM category IDs as fallback for incremental updates.
+func allCategoryIDs() []string {
+	ids := make([]string, 0, len(osmCategories))
+	for id := range osmCategories {
+		ids = append(ids, id)
+	}
+	return ids
 }
