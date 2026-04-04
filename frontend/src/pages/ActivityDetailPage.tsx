@@ -38,6 +38,8 @@ import LiftSection from '@/components/LiftSection'
 import { fetchGeoTags, fetchStops } from '@/api/enrichment'
 import { apiFetch } from '@/lib/auth'
 import type { GeoTag, ActivityStop } from '@/api/types'
+import { fetchActivityBestEfforts } from '@/api/bestEfforts'
+import { BestEffortBadges } from '@/components/BestEffortBadges'
 import MultisportSection from '@/components/MultisportSection'
 import { MultisportMap, type MultisportMapHandle } from '@/components/activity/MultisportMap'
 import MultisportEnrichments from '@/components/activity/MultisportEnrichments'
@@ -404,6 +406,13 @@ export default function ActivityDetailPage() {
     staleTime: 5 * 60 * 1000,
   })
 
+  const { data: bestEffortsData } = useQuery({
+    queryKey: ['activity-best-efforts', activeActivityId],
+    queryFn: () => fetchActivityBestEfforts(activeActivityId!),
+    enabled: !!activeActivityId,
+    staleTime: 5 * 60 * 1000,
+  })
+
   // Prefetch sibling activities so tab switches are instant
   useEffect(() => {
     if (!recordingGroup?.members) return
@@ -550,6 +559,15 @@ export default function ActivityDetailPage() {
 
       {/* Health context from the night before (sleep, HRV, resting HR) */}
       <HealthContextCards activityId={activity.id} />
+
+      {/* PR badges and near-miss notifications */}
+      {bestEffortsData && (bestEffortsData.best_efforts.length > 0 || bestEffortsData.near_misses.length > 0) && (
+        <BestEffortBadges
+          bestEfforts={bestEffortsData.best_efforts}
+          nearMisses={bestEffortsData.near_misses}
+          activityId={activity.id}
+        />
+      )}
 
       {/* Multisport parent — combined view */}
       {activity.sport_type === 'multisport' && (
