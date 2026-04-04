@@ -585,6 +585,13 @@ func main() {
 		})
 	}
 
+	// Filesystem profile scan — import BadRouter JSON profiles from data/profiles/badrouter/
+	if n, err := handler.ScanFilesystemProfiles(ctx, "data/profiles/badrouter", db); err != nil {
+		slog.Warn("filesystem profile scan failed", "error", err)
+	} else if n > 0 {
+		slog.Info("filesystem profiles imported", "count", n)
+	}
+
 	// Router
 	r := chi.NewRouter()
 	r.Use(middleware.TrustedProxyRealIP(cfg.TrustedProxyCIDRs))
