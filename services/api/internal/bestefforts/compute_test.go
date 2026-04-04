@@ -221,7 +221,7 @@ func TestComputeElevationBestEffort_TooShort(t *testing.T) {
 
 // TestComputeSuperlative_Basic: values are routed to the correct field.
 func TestComputeSuperlative_Basic(t *testing.T) {
-	cat := Category{Key: "total_distance", Type: TypeValueSuperlative}
+	cat := Category{Key: "sup_longest_distance", Type: TypeValueSuperlative}
 	r := ComputeSuperlative(cat, 42195.0, 500.0, 300.0, 14400.0)
 	if r == nil {
 		t.Fatal("expected non-nil result")
@@ -230,9 +230,18 @@ func TestComputeSuperlative_Basic(t *testing.T) {
 		t.Errorf("ValueNumeric = %.2f, want 42195.0", r.ValueNumeric)
 	}
 
-	cat2 := Category{Key: "total_elevation", Type: TypeValueSuperlative}
+	cat2 := Category{Key: "sup_most_elevation", Type: TypeValueSuperlative}
 	r2 := ComputeSuperlative(cat2, 42195.0, 500.0, 300.0, 14400.0)
 	if math.Abs(r2.ValueNumeric-500.0) > 0.01 {
 		t.Errorf("ValueNumeric = %.2f, want 500.0", r2.ValueNumeric)
+	}
+}
+
+// TestComputeSuperlative_ZeroGuard: val<=0 must return nil.
+func TestComputeSuperlative_ZeroGuard(t *testing.T) {
+	cat := Category{Key: "sup_most_elevation", Type: TypeValueSuperlative}
+	r := ComputeSuperlative(cat, 10000.0, 0.0, 300.0, 3600.0)
+	if r != nil {
+		t.Errorf("expected nil for zero elevGainM, got ValueNumeric=%.2f", r.ValueNumeric)
 	}
 }

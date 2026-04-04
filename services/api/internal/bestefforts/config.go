@@ -29,7 +29,7 @@ func distCat(key, label string, metres float64) Category {
 }
 
 func elevCat(key, label string, metres float64) Category {
-	return Category{Key: key, Type: TypeValueHigher, ElevationM: metres, Label: label}
+	return Category{Key: key, Type: TypeTimeLower, ElevationM: metres, Label: label}
 }
 
 func powerCat(key, label string, seconds int) Category {

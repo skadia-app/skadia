@@ -136,6 +136,7 @@ func TestCategoriesFor(t *testing.T) {
 					if c.DurationS > 0 {
 						hasPower = true
 					}
+				case TypeTimeLower:
 					if c.ElevationM > 0 {
 						hasElev = true
 					}

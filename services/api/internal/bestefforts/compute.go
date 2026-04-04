@@ -227,17 +227,20 @@ func ComputePowerBestEffort(stream []model.StreamPoint, cat Category) *EffortRes
 func ComputeSuperlative(cat Category, distanceM, elevGainM, biggestClimbM, durationS float64) *EffortResult {
 	var value float64
 	switch cat.Key {
-	case "total_distance":
+	case "sup_longest_distance":
 		value = distanceM
-	case "total_elevation":
+	case "sup_most_elevation":
 		value = elevGainM
-	case "biggest_climb":
+	case "sup_biggest_climb":
 		value = biggestClimbM
-	case "total_duration":
+	case "sup_longest_duration":
 		value = durationS
 	default:
 		// Generic fallback: use distanceM as the primary value.
 		value = distanceM
+	}
+	if value <= 0 {
+		return nil
 	}
 	return &EffortResult{
 		Category:       cat.Key,
