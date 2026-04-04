@@ -32,12 +32,6 @@ func BestEffortLockKey(userID string) int64 {
 	return bestEffortLockBase ^ int64(hashString(userID))
 }
 
-// ptr returns a pointer to v. It is used to take the address of non-addressable
-// composite-literal fields and function-return values without a named variable.
-//
-//go:fix inline
-func ptr[T any](v T) *T { return new(v) }
-
 // BestEffortRecord is the data written to and read from persistent storage.
 // It mirrors database.BestEffort but lives here to avoid an import cycle
 // (database already imports bestefforts for ActivityInfo).
