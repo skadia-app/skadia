@@ -116,10 +116,17 @@ var powerCategories = []Category{
 	powerCat("power_2h", "2 Std", 7200),
 }
 
-var superlativeCategories = []Category{
+// Sport groups with elevation data get all 4 superlatives.
+// Swimming/virtual/indoor get only distance + duration (no elevation).
+var superlativesWithElevation = []Category{
 	superlativeCat("sup_longest_distance", "Längste Distanz"),
 	superlativeCat("sup_most_elevation", "Meiste Höhenmeter"),
 	superlativeCat("sup_biggest_climb", "Größter Anstieg"),
+	superlativeCat("sup_longest_duration", "Längste Dauer"),
+}
+
+var superlativesBasic = []Category{
+	superlativeCat("sup_longest_distance", "Längste Distanz"),
 	superlativeCat("sup_longest_duration", "Längste Dauer"),
 }
 
@@ -142,44 +149,44 @@ var sportGroupCategories = map[string][]Category{
 		distancesRunning,
 		elevationCategories,
 		powerCategories,
-		superlativeCategories,
+		superlativesWithElevation,
 	),
 	"running_indoor": concat(
 		distancesRunning,
 		powerCategories,
-		superlativeCategories,
+		superlativesBasic, // no elevation indoors
 	),
 	"running_virtual": concat(
 		distancesRunning,
-		superlativeCategories,
+		superlativesBasic, // simulated elevation is not comparable
 	),
 	"cycling": concat(
 		distancesCycling,
 		elevationCategories,
 		powerCategories,
-		superlativeCategories,
+		superlativesWithElevation,
 	),
 	"cycling_electric": concat(
 		distancesCycling,
 		elevationCategories,
-		superlativeCategories,
+		superlativesWithElevation, // e-bike has real elevation
 	),
 	"cycling_virtual": concat(
 		distancesCycling,
-		superlativeCategories,
+		superlativesBasic, // simulated elevation
 	),
 	"hiking": concat(
 		distancesHiking,
 		elevationCategories,
-		superlativeCategories,
+		superlativesWithElevation,
 	),
 	"swim_pool": concat(
 		distancesSwimPool,
-		superlativeCategories,
+		superlativesBasic, // no elevation in pool
 	),
 	"swim_ow": concat(
 		distancesSwimOW,
-		superlativeCategories,
+		superlativesBasic, // no meaningful elevation in open water
 	),
 }
 
