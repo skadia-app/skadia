@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Trash2, Database, XCircle, ChevronDown, RefreshCw, AlertTriangle, Sparkles, Layers, Route, Grid3x3 } from 'lucide-react'
+import { Trash2, Database, XCircle, ChevronDown, RefreshCw, AlertTriangle, Sparkles, Layers, Route, Grid3x3, ArrowDownToLine } from 'lucide-react'
 import { useState } from 'react'
 import {
   fetchOSMRegionStatus,
@@ -12,6 +12,7 @@ import {
   downloadBRouterSegments,
   fetchOSMRegions,
   buildCoverageGrids,
+  triggerOSMRegionUpdate,
   type OSMImportRegion,
 } from '@/api/osm'
 import { useToast } from '@/lib/toast'
@@ -113,6 +114,17 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
     onError: () => { addToast({ type: 'error', title: 'Coverage-Build konnte nicht gestartet werden', duration: 0 }) },
   })
 
+  const updateMut = useMutation({
+    mutationFn: (regionID: string) => triggerOSMRegionUpdate(regionID),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['osm-regions-status'] })
+      addToast({ type: 'info', title: 'Inkrementelles Update gestartet' })
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Update konnte nicht gestartet werden', duration: 0 })
+    },
+  })
+
   const { jobs } = useActiveJobs()
   const activeOsmJob = jobs.find((j) => j.job_type === 'osm_import' && j.status === 'running')
   const activeEnrichmentJob = jobs.find((j) => j.job_type === 'osm_enrichment' && j.status === 'running')
@@ -120,6 +132,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
   const activeBrouterBuild = jobs.find(j => j.job_type === 'brouter_segment_build' && j.status === 'running')
   const activeBrouterDl = jobs.find(j => j.job_type === 'brouter_segment_download' && j.status === 'running')
   const activeCoverageBuild = jobs.find(j => j.job_type === 'coverage_build' && j.status === 'running')
+  const activeOsmUpdate = jobs.find(j => j.job_type === 'osm_update' && j.status === 'running')
 
   const [updateTarget, setUpdateTarget] = useState<OSMImportRegion | null>(null)
 
@@ -245,18 +258,32 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
                           ? 'bg-green-500/10 text-green-600 dark:text-green-400'
                           : reg.status === 'importing'
                             ? 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'
-                            : 'bg-red-500/10 text-red-600 dark:text-red-400'
+                            : reg.status === 'needs_redownload'
+                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                              : 'bg-red-500/10 text-red-600 dark:text-red-400'
                       }`}
                     >
                       {reg.status === 'imported'
                         ? 'Importiert'
                         : reg.status === 'importing'
                           ? 'Wird importiert…'
-                          : 'Fehler'}
+                          : reg.status === 'needs_redownload'
+                            ? 'Neu herunterladen'
+                            : 'Fehler'}
                     </span>
                   </td>
                   <td className="py-2 text-right">
                     <div className="flex justify-end gap-1">
+                      {reg.status === 'imported' && reg.replication_url && (
+                        <button
+                          onClick={() => updateMut.mutate(reg.region_id)}
+                          disabled={!!activeOsmJob || !!activeOsmUpdate || updateMut.isPending}
+                          className="cursor-pointer p-1 text-neutral-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          title="Inkrementelles Update (Diffs anwenden)"
+                        >
+                          <ArrowDownToLine className="w-4 h-4" />
+                        </button>
+                      )}
                       <button
                         onClick={() => setUpdateTarget(reg)}
                         disabled={!!activeOsmJob}
