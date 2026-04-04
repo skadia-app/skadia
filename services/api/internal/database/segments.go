@@ -530,7 +530,7 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 		       se.user_id, se.started_at, se.elapsed_time_s,
 		       se.is_reverse, se.sport_type, se.sub_type, se.gear_id,
 		       se.avg_power_w, se.avg_heart_rate, se.avg_speed_ms,
-		       se.rank_overall, se.is_personal_best, se.is_segment_record,
+		       se.rank_overall, se.is_personal_best, se.personal_rank, se.is_segment_record,
 		       se.in_leaderboard, se.created_at,
 		       s.name AS segment_name,
 		       u.display_name,
@@ -589,7 +589,7 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 			&e.UserID, &e.StartedAt, &e.ElapsedTimeS,
 			&e.IsReverse, &e.SportType, &e.SubType, &e.GearID,
 			&e.AvgPowerW, &e.AvgHeartRate, &e.AvgSpeedMs,
-			&e.RankOverall, &e.IsPersonalBest, &e.IsSegmentRecord,
+			&e.RankOverall, &e.IsPersonalBest, &e.PersonalRank, &e.IsSegmentRecord,
 			&e.InLeaderboard, &e.CreatedAt,
 			&e.SegmentName, &e.DisplayName, &e.GearName,
 		)
@@ -613,7 +613,7 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 		       se.user_id, se.started_at, se.elapsed_time_s,
 		       se.is_reverse, se.sport_type, se.sub_type, se.gear_id,
 		       se.avg_power_w, se.avg_heart_rate, se.avg_speed_ms,
-		       se.rank_overall, se.is_personal_best, se.is_segment_record,
+		       se.rank_overall, se.is_personal_best, se.personal_rank, se.is_segment_record,
 		       se.in_leaderboard, se.created_at,
 		       s.name AS segment_name,
 		       NULL::text AS display_name,
@@ -637,7 +637,7 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 			&e.UserID, &e.StartedAt, &e.ElapsedTimeS,
 			&e.IsReverse, &e.SportType, &e.SubType, &e.GearID,
 			&e.AvgPowerW, &e.AvgHeartRate, &e.AvgSpeedMs,
-			&e.RankOverall, &e.IsPersonalBest, &e.IsSegmentRecord,
+			&e.RankOverall, &e.IsPersonalBest, &e.PersonalRank, &e.IsSegmentRecord,
 			&e.InLeaderboard, &e.CreatedAt,
 			&e.SegmentName, &e.DisplayName, &e.GearName,
 			&e.SegmentTypeMeta,
@@ -712,6 +712,7 @@ func (db *DB) UpdateSegmentEffortRanks(ctx context.Context, segmentID string) er
 		UPDATE segment_efforts se
 		SET rank_overall      = gr.rk,
 		    is_personal_best  = (pr.user_rk = 1),
+		    personal_rank     = CASE WHEN pr.user_rk <= 3 THEN pr.user_rk::smallint ELSE NULL END,
 		    is_segment_record = COALESCE(gr.is_record, false)
 		FROM personal_ranked pr
 		LEFT JOIN global_ranked gr ON gr.id = pr.id AND gr.started_at = pr.started_at

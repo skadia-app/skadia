@@ -85,6 +85,7 @@ type SegmentEffort struct {
 	ElevationGainM   *float64  `json:"elevation_gain_m,omitempty"`
 	RankOverall      *int      `json:"rank_overall,omitempty"`
 	IsPersonalBest   bool      `json:"is_personal_best"`
+	PersonalRank     *int      `json:"personal_rank,omitempty"`
 	IsSegmentRecord  bool      `json:"is_segment_record"`
 	InLeaderboard    bool      `json:"in_leaderboard"`
 	CreatedAt        time.Time `json:"created_at"`
