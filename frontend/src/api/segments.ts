@@ -26,11 +26,13 @@ export interface SegmentEffort {
   id: string
   segment_id: string
   activity_id: string
+  started_at: string
   elapsed_time_s: number
   is_reverse: boolean
   sport_type: string
   rank_overall?: number
   is_personal_best: boolean
+  personal_rank?: number
   is_segment_record: boolean
   segment_name?: string
   segment_type_meta?: Record<string, unknown>
@@ -163,4 +165,13 @@ export async function exportSegment(id: string, format: 'gpx' | 'geojson'): Prom
 
 export async function exportSegments(ids: string[], format: 'gpx' | 'geojson'): Promise<{ blob: Blob; filename?: string }> {
   return apiDownload('/segments/export', { method: 'POST', body: { ids, format } })
+}
+
+export interface SegmentPRsResponse {
+  efforts: SegmentEffort[]
+  count: number
+}
+
+export async function fetchSegmentPRs(): Promise<SegmentPRsResponse> {
+  return apiClient<SegmentPRsResponse>('/segment-prs')
 }

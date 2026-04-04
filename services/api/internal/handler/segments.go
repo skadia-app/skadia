@@ -727,3 +727,23 @@ func (h *Handler) GetSegmentPerformances(w http.ResponseWriter, r *http.Request)
 		"count":        len(performances),
 	})
 }
+
+// GetSegmentPRs returns all segment efforts where the authenticated user achieved personal rank 1–3.
+func (h *Handler) GetSegmentPRs(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	efforts, err := h.DB.GetUserSegmentPRs(r.Context(), userID)
+	if err != nil {
+		slog.Error("get segment prs failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment PRs", r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"efforts": efforts,
+		"count":   len(efforts),
+	})
+}
