@@ -111,7 +111,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   dist_50m: '50 m', dist_100m: '100 m', dist_200m: '200 m',
   dist_400m_swim: '400 m', dist_800m_swim: '800 m', dist_1500m: '1500 m',
   dist_2km: '2 km',
-  elev_500: '500 Hm', elev_1000: '1000 Hm', elev_1500: '1500 Hm', elev_2000: '2000 Hm',
+  elev_500hm: '500 Hm', elev_1000hm: '1000 Hm', elev_1500hm: '1500 Hm', elev_2000hm: '2000 Hm',
   power_5s: '5 Sek', power_30s: '30 Sek', power_1min: '1 Min',
   power_5min: '5 Min', power_10min: '10 Min', power_20min: '20 Min',
   power_30min: '30 Min', power_1h: '1 Std', power_2h: '2 Std',
