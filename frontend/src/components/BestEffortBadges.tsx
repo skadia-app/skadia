@@ -9,31 +9,59 @@ import type { BestEffortRanked, NearMiss } from '@/api/bestEfforts'
 // ── Category label mapping ────────────────────────────────────────────────────
 
 const CATEGORY_LABELS: Record<string, string> = {
-  // Distance efforts (running / foot sports)
+  // Distance (running)
   dist_400m: '400 m',
   dist_800m: '800 m',
   dist_1km: '1 km',
   dist_1mi: '1 Meile',
+  dist_2mi: '2 Meilen',
   dist_5km: '5 km',
   dist_10km: '10 km',
-  dist_half_marathon: 'Halbmarathon',
+  dist_15km: '15 km',
+  dist_10mi: '10 Meilen',
+  dist_20km: '20 km',
+  dist_hm: 'Halbmarathon',
+  dist_30km: '30 km',
   dist_marathon: 'Marathon',
-  // Power / time windows (cycling)
-  power_5s: '5 s Power',
-  power_10s: '10 s Power',
-  power_30s: '30 s Power',
-  power_1min: '1 min Power',
-  power_5min: '5 min Power',
-  power_10min: '10 min Power',
-  power_20min: '20 min Power',
-  power_30min: '30 min Power',
-  power_60min: '60 min Power',
-  // Generic time windows
-  time_5min: '5 min',
-  time_10min: '10 min',
-  time_20min: '20 min',
-  time_30min: '30 min',
-  time_60min: '60 min',
+  dist_50km: '50 km',
+  dist_100km: '100 km',
+  // Distance (cycling)
+  dist_25mi: '25 Meilen',
+  dist_40km: '40 km',
+  dist_50mi: '50 Meilen',
+  dist_100mi: '100 Meilen',
+  dist_150km: '150 km',
+  dist_200km: '200 km',
+  dist_300km: '300 km',
+  // Distance (swim pool)
+  dist_50m: '50 m',
+  dist_100m: '100 m',
+  dist_200m: '200 m',
+  dist_400m_pool: '400 m',
+  dist_800m_pool: '800 m',
+  dist_1500m: '1500 m',
+  // Distance (swim open water)
+  dist_2km: '2 km',
+  // Elevation
+  elev_500: '500 Hm',
+  elev_1000: '1000 Hm',
+  elev_1500: '1500 Hm',
+  elev_2000: '2000 Hm',
+  // Power
+  power_5s: '5 Sek',
+  power_30s: '30 Sek',
+  power_1min: '1 Min',
+  power_5min: '5 Min',
+  power_10min: '10 Min',
+  power_20min: '20 Min',
+  power_30min: '30 Min',
+  power_1h: '1 Std',
+  power_2h: '2 Std',
+  // Superlatives
+  sup_longest_distance: 'Längste Distanz',
+  sup_most_elevation: 'Meiste Höhenmeter',
+  sup_biggest_climb: 'Größter Anstieg',
+  sup_longest_duration: 'Längste Dauer',
 }
 
 function categoryLabel(category: string): string {

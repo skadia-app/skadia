@@ -96,6 +96,26 @@ func (h *Handler) GetBestEffortRecords(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, results)
 }
 
+// GetBestEffortExclusions returns all exclusion records for the authenticated user,
+// newest first.
+//
+// GET /api/v1/best-effort-exclusions
+func (h *Handler) GetBestEffortExclusions(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	exclusions, err := h.DB.GetBestEffortExclusions(r.Context(), userID)
+	if err != nil {
+		slog.Error("get best effort exclusions failed", "user_id", userID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get exclusions", r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, exclusions)
+}
+
 // AddBestEffortExclusion marks an activity's best effort (or all efforts via "__all__")
 // as excluded from ranking for the authenticated user.
 //

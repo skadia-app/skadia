@@ -222,6 +222,41 @@ func (db *DB) UpsertBestEffortExclusion(ctx context.Context, userID, activityID,
 	return nil
 }
 
+// BestEffortExclusion represents a single exclusion record for the authenticated user.
+type BestEffortExclusion struct {
+	ActivityID string    `json:"activity_id"`
+	Category   string    `json:"category"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// GetBestEffortExclusions returns all exclusion records for a user, newest first.
+func (db *DB) GetBestEffortExclusions(ctx context.Context, userID string) ([]BestEffortExclusion, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT activity_id, category, created_at
+		 FROM best_effort_exclusions
+		 WHERE user_id = $1
+		 ORDER BY created_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get best effort exclusions: %w", err)
+	}
+	defer rows.Close()
+
+	var results []BestEffortExclusion
+	for rows.Next() {
+		var e BestEffortExclusion
+		if err := rows.Scan(&e.ActivityID, &e.Category, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan best effort exclusion: %w", err)
+		}
+		results = append(results, e)
+	}
+	if results == nil {
+		results = []BestEffortExclusion{}
+	}
+	return results, rows.Err()
+}
+
 // DeleteBestEffortExclusion removes an exclusion so the effort is ranked again.
 func (db *DB) DeleteBestEffortExclusion(ctx context.Context, userID, activityID, category string) error {
 	_, err := db.Pool.Exec(ctx,
@@ -287,7 +322,10 @@ func (db *DB) GetBestEffortActivityInfo(ctx context.Context, activityID string) 
 		     COALESCE(a.elapsed_time_s, 0)
 		 FROM activities a
 		 WHERE a.id = $1
-		   AND a.deleted_at IS NULL`,
+		   AND a.deleted_at IS NULL
+		   AND NOT COALESCE(a.exclude_from_stats, false)
+		   AND NOT COALESCE(a.is_group_secondary, false)
+		   AND NOT COALESCE(a.is_fusion_source, false)`,
 		activityID,
 	)
 	var info bestefforts.ActivityInfo
