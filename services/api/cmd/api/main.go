@@ -1132,7 +1132,7 @@ func main() {
 				r.Get("/", h.HandleListProfiles)
 				r.Post("/", h.HandleCreateProfile)
 				r.Post("/import", h.HandleImportProfiles)
-				r.Get("/{name}", h.HandleGetProfileDefaults)
+				r.Get("/defaults/{name}", h.HandleGetProfileDefaults)
 				r.Put("/{id}", h.HandleUpdateProfile)
 				r.Delete("/{id}", h.HandleDeleteProfile)
 				r.Get("/{id}/export", h.HandleExportProfile)

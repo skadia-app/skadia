@@ -338,7 +338,7 @@ export interface ProfileDefaultsResponse {
 }
 
 export async function getProfileDefaults(name: string): Promise<ProfileDefaultsResponse> {
-  return apiClient(`/routing/profiles/${encodeURIComponent(name)}`)
+  return apiClient(`/routing/profiles/defaults/${encodeURIComponent(name)}`)
 }
 
 // === Internal Router (BadRouter) ===

@@ -105,6 +105,27 @@ func (db *DB) GetRoutingProfileByName(ctx context.Context, userID, name string) 
 	return p, nil
 }
 
+// GetRoutingProfileByNameOrGlobal fetches a routing profile by name, preferring
+// user-owned profiles over global (user_id IS NULL) profiles.
+// Used by SuggestRoutes to resolve custom profile references including filesystem profiles.
+// Returns nil, nil when not found.
+func (db *DB) GetRoutingProfileByNameOrGlobal(ctx context.Context, userID, name string) (*RoutingProfile, error) {
+	p, err := scanRoutingProfile(db.Pool.QueryRow(ctx,
+		routingProfileSelect+`
+WHERE (user_id = $1 OR user_id IS NULL) AND name = $2
+ORDER BY user_id IS NULL
+LIMIT 1`,
+		userID, name,
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get routing profile by name or global: %w", err)
+	}
+	return p, nil
+}
+
 // CreateRoutingProfile inserts a new user-owned routing profile and returns it.
 func (db *DB) CreateRoutingProfile(ctx context.Context, userID, name, baseProfile string, sportTypes []string, config []byte) (*RoutingProfile, error) {
 	if sportTypes == nil {

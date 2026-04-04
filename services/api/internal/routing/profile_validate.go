@@ -6,7 +6,10 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
-// validProfiles lists all accepted base profile names.
+// ValidProfileNames lists all accepted base profile names (exported for handler validation).
+var ValidProfileNames = []string{"hiking", "mtb", "gravel", "trekking", "road"}
+
+// validProfiles is the lookup set for ValidProfileNames.
 var validProfiles = map[string]bool{
 	"hiking":   true,
 	"mtb":      true,
