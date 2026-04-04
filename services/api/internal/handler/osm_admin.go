@@ -672,6 +672,67 @@ func (h *Handler) runRegionUpdate(ctx context.Context, jobID, regionID, label, r
 	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 }
 
+// TriggerOSMRegionUpdate triggers an immediate incremental update for a single region.
+// POST /api/v1/admin/osm-regions/{regionID}/update
+func (h *Handler) TriggerOSMRegionUpdate(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	regionID := chi.URLParam(r, "regionID")
+	if regionID == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "regionID required", r.URL.Path)
+		return
+	}
+
+	// Load region data
+	var label string
+	var replURL, pbfPath *string
+	var lastSeq int
+	err := h.DB.Pool.QueryRow(r.Context(), `
+		SELECT label, replication_url, pbf_path, last_sequence_number
+		FROM osm_import_regions
+		WHERE region_id = $1 AND status = 'imported'`, regionID).
+		Scan(&label, &replURL, &pbfPath, &lastSeq)
+	if err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "Region nicht gefunden oder nicht im Status 'imported'", r.URL.Path)
+		return
+	}
+	if replURL == nil || *replURL == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "Region hat keine Replication-URL — inkrementelles Update nicht möglich", r.URL.Path)
+		return
+	}
+	if pbfPath == nil || *pbfPath == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "Region hat keinen PBF-Pfad — bitte neu importieren", r.URL.Path)
+		return
+	}
+
+	// Guard: no running import or update
+	if running, _ := h.DB.HasRunningJobGlobal(r.Context(), "osm_import"); running {
+		httputil.WriteJSON(w, http.StatusConflict, map[string]string{"error": "Import läuft bereits"})
+		return
+	}
+
+	entityName := "OSM Update: " + label
+	jobID, created, err := h.DB.InsertBackgroundJobGuarded(r.Context(), userID, "osm_update", nil, &entityName, 0)
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		return
+	}
+	if !created {
+		httputil.WriteJSON(w, http.StatusConflict, map[string]string{"error": "Update läuft bereits"})
+		return
+	}
+
+	rReplURL, rPbfPath := *replURL, *pbfPath
+	shutdown.Go(jobID, func(jobCtx context.Context) {
+		h.runRegionUpdate(jobCtx, jobID, regionID, label, rReplURL, rPbfPath, lastSeq)
+	})
+
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+}
+
 // allCategoryIDs returns all known OSM category IDs as fallback for incremental updates.
 func allCategoryIDs() []string {
 	ids := make([]string, 0, len(osmCategories))

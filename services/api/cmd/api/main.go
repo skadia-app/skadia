@@ -741,6 +741,7 @@ func main() {
 				r.Get("/osm-regions/status", h.GetOSMRegionStatus)
 				r.Get("/osm-disk-usage", h.GetOSMDiskUsage)
 				r.Delete("/osm-regions/{regionID}", h.DeleteOSMRegion)
+				r.Post("/osm-regions/{regionID}/update", h.TriggerOSMRegionUpdate)
 				r.Get("/osm-regions", h.ListOSMRegions)
 				r.Post("/osm-import/start", h.StartOSMImport)
 				r.Post("/osm-import/cancel/{jobID}", h.CancelOSMImport)
