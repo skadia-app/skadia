@@ -121,6 +121,24 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		req.TargetDistanceM = 10000 // default 10 km
 	}
 
+	// --- Clamp LandscapePreferences to 0–10 ---
+	if req.LandscapePrefs != nil {
+		lp := req.LandscapePrefs
+		clamp := func(v *int) {
+			if *v < 0 {
+				*v = 0
+			}
+			if *v > 10 {
+				*v = 10
+			}
+		}
+		clamp(&lp.Forest)
+		clamp(&lp.Water)
+		clamp(&lp.Protected)
+		clamp(&lp.LowNoise)
+		clamp(&lp.LowTraffic)
+	}
+
 	// --- Get UnifiedRouter ---
 	if h.GraphManager == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable,
@@ -144,7 +162,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 
 	// If profile not in system defaults, try loading custom profile from DB.
 	if mappedProfile == "" {
-		customProfile, dbErr := h.DB.GetRoutingProfileByName(r.Context(), userID, req.Profile)
+		customProfile, dbErr := h.DB.GetRoutingProfileByNameOrGlobal(r.Context(), userID, req.Profile)
 		if dbErr == nil && customProfile != nil {
 			_ = json.Unmarshal(customProfile.Config, &profileCfg)
 			profileCfg.Profile = customProfile.BaseProfile
@@ -156,9 +174,13 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.MaxSacScale != nil {
+		v := max(0, min(*req.MaxSacScale, 6))
+		req.MaxSacScale = &v
 		profileCfg.MaxSacScale = req.MaxSacScale
 	}
 	if req.MaxMtbScale != nil {
+		v := max(0, min(*req.MaxMtbScale, 5))
+		req.MaxMtbScale = &v
 		profileCfg.MaxMtbScale = req.MaxMtbScale
 	}
 	routing.ApplySurfaceTendency(&profileCfg, req.SurfaceTendency)
