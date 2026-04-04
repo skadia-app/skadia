@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -163,6 +164,10 @@ func (h *Handler) HandleCreateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(req.BaseProfile) == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "base_profile is required", r.URL.Path)
+		return
+	}
+	if !slices.Contains(routing.ValidProfileNames, req.BaseProfile) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown base_profile", r.URL.Path)
 		return
 	}
 
@@ -355,6 +360,10 @@ func (h *Handler) HandleImportProfiles(w http.ResponseWriter, r *http.Request) {
 			results = append(results, importResult{Name: entry.Name, Success: false, Error: "base_profile is required"})
 			continue
 		}
+		if !slices.Contains(routing.ValidProfileNames, entry.BaseProfile) {
+			results = append(results, importResult{Name: entry.Name, Success: false, Error: "unknown base_profile"})
+			continue
+		}
 
 		if err := routing.ValidateProfileConfig(entry.Config); err != nil {
 			results = append(results, importResult{Name: entry.Name, Success: false, Error: err.Error()})
@@ -522,15 +531,15 @@ func (h *Handler) HandleDeleteBrouterProfile(w http.ResponseWriter, r *http.Requ
 func systemSportTypes(profile string) []string {
 	switch profile {
 	case "hiking":
-		return []string{"hiking", "trail_running"}
+		return []string{"hiking", "trail_running", "running", "walking", "mountaineering"}
 	case "mtb":
 		return []string{"mountain_biking"}
 	case "gravel":
 		return []string{"gravel_cycling"}
 	case "trekking":
-		return []string{"cycling", "hiking"}
-	case "road":
 		return []string{"cycling"}
+	case "road":
+		return []string{"cycling", "gravel_cycling"}
 	default:
 		return []string{}
 	}

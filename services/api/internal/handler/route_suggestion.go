@@ -120,6 +120,14 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	if req.TargetDistanceM <= 0 {
 		req.TargetDistanceM = 10000 // default 10 km
 	}
+	if req.SurfaceTendency != "" {
+		validTendencies := map[string]bool{"trails": true, "forest_roads": true, "mixed": true, "paved": true}
+		if !validTendencies[req.SurfaceTendency] {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
+				"surface_tendency must be one of: trails, forest_roads, mixed, paved", r.URL.Path)
+			return
+		}
+	}
 
 	// --- Clamp LandscapePreferences to 0–10 ---
 	if req.LandscapePrefs != nil {
