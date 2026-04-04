@@ -104,16 +104,24 @@ func (s *Service) RecomputeAllTSS(ctx context.Context, userID string) error {
 func (s *Service) RecalculatePMC(ctx context.Context, userID string, activityDate time.Time) error {
 	// Prevent parallel PMC recalcs for the same user. pg_try_advisory_lock is
 	// non-blocking — if a recalc is already in progress we skip this one.
+	// The connection is pinned so that lock and unlock use the same session.
+	// conn.Release() returns the connection to the pool, ending the session and
+	// automatically releasing all session-scoped advisory locks.
+	pmcConn, err := s.DB.Pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("pmc: acquire connection: %w", err)
+	}
+	defer pmcConn.Release()
+
 	lockKey := pmcLockKey(userID)
 	var acquired bool
-	if err := s.DB.Pool.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockKey).Scan(&acquired); err != nil {
+	if err := pmcConn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockKey).Scan(&acquired); err != nil {
 		return fmt.Errorf("pmc: try advisory lock: %w", err)
 	}
 	if !acquired {
 		slog.DebugContext(ctx, "pmc: skipping recalc, another recalc is running", "user_id", userID)
 		return nil
 	}
-	defer s.DB.Pool.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockKey) //nolint:errcheck
 
 	// Start from the user's earliest activity (minus 42 days for CTL seeding window).
 	earliest, err := s.DB.GetEarliestActivityDate(ctx, userID)

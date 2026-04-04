@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 )
@@ -13,40 +14,44 @@ import (
 // ---- Advisory lock helpers (satisfy bestefforts.Store) ----
 
 // AcquireBestEffortLock acquires a session-level PostgreSQL advisory lock for
-// the given user's best-effort operations. Blocks until the lock is obtained.
-// The lock is automatically released when the underlying connection is returned
-// to the pool, but callers MUST call ReleaseBestEffortLock explicitly to make
-// the release deterministic.
-func (db *DB) AcquireBestEffortLock(ctx context.Context, userID string) error {
-	key := bestefforts.BestEffortLockKey(userID)
-	_, err := db.Pool.Exec(ctx, "SELECT pg_advisory_lock($1)", key)
+// the given user's best-effort operations on a pinned connection. Blocks until
+// the lock is obtained.
+// The caller MUST call conn.Release() when done (typically via defer).
+// Returning the connection to the pool ends the session and automatically
+// releases all session-scoped advisory locks.
+func (db *DB) AcquireBestEffortLock(ctx context.Context, userID string) (*pgxpool.Conn, error) {
+	conn, err := db.Pool.Acquire(ctx)
 	if err != nil {
-		return fmt.Errorf("pg_advisory_lock best_effort user=%s: %w", userID, err)
+		return nil, fmt.Errorf("acquire connection for best_effort lock user=%s: %w", userID, err)
 	}
-	return nil
+	key := bestefforts.BestEffortLockKey(userID)
+	if _, err = conn.Exec(ctx, "SELECT pg_advisory_lock($1)", key); err != nil {
+		conn.Release()
+		return nil, fmt.Errorf("pg_advisory_lock best_effort user=%s: %w", userID, err)
+	}
+	return conn, nil
 }
 
 // TryAcquireBestEffortLock is a non-blocking variant of AcquireBestEffortLock.
-// Returns (true, nil) when the lock was obtained, (false, nil) when it is
-// already held by another session.
-func (db *DB) TryAcquireBestEffortLock(ctx context.Context, userID string) (bool, error) {
+// Returns (conn, true, nil) when the lock was obtained, (nil, false, nil) when
+// it is already held by another session.
+// The caller MUST call conn.Release() when acquired.
+func (db *DB) TryAcquireBestEffortLock(ctx context.Context, userID string) (*pgxpool.Conn, bool, error) {
+	conn, err := db.Pool.Acquire(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("acquire connection for best_effort lock user=%s: %w", userID, err)
+	}
 	key := bestefforts.BestEffortLockKey(userID)
 	var acquired bool
-	err := db.Pool.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", key).Scan(&acquired)
-	if err != nil {
-		return false, fmt.Errorf("pg_try_advisory_lock best_effort user=%s: %w", userID, err)
+	if err = conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", key).Scan(&acquired); err != nil {
+		conn.Release()
+		return nil, false, fmt.Errorf("pg_try_advisory_lock best_effort user=%s: %w", userID, err)
 	}
-	return acquired, nil
-}
-
-// ReleaseBestEffortLock releases the session-level advisory lock for the user.
-func (db *DB) ReleaseBestEffortLock(ctx context.Context, userID string) error {
-	key := bestefforts.BestEffortLockKey(userID)
-	_, err := db.Pool.Exec(ctx, "SELECT pg_advisory_unlock($1)", key)
-	if err != nil {
-		return fmt.Errorf("pg_advisory_unlock best_effort user=%s: %w", userID, err)
+	if !acquired {
+		conn.Release()
+		return nil, false, nil
 	}
-	return nil
+	return conn, true, nil
 }
 
 // DeleteOrphanedBestEfforts removes best_efforts rows for the user whose
