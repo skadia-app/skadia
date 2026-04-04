@@ -98,20 +98,6 @@ func (db *DB) GetPMCRangeAllSports(ctx context.Context, userID string, from, to 
 	return days, nil
 }
 
-func (db *DB) UpsertPMCDay(ctx context.Context, userID string, date time.Time, tss, ctl, atl, tsb float64) error {
-	_, err := db.Pool.Exec(ctx,
-		`INSERT INTO pmc_daily (user_id, date, tss, ctl, atl, tsb)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 ON CONFLICT (user_id, date) DO UPDATE
-		 SET tss = EXCLUDED.tss, ctl = EXCLUDED.ctl, atl = EXCLUDED.atl, tsb = EXCLUDED.tsb`,
-		userID, date, tss, ctl, atl, tsb,
-	)
-	if err != nil {
-		return fmt.Errorf("upsert pmc day: %w", err)
-	}
-	return nil
-}
-
 func (db *DB) UpsertPMCDays(ctx context.Context, userID string, days []model.PMCDay) error {
 	batch := &pgx.Batch{}
 	for _, d := range days {
@@ -170,6 +156,7 @@ func (db *DB) GetDailyTSSBySport(ctx context.Context, userID string, from, to ti
 		WHERE a.user_id = $1
 		  AND a.started_at >= $2 AND a.started_at < $3
 		  AND a.computed_tss IS NOT NULL AND a.computed_tss > 0
+		  AND a.deleted_at IS NULL
 		  AND NOT a.exclude_from_stats
 		  AND NOT a.is_group_secondary
 		GROUP BY 1, 2
@@ -207,6 +194,7 @@ func (db *DB) GetDailyTSS(ctx context.Context, userID string, from, to time.Time
 		WHERE a.user_id = $1
 		  AND a.started_at >= $2 AND a.started_at < $3
 		  AND a.computed_tss IS NOT NULL AND a.computed_tss > 0
+		  AND a.deleted_at IS NULL
 		  AND NOT a.exclude_from_stats
 		  AND NOT a.is_group_secondary
 		GROUP BY 1

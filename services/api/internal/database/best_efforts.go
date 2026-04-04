@@ -56,6 +56,65 @@ func (db *DB) UpsertBestEffort(ctx context.Context, be BestEffort) error {
 	return nil
 }
 
+// BatchUpsertBestEfforts inserts or updates a slice of best effort records in a
+// single INSERT ... ON CONFLICT statement using UNNEST arrays. A no-op for an
+// empty slice.
+func (db *DB) BatchUpsertBestEfforts(ctx context.Context, records []BestEffort) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	ids := make([]string, len(records))
+	userIDs := make([]string, len(records))
+	activityIDs := make([]string, len(records))
+	categories := make([]string, len(records))
+	sportGroups := make([]string, len(records))
+	elapsedTimes := make([]*int, len(records))
+	valueNumerics := make([]*float64, len(records))
+	achievedAts := make([]time.Time, len(records))
+	startIdxs := make([]*int, len(records))
+	endIdxs := make([]*int, len(records))
+
+	for i, r := range records {
+		ids[i] = r.ID
+		userIDs[i] = r.UserID
+		activityIDs[i] = r.ActivityID
+		categories[i] = r.Category
+		sportGroups[i] = r.SportGroup
+		elapsedTimes[i] = r.ElapsedTimeS
+		valueNumerics[i] = r.ValueNumeric
+		achievedAts[i] = r.AchievedAt
+		startIdxs[i] = r.StreamStartIdx
+		endIdxs[i] = r.StreamEndIdx
+	}
+
+	_, err := db.Pool.Exec(ctx,
+		`INSERT INTO best_efforts
+		    (id, user_id, activity_id, category, sport_group,
+		     elapsed_time_s, value_numeric, achieved_at,
+		     stream_start_idx, stream_end_idx)
+		 SELECT * FROM UNNEST(
+		     $1::uuid[], $2::uuid[], $3::uuid[], $4::text[], $5::text[],
+		     $6::int[], $7::double precision[], $8::timestamptz[],
+		     $9::int[], $10::int[]
+		 )
+		 ON CONFLICT (activity_id, category, sport_group) DO UPDATE SET
+		     user_id          = EXCLUDED.user_id,
+		     elapsed_time_s   = EXCLUDED.elapsed_time_s,
+		     value_numeric    = EXCLUDED.value_numeric,
+		     achieved_at      = EXCLUDED.achieved_at,
+		     stream_start_idx = EXCLUDED.stream_start_idx,
+		     stream_end_idx   = EXCLUDED.stream_end_idx`,
+		ids, userIDs, activityIDs, categories, sportGroups,
+		elapsedTimes, valueNumerics, achievedAts,
+		startIdxs, endIdxs,
+	)
+	if err != nil {
+		return fmt.Errorf("batch upsert best efforts: %w", err)
+	}
+	return nil
+}
+
 // DeleteBestEffortsForActivity removes all best effort records for a single activity.
 func (db *DB) DeleteBestEffortsForActivity(ctx context.Context, activityID string) error {
 	_, err := db.Pool.Exec(ctx,
@@ -282,6 +341,7 @@ func (db *DB) GetBestEffortRecalcIDs(ctx context.Context, userID string) ([]stri
 		   AND NOT COALESCE(exclude_from_stats, false)
 		   AND NOT COALESCE(is_group_secondary, false)
 		   AND NOT COALESCE(is_fusion_source, false)
+		   AND (num_sessions IS NULL OR num_sessions <= 1)
 		 ORDER BY started_at ASC`,
 		userID,
 	)
@@ -319,7 +379,8 @@ func (db *DB) GetBestEffortActivityInfo(ctx context.Context, activityID string) 
 		     a.started_at,
 		     COALESCE(a.distance_m, 0),
 		     COALESCE(a.elevation_gain_m, 0),
-		     COALESCE(a.elapsed_time_s, 0)
+		     COALESCE(a.elapsed_time_s, 0),
+		     COALESCE((SELECT MAX(elevation_gain_m) FROM activity_climbs WHERE activity_id = a.id), 0)
 		 FROM activities a
 		 WHERE a.id = $1
 		   AND a.deleted_at IS NULL
@@ -341,6 +402,7 @@ func (db *DB) GetBestEffortActivityInfo(ctx context.Context, activityID string) 
 		&info.DistanceM,
 		&info.ElevationGainM,
 		&info.ElapsedTimeS,
+		&info.BiggestClimbM,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -355,6 +417,27 @@ func (db *DB) GetBestEffortActivityInfo(ctx context.Context, activityID string) 
 // These thin wrappers allow *DB to satisfy the bestefforts.Store interface
 // without importing the bestefforts package from service.go (which would
 // create an import cycle, since this file already imports bestefforts).
+
+// BatchUpsertBestEffortRecs converts a slice of bestefforts.BestEffortRecord to
+// []BestEffort and delegates to BatchUpsertBestEfforts. Satisfies bestefforts.Store.
+func (db *DB) BatchUpsertBestEffortRecs(ctx context.Context, records []bestefforts.BestEffortRecord) error {
+	bes := make([]BestEffort, len(records))
+	for i, r := range records {
+		bes[i] = BestEffort{
+			ID:             r.ID,
+			UserID:         r.UserID,
+			ActivityID:     r.ActivityID,
+			Category:       r.Category,
+			SportGroup:     r.SportGroup,
+			ElapsedTimeS:   r.ElapsedTimeS,
+			ValueNumeric:   r.ValueNumeric,
+			AchievedAt:     r.AchievedAt,
+			StreamStartIdx: r.StreamStartIdx,
+			StreamEndIdx:   r.StreamEndIdx,
+		}
+	}
+	return db.BatchUpsertBestEfforts(ctx, bes)
+}
 
 // UpsertBestEffortRec converts a bestefforts.BestEffortRecord to a BestEffort
 // and delegates to UpsertBestEffort. This satisfies bestefforts.Store.

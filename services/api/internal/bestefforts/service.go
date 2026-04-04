@@ -39,6 +39,7 @@ type BestEffortRankedRecord struct {
 // database package (which already imports bestefforts for ActivityInfo).
 type Store interface {
 	UpsertBestEffortRec(ctx context.Context, be BestEffortRecord) error
+	BatchUpsertBestEffortRecs(ctx context.Context, records []BestEffortRecord) error
 	DeleteAllBestEfforts(ctx context.Context, userID string) error
 	GetBestEffortsForActivityRec(ctx context.Context, activityID, userID string) ([]BestEffortRankedRecord, error)
 	GetBestEffortRecalcIDs(ctx context.Context, userID string) ([]string, error)
@@ -64,9 +65,14 @@ func (s *Service) ComputeForActivity(ctx context.Context, info ActivityInfo, str
 
 	categories := CategoriesFor(sportGroup)
 
-	// Lift indices — empty for now; will be populated once ascent integration is available.
+	// TODO(lift-indices): populate liftIndices from ski-lift segment stream indices once
+	// the Python ML "lifts" enrichment module is migrated to Go and stores per-stream
+	// start/end indices in the database. Currently activity_climbs stores only
+	// distance-based ranges (start_distance_m / end_distance_m) with no stream index
+	// mapping, so lift exclusion for elevation best efforts cannot be applied yet.
 	liftIndices := map[int]bool{}
 
+	var efforts []BestEffortRecord
 	for _, cat := range categories {
 		var result *EffortResult
 
@@ -78,7 +84,7 @@ func (s *Service) ComputeForActivity(ctx context.Context, info ActivityInfo, str
 		case cat.DurationS > 0:
 			result = ComputePowerBestEffort(stream, cat)
 		case cat.Type == TypeValueSuperlative:
-			result = ComputeSuperlative(cat, info.DistanceM, info.ElevationGainM, 0, float64(info.ElapsedTimeS))
+			result = ComputeSuperlative(cat, info.DistanceM, info.ElevationGainM, info.BiggestClimbM, float64(info.ElapsedTimeS))
 		}
 
 		if result == nil {
@@ -91,7 +97,7 @@ func (s *Service) ComputeForActivity(ctx context.Context, info ActivityInfo, str
 		startIdx := result.StreamStartIdx
 		endIdx := result.StreamEndIdx
 
-		be := BestEffortRecord{
+		efforts = append(efforts, BestEffortRecord{
 			ID:             uuid.New().String(),
 			UserID:         info.UserID,
 			ActivityID:     info.ID,
@@ -102,11 +108,11 @@ func (s *Service) ComputeForActivity(ctx context.Context, info ActivityInfo, str
 			AchievedAt:     info.StartedAt,
 			StreamStartIdx: &startIdx,
 			StreamEndIdx:   &endIdx,
-		}
+		})
+	}
 
-		if err := s.Store.UpsertBestEffortRec(ctx, be); err != nil {
-			return nil, fmt.Errorf("upsert best effort %q for activity %s: %w", cat.Key, info.ID, err)
-		}
+	if err := s.Store.BatchUpsertBestEffortRecs(ctx, efforts); err != nil {
+		return nil, fmt.Errorf("batch upsert best efforts for activity %s: %w", info.ID, err)
 	}
 
 	return s.Store.GetBestEffortsForActivityRec(ctx, info.ID, info.UserID)
