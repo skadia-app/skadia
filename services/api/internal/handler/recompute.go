@@ -840,17 +840,27 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 	}
 
+	// 8d+8e. Shared stream load for Best Efforts and Running Form.
+	// Both blocks need stream points — load once to avoid a redundant DB round-trip.
+	var sharedStream []model.StreamPoint
+	var sharedStreamErr error
+	if (doBestEfforts && h.BestEfforts != nil) || doRunningForm {
+		sharedStream, sharedStreamErr = h.DB.GetStreamPoints(ctx, activityID)
+		if sharedStreamErr != nil {
+			slog.Error("reprocess: get stream points failed", "id", activityID, "error", sharedStreamErr)
+		}
+	}
+
 	// 8d. Best Efforts — recompute for this activity.
 	if doBestEfforts && h.BestEfforts != nil {
 		info, beErr := h.DB.GetBestEffortActivityInfo(ctx, activityID)
 		if beErr != nil {
 			slog.Error("reprocess: get best effort activity info failed", "id", activityID, "error", beErr)
 		} else if info != nil {
-			stream, streamErr := h.DB.GetStreamPoints(ctx, activityID)
-			if streamErr != nil {
-				slog.Error("reprocess: get stream points for best efforts failed", "id", activityID, "error", streamErr)
+			if sharedStreamErr != nil {
+				slog.Error("reprocess: get stream points for best efforts failed", "id", activityID, "error", sharedStreamErr)
 			} else {
-				if _, beComputeErr := h.BestEfforts.ComputeForActivity(ctx, *info, stream); beComputeErr != nil {
+				if _, beComputeErr := h.BestEfforts.ComputeForActivity(ctx, *info, sharedStream); beComputeErr != nil {
 					slog.Error("reprocess: compute best efforts failed", "id", activityID, "error", beComputeErr)
 				}
 			}
@@ -864,11 +874,10 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		isRunning := cat.Key == "run" &&
 			(data.SportType == "running" || data.SportType == "trail_running")
 		if isRunning {
-			rfStream, rfErr := h.DB.GetStreamPoints(ctx, activityID)
-			if rfErr != nil {
-				slog.Error("reprocess: load streams for running form failed", "id", activityID, "error", rfErr)
+			if sharedStreamErr != nil {
+				slog.Error("reprocess: load streams for running form failed", "id", activityID, "error", sharedStreamErr)
 			} else {
-				rfResult := runningform.Compute(rfStream)
+				rfResult := runningform.Compute(sharedStream)
 				if rfResult != nil {
 					tier := rfResult.Tier
 					if err := h.DB.UpdateRunningForm(ctx, activityID,

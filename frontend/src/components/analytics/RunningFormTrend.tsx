@@ -108,7 +108,7 @@ export default function RunningFormTrend() {
           name: 'Vert. Ratio',
           nameTextStyle: { color: theme.textColor, fontSize: 11 },
           axisLine: { lineStyle: { color: theme.textColor } },
-          axisLabel: { color: theme.textColor, fontSize: 11, formatter: (v: number) => v.toFixed(1) + '%' },
+          axisLabel: { color: theme.textColor, fontSize: 11, formatter: (v: number) => (v * 100).toFixed(1) + '%' },
           splitLine: { show: false },
           min: 'dataMin',
           max: 'dataMax',
@@ -157,7 +157,7 @@ export default function RunningFormTrend() {
             symbol: 'none',
             lineStyle: { color: '#9ca3af', type: 'dashed', width: 1 },
             label: {
-              formatter: () => `Median: ${vrBaseline.toFixed(1)}%`,
+              formatter: () => `Median: ${(vrBaseline * 100).toFixed(1)}%`,
               color: theme.textColor,
               fontSize: 10,
               position: 'insideEndBottom',
@@ -195,7 +195,7 @@ export default function RunningFormTrend() {
               html += `<div><span style="color:#3b82f6">●</span> Duty Factor: <b>${fmt(p.duty_factor, 3)}</b></div>`
             }
             if (p.vertical_ratio != null) {
-              html += `<div><span style="color:#10b981">●</span> Vert. Ratio: <b>${fmt(p.vertical_ratio, 1)}%</b></div>`
+              html += `<div><span style="color:#10b981">●</span> Vert. Ratio: <b>${(p.vertical_ratio * 100).toFixed(1)}%</b></div>`
             }
             if (p.gct_asymmetry != null) {
               html += `<div><span style="color:#f59e0b">●</span> GCT-Asymm.: <b>${fmt(p.gct_asymmetry, 1)}%</b></div>`
@@ -239,7 +239,7 @@ export default function RunningFormTrend() {
                 <> · Duty Factor Ø {fmt(baseline.duty_factor_median, 3)}</>
               )}
               {baseline.vertical_ratio_median != null && (
-                <> · Vert. Ratio Ø {fmt(baseline.vertical_ratio_median, 1)}%</>
+                <> · Vert. Ratio Ø {(baseline.vertical_ratio_median * 100).toFixed(1)}%</>
               )}
               {baseline.gct_asymmetry_median != null && (
                 <> · GCT-Asymm. Ø {fmt(baseline.gct_asymmetry_median, 1)}%</>
