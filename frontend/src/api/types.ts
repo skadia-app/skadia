@@ -260,6 +260,14 @@ export interface Activity {
   vo2max_hr_source?: string
   vo2max_speed_source?: string
 
+  // ── Running Form (computed metrics) ──
+  running_form_duty_factor?: number | null
+  running_form_vertical_ratio?: number | null
+  running_form_gct_asymmetry_pct?: number | null
+  running_form_fatigue_duty?: number | null
+  running_form_fatigue_vr?: number | null
+  running_form_tier?: number | null
+
   // ── GPS quality ──
   gps_accuracy_m?: number
 
