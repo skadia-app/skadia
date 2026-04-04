@@ -12,7 +12,12 @@ import {
   type BestEffortRanked,
   type BestEffortExclusion,
 } from '@/api/bestEfforts'
-import { fetchSegmentPRs, type SegmentEffort } from '@/api/segments'
+import {
+  fetchSegmentPRs,
+  fetchGlobalTopSegmentPRs,
+  type SegmentEffort,
+  type GlobalTopSegmentEffort,
+} from '@/api/segments'
 import { fmtDateMedium, fmtDuration } from '@/lib/format'
 import { useToast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
@@ -347,6 +352,78 @@ function SegmentPRsTable({ efforts }: SegmentPRsTableProps) {
   )
 }
 
+// ── Global Top 10 Table ────────────────────────────────────────────────────
+
+interface GlobalTopTableProps {
+  efforts: GlobalTopSegmentEffort[]
+}
+
+function GlobalTopTable({ efforts }: GlobalTopTableProps) {
+  if (efforts.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-10 gap-2 text-neutral-400 dark:text-neutral-500">
+        <p className="text-sm text-center">
+          Noch keine Top-10-Platzierungen — wird relevant sobald mehrere Nutzer Segmente befahren.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-hidden divide-y divide-neutral-50 dark:divide-neutral-800/50">
+      {efforts.map((effort) => {
+        const rank = effort.rank_overall ?? 0
+        const rankLabel = `#${rank}${effort.athlete_count > 1 ? ` von ${effort.athlete_count}` : ''}`
+        const segmentName = effort.segment_name ?? effort.segment_id
+        return (
+          <div
+            key={effort.id}
+            className="flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/40 transition-colors"
+          >
+            {/* Global rank badge */}
+            <span
+              className={cn(
+                'inline-flex items-center justify-center min-w-[2.75rem] h-7 px-2 rounded-full text-xs font-bold shrink-0 tabular-nums',
+                rank === 1
+                  ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-400'
+                  : rank === 2
+                  ? 'bg-neutral-100 dark:bg-neutral-700/60 text-neutral-500 dark:text-neutral-400'
+                  : rank === 3
+                  ? 'bg-orange-100/80 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400'
+                  : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400',
+              )}
+            >
+              {rankLabel}
+            </span>
+
+            {/* Segment name → segment detail */}
+            <div className="flex-1 min-w-0">
+              <Link
+                to={`/segments/${effort.segment_id}`}
+                className="text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:text-accent-DEFAULT dark:hover:text-accent-DEFAULT transition-colors truncate block"
+              >
+                {segmentName}
+              </Link>
+              {/* Activity link + date */}
+              <Link
+                to={`/activities/${effort.activity_id}`}
+                className="text-xs text-neutral-400 dark:text-neutral-500 hover:text-accent-DEFAULT dark:hover:text-accent-DEFAULT transition-colors"
+              >
+                {fmtDateMedium(effort.started_at)}
+              </Link>
+            </div>
+
+            {/* Elapsed time */}
+            <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums shrink-0">
+              {fmtDuration(effort.elapsed_time_s)}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Excluded Activity Row ──────────────────────────────────────────────────
 
 type ExcludedEntry = Pick<BestEffortExclusion, 'activity_id' | 'category'>
@@ -437,6 +514,13 @@ export default function PersonalRecordsPage() {
     staleTime: 5 * 60 * 1000,
   })
   const segmentPRs = segmentPRsData?.efforts ?? []
+
+  const { data: globalTopData } = useQuery({
+    queryKey: ['segment-prs-global-top'],
+    queryFn: fetchGlobalTopSegmentPRs,
+    staleTime: 5 * 60 * 1000,
+  })
+  const globalTopEfforts = globalTopData?.efforts ?? []
 
   // Dynamic sport chips: extract groups present in the "Alle" data.
   // We always fetch with sport_group='' (all) so we can derive available groups.
@@ -697,7 +781,20 @@ export default function PersonalRecordsPage() {
           </TabsContent>
 
           <TabsContent value="segmente" className="mt-4">
-            <SegmentPRsTable efforts={segmentPRs} />
+            <div className="space-y-8">
+              <section>
+                <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">
+                  Persönliche Bestzeiten (Top 3)
+                </h3>
+                <SegmentPRsTable efforts={segmentPRs} />
+              </section>
+              <section>
+                <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">
+                  Globale Top 10
+                </h3>
+                <GlobalTopTable efforts={globalTopEfforts} />
+              </section>
+            </div>
           </TabsContent>
 
           <TabsContent value="ausgeschlossen" className="mt-4">

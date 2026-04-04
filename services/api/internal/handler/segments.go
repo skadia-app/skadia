@@ -747,3 +747,24 @@ func (h *Handler) GetSegmentPRs(w http.ResponseWriter, r *http.Request) {
 		"count":   len(efforts),
 	})
 }
+
+// GetGlobalTopSegmentEfforts returns all segment efforts where the authenticated user
+// is ranked in the global top 10 (rank_overall <= 10).
+func (h *Handler) GetGlobalTopSegmentEfforts(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	efforts, err := h.DB.GetUserGlobalTopSegmentEfforts(r.Context(), userID)
+	if err != nil {
+		slog.Error("get global top segment efforts failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get global top segment efforts", r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"efforts": efforts,
+		"count":   len(efforts),
+	})
+}

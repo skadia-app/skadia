@@ -1344,6 +1344,68 @@ func (db *DB) GetUserSegmentPRs(ctx context.Context, userID string) ([]model.Seg
 	return efforts, nil
 }
 
+// GlobalTopSegmentEffort wraps a SegmentEffort with the segment's current athlete count,
+// so the frontend can render "#rank von N" labels.
+type GlobalTopSegmentEffort struct {
+	model.SegmentEffort
+	AthleteCount int `json:"athlete_count"`
+}
+
+// GetUserGlobalTopSegmentEfforts returns all segment efforts where the user is ranked
+// rank_overall <= 10 and the effort is in the leaderboard.
+// Ordered by rank_overall ASC, then segment name ASC.
+func (db *DB) GetUserGlobalTopSegmentEfforts(ctx context.Context, userID string) ([]GlobalTopSegmentEffort, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT se.id, se.segment_id, se.segment_version_id, se.activity_id,
+		       se.user_id, se.started_at, se.elapsed_time_s,
+		       se.is_reverse, se.sport_type, se.sub_type, se.gear_id,
+		       se.avg_power_w, se.avg_heart_rate, se.avg_speed_ms,
+		       se.rank_overall, se.is_personal_best, se.personal_rank, se.is_segment_record,
+		       se.in_leaderboard, se.created_at,
+		       s.name AS segment_name,
+		       NULL::text AS display_name,
+		       NULL::text AS gear_name,
+		       s.athlete_count
+		FROM segment_efforts se
+		JOIN segments s ON s.id = se.segment_id
+		WHERE se.user_id = $1
+		  AND se.rank_overall IS NOT NULL
+		  AND se.rank_overall <= 10
+		  AND se.in_leaderboard = true
+		ORDER BY se.rank_overall ASC, s.name ASC`,
+		userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user global top segment efforts: %w", err)
+	}
+	defer rows.Close()
+
+	var efforts []GlobalTopSegmentEffort
+	for rows.Next() {
+		var e GlobalTopSegmentEffort
+		err := rows.Scan(
+			&e.ID, &e.SegmentID, &e.SegmentVersionID, &e.ActivityID,
+			&e.UserID, &e.StartedAt, &e.ElapsedTimeS,
+			&e.IsReverse, &e.SportType, &e.SubType, &e.GearID,
+			&e.AvgPowerW, &e.AvgHeartRate, &e.AvgSpeedMs,
+			&e.RankOverall, &e.IsPersonalBest, &e.PersonalRank, &e.IsSegmentRecord,
+			&e.InLeaderboard, &e.CreatedAt,
+			&e.SegmentName, &e.DisplayName, &e.GearName,
+			&e.AthleteCount,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan global top segment effort: %w", err)
+		}
+		efforts = append(efforts, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get user global top segment efforts: %w", err)
+	}
+	if efforts == nil {
+		efforts = []GlobalTopSegmentEffort{}
+	}
+	return efforts, nil
+}
+
 func encodeCursor(t time.Time, id string) string {
 	raw := t.Format(time.RFC3339Nano) + "|" + id
 	return base64.StdEncoding.EncodeToString([]byte(raw))
