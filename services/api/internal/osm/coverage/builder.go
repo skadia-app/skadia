@@ -45,7 +45,7 @@ func DefaultNoiseSettings() NoiseSettings {
 		Wind:       NoiseSourceConfig{true, 200},
 		Shooting:   NoiseSourceConfig{false, 400},
 		Military:   NoiseSourceConfig{true, 500},
-		Industrial: NoiseSourceConfig{true, 200},
+		Industrial: NoiseSourceConfig{false, 200}, // disabled: landuse=industrial includes solar farms (not noise sources)
 	}
 }
 
