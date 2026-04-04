@@ -107,6 +107,22 @@ type StreamPoint struct {
 	DeveloperFields map[string]any `json:"developer_fields,omitempty"`
 }
 
+// StreamPointLight is a minimal projection of activity_streams used by
+// RecalcAll. Only the 5 columns accessed by the compute functions are fetched,
+// reducing network/memory overhead by ~16× vs StreamPoint.
+//
+// NOTE(E-6): The Compute* functions in bestefforts/compute.go still accept
+// []StreamPoint. Integration of StreamPointLight requires refactoring those
+// signatures to an interface or a generic type. Until then, the getter exists
+// but RecalcAll continues to use GetStreamPoints. See the TODO in service.go.
+type StreamPointLight struct {
+	Time         time.Time
+	DistanceM    *float64
+	AltitudeM    *float64
+	PowerW       *int16
+	GpsAccuracyM *int16
+}
+
 // StreamResponse is the API response for the streams endpoint.
 type StreamResponse struct {
 	Time            time.Time `json:"time"`

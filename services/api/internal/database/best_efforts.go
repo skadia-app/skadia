@@ -364,6 +364,67 @@ func (db *DB) GetBestEffortRecalcIDs(ctx context.Context, userID string) ([]stri
 	return ids, rows.Err()
 }
 
+// GetBestEffortRecalcActivities returns all activities eligible for best effort
+// computation for a user with full ActivityInfo, in chronological order.
+// This combines the logic of GetBestEffortRecalcIDs + GetBestEffortActivityInfo
+// into a single query, eliminating the N+1 pattern in RecalcAll.
+func (db *DB) GetBestEffortRecalcActivities(ctx context.Context, userID string) ([]bestefforts.ActivityInfo, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT
+		     a.id,
+		     a.user_id,
+		     a.sport_type,
+		     COALESCE(a.sub_type, ''),
+		     COALESCE(a.is_indoor, false),
+		     COALESCE(a.is_virtual, false),
+		     COALESCE(a.is_electric, false),
+		     a.started_at,
+		     COALESCE(a.distance_m, 0),
+		     COALESCE(a.elevation_gain_m, 0),
+		     COALESCE(a.elapsed_time_s, 0),
+		     COALESCE((SELECT MAX(elevation_gain_m) FROM activity_climbs WHERE activity_id = a.id), 0)
+		 FROM activities a
+		 WHERE a.user_id = $1
+		   AND a.deleted_at IS NULL
+		   AND NOT COALESCE(a.exclude_from_stats, false)
+		   AND NOT COALESCE(a.is_group_secondary, false)
+		   AND NOT COALESCE(a.is_fusion_source, false)
+		   AND (a.num_sessions IS NULL OR a.num_sessions <= 1)
+		 ORDER BY a.started_at ASC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get best effort recalc activities: %w", err)
+	}
+	defer rows.Close()
+
+	var activities []bestefforts.ActivityInfo
+	for rows.Next() {
+		var info bestefforts.ActivityInfo
+		if err := rows.Scan(
+			&info.ID,
+			&info.UserID,
+			&info.SportType,
+			&info.SubType,
+			&info.IsIndoor,
+			&info.IsVirtual,
+			&info.IsElectric,
+			&info.StartedAt,
+			&info.DistanceM,
+			&info.ElevationGainM,
+			&info.ElapsedTimeS,
+			&info.BiggestClimbM,
+		); err != nil {
+			return nil, fmt.Errorf("scan best effort recalc activity: %w", err)
+		}
+		activities = append(activities, info)
+	}
+	if activities == nil {
+		activities = []bestefforts.ActivityInfo{}
+	}
+	return activities, rows.Err()
+}
+
 // GetBestEffortActivityInfo loads the activity metadata required to compute
 // best efforts for a single activity.
 func (db *DB) GetBestEffortActivityInfo(ctx context.Context, activityID string) (*bestefforts.ActivityInfo, error) {
