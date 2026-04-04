@@ -20,14 +20,17 @@ import { CATEGORY_LABELS, categoryLabel as getCategoryLabel, formatBestEffortVal
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const SPORT_GROUPS = [
-  { value: '', label: 'Alle' },
-  { value: 'running', label: 'Laufen' },
-  { value: 'cycling', label: 'Radfahren' },
-  { value: 'hiking', label: 'Wandern' },
-  { value: 'swim_pool', label: 'Schwimmen (Becken)' },
-  { value: 'swim_ow', label: 'Schwimmen (Freiwasser)' },
-]
+const SPORT_GROUP_LABELS: Record<string, string> = {
+  running:          'Laufen',
+  running_indoor:   'Laufen (Indoor)',
+  running_virtual:  'Laufen (Virtuell)',
+  cycling:          'Radfahren',
+  cycling_electric: 'E-Bike',
+  cycling_virtual:  'Radfahren (Virtuell)',
+  hiking:           'Wandern',
+  swim_pool:        'Schwimmen (Becken)',
+  swim_ow:          'Schwimmen (Freiwasser)',
+}
 
 const CURRENT_YEAR = new Date().getFullYear()
 const YEAR_OPTIONS = [
@@ -80,6 +83,94 @@ function PowerNote() {
     >
       ?
     </span>
+  )
+}
+
+// ── Overview Grid (Alle-Ansicht) ───────────────────────────────────────────
+
+interface OverviewGridProps {
+  records: BestEffortRanked[]
+}
+
+/** For the "Alle" view: one compact card per sport group, showing only #1 per category as a horizontal tag row. */
+function OverviewGrid({ records }: OverviewGridProps) {
+  // Only #1 records
+  const topRecords = useMemo(() => records.filter((r) => r.rank === 1), [records])
+
+  // Group by sport_group, preserving label order
+  const groups = useMemo(() => {
+    const map = new Map<string, BestEffortRanked[]>()
+    for (const r of topRecords) {
+      if (!map.has(r.sport_group)) map.set(r.sport_group, [])
+      map.get(r.sport_group)!.push(r)
+    }
+    // Sort by known label order, unknowns at end
+    const knownOrder = Object.keys(SPORT_GROUP_LABELS)
+    return Array.from(map.entries()).sort(([a], [b]) => {
+      const ia = knownOrder.indexOf(a)
+      const ib = knownOrder.indexOf(b)
+      if (ia === -1 && ib === -1) return a.localeCompare(b)
+      if (ia === -1) return 1
+      if (ib === -1) return -1
+      return ia - ib
+    })
+  }, [topRecords])
+
+  if (topRecords.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-3 text-neutral-400 dark:text-neutral-500">
+        <Trophy className="w-10 h-10 opacity-30" />
+        <p className="text-sm">Noch keine Bestleistungen vorhanden</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {groups.map(([group, entries]) => {
+        // Sort entries by CATEGORY_KEYS order
+        const sorted = entries.slice().sort((a, b) => {
+          const ia = CATEGORY_KEYS.indexOf(a.category)
+          const ib = CATEGORY_KEYS.indexOf(b.category)
+          if (ia === -1 && ib === -1) return a.category.localeCompare(b.category)
+          if (ia === -1) return 1
+          if (ib === -1) return -1
+          return ia - ib
+        })
+        const groupLabel = SPORT_GROUP_LABELS[group] ?? group
+
+        return (
+          <div
+            key={group}
+            className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-hidden"
+          >
+            <div className="px-4 py-2.5 bg-neutral-50 dark:bg-neutral-800/60 border-b border-neutral-100 dark:border-neutral-800">
+              <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{groupLabel}</span>
+            </div>
+            <div className="px-4 py-3 flex flex-wrap gap-2">
+              {sorted.map((record) => (
+                <Link
+                  key={record.id}
+                  to={`/activities/${record.activity_id}`}
+                  title={`${getCategoryLabel(record.category)} — ${fmtDateMedium(record.achieved_at)}`}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors',
+                    'bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700',
+                    'text-neutral-700 dark:text-neutral-300',
+                    'border border-transparent hover:border-neutral-300 dark:hover:border-neutral-600',
+                  )}
+                >
+                  <span className="text-neutral-500 dark:text-neutral-400">{getCategoryLabel(record.category)}:</span>
+                  <span className="font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
+                    {formatBestEffortValue(record.category, record.elapsed_time_s, record.value_numeric)}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -145,9 +236,8 @@ function RecordsTable({ records, showPowerNote, onExclude, excludingKey }: Recor
                       to={`/activities/${record.activity_id}`}
                       className="text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:text-accent-DEFAULT dark:hover:text-accent-DEFAULT transition-colors truncate block"
                     >
-                      Aktivität ansehen
+                      {fmtDateMedium(record.achieved_at)}
                     </Link>
-                    <span className="text-xs text-neutral-400">{fmtDateMedium(record.achieved_at)}</span>
                   </div>
                   <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums shrink-0">
                     {formatBestEffortValue(record.category, record.elapsed_time_s, record.value_numeric)}
@@ -242,11 +332,8 @@ function SegmentPRsTable({ efforts }: SegmentPRsTableProps) {
                       to={`/activities/${effort.activity_id}`}
                       className="text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:text-accent-DEFAULT dark:hover:text-accent-DEFAULT transition-colors truncate block"
                     >
-                      Aktivität ansehen
-                    </Link>
-                    <span className="text-xs text-neutral-400">
                       {fmtDateMedium(effort.started_at)}
-                    </span>
+                    </Link>
                   </div>
                   <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums shrink-0">
                     {fmtDuration(effort.elapsed_time_s)}
@@ -351,6 +438,27 @@ export default function PersonalRecordsPage() {
   })
   const segmentPRs = segmentPRsData?.efforts ?? []
 
+  // Dynamic sport chips: extract groups present in the "Alle" data.
+  // We always fetch with sport_group='' (all) so we can derive available groups.
+  const { data: allRecords = [] } = useQuery({
+    queryKey: ['personal-records', '', selectedYear],
+    queryFn: () => fetchPersonalRecords({ year: selectedYear || undefined }),
+    staleTime: 2 * 60 * 1000,
+  })
+
+  const availableGroups = useMemo(() => {
+    const groups = new Set(allRecords.map((r) => r.sport_group))
+    const knownOrder = Object.keys(SPORT_GROUP_LABELS)
+    return Array.from(groups).sort((a, b) => {
+      const ia = knownOrder.indexOf(a)
+      const ib = knownOrder.indexOf(b)
+      if (ia === -1 && ib === -1) return a.localeCompare(b)
+      if (ia === -1) return 1
+      if (ib === -1) return -1
+      return ia - ib
+    })
+  }, [allRecords])
+
   const excludeMutation = useMutation({
     mutationFn: ({ activityId, category }: { activityId: string; category: string }) =>
       addExclusion(activityId, category),
@@ -414,6 +522,8 @@ export default function PersonalRecordsPage() {
     reincludeMutation.mutate({ activityId, category })
   }
 
+  const isOverview = selectedGroup === ''
+
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
@@ -445,20 +555,32 @@ export default function PersonalRecordsPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-5">
-        {/* Sport group chips */}
+        {/* Sport group chips — dynamic based on available data */}
         <div className="flex flex-wrap gap-1.5">
-          {SPORT_GROUPS.map((group) => (
+          {/* "Alle" chip — always present */}
+          <button
+            onClick={() => setSelectedGroup('')}
+            className={cn(
+              'px-3 py-1 rounded-full text-sm font-medium transition-colors',
+              selectedGroup === ''
+                ? 'bg-accent-DEFAULT text-white'
+                : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700',
+            )}
+          >
+            Alle
+          </button>
+          {availableGroups.map((group) => (
             <button
-              key={group.value}
-              onClick={() => setSelectedGroup(group.value)}
+              key={group}
+              onClick={() => setSelectedGroup(group)}
               className={cn(
                 'px-3 py-1 rounded-full text-sm font-medium transition-colors',
-                selectedGroup === group.value
+                selectedGroup === group
                   ? 'bg-accent-DEFAULT text-white'
                   : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700',
               )}
             >
-              {group.label}
+              {SPORT_GROUP_LABELS[group] ?? group}
             </button>
           ))}
         </div>
@@ -494,8 +616,13 @@ export default function PersonalRecordsPage() {
         </div>
       )}
 
-      {/* Tabs */}
-      {!isLoading && !isError && (
+      {/* Overview grid for "Alle", tabbed view for specific sport groups */}
+      {!isLoading && !isError && isOverview && (
+        <OverviewGrid records={records} />
+      )}
+
+      {/* Tabbed view — only shown when a specific sport group is selected */}
+      {!isLoading && !isError && !isOverview && (
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="w-full justify-start overflow-x-auto flex-nowrap gap-0">
             <TabsTrigger value="distanz">
