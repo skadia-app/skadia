@@ -14,7 +14,7 @@ import (
 func makeStream(n int, speedMs float64) []model.StreamPoint {
 	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	pts := make([]model.StreamPoint, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		dist := speedMs * float64(i)
 		alt := 100.0
 		pts[i] = model.StreamPoint{
@@ -27,8 +27,12 @@ func makeStream(n int, speedMs float64) []model.StreamPoint {
 }
 
 // ptr helpers
-func f64(v float64) *float64 { return &v }
-func i16(v int16) *int16     { return &v }
+//
+//go:fix inline
+func f64(v float64) *float64 { return new(v) }
+
+//go:fix inline
+func i16(v int16) *int16 { return new(v) }
 
 // ── Distance tests ────────────────────────────────────────────────────────────
 
@@ -72,7 +76,7 @@ func TestComputeDistanceBestEffort_GPSJump(t *testing.T) {
 	// Second segment: indices 1000–3999 → dist = 3*i+500, range 3500–12497 m (9000 m window).
 	// A 3 km best effort must be found entirely within the second segment.
 	pts := make([]model.StreamPoint, 4000)
-	for i := 0; i < 4000; i++ {
+	for i := range 4000 {
 		dist := 3.0 * float64(i)
 		if i >= 1000 {
 			dist += 500.0 // forward jump of 500 m at index 1000
@@ -104,7 +108,7 @@ func TestComputeDistanceBestEffort_GPSJump(t *testing.T) {
 func makePowerStream(n int, powerW int16) []model.StreamPoint {
 	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	pts := make([]model.StreamPoint, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		p := powerW
 		pts[i] = model.StreamPoint{
 			Time:   t0.Add(time.Duration(i) * time.Second),
@@ -120,7 +124,7 @@ func TestComputePowerBestEffort_5min(t *testing.T) {
 	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	n := 600 // 10 minutes, 1 Hz
 	pts := make([]model.StreamPoint, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		var pw int16 = 100
 		// Seconds 150–449 (inclusive) → 300 seconds of 300 W in the middle.
 		if i >= 150 && i < 450 {
@@ -150,7 +154,7 @@ func TestComputePowerBestEffort_NilIsZero(t *testing.T) {
 	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	n := 300 // 5 minutes total
 	pts := make([]model.StreamPoint, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		pt := model.StreamPoint{
 			Time: t0.Add(time.Duration(i) * time.Second),
 		}
@@ -188,12 +192,12 @@ func TestComputePowerBestEffort_VariableSampling(t *testing.T) {
 	// Target: 60 s best power. Expected winner: 300 W window.
 	pts := make([]model.StreamPoint, 0, 108)
 	ts := t0
-	for i := 0; i < 48; i++ {
+	for range 48 {
 		pw := int16(200)
 		pts = append(pts, model.StreamPoint{Time: ts, PowerW: &pw})
 		ts = ts.Add(5 * time.Second)
 	}
-	for i := 0; i < 60; i++ {
+	for range 60 {
 		pw := int16(300)
 		pts = append(pts, model.StreamPoint{Time: ts, PowerW: &pw})
 		ts = ts.Add(1 * time.Second)
@@ -213,7 +217,7 @@ func TestComputePowerBestEffort_VariableSampling(t *testing.T) {
 	// must yield exactly 200 W (not distorted by sample count).
 	pts5s := make([]model.StreamPoint, 0, 24)
 	ts2 := t0
-	for i := 0; i < 24; i++ {
+	for range 24 {
 		pw := int16(200)
 		pts5s = append(pts5s, model.StreamPoint{Time: ts2, PowerW: &pw})
 		ts2 = ts2.Add(5 * time.Second)
@@ -236,7 +240,7 @@ func TestComputeElevationBestEffort_Basic(t *testing.T) {
 	// 500 pts, 1 m/s ascent rate, 1 Hz → each step +1 m altitude.
 	n := 500
 	pts := make([]model.StreamPoint, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		alt := float64(i) // 0, 1, 2, … 499 m
 		pts[i] = model.StreamPoint{
 			Time:      t0.Add(time.Duration(i) * time.Second),
@@ -260,7 +264,7 @@ func TestComputeElevationBestEffort_TooShort(t *testing.T) {
 	// 50 pts, +1 m each → 49 m total gain
 	n := 50
 	pts := make([]model.StreamPoint, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		alt := float64(i)
 		pts[i] = model.StreamPoint{Time: t0.Add(time.Duration(i) * time.Second), AltitudeM: &alt}
 	}
