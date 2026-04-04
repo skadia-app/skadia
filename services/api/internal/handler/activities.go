@@ -242,6 +242,35 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 		h.DB.InvalidateTerraIncognitaCache(r.Context(), userID)
 	}
 
+	// Side-effect: recalc best efforts when sport_type changes (sport_group may differ).
+	if update.SportType != nil && *update.SportType != existing.SportType && h.BestEfforts != nil {
+		actID := id
+		svc := h.BestEfforts
+		go func() {
+			ctx := context.Background()
+			if err := h.DB.DeleteBestEffortsForActivity(ctx, actID); err != nil {
+				slog.Warn("update activity: delete best efforts failed", "id", actID, "error", err)
+				return
+			}
+			info, err := h.DB.GetBestEffortActivityInfo(ctx, actID)
+			if err != nil {
+				slog.Warn("update activity: get best effort activity info failed", "id", actID, "error", err)
+				return
+			}
+			if info == nil {
+				return
+			}
+			stream, err := h.DB.GetStreamPoints(ctx, actID)
+			if err != nil {
+				slog.Warn("update activity: get stream points for best efforts failed", "id", actID, "error", err)
+				return
+			}
+			if _, err := svc.ComputeForActivity(ctx, *info, stream); err != nil {
+				slog.Warn("update activity: compute best efforts failed", "id", actID, "error", err)
+			}
+		}()
+	}
+
 	httputil.WriteJSON(w, http.StatusOK, activity)
 }
 
