@@ -12,7 +12,7 @@ import RouteSuggestionDialog from '@/components/route-planner/RouteSuggestionDia
 import RouteSaveDialog from '@/components/route-planner/RouteSaveDialog'
 import RouteProfileChart from '@/components/route-planner/RouteProfileChart'
 import RouteSurfacesBar from '@/components/route-planner/RouteSurfacesBar'
-import RouteComparisonPanel from '@/components/route-planner/RouteComparisonPanel'
+import RouteComparisonPanel, { SUGGESTION_COLORS } from '@/components/route-planner/RouteComparisonPanel'
 import type { RouteSuggestion } from '@/api/routes'
 import { useRoutePlanner } from '@/hooks/useRoutePlanner'
 import { getTagTextColor, getTagBadgeStyle } from '@/lib/tagUtils'
@@ -370,6 +370,7 @@ export default function MapPage() {
   const [showSuggestionDialog, setShowSuggestionDialog] = useState(false)
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [routeSuggestions, setRouteSuggestions] = useState<RouteSuggestion[] | null>(null)
+  const suggestionCountRef = useRef(0)
   const [hoveredSuggestion, setHoveredSuggestion] = useState<number | null>(null)
   const [showProfileChart, setShowProfileChart] = useState(false)
   const [bottomBarCollapsed, setBottomBarCollapsed] = useState(false)
@@ -420,7 +421,6 @@ export default function MapPage() {
   }, [planner.segments.length, planner.elevationProfile])
 
   // ── Route Suggestion map layers ──────────────────────────────────────────
-  const SUGGESTION_COLORS = useMemo(() => ['#F97316', '#3B82F6', '#22C55E'], [])
   const SUGGESTION_OFFSETS: [number, number][] = useMemo(() => [[0, 0], [-3, 0], [3, 0]], [])
 
   useEffect(() => {
@@ -428,7 +428,7 @@ export default function MapPage() {
     if (!map) return
 
     const cleanup = () => {
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < suggestionCountRef.current; i++) {
         const layerId = `suggestion-layer-${i}`
         const sourceId = `suggestion-source-${i}`
         if (map.getLayer(layerId)) {
@@ -458,6 +458,9 @@ export default function MapPage() {
     cleanup()
 
     if (!routeSuggestions) return
+
+    // Track how many layers are active so cleanup can iterate the correct count
+    suggestionCountRef.current = Math.min(routeSuggestions.length, 3)
 
     // Add layers for each suggestion (initial opacity/width, hover handled separately)
     routeSuggestions.forEach((s, i) => {
@@ -509,7 +512,7 @@ export default function MapPage() {
     }
 
     return cleanup
-  }, [routeSuggestions, SUGGESTION_COLORS, SUGGESTION_OFFSETS])
+  }, [routeSuggestions, SUGGESTION_OFFSETS])
 
   // Update suggestion layer paint properties on hover without rebuilding layers
   useEffect(() => {
