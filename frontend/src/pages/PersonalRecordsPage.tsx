@@ -12,9 +12,10 @@ import {
   type BestEffortRanked,
   type BestEffortExclusion,
 } from '@/api/bestEfforts'
-import { fmtDuration, fmtDist } from '@/lib/format'
+import { fmtDateMedium } from '@/lib/format'
 import { useToast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
+import { CATEGORY_LABELS, categoryLabel as getCategoryLabel, formatBestEffortValue } from '@/lib/bestEffortLabels'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -64,66 +65,6 @@ function RankBadge({ rank }: { rank: number }) {
   )
 }
 
-// ── Value Formatter ────────────────────────────────────────────────────────
-
-function formatValue(record: BestEffortRanked): string {
-  const cat = record.category
-  if (cat.startsWith(DIST_PREFIX) && record.elapsed_time_s != null) {
-    return fmtDuration(record.elapsed_time_s)
-  }
-  if (cat.startsWith(POWER_PREFIX) && record.value_numeric != null) {
-    return `${record.value_numeric.toFixed(0)} W`
-  }
-  if (cat.startsWith(ELEV_PREFIX) && record.elapsed_time_s != null) {
-    return fmtDuration(record.elapsed_time_s)
-  }
-  if (cat.startsWith(SUP_PREFIX) && record.value_numeric != null) {
-    const key = cat.replace(SUP_PREFIX, '')
-    if (key.includes('duration')) return fmtDuration(record.value_numeric)
-    if (key.includes('distance')) return fmtDist(record.value_numeric)
-    if (key.includes('elevation') || key.includes('climb')) return `${Math.round(record.value_numeric)} m`
-    return record.value_numeric.toLocaleString('de-DE', { maximumFractionDigits: 1 })
-  }
-  // fallback
-  if (record.elapsed_time_s != null) return fmtDuration(record.elapsed_time_s)
-  if (record.value_numeric != null) return record.value_numeric.toLocaleString('de-DE', { maximumFractionDigits: 1 })
-  return '—'
-}
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })
-  } catch {
-    return iso
-  }
-}
-
-// ── Category label ─────────────────────────────────────────────────────────
-
-const CATEGORY_LABELS: Record<string, string> = {
-  dist_400m: '400 m', dist_800m: '800 m', dist_1km: '1 km',
-  dist_1mi: '1 Meile', dist_2mi: '2 Meilen', dist_5km: '5 km',
-  dist_10km: '10 km', dist_15km: '15 km', dist_10mi: '10 Meilen',
-  dist_20km: '20 km', dist_hm: 'Halbmarathon', dist_30km: '30 km',
-  dist_marathon: 'Marathon', dist_50km: '50 km', dist_100km: '100 km',
-  dist_25mi: '25 Meilen', dist_50mi: '50 Meilen', dist_100mi: '100 Meilen',
-  dist_150km: '150 km', dist_200km: '200 km', dist_300km: '300 km',
-  dist_50m: '50 m', dist_100m: '100 m', dist_200m: '200 m',
-  dist_400m_swim: '400 m', dist_800m_swim: '800 m', dist_1500m: '1500 m',
-  dist_2km: '2 km',
-  elev_500hm: '500 Hm', elev_1000hm: '1000 Hm', elev_1500hm: '1500 Hm', elev_2000hm: '2000 Hm',
-  power_5s: '5 Sek', power_30s: '30 Sek', power_1min: '1 Min',
-  power_5min: '5 Min', power_10min: '10 Min', power_20min: '20 Min',
-  power_30min: '30 Min', power_1h: '1 Std', power_2h: '2 Std',
-  sup_longest_distance: 'Längste Distanz',
-  sup_most_elevation: 'Meiste Höhenmeter',
-  sup_biggest_climb: 'Größter Anstieg',
-  sup_longest_duration: 'Längste Dauer',
-}
-
-function getCategoryLabel(cat: string): string {
-  return CATEGORY_LABELS[cat] ?? cat
-}
 
 // ── Power tooltip ──────────────────────────────────────────────────────────
 
@@ -203,10 +144,10 @@ function RecordsTable({ records, showPowerNote, onExclude, excludingKey }: Recor
                     >
                       Aktivität ansehen
                     </Link>
-                    <span className="text-xs text-neutral-400">{formatDate(record.achieved_at)}</span>
+                    <span className="text-xs text-neutral-400">{fmtDateMedium(record.achieved_at)}</span>
                   </div>
                   <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums shrink-0">
-                    {formatValue(record)}
+                    {formatBestEffortValue(record.category, record.elapsed_time_s, record.value_numeric)}
                   </span>
                   {onExclude && (
                     <button

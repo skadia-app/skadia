@@ -2,71 +2,9 @@ import { useState, useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { addExclusion } from '@/api/bestEfforts'
-import { formatDuration } from '@/lib/utils'
 import { useToast } from '@/lib/toast'
+import { categoryLabel, formatBestEffortValue } from '@/lib/bestEffortLabels'
 import type { BestEffortRanked, NearMiss } from '@/api/bestEfforts'
-
-// ── Category label mapping ────────────────────────────────────────────────────
-
-const CATEGORY_LABELS: Record<string, string> = {
-  // Distance (running)
-  dist_400m: '400 m',
-  dist_800m: '800 m',
-  dist_1km: '1 km',
-  dist_1mi: '1 Meile',
-  dist_2mi: '2 Meilen',
-  dist_5km: '5 km',
-  dist_10km: '10 km',
-  dist_15km: '15 km',
-  dist_10mi: '10 Meilen',
-  dist_20km: '20 km',
-  dist_hm: 'Halbmarathon',
-  dist_30km: '30 km',
-  dist_marathon: 'Marathon',
-  dist_50km: '50 km',
-  dist_100km: '100 km',
-  // Distance (cycling)
-  dist_25mi: '25 Meilen',
-  dist_40km: '40 km',
-  dist_50mi: '50 Meilen',
-  dist_100mi: '100 Meilen',
-  dist_150km: '150 km',
-  dist_200km: '200 km',
-  dist_300km: '300 km',
-  // Distance (swim pool)
-  dist_50m: '50 m',
-  dist_100m: '100 m',
-  dist_200m: '200 m',
-  dist_400m_pool: '400 m',
-  dist_800m_pool: '800 m',
-  dist_1500m: '1500 m',
-  // Distance (swim open water)
-  dist_2km: '2 km',
-  // Elevation
-  elev_500hm: '500 Hm',
-  elev_1000hm: '1000 Hm',
-  elev_1500hm: '1500 Hm',
-  elev_2000hm: '2000 Hm',
-  // Power
-  power_5s: '5 Sek',
-  power_30s: '30 Sek',
-  power_1min: '1 Min',
-  power_5min: '5 Min',
-  power_10min: '10 Min',
-  power_20min: '20 Min',
-  power_30min: '30 Min',
-  power_1h: '1 Std',
-  power_2h: '2 Std',
-  // Superlatives
-  sup_longest_distance: 'Längste Distanz',
-  sup_most_elevation: 'Meiste Höhenmeter',
-  sup_biggest_climb: 'Größter Anstieg',
-  sup_longest_duration: 'Längste Dauer',
-}
-
-function categoryLabel(category: string): string {
-  return CATEGORY_LABELS[category] ?? category.replace(/_/g, ' ')
-}
 
 // ── Rank badge styling ────────────────────────────────────────────────────────
 
@@ -88,12 +26,6 @@ function rankLabel(rank: number): string {
   if (rank === 2) return '2. Bestzeit'
   if (rank === 3) return '3. Bestzeit'
   return `${rank}. Bestzeit`
-}
-
-function formatEffortValue(effort: BestEffortRanked): string {
-  if (effort.elapsed_time_s != null) return formatDuration(effort.elapsed_time_s)
-  if (effort.value_numeric != null) return `${Math.round(effort.value_numeric)} W`
-  return '—'
 }
 
 // ── Single effort badge with popover ─────────────────────────────────────────
@@ -135,12 +67,12 @@ function EffortBadge({ effort, activityId, onExcluded }: EffortBadgeProps) {
         type="button"
         onClick={() => setOpen(v => !v)}
         className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold cursor-pointer transition-colors ${style.bg} ${style.text} ${style.border} hover:opacity-80`}
-        title={`${categoryLabel(effort.category)} — ${rankLabel(effort.rank)} — ${formatEffortValue(effort)}`}
+        title={`${categoryLabel(effort.category)} — ${rankLabel(effort.rank)} — ${formatBestEffortValue(effort.category, effort.elapsed_time_s, effort.value_numeric)}`}
       >
         <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: dotColor }} />
         <span>{categoryLabel(effort.category)}</span>
         <span className="opacity-75">{rankLabel(effort.rank)}</span>
-        <span className="font-mono opacity-60">{formatEffortValue(effort)}</span>
+        <span className="font-mono opacity-60">{formatBestEffortValue(effort.category, effort.elapsed_time_s, effort.value_numeric)}</span>
       </button>
 
       {open && (

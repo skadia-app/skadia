@@ -63,17 +63,13 @@ function gctAsymmetryColorStatic(val: number): string {
   return COLOR_RED
 }
 
+// Magnitude-based fatigue coloring — positive = deterioration, negative = improvement
+// < 5% (either direction) → green; 5–15% → amber; > 15% → red; negative → green
 function fatigueColor(val: number): string {
-  const abs = Math.abs(val)
-  if (abs < 5) return COLOR_GREEN
-  if (abs <= 15) return COLOR_AMBER
+  if (val <= 0) return COLOR_GREEN      // negative = improvement
+  if (val < 5)  return COLOR_GREEN
+  if (val <= 15) return COLOR_AMBER
   return COLOR_RED
-}
-
-function fatigueForcedRed(val: number): string {
-  // Positive fatigue = deterioration → always red regardless of magnitude
-  if (val > 0) return COLOR_RED
-  return fatigueColor(val)
 }
 
 // Determine if baseline is usable (≥3 activities with all fields present)
@@ -147,46 +143,15 @@ export function RunningFormCard({ activity }: RunningFormCardProps) {
   const fatigueDuty = activity.running_form_fatigue_duty
   const fatigueVR = activity.running_form_fatigue_vr
 
-  // Compute colors and tooltips for each metric
-  function dutyFactorColor(val: number): string {
-    if (usable && baseline?.duty_factor_median != null) {
-      return baselineRelativeColor(val, baseline.duty_factor_median)
-    }
-    return dutyFactorColorStatic(val)
+  // Generic helpers: delegate to baseline-relative logic when baseline is usable,
+  // otherwise fall through to the static threshold function.
+  function metricColor(val: number, baselineVal: number | null | undefined, staticFn: (v: number) => string): string {
+    if (usable && baselineVal != null) return baselineRelativeColor(val, baselineVal)
+    return staticFn(val)
   }
 
-  function dutyFactorTooltip(val: number): string {
-    if (usable && baseline?.duty_factor_median != null) {
-      return baselineTooltip(val, baseline.duty_factor_median)
-    }
-    return LABELS.tooltipAbsolute
-  }
-
-  function verticalRatioColor(val: number): string {
-    if (usable && baseline?.vertical_ratio_median != null) {
-      return baselineRelativeColor(val, baseline.vertical_ratio_median)
-    }
-    return verticalRatioColorStatic(val)
-  }
-
-  function verticalRatioTooltip(val: number): string {
-    if (usable && baseline?.vertical_ratio_median != null) {
-      return baselineTooltip(val, baseline.vertical_ratio_median)
-    }
-    return LABELS.tooltipAbsolute
-  }
-
-  function gctAsymmetryColor(val: number): string {
-    if (usable && baseline?.gct_asymmetry_median != null) {
-      return baselineRelativeColor(val, baseline.gct_asymmetry_median)
-    }
-    return gctAsymmetryColorStatic(val)
-  }
-
-  function gctAsymmetryTooltip(val: number): string {
-    if (usable && baseline?.gct_asymmetry_median != null) {
-      return baselineTooltip(val, baseline.gct_asymmetry_median)
-    }
+  function metricTooltip(val: number, baselineVal: number | null | undefined): string {
+    if (usable && baselineVal != null) return baselineTooltip(val, baselineVal)
     return LABELS.tooltipAbsolute
   }
 
@@ -207,8 +172,8 @@ export function RunningFormCard({ activity }: RunningFormCardProps) {
           <MetricTile
             label={LABELS.dutyFactor}
             value={dutyFactor.toFixed(2)}
-            colorClass={dutyFactorColor(dutyFactor)}
-            tooltip={dutyFactorTooltip(dutyFactor)}
+            colorClass={metricColor(dutyFactor, baseline?.duty_factor_median, dutyFactorColorStatic)}
+            tooltip={metricTooltip(dutyFactor, baseline?.duty_factor_median)}
           />
         )}
 
@@ -217,8 +182,8 @@ export function RunningFormCard({ activity }: RunningFormCardProps) {
           <MetricTile
             label={LABELS.verticalRatio}
             value={verticalRatio.toFixed(3)}
-            colorClass={verticalRatioColor(verticalRatio)}
-            tooltip={verticalRatioTooltip(verticalRatio)}
+            colorClass={metricColor(verticalRatio, baseline?.vertical_ratio_median, verticalRatioColorStatic)}
+            tooltip={metricTooltip(verticalRatio, baseline?.vertical_ratio_median)}
           />
         )}
 
@@ -227,8 +192,8 @@ export function RunningFormCard({ activity }: RunningFormCardProps) {
           <MetricTile
             label={LABELS.gctAsymmetry}
             value={`${gctAsymmetry.toFixed(1)}%`}
-            colorClass={gctAsymmetryColor(gctAsymmetry)}
-            tooltip={gctAsymmetryTooltip(gctAsymmetry)}
+            colorClass={metricColor(gctAsymmetry, baseline?.gct_asymmetry_median, gctAsymmetryColorStatic)}
+            tooltip={metricTooltip(gctAsymmetry, baseline?.gct_asymmetry_median)}
           />
         )}
 
@@ -237,7 +202,7 @@ export function RunningFormCard({ activity }: RunningFormCardProps) {
           <MetricTile
             label={LABELS.fatigueIndex}
             value={fatigueDuty >= 0 ? `+${fatigueDuty.toFixed(1)}%` : `${fatigueDuty.toFixed(1)}%`}
-            colorClass={fatigueForcedRed(fatigueDuty)}
+            colorClass={fatigueColor(fatigueDuty)}
           />
         )}
 
@@ -246,7 +211,7 @@ export function RunningFormCard({ activity }: RunningFormCardProps) {
           <MetricTile
             label={LABELS.fatigueVR}
             value={fatigueVR >= 0 ? `+${fatigueVR.toFixed(1)}%` : `${fatigueVR.toFixed(1)}%`}
-            colorClass={fatigueForcedRed(fatigueVR)}
+            colorClass={fatigueColor(fatigueVR)}
           />
         )}
       </div>
