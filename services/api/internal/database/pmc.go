@@ -151,6 +151,8 @@ func DeterminePMCSportGroup(sportType string) string {
 		return "running" // includes hiking, walking — PMC is intentionally coarser
 	case "water":
 		return "swimming"
+	case "fitness":
+		return "strength" // strength_training, fitness_equipment, hiit, yoga, pilates, etc.
 	default:
 		return "other"
 	}

@@ -59,6 +59,7 @@ const SPORT_GROUP_LABELS: Record<string, string> = {
   cycling: 'Radfahren',
   running: 'Laufen',
   swimming: 'Schwimmen',
+  strength: 'Kraft',
   hiking: 'Wandern',
   other: 'Andere',
 }
@@ -67,6 +68,7 @@ const SPORT_GROUP_COLORS: Record<string, string> = {
   cycling: '#3b82f6',    // blue-500
   running: '#10b981',    // emerald-500
   swimming: '#06b6d4',   // cyan-500
+  strength: '#a855f7',   // purple-500
   hiking: '#22c55e',     // green-500
   other: '#f59e0b',      // amber-500
 }
