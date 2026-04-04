@@ -1539,6 +1539,43 @@ func (db *DB) GetStreamPoints(ctx context.Context, activityID string) ([]model.S
 	return streams, nil
 }
 
+// GetStreamPointsLightweight fetches only the 5 columns used by the best-effort
+// compute functions: time, distance_m, altitude_m, power_w, gps_accuracy_m.
+// This reduces network/memory overhead by ~16× compared to GetStreamPoints.
+//
+// NOTE(E-6): The Compute* functions in bestefforts/compute.go currently accept
+// []model.StreamPoint. Using this getter in RecalcAll requires either:
+//   a) Refactoring Compute* signatures to a generic/interface type, or
+//   b) Adapting the service layer to work with StreamPointLight directly.
+// Until that refactor, RecalcAll uses GetStreamPoints and this getter is
+// available for the future migration.
+func (db *DB) GetStreamPointsLightweight(ctx context.Context, activityID string) ([]model.StreamPointLight, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT time, distance_m, altitude_m, power_w, gps_accuracy_m
+		 FROM activity_streams
+		 WHERE activity_id = $1
+		 ORDER BY time ASC`,
+		activityID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get stream points lightweight: %w", err)
+	}
+	defer rows.Close()
+
+	var points []model.StreamPointLight
+	for rows.Next() {
+		var p model.StreamPointLight
+		if err := rows.Scan(&p.Time, &p.DistanceM, &p.AltitudeM, &p.PowerW, &p.GpsAccuracyM); err != nil {
+			return nil, fmt.Errorf("scan stream point lightweight: %w", err)
+		}
+		points = append(points, p)
+	}
+	if points == nil {
+		points = []model.StreamPointLight{}
+	}
+	return points, rows.Err()
+}
+
 // ListActivityIDsForUser returns all activity IDs belonging to the given user.
 func (db *DB) ListActivityIDsForUser(ctx context.Context, userID string) ([]string, error) {
 	rows, err := db.Pool.Query(ctx,

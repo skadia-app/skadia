@@ -46,9 +46,19 @@ type Store interface {
 	BatchUpsertBestEffortRecs(ctx context.Context, records []BestEffortRecord) error
 	DeleteAllBestEfforts(ctx context.Context, userID string) error
 	GetBestEffortsForActivityRec(ctx context.Context, activityID, userID string) ([]BestEffortRankedRecord, error)
-	GetBestEffortRecalcIDs(ctx context.Context, userID string) ([]string, error)
+	// GetBestEffortRecalcActivities replaces the former GetBestEffortRecalcIDs +
+	// GetBestEffortActivityInfo pair used in RecalcAll. A single query returns
+	// all eligible activities with full metadata, eliminating the N+1 pattern.
+	GetBestEffortRecalcActivities(ctx context.Context, userID string) ([]ActivityInfo, error)
+	// GetBestEffortActivityInfo is retained for single-activity compute paths
+	// (e.g. triggered after import or edit).
 	GetBestEffortActivityInfo(ctx context.Context, activityID string) (*ActivityInfo, error)
 	GetStreamPoints(ctx context.Context, activityID string) ([]model.StreamPoint, error)
+	// GetStreamPointsLightweight fetches only the 5 columns accessed by the
+	// Compute* functions (time, distance_m, altitude_m, power_w, gps_accuracy_m).
+	// See NOTE(E-6) in model/stream.go: integration into RecalcAll requires
+	// refactoring the Compute* signatures first.
+	GetStreamPointsLightweight(ctx context.Context, activityID string) ([]model.StreamPointLight, error)
 }
 
 // Service coordinates best-effort computation and persistence for a single
@@ -124,30 +134,27 @@ func (s *Service) RecalcAll(ctx context.Context, userID string, progressFn func(
 		return fmt.Errorf("delete all best efforts: %w", err)
 	}
 
-	ids, err := s.Store.GetBestEffortRecalcIDs(ctx, userID)
+	// E-1: single query instead of GetBestEffortRecalcIDs + per-activity
+	// GetBestEffortActivityInfo — eliminates the N+1 DB round-trips.
+	activities, err := s.Store.GetBestEffortRecalcActivities(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("get recalc ids: %w", err)
+		return fmt.Errorf("get recalc activities: %w", err)
 	}
 
-	total := len(ids)
+	total := len(activities)
 
-	for i, id := range ids {
-		info, err := s.Store.GetBestEffortActivityInfo(ctx, id)
+	for i, info := range activities {
+		// TODO(E-6): replace GetStreamPoints with GetStreamPointsLightweight once
+		// the Compute* function signatures are refactored to accept StreamPointLight
+		// (or a generic/interface type). Converting Light→StreamPoint would negate
+		// the ~16× memory saving and is therefore not done here.
+		stream, err := s.Store.GetStreamPoints(ctx, info.ID)
 		if err != nil {
-			return fmt.Errorf("get activity info for %s: %w", id, err)
-		}
-		if info == nil {
-			// Activity was deleted or is no longer eligible; skip silently.
-			continue
+			return fmt.Errorf("get stream points for %s: %w", info.ID, err)
 		}
 
-		stream, err := s.Store.GetStreamPoints(ctx, id)
-		if err != nil {
-			return fmt.Errorf("get stream points for %s: %w", id, err)
-		}
-
-		if _, err := s.ComputeForActivity(ctx, *info, stream); err != nil {
-			slog.ErrorContext(ctx, "best efforts: compute failed", "activity_id", id, "error", err)
+		if _, err := s.ComputeForActivity(ctx, info, stream); err != nil {
+			slog.ErrorContext(ctx, "best efforts: compute failed", "activity_id", info.ID, "error", err)
 			// Non-fatal: continue with remaining activities.
 		}
 
