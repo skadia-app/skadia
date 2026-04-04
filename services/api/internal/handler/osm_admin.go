@@ -88,7 +88,8 @@ func (h *Handler) GetOSMStatus(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetOSMRegionStatus(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.Pool.Query(r.Context(), `
 		SELECT region_id, label, continent, imported_at, pbf_date,
-		       pbf_size_bytes, import_duration_s, categories, status
+		       pbf_size_bytes, import_duration_s, categories, status,
+		       data_date, update_interval, replication_url, last_updated_at
 		FROM osm_import_regions ORDER BY continent, label`)
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
@@ -106,17 +107,32 @@ func (h *Handler) GetOSMRegionStatus(w http.ResponseWriter, r *http.Request) {
 		ImportDurationS *int     `json:"import_duration_s"`
 		Categories      []string `json:"categories"`
 		Status          string   `json:"status"`
+		DataDate        *string  `json:"data_date"`
+		UpdateInterval  string   `json:"update_interval"`
+		ReplicationURL  *string  `json:"replication_url"`
+		LastUpdatedAt   *string  `json:"last_updated_at"`
 	}
 	var regions []region
 	for rows.Next() {
 		var reg region
 		var importedAt time.Time
+		var dataDate *time.Time
+		var lastUpdatedAt *time.Time
 		if err := rows.Scan(&reg.RegionID, &reg.Label, &reg.Continent, &importedAt,
-			&reg.PBFDate, &reg.PBFSizeBytes, &reg.ImportDurationS, &reg.Categories, &reg.Status); err != nil {
+			&reg.PBFDate, &reg.PBFSizeBytes, &reg.ImportDurationS, &reg.Categories, &reg.Status,
+			&dataDate, &reg.UpdateInterval, &reg.ReplicationURL, &lastUpdatedAt); err != nil {
 			slog.Warn("osm regions: scan failed", "error", err)
 			continue
 		}
 		reg.ImportedAt = importedAt.Format(time.RFC3339)
+		if dataDate != nil {
+			s := dataDate.Format(time.RFC3339)
+			reg.DataDate = &s
+		}
+		if lastUpdatedAt != nil {
+			s := lastUpdatedAt.Format(time.RFC3339)
+			reg.LastUpdatedAt = &s
+		}
 		regions = append(regions, reg)
 	}
 	if regions == nil {
