@@ -22,6 +22,22 @@ func (h *Handler) ExportUserData(w http.ResponseWriter, r *http.Request) {
 	var buf zippedBuffer
 	zw := zip.NewWriter(&buf)
 
+	// Best Efforts
+	bestEfforts, err := h.DB.ExportBestEfforts(ctx, userID)
+	if err != nil {
+		slog.Error("gdpr export: get best_efforts failed", "user", userID, "error", err)
+	} else if len(bestEfforts) > 0 {
+		writeJSON(zw, "best_efforts.json", bestEfforts)
+	}
+
+	// Best Effort Exclusions
+	bestEffortExclusions, err := h.DB.ExportBestEffortExclusions(ctx, userID)
+	if err != nil {
+		slog.Error("gdpr export: get best_effort_exclusions failed", "user", userID, "error", err)
+	} else if len(bestEffortExclusions) > 0 {
+		writeJSON(zw, "best_effort_exclusions.json", bestEffortExclusions)
+	}
+
 	// Recording Groups
 	groups, _ := h.DB.GetRecordingGroupsForUser(ctx, userID, 0, 0)
 	if len(groups) > 0 {
