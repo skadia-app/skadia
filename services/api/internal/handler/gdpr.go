@@ -28,6 +28,18 @@ func (h *Handler) ExportUserData(w http.ResponseWriter, r *http.Request) {
 		writeJSON(zw, "recording_groups.json", groups)
 	}
 
+	// Developer Apps
+	devApps, _ := h.DB.GetDeveloperAppsForGDPR(ctx, userID)
+	if len(devApps) > 0 {
+		writeJSON(zw, "developer_apps.json", devApps)
+	}
+
+	// Routing Profiles
+	routingProfiles, _ := h.DB.ExportRoutingProfiles(ctx, userID)
+	if len(routingProfiles) > 0 {
+		writeJSON(zw, "routing_profiles.json", routingProfiles)
+	}
+
 	if err := zw.Close(); err != nil {
 		slog.Error("gdpr export: close zip writer", "user_id", userID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to build export archive", r.URL.Path)
