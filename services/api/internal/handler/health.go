@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -27,8 +28,9 @@ type Handler struct {
 	CoverageReader  *coverage.DiskCoverageReader // nil when coverage binaries are not available
 	PNGCache        *coverage.PNGCache           // LRU cache for rendered PNG tiles
 
-	PMC          *pmc.Service      // TSS/PMC recomputation service
-	recomputeJob recomputeJobState // in-memory state for async recompute-all
+	PMC          *pmc.Service          // TSS/PMC recomputation service
+	BestEfforts  *bestefforts.Service  // best effort computation service
+	recomputeJob recomputeJobState     // in-memory state for async recompute-all
 }
 
 type HandlerConfig struct {
