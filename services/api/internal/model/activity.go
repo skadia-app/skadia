@@ -367,14 +367,15 @@ type UploadResponse struct {
 // This is intentional: TSB describes readiness before today's load, while CTL
 // and ATL describe fitness/fatigue after today's load.
 type PMCDay struct {
-	UserID string  `json:"-"`
-	Date   string  `json:"date"`
-	TSS    float64 `json:"tss"`
-	CTL    float64 `json:"ctl"`
-	ATL    float64 `json:"atl"`
-	TSB    float64 `json:"tsb"`
-	ACWR   float64 `json:"acwr"`    // EWMA ATL/CTL — computed on read in database/pmc.go
-	ACWRRA float64 `json:"acwr_ra"` // Rolling Average 7:28 uncoupled — computed during recompute
+	UserID     string  `json:"-"`
+	Date       string  `json:"date"`
+	TSS        float64 `json:"tss"`
+	CTL        float64 `json:"ctl"`
+	ATL        float64 `json:"atl"`
+	TSB        float64 `json:"tsb"`
+	ACWR       float64 `json:"acwr"`              // EWMA ATL/CTL — computed on read in database/pmc.go
+	ACWRRA     float64 `json:"acwr_ra"`           // Rolling Average 7:28 uncoupled — computed during recompute
+	SportGroup string  `json:"sport_group,omitempty"` // empty = "__combined__" (legacy), sport-specific rows use e.g. "cycling"
 }
 
 // ProblemDetail is an RFC 7807 error response.
