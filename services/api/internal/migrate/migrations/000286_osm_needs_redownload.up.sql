@@ -1,4 +1,4 @@
--- 000281_osm_needs_redownload.up.sql
+-- 000286_osm_needs_redownload.up.sql
 
 -- Erweitere Status-CHECK um 'needs_redownload'
 ALTER TABLE osm_import_regions DROP CONSTRAINT IF EXISTS osm_import_regions_status_check;

@@ -1,4 +1,4 @@
--- 000281_osm_needs_redownload.down.sql
+-- 000286_osm_needs_redownload.down.sql
 
 -- Setze needs_redownload Regionen auf 'failed' zurück
 UPDATE osm_import_regions SET status = 'failed' WHERE status = 'needs_redownload';
