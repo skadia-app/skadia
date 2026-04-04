@@ -39,7 +39,7 @@ const SPORT_GROUP_LABELS: Record<string, string> = {
 
 const CURRENT_YEAR = new Date().getFullYear()
 const YEAR_OPTIONS = [
-  { value: '', label: 'All-Time' },
+  { value: '', label: 'Gesamt' },
   { value: String(CURRENT_YEAR), label: String(CURRENT_YEAR) },
   { value: String(CURRENT_YEAR - 1), label: String(CURRENT_YEAR - 1) },
   { value: String(CURRENT_YEAR - 2), label: String(CURRENT_YEAR - 2) },
@@ -53,6 +53,19 @@ const SUP_PREFIX = 'sup_'
 
 // E-9: Extracted once to avoid O(n) indexOf inside sort comparator
 const CATEGORY_KEYS = Object.keys(CATEGORY_LABELS)
+const SPORT_GROUP_ORDER = Object.keys(SPORT_GROUP_LABELS)
+
+// Sort helper: order by known key list, unknowns at end
+function sortByKnownOrder<T>(items: T[], keyFn: (item: T) => string, order: string[]): T[] {
+  return [...items].sort((a, b) => {
+    const ia = order.indexOf(keyFn(a))
+    const ib = order.indexOf(keyFn(b))
+    if (ia === -1 && ib === -1) return keyFn(a).localeCompare(keyFn(b))
+    if (ia === -1) return 1
+    if (ib === -1) return -1
+    return ia - ib
+  })
+}
 
 // ── Rank Badge ─────────────────────────────────────────────────────────────
 
@@ -109,16 +122,7 @@ function OverviewGrid({ records }: OverviewGridProps) {
       if (!map.has(r.sport_group)) map.set(r.sport_group, [])
       map.get(r.sport_group)!.push(r)
     }
-    // Sort by known label order, unknowns at end
-    const knownOrder = Object.keys(SPORT_GROUP_LABELS)
-    return Array.from(map.entries()).sort(([a], [b]) => {
-      const ia = knownOrder.indexOf(a)
-      const ib = knownOrder.indexOf(b)
-      if (ia === -1 && ib === -1) return a.localeCompare(b)
-      if (ia === -1) return 1
-      if (ib === -1) return -1
-      return ia - ib
-    })
+    return sortByKnownOrder(Array.from(map.entries()), ([k]) => k, SPORT_GROUP_ORDER)
   }, [topRecords])
 
   if (topRecords.length === 0) {
@@ -522,8 +526,9 @@ export default function PersonalRecordsPage() {
   })
   const globalTopEfforts = globalTopData?.efforts ?? []
 
-  // Dynamic sport chips: extract groups present in the "Alle" data.
-  // We always fetch with sport_group='' (all) so we can derive available groups.
+  // Dynamic sport chips: always fetch sport_group='' to derive available groups.
+  // When selectedGroup='' this duplicates the main query key — React Query deduplicates
+  // via cache, so no extra network request occurs.
   const { data: allRecords = [] } = useQuery({
     queryKey: ['personal-records', '', selectedYear],
     queryFn: () => fetchPersonalRecords({ year: selectedYear || undefined }),
@@ -531,16 +536,8 @@ export default function PersonalRecordsPage() {
   })
 
   const availableGroups = useMemo(() => {
-    const groups = new Set(allRecords.map((r) => r.sport_group))
-    const knownOrder = Object.keys(SPORT_GROUP_LABELS)
-    return Array.from(groups).sort((a, b) => {
-      const ia = knownOrder.indexOf(a)
-      const ib = knownOrder.indexOf(b)
-      if (ia === -1 && ib === -1) return a.localeCompare(b)
-      if (ia === -1) return 1
-      if (ib === -1) return -1
-      return ia - ib
-    })
+    const groups = Array.from(new Set(allRecords.map((r) => r.sport_group)))
+    return sortByKnownOrder(groups, g => g, SPORT_GROUP_ORDER)
   }, [allRecords])
 
   const excludeMutation = useMutation({
@@ -702,7 +699,27 @@ export default function PersonalRecordsPage() {
 
       {/* Overview grid for "Alle", tabbed view for specific sport groups */}
       {!isLoading && !isError && isOverview && (
-        <OverviewGrid records={records} />
+        <>
+          <OverviewGrid records={records} />
+          {/* Segmente sind sport-agnostisch — auch in "Alle" anzeigen */}
+          {(segmentPRs.length > 0 || globalTopEfforts.length > 0) && (
+            <div className="mt-8 space-y-6">
+              <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Segmente</h2>
+              {segmentPRs.length > 0 && (
+                <section>
+                  <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-3">Persönliche Bestzeiten (Top 3)</h3>
+                  <SegmentPRsTable efforts={segmentPRs} />
+                </section>
+              )}
+              {globalTopEfforts.length > 0 && (
+                <section>
+                  <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-3">Globale Top 10</h3>
+                  <GlobalTopTable efforts={globalTopEfforts} />
+                </section>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {/* Tabbed view — only shown when a specific sport group is selected */}
