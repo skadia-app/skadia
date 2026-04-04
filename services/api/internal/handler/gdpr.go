@@ -37,7 +37,10 @@ func (h *Handler) ExportUserData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Routing Profiles
-	routingProfiles, _ := h.DB.ExportRoutingProfiles(ctx, userID)
+	routingProfiles, err := h.DB.ExportRoutingProfiles(ctx, userID)
+	if err != nil {
+		slog.Warn("gdpr export: routing profiles failed", "user_id", userID, "error", err)
+	}
 	if len(routingProfiles) > 0 {
 		writeJSON(zw, "routing_profiles.json", routingProfiles)
 	}

@@ -346,6 +346,11 @@ func (h *Handler) HandleImportProfiles(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "no files provided", r.URL.Path)
 		return
 	}
+	if len(files) > 50 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
+			"too many files (max 50)", r.URL.Path)
+		return
+	}
 
 	type importResult struct {
 		Name    string `json:"name"`
