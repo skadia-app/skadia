@@ -313,6 +313,56 @@ func (db *DB) GetBestEffortActivityInfo(ctx context.Context, activityID string) 
 	return &info, nil
 }
 
+// ---- bestefforts.Store adapter methods ----
+// These thin wrappers allow *DB to satisfy the bestefforts.Store interface
+// without importing the bestefforts package from service.go (which would
+// create an import cycle, since this file already imports bestefforts).
+
+// UpsertBestEffortRec converts a bestefforts.BestEffortRecord to a BestEffort
+// and delegates to UpsertBestEffort. This satisfies bestefforts.Store.
+func (db *DB) UpsertBestEffortRec(ctx context.Context, be bestefforts.BestEffortRecord) error {
+	return db.UpsertBestEffort(ctx, BestEffort{
+		ID:             be.ID,
+		UserID:         be.UserID,
+		ActivityID:     be.ActivityID,
+		Category:       be.Category,
+		SportGroup:     be.SportGroup,
+		ElapsedTimeS:   be.ElapsedTimeS,
+		ValueNumeric:   be.ValueNumeric,
+		AchievedAt:     be.AchievedAt,
+		StreamStartIdx: be.StreamStartIdx,
+		StreamEndIdx:   be.StreamEndIdx,
+	})
+}
+
+// GetBestEffortsForActivityRec returns ranked best efforts as bestefforts.BestEffortRankedRecord
+// slices, satisfying bestefforts.Store without a direct import from service.go.
+func (db *DB) GetBestEffortsForActivityRec(ctx context.Context, activityID, userID string) ([]bestefforts.BestEffortRankedRecord, error) {
+	ranked, err := db.GetBestEffortsForActivity(ctx, activityID, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]bestefforts.BestEffortRankedRecord, len(ranked))
+	for i, r := range ranked {
+		out[i] = bestefforts.BestEffortRankedRecord{
+			BestEffortRecord: bestefforts.BestEffortRecord{
+				ID:             r.ID,
+				UserID:         r.UserID,
+				ActivityID:     r.ActivityID,
+				Category:       r.Category,
+				SportGroup:     r.SportGroup,
+				ElapsedTimeS:   r.ElapsedTimeS,
+				ValueNumeric:   r.ValueNumeric,
+				AchievedAt:     r.AchievedAt,
+				StreamStartIdx: r.StreamStartIdx,
+				StreamEndIdx:   r.StreamEndIdx,
+			},
+			Rank: r.Rank,
+		}
+	}
+	return out, nil
+}
+
 // scanBestEffortRanked is a shared helper that drains pgx rows into a slice of
 // BestEffortRanked values. The caller is responsible for closing rows.
 func scanBestEffortRanked(rows pgx.Rows) ([]BestEffortRanked, error) {
