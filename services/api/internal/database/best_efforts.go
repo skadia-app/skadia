@@ -110,7 +110,7 @@ func (db *DB) GetBestEffortsForActivity(ctx context.Context, activityID, userID 
 		        be.achieved_at,
 		        be.stream_start_idx,
 		        be.stream_end_idx,
-		        RANK() OVER (
+		        ROW_NUMBER() OVER (
 		            PARTITION BY be.user_id, be.sport_group, be.category
 		            ORDER BY `+rankingOrderExpr+`
 		        ) AS rank
@@ -169,7 +169,7 @@ func (db *DB) GetBestEffortPersonalRecords(
 		        be.achieved_at,
 		        be.stream_start_idx,
 		        be.stream_end_idx,
-		        RANK() OVER (
+		        ROW_NUMBER() OVER (
 		            PARTITION BY be.user_id, be.sport_group, be.category
 		            ORDER BY `+rankingOrderExpr+`
 		        ) AS rank
