@@ -22,7 +22,7 @@ export const REPROCESS_SCOPES: readonly ScopeTuple[] = [
   ['segments',     'Segmente & Runden', undefined],
   ['sport_type',   'Sportart',          undefined],
   ['tags',         'Tags',              undefined],
-  ['best_efforts', 'Best Efforts',      'Distanz-, Höhenmeter- und Power-Bestleistungen neu berechnen'],
+  ['best_efforts', 'Bestleistungen',    'Distanz-, Höhenmeter- und Power-Bestleistungen neu berechnen'],
   ['running_form', 'Laufform-Analyse',  'Duty Factor, Vertical Ratio und Fatigue Index neu berechnen'],
 ] as const
 
