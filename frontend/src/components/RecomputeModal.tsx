@@ -3,14 +3,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { reprocessAllActivities } from '@/api/activities'
 import { ModalShell } from '@/components/ui/ModalShell'
 import {
-  GEO_SCOPE_KEYS,
-  GEO_SCOPE_LABELS,
-  REPROCESS_SCOPES,
   DEFAULT_SCOPES,
   toBackendScope,
   toggleScopeKey,
   type AnyReprocessKey,
 } from '@/lib/reprocessScopes'
+import { ScopeCheckboxList } from '@/components/ScopeCheckboxList'
 
 interface Props {
   /** IDs to recompute. Pass a single-element array for detail page use. */
@@ -93,34 +91,8 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
 
         {/* Scope checkboxes */}
         {mode === 'scoped' && (
-          <div className="ml-7 space-y-2 border-l-2 border-neutral-100 dark:border-neutral-800 pl-4">
-            {REPROCESS_SCOPES.map(([key, scopeLabel]) => (
-              <label key={key} className="flex items-center gap-3 cursor-pointer group">
-                <input
-                  type="checkbox"
-                  checked={selected.has(key)}
-                  onChange={() => toggleScope(key)}
-                  className="accent-accent-DEFAULT"
-                />
-                <span className="text-sm text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
-                  {scopeLabel}
-                </span>
-              </label>
-            ))}
-            <p className="text-xs text-neutral-400 dark:text-neutral-500 pt-1">Geo-Anreicherung (ML, asynchron)</p>
-            {GEO_SCOPE_KEYS.map(key => (
-              <label key={key} className="flex items-center gap-3 cursor-pointer group">
-                <input
-                  type="checkbox"
-                  checked={selected.has(key)}
-                  onChange={() => toggleScope(key)}
-                  className="accent-accent-DEFAULT"
-                />
-                <span className="text-sm text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
-                  {GEO_SCOPE_LABELS[key]}
-                </span>
-              </label>
-            ))}
+          <div className="ml-7 border-l-2 border-neutral-100 dark:border-neutral-800 pl-4">
+            <ScopeCheckboxList selected={selected} onToggle={toggleScope} layout="vertical" />
           </div>
         )}
 
