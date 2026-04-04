@@ -459,7 +459,7 @@ export default function MapPage() {
 
     if (!routeSuggestions) return
 
-    // Add layers for each suggestion
+    // Add layers for each suggestion (initial opacity/width, hover handled separately)
     routeSuggestions.forEach((s, i) => {
       if (i >= 3) return // max 3 suggestions
       const sourceId = `suggestion-source-${i}`
@@ -470,15 +470,14 @@ export default function MapPage() {
         data: s.geojson,
       })
 
-      const isHovered = hoveredSuggestion === i
       map.addLayer({
         id: layerId,
         type: 'line',
         source: sourceId,
         paint: {
           'line-color': SUGGESTION_COLORS[i % SUGGESTION_COLORS.length],
-          'line-width': isHovered ? 6 : 4,
-          'line-opacity': isHovered ? 0.9 : 0.4,
+          'line-width': 4,
+          'line-opacity': 0.4,
           'line-translate': SUGGESTION_OFFSETS[i % SUGGESTION_OFFSETS.length],
         },
         layout: {
@@ -510,7 +509,21 @@ export default function MapPage() {
     }
 
     return cleanup
-  }, [routeSuggestions, hoveredSuggestion, SUGGESTION_COLORS, SUGGESTION_OFFSETS])
+  }, [routeSuggestions, SUGGESTION_COLORS, SUGGESTION_OFFSETS])
+
+  // Update suggestion layer paint properties on hover without rebuilding layers
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !routeSuggestions) return
+
+    for (let i = 0; i < routeSuggestions.length; i++) {
+      const layerId = `suggestion-layer-${i}`
+      if (!map.getLayer(layerId)) continue
+      const isHovered = hoveredSuggestion === i
+      map.setPaintProperty(layerId, 'line-opacity', isHovered ? 0.9 : 0.4)
+      map.setPaintProperty(layerId, 'line-width', isHovered ? 6 : 4)
+    }
+  }, [hoveredSuggestion, routeSuggestions])
 
   // Build RoutePlannerState for useRouteEditor
   const routeEditorState = useMemo(() => ({
