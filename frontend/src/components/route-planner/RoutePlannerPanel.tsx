@@ -1,9 +1,19 @@
 import { useState, useCallback, useRef } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { RouteWaypoint, RouteSegment, PlannedRoute } from '@/api/routes'
 import { useToast } from '@/lib/toast'
 import type { ProfileConfig } from '@/lib/routingProfiles'
+import { getProfileDefaults } from '@/lib/routingProfiles'
 import { fmtDist, fmtDurationMin } from '@/lib/format'
 import ProfileEditor from './ProfileEditor'
+import {
+  fetchAllProfiles,
+  createProfile,
+  deleteProfile,
+  importProfiles,
+  exportProfileUrl,
+} from '@/api/routingProfiles'
+import { apiDownload } from '@/api/client'
 
 function formatElevation(m: number): string {
   return `${Math.round(m)} m`
@@ -156,7 +166,8 @@ function WaypointItem({
   )
 }
 
-const BROUTER_PROFILES = [
+// Offline fallback for BRouter profiles (used when API is not available)
+const BROUTER_PROFILES_FALLBACK = [
   { value: 'hiking-mountain', label: 'Wandern (Alpin, SAC T1-T3)' },
   { value: 'hiking-sac2',     label: 'Wandern (SAC T2 max)' },
   { value: 'cycling-road',    label: 'Rennrad' },
@@ -166,6 +177,7 @@ const BROUTER_PROFILES = [
   { value: 'running',         label: 'Laufen' },
   { value: 'walking',         label: 'Spaziergang' },
 ]
+
 
 export interface RoutePlannerPanelProps {
   // Current planning state (controlled from parent / MapPage)
@@ -233,10 +245,121 @@ export default function RoutePlannerPanel({
   isSaving = false,
 }: RoutePlannerPanelProps) {
   const { addToast } = useToast()
+  const queryClient = useQueryClient()
   const [collapsed, setCollapsed] = useState(false)
   const dragIndexRef = useRef<number | null>(null)
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+
+  // ── Profile management state ───────────────────────────────────────────
+  const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [saveProfileName, setSaveProfileName] = useState('')
+  const importInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Fetch all profiles from the API
+  const { data: profilesData } = useQuery({
+    queryKey: ['routing-profiles'],
+    queryFn: fetchAllProfiles,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+
+  // Derived lists
+  const badRouterProfiles = profilesData?.profiles.filter(p => p.engine === 'badrouter') ?? []
+  const brouterProfiles = profilesData?.profiles.filter(p => p.engine === 'brouter') ?? []
+  const brouterOptions = brouterProfiles.length > 0
+    ? brouterProfiles.map(p => ({ value: p.name, label: p.name }))
+    : BROUTER_PROFILES_FALLBACK
+
+  // Current BadRouter profile entry from API (for defaults reset and delete)
+  const currentBadRouterEntry = badRouterProfiles.find(p => p.name === profileConfig.profile)
+
+  // Mutations
+  const createMutation = useMutation({
+    mutationFn: createProfile,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['routing-profiles'] })
+      setShowSaveDialog(false)
+      setSaveProfileName('')
+      addToast({ type: 'success', title: 'Profil gespeichert' })
+    },
+    onError: (err: Error) => {
+      addToast({ type: 'error', title: 'Profil speichern fehlgeschlagen', message: err.message, duration: 0 })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteProfile,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['routing-profiles'] })
+      addToast({ type: 'success', title: 'Profil gelöscht' })
+    },
+    onError: (err: Error) => {
+      addToast({ type: 'error', title: 'Profil löschen fehlgeschlagen', message: err.message, duration: 0 })
+    },
+  })
+
+  function handleSaveProfile() {
+    const name = saveProfileName.trim()
+    if (!name) return
+    const config = { ...profileConfig } as Record<string, unknown>
+    const baseProfile = (profileConfig.profile ?? 'hiking') as string
+    createMutation.mutate({
+      name,
+      base_profile: baseProfile,
+      sport_types: currentBadRouterEntry?.sport_types ?? [],
+      config,
+    })
+  }
+
+  function handleResetToDefault() {
+    const profileName = profileConfig.profile ?? 'hiking'
+    // Use API config if available, else fall back to TS defaults
+    const entry = badRouterProfiles.find(p => p.name === profileName && p.source === 'system')
+    if (entry?.config) {
+      const apiConfig = entry.config as Partial<ProfileConfig>
+      onProfileChange({ profile: profileName, ...apiConfig } as ProfileConfig)
+    } else {
+      onProfileChange(getProfileDefaults(profileName))
+    }
+  }
+
+  async function handleExportProfile(id: string, name: string) {
+    try {
+      const { blob, filename } = await apiDownload(exportProfileUrl(id))
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename ?? `${name}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      addToast({ type: 'error', title: 'Export fehlgeschlagen', message: String(err), duration: 0 })
+    }
+  }
+
+  async function handleImportFiles(files: FileList | null) {
+    if (!files || files.length === 0) return
+    const fileArr = Array.from(files)
+    try {
+      const res = await importProfiles(fileArr)
+      const failed = res.results.filter(r => !r.success)
+      const succeeded = res.results.filter(r => r.success)
+      if (succeeded.length > 0) {
+        void queryClient.invalidateQueries({ queryKey: ['routing-profiles'] })
+        addToast({ type: 'success', title: `${succeeded.length === 1 ? '1 Profil' : `${succeeded.length} Profile`} importiert` })
+      }
+      if (failed.length > 0) {
+        addToast({
+          type: 'error',
+          title: `${failed.length === 1 ? '1 Profil' : `${failed.length} Profile`} nicht importiert`,
+          message: failed.map(f => `${f.name}: ${f.error ?? 'Unbekannter Fehler'}`).join('\n'),
+          duration: 0,
+        })
+      }
+    } catch (err) {
+      addToast({ type: 'error', title: 'Import fehlgeschlagen', message: String(err), duration: 0 })
+    }
+  }
 
   const hasRoute = waypoints.length >= 2
 
@@ -366,6 +489,147 @@ export default function RoutePlannerPanel({
             {/* Profile editor (BadRouter) or BRouter profile selector */}
             {routingEngine === 'badrouter' ? (
               <>
+                {/* BadRouter: profile actions bar */}
+                <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800 flex items-center gap-1.5 flex-wrap">
+                  <button
+                    onClick={handleResetToDefault}
+                    title="Auf Default zurücksetzen"
+                    className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                  >
+                    <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H4.28a.75.75 0 00-.75.75v3.955a.75.75 0 001.5 0v-2.146l.312.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.386zm-10.624-2.85a5.5 5.5 0 019.201-2.466l.312.311h-2.433a.75.75 0 000 1.5h3.952a.75.75 0 00.75-.75V3.214a.75.75 0 00-1.5 0v2.146l-.312-.31A7 7 0 003.244 8.188a.75.75 0 001.449.386z" clipRule="evenodd" />
+                    </svg>
+                    Default
+                  </button>
+                  <button
+                    onClick={() => { setSaveProfileName(''); setShowSaveDialog(true) }}
+                    title="Als eigenes Profil speichern"
+                    className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                  >
+                    <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M3.75 3A1.75 1.75 0 002 4.75v10.5c0 .966.784 1.75 1.75 1.75h12.5A1.75 1.75 0 0018 15.25v-8.5A1.75 1.75 0 0016.25 5H15V3.75A1.75 1.75 0 0013.25 2h-3.5A1.75 1.75 0 008 3.75V5H4.75A1.75 1.75 0 003.75 3zm4.75.75A.25.25 0 018.75 4h2.5a.25.25 0 01.25.25V5h-3.5V3.75z" />
+                    </svg>
+                    Speichern als...
+                  </button>
+                  {/* Import button */}
+                  <button
+                    onClick={() => importInputRef.current?.click()}
+                    title="Profil aus JSON-Datei importieren"
+                    className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                  >
+                    <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                    Import
+                  </button>
+                  <input
+                    ref={importInputRef}
+                    type="file"
+                    accept=".json"
+                    multiple
+                    className="hidden"
+                    onChange={e => { void handleImportFiles(e.target.files); e.target.value = '' }}
+                  />
+                </div>
+
+                {/* BadRouter: user/filesystem profiles list (editable entries) */}
+                {badRouterProfiles.filter(p => p.editable || p.source === 'filesystem').length > 0 && (
+                  <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800">
+                    <div className="text-[10px] text-neutral-400 dark:text-neutral-500 uppercase tracking-wide mb-1.5">
+                      Eigene Profile
+                    </div>
+                    <div className="space-y-1">
+                      {badRouterProfiles
+                        .filter(p => p.editable || p.source === 'filesystem')
+                        .map(p => (
+                          <div key={p.id ?? p.name} className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => {
+                                const cfg = p.config ? { profile: p.base_profile, ...p.config } as ProfileConfig : getProfileDefaults(p.base_profile)
+                                onProfileChange(cfg)
+                              }}
+                              className={`flex-1 text-left px-2 py-1 rounded text-xs transition-colors cursor-pointer truncate ${
+                                profileConfig.profile === p.base_profile && !badRouterProfiles.find(s => s.source === 'system' && s.name === profileConfig.profile)
+                                  ? 'bg-accent-DEFAULT/10 text-accent-DEFAULT font-medium'
+                                  : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                              }`}
+                              title={p.name}
+                            >
+                              {p.name}
+                              {p.source === 'filesystem' && (
+                                <span className="ml-1 text-[9px] text-neutral-400 dark:text-neutral-500">(fs)</span>
+                              )}
+                            </button>
+                            {/* Export */}
+                            {p.id && (
+                              <button
+                                onClick={() => void handleExportProfile(p.id!, p.name)}
+                                title="Profil exportieren"
+                                className="text-neutral-300 dark:text-neutral-600 hover:text-accent-DEFAULT dark:hover:text-accent-DEFAULT transition-colors cursor-pointer flex-shrink-0"
+                              >
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                  <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-9.707a1 1 0 000 1.414L9 11.414V3a1 1 0 112 0v8.414l2.707-2.707a1 1 0 111.414 1.414l-4.414 4.414a1 1 0 01-1.414 0L4.293 8.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                </svg>
+                              </button>
+                            )}
+                            {/* Delete (editable only) */}
+                            {p.editable && p.id && (
+                              <button
+                                onClick={() => {
+                                  if (confirm(`Profil "${p.name}" wirklich löschen?`)) {
+                                    deleteMutation.mutate(p.id!)
+                                  }
+                                }}
+                                title="Profil löschen"
+                                className="text-neutral-300 dark:text-neutral-600 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer flex-shrink-0"
+                              >
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                  <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 11.25a.75.75 0 01.75.75v2a.75.75 0 01-1.5 0v-2a.75.75 0 01.75-.75zM7.75 12a.75.75 0 00-1.5 0v2a.75.75 0 001.5 0v-2zm4 .75a.75.75 0 01.75-.75.75.75 0 01.75.75v2a.75.75 0 01-1.5 0v-2z" clipRule="evenodd" />
+                                </svg>
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Save-as dialog (inline) */}
+                {showSaveDialog && (
+                  <div className="px-3 py-2.5 border-b border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50">
+                    <div className="text-[10px] text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-1.5">
+                      Profil speichern
+                    </div>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="Profilname..."
+                        value={saveProfileName}
+                        onChange={e => setSaveProfileName(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') handleSaveProfile()
+                          else if (e.key === 'Escape') setShowSaveDialog(false)
+                        }}
+                        autoFocus
+                        className="flex-1 text-xs rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
+                      />
+                      <button
+                        onClick={handleSaveProfile}
+                        disabled={!saveProfileName.trim() || createMutation.isPending}
+                        className="px-2.5 py-1.5 rounded-md bg-accent-DEFAULT text-white text-xs font-medium hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                      >
+                        OK
+                      </button>
+                      <button
+                        onClick={() => setShowSaveDialog(false)}
+                        className="px-2.5 py-1.5 rounded-md border border-neutral-200 dark:border-neutral-700 text-neutral-500 text-xs hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
+                      >
+                        Abbruch
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <ProfileEditor
                   config={profileConfig}
                   onChange={onProfileChange}
@@ -404,7 +668,7 @@ export default function RoutePlannerPanel({
                   onChange={e => onBrouterProfileChange(e.target.value)}
                   className="w-full text-xs rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT cursor-pointer"
                 >
-                  {BROUTER_PROFILES.map(p => (
+                  {brouterOptions.map(p => (
                     <option key={p.value} value={p.value}>{p.label}</option>
                   ))}
                 </select>
