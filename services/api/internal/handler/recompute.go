@@ -446,6 +446,7 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 //   - "tags": re-evaluate autotag rules and update tags
 //   - "segments": segment efforts + lap detection
 //   - "geo": Stage 2 geo enrichment (summits, forests, water, stops, lifts, surfaces, borders)
+//   - "best_efforts": recompute best effort records for this activity
 //
 // skipAnalyticsEvent suppresses PublishAnalyticsInvalidate when true (used in bulk recompute
 // to avoid flooding — the caller publishes a single invalidation after all workers complete).
@@ -463,6 +464,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	doDetails := allScope || scope["details"]
 	doSegments := allScope || scope["segments"]
 	doGeo := allScope || scope["geo"]
+	doBestEfforts := allScope || scope["best_efforts"]
 	doSpeedSmooth := scope["speed_smooth"] // opt-in only, never part of "all"
 
 	// 1. Load reprocess info (S3 key, format, manual sport flag, file_id).
@@ -834,7 +836,24 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 	}
 
-	// 8d. Speed smoothing — opt-in only (not part of "all").
+	// 8d. Best Efforts — recompute for this activity.
+	if doBestEfforts && h.BestEfforts != nil {
+		info, beErr := h.DB.GetBestEffortActivityInfo(ctx, activityID)
+		if beErr != nil {
+			slog.Error("reprocess: get best effort activity info failed", "id", activityID, "error", beErr)
+		} else if info != nil {
+			stream, streamErr := h.DB.GetStreamPoints(ctx, activityID)
+			if streamErr != nil {
+				slog.Error("reprocess: get stream points for best efforts failed", "id", activityID, "error", streamErr)
+			} else {
+				if _, beComputeErr := h.BestEfforts.ComputeForActivity(ctx, *info, stream); beComputeErr != nil {
+					slog.Error("reprocess: compute best efforts failed", "id", activityID, "error", beComputeErr)
+				}
+			}
+		}
+	}
+
+	// 8e. Speed smoothing — opt-in only (not part of "all").
 	// Loads existing streams, applies a median filter to speed_ms, and writes
 	// the smoothed values back. Does not re-parse the original file.
 	if doSpeedSmooth {

@@ -19,6 +19,7 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/skadia-app/skadia/services/api/internal/auth"
+	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -349,6 +350,9 @@ func main() {
 	// PMC service — always created; used by event consumer and recompute endpoint.
 	pmcService := &pmc.Service{DB: db}
 
+	// Best Efforts service — always created; used by recompute and recalc endpoints.
+	bestEffortsService := &bestefforts.Service{Store: db}
+
 	// NATS (optional - log warning if unavailable)
 	var pub *event.Publisher
 	pub, err = event.NewPublisher(cfg.NatsURL)
@@ -398,6 +402,7 @@ func main() {
 		DB:             db,
 		Events:         pub,
 		PMC:            pmcService,
+		BestEfforts:    bestEffortsService,
 		ShadowFS:       store,
 		ShadowFSConfig: shadowFSCfg,
 		ImportService:  importSvc,
@@ -820,6 +825,14 @@ func main() {
 			r.Get("/activities/{id}/segment-laps", h.HandleGetActivitySegmentLaps)
 			r.Get("/activities/{id}/dive", h.GetActivityDiveInfo)
 			r.Get("/activities/{id}/health-context", h.GetActivityHealthContext)
+			r.Get("/activities/{id}/best-efforts", h.GetActivityBestEfforts)
+
+			// Best Efforts
+			r.Get("/personal-records", h.GetBestEffortRecords)
+			r.Post("/best-effort-exclusions", h.AddBestEffortExclusion)
+			r.Delete("/best-effort-exclusions/{activityID}/{category}", h.RemoveBestEffortExclusion)
+			r.Post("/best-efforts/recalc", h.RecalcBestEfforts)
+
 			r.Get("/workouts", h.HandleListWorkouts)
 			r.Get("/workouts/{id}", h.HandleGetWorkout)
 			r.Get("/stats/pmc", h.GetPMC)
