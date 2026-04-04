@@ -1,6 +1,6 @@
 import type { RouteSuggestion } from '@/api/routes'
 
-const SUGGESTION_COLORS = ['#F97316', '#3B82F6', '#22C55E']
+export const SUGGESTION_COLORS = ['#F97316', '#3B82F6', '#22C55E']
 
 interface RouteComparisonPanelProps {
   suggestions: RouteSuggestion[]
@@ -39,9 +39,13 @@ export default function RouteComparisonPanel({
       <div className="space-y-1">
         {suggestions.map((s, i) => {
           const isHovered = hoveredIndex === i
+          const ariaLabel = `Route ${i + 1}: ${formatDistance(s.distance_m)}, ${formatElevation(s.ascent_m)} Aufstieg`
           return (
             <div
               key={i}
+              role="button"
+              tabIndex={0}
+              aria-label={ariaLabel}
               className={`flex items-center gap-3 px-2.5 py-2 rounded-lg transition-colors cursor-pointer ${
                 isHovered
                   ? 'bg-neutral-100 dark:bg-neutral-800'
@@ -49,7 +53,15 @@ export default function RouteComparisonPanel({
               }`}
               onMouseEnter={() => onHover(i)}
               onMouseLeave={() => onHover(null)}
+              onFocus={() => onHover(i)}
+              onBlur={() => onHover(null)}
               onClick={() => onSelect(i)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onSelect(i)
+                }
+              }}
             >
               {/* Color dot */}
               <span
