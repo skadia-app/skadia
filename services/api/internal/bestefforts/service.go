@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -71,14 +72,14 @@ type Store interface {
 	// in keepActivityIDs. Used by RecalcAll to purge stale rows after a full upsert
 	// pass without ever leaving the table empty.
 	DeleteOrphanedBestEfforts(ctx context.Context, userID string, keepActivityIDs []string) error
-	// AcquireBestEffortLock acquires a session-level advisory lock for the user's
-	// best-effort operations. Blocks until the lock is obtained.
-	AcquireBestEffortLock(ctx context.Context, userID string) error
-	// TryAcquireBestEffortLock is a non-blocking variant. Returns (true, nil) when
-	// the lock was obtained, (false, nil) when it is already held by another session.
-	TryAcquireBestEffortLock(ctx context.Context, userID string) (bool, error)
-	// ReleaseBestEffortLock releases the session-level advisory lock for the user.
-	ReleaseBestEffortLock(ctx context.Context, userID string) error
+	// AcquireBestEffortLock acquires a session-level advisory lock on a pinned
+	// connection. Blocks until the lock is obtained.
+	// The caller MUST call conn.Release() when done (typically via defer).
+	AcquireBestEffortLock(ctx context.Context, userID string) (*pgxpool.Conn, error)
+	// TryAcquireBestEffortLock is a non-blocking variant. Returns (conn, true, nil)
+	// when the lock was obtained, (nil, false, nil) when it is already held by
+	// another session. The caller MUST call conn.Release() when acquired.
+	TryAcquireBestEffortLock(ctx context.Context, userID string) (*pgxpool.Conn, bool, error)
 	GetBestEffortsForActivityRec(ctx context.Context, activityID, userID string) ([]BestEffortRankedRecord, error)
 	// GetBestEffortRecalcActivities replaces the former GetBestEffortRecalcIDs +
 	// GetBestEffortActivityInfo pair used in RecalcAll. A single query returns
@@ -168,7 +169,7 @@ func (s *Service) computeForActivityInner(ctx context.Context, info ActivityInfo
 // the lock for this user, the call is a no-op (returns nil, nil) — RecalcAll
 // will cover this activity in its own full pass.
 func (s *Service) ComputeForActivity(ctx context.Context, info ActivityInfo, stream []model.StreamPoint) ([]BestEffortRankedRecord, error) {
-	acquired, err := s.Store.TryAcquireBestEffortLock(ctx, info.UserID)
+	conn, acquired, err := s.Store.TryAcquireBestEffortLock(ctx, info.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("try acquire best effort lock: %w", err)
 	}
@@ -178,11 +179,7 @@ func (s *Service) ComputeForActivity(ctx context.Context, info ActivityInfo, str
 			"activity_id", info.ID, "user_id", info.UserID)
 		return nil, nil
 	}
-	defer func() {
-		if releaseErr := s.Store.ReleaseBestEffortLock(ctx, info.UserID); releaseErr != nil {
-			slog.ErrorContext(ctx, "best efforts: release lock failed", "activity_id", info.ID, "error", releaseErr)
-		}
-	}()
+	defer conn.Release()
 
 	return s.computeForActivityInner(ctx, info, stream)
 }
@@ -197,16 +194,15 @@ func (s *Service) ComputeForActivity(ctx context.Context, info ActivityInfo, str
 // progressFn is called every 50 activities and once at the end with (total, total).
 // progressFn may be nil.
 func (s *Service) RecalcAll(ctx context.Context, userID string, progressFn func(done, total int)) error {
-	// Acquire per-user advisory lock — blocks until no other RecalcAll or
-	// ComputeForActivity is running for this user.
-	if err := s.Store.AcquireBestEffortLock(ctx, userID); err != nil {
+	// Acquire per-user advisory lock on a pinned connection — blocks until no
+	// other RecalcAll or ComputeForActivity is running for this user.
+	// conn.Release() returns the connection to the pool, which ends the session
+	// and automatically releases all session-scoped advisory locks.
+	conn, err := s.Store.AcquireBestEffortLock(ctx, userID)
+	if err != nil {
 		return fmt.Errorf("acquire best effort lock: %w", err)
 	}
-	defer func() {
-		if err := s.Store.ReleaseBestEffortLock(ctx, userID); err != nil {
-			slog.ErrorContext(ctx, "best efforts: release lock failed", "user_id", userID, "error", err)
-		}
-	}()
+	defer conn.Release()
 
 	// E-1: single query instead of GetBestEffortRecalcIDs + per-activity
 	// GetBestEffortActivityInfo — eliminates the N+1 DB round-trips.
