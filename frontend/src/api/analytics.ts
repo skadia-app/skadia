@@ -340,6 +340,19 @@ export async function fetchAnalyticsPMC(params: string): Promise<PMCExtended> {
   return apiClient(`/analytics/pmc?${params}`)
 }
 
+export interface PMCSplitSeries {
+  [sportGroup: string]: PMCDay[]
+}
+
+export interface PMCSplitResponse extends Omit<PMCExtended, 'days'> {
+  series: PMCSplitSeries
+}
+
+export async function fetchAnalyticsPMCSplit(params: { from: string; to: string } & Record<string, string>): Promise<PMCSplitResponse> {
+  const p = new URLSearchParams({ ...params, split_by_sport: 'true' })
+  return apiClient(`/analytics/pmc?${p.toString()}`)
+}
+
 export async function fetchYearProgression(params: string): Promise<YearProgressionResponse> {
   return apiClient(`/analytics/year-progression?${params}`)
 }

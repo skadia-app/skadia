@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
@@ -13,7 +13,7 @@ import {
   BrushComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { fetchAnalyticsPMC } from '@/api/analytics'
+import { fetchAnalyticsPMC, fetchAnalyticsPMCSplit, type PMCDay } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { toLocalISO } from '@/lib/dateUtils'
 import { useChangepoints, changepointsToMarkLines } from '@/components/analytics/ChangepointMarkers'
@@ -51,6 +51,37 @@ const rangeTooltips: Record<TimeRange, string> = {
   '1y': 'Letztes Jahr (365 Tage)',
   'ly': `Vorjahr (${new Date().getFullYear() - 1})`,
   'all': 'Gesamter Zeitraum',
+}
+
+// Sport group display config
+const SPORT_GROUP_LABELS: Record<string, string> = {
+  __combined__: 'Gesamt',
+  cycling: 'Radfahren',
+  running: 'Laufen',
+  swimming: 'Schwimmen',
+  hiking: 'Wandern',
+  other: 'Andere',
+}
+
+const SPORT_GROUP_COLORS: Record<string, string> = {
+  cycling: '#3b82f6',    // blue-500
+  running: '#10b981',    // emerald-500
+  swimming: '#06b6d4',   // cyan-500
+  hiking: '#22c55e',     // green-500
+  other: '#f59e0b',      // amber-500
+}
+
+const COMBINED_CTL_COLOR = '#3b82f6'
+const SPARSE_THRESHOLD = 5
+
+const STORAGE_KEY_SPORT_GROUPS = 'pmc_selected_sport_groups'
+
+function getSportGroupLabel(key: string): string {
+  return SPORT_GROUP_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1)
+}
+
+function getSportGroupColor(key: string): string {
+  return SPORT_GROUP_COLORS[key] ?? '#6b7280'
 }
 
 function getDateRange(range: TimeRange): { from: string; to: string } {
@@ -93,6 +124,34 @@ function acwrStatusLabel(status: string): string {
   }
 }
 
+// Read Set<string> from localStorage, ignore parse errors
+function readStoredGroups(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_SPORT_GROUPS)
+    if (!raw) return new Set()
+    const parsed: unknown = JSON.parse(raw)
+    if (Array.isArray(parsed)) return new Set(parsed.filter(x => typeof x === 'string'))
+  } catch {
+    // ignore
+  }
+  return new Set()
+}
+
+function writeStoredGroups(groups: Set<string>): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_SPORT_GROUPS, JSON.stringify([...groups]))
+  } catch {
+    // ignore
+  }
+}
+
+// Build a date-indexed lookup for a given series
+function buildDateMap(days: PMCDay[]): Map<string, PMCDay> {
+  const map = new Map<string, PMCDay>()
+  for (const d of days) map.set(d.date, d)
+  return map
+}
+
 export default function PMCChartExtended() {
   const { toQueryString } = useAnalyticsFilters()
   const [range, setRange] = useState<TimeRange>('3m')
@@ -103,6 +162,11 @@ export default function PMCChartExtended() {
   const [isZoomed, setIsZoomed] = useState(false)
   const chartInstanceRef = useRef<echarts.ECharts | null>(null)
   const today = toLocalISO(new Date())
+
+  // Sport group selection — persisted in localStorage
+  const [selectedSportGroups, setSelectedSportGroups] = useState<Set<string>>(() => readStoredGroups())
+
+  const hasSportGroupsActive = selectedSportGroups.size > 0
 
   const { from, to } = useMemo(() => {
     if (isCustomRange && localFrom && localTo) {
@@ -126,8 +190,21 @@ export default function PMCChartExtended() {
     setIsCustomRange(true)
   }
 
-  // Build params combining global filters + local date range
-  const queryParams = useMemo(() => {
+  const toggleSportGroup = (key: string) => {
+    setSelectedSportGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      writeStoredGroups(next)
+      return next
+    })
+  }
+
+  // Build base params combining global filters + local date range
+  const baseQueryParams = useMemo(() => {
     const base = toQueryString()
     const params = new URLSearchParams(base)
     params.set('from', from)
@@ -135,12 +212,48 @@ export default function PMCChartExtended() {
     return params.toString()
   }, [toQueryString, from, to])
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['analytics', 'pmc-extended', queryParams],
-    queryFn: () => fetchAnalyticsPMC(queryParams),
+  // Standard fetch (no split) — always fetched as fallback / for ATL+TSB
+  const { data: combinedData, isLoading: combinedLoading, isError: combinedError } = useQuery({
+    queryKey: ['analytics', 'pmc-extended', baseQueryParams],
+    queryFn: () => fetchAnalyticsPMC(baseQueryParams),
     staleTime: 5 * 60 * 1000,
     retry: 1,
   })
+
+  // Split fetch — only when sport groups are active
+  const { data: splitData, isLoading: splitLoading } = useQuery({
+    queryKey: ['analytics', 'pmc-split', baseQueryParams],
+    queryFn: () => fetchAnalyticsPMCSplit({ from, to }),
+    enabled: hasSportGroupsActive,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  })
+
+  const isLoading = combinedLoading || (hasSportGroupsActive && splitLoading)
+  const isError = combinedError
+
+  // Derive available sport groups from split data (exclude __combined__)
+  const availableSportGroups = useMemo<Array<{ key: string; count: number }>>(() => {
+    if (!splitData?.series) return []
+    return Object.entries(splitData.series)
+      .filter(([key]) => key !== '__combined__')
+      .map(([key, days]) => ({ key, count: days.length }))
+      .sort((a, b) => b.count - a.count)
+  }, [splitData])
+
+  // Sync: remove selected groups that are no longer in the data
+  useEffect(() => {
+    if (availableSportGroups.length === 0) return
+    const validKeys = new Set(availableSportGroups.map(g => g.key))
+    setSelectedSportGroups(prev => {
+      const next = new Set([...prev].filter(k => validKeys.has(k)))
+      if (next.size !== prev.size) {
+        writeStoredGroups(next)
+        return next
+      }
+      return prev
+    })
+  }, [availableSportGroups])
 
   const handleResetZoom = () => {
     const chart = chartInstanceRef.current
@@ -157,10 +270,10 @@ export default function PMCChartExtended() {
 
   const containerRef = useECharts(
     () => {
-      if (!data) return { series: [] }
+      if (!combinedData) return { series: [] }
 
-      const days = data.days ?? []
-      const projection = data.projection ?? []
+      const days = combinedData.days ?? []
+      const projection = combinedData.projection ?? []
 
       const dates = days.map(d => d.date)
       const ctlData = days.map(d => d.ctl)
@@ -180,6 +293,53 @@ export default function PMCChartExtended() {
       const ctlProjFull = [...Array(dates.length).fill(null), ...projCTL]
       const atlProjFull = [...Array(dates.length).fill(null), ...projATL]
       const tsbProjFull = [...Array(dates.length).fill(null), ...projTSB]
+
+      // Build sport-group CTL series (when active)
+      const activeSportGroupSeries: ReturnType<typeof buildSportGroupSeries>[] = []
+      if (hasSportGroupsActive && splitData?.series) {
+        for (const key of selectedSportGroups) {
+          const sportDays = splitData.series[key]
+          if (!sportDays) continue
+          const dateMap = buildDateMap(sportDays)
+          const ctlValues = allDates.map(d => dateMap.get(d)?.ctl ?? null)
+          activeSportGroupSeries.push(buildSportGroupSeries(key, ctlValues))
+        }
+      }
+
+      const legendData = hasSportGroupsActive
+        ? [
+            'CTL Gesamt',
+            ...activeSportGroupSeries.map(s => s.name),
+            'ATL (Ermüdung)',
+            'TSB (Form)',
+            'CTL Prognose',
+            'ATL Prognose',
+            'TSB Prognose',
+          ]
+        : ['CTL (Fitness)', 'ATL (Ermüdung)', 'TSB (Form)', 'CTL Prognose', 'ATL Prognose', 'TSB Prognose']
+
+      const ctlCombinedSeries = hasSportGroupsActive
+        ? {
+            name: 'CTL Gesamt',
+            type: 'line' as const,
+            data: ctlFull,
+            showSymbol: false,
+            lineStyle: { width: 1.5, color: COMBINED_CTL_COLOR, type: 'dashed' as const, opacity: 0.5 },
+            itemStyle: { color: COMBINED_CTL_COLOR, opacity: 0.5 },
+            z: 1,
+            connectNulls: false,
+          }
+        : {
+            name: 'CTL (Fitness)',
+            type: 'line' as const,
+            data: ctlFull,
+            showSymbol: false,
+            lineStyle: { width: 2.5, color: COMBINED_CTL_COLOR },
+            itemStyle: { color: COMBINED_CTL_COLOR },
+            z: 2,
+            connectNulls: false,
+            markLine: changepoints.length > 0 ? { silent: true, data: changepointsToMarkLines(changepoints) } : undefined,
+          }
 
       return {
         backgroundColor: 'transparent',
@@ -212,7 +372,7 @@ export default function PMCChartExtended() {
           emphasis: { iconStyle: { borderColor: '#d1d5db' } },
         },
         legend: {
-          data: ['CTL (Fitness)', 'ATL (Ermüdung)', 'TSB (Form)', 'CTL Prognose', 'ATL Prognose', 'TSB Prognose'],
+          data: legendData,
           top: 6,
           right: 80,
           textStyle: { fontSize: 11, color: '#9ca3af' },
@@ -285,17 +445,7 @@ export default function PMCChartExtended() {
               ],
             },
           },
-          {
-            name: 'CTL (Fitness)',
-            type: 'line',
-            data: ctlFull,
-            showSymbol: false,
-            lineStyle: { width: 2.5, color: '#3b82f6' },
-            itemStyle: { color: '#3b82f6' },
-            z: 2,
-            connectNulls: false,
-            markLine: changepoints.length > 0 ? { silent: true, data: changepointsToMarkLines(changepoints) } : undefined,
-          },
+          ctlCombinedSeries,
           {
             name: 'ATL (Ermüdung)',
             type: 'line',
@@ -306,6 +456,7 @@ export default function PMCChartExtended() {
             z: 2,
             connectNulls: false,
           },
+          ...activeSportGroupSeries,
           {
             name: 'CTL Prognose',
             type: 'line',
@@ -316,7 +467,6 @@ export default function PMCChartExtended() {
             z: 1,
             connectNulls: false,
           },
-          // ATL Prognose
           {
             name: 'ATL Prognose',
             type: 'line',
@@ -327,7 +477,6 @@ export default function PMCChartExtended() {
             z: 1,
             connectNulls: false,
           },
-          // TSB Prognose
           {
             name: 'TSB Prognose',
             type: 'bar',
@@ -340,7 +489,7 @@ export default function PMCChartExtended() {
         ],
       }
     },
-    [data],
+    [combinedData, splitData, selectedSportGroups, hasSportGroupsActive, changepoints],
     (chart) => {
       chartInstanceRef.current = chart
 
@@ -353,8 +502,8 @@ export default function PMCChartExtended() {
       type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
       let brushZoomLock = false
       const allDates = [
-        ...(data?.days ?? []).map(d => d.date),
-        ...(data?.projection ?? []).map(d => d.date),
+        ...(combinedData?.days ?? []).map(d => d.date),
+        ...(combinedData?.projection ?? []).map(d => d.date),
       ]
 
       chart.on('brushEnd', (params: unknown) => {
@@ -410,7 +559,7 @@ export default function PMCChartExtended() {
     },
   )
 
-  const latest = data?.days && data.days.length > 0 ? data.days[data.days.length - 1] : null
+  const latest = combinedData?.days && combinedData.days.length > 0 ? combinedData.days[combinedData.days.length - 1] : null
 
   return (
     <div className="space-y-3">
@@ -466,9 +615,60 @@ export default function PMCChartExtended() {
         </div>
       </div>
 
+      {/* Sport group chips — only shown when split data is available */}
+      {availableSportGroups.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs text-neutral-400 dark:text-neutral-500 mr-0.5">CTL nach Sport:</span>
+          {availableSportGroups.map(({ key, count }) => {
+            const isSparse = count < SPARSE_THRESHOLD
+            const isActive = selectedSportGroups.has(key)
+            const color = getSportGroupColor(key)
+            const label = getSportGroupLabel(key)
+            return (
+              <button
+                key={key}
+                onClick={() => !isSparse && toggleSportGroup(key)}
+                title={isSparse ? 'Wenig Daten' : label}
+                disabled={isSparse}
+                className={[
+                  'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all border cursor-pointer',
+                  isSparse
+                    ? 'opacity-40 cursor-not-allowed border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 bg-transparent'
+                    : isActive
+                      ? 'border-transparent text-white shadow-sm'
+                      : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 bg-transparent hover:border-neutral-300 dark:hover:border-neutral-600',
+                ].join(' ')}
+                style={isActive && !isSparse ? { backgroundColor: color, borderColor: color } : {}}
+              >
+                <span
+                  className="w-2 h-2 rounded-full inline-block flex-shrink-0"
+                  style={{ backgroundColor: isSparse ? '#9ca3af' : color }}
+                />
+                {label}
+                {isSparse && (
+                  <span className="ml-0.5 text-neutral-400 dark:text-neutral-500">(wenig Daten)</span>
+                )}
+              </button>
+            )
+          })}
+          {selectedSportGroups.size > 0 && (
+            <button
+              onClick={() => {
+                setSelectedSportGroups(new Set())
+                writeStoredGroups(new Set())
+              }}
+              className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 transition-colors cursor-pointer ml-1"
+              title="Sportgruppen-Filter zurücksetzen"
+            >
+              Zurücksetzen
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Metrics row */}
-      {(latest || data) && (() => {
-        const lastDate = data?.days[data.days.length - 1]?.date
+      {(latest || combinedData) && (() => {
+        const lastDate = combinedData?.days[combinedData.days.length - 1]?.date
         const todayISO = new Date().toISOString().slice(0, 10)
         const isHistorical = lastDate && lastDate !== todayISO
         const dateSuffix = isHistorical ? ` (${new Date(lastDate).toLocaleDateString('de-DE')})` : ''
@@ -492,24 +692,24 @@ export default function PMCChartExtended() {
               </>
             )}
             {/* ACWR / RampRate / Monotony / Strain */}
-            {data && (
+            {combinedData && (
               <>
-                {data.acwr_status && (
+                {combinedData.acwr_status && (
                   <span
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${acwrStatusColor(data.acwr_status)}`}
-                    title={`${acwrStatusLabel(data.acwr_status)} — Rolling 7:28 uncoupled${data.acwr_status === 'reduced' ? '. Kann geplanten Taper, Erholung oder Detraining anzeigen.' : ''}`}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${acwrStatusColor(combinedData.acwr_status)}`}
+                    title={`${acwrStatusLabel(combinedData.acwr_status)} — Rolling 7:28 uncoupled${combinedData.acwr_status === 'reduced' ? '. Kann geplanten Taper, Erholung oder Detraining anzeigen.' : ''}`}
                   >
-                    ACWR {data.acwr.toFixed(2)}{dateSuffix}
+                    ACWR {combinedData.acwr.toFixed(2)}{dateSuffix}
                   </span>
                 )}
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                  Rampe {data.ramp_rate >= 0 ? '+' : ''}{data.ramp_rate.toFixed(1)}/Wo{dateSuffix}
+                  Rampe {combinedData.ramp_rate >= 0 ? '+' : ''}{combinedData.ramp_rate.toFixed(1)}/Wo{dateSuffix}
                 </span>
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                  Mono {data.monotony.toFixed(2)}{dateSuffix}
+                  Mono {combinedData.monotony.toFixed(2)}{dateSuffix}
                 </span>
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                  Strain {data.strain.toFixed(0)}{dateSuffix}
+                  Strain {combinedData.strain.toFixed(0)}{dateSuffix}
                 </span>
               </>
             )}
@@ -518,11 +718,11 @@ export default function PMCChartExtended() {
       })()}
 
       {/* Fallback warning banner */}
-      {data?.using_default_thresholds && (
+      {combinedData?.using_default_thresholds && (
         <div className="mb-4 px-4 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-sm">
           TSS-Berechnung nutzt geschätzte Schwellenwerte
-          {data.default_threshold_fields?.length ? (
-            <> für: <strong>{data.default_threshold_fields.map(f => f.toUpperCase()).join(', ')}</strong></>
+          {combinedData.default_threshold_fields?.length ? (
+            <> für: <strong>{combinedData.default_threshold_fields.map(f => f.toUpperCase()).join(', ')}</strong></>
           ) : null}.{' '}
           Für genauere Ergebnisse im Profil oder pro Sportart hinterlegen.
         </div>
@@ -538,7 +738,7 @@ export default function PMCChartExtended() {
           <div className="flex items-center justify-center h-[340px] text-sm text-neutral-400">
             Fehler beim Laden der PMC-Daten
           </div>
-        ) : !data || (data.days?.length ?? 0) === 0 ? (
+        ) : !combinedData || (combinedData.days?.length ?? 0) === 0 ? (
           <div className="flex flex-col items-center justify-center h-[340px] gap-2 text-neutral-400">
             <svg className="w-8 h-8 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -572,4 +772,20 @@ export default function PMCChartExtended() {
       </div>
     </div>
   )
+}
+
+// Helper: build a single sport-group CTL series config
+function buildSportGroupSeries(key: string, ctlValues: (number | null)[]) {
+  const color = getSportGroupColor(key)
+  const label = getSportGroupLabel(key)
+  return {
+    name: `CTL ${label}`,
+    type: 'line' as const,
+    data: ctlValues,
+    showSymbol: false,
+    lineStyle: { width: 2.5, color },
+    itemStyle: { color },
+    z: 3,
+    connectNulls: false,
+  }
 }
