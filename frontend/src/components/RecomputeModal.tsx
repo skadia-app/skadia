@@ -6,15 +6,11 @@ import {
   GEO_SCOPE_KEYS,
   GEO_SCOPE_LABELS,
   REPROCESS_SCOPES,
+  DEFAULT_SCOPES,
   toBackendScope,
+  toggleScopeKey,
   type AnyReprocessKey,
 } from '@/lib/reprocessScopes'
-
-export { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS, REPROCESS_SCOPES }
-
-type RecomputeScope = AnyReprocessKey
-
-const DEFAULT_SCOPES: RecomputeScope[] = ['streams', 'sensors', 'metrics', 'details', 'segments']
 
 interface Props {
   /** IDs to recompute. Pass a single-element array for detail page use. */
@@ -28,7 +24,7 @@ type Mode = 'all' | 'scoped'
 
 export default function RecomputeModal({ activityIds, onClose, onSuccess }: Props) {
   const [mode, setMode] = useState<Mode>('all')
-  const [selected, setSelected] = useState<Set<RecomputeScope>>(new Set(DEFAULT_SCOPES))
+  const [selected, setSelected] = useState<Set<AnyReprocessKey>>(new Set(DEFAULT_SCOPES))
   const [state, setState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const queryClient = useQueryClient()
 
@@ -56,13 +52,8 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
     },
   })
 
-  function toggleScope(scope: RecomputeScope) {
-    setSelected(prev => {
-      const next = new Set(prev)
-      if (next.has(scope)) next.delete(scope)
-      else next.add(scope)
-      return next
-    })
+  function toggleScope(scope: AnyReprocessKey) {
+    setSelected(prev => toggleScopeKey(prev, scope))
   }
 
   const count = activityIds.length

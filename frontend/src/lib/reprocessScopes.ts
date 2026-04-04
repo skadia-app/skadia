@@ -12,9 +12,9 @@ export const GEO_SCOPE_LABELS: Record<GeoScopeKey, string> = {
   borders:  'Grenzen & Siedlungen',
 }
 
-// 3-tuple: [key, label, description | undefined]
-// description wird in Einzelaktivitäts-Modals angezeigt, ist optional für Bulk-Ansichten.
-export const REPROCESS_SCOPES = [
+export type ScopeTuple = readonly [key: string, label: string, description: string | undefined]
+
+export const REPROCESS_SCOPES: readonly ScopeTuple[] = [
   ['streams',      'Streams & Track',   undefined],
   ['sensors',      'Sensoren',          undefined],
   ['metrics',      'Metriken',          undefined],
@@ -29,7 +29,14 @@ export const REPROCESS_SCOPES = [
 export type ReprocessScopeKey = (typeof REPROCESS_SCOPES)[number][0]
 export type AnyReprocessKey = ReprocessScopeKey | GeoScopeKey
 
-// Geo-Keys in "geo" Backend-Scope übersetzen (Stage 2 läuft immer als Ganzes).
+export const DEFAULT_SCOPES: AnyReprocessKey[] = ['streams', 'sensors', 'metrics', 'details', 'segments']
+
+export function toggleScopeKey(prev: Set<AnyReprocessKey>, key: AnyReprocessKey): Set<AnyReprocessKey> {
+  const next = new Set(prev)
+  if (next.has(key)) next.delete(key); else next.add(key)
+  return next
+}
+
 export function toBackendScope(sel: Set<AnyReprocessKey>): string[] {
   const result = new Set<string>()
   for (const s of sel) {

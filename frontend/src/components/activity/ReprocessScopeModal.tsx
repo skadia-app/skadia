@@ -3,12 +3,11 @@ import {
   GEO_SCOPE_KEYS,
   GEO_SCOPE_LABELS,
   REPROCESS_SCOPES,
+  DEFAULT_SCOPES,
   toBackendScope,
+  toggleScopeKey,
   type AnyReprocessKey,
 } from '@/lib/reprocessScopes'
-
-export type { AnyReprocessKey }
-export { toBackendScope }
 
 function ReprocessScopeModal({
   onConfirm,
@@ -19,18 +18,7 @@ function ReprocessScopeModal({
   onClose: () => void
   isPending: boolean
 }) {
-  const [scope, setScope] = useState<Set<AnyReprocessKey>>(
-    new Set(['streams', 'sensors', 'metrics', 'details'])
-  )
-
-  function toggleScope(key: AnyReprocessKey) {
-    setScope(prev => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
+  const [scope, setScope] = useState<Set<AnyReprocessKey>>(new Set(DEFAULT_SCOPES))
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -52,7 +40,7 @@ function ReprocessScopeModal({
               <input
                 type="checkbox"
                 checked={scope.has(key)}
-                onChange={() => toggleScope(key)}
+                onChange={() => setScope(prev => toggleScopeKey(prev, key))}
                 className="rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT mt-0.5"
               />
               <span>
@@ -74,7 +62,7 @@ function ReprocessScopeModal({
               <input
                 type="checkbox"
                 checked={scope.has(key)}
-                onChange={() => toggleScope(key)}
+                onChange={() => setScope(prev => toggleScopeKey(prev, key))}
                 className="rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT"
               />
               {GEO_SCOPE_LABELS[key]}
