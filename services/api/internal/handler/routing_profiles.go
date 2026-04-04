@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -22,6 +24,15 @@ import (
 
 // systemProfileNames are the 5 built-in BadRouter profiles.
 var systemProfileNames = []string{"hiking", "mtb", "gravel", "trekking", "road"}
+
+// brouterCache caches the result of the BRouter profiles2 directory scan.
+var (
+	brouterCacheMu    sync.Mutex
+	brouterCacheTime  time.Time
+	brouterCacheItems []profileListItem
+)
+
+const brouterCacheTTL = 30 * time.Second
 
 // brouterSportTypes maps BRouter profile file names (without .brf) to sport types.
 var brouterSportTypes = map[string][]string{
@@ -109,25 +120,39 @@ func (h *Handler) HandleListProfiles(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// 3. BRouter profiles from filesystem
-	brouterDir := filepath.Join("data", "brouter", "profiles2")
-	matches, _ := filepath.Glob(filepath.Join(brouterDir, "*.brf"))
-	for _, path := range matches {
-		base := strings.TrimSuffix(filepath.Base(path), ".brf")
-		st := brouterSportTypes[base]
-		if st == nil {
-			st = []string{}
+	// 3. BRouter profiles from filesystem (cached with TTL to avoid per-request Glob).
+	brouterCacheMu.Lock()
+	if time.Since(brouterCacheTime) < brouterCacheTTL && brouterCacheItems != nil {
+		cached := brouterCacheItems
+		brouterCacheMu.Unlock()
+		profiles = append(profiles, cached...)
+	} else {
+		brouterCacheMu.Unlock()
+		brouterDir := filepath.Join("data", "brouter", "profiles2")
+		matches, _ := filepath.Glob(filepath.Join(brouterDir, "*.brf"))
+		var items []profileListItem
+		for _, path := range matches {
+			base := strings.TrimSuffix(filepath.Base(path), ".brf")
+			st := brouterSportTypes[base]
+			if st == nil {
+				st = []string{}
+			}
+			items = append(items, profileListItem{
+				ID:          nil,
+				Name:        base,
+				Engine:      "brouter",
+				BaseProfile: base,
+				SportTypes:  st,
+				Source:      "filesystem",
+				Config:      nil,
+				Editable:    false,
+			})
 		}
-		profiles = append(profiles, profileListItem{
-			ID:          nil,
-			Name:        base,
-			Engine:      "brouter",
-			BaseProfile: base,
-			SportTypes:  st,
-			Source:      "filesystem",
-			Config:      nil,
-			Editable:    false,
-		})
+		brouterCacheMu.Lock()
+		brouterCacheItems = items
+		brouterCacheTime = time.Now()
+		brouterCacheMu.Unlock()
+		profiles = append(profiles, items...)
 	}
 
 	if profiles == nil {

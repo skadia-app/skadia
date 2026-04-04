@@ -110,6 +110,8 @@ func (db *DB) GetRoutingProfileByName(ctx context.Context, userID, name string) 
 // Used by SuggestRoutes to resolve custom profile references including filesystem profiles.
 // Returns nil, nil when not found.
 func (db *DB) GetRoutingProfileByNameOrGlobal(ctx context.Context, userID, name string) (*RoutingProfile, error) {
+	// ORDER BY user_id IS NULL: FALSE (0) sorts before TRUE (1) in ASC,
+	// so user-owned profiles take precedence over global filesystem profiles.
 	p, err := scanRoutingProfile(db.Pool.QueryRow(ctx,
 		routingProfileSelect+`
 WHERE (user_id = $1 OR user_id IS NULL) AND name = $2
