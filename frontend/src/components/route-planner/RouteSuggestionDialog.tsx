@@ -31,15 +31,17 @@ const SURFACE_OPTIONS = [
 ] as const
 
 const SAC_SCALE_OPTIONS = [
+  { value: 0, label: 'Keine Einschränkung' },
   { value: 1, label: 'T1 — Wandern' },
   { value: 2, label: 'T2 — Bergwandern' },
-  { value: 3, label: 'T3 — Anspruchsvolles Bergwandern' },
+  { value: 3, label: 'T3 — Anspruchsvoll' },
   { value: 4, label: 'T4 — Alpinwandern' },
   { value: 5, label: 'T5 — Anspruchsvolles Alpinwandern' },
   { value: 6, label: 'T6 — Schwieriges Alpinwandern' },
 ]
 
 const MTB_SCALE_OPTIONS = [
+  { value: -1, label: 'Keine Einschränkung' },
   { value: 0, label: 'S0 — Keine technischen Anforderungen' },
   { value: 1, label: 'S1 — Leichte technische Anforderungen' },
   { value: 2, label: 'S2 — Mittlere technische Anforderungen' },
@@ -119,9 +121,9 @@ export default function RouteSuggestionDialog({
   // Surface tendency
   const [surfaceTendency, setSurfaceTendency] = useState<'trails' | 'forest_roads' | 'mixed' | 'paved'>('mixed')
 
-  // Difficulty scales
-  const [maxSacScale, setMaxSacScale] = useState<number>(3)
-  const [maxMtbScale, setMaxMtbScale] = useState<number>(2)
+  // Difficulty scales (0 = no restriction for SAC, -1 = no restriction for MTB)
+  const [maxSacScale, setMaxSacScale] = useState<number>(0)
+  const [maxMtbScale, setMaxMtbScale] = useState<number>(-1)
 
   // Track last coverage_available for badge display
   const [lastCoverageAvailable, setLastCoverageAvailable] = useState<boolean | null>(null)
@@ -184,8 +186,8 @@ export default function RouteSuggestionDialog({
           low_traffic: lowTraffic,
         },
         surface_tendency: surfaceTendency,
-        max_sac_scale: showSacScale ? maxSacScale : undefined,
-        max_mtb_scale: showMtbScale ? maxMtbScale : undefined,
+        max_sac_scale: showSacScale && maxSacScale > 0 ? maxSacScale : undefined,
+        max_mtb_scale: showMtbScale && maxMtbScale >= 0 ? maxMtbScale : undefined,
       }
       return suggestRoute(params)
     },
@@ -204,10 +206,9 @@ export default function RouteSuggestionDialog({
     },
   })
 
-  const suggestionCount = 3  // backend always returns up to 3 variants
   const buttonLabel = mutation.isPending
     ? 'Wird berechnet\u2026'
-    : `${suggestionCount} Routen vorschlagen`
+    : 'Routen vorschlagen'
 
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-md" className="p-0 w-[92vw] max-h-[90vh] flex flex-col">
@@ -279,11 +280,22 @@ export default function RouteSuggestionDialog({
               className="w-full px-3 py-2 rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm text-neutral-900 dark:text-neutral-50 focus:outline-none focus:ring-2"
               style={{ '--tw-ring-color': accent.shade400 } as React.CSSProperties}
             >
-              {filteredProfiles.map(p => (
-                <option key={p.name} value={p.name}>
-                  {p.name}{p.source === 'user' ? ' (eigenes Profil)' : p.engine === 'brouter' ? ' (BRouter)' : ''}
-                </option>
-              ))}
+              <optgroup label="BadRouter">
+                {filteredProfiles.filter(p => p.engine !== 'brouter').map(p => (
+                  <option key={p.name} value={p.name}>
+                    {p.name}{p.source === 'user' ? ' (eigenes Profil)' : ''}
+                  </option>
+                ))}
+              </optgroup>
+              {filteredProfiles.some(p => p.engine === 'brouter') && (
+                <optgroup label="BRouter">
+                  {filteredProfiles.filter(p => p.engine === 'brouter').map(p => (
+                    <option key={p.name} value={p.name}>
+                      {p.name}{p.source === 'user' ? ' (eigenes Profil)' : ''}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           )}
         </div>
