@@ -29,6 +29,24 @@ type PMCResponse struct {
 	DefaultThresholdFields []string       `json:"default_threshold_fields,omitempty"`
 }
 
+// PMCSplitResponse is returned when split_by_sport=true. The Series map contains
+// one entry per sport_group (e.g. "__combined__", "cycling", "running"). Sport-specific
+// series carry CTL and TSB; ATL is only meaningful on the combined series (Friel: fatigue
+// is cross-sport), so sport-specific rows retain the ATL stored in pmc_daily (which
+// equals 0 for sport-specific rows as they are computed without a separate ATL EWMA).
+type PMCSplitResponse struct {
+	Series                 map[string][]model.PMCDay `json:"series"`
+	ACWR                   float64                   `json:"acwr"`
+	ACWRStatus             string                    `json:"acwr_status"`
+	ACWRTrend              float64                   `json:"acwr_trend"`
+	RampRate               float64                   `json:"ramp_rate"`
+	Monotony               float64                   `json:"monotony"`
+	Strain                 float64                   `json:"strain"`
+	Projection             []model.PMCDay            `json:"projection"`
+	UsingDefaultThresholds bool                      `json:"using_default_thresholds"`
+	DefaultThresholdFields []string                  `json:"default_threshold_fields,omitempty"`
+}
+
 func getAcwrStatus(acwr float64) string {
 	switch {
 	case acwr < 0.8:
@@ -118,6 +136,12 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filter := ParseFilters(r)
+	splitBySport := r.URL.Query().Get("split_by_sport") == "true"
+
+	if splitBySport {
+		h.getPMCSplit(w, r, userID, filter)
+		return
+	}
 
 	days, err := h.DB.GetPMCRange(ctx, userID, filter.From, filter.To)
 	if err != nil {
@@ -195,6 +219,107 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 
 	resp := PMCResponse{
 		Days:                   days,
+		ACWR:                   acwrRA,
+		ACWRStatus:             acwrStatusStr,
+		ACWRTrend:              acwrTrend,
+		RampRate:               math.Round(rampRate*100) / 100,
+		Monotony:               math.Round(monotony*1000) / 1000,
+		Strain:                 math.Round(strain*10) / 10,
+		Projection:             projection,
+		UsingDefaultThresholds: usingDefaults,
+		DefaultThresholdFields: defaultFields,
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// getPMCSplit handles the split_by_sport=true branch of GetPMC. It loads all
+// sport_group rows, groups them by sport, and returns a PMCSplitResponse. The
+// summary metrics (ACWR, RampRate, Monotony, Strain, Projection) are derived
+// from the "__combined__" series, keeping them consistent with the default view.
+func (h *Handler) getPMCSplit(w http.ResponseWriter, r *http.Request, userID string, filter AnalyticsFilter) {
+	ctx := r.Context()
+
+	allDays, err := h.DB.GetPMCRangeAllSports(ctx, userID, filter.From, filter.To)
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
+		return
+	}
+
+	if len(allDays) == 0 {
+		httputil.WriteJSON(w, http.StatusOK, PMCSplitResponse{
+			Series: map[string][]model.PMCDay{},
+		})
+		return
+	}
+
+	// Group rows by sport_group. Empty sport_group means "__combined__" (legacy rows).
+	series := make(map[string][]model.PMCDay)
+	for _, d := range allDays {
+		sg := d.SportGroup
+		if sg == "" {
+			sg = "__combined__"
+		}
+		series[sg] = append(series[sg], d)
+	}
+
+	// Ensure "__combined__" is always present (may be absent if the range predates
+	// the multi-sport migration for this user). Derive summary metrics from it.
+	combined := series["__combined__"]
+
+	var currentCTL, ctl7DaysAgo float64
+	var last7TSS []float64
+	for i, d := range combined {
+		if i == len(combined)-1 {
+			currentCTL = d.CTL
+		}
+		if i == len(combined)-8 {
+			ctl7DaysAgo = d.CTL
+		}
+		if i >= len(combined)-7 {
+			last7TSS = append(last7TSS, d.TSS)
+		}
+	}
+
+	rampRate := currentCTL - ctl7DaysAgo
+	monotony := calcMonotony(last7TSS)
+	var weekTSS float64
+	for _, v := range last7TSS {
+		weekTSS += v
+	}
+	strain := weekTSS * monotony
+
+	dailyTSSMap := make(map[string]float64)
+	for _, d := range combined {
+		dailyTSSMap[d.Date] = d.TSS
+	}
+	var acwrRA float64
+	var acwrStatusStr string
+	var acwrTrend float64
+	var projection []model.PMCDay
+	if len(combined) > 0 {
+		lastDate, _ := time.Parse("2006-01-02", combined[len(combined)-1].Date)
+		acwrRA = pmc.CalcACWR_RA(dailyTSSMap, lastDate)
+		if acwrRA > 0 {
+			acwrStatusStr = getAcwrStatus(acwrRA)
+		}
+		lastDay := combined[len(combined)-1]
+		if lastDay.CTL > 0 {
+			acwrTrend = math.Round(lastDay.ATL/lastDay.CTL*100) / 100
+		}
+		projection = ewmaProjection(combined, 28)
+	}
+
+	th, thErr := pmc.EffectiveThresholds(ctx, h.DB, userID, 0, 0, time.Now())
+	var usingDefaults bool
+	var defaultFields []string
+	if thErr == nil && th != nil {
+		usingDefaults = th.HasHeuristicDefaults()
+		defaultFields = th.DefaultFields()
+	}
+
+	resp := PMCSplitResponse{
+		Series:                 series,
 		ACWR:                   acwrRA,
 		ACWRStatus:             acwrStatusStr,
 		ACWRTrend:              acwrTrend,
