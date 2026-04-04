@@ -1,33 +1,14 @@
 import { useState } from 'react'
-import { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS } from '@/components/RecomputeModal'
+import {
+  GEO_SCOPE_KEYS,
+  GEO_SCOPE_LABELS,
+  REPROCESS_SCOPES,
+  toBackendScope,
+  type AnyReprocessKey,
+} from '@/lib/reprocessScopes'
 
-const REPROCESS_SCOPES = [
-  ['streams',      'Streams & Track',      undefined],
-  ['sensors',      'Sensoren',             undefined],
-  ['metrics',      'Metriken',             undefined],
-  ['details',      'Runden/Splits',        undefined],
-  ['segments',     'Segmente & Runden',    undefined],
-  ['sport_type',   'Sportart',             undefined],
-  ['tags',         'Tags',                 undefined],
-  ['best_efforts', 'Best Efforts',         'Distanz-, Höhenmeter- und Power-Bestleistungen neu berechnen'],
-  ['running_form', 'Laufform-Analyse',     'Duty Factor, Vertical Ratio und Fatigue Index neu berechnen'],
-] as const
-
-type ReprocessScopeKey = typeof REPROCESS_SCOPES[number][0]
-export type AnyReprocessKey = ReprocessScopeKey | typeof GEO_SCOPE_KEYS[number]
-
-// Geo-Keys in "geo" Backend-Scope übersetzen (Stage 2 läuft immer als Ganzes).
-export function toBackendScope(sel: Set<AnyReprocessKey>): string[] {
-  const result = new Set<string>()
-  for (const s of sel) {
-    if ((GEO_SCOPE_KEYS as readonly string[]).includes(s)) {
-      result.add('geo')
-    } else {
-      result.add(s)
-    }
-  }
-  return [...result]
-}
+export type { AnyReprocessKey }
+export { toBackendScope }
 
 function ReprocessScopeModal({
   onConfirm,

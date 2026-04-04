@@ -2,34 +2,17 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { reprocessAllActivities } from '@/api/activities'
 import { ModalShell } from '@/components/ui/ModalShell'
+import {
+  GEO_SCOPE_KEYS,
+  GEO_SCOPE_LABELS,
+  REPROCESS_SCOPES,
+  toBackendScope,
+  type AnyReprocessKey,
+} from '@/lib/reprocessScopes'
 
-// GEO_SCOPE_KEYS: alle Geo-Features triggern dasselbe "geo" Backend-Scope (Stage 2 läuft zusammen).
-export const GEO_SCOPE_KEYS = ['summits', 'forests', 'water', 'stops', 'lifts', 'surfaces', 'borders'] as const
-type GeoScopeKey = (typeof GEO_SCOPE_KEYS)[number]
+export { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS, REPROCESS_SCOPES }
 
-export const GEO_SCOPE_LABELS: Record<GeoScopeKey, string> = {
-  summits:  'Gipfel & Pässe',
-  forests:  'Wälder',
-  water:    'Gewässer',
-  stops:    'Gastronomie / Einkehr',
-  lifts:    'Lifte',
-  surfaces: 'Oberflächen',
-  borders:  'Grenzen & Siedlungen',
-}
-
-export const REPROCESS_SCOPES = [
-  ['streams',      'Streams & Track'],
-  ['sensors',      'Sensoren'],
-  ['metrics',      'Metriken'],
-  ['details',      'Runden/Splits'],
-  ['segments',     'Segmente & Runden'],
-  ['sport_type',   'Sportart'],
-  ['tags',         'Tags'],
-  ['best_efforts', 'Best Efforts'],
-  ['running_form', 'Laufform-Analyse'],
-] as const
-
-type RecomputeScope = (typeof REPROCESS_SCOPES)[number][0] | GeoScopeKey
+type RecomputeScope = AnyReprocessKey
 
 const DEFAULT_SCOPES: RecomputeScope[] = ['streams', 'sensors', 'metrics', 'details', 'segments']
 
@@ -48,19 +31,6 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
   const [selected, setSelected] = useState<Set<RecomputeScope>>(new Set(DEFAULT_SCOPES))
   const [state, setState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const queryClient = useQueryClient()
-
-  // Geo-Keys in "geo" Backend-Scope übersetzen (Stage 2 läuft immer als Ganzes).
-  function toBackendScope(sel: Set<RecomputeScope>): string[] {
-    const result = new Set<string>()
-    for (const s of sel) {
-      if (GEO_SCOPE_KEYS.includes(s as GeoScopeKey)) {
-        result.add('geo')
-      } else {
-        result.add(s)
-      }
-    }
-    return [...result]
-  }
 
   const mutation = useMutation({
     mutationFn: () =>
