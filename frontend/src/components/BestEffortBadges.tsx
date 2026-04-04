@@ -43,10 +43,10 @@ const CATEGORY_LABELS: Record<string, string> = {
   // Distance (swim open water)
   dist_2km: '2 km',
   // Elevation
-  elev_500: '500 Hm',
-  elev_1000: '1000 Hm',
-  elev_1500: '1500 Hm',
-  elev_2000: '2000 Hm',
+  elev_500hm: '500 Hm',
+  elev_1000hm: '1000 Hm',
+  elev_1500hm: '1500 Hm',
+  elev_2000hm: '2000 Hm',
   // Power
   power_5s: '5 Sek',
   power_30s: '30 Sek',

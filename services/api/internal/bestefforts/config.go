@@ -14,7 +14,7 @@ const (
 
 // Category defines a single best-efforts measurement bucket.
 type Category struct {
-	Key         string       // unique key, e.g. "dist_5km", "elev_1000", "power_5s"
+	Key         string       // unique key, e.g. "dist_5km", "elev_1000hm", "power_5s"
 	Type        CategoryType
 	DistanceM   float64 // distance threshold in metres (TypeTimeLower)
 	ElevationM  float64 // elevation threshold in metres (TypeValueHigher for Hm categories)
@@ -98,10 +98,10 @@ var distancesSwimOW = []Category{
 }
 
 var elevationCategories = []Category{
-	elevCat("elev_500", "500 Hm", 500),
-	elevCat("elev_1000", "1000 Hm", 1000),
-	elevCat("elev_1500", "1500 Hm", 1500),
-	elevCat("elev_2000", "2000 Hm", 2000),
+	elevCat("elev_500hm", "500 Hm", 500),
+	elevCat("elev_1000hm", "1000 Hm", 1000),
+	elevCat("elev_1500hm", "1500 Hm", 1500),
+	elevCat("elev_2000hm", "2000 Hm", 2000),
 }
 
 var powerCategories = []Category{
