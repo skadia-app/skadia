@@ -208,6 +208,11 @@ func (s *Service) RecalcAll(ctx context.Context, userID string, progressFn func(
 	total := len(activities)
 	processedIDs := make([]string, 0, total)
 
+	// Report total immediately so the UI can show progress (e.g. "0 / 442")
+	if progressFn != nil {
+		progressFn(0, total)
+	}
+
 	for i, info := range activities {
 		// Use lightweight stream (5 columns) — ~16× less data than full StreamPoint.
 		stream, err := s.Store.GetStreamPointsLightweight(ctx, info.ID)
