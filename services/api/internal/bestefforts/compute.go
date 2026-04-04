@@ -155,10 +155,17 @@ func ComputeElevationBestEffort(stream []model.StreamPoint, cat Category, liftIn
 	}
 }
 
-// ComputePowerBestEffort finds the highest mean power over a time window of
-// exactly cat.DurationS seconds using a time-based sliding window.
+// ComputePowerBestEffort finds the highest time-weighted mean power over a time
+// window of exactly cat.DurationS seconds using a time-based sliding window.
+//
 // Nil PowerW values are treated as 0 W (coasting), consistent with the NP
 // standard where stopped/freewheeling seconds still count.
+//
+// Each sample i is weighted by its duration: the interval from time[i] to
+// time[i+1] (or 1 s for the last sample in the stream). This correctly handles
+// Smart Recording where the device may record at 2–7 s intervals rather than 1 Hz.
+// At 1 Hz the time-weighted mean equals the simple sample average.
+//
 // The window advances by time[right] - time[left] >= targetDuration.
 // Returns nil when the stream is shorter than the target duration.
 func ComputePowerBestEffort(stream []model.StreamPoint, cat Category) *EffortResult {
@@ -168,6 +175,17 @@ func ComputePowerBestEffort(stream []model.StreamPoint, cat Category) *EffortRes
 		return nil
 	}
 
+	// Precompute per-sample duration (seconds to next sample; 1 s for last).
+	dt := make([]float64, n)
+	for i := 0; i < n-1; i++ {
+		d := stream[i+1].Time.Sub(stream[i].Time).Seconds()
+		if d <= 0 {
+			d = 1
+		}
+		dt[i] = d
+	}
+	dt[n-1] = 1
+
 	// Precompute power values (nil → 0).
 	power := make([]float64, n)
 	for i, p := range stream {
@@ -176,10 +194,14 @@ func ComputePowerBestEffort(stream []model.StreamPoint, cat Category) *EffortRes
 		}
 	}
 
-	// Precompute running sum for O(1) mean queries.
-	cumPower := make([]float64, n+1)
+	// Prefix sums for O(1) time-weighted mean queries over [left, right]:
+	//   mean = (cumPowerTime[right+1] - cumPowerTime[left]) /
+	//          (cumTime[right+1]      - cumTime[left])
+	cumPowerTime := make([]float64, n+1)
+	cumTime := make([]float64, n+1)
 	for i := 0; i < n; i++ {
-		cumPower[i+1] = cumPower[i] + power[i]
+		cumPowerTime[i+1] = cumPowerTime[i] + power[i]*dt[i]
+		cumTime[i+1] = cumTime[i] + dt[i]
 	}
 
 	var bestMean float64 = -1
@@ -202,9 +224,12 @@ func ComputePowerBestEffort(stream []model.StreamPoint, cat Category) *EffortRes
 		if windowSec < targetDuration {
 			continue
 		}
-		// Mean power over [left, right] inclusive.
-		count := right - left + 1
-		mean := (cumPower[right+1] - cumPower[left]) / float64(count)
+		// Time-weighted mean power over [left, right] inclusive.
+		totalTime := cumTime[right+1] - cumTime[left]
+		if totalTime <= 0 {
+			continue
+		}
+		mean := (cumPowerTime[right+1] - cumPowerTime[left]) / totalTime
 		if !found || mean > bestMean {
 			bestMean = mean
 			bestStart = left

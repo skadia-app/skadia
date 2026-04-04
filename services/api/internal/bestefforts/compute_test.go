@@ -176,6 +176,58 @@ func TestComputePowerBestEffort_NilIsZero(t *testing.T) {
 	}
 }
 
+// TestComputePowerBestEffort_VariableSampling: stream with 5 s Smart Recording
+// intervals. At uniform 200 W the time-weighted mean must equal 200 W.
+// A second window with 1 s resolution at 300 W must be preferred over the
+// 200 W window, demonstrating that time-weighting does not distort selection.
+func TestComputePowerBestEffort_VariableSampling(t *testing.T) {
+	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// Build a stream: first 240 s at 5 s intervals (48 samples) at 200 W,
+	// then 60 s at 1 s intervals (60 samples) at 300 W.
+	// Target: 60 s best power. Expected winner: 300 W window.
+	pts := make([]model.StreamPoint, 0, 108)
+	ts := t0
+	for i := 0; i < 48; i++ {
+		pw := int16(200)
+		pts = append(pts, model.StreamPoint{Time: ts, PowerW: &pw})
+		ts = ts.Add(5 * time.Second)
+	}
+	for i := 0; i < 60; i++ {
+		pw := int16(300)
+		pts = append(pts, model.StreamPoint{Time: ts, PowerW: &pw})
+		ts = ts.Add(1 * time.Second)
+	}
+
+	cat := Category{Key: "1min_power", Type: TypeValueHigher, DurationS: 60}
+	result := ComputePowerBestEffort(pts, cat)
+	if result == nil {
+		t.Fatal("expected non-nil result for variable-sampling stream")
+	}
+	// The 300 W window must win.
+	if result.ValueNumeric < 250.0 {
+		t.Errorf("ValueNumeric = %.2f, want ~300 (300W 1Hz window should beat 200W 5s window)", result.ValueNumeric)
+	}
+
+	// Verify time-weighted mean: a pure 5 s stream at constant 200 W
+	// must yield exactly 200 W (not distorted by sample count).
+	pts5s := make([]model.StreamPoint, 0, 24)
+	ts2 := t0
+	for i := 0; i < 24; i++ {
+		pw := int16(200)
+		pts5s = append(pts5s, model.StreamPoint{Time: ts2, PowerW: &pw})
+		ts2 = ts2.Add(5 * time.Second)
+	}
+	cat2 := Category{Key: "1min_power", Type: TypeValueHigher, DurationS: 60}
+	result2 := ComputePowerBestEffort(pts5s, cat2)
+	if result2 == nil {
+		t.Fatal("expected non-nil result for 5 s stream")
+	}
+	if math.Abs(result2.ValueNumeric-200.0) > 1.0 {
+		t.Errorf("time-weighted mean = %.2f, want 200.0 for uniform 5s/200W stream", result2.ValueNumeric)
+	}
+}
+
 // ── Elevation tests ───────────────────────────────────────────────────────────
 
 // TestComputeElevationBestEffort_Basic: ascending ramp → find 100 m gain.
