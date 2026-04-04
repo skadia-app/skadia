@@ -60,7 +60,7 @@ func TestFormatManufacturer(t *testing.T) {
 		{"wahoo_fitness", "Wahoo Fitness"},
 		{"garmin", "Garmin"},
 		{"polar_electro", "Polar Electro"},
-		{"sigmasport", "Sigmasport"},
+		{"sigmasport", "Sigma Sport"},
 		{"", ""},
 		{"ManufacturerInvalid", ""},
 		{"ManufacturerInvalid(65535)", ""},

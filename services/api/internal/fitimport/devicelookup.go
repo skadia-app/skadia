@@ -194,6 +194,7 @@ var productNameMap = map[[2]uint16]string{
 
 	// Garmin — newer models not yet in GarminProduct SDK enum (manufacturer_id=1)
 	// These are looked up after SDK resolution fails.
+	{1, 3592}: "Garmin Varia RTL515",
 	{1, 4565}: "Garmin FR970",
 	{1, 4574}: "Garmin FR570",
 
@@ -325,7 +326,7 @@ func FormatManufacturer(s string) string {
 	case "whoop":
 		return "WHOOP"
 	case "sigmasport":
-		return "Sigmasport"
+		return "Sigma Sport"
 	case "osynce":
 		return "o_synce"
 	}
@@ -354,6 +355,11 @@ var garminEnumAcronyms = map[string]string{
 	"rct":    "RCT",
 	"gps":    "GPS",
 	"hr":     "HR",
+	"d2":     "D2",
+	"gpsmap": "GPSMAP",
+	"bcm":    "BCM",
+	"sdm":    "SDM",
+	"mtb":    "MTB",
 }
 
 // formatDeviceNameFromEnum converts a FIT SDK enum string to a human-readable device name.
@@ -410,8 +416,19 @@ func formatEnumToken(token string) []string {
 		return []string{string(runes)}
 	}
 
-	// Starts with digit: return as-is (e.g. "50mm", "1040")
+	// Starts with digit: return with trailing single alpha char uppercased (e.g. "2s"→"2S", "6x"→"6X")
+	// Multi-char suffixes like "50mm" stay as-is.
 	if alphaEnd == 0 {
+		r := []rune(token)
+		// Find where digits end
+		dEnd := 0
+		for dEnd < len(r) && unicode.IsDigit(r[dEnd]) {
+			dEnd++
+		}
+		trailing := string(r[dEnd:])
+		if len(trailing) == 1 && unicode.IsLetter(r[dEnd]) {
+			return []string{string(r[:dEnd]) + strings.ToUpper(trailing)}
+		}
 		return []string{token}
 	}
 
