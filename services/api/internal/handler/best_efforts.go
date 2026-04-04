@@ -194,7 +194,7 @@ func (h *Handler) RecalcBestEfforts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entityName := "Best Efforts"
+	entityName := "Bestleistungen"
 	jobID, created, err := h.DB.InsertBackgroundJobGuarded(r.Context(), userID,
 		"recalc_best_efforts", nil, &entityName, 0)
 	if err != nil {

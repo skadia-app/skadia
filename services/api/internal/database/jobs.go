@@ -160,7 +160,7 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 		"meta_backfill":            "Meta-Sidecars erstellen",
 		"coverage_build":           "Coverage-Grids erstellen",
 		"fusion_queue_compute":     "Fusionskandidaten berechnen",
-		"recalc_best_efforts":      "Best Efforts neu berechnen",
+		"recalc_best_efforts":      "Bestleistungen neu berechnen",
 		"recompute_all_tss":        "TSS für alle Aktivitäten neu berechnen",
 	}
 	label := labels[jobType]
