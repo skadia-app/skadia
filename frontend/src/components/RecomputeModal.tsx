@@ -25,6 +25,8 @@ export const REPROCESS_SCOPES = [
   ['segments',     'Segmente & Runden'],
   ['sport_type',   'Sportart'],
   ['tags',         'Tags'],
+  ['best_efforts', 'Best Efforts'],
+  ['running_form', 'Laufform-Analyse'],
 ] as const
 
 type RecomputeScope = (typeof REPROCESS_SCOPES)[number][0] | GeoScopeKey
