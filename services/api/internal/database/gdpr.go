@@ -194,6 +194,15 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 
 	// Tables without CASCADE that need explicit deletion.
 
+	// best_effort_exclusions / best_efforts: both have ON DELETE CASCADE from users,
+	// but we delete explicitly as a safety-net in the correct FK order.
+	if _, err := tx.Exec(ctx, `DELETE FROM best_effort_exclusions WHERE user_id = $1`, userID); err != nil {
+		slog.Warn("GDPR: delete best_effort_exclusions failed", "error", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM best_efforts WHERE user_id = $1`, userID); err != nil {
+		slog.Warn("GDPR: delete best_efforts failed", "error", err)
+	}
+
 	// user_daily_features: user_id without CASCADE.
 	if _, err := tx.Exec(ctx, `DELETE FROM user_daily_features WHERE user_id = $1`, userID); err != nil {
 		slog.Warn("GDPR: delete user_daily_features failed", "error", err)
@@ -277,6 +286,83 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	slog.Info("GDPR purge complete", "user_id", userID,
 		"activities", len(actIDs), "segments", len(segIDs))
 	return nil
+}
+
+// ExportBestEfforts returns all best_efforts rows for a user for GDPR export.
+func (db *DB) ExportBestEfforts(ctx context.Context, userID string) ([]map[string]any, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, user_id, activity_id, category, sport_group,
+		       elapsed_time_s, value_numeric, achieved_at,
+		       stream_start_idx, stream_end_idx, created_at
+		FROM best_efforts
+		WHERE user_id = $1
+		ORDER BY achieved_at DESC`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("export best_efforts: %w", err)
+	}
+	defer rows.Close()
+
+	var result []map[string]any
+	for rows.Next() {
+		var id, uid, activityID, category, sportGroup string
+		var elapsedTimeS, streamStartIdx, streamEndIdx *int
+		var valueNumeric *float64
+		var achievedAt, createdAt time.Time
+		if err := rows.Scan(&id, &uid, &activityID, &category, &sportGroup,
+			&elapsedTimeS, &valueNumeric, &achievedAt,
+			&streamStartIdx, &streamEndIdx, &createdAt); err != nil {
+			return nil, fmt.Errorf("scan best_efforts GDPR row: %w", err)
+		}
+		result = append(result, map[string]any{
+			"id":               id,
+			"user_id":          uid,
+			"activity_id":      activityID,
+			"category":         category,
+			"sport_group":      sportGroup,
+			"elapsed_time_s":   elapsedTimeS,
+			"value_numeric":    valueNumeric,
+			"achieved_at":      achievedAt,
+			"stream_start_idx": streamStartIdx,
+			"stream_end_idx":   streamEndIdx,
+			"created_at":       createdAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate best_efforts GDPR rows: %w", err)
+	}
+	return result, nil
+}
+
+// ExportBestEffortExclusions returns all best_effort_exclusions rows for a user for GDPR export.
+func (db *DB) ExportBestEffortExclusions(ctx context.Context, userID string) ([]map[string]any, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT user_id, activity_id, category, created_at
+		FROM best_effort_exclusions
+		WHERE user_id = $1
+		ORDER BY created_at DESC`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("export best_effort_exclusions: %w", err)
+	}
+	defer rows.Close()
+
+	var result []map[string]any
+	for rows.Next() {
+		var uid, activityID, category string
+		var createdAt time.Time
+		if err := rows.Scan(&uid, &activityID, &category, &createdAt); err != nil {
+			return nil, fmt.Errorf("scan best_effort_exclusions GDPR row: %w", err)
+		}
+		result = append(result, map[string]any{
+			"user_id":     uid,
+			"activity_id": activityID,
+			"category":    category,
+			"created_at":  createdAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate best_effort_exclusions GDPR rows: %w", err)
+	}
+	return result, nil
 }
 
 func (db *DB) getUserActivityIDs(ctx context.Context, userID string) []string {
