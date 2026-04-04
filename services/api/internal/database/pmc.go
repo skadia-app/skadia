@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // UpdateActivityTSS saves computed TSS metrics for a single activity.
@@ -78,13 +79,17 @@ func (db *DB) UpsertPMCDay(ctx context.Context, userID string, date time.Time, t
 func (db *DB) UpsertPMCDays(ctx context.Context, userID string, days []model.PMCDay) error {
 	batch := &pgx.Batch{}
 	for _, d := range days {
+		sg := d.SportGroup
+		if sg == "" {
+			sg = "__combined__"
+		}
 		batch.Queue(
-			`INSERT INTO pmc_daily (user_id, date, tss, ctl, atl, tsb, acwr_ra)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)
-			 ON CONFLICT (user_id, date) DO UPDATE
+			`INSERT INTO pmc_daily (user_id, date, sport_group, tss, ctl, atl, tsb, acwr_ra)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			 ON CONFLICT (user_id, date, sport_group) DO UPDATE
 			 SET tss = EXCLUDED.tss, ctl = EXCLUDED.ctl, atl = EXCLUDED.atl, tsb = EXCLUDED.tsb,
 			     acwr_ra = EXCLUDED.acwr_ra`,
-			userID, d.Date, d.TSS, d.CTL, d.ATL, d.TSB, d.ACWRRA,
+			userID, d.Date, sg, d.TSS, d.CTL, d.ATL, d.TSB, d.ACWRRA,
 		)
 	}
 
@@ -97,6 +102,61 @@ func (db *DB) UpsertPMCDays(ctx context.Context, userID string, days []model.PMC
 		}
 	}
 	return nil
+}
+
+// DeterminePMCSportGroup maps a sport_type string to a coarse PMC sport group.
+// PMC uses fewer buckets than the full sport taxonomy for statistical significance.
+func DeterminePMCSportGroup(sportType string) string {
+	key := sport.CategoryForSport(sportType).Key
+	switch key {
+	case "bike":
+		return "cycling"
+	case "run":
+		return "running" // includes hiking, walking — PMC is intentionally coarser
+	case "water":
+		return "swimming"
+	default:
+		return "other"
+	}
+}
+
+// GetDailyTSSBySport aggregates pre-computed TSS values per day and PMC sport group.
+// Returns map[dateStr]map[sportGroup]totalTSS.
+func (db *DB) GetDailyTSSBySport(ctx context.Context, userID string, from, to time.Time) (map[string]map[string]float64, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT date_trunc('day', a.started_at AT TIME ZONE u.timezone)::date AS day,
+		       a.sport_type,
+		       COALESCE(SUM(a.computed_tss), 0) AS tss
+		FROM activities a
+		JOIN users u ON u.id = a.user_id
+		WHERE a.user_id = $1
+		  AND a.started_at >= $2 AND a.started_at < $3
+		  AND a.computed_tss IS NOT NULL AND a.computed_tss > 0
+		  AND NOT a.exclude_from_stats
+		  AND NOT a.is_group_secondary
+		GROUP BY 1, 2
+	`, userID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("get daily tss by sport: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]map[string]float64)
+	for rows.Next() {
+		var day time.Time
+		var sportType string
+		var tss float64
+		if err := rows.Scan(&day, &sportType, &tss); err != nil {
+			return nil, fmt.Errorf("scan daily tss by sport: %w", err)
+		}
+		dateStr := day.Format("2006-01-02")
+		sg := DeterminePMCSportGroup(sportType)
+		if result[dateStr] == nil {
+			result[dateStr] = make(map[string]float64)
+		}
+		result[dateStr][sg] += tss
+	}
+	return result, rows.Err()
 }
 
 // GetDailyTSS aggregates pre-computed TSS values per day.
@@ -147,11 +207,11 @@ func (db *DB) GetEarliestActivityDate(ctx context.Context, userID string) (time.
 	return *t, nil
 }
 
-// GetPMCDayBefore returns the PMC values for the day before `date` for seeding calculations.
+// GetPMCDayBefore returns the combined PMC values for the day before `date` for seeding calculations.
 func (db *DB) GetPMCDayBefore(ctx context.Context, userID string, date time.Time) (ctl, atl float64, err error) {
 	before := date.AddDate(0, 0, -1)
 	err = db.Pool.QueryRow(ctx,
-		`SELECT ctl, atl FROM pmc_daily WHERE user_id = $1 AND date = $2`,
+		`SELECT ctl, atl FROM pmc_daily WHERE user_id = $1 AND date = $2 AND sport_group = '__combined__'`,
 		userID, before,
 	).Scan(&ctl, &atl)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -161,4 +221,31 @@ func (db *DB) GetPMCDayBefore(ctx context.Context, userID string, date time.Time
 		return 0, 0, fmt.Errorf("get pmc day before: %w", err)
 	}
 	return ctl, atl, nil
+}
+
+// GetPMCSportCTLBefore returns per-sport CTL values for the day before `date`.
+// Used to seed the per-sport EWMA in CalculateMultiSport.
+// Returns an empty (non-nil) map if no rows exist.
+func (db *DB) GetPMCSportCTLBefore(ctx context.Context, userID string, date time.Time) (map[string]float64, error) {
+	before := date.AddDate(0, 0, -1)
+	rows, err := db.Pool.Query(ctx,
+		`SELECT sport_group, ctl FROM pmc_daily
+		 WHERE user_id = $1 AND date = $2 AND sport_group != '__combined__'`,
+		userID, before,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get pmc sport ctl before: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]float64)
+	for rows.Next() {
+		var sg string
+		var ctl float64
+		if err := rows.Scan(&sg, &ctl); err != nil {
+			return nil, fmt.Errorf("scan pmc sport ctl: %w", err)
+		}
+		result[sg] = ctl
+	}
+	return result, rows.Err()
 }
