@@ -11,6 +11,10 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
+// ptr returns a pointer to v. It is used to take the address of non-addressable
+// composite-literal fields and function-return values without a named variable.
+func ptr[T any](v T) *T { return &v }
+
 // BestEffortRecord is the data written to and read from persistent storage.
 // It mirrors database.BestEffort but lives here to avoid an import cycle
 // (database already imports bestefforts for ActivityInfo).
@@ -91,23 +95,17 @@ func (s *Service) ComputeForActivity(ctx context.Context, info ActivityInfo, str
 			continue
 		}
 
-		// Map EffortResult (plain values) → BestEffortRecord (pointer fields).
-		elapsedTimeS := result.ElapsedTimeS
-		valueNumeric := result.ValueNumeric
-		startIdx := result.StreamStartIdx
-		endIdx := result.StreamEndIdx
-
 		efforts = append(efforts, BestEffortRecord{
 			ID:             uuid.New().String(),
 			UserID:         info.UserID,
 			ActivityID:     info.ID,
 			Category:       result.Category,
 			SportGroup:     sportGroup,
-			ElapsedTimeS:   &elapsedTimeS,
-			ValueNumeric:   &valueNumeric,
+			ElapsedTimeS:   ptr(result.ElapsedTimeS),
+			ValueNumeric:   ptr(result.ValueNumeric),
 			AchievedAt:     info.StartedAt,
-			StreamStartIdx: &startIdx,
-			StreamEndIdx:   &endIdx,
+			StreamStartIdx: ptr(result.StreamStartIdx),
+			StreamEndIdx:   ptr(result.StreamEndIdx),
 		})
 	}
 

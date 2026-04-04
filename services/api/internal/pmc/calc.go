@@ -49,23 +49,6 @@ var (
 	atlFactor = 1 - atlDecay
 )
 
-// EstimateTSS estimates Training Stress Score from activity data.
-// Power-based TSS is preferred; falls back to HR-based estimation.
-//
-// Deprecated: replaced by pmc.ComputeTSS pipeline. Kept as reference.
-func EstimateTSS(avgPowerW *float64, ftpW float64, avgHR *float64, maxHR float64, movingTimeS int) float64 {
-	if avgPowerW != nil && *avgPowerW > 0 && ftpW > 0 {
-		intensityFactor := *avgPowerW / ftpW
-		return (float64(movingTimeS) * *avgPowerW * intensityFactor) / (ftpW * 3600) * 100
-	}
-
-	if avgHR != nil && *avgHR > 0 && maxHR > 0 {
-		return float64(movingTimeS) / 3600 * (*avgHR / maxHR) * 100
-	}
-
-	return 0
-}
-
 // CalculateTRIMP computes the Edwards TRIMP score from a heart rate stream.
 // Each value in hrStream represents one second of data.
 // Returns TRIMP in "TRIMP-minutes" (each zone-second contributes zone-factor/60).
