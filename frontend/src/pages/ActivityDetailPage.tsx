@@ -65,6 +65,7 @@ import TagsBadges from '@/components/activity/TagsBadges'
 import ZoneDistributionChart from '@/components/activity/ZoneDistributionChart'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
 import { HealthContextCards } from '@/components/activity/HealthContextCards'
+import { RunningFormCard } from '@/components/RunningFormCard'
 import { useToast } from '@/lib/toast'
 
 function getSportEmoji(sportType: string): string {
@@ -567,6 +568,12 @@ export default function ActivityDetailPage() {
           nearMisses={bestEffortsData.near_misses}
           activityId={activity.id}
         />
+      )}
+
+      {/* Running Form Card — Duty Factor, Vertical Ratio, GCT Asymmetry, Fatigue */}
+      {(activity.sport_type === 'running' || activity.sport_type === 'trail_running') &&
+        (activity.running_form_tier ?? 0) >= 1 && (
+        <RunningFormCard activity={activity} />
       )}
 
       {/* Multisport parent — combined view */}
