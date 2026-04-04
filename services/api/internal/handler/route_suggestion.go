@@ -14,6 +14,15 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 )
 
+// LandscapePreferences holds per-dimension landscape preference weights (0–10).
+type LandscapePreferences struct {
+	Forest     int `json:"forest"`      // 0-10
+	Water      int `json:"water"`       // 0-10 (uses RiverProximity including lakes)
+	Protected  int `json:"protected"`   // 0-10
+	LowNoise   int `json:"low_noise"`   // 0-10
+	LowTraffic int `json:"low_traffic"` // 0-10
+}
+
 // profileMap maps incoming profile names to BadRouter profile names.
 // BadRouter knows: hiking, mtb, gravel, trekking, road.
 var profileMap = map[string]string{
@@ -37,19 +46,21 @@ type RouteSuggestionRequest struct {
 	DirectionPoint *[2]float64 `json:"direction_point,omitempty"`
 	// TargetDistanceM is the desired total route length in metres.
 	TargetDistanceM float64 `json:"target_distance_m"`
-	// TargetElevationGain is the desired total elevation gain in metres (optional hint).
-	TargetElevationGain float64 `json:"target_elevation_gain,omitempty"`
 	// SportType is the FIT sport type (e.g. "hiking", "cycling").
 	SportType string `json:"sport_type"`
-	// Profile is the routing profile (e.g. "hiking", "mtb", "gravel").
+	// Profile is the routing profile (e.g. "hiking", "mtb", "gravel") or a custom profile name.
 	Profile string `json:"profile"`
 	// PreferUnknown, when true, weights the via-point selection toward
 	// trail segments the user has not visited yet (Terra Incognita).
 	PreferUnknown bool `json:"prefer_unknown"`
-	// LandscapePrefs maps landscape keywords to a preference weight (1–5). Reserved.
-	LandscapePrefs map[string]int `json:"landscape_prefs,omitempty"`
-	// SurfacePrefs maps surface types to a weight (1–5). Reserved.
-	SurfacePrefs map[string]int `json:"surface_prefs,omitempty"`
+	// LandscapePrefs holds per-dimension landscape preference weights (0–10).
+	LandscapePrefs *LandscapePreferences `json:"landscape_prefs,omitempty"`
+	// SurfaceTendency selects a surface-type preset: "trails", "forest_roads", "paved", or "mixed".
+	SurfaceTendency string `json:"surface_tendency,omitempty"`
+	// MaxSacScale overrides the profile's SAC difficulty limit (0–6).
+	MaxSacScale *int `json:"max_sac_scale,omitempty"`
+	// MaxMtbScale overrides the profile's MTB difficulty limit (0–5).
+	MaxMtbScale *int `json:"max_mtb_scale,omitempty"`
 }
 
 // RouteSuggestion is a single suggested route variant returned by SuggestRoutes.
@@ -128,11 +139,30 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 
 	// --- Map profile ---
 	mappedProfile := profileMap[req.Profile]
+	profileCfg := routing.ProfileConfig{Profile: mappedProfile}
+
+	// If profile not in system defaults, try loading custom profile from DB.
 	if mappedProfile == "" {
-		mappedProfile = "hiking"
+		customProfile, dbErr := h.DB.GetRoutingProfileByName(r.Context(), userID, req.Profile)
+		if dbErr == nil && customProfile != nil {
+			_ = json.Unmarshal(customProfile.Config, &profileCfg)
+			profileCfg.Profile = customProfile.BaseProfile
+			mappedProfile = customProfile.BaseProfile
+		} else {
+			mappedProfile = "hiking" // fallback
+			profileCfg.Profile = "hiking"
+		}
 	}
 
-	cfg, err := routing.BuildCostConfig(routing.ProfileConfig{Profile: mappedProfile})
+	if req.MaxSacScale != nil {
+		profileCfg.MaxSacScale = req.MaxSacScale
+	}
+	if req.MaxMtbScale != nil {
+		profileCfg.MaxMtbScale = req.MaxMtbScale
+	}
+	routing.ApplySurfaceTendency(&profileCfg, req.SurfaceTendency)
+
+	cfg, err := routing.BuildCostConfig(profileCfg)
 	if err != nil {
 		slog.Error("suggest routes: BuildCostConfig failed", "error", err, "profile", mappedProfile)
 		httputil.WriteError(w, http.StatusInternalServerError, "Routing Error", "failed to build cost config", r.URL.Path)

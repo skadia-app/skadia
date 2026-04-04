@@ -1196,3 +1196,38 @@ func ProfileDefaults(name string) (*ProfileDefaultsResponse, error) {
 
 	return r, nil
 }
+
+// ApplySurfaceTendency applies highway-cost multipliers for a surface tendency preset.
+// Multipliers are relative to the profile's built-in defaults.
+// Same package as profileHighwayCostDefault — direct access, no export needed.
+func ApplySurfaceTendency(p *ProfileConfig, tendency string) {
+	if tendency == "" || tendency == "mixed" {
+		return
+	}
+	profile := p.Profile
+	mul := func(target **float32, hw, tracktype uint8, m float32) {
+		def := profileHighwayCostDefault(profile, hw, tracktype)
+		if def >= costBlocked {
+			return
+		}
+		v := max(float32(0.5), min(def*m, float32(50.0)))
+		*target = &v
+	}
+	switch tendency {
+	case "trails":
+		mul(&p.PathCost, 16, 0, 0.5)
+		mul(&p.TrackCost, 15, 0, 0.8)
+		mul(&p.ResidentialCost, 11, 0, 2.0)
+		mul(&p.TertiaryCost, 9, 0, 2.0)
+	case "forest_roads":
+		mul(&p.TrackCost, 15, 0, 0.5)
+		mul(&p.TrackGrade1Cost, 15, 1, 0.6)
+		mul(&p.PathCost, 16, 0, 1.5)
+		mul(&p.ResidentialCost, 11, 0, 1.5)
+	case "paved":
+		mul(&p.ResidentialCost, 11, 0, 0.5)
+		mul(&p.CyclewayCost, 18, 0, 0.5)
+		mul(&p.PathCost, 16, 0, 3.0)
+		mul(&p.TrackCost, 15, 0, 2.0)
+	}
+}
