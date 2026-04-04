@@ -5,15 +5,18 @@ import "time"
 // ActivityInfo holds the activity metadata needed to compute best efforts.
 // It is populated from the activities table by the database layer.
 type ActivityInfo struct {
-	ID            string
-	UserID        string
-	SportType     string
-	SubType       string
-	IsIndoor      bool
-	IsVirtual     bool
-	IsElectric    bool
-	StartedAt     time.Time
-	DistanceM     float64
+	ID             string
+	UserID         string
+	SportType      string
+	SubType        string
+	IsIndoor       bool
+	IsVirtual      bool
+	IsElectric     bool
+	StartedAt      time.Time
+	DistanceM      float64
 	ElevationGainM float64
-	ElapsedTimeS  int
+	ElapsedTimeS   int
+	// BiggestClimbM is the elevation gain of the largest single detected climb
+	// (MAX(elevation_gain_m) from activity_climbs). Zero when no climbs are detected.
+	BiggestClimbM float64
 }
