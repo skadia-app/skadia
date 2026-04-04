@@ -23,6 +23,7 @@ import (
 	"github.com/muktihari/fit/profile/typedef"
 	"github.com/muktihari/fit/proto"
 
+	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -247,11 +248,11 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 	if update.SportType != nil && *update.SportType != existing.SportType && h.BestEfforts != nil {
 		actID := id
 		svc := h.BestEfforts
+		// Cancel any in-flight job for this activity before re-dispatching.
+		shutdown.Cancel("best-efforts-sport-edit:" + actID)
 		shutdown.Go("best-efforts-sport-edit:"+actID, func(ctx context.Context) {
-			if err := h.DB.DeleteBestEffortsForActivity(ctx, actID); err != nil {
-				slog.Warn("update activity: delete best efforts failed", "id", actID, "error", err)
-				return
-			}
+			// Compute-then-replace: upsert new sport_group first, then remove stale entries.
+			// This avoids a window where no best efforts exist (crash-safe: upsert is idempotent).
 			info, err := h.DB.GetBestEffortActivityInfo(ctx, actID)
 			if err != nil {
 				slog.Warn("update activity: get best effort activity info failed", "id", actID, "error", err)
@@ -267,6 +268,15 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 			}
 			if _, err := svc.ComputeForActivity(ctx, *info, stream); err != nil {
 				slog.Warn("update activity: compute best efforts failed", "id", actID, "error", err)
+				return
+			}
+			// Delete stale entries from the old sport_group (different from the new one).
+			newGroup := bestefforts.DetermineSportGroup(info.SportType, info.SubType, info.IsIndoor, info.IsVirtual, info.IsElectric)
+			if _, err := h.DB.Pool.Exec(ctx,
+				`DELETE FROM best_efforts WHERE activity_id = $1 AND sport_group != $2`,
+				actID, newGroup,
+			); err != nil {
+				slog.Warn("update activity: delete stale sport_group best efforts failed", "id", actID, "error", err)
 			}
 		})
 	}
@@ -337,6 +347,12 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 
 	// Clean up ShadowFS files before deleting the activity row.
 	h.cleanupActivityFiles(r.Context(), userID, id)
+
+	// Explicitly remove best efforts before hard-delete (belt-and-suspenders: ON DELETE CASCADE
+	// handles this, but an explicit call makes the intent clear and simplifies future soft-delete migrations).
+	if err := h.DB.DeleteBestEffortsForActivity(r.Context(), id); err != nil {
+		slog.Warn("delete activity: clean up best efforts failed", "id", id, "error", err)
+	}
 
 	if err := h.DB.DeleteActivity(r.Context(), userID, id); err != nil {
 		if errors.Is(err, database.ErrActivityNotFound) {
