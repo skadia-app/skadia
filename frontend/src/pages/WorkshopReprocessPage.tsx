@@ -7,7 +7,7 @@ import { fetchActivities, reprocessAllActivities } from '@/api/activities'
 import type { ReprocessFilter, ReprocessResult } from '@/api/activities'
 import type { Activity } from '@/api/types'
 import { sportLabel } from '@/lib/sportTaxonomy'
-import { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS, REPROCESS_SCOPES } from '@/components/RecomputeModal'
+import { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS, REPROCESS_SCOPES, toBackendScope, type AnyReprocessKey } from '@/lib/reprocessScopes'
 
 type ReprocessMode = 'all' | 'selection'
 
@@ -21,7 +21,7 @@ export default function WorkshopReprocessPage() {
   const [search, setSearch] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
   const [result, setResult] = useState<ReprocessResult | null>(null)
-  const [scope, setScope] = useState<Set<string>>(new Set(['streams', 'sensors', 'metrics', 'details']))
+  const [scope, setScope] = useState<Set<AnyReprocessKey>>(new Set(['streams', 'sensors', 'metrics', 'details']))
 
   const { data: activitiesData } = useQuery({
     queryKey: ['activities-for-reprocess'],
@@ -46,7 +46,7 @@ export default function WorkshopReprocessPage() {
     },
   })
 
-  function toggleScope(key: string) {
+  function toggleScope(key: AnyReprocessKey) {
     setScope(prev => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
@@ -55,22 +55,10 @@ export default function WorkshopReprocessPage() {
     })
   }
 
-  // Geo-Keys in "geo" Backend-Scope übersetzen (Stage 2 läuft immer als Ganzes).
-  function toBackendScope(sel: Set<string>): string[] | undefined {
-    const result = new Set<string>()
-    for (const s of sel) {
-      if ((GEO_SCOPE_KEYS as readonly string[]).includes(s)) {
-        result.add('geo')
-      } else {
-        result.add(s)
-      }
-    }
-    return result.size > 0 ? [...result] : undefined
-  }
-
   function buildFilter(): ReprocessFilter | undefined {
     const allScopes = REPROCESS_SCOPES.length + GEO_SCOPE_KEYS.length
-    const scopeArr = scope.size > 0 && scope.size < allScopes ? toBackendScope(scope) : undefined
+    const converted = scope.size > 0 && scope.size < allScopes ? toBackendScope(scope) : undefined
+    const scopeArr = converted && converted.length > 0 ? converted : undefined
 
     if (mode === 'selection') {
       if (selectedIds.size === 0) return undefined
