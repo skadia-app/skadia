@@ -156,7 +156,6 @@ func (db *DB) GetDailyTSSBySport(ctx context.Context, userID string, from, to ti
 		WHERE a.user_id = $1
 		  AND a.started_at >= $2 AND a.started_at < $3
 		  AND a.computed_tss IS NOT NULL AND a.computed_tss > 0
-		  AND a.deleted_at IS NULL
 		  AND NOT a.exclude_from_stats
 		  AND NOT a.is_group_secondary
 		GROUP BY 1, 2
@@ -194,7 +193,6 @@ func (db *DB) GetDailyTSS(ctx context.Context, userID string, from, to time.Time
 		WHERE a.user_id = $1
 		  AND a.started_at >= $2 AND a.started_at < $3
 		  AND a.computed_tss IS NOT NULL AND a.computed_tss > 0
-		  AND a.deleted_at IS NULL
 		  AND NOT a.exclude_from_stats
 		  AND NOT a.is_group_secondary
 		GROUP BY 1
