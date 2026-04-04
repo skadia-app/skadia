@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/go-chi/chi/v5"
@@ -532,4 +534,85 @@ func systemSportTypes(profile string) []string {
 	default:
 		return []string{}
 	}
+}
+
+// filesystemProfileSportTypes derives sport types from the base profile name for
+// filesystem-imported BadRouter profiles. Uses the same defaults as system profiles
+// with extensions for additional base profile aliases.
+func filesystemProfileSportTypes(baseProfile string) []string {
+	switch baseProfile {
+	case "hiking":
+		return []string{"hiking", "trail_running", "running", "walking", "mountaineering"}
+	case "mtb":
+		return []string{"mountain_biking"}
+	case "gravel":
+		return []string{"gravel_cycling"}
+	case "trekking":
+		return []string{"cycling"}
+	case "road":
+		return []string{"cycling", "gravel_cycling"}
+	default:
+		return []string{}
+	}
+}
+
+// ScanFilesystemProfiles scans dir for *.json BadRouter profile files and upserts
+// them into the database as global (filesystem-source) profiles. The directory
+// missing entirely is treated as a no-op (returns 0, nil). Per-file errors are
+// logged but do not abort the scan. Returns the count of successfully imported files.
+func ScanFilesystemProfiles(ctx context.Context, dir string, db *database.DB) (int, error) {
+	matches, err := filepath.Glob(filepath.Join(dir, "*.json"))
+	if err != nil {
+		// Glob only returns ErrBadPattern which would be a programming error.
+		return 0, fmt.Errorf("ScanFilesystemProfiles: glob failed: %w", err)
+	}
+	// No directory / no files — not an error.
+	if len(matches) == 0 {
+		return 0, nil
+	}
+
+	count := 0
+	for _, path := range matches {
+		name := strings.TrimSuffix(filepath.Base(path), ".json")
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			slog.Warn("ScanFilesystemProfiles: read failed", "file", path, "error", err)
+			continue
+		}
+
+		var cfg routing.ProfileConfig
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			slog.Warn("ScanFilesystemProfiles: parse failed", "file", path, "error", err)
+			continue
+		}
+
+		if err := routing.ValidateProfileConfig(cfg); err != nil {
+			slog.Warn("ScanFilesystemProfiles: validation failed", "file", path, "error", err)
+			continue
+		}
+
+		baseProfile := cfg.Profile
+		if baseProfile == "" {
+			slog.Warn("ScanFilesystemProfiles: profile (base_profile) missing", "file", path)
+			continue
+		}
+
+		sportTypes := filesystemProfileSportTypes(baseProfile)
+
+		configBytes, err := json.Marshal(cfg)
+		if err != nil {
+			slog.Warn("ScanFilesystemProfiles: marshal failed", "file", path, "error", err)
+			continue
+		}
+
+		if _, err := db.UpsertFilesystemProfile(ctx, name, baseProfile, sportTypes, configBytes); err != nil {
+			slog.Warn("ScanFilesystemProfiles: upsert failed", "file", path, "error", err)
+			continue
+		}
+
+		count++
+	}
+
+	return count, nil
 }
