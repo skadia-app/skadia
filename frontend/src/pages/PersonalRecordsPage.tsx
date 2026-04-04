@@ -1,14 +1,16 @@
 import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Trophy, RotateCcw, XCircle } from 'lucide-react'
+import { Trophy, RotateCcw, XCircle, MapPin } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   fetchPersonalRecords,
+  fetchExclusions,
   addExclusion,
   removeExclusion,
   recalcBestEfforts,
   type BestEffortRanked,
+  type BestEffortExclusion,
 } from '@/api/bestEfforts'
 import { fmtDuration, fmtDist } from '@/lib/format'
 import { useToast } from '@/lib/toast'
@@ -232,10 +234,7 @@ function RecordsTable({ records, showPowerNote, onExclude, excludingKey }: Recor
 
 // ── Excluded Activity Row ──────────────────────────────────────────────────
 
-interface ExcludedEntry {
-  activity_id: string
-  category: string
-}
+type ExcludedEntry = Pick<BestEffortExclusion, 'activity_id' | 'category'>
 
 interface ExcludedListProps {
   excluded: ExcludedEntry[]
@@ -299,10 +298,8 @@ export default function PersonalRecordsPage() {
   const [excludingKey, setExcludingKey] = useState<string | null>(null)
   const [reincludingKey, setReincludingKey] = useState<string | null>(null)
 
-  // Track excluded entries locally (no backend list endpoint yet)
-  const [excluded, setExcluded] = useState<ExcludedEntry[]>([])
-
   const queryKey = ['personal-records', selectedGroup, selectedYear]
+  const exclusionsQueryKey = ['best-effort-exclusions']
 
   const { data: records = [], isLoading, isError } = useQuery({
     queryKey,
@@ -313,15 +310,21 @@ export default function PersonalRecordsPage() {
     staleTime: 2 * 60 * 1000,
   })
 
+  const { data: excluded = [] } = useQuery({
+    queryKey: exclusionsQueryKey,
+    queryFn: fetchExclusions,
+    staleTime: 60 * 1000,
+  })
+
   const excludeMutation = useMutation({
     mutationFn: ({ activityId, category }: { activityId: string; category: string }) =>
       addExclusion(activityId, category),
     onMutate: ({ activityId, category }) => {
       setExcludingKey(`${activityId}-${category}`)
     },
-    onSuccess: (_, { activityId, category }) => {
-      setExcluded((prev) => [...prev, { activity_id: activityId, category }])
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey })
+      queryClient.invalidateQueries({ queryKey: exclusionsQueryKey })
       addToast({ type: 'success', title: 'Aktivität ausgeschlossen' })
     },
     onError: () => {
@@ -336,9 +339,9 @@ export default function PersonalRecordsPage() {
     onMutate: ({ activityId, category }) => {
       setReincludingKey(`${activityId}-${category}`)
     },
-    onSuccess: (_, { activityId, category }) => {
-      setExcluded((prev) => prev.filter((e) => !(e.activity_id === activityId && e.category === category)))
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey })
+      queryClient.invalidateQueries({ queryKey: exclusionsQueryKey })
       addToast({ type: 'success', title: 'Aktivität wieder eingeschlossen' })
     },
     onError: () => {
@@ -484,6 +487,7 @@ export default function PersonalRecordsPage() {
                 <span className="ml-1.5 text-xs opacity-60">({supRecords.length})</span>
               )}
             </TabsTrigger>
+            <TabsTrigger value="segmente">Segmente</TabsTrigger>
             <TabsTrigger value="ausgeschlossen">
               Ausgeschlossen
               {excluded.length > 0 && (
@@ -523,6 +527,21 @@ export default function PersonalRecordsPage() {
               onExclude={handleExclude}
               excludingKey={excludingKey}
             />
+          </TabsContent>
+
+          <TabsContent value="segmente" className="mt-4">
+            <div className="flex flex-col items-center justify-center py-16 gap-4 text-neutral-400 dark:text-neutral-500">
+              <MapPin className="w-10 h-10 opacity-30" />
+              <p className="text-sm text-center">
+                Segment-Bestzeiten — kommt in einem zukünftigen Update
+              </p>
+              <Link
+                to="/segments"
+                className="text-sm text-accent-DEFAULT hover:underline"
+              >
+                Zu den Segmenten
+              </Link>
+            </div>
           </TabsContent>
 
           <TabsContent value="ausgeschlossen" className="mt-4">

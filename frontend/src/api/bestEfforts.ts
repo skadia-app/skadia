@@ -36,6 +36,12 @@ export interface PersonalRecordsParams {
   year?: number | string
 }
 
+export interface BestEffortExclusion {
+  activity_id: string
+  category: string
+  created_at: string
+}
+
 // ── API functions ──────────────────────────────────────────────────────────
 
 export async function fetchActivityBestEfforts(activityId: string): Promise<ActivityBestEffortsResponse> {
@@ -70,6 +76,11 @@ export async function removeExclusion(activityId: string, category: string): Pro
   return apiClient<void>(`/best-effort-exclusions/${activityId}/${category}`, {
     method: 'DELETE',
   })
+}
+
+/** Fetch all exclusion records for the authenticated user. */
+export async function fetchExclusions(): Promise<BestEffortExclusion[]> {
+  return apiClient<BestEffortExclusion[]>('/best-effort-exclusions')
 }
 
 /** Trigger a full recalculation of best efforts for the authenticated user. */
