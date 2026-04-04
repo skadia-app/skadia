@@ -12,6 +12,8 @@ import RouteSuggestionDialog from '@/components/route-planner/RouteSuggestionDia
 import RouteSaveDialog from '@/components/route-planner/RouteSaveDialog'
 import RouteProfileChart from '@/components/route-planner/RouteProfileChart'
 import RouteSurfacesBar from '@/components/route-planner/RouteSurfacesBar'
+import RouteComparisonPanel from '@/components/route-planner/RouteComparisonPanel'
+import type { RouteSuggestion } from '@/api/routes'
 import { useRoutePlanner } from '@/hooks/useRoutePlanner'
 import { getTagTextColor, getTagBadgeStyle } from '@/lib/tagUtils'
 import { fmtDateCompact } from '@/lib/format'
@@ -367,6 +369,8 @@ export default function MapPage() {
   const [plannerActive, setPlannerActive] = useState(() => searchParams.get('planner') === '1')
   const [showSuggestionDialog, setShowSuggestionDialog] = useState(false)
   const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [routeSuggestions, setRouteSuggestions] = useState<RouteSuggestion[] | null>(null)
+  const [hoveredSuggestion, setHoveredSuggestion] = useState<number | null>(null)
   const [showProfileChart, setShowProfileChart] = useState(false)
   const [bottomBarCollapsed, setBottomBarCollapsed] = useState(false)
   const [highlightedType, setHighlightedType] = useState<{ kind: 'highway' | 'surface'; key: string } | null>(null)
@@ -404,6 +408,7 @@ export default function MapPage() {
     setShowSuggestionDialog(false)
     setShowSaveDialog(false)
     setShowProfileChart(false)
+    setRouteSuggestions(null)
     planner.clear()
   }, [planner])
 
@@ -413,6 +418,99 @@ export default function MapPage() {
       setShowProfileChart(true)
     }
   }, [planner.segments.length, planner.elevationProfile])
+
+  // ── Route Suggestion map layers ──────────────────────────────────────────
+  const SUGGESTION_COLORS = useMemo(() => ['#F97316', '#3B82F6', '#22C55E'], [])
+  const SUGGESTION_OFFSETS: [number, number][] = useMemo(() => [[0, 0], [-3, 0], [3, 0]], [])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    const cleanup = () => {
+      for (let i = 0; i < 3; i++) {
+        const layerId = `suggestion-layer-${i}`
+        const sourceId = `suggestion-source-${i}`
+        if (map.getLayer(layerId)) {
+          map.off('mouseenter', layerId, handleMouseEnter)
+          map.off('mouseleave', layerId, handleMouseLeave)
+          map.removeLayer(layerId)
+        }
+        if (map.getSource(sourceId)) map.removeSource(sourceId)
+      }
+    }
+
+    function handleMouseEnter(e: maplibregl.MapLayerMouseEvent) {
+      map!.getCanvas().style.cursor = 'pointer'
+      const feature = e.features?.[0]
+      if (feature?.layer?.id) {
+        const idx = parseInt(feature.layer.id.replace('suggestion-layer-', ''), 10)
+        if (!isNaN(idx)) setHoveredSuggestion(idx)
+      }
+    }
+
+    function handleMouseLeave() {
+      map!.getCanvas().style.cursor = ''
+      setHoveredSuggestion(null)
+    }
+
+    // Clean up old layers first
+    cleanup()
+
+    if (!routeSuggestions) return
+
+    // Add layers for each suggestion
+    routeSuggestions.forEach((s, i) => {
+      if (i >= 3) return // max 3 suggestions
+      const sourceId = `suggestion-source-${i}`
+      const layerId = `suggestion-layer-${i}`
+
+      map.addSource(sourceId, {
+        type: 'geojson',
+        data: s.geojson,
+      })
+
+      const isHovered = hoveredSuggestion === i
+      map.addLayer({
+        id: layerId,
+        type: 'line',
+        source: sourceId,
+        paint: {
+          'line-color': SUGGESTION_COLORS[i % SUGGESTION_COLORS.length],
+          'line-width': isHovered ? 6 : 4,
+          'line-opacity': isHovered ? 0.9 : 0.4,
+          'line-translate': SUGGESTION_OFFSETS[i % SUGGESTION_OFFSETS.length],
+        },
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
+      })
+
+      map.on('mouseenter', layerId, handleMouseEnter)
+      map.on('mouseleave', layerId, handleMouseLeave)
+    })
+
+    // Fit bounds to show all suggestions
+    if (routeSuggestions.length > 0 && routeSuggestions[0]?.geojson?.features?.[0]?.geometry?.coordinates?.length) {
+      const allCoords: [number, number][] = []
+      routeSuggestions.forEach(s => {
+        const coords = s.geojson?.features?.[0]?.geometry?.coordinates
+        if (coords) {
+          for (const c of coords) {
+            allCoords.push([c[0], c[1]])
+          }
+        }
+      })
+      if (allCoords.length > 0) {
+        const bounds = new maplibregl.LngLatBounds(allCoords[0], allCoords[0])
+        allCoords.forEach(c => bounds.extend(c))
+        map.fitBounds(bounds, { padding: 80, maxZoom: 15 })
+      }
+    }
+
+    return cleanup
+  }, [routeSuggestions, hoveredSuggestion, SUGGESTION_COLORS, SUGGESTION_OFFSETS])
 
   // Build RoutePlannerState for useRouteEditor
   const routeEditorState = useMemo(() => ({
@@ -2197,22 +2295,45 @@ export default function MapPage() {
               start={[center.lng, center.lat]}
               onClose={() => setShowSuggestionDialog(false)}
               onResult={(response) => {
-                // Load first suggested route's waypoints into the planner
-                const first = response.suggestions[0]
-                if (!first) return
-                const feature = first.geojson.features[0]
-                if (feature?.geometry?.type === 'LineString') {
-                  const coords = (feature.geometry as GeoJSON.LineString).coordinates
-                  if (coords.length >= 2) {
-                    planner.clear()
-                    void planner.addWaypoint([coords[0][1], coords[0][0]])
-                    void planner.addWaypoint([coords[coords.length - 1][1], coords[coords.length - 1][0]])
-                  }
+                if (response.suggestions.length === 0) {
+                  addToast({ type: 'info', title: 'Keine Route gefunden',
+                    message: 'Versuche eine groessere Distanz oder anderen Startpunkt', duration: 4000 })
+                  return
                 }
+                setRouteSuggestions(response.suggestions)
+                setShowSuggestionDialog(false)
               }}
             />
           )
         })()}
+
+        {/* Route Comparison Panel — multi-route overlay */}
+        {routeSuggestions && (
+          <RouteComparisonPanel
+            suggestions={routeSuggestions}
+            hoveredIndex={hoveredSuggestion}
+            onHover={setHoveredSuggestion}
+            onSelect={(index) => {
+              const s = routeSuggestions[index]
+              planner.clear()
+              // Start point
+              const coords = s.geojson?.features?.[0]?.geometry?.coordinates
+              if (coords?.length >= 2) {
+                void planner.addWaypoint([coords[0][1], coords[0][0]])
+              }
+              // Via point from suggestion
+              if (s.via_point) {
+                void planner.addWaypoint([s.via_point[1], s.via_point[0]])
+              }
+              // End point
+              if (coords?.length >= 2) {
+                void planner.addWaypoint([coords[coords.length - 1][1], coords[coords.length - 1][0]])
+              }
+              setRouteSuggestions(null)
+            }}
+            onCancel={() => setRouteSuggestions(null)}
+          />
+        )}
 
         {/* Route Save Dialog */}
         {showSaveDialog && (
