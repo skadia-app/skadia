@@ -7,7 +7,7 @@ import { fetchActivities, reprocessAllActivities } from '@/api/activities'
 import type { ReprocessFilter, ReprocessResult } from '@/api/activities'
 import type { Activity } from '@/api/types'
 import { sportLabel } from '@/lib/sportTaxonomy'
-import { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS, REPROCESS_SCOPES, toBackendScope, type AnyReprocessKey } from '@/lib/reprocessScopes'
+import { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS, REPROCESS_SCOPES, DEFAULT_SCOPES, toBackendScope, toggleScopeKey, type AnyReprocessKey } from '@/lib/reprocessScopes'
 
 type ReprocessMode = 'all' | 'selection'
 
@@ -21,7 +21,7 @@ export default function WorkshopReprocessPage() {
   const [search, setSearch] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
   const [result, setResult] = useState<ReprocessResult | null>(null)
-  const [scope, setScope] = useState<Set<AnyReprocessKey>>(new Set(['streams', 'sensors', 'metrics', 'details']))
+  const [scope, setScope] = useState<Set<AnyReprocessKey>>(new Set(DEFAULT_SCOPES))
 
   const { data: activitiesData } = useQuery({
     queryKey: ['activities-for-reprocess'],
@@ -47,12 +47,7 @@ export default function WorkshopReprocessPage() {
   })
 
   function toggleScope(key: AnyReprocessKey) {
-    setScope(prev => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
+    setScope(prev => toggleScopeKey(prev, key))
   }
 
   function buildFilter(): ReprocessFilter | undefined {
