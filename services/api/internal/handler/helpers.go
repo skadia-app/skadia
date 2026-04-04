@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"log/slog"
+	"math"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -11,6 +12,15 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
+
+// nilIfNaN returns nil when f is NaN, otherwise a pointer to f.
+// Used to store "no data" as NULL rather than 0 in the database.
+func nilIfNaN(f float64) *float64 {
+	if math.IsNaN(f) {
+		return nil
+	}
+	return &f
+}
 
 // requireActivity loads an activity by URL param "id" and checks ownership.
 // Returns (activity, activityID, true) on success, or (nil, "", false) with error written.

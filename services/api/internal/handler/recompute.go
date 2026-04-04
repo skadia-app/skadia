@@ -880,9 +880,11 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 				rfResult := runningform.Compute(sharedStream)
 				if rfResult != nil {
 					tier := rfResult.Tier
+					fatigueDuty := nilIfNaN(rfResult.FatigueDuty)
+					fatigueVR := nilIfNaN(rfResult.FatigueVR)
 					if err := h.DB.UpdateRunningForm(ctx, activityID,
 						&rfResult.DutyFactor, &rfResult.VerticalRatio, &rfResult.GCTAsymmetry,
-						&rfResult.FatigueDuty, &rfResult.FatigueVR, &tier); err != nil {
+						fatigueDuty, fatigueVR, &tier); err != nil {
 						slog.Error("reprocess: update running form failed", "id", activityID, "error", err)
 					}
 				}

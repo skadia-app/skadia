@@ -102,13 +102,14 @@ func mean(vals []float64) float64 {
 }
 
 // fatigueIndex computes the relative change from the first quartile to the
-// last quartile of vals.  Returns 0 when there are fewer than
-// 4 * minPointsPerQuartile data points (not enough for meaningful quartiles).
+// last quartile of vals.  Returns math.NaN() when there are fewer than
+// 4 * minPointsPerQuartile data points (not enough for meaningful quartiles),
+// so callers can distinguish "no data" from "zero fatigue".
 // A positive result means the metric worsened (increased) toward the end.
 func fatigueIndex(vals []float64) float64 {
 	n := len(vals)
 	if n < 4*minPointsPerQuartile {
-		return 0
+		return math.NaN()
 	}
 
 	qSize := n / 4
