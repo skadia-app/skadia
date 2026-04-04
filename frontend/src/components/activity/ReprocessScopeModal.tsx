@@ -2,13 +2,15 @@ import { useState } from 'react'
 import { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS } from '@/components/RecomputeModal'
 
 const REPROCESS_SCOPES = [
-  ['streams', 'Streams & Track'],
-  ['sensors', 'Sensoren'],
-  ['metrics', 'Metriken'],
-  ['details', 'Runden/Splits'],
-  ['segments', 'Segmente & Runden'],
-  ['sport_type', 'Sportart'],
-  ['tags', 'Tags'],
+  ['streams',      'Streams & Track',      undefined],
+  ['sensors',      'Sensoren',             undefined],
+  ['metrics',      'Metriken',             undefined],
+  ['details',      'Runden/Splits',        undefined],
+  ['segments',     'Segmente & Runden',    undefined],
+  ['sport_type',   'Sportart',             undefined],
+  ['tags',         'Tags',                 undefined],
+  ['best_efforts', 'Best Efforts',         'Distanz-, Höhenmeter- und Power-Bestleistungen neu berechnen'],
+  ['running_form', 'Laufform-Analyse',     'Duty Factor, Vertical Ratio und Fatigue Index neu berechnen'],
 ] as const
 
 type ReprocessScopeKey = typeof REPROCESS_SCOPES[number][0]
@@ -61,18 +63,25 @@ function ReprocessScopeModal({
         </p>
 
         <div className="space-y-2">
-          {REPROCESS_SCOPES.map(([key, label]) => (
+          {REPROCESS_SCOPES.map(([key, label, description]) => (
             <label
               key={key}
-              className="flex items-center gap-2.5 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer select-none"
+              className="flex items-start gap-2.5 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer select-none"
             >
               <input
                 type="checkbox"
                 checked={scope.has(key)}
                 onChange={() => toggleScope(key)}
-                className="rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT"
+                className="rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT mt-0.5"
               />
-              {label}
+              <span>
+                {label}
+                {description && (
+                  <span className="block text-xs text-neutral-400 dark:text-neutral-500 font-normal">
+                    {description}
+                  </span>
+                )}
+              </span>
             </label>
           ))}
           <p className="text-xs text-neutral-400 dark:text-neutral-500 pt-1">Geo-Anreicherung (ML, asynchron)</p>
