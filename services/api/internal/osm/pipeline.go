@@ -1470,7 +1470,7 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 			pbfSize = pbfInfo.Size()
 		}
 		replURL, replSeq, _ := extractReplicationInfo(pbfPath)
-		dataDate, _ := extractReplicationTimestamp(pbfPath)
+		dataDate, _ := ExtractReplicationTimestamp(pbfPath)
 
 		var replURLArg *string
 		if replURL != "" {

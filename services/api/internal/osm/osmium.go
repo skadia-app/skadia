@@ -98,7 +98,7 @@ func CleanupMergedPBF(dataDir string) {
 	os.Remove(filepath.Join(dataDir, "import-ready.osm.pbf"))
 }
 
-// ErrTooOld is returned by patchPBF when the PBF is more than 90 diffs behind
+// ErrTooOld is returned by PatchPBF when the PBF is more than 90 diffs behind
 // the replication server, making incremental update impractical.
 var ErrTooOld = fmt.Errorf("PBF too old for incremental update (>90 days)")
 
@@ -124,9 +124,9 @@ func extractReplicationInfo(pbfPath string) (url string, seq int, err error) {
 	return url, seq, nil
 }
 
-// extractReplicationTimestamp reads the OSM data date from a PBF header.
+// ExtractReplicationTimestamp reads the OSM data date from a PBF header.
 // Returns nil (no error) if the timestamp is absent or unparseable.
-func extractReplicationTimestamp(pbfPath string) (*time.Time, error) {
+func ExtractReplicationTimestamp(pbfPath string) (*time.Time, error) {
 	cmd := exec.Command("osmium", "fileinfo", "-e", "-g",
 		"header.option.osmosis_replication_timestamp", pbfPath)
 	out, err := cmd.Output()
@@ -191,14 +191,14 @@ func fetchCurrentSequence(ctx context.Context, replicationURL string) (int, erro
 	return 0, fmt.Errorf("fetchCurrentSequence: sequenceNumber not found in state.txt")
 }
 
-// patchPBF applies incremental OSM diffs (.osc.gz) to pbfPath, bringing it
+// PatchPBF applies incremental OSM diffs (.osc.gz) to pbfPath, bringing it
 // up to date with the replication server at replicationURL.
 //
 // lastSeq is the sequence number already embedded in the PBF header.
 // Returns the new sequence number on success.
 // Returns ErrTooOld if the gap exceeds 90 diffs (replication servers typically
 // keep ~90 days of daily diffs).
-func patchPBF(ctx context.Context, pbfPath, replicationURL string, lastSeq int) (int, error) {
+func PatchPBF(ctx context.Context, pbfPath, replicationURL string, lastSeq int) (int, error) {
 	currentSeq, err := fetchCurrentSequence(ctx, replicationURL)
 	if err != nil {
 		return 0, fmt.Errorf("patchPBF: fetch current sequence: %w", err)
@@ -232,7 +232,7 @@ func patchPBF(ctx context.Context, pbfPath, replicationURL string, lastSeq int) 
 		diffPath := filepath.Join(tmpDir, fmt.Sprintf("%09d.osc.gz", seq))
 		slog.Debug("osm patch: downloading diff", "seq", seq, "url", diffURL)
 		if err := downloadWithProgress(ctx, diffURL, diffPath, func(_, _ int64) {}); err != nil {
-			return 0, fmt.Errorf("patchPBF: download diff seq %d: %w", seq, err)
+			return 0, fmt.Errorf("patchPBF: download diff seq %d: %w (URL: %s — replication server may have purged old diffs)", seq, err, diffURL)
 		}
 		diffPaths = append(diffPaths, diffPath)
 	}
@@ -254,7 +254,20 @@ func patchPBF(ctx context.Context, pbfPath, replicationURL string, lastSeq int) 
 	cmd := exec.CommandContext(ctx, "osmium", args...)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
+		os.Remove(newPBFPath) // Cleanup partial output
 		return 0, fmt.Errorf("patchPBF: osmium apply-changes: %w", err)
+	}
+
+	// Validate output size: must be at least 50% of original to catch truncation
+	origInfo, origErr := os.Stat(pbfPath)
+	newInfo, newErr := os.Stat(newPBFPath)
+	if newErr != nil {
+		return 0, fmt.Errorf("patchPBF: stat patched file: %w", newErr)
+	}
+	if origErr == nil && newInfo.Size() < origInfo.Size()/2 {
+		os.Remove(newPBFPath)
+		return 0, fmt.Errorf("patchPBF: patched file implausibly small (%d bytes, original %d bytes)",
+			newInfo.Size(), origInfo.Size())
 	}
 
 	// Atomically replace the original PBF
