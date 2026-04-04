@@ -363,6 +363,149 @@ func (db *DB) GetBestEffortsForActivityRec(ctx context.Context, activityID, user
 	return out, nil
 }
 
+// NearMiss describes a best effort from an activity that narrowly missed the
+// user's current personal record for that category.
+type NearMiss struct {
+	Category    string   `json:"category"`
+	SportGroup  string   `json:"sport_group"`
+	DiffSeconds int      `json:"diff_seconds,omitempty"` // for time-based PRs (dist / hm)
+	DiffWatts   float64  `json:"diff_watts,omitempty"`   // for power PRs
+	PRTimeS     *int     `json:"pr_time_s,omitempty"`
+	PRWatts     *float64 `json:"pr_watts,omitempty"`
+}
+
+// GetNearMisses returns the efforts from activityID that almost beat the user's
+// current PR (rank=1) for each category / sport-group combination.
+//
+// Near-miss thresholds:
+//   - Time-based: effort is within LEAST(pr_time * 0.02, 30) seconds of the PR.
+//   - Power-based: effort is within pr_watts * 0.02 watts below the PR.
+//
+// The same eligibility guards used in GetBestEffortsForActivity apply to the
+// pool of ranked activities that determine the current PR.
+func (db *DB) GetNearMisses(ctx context.Context, activityID, userID string) ([]NearMiss, error) {
+	rows, err := db.Pool.Query(ctx,
+		`WITH current_prs AS (
+		    -- Rank-1 effort per (user, category, sport_group), excluding the
+		    -- target activity so that an activity cannot be compared with itself.
+		    SELECT DISTINCT ON (be.category, be.sport_group)
+		        be.category,
+		        be.sport_group,
+		        be.elapsed_time_s  AS pr_time_s,
+		        be.value_numeric   AS pr_watts
+		    FROM best_efforts be
+		    JOIN activities a ON a.id = be.activity_id
+		    WHERE be.user_id = $2
+		      AND be.activity_id <> $1
+		      AND a.deleted_at IS NULL
+		      AND NOT COALESCE(a.exclude_from_stats, false)
+		      AND NOT COALESCE(a.is_group_secondary, false)
+		      AND NOT EXISTS (
+		          SELECT 1 FROM best_effort_exclusions exc
+		          WHERE exc.user_id     = be.user_id
+		            AND exc.activity_id = be.activity_id
+		            AND (exc.category   = '__all__' OR exc.category = be.category)
+		      )
+		    ORDER BY
+		        be.category,
+		        be.sport_group,
+		        CASE WHEN be.elapsed_time_s IS NOT NULL THEN be.elapsed_time_s END ASC NULLS LAST,
+		        CASE WHEN be.value_numeric  IS NOT NULL THEN be.value_numeric  END DESC NULLS LAST
+		),
+		my_efforts AS (
+		    SELECT
+		        be.category,
+		        be.sport_group,
+		        be.elapsed_time_s,
+		        be.value_numeric
+		    FROM best_efforts be
+		    WHERE be.activity_id = $1
+		      AND be.user_id     = $2
+		      AND NOT EXISTS (
+		          SELECT 1 FROM best_effort_exclusions exc
+		          WHERE exc.user_id     = be.user_id
+		            AND exc.activity_id = be.activity_id
+		            AND (exc.category   = '__all__' OR exc.category = be.category)
+		      )
+		)
+		SELECT
+		    me.category,
+		    me.sport_group,
+		    -- time-based near-miss: elapsed_time_s set, effort is slower than PR but within threshold
+		    CASE
+		        WHEN me.elapsed_time_s IS NOT NULL
+		             AND pr.pr_time_s   IS NOT NULL
+		             AND me.elapsed_time_s > pr.pr_time_s
+		             AND (me.elapsed_time_s - pr.pr_time_s) <= LEAST(pr.pr_time_s * 0.02, 30)
+		        THEN (me.elapsed_time_s - pr.pr_time_s)
+		    END AS diff_seconds,
+		    -- power-based near-miss: value_numeric set, effort is lower than PR but within threshold
+		    CASE
+		        WHEN me.value_numeric IS NOT NULL
+		             AND pr.pr_watts   IS NOT NULL
+		             AND me.value_numeric < pr.pr_watts
+		             AND (pr.pr_watts - me.value_numeric) <= pr.pr_watts * 0.02
+		        THEN (pr.pr_watts - me.value_numeric)
+		    END AS diff_watts,
+		    pr.pr_time_s,
+		    pr.pr_watts
+		FROM my_efforts me
+		JOIN current_prs pr
+		    ON pr.category   = me.category
+		   AND pr.sport_group = me.sport_group
+		WHERE
+		    -- time-based near-miss
+		    (
+		        me.elapsed_time_s IS NOT NULL
+		        AND pr.pr_time_s   IS NOT NULL
+		        AND me.elapsed_time_s > pr.pr_time_s
+		        AND (me.elapsed_time_s - pr.pr_time_s) <= LEAST(pr.pr_time_s * 0.02, 30)
+		    )
+		    OR
+		    -- power-based near-miss
+		    (
+		        me.value_numeric IS NOT NULL
+		        AND pr.pr_watts   IS NOT NULL
+		        AND me.value_numeric < pr.pr_watts
+		        AND (pr.pr_watts - me.value_numeric) <= pr.pr_watts * 0.02
+		    )
+		ORDER BY me.category, me.sport_group`,
+		activityID, userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get near misses: %w", err)
+	}
+	defer rows.Close()
+
+	var results []NearMiss
+	for rows.Next() {
+		var nm NearMiss
+		var diffSecondsRaw *int
+		var diffWattsRaw *float64
+		if err := rows.Scan(
+			&nm.Category,
+			&nm.SportGroup,
+			&diffSecondsRaw,
+			&diffWattsRaw,
+			&nm.PRTimeS,
+			&nm.PRWatts,
+		); err != nil {
+			return nil, fmt.Errorf("scan near miss: %w", err)
+		}
+		if diffSecondsRaw != nil {
+			nm.DiffSeconds = *diffSecondsRaw
+		}
+		if diffWattsRaw != nil {
+			nm.DiffWatts = *diffWattsRaw
+		}
+		results = append(results, nm)
+	}
+	if results == nil {
+		results = []NearMiss{}
+	}
+	return results, rows.Err()
+}
+
 // scanBestEffortRanked is a shared helper that drains pgx rows into a slice of
 // BestEffortRanked values. The caller is responsible for closing rows.
 func scanBestEffortRanked(rows pgx.Rows) ([]BestEffortRanked, error) {
