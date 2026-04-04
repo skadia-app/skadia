@@ -39,6 +39,9 @@ func ComputeDistanceBestEffort(stream []model.StreamPoint, cat Category) *Effort
 	}
 	valid := make([]validPt, 0, n)
 	for i, p := range stream {
+		if p.GpsAccuracyM != nil && *p.GpsAccuracyM > 50 {
+			continue
+		}
 		if p.DistanceM != nil {
 			valid = append(valid, validPt{orig: i, distM: *p.DistanceM})
 		}
@@ -108,7 +111,9 @@ func ComputeElevationBestEffort(stream []model.StreamPoint, cat Category, liftIn
 		prev := stream[i-1].AltitudeM
 		curr := stream[i].AltitudeM
 		var delta float64
-		if prev != nil && curr != nil && !liftIndices[i] {
+		gpsOK := (stream[i].GpsAccuracyM == nil || *stream[i].GpsAccuracyM <= 50) &&
+			(stream[i-1].GpsAccuracyM == nil || *stream[i-1].GpsAccuracyM <= 50)
+		if prev != nil && curr != nil && !liftIndices[i] && gpsOK {
 			d := *curr - *prev
 			if d > 0 {
 				delta = d
