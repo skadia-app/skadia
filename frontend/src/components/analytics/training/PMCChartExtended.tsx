@@ -214,25 +214,53 @@ export default function PMCChartExtended() {
     return params.toString()
   }, [toQueryString, from, to])
 
-  // Standard fetch (no split) — always fetched as fallback / for ATL+TSB
+  // Standard fetch — only loaded when NO sport groups are active.
+  // When sport groups are active the split response already contains __combined__
+  // (with days) and all top-level analytics fields (acwr, ramp_rate, etc.).
   const { data: combinedData, isLoading: combinedLoading, isError: combinedError } = useQuery({
     queryKey: ['analytics', 'pmc-extended', baseQueryParams],
     queryFn: () => fetchAnalyticsPMC(baseQueryParams),
+    enabled: !hasSportGroupsActive,
     staleTime: 5 * 60 * 1000,
     retry: 1,
   })
 
-  // Split fetch — only when sport groups are active
+  // Split fetch — includes all analytics filters via baseQueryParams.
+  // Enabled whenever sport groups are active so the __combined__ series
+  // drives the metrics row and chart base lines.
   const { data: splitData, isLoading: splitLoading } = useQuery({
     queryKey: ['analytics', 'pmc-split', baseQueryParams],
-    queryFn: () => fetchAnalyticsPMCSplit({ from, to }),
+    queryFn: () =>
+      fetchAnalyticsPMCSplit(
+        Object.fromEntries(new URLSearchParams(baseQueryParams)) as { from: string; to: string } & Record<string, string>,
+      ),
     enabled: hasSportGroupsActive,
     staleTime: 5 * 60 * 1000,
     retry: 1,
   })
 
-  const isLoading = combinedLoading || (hasSportGroupsActive && splitLoading)
-  const isError = combinedError
+  // Unified data view: when sport groups are active, derive combined data from
+  // the __combined__ series + top-level fields of the split response.
+  const effectiveCombinedData = useMemo(() => {
+    if (!hasSportGroupsActive) return combinedData ?? null
+    if (!splitData) return null
+    const combinedDays = splitData.series['__combined__'] ?? []
+    return {
+      days: combinedDays,
+      acwr: splitData.acwr,
+      acwr_status: splitData.acwr_status,
+      acwr_trend: splitData.acwr_trend,
+      ramp_rate: splitData.ramp_rate,
+      monotony: splitData.monotony,
+      strain: splitData.strain,
+      projection: splitData.projection,
+      using_default_thresholds: splitData.using_default_thresholds,
+      default_threshold_fields: splitData.default_threshold_fields,
+    }
+  }, [hasSportGroupsActive, combinedData, splitData])
+
+  const isLoading = hasSportGroupsActive ? splitLoading : combinedLoading
+  const isError = hasSportGroupsActive ? false : combinedError
 
   // Derive available sport groups from split data (exclude __combined__)
   const availableSportGroups = useMemo<Array<{ key: string; count: number }>>(() => {
@@ -272,10 +300,10 @@ export default function PMCChartExtended() {
 
   const containerRef = useECharts(
     () => {
-      if (!combinedData) return { series: [] }
+      if (!effectiveCombinedData) return { series: [] }
 
-      const days = combinedData.days ?? []
-      const projection = combinedData.projection ?? []
+      const days = effectiveCombinedData.days ?? []
+      const projection = effectiveCombinedData.projection ?? []
 
       const dates = days.map(d => d.date)
       const ctlData = days.map(d => d.ctl)
@@ -491,7 +519,7 @@ export default function PMCChartExtended() {
         ],
       }
     },
-    [combinedData, splitData, selectedSportGroups, hasSportGroupsActive, changepoints],
+    [effectiveCombinedData, splitData, selectedSportGroups, hasSportGroupsActive, changepoints],
     (chart) => {
       chartInstanceRef.current = chart
 
@@ -504,8 +532,8 @@ export default function PMCChartExtended() {
       type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
       let brushZoomLock = false
       const allDates = [
-        ...(combinedData?.days ?? []).map(d => d.date),
-        ...(combinedData?.projection ?? []).map(d => d.date),
+        ...(effectiveCombinedData?.days ?? []).map(d => d.date),
+        ...(effectiveCombinedData?.projection ?? []).map(d => d.date),
       ]
 
       chart.on('brushEnd', (params: unknown) => {
@@ -561,7 +589,7 @@ export default function PMCChartExtended() {
     },
   )
 
-  const latest = combinedData?.days && combinedData.days.length > 0 ? combinedData.days[combinedData.days.length - 1] : null
+  const latest = effectiveCombinedData?.days && effectiveCombinedData.days.length > 0 ? effectiveCombinedData.days[effectiveCombinedData.days.length - 1] : null
 
   return (
     <div className="space-y-3">
@@ -669,8 +697,8 @@ export default function PMCChartExtended() {
       )}
 
       {/* Metrics row */}
-      {(latest || combinedData) && (() => {
-        const lastDate = combinedData?.days[combinedData.days.length - 1]?.date
+      {(latest || effectiveCombinedData) && (() => {
+        const lastDate = effectiveCombinedData?.days[effectiveCombinedData.days.length - 1]?.date
         const todayISO = new Date().toISOString().slice(0, 10)
         const isHistorical = lastDate && lastDate !== todayISO
         const dateSuffix = isHistorical ? ` (${new Date(lastDate).toLocaleDateString('de-DE')})` : ''
@@ -694,24 +722,24 @@ export default function PMCChartExtended() {
               </>
             )}
             {/* ACWR / RampRate / Monotony / Strain */}
-            {combinedData && (
+            {effectiveCombinedData && (
               <>
-                {combinedData.acwr_status && (
+                {effectiveCombinedData.acwr_status && (
                   <span
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${acwrStatusColor(combinedData.acwr_status)}`}
-                    title={`${acwrStatusLabel(combinedData.acwr_status)} — Rolling 7:28 uncoupled${combinedData.acwr_status === 'reduced' ? '. Kann geplanten Taper, Erholung oder Detraining anzeigen.' : ''}`}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${acwrStatusColor(effectiveCombinedData.acwr_status)}`}
+                    title={`${acwrStatusLabel(effectiveCombinedData.acwr_status)} — Rolling 7:28 uncoupled${effectiveCombinedData.acwr_status === 'reduced' ? '. Kann geplanten Taper, Erholung oder Detraining anzeigen.' : ''}`}
                   >
-                    ACWR {combinedData.acwr.toFixed(2)}{dateSuffix}
+                    ACWR {effectiveCombinedData.acwr.toFixed(2)}{dateSuffix}
                   </span>
                 )}
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                  Rampe {combinedData.ramp_rate >= 0 ? '+' : ''}{combinedData.ramp_rate.toFixed(1)}/Wo{dateSuffix}
+                  Rampe {effectiveCombinedData.ramp_rate >= 0 ? '+' : ''}{effectiveCombinedData.ramp_rate.toFixed(1)}/Wo{dateSuffix}
                 </span>
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                  Mono {combinedData.monotony.toFixed(2)}{dateSuffix}
+                  Mono {effectiveCombinedData.monotony.toFixed(2)}{dateSuffix}
                 </span>
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                  Strain {combinedData.strain.toFixed(0)}{dateSuffix}
+                  Strain {effectiveCombinedData.strain.toFixed(0)}{dateSuffix}
                 </span>
               </>
             )}
@@ -720,11 +748,11 @@ export default function PMCChartExtended() {
       })()}
 
       {/* Fallback warning banner */}
-      {combinedData?.using_default_thresholds && (
+      {effectiveCombinedData?.using_default_thresholds && (
         <div className="mb-4 px-4 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-sm">
           TSS-Berechnung nutzt geschätzte Schwellenwerte
-          {combinedData.default_threshold_fields?.length ? (
-            <> für: <strong>{combinedData.default_threshold_fields.map(f => f.toUpperCase()).join(', ')}</strong></>
+          {effectiveCombinedData.default_threshold_fields?.length ? (
+            <> für: <strong>{effectiveCombinedData.default_threshold_fields.map(f => f.toUpperCase()).join(', ')}</strong></>
           ) : null}.{' '}
           Für genauere Ergebnisse im Profil oder pro Sportart hinterlegen.
         </div>
@@ -740,7 +768,7 @@ export default function PMCChartExtended() {
           <div className="flex items-center justify-center h-[340px] text-sm text-neutral-400">
             Fehler beim Laden der PMC-Daten
           </div>
-        ) : !combinedData || (combinedData.days?.length ?? 0) === 0 ? (
+        ) : !effectiveCombinedData || (effectiveCombinedData.days?.length ?? 0) === 0 ? (
           <div className="flex flex-col items-center justify-center h-[340px] gap-2 text-neutral-400">
             <svg className="w-8 h-8 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
