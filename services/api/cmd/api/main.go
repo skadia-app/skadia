@@ -329,6 +329,22 @@ func main() {
 		}
 	}()
 
+	// Mark all jobs that were still 'running' at startup as failed.
+	// These are leftovers from the previous server process (crash or restart).
+	// This must happen before InsertBackgroundJobGuarded calls so the partial-
+	// unique index (user_id, job_type WHERE status='running') does not block
+	// new jobs from being inserted.
+	if _, cleanErr := db.Pool.Exec(context.Background(), `
+		UPDATE background_jobs
+		SET status = 'failed',
+		    finished_at = NOW(),
+		    error = 'server restart cleanup'
+		WHERE status = 'running'`); cleanErr != nil {
+		slog.Warn("startup: failed to clean up stale running jobs", "error", cleanErr)
+	} else {
+		slog.Info("startup: stale running jobs marked as failed")
+	}
+
 	// NOTE: Stale running jobs are handled later via h.ResumeInterruptedJobs
 	// after the Handler is fully initialised (needs DB + Handler for matching).
 

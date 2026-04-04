@@ -11,9 +11,31 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
+// hashString returns a stable uint32 hash of s using FNV-1a, for advisory lock keys.
+func hashString(s string) uint32 {
+	var h uint32 = 2166136261
+	for i := range len(s) {
+		h ^= uint32(s[i])
+		h *= 16777619
+	}
+	return h
+}
+
+// bestEffortLockBase is the domain prefix for advisory lock keys in the best-efforts domain.
+// "BEST" = 0x42455354 as big-endian int32.
+const bestEffortLockBase = int64(0x42455354)
+
+// BestEffortLockKey returns a stable per-user int64 advisory lock key.
+// Exported so that database adapters can share the same derivation logic.
+func BestEffortLockKey(userID string) int64 {
+	return bestEffortLockBase ^ int64(hashString(userID))
+}
+
 // ptr returns a pointer to v. It is used to take the address of non-addressable
 // composite-literal fields and function-return values without a named variable.
-func ptr[T any](v T) *T { return &v }
+//
+//go:fix inline
+func ptr[T any](v T) *T { return new(v) }
 
 // BestEffortRecord is the data written to and read from persistent storage.
 // It mirrors database.BestEffort but lives here to avoid an import cycle
@@ -45,6 +67,18 @@ type Store interface {
 	UpsertBestEffortRec(ctx context.Context, be BestEffortRecord) error
 	BatchUpsertBestEffortRecs(ctx context.Context, records []BestEffortRecord) error
 	DeleteAllBestEfforts(ctx context.Context, userID string) error
+	// DeleteOrphanedBestEfforts removes best_efforts rows whose activity_id is not
+	// in keepActivityIDs. Used by RecalcAll to purge stale rows after a full upsert
+	// pass without ever leaving the table empty.
+	DeleteOrphanedBestEfforts(ctx context.Context, userID string, keepActivityIDs []string) error
+	// AcquireBestEffortLock acquires a session-level advisory lock for the user's
+	// best-effort operations. Blocks until the lock is obtained.
+	AcquireBestEffortLock(ctx context.Context, userID string) error
+	// TryAcquireBestEffortLock is a non-blocking variant. Returns (true, nil) when
+	// the lock was obtained, (false, nil) when it is already held by another session.
+	TryAcquireBestEffortLock(ctx context.Context, userID string) (bool, error)
+	// ReleaseBestEffortLock releases the session-level advisory lock for the user.
+	ReleaseBestEffortLock(ctx context.Context, userID string) error
 	GetBestEffortsForActivityRec(ctx context.Context, activityID, userID string) ([]BestEffortRankedRecord, error)
 	// GetBestEffortRecalcActivities replaces the former GetBestEffortRecalcIDs +
 	// GetBestEffortActivityInfo pair used in RecalcAll. A single query returns
@@ -67,11 +101,10 @@ type Service struct {
 	Store Store
 }
 
-// ComputeForActivity computes all best-effort records for the given activity
-// and upserts them into persistent storage. It returns the ranked results.
-//
-// Returns nil, nil when the activity's sport has no best-efforts semantics.
-func (s *Service) ComputeForActivity(ctx context.Context, info ActivityInfo, stream []model.StreamPoint) ([]BestEffortRankedRecord, error) {
+// computeForActivityInner performs the actual computation and upsert for a
+// single activity. It does NOT acquire any advisory lock — the caller is
+// responsible for serialisation.
+func (s *Service) computeForActivityInner(ctx context.Context, info ActivityInfo, stream []model.StreamPoint) ([]BestEffortRankedRecord, error) {
 	sportGroup := DetermineSportGroup(info.SportType, info.SubType, info.IsIndoor, info.IsVirtual, info.IsElectric)
 	if sportGroup == "" {
 		return nil, nil
@@ -111,11 +144,11 @@ func (s *Service) ComputeForActivity(ctx context.Context, info ActivityInfo, str
 			ActivityID:     info.ID,
 			Category:       result.Category,
 			SportGroup:     sportGroup,
-			ElapsedTimeS:   ptr(result.ElapsedTimeS),
-			ValueNumeric:   ptr(result.ValueNumeric),
+			ElapsedTimeS:   new(result.ElapsedTimeS),
+			ValueNumeric:   new(result.ValueNumeric),
 			AchievedAt:     info.StartedAt,
-			StreamStartIdx: ptr(result.StreamStartIdx),
-			StreamEndIdx:   ptr(result.StreamEndIdx),
+			StreamStartIdx: new(result.StreamStartIdx),
+			StreamEndIdx:   new(result.StreamEndIdx),
 		})
 	}
 
@@ -126,13 +159,54 @@ func (s *Service) ComputeForActivity(ctx context.Context, info ActivityInfo, str
 	return s.Store.GetBestEffortsForActivityRec(ctx, info.ID, info.UserID)
 }
 
-// RecalcAll deletes all best-effort records for a user and recomputes them
-// from scratch in chronological order. progressFn is called every 50 activities
-// and once at the end with (total, total). progressFn may be nil.
-func (s *Service) RecalcAll(ctx context.Context, userID string, progressFn func(done, total int)) error {
-	if err := s.Store.DeleteAllBestEfforts(ctx, userID); err != nil {
-		return fmt.Errorf("delete all best efforts: %w", err)
+// ComputeForActivity computes all best-effort records for the given activity
+// and upserts them into persistent storage. It returns the ranked results.
+//
+// Returns nil, nil when the activity's sport has no best-efforts semantics.
+//
+// This method uses a non-blocking advisory lock. If RecalcAll currently holds
+// the lock for this user, the call is a no-op (returns nil, nil) — RecalcAll
+// will cover this activity in its own full pass.
+func (s *Service) ComputeForActivity(ctx context.Context, info ActivityInfo, stream []model.StreamPoint) ([]BestEffortRankedRecord, error) {
+	acquired, err := s.Store.TryAcquireBestEffortLock(ctx, info.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("try acquire best effort lock: %w", err)
 	}
+	if !acquired {
+		// RecalcAll holds the lock — skip; it will recompute this activity.
+		slog.DebugContext(ctx, "best efforts: skipping single-activity compute, RecalcAll running",
+			"activity_id", info.ID, "user_id", info.UserID)
+		return nil, nil
+	}
+	defer func() {
+		if releaseErr := s.Store.ReleaseBestEffortLock(ctx, info.UserID); releaseErr != nil {
+			slog.ErrorContext(ctx, "best efforts: release lock failed", "activity_id", info.ID, "error", releaseErr)
+		}
+	}()
+
+	return s.computeForActivityInner(ctx, info, stream)
+}
+
+// RecalcAll recomputes all best-effort records for a user atomically.
+//
+// Instead of deleting everything first (which leaves an empty table on crash),
+// it upserts each activity's efforts and then removes orphaned rows for
+// activities that are no longer eligible. A blocking advisory lock prevents a
+// concurrent ComputeForActivity call from racing with the bulk recompute.
+//
+// progressFn is called every 50 activities and once at the end with (total, total).
+// progressFn may be nil.
+func (s *Service) RecalcAll(ctx context.Context, userID string, progressFn func(done, total int)) error {
+	// Acquire per-user advisory lock — blocks until no other RecalcAll or
+	// ComputeForActivity is running for this user.
+	if err := s.Store.AcquireBestEffortLock(ctx, userID); err != nil {
+		return fmt.Errorf("acquire best effort lock: %w", err)
+	}
+	defer func() {
+		if err := s.Store.ReleaseBestEffortLock(ctx, userID); err != nil {
+			slog.ErrorContext(ctx, "best efforts: release lock failed", "user_id", userID, "error", err)
+		}
+	}()
 
 	// E-1: single query instead of GetBestEffortRecalcIDs + per-activity
 	// GetBestEffortActivityInfo — eliminates the N+1 DB round-trips.
@@ -142,6 +216,7 @@ func (s *Service) RecalcAll(ctx context.Context, userID string, progressFn func(
 	}
 
 	total := len(activities)
+	processedIDs := make([]string, 0, total)
 
 	for i, info := range activities {
 		// TODO(E-6): replace GetStreamPoints with GetStreamPointsLightweight once
@@ -153,10 +228,13 @@ func (s *Service) RecalcAll(ctx context.Context, userID string, progressFn func(
 			return fmt.Errorf("get stream points for %s: %w", info.ID, err)
 		}
 
-		if _, err := s.ComputeForActivity(ctx, info, stream); err != nil {
+		// Call the inner function directly — we already hold the advisory lock.
+		if _, err := s.computeForActivityInner(ctx, info, stream); err != nil {
 			slog.ErrorContext(ctx, "best efforts: compute failed", "activity_id", info.ID, "error", err)
 			// Non-fatal: continue with remaining activities.
 		}
+
+		processedIDs = append(processedIDs, info.ID)
 
 		// Discard stream slice immediately to avoid accumulating memory.
 		stream = nil
@@ -167,6 +245,13 @@ func (s *Service) RecalcAll(ctx context.Context, userID string, progressFn func(
 				progressFn(done, total)
 			}
 		}
+	}
+
+	// Remove stale rows for activities that are no longer eligible (deleted,
+	// excluded, etc.). Safe here because we hold the advisory lock and all
+	// current eligible activities have already been upserted above.
+	if err := s.Store.DeleteOrphanedBestEfforts(ctx, userID, processedIDs); err != nil {
+		return fmt.Errorf("delete orphaned best efforts: %w", err)
 	}
 
 	if progressFn != nil {

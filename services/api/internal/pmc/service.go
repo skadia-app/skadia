@@ -2,11 +2,23 @@ package pmc
 
 import (
 	"context"
+	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 )
+
+// pmcLockBase is the domain prefix for PMC advisory lock keys. "PMCC" = 0x504D4343.
+const pmcLockBase = int64(0x504D4343)
+
+// pmcLockKey returns a stable per-user int64 advisory lock key for PMC operations.
+func pmcLockKey(userID string) int64 {
+	h := fnv.New32a()
+	h.Write([]byte(userID)) //nolint:errcheck
+	return pmcLockBase ^ int64(h.Sum32())
+}
 
 // Service handles PMC recalculation triggered by events.
 type Service struct {
@@ -86,7 +98,23 @@ func (s *Service) RecomputeAllTSS(ctx context.Context, userID string) error {
 
 // RecalculatePMC recalculates PMC (combined + per-sport) from the user's earliest activity
 // up to 90 days from now. This satisfies the event.ActivityHandler interface.
+//
+// A non-blocking advisory lock is used to prevent parallel recalcs for the same user.
+// If another recalc is already running for this user, the call is a no-op (returns nil).
 func (s *Service) RecalculatePMC(ctx context.Context, userID string, activityDate time.Time) error {
+	// Prevent parallel PMC recalcs for the same user. pg_try_advisory_lock is
+	// non-blocking — if a recalc is already in progress we skip this one.
+	lockKey := pmcLockKey(userID)
+	var acquired bool
+	if err := s.DB.Pool.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockKey).Scan(&acquired); err != nil {
+		return fmt.Errorf("pmc: try advisory lock: %w", err)
+	}
+	if !acquired {
+		slog.DebugContext(ctx, "pmc: skipping recalc, another recalc is running", "user_id", userID)
+		return nil
+	}
+	defer s.DB.Pool.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockKey) //nolint:errcheck
+
 	// Start from the user's earliest activity (minus 42 days for CTL seeding window).
 	earliest, err := s.DB.GetEarliestActivityDate(ctx, userID)
 	if err != nil {
@@ -148,6 +176,14 @@ func (s *Service) RecalculatePMC(ctx context.Context, userID string, activityDat
 	// Set userID on all days for batch upsert.
 	for i := range days {
 		days[i].UserID = userID
+	}
+
+	// Delete stale per-sport rows before upserting the freshly computed series.
+	// This removes sport-group rows that no longer have any activities (e.g. after
+	// a sport-type edit or activity deletion) and prevents phantom sport entries
+	// from persisting indefinitely.
+	if err := s.DB.DeleteStalePMCSportRows(ctx, userID, from, to); err != nil {
+		return fmt.Errorf("pmc: delete stale sport rows: %w", err)
 	}
 
 	// Batch upsert.
