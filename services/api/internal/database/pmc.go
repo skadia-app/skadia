@@ -34,6 +34,7 @@ func (db *DB) GetPMCRange(ctx context.Context, userID string, from, to time.Time
 	rows, err := db.Pool.Query(ctx,
 		`SELECT date::text, tss, ctl, atl, tsb, COALESCE(acwr_ra, 0) FROM pmc_daily
 		 WHERE user_id = $1 AND date >= $2 AND date <= $3
+		   AND sport_group = '__combined__'
 		 ORDER BY date ASC`,
 		userID, from, to,
 	)
@@ -55,6 +56,41 @@ func (db *DB) GetPMCRange(ctx context.Context, userID string, from, to time.Time
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("get pmc range: %w", err)
+	}
+	if days == nil {
+		days = []model.PMCDay{}
+	}
+	return days, nil
+}
+
+// GetPMCRangeAllSports returns all pmc_daily rows for the given range, including
+// sport-specific rows (sport_group != '__combined__'). Used by the split_by_sport
+// API parameter to populate per-sport series in the frontend.
+func (db *DB) GetPMCRangeAllSports(ctx context.Context, userID string, from, to time.Time) ([]model.PMCDay, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT date::text, sport_group, tss, ctl, atl, tsb, COALESCE(acwr_ra, 0) FROM pmc_daily
+		 WHERE user_id = $1 AND date >= $2 AND date <= $3
+		 ORDER BY sport_group ASC, date ASC`,
+		userID, from, to,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get pmc range all sports: %w", err)
+	}
+	defer rows.Close()
+
+	var days []model.PMCDay
+	for rows.Next() {
+		var d model.PMCDay
+		if err := rows.Scan(&d.Date, &d.SportGroup, &d.TSS, &d.CTL, &d.ATL, &d.TSB, &d.ACWRRA); err != nil {
+			return nil, fmt.Errorf("scan pmc day all sports: %w", err)
+		}
+		if d.CTL > 0 {
+			d.ACWR = math.Round(d.ATL/d.CTL*100) / 100
+		}
+		days = append(days, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get pmc range all sports: %w", err)
 	}
 	if days == nil {
 		days = []model.PMCDay{}
