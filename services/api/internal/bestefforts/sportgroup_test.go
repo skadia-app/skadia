@@ -73,40 +73,40 @@ func TestCategoriesFor(t *testing.T) {
 		wantHasElev     bool
 		wantHasSuperlat bool
 	}{
-		{
+		{   // 15 dist + 4 elev + 9 power + 4 superlatives (with elevation)
 			sportGroup: "running", wantMinLen: 15 + 4 + 9 + 4,
 			wantDistKey: "dist_400m", wantHasPower: true, wantHasElev: true, wantHasSuperlat: true,
 		},
-		{
-			sportGroup: "running_indoor", wantMinLen: 15 + 9 + 4,
+		{   // 15 dist + 9 power + 2 superlatives (basic, no elevation indoors)
+			sportGroup: "running_indoor", wantMinLen: 15 + 9 + 2,
 			wantDistKey: "dist_400m", wantHasPower: true, wantHasElev: false, wantHasSuperlat: true,
 		},
-		{
-			sportGroup: "running_virtual", wantMinLen: 15 + 4,
+		{   // 15 dist + 2 superlatives (basic)
+			sportGroup: "running_virtual", wantMinLen: 15 + 2,
 			wantDistKey: "dist_400m", wantHasPower: false, wantHasElev: false, wantHasSuperlat: true,
 		},
-		{
+		{   // 11 dist + 4 elev + 9 power + 4 superlatives (with elevation)
 			sportGroup: "cycling", wantMinLen: 11 + 4 + 9 + 4,
 			wantDistKey: "dist_10km", wantHasPower: true, wantHasElev: true, wantHasSuperlat: true,
 		},
-		{
+		{   // 11 dist + 4 elev + 4 superlatives (with elevation, e-bike has real hills)
 			sportGroup: "cycling_electric", wantMinLen: 11 + 4 + 4,
 			wantDistKey: "dist_10km", wantHasPower: false, wantHasElev: true, wantHasSuperlat: true,
 		},
-		{
-			sportGroup: "cycling_virtual", wantMinLen: 11 + 4,
+		{   // 11 dist + 2 superlatives (basic, simulated elevation)
+			sportGroup: "cycling_virtual", wantMinLen: 11 + 2,
 			wantDistKey: "dist_10km", wantHasPower: false, wantHasElev: false, wantHasSuperlat: true,
 		},
-		{
+		{   // 5 dist + 4 elev + 4 superlatives (with elevation)
 			sportGroup: "hiking", wantMinLen: 5 + 4 + 4,
 			wantDistKey: "dist_5km", wantHasPower: false, wantHasElev: true, wantHasSuperlat: true,
 		},
-		{
-			sportGroup: "swim_pool", wantMinLen: 6 + 4,
+		{   // 6 dist + 2 superlatives (basic, no elevation in pool)
+			sportGroup: "swim_pool", wantMinLen: 6 + 2,
 			wantDistKey: "dist_50m", wantHasPower: false, wantHasElev: false, wantHasSuperlat: true,
 		},
-		{
-			sportGroup: "swim_ow", wantMinLen: 3 + 4,
+		{   // 3 dist + 2 superlatives (basic, no meaningful elevation)
+			sportGroup: "swim_ow", wantMinLen: 3 + 2,
 			wantDistKey: "dist_1km", wantHasPower: false, wantHasElev: false, wantHasSuperlat: true,
 		},
 		{sportGroup: "", wantNil: true},
