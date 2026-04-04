@@ -7,7 +7,8 @@ import { fetchActivities, reprocessAllActivities } from '@/api/activities'
 import type { ReprocessFilter, ReprocessResult } from '@/api/activities'
 import type { Activity } from '@/api/types'
 import { sportLabel } from '@/lib/sportTaxonomy'
-import { GEO_SCOPE_KEYS, GEO_SCOPE_LABELS, REPROCESS_SCOPES, DEFAULT_SCOPES, toBackendScope, toggleScopeKey, type AnyReprocessKey } from '@/lib/reprocessScopes'
+import { REPROCESS_SCOPES, GEO_SCOPE_KEYS, GEO_SCOPE_LABELS, DEFAULT_SCOPES, toBackendScope, toggleScopeKey, type AnyReprocessKey } from '@/lib/reprocessScopes'
+import { ScopeCheckboxList } from '@/components/ScopeCheckboxList'
 
 type ReprocessMode = 'all' | 'selection'
 
@@ -298,31 +299,7 @@ export default function WorkshopReprocessPage() {
         {/* Scope selection */}
         <div>
           <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-2">Was neu berechnen?</label>
-          <div className="flex flex-wrap gap-x-5 gap-y-1.5">
-            {REPROCESS_SCOPES.map(([key, label]) => (
-              <label key={key} className="flex items-center gap-1.5 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={scope.has(key)}
-                  onChange={() => toggleScope(key)}
-                  className="rounded"
-                />
-                {label}
-              </label>
-            ))}
-            <span className="text-xs text-neutral-400 dark:text-neutral-500 w-full pt-1">Geo-Anreicherung (ML, asynchron)</span>
-            {GEO_SCOPE_KEYS.map(key => (
-              <label key={key} className="flex items-center gap-1.5 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={scope.has(key)}
-                  onChange={() => toggleScope(key)}
-                  className="rounded"
-                />
-                {GEO_SCOPE_LABELS[key]}
-              </label>
-            ))}
-          </div>
+          <ScopeCheckboxList selected={scope} onToggle={toggleScope} layout="inline" />
         </div>
 
         {/* Action */}

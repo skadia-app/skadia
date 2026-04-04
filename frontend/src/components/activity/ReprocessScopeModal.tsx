@@ -1,13 +1,11 @@
 import { useState } from 'react'
 import {
-  GEO_SCOPE_KEYS,
-  GEO_SCOPE_LABELS,
-  REPROCESS_SCOPES,
   DEFAULT_SCOPES,
   toBackendScope,
   toggleScopeKey,
   type AnyReprocessKey,
 } from '@/lib/reprocessScopes'
+import { ScopeCheckboxList } from '@/components/ScopeCheckboxList'
 
 function ReprocessScopeModal({
   onConfirm,
@@ -31,44 +29,12 @@ function ReprocessScopeModal({
           Nutzerdefinierte Felder (Titel, Beschreibung, Sichtbarkeit) bleiben immer erhalten.
         </p>
 
-        <div className="space-y-2">
-          {REPROCESS_SCOPES.map(([key, label, description]) => (
-            <label
-              key={key}
-              className="flex items-start gap-2.5 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer select-none"
-            >
-              <input
-                type="checkbox"
-                checked={scope.has(key)}
-                onChange={() => setScope(prev => toggleScopeKey(prev, key))}
-                className="rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT mt-0.5"
-              />
-              <span>
-                {label}
-                {description && (
-                  <span className="block text-xs text-neutral-400 dark:text-neutral-500 font-normal">
-                    {description}
-                  </span>
-                )}
-              </span>
-            </label>
-          ))}
-          <p className="text-xs text-neutral-400 dark:text-neutral-500 pt-1">Geo-Anreicherung (ML, asynchron)</p>
-          {GEO_SCOPE_KEYS.map(key => (
-            <label
-              key={key}
-              className="flex items-center gap-2.5 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer select-none"
-            >
-              <input
-                type="checkbox"
-                checked={scope.has(key)}
-                onChange={() => setScope(prev => toggleScopeKey(prev, key))}
-                className="rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT"
-              />
-              {GEO_SCOPE_LABELS[key]}
-            </label>
-          ))}
-        </div>
+        <ScopeCheckboxList
+          selected={scope}
+          onToggle={key => setScope(prev => toggleScopeKey(prev, key))}
+          layout="vertical"
+          showDescriptions
+        />
 
         <div className="flex justify-end gap-3 pt-1">
           <button
