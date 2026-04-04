@@ -192,7 +192,7 @@ export default function RouteSuggestionDialog({
     onSuccess: (response) => {
       setLastCoverageAvailable(response.coverage_available)
       onResult(response)
-      onClose()
+      // onClose() removed — MapPage handles dialog visibility via onResult
     },
     onError: (err) => {
       addToast({
