@@ -10,6 +10,62 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 )
 
+// ---- Advisory lock helpers (satisfy bestefforts.Store) ----
+
+// AcquireBestEffortLock acquires a session-level PostgreSQL advisory lock for
+// the given user's best-effort operations. Blocks until the lock is obtained.
+// The lock is automatically released when the underlying connection is returned
+// to the pool, but callers MUST call ReleaseBestEffortLock explicitly to make
+// the release deterministic.
+func (db *DB) AcquireBestEffortLock(ctx context.Context, userID string) error {
+	key := bestefforts.BestEffortLockKey(userID)
+	_, err := db.Pool.Exec(ctx, "SELECT pg_advisory_lock($1)", key)
+	if err != nil {
+		return fmt.Errorf("pg_advisory_lock best_effort user=%s: %w", userID, err)
+	}
+	return nil
+}
+
+// TryAcquireBestEffortLock is a non-blocking variant of AcquireBestEffortLock.
+// Returns (true, nil) when the lock was obtained, (false, nil) when it is
+// already held by another session.
+func (db *DB) TryAcquireBestEffortLock(ctx context.Context, userID string) (bool, error) {
+	key := bestefforts.BestEffortLockKey(userID)
+	var acquired bool
+	err := db.Pool.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", key).Scan(&acquired)
+	if err != nil {
+		return false, fmt.Errorf("pg_try_advisory_lock best_effort user=%s: %w", userID, err)
+	}
+	return acquired, nil
+}
+
+// ReleaseBestEffortLock releases the session-level advisory lock for the user.
+func (db *DB) ReleaseBestEffortLock(ctx context.Context, userID string) error {
+	key := bestefforts.BestEffortLockKey(userID)
+	_, err := db.Pool.Exec(ctx, "SELECT pg_advisory_unlock($1)", key)
+	if err != nil {
+		return fmt.Errorf("pg_advisory_unlock best_effort user=%s: %w", userID, err)
+	}
+	return nil
+}
+
+// DeleteOrphanedBestEfforts removes best_efforts rows for the user whose
+// activity_id is NOT in keepActivityIDs. Called by RecalcAll after upserting
+// all currently eligible activities to purge stale rows without ever leaving
+// the table empty.
+func (db *DB) DeleteOrphanedBestEfforts(ctx context.Context, userID string, keepActivityIDs []string) error {
+	_, err := db.Pool.Exec(ctx,
+		`DELETE FROM best_efforts
+		 WHERE user_id = $1
+		   AND activity_id != ALL($2::uuid[])`,
+		userID, keepActivityIDs,
+	)
+	if err != nil {
+		return fmt.Errorf("delete orphaned best efforts: %w", err)
+	}
+	return nil
+}
+
 // BestEffort represents a single computed best effort record.
 type BestEffort struct {
 	ID             string     `json:"id"`

@@ -275,3 +275,22 @@ func (db *DB) GetPMCSportCTLBefore(ctx context.Context, userID string, date time
 	}
 	return result, rows.Err()
 }
+
+// DeleteStalePMCSportRows removes per-sport pmc_daily rows (sport_group != '__combined__')
+// for the given user within [from, to]. Called by RecalculatePMC before upserting the
+// freshly computed sport-specific series to avoid stale rows for sport groups that no
+// longer have activities (e.g. after a sport-type edit or activity deletion).
+func (db *DB) DeleteStalePMCSportRows(ctx context.Context, userID string, from, to time.Time) error {
+	_, err := db.Pool.Exec(ctx,
+		`DELETE FROM pmc_daily
+		 WHERE user_id = $1
+		   AND date >= $2
+		   AND date <= $3
+		   AND sport_group != '__combined__'`,
+		userID, from.Format("2006-01-02"), to.Format("2006-01-02"),
+	)
+	if err != nil {
+		return fmt.Errorf("delete stale pmc sport rows: %w", err)
+	}
+	return nil
+}

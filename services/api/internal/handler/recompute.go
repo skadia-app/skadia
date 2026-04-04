@@ -945,7 +945,8 @@ func (h *Handler) reprocessTags(ctx context.Context, activityID, userID string) 
 
 // RecomputeAllTSS starts an async background job that recomputes TSS for all
 // activities of the authenticated user, then recalculates the PMC.
-// Returns 200 OK with {"status":"started"} immediately.
+// Returns 202 Accepted with {"status":"started","job_id":"..."} immediately, or
+// 200 OK with {"status":"already_running"} when a job is already in progress.
 //
 // POST /api/v1/admin/recompute-tss
 func (h *Handler) RecomputeAllTSS(w http.ResponseWriter, r *http.Request) {
@@ -959,16 +960,33 @@ func (h *Handler) RecomputeAllTSS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go func() {
-		bgCtx := context.Background()
-		if err := h.PMC.RecomputeAllTSS(bgCtx, userID); err != nil {
-			slog.Error("RecomputeAllTSS failed", "user", userID, "err", err)
-		} else {
-			slog.Info("RecomputeAllTSS completed", "user", userID)
-		}
-	}()
+	entityName := "TSS-Neuberechnung"
+	jobID, created, err := h.DB.InsertBackgroundJobGuarded(r.Context(), userID,
+		"recompute_all_tss", nil, &entityName, 0)
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Job creation failed", err.Error(), r.URL.Path)
+		return
+	}
+	if !created {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		return
+	}
 
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "started"})
+	pmcSvc := h.PMC
+	shutdown.Go(jobID, func(ctx context.Context) {
+		if err := pmcSvc.RecomputeAllTSS(ctx, userID); err != nil {
+			slog.Error("RecomputeAllTSS failed", "user", userID, "job_id", jobID, "err", err)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true, err.Error())
+		} else {
+			slog.Info("RecomputeAllTSS completed", "user", userID, "job_id", jobID)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false, "")
+		}
+	})
+
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
+		"status": "started",
+		"job_id": jobID,
+	})
 }
 
 // recomputeWorkerCount liest RECOMPUTE_WORKERS aus der Umgebung (Default: 4).
