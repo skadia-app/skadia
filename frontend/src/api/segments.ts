@@ -175,3 +175,16 @@ export interface SegmentPRsResponse {
 export async function fetchSegmentPRs(): Promise<SegmentPRsResponse> {
   return apiClient<SegmentPRsResponse>('/segment-prs')
 }
+
+export interface GlobalTopSegmentEffort extends SegmentEffort {
+  athlete_count: number
+}
+
+export interface GlobalTopSegmentEffortsResponse {
+  efforts: GlobalTopSegmentEffort[]
+  count: number
+}
+
+export async function fetchGlobalTopSegmentPRs(): Promise<GlobalTopSegmentEffortsResponse> {
+  return apiClient<GlobalTopSegmentEffortsResponse>('/segment-prs/global-top')
+}
