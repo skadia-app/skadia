@@ -186,6 +186,27 @@ func (s *Service) PostProcess(
 				}
 			}
 		}
+		// Register Developer App Sensors
+		if err := s.DB.InsertDeveloperApps(gCtx, activityID, data.DeveloperApps); err != nil {
+			slog.Error("insert developer apps failed", "activity", activityID, "error", err)
+		}
+		for _, app := range data.DeveloperApps {
+			deviceID, err := s.DB.UpsertHWDevice(gCtx, model.DeviceUpsert{
+				UserID:      userID,
+				Type:        "sensor",
+				ProductName: app.AppName,
+				SeenAt:      data.StartedAt,
+			})
+			if err != nil {
+				slog.Error("upsert developer app device failed", "activity", activityID, "error", err)
+				continue
+			}
+			if deviceID != "" {
+				if err := s.DB.SetDeveloperAppDeviceID(gCtx, activityID, app.ApplicationID, deviceID); err != nil {
+					slog.Error("set developer app device id failed", "activity", activityID, "error", err)
+				}
+			}
+		}
 		return nil
 	})
 

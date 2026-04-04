@@ -20,6 +20,10 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
+// devAppDeviceIndex is a sentinel device index for developer apps,
+// placed after all ANT+/BLE sensors (which use 0-254).
+const devAppDeviceIndex = 999
+
 func (db *DB) CheckDuplicate(ctx context.Context, userID, fileHash string) (*model.Activity, error) {
 	row := db.Pool.QueryRow(ctx,
 		`SELECT id, sport_type, started_at FROM activities WHERE user_id = $1 AND file_hash = $2 LIMIT 1`,
@@ -889,15 +893,22 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 	if len(filters.IncludeDevices) > 0 {
 		idx++
 		conds = append(conds, fmt.Sprintf(
-			"(recording_device_id = ANY($%d) OR id IN (SELECT activity_id FROM activity_sensors WHERE device_id = ANY($%d)))",
-			idx, idx))
+			"(recording_device_id = ANY($%d) OR id IN ("+
+				"SELECT activity_id FROM activity_sensors WHERE device_id = ANY($%d) "+
+				"UNION "+
+				"SELECT activity_id FROM activity_developer_apps WHERE device_id = ANY($%d)))",
+			idx, idx, idx))
 		args = append(args, filters.IncludeDevices)
 	}
 	if len(filters.ExcludeDevices) > 0 {
 		idx++
 		conds = append(conds, fmt.Sprintf(
-			"(recording_device_id IS NULL OR recording_device_id != ALL($%d)) AND id NOT IN (SELECT activity_id FROM activity_sensors WHERE device_id = ANY($%d))",
-			idx, idx))
+			"(recording_device_id IS NULL OR recording_device_id != ALL($%d)) "+
+				"AND id NOT IN ("+
+				"SELECT activity_id FROM activity_sensors WHERE device_id = ANY($%d) "+
+				"UNION "+
+				"SELECT activity_id FROM activity_developer_apps WHERE device_id = ANY($%d))",
+			idx, idx, idx))
 		args = append(args, filters.ExcludeDevices)
 	}
 
@@ -1663,6 +1674,41 @@ func (db *DB) GetSensors(ctx context.Context, activityID string) ([]model.Sensor
 		sensors = append(sensors, rs.resp)
 	}
 
+	// Developer Apps anhängen (Spec §4.1)
+	devApps, err := db.GetDeveloperAppsForActivity(ctx, activityID)
+	if err != nil {
+		return nil, fmt.Errorf("get developer apps for sensors: %w", err)
+	}
+
+	for _, app := range devApps {
+		// Dedup: wenn device_id bereits in seen Map (via ANT+/BLE), überspringen
+		if app.DeviceID != nil && *app.DeviceID != "" {
+			if _, exists := seen[*app.DeviceID]; exists {
+				continue
+			}
+			seen[*app.DeviceID] = len(sensors)
+		}
+
+		resp := model.SensorResponse{
+			ID:          app.ID,
+			DeviceIndex: devAppDeviceIndex,
+			SourceType:  "app",
+			DeviceID:    app.DeviceID,
+			AllTypes:    []string{},
+		}
+		if app.AppCategory != nil {
+			resp.PrimaryType = *app.AppCategory
+			resp.PrimaryTypeLabel = sensorTypeLabel(*app.AppCategory)
+			resp.AllTypes = []string{*app.AppCategory}
+		}
+		if app.AppName != nil {
+			resp.ProductName = *app.AppName
+		}
+		resp.SerialText = app.SerialNumber
+
+		sensors = append(sensors, resp)
+	}
+
 	if sensors == nil {
 		sensors = []model.SensorResponse{}
 	}
@@ -1687,6 +1733,11 @@ var sensorLabels = map[string]string{
 	"lights":                     "Fahrradbeleuchtung",
 	"weight_scale":               "Waage",
 	"fitness_equipment":          "Fitnessgerät",
+	"app_running_power":          "Lauf-Leistungsmesser",
+	"app_swim_goggle":            "Schwimmbrille",
+	"app_bike_power":             "Rad-Leistungsmesser (App)",
+	"app_wearable":               "Wearable-App",
+	"app_biometric":              "Biometrie-Sensor",
 }
 
 func sensorTypeLabel(deviceType string) string {

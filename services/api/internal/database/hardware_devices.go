@@ -233,7 +233,13 @@ func (db *DB) GetHWDevice(ctx context.Context, id string) (*model.Device, error)
 		`SELECT `+hwDeviceSelectCols+`,
 			CASE d.type
 				WHEN 'recorder' THEN (SELECT COUNT(*) FROM activities WHERE recording_device_id = d.id)
-				WHEN 'sensor'   THEN (SELECT COUNT(DISTINCT activity_id) FROM activity_sensors WHERE device_id = d.id)
+				WHEN 'sensor'   THEN (
+					SELECT COUNT(DISTINCT activity_id) FROM (
+						SELECT activity_id FROM activity_sensors WHERE device_id = d.id
+						UNION
+						SELECT activity_id FROM activity_developer_apps WHERE device_id = d.id
+					) sub
+				)
 				ELSE 0
 			END AS activity_count
 		 FROM devices d
@@ -256,7 +262,11 @@ func (db *DB) ListHWDevices(ctx context.Context, userID, deviceType string) ([]m
 		),
 		sensor_counts AS (
 			SELECT device_id, COUNT(DISTINCT activity_id) AS c
-			FROM activity_sensors WHERE device_id IS NOT NULL
+			FROM (
+				SELECT device_id, activity_id FROM activity_sensors WHERE device_id IS NOT NULL
+				UNION
+				SELECT device_id, activity_id FROM activity_developer_apps WHERE device_id IS NOT NULL
+			) combined
 			GROUP BY device_id
 		)
 		SELECT ` + hwDeviceSelectCols + `,
@@ -363,6 +373,14 @@ func (db *DB) MergeHWDevices(ctx context.Context, userID, sourceID, targetID str
 		return fmt.Errorf("merge hw devices (reassign sensors): %w", err)
 	}
 
+	// 2b. Reassign developer app records.
+	if _, err = tx.Exec(ctx,
+		`UPDATE activity_developer_apps SET device_id = $1 WHERE device_id = $2`,
+		targetID, sourceID,
+	); err != nil {
+		return fmt.Errorf("merge hw devices (reassign developer apps): %w", err)
+	}
+
 	// 3. Reassign recording device references.
 	if _, err = tx.Exec(ctx,
 		`UPDATE activities SET recording_device_id = $1 WHERE recording_device_id = $2`,
@@ -438,7 +456,9 @@ func (db *DB) ListDeviceActivities(ctx context.Context, deviceID string, limit i
 				`SELECT a.id::text, a.started_at, a.title, a.sport_type, a.distance_m, a.timezone
 				 FROM activities a
 				 INNER JOIN (
-					SELECT DISTINCT activity_id FROM activity_sensors WHERE device_id = $1
+					SELECT activity_id FROM activity_sensors WHERE device_id = $1
+					UNION
+					SELECT activity_id FROM activity_developer_apps WHERE device_id = $1
 				 ) s ON s.activity_id = a.id
 				 WHERE a.started_at < $2::timestamptz
 				 ORDER BY a.started_at DESC LIMIT $3`,
@@ -449,7 +469,9 @@ func (db *DB) ListDeviceActivities(ctx context.Context, deviceID string, limit i
 				`SELECT a.id::text, a.started_at, a.title, a.sport_type, a.distance_m, a.timezone
 				 FROM activities a
 				 INNER JOIN (
-					SELECT DISTINCT activity_id FROM activity_sensors WHERE device_id = $1
+					SELECT activity_id FROM activity_sensors WHERE device_id = $1
+					UNION
+					SELECT activity_id FROM activity_developer_apps WHERE device_id = $1
 				 ) s ON s.activity_id = a.id
 				 ORDER BY a.started_at DESC LIMIT $2`,
 				deviceID, limit,
