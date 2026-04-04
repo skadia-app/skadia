@@ -451,7 +451,7 @@ func (h *Handler) GetOSMSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	err := h.DB.Pool.QueryRow(r.Context(), `
 		SELECT update_interval, update_weekday, update_day, update_hour
-		FROM osm_import_regions WHERE status = 'imported' LIMIT 1`).
+		FROM osm_import_regions WHERE status IN ('imported', 'needs_redownload') LIMIT 1`).
 		Scan(&schedule.Interval, &schedule.Weekday, &schedule.Day, &schedule.Hour)
 	if err != nil {
 		// No imported regions yet — return defaults
@@ -484,11 +484,12 @@ func (h *Handler) SetOSMSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Apply the same schedule to all imported regions
+	// Include needs_redownload: schedule is preserved so it automatically resumes
+	// after the user re-imports the region (status goes back to 'imported').
 	h.DB.Pool.Exec(r.Context(), `
 		UPDATE osm_import_regions SET
 			update_interval = $1, update_weekday = $2, update_day = $3, update_hour = $4
-		WHERE status = 'imported'`,
+		WHERE status IN ('imported', 'needs_redownload')`,
 		req.Interval, req.Weekday, req.Day, req.Hour)
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -515,9 +516,10 @@ func (h *Handler) StartOSMUpdateScheduler(ctx context.Context) {
 func (h *Handler) checkAndRunScheduledUpdates(ctx context.Context) {
 	rows, err := h.DB.Pool.Query(ctx, `
 		SELECT region_id, label, update_interval, update_weekday, update_day,
-		       update_hour, imported_at, replication_url, last_sequence_number, pbf_path
+		       update_hour, COALESCE(last_updated_at, imported_at), replication_url, last_sequence_number, pbf_path
 		FROM osm_import_regions
-		WHERE status = 'imported' AND update_interval != 'manual'`)
+		WHERE status = 'imported' AND update_interval != 'manual'
+		  AND replication_url IS NOT NULL AND pbf_path IS NOT NULL`)
 	if err != nil {
 		slog.Warn("osm scheduler: query failed", "error", err)
 		return
@@ -530,48 +532,47 @@ func (h *Handler) checkAndRunScheduledUpdates(ctx context.Context) {
 			regionID, label, interval string
 			weekday, day, hour        int
 			lastSeq                   int
-			importedAt                time.Time
-			replURL                   *string
-			pbfPath                   *string
+			lastUpdatedAt             time.Time
+			replURL                   string  // safe: WHERE replication_url IS NOT NULL
+			pbfPath                   string  // safe: WHERE pbf_path IS NOT NULL
 		)
 		if err := rows.Scan(&regionID, &label, &interval, &weekday, &day,
-			&hour, &importedAt, &replURL, &lastSeq, &pbfPath); err != nil {
+			&hour, &lastUpdatedAt, &replURL, &lastSeq, &pbfPath); err != nil {
 			slog.Warn("osm scheduler: scan failed", "error", err)
 			continue
 		}
 
-		if !isUpdateDue(interval, weekday, day, hour, importedAt, now) {
+		if !isUpdateDue(interval, weekday, day, hour, lastUpdatedAt, now) {
 			continue
 		}
 
 		slog.Info("osm scheduler: update due", "region", regionID, "label", label, "interval", interval)
-		// TODO(T11): trigger patchPBF + reimport as background job
-		// patchPBF and full reimport will be wired up during T11 integration testing
-		slog.Warn("osm scheduler: update due but auto-update not yet implemented — manual reimport required",
+		// TODO(T5): trigger patchPBF + reimport as background job (next task)
+		slog.Warn("osm scheduler: update due but auto-update not yet wired — next task completes this",
 			"region", regionID, "interval", interval)
 	}
 }
 
 // isUpdateDue returns true when the scheduled update window is reached.
-// Weekly: at least 6 days since last import, matching weekday and hour.
-// Monthly: on the configured day-of-month at the configured hour, at least 1 month after import.
-// time.Weekday constants: Sunday=0, Monday=1, …, Saturday=6.
-func isUpdateDue(interval string, weekday, day, hour int, importedAt, now time.Time) bool {
+// Weekly: at least 6 days since last update, matching weekday and hour.
+// Monthly: on the configured day-of-month at the configured hour, at least 1 month after last update.
+func isUpdateDue(interval string, weekday, day, hour int, lastUpdatedAt time.Time, now time.Time) bool {
+	if lastUpdatedAt.IsZero() {
+		return false // Never updated — scheduler cannot decide
+	}
 	switch interval {
 	case "weekly":
-		daysSince := now.Sub(importedAt).Hours() / 24
+		daysSince := now.Sub(lastUpdatedAt).Hours() / 24
 		if daysSince < 6 {
 			return false
 		}
-		// Convert Go weekday (Sunday=0…Saturday=6) to ISO 8601 (Monday=1…Sunday=7)
-		// so that a stored value of 7 (ISO Sunday) matches correctly.
-		isoWeekday := (int(now.Weekday())+6)%7 + 1 // Monday=1…Sunday=7
+		isoWeekday := (int(now.Weekday())+6)%7 + 1
 		return isoWeekday == weekday && now.Hour() == hour
 	case "monthly":
 		if now.Day() != day {
 			return false
 		}
-		monthsSince := (now.Year()-importedAt.Year())*12 + int(now.Month()-importedAt.Month())
+		monthsSince := (now.Year()-lastUpdatedAt.Year())*12 + int(now.Month()-lastUpdatedAt.Month())
 		return monthsSince >= 1 && now.Hour() == hour
 	}
 	return false
