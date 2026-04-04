@@ -2,6 +2,16 @@ package model
 
 import "time"
 
+// BestEffortPoint provides the minimal fields needed for best-effort computation.
+// Implemented by both StreamPoint (full) and StreamPointLight (lightweight).
+type BestEffortPoint interface {
+	BETime() time.Time
+	BEDistanceM() *float64
+	BEAltitudeM() *float64
+	BEPowerW() *int16
+	BEGpsAccuracyM() *int16
+}
+
 // StreamPoint is a single time-series data point.
 // Pointer fields indicate optional/missing values.
 type StreamPoint struct {
@@ -107,6 +117,13 @@ type StreamPoint struct {
 	DeveloperFields map[string]any `json:"developer_fields,omitempty"`
 }
 
+// BestEffortPoint methods on StreamPoint.
+func (p StreamPoint) BETime() time.Time        { return p.Time }
+func (p StreamPoint) BEDistanceM() *float64    { return p.DistanceM }
+func (p StreamPoint) BEAltitudeM() *float64    { return p.AltitudeM }
+func (p StreamPoint) BEPowerW() *int16         { return p.PowerW }
+func (p StreamPoint) BEGpsAccuracyM() *int16   { return p.GpsAccuracyM }
+
 // StreamPointLight is a minimal projection of activity_streams used by
 // RecalcAll. Only the 5 columns accessed by the compute functions are fetched,
 // reducing network/memory overhead by ~16× vs StreamPoint.
@@ -122,6 +139,13 @@ type StreamPointLight struct {
 	PowerW       *int16
 	GpsAccuracyM *int16
 }
+
+// BestEffortPoint methods on StreamPointLight.
+func (p StreamPointLight) BETime() time.Time        { return p.Time }
+func (p StreamPointLight) BEDistanceM() *float64    { return p.DistanceM }
+func (p StreamPointLight) BEAltitudeM() *float64    { return p.AltitudeM }
+func (p StreamPointLight) BEPowerW() *int16         { return p.PowerW }
+func (p StreamPointLight) BEGpsAccuracyM() *int16   { return p.GpsAccuracyM }
 
 // StreamResponse is the API response for the streams endpoint.
 type StreamResponse struct {

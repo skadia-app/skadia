@@ -105,7 +105,7 @@ type Service struct {
 // computeForActivityInner performs the actual computation and upsert for a
 // single activity. It does NOT acquire any advisory lock — the caller is
 // responsible for serialisation.
-func (s *Service) computeForActivityInner(ctx context.Context, info ActivityInfo, stream []model.StreamPoint) ([]BestEffortRankedRecord, error) {
+func computeForActivityInner[T model.BestEffortPoint](ctx context.Context, store Store, info ActivityInfo, stream []T) ([]BestEffortRankedRecord, error) {
 	sportGroup := DetermineSportGroup(info.SportType, info.SubType, info.IsIndoor, info.IsVirtual, info.IsElectric)
 	if sportGroup == "" {
 		return nil, nil
@@ -153,11 +153,11 @@ func (s *Service) computeForActivityInner(ctx context.Context, info ActivityInfo
 		})
 	}
 
-	if err := s.Store.BatchUpsertBestEffortRecs(ctx, efforts); err != nil {
+	if err := store.BatchUpsertBestEffortRecs(ctx, efforts); err != nil {
 		return nil, fmt.Errorf("batch upsert best efforts for activity %s: %w", info.ID, err)
 	}
 
-	return s.Store.GetBestEffortsForActivityRec(ctx, info.ID, info.UserID)
+	return store.GetBestEffortsForActivityRec(ctx, info.ID, info.UserID)
 }
 
 // ComputeForActivity computes all best-effort records for the given activity
@@ -181,7 +181,7 @@ func (s *Service) ComputeForActivity(ctx context.Context, info ActivityInfo, str
 	}
 	defer conn.Release()
 
-	return s.computeForActivityInner(ctx, info, stream)
+	return computeForActivityInner(ctx, s.Store, info, stream)
 }
 
 // RecalcAll recomputes all best-effort records for a user atomically.
@@ -215,17 +215,14 @@ func (s *Service) RecalcAll(ctx context.Context, userID string, progressFn func(
 	processedIDs := make([]string, 0, total)
 
 	for i, info := range activities {
-		// TODO(E-6): replace GetStreamPoints with GetStreamPointsLightweight once
-		// the Compute* function signatures are refactored to accept StreamPointLight
-		// (or a generic/interface type). Converting Light→StreamPoint would negate
-		// the ~16× memory saving and is therefore not done here.
-		stream, err := s.Store.GetStreamPoints(ctx, info.ID)
+		// Use lightweight stream (5 columns) — ~16× less data than full StreamPoint.
+		stream, err := s.Store.GetStreamPointsLightweight(ctx, info.ID)
 		if err != nil {
 			return fmt.Errorf("get stream points for %s: %w", info.ID, err)
 		}
 
 		// Call the inner function directly — we already hold the advisory lock.
-		if _, err := s.computeForActivityInner(ctx, info, stream); err != nil {
+		if _, err := computeForActivityInner(ctx, s.Store, info, stream); err != nil {
 			slog.ErrorContext(ctx, "best efforts: compute failed", "activity_id", info.ID, "error", err)
 			// Non-fatal: continue with remaining activities.
 		}
