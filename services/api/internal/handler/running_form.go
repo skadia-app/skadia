@@ -44,6 +44,7 @@ func (h *Handler) GetRunningFormBaseline(w http.ResponseWriter, r *http.Request)
 		FROM activities
 		WHERE user_id = $1
 			AND running_form_tier IS NOT NULL
+			AND sport_type IN ('running', 'trail_running')
 			AND started_at >= NOW() - INTERVAL '90 days'
 			AND deleted_at IS NULL
 	`, userID)

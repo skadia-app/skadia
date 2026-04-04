@@ -26,6 +26,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 )
 
@@ -246,8 +247,7 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 	if update.SportType != nil && *update.SportType != existing.SportType && h.BestEfforts != nil {
 		actID := id
 		svc := h.BestEfforts
-		go func() {
-			ctx := context.Background()
+		shutdown.Go("best-efforts-sport-edit:"+actID, func(ctx context.Context) {
 			if err := h.DB.DeleteBestEffortsForActivity(ctx, actID); err != nil {
 				slog.Warn("update activity: delete best efforts failed", "id", actID, "error", err)
 				return
@@ -268,7 +268,7 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 			if _, err := svc.ComputeForActivity(ctx, *info, stream); err != nil {
 				slog.Warn("update activity: compute best efforts failed", "id", actID, "error", err)
 			}
-		}()
+		})
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, activity)

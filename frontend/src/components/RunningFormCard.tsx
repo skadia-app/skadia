@@ -8,6 +8,7 @@ const LABELS = {
   verticalRatio: 'Vertical Ratio',
   gctAsymmetry: 'GCT-Asymmetrie',
   fatigueIndex: 'Fatigue Index',
+  fatigueVR: 'Fatigue VR',
   tier: (n: number) => `Tier ${n}`,
 }
 
@@ -94,6 +95,7 @@ export function RunningFormCard({ activity }: RunningFormCardProps) {
   const verticalRatio = activity.running_form_vertical_ratio
   const gctAsymmetry = activity.running_form_gct_asymmetry_pct
   const fatigueDuty = activity.running_form_fatigue_duty
+  const fatigueVR = activity.running_form_fatigue_vr
 
   return (
     <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3 space-y-2">
@@ -140,6 +142,15 @@ export function RunningFormCard({ activity }: RunningFormCardProps) {
             label={LABELS.fatigueIndex}
             value={fatigueDuty >= 0 ? `+${fatigueDuty.toFixed(1)}%` : `${fatigueDuty.toFixed(1)}%`}
             colorClass={fatigueForcedRed(fatigueDuty)}
+          />
+        )}
+
+        {/* Fatigue VR — show at Tier 2+ when available */}
+        {tier >= 2 && fatigueVR != null && (
+          <MetricTile
+            label={LABELS.fatigueVR}
+            value={fatigueVR >= 0 ? `+${fatigueVR.toFixed(1)}%` : `${fatigueVR.toFixed(1)}%`}
+            colorClass={fatigueForcedRed(fatigueVR)}
           />
         )}
       </div>
