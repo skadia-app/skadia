@@ -65,6 +65,7 @@ const AdminAuditLogPage = lazy(() => import('@/pages/admin/AdminAuditLogPage'))
 const WorkoutsPage = lazy(() => import('@/pages/WorkoutsPage'))
 const WorkoutDetailPage = lazy(() => import('@/pages/WorkoutDetailPage'))
 const RecordingGroupPage = lazy(() => import('@/pages/RecordingGroupPage'))
+const PersonalRecordsPage = lazy(() => import('@/pages/PersonalRecordsPage'))
 
 function ImportRedirect() {
   const [searchParams] = useSearchParams()
@@ -156,6 +157,7 @@ export default function App() {
                             <Route path="routes" element={<RoutesPage />} />
                             <Route path="segments" element={<SegmentsPage />} />
                             <Route path="segments/:id" element={<SegmentDetailPage />} />
+                            <Route path="records" element={<PersonalRecordsPage />} />
                             <Route path="workouts" element={<WorkoutsPage />} />
                             <Route path="workouts/:id" element={<WorkoutDetailPage />} />
                             <Route path="workshop" element={<WorkshopPage />} />
