@@ -659,14 +659,21 @@ func (h *Handler) runRegionUpdate(ctx context.Context, jobID, regionID, label, r
 		return
 	}
 
-	// Phase 3: Update last_updated_at (imported_at is already set by RunPerRegion)
+	// Phase 3: Write newSeq to DB — osmium apply-changes does NOT update PBF header
+	// replication fields, so RunPerRegion would write back the old sequence number.
 	h.DB.Pool.Exec(ctx, `
-		UPDATE osm_import_regions SET last_updated_at = now()
-		WHERE region_id = $1`, regionID)
+		UPDATE osm_import_regions SET last_sequence_number = $1, last_updated_at = now()
+		WHERE region_id = $2`, newSeq, regionID)
 
 	// Phase 4: Enrichment (synchronous — OOM-safe, one region at a time)
 	reporter.SetPhase("enrichment")
 	pipeline.RunEnrichmentAndSplitting(ctx, regionID, reporter)
+
+	if reporter.failed {
+		slog.Error("osm update: enrichment failed", "region", regionID)
+		h.DB.CompleteBackgroundJob(ctx, jobID, true, "Reimport OK, Enrichment fehlgeschlagen")
+		return
+	}
 
 	slog.Info("osm update: completed", "region", regionID, "new_seq", newSeq)
 	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
