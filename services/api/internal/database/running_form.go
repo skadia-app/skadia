@@ -37,7 +37,6 @@ func (db *DB) GetRunningFormBaseline(ctx context.Context, userID string) (*Runni
 			AND running_form_tier IS NOT NULL
 			AND sport_type IN ('running', 'trail_running')
 			AND started_at >= NOW() - INTERVAL '90 days'
-			AND deleted_at IS NULL
 	`, userID)
 
 	var b RunningFormBaseline
@@ -62,7 +61,6 @@ func (db *DB) GetRunningFormTrend(ctx context.Context, userID string, from, to *
 		WHERE user_id = $1
 			AND running_form_tier IS NOT NULL
 			AND sport_type IN ('running', 'trail_running')
-			AND deleted_at IS NULL
 			AND ($2::timestamptz IS NULL OR started_at >= $2)
 			AND ($3::timestamptz IS NULL OR started_at <= $3 + INTERVAL '1 day')
 		ORDER BY started_at ASC
