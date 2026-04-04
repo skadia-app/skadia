@@ -365,12 +365,12 @@ func buildUrbanizationGrid(ctx context.Context, pool *pgxpool.Pool, tg *TileGrid
 func buildRiverProximityGrid(ctx context.Context, pool *pgxpool.Pool, g *CoverageGrid, env string) error {
 	// Rivers, streams, canals (line features)
 	q1 := fmt.Sprintf(`SELECT ST_AsBinary(geom) FROM osm_waterways WHERE geom && %s`, env)
-	if err := queryLineNoiseSources(ctx, pool, g, q1, 165, 50); err != nil {
+	if err := queryLineDecaySources(ctx, pool, g, q1, 165, 50); err != nil {
 		return err
 	}
 	// Lake/reservoir shorelines (polygon boundaries as lines)
 	q2 := fmt.Sprintf(`SELECT ST_AsBinary(ST_ExteriorRing((ST_Dump(geom)).geom)) FROM osm_waters WHERE geom && %s`, env)
-	return queryLineNoiseSources(ctx, pool, g, q2, 200, 50)
+	return queryLineDecaySources(ctx, pool, g, q2, 200, 50)
 }
 
 // ---------------------------------------------------------------------------
@@ -383,7 +383,7 @@ func buildNoiseGrid(ctx context.Context, pool *pgxpool.Pool, g *CoverageGrid, en
 		q := fmt.Sprintf(`SELECT ST_AsBinary(geom) FROM osm_ways
 			WHERE highway IN ('motorway','motorway_link','trunk','trunk_link','primary','primary_link','secondary','secondary_link')
 			AND geom && %s`, env)
-		if err := queryLineNoiseSources(ctx, pool, g, q, ns.Road.BufferM, noiseOffsets["road"]); err != nil {
+		if err := queryLineDecaySources(ctx, pool, g, q, ns.Road.BufferM, noiseOffsets["road"]); err != nil {
 			return fmt.Errorf("noise road: %w", err)
 		}
 	}
@@ -391,7 +391,7 @@ func buildNoiseGrid(ctx context.Context, pool *pgxpool.Pool, g *CoverageGrid, en
 	// Rail noise (line sources)
 	if ns.Rail.Enabled {
 		q := fmt.Sprintf(`SELECT ST_AsBinary(geom) FROM osm_railways WHERE geom && %s`, env)
-		if err := queryLineNoiseSources(ctx, pool, g, q, ns.Rail.BufferM, noiseOffsets["rail"]); err != nil {
+		if err := queryLineDecaySources(ctx, pool, g, q, ns.Rail.BufferM, noiseOffsets["rail"]); err != nil {
 			return fmt.Errorf("noise rail: %w", err)
 		}
 	}
@@ -477,8 +477,8 @@ func queryPointNoiseSources(ctx context.Context, pool *pgxpool.Pool, g *Coverage
 	return rows.Err()
 }
 
-// queryLineNoiseSources reads WKB line strings and applies line decay to g.
-func queryLineNoiseSources(ctx context.Context, pool *pgxpool.Pool, g *CoverageGrid, query string, bufferM, offsetM float64) error {
+// queryLineDecaySources reads WKB line strings and applies line decay to g.
+func queryLineDecaySources(ctx context.Context, pool *pgxpool.Pool, g *CoverageGrid, query string, bufferM, offsetM float64) error {
 	rows, err := pool.Query(ctx, query)
 	if err != nil {
 		return err
