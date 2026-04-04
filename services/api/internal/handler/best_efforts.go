@@ -14,7 +14,15 @@ import (
 )
 
 // GetActivityBestEfforts returns all best effort records for a single activity,
-// each annotated with the user's all-time rank (top-3 only).
+// each annotated with the user's all-time rank (top-3 only), plus near-miss
+// entries for efforts that almost beat the user's current personal record.
+//
+// Response shape:
+//
+//	{
+//	  "best_efforts": [...],
+//	  "near_misses":  [...]
+//	}
 //
 // GET /api/v1/activities/{id}/best-efforts
 func (h *Handler) GetActivityBestEfforts(w http.ResponseWriter, r *http.Request) {
@@ -28,14 +36,24 @@ func (h *Handler) GetActivityBestEfforts(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	results, err := h.DB.GetBestEffortsForActivity(r.Context(), activityID, userID)
+	bestEfforts, err := h.DB.GetBestEffortsForActivity(r.Context(), activityID, userID)
 	if err != nil {
 		slog.Error("get best efforts for activity failed", "activity_id", activityID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get best efforts", r.URL.Path)
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, results)
+	nearMisses, err := h.DB.GetNearMisses(r.Context(), activityID, userID)
+	if err != nil {
+		slog.Error("get near misses failed", "activity_id", activityID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get near misses", r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"best_efforts": bestEfforts,
+		"near_misses":  nearMisses,
+	})
 }
 
 // GetBestEffortRecords returns the top-N personal records for the authenticated user,
