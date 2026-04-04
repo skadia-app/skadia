@@ -29,8 +29,10 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/runningform"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/skadia-app/skadia/services/api/internal/tcximport"
 )
 
@@ -447,6 +449,7 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 //   - "segments": segment efforts + lap detection
 //   - "geo": Stage 2 geo enrichment (summits, forests, water, stops, lifts, surfaces, borders)
 //   - "best_efforts": recompute best effort records for this activity
+//   - "running_form": compute duty factor, vertical ratio, GCT asymmetry + fatigue indices (running/trail_running only)
 //
 // skipAnalyticsEvent suppresses PublishAnalyticsInvalidate when true (used in bulk recompute
 // to avoid flooding — the caller publishes a single invalidation after all workers complete).
@@ -465,6 +468,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	doSegments := allScope || scope["segments"]
 	doGeo := allScope || scope["geo"]
 	doBestEfforts := allScope || scope["best_efforts"]
+	doRunningForm := allScope || scope["running_form"]
 	doSpeedSmooth := scope["speed_smooth"] // opt-in only, never part of "all"
 
 	// 1. Load reprocess info (S3 key, format, manual sport flag, file_id).
@@ -853,7 +857,31 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 	}
 
-	// 8e. Speed smoothing — opt-in only (not part of "all").
+	// 8e. Running Form — compute duty factor, vertical ratio, GCT asymmetry + fatigue indices.
+	// Restricted to running/trail_running: CategoryKey "run" but NOT walk/hike/etc.
+	if doRunningForm {
+		cat := sport.CategoryForSport(data.SportType)
+		isRunning := cat.Key == "run" &&
+			(data.SportType == "running" || data.SportType == "trail_running")
+		if isRunning {
+			rfStream, rfErr := h.DB.GetStreamPoints(ctx, activityID)
+			if rfErr != nil {
+				slog.Error("reprocess: load streams for running form failed", "id", activityID, "error", rfErr)
+			} else {
+				rfResult := runningform.Compute(rfStream)
+				if rfResult != nil {
+					tier := rfResult.Tier
+					if err := h.DB.UpdateRunningForm(ctx, activityID,
+						&rfResult.DutyFactor, &rfResult.VerticalRatio, &rfResult.GCTAsymmetry,
+						&rfResult.FatigueDuty, &rfResult.FatigueVR, &tier); err != nil {
+						slog.Error("reprocess: update running form failed", "id", activityID, "error", err)
+					}
+				}
+			}
+		}
+	}
+
+	// 8f. Speed smoothing — opt-in only (not part of "all").
 	// Loads existing streams, applies a median filter to speed_ms, and writes
 	// the smoothed values back. Does not re-parse the original file.
 	if doSpeedSmooth {

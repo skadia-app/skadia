@@ -652,7 +652,9 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		a.vo2max_ml_kg_min, a.vo2max_calibrated, a.vo2max_hr_source, a.vo2max_speed_source,
 		a.gps_accuracy_m,
 		a.is_group_secondary,
-		rgm.group_id
+		rgm.group_id,
+		a.running_form_duty_factor, a.running_form_vertical_ratio, a.running_form_gct_asymmetry_pct,
+		a.running_form_fatigue_duty, a.running_form_fatigue_vr, a.running_form_tier
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		LEFT JOIN LATERAL (
@@ -742,6 +744,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.GpsAccuracyM,
 		&a.IsGroupSecondary,
 		&a.RecordingGroupID,
+		&a.RunningFormDutyFactor, &a.RunningFormVerticalRatio, &a.RunningFormGCTAsymmetry,
+		&a.RunningFormFatigueDuty, &a.RunningFormFatigueVR, &a.RunningFormTier,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -1574,6 +1578,21 @@ func (db *DB) UpdateMovingTime(ctx context.Context, activityID, userID string, m
 		return fmt.Errorf("activity not found or access denied")
 	}
 	return nil
+}
+
+// UpdateRunningForm persists computed running form metrics for an activity.
+func (db *DB) UpdateRunningForm(ctx context.Context, activityID string, dutyFactor, verticalRatio, gctAsymmetry, fatigueDuty, fatigueVR *float64, tier *int) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE activities SET
+			running_form_duty_factor = $2,
+			running_form_vertical_ratio = $3,
+			running_form_gct_asymmetry_pct = $4,
+			running_form_fatigue_duty = $5,
+			running_form_fatigue_vr = $6,
+			running_form_tier = $7
+		WHERE id = $1`,
+		activityID, dutyFactor, verticalRatio, gctAsymmetry, fatigueDuty, fatigueVR, tier)
+	return err
 }
 
 func (db *DB) GetSensors(ctx context.Context, activityID string) ([]model.SensorResponse, error) {

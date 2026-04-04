@@ -284,6 +284,14 @@ type Activity struct {
 
 	// FIT SDK — GPS Metadata / Session GPS quality
 	GpsAccuracyM *int `json:"gps_accuracy_m,omitempty"`
+
+	// Running Form — computed from stream (GCT, VO, stance balance, cadence).
+	RunningFormDutyFactor    *float64 `json:"running_form_duty_factor,omitempty"`
+	RunningFormVerticalRatio *float64 `json:"running_form_vertical_ratio,omitempty"`
+	RunningFormGCTAsymmetry  *float64 `json:"running_form_gct_asymmetry_pct,omitempty"`
+	RunningFormFatigueDuty   *float64 `json:"running_form_fatigue_duty,omitempty"`
+	RunningFormFatigueVR     *float64 `json:"running_form_fatigue_vr,omitempty"`
+	RunningFormTier          *int     `json:"running_form_tier,omitempty"`
 }
 
 // SportConflictMeta holds conflict metadata embedded from import_queue.
