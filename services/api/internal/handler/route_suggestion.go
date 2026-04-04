@@ -77,7 +77,8 @@ type RouteSuggestion struct {
 
 // RouteSuggestionResponse is the JSON response for POST /api/v1/routes/suggest.
 type RouteSuggestionResponse struct {
-	Suggestions []RouteSuggestion `json:"suggestions"`
+	Suggestions       []RouteSuggestion `json:"suggestions"`
+	CoverageAvailable bool              `json:"coverage_available"`
 }
 
 // SuggestRoutes generates up to 3 round-trip route suggestions starting from
@@ -223,8 +224,10 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	coverageAvailable := h.CoverageReader != nil
+
 	if len(reachable) == 0 {
-		httputil.WriteJSON(w, http.StatusOK, RouteSuggestionResponse{Suggestions: []RouteSuggestion{}})
+		httputil.WriteJSON(w, http.StatusOK, RouteSuggestionResponse{Suggestions: []RouteSuggestion{}, CoverageAvailable: coverageAvailable})
 		return
 	}
 
@@ -232,7 +235,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	viaPoints := selectDiverseViaPoints(req, reachable, halfBudgetCost)
 
 	if len(viaPoints) == 0 {
-		httputil.WriteJSON(w, http.StatusOK, RouteSuggestionResponse{Suggestions: []RouteSuggestion{}})
+		httputil.WriteJSON(w, http.StatusOK, RouteSuggestionResponse{Suggestions: []RouteSuggestion{}, CoverageAvailable: coverageAvailable})
 		return
 	}
 
@@ -289,7 +292,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		suggestions = []RouteSuggestion{}
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, RouteSuggestionResponse{Suggestions: suggestions})
+	httputil.WriteJSON(w, http.StatusOK, RouteSuggestionResponse{Suggestions: suggestions, CoverageAvailable: coverageAvailable})
 }
 
 // selectDiverseViaPoints selects up to 3 candidate via-points from the
@@ -313,9 +316,14 @@ func selectDiverseViaPoints(
 	maxCost := halfBudget * 0.65
 
 	type candidate struct {
-		lngLat  [2]float64
-		bearing float64
-		unknown bool
+		lngLat         [2]float64
+		bearing        float64
+		unknown        bool
+		forestPct      float32
+		noiseScore     float32
+		protectedArea  float32
+		riverProximity float32
+		trafficClass   float32
 	}
 
 	buildPool := func(filterBand bool) []candidate {
@@ -339,9 +347,14 @@ func selectDiverseViaPoints(
 			}
 
 			pool = append(pool, candidate{
-				lngLat:  [2]float64{r.Lon, r.Lat},
-				bearing: bearing,
-				unknown: r.Unknown,
+				lngLat:         [2]float64{r.Lon, r.Lat},
+				bearing:        bearing,
+				unknown:        r.Unknown,
+				forestPct:      r.ForestPct,
+				noiseScore:     r.NoiseScore,
+				protectedArea:  r.ProtectedArea,
+				riverProximity: r.RiverProximity,
+				trafficClass:   r.TrafficClass,
 			})
 		}
 		return pool
@@ -356,12 +369,21 @@ func selectDiverseViaPoints(
 		return nil
 	}
 
-	// Terra Incognita score: unknown trails get a bonus for greedy selection.
+	// score combines Terra Incognita bonus with landscape preference scoring.
 	score := func(c candidate) float64 {
+		s := 0.0
 		if c.unknown {
-			return 1.0
+			s += 1.0
 		}
-		return 0.0
+		if req.LandscapePrefs != nil {
+			lp := req.LandscapePrefs
+			s += float64(lp.Forest) / 10.0 * float64(c.forestPct)
+			s += float64(lp.Water) / 10.0 * float64(c.riverProximity)
+			s += float64(lp.Protected) / 10.0 * float64(c.protectedArea)
+			s += float64(lp.LowNoise) / 10.0 * (1.0 - float64(c.noiseScore))
+			s += float64(lp.LowTraffic) / 10.0 * (1.0 - float64(c.trafficClass))
+		}
+		return s
 	}
 
 	// Seed with the highest-scored (or first) candidate.
