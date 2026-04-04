@@ -363,8 +363,14 @@ func buildUrbanizationGrid(ctx context.Context, pool *pgxpool.Pool, tg *TileGrid
 // ---------------------------------------------------------------------------
 
 func buildRiverProximityGrid(ctx context.Context, pool *pgxpool.Pool, g *CoverageGrid, env string) error {
-	q := fmt.Sprintf(`SELECT ST_AsBinary(geom) FROM osm_waterways WHERE geom && %s`, env)
-	return queryLineNoiseSources(ctx, pool, g, q, 165, 50)
+	// Rivers, streams, canals (line features)
+	q1 := fmt.Sprintf(`SELECT ST_AsBinary(geom) FROM osm_waterways WHERE geom && %s`, env)
+	if err := queryLineNoiseSources(ctx, pool, g, q1, 165, 50); err != nil {
+		return err
+	}
+	// Lake/reservoir shorelines (polygon boundaries as lines)
+	q2 := fmt.Sprintf(`SELECT ST_AsBinary(ST_ExteriorRing((ST_Dump(geom)).geom)) FROM osm_waters WHERE geom && %s`, env)
+	return queryLineNoiseSources(ctx, pool, g, q2, 200, 50)
 }
 
 // ---------------------------------------------------------------------------
