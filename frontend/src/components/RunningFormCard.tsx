@@ -1,4 +1,6 @@
+import { useQuery } from '@tanstack/react-query'
 import type { Activity } from '@/api/types'
+import { fetchRunningFormBaseline, type RunningFormBaseline } from '@/api/analytics'
 
 // ── Label constants (i18n-ready) ──────────────────────────────────────────────
 
@@ -10,39 +12,74 @@ const LABELS = {
   fatigueIndex: 'Fatigue Index',
   fatigueVR: 'Fatigue VR',
   tier: (n: number) => `Tier ${n}`,
+  tooltipBetter: (pct: string) => `${pct}% besser als dein 90-Tage-Median`,
+  tooltipWorse: (pct: string) => `${pct}% schlechter als Durchschnitt`,
+  tooltipNeutral: (pct: string) => `${pct}% vom 90-Tage-Median`,
+  tooltipAbsolute: 'Absoluter Wert (noch keine Baseline)',
 }
 
 // ── Color helpers ─────────────────────────────────────────────────────────────
 
-function dutyFactorColor(val: number): string {
-  if (val < 0.30) return 'text-green-600 dark:text-green-400'
-  if (val <= 0.40) return 'text-amber-500 dark:text-amber-400'
-  return 'text-red-500 dark:text-red-400'
+const COLOR_GREEN = 'text-green-600 dark:text-green-400'
+const COLOR_AMBER = 'text-amber-500 dark:text-amber-400'
+const COLOR_RED = 'text-red-500 dark:text-red-400'
+
+// Baseline-relative coloring: lower values are better for DF, VR, asymmetry
+// deviation = (value - baseline) / baseline * 100
+// < -5%  → green (better than baseline)
+// ±5%    → amber (neutral)
+// > +5%  → red (worse than baseline)
+function baselineRelativeColor(value: number, baseline: number): string {
+  const deviation = ((value - baseline) / baseline) * 100
+  if (deviation < -5) return COLOR_GREEN
+  if (deviation <= 5) return COLOR_AMBER
+  return COLOR_RED
 }
 
-function verticalRatioColor(val: number): string {
-  if (val < 0.08) return 'text-green-600 dark:text-green-400'
-  if (val <= 0.10) return 'text-amber-500 dark:text-amber-400'
-  return 'text-red-500 dark:text-red-400'
+function baselineTooltip(value: number, baseline: number): string {
+  const deviation = ((value - baseline) / baseline) * 100
+  const absPct = Math.abs(deviation).toFixed(1)
+  if (deviation < -5) return LABELS.tooltipBetter(absPct)
+  if (deviation > 5) return LABELS.tooltipWorse(absPct)
+  return LABELS.tooltipNeutral(Math.abs(deviation).toFixed(1))
 }
 
-function gctAsymmetryColor(val: number): string {
-  if (val < 3) return 'text-green-600 dark:text-green-400'
-  if (val <= 6) return 'text-amber-500 dark:text-amber-400'
-  return 'text-red-500 dark:text-red-400'
+// Static fallback colors (used when no baseline available)
+function dutyFactorColorStatic(val: number): string {
+  if (val < 0.30) return COLOR_GREEN
+  if (val <= 0.40) return COLOR_AMBER
+  return COLOR_RED
+}
+
+function verticalRatioColorStatic(val: number): string {
+  if (val < 0.08) return COLOR_GREEN
+  if (val <= 0.10) return COLOR_AMBER
+  return COLOR_RED
+}
+
+function gctAsymmetryColorStatic(val: number): string {
+  if (val < 3) return COLOR_GREEN
+  if (val <= 6) return COLOR_AMBER
+  return COLOR_RED
 }
 
 function fatigueColor(val: number): string {
   const abs = Math.abs(val)
-  if (abs < 5) return 'text-green-600 dark:text-green-400'
-  if (abs <= 15) return 'text-amber-500 dark:text-amber-400'
-  return 'text-red-500 dark:text-red-400'
+  if (abs < 5) return COLOR_GREEN
+  if (abs <= 15) return COLOR_AMBER
+  return COLOR_RED
 }
 
 function fatigueForcedRed(val: number): string {
   // Positive fatigue = deterioration → always red regardless of magnitude
-  if (val > 0) return 'text-red-500 dark:text-red-400'
+  if (val > 0) return COLOR_RED
   return fatigueColor(val)
+}
+
+// Determine if baseline is usable (≥3 activities with all fields present)
+function isBaselineUsable(baseline: RunningFormBaseline | undefined): boolean {
+  if (!baseline) return false
+  return baseline.activity_count >= 3
 }
 
 // ── Tier badge ────────────────────────────────────────────────────────────────
@@ -66,11 +103,15 @@ interface MetricTileProps {
   label: string
   value: string
   colorClass: string
+  tooltip?: string
 }
 
-function MetricTile({ label, value, colorClass }: MetricTileProps) {
+function MetricTile({ label, value, colorClass, tooltip }: MetricTileProps) {
   return (
-    <div className="flex flex-col gap-0.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 min-w-[100px]">
+    <div
+      className="flex flex-col gap-0.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 min-w-[100px]"
+      title={tooltip}
+    >
       <span className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide whitespace-nowrap">
         {label}
       </span>
@@ -91,11 +132,63 @@ export function RunningFormCard({ activity }: RunningFormCardProps) {
   const tier = activity.running_form_tier
   if (!tier || tier < 1) return null
 
+  const { data: baseline } = useQuery({
+    queryKey: ['running-form-baseline'],
+    queryFn: fetchRunningFormBaseline,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    enabled: tier >= 1,
+  })
+
+  const usable = isBaselineUsable(baseline)
+
   const dutyFactor = activity.running_form_duty_factor
   const verticalRatio = activity.running_form_vertical_ratio
   const gctAsymmetry = activity.running_form_gct_asymmetry_pct
   const fatigueDuty = activity.running_form_fatigue_duty
   const fatigueVR = activity.running_form_fatigue_vr
+
+  // Compute colors and tooltips for each metric
+  function dutyFactorColor(val: number): string {
+    if (usable && baseline?.duty_factor_median != null) {
+      return baselineRelativeColor(val, baseline.duty_factor_median)
+    }
+    return dutyFactorColorStatic(val)
+  }
+
+  function dutyFactorTooltip(val: number): string {
+    if (usable && baseline?.duty_factor_median != null) {
+      return baselineTooltip(val, baseline.duty_factor_median)
+    }
+    return LABELS.tooltipAbsolute
+  }
+
+  function verticalRatioColor(val: number): string {
+    if (usable && baseline?.vertical_ratio_median != null) {
+      return baselineRelativeColor(val, baseline.vertical_ratio_median)
+    }
+    return verticalRatioColorStatic(val)
+  }
+
+  function verticalRatioTooltip(val: number): string {
+    if (usable && baseline?.vertical_ratio_median != null) {
+      return baselineTooltip(val, baseline.vertical_ratio_median)
+    }
+    return LABELS.tooltipAbsolute
+  }
+
+  function gctAsymmetryColor(val: number): string {
+    if (usable && baseline?.gct_asymmetry_median != null) {
+      return baselineRelativeColor(val, baseline.gct_asymmetry_median)
+    }
+    return gctAsymmetryColorStatic(val)
+  }
+
+  function gctAsymmetryTooltip(val: number): string {
+    if (usable && baseline?.gct_asymmetry_median != null) {
+      return baselineTooltip(val, baseline.gct_asymmetry_median)
+    }
+    return LABELS.tooltipAbsolute
+  }
 
   return (
     <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3 space-y-2">
@@ -115,6 +208,7 @@ export function RunningFormCard({ activity }: RunningFormCardProps) {
             label={LABELS.dutyFactor}
             value={dutyFactor.toFixed(2)}
             colorClass={dutyFactorColor(dutyFactor)}
+            tooltip={dutyFactorTooltip(dutyFactor)}
           />
         )}
 
@@ -124,6 +218,7 @@ export function RunningFormCard({ activity }: RunningFormCardProps) {
             label={LABELS.verticalRatio}
             value={verticalRatio.toFixed(3)}
             colorClass={verticalRatioColor(verticalRatio)}
+            tooltip={verticalRatioTooltip(verticalRatio)}
           />
         )}
 
@@ -133,6 +228,7 @@ export function RunningFormCard({ activity }: RunningFormCardProps) {
             label={LABELS.gctAsymmetry}
             value={`${gctAsymmetry.toFixed(1)}%`}
             colorClass={gctAsymmetryColor(gctAsymmetry)}
+            tooltip={gctAsymmetryTooltip(gctAsymmetry)}
           />
         )}
 
