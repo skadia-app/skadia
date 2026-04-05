@@ -40,7 +40,7 @@ export function PRCell({ record, sportGroup, showGroupBadge, colorHint, onClick 
       to={`/activities/${record.activity_id}`}
       onClick={onClick}
       className={cn(
-        'bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/70 dark:border-neutral-700/50 rounded-lg p-2 transition-all',
+        'relative bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/70 dark:border-neutral-700/50 rounded-lg p-2 transition-all',
         'hover:border-orange-400 dark:hover:border-orange-500/40 hover:-translate-y-px cursor-pointer',
       )}
     >
@@ -53,6 +53,14 @@ export function PRCell({ record, sportGroup, showGroupBadge, colorHint, onClick 
         <div className="text-[9px] text-neutral-500">{display.secondary}</div>
       )}
       <div className="text-[9px] text-neutral-500 dark:text-neutral-500">{fmtDateMedium(record.achieved_at)}</div>
+      {record.suspicious && (
+        <div
+          className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center"
+          title="Möglicherweise fehlerhafter Sensor-Wert (Stuck Value)"
+        >
+          <span className="text-[8px] text-amber-600 dark:text-amber-400 font-bold">!</span>
+        </div>
+      )}
     </Link>
   )
 }

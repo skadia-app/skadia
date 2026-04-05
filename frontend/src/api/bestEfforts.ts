@@ -15,6 +15,7 @@ export interface BestEffortRanked {
   stream_start_idx?: number | null
   stream_end_idx?: number | null
   rank: number
+  suspicious?: boolean
 }
 
 export interface NearMiss {
