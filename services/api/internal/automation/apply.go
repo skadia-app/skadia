@@ -111,14 +111,9 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 
 		// === Branches-rules: evaluate each branch independently ===
 		if rule.HasBranches() {
-			type branch struct {
-				Type            string                 `json:"type"` // "if", "else_if", "else"
-				ConditionGroups []rules.ConditionGroup `json:"condition_groups"`
-				Actions         json.RawMessage        `json:"actions"`
-			}
-			var branches []branch
-			if err := json.Unmarshal(rule.Branches, &branches); err != nil {
-				slog.Warn("malformed branches JSON", "rule_id", rule.ID, "error", err)
+			branches := rules.ParseBranches(rule.Branches)
+			if branches == nil {
+				slog.Warn("malformed branches JSON", "rule_id", rule.ID)
 			} else if len(branches) > 0 {
 				anyBranchMatched := false
 				for i, br := range branches {
@@ -223,12 +218,8 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 func EvaluateRule(rule model.AutomationRule, actMap map[string]any) bool {
 	// Branches-rules: check if any branch matches
 	if rule.HasBranches() {
-		type branch struct {
-			Type            string                 `json:"type"`
-			ConditionGroups []rules.ConditionGroup `json:"condition_groups"`
-		}
-		var branches []branch
-		if err := json.Unmarshal(rule.Branches, &branches); err == nil && len(branches) > 0 {
+		branches := rules.ParseBranches(rule.Branches)
+		if len(branches) > 0 {
 			for i, br := range branches {
 				if br.Type == "else" {
 					if i > 0 { // ELSE only valid after at least one IF/ELSE_IF
