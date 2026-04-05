@@ -140,7 +140,7 @@ func evalGroup(g ConditionGroup, activity map[string]any) bool {
 }
 
 func evalCondition(c Condition, activity map[string]any) bool {
-	if c.Field == "geofence" || c.Field == "geofence_zone" || c.Field == "geofence_proximity" {
+	if c.Field == "geofence" {
 		return evalGeofence(c, activity)
 	}
 	if c.Field == "avg_pace_min_km" || c.Field == "min_pace_min_km" || c.Field == "max_pace_min_km" {
