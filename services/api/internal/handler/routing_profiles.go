@@ -645,7 +645,7 @@ func ScanFilesystemProfiles(ctx context.Context, dir string, db *database.DB) (i
 			continue
 		}
 
-		if _, err := db.UpsertFilesystemProfile(ctx, name, baseProfile, sportTypes, configBytes); err != nil {
+		if _, err := db.UpsertGlobalProfile(ctx, name, baseProfile, sportTypes, configBytes, "filesystem"); err != nil {
 			slog.Warn("ScanFilesystemProfiles: upsert failed", "file", path, "error", err)
 			continue
 		}
