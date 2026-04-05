@@ -1311,6 +1311,34 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	data.TrackPoints = ExtractTrackPoints(records)
 	data.Sensors = ExtractSensors(deviceInfos)
 
+	// Extract Suunto session-level developer fields from last stream point.
+	if len(data.Streams) > 0 {
+		for i := len(data.Streams) - 1; i >= 0; i-- {
+			df := data.Streams[i].DeveloperFields
+			if df == nil {
+				continue
+			}
+			if v, ok := df["estimated_vo2_max"]; ok && data.SuuntoVO2max == nil {
+				if f, ok := v.(float64); ok {
+					data.SuuntoVO2max = &f
+				}
+			}
+			if v, ok := df["peak_epoc"]; ok && data.SuuntoPeakEPOC == nil {
+				if f, ok := v.(float64); ok {
+					data.SuuntoPeakEPOC = &f
+				}
+			}
+			if v, ok := df["recovery_time"]; ok && data.SuuntoRecoveryTimeH == nil {
+				if f, ok := v.(float64); ok {
+					data.SuuntoRecoveryTimeH = &f
+				}
+			}
+			if data.SuuntoVO2max != nil || data.SuuntoPeakEPOC != nil || data.SuuntoRecoveryTimeH != nil {
+				break
+			}
+		}
+	}
+
 	// Extract laps, splits, lengths, climb pro events
 	data.Laps = ExtractLaps(laps)
 	data.Splits = ExtractSplits(splits)
