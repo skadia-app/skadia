@@ -1,3 +1,8 @@
+-- NOTE: DROP COLUMN on compressed TimescaleDB hypertable chunks may require
+-- decompression first. If this fails, run:
+--   SELECT decompress_chunk(c, if_compressed => true)
+--   FROM show_chunks('activity_streams') c;
+-- Then re-run this migration, then re-compress.
 ALTER TABLE activities DROP COLUMN IF EXISTS suunto_vo2max;
 ALTER TABLE activities DROP COLUMN IF EXISTS suunto_peak_epoc;
 ALTER TABLE activities DROP COLUMN IF EXISTS suunto_recovery_time_h;
