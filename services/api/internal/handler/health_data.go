@@ -122,6 +122,36 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+	case "blood_pressure":
+		// Parse blood pressure fields matching model.HealthBloodPressure.
+		var d struct {
+			Systolic  int  `json:"systolic"`
+			Diastolic int  `json:"diastolic"`
+			Pulse     *int `json:"pulse"`
+		}
+		if err := json.Unmarshal(req.Data, &d); err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid blood_pressure data", r.URL.Path)
+			return
+		}
+		ts, err := time.Parse("2006-01-02", req.Date)
+		if err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid date format, use YYYY-MM-DD", r.URL.Path)
+			return
+		}
+		bp := &model.HealthBloodPressure{
+			UserID:        userID,
+			MeasuredAtUTC: ts,
+			Systolic:      &d.Systolic,
+			Diastolic:     &d.Diastolic,
+			Pulse:         d.Pulse,
+			SourceType:    "mobile",
+		}
+		if err := h.DB.UpsertHealthBloodPressure(r.Context(), bp); err != nil {
+			slog.Error("ingest blood_pressure failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save blood pressure data", r.URL.Path)
+			return
+		}
+
 	case "weight":
 		// Parse weight fields matching model.HealthWeightEntry
 		var d struct {
@@ -308,6 +338,61 @@ func (h *Handler) CreateHealthWeightEntry(w http.ResponseWriter, r *http.Request
 	if err := h.DB.UpsertHealthWeightEntry(r.Context(), entry); err != nil {
 		slog.Error("create health weight entry failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save weight entry", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, entry)
+}
+
+// bloodPressureCreate is the request body for POST /health/blood-pressure.
+type bloodPressureCreate struct {
+	MeasuredAt string `json:"measured_at"` // RFC3339
+	Systolic   int    `json:"systolic"`
+	Diastolic  int    `json:"diastolic"`
+	Pulse      *int   `json:"pulse"`
+}
+
+// POST /health/blood-pressure — manual blood pressure entry creation
+func (h *Handler) CreateHealthBloodPressure(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	req, ok := httputil.DecodeJSON[bloodPressureCreate](w, r)
+	if !ok {
+		return
+	}
+
+	if req.Systolic < 60 || req.Systolic > 300 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "systolic must be 60-300", r.URL.Path)
+		return
+	}
+	if req.Diastolic < 30 || req.Diastolic > 200 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "diastolic must be 30-200", r.URL.Path)
+		return
+	}
+	if req.Pulse != nil && (*req.Pulse < 30 || *req.Pulse > 250) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "pulse must be 30-250", r.URL.Path)
+		return
+	}
+
+	measuredAt, err := time.Parse(time.RFC3339, req.MeasuredAt)
+	if err != nil {
+		measuredAt = time.Now().UTC()
+	}
+
+	entry := &model.HealthBloodPressure{
+		UserID:        userID,
+		MeasuredAtUTC: measuredAt,
+		Systolic:      &req.Systolic,
+		Diastolic:     &req.Diastolic,
+		Pulse:         req.Pulse,
+		SourceType:    "manual",
+	}
+
+	if err := h.DB.UpsertHealthBloodPressure(r.Context(), entry); err != nil {
+		slog.Error("create blood pressure entry failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save blood pressure entry", r.URL.Path)
 		return
 	}
 	httputil.WriteJSON(w, http.StatusCreated, entry)
