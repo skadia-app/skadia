@@ -6,6 +6,7 @@ CREATE OR REPLACE FUNCTION source_type_priority(src TEXT) RETURNS INT IMMUTABLE 
         WHEN 'strava'     THEN 30
         WHEN 'komoot'     THEN 20
         WHEN 'manual'     THEN 10
+        WHEN 'mobile'     THEN 5
         ELSE 0
     END;
 $$;
