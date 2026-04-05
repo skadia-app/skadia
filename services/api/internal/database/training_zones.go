@@ -83,3 +83,62 @@ func (db *DB) GetTrainingZones(ctx context.Context, userID string, sport, subSpo
 	}
 	return zones, rows.Err()
 }
+
+// GetAllTrainingZoneSports returns the union of:
+//   - sports that already have stored zone rows for the user
+//   - distinct fit_sport_id values present in the user's activities
+//
+// This gives the complete list of sports for which the zone editor should
+// offer configuration UI, even when no zones have been saved yet.
+func (db *DB) GetAllTrainingZoneSports(ctx context.Context, userID string) ([]int16, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT DISTINCT sport FROM training_zones WHERE user_id = $1
+		UNION
+		SELECT DISTINCT fit_sport_id FROM activities WHERE user_id = $1 AND fit_sport_id IS NOT NULL
+		ORDER BY sport
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("query training zone sports: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []int16
+	for rows.Next() {
+		var id int16
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan training zone sport: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// UpsertTrainingZonesManual upserts a training zone with source_type = 'manual_override'.
+// Unlike UpsertTrainingZones, this bypasses source_type_priority() so that a manual
+// user edit always wins over any auto-detected value (priority 60, the highest).
+func (db *DB) UpsertTrainingZonesManual(ctx context.Context, zone *model.TrainingZone) error {
+	zone.SourceType = "manual_override"
+	_, err := db.Pool.Exec(ctx, `
+		INSERT INTO training_zones (
+			user_id, sport, sub_sport, zone_type,
+			max_heart_rate, threshold_heart_rate, functional_threshold_power,
+			hr_calc_type, pwr_calc_type,
+			zone_names, zone_highs, source_type, threshold_speed_mps
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		ON CONFLICT (user_id, sport, sub_sport, zone_type) DO UPDATE SET
+			max_heart_rate             = EXCLUDED.max_heart_rate,
+			threshold_heart_rate       = EXCLUDED.threshold_heart_rate,
+			functional_threshold_power = EXCLUDED.functional_threshold_power,
+			hr_calc_type               = EXCLUDED.hr_calc_type,
+			pwr_calc_type              = EXCLUDED.pwr_calc_type,
+			zone_names                 = EXCLUDED.zone_names,
+			zone_highs                 = EXCLUDED.zone_highs,
+			threshold_speed_mps        = EXCLUDED.threshold_speed_mps,
+			source_type                = 'manual_override',
+			updated_at                 = NOW()
+	`, zone.UserID, zone.Sport, zone.SubSport, zone.ZoneType,
+		zone.MaxHeartRate, zone.ThresholdHeartRate, zone.FunctionalThresholdPower,
+		zone.HrCalcType, zone.PwrCalcType,
+		zone.ZoneNames, zone.ZoneHighs, zone.SourceType, zone.ThresholdSpeedMps)
+	return err
+}
