@@ -28,6 +28,7 @@ export default function TagsBadges({ tags, activityId, isVirtual, commuteContext
   const [addOpen, setAddOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [showCommuteModal, setShowCommuteModal] = useState(false)
+  const [commuteRoundTrip, setCommuteRoundTrip] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -87,13 +88,17 @@ export default function TagsBadges({ tags, activityId, isVirtual, commuteContext
 
       // Show commute modal when Pendeln tag is added to GPS activity with sufficient distance
       if (tagName.toLowerCase() === 'pendeln' && commuteContext && commuteContext.distanceM >= 400) {
-        // Round-trip guard: don't offer commute rule when start ≈ end
         const startEndDist = haversineM(
           commuteContext.startLat, commuteContext.startLon,
           commuteContext.endLat, commuteContext.endLon
         )
         if (startEndDist > 200) {
           setShowCommuteModal(true)
+          setCommuteRoundTrip(false)
+        } else {
+          // Round-trip: offer dwell-based rule with destination zone picker
+          setShowCommuteModal(true)
+          setCommuteRoundTrip(true)
         }
       }
     },
@@ -206,6 +211,7 @@ export default function TagsBadges({ tags, activityId, isVirtual, commuteContext
       {showCommuteModal && (
         <CommuteModal
           activityId={activityId}
+          isRoundTrip={commuteRoundTrip}
           onClose={() => setShowCommuteModal(false)}
         />
       )}

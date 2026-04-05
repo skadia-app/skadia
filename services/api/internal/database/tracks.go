@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"math"
 )
 
 // RebuildActivityTrack rebuilds track_full, track_simplified, and bbox
@@ -185,6 +186,44 @@ func (db *DB) BatchTrackIntersectsCircle(ctx context.Context, activityIDs []stri
 			return nil, err
 		}
 		result[id] = intersects
+	}
+	return result, rows.Err()
+}
+
+// BatchDwellInCircle checks which activities have GPS points dwelling within a circle
+// for at least minDwellSeconds. Dwell is determined by: time span of low-speed
+// (< 3 m/s ≈ 10 km/h) GPS points within the geofence exceeds the threshold.
+func (db *DB) BatchDwellInCircle(ctx context.Context, activityIDs []string, lat, lon, radiusM float64, minDwellSeconds int) (map[string]bool, error) {
+	if len(activityIDs) == 0 {
+		return nil, nil
+	}
+	// Bounding box pre-filter: ~0.002° lat ≈ 220m, adjust by radius
+	degLat := radiusM / 111000.0
+	degLon := radiusM / (111000.0 * math.Cos(lat*math.Pi/180))
+
+	rows, err := db.Pool.Query(ctx, `
+		SELECT activity_id,
+			MAX(time) - MIN(time) >= make_interval(secs => $5::float)
+		FROM activity_streams
+		WHERE activity_id = ANY($6)
+		AND lat IS NOT NULL AND lng IS NOT NULL
+		AND lat BETWEEN ($1 - $3) AND ($1 + $3)
+		AND lng BETWEEN ($2 - $4) AND ($2 + $4)
+		AND (speed_ms IS NULL OR speed_ms < 3.0)
+		GROUP BY activity_id`,
+		lat, lon, degLat, degLon, float64(minDwellSeconds), activityIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]bool, len(activityIDs))
+	for rows.Next() {
+		var id string
+		var dwells bool
+		if err := rows.Scan(&id, &dwells); err != nil {
+			return nil, err
+		}
+		result[id] = dwells
 	}
 	return result, rows.Err()
 }

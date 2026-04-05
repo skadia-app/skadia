@@ -258,6 +258,18 @@ func evalGeofence(c Condition, activity map[string]any) bool {
 			return !inside
 		}
 		return inside
+	case "dwell":
+		// Read precomputed dwell result from activity map
+		key := geofenceDwellKey(params)
+		val, exists := activity[key]
+		if !exists {
+			return false
+		}
+		inside, _ := val.(bool)
+		if mode == "outside" {
+			return !inside
+		}
+		return inside
 	default: // "start"
 		startLat, latOK := activity["start_lat"]
 		startLon, lonOK := activity["start_lon"]
@@ -309,6 +321,19 @@ func geofenceTrackKey(params map[string]any) string {
 	lon := toFloat(params["lon"])
 	radiusM := toFloat(params["radius_m"])
 	return fmt.Sprintf("_geofence_track_circle_%.6f_%.6f_%d", lat, lon, int(radiusM))
+}
+
+func geofenceDwellKey(params map[string]any) string {
+	lat := toFloat(params["lat"])
+	lon := toFloat(params["lon"])
+	radiusM := toFloat(params["radius_m"])
+	minDwell := int(toFloat(params["min_dwell_s"]))
+	return fmt.Sprintf("_geofence_dwell_%.6f_%.6f_%d_%d", lat, lon, int(radiusM), minDwell)
+}
+
+// GeofenceDwellKey returns the activity-map key for a precomputed dwell result.
+func GeofenceDwellKey(params map[string]any) string {
+	return geofenceDwellKey(params)
 }
 
 // pointInGeoJSONPolygon checks whether (lat, lon) lies inside a GeoJSON

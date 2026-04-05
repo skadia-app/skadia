@@ -74,10 +74,20 @@ export interface CommuteRuleResult {
   message: string
 }
 
-export async function createCommuteRule(activityId: string): Promise<CommuteRuleResult> {
+export async function createCommuteRule(
+  activityId: string,
+  dest?: { lat: number; lon: number } | { zoneId: string },
+): Promise<CommuteRuleResult> {
+  const body: Record<string, unknown> = { activity_id: activityId }
+  if (dest && 'zoneId' in dest) {
+    body.dest_zone_id = dest.zoneId
+  } else if (dest && 'lat' in dest) {
+    body.dest_lat = dest.lat
+    body.dest_lon = dest.lon
+  }
   return apiClient<CommuteRuleResult>('/automation-rules/commute', {
     method: 'POST',
-    body: { activity_id: activityId },
+    body,
   })
 }
 

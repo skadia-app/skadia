@@ -288,3 +288,31 @@ func TestEvalCondition_HasTag_Neq(t *testing.T) {
 		t.Fatal("expected neq to return true when activity has no tags")
 	}
 }
+
+func TestEvaluateGroups_Geofence_DwellPrecomputed(t *testing.T) {
+	groups := []rules.ConditionGroup{
+		{Logic: "and", Conditions: []rules.Condition{
+			{Field: "geofence", Op: "eq", Value: map[string]any{
+				"check": "dwell", "mode": "inside", "shape": "circle",
+				"lat": 48.137, "lon": 11.576, "radius_m": 200.0,
+				"min_dwell_s": 1800.0,
+			}},
+		}},
+	}
+	key := rules.GeofenceDwellKey(map[string]any{
+		"lat": 48.137, "lon": 11.576, "radius_m": 200.0, "min_dwell_s": 1800.0,
+	})
+	act := map[string]any{key: true}
+	if !rules.EvaluateGroups(groups, act) {
+		t.Error("expected dwell result true")
+	}
+	actFalse := map[string]any{key: false}
+	if rules.EvaluateGroups(groups, actFalse) {
+		t.Error("expected dwell result false")
+	}
+	// Missing key: should return false
+	actMissing := map[string]any{}
+	if rules.EvaluateGroups(groups, actMissing) {
+		t.Error("expected false when dwell key not precomputed")
+	}
+}
