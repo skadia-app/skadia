@@ -91,3 +91,27 @@ export async function recalcBestEfforts(): Promise<{ status: string; job_id?: st
     method: 'POST',
   })
 }
+
+// ── PR History ──────────────────────────────────────────────────────────────
+
+/** A single data point in the PR progression history for a category. */
+export interface PRHistoryEntry {
+  activity_id: string
+  achieved_at: string
+  elapsed_time_s?: number | null
+  value_numeric?: number | null
+  rank: number
+  activity_name?: string | null
+}
+
+/**
+ * Fetch PR progression history for a specific category and sport group.
+ * Backend: GET /api/v1/personal-records/history?category={cat}&sport_group={group}
+ */
+export async function fetchPRHistory(
+  category: string,
+  sportGroup: string,
+): Promise<PRHistoryEntry[]> {
+  const qs = new URLSearchParams({ category, sport_group: sportGroup })
+  return apiClient<PRHistoryEntry[]>(`/personal-records/history?${qs}`)
+}
