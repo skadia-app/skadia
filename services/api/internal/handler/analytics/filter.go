@@ -178,16 +178,16 @@ func (f *AnalyticsFilter) BuildWhereClause(startIdx int) (string, []any) {
 	}
 	if f.IsCommute != nil {
 		if *f.IsCommute {
-			conditions = append(conditions, "a.id IN (SELECT at_c.activity_id FROM activity_tags at_c JOIN tags t_c ON at_c.tag_id = t_c.id WHERE t_c.name = 'Pendeln' AND t_c.user_id = a.user_id AND t_c.is_auto = true)")
+			conditions = append(conditions, "a.id IN (SELECT at_c.activity_id FROM activity_tags at_c JOIN tags t_c ON at_c.tag_id = t_c.id WHERE t_c.name = 'Pendeln' AND t_c.user_id = a.user_id AND t_c.is_system = true)")
 		} else {
-			conditions = append(conditions, "a.id NOT IN (SELECT at_c.activity_id FROM activity_tags at_c JOIN tags t_c ON at_c.tag_id = t_c.id WHERE t_c.name = 'Pendeln' AND t_c.user_id = a.user_id AND t_c.is_auto = true)")
+			conditions = append(conditions, "a.id NOT IN (SELECT at_c.activity_id FROM activity_tags at_c JOIN tags t_c ON at_c.tag_id = t_c.id WHERE t_c.name = 'Pendeln' AND t_c.user_id = a.user_id AND t_c.is_system = true)")
 		}
 	}
 	if f.IsRace != nil {
 		if *f.IsRace {
-			conditions = append(conditions, "a.id IN (SELECT at_r.activity_id FROM activity_tags at_r JOIN tags t_r ON at_r.tag_id = t_r.id WHERE t_r.name = 'Wettkampf' AND t_r.user_id = a.user_id AND t_r.is_auto = true)")
+			conditions = append(conditions, "a.id IN (SELECT at_r.activity_id FROM activity_tags at_r JOIN tags t_r ON at_r.tag_id = t_r.id WHERE t_r.name = 'Wettkampf' AND t_r.user_id = a.user_id AND t_r.is_system = true)")
 		} else {
-			conditions = append(conditions, "a.id NOT IN (SELECT at_r.activity_id FROM activity_tags at_r JOIN tags t_r ON at_r.tag_id = t_r.id WHERE t_r.name = 'Wettkampf' AND t_r.user_id = a.user_id AND t_r.is_auto = true)")
+			conditions = append(conditions, "a.id NOT IN (SELECT at_r.activity_id FROM activity_tags at_r JOIN tags t_r ON at_r.tag_id = t_r.id WHERE t_r.name = 'Wettkampf' AND t_r.user_id = a.user_id AND t_r.is_system = true)")
 		}
 	}
 	if f.PaceMinSecKm != nil {
