@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -105,8 +106,12 @@ func (h *Handler) CreateOrExtendCommuteRule(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		if err := extendCommuteRule(ctx, h.DB, existingRule, startLat, startLon, endLat, endLon, commuteRadiusM, pendelTagID); err != nil {
-			slog.Error("commute rule: extendCommuteRule failed", "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to extend rule", r.URL.Path)
+			if err.Error() == "max 20 commute routes reached" {
+				httputil.WriteError(w, http.StatusUnprocessableEntity, "Limit Reached", "max 20 commute routes — delete old routes in /workshop/rules", r.URL.Path)
+			} else {
+				slog.Error("commute rule: extendCommuteRule failed", "error", err)
+				httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to extend rule", r.URL.Path)
+			}
 			return
 		}
 		httputil.WriteJSON(w, http.StatusOK, commuteRuleResponse{
@@ -250,6 +255,9 @@ func extendCommuteRule(ctx context.Context, db *database.DB, rule *model.Automat
 	var existing []json.RawMessage
 	if err := json.Unmarshal(rule.Branches, &existing); err != nil {
 		return err
+	}
+	if len(existing) >= 40 { // 20 routes × 2 branches
+		return fmt.Errorf("max 20 commute routes reached")
 	}
 	newBranches := makeCommuteBranches("else_if", startLat, startLon, endLat, endLon, radiusM, tagID)
 	var newParsed []json.RawMessage
