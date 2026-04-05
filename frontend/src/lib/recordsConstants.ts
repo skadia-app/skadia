@@ -80,3 +80,21 @@ export const CATEGORY_PREFIXES = {
 /** Sport-group badge suffix for mixed swimming views */
 export const POOL_BADGE = 'B'
 export const OW_BADGE = 'FW'
+
+/**
+ * Mapping from sport_group values (used in BestEffortRanked.sport_group) to
+ * sport_type values (used in SegmentEffort.sport_type / sportTaxonomy.ts).
+ * Used to filter SegmentSection correctly.
+ */
+export const SPORT_GROUP_TO_SPORT_TYPES: Record<string, string[]> = {
+  running:          ['running'],
+  running_trail:    ['trail_running'],
+  running_indoor:   ['treadmill_running'],
+  running_virtual:  ['running'],  // virtual running has no distinct sport_type in taxonomy
+  cycling:          ['cycling', 'mountain_biking', 'gravel_cycling'],
+  cycling_electric: ['cycling'],  // e-bike has no distinct sport_type in taxonomy
+  cycling_virtual:  ['indoor_cycling'],
+  hiking:           ['hiking', 'mountaineering', 'snowshoeing'],
+  swim_pool:        ['lap_swimming'],
+  swim_ow:          ['open_water_swimming', 'swimming'],
+}
