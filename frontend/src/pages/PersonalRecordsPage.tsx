@@ -377,6 +377,14 @@ export default function PersonalRecordsPage() {
         <div className="space-y-6">
           <HighlightBanner records={allRecords} />
 
+          <PowerDurationChart
+            records={allRecords}
+            series={[
+              { name: 'Laufen', color: '#3B82F6', sportGroups: POWER_CURVE_GROUPS.laufen! },
+              { name: 'Radfahren', color: '#F97316', sportGroups: POWER_CURVE_GROUPS.radfahren! },
+            ]}
+          />
+
           {ALL_MAIN_CATEGORIES
             .filter(cat => allRecords.some(r => MAIN_CATEGORIES[cat].includes(r.sport_group)))
             .map(cat => {
@@ -392,14 +400,6 @@ export default function PersonalRecordsPage() {
               )
             })
           }
-
-          <PowerDurationChart
-            records={allRecords}
-            series={[
-              { name: 'Laufen', color: '#3B82F6', sportGroups: POWER_CURVE_GROUPS.laufen! },
-              { name: 'Radfahren', color: '#F97316', sportGroups: POWER_CURVE_GROUPS.radfahren! },
-            ]}
-          />
 
           <SegmentSection
             personalPRs={segmentPRs}
