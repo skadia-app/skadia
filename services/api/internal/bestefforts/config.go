@@ -158,7 +158,14 @@ var sportGroupCategories = map[string][]Category{
 	),
 	"running_virtual": concat(
 		distancesRunning,
-		superlativesBasic, // simulated elevation is not comparable
+		powerCategories,    // NEU: Stryd/Garmin Power doesn't need GPS
+		superlativesBasic,  // simulated elevation is not comparable
+	),
+	"running_trail": concat(
+		distancesRunning,
+		elevationCategories,
+		powerCategories,
+		superlativesWithElevation,
 	),
 	"cycling": concat(
 		distancesCycling,

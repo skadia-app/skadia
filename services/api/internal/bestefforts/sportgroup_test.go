@@ -85,9 +85,13 @@ func TestCategoriesFor(t *testing.T) {
 			sportGroup: "running_indoor", wantMinLen: 15 + 9 + 2,
 			wantDistKey: "dist_400m", wantHasPower: true, wantHasElev: false, wantHasSuperlat: true,
 		},
-		{   // 15 dist + 2 superlatives (basic)
-			sportGroup: "running_virtual", wantMinLen: 15 + 2,
-			wantDistKey: "dist_400m", wantHasPower: false, wantHasElev: false, wantHasSuperlat: true,
+		{   // 15 dist + 9 power + 2 superlatives (basic, no elevation for virtual)
+			sportGroup: "running_virtual", wantMinLen: 15 + 9 + 2,
+			wantDistKey: "dist_400m", wantHasPower: true, wantHasElev: false, wantHasSuperlat: true,
+		},
+		{   // 15 dist + 4 elev + 9 power + 4 superlatives (with elevation)
+			sportGroup: "running_trail", wantMinLen: 15 + 4 + 9 + 4,
+			wantDistKey: "dist_400m", wantHasPower: true, wantHasElev: true, wantHasSuperlat: true,
 		},
 		{   // 11 dist + 4 elev + 9 power + 4 superlatives (with elevation)
 			sportGroup: "cycling", wantMinLen: 11 + 4 + 9 + 4,
