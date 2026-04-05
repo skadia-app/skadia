@@ -466,7 +466,6 @@ export interface EnrichmentSettings {
   // Detection modules
   enable_summit_detection: boolean
   enable_stop_detection: boolean
-  enable_commute_detection: boolean
   enable_ascent_detection: boolean
   enable_lap_detection: boolean
   enable_forest_detection: boolean

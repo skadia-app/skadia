@@ -52,7 +52,7 @@ const FIELD_LABELS: Record<string, string> = {
   climb_count: 'Anstiege', climb_category_max: 'Härteste Kategorie',
   has_summit: 'Gipfel', summit_count: 'Anz. Gipfel',
   has_pass: 'Pass', border_crossing_count: 'Grenzquerungen',
-  has_gastronomy_stop: 'Einkehr', commute_detected: 'Pendeln',
+  has_gastronomy_stop: 'Einkehr',
   has_structured_intervals: 'Intervalle', has_hc_climb: 'HC-Anstieg',
   surface_paved_pct: 'Asphalt %', surface_gravel_pct: 'Gravel %',
   surface_trail_pct: 'Trail %',
@@ -223,7 +223,7 @@ export default function AutomationRulesPage() {
     },
   })
 
-  const syncSystemTypes = ['electric_sync', 'virtual_sync', 'indoor_sync', 'commute_sync']
+  const syncSystemTypes = ['electric_sync', 'virtual_sync', 'indoor_sync']
 
   const visibleRules = (rules ?? []).filter(r => {
     if (!showSystemRules && r.is_system && r.system_type && syncSystemTypes.includes(r.system_type)) {
@@ -564,13 +564,12 @@ function RuleCard({
     }
   }
 
-  const isReadonlySystem = rule.system_type === 'electric_sync' || rule.system_type === 'virtual_sync' || rule.system_type === 'indoor_sync' || rule.system_type === 'commute_sync'
+  const isReadonlySystem = rule.system_type === 'electric_sync' || rule.system_type === 'virtual_sync' || rule.system_type === 'indoor_sync'
 
   const readonlyDescriptions: Record<string, string> = {
     electric_sync: 'Wird automatisch aus Gerätedaten erkannt. Diese Regel kann nicht bearbeitet werden.',
     virtual_sync: 'Wird automatisch über die Datenbankspalte is_virtual synchronisiert. Diese Regel kann nicht bearbeitet werden.',
     indoor_sync: 'Wird automatisch aus der Sport-Taxonomy erkannt. Diese Regel kann nicht bearbeitet werden.',
-    commute_sync: 'Wird automatisch über die Datenbankspalte is_commute synchronisiert. Diese Regel kann nicht bearbeitet werden.',
   }
   const readonlyDescription = rule.system_type ? (readonlyDescriptions[rule.system_type] ?? 'System-Regel. Diese Regel kann nicht bearbeitet werden.') : ''
 

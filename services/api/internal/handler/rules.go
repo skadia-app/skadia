@@ -247,7 +247,6 @@ func (h *Handler) dryRunAllRules(w http.ResponseWriter, r *http.Request, userID 
 		"electric_sync": true,
 		"virtual_sync":  true,
 		"indoor_sync":   true,
-		"commute_sync":  true,
 	}
 
 	type ruleMatch struct {

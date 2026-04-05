@@ -49,11 +49,6 @@ func TestShouldEvaluateRule(t *testing.T) {
 			"", false,
 		},
 		{
-			"commute_sync always skipped (DB trigger managed)",
-			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: new("commute_sync")},
-			"on_import", false,
-		},
-		{
 			"round_trip system rule NOT skipped",
 			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: new("round_trip")},
 			"on_import", true,

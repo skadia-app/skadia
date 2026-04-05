@@ -97,7 +97,7 @@ func RunGeoAndPublishStage2(ctx context.Context, db *database.DB, userID, activi
 	}
 	migratedToGo := GoNativeModules
 	if enabledModules == nil {
-		enabledModules = []string{"lifts", "commute", "embeddings"}
+		enabledModules = []string{"lifts", "embeddings"}
 	} else {
 		filtered := enabledModules[:0]
 		for _, m := range enabledModules {
@@ -607,7 +607,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		if enabledModules == nil {
 			// nil means "all enabled" — expand to full list minus migrated ones
 			allModules := []string{
-				"lifts", "commute", "embeddings",
+				"lifts", "embeddings",
 			}
 			enabledModules = allModules
 		} else {

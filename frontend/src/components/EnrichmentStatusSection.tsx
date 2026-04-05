@@ -19,7 +19,6 @@ const MODULE_API_FIELD: Partial<Record<string, keyof EnrichmentSettings>> = {
   surfaces:    'enable_surface_detection',
   ascents:     'enable_ascent_detection',
   intervals:   'enable_interval_detection',
-  commute:     'enable_commute_detection',
   embeddings:  'enable_embeddings',
 }
 
@@ -45,7 +44,6 @@ const MODULE_META: Record<string, { label: string; icon: string }> = {
   summits:     { label: 'Gipfel & Pässe', icon: 'M3 17l4-8 4 4 4-4 4 8H3z' },
   lifts:       { label: 'Lifte',          icon: 'M4 4v16h2V4H4zm14 0v16h2V4h-2zM8 8l4-4 4 4M12 4v12' },
   settlements: { label: 'Siedlungen',     icon: 'M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6' },
-  commute:     { label: 'Pendeln',        icon: 'M8 6v6l4-3-4-3zM16 6v6l-4-3 4-3zM3 18h18' },
   borders:     { label: 'Grenzen',        icon: 'M4 4v16M4 4h4v4H4M4 12h4v4H4M12 4h4v4h-4M12 12h4v4h-4M20 4v16' },
   water:       { label: 'Gewässer',       icon: 'M2 12c2-3 4-3 6 0s4 3 6 0 4-3 6 0M2 17c2-3 4-3 6 0s4 3 6 0 4-3 6 0' },
   forests:     { label: 'Wälder',         icon: 'M12 2L7 10h3l-4 6h4l-3 4h10l-3-4h4l-4-6h3L12 2z' },

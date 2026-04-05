@@ -46,7 +46,6 @@ const ANALYSIS_MODULES: AnalysisModule[] = [
   { label: 'Untergrundtypen',         description: 'Erkennt Asphalt, Schotter, Trail etc.',                                           field: 'enable_surface_detection',   requiresML: false },
   { label: 'Anstiege',                description: 'Erkennt und klassifiziert Anstiege.',                                             field: 'enable_ascent_detection',    requiresML: false },
   { label: 'Intervalltraining',       description: 'Erkennt Trainingsintervalle automatisch.',                                        field: 'enable_interval_detection',  requiresML: false },
-  { label: 'Pendelrouten',            description: 'Erkennt regelmäßig genutzte Routen (analysiert mehrere Aktivitäten).',            field: 'enable_commute_detection',   requiresML: true  },
   { label: 'Rundenerkennung',         description: 'Erkennt automatisch Runden/Laps bei Aktivitäten auf Rundkursen.',                 field: 'enable_lap_detection',       requiresML: false },
   { label: 'Embeddings',              description: 'Berechnet semantische Vektoren für Ähnlichkeitssuche.',                           field: 'enable_embeddings',          requiresML: true  },
 ]

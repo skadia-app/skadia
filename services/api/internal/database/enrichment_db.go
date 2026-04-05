@@ -187,7 +187,7 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 		VALUES ($1)
 		ON CONFLICT (user_id) DO UPDATE SET user_id = $1
 		RETURNING user_id, enable_summit_detection, enable_weather_enrichment,
-			enable_stop_detection, enable_ascent_detection, enable_commute_detection,
+			enable_stop_detection, enable_ascent_detection,
 			enable_auto_naming, enable_lap_detection,
 			climb_min_gradient_pct, climb_min_elevation_m,
 			round_trip_threshold_m, ocr_invoice_prompt, ocr_gear_prompt,
@@ -200,7 +200,7 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 		userID,
 	).Scan(
 		&s.UserID, &s.EnableSummitDetection, &s.EnableWeatherEnrichment,
-		&s.EnableStopDetection, &s.EnableAscentDetection, &s.EnableCommuteDetection,
+		&s.EnableStopDetection, &s.EnableAscentDetection,
 		&s.EnableAutoNaming, &s.EnableLapDetection, &s.ClimbMinGradientPct, &s.ClimbMinElevationM,
 		&s.RoundTripThresholdM, &s.OCRInvoicePrompt, &s.OCRGearPrompt,
 		&s.EnableLiftDetection, &s.EnableSettlementDetection, &s.EnableBorderDetection,
@@ -221,7 +221,7 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 	_, err := db.Pool.Exec(ctx, `
 		INSERT INTO user_enrichment_settings (
 			user_id, enable_summit_detection, enable_weather_enrichment,
-			enable_stop_detection, enable_ascent_detection, enable_commute_detection,
+			enable_stop_detection, enable_ascent_detection,
 			enable_auto_naming, enable_lap_detection,
 			climb_min_gradient_pct, climb_min_elevation_m,
 			round_trip_threshold_m, ocr_invoice_prompt, ocr_gear_prompt,
@@ -232,39 +232,38 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			route_duplicate_hausdorff_m, route_duplicate_length_diff_km,
 			video_clip_frames, phash_threshold_bits
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-			$14, $15, $16, $17, $18, $19, $20, $21,
-			$22, $23, $24, $25, $26, $27
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+			$13, $14, $15, $16, $17, $18, $19, $20,
+			$21, $22, $23, $24, $25, $26
 		)
 		ON CONFLICT (user_id) DO UPDATE SET
 			enable_summit_detection = $2,
 			enable_weather_enrichment = $3,
 			enable_stop_detection = $4,
 			enable_ascent_detection = $5,
-			enable_commute_detection = $6,
-			enable_auto_naming = $7,
-			enable_lap_detection = $8,
-			climb_min_gradient_pct = $9,
-			climb_min_elevation_m = $10,
-			round_trip_threshold_m = $11,
-			ocr_invoice_prompt = $12,
-			ocr_gear_prompt = $13,
-			enable_lift_detection = $14,
-			enable_settlement_detection = $15,
-			enable_border_detection = $16,
-			enable_water_detection = $17,
-			enable_forest_detection = $18,
-			enable_surface_detection = $19,
-			enable_interval_detection = $20,
-			enable_embeddings = $21,
-			photo_preview_size = $22,
-			terra_incognita_radius_m = $23,
-			route_duplicate_hausdorff_m = $24,
-			route_duplicate_length_diff_km = $25,
-			video_clip_frames = $26,
-			phash_threshold_bits = $27`,
+			enable_auto_naming = $6,
+			enable_lap_detection = $7,
+			climb_min_gradient_pct = $8,
+			climb_min_elevation_m = $9,
+			round_trip_threshold_m = $10,
+			ocr_invoice_prompt = $11,
+			ocr_gear_prompt = $12,
+			enable_lift_detection = $13,
+			enable_settlement_detection = $14,
+			enable_border_detection = $15,
+			enable_water_detection = $16,
+			enable_forest_detection = $17,
+			enable_surface_detection = $18,
+			enable_interval_detection = $19,
+			enable_embeddings = $20,
+			photo_preview_size = $21,
+			terra_incognita_radius_m = $22,
+			route_duplicate_hausdorff_m = $23,
+			route_duplicate_length_diff_km = $24,
+			video_clip_frames = $25,
+			phash_threshold_bits = $26`,
 		userID, s.EnableSummitDetection, s.EnableWeatherEnrichment,
-		s.EnableStopDetection, s.EnableAscentDetection, s.EnableCommuteDetection,
+		s.EnableStopDetection, s.EnableAscentDetection,
 		s.EnableAutoNaming, s.EnableLapDetection, s.ClimbMinGradientPct, s.ClimbMinElevationM,
 		s.RoundTripThresholdM, s.OCRInvoicePrompt, s.OCRGearPrompt,
 		s.EnableLiftDetection, s.EnableSettlementDetection, s.EnableBorderDetection,
@@ -451,7 +450,7 @@ func (db *DB) GetEnrichmentModuleStatus(ctx context.Context, activityID string) 
 	// 2) Check data presence in one query
 	var summitCount, settlementCount, waterCount, forestCount, borderCount int
 	var stopCount, surfaceCount, climbCount, liftCount, intervalCount int
-	var hasCommuteClusters, hasGastronomy bool
+	var hasGastronomy bool
 	err = db.Pool.QueryRow(ctx, `
 		SELECT
 			(SELECT count(*) FROM activity_geo_tags WHERE activity_id = $1 AND category IN ('summit', 'pass')),
@@ -464,12 +463,11 @@ func (db *DB) GetEnrichmentModuleStatus(ctx context.Context, activityID string) 
 			(SELECT count(*) FROM activity_climbs WHERE activity_id = $1),
 			(SELECT count(*) FROM activity_lift_candidates WHERE activity_id = $1),
 			(SELECT count(*) FROM activity_intervals WHERE activity_id = $1),
-			EXISTS(SELECT 1 FROM commute_clusters WHERE user_id = (SELECT user_id FROM activities WHERE id = $1)),
 			(SELECT count(*) FROM activity_geo_tags WHERE activity_id = $1 AND category = 'gastronomy') > 0
 	`, activityID).Scan(
 		&summitCount, &settlementCount, &waterCount, &forestCount, &borderCount,
 		&stopCount, &surfaceCount, &climbCount, &liftCount, &intervalCount,
-		&hasCommuteClusters, &hasGastronomy,
+		&hasGastronomy,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get enrichment data presence: %w", err)
@@ -483,7 +481,6 @@ func (db *DB) GetEnrichmentModuleStatus(ctx context.Context, activityID string) 
 		{"summits", summitCount > 0, summitCount},
 		{"lifts", liftCount > 0, liftCount},
 		{"settlements", settlementCount > 0, settlementCount},
-		{"commute", hasCommuteClusters, 0},
 		{"borders", borderCount > 0, borderCount},
 		{"water", waterCount > 0, waterCount},
 		{"forests", forestCount > 0, forestCount},
