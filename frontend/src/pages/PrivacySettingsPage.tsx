@@ -3,8 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { listPrivacyZones, deletePrivacyZone, updatePrivacyZone, type PrivacyZone } from '@/api/privacy'
+import { createCommuteRuleFromZones } from '@/api/rules'
 import PrivacyZoneEditor from '@/components/PrivacyZoneEditor'
 import { circlePolygon } from '@/lib/geoUtils'
+import { useToast } from '@/lib/toast'
 
 // Photon reverse-geocoding (public endpoint, no API key required)
 interface PhotonResult {
@@ -297,6 +299,24 @@ export default function PrivacySettingsPage() {
   const queryClient = useQueryClient()
   const [editingZone, setEditingZone] = useState<PrivacyZone | null>(null)
   const [showEditor, setShowEditor] = useState(false)
+  const [showCommuteModal, setShowCommuteModal] = useState(false)
+  const [commuteStart, setCommuteStart] = useState('')
+  const [commuteEnd, setCommuteEnd] = useState('')
+  const { addToast } = useToast()
+
+  const commuteRuleMut = useMutation({
+    mutationFn: () => createCommuteRuleFromZones(commuteStart, commuteEnd),
+    onSuccess: (result) => {
+      addToast({
+        type: 'success',
+        title: result.created ? 'Pendel-Regel erstellt' : 'Pendel-Route hinzugefügt',
+      })
+      setShowCommuteModal(false)
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Fehler beim Erstellen', duration: 0 })
+    },
+  })
 
   const { data: zones = [], isLoading } = useQuery({
     queryKey: ['privacy-zones'],
@@ -382,6 +402,58 @@ export default function PrivacySettingsPage() {
               onToggle={(z) => toggleMutation.mutate({ id: z.id, is_active: !z.is_active })}
             />
           ))}
+        </div>
+      )}
+
+      {zones.length >= 2 && (
+        <button
+          onClick={() => {
+            setCommuteStart(zones[0].id)
+            setCommuteEnd(zones[1].id)
+            setShowCommuteModal(true)
+          }}
+          className="mt-4 text-sm text-accent-DEFAULT hover:text-accent-600 font-medium cursor-pointer transition-colors"
+        >
+          Pendel-Route erstellen
+        </button>
+      )}
+
+      {showCommuteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowCommuteModal(false)}>
+          <div className="bg-white dark:bg-neutral-900 rounded-xl shadow-xl p-6 max-w-md w-full mx-4 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Pendel-Route aus Zonen erstellen</h3>
+            <div className="space-y-3">
+              <label className="block text-sm">
+                <span className="text-neutral-600 dark:text-neutral-400">Startzone:</span>
+                <select value={commuteStart} onChange={(e) => setCommuteStart(e.target.value)}
+                  className="mt-1 w-full rounded border border-neutral-300 dark:border-neutral-600 bg-transparent px-3 py-2 text-sm">
+                  {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
+                </select>
+              </label>
+              <label className="block text-sm">
+                <span className="text-neutral-600 dark:text-neutral-400">Zielzone:</span>
+                <select value={commuteEnd} onChange={(e) => setCommuteEnd(e.target.value)}
+                  className="mt-1 w-full rounded border border-neutral-300 dark:border-neutral-600 bg-transparent px-3 py-2 text-sm">
+                  {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
+                </select>
+              </label>
+            </div>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">
+              Aktivitäten, deren Start- und Endpunkt in den gewählten Zonen liegen, werden automatisch als Pendeln getaggt (in beide Richtungen).
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => commuteRuleMut.mutate()}
+                disabled={commuteStart === commuteEnd || commuteRuleMut.isPending}
+                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 rounded-lg cursor-pointer transition-colors disabled:opacity-50">
+                {commuteRuleMut.isPending ? 'Wird erstellt...' : 'Regel erstellen'}
+              </button>
+              <button onClick={() => setShowCommuteModal(false)}
+                className="flex-1 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 rounded-lg cursor-pointer transition-colors">
+                Abbrechen
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
