@@ -511,3 +511,45 @@ func (db *DB) healthMetricFromBodyBattery(ctx context.Context, userID string, fr
 	defer rows.Close()
 	return buildMetricFromRows(rows, "body_battery", "pts")
 }
+
+// ActivityGlucosePoint holds average blood glucose for one activity.
+type ActivityGlucosePoint struct {
+	ActivityID string  `json:"activity_id"`
+	StartedAt  string  `json:"started_at"`
+	AvgGlucose float64 `json:"avg_glucose"`
+}
+
+// GetActivityGlucose returns per-activity average glucose values for a user
+// within the given time range, ordered by activity start time ascending.
+func (db *DB) GetActivityGlucose(ctx context.Context, userID string, from, to time.Time) ([]ActivityGlucosePoint, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT
+			a.id AS activity_id,
+			a.started_at::text AS started_at,
+			AVG(s.glucose_mg_dl) AS avg_glucose
+		FROM activities a
+		JOIN activity_streams s ON s.activity_id = a.id
+		WHERE a.user_id = $1
+		  AND s.glucose_mg_dl IS NOT NULL
+		  AND a.started_at BETWEEN $2 AND $3
+		GROUP BY a.id, a.started_at
+		ORDER BY a.started_at ASC
+	`, userID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("get activity glucose: %w", err)
+	}
+	defer rows.Close()
+
+	var result []ActivityGlucosePoint
+	for rows.Next() {
+		var p ActivityGlucosePoint
+		if err := rows.Scan(&p.ActivityID, &p.StartedAt, &p.AvgGlucose); err != nil {
+			return nil, fmt.Errorf("scan activity glucose point: %w", err)
+		}
+		result = append(result, p)
+	}
+	if result == nil {
+		result = []ActivityGlucosePoint{}
+	}
+	return result, rows.Err()
+}

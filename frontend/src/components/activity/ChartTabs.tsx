@@ -16,6 +16,7 @@ export const CHART_TAB = {
   mtb: 'mtb',
   ausdauer: 'ausdauer',
   barometer: 'barometer',
+  glucose: 'glucose',
   developerFields: 'developer-fields',
 } as const
 
@@ -51,6 +52,7 @@ export function ChartTabs({ streams, children }: Props) {
           && !streams.some(s => s.depth_m != null) },  // Hide for dive activities
       { value: CHART_TAB.mtb, label: 'MTB', visible: streams.some(s => s.grit != null || s.flow != null) },
       { value: CHART_TAB.ausdauer, label: 'Ausdauer', visible: streams.some(s => s.potential_stamina != null) },
+      { value: CHART_TAB.glucose, label: 'Glucose', visible: streams.some(s => s.glucose_mg_dl != null) },
       { value: CHART_TAB.developerFields, label: 'Entwickler-Felder', visible: streams.some(s => s.developer_fields != null && Object.keys(s.developer_fields as object).length > 0) },
     ]
     return tabs.filter(t => t.visible)

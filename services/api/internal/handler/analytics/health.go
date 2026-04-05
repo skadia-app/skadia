@@ -336,6 +336,25 @@ func (h *Handler) GetWeight(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetActivityGlucose returns per-activity average blood glucose values for scatter chart display.
+// Returns an empty array (not 204) when no data exists, so the frontend can decide whether to render the chart.
+func (h *Handler) GetActivityGlucose(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	filter := ParseFilters(r)
+
+	points, err := h.DB.GetActivityGlucose(r.Context(), userID, filter.From, filter.To)
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Glucose Query Failed",
+			err.Error(), r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, points)
+}
+
 // GetHealthMetrics returns the health metrics grid (RHR, HRV, sleep, weight).
 func (h *Handler) GetHealthMetrics(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
