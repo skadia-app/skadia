@@ -110,6 +110,13 @@ type HealthWeightCreate struct {
 	BodyFatPct    *float64 `json:"body_fat_pct"`
 	MuscleMassG   *int     `json:"muscle_mass_g"`
 	BoneMassG          *int     `json:"bone_mass_g"`
+	PercentHydration   *float64 `json:"percent_hydration"`
+	VisceralFatMassG   *int32   `json:"visceral_fat_mass_g"`
+	BasalMet           *float64 `json:"basal_met"`
+	ActiveMet          *float64 `json:"active_met"`
+	PhysiqueRating     *int16   `json:"physique_rating"`
+	MetabolicAge       *int16   `json:"metabolic_age"`
+	VisceralFatRating  *int16   `json:"visceral_fat_rating"`
 	SubcutaneousFatPct *float64 `json:"subcutaneous_fat_pct"`
 	ProteinPct         *float64 `json:"protein_pct"`
 	SkeletalMusclePct  *float64 `json:"skeletal_muscle_pct"`

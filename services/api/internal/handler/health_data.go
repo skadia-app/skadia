@@ -133,11 +133,10 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid blood_pressure data", r.URL.Path)
 			return
 		}
-		ts, err := time.Parse("2006-01-02", req.Date)
-		if err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid date format, use YYYY-MM-DD", r.URL.Path)
-			return
-		}
+		// Try RFC3339 first (with time component) to support multiple daily measurements
+		// (e.g. morning/evening). Fall back to date-only + current time so that same-day
+		// entries don't collapse onto midnight and overwrite each other via ON CONFLICT.
+		ts := parseDateOrRFC3339(req.Date)
 		bp := &model.HealthBloodPressure{
 			UserID:        userID,
 			MeasuredAtUTC: ts,
@@ -327,6 +326,13 @@ func (h *Handler) CreateHealthWeightEntry(w http.ResponseWriter, r *http.Request
 		BodyFatPct:    create.BodyFatPct,
 		MuscleMassG:        create.MuscleMassG,
 		BoneMassG:          create.BoneMassG,
+		PercentHydration:   create.PercentHydration,
+		VisceralFatMassG:   create.VisceralFatMassG,
+		BasalMet:           create.BasalMet,
+		ActiveMet:          create.ActiveMet,
+		PhysiqueRating:     create.PhysiqueRating,
+		MetabolicAge:       create.MetabolicAge,
+		VisceralFatRating:  create.VisceralFatRating,
 		SubcutaneousFatPct: create.SubcutaneousFatPct,
 		ProteinPct:         create.ProteinPct,
 		SkeletalMusclePct:  create.SkeletalMusclePct,
