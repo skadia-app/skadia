@@ -78,7 +78,17 @@ export function DetailTable({ records, sportGroup }: DetailTableProps) {
                     #1
                   </span>
                 </td>
-                <td className="px-3 font-medium text-neutral-800 dark:text-neutral-200">{categoryLabel(cat)}</td>
+                <td className="px-3 font-medium text-neutral-800 dark:text-neutral-200">
+                  {categoryLabel(cat)}
+                  {rank1.suspicious && (
+                    <span
+                      className="ml-2 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-500/20"
+                      title="Möglicherweise fehlerhafter Sensor-Wert (Stuck Value)"
+                    >
+                      Verdächtig
+                    </span>
+                  )}
+                </td>
                 <td className="text-right px-4 font-bold tabular-nums">
                   <span className={cn(valueColor)}>{display.primary}</span>
                   {display.secondary && <div className="text-[9px] text-neutral-500 font-normal">{display.secondary}</div>}
