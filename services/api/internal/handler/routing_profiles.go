@@ -249,6 +249,11 @@ func (h *Handler) HandleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
+	if err := routing.ValidateBuiltinCompleteness(req.Config); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
+			fmt.Sprintf("profile config incomplete: %v", err), r.URL.Path)
+		return
+	}
 	if err := routing.ValidateSportTypes(req.SportTypes); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
