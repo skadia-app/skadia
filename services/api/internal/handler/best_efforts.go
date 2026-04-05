@@ -196,6 +196,35 @@ func (h *Handler) RemoveBestEffortExclusion(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// GetPRHistory returns the full chronological progression of best efforts for
+// a (user, category, sport_group) triple — up to 200 entries — each annotated
+// with its all-time performance rank. Intended for the PR Progression Timeline UI.
+//
+// Query params:
+//   - category:    e.g. "dist_5km"  (required)
+//   - sport_group: e.g. "running"   (required)
+//
+// GET /api/v1/personal-records/history
+func (h *Handler) GetPRHistory(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	category := r.URL.Query().Get("category")
+	sportGroup := r.URL.Query().Get("sport_group")
+	if category == "" || sportGroup == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "category and sport_group required", r.URL.Path)
+		return
+	}
+	entries, err := h.DB.GetPRHistory(r.Context(), userID, category, sportGroup)
+	if err != nil {
+		slog.Error("get PR history failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, entries)
+}
+
 // RecalcBestEfforts starts a background job that deletes all best effort records
 // for the user and recomputes them from scratch in chronological order.
 // Uses InsertBackgroundJobGuarded to prevent duplicate runs.
