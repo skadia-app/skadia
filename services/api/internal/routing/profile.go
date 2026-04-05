@@ -119,7 +119,7 @@ func BuildCostConfig(p ProfileConfig) (*CostConfig, error) {
 	if merged.SnapThresholdM != nil {
 		cfg.SnapThresholdM = *merged.SnapThresholdM
 	} else {
-		cfg.SnapThresholdM = 30 // default
+		cfg.SnapThresholdM = 100 // default
 	}
 
 	return cfg, nil
@@ -1023,6 +1023,8 @@ type ProfileDefaultsResponse struct {
 	WetWeather      *bool    `json:"wet_weather"`
 	PathPreference  *float32 `json:"path_preference"`
 	InitialCostRoad *float32 `json:"initial_cost_road"`
+	// Snap
+	SnapThresholdM *float32 `json:"snap_threshold_m"`
 	// Highway costs — null means permanently blocked for this profile
 	PathCost         *float32 `json:"path_cost"`
 	TrackCost        *float32 `json:"track_cost"`
@@ -1081,6 +1083,7 @@ func ProfileDefaults(name string) (*ProfileDefaultsResponse, error) {
 		WetWeather:      base.WetWeather,
 		PathPreference:  base.PathPreference,
 		InitialCostRoad: base.InitialCostRoad,
+		SnapThresholdM:  base.SnapThresholdM,
 	}
 
 	setIfPassable := func(dst **float32, cost float32) {
