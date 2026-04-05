@@ -16,6 +16,8 @@ import (
 // based on the current infrastructure (Lite vs. Full mode).
 type Capabilities struct {
 	Routing         bool `json:"routing"`
+	BRouter         bool `json:"brouter"`
+	BadRouter       bool `json:"badrouter"`
 	OfflineMap      bool `json:"offline_map"`
 	SurfaceEnrich   bool `json:"surface_enrichment"`
 	DEMCorrection   bool `json:"dem_correction"`
@@ -55,24 +57,21 @@ func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL, tileDir string)
 
 	caps := Capabilities{}
 
-	// Routing capability: check if osm_ways has data (CSR graph builder reads from osm_ways directly).
-	// pgr_createTopology check removed — pgRouting 4.0+ removed it, and BadRouter's CSR graph
-	// builder computes topology in Go (routing/graph/topology.go), not via pgRouting.
-	// Use EXISTS instead of COUNT(*) — returns immediately after finding 1 row
-	// instead of scanning the entire table (osm_ways can have millions of rows).
+	// Surface enrichment: check if osm_ways has data
 	var hasWays bool
 	if err := pool.QueryRow(ctx,
 		"SELECT EXISTS(SELECT 1 FROM osm_ways WHERE highway IS NOT NULL LIMIT 1)").Scan(&hasWays); err == nil && hasWays {
-		caps.Routing = true
 		caps.SurfaceEnrich = true
 	}
 
-	// BRouter reachable?
+	// BRouter reachable? Just check if the service responds — no routing request
+	// with hardcoded coordinates, which would fail for non-European regions.
 	if brouterURL != "" {
 		client := &http.Client{Timeout: 2 * time.Second}
-		resp, err := client.Get(brouterURL + "/brouter?lonlats=11.39,47.27|11.40,47.28&profile=trekking&format=geojson")
+		resp, err := client.Get(brouterURL)
 		if err == nil {
 			resp.Body.Close()
+			caps.BRouter = true
 		} else {
 			slog.Warn("BRouter not reachable", "error", err)
 		}
@@ -101,6 +100,7 @@ func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL, tileDir string)
 		if entries, err := os.ReadDir(tileDir); err == nil {
 			for _, e := range entries {
 				if strings.HasSuffix(e.Name(), ".bin") {
+					caps.BadRouter = true
 					caps.Isochrone = true
 					caps.RouteSuggestion = true
 					break
@@ -108,6 +108,9 @@ func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL, tileDir string)
 			}
 		}
 	}
+
+	// Routing = at least one engine available
+	caps.Routing = caps.BRouter || caps.BadRouter
 
 	// ML Service availability (cached from background probe)
 	caps.MLService = MLServiceAvailable()

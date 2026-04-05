@@ -183,16 +183,17 @@ export function LocalMapAndGeoSection() {
           ) : (
             <>
               <div className="flex flex-wrap gap-2">
-                <CapBadge status={caps?.routing ? 'active' : 'inactive'}           label="Routing (BRouter)" />
-                <CapBadge status={caps?.isochrone ? 'active' : 'inactive'}         label="Isochrone" />
-                <CapBadge status={caps?.dem_correction ? 'active' : 'inactive'}    label="DEM-Höhenkorrektur" />
+                <CapBadge status={caps?.brouter ? 'active' : 'inactive'}            label="BRouter" />
+                <CapBadge status={caps?.badrouter ? 'active' : 'inactive'}          label="BadRouter" />
+                <CapBadge status={caps?.isochrone ? 'active' : 'inactive'}          label="Isochrone" />
+                <CapBadge status={caps?.dem_correction ? 'active' : 'inactive'}     label="DEM-Höhenkorrektur" />
                 <CapBadge status={caps?.surface_enrichment ? 'active' : 'inactive'} label="Oberflächen-Anreicherung" />
-                <CapBadge status={caps?.route_suggestion ? 'active' : 'inactive'}  label="Routen-Vorschläge" />
-                <CapBadge status={caps?.offline_map ? 'active' : 'inactive'}       label="Offline-Karte" />
+                <CapBadge status={caps?.route_suggestion ? 'active' : 'inactive'}   label="Routen-Vorschläge" />
+                <CapBadge status={caps?.offline_map ? 'active' : 'inactive'}        label="Offline-Karte" />
               </div>
-              {!(caps?.routing) && (
+              {!caps?.brouter && !caps?.badrouter && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed">
-                  Routing ist nicht verfügbar. Stelle sicher, dass der BRouter-Dienst gestartet ist und OSM-Daten importiert wurden.
+                  Kein Routing-Dienst verfügbar. BRouter benötigt rd5-Segmente und .brf-Profile. BadRouter benötigt Routing-Tiles (mit DEM).
                 </p>
               )}
             </>
