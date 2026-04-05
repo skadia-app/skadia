@@ -377,8 +377,9 @@ func (db *DB) UpsertHealthWeightEntry(ctx context.Context, s *model.HealthWeight
 			user_id, measured_at_utc, weight_g, bmi, body_fat_pct, muscle_mass_g, bone_mass_g,
 			source_type, extra_data,
 			percent_hydration, visceral_fat_mass_g, basal_met, active_met,
-			physique_rating, metabolic_age, visceral_fat_rating
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+			physique_rating, metabolic_age, visceral_fat_rating,
+			subcutaneous_fat_pct, protein_pct, skeletal_muscle_pct, lean_body_mass_g, total_body_water_l
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 		ON CONFLICT (user_id, measured_at_utc) DO UPDATE SET
 			weight_g             = EXCLUDED.weight_g,
 			bmi                  = COALESCE(EXCLUDED.bmi,                  health_weight_entries.bmi),
@@ -392,6 +393,11 @@ func (db *DB) UpsertHealthWeightEntry(ctx context.Context, s *model.HealthWeight
 			physique_rating      = COALESCE(EXCLUDED.physique_rating,      health_weight_entries.physique_rating),
 			metabolic_age        = COALESCE(EXCLUDED.metabolic_age,        health_weight_entries.metabolic_age),
 			visceral_fat_rating  = COALESCE(EXCLUDED.visceral_fat_rating,  health_weight_entries.visceral_fat_rating),
+			subcutaneous_fat_pct = COALESCE(EXCLUDED.subcutaneous_fat_pct, health_weight_entries.subcutaneous_fat_pct),
+			protein_pct          = COALESCE(EXCLUDED.protein_pct,          health_weight_entries.protein_pct),
+			skeletal_muscle_pct  = COALESCE(EXCLUDED.skeletal_muscle_pct,  health_weight_entries.skeletal_muscle_pct),
+			lean_body_mass_g     = COALESCE(EXCLUDED.lean_body_mass_g,     health_weight_entries.lean_body_mass_g),
+			total_body_water_l   = COALESCE(EXCLUDED.total_body_water_l,   health_weight_entries.total_body_water_l),
 			source_type          = CASE
 						WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(health_weight_entries.source_type)
 						THEN EXCLUDED.source_type
@@ -400,7 +406,8 @@ func (db *DB) UpsertHealthWeightEntry(ctx context.Context, s *model.HealthWeight
 	`, s.UserID, s.MeasuredAtUTC, s.WeightG, s.BMI, s.BodyFatPct, s.MuscleMassG, s.BoneMassG,
 		s.SourceType, s.ExtraData,
 		s.PercentHydration, s.VisceralFatMassG, s.BasalMet, s.ActiveMet,
-		s.PhysiqueRating, s.MetabolicAge, s.VisceralFatRating)
+		s.PhysiqueRating, s.MetabolicAge, s.VisceralFatRating,
+		s.SubcutaneousFatPct, s.ProteinPct, s.SkeletalMusclePct, s.LeanBodyMassG, s.TotalBodyWaterL)
 	return err
 }
 
@@ -410,6 +417,7 @@ func (db *DB) GetHealthWeight(ctx context.Context, userID, from, to string) ([]m
 		       source_type, extra_data,
 		       percent_hydration, visceral_fat_mass_g, basal_met, active_met,
 		       physique_rating, metabolic_age, visceral_fat_rating,
+		       subcutaneous_fat_pct, protein_pct, skeletal_muscle_pct, lean_body_mass_g, total_body_water_l,
 		       created_at
 		FROM health_weight_entries
 		WHERE user_id = $1 AND measured_at_utc BETWEEN $2::timestamptz AND $3::timestamptz
@@ -428,6 +436,7 @@ func (db *DB) GetHealthWeight(ctx context.Context, userID, from, to string) ([]m
 			&s.SourceType, &s.ExtraData,
 			&s.PercentHydration, &s.VisceralFatMassG, &s.BasalMet, &s.ActiveMet,
 			&s.PhysiqueRating, &s.MetabolicAge, &s.VisceralFatRating,
+			&s.SubcutaneousFatPct, &s.ProteinPct, &s.SkeletalMusclePct, &s.LeanBodyMassG, &s.TotalBodyWaterL,
 			&s.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan health weight: %w", err)
@@ -443,6 +452,7 @@ func (db *DB) GetLatestHealthWeight(ctx context.Context, userID string) (*model.
 		       source_type, extra_data,
 		       percent_hydration, visceral_fat_mass_g, basal_met, active_met,
 		       physique_rating, metabolic_age, visceral_fat_rating,
+		       subcutaneous_fat_pct, protein_pct, skeletal_muscle_pct, lean_body_mass_g, total_body_water_l,
 		       created_at
 		FROM health_weight_entries
 		WHERE user_id = $1
@@ -455,6 +465,7 @@ func (db *DB) GetLatestHealthWeight(ctx context.Context, userID string) (*model.
 		&s.SourceType, &s.ExtraData,
 		&s.PercentHydration, &s.VisceralFatMassG, &s.BasalMet, &s.ActiveMet,
 		&s.PhysiqueRating, &s.MetabolicAge, &s.VisceralFatRating,
+		&s.SubcutaneousFatPct, &s.ProteinPct, &s.SkeletalMusclePct, &s.LeanBodyMassG, &s.TotalBodyWaterL,
 		&s.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
