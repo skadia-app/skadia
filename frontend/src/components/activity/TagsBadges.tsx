@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, type CSSProperties } from 'react'
+import { haversineM } from '@/lib/geoUtils'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { fetchTags, createTag, unassignActivitiesFromTag, assignActivitiesToTag } from '@/api/tags'
@@ -86,7 +87,14 @@ export default function TagsBadges({ tags, activityId, isVirtual, commuteContext
 
       // Show commute modal when Pendeln tag is added to GPS activity with sufficient distance
       if (tagName.toLowerCase() === 'pendeln' && commuteContext && commuteContext.distanceM >= 400) {
-        setShowCommuteModal(true)
+        // Round-trip guard: don't offer commute rule when start ≈ end
+        const startEndDist = haversineM(
+          commuteContext.startLat, commuteContext.startLon,
+          commuteContext.endLat, commuteContext.endLon
+        )
+        if (startEndDist > 200) {
+          setShowCommuteModal(true)
+        }
       }
     },
   })

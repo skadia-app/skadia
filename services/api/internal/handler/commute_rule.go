@@ -83,6 +83,13 @@ func (h *Handler) CreateOrExtendCommuteRule(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Round-trip guard: commute routes must have different start and end points
+	if geo.DistanceHaversine(startLat, startLon, endLat, endLon) <= commuteRadiusM {
+		httputil.WriteError(w, http.StatusUnprocessableEntity, "Round Trip",
+			"start and end point are too close — commute routes require different locations", r.URL.Path)
+		return
+	}
+
 	pendelTagID, err := h.DB.GetSystemTagID(ctx, userID, commuteTagName)
 	if err != nil {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "Pendeln tag not found — check enrichment settings", r.URL.Path)
