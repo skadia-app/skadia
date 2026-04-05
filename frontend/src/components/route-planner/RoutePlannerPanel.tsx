@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { RouteWaypoint, RouteSegment, PlannedRoute } from '@/api/routes'
 import { useToast } from '@/lib/toast'
@@ -254,7 +254,21 @@ export default function RoutePlannerPanel({
   // ── Profile management state ───────────────────────────────────────────
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [saveProfileName, setSaveProfileName] = useState('')
+  const [showGearMenu, setShowGearMenu] = useState(false)
+  const gearMenuRef = useRef<HTMLDivElement | null>(null)
   const importInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Close gear menu on click outside
+  useEffect(() => {
+    if (!showGearMenu) return
+    function handleClickOutside(e: MouseEvent) {
+      if (gearMenuRef.current && !gearMenuRef.current.contains(e.target as Node)) {
+        setShowGearMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showGearMenu])
 
   // Fetch all profiles from the API
   const { data: profilesData } = useQuery({
@@ -489,47 +503,72 @@ export default function RoutePlannerPanel({
             {/* Profile editor (BadRouter) or BRouter profile selector */}
             {routingEngine === 'badrouter' ? (
               <>
-                {/* BadRouter: profile actions bar */}
-                <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800 flex items-center gap-1.5 flex-wrap">
-                  <button
-                    onClick={handleResetToDefault}
-                    title="Auf Default zurücksetzen"
-                    className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-                  >
-                    <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H4.28a.75.75 0 00-.75.75v3.955a.75.75 0 001.5 0v-2.146l.312.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.386zm-10.624-2.85a5.5 5.5 0 019.201-2.466l.312.311h-2.433a.75.75 0 000 1.5h3.952a.75.75 0 00.75-.75V3.214a.75.75 0 00-1.5 0v2.146l-.312-.31A7 7 0 003.244 8.188a.75.75 0 001.449.386z" clipRule="evenodd" />
-                    </svg>
-                    Default
-                  </button>
-                  <button
-                    onClick={() => { setSaveProfileName(''); setShowSaveDialog(true) }}
-                    title="Als eigenes Profil speichern"
-                    className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-                  >
-                    <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-                      <path d="M3.75 3A1.75 1.75 0 002 4.75v10.5c0 .966.784 1.75 1.75 1.75h12.5A1.75 1.75 0 0018 15.25v-8.5A1.75 1.75 0 0016.25 5H15V3.75A1.75 1.75 0 0013.25 2h-3.5A1.75 1.75 0 008 3.75V5H4.75A1.75 1.75 0 003.75 3zm4.75.75A.25.25 0 018.75 4h2.5a.25.25 0 01.25.25V5h-3.5V3.75z" />
-                    </svg>
-                    Speichern als...
-                  </button>
-                  {/* Import button */}
-                  <button
-                    onClick={() => importInputRef.current?.click()}
-                    title="Profil aus JSON-Datei importieren"
-                    className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-                  >
-                    <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
-                    </svg>
-                    Import
-                  </button>
-                  <input
-                    ref={importInputRef}
-                    type="file"
-                    accept=".json"
-                    multiple
-                    className="hidden"
-                    onChange={e => { void handleImportFiles(e.target.files); e.target.value = '' }}
-                  />
+                {/* Hidden file input for import */}
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".json"
+                  multiple
+                  className="hidden"
+                  onChange={e => { void handleImportFiles(e.target.files); e.target.value = '' }}
+                />
+
+                {/* Gear menu for profile management actions */}
+                <div className="px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-end" ref={gearMenuRef}>
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowGearMenu(v => !v)}
+                      title="Profilverwaltung"
+                      className="p-1 rounded text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors cursor-pointer"
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    </button>
+                    {showGearMenu && (
+                      <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg py-1">
+                        <button
+                          onClick={() => { handleResetToDefault(); setShowGearMenu(false) }}
+                          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer text-left"
+                        >
+                          <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H4.28a.75.75 0 00-.75.75v3.955a.75.75 0 001.5 0v-2.146l.312.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.386zm-10.624-2.85a5.5 5.5 0 019.201-2.466l.312.311h-2.433a.75.75 0 000 1.5h3.952a.75.75 0 00.75-.75V3.214a.75.75 0 00-1.5 0v2.146l-.312-.31A7 7 0 003.244 8.188a.75.75 0 001.449.386z" clipRule="evenodd" />
+                          </svg>
+                          Auf Standard zuruecksetzen
+                        </button>
+                        <button
+                          onClick={() => { setSaveProfileName(''); setShowSaveDialog(true); setShowGearMenu(false) }}
+                          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer text-left"
+                        >
+                          <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M3.75 3A1.75 1.75 0 002 4.75v10.5c0 .966.784 1.75 1.75 1.75h12.5A1.75 1.75 0 0018 15.25v-8.5A1.75 1.75 0 0016.25 5H15V3.75A1.75 1.75 0 0013.25 2h-3.5A1.75 1.75 0 008 3.75V5H4.75A1.75 1.75 0 003.75 3zm4.75.75A.25.25 0 018.75 4h2.5a.25.25 0 01.25.25V5h-3.5V3.75z" />
+                          </svg>
+                          Profil speichern...
+                        </button>
+                        <button
+                          onClick={() => { importInputRef.current?.click(); setShowGearMenu(false) }}
+                          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer text-left"
+                        >
+                          <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                          </svg>
+                          Profil importieren...
+                        </button>
+                        {currentBadRouterEntry && (
+                          <button
+                            onClick={() => { void handleExportProfile(currentBadRouterEntry.id, currentBadRouterEntry.name); setShowGearMenu(false) }}
+                            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer text-left"
+                          >
+                            <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-9.707a1 1 0 000 1.414L9 11.414V3a1 1 0 112 0v8.414l2.707-2.707a1 1 0 111.414 1.414l-4.414 4.414a1 1 0 01-1.414 0L4.293 8.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
+                            Profil exportieren
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* BadRouter: user/filesystem profiles list (editable entries) */}
@@ -542,7 +581,7 @@ export default function RoutePlannerPanel({
                       {badRouterProfiles
                         .filter(p => p.editable || p.source === 'filesystem')
                         .map(p => (
-                          <div key={p.id ?? p.name} className="flex items-center gap-1.5">
+                          <div key={p.id} className="flex items-center gap-1.5">
                             <button
                               onClick={() => {
                                 const cfg = p.config ? { profile: p.base_profile, ...p.config } as ProfileConfig : getProfileDefaults(p.base_profile)
@@ -561,23 +600,21 @@ export default function RoutePlannerPanel({
                               )}
                             </button>
                             {/* Export */}
-                            {p.id && (
-                              <button
-                                onClick={() => void handleExportProfile(p.id!, p.name)}
-                                title="Profil exportieren"
-                                className="text-neutral-300 dark:text-neutral-600 hover:text-accent-DEFAULT dark:hover:text-accent-DEFAULT transition-colors cursor-pointer flex-shrink-0"
-                              >
-                                <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-                                  <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-9.707a1 1 0 000 1.414L9 11.414V3a1 1 0 112 0v8.414l2.707-2.707a1 1 0 111.414 1.414l-4.414 4.414a1 1 0 01-1.414 0L4.293 8.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                                </svg>
-                              </button>
-                            )}
-                            {/* Delete (editable only) */}
-                            {p.editable && p.id && (
+                            <button
+                              onClick={() => void handleExportProfile(p.id, p.name)}
+                              title="Profil exportieren"
+                              className="text-neutral-300 dark:text-neutral-600 hover:text-accent-DEFAULT dark:hover:text-accent-DEFAULT transition-colors cursor-pointer flex-shrink-0"
+                            >
+                              <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-9.707a1 1 0 000 1.414L9 11.414V3a1 1 0 112 0v8.414l2.707-2.707a1 1 0 111.414 1.414l-4.414 4.414a1 1 0 01-1.414 0L4.293 8.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                              </svg>
+                            </button>
+                            {/* Delete — editable profiles only (not system or filesystem) */}
+                            {p.editable && (
                               <button
                                 onClick={() => {
                                   if (confirm(`Profil "${p.name}" wirklich löschen?`)) {
-                                    deleteMutation.mutate(p.id!)
+                                    deleteMutation.mutate(p.id)
                                   }
                                 }}
                                 title="Profil löschen"
@@ -594,7 +631,12 @@ export default function RoutePlannerPanel({
                   </div>
                 )}
 
-                {/* Save-as dialog (inline) */}
+                <ProfileEditor
+                  config={profileConfig}
+                  onChange={onProfileChange}
+                />
+
+                {/* Save-as dialog (inline, below profile tabs) */}
                 {showSaveDialog && (
                   <div className="px-3 py-2.5 border-b border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50">
                     <div className="text-[10px] text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-1.5">
@@ -629,11 +671,6 @@ export default function RoutePlannerPanel({
                     </div>
                   </div>
                 )}
-
-                <ProfileEditor
-                  config={profileConfig}
-                  onChange={onProfileChange}
-                />
                 {/* Offroad snap threshold (BadRouter only) */}
                 <div className="px-3 py-2 border-t border-neutral-100 dark:border-neutral-800">
                   <div className="space-y-1">

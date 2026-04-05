@@ -183,15 +183,16 @@ func (db *DB) DeleteRoutingProfile(ctx context.Context, id, userID string) error
 	return nil
 }
 
-// UpsertFilesystemProfile inserts or updates a global (user_id IS NULL) routing profile
-// loaded from the filesystem. Conflicts on name (where user_id IS NULL) trigger an UPDATE.
-func (db *DB) UpsertFilesystemProfile(ctx context.Context, name, baseProfile string, sportTypes []string, config []byte) (*RoutingProfile, error) {
+// UpsertGlobalProfile inserts or updates a global (user_id IS NULL) routing profile.
+// source should be "system" (from config/badrouter/) or "filesystem" (from data/profiles/badrouter/).
+// Conflicts on name (where user_id IS NULL) trigger an UPDATE.
+func (db *DB) UpsertGlobalProfile(ctx context.Context, name, baseProfile string, sportTypes []string, config []byte, source string) (*RoutingProfile, error) {
 	if sportTypes == nil {
 		sportTypes = []string{}
 	}
 	p, err := scanRoutingProfile(db.Pool.QueryRow(ctx, `
 INSERT INTO routing_profiles (user_id, name, base_profile, sport_types, config, source)
-VALUES (NULL, $1, $2, $3, $4, 'filesystem')
+VALUES (NULL, $1, $2, $3, $4, $5)
 ON CONFLICT (name) WHERE user_id IS NULL DO UPDATE
 SET base_profile = EXCLUDED.base_profile,
     sport_types  = EXCLUDED.sport_types,
@@ -199,10 +200,10 @@ SET base_profile = EXCLUDED.base_profile,
     source       = EXCLUDED.source,
     updated_at   = now()
 RETURNING id, user_id, name, base_profile, sport_types, config, source, created_at, updated_at`,
-		name, baseProfile, sportTypes, config,
+		name, baseProfile, sportTypes, config, source,
 	))
 	if err != nil {
-		return nil, fmt.Errorf("upsert filesystem profile %q: %w", name, err)
+		return nil, fmt.Errorf("upsert global profile %q: %w", name, err)
 	}
 	return p, nil
 }

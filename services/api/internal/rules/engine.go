@@ -503,6 +503,25 @@ func compareFloat(actual, want float64, op string) bool {
 	return false
 }
 
+// ParsedBranch is a pre-parsed branch structure with typed ConditionGroups.
+type ParsedBranch struct {
+	Type            string           `json:"type"`
+	ConditionGroups []ConditionGroup `json:"condition_groups"`
+	Actions         json.RawMessage  `json:"actions"`
+}
+
+// ParseBranches deserializes a branches JSON blob. Returns nil on error or empty input.
+func ParseBranches(raw json.RawMessage) []ParsedBranch {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var branches []ParsedBranch
+	if err := json.Unmarshal(raw, &branches); err != nil {
+		return nil
+	}
+	return branches
+}
+
 // actionParams is the consolidated struct for all action parameter fields.
 // A single Unmarshal covers all action types, eliminating repeated per-case allocations.
 type actionParams struct {

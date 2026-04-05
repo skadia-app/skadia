@@ -11,14 +11,28 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
+// privacyZoneSelectCols is the canonical SELECT column list for user_privacy_zones.
+// Returns id, user_id, name, lat, lng, radius_m, color, is_active, created_at,
+// zone_type, polygon_geojson (NULL when zone_type != 'polygon').
+const privacyZoneSelectCols = `id, user_id, name,
+	ST_Y(center) AS lat, ST_X(center) AS lng,
+	radius_m, color, is_active, created_at,
+	zone_type,
+	CASE WHEN polygon IS NOT NULL THEN ST_AsGeoJSON(polygon) ELSE NULL END AS polygon_geojson`
+
+// scanPrivacyZone scans a single row (from QueryRow or Rows) into a PrivacyZone.
+func scanPrivacyZone(row pgx.Row) (model.PrivacyZone, error) {
+	var z model.PrivacyZone
+	err := row.Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng,
+		&z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt, &z.ZoneType,
+		&z.Polygon)
+	return z, err
+}
+
 // ListPrivacyZones returns all private zones for a user.
 func (db *DB) ListPrivacyZones(ctx context.Context, userID string) ([]model.PrivacyZone, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, user_id, name,
-			ST_Y(center) AS lat, ST_X(center) AS lng,
-			radius_m, color, is_active, created_at,
-			zone_type,
-			CASE WHEN polygon IS NOT NULL THEN ST_AsGeoJSON(polygon) ELSE NULL END AS polygon_geojson
+		SELECT `+privacyZoneSelectCols+`
 		FROM user_privacy_zones
 		WHERE user_id = $1
 		ORDER BY created_at`,
@@ -31,8 +45,8 @@ func (db *DB) ListPrivacyZones(ctx context.Context, userID string) ([]model.Priv
 
 	var zones []model.PrivacyZone
 	for rows.Next() {
-		var z model.PrivacyZone
-		if err := rows.Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt, &z.ZoneType, &z.Polygon); err != nil {
+		z, err := scanPrivacyZone(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan privacy zone: %w", err)
 		}
 		zones = append(zones, z)
@@ -52,27 +66,19 @@ func (db *DB) CreatePrivacyZone(ctx context.Context, userID, name string, lat, l
 	var z model.PrivacyZone
 	var err error
 	if zoneType == "polygon" && polygonGeoJSON != nil {
-		err = db.Pool.QueryRow(ctx, `
+		z, err = scanPrivacyZone(db.Pool.QueryRow(ctx, `
 			INSERT INTO user_privacy_zones (user_id, name, center, radius_m, color, zone_type, polygon)
 			VALUES ($1, $2, ST_SetSRID(ST_MakePoint($4, $3), 4326), $5, $6, 'polygon', ST_GeomFromGeoJSON($7))
-			RETURNING id, user_id, name,
-				ST_Y(center) AS lat, ST_X(center) AS lng,
-				radius_m, color, is_active, created_at,
-				zone_type,
-				ST_AsGeoJSON(polygon) AS polygon_geojson`,
+			RETURNING `+privacyZoneSelectCols,
 			userID, name, lat, lng, radiusM, color, *polygonGeoJSON,
-		).Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt, &z.ZoneType, &z.Polygon)
+		))
 	} else {
-		err = db.Pool.QueryRow(ctx, `
+		z, err = scanPrivacyZone(db.Pool.QueryRow(ctx, `
 			INSERT INTO user_privacy_zones (user_id, name, center, radius_m, color, zone_type)
 			VALUES ($1, $2, ST_SetSRID(ST_MakePoint($4, $3), 4326), $5, $6, 'circle')
-			RETURNING id, user_id, name,
-				ST_Y(center) AS lat, ST_X(center) AS lng,
-				radius_m, color, is_active, created_at,
-				zone_type,
-				NULL AS polygon_geojson`,
+			RETURNING `+privacyZoneSelectCols,
 			userID, name, lat, lng, radiusM, color,
-		).Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt, &z.ZoneType, &z.Polygon)
+		))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("create privacy zone: %w", err)
@@ -130,18 +136,11 @@ func (db *DB) UpdatePrivacyZone(ctx context.Context, zoneID, userID string, upda
 	query := fmt.Sprintf(`
 		UPDATE user_privacy_zones SET %s
 		WHERE id = $1 AND user_id = $2
-		RETURNING id, user_id, name,
-			ST_Y(center) AS lat, ST_X(center) AS lng,
-			radius_m, color, is_active, created_at,
-			zone_type,
-			CASE WHEN polygon IS NOT NULL THEN ST_AsGeoJSON(polygon) ELSE NULL END AS polygon_geojson`,
+		RETURNING `+privacyZoneSelectCols,
 		strings.Join(sets, ", "),
 	)
 
-	var z model.PrivacyZone
-	err := db.Pool.QueryRow(ctx, query, args...).Scan(
-		&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt, &z.ZoneType, &z.Polygon,
-	)
+	z, err := scanPrivacyZone(db.Pool.QueryRow(ctx, query, args...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -152,17 +151,12 @@ func (db *DB) UpdatePrivacyZone(ctx context.Context, zoneID, userID string, upda
 }
 
 func (db *DB) getPrivacyZone(ctx context.Context, zoneID, userID string) (*model.PrivacyZone, error) {
-	var z model.PrivacyZone
-	err := db.Pool.QueryRow(ctx, `
-		SELECT id, user_id, name,
-			ST_Y(center) AS lat, ST_X(center) AS lng,
-			radius_m, color, is_active, created_at,
-			zone_type,
-			CASE WHEN polygon IS NOT NULL THEN ST_AsGeoJSON(polygon) ELSE NULL END AS polygon_geojson
+	z, err := scanPrivacyZone(db.Pool.QueryRow(ctx, `
+		SELECT `+privacyZoneSelectCols+`
 		FROM user_privacy_zones
 		WHERE id = $1 AND user_id = $2`,
 		zoneID, userID,
-	).Scan(&z.ID, &z.UserID, &z.Name, &z.Lat, &z.Lng, &z.RadiusM, &z.Color, &z.IsActive, &z.CreatedAt, &z.ZoneType, &z.Polygon)
+	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -271,4 +265,26 @@ func (db *DB) GetPrivacyZoneCenter(ctx context.Context, zoneID, userID string) (
 		FROM user_privacy_zones WHERE id = $1 AND user_id = $2`,
 		zoneID, userID).Scan(&coords[0], &coords[1])
 	return coords, err
+}
+
+// GetPrivacyZoneCenters returns centers for multiple zones as map[zoneID][lat, lon].
+func (db *DB) GetPrivacyZoneCenters(ctx context.Context, zoneIDs []string, userID string) (map[string][2]float64, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, ST_Y(center), ST_X(center)
+		FROM user_privacy_zones WHERE id = ANY($1) AND user_id = $2`,
+		zoneIDs, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string][2]float64, len(zoneIDs))
+	for rows.Next() {
+		var id string
+		var coords [2]float64
+		if err := rows.Scan(&id, &coords[0], &coords[1]); err != nil {
+			return nil, err
+		}
+		result[id] = coords
+	}
+	return result, rows.Err()
 }
