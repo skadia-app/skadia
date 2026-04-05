@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { getUserProfile, updateUserProfile } from '@/api/settings'
 import type { UserProfile } from '@/api/types'
+import { fetchTrainingZones } from '@/api/trainingZones'
+import ZoneEditorCard from '@/components/zones/ZoneEditor'
 
 export default function PhysiologicalProfilePage() {
   const queryClient = useQueryClient()
@@ -11,6 +13,20 @@ export default function PhysiologicalProfilePage() {
     queryKey: ['user-profile'],
     queryFn: getUserProfile,
   })
+
+  const { data: zonesData, isLoading: zonesLoading } = useQuery({
+    queryKey: ['training-zones'],
+    queryFn: fetchTrainingZones,
+  })
+
+  const [activeSportTab, setActiveSportTab] = useState<number | null>(null)
+
+  // Set first sport as default tab once data arrives
+  useEffect(() => {
+    if (zonesData?.sports?.length && activeSportTab === null) {
+      setActiveSportTab(zonesData.sports[0].sport)
+    }
+  }, [zonesData, activeSportTab])
 
   const [profileForm, setProfileForm] = useState<Partial<UserProfile>>({})
 
@@ -185,6 +201,56 @@ export default function PhysiologicalProfilePage() {
             {profileMutation.isPending ? 'Speichern...' : 'Profil speichern'}
           </button>
         </div>
+      </div>
+
+      {/* Training Zones */}
+      <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-5">
+        <div>
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Training Zones</h2>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+            Sport-specific heart rate, power and speed zones. Imported automatically from FIT files or editable manually.
+          </p>
+        </div>
+
+        {zonesLoading && (
+          <div className="text-sm text-neutral-500 dark:text-neutral-400 py-2">Loading zones...</div>
+        )}
+
+        {!zonesLoading && (!zonesData?.sports || zonesData.sports.length === 0) && (
+          <div className="text-sm text-neutral-500 dark:text-neutral-400 py-2">
+            No training zones found. Import a FIT file that contains zone data to populate this section.
+          </div>
+        )}
+
+        {!zonesLoading && zonesData && zonesData.sports.length > 0 && (
+          <>
+            {/* Sport tabs */}
+            <div className="flex flex-wrap gap-1 border-b border-neutral-200 dark:border-neutral-700 pb-0">
+              {zonesData.sports.map(s => (
+                <button
+                  key={s.sport}
+                  type="button"
+                  onClick={() => setActiveSportTab(s.sport)}
+                  className={[
+                    'px-3 py-2 text-sm font-medium rounded-t-lg border-b-2 -mb-px transition-colors',
+                    activeSportTab === s.sport
+                      ? 'border-accent-DEFAULT text-accent-DEFAULT dark:text-accent-400'
+                      : 'border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200',
+                  ].join(' ')}
+                >
+                  {s.sport_label}
+                </button>
+              ))}
+            </div>
+
+            {/* Active sport zone editor */}
+            {zonesData.sports
+              .filter(s => s.sport === activeSportTab)
+              .map(s => (
+                <ZoneEditorCard key={s.sport} sportZones={s} />
+              ))}
+          </>
+        )}
       </div>
     </div>
   )
