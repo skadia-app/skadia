@@ -14,7 +14,9 @@ func TestDetermineSportGroup(t *testing.T) {
 	}{
 		// ── Running ──
 		{name: "running outdoor", sportType: "running", want: "running"},
-		{name: "trail running", sportType: "trail_running", want: "running"},
+		{name: "trail running", sportType: "trail_running", want: "running_trail"},
+		{name: "trail running indoor overrides trail", sportType: "trail_running", isIndoor: true, want: "running_indoor"},   // Indoor > Trail
+		{name: "trail running virtual overrides trail", sportType: "trail_running", isVirtual: true, want: "running_virtual"}, // Virtual > Trail
 		{name: "treadmill via isIndoor", sportType: "running", isIndoor: true, want: "running_indoor"},
 		{name: "virtual run via isVirtual", sportType: "running", isVirtual: true, want: "running_virtual"},
 		{name: "virtual run overrides indoor", sportType: "running", isIndoor: true, isVirtual: true, want: "running_virtual"},
@@ -38,6 +40,8 @@ func TestDetermineSportGroup(t *testing.T) {
 		{name: "cycling electric", sportType: "cycling", isElectric: true, want: "cycling_electric"},
 		{name: "cycling virtual", sportType: "cycling", isVirtual: true, want: "cycling_virtual"},
 		{name: "virtual overrides electric", sportType: "cycling", isVirtual: true, isElectric: true, want: "cycling_virtual"},
+		{name: "indoor cycling is cycling_virtual", sportType: "cycling", isIndoor: true, want: "cycling_virtual"},
+		{name: "indoor cycling electric is cycling_virtual", sportType: "cycling", isIndoor: true, isElectric: true, want: "cycling_virtual"}, // Indoor > Electric
 
 		// ── Swimming ──
 		{name: "lap_swimming sport type", sportType: "lap_swimming", want: "swim_pool"},
