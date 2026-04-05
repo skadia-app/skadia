@@ -13,7 +13,6 @@ from nats.js.api import ConsumerConfig, DeliverPolicy, AckPolicy
 from db import get_pool
 from progress import publish_progress
 from enrichment import (
-    enrich_commute,
     enrich_lifts,
 )
 from enrichment.document_vlm import convert_to_markdown, process_document, upload_to_s3
@@ -87,7 +86,6 @@ async def _decode_or_ack(msg, label: str) -> "dict | None":
 # Mapping of NATS subjects to enrichment functions
 HIGH_PRIORITY_STEPS = [
     ("lifts", enrich_lifts),
-    ("commute", enrich_commute),
 ]
 
 NORMAL_PRIORITY_STEPS = []

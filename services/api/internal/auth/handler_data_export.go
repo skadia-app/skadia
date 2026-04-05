@@ -298,12 +298,6 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 		        radius_m, is_active, created_at
 		 FROM user_privacy_zones WHERE user_id = $1`, userID)
 
-	// Commute clusters
-	queryAndExport(ctx, zw, h.DB.Pool, "commute_clusters.json",
-		`SELECT id, cluster_label, ST_Y(center) AS lat, ST_X(center) AS lng,
-		        radius_m, point_count, created_at
-		 FROM commute_clusters WHERE user_id = $1`, userID)
-
 	// Heatmap lines (metadata — geometry exported as GeoJSON text)
 	queryAndExport(ctx, zw, h.DB.Pool, "heatmap_lines.json",
 		`SELECT id, activity_id, sport_type, activity_date,
@@ -515,7 +509,7 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 			"activity_lengths", "activity_climb_pro_events",
 			"activity_events", "activity_sets", "activity_detected_laps",
 			"activity_tags", "activity_photos",
-			"user_privacy_zones", "commute_clusters", "heatmap_lines",
+			"user_privacy_zones", "heatmap_lines",
 			"pmc_daily", "custom_maps", "custom_map_markers",
 			"automation_rules", "notifications", "import_log",
 			"user_enrichment_settings", "ml_user_settings", "user_file_schemas",

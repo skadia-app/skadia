@@ -508,7 +508,6 @@ type EnrichmentSettings struct {
 	EnableWeatherEnrichment bool    `json:"enable_weather_enrichment"`
 	EnableStopDetection     bool    `json:"enable_stop_detection"`
 	EnableAscentDetection   bool    `json:"enable_ascent_detection"`
-	EnableCommuteDetection  bool    `json:"enable_commute_detection"`
 	EnableAutoNaming        bool    `json:"enable_auto_naming"`
 	EnableLapDetection      bool    `json:"enable_lap_detection"`
 	ClimbMinGradientPct     float64 `json:"climb_min_gradient_pct"`
@@ -562,7 +561,6 @@ func (s *EnrichmentSettings) EnabledModules() []string {
 		{"summits", s.EnableSummitDetection},
 		{"lifts", s.EnableLiftDetection},
 		{"settlements", s.EnableSettlementDetection},
-		{"commute", s.EnableCommuteDetection},
 		{"borders", s.EnableBorderDetection},
 		{"water", s.EnableWaterDetection},
 		{"forests", s.EnableForestDetection},
