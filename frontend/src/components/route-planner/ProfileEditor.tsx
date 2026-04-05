@@ -22,6 +22,8 @@ type HighwayCostKey = keyof Pick<
   | 'track_grade1_cost'
   | 'track_grade2_cost'
   | 'track_grade3_cost'
+  | 'track_grade4_cost'
+  | 'track_grade5_cost'
   | 'footway_cost'
   | 'cycleway_cost'
   | 'bridleway_cost'
@@ -48,6 +50,8 @@ const HIGHWAY_COST_DEFS: HighwayCostDef[] = [
   { key: 'track_grade1_cost', label: 'Track Grade 1', group: 'trails' },
   { key: 'track_grade2_cost', label: 'Track Grade 2', group: 'trails' },
   { key: 'track_grade3_cost', label: 'Track Grade 3', group: 'trails' },
+  { key: 'track_grade4_cost', label: 'Track Grade 4', group: 'trails' },
+  { key: 'track_grade5_cost', label: 'Track Grade 5', group: 'trails' },
   { key: 'footway_cost', label: 'Footway', group: 'trails' },
   { key: 'bridleway_cost', label: 'Bridleway', group: 'trails' },
   { key: 'pedestrian_cost', label: 'Pedestrian', group: 'trails' },

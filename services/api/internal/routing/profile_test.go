@@ -1,11 +1,52 @@
 package routing
 
 import (
+	"fmt"
 	"math"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
+
+func findProjectRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		if info, err := os.Stat(filepath.Join(dir, "config", "badrouter")); err == nil && info.IsDir() {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// TestMain loads built-in profiles before running any tests in the routing package.
+// All tests in this package depend on profiles (DefaultCostConfig, BuiltinProfile, etc.).
+func TestMain(m *testing.M) {
+	root := findProjectRoot()
+	if root == "" {
+		fmt.Fprintln(os.Stderr, "FATAL: could not find project root (config/badrouter/ not found)")
+		os.Exit(1)
+	}
+	n, err := LoadBuiltinProfiles(filepath.Join(root, "config", "badrouter"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: LoadBuiltinProfiles: %v\n", err)
+		os.Exit(1)
+	}
+	if n == 0 {
+		fmt.Fprintln(os.Stderr, "FATAL: no profiles loaded from config/badrouter/")
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
+}
 
 // --- Helper: build a minimal graph for edge cost tests ---
 
@@ -419,7 +460,11 @@ func TestMergeProfile_HighwayCostOverride(t *testing.T) {
 		TrackGrade1Cost: new(float32(0.8)),
 	}
 
-	merged := mergeProfile(builtinProfiles["gravel"], override)
+	base, err := BuiltinProfile("gravel")
+	if err != nil {
+		t.Fatalf("BuiltinProfile(gravel): %v", err)
+	}
+	merged := MergeProfile(base, override)
 
 	if merged.PrimaryCost == nil || *merged.PrimaryCost != 2.0 {
 		t.Errorf("PrimaryCost = %v, want 2.0", merged.PrimaryCost)
@@ -427,8 +472,9 @@ func TestMergeProfile_HighwayCostOverride(t *testing.T) {
 	if merged.CyclewayCost == nil || *merged.CyclewayCost != 1.5 {
 		t.Errorf("CyclewayCost = %v, want 1.5", merged.CyclewayCost)
 	}
-	if merged.PathCost != nil {
-		t.Errorf("PathCost should be nil (not overridden), got %v", *merged.PathCost)
+	// PathCost should remain at base value (1.6 from gravel.json), not overridden
+	if merged.PathCost == nil || *merged.PathCost != *base.PathCost {
+		t.Errorf("PathCost should be base value %v, got %v", base.PathCost, merged.PathCost)
 	}
 }
 
@@ -502,5 +548,150 @@ func TestEdgeCost_TrafficPenalty(t *testing.T) {
 	// trafficWeight=0.6, class 6 → 6/6 * 0.6 = 0.6
 	if diff < 0.4 || diff > 0.8 {
 		t.Errorf("traffic penalty diff = %f, expected ~0.6", diff)
+	}
+}
+
+// --- Loader tests ---
+
+func saveAndRestoreBuiltins(t *testing.T) {
+	t.Helper()
+	saved := loadedBuiltins.Load()
+	t.Cleanup(func() { loadedBuiltins.Store(saved) })
+}
+
+func TestLoadBuiltinProfiles_FromConfig(t *testing.T) {
+	// TestMain already loaded profiles — verify they're all there
+	for _, name := range ValidProfileNames {
+		p, err := BuiltinProfile(name)
+		if err != nil {
+			t.Errorf("BuiltinProfile(%q): %v", name, err)
+			continue
+		}
+		if p.Profile != name {
+			t.Errorf("BuiltinProfile(%q).Profile = %q", name, p.Profile)
+		}
+		if p.Pass0Coefficient == nil {
+			t.Errorf("BuiltinProfile(%q).Pass0Coefficient is nil", name)
+		}
+		if p.UphillCost == nil {
+			t.Errorf("BuiltinProfile(%q).UphillCost is nil", name)
+		}
+		if p.AllowSteps == nil {
+			t.Errorf("BuiltinProfile(%q).AllowSteps is nil", name)
+		}
+		if p.Name == "" {
+			t.Errorf("BuiltinProfile(%q).Name is empty", name)
+		}
+		if len(p.SportTypes) == 0 {
+			t.Errorf("BuiltinProfile(%q).SportTypes is empty", name)
+		}
+	}
+}
+
+func TestLoadBuiltinProfiles_TempDirOverride(t *testing.T) {
+	saveAndRestoreBuiltins(t)
+
+	dir := t.TempDir()
+	override := `{
+		"profile": "hiking", "name": "Test Hiking",
+		"sport_types": ["hiking"],
+		"uphill_cost": 99, "downhill_cost": 7,
+		"uphill_cutoff_pct": 3, "downhill_cutoff_pct": 3,
+		"elev_penalty_buffer_m": 5, "elev_max_buffer_m": 10, "elev_buffer_reduce": 0.01,
+		"allow_steps": true, "turn_cost": 0, "pass0_coefficient": 2.5
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "hiking.json"), []byte(override), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := LoadBuiltinProfiles(dir)
+	if err != nil {
+		t.Fatalf("LoadBuiltinProfiles: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1, got %d", n)
+	}
+
+	p, err := BuiltinProfile("hiking")
+	if err != nil {
+		t.Fatalf("BuiltinProfile: %v", err)
+	}
+	if p.UphillCost == nil || *p.UphillCost != 99 {
+		t.Errorf("UphillCost = %v, want 99", p.UphillCost)
+	}
+	if p.Name != "Test Hiking" {
+		t.Errorf("Name = %q, want 'Test Hiking'", p.Name)
+	}
+}
+
+func TestLoadBuiltinProfiles_EmptyDir(t *testing.T) {
+	saveAndRestoreBuiltins(t)
+	n, err := LoadBuiltinProfiles(t.TempDir())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("expected 0, got %d", n)
+	}
+	_, err = BuiltinProfile("hiking")
+	if err == nil {
+		t.Error("expected error for unknown profile in empty map")
+	}
+	if err != nil && strings.Contains(err.Error(), "not loaded") {
+		t.Errorf("expected 'unknown profile' error, got 'not loaded': %v", err)
+	}
+}
+
+func TestLoadBuiltinProfiles_ProfileMismatch(t *testing.T) {
+	saveAndRestoreBuiltins(t)
+	dir := t.TempDir()
+	// Filename is mtb.json but content says profile="hiking"
+	bad := `{"profile":"hiking","uphill_cost":0,"downhill_cost":0,"uphill_cutoff_pct":1.5,"downhill_cutoff_pct":1.5,"elev_penalty_buffer_m":5,"elev_max_buffer_m":10,"elev_buffer_reduce":0,"allow_steps":false,"turn_cost":30,"pass0_coefficient":1.5}`
+	os.WriteFile(filepath.Join(dir, "mtb.json"), []byte(bad), 0o644)
+
+	n, err := LoadBuiltinProfiles(dir)
+	if n != 0 {
+		t.Fatalf("expected 0 (mismatch), got %d", n)
+	}
+	if err == nil {
+		t.Error("expected aggregated error")
+	}
+}
+
+func TestLoadBuiltinProfiles_IncompleteProfile(t *testing.T) {
+	saveAndRestoreBuiltins(t)
+	dir := t.TempDir()
+	// Missing most required fields
+	incomplete := `{"profile":"hiking","uphill_cost":7,"downhill_cost":7}`
+	os.WriteFile(filepath.Join(dir, "hiking.json"), []byte(incomplete), 0o644)
+
+	n, err := LoadBuiltinProfiles(dir)
+	if n != 0 {
+		t.Fatalf("expected 0, got %d", n)
+	}
+	if err == nil {
+		t.Error("expected error for incomplete profile")
+	}
+}
+
+func TestBuiltinProfile_NotLoaded(t *testing.T) {
+	saveAndRestoreBuiltins(t)
+	loadedBuiltins.Store(nil)
+
+	_, err := BuiltinProfile("hiking")
+	if err == nil || !strings.Contains(err.Error(), "not loaded") {
+		t.Errorf("expected 'not loaded' error, got: %v", err)
+	}
+}
+
+func TestDefaultSportTypes(t *testing.T) {
+	if st := DefaultSportTypes("hiking"); len(st) == 0 {
+		t.Error("hiking should have sport types")
+	}
+	if st := DefaultSportTypes("mtb"); len(st) == 0 {
+		t.Error("mtb should have sport types")
+	}
+	if st := DefaultSportTypes("unknown"); len(st) != 0 {
+		t.Errorf("unknown should have empty sport types, got %v", st)
 	}
 }

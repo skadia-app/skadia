@@ -162,6 +162,8 @@ func ValidateProfileConfig(p ProfileConfig) error {
 		{"track_grade1_cost", p.TrackGrade1Cost},
 		{"track_grade2_cost", p.TrackGrade2Cost},
 		{"track_grade3_cost", p.TrackGrade3Cost},
+		{"track_grade4_cost", p.TrackGrade4Cost},
+		{"track_grade5_cost", p.TrackGrade5Cost},
 		{"footway_cost", p.FootwayCost},
 		{"cycleway_cost", p.CyclewayCost},
 		{"bridleway_cost", p.BridlewayCost},

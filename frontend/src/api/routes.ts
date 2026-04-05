@@ -325,6 +325,8 @@ export interface ProfileDefaultsResponse {
   track_grade1_cost: number | null
   track_grade2_cost: number | null
   track_grade3_cost: number | null
+  track_grade4_cost: number | null
+  track_grade5_cost: number | null
   footway_cost: number | null
   cycleway_cost: number | null
   bridleway_cost: number | null

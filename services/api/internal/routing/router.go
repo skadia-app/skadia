@@ -595,7 +595,7 @@ func (r *UnifiedRouter) routeLegPass1(ctx context.Context,
 // where the route actually starts/ends on the graph.
 func (r *UnifiedRouter) addApproach(result *RouteResult, srcVE, dstVE *VirtualEndpoint,
 	cfg *CostConfig, includeFrom, includeTo bool) {
-	snapThreshold := float64(30)
+	snapThreshold := float64(100)
 	if cfg.SnapThresholdM > 0 {
 		snapThreshold = float64(cfg.SnapThresholdM)
 	}
