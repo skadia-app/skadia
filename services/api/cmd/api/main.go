@@ -413,6 +413,7 @@ func main() {
 	// (it references handler methods), so we set it below.
 	importSvc := importer.NewService(db, store, pub, nil)
 	importSvc.PMC = pmcService
+	importSvc.BestEfforts = bestEffortsService
 
 	h := &handler.Handler{
 		DB:             db,
