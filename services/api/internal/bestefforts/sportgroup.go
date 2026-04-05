@@ -24,10 +24,16 @@ func DetermineSportGroup(sportType, subType string, isIndoor, isVirtual, isElect
 		if isIndoor {
 			return "running_indoor"
 		}
+		if sportType == "trail_running" {
+			return "running_trail"
+		}
 		return "running"
 
 	case "bike":
 		if isVirtual {
+			return "cycling_virtual"
+		}
+		if isIndoor {
 			return "cycling_virtual"
 		}
 		if isElectric {
