@@ -13,6 +13,7 @@ import {
   fetchOSMRegions,
   buildCoverageGrids,
   triggerOSMRegionUpdate,
+  batchUpdateAllRegions,
   type OSMImportRegion,
 } from '@/api/osm'
 import { useToast } from '@/lib/toast'
@@ -125,6 +126,17 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
     },
   })
 
+  const batchUpdateMut = useMutation({
+    mutationFn: () => batchUpdateAllRegions(false),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['osm-regions-status'] })
+      addToast({ type: 'info', title: 'Batch-Update gestartet' })
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Batch-Update konnte nicht gestartet werden', duration: 0 })
+    },
+  })
+
   const { jobs } = useActiveJobs()
   const activeOsmJob = jobs.find((j) => j.job_type === 'osm_import' && j.status === 'running')
   const activeEnrichmentJob = jobs.find((j) => j.job_type === 'osm_enrichment' && j.status === 'running')
@@ -133,6 +145,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
   const activeBrouterDl = jobs.find(j => j.job_type === 'brouter_segment_download' && j.status === 'running')
   const activeCoverageBuild = jobs.find(j => j.job_type === 'coverage_build' && j.status === 'running')
   const activeOsmUpdate = jobs.find(j => j.job_type === 'osm_update' && j.status === 'running')
+  const activeBatchUpdate = jobs.find(j => j.job_type === 'osm_update_all' && j.status === 'running')
 
   const [updateTarget, setUpdateTarget] = useState<OSMImportRegion | null>(null)
 
@@ -214,6 +227,17 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
         </p>
       ) : (
         <div className="overflow-x-auto">
+          {importedRegions.length > 0 && importedRegions.some(r => r.replication_url) && (
+            <div className="flex justify-end mb-3">
+              <button
+                onClick={() => batchUpdateMut.mutate()}
+                disabled={!!activeOsmJob || !!activeOsmUpdate || !!activeBatchUpdate || batchUpdateMut.isPending}
+                className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {activeBatchUpdate ? 'Batch-Update läuft…' : 'Alle Regionen aktualisieren'}
+              </button>
+            </div>
+          )}
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 text-xs">
