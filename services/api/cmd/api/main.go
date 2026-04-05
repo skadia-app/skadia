@@ -1121,6 +1121,7 @@ func main() {
 				r.Get("/stress", h.GetHealthStress)
 				r.Get("/spo2", h.GetHealthSpO2)
 				r.Get("/blood-pressure", h.GetHealthBloodPressure)
+				r.Post("/blood-pressure", h.CreateHealthBloodPressure)
 				r.Get("/fitness-age", h.GetHealthFitnessAge)
 				r.Get("/overview", h.GetHealthOverview)
 				r.Get("/monitoring", h.GetHealthMonitoring)
