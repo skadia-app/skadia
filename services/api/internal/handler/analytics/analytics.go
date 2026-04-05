@@ -40,6 +40,7 @@ func (h *Handler) Routes() chi.Router {
 	r.Get("/sleep", h.GetSleep)
 	r.Get("/weight", h.GetWeight)
 	r.Get("/health-metrics", h.GetHealthMetrics)
+	r.Get("/activity-glucose", h.GetActivityGlucose)
 
 	// Stats Tab
 	r.Get("/lifetime-stats", h.GetLifetimeStats)

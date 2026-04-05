@@ -10,6 +10,7 @@ import BloodPressureChart from '@/components/analytics/health/BloodPressureChart
 import FitnessAgeChart from '@/components/analytics/health/FitnessAgeChart'
 import HRVCorrelationChart from '@/components/analytics/health/HRVCorrelationChart'
 import HRVExtendedPanel from '@/components/analytics/HRVExtendedPanel'
+import GlucoseChart from '@/components/analytics/health/GlucoseChart'
 
 // ── Recovery Score colours ────────────────────────────────────────────────────
 
@@ -197,6 +198,9 @@ export default function HealthTab() {
 
       {/* SpO2 — full width */}
       <SpO2Chart />
+
+      {/* Glucose — full width, only rendered when user has glucose data */}
+      <GlucoseChart />
 
       {/* Blood Pressure — full width */}
       <BloodPressureChart />

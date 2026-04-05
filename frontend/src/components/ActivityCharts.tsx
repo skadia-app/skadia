@@ -25,6 +25,7 @@ import type { StreamPoint, ActivityEvent, DeveloperFieldInfo } from '@/api/types
 import { fetchDeveloperFields } from '@/api/activities'
 import { CHART_TAB } from '@/components/activity/ChartTabs'
 import { DiveDecoPanel } from '@/components/activity/DiveDecoPanel'
+import { GlucoseChartPanel } from '@/components/activity/GlucoseChartPanel'
 import { findClosestIdx } from '@/lib/utils'
 import { re3GradeAdjustedSpeed } from '@/lib/re3'
 
@@ -91,6 +92,7 @@ function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
     case CHART_TAB.ausdauer: return ['potentialStamina', 'staminaCurrent']
     case CHART_TAB.barometer: return ['pressure']
     case CHART_TAB.deko: return ['depth', 'decoTimeSeries']
+    case CHART_TAB.glucose: return []
     case CHART_TAB.developerFields: return []
     default: return null
   }
@@ -976,7 +978,8 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   }
 
   const metaById = new Map(panelMetas.map(m => [m.id, m]))
-  if (panelMap.size === 0 && !showDekoPanel && !showDeveloperFieldsPanel) return null
+  const hasGlucoseData = streams.some(s => s.glucose_mg_dl != null)
+  if (panelMap.size === 0 && !showDekoPanel && !showDeveloperFieldsPanel && !hasGlucoseData) return null
 
   return (
     <div className="space-y-3">
@@ -1099,6 +1102,10 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
 
       {(activeTab === CHART_TAB.deko || activeTab === CHART_TAB.alles) && activityId && streams.some(s => s.ndl_time_s != null || s.cns_load_pct != null) && (
         <DiveDecoPanel activityId={activityId} streams={streams} />
+      )}
+
+      {(activeTab === CHART_TAB.glucose || activeTab === CHART_TAB.alles) && (
+        <GlucoseChartPanel streams={streams} />
       )}
 
       <p className="text-xs text-neutral-400 dark:text-neutral-600">

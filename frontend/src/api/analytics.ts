@@ -487,6 +487,19 @@ export async function fetchHealthFitnessAge(from: string, to: string): Promise<H
   return apiClient(`/health/fitness-age?${params}`)
 }
 
+// === Glucose Analytics Types ===
+
+export interface ActivityGlucosePoint {
+  activity_id: string
+  started_at: string
+  avg_glucose: number
+}
+
+export async function fetchActivityGlucose(from: string, to: string): Promise<ActivityGlucosePoint[]> {
+  const params = new URLSearchParams({ from, to }).toString()
+  return apiClient(`/analytics/activity-glucose?${params}`)
+}
+
 // === Running Form Types ===
 
 export interface RunningFormBaseline {
