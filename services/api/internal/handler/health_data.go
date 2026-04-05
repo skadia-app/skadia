@@ -168,11 +168,9 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "weight_g must be positive", r.URL.Path)
 			return
 		}
-		ts, err := time.Parse("2006-01-02", req.Date)
-		if err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid date format, use YYYY-MM-DD", r.URL.Path)
-			return
-		}
+		// Same RFC3339-first logic as blood_pressure: morning/evening weigh-ins are
+		// valid and must not overwrite each other via ON CONFLICT (user_id, measured_at_utc).
+		ts := parseDateOrRFC3339(req.Date)
 		entry := &model.HealthWeightEntry{
 			UserID:        userID,
 			MeasuredAtUTC: ts,
@@ -421,6 +419,22 @@ func (h *Handler) GetHealthBloodPressure(w http.ResponseWriter, r *http.Request)
 }
 func (h *Handler) GetHealthFitnessAge(w http.ResponseWriter, r *http.Request) {
 	healthListHandler(h, h.DB.GetHealthFitnessAge, false, "health fitness age")(w, r)
+}
+
+// parseDateOrRFC3339 parses s as RFC3339 first (preserving the time component),
+// then falls back to date-only (YYYY-MM-DD) combined with the current wall-clock
+// time. This prevents same-day measurements from colliding on midnight UTC when
+// the table has ON CONFLICT (user_id, measured_at_utc).
+func parseDateOrRFC3339(s string) time.Time {
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.UTC()
+	}
+	now := time.Now().UTC()
+	if dateOnly, err := time.Parse("2006-01-02", s); err == nil {
+		return time.Date(dateOnly.Year(), dateOnly.Month(), dateOnly.Day(),
+			now.Hour(), now.Minute(), now.Second(), 0, time.UTC)
+	}
+	return now
 }
 
 // GET /health/overview
