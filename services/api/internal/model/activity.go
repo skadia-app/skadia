@@ -92,6 +92,12 @@ type Activity struct {
 	// Manually assigned location from a location tag (independent of GPS start_lat/start_lng).
 	LocationLat *float64 `json:"location_lat,omitempty"`
 	LocationLng *float64 `json:"location_lng,omitempty"`
+	// start_lat/start_lon = GPS start point (auto-detected from track)
+	// Not to be confused with location_lat/location_lng which is the manually assigned location tag.
+	StartLat *float64 `json:"start_lat,omitempty"`
+	StartLon *float64 `json:"start_lon,omitempty"`
+	EndLat   *float64 `json:"end_lat,omitempty"`
+	EndLon   *float64 `json:"end_lon,omitempty"`
 	// Lift statistics (aggregated from confirmed lift candidates).
 	LiftCount              *int     `json:"lift_count,omitempty"`
 	LiftDistanceM          *float64 `json:"lift_distance_m,omitempty"`

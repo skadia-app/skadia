@@ -131,6 +131,11 @@ export interface Activity {
   // Manually assigned location from a location tag (independent of GPS start_lat/start_lng).
   location_lat?: number | null
   location_lng?: number | null
+  // GPS start/end point (auto-detected from track).
+  start_lat?: number | null
+  start_lon?: number | null
+  end_lat?: number | null
+  end_lon?: number | null
   has_edits?: boolean
   edits_applied_at?: string | null
   lift_count?: number | null
