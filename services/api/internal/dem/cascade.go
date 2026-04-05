@@ -31,9 +31,9 @@ func (c HGTCell) FileName() string {
 	return fmt.Sprintf("%c%02d%c%03d.hgt", latPrefix, latAbs, lonPrefix, lonAbs)
 }
 
-// hgtCellsForBBox returns all 1°×1° HGT cells that a bounding box overlaps.
+// HGTCellsForBBox returns all 1°×1° HGT cells that a bounding box overlaps.
 // bbox = [minLat, minLon, maxLat, maxLon].
-func hgtCellsForBBox(bbox [4]float64) []HGTCell {
+func HGTCellsForBBox(bbox [4]float64) []HGTCell {
 	minLat := int(math.Floor(bbox[0]))
 	minLon := int(math.Floor(bbox[1]))
 	maxLat := int(math.Floor(bbox[2]))
@@ -81,7 +81,7 @@ func (m *MultiHGTReader) Close() {
 // order (e.g., ["data/dem/sonny-05", "data/dem/sonny-1", "data/dem/glo30"]).
 func NewReaderForTile(hgtDirs []string, tileID uint32) (Reader, error) {
 	bbox := tileBBoxExpanded(tileID)
-	cells := hgtCellsForBBox(bbox)
+	cells := HGTCellsForBBox(bbox)
 
 	var grids []*HGTGrid
 	for _, cell := range cells {

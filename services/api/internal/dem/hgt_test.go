@@ -34,7 +34,7 @@ func TestMultiHGTReader_TwoGrids(t *testing.T) {
 func TestHGTCellsForBBox(t *testing.T) {
 	// BBox spanning a tile corner: 46.98-48.02, 7.98-9.02
 	bbox := [4]float64{46.98, 7.98, 48.02, 9.02}
-	cells := hgtCellsForBBox(bbox)
+	cells := HGTCellsForBBox(bbox)
 
 	// floor(46.98)=46..floor(48.02)=48, floor(7.98)=7..floor(9.02)=9
 	// = 3 lat × 3 lon = 9 cells
