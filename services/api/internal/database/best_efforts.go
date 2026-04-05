@@ -839,6 +839,80 @@ func (db *DB) GetEffortPercentiles(ctx context.Context, activityID, userID strin
 	return result, rows.Err()
 }
 
+// PRHistoryEntry is a single row in the PR progression timeline for a given
+// (user, category, sport_group) triple, ordered chronologically.
+// Rank is the all-time performance rank at that point in history (window
+// function over the full eligible pool, not incremental).
+type PRHistoryEntry struct {
+	ActivityID   string    `json:"activity_id"`
+	AchievedAt   time.Time `json:"achieved_at"`
+	ElapsedTimeS *float64  `json:"elapsed_time_s,omitempty"`
+	ValueNumeric *float64  `json:"value_numeric,omitempty"`
+	Rank         int       `json:"rank"`
+}
+
+// GetPRHistory returns up to 200 best effort rows for the given
+// (userID, category, sportGroup) triple, ordered chronologically by
+// activity start time. Each row includes an all-time performance rank
+// computed via a window function over the full eligible pool.
+//
+// Eligibility guards match GetBestEffortsForActivity:
+//   - NOT COALESCE(a.exclude_from_stats, false)
+//   - NOT COALESCE(a.is_group_secondary, false)
+//   - No active best_effort_exclusions for (user, activity, category OR '__all__')
+func (db *DB) GetPRHistory(ctx context.Context, userID, category, sportGroup string) ([]PRHistoryEntry, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT be.activity_id,
+		        a.started_at AS achieved_at,
+		        be.elapsed_time_s::double precision,
+		        be.value_numeric,
+		        ROW_NUMBER() OVER (
+		            ORDER BY
+		                CASE WHEN be.elapsed_time_s IS NOT NULL THEN be.elapsed_time_s END ASC NULLS LAST,
+		                CASE WHEN be.value_numeric  IS NOT NULL THEN be.value_numeric  END DESC NULLS LAST
+		        ) AS rank
+		 FROM best_efforts be
+		 JOIN activities a ON a.id = be.activity_id
+		 WHERE be.user_id    = $1
+		   AND be.category   = $2
+		   AND be.sport_group = $3
+		   AND NOT COALESCE(a.exclude_from_stats, false)
+		   AND NOT COALESCE(a.is_group_secondary, false)
+		   AND NOT EXISTS (
+		       SELECT 1 FROM best_effort_exclusions exc
+		       WHERE exc.user_id     = be.user_id
+		         AND exc.activity_id = be.activity_id
+		         AND (exc.category   = '__all__' OR exc.category = be.category)
+		   )
+		 ORDER BY a.started_at ASC
+		 LIMIT 200`,
+		userID, category, sportGroup,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get pr history: %w", err)
+	}
+	defer rows.Close()
+
+	var results []PRHistoryEntry
+	for rows.Next() {
+		var e PRHistoryEntry
+		if err := rows.Scan(
+			&e.ActivityID,
+			&e.AchievedAt,
+			&e.ElapsedTimeS,
+			&e.ValueNumeric,
+			&e.Rank,
+		); err != nil {
+			return nil, fmt.Errorf("scan pr history entry: %w", err)
+		}
+		results = append(results, e)
+	}
+	if results == nil {
+		results = []PRHistoryEntry{}
+	}
+	return results, rows.Err()
+}
+
 // scanBestEffortRanked is a shared helper that drains pgx rows into a slice of
 // BestEffortRanked values. The caller is responsible for closing rows.
 func scanBestEffortRanked(rows pgx.Rows) ([]BestEffortRanked, error) {

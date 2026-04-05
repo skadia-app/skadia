@@ -885,6 +885,7 @@ func main() {
 
 			// Best Efforts
 			r.Get("/personal-records", h.GetBestEffortRecords)
+			r.Get("/personal-records/history", h.GetPRHistory)
 			r.Get("/best-effort-exclusions", h.GetBestEffortExclusions)
 			r.Post("/best-effort-exclusions", h.AddBestEffortExclusion)
 			r.Delete("/best-effort-exclusions/{activityID}/{category}", h.RemoveBestEffortExclusion)
