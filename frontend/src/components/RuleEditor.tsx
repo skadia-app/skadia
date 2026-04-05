@@ -880,6 +880,7 @@ function ConditionRow({
   const safeCat = currentCat ?? CONDITION_CATEGORIES[0]
   const safeField = currentField ?? safeCat.fields[0]
   const ops = opsForField(safeField)
+  const isGeofence = safeField.inputType === 'geofence'
 
   function handleCategoryChange(catKey: string) {
     const cat = CONDITION_CATEGORIES.find(c => c.key === catKey) ?? CONDITION_CATEGORIES[0]
@@ -894,100 +895,62 @@ function ConditionRow({
     onUpdate({ field: fd.field, op: fieldOps[0], value: fd.inputType === 'bool' ? true : '' })
   }
 
-  // Geofence field needs a two-row layout: selectors + remove on top, map below
-  if (safeField.inputType === 'geofence') {
-    return (
-      <div className="space-y-2">
-        <div className="flex items-center gap-2 flex-wrap">
+  return (
+    <div className={isGeofence ? 'space-y-2' : 'flex items-center gap-2 flex-wrap'}>
+      {/* Selectors row — always flex */}
+      <div className={isGeofence ? 'flex items-center gap-2 flex-wrap' : 'contents'}>
+        {/* Category selector */}
+        <select
+          value={safeCat.key}
+          onChange={(e) => handleCategoryChange(e.target.value)}
+          className={inputClass}
+        >
+          {CONDITION_CATEGORIES.map(cat => (
+            <option key={cat.key} value={cat.key}>{cat.label}</option>
+          ))}
+        </select>
+
+        {/* Sub-field selector (only when category has > 1 field) */}
+        {safeCat.fields.length > 1 && (
           <select
-            value={safeCat.key}
-            onChange={(e) => handleCategoryChange(e.target.value)}
+            value={cond.field}
+            onChange={(e) => handleFieldChange(e.target.value)}
             className={inputClass}
           >
-            {CONDITION_CATEGORIES.map(cat => (
-              <option key={cat.key} value={cat.key}>{cat.label}</option>
+            {safeCat.fields.map(f => (
+              <option key={f.field} value={f.field}>{f.label}</option>
             ))}
           </select>
-          {safeCat.fields.length > 1 && (
-            <select
-              value={cond.field}
-              onChange={(e) => handleFieldChange(e.target.value)}
-              className={inputClass}
-            >
-              {safeCat.fields.map(f => (
-                <option key={f.field} value={f.field}>{f.label}</option>
-              ))}
-            </select>
-          )}
-          <button
-            type="button"
-            onClick={onRemove}
-            className="text-neutral-400 hover:text-rose-500 transition-colors flex-shrink-0 cursor-pointer ml-auto"
-            title="Bedingung entfernen"
+        )}
+
+        {/* Operator selector (non-geofence only — geofence has no operator) */}
+        {!isGeofence && ops.length > 1 && (
+          <select
+            value={cond.op}
+            onChange={(e) => onUpdate({ op: e.target.value })}
+            className={inputClass}
           >
-            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-          </button>
-        </div>
-        <ConditionValueEditor fieldDef={safeField} cond={cond} onChange={onUpdate} tags={tags} recorders={recorders} sensors={sensors} />
+            {ops.map(op => (
+              <option key={op} value={op}>{OP_LABELS[op] ?? op}</option>
+            ))}
+          </select>
+        )}
+
+        {/* Remove button */}
+        <button
+          type="button"
+          onClick={onRemove}
+          className={`text-neutral-400 hover:text-rose-500 transition-colors flex-shrink-0 cursor-pointer${isGeofence ? ' ml-auto' : ''}`}
+          title="Bedingung entfernen"
+        >
+          <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+          </svg>
+        </button>
       </div>
-    )
-  }
 
-  return (
-    <div className="flex items-center gap-2 flex-wrap">
-      {/* Category selector */}
-      <select
-        value={safeCat.key}
-        onChange={(e) => handleCategoryChange(e.target.value)}
-        className={inputClass}
-      >
-        {CONDITION_CATEGORIES.map(cat => (
-          <option key={cat.key} value={cat.key}>{cat.label}</option>
-        ))}
-      </select>
-
-      {/* Sub-field selector (only when category has > 1 field) */}
-      {safeCat.fields.length > 1 && (
-        <select
-          value={cond.field}
-          onChange={(e) => handleFieldChange(e.target.value)}
-          className={inputClass}
-        >
-          {safeCat.fields.map(f => (
-            <option key={f.field} value={f.field}>{f.label}</option>
-          ))}
-        </select>
-      )}
-
-      {/* Operator selector */}
-      {ops.length > 1 && (
-        <select
-          value={cond.op}
-          onChange={(e) => onUpdate({ op: e.target.value })}
-          className={inputClass}
-        >
-          {ops.map(op => (
-            <option key={op} value={op}>{OP_LABELS[op] ?? op}</option>
-          ))}
-        </select>
-      )}
-
-      {/* Value editor */}
+      {/* Value editor — inline for normal fields, second row for geofence */}
       <ConditionValueEditor fieldDef={safeField} cond={cond} onChange={onUpdate} tags={tags} recorders={recorders} sensors={sensors} />
-
-      {/* Remove button */}
-      <button
-        type="button"
-        onClick={onRemove}
-        className="text-neutral-400 hover:text-rose-500 transition-colors flex-shrink-0 cursor-pointer"
-        title="Bedingung entfernen"
-      >
-        <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-        </svg>
-      </button>
     </div>
   )
 }
