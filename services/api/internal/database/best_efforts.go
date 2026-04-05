@@ -87,9 +87,11 @@ type BestEffort struct {
 }
 
 // BestEffortRanked is a BestEffort with a rank within the user's sport group and category.
+// Percentile is optionally populated by GetEffortPercentiles (omitted when < 5 efforts exist).
 type BestEffortRanked struct {
 	BestEffort
-	Rank int `json:"rank"`
+	Rank       int      `json:"rank"`
+	Percentile *float64 `json:"percentile,omitempty"`
 }
 
 // UpsertBestEffort inserts or updates a best effort record.
@@ -758,6 +760,83 @@ func (db *DB) GetNearMisses(ctx context.Context, activityID, userID string) ([]N
 		results = []NearMiss{}
 	}
 	return results, rows.Err()
+}
+
+// GetEffortPercentiles computes the PERCENT_RANK for each best effort belonging
+// to activityID within the user's full eligible pool (same eligibility guards as
+// GetBestEffortsForActivity). Categories with fewer than 5 eligible efforts are
+// omitted — the percentile is not meaningful with too small a sample.
+//
+// Returns map[category+":"+sport_group]percentile (0.0 = worst, 1.0 = best).
+// For time-based efforts lower is better, for value-based higher is better;
+// PERCENT_RANK is inverted so that 1.0 always means "best in pool".
+func (db *DB) GetEffortPercentiles(ctx context.Context, activityID, userID string) (map[string]float64, error) {
+	rows, err := db.Pool.Query(ctx,
+		`WITH eligible AS (
+		    SELECT
+		        be.category,
+		        be.sport_group,
+		        be.activity_id,
+		        be.elapsed_time_s,
+		        be.value_numeric
+		    FROM best_efforts be
+		    JOIN activities a ON a.id = be.activity_id
+		    WHERE be.user_id = $1
+		      AND (be.elapsed_time_s IS NOT NULL OR be.value_numeric IS NOT NULL)
+		      AND NOT COALESCE(a.exclude_from_stats, false)
+		      AND NOT COALESCE(a.is_group_secondary, false)
+		      AND NOT EXISTS (
+		          SELECT 1 FROM best_effort_exclusions ex
+		          WHERE ex.user_id     = be.user_id
+		            AND ex.activity_id = be.activity_id
+		            AND (ex.category   = '__all__' OR ex.category = be.category)
+		      )
+		),
+		counts AS (
+		    SELECT category, sport_group, COUNT(*) AS cnt
+		    FROM eligible
+		    GROUP BY category, sport_group
+		),
+		ranked AS (
+		    SELECT
+		        e.category,
+		        e.sport_group,
+		        e.activity_id,
+		        -- PERCENT_RANK: 0.0 = worst rank, 1.0 = best rank.
+		        -- For time-based (lower elapsed = better) we order ASC, which
+		        -- gives rank 0 to the slowest; we invert with (1 - pct_rank).
+		        -- For value-based (higher value = better) we order DESC, which
+		        -- gives rank 0 to the lowest; we invert with (1 - pct_rank).
+		        1.0 - PERCENT_RANK() OVER (
+		            PARTITION BY e.category, e.sport_group
+		            ORDER BY
+		                CASE WHEN e.elapsed_time_s IS NOT NULL THEN e.elapsed_time_s END ASC  NULLS LAST,
+		                CASE WHEN e.value_numeric  IS NOT NULL THEN e.value_numeric  END DESC NULLS LAST
+		        ) AS pct_rank
+		    FROM eligible e
+		)
+		SELECT r.category, r.sport_group, r.pct_rank
+		FROM ranked r
+		JOIN counts c ON c.category = r.category AND c.sport_group = r.sport_group
+		WHERE r.activity_id = $2
+		  AND c.cnt >= 5`,
+		userID, activityID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get effort percentiles: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]float64)
+	for rows.Next() {
+		var category, sportGroup string
+		var pctRank float64
+		if err := rows.Scan(&category, &sportGroup, &pctRank); err != nil {
+			return nil, fmt.Errorf("scan effort percentile: %w", err)
+		}
+		result[category+":"+sportGroup] = pctRank
+	}
+	return result, rows.Err()
 }
 
 // scanBestEffortRanked is a shared helper that drains pgx rows into a slice of
