@@ -81,9 +81,9 @@ export function HighlightBanner({ records }: HighlightBannerProps) {
           to={`/activities/${card.activityId}`}
           className={`rounded-xl bg-gradient-to-br ${card.gradient} border p-3 hover:brightness-110 transition-all`}
         >
-          <div className="text-[10px] font-medium mb-1 opacity-80">{card.label}</div>
+          <div className="text-[10px] font-medium mb-1 text-neutral-600 dark:text-neutral-400">{card.label}</div>
           <div className="text-lg font-bold">{card.value}</div>
-          <div className="text-[10px] text-neutral-500">{card.sub}</div>
+          <div className="text-[10px] text-neutral-500 dark:text-neutral-400">{card.sub}</div>
         </Link>
       ))}
     </div>

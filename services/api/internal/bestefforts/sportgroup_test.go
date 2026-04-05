@@ -36,7 +36,7 @@ func TestDetermineSportGroup(t *testing.T) {
 		{name: "cycling outdoor", sportType: "cycling", want: "cycling"},
 		{name: "mountain biking", sportType: "mountain_biking", want: "cycling"},
 		{name: "gravel cycling", sportType: "gravel_cycling", want: "cycling"},
-		{name: "indoor cycling", sportType: "indoor_cycling", want: "cycling"},
+		{name: "indoor cycling", sportType: "indoor_cycling", want: "cycling"}, // indoor_cycling sport type without isIndoor flag → falls back to cycling
 		{name: "cycling electric", sportType: "cycling", isElectric: true, want: "cycling_electric"},
 		{name: "cycling virtual", sportType: "cycling", isVirtual: true, want: "cycling_virtual"},
 		{name: "virtual overrides electric", sportType: "cycling", isVirtual: true, isElectric: true, want: "cycling_virtual"},
