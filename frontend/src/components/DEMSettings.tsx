@@ -29,8 +29,7 @@ export function DEMSettings() {
 
   // HGT coverage: how many 1°×1° tiles are present on disk for the tile builder
   const hgtPresent = data?.regions?.reduce((s, r) => s + r.tiles_present, 0) ?? 0
-  const hgtNeeded = data?.regions?.reduce((s, r) => s + r.tiles_needed, 0) ?? 0
-  const incompleteRegions = data?.regions?.filter(r => !r.complete).map(r => r.id) ?? []
+  const hasImportedRegions = (data?.regions?.length ?? 0) > 0
 
   return (
     <div className="space-y-3">
@@ -39,23 +38,22 @@ export function DEMSettings() {
         <div>
           <p className="text-sm text-neutral-700 dark:text-neutral-300">
             <span className="font-medium">{hgtPresent.toLocaleString()}</span>
-            {hgtNeeded > 0 && <span className="text-neutral-500 dark:text-neutral-400">/{hgtNeeded.toLocaleString()}</span>}
             {' '}HGT-Kacheln vorhanden
             <span className="text-neutral-400 ml-1">(GLO-30, 30m)</span>
           </p>
-          {incompleteRegions.length > 0 && (
+          {hasImportedRegions && hgtPresent === 0 && (
             <p className="text-xs text-amber-500 mt-0.5">
-              {incompleteRegions.join(', ')} — Kacheln fehlen
+              Keine DEM-Daten vorhanden — für Routing-Tiles erforderlich
             </p>
           )}
         </div>
-        {data?.regions && data.regions.length > 0 && (data?.missing_tiles ?? 0) > 0 && (
+        {hasImportedRegions && (
           <button
             onClick={() => demDownloadMut.mutate()}
             disabled={!!activeDEMJob || demDownloadMut.isPending}
             className="cursor-pointer text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
           >
-            {activeDEMJob ? 'Download läuft…' : 'Fehlende Kacheln herunterladen'}
+            {activeDEMJob ? 'Download läuft…' : 'DEM-Kacheln herunterladen'}
           </button>
         )}
       </div>
