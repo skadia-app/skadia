@@ -770,7 +770,9 @@ func (h *Handler) BatchUpdateAllRegions(w http.ResponseWriter, r *http.Request) 
 
 	var req struct {
 		RebuildTiles bool `json:"rebuild_tiles"`
+		UseMerge     bool `json:"use_merge"` // true = osmium merge (correct borders, needs temp disk space); false = per-region (less disk)
 	}
+	req.UseMerge = true // default: merge for correct border handling
 	json.NewDecoder(r.Body).Decode(&req)
 
 	// Comprehensive guards — no concurrent OSM/routing jobs
@@ -812,14 +814,15 @@ func (h *Handler) BatchUpdateAllRegions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	useMerge := req.UseMerge
 	shutdown.Go(jobID, func(ctx context.Context) {
-		h.runBatchUpdate(ctx, jobID, targets, req.RebuildTiles)
+		h.runBatchUpdate(ctx, jobID, targets, req.RebuildTiles, useMerge)
 	})
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
-func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []patchTarget, rebuildTiles bool) {
+func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []patchTarget, rebuildTiles, useMerge bool) {
 	reporter := &jobReporter{db: h.DB, jobID: jobID}
 
 	// Phase 1: Patch all PBFs
@@ -864,10 +867,7 @@ func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []pa
 		return
 	}
 
-	// Phase 2: Per-region reimport
-	// NOTE: V1 uses per-region RunPerRegion (no osmium merge). This means border-ways
-	// may fragment. Full merge requires refactoring RunPerRegion to accept a pre-merged
-	// PBF path — planned as follow-up.
+	// Phase 2: Reimport
 	reporter.SetPhase("import")
 	dataDir := os.Getenv("OSM_DATA_DIR")
 	if dataDir == "" {
@@ -891,17 +891,34 @@ func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []pa
 	if len(categories) == 0 {
 		categories = allCategoryIDs()
 	}
+	config := osmregions.PipelineConfig{Categories: categories}
 
-	for _, t := range patchedRegions {
-		if ctx.Err() != nil {
-			break
+	if useMerge {
+		// Merged import: osmium filter+merge → single osm2pgsql → per-region clear+merge
+		// Produces correct border-way handling. Needs temp disk space for merged PBF.
+		var pbfPaths []string
+		var regionIDs []string
+		for _, t := range patchedRegions {
+			pbfPaths = append(pbfPaths, t.PBFPath)
+			regionIDs = append(regionIDs, t.RegionID)
 		}
-		reg, ok := osmregions.RegionByID(t.RegionID)
-		if !ok {
-			continue
+		if !pipeline.RunMergedImport(ctx, pbfPaths, regionIDs, config, reporter) {
+			slog.Error("batch update: merged import failed")
+			h.DB.CompleteBackgroundJob(ctx, jobID, true, "Merged import failed")
+			return
 		}
-		config := osmregions.PipelineConfig{Categories: categories}
-		pipeline.RunPerRegion(ctx, reg, config, reporter)
+	} else {
+		// Per-region import: each region imported individually (less disk space, no merge)
+		for _, t := range patchedRegions {
+			if ctx.Err() != nil {
+				break
+			}
+			reg, ok := osmregions.RegionByID(t.RegionID)
+			if !ok {
+				continue
+			}
+			pipeline.RunPerRegion(ctx, reg, config, reporter)
+		}
 	}
 
 	// Phase 3: Update sequence numbers + timestamps

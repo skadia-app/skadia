@@ -191,9 +191,9 @@ export async function downloadDEM(regions?: string[]): Promise<{ job_id: string 
 }
 
 // Batch update
-export async function batchUpdateAllRegions(rebuildTiles?: boolean): Promise<{ job_id: string }> {
+export async function batchUpdateAllRegions(rebuildTiles?: boolean, useMerge?: boolean): Promise<{ job_id: string }> {
   return apiClient<{ job_id: string }>('/admin/osm-regions/update-all', {
     method: 'POST',
-    body: { rebuild_tiles: rebuildTiles ?? false },
+    body: { rebuild_tiles: rebuildTiles ?? false, use_merge: useMerge ?? true },
   })
 }
