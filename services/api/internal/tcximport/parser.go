@@ -75,14 +75,29 @@ type tcxCreator struct {
 }
 
 type tcxLap struct {
-	StartTime        string           `xml:"StartTime,attr"`
-	TotalTimeSeconds float64          `xml:"TotalTimeSeconds"`
-	DistanceMeters   float64          `xml:"DistanceMeters"`
-	Calories         xmlFlexIntLarge  `xml:"Calories"`
-	AvgHR            *tcxHRVal        `xml:"AverageHeartRateBpm"`
-	MaxHR            *tcxHRVal        `xml:"MaximumHeartRateBpm"`
-	AvgCadence       *xmlFlexInt      `xml:"Cadence"`
-	Track            []tcxTrack       `xml:"Track"`
+	StartTime        string          `xml:"StartTime,attr"`
+	TotalTimeSeconds float64         `xml:"TotalTimeSeconds"`
+	DistanceMeters   float64         `xml:"DistanceMeters"`
+	MaximumSpeed     *float64        `xml:"MaximumSpeed"`
+	Calories         xmlFlexIntLarge `xml:"Calories"`
+	AvgHR            *tcxHRVal       `xml:"AverageHeartRateBpm"`
+	MaxHR            *tcxHRVal       `xml:"MaximumHeartRateBpm"`
+	AvgCadence       *xmlFlexInt     `xml:"Cadence"`
+	Track            []tcxTrack      `xml:"Track"`
+	Extensions       *tcxLapExt      `xml:"Extensions"`
+}
+
+type tcxLapExt struct {
+	LX *tcxLX `xml:"LX"`
+}
+
+type tcxLX struct {
+	AvgSpeed   *float64    `xml:"AvgSpeed"`
+	AvgWatts   *xmlFlexInt `xml:"AvgWatts"`
+	MaxWatts   *xmlFlexInt `xml:"MaxWatts"`
+	MaxBikeCad *xmlFlexInt `xml:"MaxBikeCadence"`
+	AvgRunCad  *xmlFlexInt `xml:"AvgRunCadence"`
+	MaxRunCad  *xmlFlexInt `xml:"MaxRunCadence"`
 }
 
 type tcxTrack struct {
@@ -208,6 +223,29 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 		}
 		if lap.AvgCadence != nil {
 			l.AvgCadence = int(*lap.AvgCadence)
+		}
+		if lap.MaximumSpeed != nil {
+			l.MaxSpeedMS = *lap.MaximumSpeed
+		}
+		if lap.Extensions != nil && lap.Extensions.LX != nil {
+			lx := lap.Extensions.LX
+			if lx.AvgWatts != nil {
+				l.AvgPowerW = int(*lx.AvgWatts)
+			}
+			if lx.MaxWatts != nil {
+				l.MaxPowerW = int(*lx.MaxWatts)
+			}
+			if lx.MaxBikeCad != nil {
+				l.MaxCadence = int(*lx.MaxBikeCad)
+			}
+			if lx.AvgRunCad != nil {
+				l.AvgCadence = int(*lx.AvgRunCad)
+			}
+			if lx.MaxRunCad != nil {
+				l.MaxCadence = int(*lx.MaxRunCad)
+			} else if lx.MaxBikeCad != nil {
+				l.MaxCadence = int(*lx.MaxBikeCad)
+			}
 		}
 		data.Laps = append(data.Laps, l)
 

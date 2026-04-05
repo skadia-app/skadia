@@ -51,6 +51,61 @@ func TestParseTCX_FloatInIntegerFields(t *testing.T) {
 	}
 }
 
+func TestParseTCX_LapExtensions(t *testing.T) {
+	tcxData := `<?xml version="1.0"?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"
+  xmlns:ns3="http://www.garmin.com/xmlschemas/ActivityExtension/v2">
+  <Activities>
+    <Activity Sport="Biking">
+      <Id>2025-06-01T08:00:00Z</Id>
+      <Creator><Name>Garmin Edge 1040</Name></Creator>
+      <Lap StartTime="2025-06-01T08:00:00Z">
+        <TotalTimeSeconds>3600</TotalTimeSeconds>
+        <DistanceMeters>30000</DistanceMeters>
+        <Calories>800</Calories>
+        <MaximumSpeed>12.5</MaximumSpeed>
+        <AverageHeartRateBpm><Value>145</Value></AverageHeartRateBpm>
+        <MaximumHeartRateBpm><Value>178</Value></MaximumHeartRateBpm>
+        <Track>
+          <Trackpoint><Time>2025-06-01T08:00:00Z</Time></Trackpoint>
+          <Trackpoint><Time>2025-06-01T09:00:00Z</Time></Trackpoint>
+        </Track>
+        <Extensions>
+          <ns3:LX>
+            <ns3:AvgWatts>200</ns3:AvgWatts>
+            <ns3:MaxWatts>350</ns3:MaxWatts>
+            <ns3:MaxBikeCadence>95</ns3:MaxBikeCadence>
+          </ns3:LX>
+        </Extensions>
+      </Lap>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>`
+
+	data, err := ParseTCX(strings.NewReader(tcxData), "garmin_extensions.tcx")
+	if err != nil {
+		t.Fatalf("ParseTCX failed: %v", err)
+	}
+
+	if len(data.Laps) != 1 {
+		t.Fatalf("Laps = %d, want 1", len(data.Laps))
+	}
+	lap := data.Laps[0]
+
+	if lap.MaxSpeedMS != 12.5 {
+		t.Errorf("MaxSpeedMS = %v, want 12.5", lap.MaxSpeedMS)
+	}
+	if lap.AvgPowerW != 200 {
+		t.Errorf("AvgPowerW = %d, want 200", lap.AvgPowerW)
+	}
+	if lap.MaxPowerW != 350 {
+		t.Errorf("MaxPowerW = %d, want 350", lap.MaxPowerW)
+	}
+	if lap.MaxCadence != 95 {
+		t.Errorf("MaxCadence = %d, want 95", lap.MaxCadence)
+	}
+}
+
 func TestParseTCX_LapsExtracted(t *testing.T) {
 	tcxData := `<?xml version="1.0"?>
 <TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
