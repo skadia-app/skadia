@@ -883,6 +883,10 @@ func main() {
 			r.Get("/activities/{id}/health-context", h.GetActivityHealthContext)
 			r.Get("/activities/{id}/best-efforts", h.GetActivityBestEfforts)
 
+			// Training Zones
+			r.Get("/training-zones", h.GetTrainingZonesAll)
+			r.Put("/training-zones", h.UpdateTrainingZones)
+
 			// Best Efforts
 			r.Get("/personal-records", h.GetBestEffortRecords)
 			r.Get("/personal-records/history", h.GetPRHistory)
