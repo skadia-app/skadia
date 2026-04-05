@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, type CSSProperties } from 'react'
+
+const COMMUTE_RADIUS_M = 200
 import { haversineM } from '@/lib/geoUtils'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useClickOutside } from '@/hooks/useClickOutside'
@@ -92,7 +94,7 @@ export default function TagsBadges({ tags, activityId, isVirtual, commuteContext
           commuteContext.startLat, commuteContext.startLon,
           commuteContext.endLat, commuteContext.endLon
         )
-        if (startEndDist > 200) {
+        if (startEndDist > COMMUTE_RADIUS_M) {
           setShowCommuteModal(true)
           setCommuteRoundTrip(false)
         } else {
