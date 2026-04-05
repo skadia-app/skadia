@@ -77,7 +77,11 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
     queryKey: ['dem-region-status'],
     queryFn: getDEMRegionStatus,
   })
-  const hasDEM = (demStatus?.total_tiles ?? 0) > 0 || (demStatus?.regions?.some(r => r.tiles_present > 0) ?? false)
+  // Check if ALL selected regions have complete DEM coverage (not just any region globally)
+  const hasDEM = selectedRegions.length > 0 && selectedRegions.every(id => {
+    const reg = demStatus?.regions?.find(r => r.id === id)
+    return reg != null && reg.complete
+  })
 
   const tilesDisabled = !runEnrichment || (!hasDEM && !downloadDEM)
   const tilesDisabledReason = !runEnrichment
@@ -144,10 +148,12 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
     }, 0)
     const demTiles = (() => {
       if (demStatus?.regions && demStatus.regions.length > 0) {
-        return demStatus.regions
-          .filter(r => selectedRegions.includes(r.id))
-          .reduce((sum, r) => sum + Math.max(0, r.tiles_needed - r.tiles_present), 0)
+        const matched = demStatus.regions.filter(r => selectedRegions.includes(r.id))
+        if (matched.length > 0) {
+          return matched.reduce((sum, r) => sum + Math.max(0, r.tiles_needed - r.tiles_present), 0)
+        }
       }
+      // Fallback estimate for regions not yet in DEM status (not imported yet)
       return Math.max(1, Math.round(pbfMB / 25))
     })()
     const demMB = downloadDEM ? demTiles * 25 : 0
