@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trash2, Database, XCircle, ChevronDown, RefreshCw, AlertTriangle, Sparkles, Layers, Route, Grid3x3, ArrowDownToLine } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   fetchOSMRegionStatus,
   fetchOSMDiskUsage,
@@ -19,23 +19,10 @@ import {
 import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useModal } from '@/lib/modal'
+import { fmtBytes, fmtDateCompact } from '@/lib/format'
 import OSMImportModal from '@/components/OSMImportModal'
 import RegionSelector from '@/components/RegionSelector'
 import PipelinePanel from '@/components/PipelinePanel'
-
-function formatBytes(bytes: number | null): string {
-  if (!bytes) return '—'
-  if (bytes > 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
-  return `${(bytes / 1024 / 1024).toFixed(0)} MB`
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('de-AT', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  })
-}
 
 export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
   const qc = useQueryClient()
@@ -48,12 +35,6 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
     queryFn: fetchOSMRegionStatus,
     refetchInterval: (query) =>
       query.state.data?.regions?.some((r) => r.status === 'importing') ? 5000 : false,
-  })
-
-  const { data: diskData } = useQuery({
-    queryKey: ['osm-disk-usage'],
-    queryFn: fetchOSMDiskUsage,
-    refetchInterval: 30000,
   })
 
   const deleteMutation = useMutation({
@@ -89,31 +70,19 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
     queryFn: fetchOSMRegions,
   })
 
-  const enrichMut = useMutation({
-    mutationFn: (regions: string[]) => retryOSMEnrichment(regions),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['active-jobs'] }); addToast({ type: 'info', title: 'Enrichment gestartet' }) },
-    onError: () => { addToast({ type: 'error', title: 'Enrichment konnte nicht gestartet werden', duration: 0 }) },
-  })
-  const tilesMut = useMutation({
-    mutationFn: (regions: string[]) => rebuildTiles({ regions, force: true }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['active-jobs'] }); addToast({ type: 'info', title: 'Tile-Build gestartet' }) },
-    onError: () => { addToast({ type: 'error', title: 'Tile-Build konnte nicht gestartet werden', duration: 0 }) },
-  })
-  const brouterLocalMut = useMutation({
-    mutationFn: (regions: string[]) => buildBRouterSegments(regions),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['active-jobs'] }); addToast({ type: 'info', title: 'BRouter-Build gestartet' }) },
-    onError: () => { addToast({ type: 'error', title: 'BRouter-Build konnte nicht gestartet werden', duration: 0 }) },
-  })
-  const brouterDlMut = useMutation({
-    mutationFn: (regions: string[]) => downloadBRouterSegments(regions),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['active-jobs'] }); addToast({ type: 'info', title: 'BRouter-Download gestartet' }) },
-    onError: () => { addToast({ type: 'error', title: 'BRouter-Download konnte nicht gestartet werden', duration: 0 }) },
-  })
-  const coverageMut = useMutation({
-    mutationFn: (regions: string[]) => buildCoverageGrids(regions),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['active-jobs'] }); addToast({ type: 'info', title: 'Coverage-Build gestartet' }) },
-    onError: () => { addToast({ type: 'error', title: 'Coverage-Build konnte nicht gestartet werden', duration: 0 }) },
-  })
+  function mutOpts<TArgs>(fn: (args: TArgs) => Promise<unknown>, successTitle: string, errorTitle: string) {
+    return {
+      mutationFn: fn,
+      onSuccess: () => { qc.invalidateQueries({ queryKey: ['active-jobs'] }); addToast({ type: 'info' as const, title: successTitle }) },
+      onError: () => { addToast({ type: 'error' as const, title: errorTitle, duration: 0 }) },
+    }
+  }
+
+  const enrichMut = useMutation(mutOpts((regions: string[]) => retryOSMEnrichment(regions), 'Enrichment gestartet', 'Enrichment konnte nicht gestartet werden'))
+  const tilesMut = useMutation(mutOpts((regions: string[]) => rebuildTiles({ regions, force: true }), 'Tile-Build gestartet', 'Tile-Build konnte nicht gestartet werden'))
+  const brouterLocalMut = useMutation(mutOpts((regions: string[]) => buildBRouterSegments(regions), 'BRouter-Build gestartet', 'BRouter-Build konnte nicht gestartet werden'))
+  const brouterDlMut = useMutation(mutOpts((regions: string[]) => downloadBRouterSegments(regions), 'BRouter-Download gestartet', 'BRouter-Download konnte nicht gestartet werden'))
+  const coverageMut = useMutation(mutOpts((regions: string[]) => buildCoverageGrids(regions), 'Coverage-Build gestartet', 'Coverage-Build konnte nicht gestartet werden'))
 
   const updateMut = useMutation({
     mutationFn: (regionID: string) => triggerOSMRegionUpdate(regionID),
@@ -138,14 +107,27 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
   })
 
   const { jobs } = useActiveJobs()
-  const activeOsmJob = jobs.find((j) => j.job_type === 'osm_import' && j.status === 'running')
-  const activeEnrichmentJob = jobs.find((j) => j.job_type === 'osm_enrichment' && j.status === 'running')
-  const activeTileBuild = jobs.find(j => j.job_type === 'tile_build' && j.status === 'running')
-  const activeBrouterBuild = jobs.find(j => j.job_type === 'brouter_segment_build' && j.status === 'running')
-  const activeBrouterDl = jobs.find(j => j.job_type === 'brouter_segment_download' && j.status === 'running')
-  const activeCoverageBuild = jobs.find(j => j.job_type === 'coverage_build' && j.status === 'running')
-  const activeOsmUpdate = jobs.find(j => j.job_type === 'osm_update' && j.status === 'running')
-  const activeBatchUpdate = jobs.find(j => j.job_type === 'osm_update_all' && j.status === 'running')
+  const activeJobs = useMemo(() => {
+    const map = new Map<string, typeof jobs[0]>()
+    for (const j of jobs) {
+      if (j.status === 'running') map.set(j.job_type, j)
+    }
+    return map
+  }, [jobs])
+  const activeOsmJob = activeJobs.get('osm_import')
+  const activeEnrichmentJob = activeJobs.get('osm_enrichment')
+  const activeTileBuild = activeJobs.get('tile_build')
+  const activeBrouterBuild = activeJobs.get('brouter_segment_build')
+  const activeBrouterDl = activeJobs.get('brouter_segment_download')
+  const activeCoverageBuild = activeJobs.get('coverage_build')
+  const activeOsmUpdate = activeJobs.get('osm_update')
+  const activeBatchUpdate = activeJobs.get('osm_update_all')
+
+  const { data: diskData } = useQuery({
+    queryKey: ['osm-disk-usage'],
+    queryFn: fetchOSMDiskUsage,
+    refetchInterval: activeJobs.size > 0 ? 30000 : false,
+  })
 
   const [updateTarget, setUpdateTarget] = useState<OSMImportRegion | null>(null)
 
@@ -198,7 +180,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
             className="cursor-pointer flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
           >
             <Database className="w-3 h-3" />
-            {formatBytes(diskData.total_bytes)} OSM-Daten
+            {fmtBytes(diskData.total_bytes)} OSM-Daten
             <ChevronDown
               className={`w-3 h-3 transition-transform ${diskExpanded ? 'rotate-180' : ''}`}
             />
@@ -211,12 +193,12 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
           {diskData.tables.map((t) => (
             <div key={t.tablename} className="flex justify-between">
               <span className="text-neutral-500 dark:text-neutral-400 font-mono">{t.tablename}</span>
-              <span className="text-neutral-700 dark:text-neutral-300">{formatBytes(t.total_bytes)}</span>
+              <span className="text-neutral-700 dark:text-neutral-300">{fmtBytes(t.total_bytes)}</span>
             </div>
           ))}
           <div className="flex justify-between border-t border-neutral-200 dark:border-neutral-700 pt-1 mt-1 font-medium">
             <span className="text-neutral-600 dark:text-neutral-300">Gesamt</span>
-            <span className="text-neutral-800 dark:text-neutral-200">{formatBytes(diskData.total_bytes)}</span>
+            <span className="text-neutral-800 dark:text-neutral-200">{fmtBytes(diskData.total_bytes)}</span>
           </div>
         </div>
       )}
@@ -231,8 +213,22 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
             <div className="flex justify-end mb-3">
               <button
                 onClick={() => {
-                  const rebuild = window.confirm('Sollen nach dem Update auch Routing-Tiles neu gebaut werden?')
-                  batchUpdateMut.mutate(rebuild)
+                  openModal({
+                    title: 'Routing-Tiles neu bauen?',
+                    message: 'Sollen nach dem Update auch Routing-Tiles neu gebaut werden?',
+                    buttons: [
+                      {
+                        label: 'Nein',
+                        variant: 'default',
+                        onClick: () => batchUpdateMut.mutate(false),
+                      },
+                      {
+                        label: 'Ja, Tiles bauen',
+                        variant: 'default',
+                        onClick: () => batchUpdateMut.mutate(true),
+                      },
+                    ],
+                  })
                 }}
                 disabled={!!activeOsmJob || !!activeOsmUpdate || !!activeBatchUpdate || batchUpdateMut.isPending}
                 className="cursor-pointer text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90"
@@ -267,16 +263,16 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
                     {reg.continent}
                   </td>
                   <td className="py-2 pr-3 text-neutral-500 dark:text-neutral-400">
-                    {formatDate(reg.imported_at)}
+                    {fmtDateCompact(reg.imported_at)}
                   </td>
                   <td className="py-2 pr-3 text-neutral-500 dark:text-neutral-400">
-                    {reg.data_date ? formatDate(reg.data_date) : '—'}
+                    {reg.data_date ? fmtDateCompact(reg.data_date) : '—'}
                   </td>
                   <td className="py-2 pr-3 text-neutral-500 dark:text-neutral-400 text-xs">
                     {reg.categories.join(', ')}
                   </td>
                   <td className="py-2 pr-3 text-neutral-500 dark:text-neutral-400">
-                    {formatBytes(reg.pbf_size_bytes)}
+                    {fmtBytes(reg.pbf_size_bytes)}
                   </td>
                   <td className="py-2 pr-3">
                     <span

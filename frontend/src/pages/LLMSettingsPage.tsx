@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Toggle from '@/components/Toggle'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -140,6 +140,13 @@ function LLMRoleCard({ role, config, onSave }: {
   const [apiKey, setApiKey] = useState('')
   const [enabled, setEnabled] = useState(config?.enabled || false)
   const [testResult, setTestResult] = useState<LLMTestResult | null>(null)
+
+  useEffect(() => {
+    setBackend(config?.backend_type || 'disabled')
+    setApiBase(config?.api_base || '')
+    setModelName(config?.model_name || '')
+    setEnabled(config?.enabled || false)
+  }, [config])
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
   const [isLoadingModels, setIsLoadingModels] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
@@ -161,9 +168,12 @@ function LLMRoleCard({ role, config, onSave }: {
 
   const loadOllamaModels = async () => {
     setIsLoadingModels(true)
-    const models = await fetchOllamaModels(apiBase || DEFAULT_URLS.ollama)
-    setOllamaModels(models.map(m => m.name))
-    setIsLoadingModels(false)
+    try {
+      const models = await fetchOllamaModels(apiBase || DEFAULT_URLS.ollama)
+      setOllamaModels(models.map(m => m.name))
+    } finally {
+      setIsLoadingModels(false)
+    }
   }
 
   const runTest = async () => {
@@ -334,8 +344,7 @@ function LLMRoleCard({ role, config, onSave }: {
         <button
           onClick={() => saveMutation.mutate()}
           disabled={saveMutation.isPending}
-          className="cursor-pointer px-4 py-1.5 text-sm rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          style={{ backgroundColor: 'var(--color-accent-DEFAULT)' }}
+          className="cursor-pointer px-4 py-1.5 text-sm rounded-lg text-white bg-accent-DEFAULT disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {saveMutation.isPending ? 'Speichere...' : 'Speichern'}
         </button>

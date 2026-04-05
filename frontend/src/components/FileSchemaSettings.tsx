@@ -1,4 +1,5 @@
 import { useRef, useMemo, useState, useEffect } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getFileSchemas,
@@ -10,6 +11,7 @@ import {
   type LibraryDirResponse,
 } from '@/api/shadowfs'
 import { useToast } from '@/lib/toast'
+import { SettingsSection } from '@/components/ui/SettingsSection'
 
 // ── i18n strings (centralised) ─────────────────────────────────────────────
 
@@ -210,16 +212,7 @@ function SchemaSection({ fileType, initialSchema }: SchemaSectionProps) {
               {initialSchema}
             </span>
           )}
-          <svg
-            className={`w-4 h-4 text-neutral-400 transition-transform ${open ? 'rotate-180' : ''}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-            aria-hidden="true"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
+          <ChevronDown className={`w-4 h-4 text-neutral-400 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
         </div>
       </button>
 
@@ -423,15 +416,7 @@ export default function FileSchemaSettings() {
   }, [schemas])
 
   return (
-    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
-      <div>
-        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">
-          {LABELS.title}
-        </h2>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          {LABELS.description}
-        </p>
-      </div>
+    <SettingsSection title={LABELS.title} description={LABELS.description}>
 
       {isError && (
         <p className="text-sm text-rose-500">{LABELS.errorLoad}</p>
@@ -456,6 +441,6 @@ export default function FileSchemaSettings() {
       )}
 
       <LibraryDirSection />
-    </section>
+    </SettingsSection>
   )
 }

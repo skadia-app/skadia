@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { useUser } from '@/providers/UserProvider'
 import { useAccentColor, ACCENT_PALETTE, DEFAULT_ACCENT_COLOR, deriveAccentEntry } from '@/lib/accentColor'
@@ -7,11 +8,12 @@ import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 import { CATEGORIES, SPORT_DEFS } from '@/lib/sportTaxonomy'
 import ColorPicker from '@/components/ColorPicker'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEnrichmentSettings } from '@/lib/useEnrichmentSettings'
 import { Link } from 'react-router-dom'
 import { getShadowFSSettings, updateShadowFSSettings, getHeatmapSettings, updateHeatmapSettings } from '@/api/settings'
 import { getImportSettings, updateImportSettings, type ImportSettings, type ConflictStrategy } from '@/api/importWizard'
 import { fetchSportTypeStats } from '@/api/stats'
-import { fetchEnrichmentSettings, updateEnrichmentSettings, backfillEnrichment } from '@/api/enrichment'
+import { backfillEnrichment } from '@/api/enrichment'
 import type { EnrichmentSettings } from '@/api/types'
 import { recomputePhotoPreviews, recomputePhotoEmbeddings, backfillPhash } from '@/api/activityPhotos'
 import { useToast } from '@/lib/toast'
@@ -25,6 +27,7 @@ import { MLServiceSection } from '@/pages/settings/MLServiceSection'
 import { NotificationSettingsSection } from '@/pages/settings/NotificationSettingsSection'
 import { LocalMapAndGeoSection } from '@/pages/settings/LocalMapAndGeoSection'
 import Toggle from '@/components/Toggle'
+import { SettingsSection } from '@/components/ui/SettingsSection'
 
 // Analysis module configuration — enrichment toggles for the Analysen tab.
 interface AnalysisModule {
@@ -51,14 +54,10 @@ const ANALYSIS_MODULES: AnalysisModule[] = [
 ]
 
 function AutomatischeAnalysenSection() {
-  const queryClient = useQueryClient()
   const { addToast } = useToast()
   const { isAdmin } = useUser()
 
-  const { data: settings, isLoading, isError } = useQuery({
-    queryKey: ['enrichment-settings'],
-    queryFn: fetchEnrichmentSettings,
-  })
+  const { settings, isLoading, isError, mutation: mut } = useEnrichmentSettings()
 
   const { data: capabilities } = useQuery({
     queryKey: ['capabilities'],
@@ -69,18 +68,6 @@ function AutomatischeAnalysenSection() {
   const [localThresholds, setLocalThresholds] = useState<Partial<Record<string, number>>>({})
   const [backfillResult, setBackfillResult] = useState<{ processed: number; errors: number; error_details?: string } | null>(null)
   const [backfillRunning, setBackfillRunning] = useState(false)
-
-
-  const mut = useMutation({
-    mutationFn: (patch: Partial<EnrichmentSettings>) => updateEnrichmentSettings(patch),
-    onSuccess: (updated) => {
-      queryClient.setQueryData(['enrichment-settings'], updated)
-    },
-    onError: () => {
-      queryClient.invalidateQueries({ queryKey: ['enrichment-settings'] })
-      addToast({ type: 'error', title: 'Einstellung konnte nicht gespeichert werden', duration: 0 })
-    },
-  })
 
   async function handleBackfillEnrichment() {
     setBackfillRunning(true)
@@ -97,13 +84,11 @@ function AutomatischeAnalysenSection() {
   }
 
   return (
-    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-6">
-      <div>
-        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Automatische Analysen</h2>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          Analysen, die nach dem Upload automatisch im Hintergrund durchgeführt werden.
-        </p>
-      </div>
+    <SettingsSection
+      title="Automatische Analysen"
+      description="Analysen, die nach dem Upload automatisch im Hintergrund durchgeführt werden."
+      className="space-y-6"
+    >
 
       {isError && (
         <p className="text-sm text-red-500 dark:text-red-400">
@@ -208,7 +193,7 @@ function AutomatischeAnalysenSection() {
       <p className="text-xs text-neutral-400 dark:text-neutral-500 pt-1 border-t border-neutral-100 dark:border-neutral-800/60">
         Änderungen gelten für neue Aktivitäten sowie bei manueller Neuberechnung.
       </p>
-    </section>
+    </SettingsSection>
   )
 }
 
@@ -223,38 +208,16 @@ const PREVIEW_SIZE_OPTIONS = [
 ] as const
 
 function PhotoPreviewSection() {
-  const queryClient = useQueryClient()
   const { addToast } = useToast()
   const { isAdmin } = useUser()
 
-  const { data: settings, isLoading } = useQuery({
-    queryKey: ['enrichment-settings'],
-    queryFn: fetchEnrichmentSettings,
-  })
-
-  const mutation = useMutation({
-    mutationFn: (size: string) => updateEnrichmentSettings({ photo_preview_size: size }),
-    onSuccess: (updated) => {
-      queryClient.setQueryData(['enrichment-settings'], updated)
-      addToast({ type: 'success', title: 'Einstellung gespeichert' })
-    },
-    onError: () => {
-      addToast({ type: 'error', title: 'Einstellung konnte nicht gespeichert werden', duration: 0 })
-    },
-  })
-
-  const framesMutation = useMutation({
-    mutationFn: (n: number) => updateEnrichmentSettings({ video_clip_frames: n }),
-    onSuccess: (updated) => {
-      setFramesLocal(null)
-      queryClient.setQueryData(['enrichment-settings'], updated)
-    },
-    onError: () => {
-      addToast({ type: 'error', title: 'Einstellung konnte nicht gespeichert werden', duration: 0 })
-    },
-  })
+  const { settings, isLoading, mutation } = useEnrichmentSettings()
 
   const [framesLocal, setFramesLocal] = useState<number | null>(null)
+
+  function mutateFrames(n: number) {
+    mutation.mutate({ video_clip_frames: n }, { onSuccess: () => setFramesLocal(null) })
+  }
 
   async function handleRecompute() {
     try {
@@ -283,19 +246,16 @@ function PhotoPreviewSection() {
   const currentFrames = framesLocal ?? savedFrames
 
   return (
-    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
-      <div>
-        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Foto-Vorschaugröße</h2>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          Maximale Auflösung für Galerie-Ansichten. Nur wenn das Original größer ist, wird ein separates Vorschau-Bild erstellt.
-        </p>
-      </div>
+    <SettingsSection
+      title="Foto-Vorschaugröße"
+      description="Maximale Auflösung für Galerie-Ansichten. Nur wenn das Original größer ist, wird ein separates Vorschau-Bild erstellt."
+    >
 
       <div className="inline-flex rounded-lg border border-neutral-200 dark:border-neutral-700 overflow-hidden">
         {PREVIEW_SIZE_OPTIONS.map(({ value, label }, idx) => (
           <button
             key={value}
-            onClick={() => mutation.mutate(value)}
+            onClick={() => mutation.mutate({ photo_preview_size: value }, { onSuccess: () => addToast({ type: 'success', title: 'Einstellung gespeichert' }) })}
             disabled={isLoading || mutation.isPending}
             className={`px-4 py-1.5 text-sm font-medium whitespace-nowrap cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               idx > 0 ? 'border-l border-neutral-200 dark:border-neutral-700' : ''
@@ -349,8 +309,8 @@ function PhotoPreviewSection() {
               value={currentFrames}
               disabled={isLoading}
               onChange={e => setFramesLocal(Number(e.target.value))}
-              onMouseUp={e => framesMutation.mutate(Number((e.target as HTMLInputElement).value))}
-              onTouchEnd={e => framesMutation.mutate(Number((e.target as HTMLInputElement).value))}
+              onMouseUp={e => mutateFrames(Number((e.target as HTMLInputElement).value))}
+              onTouchEnd={e => mutateFrames(Number((e.target as HTMLInputElement).value))}
               className="flex-1 accent-accent-DEFAULT cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100 w-8 text-center tabular-nums">
@@ -379,23 +339,30 @@ function PhotoPreviewSection() {
           ))}
         </div>
       )}
-    </section>
+    </SettingsSection>
   )
 }
 
+
+type SettingsTab = 'general' | 'import' | 'karte' | 'analysen' | 'ai' | 'konto' | 'admin'
+const VALID_TABS = new Set<SettingsTab>(['general', 'import', 'karte', 'analysen', 'ai', 'konto', 'admin'])
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
   const { accent, setAccent } = useAccentColor()
   const { isAdmin } = useUser()
-  const [searchParams] = useSearchParams()
-  const [activeTab, setActiveTab] = useState<'general' | 'analysen' | 'ai' | 'konto' | 'admin'>(
-    searchParams.get('tab') === 'ai' ? 'ai'
-      : searchParams.get('tab') === 'analysen' ? 'analysen'
-      : searchParams.get('tab') === 'konto' ? 'konto'
-      : searchParams.get('tab') === 'admin' ? 'admin'
-      : 'general'
-  )
+  const [searchParams, setSearchParams] = useSearchParams()
+  const rawTab = searchParams.get('tab')
+  const activeTab: SettingsTab = VALID_TABS.has(rawTab as SettingsTab) ? (rawTab as SettingsTab) : 'general'
+
+  const setActiveTab = useCallback((tab: SettingsTab) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (tab === 'general') next.delete('tab')
+      else next.set('tab', tab)
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['shadow-fs-settings'],
@@ -440,10 +407,6 @@ export default function SettingsPage() {
     tabs[nextIndex].click()
   }, [])
 
-  if (isLoading) {
-    return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Einstellungen...</div>
-  }
-
   return (
     <div className="space-y-8">
       <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Einstellungen</h1>
@@ -457,11 +420,13 @@ export default function SettingsPage() {
         onKeyDown={handleTabKeyDown}
       >
         {[
-          { id: 'general' as const,  label: 'Allgemein',   show: true      },
-          { id: 'konto' as const,    label: 'Konto',       show: true      },
-          { id: 'analysen' as const, label: 'Analysen',    show: true      },
-          { id: 'ai' as const,       label: 'KI & ML',     show: true      },
-          { id: 'admin' as const,    label: 'Admin',       show: isAdmin   },
+          { id: 'general' as const,  label: 'Allgemein',          show: true      },
+          { id: 'import' as const,   label: 'Import',             show: true      },
+          { id: 'karte' as const,    label: 'Karte & Geodaten',   show: true      },
+          { id: 'konto' as const,    label: 'Konto',              show: true      },
+          { id: 'analysen' as const, label: 'Analysen',           show: true      },
+          { id: 'ai' as const,       label: 'KI & ML',            show: true      },
+          { id: 'admin' as const,    label: 'Admin',              show: isAdmin   },
         ].filter(tab => tab.show).map(tab => (
           <button
             key={tab.id}
@@ -517,13 +482,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Erscheinungsbild */}
-      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
-        <div>
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Erscheinungsbild</h2>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Wähle eine Akzentfarbe für die Benutzeroberfläche.
-          </p>
-        </div>
+      <SettingsSection title="Erscheinungsbild" description="Wähle eine Akzentfarbe für die Benutzeroberfläche.">
         <ColorPicker
           value={accent.shade500}
           onChange={hex => setAccent(deriveAccentEntry(hex))}
@@ -536,7 +495,7 @@ export default function SettingsPage() {
             Auf Standard zurücksetzen
           </button>
         )}
-      </section>
+      </SettingsSection>
 
       <PhotoPreviewSection />
 
@@ -546,8 +505,31 @@ export default function SettingsPage() {
       {/* Sportarten */}
       <SportSettingsSection />
 
-      {/* Dateiablage */}
-      <FileSchemaSettings />
+      {/* Automatisierung */}
+      <SettingsSection title="Automatisierung" description="Regeln für automatische Zuweisungen und Tags.">
+        <Link
+          to="/settings/rules"
+          className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
+        >
+          Automatisierungsregeln
+        </Link>
+      </SettingsSection>
+
+      {/* Privatsphäre */}
+      <SettingsSection title="Privatsphäre" description="Definiere Zonen, in denen GPS-Daten automatisch aus öffentlichen Ansichten ausgeblendet werden.">
+        <Link
+          to="/settings/privacy"
+          className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
+        >
+          Private Zonen verwalten
+        </Link>
+      </SettingsSection>
+
+      </div>
+      )}
+
+      {activeTab === 'import' && (
+      <div role="tabpanel" id="settings-panel-import" aria-labelledby="settings-tab-import" className="space-y-8">
 
       {/* Hotfolder */}
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
@@ -559,67 +541,46 @@ export default function SettingsPage() {
             </p>
           </div>
 
-          {/* Toggle */}
           <Toggle
             checked={!!settings?.hotfolder_enabled}
             onChange={() => toggleMutation.mutate(!settings?.hotfolder_enabled)}
-            disabled={toggleMutation.isPending}
+            disabled={isLoading || toggleMutation.isPending}
             aria-label="Hotfolder aktivieren"
           />
         </div>
 
-        {/* Pfad */}
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-neutral-500 dark:text-neutral-400">Pfad:</span>
-          <span className="font-mono text-neutral-800 dark:text-neutral-200 bg-neutral-50 dark:bg-neutral-800 px-2 py-1 rounded">
-            {settings?.hotfolder_path || '(nicht konfiguriert)'}
-          </span>
-        </div>
+        {isLoading ? (
+          <p className="text-sm text-neutral-400">Lade...</p>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-neutral-500 dark:text-neutral-400">Pfad:</span>
+              <span className="font-mono text-neutral-800 dark:text-neutral-200 bg-neutral-50 dark:bg-neutral-800 px-2 py-1 rounded">
+                {settings?.hotfolder_path || '(nicht konfiguriert)'}
+              </span>
+            </div>
 
-        {/* Status */}
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-neutral-500 dark:text-neutral-400">Status:</span>
-          {settings?.hotfolder_enabled ? (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span className="text-emerald-600 dark:text-emerald-400">Aktiv</span>
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-neutral-400" />
-              <span className="text-neutral-500 dark:text-neutral-400">Inaktiv</span>
-            </span>
-          )}
-        </div>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-neutral-500 dark:text-neutral-400">Status:</span>
+              {settings?.hotfolder_enabled ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <span className="text-emerald-600 dark:text-emerald-400">Aktiv</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-neutral-400" />
+                  <span className="text-neutral-500 dark:text-neutral-400">Inaktiv</span>
+                </span>
+              )}
+            </div>
+          </>
+        )}
 
-      </section>
-
-
-
-      {/* Automatisierung */}
-      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
-        <div>
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Automatisierung</h2>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Regeln für automatische Zuweisungen und Tags.
-          </p>
-        </div>
-        <Link
-          to="/settings/rules"
-          className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
-        >
-          Automatisierungsregeln
-        </Link>
       </section>
 
       {/* Datenimport */}
-      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
-        <div>
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Datenimport</h2>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Importiere Aktivitäten, Ausrüstung und Gesundheitsdaten aus einem Garmin-, Strava- oder Komoot-Export.
-          </p>
-        </div>
+      <SettingsSection title="Datenimport" description="Importiere Aktivitäten, Ausrüstung und Gesundheitsdaten aus einem Garmin-, Strava- oder Komoot-Export.">
         <div className="flex gap-3 flex-wrap">
           <Link
             to="/settings/import?tab=garmin"
@@ -640,28 +601,21 @@ export default function SettingsPage() {
             Komoot-Import
           </Link>
         </div>
-      </section>
+      </SettingsSection>
 
-      {/* Privatsphäre */}
-      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
-        <div>
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Privatsphäre</h2>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Definiere Zonen, in denen GPS-Daten automatisch aus öffentlichen Ansichten ausgeblendet werden.
-          </p>
-        </div>
-        <Link
-          to="/settings/privacy"
-          className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
-        >
-          Private Zonen verwalten
-        </Link>
-      </section>
+      {/* Dateiablage */}
+      <FileSchemaSettings />
 
       {/* Import-Einstellungen */}
       <ImportSettingsSection />
 
-      {/* Karte */}
+      </div>
+      )}
+
+      {activeTab === 'karte' && (
+      <div role="tabpanel" id="settings-panel-karte" aria-labelledby="settings-tab-karte" className="space-y-8">
+
+      {/* Karteneinstellungen */}
       <HeatmapSettingsSection />
 
       {/* Lokale Karten & Geodaten */}
@@ -765,12 +719,7 @@ function SportSettingsSection() {
           </p>
         </div>
         {/* Chevron */}
-        <svg
-          className={`w-5 h-5 text-neutral-400 flex-shrink-0 transition-transform duration-200 ${colorsOpen ? 'rotate-180' : ''}`}
-          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
+        <ChevronDown className={`w-5 h-5 text-neutral-400 flex-shrink-0 transition-transform duration-200 ${colorsOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {/* Ausgeklappter Inhalt */}
@@ -912,18 +861,21 @@ function HeatmapSettingsSection() {
   })
 
   // Terra Incognita Radius aus Enrichment-Settings
-  const { data: enrichSettings } = useQuery({
-    queryKey: ['enrichment-settings'],
-    queryFn: fetchEnrichmentSettings,
-  })
-  const radiusMut = useMutation({
-    mutationFn: (val: number) => updateEnrichmentSettings({ terra_incognita_radius_m: val }),
-    onSuccess: (updated) => {
-      queryClient.setQueryData(['enrichment-settings'], updated)
-      queryClient.invalidateQueries({ queryKey: ['terra-incognita'] })
-      setLocalRadius(null)
+  const { settings: enrichSettings, mutation: enrichMutation } = useEnrichmentSettings()
+  const radiusMut = {
+    mutate: (val: number) => {
+      enrichMutation.mutate(
+        { terra_incognita_radius_m: val },
+        {
+          onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['terra-incognita'] })
+            setLocalRadius(null)
+          },
+        },
+      )
     },
-  })
+    isPending: enrichMutation.isPending,
+  }
   const currentRadius = localRadius ?? enrichSettings?.terra_incognita_radius_m ?? 1000
   const radiusDirty = localRadius !== null && localRadius !== (enrichSettings?.terra_incognita_radius_m ?? 1000)
   const fmtRadius = (m: number) => m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`
@@ -951,13 +903,7 @@ function HeatmapSettingsSection() {
     (localFilterActivity !== null && localFilterActivity !== heatmapSettings?.teleport_filter_activity)
 
   return (
-    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
-      <div>
-        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Karteneinstellungen</h2>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          Einstellungen für die Heatmap und Kartenansicht.
-        </p>
-      </div>
+    <SettingsSection title="Karteneinstellungen" description="Einstellungen für die Heatmap und Kartenansicht.">
 
       {/* Standard-Kartenstil */}
       <div>
@@ -1134,7 +1080,7 @@ function HeatmapSettingsSection() {
           Fehler: {updateHeatmapMut.error instanceof Error ? updateHeatmapMut.error.message : 'Unbekannt'}
         </p>
       )}
-    </section>
+    </SettingsSection>
   )
 }
 
@@ -1171,15 +1117,7 @@ function ImportSettingsSection() {
     }
   }
 
-  const { data: enrichSettings } = useQuery({
-    queryKey: ['enrichment-settings'],
-    queryFn: fetchEnrichmentSettings,
-  })
-  const enrichMut = useMutation({
-    mutationFn: (patch: Parameters<typeof updateEnrichmentSettings>[0]) => updateEnrichmentSettings(patch),
-    onSuccess: (updated) => queryClient.setQueryData(['enrichment-settings'], updated),
-    onError: () => queryClient.invalidateQueries({ queryKey: ['enrichment-settings'] }),
-  })
+  const { settings: enrichSettings, mutation: enrichMut } = useEnrichmentSettings()
 
   const s: ImportSettings = settings ?? { conflict_strategy: 'enrich_missing', gps_duplicate_threshold: 75, fusion_time_window_min: 30 }
   const hausdorff = enrichSettings?.route_duplicate_hausdorff_m ?? 100
@@ -1193,15 +1131,16 @@ function ImportSettingsSection() {
   const [localLengthDiff, setLocalLengthDiff] = useState(lengthDiff)
   const [localPhashBits, setLocalPhashBits] = useState(phashBits)
 
-  useEffect(() => { setLocalGpsDup(s.gps_duplicate_threshold) }, [s.gps_duplicate_threshold])
-  useEffect(() => { setLocalFusionMin(s.fusion_time_window_min) }, [s.fusion_time_window_min])
-  useEffect(() => { setLocalHausdorff(hausdorff) }, [hausdorff])
-  useEffect(() => { setLocalLengthDiff(lengthDiff) }, [lengthDiff])
-  useEffect(() => { setLocalPhashBits(phashBits) }, [phashBits])
+  useEffect(() => {
+    setLocalGpsDup(s.gps_duplicate_threshold)
+    setLocalFusionMin(s.fusion_time_window_min)
+    setLocalHausdorff(hausdorff)
+    setLocalLengthDiff(lengthDiff)
+    setLocalPhashBits(phashBits)
+  }, [s.gps_duplicate_threshold, s.fusion_time_window_min, hausdorff, lengthDiff, phashBits])
 
   return (
-    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-5">
-      <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Import</h2>
+    <SettingsSection title="Import" className="space-y-5">
 
       {/* Konflikt-Strategie */}
       <div>
@@ -1236,7 +1175,7 @@ function ImportSettingsSection() {
           value={localGpsDup}
           onChange={e => setLocalGpsDup(Number(e.target.value))}
           onPointerUp={() => mut.mutate({ ...s, gps_duplicate_threshold: localGpsDup })}
-          onBlur={() => mut.mutate({ ...s, gps_duplicate_threshold: localGpsDup })}
+          onKeyUp={e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') mut.mutate({ ...s, gps_duplicate_threshold: localGpsDup }) }}
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
@@ -1262,7 +1201,7 @@ function ImportSettingsSection() {
           value={localFusionMin}
           onChange={e => setLocalFusionMin(Number(e.target.value))}
           onPointerUp={() => mut.mutate({ ...s, fusion_time_window_min: localFusionMin })}
-          onBlur={() => mut.mutate({ ...s, fusion_time_window_min: localFusionMin })}
+          onKeyUp={e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') mut.mutate({ ...s, fusion_time_window_min: localFusionMin }) }}
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT"
         />
         <div className="flex justify-between text-xs text-neutral-400">
@@ -1380,7 +1319,7 @@ function ImportSettingsSection() {
           </div>
         </div>
       )}
-    </section>
+    </SettingsSection>
   )
 }
 
