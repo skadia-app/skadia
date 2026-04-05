@@ -58,6 +58,7 @@ import { WorkoutOverview } from '@/components/activity/WorkoutOverview'
 import { BallSportStats } from '@/components/activity/BallSportStats'
 import { JumpSection } from '@/components/activity/JumpSection'
 import { RadarSummary } from '@/components/activity/RadarSummary'
+import { RadarDensityChart } from '@/components/activity/RadarDensityChart'
 import { SensorList } from '@/components/activity/SensorList'
 import ActivityHeader from '@/components/activity/ActivityHeader'
 import TrackMap from '@/components/activity/TrackMap'
@@ -547,6 +548,11 @@ export default function ActivityDetailPage() {
 
       {/* Radar Threats */}
       <RadarSummary events={events} />
+
+      {/* Radar Vehicle Density Chart — only when radar stream data is present */}
+      {streams && streams.some(s => s.radar_vehicle_count != null) && (
+        <RadarDensityChart streams={streams} />
+      )}
 
       {/* Stats — hide the standard grid for multisport parents (we show custom stats below) */}
       {activity.sport_type !== 'multisport' && (

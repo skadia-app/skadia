@@ -405,6 +405,13 @@ export interface StreamPoint {
 
   // ── Heading ──
   heading?: number  // GPS heading in degrees (0-360)
+
+  // ── Radar (Garmin Varia) ──
+  radar_vehicle_count?: number  // number of detected vehicles at this point
+  radar_nearest_range_m?: number  // distance to nearest detected vehicle in metres
+
+  // ── Glucose (Dexcom CGM via ANT+) ──
+  glucose_mg_dl?: number  // blood glucose in mg/dL
 }
 
 export interface DataVisibility {
