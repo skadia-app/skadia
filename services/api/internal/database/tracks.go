@@ -160,3 +160,58 @@ func (db *DB) RebuildHeatmapData(ctx context.Context, activityID string) error {
 
 	return tx.Commit(ctx)
 }
+
+// BatchTrackIntersectsCircle checks which activities have tracks intersecting a circle.
+func (db *DB) BatchTrackIntersectsCircle(ctx context.Context, activityIDs []string, lat, lon, radiusM float64) (map[string]bool, error) {
+	if len(activityIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := db.Pool.Query(ctx, `
+		SELECT activity_id, ST_DWithin(
+			track_simplified::geography,
+			ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
+			$3
+		) FROM activity_tracks WHERE activity_id = ANY($4)`,
+		lon, lat, radiusM, activityIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]bool, len(activityIDs))
+	for rows.Next() {
+		var id string
+		var intersects bool
+		if err := rows.Scan(&id, &intersects); err != nil {
+			return nil, err
+		}
+		result[id] = intersects
+	}
+	return result, rows.Err()
+}
+
+// BatchTrackIntersectsPolygon checks which activities have tracks intersecting a GeoJSON polygon.
+func (db *DB) BatchTrackIntersectsPolygon(ctx context.Context, activityIDs []string, geoJSONPolygon string) (map[string]bool, error) {
+	if len(activityIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := db.Pool.Query(ctx, `
+		SELECT activity_id, ST_Intersects(
+			track_simplified,
+			ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)
+		) FROM activity_tracks WHERE activity_id = ANY($2)`,
+		geoJSONPolygon, activityIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]bool, len(activityIDs))
+	for rows.Next() {
+		var id string
+		var intersects bool
+		if err := rows.Scan(&id, &intersects); err != nil {
+			return nil, err
+		}
+		result[id] = intersects
+	}
+	return result, rows.Err()
+}
