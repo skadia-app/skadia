@@ -30,9 +30,9 @@ echarts.use([
   CanvasRenderer,
 ])
 
-// ── Colors for up to 3 activities ────────────────────────────────────────────
+// ── Colors for up to 6 activities ────────────────────────────────────────────
 
-const COMPARE_COLORS = ['#3b82f6', '#ef4444', '#22c55e']
+const COMPARE_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6', '#06b6d4']
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -78,6 +78,12 @@ function processStreams(streams: StreamPoint[]): ProcessedStream {
 
 function hasValidData(arr: number[]): boolean {
   return arr.some(v => !isNaN(v))
+}
+
+function downsample<T>(data: T[], maxPoints: number): T[] {
+  if (data.length <= maxPoints) return data
+  const step = data.length / maxPoints
+  return Array.from({ length: maxPoints }, (_, i) => data[Math.floor(i * step)])
 }
 
 function formatHr(v: number | null | undefined): string {
@@ -179,7 +185,7 @@ export default function ActivityComparisonPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const idsParam = searchParams.get('ids') ?? ''
-  const ids = useMemo(() => idsParam.split(',').filter(Boolean).slice(0, 3), [idsParam])
+  const ids = useMemo(() => idsParam.split(',').filter(Boolean).slice(0, 6), [idsParam])
 
   const [chartTab, setChartTab] = useState<ChartTab>('speed')
   const [xMode, setXMode] = useState<XMode>('distance')
@@ -291,8 +297,8 @@ export default function ActivityComparisonPage() {
       </div>
 
       {/* Section A: Metrics Table */}
-      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-x-auto">
+        <table className={`w-full ${activities.length >= 5 ? 'text-xs' : 'text-sm'}`}>
           <thead>
             <tr className="border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
               <th className="text-left px-4 py-3 font-medium text-neutral-500 dark:text-neutral-400 w-36">
@@ -456,10 +462,13 @@ function ComparisonChart({
       const ps = processedStreams[i]
       if (!ps) return null
 
-      const xData = xMode === 'distance' ? ps.distanceKm : ps.elapsedMin
-      const yData = ps[tabDef.streamKey] as number[]
+      const xDataRaw = xMode === 'distance' ? ps.distanceKm : ps.elapsedMin
+      const yDataRaw = ps[tabDef.streamKey] as number[]
 
-      if (!hasValidData(yData)) return null
+      if (!hasValidData(yDataRaw)) return null
+
+      const xData = downsample(xDataRaw, 1000)
+      const yData = downsample(yDataRaw, 1000)
 
       const data = xData.map((x, j) => [x, yData[j]])
 
