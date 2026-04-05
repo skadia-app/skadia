@@ -262,15 +262,25 @@ func (h *Handler) dryRunAllRules(w http.ResponseWriter, r *http.Request, userID 
 		Rules         []ruleMatch `json:"rules"`
 	}
 
-	var matches []matchResult
-	totalMatches := 0
-
+	// Pre-load all activity maps and batch-inject track geofence results.
+	allActMaps := make(map[string]map[string]any, len(actIDs))
 	for _, actID := range actIDs {
 		actMap, err := h.DB.GetActivityAsMap(r.Context(), actID)
 		if err != nil || actMap == nil {
 			continue
 		}
-		automation.InjectTrackGeofenceResults(r.Context(), h.DB, actID, actMap, allRules)
+		allActMaps[actID] = actMap
+	}
+	automation.InjectTrackGeofenceResultsBatch(r.Context(), h.DB, actIDs, allActMaps, allRules)
+
+	var matches []matchResult
+	totalMatches := 0
+
+	for _, actID := range actIDs {
+		actMap, ok := allActMaps[actID]
+		if !ok {
+			continue
+		}
 
 		var actRules []ruleMatch
 		for _, rule := range allRules {
@@ -460,16 +470,26 @@ func (h *Handler) applySingleRuleDryRun(w http.ResponseWriter, r *http.Request, 
 		DistanceM     float64 `json:"distance_m"`
 	}
 
-	var matches []matchResult
-	totalMatches := 0
-
+	// Pre-load all activity maps and batch-inject track geofence results.
 	singleRuleSlice := []model.AutomationRule{rule}
+	allActMaps := make(map[string]map[string]any, len(activityIDs))
 	for _, actID := range activityIDs {
 		actMap, err := h.DB.GetActivityAsMap(r.Context(), actID)
 		if err != nil || actMap == nil {
 			continue
 		}
-		automation.InjectTrackGeofenceResults(r.Context(), h.DB, actID, actMap, singleRuleSlice)
+		allActMaps[actID] = actMap
+	}
+	automation.InjectTrackGeofenceResultsBatch(r.Context(), h.DB, activityIDs, allActMaps, singleRuleSlice)
+
+	var matches []matchResult
+	totalMatches := 0
+
+	for _, actID := range activityIDs {
+		actMap, ok := allActMaps[actID]
+		if !ok {
+			continue
+		}
 		if automation.EvaluateRule(rule, actMap) {
 			totalMatches++
 			if totalMatches > offset && len(matches) < limit {
