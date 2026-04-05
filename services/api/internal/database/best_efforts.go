@@ -866,7 +866,7 @@ func (db *DB) GetPRHistory(ctx context.Context, userID, category, sportGroup str
 		        a.started_at AS achieved_at,
 		        be.elapsed_time_s::double precision,
 		        be.value_numeric,
-		        ROW_NUMBER() OVER (
+		        RANK() OVER (
 		            ORDER BY
 		                CASE WHEN be.elapsed_time_s IS NOT NULL THEN be.elapsed_time_s END ASC NULLS LAST,
 		                CASE WHEN be.value_numeric  IS NOT NULL THEN be.value_numeric  END DESC NULLS LAST
