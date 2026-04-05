@@ -166,6 +166,7 @@ export async function triggerOSMRegionUpdate(regionID: string): Promise<{ job_id
 // DEM
 export interface DEMRegionStatus {
   id: string
+  label: string
   tiles_needed: number
   tiles_present: number
   complete: boolean
