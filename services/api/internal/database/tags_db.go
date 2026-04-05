@@ -1073,3 +1073,12 @@ func contrastTextColor(hex string) string {
 	}
 	return "#ffffff"
 }
+
+// GetSystemTagID returns the tag ID for a system tag by name.
+func (db *DB) GetSystemTagID(ctx context.Context, userID, name string) (string, error) {
+	var id string
+	err := db.Pool.QueryRow(ctx, `
+		SELECT id FROM tags WHERE user_id = $1 AND name = $2 AND is_system = true`,
+		userID, name).Scan(&id)
+	return id, err
+}

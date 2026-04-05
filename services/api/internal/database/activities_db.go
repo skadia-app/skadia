@@ -2462,3 +2462,15 @@ func (db *DB) UpdateImportSettings(ctx context.Context, userID string, s *model.
 
 // suppress unused import warning — pgxpool is used transitively via db.Pool
 var _ = (*pgxpool.Pool)(nil)
+
+// GetActivityStartEnd returns [startLat, startLon, endLat, endLon] for an activity.
+func (db *DB) GetActivityStartEnd(ctx context.Context, activityID, userID string) ([4]float64, error) {
+	var coords [4]float64
+	err := db.Pool.QueryRow(ctx, `
+		SELECT ST_Y(start_location), ST_X(start_location),
+		       ST_Y(end_location), ST_X(end_location)
+		FROM activities WHERE id = $1 AND user_id = $2
+		AND start_location IS NOT NULL AND end_location IS NOT NULL`,
+		activityID, userID).Scan(&coords[0], &coords[1], &coords[2], &coords[3])
+	return coords, err
+}

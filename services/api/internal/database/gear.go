@@ -2259,3 +2259,30 @@ func (db *DB) FindGearDuplicates(ctx context.Context, userID string) ([][2]strin
 	}
 	return pairs, nil
 }
+
+// GetRuleBySystemType returns the first is_system rule with the given system_type for a user.
+// Returns nil, nil when no such rule exists.
+func (db *DB) GetRuleBySystemType(ctx context.Context, userID, systemType string) (*model.AutomationRule, error) {
+	var r model.AutomationRule
+	err := db.Pool.QueryRow(ctx,
+		`SELECT `+ruleSelectCols+`
+		 FROM automation_rules
+		 WHERE user_id = $1 AND system_type = $2 AND is_system = true
+		 LIMIT 1`,
+		userID, systemType,
+	).Scan(
+		&r.ID, &r.UserID, &r.Name, &r.IsActive, &r.Priority,
+		&r.Conditions, &r.ConditionsLogic, &r.ConditionGroups,
+		&r.Actions, &r.TimesApplied, &r.CreatedAt,
+		&r.IsSystem, &r.SystemType,
+		&r.TriggerEvent, &r.StopOnMatch, &r.ApplyRetroactive,
+		&r.LastEvaluatedAt, &r.LastMatchedCount, &r.Branches,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get rule by system type: %w", err)
+	}
+	return &r, nil
+}
