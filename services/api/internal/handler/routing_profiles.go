@@ -22,9 +22,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// systemProfileNames are the 5 built-in BadRouter profiles.
-var systemProfileNames = []string{"hiking", "mtb", "gravel", "trekking", "road"}
-
 // brouterCache caches the result of the BRouter profiles2 directory scan.
 var (
 	brouterCacheMu    sync.Mutex
@@ -68,32 +65,7 @@ func (h *Handler) HandleListProfiles(w http.ResponseWriter, r *http.Request) {
 
 	var profiles []profileListItem
 
-	// 1. System defaults (BadRouter built-ins)
-	for _, name := range systemProfileNames {
-		p, err := routing.ProfileDefaults(name)
-		if err != nil {
-			slog.Warn("HandleListProfiles: ProfileDefaults failed", "name", name, "error", err)
-			continue
-		}
-		raw, err := json.Marshal(p)
-		if err != nil {
-			slog.Warn("HandleListProfiles: marshal system profile failed", "name", name, "error", err)
-			continue
-		}
-		msg := json.RawMessage(raw)
-		profiles = append(profiles, profileListItem{
-			ID:          nil,
-			Name:        name,
-			Engine:      "badrouter",
-			BaseProfile: name,
-			SportTypes:  systemSportTypes(name),
-			Source:      "system",
-			Config:      &msg,
-			Editable:    false,
-		})
-	}
-
-	// 2. User custom + filesystem profiles from DB
+	// 1. All BadRouter profiles from DB (system, filesystem, user)
 	dbProfiles, err := h.DB.ListRoutingProfiles(r.Context(), userID)
 	if err != nil {
 		slog.Error("HandleListProfiles: ListRoutingProfiles failed", "error", err)
@@ -102,7 +74,7 @@ func (h *Handler) HandleListProfiles(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, dp := range dbProfiles {
 		id := dp.ID
-		editable := dp.UserID != nil && *dp.UserID == userID
+		editable := dp.Source == "user" && dp.UserID != nil && *dp.UserID == userID
 		var configMsg *json.RawMessage
 		if len(dp.Config) > 0 {
 			msg := json.RawMessage(dp.Config)
@@ -120,7 +92,7 @@ func (h *Handler) HandleListProfiles(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// 3. BRouter profiles from filesystem (cached with TTL to avoid per-request Glob).
+	// 2. BRouter profiles from filesystem (cached with TTL to avoid per-request Glob).
 	brouterCacheMu.Lock()
 	if time.Since(brouterCacheTime) < brouterCacheTTL && brouterCacheItems != nil {
 		cached := brouterCacheItems
@@ -198,6 +170,11 @@ func (h *Handler) HandleCreateProfile(w http.ResponseWriter, r *http.Request) {
 
 	if err := routing.ValidateProfileConfig(req.Config); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	if err := routing.ValidateBuiltinCompleteness(req.Config); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
+			fmt.Sprintf("profile config incomplete: %v", err), r.URL.Path)
 		return
 	}
 	if err := routing.ValidateSportTypes(req.SportTypes); err != nil {
@@ -320,14 +297,6 @@ func (h *Handler) HandleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// importProfileEntry is one entry in the import JSON format.
-type importProfileEntry struct {
-	Name        string               `json:"name"`
-	BaseProfile string               `json:"base_profile"`
-	SportTypes  []string             `json:"sport_types"`
-	Config      routing.ProfileConfig `json:"config"`
-}
-
 // HandleImportProfiles imports one or more profiles from a multipart form with .json files.
 // POST /routing/profiles/import
 func (h *Handler) HandleImportProfiles(w http.ResponseWriter, r *http.Request) {
@@ -377,51 +346,78 @@ func (h *Handler) HandleImportProfiles(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		var entry importProfileEntry
-		if err := json.Unmarshal(data, &entry); err != nil {
+		var cfg routing.ProfileConfig
+		if err := json.Unmarshal(data, &cfg); err != nil {
 			results = append(results, importResult{Name: fh.Filename, Success: false, Error: fmt.Sprintf("invalid JSON: %v", err)})
 			continue
 		}
 
-		if strings.TrimSpace(entry.Name) == "" {
-			entry.Name = strings.TrimSuffix(fh.Filename, ".json")
+		// Backward compat: old wrapper format had nested "config" object
+		if cfg.Profile == "" {
+			var wrapper struct {
+				Name        string                `json:"name"`
+				BaseProfile string                `json:"base_profile"`
+				SportTypes  []string              `json:"sport_types"`
+				Config      routing.ProfileConfig `json:"config"`
+			}
+			if err := json.Unmarshal(data, &wrapper); err == nil && wrapper.BaseProfile != "" {
+				cfg = wrapper.Config
+				cfg.Profile = wrapper.BaseProfile
+				if cfg.Name == "" {
+					cfg.Name = wrapper.Name
+				}
+				if len(cfg.SportTypes) == 0 {
+					cfg.SportTypes = wrapper.SportTypes
+				}
+			}
 		}
-		if strings.TrimSpace(entry.BaseProfile) == "" {
-			results = append(results, importResult{Name: entry.Name, Success: false, Error: "base_profile is required"})
-			continue
-		}
-		if !slices.Contains(routing.ValidProfileNames, entry.BaseProfile) {
-			results = append(results, importResult{Name: entry.Name, Success: false, Error: "unknown base_profile"})
+
+		if cfg.Profile == "" {
+			results = append(results, importResult{Name: fh.Filename, Success: false, Error: "profile field is required"})
 			continue
 		}
 
-		if err := routing.ValidateProfileConfig(entry.Config); err != nil {
-			results = append(results, importResult{Name: entry.Name, Success: false, Error: err.Error()})
+		// Name fallback
+		if cfg.Name == "" {
+			cfg.Name = strings.TrimSuffix(fh.Filename, ".json")
+		}
+
+		if err := routing.ValidateProfileConfig(cfg); err != nil {
+			results = append(results, importResult{Name: cfg.Name, Success: false, Error: err.Error()})
 			continue
 		}
-		if err := routing.ValidateSportTypes(entry.SportTypes); err != nil {
-			results = append(results, importResult{Name: entry.Name, Success: false, Error: err.Error()})
+		if err := routing.ValidateBuiltinCompleteness(cfg); err != nil {
+			results = append(results, importResult{Name: cfg.Name, Success: false, Error: fmt.Sprintf("incomplete profile: %v", err)})
 			continue
 		}
 
-		configJSON, err := json.Marshal(entry.Config)
+		sportTypes := cfg.SportTypes
+		if len(sportTypes) == 0 {
+			sportTypes = routing.DefaultSportTypes(cfg.Profile)
+		}
+		if err := routing.ValidateSportTypes(sportTypes); err != nil {
+			results = append(results, importResult{Name: cfg.Name, Success: false, Error: err.Error()})
+			continue
+		}
+
+		configJSON, err := json.Marshal(cfg)
 		if err != nil {
-			results = append(results, importResult{Name: entry.Name, Success: false, Error: "failed to serialize config"})
+			results = append(results, importResult{Name: cfg.Name, Success: false, Error: "failed to serialize config"})
 			continue
 		}
 
-		_, err = h.DB.CreateRoutingProfile(r.Context(), userID, entry.Name, entry.BaseProfile, entry.SportTypes, configJSON)
+		_, err = h.DB.CreateRoutingProfile(r.Context(), userID, cfg.Name, cfg.Profile, sportTypes, configJSON)
 		if err != nil {
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-				results = append(results, importResult{Name: entry.Name, Success: false, Error: "profile name already exists"})
+				results = append(results, importResult{Name: cfg.Name, Success: false, Error: "profile name already exists"})
 				continue
 			}
-			results = append(results, importResult{Name: entry.Name, Success: false, Error: "failed to create profile"})
+			results = append(results, importResult{Name: cfg.Name, Success: false, Error: "failed to create profile"})
 			continue
 		}
 
-		results = append(results, importResult{Name: entry.Name, Success: true})
+		results = append(results, importResult{Name: cfg.Name, Success: true})
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{"results": results})
@@ -459,14 +455,20 @@ func (h *Handler) HandleExportProfile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	export := importProfileEntry{
-		Name:        profile.Name,
-		BaseProfile: profile.BaseProfile,
-		SportTypes:  profile.SportTypes,
-		Config:      exportConfig,
+	// Merge with base defaults so export is always complete
+	if exportConfig.Profile != "" {
+		if base, err := routing.BuiltinProfile(exportConfig.Profile); err == nil {
+			exportConfig = routing.MergeProfile(base, exportConfig)
+		}
 	}
 
-	data, err := json.MarshalIndent(export, "", "  ")
+	// Set metadata from DB record
+	exportConfig.Name = profile.Name
+	if len(exportConfig.SportTypes) == 0 {
+		exportConfig.SportTypes = profile.SportTypes
+	}
+
+	data, err := json.MarshalIndent(exportConfig, "", "  ")
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to serialize profile", r.URL.Path)
 		return
@@ -557,53 +559,14 @@ func (h *Handler) HandleDeleteBrouterProfile(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// systemSportTypes returns the default sport types for a built-in BadRouter profile.
-func systemSportTypes(profile string) []string {
-	switch profile {
-	case "hiking":
-		return []string{"hiking", "trail_running", "running", "walking", "mountaineering"}
-	case "mtb":
-		return []string{"mountain_biking"}
-	case "gravel":
-		return []string{"gravel_cycling"}
-	case "trekking":
-		return []string{"cycling"}
-	case "road":
-		return []string{"cycling", "gravel_cycling"}
-	default:
-		return []string{}
-	}
-}
-
-// filesystemProfileSportTypes derives sport types from the base profile name for
-// filesystem-imported BadRouter profiles. Uses the same defaults as system profiles
-// with extensions for additional base profile aliases.
-func filesystemProfileSportTypes(baseProfile string) []string {
-	switch baseProfile {
-	case "hiking":
-		return []string{"hiking", "trail_running", "running", "walking", "mountaineering"}
-	case "mtb":
-		return []string{"mountain_biking"}
-	case "gravel":
-		return []string{"gravel_cycling"}
-	case "trekking":
-		return []string{"cycling"}
-	case "road":
-		return []string{"cycling", "gravel_cycling"}
-	default:
-		return []string{}
-	}
-}
-
-// ScanFilesystemProfiles scans dir for *.json BadRouter profile files and upserts
-// them into the database as global (filesystem-source) profiles. The directory
-// missing entirely is treated as a no-op (returns 0, nil). Per-file errors are
-// logged but do not abort the scan. Returns the count of successfully imported files.
-func ScanFilesystemProfiles(ctx context.Context, dir string, db *database.DB) (int, error) {
+// SeedProfiles scans dir for *.json profile files and upserts them into the
+// database as global profiles with the given source ("system" or "filesystem").
+// Missing dir or no files is a no-op (returns 0, nil).
+func SeedProfiles(ctx context.Context, dir string, db *database.DB, source string) (int, error) {
 	matches, err := filepath.Glob(filepath.Join(dir, "*.json"))
 	if err != nil {
 		// Glob only returns ErrBadPattern which would be a programming error.
-		return 0, fmt.Errorf("ScanFilesystemProfiles: glob failed: %w", err)
+		return 0, fmt.Errorf("SeedProfiles: glob failed: %w", err)
 	}
 	// No directory / no files — not an error.
 	if len(matches) == 0 {
@@ -612,41 +575,46 @@ func ScanFilesystemProfiles(ctx context.Context, dir string, db *database.DB) (i
 
 	count := 0
 	for _, path := range matches {
-		name := strings.TrimSuffix(filepath.Base(path), ".json")
-
 		data, err := os.ReadFile(path)
 		if err != nil {
-			slog.Warn("ScanFilesystemProfiles: read failed", "file", path, "error", err)
+			slog.Warn("SeedProfiles: read failed", "file", path, "error", err)
 			continue
 		}
 
 		var cfg routing.ProfileConfig
 		if err := json.Unmarshal(data, &cfg); err != nil {
-			slog.Warn("ScanFilesystemProfiles: parse failed", "file", path, "error", err)
+			slog.Warn("SeedProfiles: parse failed", "file", path, "error", err)
 			continue
 		}
 
 		if err := routing.ValidateProfileConfig(cfg); err != nil {
-			slog.Warn("ScanFilesystemProfiles: validation failed", "file", path, "error", err)
+			slog.Warn("SeedProfiles: validation failed", "file", path, "error", err)
 			continue
 		}
 
-		baseProfile := cfg.Profile
-		if baseProfile == "" {
-			slog.Warn("ScanFilesystemProfiles: profile (base_profile) missing", "file", path)
+		if cfg.Profile == "" {
+			slog.Warn("SeedProfiles: profile field missing", "file", path)
 			continue
 		}
 
-		sportTypes := filesystemProfileSportTypes(baseProfile)
+		sportTypes := cfg.SportTypes
+		if len(sportTypes) == 0 {
+			sportTypes = routing.DefaultSportTypes(cfg.Profile)
+		}
+
+		displayName := cfg.Name
+		if displayName == "" {
+			displayName = strings.TrimSuffix(filepath.Base(path), ".json")
+		}
 
 		configBytes, err := json.Marshal(cfg)
 		if err != nil {
-			slog.Warn("ScanFilesystemProfiles: marshal failed", "file", path, "error", err)
+			slog.Warn("SeedProfiles: marshal failed", "file", path, "error", err)
 			continue
 		}
 
-		if _, err := db.UpsertGlobalProfile(ctx, name, baseProfile, sportTypes, configBytes, "filesystem"); err != nil {
-			slog.Warn("ScanFilesystemProfiles: upsert failed", "file", path, "error", err)
+		if _, err := db.UpsertGlobalProfile(ctx, displayName, cfg.Profile, sportTypes, configBytes, source); err != nil {
+			slog.Warn("SeedProfiles: upsert failed", "file", path, "error", err)
 			continue
 		}
 
