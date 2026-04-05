@@ -262,3 +262,13 @@ func (db *DB) RecomputeAllTrackPublic(ctx context.Context, userID string) error 
 
 	return nil
 }
+
+// GetPrivacyZoneCenter returns [lat, lon] for the center of a privacy zone.
+func (db *DB) GetPrivacyZoneCenter(ctx context.Context, zoneID, userID string) ([2]float64, error) {
+	var coords [2]float64
+	err := db.Pool.QueryRow(ctx, `
+		SELECT ST_Y(center), ST_X(center)
+		FROM user_privacy_zones WHERE id = $1 AND user_id = $2`,
+		zoneID, userID).Scan(&coords[0], &coords[1])
+	return coords, err
+}

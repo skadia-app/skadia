@@ -861,6 +861,8 @@ func main() {
 			r.Put("/privacy-zones/{id}", h.UpdatePrivacyZone)
 			r.Delete("/privacy-zones/{id}", h.DeletePrivacyZone)
 
+			r.Post("/automation-rules/commute", h.CreateOrExtendCommuteRule)
+
 			// Compat shims: read/write user_file_schemas (legacy column dropped).
 			r.Get("/settings/shadow-fs", h.GetShadowFSSettingsCompat)
 			r.Put("/settings/shadow-fs", h.UpdateShadowFSSettingsCompat)

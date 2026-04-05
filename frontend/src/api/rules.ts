@@ -68,3 +68,23 @@ export async function applySingleRule(ruleId: string): Promise<{ job_id: string 
   return apiClient<{ job_id: string }>(`/automation-rules/${ruleId}/apply`, { method: 'POST' })
 }
 
+export interface CommuteRuleResult {
+  rule_id: string
+  created: boolean
+  message: string
+}
+
+export async function createCommuteRule(activityId: string): Promise<CommuteRuleResult> {
+  return apiClient<CommuteRuleResult>('/automation-rules/commute', {
+    method: 'POST',
+    body: { activity_id: activityId },
+  })
+}
+
+export async function createCommuteRuleFromZones(startZoneId: string, endZoneId: string): Promise<CommuteRuleResult> {
+  return apiClient<CommuteRuleResult>('/automation-rules/commute', {
+    method: 'POST',
+    body: { start_zone_id: startZoneId, end_zone_id: endZoneId },
+  })
+}
+
