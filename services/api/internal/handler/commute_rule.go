@@ -21,9 +21,13 @@ const (
 )
 
 type commuteRuleRequest struct {
-	ActivityID  string `json:"activity_id"`
-	StartZoneID string `json:"start_zone_id"`
-	EndZoneID   string `json:"end_zone_id"`
+	ActivityID  string   `json:"activity_id"`
+	StartZoneID string   `json:"start_zone_id"`
+	EndZoneID   string   `json:"end_zone_id"`
+	// For roundtrip: user specifies the intermediate destination
+	DestLat     *float64 `json:"dest_lat,omitempty"`
+	DestLon     *float64 `json:"dest_lon,omitempty"`
+	DestZoneID  string   `json:"dest_zone_id"`
 }
 
 type commuteRuleResponse struct {
@@ -83,10 +87,78 @@ func (h *Handler) CreateOrExtendCommuteRule(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Round-trip guard: commute routes must have different start and end points
-	if geo.DistanceHaversine(startLat, startLon, endLat, endLon) <= commuteRadiusM {
-		httputil.WriteError(w, http.StatusUnprocessableEntity, "Round Trip",
-			"start and end point are too close — commute routes require different locations", r.URL.Path)
+	// Round-trip check: if start ≈ end, require destination info for dwell-based rule
+	isRoundTrip := geo.DistanceHaversine(startLat, startLon, endLat, endLon) <= commuteRadiusM
+	if isRoundTrip {
+		var destLat, destLon float64
+		if req.DestZoneID != "" {
+			centers, err := h.DB.GetPrivacyZoneCenters(ctx, []string{req.DestZoneID}, userID)
+			if err != nil || len(centers) == 0 {
+				httputil.WriteError(w, http.StatusNotFound, "Not Found", "destination zone not found", r.URL.Path)
+				return
+			}
+			coords := centers[req.DestZoneID]
+			destLat, destLon = coords[0], coords[1]
+		} else if req.DestLat != nil && req.DestLon != nil {
+			destLat, destLon = *req.DestLat, *req.DestLon
+		} else {
+			httputil.WriteError(w, http.StatusUnprocessableEntity, "Round Trip",
+				"round-trip activity requires dest_lat/dest_lon or dest_zone_id", r.URL.Path)
+			return
+		}
+
+		pendelTagID, err := h.DB.GetSystemTagID(ctx, userID, commuteTagName)
+		if err != nil {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "Pendeln tag not found — check enrichment settings", r.URL.Path)
+			return
+		}
+
+		existingRule, err := h.DB.GetRuleBySystemType(ctx, userID, commuteAutoSystemType)
+		if err != nil {
+			slog.Error("commute rule: GetRuleBySystemType failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load rule", r.URL.Path)
+			return
+		}
+
+		if existingRule != nil {
+			if commuteRouteExists(existingRule, startLat, startLon, destLat, destLon, commuteRadiusM) {
+				httputil.WriteJSON(w, http.StatusConflict, commuteRuleResponse{
+					RuleID:  existingRule.ID,
+					Created: false,
+					Message: "Route already exists in commute rule",
+				})
+				return
+			}
+			newBranches := makeCommuteRoundtripBranches("else_if", startLat, startLon, destLat, destLon, commuteRadiusM, pendelTagID)
+			if err := extendCommuteRuleRaw(ctx, h.DB, existingRule, newBranches); err != nil {
+				if err.Error() == "max 20 commute routes reached" {
+					httputil.WriteError(w, http.StatusUnprocessableEntity, "Limit Reached", "max 20 commute routes — delete old routes in /workshop/rules", r.URL.Path)
+				} else {
+					slog.Error("commute rule: extendCommuteRuleRaw failed", "error", err)
+					httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to extend rule", r.URL.Path)
+				}
+				return
+			}
+			httputil.WriteJSON(w, http.StatusOK, commuteRuleResponse{
+				RuleID:  existingRule.ID,
+				Created: false,
+				Message: "Roundtrip route added to existing commute rule",
+			})
+			return
+		}
+
+		branches := makeCommuteRoundtripBranches("if", startLat, startLon, destLat, destLon, commuteRadiusM, pendelTagID)
+		ruleID, err := createCommuteRuleRaw(ctx, h.DB, userID, branches)
+		if err != nil {
+			slog.Error("commute rule: createCommuteRuleRaw failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create rule", r.URL.Path)
+			return
+		}
+		httputil.WriteJSON(w, http.StatusCreated, commuteRuleResponse{
+			RuleID:  ruleID,
+			Created: true,
+			Message: "Roundtrip commute rule created",
+		})
 		return
 	}
 
@@ -259,14 +331,19 @@ func createCommuteRule(ctx context.Context, db *database.DB, userID string, star
 
 // extendCommuteRule appends a new route pair to the branches of an existing commute_auto rule.
 func extendCommuteRule(ctx context.Context, db *database.DB, rule *model.AutomationRule, startLat, startLon, endLat, endLon, radiusM float64, tagID string) error {
+	newBranches := makeCommuteBranches("else_if", startLat, startLon, endLat, endLon, radiusM, tagID)
+	return extendCommuteRuleRaw(ctx, db, rule, newBranches)
+}
+
+// extendCommuteRuleRaw appends pre-built branch JSON to an existing commute_auto rule.
+func extendCommuteRuleRaw(ctx context.Context, db *database.DB, rule *model.AutomationRule, newBranches json.RawMessage) error {
 	var existing []json.RawMessage
 	if err := json.Unmarshal(rule.Branches, &existing); err != nil {
 		return err
 	}
-	if len(existing) >= 40 { // 20 routes × 2 branches
+	if len(existing) >= 40 { // 20 routes × 2 branches (roundtrip uses 3)
 		return fmt.Errorf("max 20 commute routes reached")
 	}
-	newBranches := makeCommuteBranches("else_if", startLat, startLon, endLat, endLon, radiusM, tagID)
 	var newParsed []json.RawMessage
 	if err := json.Unmarshal(newBranches, &newParsed); err != nil {
 		return err
@@ -280,4 +357,76 @@ func extendCommuteRule(ctx context.Context, db *database.DB, rule *model.Automat
 		`UPDATE automation_rules SET branches = $1::jsonb WHERE id = $2`,
 		allJSON, rule.ID)
 	return err
+}
+
+// createCommuteRuleRaw inserts a new commute_auto system rule with pre-built branches JSON.
+func createCommuteRuleRaw(ctx context.Context, db *database.DB, userID string, branches json.RawMessage) (string, error) {
+	var ruleID string
+	err := db.Pool.QueryRow(ctx, `
+		INSERT INTO automation_rules
+			(user_id, name, is_system, system_type, is_active, priority,
+			 trigger_event, conditions, conditions_logic, actions, branches, condition_groups)
+		VALUES ($1, 'Pendeln', true, 'commute_auto', true, 0,
+			'on_enrichment_complete', '[]'::jsonb, 'and', '[]'::jsonb, $2::jsonb, '[]'::jsonb)
+		RETURNING id`,
+		userID, branches,
+	).Scan(&ruleID)
+	return ruleID, err
+}
+
+// makeCommuteRoundtripBranches builds 3 branches for a roundtrip commute:
+// home→work, work→home, and home→(dwell at work)→home.
+func makeCommuteRoundtripBranches(branchType string, homeLat, homeLon, workLat, workLon, radiusM float64, tagID string) json.RawMessage {
+	makeBranch := func(t string, conditions []map[string]any) map[string]any {
+		return map[string]any{
+			"type": t,
+			"condition_groups": []map[string]any{{
+				"logic":      "and",
+				"conditions": conditions,
+			}},
+			"actions": []map[string]any{{
+				"action": "add_tag",
+				"params": map[string]any{"tag_id": tagID},
+			}},
+		}
+	}
+
+	gf := func(check string, lat, lon, r float64) map[string]any {
+		return map[string]any{
+			"field": "geofence",
+			"op":    "eq",
+			"value": map[string]any{
+				"check": check, "mode": "inside", "shape": "circle",
+				"lat": lat, "lon": lon, "radius_m": r,
+			},
+		}
+	}
+
+	dwellCond := map[string]any{
+		"field": "geofence",
+		"op":    "eq",
+		"value": map[string]any{
+			"check": "dwell", "mode": "inside", "shape": "circle",
+			"lat": workLat, "lon": workLon, "radius_m": radiusM,
+			"min_dwell_s": 1800, // 30 minutes
+		},
+	}
+
+	branches := []map[string]any{
+		makeBranch(branchType, []map[string]any{
+			gf("start", homeLat, homeLon, radiusM),
+			gf("end", workLat, workLon, radiusM),
+		}),
+		makeBranch("else_if", []map[string]any{
+			gf("start", workLat, workLon, radiusM),
+			gf("end", homeLat, homeLon, radiusM),
+		}),
+		makeBranch("else_if", []map[string]any{
+			gf("start", homeLat, homeLon, radiusM),
+			gf("end", homeLat, homeLon, radiusM),
+			dwellCond,
+		}),
+	}
+	data, _ := json.Marshal(branches)
+	return data
 }

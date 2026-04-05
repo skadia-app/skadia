@@ -299,12 +299,13 @@ func InjectTrackGeofenceResults(ctx context.Context, db *database.DB, activityID
 // actMaps maps activityID → activity map; results are injected in-place.
 func InjectTrackGeofenceResultsBatch(ctx context.Context, db *database.DB, activityIDs []string, actMaps map[string]map[string]any, allRules []model.AutomationRule) {
 	type trackGeofence struct {
-		key     string
-		shape   string
-		lat     float64
-		lon     float64
-		radiusM float64
-		polygon string
+		key       string
+		shape     string
+		lat       float64
+		lon       float64
+		radiusM   float64
+		polygon   string
+		minDwellS int
 	}
 
 	seen := map[string]bool{}
@@ -315,7 +316,11 @@ func InjectTrackGeofenceResultsBatch(ctx context.Context, db *database.DB, activ
 			continue
 		}
 		scanGroups := func(raw json.RawMessage) {
-			if len(raw) == 0 || string(raw) == "null" || !strings.Contains(string(raw), `"track"`) {
+			if len(raw) == 0 || string(raw) == "null" {
+				return
+			}
+			rawStr := string(raw)
+			if !strings.Contains(rawStr, `"track"`) && !strings.Contains(rawStr, `"dwell"`) {
 				return
 			}
 			var groups []rules.ConditionGroup
@@ -332,27 +337,43 @@ func InjectTrackGeofenceResultsBatch(ctx context.Context, db *database.DB, activ
 						continue
 					}
 					check, _ := params["check"].(string)
-					if check != "track" {
-						continue
-					}
-					key := rules.GeofenceTrackKey(params)
-					if seen[key] {
-						continue
-					}
-					seen[key] = true
-					shape, _ := params["shape"].(string)
-					if shape == "" {
-						shape = "circle"
-					}
-					gf := trackGeofence{key: key, shape: shape}
-					if shape == "polygon" {
-						gf.polygon, _ = params["polygon"].(string)
-					} else {
+					if check == "track" {
+						key := rules.GeofenceTrackKey(params)
+						if seen[key] {
+							continue
+						}
+						seen[key] = true
+						shape, _ := params["shape"].(string)
+						if shape == "" {
+							shape = "circle"
+						}
+						gf := trackGeofence{key: key, shape: shape}
+						if shape == "polygon" {
+							gf.polygon, _ = params["polygon"].(string)
+						} else {
+							gf.lat, _ = params["lat"].(float64)
+							gf.lon, _ = params["lon"].(float64)
+							gf.radiusM, _ = params["radius_m"].(float64)
+						}
+						geofences = append(geofences, gf)
+					} else if check == "dwell" {
+						key := rules.GeofenceDwellKey(params)
+						if seen[key] {
+							continue
+						}
+						seen[key] = true
+						shape, _ := params["shape"].(string)
+						if shape == "" {
+							shape = "circle"
+						}
+						gf := trackGeofence{key: key, shape: shape + "_dwell"}
 						gf.lat, _ = params["lat"].(float64)
 						gf.lon, _ = params["lon"].(float64)
 						gf.radiusM, _ = params["radius_m"].(float64)
+						minDwell, _ := params["min_dwell_s"].(float64)
+						gf.minDwellS = int(minDwell)
+						geofences = append(geofences, gf)
 					}
-					geofences = append(geofences, gf)
 				}
 			}
 		}
@@ -379,7 +400,9 @@ func InjectTrackGeofenceResultsBatch(ctx context.Context, db *database.DB, activ
 	for _, gf := range geofences {
 		var results map[string]bool
 		var err error
-		if gf.shape == "polygon" {
+		if strings.HasSuffix(gf.shape, "_dwell") {
+			results, err = db.BatchDwellInCircle(ctx, activityIDs, gf.lat, gf.lon, gf.radiusM, gf.minDwellS)
+		} else if gf.shape == "polygon" {
 			results, err = db.BatchTrackIntersectsPolygon(ctx, activityIDs, gf.polygon)
 		} else {
 			results, err = db.BatchTrackIntersectsCircle(ctx, activityIDs, gf.lat, gf.lon, gf.radiusM)
@@ -397,15 +420,16 @@ func InjectTrackGeofenceResultsBatch(ctx context.Context, db *database.DB, activ
 }
 
 // injectTrackGeofenceResults pre-computes track intersection results for geofence
-// conditions with check:"track" and injects them into the activity map.
+// conditions with check:"track" or check:"dwell" and injects them into the activity map.
 func injectTrackGeofenceResults(ctx context.Context, db *database.DB, activityID string, actMap map[string]any, allRules []model.AutomationRule) {
 	type trackGeofence struct {
-		key     string
-		shape   string
-		lat     float64
-		lon     float64
-		radiusM float64
-		polygon string
+		key       string
+		shape     string
+		lat       float64
+		lon       float64
+		radiusM   float64
+		polygon   string
+		minDwellS int
 	}
 
 	seen := map[string]bool{}
@@ -416,7 +440,11 @@ func injectTrackGeofenceResults(ctx context.Context, db *database.DB, activityID
 			continue
 		}
 		scanGroups := func(raw json.RawMessage) {
-			if len(raw) == 0 || string(raw) == "null" || !strings.Contains(string(raw), `"track"`) {
+			if len(raw) == 0 || string(raw) == "null" {
+				return
+			}
+			rawStr := string(raw)
+			if !strings.Contains(rawStr, `"track"`) && !strings.Contains(rawStr, `"dwell"`) {
 				return
 			}
 			var groups []rules.ConditionGroup
@@ -433,27 +461,43 @@ func injectTrackGeofenceResults(ctx context.Context, db *database.DB, activityID
 						continue
 					}
 					check, _ := params["check"].(string)
-					if check != "track" {
-						continue
-					}
-					key := rules.GeofenceTrackKey(params)
-					if seen[key] {
-						continue
-					}
-					seen[key] = true
-					shape, _ := params["shape"].(string)
-					if shape == "" {
-						shape = "circle"
-					}
-					gf := trackGeofence{key: key, shape: shape}
-					if shape == "polygon" {
-						gf.polygon, _ = params["polygon"].(string)
-					} else {
+					if check == "track" {
+						key := rules.GeofenceTrackKey(params)
+						if seen[key] {
+							continue
+						}
+						seen[key] = true
+						shape, _ := params["shape"].(string)
+						if shape == "" {
+							shape = "circle"
+						}
+						gf := trackGeofence{key: key, shape: shape}
+						if shape == "polygon" {
+							gf.polygon, _ = params["polygon"].(string)
+						} else {
+							gf.lat, _ = params["lat"].(float64)
+							gf.lon, _ = params["lon"].(float64)
+							gf.radiusM, _ = params["radius_m"].(float64)
+						}
+						geofences = append(geofences, gf)
+					} else if check == "dwell" {
+						key := rules.GeofenceDwellKey(params)
+						if seen[key] {
+							continue
+						}
+						seen[key] = true
+						shape, _ := params["shape"].(string)
+						if shape == "" {
+							shape = "circle"
+						}
+						gf := trackGeofence{key: key, shape: shape + "_dwell"}
 						gf.lat, _ = params["lat"].(float64)
 						gf.lon, _ = params["lon"].(float64)
 						gf.radiusM, _ = params["radius_m"].(float64)
+						minDwell, _ := params["min_dwell_s"].(float64)
+						gf.minDwellS = int(minDwell)
+						geofences = append(geofences, gf)
 					}
-					geofences = append(geofences, gf)
 				}
 			}
 		}
@@ -481,7 +525,9 @@ func injectTrackGeofenceResults(ctx context.Context, db *database.DB, activityID
 	for _, gf := range geofences {
 		var result map[string]bool
 		var err error
-		if gf.shape == "polygon" {
+		if strings.HasSuffix(gf.shape, "_dwell") {
+			result, err = db.BatchDwellInCircle(ctx, ids, gf.lat, gf.lon, gf.radiusM, gf.minDwellS)
+		} else if gf.shape == "polygon" {
 			result, err = db.BatchTrackIntersectsPolygon(ctx, ids, gf.polygon)
 		} else {
 			result, err = db.BatchTrackIntersectsCircle(ctx, ids, gf.lat, gf.lon, gf.radiusM)
