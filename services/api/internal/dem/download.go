@@ -40,7 +40,9 @@ func LoadTileStatus(outputDir string) *TileStatus {
 	}
 	data, err := os.ReadFile(ts.path)
 	if err == nil {
-		json.Unmarshal(data, &ts.status)
+		if jsonErr := json.Unmarshal(data, &ts.status); jsonErr != nil {
+			slog.Warn("dem: corrupt tile status manifest, starting fresh", "path", ts.path, "error", jsonErr)
+		}
 	}
 	return ts
 }
@@ -61,15 +63,27 @@ func (ts *TileStatus) Set(cellFile, status string) {
 // Save persists the manifest to disk (atomic write).
 func (ts *TileStatus) Save() error {
 	ts.mu.Lock()
+	defer ts.mu.Unlock()
 	data, err := json.MarshalIndent(ts.status, "", "  ")
-	ts.mu.Unlock()
 	if err != nil {
 		return err
 	}
 	tmp := ts.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
+	f, err := os.Create(tmp)
+	if err != nil {
 		return err
 	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	f.Close()
 	return os.Rename(tmp, ts.path)
 }
 
@@ -326,9 +340,17 @@ func downloadFile(ctx context.Context, url, dest string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	_, err = io.Copy(f, resp.Body)
-	return err
+	if _, cpErr := io.Copy(f, resp.Body); cpErr != nil {
+		f.Close()
+		os.Remove(dest)
+		return cpErr
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(dest)
+		return err
+	}
+	return f.Close()
 }
 
 type httpError struct {

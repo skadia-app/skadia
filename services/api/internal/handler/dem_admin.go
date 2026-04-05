@@ -188,7 +188,10 @@ func (h *Handler) GetDEMRegionStatus(w http.ResponseWriter, r *http.Request) {
 	hasManifest := manifest.HasManifest()
 
 	var regionStatus []dem.RegionDEMStatus
-	var missingTiles int
+	missingTiles := -1 // -1 = unknown (no manifest); ≥0 = accurate count from manifest
+	if hasManifest {
+		missingTiles = 0
+	}
 	if len(regs) > 0 {
 		allMissing := make(map[dem.HGTCell]bool) // deduplicated across regions
 
