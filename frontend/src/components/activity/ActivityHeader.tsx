@@ -252,19 +252,24 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
             <span className="text-neutral-400 dark:text-neutral-600">{activity.source_device}</span>
           ) : null}
         </div>
-        {(activity.vo2max_ml_kg_min != null || activity.gps_accuracy_m != null) && (
+        {(activity.vo2max_ml_kg_min != null || activity.suunto_vo2max != null || activity.gps_accuracy_m != null) && (
           <div className="flex items-center gap-3 mt-1">
-            {activity.vo2max_ml_kg_min != null && (
-              <div className="flex items-center gap-1 text-sm">
-                <span className="font-medium text-emerald-600">
-                  VO₂max {activity.vo2max_ml_kg_min.toFixed(1)}
-                </span>
-                <span className="text-muted-foreground text-xs">ml/kg/min</span>
-                {activity.vo2max_calibrated === false && (
-                  <span className="text-amber-500 text-xs" title="Nicht kalibriert">~</span>
-                )}
-              </div>
-            )}
+            {(activity.vo2max_ml_kg_min != null || activity.suunto_vo2max != null) && (() => {
+              const isSuuntoFallback = activity.vo2max_ml_kg_min == null && activity.suunto_vo2max != null
+              const value = isSuuntoFallback ? activity.suunto_vo2max! : activity.vo2max_ml_kg_min!
+              const label = isSuuntoFallback ? 'VO₂max (Suunto)' : 'VO₂max'
+              return (
+                <div className="flex items-center gap-1 text-sm">
+                  <span className="font-medium text-emerald-600">
+                    {label} {value.toFixed(1)}
+                  </span>
+                  <span className="text-muted-foreground text-xs">ml/kg/min</span>
+                  {!isSuuntoFallback && activity.vo2max_calibrated === false && (
+                    <span className="text-amber-500 text-xs" title="Nicht kalibriert">~</span>
+                  )}
+                </div>
+              )
+            })()}
             {activity.gps_accuracy_m != null && (
               <span className={cn(
                 "text-xs px-1.5 py-0.5 rounded",

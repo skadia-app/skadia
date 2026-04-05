@@ -17,6 +17,8 @@ import HRVChart from '@/components/health/HRVChart'
 import WeightChart from '@/components/health/WeightChart'
 import ReadinessCard from '@/components/health/ReadinessCard'
 import TrainingLoadChart from '@/components/health/TrainingLoadChart'
+import BloodPressureEntryDialog from '@/components/health/BloodPressureEntryDialog'
+import WeightEntryDialog from '@/components/health/WeightEntryDialog'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -43,13 +45,14 @@ function getDateRange(period: Period): { from: string; to: string } {
 
 // ── Chart Section ─────────────────────────────────────────────────────────────
 
-function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
+function ChartCard({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-      <div className="px-4 pt-4 pb-2">
+      <div className="px-4 pt-4 pb-2 flex items-center justify-between gap-2">
         <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
           {title}
         </h3>
+        {action}
       </div>
       <div className="px-2 pb-3">{children}</div>
     </div>
@@ -60,6 +63,8 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
 
 export default function HealthDashboardPage() {
   const [period, setPeriod] = useState<Period>('30d')
+  const [showBPDialog, setShowBPDialog] = useState(false)
+  const [showWeightDialog, setShowWeightDialog] = useState(false)
   const { from, to } = getDateRange(period)
 
   // Overview (always latest, no date filter)
@@ -161,15 +166,56 @@ export default function HealthDashboardPage() {
           <HRVChart data={hrv} />
         </ChartCard>
 
-        <ChartCard title="Gewicht">
+        <ChartCard
+          title="Gewicht"
+          action={
+            <button
+              onClick={() => setShowWeightDialog(true)}
+              className="cursor-pointer flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Messung
+            </button>
+          }
+        >
           <WeightChart data={weight} />
         </ChartCard>
       </div>
+
+      {/* Blood pressure (full width) */}
+      <ChartCard
+        title="Blutdruck"
+        action={
+          <button
+            onClick={() => setShowBPDialog(true)}
+            className="cursor-pointer flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Messung
+          </button>
+        }
+      >
+        <div className="px-2 text-sm text-neutral-400 dark:text-neutral-500 py-4 text-center">
+          Blutdruckdaten werden im Analytics-Bereich angezeigt.
+        </div>
+      </ChartCard>
 
       {/* Training load (full width) */}
       <ChartCard title="Trainingsbelastung">
         <TrainingLoadChart data={trainingLoad} />
       </ChartCard>
+
+      {/* Dialogs */}
+      {showBPDialog && (
+        <BloodPressureEntryDialog onClose={() => setShowBPDialog(false)} />
+      )}
+      {showWeightDialog && (
+        <WeightEntryDialog onClose={() => setShowWeightDialog(false)} />
+      )}
     </div>
   )
 }
