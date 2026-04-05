@@ -92,13 +92,13 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	slog.Info("GDPR purge starting", "user_id", userID)
 
 	// Track purge in background_jobs for UI visibility.
-	db.Pool.Exec(ctx, `INSERT INTO background_jobs (id, job_type, user_id, status, created_at)
-		VALUES (gen_random_uuid(), 'gdpr_purge', $1, 'running', NOW())`, userID)
+	db.Pool.Exec(ctx, `INSERT INTO background_jobs (id, job_type, user_id, status)
+		VALUES (gen_random_uuid(), 'gdpr_purge', $1, 'running')`, userID)
 
 	// failPurgeJob marks the GDPR purge job as failed OUTSIDE the TX.
 	// This is intentional: a failed purge should be visible even if the TX is rolled back.
 	failPurgeJob := func(errMsg string) {
-		if _, err := db.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'failed', error = $2, completed_at = NOW()
+		if _, err := db.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'failed', error = $2, finished_at = NOW()
 			WHERE job_type = 'gdpr_purge' AND user_id = $1 AND status = 'running'`, userID, errMsg); err != nil {
 			slog.Warn("GDPR: failPurgeJob update failed", "user_id", userID, "error", err)
 		}
@@ -143,7 +143,7 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	// Health hypertables (no CASCADE from users).
 	for _, table := range HealthHypertables {
 		if _, err := db.Pool.Exec(ctx,
-			fmt.Sprintf(`DELETE FROM %s WHERE user_id = $1`, table), userID); err != nil {
+			fmt.Sprintf(`DELETE FROM %s WHERE user_id = $1`, pgx.Identifier{table}.Sanitize()), userID); err != nil {
 			// L37: Phase 1 errors logged at ERROR level — these are data-deletion failures, not warnings.
 			slog.Error("GDPR: delete health hypertable failed", "table", table, "error", err)
 		}
@@ -152,7 +152,7 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	// Health regular tables (no CASCADE from users).
 	for _, table := range HealthRegularTables {
 		if _, err := db.Pool.Exec(ctx,
-			fmt.Sprintf(`DELETE FROM %s WHERE user_id = $1`, table), userID); err != nil {
+			fmt.Sprintf(`DELETE FROM %s WHERE user_id = $1`, pgx.Identifier{table}.Sanitize()), userID); err != nil {
 			slog.Error("GDPR: delete health table failed", "table", table, "error", err)
 		}
 	}
@@ -263,7 +263,7 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	// M26: Mark the GDPR tracking job as completed INSIDE the TX so a rollback also
 	// reverts the status update. The row is deleted in the same TX immediately after.
 	if _, err := tx.Exec(ctx,
-		`UPDATE background_jobs SET status = 'completed', completed_at = NOW()
+		`UPDATE background_jobs SET status = 'completed', finished_at = NOW()
 		 WHERE job_type = 'gdpr_purge' AND user_id = $1 AND status = 'running'`, userID); err != nil {
 		slog.Warn("GDPR: mark job done in TX failed", "error", err)
 	}
@@ -283,83 +283,6 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	slog.Info("GDPR purge complete", "user_id", userID,
 		"activities", len(actIDs), "segments", len(segIDs))
 	return nil
-}
-
-// ExportBestEfforts returns all best_efforts rows for a user for GDPR export.
-func (db *DB) ExportBestEfforts(ctx context.Context, userID string) ([]map[string]any, error) {
-	rows, err := db.Pool.Query(ctx, `
-		SELECT id, user_id, activity_id, category, sport_group,
-		       elapsed_time_s, value_numeric, achieved_at,
-		       stream_start_idx, stream_end_idx, created_at
-		FROM best_efforts
-		WHERE user_id = $1
-		ORDER BY achieved_at DESC`, userID)
-	if err != nil {
-		return nil, fmt.Errorf("export best_efforts: %w", err)
-	}
-	defer rows.Close()
-
-	var result []map[string]any
-	for rows.Next() {
-		var id, uid, activityID, category, sportGroup string
-		var elapsedTimeS, streamStartIdx, streamEndIdx *int
-		var valueNumeric *float64
-		var achievedAt, createdAt time.Time
-		if err := rows.Scan(&id, &uid, &activityID, &category, &sportGroup,
-			&elapsedTimeS, &valueNumeric, &achievedAt,
-			&streamStartIdx, &streamEndIdx, &createdAt); err != nil {
-			return nil, fmt.Errorf("scan best_efforts GDPR row: %w", err)
-		}
-		result = append(result, map[string]any{
-			"id":               id,
-			"user_id":          uid,
-			"activity_id":      activityID,
-			"category":         category,
-			"sport_group":      sportGroup,
-			"elapsed_time_s":   elapsedTimeS,
-			"value_numeric":    valueNumeric,
-			"achieved_at":      achievedAt,
-			"stream_start_idx": streamStartIdx,
-			"stream_end_idx":   streamEndIdx,
-			"created_at":       createdAt,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate best_efforts GDPR rows: %w", err)
-	}
-	return result, nil
-}
-
-// ExportBestEffortExclusions returns all best_effort_exclusions rows for a user for GDPR export.
-func (db *DB) ExportBestEffortExclusions(ctx context.Context, userID string) ([]map[string]any, error) {
-	rows, err := db.Pool.Query(ctx, `
-		SELECT user_id, activity_id, category, created_at
-		FROM best_effort_exclusions
-		WHERE user_id = $1
-		ORDER BY created_at DESC`, userID)
-	if err != nil {
-		return nil, fmt.Errorf("export best_effort_exclusions: %w", err)
-	}
-	defer rows.Close()
-
-	var result []map[string]any
-	for rows.Next() {
-		var uid, activityID, category string
-		var createdAt time.Time
-		if err := rows.Scan(&uid, &activityID, &category, &createdAt); err != nil {
-			return nil, fmt.Errorf("scan best_effort_exclusions GDPR row: %w", err)
-		}
-		result = append(result, map[string]any{
-			"user_id":     uid,
-			"activity_id": activityID,
-			"category":    category,
-			"created_at":  createdAt,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate best_effort_exclusions GDPR rows: %w", err)
-	}
-	return result, nil
 }
 
 func (db *DB) getUserActivityIDs(ctx context.Context, userID string) []string {

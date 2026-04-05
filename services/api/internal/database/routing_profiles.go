@@ -210,30 +210,3 @@ RETURNING id, user_id, name, base_profile, sport_types, config, source, created_
 	}
 	return p, nil
 }
-
-// ExportRoutingProfiles returns all routing profiles owned by userID for GDPR export.
-func (db *DB) ExportRoutingProfiles(ctx context.Context, userID string) ([]RoutingProfile, error) {
-	rows, err := db.Pool.Query(ctx,
-		routingProfileSelect+`
-WHERE user_id = $1
-ORDER BY name`,
-		userID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("export routing profiles: %w", err)
-	}
-	defer rows.Close()
-
-	var result []RoutingProfile
-	for rows.Next() {
-		p, err := scanRoutingProfile(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan routing profile for export: %w", err)
-		}
-		result = append(result, *p)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate routing profiles for export: %w", err)
-	}
-	return result, nil
-}

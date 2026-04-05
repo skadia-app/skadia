@@ -357,8 +357,27 @@ export async function deleteAccount(data: { password?: string; confirmation?: st
   return res.json() as Promise<{ status: string }>
 }
 
-export async function getDataExport(): Promise<Blob> {
-  const res = await apiFetch('/api/v1/auth/data-export')
-  if (!res.ok) throw new Error('Export failed')
-  return res.blob()
+export async function startDataExport(): Promise<{ job_id: string; status: string }> {
+  const res = await apiFetch('/api/v1/auth/data-export', { method: 'POST' })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(d.error ?? 'Export start failed')
+  }
+  return res.json()
+}
+
+export async function getDataExportStatus(jobId: string): Promise<{
+  job_id: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  sha256?: string
+  size_bytes?: number
+  download_url?: string
+  error?: string
+}> {
+  const res = await apiFetch(`/api/v1/auth/data-export/${jobId}`)
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(d.error ?? 'Export status check failed')
+  }
+  return res.json()
 }

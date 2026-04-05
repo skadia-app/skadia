@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useUser } from '@/providers/UserProvider'
@@ -14,10 +14,9 @@ import {
   getSessions,
   revokeSession,
   deleteAccount,
-  getDataExport,
+  startDataExport, getDataExportStatus,
   type UserSession,
 } from '@/api/auth'
-import { triggerBlobDownload } from '@/lib/utils'
 import { fmtDateTime, parseUserAgent } from '@/lib/format'
 import { SettingsSection as Section } from '@/components/ui/SettingsSection'
 
@@ -474,6 +473,13 @@ function DangerZoneSection() {
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const [exporting, setExporting] = useState(false)
 
+  const exportAbortRef = useRef<AbortController | null>(null)
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => { exportAbortRef.current?.abort() }
+  }, [])
+
   const deleteMut = useMutation({
     mutationFn: deleteAccount,
     onSuccess: () => {
@@ -487,15 +493,50 @@ function DangerZoneSection() {
   })
 
   async function handleExport() {
+    const abort = new AbortController()
+    exportAbortRef.current = abort
     setExporting(true)
     try {
-      const blob = await getDataExport()
-      triggerBlobDownload(blob, `skadia-export-${new Date().toISOString().slice(0, 10)}.zip`)
-      addToast({ type: 'success', title: 'Datenexport heruntergeladen' })
-    } catch {
-      addToast({ type: 'error', title: 'Datenexport fehlgeschlagen', duration: 0 })
+      const { job_id } = await startDataExport()
+      addToast({ type: 'info', title: 'Datenexport gestartet...' })
+
+      // Poll for completion (max 10 min = 120 × 5s)
+      for (let i = 0; i < 120; i++) {
+        if (abort.signal.aborted) return
+        await new Promise(r => setTimeout(r, 5000))
+        const status = await getDataExportStatus(job_id)
+        if (status.status === 'completed' && status.download_url) {
+          if (!status.download_url.startsWith('/api/')) {
+            addToast({ type: 'error', title: 'Ungültige Download-URL', duration: 0 })
+            return
+          }
+          window.open(status.download_url, '_blank')
+          const sizeStr = status.size_bytes
+            ? `${(status.size_bytes / 1024 / 1024).toFixed(1)} MB`
+            : ''
+          addToast({
+            type: 'success',
+            title: 'Datenexport heruntergeladen',
+            message: status.sha256
+              ? `SHA-256: ${status.sha256}${sizeStr ? ` (${sizeStr})` : ''}`
+              : undefined,
+            duration: 0,
+          })
+          return
+        }
+        if (status.status === 'failed') {
+          addToast({ type: 'error', title: `Export fehlgeschlagen: ${status.error ?? 'Unbekannter Fehler'}`, duration: 0 })
+          return
+        }
+      }
+      addToast({ type: 'error', title: 'Export-Timeout', duration: 0 })
+    } catch (e) {
+      if (!abort.signal.aborted) {
+        addToast({ type: 'error', title: 'Datenexport fehlgeschlagen', duration: 0 })
+      }
     } finally {
       setExporting(false)
+      exportAbortRef.current = null
     }
   }
 

@@ -105,37 +105,3 @@ func (db *DB) GetDeveloperAppsForActivity(ctx context.Context, activityID string
 	}
 	return result, rows.Err()
 }
-
-// GetDeveloperAppsForGDPR returns developer app data for all activities owned by a
-// given user, for use in GDPR data-export responses.
-func (db *DB) GetDeveloperAppsForGDPR(ctx context.Context, userID string) ([]map[string]any, error) {
-	rows, err := db.Pool.Query(ctx, `
-		SELECT ada.activity_id, encode(ada.application_id, 'hex') AS application_id,
-		       ada.app_name, ada.app_category, ada.serial_number
-		FROM activity_developer_apps ada
-		JOIN activities a ON a.id = ada.activity_id
-		WHERE a.user_id = $1`,
-		userID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("get developer apps for GDPR: %w", err)
-	}
-	defer rows.Close()
-
-	var result []map[string]any
-	for rows.Next() {
-		var activityID, applicationID string
-		var appName, appCategory, serialNumber *string
-		if err := rows.Scan(&activityID, &applicationID, &appName, &appCategory, &serialNumber); err != nil {
-			return nil, fmt.Errorf("scan developer app GDPR row: %w", err)
-		}
-		result = append(result, map[string]any{
-			"activity_id":    activityID,
-			"application_id": applicationID,
-			"app_name":       appName,
-			"app_category":   appCategory,
-			"serial_number":  serialNumber,
-		})
-	}
-	return result, rows.Err()
-}

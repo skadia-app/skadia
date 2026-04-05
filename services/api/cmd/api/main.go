@@ -724,8 +724,11 @@ func main() {
 				Post("/change-email", authHandler.ChangeEmail)
 			r.With(middleware.RateLimitGeneric(authRL)).
 				Delete("/account", authHandler.DeleteAccount)
-			r.With(middleware.RateLimitPerUser(authRL, "export:", 2.0/3600, 2)).
-				Get("/data-export", authHandler.DataExport)
+			r.With(middleware.RateLimitPerUser(authRL, "export:", 1.0/300, 1)).
+					Post("/data-export", authHandler.DataExport)
+			r.With(middleware.RateLimitPerUser(authRL, "export-status:", 60.0/60, 10)).
+				Get("/data-export/{jobID}", authHandler.DataExportStatus)
+			r.Get("/data-export/{jobID}/download", authHandler.DataExportDownload)
 		})
 	})
 
