@@ -875,9 +875,19 @@ func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []pa
 	}
 	pipeline := &osmregions.Pipeline{Pool: h.DB.Pool, DataDir: dataDir, DBURL: os.Getenv("DATABASE_URL")}
 
-	// Load categories (use first patched region's categories, or all)
+	// Load categories: union of all patched regions' categories
+	catSet := make(map[string]bool)
+	for _, t := range patchedRegions {
+		var cats []string
+		h.DB.Pool.QueryRow(ctx, `SELECT categories FROM osm_import_regions WHERE region_id = $1`, t.RegionID).Scan(&cats)
+		for _, c := range cats {
+			catSet[c] = true
+		}
+	}
 	var categories []string
-	h.DB.Pool.QueryRow(ctx, `SELECT categories FROM osm_import_regions WHERE region_id = $1`, patchedRegions[0].RegionID).Scan(&categories)
+	for c := range catSet {
+		categories = append(categories, c)
+	}
 	if len(categories) == 0 {
 		categories = allCategoryIDs()
 	}
@@ -908,6 +918,10 @@ func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []pa
 		regionIDs[i] = t.RegionID
 	}
 	pipeline.RunEnrichmentAndSplitting(ctx, strings.Join(regionIDs, ","), reporter)
+	if reporter.failed {
+		// reporter.Fail() already called CompleteBackgroundJob — do not call again
+		return
+	}
 
 	// Phase 5: Optional tiles
 	if rebuildTiles {
@@ -951,10 +965,11 @@ func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []pa
 		// Tile Build
 		reporter.SetPhase("tiles")
 		tileDir := filepath.Join(filepath.Dir(graphPath), "tiles")
-		hgtDirs := []string{hgtDir}
-		for _, extra := range []string{"/data/dem/sonny-05", "/data/dem/sonny-1"} {
-			if _, err := os.Stat(extra); err == nil {
-				hgtDirs = append(hgtDirs, extra)
+		// HGT dirs in priority order: highest resolution first
+		hgtDirs := []string{}
+		for _, dir := range []string{"/data/dem/sonny-05", "/data/dem/sonny-1", hgtDir} {
+			if _, err := os.Stat(dir); err == nil {
+				hgtDirs = append(hgtDirs, dir)
 			}
 		}
 		if h.GraphManager != nil {
@@ -964,11 +979,6 @@ func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []pa
 				slog.Error("batch update: tile build failed", "error", err)
 			}
 		}
-	}
-
-	if reporter.failed {
-		h.DB.CompleteBackgroundJob(ctx, jobID, true, "Batch update partially failed")
-		return
 	}
 
 	slog.Info("batch update: completed", "patched", len(patchedRegions), "needs_redownload", len(needsRedownload))

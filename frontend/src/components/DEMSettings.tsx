@@ -1,10 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getDEMRegionStatus, downloadDEM, type DEMStatusResponse } from '@/api/osm'
 import { useToast } from '@/lib/toast'
+import { useActiveJobs } from '@/lib/useActiveJobs'
 
 export function DEMSettings() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
+  const { jobs } = useActiveJobs()
+  const activeDEMJob = jobs.find(j => j.job_type === 'dem_download' && j.status === 'running')
 
   const { data } = useQuery<DEMStatusResponse>({
     queryKey: ['dem-region-status'],
@@ -67,7 +70,7 @@ export function DEMSettings() {
             </span>
             <button
               onClick={() => demDownloadMut.mutate()}
-              disabled={!data.missing_tiles || demDownloadMut.isPending}
+              disabled={!data.missing_tiles || !!activeDEMJob || demDownloadMut.isPending}
               className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               Fehlende DEM-Kacheln herunterladen
