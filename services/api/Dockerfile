@@ -19,7 +19,7 @@ FROM debian:trixie-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates tzdata osm2pgsql postgis poppler-utils ffmpeg \
-    osmium-tool default-jre-headless \
+    osmium-tool default-jre-headless gdal-bin \
     && rm -rf /var/lib/apt/lists/*
 
 # BRouter mapcreator JAR for building rd5 segments from PBF files.
