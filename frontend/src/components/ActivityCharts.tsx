@@ -5,6 +5,7 @@ import { useECharts } from '@/hooks/useECharts'
 import { LineChart, ScatterChart, GaugeChart } from 'echarts/charts'
 import { getSegmentGroup } from '@/lib/sportTaxonomy'
 import { fieldLabel, fieldUnit, defaultSpeedMode, type FieldKey } from '@/lib/sportFieldLabels'
+import { getDevFieldLabel, getDevFieldUnit } from '@/lib/developerFieldUnits'
 import {
   GridComponent,
   TitleComponent,
@@ -1293,7 +1294,7 @@ function DeveloperFieldChart({
   const fields = useMemo(() => {
     if (!devFieldInfos) return []
     return devFieldInfos.filter(f => {
-      const displayName = f.field_name ?? f.field_key
+      const displayName = getDevFieldLabel(f.field_key, f.field_name)
       return DEV_FIELD_MEANINGFUL_UNITS.has(f.units) && !DEV_FIELD_SKIP_KEYS.has(f.field_key) && !DEV_FIELD_SKIP_KEYS.has(displayName)
     })
   }, [devFieldInfos])
@@ -1321,8 +1322,11 @@ function DeveloperFieldChart({
       let axisIdx = 0
       for (const [unit, groupFields] of unitGroups) {
         for (const f of groupFields) fieldYAxisIndex.set(f.field_key, axisIdx)
+        const resolvedUnit = groupFields.length > 0
+          ? getDevFieldUnit(groupFields[0].field_key, unit)
+          : unit
         yAxes.push({
-          type: 'value', name: unit || '',
+          type: 'value', name: resolvedUnit || '',
           nameTextStyle: { fontSize: 10, color: '#666' },
           axisLabel: { fontSize: 11, color: '#666', margin: 8 },
           splitLine: axisIdx === 0 ? { lineStyle: { color: '#eee', type: 'dashed' } } : { show: false },
@@ -1336,7 +1340,7 @@ function DeveloperFieldChart({
       const series: echarts.EChartsCoreOption['series'] = []
       let colorIdx = 0
       for (const field of fields) {
-        const displayName = field.field_name ?? field.field_key
+        const displayName = getDevFieldLabel(field.field_key, field.field_name)
         const vals = fieldValues.get(field.field_key) ?? []
         const color = DEV_FIELD_COLORS[displayName] ?? DEV_FIELD_PALETTE[colorIdx % DEV_FIELD_PALETTE.length]
         if (!DEV_FIELD_COLORS[displayName]) colorIdx++
@@ -1383,8 +1387,8 @@ function DeveloperFieldChart({
               const tp = p as { seriesName?: string; color?: string; value?: [number, number | null] }
               const v = tp.value?.[1]
               if (v == null || isNaN(v)) continue
-              const field = fields.find(f => (f.field_name ?? f.field_key) === tp.seriesName)
-              const unit = field?.units ?? ''
+              const field = fields.find(f => getDevFieldLabel(f.field_key, f.field_name) === tp.seriesName)
+              const unit = field ? getDevFieldUnit(field.field_key, field.units) : ''
               const color = DEV_FIELD_COLORS[tp.seriesName ?? ''] ?? tp.color ?? '#888'
               html += `<div style="font-size:13px;color:${color}"><strong>${v.toFixed(1)}\u202f${unit}</strong> ${tp.seriesName}</div>`
             }
