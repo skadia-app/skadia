@@ -3,7 +3,7 @@ import { apiClient, apiUpload, API_BASE } from './client'
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 export interface RoutingProfileEntry {
-  id: string | null
+  id: string
   name: string
   engine: 'badrouter' | 'brouter'
   base_profile: string
