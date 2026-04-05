@@ -1,0 +1,1 @@
+ALTER TABLE best_efforts ADD COLUMN IF NOT EXISTS suspicious BOOLEAN NOT NULL DEFAULT false;
