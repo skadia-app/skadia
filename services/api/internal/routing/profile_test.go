@@ -1,11 +1,51 @@
 package routing
 
 import (
+	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
+
+func findProjectRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		if info, err := os.Stat(filepath.Join(dir, "config", "badrouter")); err == nil && info.IsDir() {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// TestMain loads built-in profiles before running any tests in the routing package.
+// All tests in this package depend on profiles (DefaultCostConfig, BuiltinProfile, etc.).
+func TestMain(m *testing.M) {
+	root := findProjectRoot()
+	if root == "" {
+		fmt.Fprintln(os.Stderr, "FATAL: could not find project root (config/badrouter/ not found)")
+		os.Exit(1)
+	}
+	n, err := LoadBuiltinProfiles(filepath.Join(root, "config", "badrouter"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: LoadBuiltinProfiles: %v\n", err)
+		os.Exit(1)
+	}
+	if n == 0 {
+		fmt.Fprintln(os.Stderr, "FATAL: no profiles loaded from config/badrouter/")
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
+}
 
 // --- Helper: build a minimal graph for edge cost tests ---
 
@@ -419,7 +459,11 @@ func TestMergeProfile_HighwayCostOverride(t *testing.T) {
 		TrackGrade1Cost: new(float32(0.8)),
 	}
 
-	merged := mergeProfile(builtinProfiles["gravel"], override)
+	base, err := BuiltinProfile("gravel")
+	if err != nil {
+		t.Fatalf("BuiltinProfile(gravel): %v", err)
+	}
+	merged := MergeProfile(base, override)
 
 	if merged.PrimaryCost == nil || *merged.PrimaryCost != 2.0 {
 		t.Errorf("PrimaryCost = %v, want 2.0", merged.PrimaryCost)
@@ -427,8 +471,9 @@ func TestMergeProfile_HighwayCostOverride(t *testing.T) {
 	if merged.CyclewayCost == nil || *merged.CyclewayCost != 1.5 {
 		t.Errorf("CyclewayCost = %v, want 1.5", merged.CyclewayCost)
 	}
-	if merged.PathCost != nil {
-		t.Errorf("PathCost should be nil (not overridden), got %v", *merged.PathCost)
+	// PathCost should remain at base value (1.6 from gravel.json), not overridden
+	if merged.PathCost == nil || *merged.PathCost != *base.PathCost {
+		t.Errorf("PathCost should be base value %v, got %v", base.PathCost, merged.PathCost)
 	}
 }
 
