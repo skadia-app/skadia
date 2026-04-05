@@ -201,6 +201,10 @@ func (db *DB) BatchDwellInCircle(ctx context.Context, activityIDs []string, lat,
 	degLat := radiusM / 111000.0
 	degLon := radiusM / (111000.0 * math.Cos(lat*math.Pi/180))
 
+	// Bounding-box pre-filter for index usage, then precise Haversine check.
+	// HAVING COUNT(*) >= 30 prevents false positives from brief pass-throughs
+	// (e.g. two traffic light stops hours apart would have MAX-MIN >> 30min
+	// but only 2-5 low-speed points each).
 	rows, err := db.Pool.Query(ctx, `
 		SELECT activity_id,
 			MAX(time) - MIN(time) >= make_interval(secs => $5::float)
@@ -210,8 +214,14 @@ func (db *DB) BatchDwellInCircle(ctx context.Context, activityIDs []string, lat,
 		AND lat BETWEEN ($1 - $3) AND ($1 + $3)
 		AND lng BETWEEN ($2 - $4) AND ($2 + $4)
 		AND (speed_ms IS NULL OR speed_ms < 3.0)
-		GROUP BY activity_id`,
-		lat, lon, degLat, degLon, float64(minDwellSeconds), activityIDs)
+		AND (2 * 6371000 * ASIN(SQRT(
+			POWER(SIN(RADIANS(lat - $1) / 2), 2) +
+			COS(RADIANS($1)) * COS(RADIANS(lat)) *
+			POWER(SIN(RADIANS(lng - $2) / 2), 2)
+		))) <= $7
+		GROUP BY activity_id
+		HAVING COUNT(*) >= 30`,
+		lat, lon, degLat, degLon, float64(minDwellSeconds), activityIDs, radiusM)
 	if err != nil {
 		return nil, err
 	}

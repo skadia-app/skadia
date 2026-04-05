@@ -240,7 +240,8 @@ func commuteRouteExists(rule *model.AutomationRule, startLat, startLon, endLat, 
 			continue
 		}
 		var bStartLat, bStartLon, bEndLat, bEndLon float64
-		var hasStart, hasEnd bool
+		var bDwellLat, bDwellLon float64
+		var hasStart, hasEnd, hasDwell bool
 		for _, c := range b.ConditionGroups[0].Conditions {
 			if c.Field != "geofence" {
 				continue
@@ -248,15 +249,28 @@ func commuteRouteExists(rule *model.AutomationRule, startLat, startLon, endLat, 
 			check, _ := c.Value["check"].(string)
 			lat, _ := c.Value["lat"].(float64)
 			lon, _ := c.Value["lon"].(float64)
-			if check == "start" {
+			switch check {
+			case "start":
 				bStartLat, bStartLon = lat, lon
 				hasStart = true
-			} else if check == "end" {
+			case "end":
 				bEndLat, bEndLon = lat, lon
 				hasEnd = true
+			case "dwell":
+				bDwellLat, bDwellLon = lat, lon
+				hasDwell = true
 			}
 		}
 		if !hasStart || !hasEnd {
+			continue
+		}
+		if hasDwell {
+			// Roundtrip branch: start≈end≈home, discriminator is the dwell (work) location.
+			// The caller passes endLat/endLon as the work/dest location for roundtrip checks.
+			if geo.DistanceHaversine(startLat, startLon, bStartLat, bStartLon) <= threshold &&
+				geo.DistanceHaversine(endLat, endLon, bDwellLat, bDwellLon) <= threshold {
+				return true
+			}
 			continue
 		}
 		// Forward match.
@@ -341,12 +355,12 @@ func extendCommuteRuleRaw(ctx context.Context, db *database.DB, rule *model.Auto
 	if err := json.Unmarshal(rule.Branches, &existing); err != nil {
 		return err
 	}
-	if len(existing) >= 40 { // 20 routes × 2 branches (roundtrip uses 3)
-		return fmt.Errorf("max 20 commute routes reached")
-	}
 	var newParsed []json.RawMessage
 	if err := json.Unmarshal(newBranches, &newParsed); err != nil {
 		return err
+	}
+	if len(existing)+len(newParsed) > 40 { // 20 routes × 2 branches (roundtrip uses 3)
+		return fmt.Errorf("max 20 commute routes reached")
 	}
 	all := append(existing, newParsed...)
 	allJSON, err := json.Marshal(all)
