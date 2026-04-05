@@ -10,9 +10,11 @@ import (
 )
 
 // HealthHypertables lists health tables backed by TimescaleDB hypertables.
+// These are deleted explicitly in Phase 1 of DeleteUserData because
+// TimescaleDB hypertables can have issues with cascading deletes.
 var HealthHypertables = []string{
 	"health_daily_summary", "health_sleep", "health_snapshots",
-	"health_hrv_night_values", "health_hrv_snapshots",
+	"health_hrv_night_values", "health_monitoring_samples",
 }
 
 // HealthRegularTables lists health tables stored as regular PostgreSQL tables.
@@ -92,18 +94,13 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	// Track purge in background_jobs for UI visibility.
 	db.Pool.Exec(ctx, `INSERT INTO background_jobs (id, job_type, user_id, status, created_at)
 		VALUES (gen_random_uuid(), 'gdpr_purge', $1, 'running', NOW())`, userID)
-	markJobDone := func(status, errMsg string) {
-		// L66: Log errors from job status updates so silent failures are visible.
-		var execErr error
-		if status == "failed" {
-			_, execErr = db.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'failed', error = $2, completed_at = NOW()
-				WHERE job_type = 'gdpr_purge' AND user_id = $1 AND status = 'running'`, userID, errMsg)
-		} else {
-			_, execErr = db.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'completed', completed_at = NOW()
-				WHERE job_type = 'gdpr_purge' AND user_id = $1 AND status = 'running'`, userID)
-		}
-		if execErr != nil {
-			slog.Warn("GDPR: markJobDone update failed", "status", status, "user_id", userID, "error", execErr)
+
+	// failPurgeJob marks the GDPR purge job as failed OUTSIDE the TX.
+	// This is intentional: a failed purge should be visible even if the TX is rolled back.
+	failPurgeJob := func(errMsg string) {
+		if _, err := db.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'failed', error = $2, completed_at = NOW()
+			WHERE job_type = 'gdpr_purge' AND user_id = $1 AND status = 'running'`, userID, errMsg); err != nil {
+			slog.Warn("GDPR: failPurgeJob update failed", "user_id", userID, "error", err)
 		}
 	}
 
@@ -175,7 +172,7 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
-		markJobDone("failed", err.Error())
+		failPurgeJob(err.Error())
 		return fmt.Errorf("GDPR begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
@@ -184,11 +181,11 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	var deletedAt *time.Time
 	if err := tx.QueryRow(ctx,
 		`SELECT deleted_at FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&deletedAt); err != nil {
-		markJobDone("failed", err.Error())
+		failPurgeJob(err.Error())
 		return fmt.Errorf("GDPR: user %s not found: %w", userID, err)
 	}
 	if deletedAt == nil {
-		markJobDone("failed", "user no longer marked for deletion")
+		failPurgeJob("user no longer marked for deletion")
 		return fmt.Errorf("GDPR: user %s no longer marked for deletion", userID)
 	}
 
@@ -227,7 +224,7 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 
 	// segments: created_by REFERENCES users(id) — no CASCADE.
 	if _, err := tx.Exec(ctx, `DELETE FROM segments WHERE created_by = $1`, userID); err != nil {
-		markJobDone("failed", err.Error())
+		failPurgeJob(err.Error())
 		return fmt.Errorf("GDPR: delete segments: %w", err)
 	}
 
