@@ -42,7 +42,7 @@ export function ChartTabs({ streams, children }: Props) {
       { value: CHART_TAB.alles, label: 'Alles', visible: true },
       { value: CHART_TAB.uebersicht, label: 'Übersicht', visible: true },
       { value: CHART_TAB.leistung, label: 'Leistung', visible: streams.some(s => s.power_w != null) },
-      { value: CHART_TAB.dynamik, label: 'Dynamik', visible: streams.some(s => s.ground_contact_time_ms != null || s.running_smoothness_pct != null) },
+      { value: CHART_TAB.dynamik, label: 'Dynamik', visible: streams.some(s => s.ground_contact_time_ms != null) },
       { value: CHART_TAB.pedal, label: 'Pedal-Analytik', visible: streams.some(s => s.left_torque_effectiveness_pct != null) },
       { value: CHART_TAB.electric, label: 'E-Bike', visible: streams.some(s => s.motor_power_w != null) },
       { value: CHART_TAB.tauchgang, label: 'Tauchgang', visible: streams.some(s => s.depth_m != null) },
