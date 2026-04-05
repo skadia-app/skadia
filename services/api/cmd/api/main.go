@@ -780,6 +780,8 @@ func main() {
 
 				// DEM
 				r.Get("/dem-status", h.GetDEMStatus)
+				r.Post("/dem/download", h.DownloadDEM)
+				r.Get("/dem/status", h.GetDEMRegionStatus)
 
 				// Routing infrastructure
 				r.Post("/routing/rebuild-tiles", h.RebuildRoutingTiles)
