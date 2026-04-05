@@ -92,6 +92,11 @@ type HealthWeightEntry struct {
 	PhysiqueRating     *int16    `json:"physique_rating,omitempty"`
 	MetabolicAge       *int16    `json:"metabolic_age,omitempty"`
 	VisceralFatRating  *int16    `json:"visceral_fat_rating,omitempty"`
+	SubcutaneousFatPct *float64  `json:"subcutaneous_fat_pct,omitempty"`
+	ProteinPct         *float64  `json:"protein_pct,omitempty"`
+	SkeletalMusclePct  *float64  `json:"skeletal_muscle_pct,omitempty"`
+	LeanBodyMassG      *int      `json:"lean_body_mass_g,omitempty"`
+	TotalBodyWaterL    *float64  `json:"total_body_water_l,omitempty"`
 	SourceType         string    `json:"source_type"`
 	ExtraData          *string   `json:"extra_data,omitempty"`
 	CreatedAt          time.Time `json:"created_at"`
@@ -104,8 +109,13 @@ type HealthWeightCreate struct {
 	BMI           *float64 `json:"bmi"`
 	BodyFatPct    *float64 `json:"body_fat_pct"`
 	MuscleMassG   *int     `json:"muscle_mass_g"`
-	BoneMassG     *int     `json:"bone_mass_g"`
-	SourceType    string   `json:"source_type"`
+	BoneMassG          *int     `json:"bone_mass_g"`
+	SubcutaneousFatPct *float64 `json:"subcutaneous_fat_pct"`
+	ProteinPct         *float64 `json:"protein_pct"`
+	SkeletalMusclePct  *float64 `json:"skeletal_muscle_pct"`
+	LeanBodyMassG      *int     `json:"lean_body_mass_g"`
+	TotalBodyWaterL    *float64 `json:"total_body_water_l"`
+	SourceType         string   `json:"source_type"`
 }
 
 // HealthReadinessScore holds daily readiness and recovery factors.

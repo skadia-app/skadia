@@ -295,9 +295,14 @@ func (h *Handler) CreateHealthWeightEntry(w http.ResponseWriter, r *http.Request
 		WeightG:       create.WeightG,
 		BMI:           create.BMI,
 		BodyFatPct:    create.BodyFatPct,
-		MuscleMassG:   create.MuscleMassG,
-		BoneMassG:     create.BoneMassG,
-		SourceType:    sourceType,
+		MuscleMassG:        create.MuscleMassG,
+		BoneMassG:          create.BoneMassG,
+		SubcutaneousFatPct: create.SubcutaneousFatPct,
+		ProteinPct:         create.ProteinPct,
+		SkeletalMusclePct:  create.SkeletalMusclePct,
+		LeanBodyMassG:      create.LeanBodyMassG,
+		TotalBodyWaterL:    create.TotalBodyWaterL,
+		SourceType:         sourceType,
 	}
 
 	if err := h.DB.UpsertHealthWeightEntry(r.Context(), entry); err != nil {
