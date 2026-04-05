@@ -273,6 +273,11 @@ type ActivityData struct {
 	Vo2MaxHrSource    *string  `json:"-"`
 	Vo2MaxSpeedSource *string  `json:"-"`
 
+	// Suunto — Training Load Metrics (from developer fields)
+	SuuntoVO2max        *float64 `json:"-"`
+	SuuntoPeakEPOC      *float64 `json:"-"`
+	SuuntoRecoveryTimeH *float64 `json:"-"`
+
 	// FIT SDK — GPS Metadata / Session GPS quality
 	GpsAccuracyM int `json:"-"` // from session.GpsAccuracy (meters)
 

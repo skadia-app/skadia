@@ -152,7 +152,9 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			-- VO2max
 			vo2max_ml_kg_min, vo2max_calibrated, vo2max_hr_source, vo2max_speed_source,
 			-- GPS quality
-			gps_accuracy_m
+			gps_accuracy_m,
+			-- Suunto Training Load
+			suunto_vo2max, suunto_peak_epoc, suunto_recovery_time_h
 		) VALUES (
 			-- Core ($1-$4, parsed reuses $3/$4)
 			$1, $2, $3, $4,
@@ -255,7 +257,9 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			-- VO2max ($154-$157)
 			$154, $155, $156, $157,
 			-- GPS quality ($158)
-			$158
+			$158,
+			-- Suunto Training Load ($159-$161)
+			$159, $160, $161
 		)
 		RETURNING id, is_electric, is_virtual, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType), // $1-$4
@@ -317,7 +321,8 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		nilIfZeroInt(data.MaxCadence), data.MinTemperatureC, data.MaxTemperatureC, // $150-$152
 		nilIfZeroInt(data.NumSessions),                                           // $153
 		data.Vo2MaxMlKgMin, data.Vo2MaxCalibrated, data.Vo2MaxHrSource, data.Vo2MaxSpeedSource, // $154-$157
-		nilIfZeroInt(data.GpsAccuracyM), // $158
+		nilIfZeroInt(data.GpsAccuracyM),                                                        // $158
+		data.SuuntoVO2max, data.SuuntoPeakEPOC, data.SuuntoRecoveryTimeH,                      // $159-$161
 	).Scan(&id, &isElectric, &isVirtual, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
@@ -405,6 +410,9 @@ func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []mo
 		"heading",
 		// FIT SDK — Developer Fields (1)
 		"developer_fields",
+		// Phase 4b — Developer Field promotions (5)
+		"radar_vehicle_count", "radar_nearest_range_m", "radar_total_count",
+		"running_smoothness_pct", "glucose_mg_dl",
 	}
 
 	rows := make([][]any, len(streams))
@@ -456,6 +464,9 @@ func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []mo
 			s.Heading,
 			// FIT SDK — Developer Fields (1)
 			s.DeveloperFields,
+			// Phase 4b — Developer Field promotions (5)
+			s.RadarVehicleCount, s.RadarNearestRangeM, s.RadarTotalCount,
+			s.RunningSmoothnessPct, s.GlucoseMgDl,
 		}
 	}
 
@@ -658,7 +669,8 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		a.is_group_secondary,
 		rgm.group_id,
 		a.running_form_duty_factor, a.running_form_vertical_ratio, a.running_form_gct_asymmetry_pct,
-		a.running_form_fatigue_duty, a.running_form_fatigue_vr, a.running_form_tier
+		a.running_form_fatigue_duty, a.running_form_fatigue_vr, a.running_form_tier,
+		a.suunto_vo2max, a.suunto_peak_epoc, a.suunto_recovery_time_h
 		FROM activities a
 		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		LEFT JOIN LATERAL (
@@ -751,6 +763,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.RecordingGroupID,
 		&a.RunningFormDutyFactor, &a.RunningFormVerticalRatio, &a.RunningFormGCTAsymmetry,
 		&a.RunningFormFatigueDuty, &a.RunningFormFatigueVR, &a.RunningFormTier,
+		&a.SuuntoVO2max, &a.SuuntoPeakEPOC, &a.SuuntoRecoveryTimeH,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -1363,7 +1376,10 @@ func (db *DB) GetStreams(ctx context.Context, activityID string) ([]model.Stream
 			-- FIT SDK — GPS Metadata
 			heading,
 			-- FIT SDK — Developer Fields
-			developer_fields
+			developer_fields,
+			-- Phase 4b — Developer Field promotions
+			radar_vehicle_count, radar_nearest_range_m, radar_total_count,
+			running_smoothness_pct, glucose_mg_dl
 		FROM activity_streams
 		WHERE activity_id = $1
 		ORDER BY time ASC`,
@@ -1422,6 +1438,9 @@ func (db *DB) GetStreams(ctx context.Context, activityID string) ([]model.Stream
 			&s.Heading,
 			// FIT SDK — Developer Fields
 			&s.DeveloperFields,
+			// Phase 4b — Developer Field promotions
+			&s.RadarVehicleCount, &s.RadarNearestRangeM, &s.RadarTotalCount,
+			&s.RunningSmoothnessPct, &s.GlucoseMgDl,
 		); err != nil {
 			return nil, fmt.Errorf("scan stream: %w", err)
 		}
@@ -1472,7 +1491,9 @@ func (db *DB) GetStreamPoints(ctx context.Context, activityID string) ([]model.S
 			ndl_time_s, cns_load_pct, n2_load_pct, air_time_remaining_s,
 			pressure_sac, volume_sac, rmv, po2,
 			heading,
-			developer_fields
+			developer_fields,
+			radar_vehicle_count, radar_nearest_range_m, radar_total_count,
+			running_smoothness_pct, glucose_mg_dl
 		FROM activity_streams
 		WHERE activity_id = $1
 		ORDER BY time ASC`,
@@ -1533,6 +1554,9 @@ func (db *DB) GetStreamPoints(ctx context.Context, activityID string) ([]model.S
 			&s.Heading,
 			// Developer Fields (1)
 			&s.DeveloperFields,
+			// Phase 4b — Developer Field promotions (5)
+			&s.RadarVehicleCount, &s.RadarNearestRangeM, &s.RadarTotalCount,
+			&s.RunningSmoothnessPct, &s.GlucoseMgDl,
 		); err != nil {
 			return nil, fmt.Errorf("scan stream point: %w", err)
 		}
@@ -2282,6 +2306,14 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	args = append(args, data.Vo2MaxHrSource)
 	sets = append(sets, fmt.Sprintf("vo2max_speed_source = %s", idx()))
 	args = append(args, data.Vo2MaxSpeedSource)
+
+	// Suunto — Training Load Metrics
+	sets = append(sets, fmt.Sprintf("suunto_vo2max = %s", idx()))
+	args = append(args, data.SuuntoVO2max)
+	sets = append(sets, fmt.Sprintf("suunto_peak_epoc = %s", idx()))
+	args = append(args, data.SuuntoPeakEPOC)
+	sets = append(sets, fmt.Sprintf("suunto_recovery_time_h = %s", idx()))
+	args = append(args, data.SuuntoRecoveryTimeH)
 
 	// Always reset enrichment and timestamp
 	sets = append(sets, "enrichment_status = 'pending'")

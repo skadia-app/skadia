@@ -546,6 +546,74 @@ func ExtractStreams(records []*mesgdef.Record, fieldDescs []*mesgdef.FieldDescri
 				devFields[key] = val
 			}
 			if len(devFields) > 0 {
+				// Promote known developer fields to dedicated columns.
+				extractDevFloat := func(key string) *float64 {
+					if v, ok := devFields[key]; ok {
+						switch val := v.(type) {
+						case float64:
+							return &val
+						case float32:
+							f := float64(val)
+							return &f
+						}
+					}
+					return nil
+				}
+				extractDevInt16 := func(key string) *int16 {
+					if v, ok := devFields[key]; ok {
+						switch val := v.(type) {
+						case float64:
+							i := int16(val)
+							return &i
+						case float32:
+							i := int16(val)
+							return &i
+						case int64:
+							i := int16(val)
+							return &i
+						}
+					}
+					return nil
+				}
+
+				sp.RunningSmoothnessPct = extractDevFloat("running_smoothness")
+				sp.GlucoseMgDl = extractDevFloat("glucose")
+				sp.RadarVehicleCount = extractDevInt16("radar_current")
+				sp.RadarTotalCount = extractDevInt16("radar_total")
+
+				// Radar nearest range: first element > -1 from radar_ranges array.
+				if rangesVal, ok := devFields["radar_ranges"]; ok {
+					var ranges []int16
+					switch v := rangesVal.(type) {
+					case []int8:
+						for _, x := range v {
+							ranges = append(ranges, int16(x))
+						}
+					case []uint8:
+						for _, x := range v {
+							ranges = append(ranges, int16(x))
+						}
+					case []int16:
+						ranges = v
+					case []int32:
+						for _, x := range v {
+							ranges = append(ranges, int16(x))
+						}
+					case []any: // from JSONB deserialization
+						for _, x := range v {
+							if f, ok := x.(float64); ok {
+								ranges = append(ranges, int16(f))
+							}
+						}
+					}
+					for i := range ranges {
+						if ranges[i] > -1 {
+							sp.RadarNearestRangeM = &ranges[i]
+							break
+						}
+					}
+				}
+
 				sp.DeveloperFields = devFields
 			}
 		}

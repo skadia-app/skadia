@@ -113,6 +113,12 @@ type StreamPoint struct {
 	Po2               *float64 `json:"po2,omitempty"`
 	// FIT SDK — GPS Metadata
 	Heading *float32 `json:"heading,omitempty"`
+	// Phase 4b — Developer Field promotions
+	RadarVehicleCount    *int16   `json:"radar_vehicle_count,omitempty"`
+	RadarNearestRangeM   *int16   `json:"radar_nearest_range_m,omitempty"`
+	RadarTotalCount      *int16   `json:"radar_total_count,omitempty"`
+	RunningSmoothnessPct *float64 `json:"running_smoothness_pct,omitempty"`
+	GlucoseMgDl          *float64 `json:"glucose_mg_dl,omitempty"`
 	// FIT SDK — Developer Fields
 	DeveloperFields map[string]any `json:"developer_fields,omitempty"`
 }
@@ -245,6 +251,12 @@ type StreamResponse struct {
 	Po2               *float64 `json:"po2,omitempty"`
 	// FIT SDK — GPS Metadata
 	Heading *float32 `json:"heading,omitempty"`
+	// Phase 4b — Developer Field promotions
+	RadarVehicleCount    *int16   `json:"radar_vehicle_count,omitempty"`
+	RadarNearestRangeM   *int16   `json:"radar_nearest_range_m,omitempty"`
+	RadarTotalCount      *int16   `json:"radar_total_count,omitempty"`
+	RunningSmoothnessPct *float64 `json:"running_smoothness_pct,omitempty"`
+	GlucoseMgDl          *float64 `json:"glucose_mg_dl,omitempty"`
 	// FIT SDK — Developer Fields
 	DeveloperFields map[string]any `json:"developer_fields,omitempty"`
 }

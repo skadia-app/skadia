@@ -291,6 +291,11 @@ type Activity struct {
 	// FIT SDK — GPS Metadata / Session GPS quality
 	GpsAccuracyM *int `json:"gps_accuracy_m,omitempty"`
 
+	// Suunto — Training Load Metrics (from developer fields)
+	SuuntoVO2max        *float64 `json:"suunto_vo2max,omitempty"`
+	SuuntoPeakEPOC      *float64 `json:"suunto_peak_epoc,omitempty"`
+	SuuntoRecoveryTimeH *float64 `json:"suunto_recovery_time_h,omitempty"`
+
 	// Running Form — computed from stream (GCT, VO, stance balance, cadence).
 	RunningFormDutyFactor    *float64 `json:"running_form_duty_factor,omitempty"`
 	RunningFormVerticalRatio *float64 `json:"running_form_vertical_ratio,omitempty"`
