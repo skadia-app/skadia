@@ -270,6 +270,7 @@ func (h *Handler) dryRunAllRules(w http.ResponseWriter, r *http.Request, userID 
 		if err != nil || actMap == nil {
 			continue
 		}
+		automation.InjectTrackGeofenceResults(r.Context(), h.DB, actID, actMap, allRules)
 
 		var actRules []ruleMatch
 		for _, rule := range allRules {
@@ -462,11 +463,13 @@ func (h *Handler) applySingleRuleDryRun(w http.ResponseWriter, r *http.Request, 
 	var matches []matchResult
 	totalMatches := 0
 
+	singleRuleSlice := []model.AutomationRule{rule}
 	for _, actID := range activityIDs {
 		actMap, err := h.DB.GetActivityAsMap(r.Context(), actID)
 		if err != nil || actMap == nil {
 			continue
 		}
+		automation.InjectTrackGeofenceResults(r.Context(), h.DB, actID, actMap, singleRuleSlice)
 		if automation.EvaluateRule(rule, actMap) {
 			totalMatches++
 			if totalMatches > offset && len(matches) < limit {

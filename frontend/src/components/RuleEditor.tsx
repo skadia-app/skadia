@@ -245,7 +245,7 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
     { field: 'border_crossing_count', label: 'Grenzquerungen', inputType: 'number' },
     { field: 'has_gastronomy_stop', label: 'Einkehr erkannt', inputType: 'bool' },
     { field: 'stop_count', label: 'Anzahl POI-Stops', inputType: 'number' },
-    { field: 'commute_detected', label: 'Pendeln erkannt', inputType: 'bool' },
+    { field: 'commute_detected', label: 'Ist Pendeln', inputType: 'bool' },
     { field: 'has_structured_intervals', label: 'Intervalle erkannt', inputType: 'bool' },
     { field: 'interval_count', label: 'Anzahl Intervalle', inputType: 'number' },
     { field: 'has_hc_climb', label: 'HC-Anstieg', inputType: 'bool' },
@@ -815,10 +815,7 @@ function ConditionValueEditor({
   if (inputType === 'geofence') {
     const gfVal: UnifiedGeofenceValue = (cond.value && typeof cond.value === 'object' && cond.value.check)
       ? cond.value as UnifiedGeofenceValue
-      : cond.geofence ?? {
-          check: 'start', mode: 'inside', shape: 'circle',
-          lat: 51.0, lon: 10.0, radius_m: 1000,
-        }
+      : { check: 'start', mode: 'inside', shape: 'circle', lat: 51.0, lon: 10.0, radius_m: 1000 }
     return (
       <div className="flex-1 min-w-0 w-full">
         <UnifiedGeofenceEditor

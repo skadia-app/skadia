@@ -297,6 +297,12 @@ func applyChanges(ctx context.Context, db *database.DB, activityID, userID strin
 	}
 }
 
+// InjectTrackGeofenceResults pre-computes track intersection results for geofence
+// conditions with check:"track" and injects them into the activity map.
+func InjectTrackGeofenceResults(ctx context.Context, db *database.DB, activityID string, actMap map[string]any, allRules []model.AutomationRule) {
+	injectTrackGeofenceResults(ctx, db, activityID, actMap, allRules)
+}
+
 // injectTrackGeofenceResults pre-computes track intersection results for geofence
 // conditions with check:"track" and injects them into the activity map.
 func injectTrackGeofenceResults(ctx context.Context, db *database.DB, activityID string, actMap map[string]any, allRules []model.AutomationRule) {
