@@ -533,6 +533,23 @@ export default function PersonalRecordsPage() {
               <DetailTable records={supRecords} />
             </div>
           )}
+
+          {/* Power duration curve for this sport */}
+          {detailPowerSeries.length > 0 && categoryTab !== 'leistung' && (
+            <PowerDurationChart
+              records={filteredRecords}
+              series={detailPowerSeries}
+            />
+          )}
+
+          {/* Segment top performances for this sport */}
+          {categoryTab !== 'segmente' && (
+            <SegmentSection
+              personalPRs={segmentPRs}
+              globalTop={globalTopEfforts}
+              sportFilter={segmentSportFilter}
+            />
+          )}
         </div>
       )}
     </div>

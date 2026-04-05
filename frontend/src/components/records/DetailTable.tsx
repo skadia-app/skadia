@@ -14,6 +14,12 @@ const RANK_STYLES: Record<number, { bg: string; text: string }> = {
 
 const CATEGORY_KEYS = Object.keys(CATEGORY_LABELS)
 
+function categoryColorHint(cat: string): string {
+  if (cat.startsWith('power_')) return 'text-orange-600 dark:text-orange-300'
+  if (cat.startsWith('elev_')) return 'text-green-600 dark:text-green-300'
+  return ''
+}
+
 interface DetailTableProps {
   records: BestEffortRanked[]
   sportGroup?: string
@@ -58,6 +64,7 @@ export function DetailTable({ records, sportGroup }: DetailTableProps) {
             const hasMore = catRecords.length > 1
             const isExpanded = expanded.has(cat)
             const display = formatBestEffortDisplay(cat, rank1.elapsed_time_s, rank1.value_numeric, sportGroup)
+            const valueColor = categoryColorHint(cat)
 
             return [
               <tr
@@ -73,10 +80,18 @@ export function DetailTable({ records, sportGroup }: DetailTableProps) {
                 </td>
                 <td className="px-3 font-medium text-neutral-800 dark:text-neutral-200">{categoryLabel(cat)}</td>
                 <td className="text-right px-4 font-bold tabular-nums">
-                  {display.primary}
+                  <span className={cn(valueColor)}>{display.primary}</span>
                   {display.secondary && <div className="text-[9px] text-neutral-500 font-normal">{display.secondary}</div>}
                 </td>
-                <td className="px-4 text-neutral-500 dark:text-neutral-400 text-xs">{fmtDateMedium(rank1.achieved_at)}</td>
+                <td className="px-4 text-xs">
+                  <Link
+                    to={`/activities/${rank1.activity_id}`}
+                    className="text-neutral-500 dark:text-neutral-400 hover:text-blue-500 dark:hover:text-blue-400"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {fmtDateMedium(rank1.achieved_at)}
+                  </Link>
+                </td>
                 <td className="px-2">
                   {hasMore && (
                     <ChevronDown className={cn('w-3.5 h-3.5 text-neutral-400 dark:text-neutral-600 transition-transform', isExpanded && 'rotate-180')} />
