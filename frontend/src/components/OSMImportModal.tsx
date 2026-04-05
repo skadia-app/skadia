@@ -324,22 +324,15 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                   const reg = regionsData?.regions.find(r => r.id === id)
                   return sum + (reg?.size_mb ?? 0)
                 }, 0)
-                // DEM tiles: use region status if available, otherwise estimate from catalog BBox
+                // DEM tiles: use region status if available, otherwise rough estimate from PBF size
                 const demTiles = (() => {
                   if (demStatus?.regions && demStatus.regions.length > 0) {
                     return demStatus.regions
                       .filter(r => selectedRegions.includes(r.id))
                       .reduce((sum, r) => sum + Math.max(0, r.tiles_needed - r.tiles_present), 0)
                   }
-                  // Fallback for first import: estimate from catalog size (rough: size_mb / 25)
-                  return selectedRegions.reduce((sum, id) => {
-                    const reg = regionsData?.regions.find(r => r.id === id)
-                    if (!reg) return sum
-                    // Approximate: 1 tile per ~100km², region area from BBox
-                    const latRange = Math.ceil(Math.abs((reg as any).max_lat - (reg as any).min_lat)) + 1
-                    const lonRange = Math.ceil(Math.abs((reg as any).max_lon - (reg as any).min_lon)) + 1
-                    return sum + latRange * lonRange
-                  }, 0)
+                  // Fallback for first import: rough estimate ~1 tile per 25 MB PBF
+                  return Math.max(1, Math.round(pbfMB / 25))
                 })()
                 const demMB = downloadDEM ? demTiles * 25 : 0
                 const pgMB = pbfMB * 4

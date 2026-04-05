@@ -210,8 +210,11 @@ func (h *Handler) GetDEMRegionStatus(w http.ResponseWriter, r *http.Request) {
 			regionStatus = append(regionStatus, dem.RegionDEMStatus{
 				ID: r.ID, TilesNeeded: len(cells), TilesPresent: p, Complete: p >= len(cells),
 			})
-			if p < len(cells) {
-				missingTiles += len(cells) - p
+		}
+		// Count globally missing tiles (deduplicated across regions)
+		for c := range cellSet {
+			if !present[c] {
+				missingTiles++
 			}
 		}
 	}
