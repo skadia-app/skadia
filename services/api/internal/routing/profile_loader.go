@@ -9,20 +9,25 @@ import (
 	"sync/atomic"
 )
 
+// Profile source constants used across the application.
+const (
+	SourceSystem     = "system"
+	SourceFilesystem = "filesystem"
+	SourceUser       = "user"
+)
+
 // loadedBuiltins holds built-in profiles loaded from config/badrouter/*.json.
 // Thread-safe: written via Store at startup, read via Load on every routing request.
 // nil (zero value) means LoadBuiltinProfiles was not called yet.
 var loadedBuiltins atomic.Pointer[map[string]ProfileConfig]
 
-// LoadBuiltinProfiles reads *.json files from dir and registers them as built-in
-// profiles. Replaces any previous set atomically. Always sets the internal map
-// (even if empty), so BuiltinProfile can distinguish "not called" from "no profiles".
-// Per-file errors are collected and returned as an aggregated error alongside the
-// count of successful loads.
-func LoadBuiltinProfiles(dir string) (int, error) {
+// LoadProfilesFromDir reads *.json profile files from dir, parses and validates them.
+// Returns a map of name→ProfileConfig and aggregated errors for failed files.
+// Missing or empty dir returns an empty map and nil error.
+func LoadProfilesFromDir(dir string) (map[string]ProfileConfig, error) {
 	matches, err := filepath.Glob(filepath.Join(dir, "*.json"))
 	if err != nil {
-		return 0, fmt.Errorf("LoadBuiltinProfiles: glob %q: %w", dir, err)
+		return nil, fmt.Errorf("LoadProfilesFromDir: glob %q: %w", dir, err)
 	}
 
 	loaded := make(map[string]ProfileConfig, len(matches))
@@ -43,18 +48,8 @@ func LoadBuiltinProfiles(dir string) (int, error) {
 			continue
 		}
 
-		if cfg.Profile != name {
-			fileErrors = append(fileErrors, fmt.Sprintf("%s: profile field mismatch (expected %q, got %q)", name, name, cfg.Profile))
-			continue
-		}
-
 		if err := ValidateProfileConfig(cfg); err != nil {
 			fileErrors = append(fileErrors, fmt.Sprintf("%s: validation failed: %v", name, err))
-			continue
-		}
-
-		if err := ValidateBuiltinCompleteness(cfg); err != nil {
-			fileErrors = append(fileErrors, fmt.Sprintf("%s: incomplete: %v", name, err))
 			continue
 		}
 
@@ -69,13 +64,55 @@ func LoadBuiltinProfiles(dir string) (int, error) {
 		loaded[name] = cfg
 	}
 
-	loadedBuiltins.Store(&loaded)
-
 	if len(fileErrors) > 0 {
-		return len(loaded), fmt.Errorf("%d file(s) failed: %s",
+		return loaded, fmt.Errorf("%d file(s) failed: %s",
 			len(fileErrors), strings.Join(fileErrors, "; "))
 	}
-	return len(loaded), nil
+	return loaded, nil
+}
+
+// LoadBuiltinProfiles reads *.json files from dir and registers them as built-in
+// profiles. Replaces any previous set atomically. Always sets the internal map
+// (even if empty), so BuiltinProfile can distinguish "not called" from "no profiles".
+// Per-file errors are collected and returned as an aggregated error alongside the
+// count of successful loads.
+//
+// In addition to the base validation in LoadProfilesFromDir, this enforces that
+// each file's profile field matches its filename and that all builtin-required
+// fields are present (ValidateBuiltinCompleteness).
+func LoadBuiltinProfiles(dir string) (int, error) {
+	profiles, err := LoadProfilesFromDir(dir)
+
+	// Even on partial error we have the successfully parsed profiles.
+	// Apply builtin-specific checks and filter out invalid ones.
+	filtered := make(map[string]ProfileConfig, len(profiles))
+	var builtinErrors []string
+
+	for name, cfg := range profiles {
+		if cfg.Profile != name {
+			builtinErrors = append(builtinErrors, fmt.Sprintf("%s: profile field mismatch (expected %q, got %q)", name, name, cfg.Profile))
+			continue
+		}
+		if err := ValidateBuiltinCompleteness(cfg); err != nil {
+			builtinErrors = append(builtinErrors, fmt.Sprintf("%s: incomplete: %v", name, err))
+			continue
+		}
+		filtered[name] = cfg
+	}
+
+	loadedBuiltins.Store(&filtered)
+
+	// Aggregate errors from both LoadProfilesFromDir and builtin checks.
+	var allErrors []string
+	if err != nil {
+		allErrors = append(allErrors, err.Error())
+	}
+	allErrors = append(allErrors, builtinErrors...)
+
+	if len(allErrors) > 0 {
+		return len(filtered), fmt.Errorf("%s", strings.Join(allErrors, "; "))
+	}
+	return len(filtered), nil
 }
 
 // ValidateBuiltinCompleteness checks that all fields required by the routing

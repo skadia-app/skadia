@@ -186,6 +186,21 @@ func ValidateProfileConfig(p ProfileConfig) error {
 	return nil
 }
 
+// ValidateFullProfile runs all validations on a complete profile config:
+// field ranges (ValidateProfileConfig), builtin completeness, and sport types.
+func ValidateFullProfile(cfg ProfileConfig, sportTypes []string) error {
+	if err := ValidateProfileConfig(cfg); err != nil {
+		return err
+	}
+	if err := ValidateBuiltinCompleteness(cfg); err != nil {
+		return fmt.Errorf("profile config incomplete: %w", err)
+	}
+	if err := ValidateSportTypes(sportTypes); err != nil {
+		return err
+	}
+	return nil
+}
+
 // ValidateSportTypes checks that each entry in types is a known sport type key
 // as registered in the sport taxonomy.
 func ValidateSportTypes(types []string) error {

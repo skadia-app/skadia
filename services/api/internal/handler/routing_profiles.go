@@ -74,7 +74,7 @@ func (h *Handler) HandleListProfiles(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, dp := range dbProfiles {
 		id := dp.ID
-		editable := dp.Source == "user" && dp.UserID != nil && *dp.UserID == userID
+		editable := dp.Source == routing.SourceUser && dp.UserID != nil && *dp.UserID == userID
 		var configMsg *json.RawMessage
 		if len(dp.Config) > 0 {
 			msg := json.RawMessage(dp.Config)
@@ -115,7 +115,7 @@ func (h *Handler) HandleListProfiles(w http.ResponseWriter, r *http.Request) {
 				Engine:      "brouter",
 				BaseProfile: base,
 				SportTypes:  st,
-				Source:      "filesystem",
+				Source:      routing.SourceFilesystem,
 				Config:      nil,
 				Editable:    false,
 			})
@@ -168,16 +168,7 @@ func (h *Handler) HandleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := routing.ValidateProfileConfig(req.Config); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
-		return
-	}
-	if err := routing.ValidateBuiltinCompleteness(req.Config); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
-			fmt.Sprintf("profile config incomplete: %v", err), r.URL.Path)
-		return
-	}
-	if err := routing.ValidateSportTypes(req.SportTypes); err != nil {
+	if err := routing.ValidateFullProfile(req.Config, req.SportTypes); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
@@ -245,16 +236,7 @@ func (h *Handler) HandleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := routing.ValidateProfileConfig(req.Config); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
-		return
-	}
-	if err := routing.ValidateBuiltinCompleteness(req.Config); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
-			fmt.Sprintf("profile config incomplete: %v", err), r.URL.Path)
-		return
-	}
-	if err := routing.ValidateSportTypes(req.SportTypes); err != nil {
+	if err := routing.ValidateFullProfile(req.Config, req.SportTypes); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
@@ -387,20 +369,11 @@ func (h *Handler) HandleImportProfiles(w http.ResponseWriter, r *http.Request) {
 			cfg.Name = strings.TrimSuffix(fh.Filename, ".json")
 		}
 
-		if err := routing.ValidateProfileConfig(cfg); err != nil {
-			results = append(results, importResult{Name: cfg.Name, Success: false, Error: err.Error()})
-			continue
-		}
-		if err := routing.ValidateBuiltinCompleteness(cfg); err != nil {
-			results = append(results, importResult{Name: cfg.Name, Success: false, Error: fmt.Sprintf("incomplete profile: %v", err)})
-			continue
-		}
-
 		sportTypes := cfg.SportTypes
 		if len(sportTypes) == 0 {
 			sportTypes = routing.DefaultSportTypes(cfg.Profile)
 		}
-		if err := routing.ValidateSportTypes(sportTypes); err != nil {
+		if err := routing.ValidateFullProfile(cfg, sportTypes); err != nil {
 			results = append(results, importResult{Name: cfg.Name, Success: false, Error: err.Error()})
 			continue
 		}
@@ -565,61 +538,32 @@ func (h *Handler) HandleDeleteBrouterProfile(w http.ResponseWriter, r *http.Requ
 }
 
 // SeedProfiles scans dir for *.json profile files and upserts them into the
-// database as global profiles with the given source ("system" or "filesystem").
+// database as global profiles with the given source (SourceSystem or SourceFilesystem).
 // Missing dir or no files is a no-op (returns 0, nil).
 func SeedProfiles(ctx context.Context, dir string, db *database.DB, source string) (int, error) {
-	matches, err := filepath.Glob(filepath.Join(dir, "*.json"))
+	profiles, err := routing.LoadProfilesFromDir(dir)
 	if err != nil {
-		// Glob only returns ErrBadPattern which would be a programming error.
-		return 0, fmt.Errorf("SeedProfiles: glob failed: %w", err)
+		slog.Warn("SeedProfiles: some files failed to load", "dir", dir, "error", err)
 	}
-	// No directory / no files — not an error.
-	if len(matches) == 0 {
+	if len(profiles) == 0 {
 		return 0, nil
 	}
 
 	count := 0
-	for _, path := range matches {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			slog.Warn("SeedProfiles: read failed", "file", path, "error", err)
+	for name, cfg := range profiles {
+		if err := routing.ValidateBuiltinCompleteness(cfg); err != nil {
+			slog.Warn("SeedProfiles: incomplete", "name", name, "error", err)
 			continue
-		}
-
-		var cfg routing.ProfileConfig
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			slog.Warn("SeedProfiles: parse failed", "file", path, "error", err)
-			continue
-		}
-
-		if err := routing.ValidateProfileConfig(cfg); err != nil {
-			slog.Warn("SeedProfiles: validation failed", "file", path, "error", err)
-			continue
-		}
-
-		if cfg.Profile == "" {
-			slog.Warn("SeedProfiles: profile field missing", "file", path)
-			continue
-		}
-
-		sportTypes := cfg.SportTypes
-		if len(sportTypes) == 0 {
-			sportTypes = routing.DefaultSportTypes(cfg.Profile)
-		}
-
-		displayName := cfg.Name
-		if displayName == "" {
-			displayName = strings.TrimSuffix(filepath.Base(path), ".json")
 		}
 
 		configBytes, err := json.Marshal(cfg)
 		if err != nil {
-			slog.Warn("SeedProfiles: marshal failed", "file", path, "error", err)
+			slog.Warn("SeedProfiles: marshal failed", "name", name, "error", err)
 			continue
 		}
 
-		if _, err := db.UpsertGlobalProfile(ctx, displayName, cfg.Profile, sportTypes, configBytes, source); err != nil {
-			slog.Warn("SeedProfiles: upsert failed", "file", path, "error", err)
+		if _, err := db.UpsertGlobalProfile(ctx, cfg.Name, cfg.Profile, cfg.SportTypes, configBytes, source); err != nil {
+			slog.Warn("SeedProfiles: upsert failed", "name", name, "error", err)
 			continue
 		}
 
