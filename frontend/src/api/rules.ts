@@ -1,6 +1,9 @@
 import { apiClient } from './client'
 import type { AutomationRule } from './types'
 
+export const COMMUTE_MIN_DWELL_S = 1800
+export const COMMUTE_RADIUS_M = 200
+
 export async function fetchRules(): Promise<AutomationRule[]> {
   return apiClient<AutomationRule[]>('/automation-rules')
 }

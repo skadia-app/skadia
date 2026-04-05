@@ -67,28 +67,38 @@ export default function CommuteModal({ activityId, isRoundTrip, onClose }: Commu
               ))}
             </select>
           ) : (
-            <p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">
-              Erstelle zuerst Zonen unter{' '}
-              <a href="/settings/privacy" className="underline hover:text-neutral-700 dark:hover:text-neutral-300">
-                Einstellungen → Privatsphäre
-              </a>
-            </p>
+            <>
+              <p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">
+                Erstelle zuerst Zonen unter{' '}
+                <a href="/settings/privacy" className="underline hover:text-neutral-700 dark:hover:text-neutral-300">
+                  Einstellungen → Privatsphäre
+                </a>
+              </p>
+              <button
+                onClick={onClose}
+                className="w-full mt-4 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg cursor-pointer transition-colors"
+              >
+                Abbrechen
+              </button>
+            </>
           )}
-          <div className="flex gap-3 mt-4">
-            <button
-              onClick={() => createMut.mutate()}
-              disabled={!selectedZone || createMut.isPending}
-              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 rounded-lg cursor-pointer transition-colors disabled:opacity-50"
-            >
-              {createMut.isPending ? 'Wird erstellt...' : 'Pendel-Regel erstellen'}
-            </button>
-            <button
-              onClick={onClose}
-              className="flex-1 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg cursor-pointer transition-colors"
-            >
-              Abbrechen
-            </button>
-          </div>
+          {zones && zones.length > 0 && (
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={() => createMut.mutate()}
+                disabled={!selectedZone || createMut.isPending}
+                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 rounded-lg cursor-pointer transition-colors disabled:opacity-50"
+              >
+                {createMut.isPending ? 'Wird erstellt...' : 'Pendel-Regel erstellen'}
+              </button>
+              <button
+                onClick={onClose}
+                className="flex-1 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg cursor-pointer transition-colors"
+              >
+                Abbrechen
+              </button>
+            </div>
+          )}
         </>
       ) : (
         <>
