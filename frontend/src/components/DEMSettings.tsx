@@ -1,21 +1,25 @@
-import { useQuery } from '@tanstack/react-query'
-import { apiClient } from '@/api/client'
-
-interface DEMSource {
-  source: string
-  resolution_m: number
-  tile_count: number
-}
-
-interface DEMStatus {
-  sources: DEMSource[]
-  total_tiles: number
-}
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { getDEMRegionStatus, downloadDEM, type DEMStatusResponse } from '@/api/osm'
+import { useToast } from '@/lib/toast'
 
 export function DEMSettings() {
-  const { data } = useQuery({
-    queryKey: ['dem-status'],
-    queryFn: () => apiClient<DEMStatus>('/admin/dem-status'),
+  const queryClient = useQueryClient()
+  const { addToast } = useToast()
+
+  const { data } = useQuery<DEMStatusResponse>({
+    queryKey: ['dem-region-status'],
+    queryFn: getDEMRegionStatus,
+  })
+
+  const demDownloadMut = useMutation({
+    mutationFn: () => downloadDEM(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dem-region-status'] })
+      addToast({ type: 'info', title: 'DEM-Download gestartet' })
+    },
+    onError: (err: Error) => {
+      addToast({ type: 'error', title: 'DEM-Download fehlgeschlagen', message: err.message, duration: 0 })
+    },
   })
 
   const sources = data?.sources ?? []
@@ -47,6 +51,28 @@ export function DEMSettings() {
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
             Gesamt: {data?.total_tiles.toLocaleString()} Kacheln
           </p>
+        </div>
+      )}
+
+      {data?.regions && data.regions.length > 0 && (
+        <div className="mt-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-neutral-600 dark:text-neutral-400">
+              {data.regions.reduce((s, r) => s + r.tiles_present, 0)}/{data.regions.reduce((s, r) => s + r.tiles_needed, 0)} Kacheln vorhanden
+              {data.missing_tiles > 0 && (
+                <span className="text-amber-500 ml-1">
+                  ({data.regions.filter(r => !r.complete).map(r => r.id).join(', ')} fehlen)
+                </span>
+              )}
+            </span>
+            <button
+              onClick={() => demDownloadMut.mutate()}
+              disabled={!data.missing_tiles || demDownloadMut.isPending}
+              className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Fehlende DEM-Kacheln herunterladen
+            </button>
+          </div>
         </div>
       )}
 
