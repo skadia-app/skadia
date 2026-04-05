@@ -26,6 +26,7 @@ import {
   SUB_FILTERS,
   POWER_CURVE_GROUPS,
   CATEGORY_PREFIXES,
+  SPORT_GROUP_TO_SPORT_TYPES,
   type MainCategory,
 } from '@/lib/recordsConstants'
 import { HighlightBanner } from '@/components/records/HighlightBanner'
@@ -147,7 +148,7 @@ export default function PersonalRecordsPage() {
   }
 
   // ── Queries ───────────────────────────────────────────────────────────────
-  const queryKey = ['personal-records', '', year]
+  const queryKey = ['personal-records', year]
 
   const { data: allRecords = [], isLoading, isError } = useQuery({
     queryKey,
@@ -245,10 +246,15 @@ export default function PersonalRecordsPage() {
     reincludeMutation.mutate({ activityId, category })
   }
 
-  // Segment sport filter for detail mode
-  const detailSegmentFilter = mainCategory
-    ? MAIN_CATEGORIES[mainCategory]
-    : undefined
+  // Segment sport filter for detail mode — maps sport_groups → sport_types
+  // so SegmentSection (which filters on SegmentEffort.sport_type) matches correctly.
+  const segmentSportFilter = useMemo(() => {
+    if (!mainCategory) return undefined
+    const groups = subFilter
+      ? SUB_FILTERS[mainCategory].find(f => f.label === subFilter)?.sportGroups ?? MAIN_CATEGORIES[mainCategory]
+      : MAIN_CATEGORIES[mainCategory]
+    return groups.flatMap(g => SPORT_GROUP_TO_SPORT_TYPES[g] ?? [])
+  }, [mainCategory, subFilter])
 
   // Power series for detail mode
   const detailPowerSeries = useMemo(() => {
@@ -423,19 +429,19 @@ export default function PersonalRecordsPage() {
               <TabsTrigger value="distanz" disabled={distRecords.length === 0}>
                 Distanz
                 {distRecords.length > 0 && (
-                  <span className="ml-1.5 text-xs opacity-60">({distRecords.length})</span>
+                  <span className="ml-1.5 text-xs opacity-60">({new Set(distRecords.map(r => r.category)).size})</span>
                 )}
               </TabsTrigger>
               <TabsTrigger value="hoehenmeter" disabled={elevRecords.length === 0}>
                 Höhenmeter
                 {elevRecords.length > 0 && (
-                  <span className="ml-1.5 text-xs opacity-60">({elevRecords.length})</span>
+                  <span className="ml-1.5 text-xs opacity-60">({new Set(elevRecords.map(r => r.category)).size})</span>
                 )}
               </TabsTrigger>
               <TabsTrigger value="leistung" disabled={powerRecords.length === 0}>
                 Leistung
                 {powerRecords.length > 0 && (
-                  <span className="ml-1.5 text-xs opacity-60">({powerRecords.length})</span>
+                  <span className="ml-1.5 text-xs opacity-60">({new Set(powerRecords.map(r => r.category)).size})</span>
                 )}
               </TabsTrigger>
               <TabsTrigger value="segmente">
@@ -456,7 +462,7 @@ export default function PersonalRecordsPage() {
               ) : (
                 <>
                   <CategoryGrid records={distRecords} />
-                  <DetailTable records={distRecords} />
+                  <DetailTable records={distRecords} sportGroup={distRecords[0]?.sport_group} />
                 </>
               )}
             </TabsContent>
@@ -468,7 +474,7 @@ export default function PersonalRecordsPage() {
               ) : (
                 <>
                   <CategoryGrid records={elevRecords} />
-                  <DetailTable records={elevRecords} />
+                  <DetailTable records={elevRecords} sportGroup={elevRecords[0]?.sport_group} />
                 </>
               )}
             </TabsContent>
@@ -480,7 +486,7 @@ export default function PersonalRecordsPage() {
               ) : (
                 <>
                   <CategoryGrid records={powerRecords} />
-                  <DetailTable records={powerRecords} />
+                  <DetailTable records={powerRecords} sportGroup={powerRecords[0]?.sport_group} />
                   {detailPowerSeries.length > 0 && (
                     <PowerDurationChart
                       records={filteredRecords}
@@ -496,7 +502,7 @@ export default function PersonalRecordsPage() {
               <SegmentSection
                 personalPRs={segmentPRs}
                 globalTop={globalTopEfforts}
-                sportFilter={detailSegmentFilter}
+                sportFilter={segmentSportFilter}
               />
               {segmentPRs.length === 0 && globalTopEfforts.length === 0 && (
                 <EmptyTabState message="Keine Segment-Bestzeiten für diese Sportart" />
