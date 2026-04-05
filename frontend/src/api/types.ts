@@ -745,30 +745,15 @@ export interface RuleCondition {
   field: string
   op: string
   value: any
-  // Geofencing params (only when field === 'geofence')
+  // Unified geofence params (only when field === 'geofence')
   geofence?: {
-    lat: number
-    lon: number
-    radius_m: number
-    mode: 'inside' | 'outside'
-  }
-  // Zone-based geofence (field === 'geofence_zone')
-  geofence_zone?: {
+    check: 'start' | 'end' | 'track'
     mode: 'inside' | 'outside'
     shape: 'circle' | 'polygon'
-    // circle fields
     lat?: number
     lon?: number
     radius_m?: number
-    // polygon field (GeoJSON Polygon JSON string)
     polygon?: string
-  }
-  // Proximity-to-pin geofence (field === 'geofence_proximity')
-  geofence_proximity?: {
-    lat: number
-    lon: number
-    radius_m: number
-    mode: 'inside' | 'outside'
   }
 }
 
