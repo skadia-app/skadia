@@ -4,8 +4,10 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
 // BackfillDeveloperFieldColumns promotes Suunto developer-field values from
@@ -52,12 +54,13 @@ func (h *Handler) BackfillDeveloperFieldColumns(w http.ResponseWriter, r *http.R
 		"note":         "stream columns (radar, running_smoothness, glucose) require a full recompute from FIT — only activity-level Suunto columns are backfilled here",
 	})
 
-	go func() {
-		bgCtx := context.Background()
+	shutdown.Go("backfill-dev-columns", func(bgCtx context.Context) {
 		totalUpdated := int64(0)
 
 		for _, uid := range userIDs {
-			updated, err := backfillSuuntoColumnsForUser(bgCtx, h, uid)
+			userCtx, cancel := context.WithTimeout(bgCtx, 5*time.Minute)
+			updated, err := backfillSuuntoColumnsForUser(userCtx, h, uid)
+			cancel()
 			if err != nil {
 				slog.Error("backfill dev columns: suunto update failed",
 					"user_id", uid, "error", err)
@@ -70,7 +73,7 @@ func (h *Handler) BackfillDeveloperFieldColumns(w http.ResponseWriter, r *http.R
 			"users", len(userIDs),
 			"updated_activities", totalUpdated,
 		)
-	}()
+	})
 }
 
 // backfillSuuntoColumnsForUser runs the Suunto CTE-based UPDATE for a single user.

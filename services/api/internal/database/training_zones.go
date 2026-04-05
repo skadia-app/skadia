@@ -92,10 +92,10 @@ func (db *DB) GetTrainingZones(ctx context.Context, userID string, sport, subSpo
 // offer configuration UI, even when no zones have been saved yet.
 func (db *DB) GetAllTrainingZoneSports(ctx context.Context, userID string) ([]int16, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT DISTINCT sport FROM training_zones WHERE user_id = $1
+		SELECT DISTINCT sport AS sport_id FROM training_zones WHERE user_id = $1
 		UNION
-		SELECT DISTINCT fit_sport_id FROM activities WHERE user_id = $1 AND fit_sport_id IS NOT NULL
-		ORDER BY sport
+		SELECT DISTINCT fit_sport_id AS sport_id FROM activities WHERE user_id = $1 AND fit_sport_id IS NOT NULL
+		ORDER BY sport_id
 	`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("query training zone sports: %w", err)
@@ -117,14 +117,13 @@ func (db *DB) GetAllTrainingZoneSports(ctx context.Context, userID string) ([]in
 // Unlike UpsertTrainingZones, this bypasses source_type_priority() so that a manual
 // user edit always wins over any auto-detected value (priority 60, the highest).
 func (db *DB) UpsertTrainingZonesManual(ctx context.Context, zone *model.TrainingZone) error {
-	zone.SourceType = "manual_override"
 	_, err := db.Pool.Exec(ctx, `
 		INSERT INTO training_zones (
 			user_id, sport, sub_sport, zone_type,
 			max_heart_rate, threshold_heart_rate, functional_threshold_power,
 			hr_calc_type, pwr_calc_type,
 			zone_names, zone_highs, source_type, threshold_speed_mps
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual_override', $12)
 		ON CONFLICT (user_id, sport, sub_sport, zone_type) DO UPDATE SET
 			max_heart_rate             = EXCLUDED.max_heart_rate,
 			threshold_heart_rate       = EXCLUDED.threshold_heart_rate,
@@ -139,6 +138,6 @@ func (db *DB) UpsertTrainingZonesManual(ctx context.Context, zone *model.Trainin
 	`, zone.UserID, zone.Sport, zone.SubSport, zone.ZoneType,
 		zone.MaxHeartRate, zone.ThresholdHeartRate, zone.FunctionalThresholdPower,
 		zone.HrCalcType, zone.PwrCalcType,
-		zone.ZoneNames, zone.ZoneHighs, zone.SourceType, zone.ThresholdSpeedMps)
+		zone.ZoneNames, zone.ZoneHighs, zone.ThresholdSpeedMps)
 	return err
 }
