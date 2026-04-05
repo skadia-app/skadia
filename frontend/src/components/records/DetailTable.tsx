@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, TrendingUp } from 'lucide-react'
 import { formatBestEffortDisplay, categoryLabel, CATEGORY_LABELS } from '@/lib/bestEffortLabels'
 import { fmtDateMedium, fmtDuration } from '@/lib/format'
 import type { BestEffortRanked } from '@/api/bestEfforts'
@@ -23,9 +23,21 @@ function categoryColorHint(cat: string): string {
 interface DetailTableProps {
   records: BestEffortRanked[]
   sportGroup?: string
+  /** The category key whose chart is currently expanded — controlled from outside. */
+  chartExpandedCategory?: string | null
+  /** Called when the user clicks the chart-toggle button for a category. */
+  onChartToggle?: (category: string) => void
+  /** Render function for the chart row content (receives category + sportGroup). */
+  renderChart?: (category: string, sportGroup: string) => React.ReactNode
 }
 
-export function DetailTable({ records, sportGroup }: DetailTableProps) {
+export function DetailTable({
+  records,
+  sportGroup,
+  chartExpandedCategory,
+  onChartToggle,
+  renderChart,
+}: DetailTableProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   const toggle = useCallback((category: string) => {
@@ -54,6 +66,7 @@ export function DetailTable({ records, sportGroup }: DetailTableProps) {
             <th className="text-right px-4 py-2.5 font-medium">Bestzeit</th>
             <th className="text-left px-4 py-2.5 font-medium">Datum</th>
             <th className="w-8" />
+            {renderChart && <th className="w-8" />}
           </tr>
         </thead>
         <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
@@ -65,6 +78,9 @@ export function DetailTable({ records, sportGroup }: DetailTableProps) {
             const isExpanded = expanded.has(cat)
             const display = formatBestEffortDisplay(cat, rank1.elapsed_time_s, rank1.value_numeric, sportGroup)
             const valueColor = categoryColorHint(cat)
+
+            const isChartExpanded = chartExpandedCategory === cat
+            const colCount = renderChart ? 6 : 5
 
             return [
               <tr
@@ -107,6 +123,22 @@ export function DetailTable({ records, sportGroup }: DetailTableProps) {
                     <ChevronDown className={cn('w-3.5 h-3.5 text-neutral-400 dark:text-neutral-600 transition-transform', isExpanded && 'rotate-180')} />
                   )}
                 </td>
+                {renderChart && onChartToggle && (
+                  <td className="px-2">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onChartToggle(cat) }}
+                      title={isChartExpanded ? 'Verlauf ausblenden' : 'Verlauf anzeigen'}
+                      className={cn(
+                        'p-1 rounded transition-colors',
+                        isChartExpanded
+                          ? 'text-orange-500 dark:text-orange-400 bg-orange-50 dark:bg-orange-500/10'
+                          : 'text-neutral-400 dark:text-neutral-600 hover:text-orange-500 dark:hover:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10',
+                      )}
+                    >
+                      <TrendingUp className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
+                )}
               </tr>,
               ...(isExpanded
                 ? catRecords.slice(1).map((r) => {
@@ -150,9 +182,20 @@ export function DetailTable({ records, sportGroup }: DetailTableProps) {
                           {delta && <span className="text-neutral-400 dark:text-neutral-600 ml-2">{delta}</span>}
                         </td>
                         <td />
+                        {renderChart && <td />}
                       </tr>
                     )
                   })
+                : []),
+              // Chart expansion row
+              ...(isChartExpanded && renderChart && rank1.sport_group
+                ? [
+                    <tr key={`chart-${cat}`} className="bg-neutral-50/30 dark:bg-neutral-800/10 border-t border-neutral-100 dark:border-neutral-800/50">
+                      <td colSpan={colCount} className="p-0">
+                        {renderChart(cat, rank1.sport_group)}
+                      </td>
+                    </tr>,
+                  ]
                 : []),
             ]
           })}

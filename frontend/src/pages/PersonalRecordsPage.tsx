@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trophy, RotateCcw } from 'lucide-react'
@@ -37,6 +37,7 @@ import { SuperlativeBar } from '@/components/records/SuperlativeBar'
 import { SubFilterPills } from '@/components/records/SubFilterPills'
 import { PowerDurationChart } from '@/components/records/PowerDurationChart'
 import { SegmentSection } from '@/components/records/SegmentSection'
+import { PRProgressionChart } from '@/components/records/PRProgressionChart'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -109,6 +110,14 @@ function ExcludedList({ excluded, onReinclude, reincludingKey }: ExcludedListPro
 export default function PersonalRecordsPage() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
+
+  // ── Chart expansion state (PR progression timeline) ─────────────────────
+  // Only one category chart open at a time; null = none.
+  const [chartExpandedCategory, setChartExpandedCategory] = useState<string | null>(null)
+
+  const handleChartToggle = (category: string) => {
+    setChartExpandedCategory((prev) => (prev === category ? null : category))
+  }
 
   // ── URL state ────────────────────────────────────────────────────────────
   const [searchParams, setSearchParams] = useSearchParams()
@@ -462,7 +471,19 @@ export default function PersonalRecordsPage() {
               ) : (
                 <>
                   <CategoryGrid records={distRecords} />
-                  <DetailTable records={distRecords} sportGroup={distRecords[0]?.sport_group} />
+                  <DetailTable
+                    records={distRecords}
+                    sportGroup={distRecords[0]?.sport_group}
+                    chartExpandedCategory={chartExpandedCategory}
+                    onChartToggle={handleChartToggle}
+                    renderChart={(cat, sg) => (
+                      <PRProgressionChart
+                        category={cat}
+                        sportGroup={sg}
+                        isExpanded={chartExpandedCategory === cat}
+                      />
+                    )}
+                  />
                 </>
               )}
             </TabsContent>
@@ -474,7 +495,19 @@ export default function PersonalRecordsPage() {
               ) : (
                 <>
                   <CategoryGrid records={elevRecords} />
-                  <DetailTable records={elevRecords} sportGroup={elevRecords[0]?.sport_group} />
+                  <DetailTable
+                    records={elevRecords}
+                    sportGroup={elevRecords[0]?.sport_group}
+                    chartExpandedCategory={chartExpandedCategory}
+                    onChartToggle={handleChartToggle}
+                    renderChart={(cat, sg) => (
+                      <PRProgressionChart
+                        category={cat}
+                        sportGroup={sg}
+                        isExpanded={chartExpandedCategory === cat}
+                      />
+                    )}
+                  />
                 </>
               )}
             </TabsContent>
@@ -486,7 +519,19 @@ export default function PersonalRecordsPage() {
               ) : (
                 <>
                   <CategoryGrid records={powerRecords} />
-                  <DetailTable records={powerRecords} sportGroup={powerRecords[0]?.sport_group} />
+                  <DetailTable
+                    records={powerRecords}
+                    sportGroup={powerRecords[0]?.sport_group}
+                    chartExpandedCategory={chartExpandedCategory}
+                    onChartToggle={handleChartToggle}
+                    renderChart={(cat, sg) => (
+                      <PRProgressionChart
+                        category={cat}
+                        sportGroup={sg}
+                        isExpanded={chartExpandedCategory === cat}
+                      />
+                    )}
+                  />
                   {detailPowerSeries.length > 0 && (
                     <PowerDurationChart
                       records={filteredRecords}
