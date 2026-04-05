@@ -58,7 +58,7 @@ const SUNSET_SVG = "image://data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2
 
 type XMode = 'distance' | 'time'
 
-type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'coreTemperature' | 'runningDynamics' | 'stepLength' | 'powerPhase' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength' | 'grit' | 'flow' | 'gear' | 'potentialStamina' | 'staminaCurrent' | 'pressure' | 'decoTimeSeries'
+type ChartKey = 'altitude' | 'heartRate' | 'speed' | 'power' | 'cadence' | 'temperature' | 'coreTemperature' | 'runningDynamics' | 'stepLength' | 'runningSmoothness' | 'powerPhase' | 'torqueEff' | 'pedalSm' | 'motorPower' | 'batteryLevel' | 'travelRange' | 'depth' | 'cycleLength' | 'grit' | 'flow' | 'gear' | 'potentialStamina' | 'staminaCurrent' | 'pressure' | 'decoTimeSeries'
 
 interface ChartMeta {
   id: string
@@ -83,7 +83,7 @@ function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
       if (sg === 'bike') charts.push('gear')
       return charts
     }
-    case CHART_TAB.dynamik: return ['runningDynamics', 'stepLength']
+    case CHART_TAB.dynamik: return ['runningDynamics', 'stepLength', 'runningSmoothness']
     case CHART_TAB.pedal: return ['powerPhase', 'torqueEff', 'pedalSm']
     case CHART_TAB.electric: return ['motorPower', 'batteryLevel', 'travelRange']
     case CHART_TAB.tauchgang: return ['depth']
@@ -138,6 +138,7 @@ interface ChartData {
   n2Pct: number[]
   decoStopM: number[]
   po2: number[]
+  runningSmoothness: number[]
   maxDist: number
   maxElapsed: number
 }
@@ -189,6 +190,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const n2Pct: number[] = []
   const decoStopM: number[] = []
   const po2: number[] = []
+  const runningSmoothness: number[] = []
 
   const t0 = streams.length > 0 ? new Date(streams[0].time).getTime() : 0
 
@@ -253,6 +255,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     n2Pct.push(s.n2_load_pct ?? NaN)
     decoStopM.push((s.next_stop_depth_m ?? 0) > 0 ? s.next_stop_depth_m! : NaN)
     po2.push(s.po2 != null && s.po2 > 0 ? s.po2 : NaN)
+    runningSmoothness.push(s.running_smoothness_pct ?? NaN)
   }
 
   const validDist = distanceKm.filter(v => !isNaN(v) && isFinite(v))
@@ -260,7 +263,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
   const maxDist = Math.ceil(rawMax * 10) / 10
   const maxElapsed = elapsedMin.length > 0 ? Math.ceil(elapsedMin[elapsedMin.length - 1]) : 0
 
-  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, pressure, paceMinKm, garminGapMinKm, re3Gap, strydNgpMinKm, corosEffortPaceMinKm, strydPower, ndlMin, cnsPct, n2Pct, decoStopM, po2, maxDist, maxElapsed }
+  return { distanceKm, elapsedMin, altitude, grade, heartRate, power, cadence, speed, speedMs, temperature, coreTemperature, groundContactTime, verticalOscillation, stepLength, torqueEffL, torqueEffR, pedalSmL, pedalSmR, motorPower, batteryLevel, travelRange, depth, cycleLength, grit, flow, potentialStamina, staminaCurrent, pressure, paceMinKm, garminGapMinKm, re3Gap, strydNgpMinKm, corosEffortPaceMinKm, strydPower, ndlMin, cnsPct, n2Pct, decoStopM, po2, runningSmoothness, maxDist, maxElapsed }
 }
 
 function hasValidData(arr: number[]): boolean {
@@ -846,6 +849,10 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       <ChartPanel chartId="step-length" {...common}
         field="stepLength" label="Schrittlänge" unit="m" color="#0891b2"
         overrideValues={data.stepLength} />)
+
+  if (hasValidData(data.runningSmoothness))
+    addPanel({ id: 'running-smoothness', label: 'Running Smoothness', color: '#8b5cf6', tabKey: 'runningSmoothness' },
+      <RunningSmoothnessChartPanel chartId="running-smoothness" {...common} />)
 
   if (powerPhaseAvg)
     addPanel({ id: 'power-phase', label: 'Pedalphase', color: '#ec4899', tabKey: 'powerPhase' },
@@ -2733,6 +2740,173 @@ function RunningDynamicsChartPanel({
           <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#06B6D4' }} />
           <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
             Vertikale Bewegung <span className="font-normal text-neutral-400 dark:text-neutral-600">(cm)</span>
+          </span>
+        </div>
+      </div>
+      <div ref={containerRef} className="h-[180px] w-full" />
+    </div>
+  )
+}
+
+// ── Running Smoothness Chart Panel ────────────────────────────────────────────
+
+interface RunningSmoothnessChartPanelProps {
+  chartId: string
+  data: ChartData
+  onHover: (index: number | null) => void
+  onBrushZoom: (startValue: number, endValue: number) => void
+  onSyncZoom: (start: number, end: number, sourceId: string) => void
+  onRegister: (id: string, chart: echarts.ECharts) => void
+  onUnregister: (id: string) => void
+  brushZoomLockRef: React.MutableRefObject<boolean>
+  xMode: XMode
+  splitMarkers?: SplitMarker[]
+}
+
+function RunningSmoothnessChartPanel({
+  chartId, data, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
+  brushZoomLockRef, xMode, splitMarkers,
+}: RunningSmoothnessChartPanelProps) {
+  const containerRef = useECharts(
+    () => {
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+      const values = data.runningSmoothness
+
+      const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
+      const xFormatter = xMode === 'distance'
+        ? (v: number) => v.toFixed(1)
+        : (v: number) => formatElapsed(v, data.maxElapsed)
+
+      const mlData = buildSplitMarkLines(splitMarkers, xMode)
+
+      return {
+        animation: false,
+        grid: { left: 52, right: 16, top: gridTop, bottom: 36 },
+
+        title: {
+          text: 'Running Smoothness',
+          left: 4,
+          top: 4,
+          textStyle: { fontSize: 11, fontWeight: 500, color: '#888' },
+        },
+
+        brush: {
+          toolbox: [],
+          brushType: 'lineX',
+          brushStyle: {
+            borderWidth: 1,
+            color: 'rgba(139,92,246,0.12)',
+            borderColor: '#8b5cf6',
+          },
+          throttleType: 'debounce',
+          throttleDelay: 100,
+        },
+
+        toolbox: {
+          feature: {
+            brush: { show: false },
+            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: 'Running Smoothness' },
+          },
+        },
+
+        tooltip: {
+          trigger: 'axis',
+          transitionDuration: 0,
+          confine: true,
+          backgroundColor: 'rgba(255,255,255,0.96)',
+          borderColor: '#e5e5e5',
+          borderWidth: 1,
+          padding: [8, 10],
+          textStyle: { fontSize: 12, color: '#333' },
+          axisPointer: {
+            type: 'line',
+            lineStyle: { color: '#8b5cf6', width: 1, type: 'dashed' },
+            animation: false,
+          },
+          formatter: (params: unknown) => {
+            const arr = Array.isArray(params) ? params : [params]
+            const p = arr[0] as { dataIndex?: number }
+            if (p?.dataIndex == null) return ''
+            const idx = p.dataIndex
+            const xVal = xMode === 'distance' ? data.distanceKm[idx] : data.elapsedMin[idx]
+            const posLine = buildTooltipPosLine(xVal, xMode, data)
+            let html = `<div style="line-height:1.75;min-width:150px">`
+            html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
+            const v = values[idx]
+            if (!isNaN(v)) html += `<div style="font-size:13px;color:#8B5CF6"><strong>${Math.round(v)}\u202f%</strong> Running Smoothness</div>`
+            return html + '</div>'
+          },
+        },
+
+        xAxis: {
+          type: 'value',
+          min: 0,
+          max: xMax,
+          axisLabel: { fontSize: 11, color: '#666', formatter: xFormatter },
+          splitLine: { show: false },
+          axisLine: { lineStyle: { color: '#ddd' } },
+          axisTick: { lineStyle: { color: '#ddd' } },
+        },
+
+        yAxis: {
+          type: 'value',
+          name: '%',
+          nameTextStyle: { fontSize: 10, color: '#8B5CF6' },
+          min: 0,
+          max: 100,
+          axisLabel: { fontSize: 11, color: '#8B5CF6', margin: 8 },
+          splitLine: { lineStyle: { color: '#eee', type: 'dashed' } },
+          axisLine: { show: false },
+          axisTick: { show: false },
+        },
+
+        series: [
+          {
+            type: 'line',
+            data: xData.map((x, i) => [x, values[i]]),
+            showSymbol: false,
+            lineStyle: { width: 1.5, color: '#8B5CF6' },
+            itemStyle: { color: '#8B5CF6' },
+            areaStyle: { color: 'rgba(139,92,246,0.08)' },
+            connectNulls: false,
+            ...(mlData.length > 0 ? {
+              markLine: {
+                silent: true,
+                symbol: ['none', 'none'],
+                data: mlData,
+              },
+            } : {}),
+          },
+        ],
+
+        dataZoom: [
+          {
+            type: 'inside',
+            xAxisIndex: 0,
+            filterMode: 'none',
+            zoomOnMouseWheel: true,
+            moveOnMouseMove: true,
+            moveOnMouseWheel: false,
+          },
+        ],
+      } as echarts.EChartsCoreOption
+    },
+    [data, xMode, splitMarkers], // eslint-disable-line react-hooks/exhaustive-deps
+    (chart) => {
+      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
+      return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
+    },
+  )
+
+  return (
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+      <div className="flex items-center gap-4 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60">
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#8B5CF6' }} />
+          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+            Running Smoothness <span className="font-normal text-neutral-400 dark:text-neutral-600">(%)</span>
           </span>
         </div>
       </div>
