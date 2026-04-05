@@ -3,54 +3,92 @@ package auth
 import (
 	"archive/zip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var (
-	// exportInflight tracks per-user singleflight to prevent duplicate exports.
-	exportInflight sync.Map
-	// exportSem limits server-wide concurrent exports.
-	exportSem = make(chan struct{}, 3)
-)
+// isValidExportPath validates that a file path from DB metadata points to
+// a legitimate export temp file. Defense-in-depth against DB manipulation.
+func isValidExportPath(path string) bool {
+	cleaned := filepath.Clean(path)
+	return strings.HasPrefix(cleaned, os.TempDir()) && strings.Contains(filepath.Base(cleaned), "skadia-export-")
+}
 
-// DataExport handles GET /auth/data-export — GDPR data export as streaming ZIP.
-// Concurrency: max 1 per user, max 3 server-wide.
+var staleCleanupOnce sync.Once
+
+// startStaleExportCleanup runs the stale export job cleanup every 5 minutes.
+// Safe to call multiple times — only starts once.
+func startStaleExportCleanup(ctx context.Context, pool *pgxpool.Pool) {
+	staleCleanupOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			// Run once immediately at startup.
+			cleanupStaleExportJobs(ctx, pool)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					cleanupStaleExportJobs(ctx, pool)
+				}
+			}
+		}()
+	})
+}
+
+// cleanupStaleExportJobs removes files and marks stale export jobs as failed.
+// Called periodically by the background timer started via startStaleExportCleanup.
+func cleanupStaleExportJobs(ctx context.Context, pool *pgxpool.Pool) {
+	staleRows, err := pool.Query(ctx,
+		`SELECT metadata->>'file_path' FROM background_jobs
+		 WHERE job_type = 'gdpr_export' AND status IN ('queued','running')
+		 AND updated_at < NOW() - INTERVAL '30 minutes'
+		 AND metadata->>'file_path' IS NOT NULL`)
+	if err != nil {
+		slog.Error("gdpr export cleanup: query stale jobs failed", "error", err)
+	} else {
+		defer staleRows.Close()
+		for staleRows.Next() {
+			var path string
+			if staleRows.Scan(&path) == nil && path != "" && isValidExportPath(path) {
+				os.Remove(path)
+			}
+		}
+	}
+
+	if _, err := pool.Exec(ctx,
+		`UPDATE background_jobs SET status = 'failed', error = 'stale: pod crash', updated_at = NOW()
+		 WHERE job_type = 'gdpr_export' AND status IN ('queued','running')
+		 AND updated_at < NOW() - INTERVAL '30 minutes'`); err != nil {
+		slog.Error("gdpr export cleanup: update stale jobs failed", "error", err)
+	}
+}
+
+// DataExport handles POST /auth/data-export — starts a background GDPR export job.
 func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
-
-	// Per-user singleflight
-	if _, loaded := exportInflight.LoadOrStore(userID, true); loaded {
-		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "export_already_running"})
-		return
-	}
-	defer exportInflight.Delete(userID)
-
-	// Server-wide concurrency limit
-	select {
-	case exportSem <- struct{}{}:
-		defer func() { <-exportSem }()
-	default:
-		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "server_busy"})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
-	defer cancel()
+	ctx := r.Context()
 
 	user, err := h.DB.GetUserByID(ctx, userID)
 	if err != nil || !user.IsActive || user.DeletedAt != nil {
@@ -58,490 +96,414 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition",
-		fmt.Sprintf(`attachment; filename="skadia-export-%s.zip"`,
-			time.Now().Format("2006-01-02")))
+	// Ensure the background stale-job cleanup timer is running (starts once per process).
+	startStaleExportCleanup(h.shutdownCtx, h.DB.Pool)
 
-	zw := zip.NewWriter(w)
-	defer zw.Close()
-
-	// Account info (scrub sensitive fields)
-	type accountExport struct {
-		ID            string     `json:"id"`
-		Username      string     `json:"username"`
-		DisplayName   *string    `json:"display_name,omitempty"`
-		Email         *string    `json:"email,omitempty"`
-		IsAdmin       bool       `json:"is_admin"`
-		EmailVerified bool       `json:"email_verified"`
-		CreatedAt     time.Time  `json:"created_at"`
-		UpdatedAt     time.Time  `json:"updated_at"`
-		LastLoginAt   *time.Time `json:"last_login_at,omitempty"`
+	// Per-user: no concurrent export.
+	var userRunning bool
+	if err := h.DB.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM background_jobs WHERE user_id = $1 AND job_type = 'gdpr_export' AND status IN ('queued','running'))`,
+		userID).Scan(&userRunning); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
 	}
-	acct := accountExport{
-		ID:            user.ID,
-		Username:      user.Username,
-		DisplayName:   user.DisplayName,
-		Email:         user.Email,
-		IsAdmin:       user.IsAdmin,
-		EmailVerified: user.EmailVerified,
-		CreatedAt:     user.CreatedAt,
-		UpdatedAt:     user.UpdatedAt,
-		LastLoginAt:   user.LastLoginAt,
-	}
-	writeZipJSON(zw, "account.json", acct)
-
-	// M31: User profile (physiological data + timezone, locale, unit_system).
-	profileRows, err := h.DB.Pool.Query(ctx,
-		`SELECT birth_date, gender, height_cm, weight_kg, ftp_w, lthr_bpm,
-		        max_hr_bpm, max_hr_detected_bpm, resting_hr_bpm,
-		        timezone, locale, unit_system
-		 FROM users WHERE id = $1`, userID)
-	if err == nil {
-		exportRowsToZip(zw, "profile.json", profileRows)
+	if userRunning {
+		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "export_already_running"})
+		return
 	}
 
-	// Activities metadata (without streams — too large)
-	// M30: Include geo columns (start_lat, start_lng, end_lat, end_lng, route_geom as GeoJSON).
-	queryAndExport(ctx, zw, h.DB.Pool, "activities.json",
-		`SELECT id, title, sport_type, sub_type, started_at, elapsed_time_s, moving_time_s,
-		        distance_m, elevation_gain_m, elevation_loss_m, avg_heart_rate, max_heart_rate,
-		        avg_power_w, total_calories, description, is_virtual, is_indoor, source,
-		        gear_id, start_city, start_country,
-		        start_lat, start_lng, end_lat, end_lng,
-		        created_at
-		 FROM activities WHERE user_id = $1 ORDER BY started_at DESC`, userID)
+	// Server-wide: max 3 concurrent exports.
+	var serverCount int
+	if err := h.DB.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM background_jobs WHERE job_type = 'gdpr_export' AND status IN ('queued','running')`,
+	).Scan(&serverCount); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	if serverCount >= 3 {
+		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "server_busy"})
+		return
+	}
 
-	// Gear
-	queryAndExport(ctx, zw, h.DB.Pool, "gear.json",
-		`SELECT id, name, type, sub_type, brand, model, total_distance_m, total_time_s,
-		        total_activities, is_retired, notes, created_at
-		 FROM gear WHERE user_id = $1`, userID)
+	// Atomic INSERT — prevents race condition between EXISTS check and INSERT.
+	// Also enforces the server-wide limit of 3 concurrent exports atomically (S5 TOCTOU fix).
+	jobID := uuid.New().String()
+	err = h.DB.Pool.QueryRow(ctx, `
+		INSERT INTO background_jobs (id, job_type, user_id, status, started_at, updated_at)
+		SELECT $1, 'gdpr_export', $2, 'queued', NOW(), NOW()
+		WHERE NOT EXISTS (
+			SELECT 1 FROM background_jobs
+			WHERE user_id = $2 AND job_type = 'gdpr_export'
+			AND status IN ('queued', 'running')
+		)
+		AND (SELECT COUNT(*) FROM background_jobs
+		     WHERE job_type = 'gdpr_export'
+		     AND status IN ('queued', 'running')) < 3
+		RETURNING true`, jobID, userID).Scan(new(bool))
+	if errors.Is(err, pgx.ErrNoRows) {
+		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "export_already_running"})
+		return
+	}
+	if err != nil {
+		slog.Error("gdpr export: insert job failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
 
-	// Tags
-	queryAndExport(ctx, zw, h.DB.Pool, "tags.json",
-		`SELECT id, name, color, description, is_auto FROM tags WHERE user_id = $1`, userID)
+	go h.runExportJob(h.shutdownCtx, jobID, userID)
 
-	// Segments
-	queryAndExport(ctx, zw, h.DB.Pool, "segments.json",
-		`SELECT id, name, sport_group, segment_type, distance_m, elevation_gain_m,
-		        effort_count, created_at
-		 FROM segments WHERE created_by = $1`, userID)
+	go h.DB.LogAuthEvent(h.shutdownCtx, userID, "data_export_requested",
+		middleware.ClientIP(r), r.UserAgent(), nil)
 
-	// Planned routes
-	queryAndExport(ctx, zw, h.DB.Pool, "planned_routes.json",
-		`SELECT id, name, sport_type, total_distance_m, total_elevation_gain,
-		        estimated_time_min, created_at
-		 FROM planned_routes WHERE user_id = $1`, userID)
+	httputil.WriteJSONNoCache(w, http.StatusAccepted, map[string]any{
+		"job_id": jobID,
+		"status": "queued",
+	})
+}
 
-	// Activity weather
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_weather.json",
-		`SELECT id, activity_id, query_point, model_used, temperature_c, feels_like_c,
-		        humidity_pct, wind_speed_ms, wind_gust_ms, wind_dir_deg, pressure_hpa,
-		        cloud_cover_pct, precipitation_mm, snow_mm, visibility_m,
-		        weather_code, weather_description, is_daylight, uv_index, created_at
-		 FROM activity_weather aw
-		 WHERE aw.activity_id IN (SELECT id FROM activities WHERE user_id = $1)`, userID)
+// runExportJob transitions the job to running, executes the export, and marks it failed on error.
+func (h *Handler) runExportJob(ctx context.Context, jobID, userID string) {
+	h.DB.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'running', updated_at = NOW() WHERE id = $1`, jobID)
 
-	// Workouts
-	queryAndExport(ctx, zw, h.DB.Pool, "workouts.json",
-		`SELECT id, user_id, name, sport_type, description, created_at
-		 FROM workouts WHERE user_id = $1`, userID)
+	if err := h.executeExportJob(ctx, jobID, userID); err != nil {
+		slog.Error("gdpr export job failed", "job_id", jobID, "error", err)
+		h.DB.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'failed', error = $2, updated_at = NOW() WHERE id = $1`, jobID, err.Error())
+	}
+}
 
-	// Workout steps
-	queryAndExport(ctx, zw, h.DB.Pool, "workout_steps.json",
-		`SELECT ws.id, ws.workout_id, ws.step_order, ws.step_type, ws.duration_type,
-		        ws.duration_value, ws.target_type, ws.target_value_low, ws.target_value_high,
-		        ws.notes
-		 FROM workout_steps ws
-		 JOIN workouts w ON w.id = ws.workout_id
-		 WHERE w.user_id = $1
-		 ORDER BY ws.workout_id, ws.step_order`, userID)
-
-	// Devices
-	queryAndExport(ctx, zw, h.DB.Pool, "devices.json",
-		`SELECT id, user_id, manufacturer, product_name, serial_number, software_version,
-		        device_type, battery_status, first_seen_at, last_seen_at, created_at
-		 FROM devices WHERE user_id = $1`, userID)
-
-	// Segment efforts
-	queryAndExport(ctx, zw, h.DB.Pool, "segment_efforts.json",
-		`SELECT se.id, se.segment_id, se.activity_id, se.started_at, se.elapsed_time_s,
-		        se.moving_time_s, se.distance_m, se.avg_heart_rate, se.max_heart_rate,
-		        se.avg_power_w, se.avg_cadence, se.avg_speed_ms
-		 FROM segment_efforts se
-		 WHERE se.activity_id IN (SELECT id FROM activities WHERE user_id = $1)`, userID)
-
-	// Chat sessions
-	queryAndExport(ctx, zw, h.DB.Pool, "chat_sessions.json",
-		`SELECT id, user_id, title, created_at, updated_at
-		 FROM chat_sessions WHERE user_id = $1`, userID)
-
-	// Chat messages
-	queryAndExport(ctx, zw, h.DB.Pool, "chat_messages.json",
-		`SELECT cm.id, cm.session_id, cm.role, cm.content, cm.tool_calls,
-		        cm.created_at
-		 FROM chat_messages cm
-		 JOIN chat_sessions cs ON cs.id = cm.session_id
-		 WHERE cs.user_id = $1
-		 ORDER BY cm.created_at`, userID)
-
-	// Route photos
-	queryAndExport(ctx, zw, h.DB.Pool, "route_photos.json",
-		`SELECT rp.id, rp.route_id, rp.original_name, rp.width, rp.height,
-		        rp.sort_order, rp.created_at
-		 FROM route_photos rp
-		 WHERE rp.user_id = $1`, userID)
-
-	// Gear documents
-	queryAndExport(ctx, zw, h.DB.Pool, "gear_documents.json",
-		`SELECT id, gear_id, user_id, document_type, original_name, notes, created_at
-		 FROM gear_documents WHERE user_id = $1`, userID)
-
-	// Activity laps
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_laps.json",
-		`SELECT id, activity_id, message_index, start_time, end_time, lap_trigger,
-		        sport, sub_sport, total_elapsed_time_s, total_timer_time_s,
-		        total_moving_time_s, total_distance_m, total_ascent_m, total_descent_m,
-		        total_calories, avg_speed_ms, max_speed_ms, avg_heart_rate, max_heart_rate,
-		        min_heart_rate, avg_cadence, max_cadence, avg_power_w, max_power_w,
-		        normalized_power_w, avg_temperature_c, start_lat, start_lng, end_lat, end_lng
-		 FROM activity_laps
-		 WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)
-		 ORDER BY activity_id, message_index`, userID)
-
-	// Activity splits
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_splits.json",
-		`SELECT id, activity_id, message_index, split_type, start_time, end_time,
-		        total_elapsed_time_s, total_timer_time_s, total_moving_time_s,
-		        total_distance_m, total_ascent_m, total_descent_m, total_calories,
-		        avg_speed_ms, max_speed_ms, avg_vert_speed_ms,
-		        start_lat, start_lng, end_lat, end_lng, start_elevation_m
-		 FROM activity_splits
-		 WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)
-		 ORDER BY activity_id, message_index`, userID)
-
-	// Activity split summaries
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_split_summaries.json",
-		`SELECT id, activity_id, message_index, split_type, num_splits,
-		        total_timer_time_s, total_moving_time_s, total_distance_m,
-		        total_ascent_m, total_descent_m, total_calories,
-		        avg_speed_ms, max_speed_ms, avg_vert_speed_ms, avg_heart_rate, max_heart_rate
-		 FROM activity_split_summaries
-		 WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)
-		 ORDER BY activity_id, message_index`, userID)
-
-	// Activity lengths (swim pool)
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_lengths.json",
-		`SELECT id, activity_id, message_index, start_time, end_time,
-		        total_elapsed_time_s, total_timer_time_s, total_strokes,
-		        total_calories, avg_speed_ms, avg_swimming_cadence,
-		        swim_stroke, length_type
-		 FROM activity_lengths
-		 WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)
-		 ORDER BY activity_id, message_index`, userID)
-
-	// Activity ClimbPro events
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_climb_pro_events.json",
-		`SELECT id, activity_id, timestamp, event_type, climb_number,
-		        climb_category, current_dist_m, lat, lng
-		 FROM activity_climb_pro_events
-		 WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)
-		 ORDER BY activity_id, timestamp`, userID)
-
-	// Activity events
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_events.json",
-		`SELECT id, activity_id, timestamp, event, event_type, event_group, data,
-		        front_gear_num, front_gear, rear_gear_num, rear_gear,
-		        radar_threat_level_max, radar_threat_count,
-		        radar_threat_avg_approach_speed_ms, radar_threat_max_approach_speed_ms,
-		        score, opponent_score, device_index, activity_type, start_timestamp
-		 FROM activity_events
-		 WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)
-		 ORDER BY activity_id, timestamp`, userID)
-
-	// Activity sets (strength training)
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_sets.json",
-		`SELECT id, activity_id, message_index, timestamp, start_time,
-		        duration_s, set_type, repetitions, weight_kg,
-		        weight_display_unit, exercise_categories, exercise_subtypes, wkt_step_index
-		 FROM activity_sets
-		 WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)
-		 ORDER BY activity_id, message_index`, userID)
-
-	// Activity detected laps
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_detected_laps.json",
-		`SELECT id, activity_id, lap_number, start_time, end_time, elapsed_time_s,
-		        distance_m, avg_speed_ms, avg_heart_rate, avg_power_w, avg_cadence,
-		        total_ascent_m, total_descent_m, start_lat, start_lng, created_at
-		 FROM activity_detected_laps
-		 WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)
-		 ORDER BY activity_id, lap_number`, userID)
-
-	// Activity tags (junction table)
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_tags.json",
-		`SELECT at.activity_id, at.tag_id
-		 FROM activity_tags at
-		 JOIN activities a ON a.id = at.activity_id
-		 WHERE a.user_id = $1`, userID)
-
-	// Activity photos (metadata only — binary files exported via ShadowFS)
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_photos.json",
-		`SELECT id, activity_id, original_filename, content_type, width, height,
-		        taken_at, lat, lng, location_source, created_at
-		 FROM activity_photos WHERE user_id = $1
-		 ORDER BY activity_id, created_at`, userID)
-
-	// User privacy zones
-	queryAndExport(ctx, zw, h.DB.Pool, "user_privacy_zones.json",
-		`SELECT id, name, ST_Y(center) AS lat, ST_X(center) AS lng,
-		        radius_m, is_active, created_at
-		 FROM user_privacy_zones WHERE user_id = $1`, userID)
-
-	// Heatmap lines (metadata — geometry exported as GeoJSON text)
-	queryAndExport(ctx, zw, h.DB.Pool, "heatmap_lines.json",
-		`SELECT id, activity_id, sport_type, activity_date,
-		        ST_AsGeoJSON(geom) AS geom_geojson
-		 FROM heatmap_lines WHERE user_id = $1`, userID)
-
-	// PMC daily (Performance Management Chart)
-	queryAndExport(ctx, zw, h.DB.Pool, "pmc_daily.json",
-		`SELECT date, tss, ctl, atl, tsb
-		 FROM pmc_daily WHERE user_id = $1 ORDER BY date`, userID)
-
-	// Custom maps
-	queryAndExport(ctx, zw, h.DB.Pool, "custom_maps.json",
-		`SELECT id, name, description, color, is_visible, sort_order, created_at, updated_at
-		 FROM custom_maps WHERE user_id = $1`, userID)
-
-	// Custom map markers
-	queryAndExport(ctx, zw, h.DB.Pool, "custom_map_markers.json",
-		`SELECT id, map_id, name, description, lat, lng, color, created_at, updated_at
-		 FROM custom_map_markers WHERE user_id = $1`, userID)
-
-	// Automation rules
-	queryAndExport(ctx, zw, h.DB.Pool, "automation_rules.json",
-		`SELECT id, name, is_active, priority, conditions, actions,
-		        times_applied, created_at
-		 FROM automation_rules WHERE user_id = $1`, userID)
-
-	// Notifications
-	queryAndExport(ctx, zw, h.DB.Pool, "notifications.json",
-		`SELECT id, category, title, body, data, read, created_at
-		 FROM notifications WHERE user_id = $1 ORDER BY created_at DESC`, userID)
-
-	// Import log
-	queryAndExport(ctx, zw, h.DB.Pool, "import_log.json",
-		`SELECT id, source_platform, filename, file_hash, file_size_bytes,
-		        status, activity_id, error_msg, duration_ms, metadata,
-		        created_at, updated_at
-		 FROM import_log WHERE user_id = $1 ORDER BY created_at DESC`, userID)
-
-	// User enrichment settings
-	queryAndExport(ctx, zw, h.DB.Pool, "user_enrichment_settings.json",
-		`SELECT * FROM user_enrichment_settings WHERE user_id = $1`, userID)
-
-	// ML user settings
-	queryAndExport(ctx, zw, h.DB.Pool, "ml_user_settings.json",
-		`SELECT setting_key, value_json, updated_at
-		 FROM ml_user_settings WHERE user_id = $1`, userID)
-
-	// User file schemas
-	queryAndExport(ctx, zw, h.DB.Pool, "user_file_schemas.json",
-		`SELECT id, file_type, schema_template, created_at, updated_at
-		 FROM user_file_schemas WHERE user_id = $1`, userID)
-
-	// Gear components
-	queryAndExport(ctx, zw, h.DB.Pool, "gear_components.json",
-		`SELECT gc.id, gc.gear_id, gc.parent_component_id, gc.name, gc.type,
-		        gc.brand, gc.model, gc.total_distance_m, gc.total_elevation_gain_m,
-		        gc.total_time_s, gc.installed_at, gc.removed_at, gc.is_retired,
-		        gc.status, gc.purchase_price, gc.purchase_date, gc.weight_g,
-		        gc.serial_number, gc.source_document_id, gc.notes
-		 FROM gear_components gc
-		 JOIN gear g ON g.id = gc.gear_id
-		 WHERE g.user_id = $1`, userID)
-
-	// Component assignments
-	queryAndExport(ctx, zw, h.DB.Pool, "component_assignments.json",
-		`SELECT ca.id, ca.component_id, ca.gear_id, ca.installed_at, ca.removed_at,
-		        ca.distance_m, ca.elevation_gain_m, ca.time_s, ca.notes
-		 FROM component_assignments ca
-		 JOIN gear_components gc ON gc.id = ca.component_id
-		 JOIN gear g ON g.id = gc.gear_id
-		 WHERE g.user_id = $1`, userID)
-
-	// Gear service events
-	queryAndExport(ctx, zw, h.DB.Pool, "gear_service_events.json",
-		`SELECT gse.id, gse.component_id, gse.interval_id, gse.performed_at,
-		        gse.distance_at_m, gse.description, gse.cost, gse.notes, gse.created_at
-		 FROM gear_service_events gse
-		 JOIN gear_components gc ON gc.id = gse.component_id
-		 JOIN gear g ON g.id = gc.gear_id
-		 WHERE g.user_id = $1
-		 ORDER BY gse.performed_at DESC`, userID)
-
-	// Bike setups
-	queryAndExport(ctx, zw, h.DB.Pool, "bike_setups.json",
-		`SELECT bs.id, bs.gear_id, bs.name, bs.rider_weight_kg, bs.intended_use,
-		        bs.notes, bs.suspension_front, bs.suspension_rear, bs.tires,
-		        bs.contact_points, bs.brakes, bs.drivetrain, bs.is_active,
-		        bs.created_at, bs.updated_at
-		 FROM bike_setups bs
-		 JOIN gear g ON g.id = bs.gear_id
-		 WHERE g.user_id = $1`, userID)
-
-	// Activity geo tags
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_geo_tags.json",
-		`SELECT id, activity_id, category, name, osm_id, lat, lng, ele,
-		        dist_m, duration_min, meta, created_at
-		 FROM activity_geo_tags
-		 WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)
-		 ORDER BY activity_id, created_at`, userID)
-
-	// Activity climbs
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_climbs.json",
-		`SELECT id, activity_id, climb_number, start_distance_m, end_distance_m,
-		        elevation_gain_m, length_m, avg_gradient_pct, max_gradient_pct, category
-		 FROM activity_climbs
-		 WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)
-		 ORDER BY activity_id, climb_number`, userID)
-
-	// Activity stops
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_stops.json",
-		`SELECT id, activity_id, started_at, ended_at, duration_s,
-		        ST_Y(location) AS lat, ST_X(location) AS lng, name,
-		        poi_type, poi_name, poi_osm_id, poi_category, confidence
-		 FROM activity_stops
-		 WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)
-		 ORDER BY activity_id, started_at`, userID)
-
-	// Activity R-R intervals
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_rr_intervals.json",
-		`SELECT rr.activity_id, rr.seq, rr.rr_ms
-		 FROM activity_rr_intervals rr
-		 WHERE rr.activity_id IN (SELECT id FROM activities WHERE user_id = $1)
-		 ORDER BY rr.activity_id, rr.seq`, userID)
-
-	// Activity dive settings
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_dive_settings.json",
-		`SELECT ads.* FROM activity_dive_settings ads
-		 WHERE ads.activity_id IN (SELECT id FROM activities WHERE user_id = $1)`, userID)
-
-	// Activity dive gases
-	queryAndExport(ctx, zw, h.DB.Pool, "activity_dive_gases.json",
-		`SELECT adg.* FROM activity_dive_gases adg
-		 WHERE adg.activity_id IN (SELECT id FROM activities WHERE user_id = $1)
-		 ORDER BY adg.activity_id, adg.gas_index`, userID)
-
-	// Heatmap points
-	queryAndExport(ctx, zw, h.DB.Pool, "heatmap_points.json",
-		`SELECT id, activity_id, sport_type, sub_type, activity_date,
-		        ST_Y(geom) AS lat, ST_X(geom) AS lng
-		 FROM heatmap_points WHERE user_id = $1`, userID)
-
-	// Segment versions
-	queryAndExport(ctx, zw, h.DB.Pool, "segment_versions.json",
-		`SELECT sv.id, sv.segment_id, sv.version_number,
-		        sv.valid_from, sv.change_note, sv.created_by, sv.created_at
-		 FROM segment_versions sv
-		 WHERE sv.created_by = $1
-		 ORDER BY sv.segment_id, sv.version_number`, userID)
-
-	// Segment favorites
-	queryAndExport(ctx, zw, h.DB.Pool, "segment_favorites.json",
-		`SELECT id, segment_id, created_at
-		 FROM segment_favorites WHERE user_id = $1
-		 ORDER BY created_at DESC`, userID)
-
-	// OAuth connections (tokens excluded for security)
-	queryAndExport(ctx, zw, h.DB.Pool, "oauth_connections.json",
-		`SELECT id, provider, provider_email, scopes, token_expiry, created_at, updated_at
-		 FROM oauth_connections WHERE user_id = $1`, userID)
-
-	// User files (metadata only — binary content exported via ShadowFS above)
-	queryAndExport(ctx, zw, h.DB.Pool, "user_files.json",
-		`SELECT id, file_type, storage_backend, storage_path, content_type,
-		        file_name, size_bytes, file_hash, parent_type, parent_id,
-		        has_sidecar, status, created_at, updated_at
-		 FROM user_files WHERE user_id = $1
-		 ORDER BY created_at DESC`, userID)
-
-	// File attachments
-	queryAndExport(ctx, zw, h.DB.Pool, "file_attachments.json",
-		`SELECT fa.id, fa.file_id, fa.entity_type, fa.entity_id, fa.created_at
-		 FROM file_attachments fa
-		 WHERE fa.user_id = $1
-		 ORDER BY fa.created_at DESC`, userID)
-
-	// Health data (TimescaleDB hypertables — SELECT * is intentional for full export)
-	var exportedTables []string
-	for _, table := range database.AllHealthTables() {
-		hRows, err := h.DB.Pool.Query(ctx,
-			fmt.Sprintf(`SELECT * FROM %s WHERE user_id = $1`, table), userID)
+// executeExportJob wraps executeExportJobOnce with serialization-failure retry.
+func (h *Handler) executeExportJob(ctx context.Context, jobID, userID string) error {
+	const maxRetries = 3
+	for attempt := range maxRetries {
+		err := h.executeExportJobOnce(ctx, jobID, userID)
 		if err == nil {
-			exportRowsToZip(zw, fmt.Sprintf("health/%s.json", table), hRows)
-			exportedTables = append(exportedTables, table)
+			return nil
 		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "40001" {
+			slog.Warn("gdpr export: serialization failure, retrying", "attempt", attempt+1, "job_id", jobID)
+			time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
+			continue
+		}
+		return err
+	}
+	return fmt.Errorf("gdpr export: max retries exceeded")
+}
+
+// executeExportJobOnce performs the export in a single REPEATABLE READ transaction.
+func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string) error {
+	// 1. Open REPEATABLE READ read-only TX for consistent snapshot.
+	tx, err := h.DB.Pool.BeginTx(ctx, pgx.TxOptions{
+		IsoLevel:   pgx.RepeatableRead,
+		AccessMode: pgx.ReadOnly,
+	})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// 2. Read schema version from TX snapshot.
+	var schemaMigration int
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&schemaMigration); err != nil {
+		return fmt.Errorf("read schema_migrations: %w", err)
 	}
 
-	// Files: original activity files, media, documents — via ShadowFS.
-	// Falls back to legacy ShadowFS walk when ShadowFS is not yet wired.
+	// 3. Create temporary ZIP file.
+	tmpFile, err := os.CreateTemp("", "skadia-export-*.zip")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	defer tmpFile.Close()
+	tmpPath := tmpFile.Name()
+	// Clean up on failure (success path moves ownership to background_jobs.metadata).
+	cleanupNeeded := true
+	defer func() {
+		if cleanupNeeded {
+			os.Remove(tmpPath)
+		}
+	}()
+
+	zw := zip.NewWriter(tmpFile)
+
+	// 4. Export all tables via TX.
+	entityCounts := h.exportAllTables(ctx, zw, tx, userID)
+
+	// 5. Commit TX (release snapshot).
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+
+	// 6. ShadowFS files (outside TX — files are immutable).
 	if h.ShadowFS != nil {
-		// New path: ShadowFS includes ALL files (local + S3).
 		if err := h.ShadowFS.StreamToZip(ctx, userID, zw); err != nil {
 			slog.Error("data export: file store stream failed", "error", err)
 		}
 	} else if basePath := h.Config.ShadowFSBasePath; basePath != "" {
-		// Legacy path: ShadowFS only (pre-migration).
 		streamShadowFSToZip(basePath, userID, zw)
 	}
 
-	// Export manifest with metadata
+	// 7. columns.json (needs fresh connection since TX is committed).
+	exportedColumns := make(map[string][]string)
+	for table := range entityCounts {
+		cols := exportColumns(ctx, h.DB.Pool, table)
+		if len(cols) > 0 {
+			exportedColumns[table] = cols
+		}
+	}
+	writeZipJSON(zw, "columns.json", exportedColumns)
+
+	// 8. manifest.json as LAST file.
 	manifest := map[string]any{
-		"exported_at": time.Now().Format(time.RFC3339),
-		"tables": append([]string{
-			"account", "profile", "activities", "gear", "tags",
-			"segments", "planned_routes", "activity_weather",
-			"workouts", "workout_steps", "devices", "segment_efforts",
-			"chat_sessions", "chat_messages", "route_photos", "gear_documents",
-			"activity_laps", "activity_splits", "activity_split_summaries",
-			"activity_lengths", "activity_climb_pro_events",
-			"activity_events", "activity_sets", "activity_detected_laps",
-			"activity_tags", "activity_photos",
-			"user_privacy_zones", "heatmap_lines",
-			"pmc_daily", "custom_maps", "custom_map_markers",
-			"automation_rules", "notifications", "import_log",
-			"user_enrichment_settings", "ml_user_settings", "user_file_schemas",
-			"gear_components", "component_assignments", "gear_service_events",
-			"bike_setups", "activity_geo_tags", "activity_climbs",
-			"activity_stops", "activity_rr_intervals",
-			"activity_dive_settings", "activity_dive_gases",
-			"heatmap_points",
-			"segment_versions", "segment_favorites", "oauth_connections",
-			"user_files", "file_attachments",
-		}, exportedTables...),
+		"format_version":   1,
+		"schema_migration": schemaMigration,
+		"exported_at":      time.Now().Format(time.RFC3339),
+		"user_id":          userID,
+		"entity_counts":    entityCounts,
 	}
 	writeZipJSON(zw, "manifest.json", manifest)
 
-	go h.DB.LogAuthEvent(h.shutdownCtx, userID, "data_export_requested",
-		middleware.ClientIP(r), r.UserAgent(), nil)
+	// 9. Close ZIP + flush file to disk before re-opening for SHA-256.
+	if err := zw.Close(); err != nil {
+		return fmt.Errorf("close zip: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	// 10. Compute SHA-256.
+	f, err := os.Open(tmpPath)
+	if err != nil {
+		return fmt.Errorf("reopen for hash: %w", err)
+	}
+	defer f.Close()
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, f); err != nil {
+		return fmt.Errorf("hash: %w", err)
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("stat: %w", err)
+	}
+	sizeBytes := fi.Size()
+	checksum := hex.EncodeToString(hasher.Sum(nil))
+
+	// 11. Store file metadata, then mark completed (with notification).
+	if _, err := h.DB.Pool.Exec(ctx,
+		`UPDATE background_jobs SET
+			metadata = jsonb_build_object('sha256', $2, 'size_bytes', $3::bigint, 'file_path', $4),
+			updated_at = NOW()
+		 WHERE id = $1`,
+		jobID, checksum, sizeBytes, tmpPath); err != nil {
+		return fmt.Errorf("store metadata: %w", err)
+	}
+
+	cleanupNeeded = false // tmpFile is now owned by the job record.
+
+	// Mark completed + create notification (single call, avoids double update).
+	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
+
+	// Schedule cleanup after 24h.
+	go func(path string) {
+		time.Sleep(24 * time.Hour)
+		if isValidExportPath(path) {
+			os.Remove(path)
+		}
+	}(tmpPath)
+
+	return nil
 }
 
-// queryAndExport runs a SQL query and streams the results into the zip archive.
-// On query error it logs and returns without writing a zip entry.
-// name is used as the zip filename (e.g. "activities.json"); the log message omits the extension.
-func queryAndExport(ctx context.Context, zw *zip.Writer, pool *pgxpool.Pool, name, query string, args ...any) {
-	rows, err := pool.Query(ctx, query, args...)
-	if err != nil {
-		logName := name
-		if ext := filepath.Ext(name); ext != "" {
-			logName = name[:len(name)-len(ext)]
+// exportAllTables runs all table exports within the given transaction, returning entity counts.
+func (h *Handler) exportAllTables(ctx context.Context, zw *zip.Writer, tx querier, userID string) map[string]int {
+	counts := make(map[string]int)
+
+	// User data exported via profile.json (SELECT * minus deny-list).
+	// account.json removed — was redundant subset.
+
+	// All table exports via TX.
+	type tableExport struct {
+		zipPath string
+		table   string
+		where   string
+	}
+
+	tables := []tableExport{
+		{"data/profile.json", "users", "id = $1"},
+		{"data/activities.json", "activities", "user_id = $1 ORDER BY started_at DESC"},
+		{"data/gear.json", "gear", "user_id = $1"},
+		{"data/tags.json", "tags", "user_id = $1"},
+		{"data/segments.json", "segments", "created_by = $1"},
+		{"data/planned_routes.json", "planned_routes", "user_id = $1"},
+		{"data/activity_weather.json", "activity_weather", "activity_id IN (SELECT id FROM activities WHERE user_id = $1)"},
+		{"data/workouts.json", "workouts", "user_id = $1"},
+		{"data/workout_steps.json", "workout_steps", "workout_id IN (SELECT id FROM workouts WHERE user_id = $1) ORDER BY workout_id, step_order"},
+		{"data/devices.json", "devices", "user_id = $1"},
+		{"data/chat_sessions.json", "chat_sessions", "user_id = $1"},
+		{"data/chat_messages.json", "chat_messages", "session_id IN (SELECT id FROM chat_sessions WHERE user_id = $1) ORDER BY created_at"},
+		{"data/route_photos.json", "route_photos", "user_id = $1"},
+		{"data/gear_documents.json", "gear_documents", "user_id = $1"},
+		{"data/activity_tags.json", "activity_tags", "activity_id IN (SELECT id FROM activities WHERE user_id = $1)"},
+		{"data/activity_photos.json", "activity_photos", "user_id = $1 ORDER BY activity_id, created_at"},
+		{"data/user_privacy_zones.json", "user_privacy_zones", "user_id = $1"},
+		{"data/custom_maps.json", "custom_maps", "user_id = $1"},
+		{"data/custom_map_markers.json", "custom_map_markers", "user_id = $1"},
+		{"data/automation_rules.json", "automation_rules", "user_id = $1"},
+		{"data/import_log.json", "import_log", "user_id = $1 ORDER BY created_at DESC"},
+		{"data/user_enrichment_settings.json", "user_enrichment_settings", "user_id = $1"},
+		{"data/ml_user_settings.json", "ml_user_settings", "user_id = $1"},
+		{"data/user_file_schemas.json", "user_file_schemas", "user_id = $1"},
+		{"data/gear_components.json", "gear_components", "gear_id IN (SELECT id FROM gear WHERE user_id = $1)"},
+		{"data/component_assignments.json", "component_assignments", "component_id IN (SELECT id FROM gear_components WHERE gear_id IN (SELECT id FROM gear WHERE user_id = $1))"},
+		{"data/gear_service_events.json", "gear_service_events", "component_id IN (SELECT id FROM gear_components WHERE gear_id IN (SELECT id FROM gear WHERE user_id = $1)) ORDER BY performed_at DESC"},
+		{"data/bike_setups.json", "bike_setups", "gear_id IN (SELECT id FROM gear WHERE user_id = $1)"},
+		{"data/segment_favorites.json", "segment_favorites", "user_id = $1 ORDER BY created_at DESC"},
+		{"data/oauth_connections.json", "oauth_connections", "user_id = $1"},
+		{"data/user_files.json", "user_files", "user_id = $1 ORDER BY created_at DESC"},
+		{"data/file_attachments.json", "file_attachments", "user_id = $1 ORDER BY created_at DESC"},
+		{"data/training_zones.json", "training_zones", "user_id = $1"},
+		{"data/activity_edits.json", "activity_edits", "user_id = $1"},
+		{"data/tag_zones.json", "tag_zones", "tag_id IN (SELECT id FROM tags WHERE user_id = $1)"},
+		{"data/route_tags.json", "route_tags", "route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)"},
+		{"data/gear_service_intervals.json", "gear_service_intervals", "component_id IN (SELECT gc.id FROM gear_components gc JOIN gear g ON g.id = gc.gear_id WHERE g.user_id = $1)"},
+		{"data/chain_rotation_groups.json", "chain_rotation_groups", "user_id = $1"},
+		{"data/chain_rotation_members.json", "chain_rotation_members", "group_id IN (SELECT id FROM chain_rotation_groups WHERE user_id = $1)"},
+		{"data/llm_user_config.json", "llm_user_config", "user_id = $1"},
+		{"data/recording_groups.json", "recording_groups", "user_id = $1"},
+		{"data/recording_group_members.json", "recording_group_members", "group_id IN (SELECT id FROM recording_groups WHERE user_id = $1)"},
+		{"data/best_efforts.json", "best_efforts", "user_id = $1 ORDER BY achieved_at DESC"},
+		{"data/best_effort_exclusions.json", "best_effort_exclusions", "user_id = $1"},
+		{"data/activity_developer_apps.json", "activity_developer_apps", "activity_id IN (SELECT id FROM activities WHERE user_id = $1)"},
+		{"data/routing_profiles.json", "routing_profiles", "user_id = $1"},
+	}
+
+	for _, t := range tables {
+		n := exportTable(ctx, zw, tx, t.zipPath, t.table, t.where, userID)
+		if n > 0 {
+			counts[t.table] = n
 		}
-		slog.Error("data export: "+logName+" query failed", "error", err)
+	}
+
+	// Health data (TimescaleDB hypertables).
+	for _, table := range database.AllHealthTables() {
+		n := exportTable(ctx, zw, tx, fmt.Sprintf("data/health/%s.json", table), table, "user_id = $1", userID)
+		if n > 0 {
+			counts[table] = n
+		}
+	}
+
+	return counts
+}
+
+// DataExportStatus handles GET /auth/data-export/{jobID} — returns export job status.
+func (h *Handler) DataExportStatus(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	jobID := chi.URLParam(r, "jobID")
+
+	var status, startedAt, updatedAt string
+	var errText *string
+	var metadata []byte
+
+	err := h.DB.Pool.QueryRow(r.Context(),
+		`SELECT status, started_at::text, updated_at::text, error, metadata
+		 FROM background_jobs
+		 WHERE id = $1 AND user_id = $2 AND job_type = 'gdpr_export'`,
+		jobID, userID).Scan(&status, &startedAt, &updatedAt, &errText, &metadata)
+	if err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 		return
 	}
-	exportRowsToZip(zw, name, rows)
+
+	resp := map[string]any{
+		"job_id":     jobID,
+		"status":     status,
+		"started_at": startedAt,
+		"updated_at": updatedAt,
+	}
+
+	if status == "completed" && len(metadata) > 0 {
+		var meta map[string]any
+		if json.Unmarshal(metadata, &meta) == nil {
+			if v, ok := meta["sha256"]; ok {
+				resp["sha256"] = v
+			}
+			if v, ok := meta["size_bytes"]; ok {
+				resp["size_bytes"] = v
+			}
+			resp["download_url"] = fmt.Sprintf("/api/v1/auth/data-export/%s/download", jobID)
+		}
+	}
+
+	if status == "failed" && errText != nil {
+		resp["error"] = "export_failed" // Don't leak internal error details to client
+	}
+
+	httputil.WriteJSONNoCache(w, http.StatusOK, resp)
+}
+
+// DataExportDownload handles GET /auth/data-export/{jobID}/download — streams the export ZIP.
+func (h *Handler) DataExportDownload(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	jobID := chi.URLParam(r, "jobID")
+	ctx := r.Context()
+
+	// Rate-limit: max 5 downloads per hour.
+	var dlCount int
+	if err := h.DB.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM auth_audit_log
+		 WHERE user_id = $1::uuid AND event_type = 'data_export_download' AND created_at > NOW() - INTERVAL '1 hour'`,
+		userID).Scan(&dlCount); err != nil {
+		slog.Error("gdpr export download: rate limit query failed", "error", err)
+	}
+	if dlCount >= 5 {
+		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "download_rate_limit"})
+		return
+	}
+
+	var status string
+	var metadata []byte
+	err := h.DB.Pool.QueryRow(ctx,
+		`SELECT status, metadata FROM background_jobs
+		 WHERE id = $1 AND user_id = $2 AND job_type = 'gdpr_export'`,
+		jobID, userID).Scan(&status, &metadata)
+	if err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
+	if status != "completed" {
+		httputil.WriteJSONNoCache(w, http.StatusConflict, map[string]string{"error": "not_completed"})
+		return
+	}
+
+	var meta map[string]any
+	if err := json.Unmarshal(metadata, &meta); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "invalid_metadata"})
+		return
+	}
+
+	filePath, _ := meta["file_path"].(string)
+	if filePath == "" || !isValidExportPath(filePath) {
+		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
+
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		httputil.WriteJSONNoCache(w, http.StatusGone, map[string]string{"error": "file_expired"})
+		return
+	}
+
+	checksum, _ := meta["sha256"].(string)
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf(`attachment; filename="skadia-export-%s.zip"`, time.Now().Format("2006-01-02")))
+	if checksum != "" {
+		w.Header().Set("X-Checksum-SHA256", checksum)
+	}
+
+	http.ServeFile(w, r, filePath)
+
+	go h.DB.LogAuthEvent(h.shutdownCtx, userID, "data_export_download",
+		middleware.ClientIP(r), r.UserAgent(), map[string]string{"job_id": jobID})
 }
 
 // createZipEntry creates a zip entry with the current timestamp (avoids 1979 default).
@@ -565,42 +527,6 @@ func writeZipJSON(zw *zip.Writer, name string, data any) {
 	}
 }
 
-// exportRowsToZip streams pgx Rows as a JSON array into the zip archive without buffering all rows.
-func exportRowsToZip(zw *zip.Writer, name string, rows pgx.Rows) {
-	defer rows.Close()
-
-	cols := rows.FieldDescriptions()
-	w, err := createZipEntry(zw, name)
-	if err != nil {
-		slog.Error("data export: create zip entry failed", "name", name, "error", err)
-		return
-	}
-
-	w.Write([]byte("["))
-	first := true
-	for rows.Next() {
-		vals, err := rows.Values()
-		if err != nil {
-			slog.Error("data export: row values failed", "name", name, "error", err)
-			continue
-		}
-		row := make(map[string]any, len(cols))
-		for i, col := range cols {
-			row[string(col.Name)] = vals[i]
-		}
-		if !first {
-			w.Write([]byte(","))
-		}
-		first = false
-		json.NewEncoder(w).Encode(row)
-	}
-	w.Write([]byte("]"))
-
-	if err := rows.Err(); err != nil {
-		slog.Error("data export: rows iteration error", "name", name, "error", err)
-	}
-}
-
 // streamShadowFSToZip walks the user's ShadowFS directory and copies each file into the zip.
 func streamShadowFSToZip(basePath, userID string, zw *zip.Writer) {
 	const maxLegacyZipBytes int64 = 10 << 30 // 10 GB — matches UnifiedShadowFS.StreamToZip limit
@@ -619,7 +545,7 @@ func streamShadowFSToZip(basePath, userID string, zw *zip.Writer) {
 		// Enforce 10 GB limit (same as the ShadowFS/S3 path above).
 		totalBytes += info.Size()
 		if totalBytes > maxLegacyZipBytes {
-			slog.Warn("data export: legacy ShadowFS zip exceeds 10 GB limit, stopping",
+			slog.Warn("data export: legacy ShadowFS zip exceeds 10 GB limit",
 				"user_id", userID, "total_bytes", totalBytes)
 			return fmt.Errorf("zip export exceeds 10 GB limit")
 		}
@@ -628,7 +554,7 @@ func streamShadowFSToZip(basePath, userID string, zw *zip.Writer) {
 		if relErr != nil {
 			return nil
 		}
-		w, createErr := createZipEntry(zw, "originals/"+rel)
+		w, createErr := createZipEntry(zw, "files/"+rel)
 		if createErr != nil {
 			slog.Error("data export: create zip entry for shadowfs failed", "path", rel, "error", createErr)
 			return nil
