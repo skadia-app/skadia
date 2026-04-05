@@ -83,6 +83,7 @@ type BestEffort struct {
 	AchievedAt     time.Time  `json:"achieved_at"`
 	StreamStartIdx *int       `json:"stream_start_idx,omitempty"`
 	StreamEndIdx   *int       `json:"stream_end_idx,omitempty"`
+	Suspicious     bool       `json:"suspicious"`
 }
 
 // BestEffortRanked is a BestEffort with a rank within the user's sport group and category.
@@ -98,18 +99,19 @@ func (db *DB) UpsertBestEffort(ctx context.Context, be BestEffort) error {
 		`INSERT INTO best_efforts
 		    (id, user_id, activity_id, category, sport_group,
 		     elapsed_time_s, value_numeric, achieved_at,
-		     stream_start_idx, stream_end_idx)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		     stream_start_idx, stream_end_idx, suspicious)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		 ON CONFLICT (activity_id, category, sport_group) DO UPDATE SET
-		     user_id         = EXCLUDED.user_id,
-		     elapsed_time_s  = EXCLUDED.elapsed_time_s,
-		     value_numeric   = EXCLUDED.value_numeric,
-		     achieved_at     = EXCLUDED.achieved_at,
+		     user_id          = EXCLUDED.user_id,
+		     elapsed_time_s   = EXCLUDED.elapsed_time_s,
+		     value_numeric    = EXCLUDED.value_numeric,
+		     achieved_at      = EXCLUDED.achieved_at,
 		     stream_start_idx = EXCLUDED.stream_start_idx,
-		     stream_end_idx  = EXCLUDED.stream_end_idx`,
+		     stream_end_idx   = EXCLUDED.stream_end_idx,
+		     suspicious       = EXCLUDED.suspicious`,
 		be.ID, be.UserID, be.ActivityID, be.Category, be.SportGroup,
 		be.ElapsedTimeS, be.ValueNumeric, be.AchievedAt,
-		be.StreamStartIdx, be.StreamEndIdx,
+		be.StreamStartIdx, be.StreamEndIdx, be.Suspicious,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert best effort: %w", err)
@@ -135,6 +137,7 @@ func (db *DB) BatchUpsertBestEfforts(ctx context.Context, records []BestEffort) 
 	achievedAts := make([]time.Time, len(records))
 	startIdxs := make([]*int, len(records))
 	endIdxs := make([]*int, len(records))
+	suspiciouses := make([]bool, len(records))
 
 	for i, r := range records {
 		ids[i] = r.ID
@@ -147,17 +150,18 @@ func (db *DB) BatchUpsertBestEfforts(ctx context.Context, records []BestEffort) 
 		achievedAts[i] = r.AchievedAt
 		startIdxs[i] = r.StreamStartIdx
 		endIdxs[i] = r.StreamEndIdx
+		suspiciouses[i] = r.Suspicious
 	}
 
 	_, err := db.Pool.Exec(ctx,
 		`INSERT INTO best_efforts
 		    (id, user_id, activity_id, category, sport_group,
 		     elapsed_time_s, value_numeric, achieved_at,
-		     stream_start_idx, stream_end_idx)
+		     stream_start_idx, stream_end_idx, suspicious)
 		 SELECT * FROM UNNEST(
 		     $1::uuid[], $2::uuid[], $3::uuid[], $4::text[], $5::text[],
 		     $6::int[], $7::double precision[], $8::timestamptz[],
-		     $9::int[], $10::int[]
+		     $9::int[], $10::int[], $11::bool[]
 		 )
 		 ON CONFLICT (activity_id, category, sport_group) DO UPDATE SET
 		     user_id          = EXCLUDED.user_id,
@@ -165,10 +169,11 @@ func (db *DB) BatchUpsertBestEfforts(ctx context.Context, records []BestEffort) 
 		     value_numeric    = EXCLUDED.value_numeric,
 		     achieved_at      = EXCLUDED.achieved_at,
 		     stream_start_idx = EXCLUDED.stream_start_idx,
-		     stream_end_idx   = EXCLUDED.stream_end_idx`,
+		     stream_end_idx   = EXCLUDED.stream_end_idx,
+		     suspicious       = EXCLUDED.suspicious`,
 		ids, userIDs, activityIDs, categories, sportGroups,
 		elapsedTimes, valueNumerics, achievedAts,
-		startIdxs, endIdxs,
+		startIdxs, endIdxs, suspiciouses,
 	)
 	if err != nil {
 		return fmt.Errorf("batch upsert best efforts: %w", err)
@@ -230,6 +235,7 @@ func (db *DB) GetBestEffortsForActivity(ctx context.Context, activityID, userID 
 		        be.achieved_at,
 		        be.stream_start_idx,
 		        be.stream_end_idx,
+		        be.suspicious,
 		        ROW_NUMBER() OVER (
 		            PARTITION BY be.user_id, be.sport_group, be.category
 		            ORDER BY `+rankingOrderExpr+`
@@ -250,7 +256,7 @@ func (db *DB) GetBestEffortsForActivity(ctx context.Context, activityID, userID 
 		SELECT
 		    id, user_id, activity_id, category, sport_group,
 		    elapsed_time_s, value_numeric, achieved_at,
-		    stream_start_idx, stream_end_idx, rank
+		    stream_start_idx, stream_end_idx, suspicious, rank
 		FROM ranked
 		WHERE activity_id = $1
 		  AND rank <= 3
@@ -289,6 +295,7 @@ func (db *DB) GetBestEffortPersonalRecords(
 		        be.achieved_at,
 		        be.stream_start_idx,
 		        be.stream_end_idx,
+		        be.suspicious,
 		        ROW_NUMBER() OVER (
 		            PARTITION BY be.user_id, be.sport_group, be.category
 		            ORDER BY `+rankingOrderExpr+`
@@ -312,7 +319,7 @@ func (db *DB) GetBestEffortPersonalRecords(
 		SELECT
 		    id, user_id, activity_id, category, sport_group,
 		    elapsed_time_s, value_numeric, achieved_at,
-		    stream_start_idx, stream_end_idx, rank
+		    stream_start_idx, stream_end_idx, suspicious, rank
 		FROM ranked
 		WHERE rank <= $3
 		ORDER BY sport_group, category, rank`,
@@ -392,6 +399,10 @@ func (db *DB) DeleteBestEffortExclusion(ctx context.Context, userID, activityID,
 
 // GetBestEffortRecalcIDs returns the IDs of all activities eligible for best
 // effort computation for a user, in chronological order (started_at ASC).
+//
+// NOTE: RecalcAll uses GetBestEffortRecalcActivities (returns full ActivityInfo,
+// eliminates N+1). This function is retained as a lightweight alternative for
+// callers that only need IDs (e.g. counting eligible activities).
 //
 // Excluded activities: deleted, excluded_from_stats, group secondaries, fusion sources.
 func (db *DB) GetBestEffortRecalcIDs(ctx context.Context, userID string) ([]string, error) {
@@ -553,6 +564,7 @@ func (db *DB) BatchUpsertBestEffortRecs(ctx context.Context, records []besteffor
 			AchievedAt:     r.AchievedAt,
 			StreamStartIdx: r.StreamStartIdx,
 			StreamEndIdx:   r.StreamEndIdx,
+			Suspicious:     r.Suspicious,
 		}
 	}
 	return db.BatchUpsertBestEfforts(ctx, bes)
@@ -572,6 +584,7 @@ func (db *DB) UpsertBestEffortRec(ctx context.Context, be bestefforts.BestEffort
 		AchievedAt:     be.AchievedAt,
 		StreamStartIdx: be.StreamStartIdx,
 		StreamEndIdx:   be.StreamEndIdx,
+		Suspicious:     be.Suspicious,
 	})
 }
 
@@ -596,6 +609,7 @@ func (db *DB) GetBestEffortsForActivityRec(ctx context.Context, activityID, user
 				AchievedAt:     r.AchievedAt,
 				StreamStartIdx: r.StreamStartIdx,
 				StreamEndIdx:   r.StreamEndIdx,
+				Suspicious:     r.Suspicious,
 			},
 			Rank: r.Rank,
 		}
@@ -763,6 +777,7 @@ func scanBestEffortRanked(rows pgx.Rows) ([]BestEffortRanked, error) {
 			&r.AchievedAt,
 			&r.StreamStartIdx,
 			&r.StreamEndIdx,
+			&r.Suspicious,
 			&r.Rank,
 		); err != nil {
 			return nil, fmt.Errorf("scan best effort ranked: %w", err)

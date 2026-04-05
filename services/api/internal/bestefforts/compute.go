@@ -2,6 +2,7 @@ package bestefforts
 
 import (
 	"math"
+	"slices"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -13,6 +14,85 @@ type EffortResult struct {
 	ValueNumeric   float64
 	StreamStartIdx int
 	StreamEndIdx   int
+	Suspicious     bool
+}
+
+// StuckRegion describes a contiguous segment of stream indices where power
+// was identical (within 0.5 W) for longer than the minimum stuck duration.
+type StuckRegion struct {
+	StartIdx int
+	EndIdx   int
+}
+
+// findStuckPowerRegions scans the entire stream for regions where power values
+// are identical for >minDuration seconds AND value > threshold × medianPower.
+// Uses timestamps (not sample count) for Smart Recording compatibility.
+func findStuckPowerRegions[T model.BestEffortPoint](stream []T, medianPower float64, minDurationS float64, thresholdMultiplier float64) []StuckRegion {
+	if len(stream) == 0 || medianPower <= 0 {
+		return nil
+	}
+	var regions []StuckRegion
+	runStart := 0
+	for i := 1; i <= len(stream); i++ {
+		sameValue := false
+		if i < len(stream) {
+			pCur := powerVal(stream[i])
+			pPrev := powerVal(stream[runStart])
+			if pCur > 0 && pPrev > 0 && math.Abs(pCur-pPrev) < 0.5 {
+				sameValue = true
+			}
+		}
+		if !sameValue {
+			val := powerVal(stream[runStart])
+			if val > 0 && val > medianPower*thresholdMultiplier {
+				durationS := stream[i-1].BETime().Sub(stream[runStart].BETime()).Seconds()
+				if durationS >= minDurationS {
+					regions = append(regions, StuckRegion{StartIdx: runStart, EndIdx: i - 1})
+				}
+			}
+			runStart = i
+		}
+	}
+	return regions
+}
+
+// powerVal extracts the power value from a BestEffortPoint. Returns 0 for nil.
+func powerVal[T model.BestEffortPoint](p T) float64 {
+	if pw := p.BEPowerW(); pw != nil {
+		return float64(*pw)
+	}
+	return 0
+}
+
+// medianPowerFromStream computes the median non-zero power value across the
+// stream. It should be called once per activity, not per category.
+func medianPowerFromStream[T model.BestEffortPoint](stream []T) float64 {
+	var vals []float64
+	for _, p := range stream {
+		if pw := p.BEPowerW(); pw != nil && *pw > 0 {
+			vals = append(vals, float64(*pw))
+		}
+	}
+	if len(vals) == 0 {
+		return 0
+	}
+	slices.Sort(vals)
+	mid := len(vals) / 2
+	if len(vals)%2 == 0 {
+		return (vals[mid-1] + vals[mid]) / 2
+	}
+	return vals[mid]
+}
+
+// isInStuckRegion returns true when the window [start, end] overlaps with any
+// of the provided stuck regions.
+func isInStuckRegion(start, end int, regions []StuckRegion) bool {
+	for _, r := range regions {
+		if start <= r.EndIdx && end >= r.StartIdx {
+			return true
+		}
+	}
+	return false
 }
 
 // gpsJumpThresholdM is the maximum plausible per-point distance delta in metres.
@@ -168,8 +248,10 @@ func ComputeElevationBestEffort[T model.BestEffortPoint](stream []T, cat Categor
 // At 1 Hz the time-weighted mean equals the simple sample average.
 //
 // The window advances by time[right] - time[left] >= targetDuration.
+// stuckRegions must be computed once per activity via findStuckPowerRegions;
+// pass nil if no stuck-region detection is needed (e.g. when no power data).
 // Returns nil when the stream is shorter than the target duration.
-func ComputePowerBestEffort[T model.BestEffortPoint](stream []T, cat Category) *EffortResult {
+func ComputePowerBestEffort[T model.BestEffortPoint](stream []T, cat Category, stuckRegions []StuckRegion) *EffortResult {
 	targetDuration := float64(cat.DurationS)
 	n := len(stream)
 	if n == 0 || targetDuration <= 0 {
@@ -248,6 +330,7 @@ func ComputePowerBestEffort[T model.BestEffortPoint](stream []T, cat Category) *
 		ValueNumeric:   bestMean,
 		StreamStartIdx: bestStart,
 		StreamEndIdx:   bestEnd,
+		Suspicious:     isInStuckRegion(bestStart, bestEnd, stuckRegions),
 	}
 }
 

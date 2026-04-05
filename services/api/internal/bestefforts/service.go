@@ -46,6 +46,7 @@ type BestEffortRecord struct {
 	AchievedAt     time.Time
 	StreamStartIdx *int
 	StreamEndIdx   *int
+	Suspicious     bool
 }
 
 // BestEffortRankedRecord is a BestEffortRecord decorated with a per-user rank.
@@ -85,8 +86,8 @@ type Store interface {
 	GetStreamPoints(ctx context.Context, activityID string) ([]model.StreamPoint, error)
 	// GetStreamPointsLightweight fetches only the 5 columns accessed by the
 	// Compute* functions (time, distance_m, altitude_m, power_w, gps_accuracy_m).
-	// See NOTE(E-6) in model/stream.go: integration into RecalcAll requires
-	// refactoring the Compute* signatures first.
+	// Used by RecalcAll (via generics BestEffortPoint interface) for ~16× less
+	// data transfer compared to full StreamPoint.
 	GetStreamPointsLightweight(ctx context.Context, activityID string) ([]model.StreamPointLight, error)
 }
 
@@ -114,6 +115,11 @@ func computeForActivityInner[T model.BestEffortPoint](ctx context.Context, store
 	// mapping, so lift exclusion for elevation best efforts cannot be applied yet.
 	liftIndices := map[int]bool{}
 
+	// Compute stuck-power regions once for the whole stream so that every power
+	// category can reuse the result without re-scanning.
+	medianPower := medianPowerFromStream(stream)
+	stuckRegions := findStuckPowerRegions(stream, medianPower, 120.0, 2.0)
+
 	var efforts []BestEffortRecord
 	for _, cat := range categories {
 		var result *EffortResult
@@ -124,7 +130,7 @@ func computeForActivityInner[T model.BestEffortPoint](ctx context.Context, store
 		case cat.ElevationM > 0:
 			result = ComputeElevationBestEffort(stream, cat, liftIndices)
 		case cat.DurationS > 0:
-			result = ComputePowerBestEffort(stream, cat)
+			result = ComputePowerBestEffort(stream, cat, stuckRegions)
 		case cat.Type == TypeValueSuperlative:
 			result = ComputeSuperlative(cat, info.DistanceM, info.ElevationGainM, info.BiggestClimbM, float64(info.ElapsedTimeS))
 		}
@@ -144,6 +150,7 @@ func computeForActivityInner[T model.BestEffortPoint](ctx context.Context, store
 			AchievedAt:     info.StartedAt,
 			StreamStartIdx: new(result.StreamStartIdx),
 			StreamEndIdx:   new(result.StreamEndIdx),
+			Suspicious:     result.Suspicious,
 		})
 	}
 

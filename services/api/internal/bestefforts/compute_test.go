@@ -138,7 +138,7 @@ func TestComputePowerBestEffort_5min(t *testing.T) {
 	}
 
 	cat := Category{Key: "5min_power", Type: TypeValueHigher, DurationS: 300}
-	result := ComputePowerBestEffort(pts, cat)
+	result := ComputePowerBestEffort(pts, cat, nil)
 	if result == nil {
 		t.Fatal("expected non-nil result for 5-min power in 10-min stream")
 	}
@@ -167,7 +167,7 @@ func TestComputePowerBestEffort_NilIsZero(t *testing.T) {
 	}
 
 	cat := Category{Key: "1min_power", Type: TypeValueHigher, DurationS: 60}
-	result := ComputePowerBestEffort(pts, cat)
+	result := ComputePowerBestEffort(pts, cat, nil)
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -204,7 +204,7 @@ func TestComputePowerBestEffort_VariableSampling(t *testing.T) {
 	}
 
 	cat := Category{Key: "1min_power", Type: TypeValueHigher, DurationS: 60}
-	result := ComputePowerBestEffort(pts, cat)
+	result := ComputePowerBestEffort(pts, cat, nil)
 	if result == nil {
 		t.Fatal("expected non-nil result for variable-sampling stream")
 	}
@@ -223,7 +223,7 @@ func TestComputePowerBestEffort_VariableSampling(t *testing.T) {
 		ts2 = ts2.Add(5 * time.Second)
 	}
 	cat2 := Category{Key: "1min_power", Type: TypeValueHigher, DurationS: 60}
-	result2 := ComputePowerBestEffort(pts5s, cat2)
+	result2 := ComputePowerBestEffort(pts5s, cat2, nil)
 	if result2 == nil {
 		t.Fatal("expected non-nil result for 5 s stream")
 	}
@@ -299,5 +299,263 @@ func TestComputeSuperlative_ZeroGuard(t *testing.T) {
 	r := ComputeSuperlative(cat, 10000.0, 0.0, 300.0, 3600.0)
 	if r != nil {
 		t.Errorf("expected nil for zero elevGainM, got ValueNumeric=%.2f", r.ValueNumeric)
+	}
+}
+
+// ── Stuck-value heuristic tests ───────────────────────────────────────────────
+
+// makePowerStreamSparse builds a stream where each point is spaced intervalS
+// seconds apart, all at the given power. Useful for Smart Recording simulations.
+func makePowerStreamSparse(n int, powerW int16, intervalS int) []model.StreamPoint {
+	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	pts := make([]model.StreamPoint, n)
+	for i := range n {
+		p := powerW
+		pts[i] = model.StreamPoint{
+			Time:   t0.Add(time.Duration(i*intervalS) * time.Second),
+			PowerW: &p,
+		}
+	}
+	return pts
+}
+
+// TestFindStuckPowerRegions_Detected: 150 points at 701W with 1Hz timestamps,
+// median 250W → the 150s run (>120s) at >2×250=500W must be detected.
+func TestFindStuckPowerRegions_Detected(t *testing.T) {
+	// Build a stream: 100 points at 250W followed by 150 points at 701W.
+	// Median of mixed stream: sorted 250*100 then 701*150; median at pos 125 = 701W.
+	// But we pass medianPower=250 directly to keep the test deterministic.
+	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	pts := make([]model.StreamPoint, 250)
+	for i := range 250 {
+		var pw int16
+		if i < 100 {
+			pw = 250
+		} else {
+			pw = 701
+		}
+		p := pw
+		pts[i] = model.StreamPoint{
+			Time:   t0.Add(time.Duration(i) * time.Second),
+			PowerW: &p,
+		}
+	}
+
+	regions := findStuckPowerRegions(pts, 250.0, 120.0, 2.0)
+	if len(regions) != 1 {
+		t.Fatalf("expected 1 stuck region, got %d", len(regions))
+	}
+	if regions[0].StartIdx != 100 || regions[0].EndIdx != 249 {
+		t.Errorf("region = [%d,%d], want [100,249]", regions[0].StartIdx, regions[0].EndIdx)
+	}
+}
+
+// TestFindStuckPowerRegions_TooShort: 30s identical at 500W must not be flagged
+// because it is below the 120s minimum duration.
+func TestFindStuckPowerRegions_TooShort(t *testing.T) {
+	pts := makePowerStream(30, 500)
+	regions := findStuckPowerRegions(pts, 200.0, 120.0, 2.0)
+	if len(regions) != 0 {
+		t.Errorf("expected no stuck regions for 30s run, got %d", len(regions))
+	}
+}
+
+// TestFindStuckPowerRegions_LowValue: 250W for 200s with median 240W → not flagged
+// because 250 < 2 × 240 = 480.
+func TestFindStuckPowerRegions_LowValue(t *testing.T) {
+	pts := makePowerStream(200, 250)
+	regions := findStuckPowerRegions(pts, 240.0, 120.0, 2.0)
+	if len(regions) != 0 {
+		t.Errorf("expected no stuck regions for below-threshold power, got %d", len(regions))
+	}
+}
+
+// TestFindStuckPowerRegions_ZeroWatts: 0W for 200s must not be flagged (coasting).
+func TestFindStuckPowerRegions_ZeroWatts(t *testing.T) {
+	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	pts := make([]model.StreamPoint, 200)
+	for i := range 200 {
+		var zero int16 = 0
+		pts[i] = model.StreamPoint{
+			Time:   t0.Add(time.Duration(i) * time.Second),
+			PowerW: &zero,
+		}
+	}
+	regions := findStuckPowerRegions(pts, 200.0, 120.0, 2.0)
+	if len(regions) != 0 {
+		t.Errorf("expected no stuck regions for 0W coasting, got %d", len(regions))
+	}
+}
+
+// TestFindStuckPowerRegions_SmartRecording: 30 points at 5s intervals = 150s at 701W.
+// Must be detected using time-based duration (not sample count).
+func TestFindStuckPowerRegions_SmartRecording(t *testing.T) {
+	pts := makePowerStreamSparse(30, 701, 5)
+	// 30 points × 5s = 150s at 701W; median = 200W so threshold = 400W.
+	regions := findStuckPowerRegions(pts, 200.0, 120.0, 2.0)
+	if len(regions) != 1 {
+		t.Fatalf("expected 1 stuck region for Smart Recording stream, got %d", len(regions))
+	}
+}
+
+// TestIsInStuckRegion: overlap, no overlap, partial overlap.
+func TestIsInStuckRegion(t *testing.T) {
+	regions := []StuckRegion{{StartIdx: 50, EndIdx: 100}}
+
+	// Fully inside
+	if !isInStuckRegion(60, 90, regions) {
+		t.Error("expected overlap: window [60,90] inside [50,100]")
+	}
+	// Fully before
+	if isInStuckRegion(10, 40, regions) {
+		t.Error("expected no overlap: window [10,40] before [50,100]")
+	}
+	// Fully after
+	if isInStuckRegion(110, 150, regions) {
+		t.Error("expected no overlap: window [110,150] after [50,100]")
+	}
+	// Partial overlap left
+	if !isInStuckRegion(30, 60, regions) {
+		t.Error("expected overlap: window [30,60] partial left of [50,100]")
+	}
+	// Partial overlap right
+	if !isInStuckRegion(90, 120, regions) {
+		t.Error("expected overlap: window [90,120] partial right of [50,100]")
+	}
+	// No regions → never overlaps
+	if isInStuckRegion(0, 200, nil) {
+		t.Error("expected no overlap with nil regions")
+	}
+}
+
+// TestComputePowerBestEffort_SuspiciousFlag: stream with a stuck region that
+// covers the best power window must set Suspicious=true on the result.
+func TestComputePowerBestEffort_SuspiciousFlag(t *testing.T) {
+	// 600-point stream: first 300s at 200W, then 300s at 800W (stuck).
+	// The 5-min best power window will land in the 800W stuck region.
+	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	pts := make([]model.StreamPoint, 600)
+	for i := range 600 {
+		var pw int16
+		if i < 300 {
+			pw = 200
+		} else {
+			pw = 800
+		}
+		p := pw
+		pts[i] = model.StreamPoint{
+			Time:   t0.Add(time.Duration(i) * time.Second),
+			PowerW: &p,
+		}
+	}
+
+	medianPower := medianPowerFromStream(pts) // median of equal halves 200+800 → 500W
+	stuckRegions := findStuckPowerRegions(pts, medianPower, 120.0, 2.0)
+	// 800 > 2 × 500 = 1000? No, 800 < 1000. Let us use a lower median.
+	// Recalculate manually: 300 pts at 200W, 300 pts at 800W → sorted list:
+	//   positions 0-299 → 200, positions 300-599 → 800.
+	//   n=600, mid=300, even: (vals[299]+vals[300])/2 = (200+800)/2 = 500.
+	// threshold = 2 × 500 = 1000, but 800 < 1000 → no stuck region with default params.
+	// Use threshold multiplier = 1.5 for this test to force detection.
+	stuckRegions = findStuckPowerRegions(pts, medianPower, 120.0, 1.5)
+	// 800 > 1.5 × 500 = 750 → yes, stuck region detected.
+
+	cat := Category{Key: "5min_power", Type: TypeValueHigher, DurationS: 300}
+	result := ComputePowerBestEffort(pts, cat, stuckRegions)
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if !result.Suspicious {
+		t.Errorf("expected Suspicious=true for best window inside stuck region, got false (start=%d end=%d regions=%v)",
+			result.StreamStartIdx, result.StreamEndIdx, stuckRegions)
+	}
+}
+
+// TestComputePowerBestEffort_NotSuspicious: best window outside any stuck region
+// must leave Suspicious=false.
+func TestComputePowerBestEffort_NotSuspicious(t *testing.T) {
+	// Stuck region at end of stream, best power window clearly before it.
+	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	pts := make([]model.StreamPoint, 600)
+	for i := range 600 {
+		var pw int16
+		if i < 300 {
+			pw = 400 // the good segment
+		} else {
+			pw = 800 // stuck — but best window is in the 400W zone
+		}
+		p := pw
+		pts[i] = model.StreamPoint{
+			Time:   t0.Add(time.Duration(i) * time.Second),
+			PowerW: &p,
+		}
+	}
+
+	// Force a stuck region over [300,599] at 800W > 2×400=800? Exactly at boundary.
+	// Use median = 350W so threshold = 700W < 800W → detected.
+	stuckRegions := findStuckPowerRegions(pts, 350.0, 120.0, 2.0)
+
+	// Best window for 5min at 400W (indices 0-299) vs 800W (indices 300-599).
+	// 800 > 400, so best window is actually in the stuck region.
+	// For NotSuspicious test, use a range that places the best effort before the stuck.
+	// Override: build a stream where 400W segment is first and there's no stuck there.
+	stuckRegions = []StuckRegion{{StartIdx: 400, EndIdx: 599}}
+
+	cat := Category{Key: "1min_power", Type: TypeValueHigher, DurationS: 60}
+	result := ComputePowerBestEffort(pts, cat, stuckRegions)
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	// Best 1-min is in the 800W zone (indices 300-599), which overlaps [400,599].
+	// So actually this will be suspicious. Adjust the test: use a stream where
+	// the best window is clearly before the stuck region.
+	pts2 := make([]model.StreamPoint, 600)
+	for i := range 600 {
+		var pw int16
+		if i < 60 {
+			pw = 500 // best 1-min window
+		} else {
+			pw = 100
+		}
+		p := pw
+		pts2[i] = model.StreamPoint{
+			Time:   t0.Add(time.Duration(i) * time.Second),
+			PowerW: &p,
+		}
+	}
+	stuckRegions2 := []StuckRegion{{StartIdx: 300, EndIdx: 599}}
+	result2 := ComputePowerBestEffort(pts2, cat, stuckRegions2)
+	if result2 == nil {
+		t.Fatal("expected non-nil result for pts2")
+	}
+	if result2.Suspicious {
+		t.Errorf("expected Suspicious=false for best window [%d,%d] outside stuck region [300,599]",
+			result2.StreamStartIdx, result2.StreamEndIdx)
+	}
+}
+
+// TestMedianPowerFromStream: verify median computation for odd and even lengths.
+func TestMedianPowerFromStream(t *testing.T) {
+	// Odd: [100, 200, 300] → median 200
+	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	makePt := func(i int, pw int16) model.StreamPoint {
+		p := pw
+		return model.StreamPoint{Time: t0.Add(time.Duration(i) * time.Second), PowerW: &p}
+	}
+	pts := []model.StreamPoint{makePt(0, 100), makePt(1, 200), makePt(2, 300)}
+	if m := medianPowerFromStream(pts); math.Abs(m-200.0) > 0.01 {
+		t.Errorf("median = %.2f, want 200.0", m)
+	}
+
+	// Even: [100, 200, 300, 400] → median (200+300)/2 = 250
+	pts2 := []model.StreamPoint{makePt(0, 100), makePt(1, 200), makePt(2, 300), makePt(3, 400)}
+	if m := medianPowerFromStream(pts2); math.Abs(m-250.0) > 0.01 {
+		t.Errorf("median = %.2f, want 250.0", m)
+	}
+
+	// No power data → 0
+	pts3 := []model.StreamPoint{{Time: t0}}
+	if m := medianPowerFromStream(pts3); m != 0 {
+		t.Errorf("median = %.2f, want 0 for nil power", m)
 	}
 }
