@@ -41,6 +41,7 @@ export interface StartOSMImportRequest {
   run_enrichment?: boolean  // undefined = true (backwards compatible), false = skip
   build_coverage?: boolean  // opt-in, default false
   build_tiles?: boolean     // opt-in, default false
+  download_dem?: boolean    // opt-in, default false
 }
 
 export interface StartOSMImportResponse {
@@ -159,5 +160,40 @@ export async function buildCoverageGrids(regions?: string[]): Promise<{ job_id: 
 export async function triggerOSMRegionUpdate(regionID: string): Promise<{ job_id: string }> {
   return apiClient<{ job_id: string }>(`/admin/osm-regions/${regionID}/update`, {
     method: 'POST',
+  })
+}
+
+// DEM
+export interface DEMRegionStatus {
+  id: string
+  tiles_needed: number
+  tiles_present: number
+  complete: boolean
+}
+
+export interface DEMStatusResponse {
+  sources: { source: string; resolution_m: number; tile_count: number }[]
+  total_tiles: number
+  regions: DEMRegionStatus[]
+  missing_tiles: number
+  disk_free_bytes: number
+}
+
+export async function getDEMRegionStatus(): Promise<DEMStatusResponse> {
+  return apiClient<DEMStatusResponse>('/admin/dem/status')
+}
+
+export async function downloadDEM(regions?: string[]): Promise<{ job_id: string }> {
+  return apiClient<{ job_id: string }>('/admin/dem/download', {
+    method: 'POST',
+    ...(regions && regions.length > 0 ? { body: { regions } } : {}),
+  })
+}
+
+// Batch update
+export async function batchUpdateAllRegions(rebuildTiles?: boolean): Promise<{ job_id: string }> {
+  return apiClient<{ job_id: string }>('/admin/osm-regions/update-all', {
+    method: 'POST',
+    body: { rebuild_tiles: rebuildTiles ?? false },
   })
 }
