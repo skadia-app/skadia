@@ -3,14 +3,20 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"hash/fnv"
 	"log/slog"
 	"net/http"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/dbutil"
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/skadia-app/skadia/services/api/internal/rules"
+)
+
+const (
+	commuteAutoSystemType = "commute_auto"
+	commuteTagName        = "Pendeln"
+	commuteRadiusM        = 200.0
 )
 
 type commuteRuleRequest struct {
@@ -39,9 +45,7 @@ func (h *Handler) CreateOrExtendCommuteRule(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Advisory lock per user — session-level with pinned connection.
-	hasher := fnv.New64a()
-	hasher.Write([]byte(userID + "_commute_rule")) //nolint:errcheck
-	lockKey := int64(hasher.Sum64())
+	lockKey := dbutil.AdvisoryLockKey(userID + "_commute_rule")
 
 	conn, err := h.DB.Pool.Acquire(ctx)
 	if err != nil {
@@ -57,7 +61,6 @@ func (h *Handler) CreateOrExtendCommuteRule(w http.ResponseWriter, r *http.Reque
 	}
 	defer conn.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockKey) //nolint:errcheck
 
-	// Resolve coordinates.
 	var startLat, startLon, endLat, endLon float64
 	if req.ActivityID != "" {
 		coords, err := h.DB.GetActivityStartEnd(ctx, req.ActivityID, userID)
@@ -67,42 +70,33 @@ func (h *Handler) CreateOrExtendCommuteRule(w http.ResponseWriter, r *http.Reque
 		}
 		startLat, startLon, endLat, endLon = coords[0], coords[1], coords[2], coords[3]
 	} else if req.StartZoneID != "" && req.EndZoneID != "" {
-		startCoords, err := h.DB.GetPrivacyZoneCenter(ctx, req.StartZoneID, userID)
-		if err != nil {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "start zone not found", r.URL.Path)
+		centers, err := h.DB.GetPrivacyZoneCenters(ctx, []string{req.StartZoneID, req.EndZoneID}, userID)
+		if err != nil || len(centers) != 2 {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "zones not found", r.URL.Path)
 			return
 		}
-		endCoords, err := h.DB.GetPrivacyZoneCenter(ctx, req.EndZoneID, userID)
-		if err != nil {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "end zone not found", r.URL.Path)
-			return
-		}
-		startLat, startLon = startCoords[0], startCoords[1]
-		endLat, endLon = endCoords[0], endCoords[1]
+		startLat, startLon = centers[req.StartZoneID][0], centers[req.StartZoneID][1]
+		endLat, endLon = centers[req.EndZoneID][0], centers[req.EndZoneID][1]
 	} else {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "activity_id or start_zone_id+end_zone_id required", r.URL.Path)
 		return
 	}
 
-	// Resolve Pendeln tag ID.
-	pendelTagID, err := h.DB.GetSystemTagID(ctx, userID, "Pendeln")
+	pendelTagID, err := h.DB.GetSystemTagID(ctx, userID, commuteTagName)
 	if err != nil {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "Pendeln tag not found — check enrichment settings", r.URL.Path)
 		return
 	}
 
-	// Load existing commute_auto rule (nil when not found).
-	existingRule, err := h.DB.GetRuleBySystemType(ctx, userID, "commute_auto")
+	existingRule, err := h.DB.GetRuleBySystemType(ctx, userID, commuteAutoSystemType)
 	if err != nil {
 		slog.Error("commute rule: GetRuleBySystemType failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load rule", r.URL.Path)
 		return
 	}
 
-	const radiusM = 200.0
-
 	if existingRule != nil {
-		if commuteRouteExists(existingRule, startLat, startLon, endLat, endLon, radiusM) {
+		if commuteRouteExists(existingRule, startLat, startLon, endLat, endLon, commuteRadiusM) {
 			httputil.WriteJSON(w, http.StatusConflict, commuteRuleResponse{
 				RuleID:  existingRule.ID,
 				Created: false,
@@ -110,7 +104,7 @@ func (h *Handler) CreateOrExtendCommuteRule(w http.ResponseWriter, r *http.Reque
 			})
 			return
 		}
-		if err := extendCommuteRule(ctx, h.DB, existingRule, startLat, startLon, endLat, endLon, radiusM, pendelTagID); err != nil {
+		if err := extendCommuteRule(ctx, h.DB, existingRule, startLat, startLon, endLat, endLon, commuteRadiusM, pendelTagID); err != nil {
 			slog.Error("commute rule: extendCommuteRule failed", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to extend rule", r.URL.Path)
 			return
@@ -123,7 +117,7 @@ func (h *Handler) CreateOrExtendCommuteRule(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	ruleID, err := createCommuteRule(ctx, h.DB, userID, startLat, startLon, endLat, endLon, radiusM, pendelTagID)
+	ruleID, err := createCommuteRule(ctx, h.DB, userID, startLat, startLon, endLat, endLon, commuteRadiusM, pendelTagID)
 	if err != nil {
 		slog.Error("commute rule: createCommuteRule failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create rule", r.URL.Path)
@@ -139,7 +133,7 @@ func (h *Handler) CreateOrExtendCommuteRule(w http.ResponseWriter, r *http.Reque
 // commuteRouteExists returns true if a branch matching the given start/end coordinates
 // (within threshold meters, forward or reverse) already exists in the rule.
 func commuteRouteExists(rule *model.AutomationRule, startLat, startLon, endLat, endLon, threshold float64) bool {
-	if len(rule.Branches) == 0 || string(rule.Branches) == "null" {
+	if !rule.HasBranches() {
 		return false
 	}
 	type condition struct {
@@ -182,13 +176,13 @@ func commuteRouteExists(rule *model.AutomationRule, startLat, startLon, endLat, 
 			continue
 		}
 		// Forward match.
-		if rules.HaversineM(startLat, startLon, bStartLat, bStartLon) <= threshold &&
-			rules.HaversineM(endLat, endLon, bEndLat, bEndLon) <= threshold {
+		if geo.DistanceHaversine(startLat, startLon, bStartLat, bStartLon) <= threshold &&
+			geo.DistanceHaversine(endLat, endLon, bEndLat, bEndLon) <= threshold {
 			return true
 		}
 		// Reverse match.
-		if rules.HaversineM(startLat, startLon, bEndLat, bEndLon) <= threshold &&
-			rules.HaversineM(endLat, endLon, bStartLat, bStartLon) <= threshold {
+		if geo.DistanceHaversine(startLat, startLon, bEndLat, bEndLon) <= threshold &&
+			geo.DistanceHaversine(endLat, endLon, bStartLat, bStartLon) <= threshold {
 			return true
 		}
 	}

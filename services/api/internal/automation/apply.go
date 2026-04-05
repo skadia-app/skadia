@@ -110,7 +110,7 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 		ruleEvaluatedIDs[rule.ID] = true
 
 		// === Branches-rules: evaluate each branch independently ===
-		if len(rule.Branches) > 0 && string(rule.Branches) != "null" {
+		if rule.HasBranches() {
 			type branch struct {
 				Type            string                 `json:"type"` // "if", "else_if", "else"
 				ConditionGroups []rules.ConditionGroup `json:"condition_groups"`
@@ -222,7 +222,7 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 // For flat-condition rules, evaluates conditions normally.
 func EvaluateRule(rule model.AutomationRule, actMap map[string]any) bool {
 	// Branches-rules: check if any branch matches
-	if len(rule.Branches) > 0 && string(rule.Branches) != "null" {
+	if rule.HasBranches() {
 		type branch struct {
 			Type            string                 `json:"type"`
 			ConditionGroups []rules.ConditionGroup `json:"condition_groups"`
@@ -303,6 +303,108 @@ func InjectTrackGeofenceResults(ctx context.Context, db *database.DB, activityID
 	injectTrackGeofenceResults(ctx, db, activityID, actMap, allRules)
 }
 
+// InjectTrackGeofenceResultsBatch pre-computes track intersection results for all
+// activities at once, issuing one DB query per geofence instead of one per activity.
+// actMaps maps activityID → activity map; results are injected in-place.
+func InjectTrackGeofenceResultsBatch(ctx context.Context, db *database.DB, activityIDs []string, actMaps map[string]map[string]any, allRules []model.AutomationRule) {
+	type trackGeofence struct {
+		key     string
+		shape   string
+		lat     float64
+		lon     float64
+		radiusM float64
+		polygon string
+	}
+
+	seen := map[string]bool{}
+	var geofences []trackGeofence
+
+	for _, rule := range allRules {
+		if !rule.IsActive {
+			continue
+		}
+		scanGroups := func(raw json.RawMessage) {
+			if len(raw) == 0 || string(raw) == "null" || !strings.Contains(string(raw), `"track"`) {
+				return
+			}
+			var groups []rules.ConditionGroup
+			if err := json.Unmarshal(raw, &groups); err != nil {
+				return
+			}
+			for _, g := range groups {
+				for _, c := range g.Conditions {
+					if c.Field != "geofence" {
+						continue
+					}
+					params, ok := c.Value.(map[string]any)
+					if !ok {
+						continue
+					}
+					check, _ := params["check"].(string)
+					if check != "track" {
+						continue
+					}
+					key := rules.GeofenceTrackKey(params)
+					if seen[key] {
+						continue
+					}
+					seen[key] = true
+					shape, _ := params["shape"].(string)
+					if shape == "" {
+						shape = "circle"
+					}
+					gf := trackGeofence{key: key, shape: shape}
+					if shape == "polygon" {
+						gf.polygon, _ = params["polygon"].(string)
+					} else {
+						gf.lat, _ = params["lat"].(float64)
+						gf.lon, _ = params["lon"].(float64)
+						gf.radiusM, _ = params["radius_m"].(float64)
+					}
+					geofences = append(geofences, gf)
+				}
+			}
+		}
+
+		scanGroups(rule.ConditionGroups)
+
+		if rule.HasBranches() {
+			type branch struct {
+				ConditionGroups json.RawMessage `json:"condition_groups"`
+			}
+			var branches []branch
+			if err := json.Unmarshal(rule.Branches, &branches); err == nil {
+				for _, b := range branches {
+					scanGroups(b.ConditionGroups)
+				}
+			}
+		}
+	}
+
+	if len(geofences) == 0 {
+		return
+	}
+
+	for _, gf := range geofences {
+		var results map[string]bool
+		var err error
+		if gf.shape == "polygon" {
+			results, err = db.BatchTrackIntersectsPolygon(ctx, activityIDs, gf.polygon)
+		} else {
+			results, err = db.BatchTrackIntersectsCircle(ctx, activityIDs, gf.lat, gf.lon, gf.radiusM)
+		}
+		if err != nil {
+			slog.Warn("batch track geofence query failed", "key", gf.key, "error", err)
+			continue
+		}
+		for actID, hit := range results {
+			if actMap, ok := actMaps[actID]; ok {
+				actMap[gf.key] = hit
+			}
+		}
+	}
+}
+
 // injectTrackGeofenceResults pre-computes track intersection results for geofence
 // conditions with check:"track" and injects them into the activity map.
 func injectTrackGeofenceResults(ctx context.Context, db *database.DB, activityID string, actMap map[string]any, allRules []model.AutomationRule) {
@@ -367,7 +469,7 @@ func injectTrackGeofenceResults(ctx context.Context, db *database.DB, activityID
 
 		scanGroups(rule.ConditionGroups)
 
-		if len(rule.Branches) > 0 && string(rule.Branches) != "null" {
+		if rule.HasBranches() {
 			type branch struct {
 				ConditionGroups json.RawMessage `json:"condition_groups"`
 			}
