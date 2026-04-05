@@ -127,7 +127,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
   })
 
   const batchUpdateMut = useMutation({
-    mutationFn: () => batchUpdateAllRegions(false),
+    mutationFn: (rebuildTiles: boolean) => batchUpdateAllRegions(rebuildTiles),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['osm-regions-status'] })
       addToast({ type: 'info', title: 'Batch-Update gestartet' })
@@ -230,7 +230,10 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
           {importedRegions.length > 0 && importedRegions.some(r => r.replication_url) && (
             <div className="flex justify-end mb-3">
               <button
-                onClick={() => batchUpdateMut.mutate()}
+                onClick={() => {
+                  const rebuild = window.confirm('Sollen nach dem Update auch Routing-Tiles neu gebaut werden?')
+                  batchUpdateMut.mutate(rebuild)
+                }}
                 disabled={!!activeOsmJob || !!activeOsmUpdate || !!activeBatchUpdate || batchUpdateMut.isPending}
                 className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
