@@ -53,6 +53,7 @@ export function PowerDurationChart({ records, series, height = 220 }: PowerDurat
         backgroundColor: 'rgba(17,24,39,0.95)',
         borderColor: '#374151',
         textStyle: { color: '#f3f4f6', fontSize: 11 },
+        valueFormatter: (v: number | string) => typeof v === 'number' ? `${Math.round(v)} W` : v,
       },
       grid: { left: 50, right: 20, top: 15, bottom: 35 },
       xAxis: {
