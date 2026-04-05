@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
+	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/go-chi/chi/v5"
 )
@@ -747,4 +749,228 @@ func allCategoryIDs() []string {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+type patchTarget struct {
+	RegionID string
+	Label    string
+	ReplURL  string
+	PBFPath  string
+	LastSeq  int
+}
+
+// BatchUpdateAllRegions triggers an incremental update for all imported regions.
+// PBFs are patched individually, then reimported via per-region RunPerRegion.
+// POST /api/v1/admin/osm-regions/update-all
+func (h *Handler) BatchUpdateAllRegions(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		RebuildTiles bool `json:"rebuild_tiles"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	// Comprehensive guards — no concurrent OSM/routing jobs
+	for _, jt := range []string{"osm_import", "osm_update", "osm_update_all", "osm_enrichment", "tile_build", "coverage_build"} {
+		if running, _ := h.DB.HasRunningJobGlobal(r.Context(), jt); running {
+			httputil.WriteJSON(w, http.StatusConflict, map[string]string{"error": jt + " is already running"})
+			return
+		}
+	}
+
+	// Load all patchable regions
+	rows, err := h.DB.Pool.Query(r.Context(), `
+		SELECT region_id, label, replication_url, last_sequence_number, pbf_path
+		FROM osm_import_regions
+		WHERE status = 'imported' AND replication_url IS NOT NULL AND pbf_path IS NOT NULL`)
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		return
+	}
+	defer rows.Close()
+
+	var targets []patchTarget
+	for rows.Next() {
+		var t patchTarget
+		if rows.Scan(&t.RegionID, &t.Label, &t.ReplURL, &t.LastSeq, &t.PBFPath) == nil {
+			targets = append(targets, t)
+		}
+	}
+
+	if len(targets) == 0 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "Keine Regionen mit Replication-URL vorhanden", r.URL.Path)
+		return
+	}
+
+	entityName := fmt.Sprintf("Batch Update (%d Regionen)", len(targets))
+	jobID, created, err := h.DB.InsertBackgroundJobGuarded(r.Context(), userID, "osm_update_all", nil, &entityName, 0)
+	if err != nil || !created {
+		httputil.WriteJSON(w, http.StatusConflict, map[string]string{"error": "batch update already running"})
+		return
+	}
+
+	shutdown.Go(jobID, func(ctx context.Context) {
+		h.runBatchUpdate(ctx, jobID, targets, req.RebuildTiles)
+	})
+
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+}
+
+func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []patchTarget, rebuildTiles bool) {
+	reporter := &jobReporter{db: h.DB, jobID: jobID}
+
+	// Phase 1: Patch all PBFs
+	reporter.SetPhase("patch")
+	var patchedRegions []patchTarget
+	var needsRedownload []string
+
+	for i, t := range targets {
+		if ctx.Err() != nil {
+			break
+		}
+		slog.Info("batch update: patching", "region", t.RegionID, "index", i+1, "total", len(targets))
+
+		// PBF existence check
+		if _, err := os.Stat(t.PBFPath); err != nil {
+			slog.Warn("batch update: PBF missing, skipping", "region", t.RegionID, "path", t.PBFPath)
+			continue
+		}
+
+		newSeq, err := osmregions.PatchPBF(ctx, t.PBFPath, t.ReplURL, t.LastSeq)
+		if errors.Is(err, osmregions.ErrTooOld) {
+			slog.Warn("batch update: PBF too old", "region", t.RegionID)
+			h.DB.Pool.Exec(ctx, `UPDATE osm_import_regions SET status = 'needs_redownload' WHERE region_id = $1`, t.RegionID)
+			needsRedownload = append(needsRedownload, t.RegionID)
+			continue
+		}
+		if err != nil {
+			slog.Error("batch update: patch failed", "region", t.RegionID, "error", err)
+			continue
+		}
+
+		t.LastSeq = newSeq // store new seq for DB update later
+		patchedRegions = append(patchedRegions, t)
+	}
+
+	if len(patchedRegions) == 0 {
+		msg := "Keine Regionen konnten gepatcht werden"
+		if len(needsRedownload) > 0 {
+			msg += ". Neu herunterladen: " + strings.Join(needsRedownload, ", ")
+		}
+		h.DB.CompleteBackgroundJob(ctx, jobID, true, msg)
+		return
+	}
+
+	// Phase 2: Per-region reimport
+	// NOTE: V1 uses per-region RunPerRegion (no osmium merge). This means border-ways
+	// may fragment. Full merge requires refactoring RunPerRegion to accept a pre-merged
+	// PBF path — planned as follow-up.
+	reporter.SetPhase("import")
+	dataDir := os.Getenv("OSM_DATA_DIR")
+	if dataDir == "" {
+		dataDir = "/data/osm"
+	}
+	pipeline := &osmregions.Pipeline{Pool: h.DB.Pool, DataDir: dataDir, DBURL: os.Getenv("DATABASE_URL")}
+
+	// Load categories (use first patched region's categories, or all)
+	var categories []string
+	h.DB.Pool.QueryRow(ctx, `SELECT categories FROM osm_import_regions WHERE region_id = $1`, patchedRegions[0].RegionID).Scan(&categories)
+	if len(categories) == 0 {
+		categories = allCategoryIDs()
+	}
+
+	for _, t := range patchedRegions {
+		if ctx.Err() != nil {
+			break
+		}
+		reg, ok := osmregions.RegionByID(t.RegionID)
+		if !ok {
+			continue
+		}
+		config := osmregions.PipelineConfig{Categories: categories}
+		pipeline.RunPerRegion(ctx, reg, config, reporter)
+	}
+
+	// Phase 3: Update sequence numbers + timestamps
+	for _, t := range patchedRegions {
+		h.DB.Pool.Exec(ctx, `
+			UPDATE osm_import_regions SET last_sequence_number = $1, last_updated_at = now()
+			WHERE region_id = $2`, t.LastSeq, t.RegionID)
+	}
+
+	// Phase 4: Enrichment
+	reporter.SetPhase("enrichment")
+	regionIDs := make([]string, len(patchedRegions))
+	for i, t := range patchedRegions {
+		regionIDs[i] = t.RegionID
+	}
+	pipeline.RunEnrichmentAndSplitting(ctx, strings.Join(regionIDs, ","), reporter)
+
+	// Phase 5: Optional tiles
+	if rebuildTiles {
+		// DEM guard
+		demDir := os.Getenv("DEM_DATA_DIR")
+		if demDir == "" {
+			demDir = "/data/dem"
+		}
+		hgtDir := filepath.Join(demDir, "glo30")
+		entries, _ := os.ReadDir(hgtDir)
+		hasHGT := false
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".hgt") {
+				hasHGT = true
+				break
+			}
+		}
+		if !hasHGT {
+			slog.Warn("batch update: skipping tiles — no DEM data found", "dir", hgtDir)
+			h.DB.CompleteBackgroundJob(ctx, jobID, false,
+				"Import + Enrichment OK. Routing-Tiles übersprungen — DEM-Höhendaten fehlen.")
+			return
+		}
+
+		// Coverage Build
+		reporter.SetPhase("coverage")
+		graphPath := os.Getenv("ROUTING_GRAPH_PATH")
+		if graphPath == "" {
+			graphPath = "/data/routing/graph.bin"
+		}
+		coverageDir := filepath.Join(filepath.Dir(graphPath), "coverage")
+		coverageOpts := coverage.BuildCoverageOptions{
+			BaseDir: coverageDir,
+			Workers: 2,
+		}
+		if err := coverage.RunBuildCoverage(ctx, h.DB.Pool, coverageOpts, func(_, _ int64) {}); err != nil {
+			slog.Error("batch update: coverage build failed", "error", err)
+			// Non-fatal: continue to tiles
+		}
+
+		// Tile Build
+		reporter.SetPhase("tiles")
+		tileDir := filepath.Join(filepath.Dir(graphPath), "tiles")
+		hgtDirs := []string{hgtDir}
+		for _, extra := range []string{"/data/dem/sonny-05", "/data/dem/sonny-1"} {
+			if _, err := os.Stat(extra); err == nil {
+				hgtDirs = append(hgtDirs, extra)
+			}
+		}
+		if h.GraphManager != nil {
+			if err := h.GraphManager.RebuildTiles(ctx, h.DB.Pool, tileDir, 1_000_000_000,
+				hgtDirs, 2, [4]float64{}, true,
+				func(tileID uint32, step string, pct int) {}); err != nil {
+				slog.Error("batch update: tile build failed", "error", err)
+			}
+		}
+	}
+
+	if reporter.failed {
+		h.DB.CompleteBackgroundJob(ctx, jobID, true, "Batch update partially failed")
+		return
+	}
+
+	slog.Info("batch update: completed", "patched", len(patchedRegions), "needs_redownload", len(needsRedownload))
+	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 }
