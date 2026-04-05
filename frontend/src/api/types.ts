@@ -417,6 +417,9 @@ export interface StreamPoint {
 
   // ── Glucose (Dexcom CGM via ANT+) ──
   glucose_mg_dl?: number  // blood glucose in mg/dL
+
+  // ── Running Smoothness ──
+  running_smoothness_pct?: number  // 0–100 %
 }
 
 export interface DataVisibility {
