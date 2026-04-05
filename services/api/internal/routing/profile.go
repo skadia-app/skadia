@@ -10,7 +10,9 @@ import (
 // ProfileConfig holds user-facing routing profile parameters.
 // Nil fields inherit from the built-in profile defaults.
 type ProfileConfig struct {
-	Profile string `json:"profile"` // trekking/hiking/mtb/gravel/road
+	Profile    string   `json:"profile"`              // trekking/hiking/mtb/gravel/road
+	Name       string   `json:"name,omitempty"`
+	SportTypes []string `json:"sport_types,omitempty"`
 
 	// Elevation
 	UphillCost        *float32 `json:"uphill_cost,omitempty"`
@@ -57,6 +59,8 @@ type ProfileConfig struct {
 	TrackGrade1Cost  *float32 `json:"track_grade1_cost,omitempty"`
 	TrackGrade2Cost  *float32 `json:"track_grade2_cost,omitempty"`
 	TrackGrade3Cost  *float32 `json:"track_grade3_cost,omitempty"`
+	TrackGrade4Cost  *float32 `json:"track_grade4_cost,omitempty"`
+	TrackGrade5Cost  *float32 `json:"track_grade5_cost,omitempty"`
 	FootwayCost      *float32 `json:"footway_cost,omitempty"`
 	CyclewayCost     *float32 `json:"cycleway_cost,omitempty"`
 	BridlewayCost    *float32 `json:"bridleway_cost,omitempty"`
@@ -69,111 +73,13 @@ type ProfileConfig struct {
 	PrimaryCost      *float32 `json:"primary_cost,omitempty"`
 }
 
-// --- Pointer helpers ---
-
-//go:fix inline
-func ptr32(v float32) *float32 { return new(v) }
-
-//go:fix inline
-func ptrInt(v int) *int { return new(v) }
-
-//go:fix inline
-func ptrBool(v bool) *bool { return new(v) }
-
-// --- Built-in profiles ---
-
-var builtinProfiles = map[string]ProfileConfig{
-	"trekking": {
-		Profile:           "trekking",
-		UphillCost:        new(float32(0)),
-		DownhillCost:      new(float32(60)),
-		UphillCutoffPct:   new(float32(1.5)),
-		DownhillCutoffPct: new(float32(1.5)),
-		ElevPenaltyBuffer: new(float32(5)),
-		ElevMaxBuffer:     new(float32(10)),
-		ElevBufferReduce:  new(float32(0)),
-		AllowSteps:        new(true),
-		AllowFerries:      new(true),
-		CyclerouteBoost:   new(float32(0.6)),
-		TurnCost:          new(float32(90)),
-		Pass0Coefficient:  new(float32(3.0)), // higher: downhillcost=60 inflates pass0 budget
-	},
-	"hiking": {
-		Profile:           "hiking",
-		UphillCost:        new(float32(7)),
-		DownhillCost:      new(float32(7)),
-		UphillCutoffPct:   new(float32(3)),
-		DownhillCutoffPct: new(float32(3)),
-		ElevPenaltyBuffer: new(float32(5)),
-		ElevMaxBuffer:     new(float32(10)),
-		ElevBufferReduce:  new(float32(0.01)),
-		MaxSacScale:       new(3),
-		SacPreferred:      new(1),
-		AllowSteps:        new(true),
-		ForestBonus:       new(float32(0.5)),
-		NoisePenalty:      new(float32(0.4)),
-		TrafficPenalty:    new(float32(0.6)),
-		ProtectedBonus:    new(float32(0.3)),
-		HikerouteBoost:    new(float32(0.2)),
-		TurnCost:          new(float32(0)),
-		Pass0Coefficient:  new(float32(2.5)), // higher: elevation costs inflate pass0 budget
-	},
-	"mtb": {
-		Profile:           "mtb",
-		UphillCost:        new(float32(0)),
-		DownhillCost:      new(float32(0)),
-		UphillCutoffPct:   new(float32(1.5)),
-		DownhillCutoffPct: new(float32(1.5)),
-		ElevPenaltyBuffer: new(float32(5)),
-		ElevMaxBuffer:     new(float32(10)),
-		ElevBufferReduce:  new(float32(0)),
-		MaxMtbScale:       new(2),
-		AllowSteps:        new(false),
-		PathPreference:    new(float32(20)),
-		ForestBonus:       new(float32(0.3)),
-		NoisePenalty:      new(float32(0.2)),
-		CyclerouteBoost:   new(float32(0.2)),
-		TurnCost:          new(float32(30)),
-		Pass0Coefficient:  new(float32(1.5)),
-	},
-	"gravel": {
-		Profile:           "gravel",
-		UphillCost:        new(float32(80)),
-		DownhillCost:      new(float32(40)),
-		UphillCutoffPct:   new(float32(1.5)),
-		DownhillCutoffPct: new(float32(1.5)),
-		ElevPenaltyBuffer: new(float32(5)),
-		ElevMaxBuffer:     new(float32(10)),
-		ElevBufferReduce:  new(float32(0)),
-		MaxSacScale:       new(1),
-		MaxMtbScale:       new(0),
-		AllowSteps:        new(false),
-		ForestBonus:       new(float32(0.3)),
-		NoisePenalty:      new(float32(0.4)),
-		TrafficPenalty:    new(float32(0.5)),
-		CyclerouteBoost:   new(float32(0.3)),
-		TurnCost:          new(float32(65)),
-		Pass0Coefficient:  new(float32(3.0)), // higher: uphillcost=80 inflates pass0 budget
-	},
-	"road": {
-		Profile:           "road",
-		UphillCost:        new(float32(0)),
-		DownhillCost:      new(float32(60)),
-		UphillCutoffPct:   new(float32(1.5)),
-		DownhillCutoffPct: new(float32(1.5)),
-		ElevPenaltyBuffer: new(float32(5)),
-		ElevMaxBuffer:     new(float32(10)),
-		ElevBufferReduce:  new(float32(0)),
-		AllowSteps:        new(false),
-		TrafficPenalty:    new(float32(0.1)),
-		TurnCost:          new(float32(90)),
-		Pass0Coefficient:  new(float32(3.0)), // higher: downhillcost=60 inflates pass0 budget
-	},
-}
-
 // BuiltinProfile returns the built-in defaults for the given profile name.
 func BuiltinProfile(name string) (ProfileConfig, error) {
-	p, ok := builtinProfiles[name]
+	m := loadedBuiltins.Load()
+	if m == nil {
+		return ProfileConfig{}, fmt.Errorf("profiles not loaded (call LoadBuiltinProfiles first)")
+	}
+	p, ok := (*m)[name]
 	if !ok {
 		return ProfileConfig{}, fmt.Errorf("unknown profile: %q", name)
 	}
@@ -192,7 +98,7 @@ func BuildCostConfig(p ProfileConfig) (*CostConfig, error) {
 		return nil, err
 	}
 
-	merged := mergeProfile(base, p)
+	merged := MergeProfile(base, p)
 
 	cfg := &CostConfig{
 		UphillCost:        deref32(merged.UphillCost),
@@ -227,7 +133,7 @@ func DefaultCostConfig() *CostConfig {
 
 // --- Merge logic ---
 
-func mergeProfile(base, override ProfileConfig) ProfileConfig {
+func MergeProfile(base, override ProfileConfig) ProfileConfig {
 	m := base
 	m.Profile = base.Profile // profile name is always from base
 
@@ -261,6 +167,8 @@ func mergeProfile(base, override ProfileConfig) ProfileConfig {
 	mergePtr(&m.TrackGrade1Cost, override.TrackGrade1Cost)
 	mergePtr(&m.TrackGrade2Cost, override.TrackGrade2Cost)
 	mergePtr(&m.TrackGrade3Cost, override.TrackGrade3Cost)
+	mergePtr(&m.TrackGrade4Cost, override.TrackGrade4Cost)
+	mergePtr(&m.TrackGrade5Cost, override.TrackGrade5Cost)
 	mergePtr(&m.FootwayCost, override.FootwayCost)
 	mergePtr(&m.CyclewayCost, override.CyclewayCost)
 	mergePtr(&m.BridlewayCost, override.BridlewayCost)
@@ -387,6 +295,8 @@ func buildEdgeCostClosure(p ProfileConfig) func(tags1, tags2 uint64) EdgeCostFac
 	clampTrack(p.TrackGrade1Cost, 1)
 	clampTrack(p.TrackGrade2Cost, 2)
 	clampTrack(p.TrackGrade3Cost, 3)
+	clampTrack(p.TrackGrade4Cost, 4)
+	clampTrack(p.TrackGrade5Cost, 5)
 
 	// Road profile: isPaved blocking stays in the closure (not configurable)
 	roadIsPavedBlock := profile == "road"
@@ -1119,6 +1029,8 @@ type ProfileDefaultsResponse struct {
 	TrackGrade1Cost  *float32 `json:"track_grade1_cost"`
 	TrackGrade2Cost  *float32 `json:"track_grade2_cost"`
 	TrackGrade3Cost  *float32 `json:"track_grade3_cost"`
+	TrackGrade4Cost  *float32 `json:"track_grade4_cost"`
+	TrackGrade5Cost  *float32 `json:"track_grade5_cost"`
 	FootwayCost      *float32 `json:"footway_cost"`
 	CyclewayCost     *float32 `json:"cycleway_cost"`
 	BridlewayCost    *float32 `json:"bridleway_cost"`
@@ -1183,6 +1095,8 @@ func ProfileDefaults(name string) (*ProfileDefaultsResponse, error) {
 	setIfPassable(&r.TrackGrade1Cost, profileHighwayCostDefault(name, 15, 1))
 	setIfPassable(&r.TrackGrade2Cost, profileHighwayCostDefault(name, 15, 2))
 	setIfPassable(&r.TrackGrade3Cost, profileHighwayCostDefault(name, 15, 3))
+	setIfPassable(&r.TrackGrade4Cost, profileHighwayCostDefault(name, 15, 4))
+	setIfPassable(&r.TrackGrade5Cost, profileHighwayCostDefault(name, 15, 5))
 	setIfPassable(&r.FootwayCost, profileHighwayCostDefault(name, 17, 0))
 	setIfPassable(&r.CyclewayCost, profileHighwayCostDefault(name, 18, 0))
 	setIfPassable(&r.BridlewayCost, profileHighwayCostDefault(name, 19, 0))
