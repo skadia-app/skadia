@@ -60,6 +60,9 @@ const SPORT_GROUP_LABELS: Record<string, string> = {
   running: 'Laufen',
   swimming: 'Schwimmen',
   strength: 'Kraft',
+  // NOTE: hiking currently maps to "running" in DeterminePMCSportGroup (pmc.go)
+  // for statistical significance. These entries are intentional future-proofing
+  // for when PMC sport groups are split more finely. Not dead code.
   hiking: 'Wandern',
   other: 'Andere',
 }
@@ -69,7 +72,7 @@ const SPORT_GROUP_COLORS: Record<string, string> = {
   running: '#10b981',    // emerald-500
   swimming: '#06b6d4',   // cyan-500
   strength: '#a855f7',   // purple-500
-  hiking: '#22c55e',     // green-500
+  hiking: '#22c55e',     // green-500  // see NOTE above
   other: '#f59e0b',      // amber-500
 }
 

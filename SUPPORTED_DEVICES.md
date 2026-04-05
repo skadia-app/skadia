@@ -613,10 +613,11 @@ Developer Apps use FIT Developer Fields to embed custom data. Detected by Applic
 
 | App | Category | Source |
 |---|---|---|
+| COROS | Running Power | Registry |
 | Daefore | Bike Power | Registry |
 | FORM | Swim Goggle | Registry |
+| RideWithPower | Bike Power | Registry |
 | Stryd | Running Power | Registry |
-| Wahoo RGT | Bike Power | Registry |
 | Zepp | Wearable | Registry |
 
 ---

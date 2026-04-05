@@ -55,6 +55,14 @@ func Compute(points []model.StreamPoint) *Result {
 		}
 
 		// Tier 2: vertical ratio = VO_mm / step_length_mm
+		// NOTE: Despite its name, the FIT SDK field "step_length" is actually the
+		// full stride length (two steps, one complete gait cycle). Empirically
+		// verified: VO/step_length*100 ≈ Garmin's vertical_ratio_pct (within ~1pp
+		// due to Garmin's internal smoothing). The result is stored as a fraction
+		// (e.g. 0.067), not as percent — frontend thresholds match this convention.
+		// The pre-computed VerticalRatioPct field from the FIT SDK exists in the
+		// stream but is not used here so that we get a consistent value even when
+		// the device does not populate vertical_ratio (e.g. older firmware).
 		if p.VerticalOscillationMm != nil && p.StepLengthMm != nil && *p.StepLengthMm > 0 {
 			vr := float64(*p.VerticalOscillationMm) / *p.StepLengthMm
 			verticalRatios = append(verticalRatios, vr)

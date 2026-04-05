@@ -128,10 +128,8 @@ func (p StreamPoint) BEGpsAccuracyM() *int16   { return p.GpsAccuracyM }
 // RecalcAll. Only the 5 columns accessed by the compute functions are fetched,
 // reducing network/memory overhead by ~16× vs StreamPoint.
 //
-// NOTE(E-6): The Compute* functions in bestefforts/compute.go still accept
-// []StreamPoint. Integration of StreamPointLight requires refactoring those
-// signatures to an interface or a generic type. Until then, the getter exists
-// but RecalcAll continues to use GetStreamPoints. See the TODO in service.go.
+// Integration complete: Compute* functions use the BestEffortPoint generic
+// interface, and RecalcAll passes []StreamPointLight directly.
 type StreamPointLight struct {
 	Time         time.Time
 	DistanceM    *float64
