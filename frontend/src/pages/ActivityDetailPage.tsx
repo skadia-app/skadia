@@ -482,7 +482,17 @@ export default function ActivityDetailPage() {
 
       {/* Tags in one row */}
       <div className="flex flex-wrap items-center gap-2">
-        <TagsBadges tags={activity.tags} activityId={activity.id} isVirtual={activity.is_virtual} />
+        <TagsBadges
+          tags={activity.tags}
+          activityId={activity.id}
+          isVirtual={activity.is_virtual}
+          hasGps={activity.has_gps}
+          distanceM={activity.distance_m}
+          startLat={activity.start_lat}
+          startLon={activity.start_lon}
+          endLat={activity.end_lat}
+          endLon={activity.end_lon}
+        />
       </div>
 
       {/* Description */}
