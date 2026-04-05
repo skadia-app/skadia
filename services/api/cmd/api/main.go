@@ -627,16 +627,16 @@ func main() {
 	}
 	slog.Info("built-in profiles loaded", "count", profileCount, "dir", profileDir)
 
-	// Seed profiles into DB: config/badrouter/ as "system", data/profiles/ as "filesystem".
+	// Seed profiles into DB: config/badrouter/ as system, data/profiles/ as filesystem.
 	// Order matters: filesystem overrides system on name collision (ON CONFLICT).
-	if n, err := handler.SeedProfiles(ctx, profileDir, db, "system"); err != nil {
+	if n, err := handler.SeedProfiles(ctx, profileDir, db, routing.SourceSystem); err != nil {
 		slog.Warn("system profile seed failed", "error", err)
 	} else if n > 0 {
 		slog.Info("system profiles seeded", "count", n)
 	}
 
 	// Filesystem profile scan — import BadRouter JSON profiles from data/profiles/badrouter/
-	if n, err := handler.SeedProfiles(ctx, "data/profiles/badrouter", db, "filesystem"); err != nil {
+	if n, err := handler.SeedProfiles(ctx, "data/profiles/badrouter", db, routing.SourceFilesystem); err != nil {
 		slog.Warn("filesystem profile scan failed", "error", err)
 	} else if n > 0 {
 		slog.Info("filesystem profiles imported", "count", n)
