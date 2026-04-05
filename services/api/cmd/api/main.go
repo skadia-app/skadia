@@ -764,6 +764,7 @@ func main() {
 				r.Post("/backfill-timezones", h.BackfillTimezones)
 				r.Post("/phash-backfill", h.StartPhashBackfill)
 				r.Post("/backfill-developer-apps", h.BackfillDeveloperApps)
+				r.Post("/backfill-developer-field-columns", h.BackfillDeveloperFieldColumns)
 				r.Post("/detect-max-hr", h.DetectMaxHR)
 				r.Post("/activities/recompute-all", h.RecomputeAllActivities)
 				r.Get("/activities/recompute-status", h.RecomputeStatus)
