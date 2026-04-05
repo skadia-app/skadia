@@ -4,46 +4,25 @@ import { useClickOutside } from '@/hooks/useClickOutside'
 import { fetchTags, createTag, unassignActivitiesFromTag, assignActivitiesToTag } from '@/api/tags'
 import { updateActivity } from '@/api/activities'
 import { getTagBadgeStyle } from '@/lib/tagUtils'
-import { fetchRules } from '@/api/rules'
-import type { AutomationRule } from '@/api/types'
-import { haversineM } from '@/lib/geoUtils'
 import CommuteModal from './CommuteModal'
+
+interface CommuteContext {
+  hasGps: boolean
+  distanceM: number
+  startLat: number
+  startLon: number
+  endLat: number
+  endLon: number
+}
 
 interface TagsBadgesProps {
   tags: string[]
   activityId: string
   isVirtual?: boolean
-  hasGps?: boolean
-  distanceM?: number | null
-  startLat?: number | null
-  startLon?: number | null
-  endLat?: number | null
-  endLon?: number | null
+  commuteContext?: CommuteContext
 }
 
-function commuteRouteExists(rule: AutomationRule, sLat: number, sLon: number, eLat: number, eLon: number): boolean {
-  if (!rule.branches) return false
-  const threshold = 200
-  for (const branch of rule.branches) {
-    if (!branch.condition_groups?.[0]?.conditions) continue
-    let bsLat = 0, bsLon = 0, beLat = 0, beLon = 0
-    let hasStart = false, hasEnd = false
-    for (const c of branch.condition_groups[0].conditions) {
-      if (c.field !== 'geofence' || !c.value || typeof c.value !== 'object') continue
-      const v = c.value as Record<string, unknown>
-      if (v['check'] === 'start') { bsLat = v['lat'] as number; bsLon = v['lon'] as number; hasStart = true }
-      if (v['check'] === 'end') { beLat = v['lat'] as number; beLon = v['lon'] as number; hasEnd = true }
-    }
-    if (!hasStart || !hasEnd) continue
-    if ((haversineM(sLat, sLon, bsLat, bsLon) <= threshold && haversineM(eLat, eLon, beLat, beLon) <= threshold) ||
-        (haversineM(sLat, sLon, beLat, beLon) <= threshold && haversineM(eLat, eLon, bsLat, bsLon) <= threshold)) {
-      return true
-    }
-  }
-  return false
-}
-
-export default function TagsBadges({ tags, activityId, isVirtual, hasGps, distanceM, startLat, startLon, endLat, endLon }: TagsBadgesProps) {
+export default function TagsBadges({ tags, activityId, isVirtual, commuteContext }: TagsBadgesProps) {
   const queryClient = useQueryClient()
   const [addOpen, setAddOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -100,23 +79,14 @@ export default function TagsBadges({ tags, activityId, isVirtual, hasGps, distan
       // Orphan tag or edge case → direct TEXT[] update
       return updateActivity(activityId, { tags: [...tags, tagToAdd] })
     },
-    onSuccess: async (updated, tagName) => {
+    onSuccess: (updated, tagName) => {
       queryClient.setQueryData(['activity', activityId], updated)
       setSearch('')
       setAddOpen(false)
 
       // Show commute modal when Pendeln tag is added to GPS activity with sufficient distance
-      if (tagName.toLowerCase() === 'pendeln' && hasGps && (distanceM ?? 0) >= 400
-          && startLat != null && startLon != null && endLat != null && endLon != null) {
-        try {
-          const allRules = await fetchRules()
-          const commuteRule = allRules.find(r => r.system_type === 'commute_auto')
-          if (!commuteRule || !commuteRouteExists(commuteRule, startLat, startLon, endLat, endLon)) {
-            setShowCommuteModal(true)
-          }
-        } catch {
-          setShowCommuteModal(true)
-        }
+      if (tagName.toLowerCase() === 'pendeln' && commuteContext && commuteContext.distanceM >= 400) {
+        setShowCommuteModal(true)
       }
     },
   })

@@ -486,12 +486,14 @@ export default function ActivityDetailPage() {
           tags={activity.tags}
           activityId={activity.id}
           isVirtual={activity.is_virtual}
-          hasGps={activity.has_gps}
-          distanceM={activity.distance_m}
-          startLat={activity.start_lat}
-          startLon={activity.start_lon}
-          endLat={activity.end_lat}
-          endLon={activity.end_lon}
+          commuteContext={activity.has_gps && activity.start_lat != null && activity.end_lat != null ? {
+            hasGps: true,
+            distanceM: activity.distance_m ?? 0,
+            startLat: activity.start_lat,
+            startLon: activity.start_lon!,
+            endLat: activity.end_lat,
+            endLon: activity.end_lon!,
+          } : undefined}
         />
       </div>
 
