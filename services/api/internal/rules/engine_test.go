@@ -53,6 +53,105 @@ func TestEvaluateGroups_Geofence_Inside(t *testing.T) {
 	}
 }
 
+func TestEvaluateGroups_Geofence_CheckEnd(t *testing.T) {
+	groups := []rules.ConditionGroup{
+		{Logic: "and", Conditions: []rules.Condition{
+			{Field: "geofence", Op: "eq", Value: map[string]any{
+				"check": "end", "mode": "inside", "shape": "circle",
+				"lat": 48.137, "lon": 11.576, "radius_m": 5000.0,
+			}},
+		}},
+	}
+	act := map[string]any{"end_lat": 48.1374, "end_lon": 11.5755}
+	if !rules.EvaluateGroups(groups, act) {
+		t.Error("expected end point inside geofence")
+	}
+	actNoEnd := map[string]any{"start_lat": 48.1374, "start_lon": 11.5755}
+	if rules.EvaluateGroups(groups, actNoEnd) {
+		t.Error("expected false when end coordinates missing")
+	}
+}
+
+func TestEvaluateGroups_Geofence_CheckDefaultsToStart(t *testing.T) {
+	groups := []rules.ConditionGroup{
+		{Logic: "and", Conditions: []rules.Condition{
+			{Field: "geofence", Op: "eq", Value: map[string]any{
+				"mode": "inside", "shape": "circle",
+				"lat": 48.137, "lon": 11.576, "radius_m": 5000.0,
+			}},
+		}},
+	}
+	act := map[string]any{"start_lat": 48.1374, "start_lon": 11.5755}
+	if !rules.EvaluateGroups(groups, act) {
+		t.Error("expected default check=start to match")
+	}
+}
+
+func TestEvaluateGroups_Geofence_Outside(t *testing.T) {
+	groups := []rules.ConditionGroup{
+		{Logic: "and", Conditions: []rules.Condition{
+			{Field: "geofence", Op: "eq", Value: map[string]any{
+				"check": "start", "mode": "outside", "shape": "circle",
+				"lat": 48.137, "lon": 11.576, "radius_m": 100.0,
+			}},
+		}},
+	}
+	act := map[string]any{"start_lat": 49.0, "start_lon": 12.0}
+	if !rules.EvaluateGroups(groups, act) {
+		t.Error("expected outside geofence to match")
+	}
+	actInside := map[string]any{"start_lat": 48.137, "start_lon": 11.576}
+	if rules.EvaluateGroups(groups, actInside) {
+		t.Error("expected outside geofence to NOT match when inside")
+	}
+}
+
+func TestEvaluateGroups_Geofence_Polygon(t *testing.T) {
+	polygon := `{"type":"Polygon","coordinates":[[[11.5,48.1],[11.6,48.1],[11.6,48.2],[11.5,48.2],[11.5,48.1]]]}`
+	groups := []rules.ConditionGroup{
+		{Logic: "and", Conditions: []rules.Condition{
+			{Field: "geofence", Op: "eq", Value: map[string]any{
+				"check": "start", "mode": "inside", "shape": "polygon",
+				"polygon": polygon,
+			}},
+		}},
+	}
+	act := map[string]any{"start_lat": 48.15, "start_lon": 11.55}
+	if !rules.EvaluateGroups(groups, act) {
+		t.Error("expected point inside polygon")
+	}
+	actOutside := map[string]any{"start_lat": 49.0, "start_lon": 12.0}
+	if rules.EvaluateGroups(groups, actOutside) {
+		t.Error("expected point outside polygon")
+	}
+}
+
+func TestEvaluateGroups_Geofence_TrackPrecomputed(t *testing.T) {
+	groups := []rules.ConditionGroup{
+		{Logic: "and", Conditions: []rules.Condition{
+			{Field: "geofence", Op: "eq", Value: map[string]any{
+				"check": "track", "mode": "inside", "shape": "circle",
+				"lat": 48.137, "lon": 11.576, "radius_m": 1000.0,
+			}},
+		}},
+	}
+	key := rules.GeofenceTrackKey(map[string]any{
+		"shape": "circle", "lat": 48.137, "lon": 11.576, "radius_m": 1000.0,
+	})
+	act := map[string]any{key: true}
+	if !rules.EvaluateGroups(groups, act) {
+		t.Error("expected precomputed track result true")
+	}
+	actFalse := map[string]any{key: false}
+	if rules.EvaluateGroups(groups, actFalse) {
+		t.Error("expected precomputed track result false")
+	}
+	actMissing := map[string]any{}
+	if rules.EvaluateGroups(groups, actMissing) {
+		t.Error("expected false when track result missing")
+	}
+}
+
 func TestEvaluateGroups_Pace(t *testing.T) {
 	groups := []rules.ConditionGroup{
 		{Logic: "and", Conditions: []rules.Condition{
