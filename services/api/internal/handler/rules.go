@@ -292,23 +292,21 @@ func (h *Handler) dryRunAllRules(w http.ResponseWriter, r *http.Request, userID 
 			}
 			if automation.EvaluateRule(rule, actMap) {
 				var actions []rules.Action
-				if len(rule.Branches) > 0 && string(rule.Branches) != "null" {
-					type branchInfo struct {
-						Type            string                 `json:"type"`
-						ConditionGroups []rules.ConditionGroup `json:"condition_groups"`
-						Actions         json.RawMessage        `json:"actions"`
-					}
-					var branches []branchInfo
-					if err := json.Unmarshal(rule.Branches, &branches); err == nil {
-						for _, br := range branches {
-							matched := br.Type == "else"
-							if !matched && len(br.ConditionGroups) > 0 {
-								matched = rules.EvaluateGroups(br.ConditionGroups, actMap)
+				if rule.HasBranches() {
+					branches := rules.ParseBranches(rule.Branches)
+					for i, br := range branches {
+						var matched bool
+						if br.Type == "else" {
+							if i > 0 {
+								matched = true
 							}
-							if matched {
-								_ = json.Unmarshal(br.Actions, &actions)
-								break
-							}
+							// else: ELSE at position 0 is invalid, skip
+						} else if len(br.ConditionGroups) > 0 && rules.EvaluateGroups(br.ConditionGroups, actMap) {
+							matched = true
+						}
+						if matched {
+							_ = json.Unmarshal(br.Actions, &actions)
+							break
 						}
 					}
 				} else {

@@ -312,7 +312,12 @@ export default function PrivacySettingsPage() {
       })
       setCommuteZones(null)
     },
-    onError: () => {
+    onError: (error: any) => {
+      if (error?.status === 409) {
+        addToast({ type: 'info', title: 'Strecke bereits in Pendel-Regel vorhanden' })
+        setCommuteZones(null)
+        return
+      }
       addToast({ type: 'error', title: 'Fehler beim Erstellen', duration: 0 })
     },
   })
