@@ -15,6 +15,46 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
+// ForEachUser iterates over all users in batches, calling fn for each user ID.
+// Stops early if fn returns an error or ctx is cancelled.
+func (db *DB) ForEachUser(ctx context.Context, fn func(userID string) error) error {
+	const batchSize = 100
+	var cursor string
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		rows, err := db.Pool.Query(ctx,
+			"SELECT id FROM users WHERE id > $1 ORDER BY id LIMIT $2",
+			cursor, batchSize)
+		if err != nil {
+			return err
+		}
+		count := 0
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			cursor = id
+			count++
+			if err := fn(id); err != nil {
+				rows.Close()
+				return err
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if count < batchSize {
+			break
+		}
+	}
+	return nil
+}
+
 // ListActiveUserIDs returns the IDs of all active users.
 func (db *DB) ListActiveUserIDs(ctx context.Context) ([]string, error) {
 	rows, err := db.Pool.Query(ctx, `SELECT id FROM users WHERE is_active = true AND deleted_at IS NULL`)
