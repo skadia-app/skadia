@@ -36,6 +36,8 @@ export interface ProfileConfig {
   track_grade1_cost?: number
   track_grade2_cost?: number
   track_grade3_cost?: number
+  track_grade4_cost?: number
+  track_grade5_cost?: number
   footway_cost?: number
   cycleway_cost?: number
   bridleway_cost?: number
@@ -500,7 +502,8 @@ export function serverResponseToConfig(resp: ProfileDefaultsResponse): ProfileCo
     'cycleroute_boost', 'hikeroute_boost',
     'path_preference', 'turn_cost', 'initial_cost_road', 'pass0_coefficient',
     'path_cost', 'track_cost', 'track_grade1_cost', 'track_grade2_cost',
-    'track_grade3_cost', 'footway_cost', 'cycleway_cost', 'bridleway_cost',
+    'track_grade3_cost', 'track_grade4_cost', 'track_grade5_cost',
+    'footway_cost', 'cycleway_cost', 'bridleway_cost',
     'pedestrian_cost', 'residential_cost', 'service_cost', 'unclassified_cost',
     'tertiary_cost', 'secondary_cost', 'primary_cost',
   ]
