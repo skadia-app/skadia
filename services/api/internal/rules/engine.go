@@ -3,6 +3,7 @@ package rules
 import (
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"math"
 	"slices"
 	"strconv"
@@ -139,14 +140,8 @@ func evalGroup(g ConditionGroup, activity map[string]any) bool {
 }
 
 func evalCondition(c Condition, activity map[string]any) bool {
-	if c.Field == "geofence" {
+	if c.Field == "geofence" || c.Field == "geofence_zone" || c.Field == "geofence_proximity" {
 		return evalGeofence(c, activity)
-	}
-	if c.Field == "geofence_zone" {
-		return evalGeofenceZone(c, activity)
-	}
-	if c.Field == "geofence_proximity" {
-		return evalGeofenceProximity(c, activity)
 	}
 	if c.Field == "avg_pace_min_km" || c.Field == "min_pace_min_km" || c.Field == "max_pace_min_km" {
 		return evalPace(c, activity)
@@ -224,53 +219,54 @@ func evalCondition(c Condition, activity map[string]any) bool {
 	}
 }
 
+// evalGeofence checks whether a point (start, end, or precomputed track result)
+// is inside (or outside) a geofence circle or polygon.
+// op is ignored for geofence conditions — spatial logic is determined by mode (inside/outside).
 func evalGeofence(c Condition, activity map[string]any) bool {
 	params, ok := toStringMap(c.Value)
 	if !ok {
 		return false
 	}
-	lat := toFloat(params["lat"])
-	lon := toFloat(params["lon"])
-	radiusM := toFloat(params["radius_m"])
-	mode, _ := params["mode"].(string)
-	startLat, latOK := activity["start_lat"]
-	startLon, lonOK := activity["start_lon"]
-	if !latOK || !lonOK || startLat == nil || startLon == nil {
-		return false
-	}
-	dist := HaversineM(toFloat(startLat), toFloat(startLon), lat, lon)
-	inside := dist <= radiusM
-	if mode == "outside" {
-		return !inside
-	}
-	return inside
-}
-
-// evalGeofenceZone checks whether the activity start point is inside (or outside)
-// a drawn zone. The condition value must be a map with:
-//
-//	mode        "inside" | "outside"
-//	shape       "circle" | "polygon"
-//	lat, lon    float64 — center (circle only)
-//	radius_m    float64 — radius in metres (circle only)
-//	polygon     string  — GeoJSON Polygon string (polygon only)
-//
-// For polygon shapes a ray-casting point-in-polygon algorithm is used (no PostGIS
-// dependency). The polygon coordinates are expected as [lng, lat] pairs (GeoJSON).
-func evalGeofenceZone(c Condition, activity map[string]any) bool {
-	params, ok := toStringMap(c.Value)
-	if !ok {
-		return false
+	check, _ := params["check"].(string)
+	if check == "" {
+		check = "start" // default for backwards compatibility
 	}
 	mode, _ := params["mode"].(string)
 	shape, _ := params["shape"].(string)
-	startLat, latOK := activity["start_lat"]
-	startLon, lonOK := activity["start_lon"]
-	if !latOK || !lonOK || startLat == nil || startLon == nil {
-		return false
+	if shape == "" {
+		shape = "circle"
 	}
-	sLat := toFloat(startLat)
-	sLon := toFloat(startLon)
+
+	var pLat, pLon float64
+	switch check {
+	case "end":
+		endLat, latOK := activity["end_lat"]
+		endLon, lonOK := activity["end_lon"]
+		if !latOK || !lonOK || endLat == nil || endLon == nil {
+			return false
+		}
+		pLat = toFloat(endLat)
+		pLon = toFloat(endLon)
+	case "track":
+		key := geofenceTrackKey(params)
+		val, exists := activity[key]
+		if !exists {
+			return false
+		}
+		inside, _ := val.(bool)
+		if mode == "outside" {
+			return !inside
+		}
+		return inside
+	default: // "start"
+		startLat, latOK := activity["start_lat"]
+		startLon, lonOK := activity["start_lon"]
+		if !latOK || !lonOK || startLat == nil || startLon == nil {
+			return false
+		}
+		pLat = toFloat(startLat)
+		pLon = toFloat(startLon)
+	}
 
 	var inside bool
 	switch shape {
@@ -279,12 +275,12 @@ func evalGeofenceZone(c Condition, activity map[string]any) bool {
 		if polyStr == "" {
 			return false
 		}
-		inside = pointInGeoJSONPolygon(sLat, sLon, polyStr)
-	default: // "circle" and legacy default
+		inside = pointInGeoJSONPolygon(pLat, pLon, polyStr)
+	default: // "circle"
 		lat := toFloat(params["lat"])
 		lon := toFloat(params["lon"])
 		radiusM := toFloat(params["radius_m"])
-		inside = HaversineM(sLat, sLon, lat, lon) <= radiusM
+		inside = HaversineM(pLat, pLon, lat, lon) <= radiusM
 	}
 
 	if mode == "outside" {
@@ -293,31 +289,26 @@ func evalGeofenceZone(c Condition, activity map[string]any) bool {
 	return inside
 }
 
-// evalGeofenceProximity checks whether the activity start point is within (or
-// outside) a given radius of a pin point. Identical to the legacy evalGeofence
-// but registered under a separate field name so both can coexist.
-// Condition value must be a map with: lat, lon (float64), radius_m (float64),
-// mode ("inside" | "outside").
-func evalGeofenceProximity(c Condition, activity map[string]any) bool {
-	params, ok := toStringMap(c.Value)
-	if !ok {
-		return false
+// GeofenceTrackKey returns the activity-map key for a precomputed track intersection result.
+func GeofenceTrackKey(params map[string]any) string {
+	return geofenceTrackKey(params)
+}
+
+func geofenceTrackKey(params map[string]any) string {
+	shape, _ := params["shape"].(string)
+	if shape == "" {
+		shape = "circle"
+	}
+	if shape == "polygon" {
+		polyStr, _ := params["polygon"].(string)
+		h := fnv.New32a()
+		h.Write([]byte(polyStr))
+		return fmt.Sprintf("_geofence_track_polygon_%x", h.Sum32())
 	}
 	lat := toFloat(params["lat"])
 	lon := toFloat(params["lon"])
 	radiusM := toFloat(params["radius_m"])
-	mode, _ := params["mode"].(string)
-	startLat, latOK := activity["start_lat"]
-	startLon, lonOK := activity["start_lon"]
-	if !latOK || !lonOK || startLat == nil || startLon == nil {
-		return false
-	}
-	dist := HaversineM(toFloat(startLat), toFloat(startLon), lat, lon)
-	inside := dist <= radiusM
-	if mode == "outside" {
-		return !inside
-	}
-	return inside
+	return fmt.Sprintf("_geofence_track_circle_%.6f_%.6f_%d", lat, lon, int(radiusM))
 }
 
 // pointInGeoJSONPolygon checks whether (lat, lon) lies inside a GeoJSON
