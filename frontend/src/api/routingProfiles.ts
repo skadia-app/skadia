@@ -2,13 +2,15 @@ import { apiClient, apiUpload, API_BASE } from './client'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
+export type ProfileSource = 'system' | 'filesystem' | 'user'
+
 export interface RoutingProfileEntry {
   id: string
   name: string
   engine: 'badrouter' | 'brouter'
   base_profile: string
   sport_types: string[]
-  source: 'system' | 'user' | 'filesystem'
+  source: ProfileSource
   config: Record<string, unknown> | null
   editable: boolean
 }
