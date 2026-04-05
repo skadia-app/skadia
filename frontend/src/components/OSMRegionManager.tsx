@@ -235,7 +235,7 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
                   batchUpdateMut.mutate(rebuild)
                 }}
                 disabled={!!activeOsmJob || !!activeOsmUpdate || !!activeBatchUpdate || batchUpdateMut.isPending}
-                className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="cursor-pointer text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90"
               >
                 {activeBatchUpdate ? 'Batch-Update läuft…' : 'Alle Regionen aktualisieren'}
               </button>

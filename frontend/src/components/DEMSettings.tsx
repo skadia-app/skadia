@@ -27,56 +27,66 @@ export function DEMSettings() {
 
   const sources = data?.sources ?? []
 
+  // HGT coverage: how many 1°×1° tiles are present on disk for the tile builder
+  const hgtPresent = data?.regions?.reduce((s, r) => s + r.tiles_present, 0) ?? 0
+  const hgtNeeded = data?.regions?.reduce((s, r) => s + r.tiles_needed, 0) ?? 0
+  const incompleteRegions = data?.regions?.filter(r => !r.complete).map(r => r.id) ?? []
+
   return (
     <div className="space-y-3">
-      {sources.length === 0 ? (
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">Keine DEM-Höhendaten geladen.</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-neutral-500 dark:text-neutral-400 text-xs">
-                <th className="text-left pb-2 pr-4">Quelle</th>
-                <th className="text-left pb-2 pr-4">Auflösung</th>
-                <th className="text-left pb-2">Kacheln</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sources.map(s => (
-                <tr key={s.source} className="border-b last:border-0">
-                  <td className="py-2 pr-4 font-medium">{s.source}</td>
-                  <td className="py-2 pr-4 text-neutral-500 dark:text-neutral-400">{s.resolution_m}m</td>
-                  <td className="py-2 text-neutral-500 dark:text-neutral-400">{s.tile_count.toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
-            Gesamt: {data?.total_tiles.toLocaleString()} Kacheln
+      {/* HGT tile coverage — the only metric that matters for routing */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-neutral-700 dark:text-neutral-300">
+            <span className="font-medium">{hgtPresent.toLocaleString()}</span>
+            {hgtNeeded > 0 && <span className="text-neutral-500 dark:text-neutral-400">/{hgtNeeded.toLocaleString()}</span>}
+            {' '}HGT-Kacheln vorhanden
+            <span className="text-neutral-400 ml-1">(GLO-30, 30m)</span>
           </p>
+          {incompleteRegions.length > 0 && (
+            <p className="text-xs text-amber-500 mt-0.5">
+              {incompleteRegions.join(', ')} — Kacheln fehlen
+            </p>
+          )}
         </div>
-      )}
+        {data?.regions && data.regions.length > 0 && (data?.missing_tiles ?? 0) > 0 && (
+          <button
+            onClick={() => demDownloadMut.mutate()}
+            disabled={!!activeDEMJob || demDownloadMut.isPending}
+            className="cursor-pointer text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
+          >
+            {activeDEMJob ? 'Download läuft…' : 'Fehlende Kacheln herunterladen'}
+          </button>
+        )}
+      </div>
 
-      {data?.regions && data.regions.length > 0 && (
-        <div className="mt-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-neutral-600 dark:text-neutral-400">
-              {data.regions.reduce((s, r) => s + r.tiles_present, 0)}/{data.regions.reduce((s, r) => s + r.tiles_needed, 0)} Kacheln vorhanden
-              {data.missing_tiles > 0 && (
-                <span className="text-amber-500 ml-1">
-                  ({data.regions.filter(r => !r.complete).map(r => r.id).join(', ')} fehlen)
-                </span>
-              )}
-            </span>
-            <button
-              onClick={() => demDownloadMut.mutate()}
-              disabled={!data.missing_tiles || !!activeDEMJob || demDownloadMut.isPending}
-              className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              Fehlende DEM-Kacheln herunterladen
-            </button>
+      {/* DB raster tiles — secondary info in collapsible */}
+      {sources.length > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100">
+            Elevation-Datenquellen ({data?.total_tiles.toLocaleString()} DB-Raster-Kacheln)
+          </summary>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-neutral-500 dark:text-neutral-400 text-xs">
+                  <th className="text-left pb-2 pr-4">Quelle</th>
+                  <th className="text-left pb-2 pr-4">Auflösung</th>
+                  <th className="text-left pb-2">Kacheln</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sources.map(s => (
+                  <tr key={s.source} className="border-b last:border-0">
+                    <td className="py-2 pr-4 font-medium">{s.source}</td>
+                    <td className="py-2 pr-4 text-neutral-500 dark:text-neutral-400">{s.resolution_m}m</td>
+                    <td className="py-2 text-neutral-500 dark:text-neutral-400">{s.tile_count.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
+        </details>
       )}
 
       <details className="text-xs">
