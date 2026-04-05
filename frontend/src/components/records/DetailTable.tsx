@@ -93,7 +93,19 @@ export function DetailTable({ records, sportGroup }: DetailTableProps) {
                       delta = `+${fmtDuration(diff)}`
                     } else if (r.value_numeric != null && rank1Val != null) {
                       const diff = Math.abs(r.value_numeric - rank1Val)
-                      delta = `−${Math.round(diff)} W`
+                      if (cat.startsWith('power_')) {
+                        delta = `−${Math.round(diff)} W`
+                      } else if (cat === 'sup_longest_distance') {
+                        delta = diff >= 1000
+                          ? `−${(diff / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 })} km`
+                          : `−${Math.round(diff)} m`
+                      } else if (cat === 'sup_most_elevation' || cat === 'sup_biggest_climb') {
+                        delta = `−${Math.round(diff)} m`
+                      } else if (cat === 'sup_longest_duration') {
+                        delta = `−${fmtDuration(diff)}`
+                      } else {
+                        delta = `−${Math.round(diff)}`
+                      }
                     }
                     const d = formatBestEffortDisplay(cat, r.elapsed_time_s, r.value_numeric, sportGroup)
                     const style = RANK_STYLES[r.rank] ?? RANK_STYLES[3]
