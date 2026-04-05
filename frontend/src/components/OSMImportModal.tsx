@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X } from 'lucide-react'
-import { fetchOSMRegions, startOSMImport, type OSMRegion } from '@/api/osm'
+import { fetchOSMRegions, startOSMImport, getDEMRegionStatus, type OSMRegion, type DEMStatusResponse } from '@/api/osm'
 import { useToast } from '@/lib/toast'
 
 const ALL_CATEGORIES = [
@@ -68,7 +68,22 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
   const [runEnrichment, setRunEnrichment] = useState(true)
   const [buildCoverage, setBuildCoverage] = useState(false)
   const [buildTiles, setBuildTiles] = useState(false)
-  const tilesDisabled = !runEnrichment
+  const [downloadDEM, setDownloadDEM] = useState(false)
+
+  // DEM status for dependency checks
+  const { data: demStatus } = useQuery({
+    queryKey: ['dem-region-status'],
+    queryFn: getDEMRegionStatus,
+  })
+  const hasDEM = (demStatus?.total_tiles ?? 0) > 0 || (demStatus?.regions?.some(r => r.tiles_present > 0) ?? false)
+
+  const tilesDisabled = !runEnrichment || (!hasDEM && !downloadDEM)
+  const tilesDisabledReason = !runEnrichment
+    ? '(benötigt Enrichment)'
+    : (!hasDEM && !downloadDEM)
+      ? '(benötigt DEM — aktiviere "DEM herunterladen")'
+      : ''
+  const coverageDisabled = !runEnrichment
   // buildTopology removed: pgRouting 4.0+ removed pgr_createTopology
 
   const { data: regionsData, isLoading } = useQuery({
@@ -242,7 +257,10 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                   checked={runEnrichment}
                   onChange={e => {
                     setRunEnrichment(e.target.checked)
-                    if (!e.target.checked) setBuildTiles(false)
+                    if (!e.target.checked) {
+                      setBuildTiles(false)
+                      setBuildCoverage(false)
+                    }
                   }}
                   className="accent-accent-DEFAULT"
                 />
@@ -252,12 +270,25 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
+                  checked={downloadDEM}
+                  onChange={e => setDownloadDEM(e.target.checked)}
+                  className="accent-accent-DEFAULT"
+                />
+                <span className="text-neutral-700 dark:text-neutral-300">DEM-Höhendaten herunterladen</span>
+                <span className="text-xs text-neutral-400">(GLO-30, 30m — für Routing-Tiles)</span>
+                {hasDEM && <span className="text-xs text-green-500">(bereits vorhanden)</span>}
+              </label>
+              <label className={`flex items-center gap-2 text-sm ${coverageDisabled ? 'opacity-40' : ''}`}>
+                <input
+                  type="checkbox"
                   checked={buildCoverage}
+                  disabled={coverageDisabled}
                   onChange={e => setBuildCoverage(e.target.checked)}
                   className="accent-accent-DEFAULT"
                 />
                 <span className="text-neutral-700 dark:text-neutral-300">Coverage-Grids bauen</span>
                 <span className="text-xs text-neutral-400">(Wald, Lärm, Verkehr — für Karten-Overlays)</span>
+                {coverageDisabled && <span className="text-xs text-red-500">(benötigt Enrichment)</span>}
               </label>
               <label className={`flex items-center gap-2 text-sm ${tilesDisabled ? 'opacity-40' : ''}`}>
                 <input
@@ -269,7 +300,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                 />
                 <span className="text-neutral-700 dark:text-neutral-300">Routing-Tiles bauen</span>
                 <span className="text-xs text-neutral-400">(BadRouter Graph mit DEM)</span>
-                {tilesDisabled && <span className="text-xs text-red-500">(benötigt Enrichment)</span>}
+                {tilesDisabled && <span className="text-xs text-red-500">{tilesDisabledReason}</span>}
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -283,6 +314,78 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
               </label>
             </div>
           </div>
+
+          {/* Sektion 3b: Speicherbedarf */}
+          {selectedRegions.length > 0 && (
+            <div className="rounded-lg bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 px-4 py-3 text-xs space-y-1">
+              <p className="font-medium text-neutral-700 dark:text-neutral-300 mb-1">Geschätzter Speicherbedarf</p>
+              {(() => {
+                const pbfMB = selectedRegions.reduce((sum, id) => {
+                  const reg = regionsData?.regions.find(r => r.id === id)
+                  return sum + (reg?.size_mb ?? 0)
+                }, 0)
+                // DEM tiles: use region status if available, otherwise estimate from catalog BBox
+                const demTiles = (() => {
+                  if (demStatus?.regions && demStatus.regions.length > 0) {
+                    return demStatus.regions
+                      .filter(r => selectedRegions.includes(r.id))
+                      .reduce((sum, r) => sum + Math.max(0, r.tiles_needed - r.tiles_present), 0)
+                  }
+                  // Fallback for first import: estimate from catalog size (rough: size_mb / 25)
+                  return selectedRegions.reduce((sum, id) => {
+                    const reg = regionsData?.regions.find(r => r.id === id)
+                    if (!reg) return sum
+                    // Approximate: 1 tile per ~100km², region area from BBox
+                    const latRange = Math.ceil(Math.abs((reg as any).max_lat - (reg as any).min_lat)) + 1
+                    const lonRange = Math.ceil(Math.abs((reg as any).max_lon - (reg as any).min_lon)) + 1
+                    return sum + latRange * lonRange
+                  }, 0)
+                })()
+                const demMB = downloadDEM ? demTiles * 25 : 0
+                const pgMB = pbfMB * 4
+                const routingMB = (buildTiles || buildCoverage) ? pbfMB * 4 : 0
+                const totalMB = pbfMB + demMB + pgMB + routingMB
+                const freeMB = (demStatus?.disk_free_bytes ?? 0) / 1024 / 1024
+
+                return (
+                  <>
+                    <p className="text-neutral-500 dark:text-neutral-400">
+                      PBF-Download: <span className="font-mono">{(pbfMB / 1024).toFixed(1)} GB</span>
+                    </p>
+                    {downloadDEM && (
+                      <p className="text-neutral-500 dark:text-neutral-400">
+                        DEM-Höhendaten: <span className="font-mono">~{(demMB / 1024).toFixed(1)} GB</span>
+                        <span className="text-neutral-400"> ({demTiles} Kacheln × 25 MB)</span>
+                      </p>
+                    )}
+                    <p className="text-neutral-500 dark:text-neutral-400">
+                      PostgreSQL: <span className="font-mono">~{(pgMB / 1024).toFixed(1)} GB</span>
+                      <span className="text-neutral-400"> (ca. 4× PBF)</span>
+                    </p>
+                    {(buildTiles || buildCoverage) && (
+                      <p className="text-neutral-500 dark:text-neutral-400">
+                        Routing + Coverage: <span className="font-mono">~{(routingMB / 1024).toFixed(1)} GB</span>
+                        <span className="text-neutral-400"> (ca. 4× PBF)</span>
+                      </p>
+                    )}
+                    <div className="border-t border-neutral-200 dark:border-neutral-700 mt-1 pt-1 flex justify-between">
+                      <span className="font-medium text-neutral-600 dark:text-neutral-300">
+                        Gesamt: ~{(totalMB / 1024).toFixed(1)} GB
+                      </span>
+                      <span className={`font-medium ${freeMB < totalMB ? 'text-red-500' : 'text-neutral-500 dark:text-neutral-400'}`}>
+                        Verfügbar: {(freeMB / 1024).toFixed(0)} GB
+                      </span>
+                    </div>
+                    {totalMB > 0 && (
+                      <p className="text-neutral-400 mt-1">
+                        In Summe bis zu 12× der PBF-Größe wenn alle Optionen aktiviert.
+                      </p>
+                    )}
+                  </>
+                )
+              })()}
+            </div>
+          )}
 
           {/* Sektion 4: Hinweise */}
           <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-4 py-3 text-xs text-amber-700 dark:text-amber-400 space-y-1">
@@ -315,8 +418,9 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                   categories: selectedCategories,
                   build_brouter: buildBRouter,
                   run_enrichment: runEnrichment,
-                  build_coverage: buildCoverage,
+                  build_coverage: buildCoverage && runEnrichment,
                   build_tiles: buildTiles && runEnrichment,
+                  download_dem: downloadDEM,
                 })
               }}
               disabled={!canStart}
