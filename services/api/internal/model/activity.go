@@ -795,6 +795,11 @@ type AutomationRule struct {
 	Branches         json.RawMessage `json:"branches,omitempty"     db:"branches"`
 }
 
+// HasBranches reports whether the rule has a non-empty branches array.
+func (r AutomationRule) HasBranches() bool {
+	return len(r.Branches) > 0 && string(r.Branches) != "null"
+}
+
 // AutomationRuleCreate is the request body for creating an automation rule.
 type AutomationRuleCreate struct {
 	Name             string          `json:"name"`
