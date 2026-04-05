@@ -265,6 +265,11 @@ export interface Activity {
   vo2max_hr_source?: string
   vo2max_speed_source?: string
 
+  // ── Suunto-specific metrics ──
+  suunto_vo2max?: number | null
+  suunto_peak_epoc?: number | null
+  suunto_recovery_time_h?: number | null
+
   // ── Running Form (computed metrics) ──
   running_form_duty_factor?: number | null
   running_form_vertical_ratio?: number | null

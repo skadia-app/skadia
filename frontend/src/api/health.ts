@@ -69,6 +69,16 @@ export interface HealthWeightEntry {
   created_at: string
 }
 
+export interface HealthBloodPressureEntry {
+  user_id: string
+  measured_at_utc: string
+  systolic: number | null
+  diastolic: number | null
+  pulse: number | null
+  source_type: string
+  created_at: string
+}
+
 export interface HealthReadinessScore {
   user_id: string
   calendar_date: string

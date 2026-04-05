@@ -579,6 +579,28 @@ export default function ActivityDetailPage() {
       {/* Health context from the night before (sleep, HRV, resting HR) */}
       <HealthContextCards activityId={activity.id} />
 
+      {/* Suunto-specific metrics: Peak EPOC + Recovery Time */}
+      {(activity.suunto_peak_epoc != null || activity.suunto_recovery_time_h != null) && (
+        <div className="flex flex-wrap gap-3">
+          {activity.suunto_peak_epoc != null && (
+            <div className="flex-1 min-w-0 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3 space-y-1">
+              <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Peak EPOC</div>
+              <div className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+                {activity.suunto_peak_epoc.toFixed(1)}
+              </div>
+            </div>
+          )}
+          {activity.suunto_recovery_time_h != null && (
+            <div className="flex-1 min-w-0 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3 space-y-1">
+              <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Recovery Time</div>
+              <div className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+                {Math.floor(activity.suunto_recovery_time_h)} h {Math.round((activity.suunto_recovery_time_h % 1) * 60)} min
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* PR badges and near-miss notifications */}
       {bestEffortsData && (bestEffortsData.best_efforts.length > 0 || bestEffortsData.near_misses.length > 0) && (
         <BestEffortBadges
