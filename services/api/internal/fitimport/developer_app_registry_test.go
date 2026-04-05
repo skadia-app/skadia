@@ -88,8 +88,9 @@ func TestExtractDeveloperApps_Zepp4ByteAppID(t *testing.T) {
 	}
 }
 
-func TestExtractDeveloperApps_LegacyStryd(t *testing.T) {
-	// Legacy Stryd: 16 bytes, last byte 0x47
+func TestExtractDeveloperApps_COROS(t *testing.T) {
+	// COROS: 16 bytes, last byte 0x47. Exports Stryd-compatible fields
+	// (Form Power, Air Power, LSS) plus COROS-own (Effort Pace, Sat, cog, hdop).
 	appID := []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x47}
 	devDataIds := []*mesgdef.DeveloperDataId{
 		{ApplicationId: appID},
@@ -97,10 +98,10 @@ func TestExtractDeveloperApps_LegacyStryd(t *testing.T) {
 
 	result := ExtractDeveloperApps(devDataIds)
 	if len(result) != 1 {
-		t.Fatalf("expected 1 result for legacy Stryd, got %d", len(result))
+		t.Fatalf("expected 1 result for COROS, got %d", len(result))
 	}
-	if result[0].AppName != "Stryd" {
-		t.Errorf("AppName: got %q, want %q", result[0].AppName, "Stryd")
+	if result[0].AppName != "COROS" {
+		t.Errorf("AppName: got %q, want %q", result[0].AppName, "COROS")
 	}
 	if result[0].AppCategory != "app_running_power" {
 		t.Errorf("AppCategory: got %q, want %q", result[0].AppCategory, "app_running_power")

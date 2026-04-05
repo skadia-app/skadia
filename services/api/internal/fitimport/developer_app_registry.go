@@ -17,17 +17,22 @@ type DeveloperAppInfo struct {
 // knownDeveloperApps maps lowercase hex application_id → app metadata.
 // Categories always use the "app_" prefix to avoid collision with ANT+ device types.
 var knownDeveloperApps = map[string]DeveloperAppInfo{
-	// Stryd — 3 App-IDs, alle → derselbe devices-Eintrag "Stryd"
+	// Stryd — 2 App-IDs (different firmware generations)
 	"18fb2cf01a4b430dad66988c847421f4": {Name: "Stryd", Category: "app_running_power"},
 	"660a581e5301460c8f2f034c8b6dc90f": {Name: "Stryd", Category: "app_running_power"},
-	"00000000000000000000000000000047": {Name: "Stryd", Category: "app_running_power"},
+
+	// COROS — exports Stryd-compatible fields (Form Power, Air Power, LSS) plus
+	// its own fields (Effort Pace, Sat, cog, hdop, idx). App-ID 0x47.
+	"00000000000000000000000000000047": {Name: "COROS", Category: "app_running_power"},
 
 	// FORM Schwimmbrille
 	"ca3ce193fffc4fae97408a2d4c41d196": {Name: "FORM", Category: "app_swim_goggle"},
 
 	// Bike Power
 	"d8f70721853a40be80dd316738ee1198": {Name: "Daefore", Category: "app_bike_power"},
-	"741afa11025048e286b514bd47e29391": {Name: "Wahoo RGT", Category: "app_bike_power"},
+	// RideWithPower — Garmin Connect IQ app for estimated power without a power meter.
+	// Fields: RP_Power, RP_AvgLapPower, RP_AvgPower, RP_SD, RP_WindEnabled.
+	"741afa11025048e286b514bd47e29391": {Name: "RideWithPower", Category: "app_bike_power"},
 
 	// Wearable
 	"7a657070": {Name: "Zepp", Category: "app_wearable"},
