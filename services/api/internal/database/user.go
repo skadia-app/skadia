@@ -25,7 +25,7 @@ func (db *DB) ForEachUser(ctx context.Context, fn func(userID string) error) err
 			return ctx.Err()
 		}
 		rows, err := db.Pool.Query(ctx,
-			"SELECT id FROM users WHERE id > $1 ORDER BY id LIMIT $2",
+			"SELECT id FROM users WHERE id > $1 AND deleted_at IS NULL ORDER BY id LIMIT $2",
 			cursor, batchSize)
 		if err != nil {
 			return err

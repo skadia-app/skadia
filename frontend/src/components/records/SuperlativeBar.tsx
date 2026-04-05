@@ -43,7 +43,7 @@ export function SuperlativeBar({ records }: SuperlativeBarProps) {
           <div className="text-base font-bold">
             {formatBestEffortValue(s.category, s.elapsed_time_s, s.value_numeric)}
           </div>
-          <div className="text-[9px] text-neutral-600">{fmtDateMedium(s.achieved_at)}</div>
+          <div className="text-[9px] text-neutral-500 dark:text-neutral-400">{fmtDateMedium(s.achieved_at)}</div>
         </Link>
       ))}
     </div>
