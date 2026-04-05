@@ -181,50 +181,61 @@ func (h *Handler) GetDEMRegionStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Use tile status manifest to distinguish land vs ocean tiles.
+	// Without manifest: all BBox tiles count as "needed" (overcount).
+	// With manifest: only known land tiles count as "needed" (accurate).
+	manifest := dem.LoadTileStatus(hgtDir)
+	hasManifest := manifest.HasManifest()
+
 	var regionStatus []dem.RegionDEMStatus
 	var missingTiles int
 	if len(regs) > 0 {
-		cellSet := make(map[dem.HGTCell]bool)
-		regionCells := make(map[string][]dem.HGTCell)
+		allMissing := make(map[dem.HGTCell]bool) // deduplicated across regions
+
 		for _, r := range regs {
-			cells := dem.HGTCellsForBBox(r.BBox)
-			regionCells[r.ID] = cells
-			for _, c := range cells {
-				cellSet[c] = true
-			}
-		}
-		present := make(map[dem.HGTCell]bool)
-		for c := range cellSet {
-			if _, err := os.Stat(filepath.Join(hgtDir, c.FileName())); err == nil {
-				present[c] = true
-			}
-		}
-		for _, r := range regs {
-			cells := regionCells[r.ID]
-			p := 0
-			for _, c := range cells {
-				if present[c] {
-					p++
-				}
-			}
-			// A region is "complete" if at least 50% of BBox tiles are present.
-			// Many BBox tiles are ocean (e.g. Portugal Azores) — 100% is unreachable.
+			allCells := dem.HGTCellsForBBox(r.BBox)
+
 			reg, _ := osmregions.RegionByID(r.ID)
 			label := r.ID
 			if reg.Label != "" {
 				label = reg.Label
 			}
-			regionStatus = append(regionStatus, dem.RegionDEMStatus{
-				ID: r.ID, Label: label, TilesNeeded: len(cells), TilesPresent: p,
-				Complete: len(cells) == 0 || p >= len(cells)/2,
-			})
-		}
-		// Count globally missing tiles (deduplicated across regions)
-		for c := range cellSet {
-			if !present[c] {
-				missingTiles++
+
+			if hasManifest {
+				// Manifest available: count only known land tiles as "needed"
+				landCells := manifest.LandTilesForCells(allCells)
+				present := 0
+				for _, c := range landCells {
+					if _, err := os.Stat(filepath.Join(hgtDir, c.FileName())); err == nil {
+						present++
+					} else {
+						allMissing[c] = true
+					}
+				}
+				regionStatus = append(regionStatus, dem.RegionDEMStatus{
+					ID: r.ID, Label: label,
+					TilesNeeded: len(landCells), TilesPresent: present,
+					Complete: len(landCells) == 0 || present >= len(landCells),
+				})
+			} else {
+				// No manifest yet: count HGT files on disk, show as "X Kacheln"
+				// without claiming anything about completeness
+				present := 0
+				for _, c := range allCells {
+					if _, err := os.Stat(filepath.Join(hgtDir, c.FileName())); err == nil {
+						present++
+					}
+				}
+				regionStatus = append(regionStatus, dem.RegionDEMStatus{
+					ID: r.ID, Label: label,
+					TilesNeeded: -1, // -1 = unknown (no manifest)
+					TilesPresent: present,
+					Complete: false, // can't determine without manifest
+				})
 			}
 		}
+
+		missingTiles = len(allMissing)
 	}
 	if regionStatus == nil {
 		regionStatus = []dem.RegionDEMStatus{}

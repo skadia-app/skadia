@@ -2,6 +2,7 @@ package dem
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,11 +12,87 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 
 	"golang.org/x/sync/errgroup"
 )
+
+// TileStatus tracks whether an HGT cell is land or ocean on Copernicus.
+// Persisted as .tile_status.json in the output directory.
+type TileStatus struct {
+	mu     sync.Mutex
+	status map[string]string // cell filename (e.g. "N47E011.hgt") → "land" | "ocean"
+	path   string
+}
+
+const (
+	tileStatusLand  = "land"
+	tileStatusOcean = "ocean"
+)
+
+// LoadTileStatus loads or creates the tile status manifest.
+func LoadTileStatus(outputDir string) *TileStatus {
+	ts := &TileStatus{
+		status: make(map[string]string),
+		path:   filepath.Join(outputDir, ".tile_status.json"),
+	}
+	data, err := os.ReadFile(ts.path)
+	if err == nil {
+		json.Unmarshal(data, &ts.status)
+	}
+	return ts
+}
+
+func (ts *TileStatus) Get(cellFile string) (string, bool) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	s, ok := ts.status[cellFile]
+	return s, ok
+}
+
+func (ts *TileStatus) Set(cellFile, status string) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.status[cellFile] = status
+}
+
+// Save persists the manifest to disk (atomic write).
+func (ts *TileStatus) Save() error {
+	ts.mu.Lock()
+	data, err := json.MarshalIndent(ts.status, "", "  ")
+	ts.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	tmp := ts.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, ts.path)
+}
+
+// LandTilesForCells returns the subset of cells known to be land tiles.
+// Unknown cells (not in manifest) are NOT counted as land.
+func (ts *TileStatus) LandTilesForCells(cells []HGTCell) []HGTCell {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	var land []HGTCell
+	for _, c := range cells {
+		if ts.status[c.FileName()] == tileStatusLand {
+			land = append(land, c)
+		}
+	}
+	return land
+}
+
+// HasManifest returns true if the manifest exists and has entries.
+func (ts *TileStatus) HasManifest() bool {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	return len(ts.status) > 0
+}
 
 // DEMSourceConfig describes a downloadable DEM source.
 type DEMSourceConfig struct {
@@ -67,6 +144,8 @@ type DownloadResult struct {
 }
 
 // DownloadMissingTiles downloads and converts missing HGT tiles for the given cells.
+// Uses a tile status manifest (.tile_status.json) to track land vs ocean tiles.
+// Known ocean tiles are skipped without HTTP requests. New discoveries are persisted.
 // progress is called after each tile with (completed, total).
 func DownloadMissingTiles(ctx context.Context, cfg DEMSourceConfig, cells []HGTCell,
 	progress func(completed, total int64)) (DownloadResult, error) {
@@ -88,14 +167,24 @@ func DownloadMissingTiles(ctx context.Context, cfg DEMSourceConfig, cells []HGTC
 		}
 	}()
 
-	// Filter to missing tiles only
+	// Load tile status manifest (land vs ocean knowledge from previous downloads)
+	manifest := LoadTileStatus(cfg.OutputDir)
+	defer manifest.Save() // persist any new discoveries
+
+	// Filter: skip existing HGT files + known ocean tiles
 	var missing []HGTCell
 	skipped := 0
+	oceanSkippedFromManifest := 0
 	for _, c := range cells {
 		hgtPath := filepath.Join(cfg.OutputDir, c.FileName())
 		if _, err := os.Stat(hgtPath); err == nil {
 			skipped++
+			manifest.Set(c.FileName(), tileStatusLand) // retroactively mark existing tiles as land
 			continue
+		}
+		if status, ok := manifest.Get(c.FileName()); ok && status == tileStatusOcean {
+			oceanSkippedFromManifest++
+			continue // known ocean tile — skip without HTTP request
 		}
 		missing = append(missing, c)
 	}
@@ -150,6 +239,7 @@ func DownloadMissingTiles(ctx context.Context, cfg DEMSourceConfig, cells []HGTC
 				os.Remove(tifPath)
 				if isHTTP404(err) {
 					// Ocean tile — expected for coastal/island regions
+					manifest.Set(c.FileName(), tileStatusOcean) // persist for future runs
 					oceanCount.Add(1)
 					slog.Debug("dem download: ocean tile skipped", "cell", c.FileName())
 				} else {
@@ -180,6 +270,7 @@ func DownloadMissingTiles(ctx context.Context, cfg DEMSourceConfig, cells []HGTC
 
 			// Cleanup GeoTIFF immediately
 			os.Remove(tifPath)
+			manifest.Set(c.FileName(), tileStatusLand) // persist: this tile exists
 			dlCount.Add(1)
 			done := completed.Add(1)
 			progress(done, total)
@@ -192,7 +283,7 @@ func DownloadMissingTiles(ctx context.Context, cfg DEMSourceConfig, cells []HGTC
 	}
 
 	result.Downloaded = int(dlCount.Load())
-	result.OceanSkip = int(oceanCount.Load())
+	result.OceanSkip = int(oceanCount.Load()) + oceanSkippedFromManifest
 	result.Failed = int(failCount.Load())
 	return result, nil
 }

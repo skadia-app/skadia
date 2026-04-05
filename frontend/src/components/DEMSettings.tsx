@@ -52,28 +52,39 @@ export function DEMSettings() {
             </button>
           </div>
           <div className="flex flex-wrap gap-2">
-            {regions.map(r => (
-              <span
-                key={r.id}
-                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${
-                  r.complete
-                    ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+            {regions.map(r => {
+              // tiles_needed = -1 means no manifest yet (unknown completeness)
+              const hasManifest = r.tiles_needed >= 0
+              const statusColor = !hasManifest
+                ? (r.tiles_present > 0
+                    ? 'bg-neutral-500/10 text-neutral-600 dark:text-neutral-400'
+                    : 'bg-red-500/10 text-red-600 dark:text-red-400')
+                : r.complete
+                  ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                  : 'bg-red-500/10 text-red-600 dark:text-red-400'
+              const dotColor = !hasManifest
+                ? (r.tiles_present > 0 ? 'bg-neutral-400' : 'bg-red-500')
+                : r.complete ? 'bg-green-500' : 'bg-red-500'
+
+              return (
+                <span key={r.id} className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${statusColor}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
+                  {r.label}
+                  {hasManifest
+                    ? <span className="opacity-60">({r.tiles_present}/{r.tiles_needed})</span>
                     : r.tiles_present > 0
-                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                      : 'bg-red-500/10 text-red-600 dark:text-red-400'
-                }`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${
-                  r.complete ? 'bg-green-500' : r.tiles_present > 0 ? 'bg-amber-500' : 'bg-red-500'
-                }`} />
-                {r.label}
-                <span className="opacity-60">({r.tiles_present})</span>
-              </span>
-            ))}
+                      ? <span className="opacity-60">({r.tiles_present})</span>
+                      : null
+                  }
+                </span>
+              )
+            })}
           </div>
-          {incompleteRegions.length > 0 && (
-            <p className="text-xs text-amber-500">
-              DEM-Daten unvollständig — für Routing-Tiles erforderlich
+          {!allComplete && (
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              {regions.some(r => r.tiles_needed < 0)
+                ? 'DEM-Status unbekannt — einmal herunterladen um Abdeckung zu ermitteln'
+                : 'DEM-Daten unvollständig — für Routing-Tiles erforderlich'}
             </p>
           )}
         </div>
