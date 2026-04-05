@@ -50,6 +50,24 @@ func (h *Handler) GetActivityBestEfforts(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Merge percentiles into each best effort entry. A missing key means the
+	// category has fewer than 5 eligible efforts; Percentile stays nil.
+	if len(bestEfforts) > 0 {
+		percentiles, err := h.DB.GetEffortPercentiles(r.Context(), activityID, userID)
+		if err != nil {
+			// Non-fatal: percentiles are informational; log and continue.
+			slog.Warn("get effort percentiles failed", "activity_id", activityID, "error", err)
+		} else {
+			for i := range bestEfforts {
+				key := bestEfforts[i].Category + ":" + bestEfforts[i].SportGroup
+				if pct, ok := percentiles[key]; ok {
+					p := pct
+					bestEfforts[i].Percentile = &p
+				}
+			}
+		}
+	}
+
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"best_efforts": bestEfforts,
 		"near_misses":  nearMisses,
