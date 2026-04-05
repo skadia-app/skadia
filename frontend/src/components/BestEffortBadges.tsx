@@ -28,6 +28,42 @@ function rankLabel(rank: number): string {
   return `${rank}. Bestzeit`
 }
 
+// ── Percentile badge ──────────────────────────────────────────────────────────
+
+interface PercentileBadgeProps {
+  percentile: number | null | undefined
+  category: string
+}
+
+function PercentileBadge({ percentile, category }: PercentileBadgeProps) {
+  if (percentile == null || percentile < 0.50) return null
+
+  const topPct = Math.round((1 - percentile) * 100)
+  const label = categoryLabel(category)
+  const tooltip = `Diese Leistung liegt in deinen besten ${topPct}% aller ${label} Zeiten`
+
+  if (percentile >= 0.90) {
+    return (
+      <span
+        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+        title={tooltip}
+      >
+        Top {topPct}%
+      </span>
+    )
+  }
+
+  // percentile >= 0.75 (Top 25%)
+  return (
+    <span
+      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400"
+      title={tooltip}
+    >
+      Top {topPct}%
+    </span>
+  )
+}
+
 // ── Single effort badge with popover ─────────────────────────────────────────
 
 interface EffortBadgeProps {
@@ -62,7 +98,7 @@ function EffortBadge({ effort, activityId, onExcluded }: EffortBadgeProps) {
   })
 
   return (
-    <div className="relative" ref={popoverRef}>
+    <div className="relative inline-flex items-center gap-1.5" ref={popoverRef}>
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
@@ -74,6 +110,7 @@ function EffortBadge({ effort, activityId, onExcluded }: EffortBadgeProps) {
         <span className="opacity-75">{rankLabel(effort.rank)}</span>
         <span className="font-mono opacity-60">{formatBestEffortValue(effort.category, effort.elapsed_time_s, effort.value_numeric)}</span>
       </button>
+      <PercentileBadge percentile={effort.percentile} category={effort.category} />
 
       {open && (
         <div className="absolute left-0 top-full mt-1 z-50 w-52 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg p-2">
