@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/api/client'
-import { apiFetch } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
+import { fmtBytes } from '@/lib/format'
 import { FILE_TYPE_LABELS } from '@/api/shadowfs'
 import {
   HardDrive,
@@ -95,14 +95,6 @@ type SortDir = 'asc' | 'desc'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatBytes(bytes: number): string {
-  if (bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  const val = bytes / Math.pow(1024, i)
-  return `${val.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
-}
-
 const GB = 1024 * 1024 * 1024
 
 // ── Sub-components ───────────────────────────────────────────────────────────
@@ -187,15 +179,14 @@ export default function AdminStorageDashboard() {
     },
   })
 
-  const backfillMetaMut = useMutation<void, Error>({
-    mutationFn: async () => {
-      const res = await apiFetch('/api/v1/admin/storage/backfill-meta', { method: 'POST' })
-      const data = await res.json() as ActionResponse
-      if (data.status === 'already_running') {
+  const backfillMetaMut = useMutation<ActionResponse, Error>({
+    mutationFn: () => apiClient<ActionResponse>('/admin/storage/backfill-meta', { method: 'POST' }),
+    onSuccess: (res) => {
+      if (res.status === 'already_running') {
         addToast({ type: 'warning', title: LABELS.actions.backfillMetaRunning })
         return
       }
-      addToast({ type: 'success', title: LABELS.actions.backfillMetaStarted, message: `Job: ${data.job_id ?? '—'}` })
+      addToast({ type: 'success', title: LABELS.actions.backfillMetaStarted, message: `Job: ${res.job_id ?? '—'}` })
     },
     onError: (err) => {
       addToast({ type: 'error', title: LABELS.actions.backfillMetaFailed, message: err.message, duration: 0 })
@@ -213,6 +204,25 @@ export default function AdminStorageDashboard() {
     }
   }
 
+  // Sort users
+  const sortedUsers = useMemo(() => {
+    if (!data) return []
+    return [...data.users].sort((a, b) => {
+      const valA = sortKey === 'library_dir' ? a.library_dir : (a[sortKey] as number)
+      const valB = sortKey === 'library_dir' ? b.library_dir : (b[sortKey] as number)
+      if (typeof valA === 'string' && typeof valB === 'string') {
+        return sortDir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA)
+      }
+      return sortDir === 'asc' ? (valA as number) - (valB as number) : (valB as number) - (valA as number)
+    })
+  }, [data, sortKey, sortDir])
+
+  // Max count for bar charts
+  const { typeEntries, maxCount } = useMemo(() => {
+    const entries = data ? Object.entries(data.type_counts).sort((a, b) => b[1] - a[1]) : []
+    return { typeEntries: entries, maxCount: entries.length > 0 ? Math.max(...entries.map(([, c]) => c)) : 1 }
+  }, [data])
+
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-sm text-neutral-400 py-8">
@@ -229,20 +239,6 @@ export default function AdminStorageDashboard() {
       </div>
     )
   }
-
-  // Sort users
-  const sortedUsers = [...data.users].sort((a, b) => {
-    const valA = sortKey === 'library_dir' ? a.library_dir : (a[sortKey] as number)
-    const valB = sortKey === 'library_dir' ? b.library_dir : (b[sortKey] as number)
-    if (typeof valA === 'string' && typeof valB === 'string') {
-      return sortDir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA)
-    }
-    return sortDir === 'asc' ? (valA as number) - (valB as number) : (valB as number) - (valA as number)
-  })
-
-  // Max count for bar charts
-  const typeEntries = Object.entries(data.type_counts).sort((a, b) => b[1] - a[1])
-  const maxCount = typeEntries.length > 0 ? Math.max(...typeEntries.map(([, c]) => c)) : 1
 
   const keepVersionsLabel =
     LABELS.keepVersionsValues[String(data.keep_versions)] ?? String(data.keep_versions)
@@ -380,7 +376,7 @@ export default function AdminStorageDashboard() {
                         {user.library_dir}
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                        {formatBytes(user.disk_usage_bytes)}
+                        {fmtBytes(user.disk_usage_bytes)}
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
                         {/* TODO(i18n): replace 'de-DE' with user locale */}
@@ -393,7 +389,7 @@ export default function AdminStorageDashboard() {
                             : 'text-neutral-700 dark:text-neutral-300'
                         }`}>
                           {overLimit && <AlertTriangle className="w-3.5 h-3.5 shrink-0" role="img" aria-label={LABELS.archiveWarning} />}
-                          {formatBytes(user.archive_size_bytes)}
+                          {fmtBytes(user.archive_size_bytes)}
                         </span>
                       </td>
                     </tr>

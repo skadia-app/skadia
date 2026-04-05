@@ -60,7 +60,7 @@ const ImportsPage = lazy(() => import('@/pages/ImportsPage'))
 const DeviceListPage = lazy(() => import('@/pages/DeviceListPage'))
 const DeviceDetailPage = lazy(() => import('@/pages/DeviceDetailPage'))
 const ManualActivityPage = lazy(() => import('@/pages/ManualActivityPage'))
-const AdminUsersPage = lazy(() => import('@/pages/admin/AdminUsersPage'))
+// AdminUsersPage is now embedded in AdminSettingsTab (Settings → Admin tab)
 const AdminAuditLogPage = lazy(() => import('@/pages/admin/AdminAuditLogPage'))
 const WorkoutsPage = lazy(() => import('@/pages/WorkoutsPage'))
 const WorkoutDetailPage = lazy(() => import('@/pages/WorkoutDetailPage'))
@@ -187,7 +187,7 @@ export default function App() {
 
                             {/* Admin routes */}
                             <Route element={<AdminGuard />}>
-                              <Route path="admin/users" element={<AdminUsersPage />} />
+                              <Route path="admin/users" element={<Navigate to="/settings?tab=admin" replace />} />
                               <Route path="admin/audit-log" element={<AdminAuditLogPage />} />
                             </Route>
                           </Route>

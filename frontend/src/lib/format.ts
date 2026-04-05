@@ -133,6 +133,41 @@ export function fmtDateMedium(iso: string, timezone?: string | null): string {
   return new Date(iso).toLocaleDateString('de-DE', opts)
 }
 
+// ── Byte / size formatters ──────────────────────────────────────────────────
+
+/** Format bytes as human-readable string (B / KB / MB / GB / TB). Returns '—' for null/NaN/0. */
+export function fmtBytes(bytes: number | null | undefined): string {
+  if (bytes == null || isNaN(bytes) || bytes <= 0) return '—'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  const val = bytes / Math.pow(1024, i)
+  return `${val.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+// ── User-Agent parsing ─────────────────────────────────────────────────────
+
+/** Extract browser name + version from a User-Agent string. */
+export function parseUserAgent(ua: string): string {
+  if (!ua) return '—'
+  if (/Firefox\//i.test(ua)) {
+    const m = ua.match(/Firefox\/([\d.]+)/)
+    return m ? `Firefox ${m[1]}` : 'Firefox'
+  }
+  if (/Edg\//i.test(ua)) {
+    const m = ua.match(/Edg\/([\d.]+)/)
+    return m ? `Edge ${m[1]}` : 'Edge'
+  }
+  if (/Chrome\//i.test(ua) && !/Chromium/i.test(ua)) {
+    const m = ua.match(/Chrome\/([\d.]+)/)
+    return m ? `Chrome ${m[1]}` : 'Chrome'
+  }
+  if (/Safari\//i.test(ua) && !/Chrome/i.test(ua)) {
+    const m = ua.match(/Version\/([\d.]+)/)
+    return m ? `Safari ${m[1]}` : 'Safari'
+  }
+  return ua.length > 60 ? ua.slice(0, 57) + '...' : ua
+}
+
 // ── Comparison / summary formatters ──────────────────────────────────────────
 
 /** Format a heart-rate value in bpm. Returns '—' for null/NaN. */

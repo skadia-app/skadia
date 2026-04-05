@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Toggle from '@/components/Toggle'
 import {
   getMLStatus,
@@ -6,6 +6,7 @@ import {
   updateNightlyJob,
   type NightlyJobKey,
 } from '@/api/ml'
+import { useToast } from '@/lib/toast'
 
 const NIGHTLY_JOBS = [
   {
@@ -26,21 +27,35 @@ const NIGHTLY_JOBS = [
 ] as const
 
 export function MLServiceSection() {
+  const queryClient = useQueryClient()
+  const { addToast } = useToast()
+
   const { data: mlStatus } = useQuery({
     queryKey: ['ml-status'],
     queryFn: getMLStatus,
     refetchInterval: 30_000,
   })
 
-  const { data: mlSettings, refetch: refetchML } = useQuery({
+  const { data: mlSettings } = useQuery({
     queryKey: ['ml-system-settings'],
     queryFn: getMLSystemSettings,
   })
 
-  async function toggleJob(key: NightlyJobKey, enabled: boolean) {
-    const current = mlSettings?.[key] ?? { enabled: false, time: '02:00', description: '' }
-    await updateNightlyJob(key, { ...current, enabled })
-    refetchML()
+  const toggleJobMutation = useMutation({
+    mutationFn: ({ key, enabled }: { key: NightlyJobKey; enabled: boolean }) => {
+      const current = mlSettings?.[key] ?? { enabled: false, time: '02:00', description: '' }
+      return updateNightlyJob(key, { ...current, enabled })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ml-system-settings'] })
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Nightly-Job konnte nicht aktualisiert werden', duration: 0 })
+    },
+  })
+
+  function toggleJob(key: NightlyJobKey, enabled: boolean) {
+    toggleJobMutation.mutate({ key, enabled })
   }
 
   const isAvailable = mlStatus?.available ?? false

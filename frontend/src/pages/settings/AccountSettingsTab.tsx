@@ -18,64 +18,8 @@ import {
   type UserSession,
 } from '@/api/auth'
 import { triggerBlobDownload } from '@/lib/utils'
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-function parseUserAgent(ua: string): string {
-  // Basic browser detection without ua-parser-js
-  if (/Firefox\//i.test(ua)) {
-    const m = ua.match(/Firefox\/([\d.]+)/)
-    return m ? `Firefox ${m[1]}` : 'Firefox'
-  }
-  if (/Edg\//i.test(ua)) {
-    const m = ua.match(/Edg\/([\d.]+)/)
-    return m ? `Edge ${m[1]}` : 'Edge'
-  }
-  if (/Chrome\//i.test(ua) && !/Chromium/i.test(ua)) {
-    const m = ua.match(/Chrome\/([\d.]+)/)
-    return m ? `Chrome ${m[1]}` : 'Chrome'
-  }
-  if (/Safari\//i.test(ua) && !/Chrome/i.test(ua)) {
-    const m = ua.match(/Version\/([\d.]+)/)
-    return m ? `Safari ${m[1]}` : 'Safari'
-  }
-  // Truncate unknown UAs
-  return ua.length > 60 ? ua.slice(0, 57) + '...' : ua
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-// ── Section wrapper ─────────────────────────────────────────────────────────
-
-function Section({ title, description, children, danger }: {
-  title: string
-  description?: string
-  children: React.ReactNode
-  danger?: boolean
-}) {
-  return (
-    <section className={`rounded-xl p-6 space-y-4 border ${
-      danger
-        ? 'border-red-300 dark:border-red-800'
-        : 'border-neutral-200 dark:border-neutral-800'
-    }`}>
-      <div>
-        <h2 className={`text-lg font-medium ${
-          danger
-            ? 'text-red-700 dark:text-red-400'
-            : 'text-neutral-900 dark:text-neutral-100'
-        }`}>{title}</h2>
-        {description && (
-          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">{description}</p>
-        )}
-      </div>
-      {children}
-    </section>
-  )
-}
+import { fmtDateTime, parseUserAgent } from '@/lib/format'
+import { SettingsSection as Section } from '@/components/ui/SettingsSection'
 
 // ── Profile Section ─────────────────────────────────────────────────────────
 
@@ -386,11 +330,15 @@ function SessionsSection() {
     try {
       const sessions = data?.sessions ?? []
       const others = sessions.filter(s => !s.is_current)
-      for (const s of others) {
-        await revokeSession(s.family_id).catch(() => {})
-      }
+      const results = await Promise.allSettled(others.map(s => revokeSession(s.family_id)))
+      const failed = results.filter(r => r.status === 'rejected').length
       queryClient.invalidateQueries({ queryKey: ['my-sessions'] })
-      addToast({ type: 'success', title: `${others.length === 1 ? '1 Session' : `${others.length} Sessions`} beendet` })
+      if (failed > 0) {
+        const succeeded = others.length - failed
+        addToast({ type: 'warning', title: `${succeeded} von ${others.length} ${others.length === 1 ? 'Session' : 'Sessions'} beendet`, duration: 0 })
+      } else {
+        addToast({ type: 'success', title: `${others.length === 1 ? '1 Session' : `${others.length} Sessions`} beendet` })
+      }
       setRevokeTarget(null)
     } finally {
       setRevokingAll(false)
@@ -431,8 +379,8 @@ function SessionsSection() {
                       )}
                     </td>
                     <td className="py-2 pr-4 text-neutral-500 dark:text-neutral-400 font-mono text-xs">{s.ip_address}</td>
-                    <td className="py-2 pr-4 text-neutral-500 dark:text-neutral-400">{formatDate(s.created_at)}</td>
-                    <td className="py-2 pr-4 text-neutral-500 dark:text-neutral-400">{formatDate(s.expires_at)}</td>
+                    <td className="py-2 pr-4 text-neutral-500 dark:text-neutral-400">{fmtDateTime(s.created_at)}</td>
+                    <td className="py-2 pr-4 text-neutral-500 dark:text-neutral-400">{fmtDateTime(s.expires_at)}</td>
                     <td className="py-2">
                       {!s.is_current && (
                         <button

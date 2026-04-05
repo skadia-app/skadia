@@ -14,9 +14,16 @@ import {
 } from '@/api/auth'
 import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
+import { fmtDateTime, parseUserAgent } from '@/lib/format'
 import { useDebounce } from '@/lib/useDebounce'
 import { useToast } from '@/lib/toast'
 import { ModalShell } from '@/components/ui/ModalShell'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu'
 import {
   Search,
   Plus,
@@ -50,17 +57,7 @@ const PAGE_SIZE = 50
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function formatTimestamp(iso: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return d.toLocaleString('de-DE', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+const fmtTs = (iso: string | null): string => (iso ? fmtDateTime(iso) : '—')
 
 function StatusBadge({ user }: { user: AdminUser }) {
   if (user.deleted_at) {
@@ -343,16 +340,6 @@ function SessionsDialog({
   const sessions: AdminUserSession[] = data?.sessions ?? []
   const activeSessions = sessions.filter(s => !s.revoked && new Date(s.expires_at) > new Date())
 
-  function parseUserAgent(ua: string): string {
-    if (!ua) return '—'
-    // Extract browser name from user agent
-    if (ua.includes('Firefox')) return 'Firefox'
-    if (ua.includes('Edg/')) return 'Edge'
-    if (ua.includes('Chrome')) return 'Chrome'
-    if (ua.includes('Safari')) return 'Safari'
-    return ua.length > 40 ? ua.slice(0, 40) + '...' : ua
-  }
-
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-xl">
       <div className="space-y-4">
@@ -418,10 +405,10 @@ function SessionsDialog({
                         {session.ip_address || '—'}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-xs text-neutral-600 dark:text-neutral-400">
-                        {formatTimestamp(session.created_at)}
+                        {fmtTs(session.created_at)}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-xs text-neutral-600 dark:text-neutral-400">
-                        {formatTimestamp(session.expires_at)}
+                        {fmtTs(session.expires_at)}
                       </td>
                       <td className="px-3 py-2">
                         {session.revoked ? (
@@ -514,81 +501,53 @@ function UserActionsMenu({
   user: AdminUser
   onAction: (action: 'activate' | 'deactivate' | 'reset-password' | 'sessions' | 'revoke-sessions') => void
 }) {
-  const [open, setOpen] = useState(false)
-
-  const handleAction = useCallback(
-    (action: 'activate' | 'deactivate' | 'reset-password' | 'sessions' | 'revoke-sessions') => {
-      setOpen(false)
-      onAction(action)
-    },
-    [onAction],
-  )
-
   const isDeleted = user.deleted_at != null
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(prev => !prev)}
-        className="cursor-pointer rounded p-1.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
-        title="Aktionen"
-      >
-        <MoreHorizontal className="h-4 w-4" />
-      </button>
-
-      {open && (
-        <>
-          {/* Click-outside overlay */}
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
-            {!isDeleted && (
-              <>
-                {user.is_active ? (
-                  <button
-                    onClick={() => handleAction('deactivate')}
-                    className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                  >
-                    <ShieldOff className="h-4 w-4 text-amber-500" />
-                    Deaktivieren
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => handleAction('activate')}
-                    className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                  >
-                    <Shield className="h-4 w-4 text-green-500" />
-                    Aktivieren
-                  </button>
-                )}
-                <button
-                  onClick={() => handleAction('reset-password')}
-                  className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                >
-                  <KeyRound className="h-4 w-4 text-amber-500" />
-                  Passwort zurücksetzen
-                </button>
-              </>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="cursor-pointer rounded p-1.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+          title="Aktionen"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+        {!isDeleted && (
+          <>
+            {user.is_active ? (
+              <DropdownMenuItem onClick={() => onAction('deactivate')} className="gap-2">
+                <ShieldOff className="h-4 w-4 text-amber-500" />
+                Deaktivieren
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onClick={() => onAction('activate')} className="gap-2">
+                <Shield className="h-4 w-4 text-green-500" />
+                Aktivieren
+              </DropdownMenuItem>
             )}
-            <button
-              onClick={() => handleAction('sessions')}
-              className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
-            >
-              <Monitor className="h-4 w-4 text-blue-500" />
-              Sitzungen anzeigen
-            </button>
-            {!isDeleted && (
-              <button
-                onClick={() => handleAction('revoke-sessions')}
-                className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
-              >
-                <Ban className="h-4 w-4" />
-                Alle Sitzungen widerrufen
-              </button>
-            )}
-          </div>
-        </>
-      )}
-    </div>
+            <DropdownMenuItem onClick={() => onAction('reset-password')} className="gap-2">
+              <KeyRound className="h-4 w-4 text-amber-500" />
+              Passwort zurücksetzen
+            </DropdownMenuItem>
+          </>
+        )}
+        <DropdownMenuItem onClick={() => onAction('sessions')} className="gap-2">
+          <Monitor className="h-4 w-4 text-blue-500" />
+          Sitzungen anzeigen
+        </DropdownMenuItem>
+        {!isDeleted && (
+          <DropdownMenuItem
+            onClick={() => onAction('revoke-sessions')}
+            className="gap-2 text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+          >
+            <Ban className="h-4 w-4" />
+            Alle Sitzungen widerrufen
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -641,41 +600,24 @@ export default function AdminUsersPage() {
 
   // ── Mutations for confirm actions ──
 
-  const activateMutation = useMutation({
-    mutationFn: (id: string) => adminActivateUser(id),
-    onSuccess: () => {
-      addToast({ type: 'success', title: 'Benutzer aktiviert' })
-      queryClient.invalidateQueries({ queryKey: ['admin-users'] })
-      setConfirmAction(null)
-    },
-    onError: (err: Error) => {
-      addToast({ type: 'error', title: getAuthErrorMessage(err.message), duration: 0 })
-    },
-  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function useConfirmMutation(fn: (id: string) => Promise<any>, title: string) {
+    return useMutation({
+      mutationFn: fn,
+      onSuccess: () => {
+        addToast({ type: 'success', title })
+        queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+        setConfirmAction(null)
+      },
+      onError: (err: Error) => {
+        addToast({ type: 'error', title: getAuthErrorMessage(err.message), duration: 0 })
+      },
+    })
+  }
 
-  const deactivateMutation = useMutation({
-    mutationFn: (id: string) => adminDeactivateUser(id),
-    onSuccess: () => {
-      addToast({ type: 'success', title: 'Benutzer deaktiviert' })
-      queryClient.invalidateQueries({ queryKey: ['admin-users'] })
-      setConfirmAction(null)
-    },
-    onError: (err: Error) => {
-      addToast({ type: 'error', title: getAuthErrorMessage(err.message), duration: 0 })
-    },
-  })
-
-  const revokeSessionsMutation = useMutation({
-    mutationFn: (id: string) => adminRevokeUserSessions(id),
-    onSuccess: () => {
-      addToast({ type: 'success', title: 'Alle Sitzungen widerrufen' })
-      queryClient.invalidateQueries({ queryKey: ['admin-users'] })
-      setConfirmAction(null)
-    },
-    onError: (err: Error) => {
-      addToast({ type: 'error', title: getAuthErrorMessage(err.message), duration: 0 })
-    },
-  })
+  const activateMutation = useConfirmMutation(adminActivateUser, 'Benutzer aktiviert')
+  const deactivateMutation = useConfirmMutation(adminDeactivateUser, 'Benutzer deaktiviert')
+  const revokeSessionsMutation = useConfirmMutation(adminRevokeUserSessions, 'Alle Sitzungen widerrufen')
 
   function handleUserAction(
     user: AdminUser,
@@ -739,21 +681,20 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <div className="p-6 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Benutzerverwaltung</h1>
-        <button
-          onClick={() => setShowCreateDialog(true)}
-          className="flex cursor-pointer items-center gap-2 rounded-lg bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white hover:bg-accent-600 transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          Benutzer erstellen
-        </button>
-      </div>
-
+    <div className="space-y-4">
       {/* Filter bar */}
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-700 dark:bg-neutral-900">
+        {/* Create button */}
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-neutral-500">&nbsp;</label>
+          <button
+            onClick={() => setShowCreateDialog(true)}
+            className="flex cursor-pointer items-center gap-2 h-9 rounded-lg bg-accent-DEFAULT px-4 text-sm font-medium text-white hover:bg-accent-600 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Erstellen
+          </button>
+        </div>
         {/* Search */}
         <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
           <label className="text-xs font-medium text-neutral-500">Suche</label>
@@ -875,15 +816,15 @@ export default function AdminUsersPage() {
 
                   {/* Last login */}
                   <td className="whitespace-nowrap px-4 py-3 text-xs text-neutral-600 dark:text-neutral-400">
-                    {formatTimestamp(user.last_login_at)}
+                    {fmtTs(user.last_login_at)}
                   </td>
 
                   {/* Created + deleted info */}
                   <td className="whitespace-nowrap px-4 py-3 text-xs text-neutral-600 dark:text-neutral-400">
-                    {formatTimestamp(user.created_at)}
+                    {fmtTs(user.created_at)}
                     {isDeleted && (
                       <div className="text-red-500 mt-0.5">
-                        Gelöscht: {formatTimestamp(user.deleted_at)}
+                        Gelöscht: {fmtTs(user.deleted_at)}
                       </div>
                     )}
                   </td>

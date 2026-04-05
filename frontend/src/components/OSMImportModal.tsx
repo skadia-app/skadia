@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X } from 'lucide-react'
 import { fetchOSMRegions, startOSMImport, getDEMRegionStatus, type OSMRegion, type DEMStatusResponse } from '@/api/osm'
 import { useToast } from '@/lib/toast'
+import { fmtBytes } from '@/lib/format'
+import { ModalShell } from '@/components/ui/ModalShell'
 
 const ALL_CATEGORIES = [
   // POI-Kategorien
@@ -128,18 +130,37 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
     }
   }
 
-  function formatSize(mb: number) {
-    if (mb >= 1000) return `~${(mb / 1000).toFixed(0)} GB`
-    return `~${mb} MB`
-  }
+  const fmtMB = (mb: number) => fmtBytes(mb * 1024 * 1024)
 
   const isLargeRegion = (r: OSMRegion) => r.size_mb >= 5000
   const canStart = selectedRegions.length > 0 && selectedCategories.length > 0 && !mutation.isPending
   const allSelected = selectedCategories.length === ALL_CATEGORIES.length
 
+  const storageSummary = useMemo(() => {
+    if (selectedRegions.length === 0) return null
+    const pbfMB = selectedRegions.reduce((sum, id) => {
+      const reg = regionsData?.regions.find(r => r.id === id)
+      return sum + (reg?.size_mb ?? 0)
+    }, 0)
+    const demTiles = (() => {
+      if (demStatus?.regions && demStatus.regions.length > 0) {
+        return demStatus.regions
+          .filter(r => selectedRegions.includes(r.id))
+          .reduce((sum, r) => sum + Math.max(0, r.tiles_needed - r.tiles_present), 0)
+      }
+      return Math.max(1, Math.round(pbfMB / 25))
+    })()
+    const demMB = downloadDEM ? demTiles * 25 : 0
+    const pgMB = pbfMB * 4
+    const routingMB = (buildTiles || buildCoverage) ? pbfMB * 4 : 0
+    const totalMB = pbfMB + demMB + pgMB + routingMB
+    const freeMB = (demStatus?.disk_free_bytes ?? 0) / 1024 / 1024
+    return { pbfMB, demMB, demTiles, pgMB, routingMB, totalMB, freeMB }
+  }, [selectedRegions, regionsData, demStatus, downloadDEM, buildTiles, buildCoverage])
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white dark:bg-neutral-900 rounded-2xl border border-border w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl">
+    <ModalShell onClose={onClose} maxWidth="max-w-4xl">
+      <div className="bg-white dark:bg-neutral-900 rounded-2xl border border-border w-full max-h-[92vh] flex flex-col shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="text-base font-semibold">OSM Import-Assistent</h2>
@@ -180,7 +201,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                     <button
                       key={r.id}
                       onClick={() => toggleRegion(r.id)}
-                      title={`${formatSize(r.size_mb)}${large ? ' — Import kann mehrere Stunden dauern' : ''}`}
+                      title={`${fmtMB(r.size_mb)}${large ? ' — Import kann mehrere Stunden dauern' : ''}`}
                       className={`cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                         selected
                           ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
@@ -189,7 +210,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                     >
                       {r.label}
                       <span className={`ml-1.5 text-[10px] ${selected ? 'opacity-80' : 'text-neutral-400'}`}>
-                        {formatSize(r.size_mb)}
+                        {fmtMB(r.size_mb)}
                       </span>
                     </button>
                   )
@@ -316,67 +337,41 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
           </div>
 
           {/* Sektion 3b: Speicherbedarf */}
-          {selectedRegions.length > 0 && (
+          {storageSummary && (
             <div className="rounded-lg bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 px-4 py-3 text-xs space-y-1">
               <p className="font-medium text-neutral-700 dark:text-neutral-300 mb-1">Geschätzter Speicherbedarf</p>
-              {(() => {
-                const pbfMB = selectedRegions.reduce((sum, id) => {
-                  const reg = regionsData?.regions.find(r => r.id === id)
-                  return sum + (reg?.size_mb ?? 0)
-                }, 0)
-                // DEM tiles: use region status if available, otherwise rough estimate from PBF size
-                const demTiles = (() => {
-                  if (demStatus?.regions && demStatus.regions.length > 0) {
-                    return demStatus.regions
-                      .filter(r => selectedRegions.includes(r.id))
-                      .reduce((sum, r) => sum + Math.max(0, r.tiles_needed - r.tiles_present), 0)
-                  }
-                  // Fallback for first import: rough estimate ~1 tile per 25 MB PBF
-                  return Math.max(1, Math.round(pbfMB / 25))
-                })()
-                const demMB = downloadDEM ? demTiles * 25 : 0
-                const pgMB = pbfMB * 4
-                const routingMB = (buildTiles || buildCoverage) ? pbfMB * 4 : 0
-                const totalMB = pbfMB + demMB + pgMB + routingMB
-                const freeMB = (demStatus?.disk_free_bytes ?? 0) / 1024 / 1024
-
-                return (
-                  <>
-                    <p className="text-neutral-500 dark:text-neutral-400">
-                      PBF-Download: <span className="font-mono">{(pbfMB / 1024).toFixed(1)} GB</span>
-                    </p>
-                    {downloadDEM && (
-                      <p className="text-neutral-500 dark:text-neutral-400">
-                        DEM-Höhendaten: <span className="font-mono">~{(demMB / 1024).toFixed(1)} GB</span>
-                        <span className="text-neutral-400"> ({demTiles} Kacheln × 25 MB)</span>
-                      </p>
-                    )}
-                    <p className="text-neutral-500 dark:text-neutral-400">
-                      PostgreSQL: <span className="font-mono">~{(pgMB / 1024).toFixed(1)} GB</span>
-                      <span className="text-neutral-400"> (ca. 4× PBF)</span>
-                    </p>
-                    {(buildTiles || buildCoverage) && (
-                      <p className="text-neutral-500 dark:text-neutral-400">
-                        Routing + Coverage: <span className="font-mono">~{(routingMB / 1024).toFixed(1)} GB</span>
-                        <span className="text-neutral-400"> (ca. 4× PBF)</span>
-                      </p>
-                    )}
-                    <div className="border-t border-neutral-200 dark:border-neutral-700 mt-1 pt-1 flex justify-between">
-                      <span className="font-medium text-neutral-600 dark:text-neutral-300">
-                        Gesamt: ~{(totalMB / 1024).toFixed(1)} GB
-                      </span>
-                      <span className={`font-medium ${freeMB < totalMB ? 'text-red-500' : 'text-neutral-500 dark:text-neutral-400'}`}>
-                        Verfügbar: {(freeMB / 1024).toFixed(0)} GB
-                      </span>
-                    </div>
-                    {totalMB > 0 && (
-                      <p className="text-neutral-400 mt-1">
-                        In Summe bis zu 12× der PBF-Größe wenn alle Optionen aktiviert.
-                      </p>
-                    )}
-                  </>
-                )
-              })()}
+              <p className="text-neutral-500 dark:text-neutral-400">
+                PBF-Download: <span className="font-mono">{(storageSummary.pbfMB / 1024).toFixed(1)} GB</span>
+              </p>
+              {downloadDEM && (
+                <p className="text-neutral-500 dark:text-neutral-400">
+                  DEM-Höhendaten: <span className="font-mono">~{(storageSummary.demMB / 1024).toFixed(1)} GB</span>
+                  <span className="text-neutral-400"> ({storageSummary.demTiles} Kacheln × 25 MB)</span>
+                </p>
+              )}
+              <p className="text-neutral-500 dark:text-neutral-400">
+                PostgreSQL: <span className="font-mono">~{(storageSummary.pgMB / 1024).toFixed(1)} GB</span>
+                <span className="text-neutral-400"> (ca. 4× PBF)</span>
+              </p>
+              {(buildTiles || buildCoverage) && (
+                <p className="text-neutral-500 dark:text-neutral-400">
+                  Routing + Coverage: <span className="font-mono">~{(storageSummary.routingMB / 1024).toFixed(1)} GB</span>
+                  <span className="text-neutral-400"> (ca. 4× PBF)</span>
+                </p>
+              )}
+              <div className="border-t border-neutral-200 dark:border-neutral-700 mt-1 pt-1 flex justify-between">
+                <span className="font-medium text-neutral-600 dark:text-neutral-300">
+                  Gesamt: ~{(storageSummary.totalMB / 1024).toFixed(1)} GB
+                </span>
+                <span className={`font-medium ${storageSummary.freeMB < storageSummary.totalMB ? 'text-red-500' : 'text-neutral-500 dark:text-neutral-400'}`}>
+                  Verfügbar: {(storageSummary.freeMB / 1024).toFixed(0)} GB
+                </span>
+              </div>
+              {storageSummary.totalMB > 0 && (
+                <p className="text-neutral-400 mt-1">
+                  In Summe bis zu 12× der PBF-Größe wenn alle Optionen aktiviert.
+                </p>
+              )}
             </div>
           )}
 
@@ -424,6 +419,6 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
           </div>
         </div>
       </div>
-    </div>
+    </ModalShell>
   )
 }

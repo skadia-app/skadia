@@ -6,6 +6,7 @@ import { apiClient } from '@/api/client'
 import type { WeatherPrefs } from '@/api/types'
 import { WEATHER_DISPLAY_FIELD_OPTIONS } from '@/api/types'
 import Toggle from '@/components/Toggle'
+import { SettingsSection } from '@/components/ui/SettingsSection'
 
 export function WeatherSettings() {
   const { addToast } = useToast()
@@ -26,10 +27,15 @@ export function WeatherSettings() {
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current)
+  }, [])
+
   const mutation = useMutation({
     mutationFn: updateWeatherSettings,
     onSuccess: (data) => {
       queryClient.setQueryData(['weatherSettings'], data)
+      setLocalPrefs(null)
     },
     onError: () => {
       addToast({ type: 'error', title: 'Fehler', message: 'Einstellungen konnten nicht gespeichert werden.', duration: 0 })
@@ -56,20 +62,18 @@ export function WeatherSettings() {
 
   if (isLoading || !localPrefs) {
     return (
-      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
+      <SettingsSection title="Wetterdaten">
         <div className="text-sm text-neutral-500 dark:text-neutral-400">Lade Einstellungen…</div>
-      </section>
+      </SettingsSection>
     )
   }
 
   return (
-    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-6">
-      <div>
-        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Wetterdaten</h2>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          Konfiguriere wie Wetterdaten für Aktivitäten abgerufen und angezeigt werden.
-        </p>
-      </div>
+    <SettingsSection
+      title="Wetterdaten"
+      description="Konfiguriere wie Wetterdaten für Aktivitäten abgerufen und angezeigt werden."
+      className="space-y-6"
+    >
 
       {/* Section 1: Anzahl Messwerte */}
       <div className="space-y-2">
@@ -99,7 +103,7 @@ export function WeatherSettings() {
                 value={value}
                 checked={localPrefs.reading_mode === value}
                 onChange={() => update({ reading_mode: value })}
-                className="mt-0.5 accent-[var(--color-accent-DEFAULT,#f97316)]"
+                className="mt-0.5 accent-accent-DEFAULT"
               />
               <span className="text-sm text-neutral-800 dark:text-neutral-200">
                 {label}
@@ -182,7 +186,7 @@ export function WeatherSettings() {
                       : localPrefs.display_fields.filter((f) => f !== opt.key)
                     if (next.length > 0) update({ display_fields: next })
                   }}
-                  className="accent-[var(--color-accent-DEFAULT,#f97316)] disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="accent-accent-DEFAULT disabled:opacity-40 disabled:cursor-not-allowed"
                 />
                 <span className="text-sm text-neutral-800 dark:text-neutral-200">{opt.label}</span>
               </label>
@@ -221,6 +225,6 @@ export function WeatherSettings() {
           {backfillMutation.isPending ? 'Wird gestartet…' : 'Wetter-Daten nachfüllen'}
         </button>
       </div>
-    </section>
+    </SettingsSection>
   )
 }

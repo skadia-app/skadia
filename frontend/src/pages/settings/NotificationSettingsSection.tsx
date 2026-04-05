@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Toggle from '@/components/Toggle'
 import {
   getUserMLSettings,
@@ -7,6 +7,8 @@ import {
   removeDevice,
   type NotifyKey,
 } from '@/api/ml'
+import { useToast } from '@/lib/toast'
+import { SettingsSection } from '@/components/ui/SettingsSection'
 
 const NOTIFICATION_TOGGLES = [
   { key: 'notify_enrichment' as NotifyKey, label: 'Enrichment abgeschlossen', description: 'Nach jeder automatischen Analyse' },
@@ -16,34 +18,50 @@ const NOTIFICATION_TOGGLES = [
 ] as const
 
 export function NotificationSettingsSection() {
-  const { data: userSettings, refetch: refetchUser } = useQuery({
+  const queryClient = useQueryClient()
+  const { addToast } = useToast()
+
+  const { data: userSettings } = useQuery({
     queryKey: ['ml-user-settings'],
     queryFn: getUserMLSettings,
   })
 
-  const { data: devices, refetch: refetchDevices } = useQuery({
+  const { data: devices } = useQuery({
     queryKey: ['devices'],
     queryFn: getDevices,
   })
 
-  async function toggleNotify(key: NotifyKey, value: boolean) {
-    await updateUserMLSetting(key, value)
-    refetchUser()
+  const toggleNotifyMutation = useMutation({
+    mutationFn: ({ key, value }: { key: NotifyKey; value: boolean }) =>
+      updateUserMLSetting(key, value),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ml-user-settings'] })
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Benachrichtigungseinstellung konnte nicht gespeichert werden', duration: 0 })
+    },
+  })
+
+  const removeDeviceMutation = useMutation({
+    mutationFn: (id: string) => removeDevice(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['devices'] })
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Gerät konnte nicht entfernt werden', duration: 0 })
+    },
+  })
+
+  function toggleNotify(key: NotifyKey, value: boolean) {
+    toggleNotifyMutation.mutate({ key, value })
   }
 
-  async function handleRemoveDevice(id: string) {
-    await removeDevice(id)
-    refetchDevices()
+  function handleRemoveDevice(id: string) {
+    removeDeviceMutation.mutate(id)
   }
 
   return (
-    <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
-      <div>
-        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Benachrichtigungen</h2>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          Welche Ereignisse sollen als Benachrichtigung erscheinen.
-        </p>
-      </div>
+    <SettingsSection title="Benachrichtigungen" description="Welche Ereignisse sollen als Benachrichtigung erscheinen.">
 
       <div className="space-y-2">
         {NOTIFICATION_TOGGLES.map(({ key, label, description }) => {
@@ -95,6 +113,6 @@ export function NotificationSettingsSection() {
           </div>
         </div>
       )}
-    </section>
+    </SettingsSection>
   )
 }

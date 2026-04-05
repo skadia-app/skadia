@@ -16,16 +16,35 @@ import {
   importLifts,
 } from '@/api/osm'
 
-function CapBadge({ active, label }: { active: boolean; label: string }) {
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${
-      active
-        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+type CapBadgeStatus = 'active' | 'inactive' | 'loading' | 'warning'
+
+function CapBadge({ status, label }: { status: CapBadgeStatus; label: string }) {
+  const containerClass =
+    status === 'active'
+      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+      : status === 'warning'
+        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
         : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400'
-    }`}>
-      <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${active ? 'bg-emerald-500' : 'bg-neutral-400'}`} />
+  const dotClass =
+    status === 'active'
+      ? 'bg-emerald-500'
+      : status === 'warning'
+        ? 'bg-amber-500'
+        : 'bg-neutral-400'
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${containerClass}`}>
+      <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${dotClass}${status === 'loading' ? ' animate-pulse' : ''}`} />
       {label}
     </span>
+  )
+}
+
+function OsmStatCard({ value, label, labelClassName }: { value: number; label: string; labelClassName?: string }) {
+  return (
+    <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
+      <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{value.toLocaleString('de')}</div>
+      <div className={`text-xs text-neutral-500 dark:text-neutral-400${labelClassName ? ` ${labelClassName}` : ''}`}>{label}</div>
+    </div>
   )
 }
 
@@ -134,36 +153,16 @@ export function LocalMapAndGeoSection() {
     return next.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
   }
 
-  function saveSchedule(patch: Partial<OSMSchedule>) {
-    const schedule: OSMSchedule = {
-      interval: schedInterval,
-      weekday: schedWeekday,
-      day: schedDay,
-      hour: schedHour,
-      ...patch,
-    }
+  function saveSchedule(schedule: OSMSchedule) {
     setOSMSchedule(schedule).catch(() => {
       addToast({ type: 'error', title: 'Fehler beim Speichern des Update-Zeitplans', duration: 0 })
     })
   }
 
-  const martinBadge =
-    martinStatus === 'loading' ? (
-      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-        <span className="h-1.5 w-1.5 rounded-full bg-neutral-400 animate-pulse" />
-        Prüfe…
-      </span>
-    ) : martinStatus === 'ok' ? (
-      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-        Verbunden
-      </span>
-    ) : (
-      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-        Nicht verfügbar
-      </span>
-    )
+  const martinBadgeStatus: CapBadgeStatus =
+    martinStatus === 'loading' ? 'loading' : martinStatus === 'ok' ? 'active' : 'warning'
+  const martinBadgeLabel =
+    martinStatus === 'loading' ? 'Prüfe…' : martinStatus === 'ok' ? 'Verbunden' : 'Nicht verfügbar'
 
   return (
     <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-6">
@@ -184,12 +183,12 @@ export function LocalMapAndGeoSection() {
           ) : (
             <>
               <div className="flex flex-wrap gap-2">
-                <CapBadge active={caps?.routing ?? false}           label="Routing (BRouter)" />
-                <CapBadge active={caps?.isochrone ?? false}         label="Isochrone" />
-                <CapBadge active={caps?.dem_correction ?? false}    label="DEM-Höhenkorrektur" />
-                <CapBadge active={caps?.surface_enrichment ?? false} label="Oberflächen-Anreicherung" />
-                <CapBadge active={caps?.route_suggestion ?? false}  label="Routen-Vorschläge" />
-                <CapBadge active={caps?.offline_map ?? false}       label="Offline-Karte" />
+                <CapBadge status={caps?.routing ? 'active' : 'inactive'}           label="Routing (BRouter)" />
+                <CapBadge status={caps?.isochrone ? 'active' : 'inactive'}         label="Isochrone" />
+                <CapBadge status={caps?.dem_correction ? 'active' : 'inactive'}    label="DEM-Höhenkorrektur" />
+                <CapBadge status={caps?.surface_enrichment ? 'active' : 'inactive'} label="Oberflächen-Anreicherung" />
+                <CapBadge status={caps?.route_suggestion ? 'active' : 'inactive'}  label="Routen-Vorschläge" />
+                <CapBadge status={caps?.offline_map ? 'active' : 'inactive'}       label="Offline-Karte" />
               </div>
               {!(caps?.routing) && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed">
@@ -205,7 +204,7 @@ export function LocalMapAndGeoSection() {
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">DEM-Höhendaten</h3>
         <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 space-y-2">
-          <CapBadge active={caps?.dem_correction ?? false} label="DEM aktiv" />
+          <CapBadge status={caps?.dem_correction ? 'active' : 'inactive'} label="DEM aktiv" />
           <DEMSettings />
         </div>
       </div>
@@ -216,7 +215,7 @@ export function LocalMapAndGeoSection() {
         <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 space-y-3">
           {/* Status line */}
           <div className="flex items-center gap-3 flex-wrap">
-            {martinBadge}
+            <CapBadge status={martinBadgeStatus} label={martinBadgeLabel} />
             <span className="text-xs text-neutral-400 dark:text-neutral-500 font-mono break-all">{styleUrl}</span>
             {martinStatus !== 'loading' && (
               <button
@@ -290,20 +289,8 @@ export function LocalMapAndGeoSection() {
                   <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">POIs</p>
                   <div className="grid grid-cols-3 gap-2 text-center">
                     {Object.entries(osmStatus.categories).map(([key, count]) => (
-                      <div key={key} className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
-                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{count.toLocaleString('de')}</div>
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400 capitalize">{key}</div>
-                      </div>
+                      <OsmStatCard key={key} value={count} label={key} labelClassName="capitalize" />
                     ))}
-                    {/* Legacy fallback when categories is empty */}
-                    {Object.keys(osmStatus.categories).length === 0 && (
-                      <>
-                        {osmStatus.summits !== undefined && <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1"><div className="text-base font-bold">{osmStatus.summits.toLocaleString('de')}</div><div className="text-xs text-neutral-500">Gipfel</div></div>}
-                        {osmStatus.passes !== undefined && <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1"><div className="text-base font-bold">{osmStatus.passes.toLocaleString('de')}</div><div className="text-xs text-neutral-500">Pässe</div></div>}
-                        {osmStatus.settlements !== undefined && <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1"><div className="text-base font-bold">{osmStatus.settlements.toLocaleString('de')}</div><div className="text-xs text-neutral-500">Ortschaften</div></div>}
-                        {osmStatus.amenities !== undefined && <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1"><div className="text-base font-bold">{osmStatus.amenities.toLocaleString('de')}</div><div className="text-xs text-neutral-500">Einkehr</div></div>}
-                      </>
-                    )}
                   </div>
                 </div>
               )}
@@ -312,36 +299,17 @@ export function LocalMapAndGeoSection() {
                 <div>
                   <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">Wege</p>
                   <div className="grid grid-cols-3 gap-2 text-center">
-                    {osmStatus.ways > 0 && (
-                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
-                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.ways.toLocaleString('de')}</div>
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Wege</div>
-                      </div>
-                    )}
-                    {osmStatus.routes > 0 && (
-                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
-                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.routes.toLocaleString('de')}</div>
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Routen</div>
-                      </div>
-                    )}
-                    {osmStatus.lifts > 0 && (
-                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
-                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.lifts.toLocaleString('de')}</div>
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Lifte</div>
-                      </div>
-                    )}
-                    {osmStatus.pistes > 0 && (
-                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
-                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.pistes.toLocaleString('de')}</div>
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Pisten</div>
-                      </div>
-                    )}
-                    {osmStatus.railways > 0 && (
-                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
-                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.railways.toLocaleString('de')}</div>
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Eisenbahn</div>
-                      </div>
-                    )}
+                    {(
+                      [
+                        osmStatus.ways > 0      ? { value: osmStatus.ways,     label: 'Wege' }      : null,
+                        osmStatus.routes > 0    ? { value: osmStatus.routes,   label: 'Routen' }    : null,
+                        osmStatus.lifts > 0     ? { value: osmStatus.lifts,    label: 'Lifte' }     : null,
+                        osmStatus.pistes > 0    ? { value: osmStatus.pistes,   label: 'Pisten' }    : null,
+                        osmStatus.railways > 0  ? { value: osmStatus.railways, label: 'Eisenbahn' } : null,
+                      ] as const
+                    ).filter((item): item is NonNullable<typeof item> => item !== null).map(item => (
+                      <OsmStatCard key={item.label} value={item.value} label={item.label} />
+                    ))}
                   </div>
                 </div>
               )}
@@ -350,42 +318,18 @@ export function LocalMapAndGeoSection() {
                 <div>
                   <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">Flächen</p>
                   <div className="grid grid-cols-3 gap-2 text-center">
-                    {osmStatus.waterways > 0 && (
-                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
-                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.waterways.toLocaleString('de')}</div>
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Gewässer</div>
-                      </div>
-                    )}
-                    {osmStatus.forests > 0 && (
-                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
-                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.forests.toLocaleString('de')}</div>
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Wälder</div>
-                      </div>
-                    )}
-                    {osmStatus.glaciers > 0 && (
-                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
-                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.glaciers.toLocaleString('de')}</div>
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Gletscher</div>
-                      </div>
-                    )}
-                    {osmStatus.wetlands > 0 && (
-                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
-                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.wetlands.toLocaleString('de')}</div>
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Feuchtgebiete</div>
-                      </div>
-                    )}
-                    {osmStatus.boundaries > 0 && (
-                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
-                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.boundaries.toLocaleString('de')}</div>
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Grenzen</div>
-                      </div>
-                    )}
-                    {osmStatus.landuse > 0 && (
-                      <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg py-2 px-1">
-                        <div className="text-base font-bold text-neutral-900 dark:text-neutral-100">{osmStatus.landuse.toLocaleString('de')}</div>
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400">Landnutzung</div>
-                      </div>
-                    )}
+                    {(
+                      [
+                        osmStatus.waterways > 0  ? { value: osmStatus.waterways,  label: 'Gewässer' }      : null,
+                        osmStatus.forests > 0    ? { value: osmStatus.forests,    label: 'Wälder' }        : null,
+                        osmStatus.glaciers > 0   ? { value: osmStatus.glaciers,   label: 'Gletscher' }     : null,
+                        osmStatus.wetlands > 0   ? { value: osmStatus.wetlands,   label: 'Feuchtgebiete' } : null,
+                        osmStatus.boundaries > 0 ? { value: osmStatus.boundaries, label: 'Grenzen' }       : null,
+                        osmStatus.landuse > 0    ? { value: osmStatus.landuse,    label: 'Landnutzung' }   : null,
+                      ] as const
+                    ).filter((item): item is NonNullable<typeof item> => item !== null).map(item => (
+                      <OsmStatCard key={item.label} value={item.value} label={item.label} />
+                    ))}
                   </div>
                 </div>
               )}
@@ -410,8 +354,9 @@ export function LocalMapAndGeoSection() {
                   <select
                     value={schedInterval}
                     onChange={e => {
-                      setSchedInterval(e.target.value)
-                      saveSchedule({ interval: e.target.value })
+                      const v = e.target.value
+                      setSchedInterval(v)
+                      saveSchedule({ interval: v, weekday: schedWeekday, day: schedDay, hour: schedHour })
                     }}
                     className="rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
                   >
@@ -429,7 +374,7 @@ export function LocalMapAndGeoSection() {
                       onChange={e => {
                         const v = Number(e.target.value)
                         setSchedWeekday(v)
-                        saveSchedule({ weekday: v })
+                        saveSchedule({ interval: schedInterval, weekday: v, day: schedDay, hour: schedHour })
                       }}
                       className="rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
                     >
@@ -452,7 +397,7 @@ export function LocalMapAndGeoSection() {
                       onChange={e => {
                         const v = Number(e.target.value)
                         setSchedDay(v)
-                        saveSchedule({ day: v })
+                        saveSchedule({ interval: schedInterval, weekday: schedWeekday, day: v, hour: schedHour })
                       }}
                       className="rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
                     >
@@ -471,7 +416,7 @@ export function LocalMapAndGeoSection() {
                       onChange={e => {
                         const v = Number(e.target.value)
                         setSchedHour(v)
-                        saveSchedule({ hour: v })
+                        saveSchedule({ interval: schedInterval, weekday: schedWeekday, day: schedDay, hour: v })
                       }}
                       className="rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
                     >

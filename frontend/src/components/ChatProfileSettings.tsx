@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
@@ -191,13 +192,7 @@ function CollapsibleSection({ title, children, defaultOpen = false }: Collapsibl
         className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 cursor-pointer transition-colors"
       >
         <span>{title}</span>
-        <svg
-          className={`h-4 w-4 text-neutral-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-          viewBox="0 0 20 20"
-          fill="currentColor"
-        >
-          <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-        </svg>
+        <ChevronDown className={`h-4 w-4 text-neutral-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
         <div className="px-4 pb-4 pt-2 space-y-3 border-t border-neutral-100 dark:border-neutral-800/60">
@@ -217,7 +212,7 @@ export default function ChatProfileSettings() {
   const { addToast } = useToast()
 
   const { data: allUserSettings } = useQuery({
-    queryKey: ['ml-user-settings'],
+    queryKey: ['ml-user-settings', 'chat-profile'],
     queryFn: () =>
       apiFetch('/api/v1/settings/ml/user').then(r => r.json()) as Promise<Record<string, unknown>>,
   })
