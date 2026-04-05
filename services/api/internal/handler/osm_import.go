@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
@@ -59,6 +60,7 @@ type osmImportRequest struct {
 	RunEnrichment *bool    `json:"run_enrichment"`  // nil = true (backwards compatible)
 	BuildTiles    bool     `json:"build_tiles"`     // opt-in, default false
 	BuildCoverage bool     `json:"build_coverage"`  // opt-in, build coverage grids after import
+	DownloadDEM   bool     `json:"download_dem"`    // download GLO-30 HGT tiles for selected regions
 }
 
 func (r osmImportRequest) shouldRunEnrichment() bool {
@@ -122,6 +124,28 @@ func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
 	for _, cat := range req.Categories {
 		if _, ok := osmCategories[cat]; !ok {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown category: "+cat, r.URL.Path)
+			return
+		}
+	}
+
+	// Dependency check: tiles require DEM (unless already present)
+	if req.BuildTiles && !req.DownloadDEM {
+		demDir := os.Getenv("DEM_DATA_DIR")
+		if demDir == "" {
+			demDir = "/data/dem"
+		}
+		hgtDir := filepath.Join(demDir, "glo30")
+		entries, _ := os.ReadDir(hgtDir)
+		hasHGT := false
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".hgt") {
+				hasHGT = true
+				break
+			}
+		}
+		if !hasHGT {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
+				"Tiles benötigen DEM-Höhendaten. Aktiviere 'DEM herunterladen' oder lade DEM-Daten manuell herunter.", r.URL.Path)
 			return
 		}
 	}
@@ -218,6 +242,42 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 		slog.Info("osm import: building BRouter segments", "dir", segmentsDir)
 		if err := pipeline.BuildBRouterSegments(ctx, succeededRegions, pipeline.DataDir, segmentsDir, mainReporter); err != nil {
 			slog.Error("osm import: BRouter segment build failed", "error", err)
+		}
+	}
+
+	// DEM Download (before enrichment, tiles need it)
+	if req.DownloadDEM && len(succeededRegions) > 0 {
+		mainReporter.SetPhase("dem_download")
+		demDir := os.Getenv("DEM_DATA_DIR")
+		if demDir == "" {
+			demDir = "/data/dem"
+		}
+		cfg := dem.DefaultGLO30(demDir)
+
+		// Collect cells for all succeeded regions
+		cellSet := make(map[dem.HGTCell]bool)
+		for _, reg := range succeededRegions {
+			bbox := [4]float64{reg.MinLat, reg.MinLon, reg.MaxLat, reg.MaxLon}
+			for _, c := range dem.HGTCellsForBBox(bbox) {
+				cellSet[c] = true
+			}
+		}
+		var cells []dem.HGTCell
+		for c := range cellSet {
+			cells = append(cells, c)
+		}
+
+		slog.Info("osm import: downloading DEM tiles", "cells", len(cells))
+		result, err := dem.DownloadMissingTiles(ctx, cfg, cells, func(completed, total int64) {
+			// Progress is tracked within the main import job
+		})
+		if err != nil {
+			slog.Error("osm import: DEM download failed", "error", err)
+			// Non-fatal: continue with import, tiles will be built without DEM correction
+		} else {
+			slog.Info("osm import: DEM download complete",
+				"downloaded", result.Downloaded, "skipped", result.Skipped,
+				"ocean", result.OceanSkip, "failed", result.Failed)
 		}
 	}
 
