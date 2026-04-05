@@ -532,6 +532,7 @@ func (db *DB) GetActivityGlucose(ctx context.Context, userID string, from, to ti
 		WHERE a.user_id = $1
 		  AND s.glucose_mg_dl IS NOT NULL
 		  AND a.started_at BETWEEN $2 AND $3
+		  AND s.time >= $2 AND s.time < $3
 		GROUP BY a.id, a.started_at
 		ORDER BY a.started_at ASC
 	`, userID, from, to)
