@@ -102,3 +102,58 @@ export function formatBestEffortValue(
   if (value_numeric != null) return value_numeric.toLocaleString('de-DE', { maximumFractionDigits: 1 })
   return '—'
 }
+
+// ── Distance lookup for speed calculation ─────────────────────────────────────
+
+export const DIST_METERS: Record<string, number> = {
+  // Running
+  dist_400m: 400, dist_800m: 800, dist_1km: 1000,
+  dist_1mi: 1609.34, dist_2mi: 3218.69,
+  dist_5km: 5000, dist_10km: 10000, dist_15km: 15000,
+  dist_10mi: 16093.4, dist_20km: 20000,
+  dist_hm: 21097.5, dist_30km: 30000,
+  dist_marathon: 42195, dist_50km: 50000, dist_100km: 100000,
+  // Cycling
+  dist_25mi: 40233.6, dist_40km: 40000,
+  dist_50mi: 80467.2, dist_100mi: 160934.4,
+  dist_150km: 150000, dist_200km: 200000, dist_300km: 300000,
+  // Swimming
+  dist_50m: 50, dist_100m: 100, dist_200m: 200,
+  dist_1500m: 1500, dist_2km: 2000,
+}
+
+export interface BestEffortDisplay {
+  primary: string
+  secondary?: string
+}
+
+/**
+ * Format a best effort for display with sport-aware formatting.
+ * Cycling distance categories show km/h as primary, time as secondary.
+ */
+export function formatBestEffortDisplay(
+  category: string,
+  elapsed_time_s?: number | null,
+  value_numeric?: number | null,
+  sportGroup?: string,
+): BestEffortDisplay {
+  // Cycling distance: show km/h as primary, time as secondary
+  if (
+    sportGroup?.startsWith('cycling') &&
+    category.startsWith('dist_') &&
+    elapsed_time_s != null &&
+    elapsed_time_s > 0
+  ) {
+    const distM = DIST_METERS[category]
+    if (distM) {
+      const kmh = (distM / 1000) / (elapsed_time_s / 3600)
+      return {
+        primary: kmh.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' km/h',
+        secondary: fmtDuration(elapsed_time_s),
+      }
+    }
+  }
+
+  // Default: use existing formatter
+  return { primary: formatBestEffortValue(category, elapsed_time_s, value_numeric) }
+}
