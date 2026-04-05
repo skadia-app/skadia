@@ -607,7 +607,7 @@ func main() {
 	}
 
 	// Filesystem profile scan — import BadRouter JSON profiles from data/profiles/badrouter/
-	if n, err := handler.ScanFilesystemProfiles(ctx, "data/profiles/badrouter", db); err != nil {
+	if n, err := handler.SeedProfiles(ctx, "data/profiles/badrouter", db, "filesystem"); err != nil {
 		slog.Warn("filesystem profile scan failed", "error", err)
 	} else if n > 0 {
 		slog.Info("filesystem profiles imported", "count", n)
