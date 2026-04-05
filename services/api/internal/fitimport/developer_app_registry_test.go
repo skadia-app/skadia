@@ -108,6 +108,96 @@ func TestExtractDeveloperApps_COROS(t *testing.T) {
 	}
 }
 
+func TestExtractDeveloperApps_CORE(t *testing.T) {
+	appID := mustDecodeHex("6957fe6883fe4ed68613413f70624bb5")
+	devDataIds := []*mesgdef.DeveloperDataId{
+		{ApplicationId: appID},
+	}
+
+	result := ExtractDeveloperApps(devDataIds)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 result for CORE, got %d", len(result))
+	}
+	if result[0].AppName != "CORE" {
+		t.Errorf("AppName: got %q, want %q", result[0].AppName, "CORE")
+	}
+	if result[0].AppCategory != "app_body_temp" {
+		t.Errorf("AppCategory: got %q, want %q", result[0].AppCategory, "app_body_temp")
+	}
+}
+
+func TestExtractDeveloperApps_SuuntoFitExport1(t *testing.T) {
+	appID := mustDecodeHex("5375756e746f4669744578706f727431")
+	devDataIds := []*mesgdef.DeveloperDataId{
+		{ApplicationId: appID},
+	}
+
+	result := ExtractDeveloperApps(devDataIds)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 result for SuuntoFitExport1, got %d", len(result))
+	}
+	if result[0].AppName != "SuuntoFitExport1" {
+		t.Errorf("AppName: got %q, want %q", result[0].AppName, "SuuntoFitExport1")
+	}
+	if result[0].AppCategory != "app_sport_watch" {
+		t.Errorf("AppCategory: got %q, want %q", result[0].AppCategory, "app_sport_watch")
+	}
+}
+
+func TestExtractDeveloperApps_SuuntoplusFitExt(t *testing.T) {
+	appID := mustDecodeHex("5375756e746f706c7573466974457874")
+	devDataIds := []*mesgdef.DeveloperDataId{
+		{ApplicationId: appID},
+	}
+
+	result := ExtractDeveloperApps(devDataIds)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 result for SuuntoplusFitExt, got %d", len(result))
+	}
+	if result[0].AppName != "SuuntoplusFitExt" {
+		t.Errorf("AppName: got %q, want %q", result[0].AppName, "SuuntoplusFitExt")
+	}
+	if result[0].AppCategory != "app_sport_watch" {
+		t.Errorf("AppCategory: got %q, want %q", result[0].AppCategory, "app_sport_watch")
+	}
+}
+
+func TestExtractDeveloperApps_VariaRadar(t *testing.T) {
+	appID := mustDecodeHex("c5d949c39acb4e00bb2dc3b871e9e733")
+	devDataIds := []*mesgdef.DeveloperDataId{
+		{ApplicationId: appID},
+	}
+
+	result := ExtractDeveloperApps(devDataIds)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 result for Varia Radar, got %d", len(result))
+	}
+	if result[0].AppName != "Varia Radar" {
+		t.Errorf("AppName: got %q, want %q", result[0].AppName, "Varia Radar")
+	}
+	if result[0].AppCategory != "app_radar" {
+		t.Errorf("AppCategory: got %q, want %q", result[0].AppCategory, "app_radar")
+	}
+}
+
+func TestExtractDeveloperApps_IntervalsCIQ(t *testing.T) {
+	appID := mustDecodeHex("2752dcf8d7c611eda31f1b4b4540e742")
+	devDataIds := []*mesgdef.DeveloperDataId{
+		{ApplicationId: appID},
+	}
+
+	result := ExtractDeveloperApps(devDataIds)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 result for Intervals CIQ, got %d", len(result))
+	}
+	if result[0].AppName != "Intervals CIQ" {
+		t.Errorf("AppName: got %q, want %q", result[0].AppName, "Intervals CIQ")
+	}
+	if result[0].AppCategory != "app_training" {
+		t.Errorf("AppCategory: got %q, want %q", result[0].AppCategory, "app_training")
+	}
+}
+
 // mustDecodeHex decodes a lowercase hex string into bytes, panicking on error.
 func mustDecodeHex(s string) []byte {
 	if len(s)%2 != 0 {

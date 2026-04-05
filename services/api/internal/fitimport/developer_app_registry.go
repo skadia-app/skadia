@@ -36,6 +36,19 @@ var knownDeveloperApps = map[string]DeveloperAppInfo{
 
 	// Wearable
 	"7a657070": {Name: "Zepp", Category: "app_wearable"},
+
+	// Body Temperature
+	"6957fe6883fe4ed68613413f70624bb5": {Name: "CORE", Category: "app_body_temp"},
+
+	// Sport Watches
+	"5375756e746f4669744578706f727431": {Name: "SuuntoFitExport1", Category: "app_sport_watch"},
+	"5375756e746f706c7573466974457874": {Name: "SuuntoplusFitExt", Category: "app_sport_watch"},
+
+	// Radar
+	"c5d949c39acb4e00bb2dc3b871e9e733": {Name: "Varia Radar", Category: "app_radar"},
+
+	// Training
+	"2752dcf8d7c611eda31f1b4b4540e742": {Name: "Intervals CIQ", Category: "app_training"},
 }
 
 // LookupDeveloperApp looks up a known developer app by its lowercase hex application_id.
