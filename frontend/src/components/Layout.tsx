@@ -1,4 +1,4 @@
-import { NavLink, Link, Outlet, useLocation, useSearchParams } from 'react-router-dom'
+import { NavLink, Outlet } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useTheme } from '@/lib/theme'
 import ImportHub from '@/components/ImportHub'
@@ -24,25 +24,6 @@ const navItems = [
   { to: '/workshop', label: 'Werkstatt' },
   { to: '/settings', label: 'Einstellungen' },
 ]
-
-function AdminNavLink() {
-  const location = useLocation()
-  const [sp] = useSearchParams()
-  const isActive = location.pathname === '/settings' && sp.get('tab') === 'admin'
-  return (
-    <Link
-      to="/settings?tab=admin"
-      className={cn(
-        'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-        isActive
-          ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100'
-          : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800',
-      )}
-    >
-      Admin
-    </Link>
-  )
-}
 
 export default function Layout() {
   const { theme, toggle } = useTheme()
@@ -70,7 +51,6 @@ export default function Layout() {
                 {label}
               </NavLink>
             ))}
-            {isAdmin && <AdminNavLink />}
           </nav>
 
           <ImportHub />
