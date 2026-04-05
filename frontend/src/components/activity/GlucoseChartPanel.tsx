@@ -28,10 +28,10 @@ const LABELS = {
   unit: 'mg/dL',
   noData: 'No glucose data available',
   disclaimer:
-    'Reference values for fasting blood glucose. During physical activity, values >125 mg/dL are normal (exercise hyperglycemia).',
-  zoneNormal: 'Normal (<100)',
-  zoneElevated: 'Elevated (100–125)',
-  zoneHigh: 'High (≥125)',
+    'Zones reflect exercise-appropriate thresholds. Values up to ~160 mg/dL are normal during activity. Dashed lines at 100/125 mg/dL show fasting reference for context.',
+  zoneNormal: 'Normal (<160)',
+  zoneElevated: 'Elevated (160–200)',
+  zoneHigh: 'High (≥200)',
   tooltipValue: 'Glucose',
 }
 
@@ -89,8 +89,8 @@ export function GlucoseChartPanel({ streams }: GlucoseChartPanelProps) {
             if (val == null) return ''
             let zone = LABELS.zoneNormal
             let zoneColor = '#22c55e'
-            if (val >= 125) { zone = LABELS.zoneHigh; zoneColor = '#ef4444' }
-            else if (val >= 100) { zone = LABELS.zoneElevated; zoneColor = '#f59e0b' }
+            if (val >= 200) { zone = LABELS.zoneHigh; zoneColor = '#ef4444' }
+            else if (val >= 160) { zone = LABELS.zoneElevated; zoneColor = '#f59e0b' }
             return `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${formatElapsed(elapsed)}</div>
               <div><strong style="color:#f9fafb">${val.toFixed(1)} mg/dL</strong> <span style="color:${zoneColor};font-size:10px">${zone}</span></div>`
           },
@@ -137,19 +137,19 @@ export function GlucoseChartPanel({ streams }: GlucoseChartPanelProps) {
             markArea: {
               silent: true,
               data: [
-                // Green zone: < 100
+                // Green zone: < 160 (normal during exercise)
                 [
-                  { yAxis: 0, itemStyle: { color: 'rgba(34,197,94,0.07)' } },
-                  { yAxis: 100 },
+                  { yAxis: 0, itemStyle: { color: 'rgba(34,197,94,0.08)' } },
+                  { yAxis: 160 },
                 ],
-                // Yellow zone: 100 – 125
+                // Yellow zone: 160 – 200 (elevated during exercise)
                 [
-                  { yAxis: 100, itemStyle: { color: 'rgba(245,158,11,0.10)' } },
-                  { yAxis: 125 },
+                  { yAxis: 160, itemStyle: { color: 'rgba(245,158,11,0.09)' } },
+                  { yAxis: 200 },
                 ],
-                // Red zone: >= 125
+                // Red zone: >= 200 (high even during exercise)
                 [
-                  { yAxis: 125, itemStyle: { color: 'rgba(239,68,68,0.08)' } },
+                  { yAxis: 200, itemStyle: { color: 'rgba(239,68,68,0.08)' } },
                   { yAxis: 999 },
                 ],
               ],
@@ -160,13 +160,13 @@ export function GlucoseChartPanel({ streams }: GlucoseChartPanelProps) {
               data: [
                 {
                   yAxis: 100,
-                  lineStyle: { color: '#f59e0b', type: 'dashed', width: 1, opacity: 0.6 },
-                  label: { show: true, position: 'insideEndTop', formatter: '100', fontSize: 9, color: '#f59e0b' },
+                  lineStyle: { color: '#9ca3af', type: 'dashed', width: 1, opacity: 0.4 },
+                  label: { show: true, position: 'insideEndTop', formatter: '100 (fasting)', fontSize: 9, color: '#9ca3af' },
                 },
                 {
                   yAxis: 125,
-                  lineStyle: { color: '#ef4444', type: 'dashed', width: 1, opacity: 0.6 },
-                  label: { show: true, position: 'insideEndTop', formatter: '125', fontSize: 9, color: '#ef4444' },
+                  lineStyle: { color: '#9ca3af', type: 'dashed', width: 1, opacity: 0.4 },
+                  label: { show: true, position: 'insideEndTop', formatter: '125 (fasting)', fontSize: 9, color: '#9ca3af' },
                 },
               ],
             },
