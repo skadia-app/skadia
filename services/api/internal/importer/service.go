@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/skadia-app/skadia/services/api/internal/automation"
+	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
@@ -45,6 +46,10 @@ type Service struct {
 	// PMC is the PMC service used to immediately compute TSS after import.
 	// Optional — nil is safe; TSS will be populated on the next recompute.
 	PMC *pmc.Service
+
+	// BestEfforts is the BestEfforts service used to compute effort PRs after import.
+	// Optional — nil is safe; best efforts will be populated on the next manual recalc.
+	BestEfforts *bestefforts.Service
 
 	// PostImportHook is called once after a successful activity import.
 	// Used to trigger fusion queue recompute. Optional — nil is safe.
@@ -418,6 +423,21 @@ func (s *Service) PostProcess(
 		if err := s.PMC.ComputeActivityTSS(ctx, userID, activityID,
 			sport, sub, data.MovingTimeS, avgPower, avgHR, distM, data.StartedAt); err != nil {
 			slog.Warn("postprocess: ComputeActivityTSS failed (non-fatal)", "activity_id", activityID, "error", err)
+		}
+	}
+
+	// Best Efforts
+	if s.BestEfforts != nil {
+		info, err := s.DB.GetBestEffortActivityInfo(ctx, activityID)
+		if err != nil {
+			slog.Warn("postprocess: get best effort activity info failed (non-fatal)", "activity_id", activityID, "error", err)
+		} else if info != nil {
+			beStream, err := s.DB.GetStreamPoints(ctx, activityID)
+			if err != nil {
+				slog.Warn("postprocess: get stream points for best efforts failed (non-fatal)", "activity_id", activityID, "error", err)
+			} else if _, err := s.BestEfforts.ComputeForActivity(ctx, *info, beStream); err != nil {
+				slog.Warn("postprocess: compute best efforts failed (non-fatal)", "activity_id", activityID, "error", err)
+			}
 		}
 	}
 
