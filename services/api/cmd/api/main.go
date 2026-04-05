@@ -801,6 +801,9 @@ func main() {
 				r.Get("/settings/ml", h.GetMLSystemSettings)
 				r.Put("/settings/ml/{key}", h.PutMLSystemSetting)
 
+				// Best efforts batch operations
+				r.Post("/best-efforts/recalc-all", h.RecalcAllUsersBestEfforts)
+
 				// ShadowFS dashboard & reconciliation
 				r.Get("/storage", h.StorageDashboard)
 				r.Post("/storage/reconcile", h.StartReconciliation)
