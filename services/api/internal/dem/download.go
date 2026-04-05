@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"syscall"
 
@@ -76,6 +77,16 @@ func DownloadMissingTiles(ctx context.Context, cfg DEMSourceConfig, cells []HGTC
 	if err := os.MkdirAll(cfg.TempDir, 0755); err != nil {
 		return DownloadResult{}, fmt.Errorf("create temp dir: %w", err)
 	}
+
+	// Cleanup GeoTIFF temp files on exit (success or cancel)
+	defer func() {
+		entries, _ := os.ReadDir(cfg.TempDir)
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".tif") {
+				os.Remove(filepath.Join(cfg.TempDir, e.Name()))
+			}
+		}
+	}()
 
 	// Filter to missing tiles only
 	var missing []HGTCell
@@ -248,46 +259,3 @@ type RegionDEMStatus struct {
 	Complete     bool   `json:"complete"`
 }
 
-// CheckRegionCoverage computes DEM tile coverage for imported regions.
-func CheckRegionCoverage(hgtDir string, regions []struct {
-	ID   string
-	BBox [4]float64
-}) []RegionDEMStatus {
-	// Deduplicate cells across regions
-	allCellSet := make(map[HGTCell]bool)
-	regionCells := make(map[string][]HGTCell)
-	for _, r := range regions {
-		cells := HGTCellsForBBox(r.BBox)
-		regionCells[r.ID] = cells
-		for _, c := range cells {
-			allCellSet[c] = true
-		}
-	}
-
-	// Check presence once
-	present := make(map[HGTCell]bool)
-	for c := range allCellSet {
-		path := filepath.Join(hgtDir, c.FileName())
-		if _, err := os.Stat(path); err == nil {
-			present[c] = true
-		}
-	}
-
-	var results []RegionDEMStatus
-	for _, r := range regions {
-		cells := regionCells[r.ID]
-		p := 0
-		for _, c := range cells {
-			if present[c] {
-				p++
-			}
-		}
-		results = append(results, RegionDEMStatus{
-			ID:           r.ID,
-			TilesNeeded:  len(cells),
-			TilesPresent: p,
-			Complete:     p >= len(cells),
-		})
-	}
-	return results
-}
