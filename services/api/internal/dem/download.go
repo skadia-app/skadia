@@ -230,14 +230,14 @@ func DownloadMissingTiles(ctx context.Context, cfg DEMSourceConfig, cells []HGTC
 			err := downloadFile(gCtx, url, tifPath)
 			if err != nil {
 				// Retry once for transient errors
-				if !isHTTP404(err) {
+				if !isHTTPNotFound(err) {
 					slog.Debug("dem download: retrying", "cell", c.FileName(), "error", err)
 					err = downloadFile(gCtx, url, tifPath)
 				}
 			}
 			if err != nil {
 				os.Remove(tifPath)
-				if isHTTP404(err) {
+				if isHTTPNotFound(err) {
 					// Ocean tile — expected for coastal/island regions
 					manifest.Set(c.FileName(), tileStatusOcean) // persist for future runs
 					oceanCount.Add(1)
@@ -316,8 +316,8 @@ func downloadFile(ctx context.Context, url, dest string) error {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == 404 || resp.StatusCode == 403 {
-		return &httpError{StatusCode: resp.StatusCode}
+	if resp.StatusCode == 404 {
+		return &httpError{StatusCode: 404}
 	}
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
@@ -337,9 +337,11 @@ type httpError struct {
 
 func (e *httpError) Error() string { return fmt.Sprintf("HTTP %d", e.StatusCode) }
 
-func isHTTP404(err error) bool {
+// isHTTPNotFound returns true only for 404 (tile does not exist on server).
+// 403 is NOT treated as "not found" — it could be transient (rate-limiting, auth).
+func isHTTPNotFound(err error) bool {
 	var he *httpError
-	return errors.As(err, &he) && (he.StatusCode == 404 || he.StatusCode == 403)
+	return errors.As(err, &he) && he.StatusCode == 404
 }
 
 // RegionDEMStatus describes DEM coverage for one region.
