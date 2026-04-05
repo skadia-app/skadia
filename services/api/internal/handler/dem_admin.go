@@ -207,8 +207,16 @@ func (h *Handler) GetDEMRegionStatus(w http.ResponseWriter, r *http.Request) {
 					p++
 				}
 			}
+			// A region is "complete" if at least 50% of BBox tiles are present.
+			// Many BBox tiles are ocean (e.g. Portugal Azores) — 100% is unreachable.
+			reg, _ := osmregions.RegionByID(r.ID)
+			label := r.ID
+			if reg.Label != "" {
+				label = reg.Label
+			}
 			regionStatus = append(regionStatus, dem.RegionDEMStatus{
-				ID: r.ID, TilesNeeded: len(cells), TilesPresent: p, Complete: p >= len(cells),
+				ID: r.ID, Label: label, TilesNeeded: len(cells), TilesPresent: p,
+				Complete: len(cells) == 0 || p >= len(cells)/2,
 			})
 		}
 		// Count globally missing tiles (deduplicated across regions)

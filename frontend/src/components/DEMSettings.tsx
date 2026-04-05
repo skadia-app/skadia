@@ -27,36 +27,61 @@ export function DEMSettings() {
 
   const sources = data?.sources ?? []
 
-  // HGT coverage: how many 1°×1° tiles are present on disk for the tile builder
-  const hgtPresent = data?.regions?.reduce((s, r) => s + r.tiles_present, 0) ?? 0
-  const hasImportedRegions = (data?.regions?.length ?? 0) > 0
+  const regions = data?.regions ?? []
+  const hasImportedRegions = regions.length > 0
+  const hgtPresent = regions.reduce((s, r) => s + r.tiles_present, 0)
+  const allComplete = regions.every(r => r.complete)
+  const incompleteRegions = regions.filter(r => !r.complete)
 
   return (
     <div className="space-y-3">
-      {/* HGT tile coverage — the only metric that matters for routing */}
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-neutral-700 dark:text-neutral-300">
-            <span className="font-medium">{hgtPresent.toLocaleString()}</span>
-            {' '}HGT-Kacheln vorhanden
-            <span className="text-neutral-400 ml-1">(GLO-30, 30m)</span>
-          </p>
-          {hasImportedRegions && hgtPresent === 0 && (
-            <p className="text-xs text-amber-500 mt-0.5">
-              Keine DEM-Daten vorhanden — für Routing-Tiles erforderlich
+      {/* Per-region DEM coverage */}
+      {hasImportedRegions ? (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-neutral-700 dark:text-neutral-300">
+              <span className="font-medium">{hgtPresent.toLocaleString()}</span> HGT-Kacheln
+              <span className="text-neutral-400 ml-1">(GLO-30, 30m)</span>
+            </p>
+            <button
+              onClick={() => demDownloadMut.mutate()}
+              disabled={!!activeDEMJob || demDownloadMut.isPending}
+              className="cursor-pointer text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
+            >
+              {activeDEMJob ? 'Download läuft…' : allComplete ? 'DEM-Kacheln aktualisieren' : 'DEM-Kacheln herunterladen'}
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {regions.map(r => (
+              <span
+                key={r.id}
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${
+                  r.complete
+                    ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                    : r.tiles_present > 0
+                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                      : 'bg-red-500/10 text-red-600 dark:text-red-400'
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${
+                  r.complete ? 'bg-green-500' : r.tiles_present > 0 ? 'bg-amber-500' : 'bg-red-500'
+                }`} />
+                {r.label}
+                <span className="opacity-60">({r.tiles_present})</span>
+              </span>
+            ))}
+          </div>
+          {incompleteRegions.length > 0 && (
+            <p className="text-xs text-amber-500">
+              DEM-Daten unvollständig — für Routing-Tiles erforderlich
             </p>
           )}
         </div>
-        {hasImportedRegions && (
-          <button
-            onClick={() => demDownloadMut.mutate()}
-            disabled={!!activeDEMJob || demDownloadMut.isPending}
-            className="cursor-pointer text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
-          >
-            {activeDEMJob ? 'Download läuft…' : 'DEM-Kacheln herunterladen'}
-          </button>
-        )}
-      </div>
+      ) : (
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          Keine importierten Regionen. DEM-Kacheln werden nach dem OSM-Import verfügbar.
+        </p>
+      )}
 
       {/* DB raster tiles — secondary info in collapsible */}
       {sources.length > 0 && (

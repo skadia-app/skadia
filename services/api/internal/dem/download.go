@@ -254,6 +254,7 @@ func isHTTP404(err error) bool {
 // RegionDEMStatus describes DEM coverage for one region.
 type RegionDEMStatus struct {
 	ID           string `json:"id"`
+	Label        string `json:"label"`
 	TilesNeeded  int    `json:"tiles_needed"`
 	TilesPresent int    `json:"tiles_present"`
 	Complete     bool   `json:"complete"`
