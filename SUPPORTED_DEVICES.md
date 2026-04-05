@@ -613,11 +613,16 @@ Developer Apps use FIT Developer Fields to embed custom data. Detected by Applic
 
 | App | Category | Source |
 |---|---|---|
+| CORE | app_body_temp | Registry |
 | COROS | Running Power | Registry |
 | Daefore | Bike Power | Registry |
 | FORM | Swim Goggle | Registry |
+| Intervals CIQ | app_training | Registry |
 | RideWithPower | Bike Power | Registry |
 | Stryd | Running Power | Registry |
+| SuuntoFitExport1 | app_sport_watch | Registry |
+| SuuntoplusFitExt | app_sport_watch | Registry |
+| Varia Radar | app_radar | Registry |
 | Zepp | Wearable | Registry |
 
 ---
