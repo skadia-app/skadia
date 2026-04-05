@@ -608,6 +608,10 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		iq.metadata AS sport_conflict_meta,
 		a.recording_device_id,
 		COALESCE(rd.custom_name, rd.product_name) AS recording_device_name,
+		ST_Y(a.start_location) AS start_lat,
+		ST_X(a.start_location) AS start_lon,
+		ST_Y(a.end_location) AS end_lat,
+		ST_X(a.end_location) AS end_lon,
 		-- FIT SDK extended fields
 		a.workout_id,
 		a.total_cycles, a.total_work_j, a.total_fat_calories, a.metabolic_calories, a.total_moving_time_s,
@@ -699,6 +703,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&sportConflictMeta,
 		&a.RecordingDeviceID,
 		&a.RecordingDeviceName,
+		&a.StartLat, &a.StartLon, &a.EndLat, &a.EndLon,
 		// FIT SDK extended fields
 		&a.WorkoutID,
 		&a.TotalCycles, &a.TotalWorkJ, &a.TotalFatCalories, &a.MetabolicCalories, &a.TotalMovingTimeS,
