@@ -56,15 +56,11 @@ ORDER BY source, name`,
 
 	var result []RoutingProfile
 	for rows.Next() {
-		var p RoutingProfile
-		if err := rows.Scan(
-			&p.ID, &p.UserID, &p.Name, &p.BaseProfile,
-			&p.SportTypes, &p.Config, &p.Source,
-			&p.CreatedAt, &p.UpdatedAt,
-		); err != nil {
+		p, err := scanRoutingProfile(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan routing profile: %w", err)
 		}
-		result = append(result, p)
+		result = append(result, *p)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate routing profiles: %w", err)
@@ -198,7 +194,14 @@ SET base_profile = EXCLUDED.base_profile,
     sport_types  = EXCLUDED.sport_types,
     config       = EXCLUDED.config,
     source       = EXCLUDED.source,
-    updated_at   = now()
+    updated_at   = CASE
+        WHEN routing_profiles.config IS DISTINCT FROM EXCLUDED.config
+          OR routing_profiles.base_profile IS DISTINCT FROM EXCLUDED.base_profile
+          OR routing_profiles.sport_types IS DISTINCT FROM EXCLUDED.sport_types
+          OR routing_profiles.source IS DISTINCT FROM EXCLUDED.source
+        THEN now()
+        ELSE routing_profiles.updated_at
+    END
 RETURNING id, user_id, name, base_profile, sport_types, config, source, created_at, updated_at`,
 		name, baseProfile, sportTypes, config, source,
 	))
@@ -223,15 +226,11 @@ ORDER BY name`,
 
 	var result []RoutingProfile
 	for rows.Next() {
-		var p RoutingProfile
-		if err := rows.Scan(
-			&p.ID, &p.UserID, &p.Name, &p.BaseProfile,
-			&p.SportTypes, &p.Config, &p.Source,
-			&p.CreatedAt, &p.UpdatedAt,
-		); err != nil {
+		p, err := scanRoutingProfile(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan routing profile for export: %w", err)
 		}
-		result = append(result, p)
+		result = append(result, *p)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate routing profiles for export: %w", err)
