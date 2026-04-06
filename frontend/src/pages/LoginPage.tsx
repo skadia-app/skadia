@@ -157,7 +157,7 @@ export default function LoginPage() {
           </>
         )}
 
-        {config?.registration_mode !== 'invite' && (
+        {(config?.registration_mode !== 'invite' || config?.bootstrap_mode === true) && (
           <div className="text-center text-sm text-neutral-500 dark:text-neutral-400">
             Noch kein Konto?{' '}
             <Link

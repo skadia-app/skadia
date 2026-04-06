@@ -23,7 +23,7 @@ export default function RegisterPage() {
     }
     getAuthConfig()
       .then((cfg) => {
-        if (cfg.registration_mode === 'invite') {
+        if (cfg.registration_mode === 'invite' && !cfg.bootstrap_mode) {
           navigate('/login', { replace: true })
           return
         }
@@ -90,6 +90,15 @@ export default function RegisterPage() {
           <h1 className="text-3xl font-bold text-accent-DEFAULT tracking-tight">skadia</h1>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">Konto erstellen</p>
         </div>
+
+        {config?.bootstrap_mode === true && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+            <p className="font-medium">Erstmaliger Setup</p>
+            <p className="mt-1">
+              Du erstellst gerade den ersten Account dieser Skadia-Installation. Dieser Account erhält automatisch Administrator-Rechte.
+            </p>
+          </div>
+        )}
 
         {error && (
           <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
