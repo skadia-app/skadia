@@ -73,6 +73,15 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
+	// DB check — nil DB means not wired (tests) OR configuration error.
+	// Either way, service is not ready to serve traffic.
+	if h.DB == nil || h.DB.Pool == nil {
+		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status": "not ready",
+			"db":     "not configured",
+		})
+		return
+	}
 	if err := h.DB.Ping(ctx); err != nil {
 		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"status": "not ready",
@@ -100,7 +109,10 @@ func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 
 	status := map[string]string{"status": "ok", "db": "ok", "nats": "ok"}
 
-	if err := h.DB.Ping(ctx); err != nil {
+	if h.DB == nil || h.DB.Pool == nil {
+		status["status"] = "degraded"
+		status["db"] = "not configured"
+	} else if err := h.DB.Ping(ctx); err != nil {
 		status["status"] = "degraded"
 		status["db"] = err.Error()
 	}
