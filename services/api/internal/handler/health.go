@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -60,21 +61,54 @@ type HandlerConfig struct {
 	BucketFn        func(string) string     // fileType → S3 bucket
 }
 
-func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
-	status := map[string]string{
-		"status":  "ok",
-		"db":      "ok",
-		"storage": "ok",
-		"nats":    "ok",
+// Livez returns 200 if the process is alive. Does NOT check external dependencies.
+// Used as K8s livenessProbe — checking DB here would cause restart cascades.
+func (h *Handler) Livez(w http.ResponseWriter, r *http.Request) {
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// Readyz returns 200 if the service can handle traffic, 503 otherwise.
+// Checks DB connectivity and NATS (if configured).
+func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	if err := h.DB.Ping(ctx); err != nil {
+		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status": "not ready",
+			"db":     err.Error(),
+		})
+		return
 	}
 
-	if err := h.DB.Ping(r.Context()); err != nil {
-		status["db"] = "error"
+	// NATS check: h.Events is nil when NATS is not configured or unavailable.
+	if h.Events != nil && !h.Events.IsConnected() {
+		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status": "not ready",
+			"nats":   "disconnected",
+		})
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+}
+
+// Healthz returns a human-readable status overview. Always 200 — use for dashboards, not probes.
+func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	status := map[string]string{"status": "ok", "db": "ok", "nats": "ok"}
+
+	if err := h.DB.Ping(ctx); err != nil {
 		status["status"] = "degraded"
+		status["db"] = err.Error()
 	}
-
 	if h.Events == nil {
 		status["nats"] = "not configured"
+	} else if !h.Events.IsConnected() {
+		status["status"] = "degraded"
+		status["nats"] = "disconnected"
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, status)
