@@ -2,8 +2,10 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -56,96 +58,136 @@ func (db *DB) PurgeDeletedUsers(ctx context.Context, storageCleanup func(ctx con
 
 	for _, uid := range userIDs {
 		if err := db.DeleteUserData(ctx, uid, storageCleanup); err != nil {
-			slog.Error("GDPR purge failed for user", "user_id", uid, "error", err)
+			if errors.Is(err, ErrPurgeSkipped) {
+				slog.Info("GDPR purge skipped (user revoked deletion)", "user_id", uid)
+			} else {
+				slog.Error("GDPR purge failed for user", "user_id", uid, "error", err)
+			}
 			// Continue with other users — don't let one failure block the rest.
 		}
 	}
 	return nil
 }
 
-// DeleteUserData performs a 3-phase GDPR data deletion for a single user.
+// ErrPurgeSkipped is returned when a purge is requested but the user is no
+// longer marked for deletion. Callers (notably PurgeDeletedUsers) should treat
+// this as a non-error and continue with the next user.
+var ErrPurgeSkipped = errors.New("GDPR: purge skipped: user not marked for deletion")
+
+// DeleteUserData performs a multi-phase GDPR data deletion for a single user.
 //
-// Phase 1: Delete hypertable rows that reference the user (outside TX —
+// Audit-Trail (Option H — Audit-First architecture):
 //
-//	TimescaleDB hypertables can't safely mix DDL with transactions).
+//	A persistent audit trail is written to auth_audit_log via LogAuthEvent.
+//	auth_audit_log.user_id is ON DELETE SET NULL by design, so the audit
+//	entries survive the user-row deletion. The events are:
+//	  - gdpr_purge_started   — at the very beginning
+//	  - gdpr_purge_skipped   — when the user is no longer marked for deletion
+//	  - gdpr_purge_failed    — on any hard failure (with phase + error details)
+//	  - gdpr_purge_completed — on success
+//	background_jobs is used only as ephemeral live-status for the admin UI;
+//	it is NOT the source of truth for audit (background_jobs rows are
+//	disposable and may be cleaned up later).
 //
-// Phase 2: Transactional delete of everything else. The final DELETE FROM users
+// Phases:
 //
-//	cascades to ~45+ dependent tables via ON DELETE CASCADE, including:
-//	activities, gear, tags, activity_tags, activity_photos, privacy_zones,
-//	enrichment_settings, custom_maps, map_layers, heatmap_lines, pmc_daily,
-//	gear_rules, gear_auto_assign_rules, gear_documents, meta_files,
-//	garmin_import_jobs, garmin_import_mappings, strava_imports,
-//	import_queue, analytics_cache, segment_favorites, ml_settings,
-//	device_tokens, notifications, chat_sessions, chat_messages,
-//	oauth_connections, refresh_tokens, email_tokens, auth_codes,
-//	auth_audit_log (SET NULL), activity_weather, activity_events,
-//	activity_sets, activity_laps, workouts, workout_steps, devices,
-//	route_photos, planned_routes (explicit), user_files, user_file_schemas,
-//	file_attachments, activity_dive_settings, activity_dive_gases,
-//	routing_profiles, etc.
+//	Phase 1 (outside TX):
+//	  Delete TimescaleDB hypertable rows + activity_streams + segment_efforts
+//	  (own-segment + own-activity efforts) + health regular tables. Errors are
+//	  AGGREGATED and trigger fail-fast: a single Phase 1 failure aborts the
+//	  whole purge BEFORE Phase 1.5 / Phase 2 run, so the user row stays
+//	  intact and a retry can pick up where this attempt left off (Phase 1
+//	  deletes are idempotent — DELETE WHERE on already-empty table is a no-op).
 //
-// Phase 1.5: Best-effort external storage cleanup via ShadowFS.
-// storageCleanup is an optional callback that deletes all stored files for a user;
-// pass nil to skip external storage cleanup.
+//	Phase 1.5 (best-effort, outside TX):
+//	  External storage cleanup via storageCleanup callback. Failures are
+//	  logged as WARN but do NOT block the purge (best-effort by spec).
+//
+//	Phase 2 (TX):
+//	  Transactional delete of everything else. The final DELETE FROM users
+//	  cascades to ~45 dependent tables via ON DELETE CASCADE.
+//
+// storageCleanup is an optional callback that deletes all stored files for
+// a user; pass nil to skip external storage cleanup.
 func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup func(ctx context.Context, userID string) error) error {
+	startedAt := time.Now()
 	slog.Info("GDPR purge starting", "user_id", userID)
 
-	// Track purge in background_jobs for UI visibility.
+	// Audit: gdpr_purge_started — written before any data is touched.
+	db.LogAuthEvent(ctx, userID, "gdpr_purge_started", "", "system", nil)
+
+	// Track purge in background_jobs for live admin-UI visibility.
+	// This is ephemeral; auth_audit_log is the persistent audit trail.
 	db.Pool.Exec(ctx, `INSERT INTO background_jobs (id, job_type, user_id, status)
 		VALUES (gen_random_uuid(), 'gdpr_purge', $1, 'running')`, userID)
 
-	// failPurgeJob marks the GDPR purge job as failed OUTSIDE the TX.
-	// This is intentional: a failed purge should be visible even if the TX is rolled back.
-	failPurgeJob := func(errMsg string) {
+	// recordPurgeFailure marks the background_jobs row as failed (outside the
+	// Phase 2 TX so it survives a TX rollback) AND writes a persistent
+	// gdpr_purge_failed event to auth_audit_log with phase + error details.
+	//
+	// Outside-TX background_jobs update: spec Phase 0.3 explicitly permits
+	// this — a failed purge MUST be visible to admins even if the TX is
+	// rolled back. Phase 0.3 forbids the markJobDone (success) outside TX
+	// path, NOT the failure-status outside TX path.
+	recordPurgeFailure := func(phase, errMsg string) {
 		if _, err := db.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'failed', error = $2, finished_at = NOW()
 			WHERE job_type = 'gdpr_purge' AND user_id = $1 AND status = 'running'`, userID, errMsg); err != nil {
-			slog.Warn("GDPR: failPurgeJob update failed", "user_id", userID, "error", err)
+			slog.Warn("GDPR: recordPurgeFailure update failed", "user_id", userID, "error", err)
 		}
+		db.LogAuthEvent(ctx, userID, "gdpr_purge_failed", "", "system", map[string]string{
+			"phase": phase,
+			"error": errMsg,
+		})
 	}
 
-	// ---- Phase 1: Hypertables (outside TX) ----
-
-	// activity_streams and segment_efforts are cascaded from activities/segments,
-	// but hypertables sometimes have issues with cascading deletes.
-	// Delete explicitly to be safe.
+	// ---- Phase 1: Hypertables + non-cascading dependents (outside TX) ----
+	//
+	// Phase-1 errors are aggregated. If ANY delete fails, the purge aborts
+	// before Phase 1.5/Phase 2, leaving the user row intact for a retry.
+	// This prevents the silent-data-loss scenario where a hypertable delete
+	// fails but Phase 2 commits anyway, leaving orphaned GDPR data behind.
+	var phase1Errors []string
 
 	// Get activity IDs for stream cleanup.
 	actIDs := db.getUserActivityIDs(ctx, userID)
 
-	// Batch-delete activity streams.
+	// activity_streams: cascaded from activities, but TimescaleDB hypertables
+	// occasionally fail to cascade reliably — delete explicitly.
 	if len(actIDs) > 0 {
 		if _, err := db.Pool.Exec(ctx,
 			`DELETE FROM activity_streams WHERE activity_id = ANY($1)`, actIDs); err != nil {
-			slog.Warn("GDPR: delete activity_streams failed", "error", err)
+			slog.Error("GDPR: delete activity_streams failed", "error", err)
+			phase1Errors = append(phase1Errors, fmt.Sprintf("activity_streams: %s", err))
 		}
 	}
 
 	// Get segment IDs owned by this user.
 	segIDs := db.getUserSegmentIDs(ctx, userID)
 
-	// Batch-delete efforts on user's own segments.
+	// segment_efforts on user's own segments.
 	if len(segIDs) > 0 {
 		if _, err := db.Pool.Exec(ctx,
 			`DELETE FROM segment_efforts WHERE segment_id = ANY($1)`, segIDs); err != nil {
-			slog.Warn("GDPR: delete segment_efforts for segment failed", "error", err)
+			slog.Error("GDPR: delete segment_efforts for segment failed", "error", err)
+			phase1Errors = append(phase1Errors, fmt.Sprintf("segment_efforts(by segment): %s", err))
 		}
 	}
 
-	// Also delete efforts by this user on OTHER people's segments.
+	// segment_efforts by this user on OTHER people's segments.
 	if len(actIDs) > 0 {
 		if _, err := db.Pool.Exec(ctx,
 			`DELETE FROM segment_efforts WHERE activity_id = ANY($1)`, actIDs); err != nil {
-			slog.Warn("GDPR: delete segment_efforts by activity failed", "error", err)
+			slog.Error("GDPR: delete segment_efforts by activity failed", "error", err)
+			phase1Errors = append(phase1Errors, fmt.Sprintf("segment_efforts(by activity): %s", err))
 		}
 	}
 
-	// Health hypertables (no CASCADE from users).
+	// Health hypertables (CASCADE unreliable on hypertables — delete explicitly).
 	for _, table := range HealthHypertables {
 		if _, err := db.Pool.Exec(ctx,
 			fmt.Sprintf(`DELETE FROM %s WHERE user_id = $1`, pgx.Identifier{table}.Sanitize()), userID); err != nil {
-			// L37: Phase 1 errors logged at ERROR level — these are data-deletion failures, not warnings.
 			slog.Error("GDPR: delete health hypertable failed", "table", table, "error", err)
+			phase1Errors = append(phase1Errors, fmt.Sprintf("%s: %s", table, err))
 		}
 	}
 
@@ -154,10 +196,18 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 		if _, err := db.Pool.Exec(ctx,
 			fmt.Sprintf(`DELETE FROM %s WHERE user_id = $1`, pgx.Identifier{table}.Sanitize()), userID); err != nil {
 			slog.Error("GDPR: delete health table failed", "table", table, "error", err)
+			phase1Errors = append(phase1Errors, fmt.Sprintf("%s: %s", table, err))
 		}
 	}
 
-	// ---- Phase 1.5: External storage (must run BEFORE user row deletion) ----
+	if len(phase1Errors) > 0 {
+		joined := strings.Join(phase1Errors, "; ")
+		msg := fmt.Sprintf("phase1 failed: %d table(s) errored: %s", len(phase1Errors), joined)
+		recordPurgeFailure("phase1_hypertables", msg)
+		return fmt.Errorf("GDPR: %s", msg)
+	}
+
+	// ---- Phase 1.5: External storage (best-effort, outside TX) ----
 	// ShadowFS.DeleteAllForUser queries user_files rows, which CASCADE-delete
 	// with the user row. Run cleanup while those rows still exist.
 	if storageCleanup != nil {
@@ -172,7 +222,7 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
-		failPurgeJob(err.Error())
+		recordPurgeFailure("phase2_begin_tx", err.Error())
 		return fmt.Errorf("GDPR begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
@@ -181,107 +231,126 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	var deletedAt *time.Time
 	if err := tx.QueryRow(ctx,
 		`SELECT deleted_at FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&deletedAt); err != nil {
-		failPurgeJob(err.Error())
+		recordPurgeFailure("phase2_user_lookup", err.Error())
 		return fmt.Errorf("GDPR: user %s not found: %w", userID, err)
 	}
 	if deletedAt == nil {
-		failPurgeJob("user no longer marked for deletion")
-		return fmt.Errorf("GDPR: user %s no longer marked for deletion", userID)
+		// Skipped is NOT a failure — the user revoked their deletion.
+		// Mark the background_jobs row as 'completed' with a "skipped" error
+		// hint, and emit gdpr_purge_skipped (NOT gdpr_purge_failed) so admin
+		// monitoring can filter these out.
+		if _, err := db.Pool.Exec(ctx,
+			`UPDATE background_jobs SET status = 'completed', error = 'skipped: user not marked for deletion', finished_at = NOW()
+			 WHERE job_type = 'gdpr_purge' AND user_id = $1 AND status = 'running'`, userID); err != nil {
+			slog.Warn("GDPR: mark skipped purge failed", "user_id", userID, "error", err)
+		}
+		db.LogAuthEvent(ctx, userID, "gdpr_purge_skipped", "", "system", map[string]string{
+			"reason": "user no longer marked for deletion",
+		})
+		return ErrPurgeSkipped
 	}
 
-	// Tables without CASCADE that need explicit deletion.
+	// Tables without CASCADE on users that still need explicit deletion.
+	// (best_efforts, best_effort_exclusions, activity_edits removed — they
+	// have transitive CASCADE chains via users/activities and are cleaned
+	// up by the final DELETE FROM users.)
 
-	// best_effort_exclusions / best_efforts: both have ON DELETE CASCADE from users,
-	// but we delete explicitly as a safety-net in the correct FK order.
-	if _, err := tx.Exec(ctx, `DELETE FROM best_effort_exclusions WHERE user_id = $1`, userID); err != nil {
-		slog.Warn("GDPR: delete best_effort_exclusions failed", "error", err)
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM best_efforts WHERE user_id = $1`, userID); err != nil {
-		slog.Warn("GDPR: delete best_efforts failed", "error", err)
-	}
-
-	// user_daily_features: user_id without CASCADE.
+	// user_daily_features: no FK constraint at all (TEXT user_id).
 	if _, err := tx.Exec(ctx, `DELETE FROM user_daily_features WHERE user_id = $1`, userID); err != nil {
 		slog.Warn("GDPR: delete user_daily_features failed", "error", err)
 	}
 
-	// llm_user_config: user_id without CASCADE.
+	// llm_user_config: no FK constraint at all.
 	if _, err := tx.Exec(ctx, `DELETE FROM llm_user_config WHERE user_id = $1`, userID); err != nil {
 		slog.Warn("GDPR: delete llm_user_config failed", "error", err)
 	}
 
-	// segment_efforts: user_id REFERENCES users(id) — no CASCADE.
+	// segment_efforts: user_id REFERENCES users(id) — NO ACTION (no CASCADE).
 	// Covers efforts by this user on OTHER users' segments (own-segment efforts
 	// already deleted in Phase 1, but the user_id FK still blocks user deletion).
 	if _, err := tx.Exec(ctx, `DELETE FROM segment_efforts WHERE user_id = $1`, userID); err != nil {
 		slog.Warn("GDPR: delete segment_efforts by user_id failed", "error", err)
 	}
 
-	// segment_versions: created_by REFERENCES users(id) — no CASCADE.
+	// segment_versions: created_by REFERENCES users(id) — NO ACTION.
 	if _, err := tx.Exec(ctx, `DELETE FROM segment_versions WHERE created_by = $1`, userID); err != nil {
 		slog.Warn("GDPR: delete segment_versions failed", "error", err)
 	}
 
-	// segments: created_by REFERENCES users(id) — no CASCADE.
+	// segments: created_by REFERENCES users(id) — NO ACTION. Hard fail if
+	// this DELETE errors out — without it, the final DELETE FROM users will
+	// fail with FK violation.
 	if _, err := tx.Exec(ctx, `DELETE FROM segments WHERE created_by = $1`, userID); err != nil {
-		failPurgeJob(err.Error())
+		recordPurgeFailure("phase2_segments", err.Error())
 		return fmt.Errorf("GDPR: delete segments: %w", err)
 	}
 
-	// activity_edits: user_id without CASCADE FK — explicit delete required.
-	if _, err := tx.Exec(ctx, `DELETE FROM activity_edits WHERE user_id = $1`, userID); err != nil {
-		slog.Warn("GDPR: delete activity_edits failed", "error", err)
-	}
-
-	// Delete route_photos user_files entries BEFORE deleting planned_routes (which cascades to route_photos).
-	// M46: Run inside the TX so a rollback also reverts the DB deletes. The actual S3 objects
-	// are deleted by the Phase 1.5 storage cleanup callback anyway; this is DB cleanup only.
+	// Delete route_photos user_files entries BEFORE deleting planned_routes
+	// (which cascades to route_photos). Runs inside the TX for atomicity.
 	db.deleteRoutePhotoFiles(ctx, tx, userID)
 
-	// route_photos: user_id REFERENCES users(id) — no CASCADE. Delete explicitly as defense-in-depth
-	// (normally cascaded from planned_routes via route_id, but orphaned rows would block user deletion).
+	// route_photos: user_id REFERENCES users(id) — NO ACTION.
 	if _, err := tx.Exec(ctx, `DELETE FROM route_photos WHERE user_id = $1`, userID); err != nil {
 		slog.Warn("GDPR: delete route_photos failed", "error", err)
 	}
 
-	// planned_routes: user_id REFERENCES users(id) — no CASCADE.
+	// planned_routes: user_id REFERENCES users(id) — NO ACTION.
 	if _, err := tx.Exec(ctx, `DELETE FROM planned_routes WHERE user_id = $1`, userID); err != nil {
 		slog.Warn("GDPR: delete planned_routes failed", "error", err)
 	}
 
-	// heatmap_trail_matches: user_id REFERENCES users(id) — no CASCADE.
+	// heatmap_trail_matches: user_id REFERENCES users(id) — NO ACTION.
 	if _, err := tx.Exec(ctx, `DELETE FROM heatmap_trail_matches WHERE user_id = $1`, userID); err != nil {
 		slog.Warn("GDPR: delete heatmap_trail_matches failed", "error", err)
 	}
 
-	// terra_incognita_cache: user_id TEXT PK, no FK constraint.
+	// terra_incognita_cache: user_id TEXT, no FK constraint.
 	if _, err := tx.Exec(ctx, `DELETE FROM terra_incognita_cache WHERE user_id = $1`, userID); err != nil {
 		slog.Warn("GDPR: delete terra_incognita_cache failed", "error", err)
 	}
 
-	// background_jobs: user_id TEXT, no FK constraint.
-	// M26: Mark the GDPR tracking job as completed INSIDE the TX so a rollback also
-	// reverts the status update. The row is deleted in the same TX immediately after.
-	if _, err := tx.Exec(ctx,
-		`UPDATE background_jobs SET status = 'completed', finished_at = NOW()
-		 WHERE job_type = 'gdpr_purge' AND user_id = $1 AND status = 'running'`, userID); err != nil {
-		slog.Warn("GDPR: mark job done in TX failed", "error", err)
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM background_jobs WHERE user_id = $1`, userID); err != nil {
+	// background_jobs: clear all OTHER background_jobs for this user. The
+	// gdpr_purge row is intentionally KEPT so the admin UI can show its final
+	// state (and will be marked completed via CompleteBackgroundJob below
+	// after the COMMIT). background_jobs has no FK on users, so the surviving
+	// row does not block DELETE FROM users.
+	if _, err := tx.Exec(ctx, `DELETE FROM background_jobs WHERE user_id = $1 AND job_type != 'gdpr_purge'`, userID); err != nil {
 		slog.Warn("GDPR: delete background_jobs failed", "error", err)
 	}
 
-	// DELETE user — CASCADE handles ~45+ dependent tables (see func doc comment).
+	// DELETE user — CASCADE handles all remaining dependent tables.
 	if _, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
+		recordPurgeFailure("phase2_delete_user", err.Error())
 		return fmt.Errorf("GDPR: delete user: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
+		recordPurgeFailure("phase2_commit", err.Error())
 		return fmt.Errorf("GDPR: commit: %w", err)
 	}
 
+	// ---- Success: mark background_jobs row as completed + emit audit ----
+	//
+	// Both updates run AFTER the TX commit. They are eventually-consistent
+	// administrative book-keeping; the actual user deletion is already
+	// committed and durable at this point. If either of these fails, the
+	// background_jobs row will be cleaned up by the stale-job sweeper, but
+	// the auth_audit_log entry would be missing — that is acceptable for
+	// a rare and non-blocking failure.
+	if _, err := db.Pool.Exec(ctx,
+		`UPDATE background_jobs SET status = 'completed', finished_at = NOW()
+		 WHERE job_type = 'gdpr_purge' AND user_id = $1 AND status = 'running'`, userID); err != nil {
+		slog.Warn("GDPR: mark purge completed failed", "user_id", userID, "error", err)
+	}
+	durationMs := time.Since(startedAt).Milliseconds()
+	db.LogAuthEvent(ctx, userID, "gdpr_purge_completed", "", "system", map[string]string{
+		"activities":  fmt.Sprintf("%d", len(actIDs)),
+		"segments":    fmt.Sprintf("%d", len(segIDs)),
+		"duration_ms": fmt.Sprintf("%d", durationMs),
+	})
+
 	slog.Info("GDPR purge complete", "user_id", userID,
-		"activities", len(actIDs), "segments", len(segIDs))
+		"activities", len(actIDs), "segments", len(segIDs), "duration_ms", durationMs)
 	return nil
 }
 

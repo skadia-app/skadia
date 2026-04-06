@@ -236,10 +236,15 @@ func TestDeleteCoversAllUserTables(t *testing.T) {
 	// Tables explicitly deleted in DeleteUserData (database/gdpr.go).
 	// Keep in sync with DeleteUserData implementation.
 	//
-	// NOTE: Health hypertables are kept here even if they have CASCADE FKs,
+	// NOTE: Health hypertables are kept here even though they have CASCADE FKs,
 	// because TimescaleDB hypertable CASCADE behaviour is unreliable — explicit
 	// deletes are required. Do NOT remove health_* entries based solely on
 	// the INFO log from the reverse-check below.
+	//
+	// best_efforts / best_effort_exclusions / activity_edits were REMOVED as
+	// part of the Option H Phase 2 cleanup — they cascade transitively via
+	// users → activities and the redundant explicit deletes have been removed
+	// from gdpr.go (L2 cleanup, 2026-04-06).
 	explicitlyDeletedInPurge := map[string]bool{
 		"health_daily_summary":      true,
 		"health_sleep":              true,
@@ -253,24 +258,17 @@ func TestDeleteCoversAllUserTables(t *testing.T) {
 		"health_spo2_snapshots":     true,
 		"health_training_load":      true,
 		"health_readiness_scores":   true,
-		// user_daily_features: TODO verify with Agent 3 whether this has CASCADE or not.
-		// Kept here to be safe — redundant explicit delete is better than missing one.
-		"user_daily_features":    true,
-		"llm_user_config":        true,
-		"segment_efforts":        true,
-		"segment_versions":       true,
-		"segments":               true,
-		"activity_edits":         true,
-		"route_photos":           true,
-		"planned_routes":         true,
-		"heatmap_trail_matches":  true,
-		"terra_incognita_cache":  true,
-		"background_jobs":        true,
-		// best_effort_exclusions and best_efforts: cascade from users via activities.
-		// Agent 3 should remove explicit deletes from gdpr.go if CASCADE is confirmed.
-		// Kept here until that sync happens.
-		"best_effort_exclusions": true,
-		"best_efforts":           true,
+		// user_daily_features: no FK at all (TEXT user_id) — explicit delete required.
+		"user_daily_features":   true,
+		"llm_user_config":       true, // no FK at all
+		"segment_efforts":       true, // user_id NO ACTION
+		"segment_versions":      true, // created_by NO ACTION
+		"segments":              true, // created_by NO ACTION
+		"route_photos":          true, // user_id NO ACTION
+		"planned_routes":        true, // user_id NO ACTION
+		"heatmap_trail_matches": true, // user_id NO ACTION
+		"terra_incognita_cache": true, // user_id TEXT, no FK
+		"background_jobs":       true, // user_id TEXT, no FK; gdpr_purge row kept as audit
 		// auth_audit_log: user_id is SET NULL on user deletion by design (audit trail preserved).
 		// The FK ON DELETE SET NULL handles the purge-link; no explicit row deletion needed.
 		"auth_audit_log": true,
