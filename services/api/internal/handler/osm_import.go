@@ -231,7 +231,10 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 		mainReporter.SetPhase("brouter_segments")
 		mainReporter.SetProgress(0)
 		slog.Info("osm import: building BRouter segments", "dir", segmentsDir)
-		if err := pipeline.BuildBRouterSegments(ctx, succeededRegions, pipeline.DataDir, segmentsDir, mainReporter); err != nil {
+		if err := pipeline.BuildBRouterSegments(ctx, osmregions.BRouterPaths{
+				ProfilesDir: h.Config.BRouterProfilesDir,
+				DEMDir:      h.Config.DEMDataDir,
+			}, succeededRegions, pipeline.DataDir, segmentsDir, mainReporter); err != nil {
 			slog.Error("osm import: BRouter segment build failed", "error", err)
 		}
 	}

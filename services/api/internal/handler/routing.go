@@ -435,7 +435,10 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 		}
 		reporter := &jobReporter{db: h.DB, jobID: jobID}
 
-		if err := pipeline.BuildBRouterSegments(ctx, regions, osmDataDir, segmentsDir, reporter); err != nil {
+		if err := pipeline.BuildBRouterSegments(ctx, osmregions.BRouterPaths{
+				ProfilesDir: h.Config.BRouterProfilesDir,
+				DEMDir:      h.Config.DEMDataDir,
+			}, regions, osmDataDir, segmentsDir, reporter); err != nil {
 			slog.Error("BRouter segment build failed", "error", err, "job_id", jobID)
 			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true, "")
 		} else {

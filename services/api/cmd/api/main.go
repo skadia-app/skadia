@@ -437,6 +437,7 @@ func main() {
 			OSMDataDir:         cfg.OSMDataDir,
 			DEMDataDir:         cfg.DEMDataDir,
 			BRouterSegmentsDir: cfg.BRouterSegmentsDir,
+			BRouterProfilesDir: cfg.BRouterProfilesDir,
 			TilesDir:           cfg.TilesDir,
 			LibraryBasePath:     cfg.LibraryBasePath,
 			StorageBackend:      cfg.StorageBackend,
