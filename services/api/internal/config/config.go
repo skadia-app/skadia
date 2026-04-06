@@ -72,7 +72,6 @@ type Config struct {
 	BRouterSegmentsDir string
 	BRouterProfilesDir string
 	TilesDir           string
-	RoutingDir         string
 
 	// Auth (Go-native)
 	RegistrationMode   string // "invite" (default), "open", "approval"
@@ -147,7 +146,6 @@ func Load() (*Config, error) {
 		BRouterSegmentsDir: getEnvDefault("BROUTER_SEGMENTS_DIR", "/data/brouter/segments"),
 		BRouterProfilesDir: getEnvDefault("BROUTER_PROFILES_DIR", "/data/brouter/profiles"),
 		TilesDir:           getEnvDefault("TILES_DIR", "/data/tiles"),
-		RoutingDir:         getEnvDefault("ROUTING_DIR", "/data/routing"),
 
 		RegistrationMode:   getEnvDefault("REGISTRATION_MODE", "invite"),
 		OAuthEncryptionKey: os.Getenv("OAUTH_ENCRYPTION_KEY"),
