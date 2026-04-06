@@ -1,5 +1,15 @@
 import { apiClient } from './client'
 
+// ── Zone type constants ───────────────────────────────────────────────────────
+
+export const ZONE_TYPES = {
+  HR: 'hr',
+  POWER: 'power',
+  SPEED: 'speed',
+} as const
+
+export type ZoneType = typeof ZONE_TYPES[keyof typeof ZONE_TYPES]
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface ZoneDetail {
