@@ -21,6 +21,9 @@ providers:
   docker:
     exposedByDefault: false
     network: skadia_default
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
 
 certificatesResolvers:
   letsencrypt:
