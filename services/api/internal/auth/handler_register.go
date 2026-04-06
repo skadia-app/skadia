@@ -148,9 +148,6 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteJSONNoCache(w, http.StatusConflict, map[string]string{"error": "admin_already_created"})
 			return
 		}
-		if err == nil {
-			slog.Info("auth.bootstrap", "user_id", user.ID, "email", req.Email)
-		}
 	} else {
 		isActive := h.Config.RegistrationMode != "approval"
 		user, err = h.DB.CreateUserWithPassword(r.Context(), req.Email, req.Username, hash, "email", ip, isActive)

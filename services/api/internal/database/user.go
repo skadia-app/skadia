@@ -274,8 +274,7 @@ func (db *DB) CreateBootstrapAdmin(ctx context.Context, email, username, passwor
 
 	// Advisory lock prevents race conditions with parallel bootstrap requests.
 	// Released automatically at COMMIT/ROLLBACK.
-	const bootstrapLockID int64 = 0x666974706970655f // "skadia_" as int64
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", bootstrapLockID); err != nil {
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", LockBootstrapAdmin); err != nil {
 		return nil, fmt.Errorf("advisory lock: %w", err)
 	}
 
