@@ -13,7 +13,10 @@ package auth
 //
 // NOTE: The old S3/storage columns (s3_key, s3_bucket, s3_key_thumb, etc.)
 // were dropped in migration 000236. No deny-list entry needed.
+//
+// NOTE: TOTP/2FA is not yet implemented. When totp_secret and recovery_codes
+// are introduced, add them back here.
 var ExportDenyColumns = map[string][]string{
-	"users":             {"password_hash", "totp_secret", "recovery_codes"},
+	"users":             {"password_hash"},
 	"oauth_connections": {"access_token", "refresh_token"},
 }
