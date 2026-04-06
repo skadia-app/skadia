@@ -43,18 +43,21 @@ interface GlucoseChartPanelProps {
   streams: StreamPoint[]
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function GlucoseChartPanel({ streams }: GlucoseChartPanelProps) {
-  const hasGlucose = streams.some(s => s.glucose_mg_dl != null)
-
-  const xValues = hasGlucose ? buildXValues(streams) : []
-  const glucoseValues = hasGlucose
-    ? streams.map(s => (s.glucose_mg_dl != null ? s.glucose_mg_dl : null))
-    : []
+  const { hasGlucose, xValues, glucoseValues } = useMemo(() => {
+    let hasAny = false
+    const xs: number[] = []
+    const ys: (number | null)[] = []
+    const t0 = streams.length > 0 ? new Date(streams[0].time).getTime() : 0
+    for (const s of streams) {
+      if (s.glucose_mg_dl != null) hasAny = true
+      xs.push(Math.round((new Date(s.time).getTime() - t0) / 1000))
+      ys.push(s.glucose_mg_dl != null ? s.glucose_mg_dl : null)
+    }
+    return { hasGlucose: hasAny, xValues: xs, glucoseValues: ys }
+  }, [streams])
 
   const containerRef = useECharts(
     (theme) => {
@@ -80,7 +83,7 @@ export function GlucoseChartPanel({ streams }: GlucoseChartPanelProps) {
             let zoneColor = '#22c55e'
             if (val >= 200) { zone = LABELS.zoneHigh; zoneColor = '#ef4444' }
             else if (val >= 160) { zone = LABELS.zoneElevated; zoneColor = '#f59e0b' }
-            return `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${formatElapsed(elapsed)}</div>
+            return `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${fmtDuration(elapsed)}</div>
               <div><strong style="color:#f9fafb">${val.toFixed(1)} mg/dL</strong> <span style="color:${zoneColor};font-size:10px">${zone}</span></div>`
           },
         },
@@ -91,7 +94,7 @@ export function GlucoseChartPanel({ streams }: GlucoseChartPanelProps) {
           axisLabel: {
             fontSize: 10,
             color: theme.textColor,
-            formatter: (v: number) => formatElapsed(v),
+            formatter: (v: number) => fmtDuration(v),
           },
           splitLine: { show: false },
           axisLine: { lineStyle: { color: '#374151' } },
@@ -163,7 +166,7 @@ export function GlucoseChartPanel({ streams }: GlucoseChartPanelProps) {
         ],
       }
     },
-    [hasGlucose, streams],
+    [hasGlucose, xValues, glucoseValues],
   )
 
   if (!hasGlucose) return null
