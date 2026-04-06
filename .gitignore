@@ -2,6 +2,9 @@
 .env
 .superpowers/
 
+# Compose dev overrides (personal, not tracked)
+docker-compose.override.yml
+
 # Garage — generated from garage.toml.template (contains secrets)
 garage/garage.toml
 
