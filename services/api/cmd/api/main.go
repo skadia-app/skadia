@@ -671,7 +671,11 @@ func main() {
 	r.Use(chimiddleware.Recoverer)
 
 	// Public routes (no authentication required)
-	r.Get("/health", h.Health)
+	// Probe endpoints — outside /api/ prefix, accessed directly by container healthchecks
+	r.Get("/livez", h.Livez)
+	r.Get("/readyz", h.Readyz)
+	r.Get("/healthz", h.Healthz)
+	r.Get("/health", h.Healthz) // backwards compat alias
 	r.Get("/api/v1/coverage/info", h.CoverageBuildInfo)
 	r.Get("/api/v1/coverage/tiles/*", h.CoverageTile)
 	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)
