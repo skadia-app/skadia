@@ -31,8 +31,9 @@ func testPool(t *testing.T) *pgxpool.Pool {
 // database schema and verifies each one is registered in GDPRRegistry.
 //
 // Two heuristics are combined:
-//   A) Column-name: tables with a user_id or created_by column.
-//   B) FK-chain: tables reachable from users(id) via foreign keys (up to 4 levels).
+//
+//	A) Column-name: tables with a user_id or created_by column.
+//	B) FK-chain: tables reachable from users(id) via foreign keys (up to 4 levels).
 //
 // LIMITATION: Tables that reference users through non-standard column names
 // (e.g. owner_id, assigned_to) WITHOUT a foreign key to users will NOT be
@@ -43,12 +44,20 @@ func TestAllUserTablesInGDPRRegistry(t *testing.T) {
 	ctx := context.Background()
 
 	// Heuristic A: tables with user_id or created_by column.
+	// JOIN with pg_class to restrict to base tables only (relkind='r'),
+	// excluding views ('v'), materialized views ('m'), sequences etc.
+	// This prevents false positives from views like gear_cost_summary that
+	// expose user_id in their output column list but have no direct storage.
 	columnRows, err := pool.Query(ctx, `
-		SELECT DISTINCT table_name
-		FROM information_schema.columns
-		WHERE table_schema = 'public'
-		  AND column_name IN ('user_id', 'created_by')
-		  AND table_name NOT LIKE 'pg_%'
+		SELECT DISTINCT c.relname AS table_name
+		FROM information_schema.columns col
+		JOIN pg_class c
+		  ON c.relname = col.table_name
+		 AND c.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
+		WHERE col.table_schema = 'public'
+		  AND col.column_name IN ('user_id', 'created_by')
+		  AND col.table_name NOT LIKE 'pg_%'
+		  AND c.relkind = 'r'
 	`)
 	if err != nil {
 		t.Fatalf("column query: %v", err)
@@ -148,8 +157,7 @@ func TestExportDenyColumnsExist(t *testing.T) {
 }
 
 // TestExportedTablesMatchRegistry verifies that every table with category Export
-// or External in GDPRRegistry is covered by the data export — either via
-// ManuallyExportedTables (custom export logic) or via ExportedTables
+// or External in GDPRRegistry is covered by ExportedTables
 // (the exportTable() calls in handler_data_export.go).
 func TestExportedTablesMatchRegistry(t *testing.T) {
 	exported := make(map[string]bool)
@@ -162,9 +170,6 @@ func TestExportedTablesMatchRegistry(t *testing.T) {
 		if cat != Export && cat != External {
 			continue
 		}
-		if ManuallyExportedTables[table] {
-			continue
-		}
 		if exported[table] {
 			continue
 		}
@@ -173,7 +178,7 @@ func TestExportedTablesMatchRegistry(t *testing.T) {
 	sort.Strings(uncovered)
 
 	for _, table := range uncovered {
-		t.Errorf("table %q (Export/External) is not in ExportedTables and not in ManuallyExportedTables", table)
+		t.Errorf("table %q (Export/External) is not in ExportedTables", table)
 	}
 
 	// Reverse check: every entry in ExportedTables must be in GDPRRegistry
@@ -187,6 +192,40 @@ func TestExportedTablesMatchRegistry(t *testing.T) {
 	}
 }
 
+// TestRegistryEntriesExistInSchema verifies that every non-Global entry in
+// GDPRRegistry corresponds to an actual table (or partition/materialized view)
+// in the database schema. This catches stale registry entries after a migration
+// drops a table without cleaning the registry.
+func TestRegistryEntriesExistInSchema(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	for table, cat := range GDPRRegistry {
+		// Global entries are documented reference points; they may not exist
+		// as real tables (e.g. lookup tables managed by migrations differently).
+		if cat == Global {
+			continue
+		}
+
+		var exists bool
+		err := pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_class c
+				JOIN pg_namespace n ON n.oid = c.relnamespace
+				WHERE n.nspname = 'public'
+				  AND c.relname = $1
+				  AND c.relkind IN ('r', 'm', 'p')
+			)
+		`, table).Scan(&exists)
+		if err != nil {
+			t.Fatalf("query pg_class for %q: %v", table, err)
+		}
+		if !exists {
+			t.Errorf("registry contains %q (category %v) but no such table exists in DB schema — stale entry?", table, cat)
+		}
+	}
+}
+
 // TestDeleteCoversAllUserTables verifies that every table in GDPRRegistry is
 // cleaned up when a user is deleted — either via ON DELETE CASCADE on its FK
 // to users, or via explicit deletion in DeleteUserData.
@@ -196,47 +235,81 @@ func TestDeleteCoversAllUserTables(t *testing.T) {
 
 	// Tables explicitly deleted in DeleteUserData (database/gdpr.go).
 	// Keep in sync with DeleteUserData implementation.
+	//
+	// NOTE: Health hypertables are kept here even though they have CASCADE FKs,
+	// because TimescaleDB hypertable CASCADE behaviour is unreliable — explicit
+	// deletes are required. Do NOT remove health_* entries based solely on
+	// the INFO log from the reverse-check below.
+	//
+	// best_efforts / best_effort_exclusions / activity_edits were REMOVED as
+	// part of the Option H Phase 2 cleanup — they cascade transitively via
+	// users → activities and the redundant explicit deletes have been removed
+	// from gdpr.go (L2 cleanup, 2026-04-06).
 	explicitlyDeletedInPurge := map[string]bool{
-		"health_daily_summary":     true,
-		"health_sleep":             true,
-		"health_snapshots":         true,
-		"health_hrv_night_values":  true,
+		"health_daily_summary":      true,
+		"health_sleep":              true,
+		"health_snapshots":          true,
+		"health_hrv_night_values":   true,
 		"health_monitoring_samples": true,
-		"health_weight_entries":    true,
-		"health_blood_pressure":    true,
-		"health_fitness_age":       true,
-		"health_stress_snapshots":  true,
-		"health_spo2_snapshots":    true,
-		"health_training_load":     true,
-		"health_readiness_scores":  true,
-		"user_daily_features":      true,
-		"llm_user_config":          true,
-		"segment_efforts":          true,
-		"segment_versions":         true,
-		"segments":                 true,
-		"activity_edits":           true,
-		"route_photos":             true,
-		"planned_routes":           true,
-		"heatmap_trail_matches":    true,
-		"terra_incognita_cache":    true,
-		"background_jobs":          true,
-		"best_effort_exclusions":   true,
-		"best_efforts":             true,
+		"health_weight_entries":     true,
+		"health_blood_pressure":     true,
+		"health_fitness_age":        true,
+		"health_stress_snapshots":   true,
+		"health_spo2_snapshots":     true,
+		"health_training_load":      true,
+		"health_readiness_scores":   true,
+		// user_daily_features: no FK at all (TEXT user_id) — explicit delete required.
+		"user_daily_features":   true,
+		"llm_user_config":       true, // no FK at all
+		"segment_efforts":       true, // user_id NO ACTION
+		"segment_versions":      true, // created_by NO ACTION
+		"segments":              true, // created_by NO ACTION
+		"route_photos":          true, // user_id NO ACTION
+		"planned_routes":        true, // user_id NO ACTION
+		"heatmap_trail_matches": true, // user_id NO ACTION
+		"terra_incognita_cache": true, // user_id TEXT, no FK
+		"background_jobs":       true, // user_id TEXT, no FK; gdpr_purge row kept as audit
+		// auth_audit_log: user_id is SET NULL on user deletion by design (audit trail preserved).
+		// The FK ON DELETE SET NULL handles the purge-link; no explicit row deletion needed.
+		"auth_audit_log": true,
 	}
 
-	// Query: which tables have ON DELETE CASCADE from a FK pointing to users?
+	// Query: which tables are reachable via ON DELETE CASCADE from users?
+	// Uses a recursive CTE so transitive chains are included, e.g.:
+	//   bike_setups → gear → users
+	//   chat_messages → chat_sessions → users
+	//   workout_steps → workouts → users
+	// depth < 6 is sufficient for Skadia (deepest observed chain is depth 3).
 	cascadeRows, err := pool.Query(ctx, `
-		SELECT DISTINCT tc.table_name
-		FROM information_schema.table_constraints tc
-		JOIN information_schema.constraint_column_usage ccu
-		  ON ccu.constraint_name = tc.constraint_name
-		JOIN information_schema.referential_constraints rc
-		  ON rc.constraint_name = tc.constraint_name
-		WHERE tc.constraint_type = 'FOREIGN KEY'
-		  AND tc.table_schema = 'public'
-		  AND ccu.table_schema = 'public'
-		  AND ccu.table_name = 'users'
-		  AND rc.delete_rule = 'CASCADE'
+		WITH RECURSIVE cascade_chain AS (
+			-- Base: tables with direct ON DELETE CASCADE FK to users
+			SELECT DISTINCT tc.table_name, 1 AS depth
+			FROM information_schema.table_constraints tc
+			JOIN information_schema.constraint_column_usage ccu
+			  ON ccu.constraint_name = tc.constraint_name
+			JOIN information_schema.referential_constraints rc
+			  ON rc.constraint_name = tc.constraint_name
+			WHERE tc.constraint_type = 'FOREIGN KEY'
+			  AND tc.table_schema = 'public'
+			  AND ccu.table_schema = 'public'
+			  AND ccu.table_name = 'users'
+			  AND rc.delete_rule = 'CASCADE'
+			UNION
+			-- Recursive: tables with ON DELETE CASCADE FK to already-found tables
+			SELECT DISTINCT tc.table_name, cc.depth + 1
+			FROM information_schema.table_constraints tc
+			JOIN information_schema.constraint_column_usage ccu
+			  ON ccu.constraint_name = tc.constraint_name
+			JOIN information_schema.referential_constraints rc
+			  ON rc.constraint_name = tc.constraint_name
+			JOIN cascade_chain cc ON ccu.table_name = cc.table_name
+			WHERE tc.constraint_type = 'FOREIGN KEY'
+			  AND tc.table_schema = 'public'
+			  AND ccu.table_schema = 'public'
+			  AND rc.delete_rule = 'CASCADE'
+			  AND cc.depth < 6
+		)
+		SELECT DISTINCT table_name FROM cascade_chain
 	`)
 	if err != nil {
 		t.Fatalf("cascade query: %v", err)
