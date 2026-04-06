@@ -8,8 +8,8 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useToast } from '@/lib/toast'
-import { updateTrainingZones } from '@/api/trainingZones'
-import type { SportZones, ZoneDetail } from '@/api/trainingZones'
+import { updateTrainingZones, ZONE_TYPES } from '@/api/trainingZones'
+import type { SportZones, ZoneDetail, ZoneType, TrainingZoneUpdate } from '@/api/trainingZones'
 import ZoneTable from './ZoneTable'
 import type { ZoneRow } from './ZoneTable'
 
@@ -54,275 +54,113 @@ function rowsToNamesHighs(rows: ZoneRow[]): { zone_names: string[]; zone_highs: 
   return { zone_names: rows.map(r => r.name), zone_highs: highs }
 }
 
-// ── Zone section state types ──────────────────────────────────────────────────
+// ── Shared state type ─────────────────────────────────────────────────────────
 
-interface HrState {
-  threshold: number
-  rows: ZoneRow[]
-}
-
-interface PowerState {
-  threshold: number
-  rows: ZoneRow[]
-}
-
-interface SpeedState {
+interface ZoneState {
   threshold: number | null
   rows: ZoneRow[]
 }
 
-// ── ZoneSectionHR ─────────────────────────────────────────────────────────────
+// ── Shared save hook ──────────────────────────────────────────────────────────
 
-function ZoneSectionHR({
-  detail,
-  sport,
-  disabled,
-}: {
-  detail: ZoneDetail
-  sport: number
-  disabled: boolean
-}) {
-  const [state, setState] = useState<HrState>({
-    threshold: detail.threshold_heart_rate ?? 0,
-    rows: zoneDetailToRows(detail),
-  })
+function useZoneSave(buildPayload: (state: ZoneState) => TrainingZoneUpdate, successTitle: string, errorTitle: string) {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
-
-  useEffect(() => {
-    setState({
-      threshold: detail.threshold_heart_rate ?? 0,
-      rows: zoneDetailToRows(detail),
-    })
-  }, [detail])
-
-  const mutation = useMutation({
-    mutationFn: () => {
-      const { zone_names, zone_highs } = rowsToNamesHighs(state.rows)
-      return updateTrainingZones({
-        sport,
-        sub_sport: 0,
-        zone_type: 'hr',
-        threshold_heart_rate: state.threshold > 0 ? state.threshold : undefined,
-        zone_names,
-        zone_highs,
-      })
-    },
+  return useMutation({
+    mutationFn: (state: ZoneState) => updateTrainingZones(buildPayload(state)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['training-zones'] })
-      addToast({ type: 'success', title: 'Heart rate zones saved' })
+      addToast({ type: 'success', title: successTitle })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Failed to save HR zones', duration: 0 })
+      addToast({ type: 'error', title: errorTitle, duration: 0 })
     },
   })
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Heart Rate Zones</h4>
-        <SourceBadge sourceType={detail.source_type} />
-      </div>
-
-      <div className="flex items-center gap-3">
-        <label className="text-sm text-neutral-600 dark:text-neutral-400 shrink-0">
-          LTHR (bpm)
-        </label>
-        <input
-          type="number"
-          min={40}
-          max={250}
-          value={state.threshold || ''}
-          onChange={e => setState(s => ({ ...s, threshold: e.target.value ? parseInt(e.target.value) : 0 }))}
-          disabled={disabled}
-          placeholder="e.g. 165"
-          className="w-28 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-1.5 text-sm disabled:opacity-50"
-        />
-      </div>
-
-      <ZoneTable
-        rows={state.rows}
-        onChange={rows => setState(s => ({ ...s, rows }))}
-        unit="bpm"
-        disabled={disabled}
-      />
-
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => mutation.mutate()}
-          disabled={disabled || mutation.isPending || state.threshold <= 0}
-          className="cursor-pointer px-3 py-1.5 text-sm font-medium rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {mutation.isPending ? 'Saving...' : 'Save HR zones'}
-        </button>
-      </div>
-    </div>
-  )
 }
 
-// ── ZoneSectionPower ──────────────────────────────────────────────────────────
+// ── ZoneSection config ────────────────────────────────────────────────────────
 
-function ZoneSectionPower({
-  detail,
-  sport,
-  disabled,
-}: {
-  detail: ZoneDetail
-  sport: number
-  disabled: boolean
-}) {
-  const [state, setState] = useState<PowerState>({
-    threshold: detail.functional_threshold_power ?? 0,
-    rows: zoneDetailToRows(detail),
-  })
-  const queryClient = useQueryClient()
-  const { addToast } = useToast()
-
-  useEffect(() => {
-    setState({
-      threshold: detail.functional_threshold_power ?? 0,
-      rows: zoneDetailToRows(detail),
-    })
-  }, [detail])
-
-  const mutation = useMutation({
-    mutationFn: () => {
-      const { zone_names, zone_highs } = rowsToNamesHighs(state.rows)
-      return updateTrainingZones({
-        sport,
-        sub_sport: 0,
-        zone_type: 'power',
-        functional_threshold_power: state.threshold > 0 ? state.threshold : undefined,
-        zone_names,
-        zone_highs,
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['training-zones'] })
-      addToast({ type: 'success', title: 'Power zones saved' })
-    },
-    onError: () => {
-      addToast({ type: 'error', title: 'Failed to save power zones', duration: 0 })
-    },
-  })
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Power Zones</h4>
-        <SourceBadge sourceType={detail.source_type} />
-      </div>
-
-      <div className="flex items-center gap-3">
-        <label className="text-sm text-neutral-600 dark:text-neutral-400 shrink-0">
-          FTP (W)
-        </label>
-        <input
-          type="number"
-          min={0}
-          max={1000}
-          value={state.threshold || ''}
-          onChange={e => setState(s => ({ ...s, threshold: e.target.value ? parseInt(e.target.value) : 0 }))}
-          disabled={disabled}
-          placeholder="e.g. 280"
-          className="w-28 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-1.5 text-sm disabled:opacity-50"
-        />
-      </div>
-
-      <ZoneTable
-        rows={state.rows}
-        onChange={rows => setState(s => ({ ...s, rows }))}
-        unit="W"
-        disabled={disabled}
-      />
-
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => mutation.mutate()}
-          disabled={disabled || mutation.isPending || state.threshold <= 0}
-          className="cursor-pointer px-3 py-1.5 text-sm font-medium rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {mutation.isPending ? 'Saving...' : 'Save power zones'}
-        </button>
-      </div>
-    </div>
-  )
+interface ZoneSectionConfig {
+  zoneType: ZoneType
+  heading: string
+  thresholdLabel: string
+  thresholdPlaceholder: string
+  thresholdMin: number
+  thresholdMax: number
+  thresholdStep?: number
+  unit: string
+  convertMps?: boolean
+  saveLabel: string
+  successTitle: string
+  errorTitle: string
+  /** Read threshold from ZoneDetail into display units */
+  readThreshold: (d: ZoneDetail) => number | null
+  /** Build the API payload from sport + display-unit state */
+  buildPayload: (sport: number, state: ZoneState) => TrainingZoneUpdate
+  /** True when save should be disabled (beyond isPending) */
+  isSaveDisabled: (state: ZoneState) => boolean
 }
 
-// ── ZoneSectionSpeed ──────────────────────────────────────────────────────────
+// ── ZoneSection ───────────────────────────────────────────────────────────────
 
-function ZoneSectionSpeed({
-  detail,
+function ZoneSection({
   sport,
+  detail,
   disabled,
+  config,
 }: {
-  detail: ZoneDetail
   sport: number
+  detail: ZoneDetail
   disabled: boolean
+  config: ZoneSectionConfig
 }) {
-  const [state, setState] = useState<SpeedState>({
-    threshold: detail.threshold_speed_mps != null ? Math.round(detail.threshold_speed_mps * 3.6 * 10) / 10 : null,
+  const [state, setState] = useState<ZoneState>({
+    threshold: config.readThreshold(detail),
     rows: zoneDetailToRows(detail),
   })
-  const queryClient = useQueryClient()
-  const { addToast } = useToast()
 
   useEffect(() => {
     setState({
-      threshold: detail.threshold_speed_mps != null ? Math.round(detail.threshold_speed_mps * 3.6 * 10) / 10 : null,
+      threshold: config.readThreshold(detail),
       rows: zoneDetailToRows(detail),
     })
-  }, [detail])
+  }, [detail]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const mutation = useMutation({
-    mutationFn: () => {
-      const { zone_names, zone_highs } = rowsToNamesHighs(state.rows)
-      const thresholdMps = state.threshold != null ? state.threshold / 3.6 : undefined
-      return updateTrainingZones({
-        sport,
-        sub_sport: 0,
-        zone_type: 'speed',
-        threshold_speed_mps: thresholdMps,
-        zone_names,
-        zone_highs,
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['training-zones'] })
-      addToast({ type: 'success', title: 'Speed zones saved' })
-    },
-    onError: () => {
-      addToast({ type: 'error', title: 'Failed to save speed zones', duration: 0 })
-    },
-  })
+  const mutation = useZoneSave(
+    s => config.buildPayload(sport, s),
+    config.successTitle,
+    config.errorTitle,
+  )
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Speed Zones</h4>
+        <h4 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{config.heading}</h4>
         <SourceBadge sourceType={detail.source_type} />
       </div>
 
       <div className="flex items-center gap-3">
         <label className="text-sm text-neutral-600 dark:text-neutral-400 shrink-0">
-          CSS (km/h)
+          {config.thresholdLabel} ({config.unit})
         </label>
         <input
           type="number"
-          min={0}
-          max={100}
-          step={0.1}
+          min={config.thresholdMin}
+          max={config.thresholdMax}
+          step={config.thresholdStep}
           value={state.threshold ?? ''}
           onChange={e =>
             setState(s => ({
               ...s,
-              threshold: e.target.value ? parseFloat(e.target.value) : null,
+              threshold: e.target.value
+                ? config.thresholdStep != null && config.thresholdStep < 1
+                  ? parseFloat(e.target.value)
+                  : parseInt(e.target.value)
+                : null,
             }))
           }
           disabled={disabled}
-          placeholder="Optional"
+          placeholder={config.thresholdPlaceholder}
           className="w-28 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-1.5 text-sm disabled:opacity-50"
         />
       </div>
@@ -330,23 +168,106 @@ function ZoneSectionSpeed({
       <ZoneTable
         rows={state.rows}
         onChange={rows => setState(s => ({ ...s, rows }))}
-        unit="km/h"
-        convertMpsToKmh
+        unit={config.unit}
+        convertMpsToKmh={config.convertMps}
         disabled={disabled}
       />
 
       <div className="flex justify-end">
         <button
           type="button"
-          onClick={() => mutation.mutate()}
-          disabled={disabled || mutation.isPending}
+          onClick={() => mutation.mutate(state)}
+          disabled={disabled || mutation.isPending || config.isSaveDisabled(state)}
           className="cursor-pointer px-3 py-1.5 text-sm font-medium rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {mutation.isPending ? 'Saving...' : 'Save speed zones'}
+          {mutation.isPending ? 'Saving...' : config.saveLabel}
         </button>
       </div>
     </div>
   )
+}
+
+// ── Per-type configs ──────────────────────────────────────────────────────────
+
+const HR_CONFIG: ZoneSectionConfig = {
+  zoneType: ZONE_TYPES.HR,
+  heading: 'Heart Rate Zones',
+  thresholdLabel: 'LTHR',
+  thresholdPlaceholder: 'e.g. 165',
+  thresholdMin: 40,
+  thresholdMax: 250,
+  unit: 'bpm',
+  saveLabel: 'Save HR zones',
+  successTitle: 'Heart rate zones saved',
+  errorTitle: 'Failed to save HR zones',
+  readThreshold: d => d.threshold_heart_rate ?? 0,
+  buildPayload: (sport, state) => {
+    const { zone_names, zone_highs } = rowsToNamesHighs(state.rows)
+    return {
+      sport,
+      sub_sport: 0,
+      zone_type: ZONE_TYPES.HR,
+      threshold_heart_rate: (state.threshold ?? 0) > 0 ? (state.threshold as number) : undefined,
+      zone_names,
+      zone_highs,
+    }
+  },
+  isSaveDisabled: state => (state.threshold ?? 0) <= 0,
+}
+
+const POWER_CONFIG: ZoneSectionConfig = {
+  zoneType: ZONE_TYPES.POWER,
+  heading: 'Power Zones',
+  thresholdLabel: 'FTP',
+  thresholdPlaceholder: 'e.g. 280',
+  thresholdMin: 0,
+  thresholdMax: 1000,
+  unit: 'W',
+  saveLabel: 'Save power zones',
+  successTitle: 'Power zones saved',
+  errorTitle: 'Failed to save power zones',
+  readThreshold: d => d.functional_threshold_power ?? 0,
+  buildPayload: (sport, state) => {
+    const { zone_names, zone_highs } = rowsToNamesHighs(state.rows)
+    return {
+      sport,
+      sub_sport: 0,
+      zone_type: ZONE_TYPES.POWER,
+      functional_threshold_power: (state.threshold ?? 0) > 0 ? (state.threshold as number) : undefined,
+      zone_names,
+      zone_highs,
+    }
+  },
+  isSaveDisabled: state => (state.threshold ?? 0) <= 0,
+}
+
+const SPEED_CONFIG: ZoneSectionConfig = {
+  zoneType: ZONE_TYPES.SPEED,
+  heading: 'Speed Zones',
+  thresholdLabel: 'CSS',
+  thresholdPlaceholder: 'Optional',
+  thresholdMin: 0,
+  thresholdMax: 100,
+  thresholdStep: 0.1,
+  unit: 'km/h',
+  convertMps: true,
+  saveLabel: 'Save speed zones',
+  successTitle: 'Speed zones saved',
+  errorTitle: 'Failed to save speed zones',
+  readThreshold: d =>
+    d.threshold_speed_mps != null ? Math.round(d.threshold_speed_mps * 3.6 * 10) / 10 : null,
+  buildPayload: (sport, state) => {
+    const { zone_names, zone_highs } = rowsToNamesHighs(state.rows)
+    return {
+      sport,
+      sub_sport: 0,
+      zone_type: ZONE_TYPES.SPEED,
+      threshold_speed_mps: state.threshold != null ? state.threshold / 3.6 : undefined,
+      zone_names,
+      zone_highs,
+    }
+  },
+  isSaveDisabled: () => false,
 }
 
 // ── ZoneEditorCard ────────────────────────────────────────────────────────────
@@ -357,11 +278,9 @@ interface ZoneEditorCardProps {
 }
 
 export default function ZoneEditorCard({ sportZones, disabled = false }: ZoneEditorCardProps) {
-  const { hr, power, speed } = {
-    hr: sportZones.zones['hr'] ?? null,
-    power: sportZones.zones['power'] ?? null,
-    speed: sportZones.zones['speed'] ?? null,
-  }
+  const hr = sportZones.zones[ZONE_TYPES.HR] ?? null
+  const power = sportZones.zones[ZONE_TYPES.POWER] ?? null
+  const speed = sportZones.zones[ZONE_TYPES.SPEED] ?? null
 
   const hasAny = hr != null || power != null || speed != null
 
@@ -376,20 +295,20 @@ export default function ZoneEditorCard({ sportZones, disabled = false }: ZoneEdi
   return (
     <div className="space-y-6">
       {hr && (
-        <ZoneSectionHR detail={hr} sport={sportZones.sport} disabled={disabled} />
+        <ZoneSection sport={sportZones.sport} detail={hr} disabled={disabled} config={HR_CONFIG} />
       )}
 
       {power && (
         <>
           {hr && <div className="border-t border-neutral-200 dark:border-neutral-700" />}
-          <ZoneSectionPower detail={power} sport={sportZones.sport} disabled={disabled} />
+          <ZoneSection sport={sportZones.sport} detail={power} disabled={disabled} config={POWER_CONFIG} />
         </>
       )}
 
       {speed && (
         <>
           {(hr || power) && <div className="border-t border-neutral-200 dark:border-neutral-700" />}
-          <ZoneSectionSpeed detail={speed} sport={sportZones.sport} disabled={disabled} />
+          <ZoneSection sport={sportZones.sport} detail={speed} disabled={disabled} config={SPEED_CONFIG} />
         </>
       )}
     </div>
