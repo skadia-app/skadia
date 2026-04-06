@@ -634,12 +634,18 @@ const maxExportBytesUnified int64 = 10 * 1024 * 1024 * 1024 // 10 GiB
 
 // StreamToZip writes all exportable user files into the given zip.Writer.
 // Derivatives (thumb/preview) and legacy _cache/ paths are skipped.
-func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zip.Writer) error {
+//
+// Returns `failedPaths` listing every ZIP entry whose content could not be
+// fully written (read-from-storage failures, copy-truncation, missing files).
+// Callers should surface this list in the export manifest so the user knows
+// which files in the ZIP are empty/truncated.
+func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zip.Writer) ([]string, error) {
 	records, err := listRecords(ctx, u.pool, userID, nil)
 	if err != nil {
-		return fmt.Errorf("shadowfs: list records for zip: %w", err)
+		return nil, fmt.Errorf("shadowfs: list records for zip: %w", err)
 	}
 
+	var failedPaths []string
 	var totalBytes int64
 	for _, rec := range records {
 		// Skip derivatives.
@@ -653,7 +659,7 @@ func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zi
 
 		totalBytes += rec.SizeBytes
 		if totalBytes > maxExportBytesUnified {
-			return fmt.Errorf("shadowfs: export exceeds %d byte limit", maxExportBytesUnified)
+			return failedPaths, fmt.Errorf("shadowfs: export exceeds %d byte limit", maxExportBytesUnified)
 		}
 
 		// Normalize zip paths — use path.Base to strip any directory components from
@@ -664,18 +670,21 @@ func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zi
 		}
 		if strings.Contains(zipPath, "..") || strings.HasPrefix(zipPath, "/") {
 			slog.Warn("shadowfs: skip suspicious path in zip", "path", zipPath)
+			failedPaths = append(failedPaths, zipPath)
 			continue
 		}
 
 		be, beErr := u.backendFor(rec.StorageBackend)
 		if beErr != nil {
 			slog.Warn("shadowfs: skip file in zip (backend unavailable)", "file_id", rec.ID, "err", beErr)
+			failedPaths = append(failedPaths, zipPath)
 			continue
 		}
 
 		rc, readErr := be.Read(ctx, rec.StoragePath, u.bucketOpts(rec.FileType))
 		if readErr != nil {
 			slog.Warn("shadowfs: skip file in zip", "file_id", rec.ID, "err", readErr)
+			failedPaths = append(failedPaths, zipPath)
 			continue
 		}
 
@@ -686,17 +695,19 @@ func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zi
 		})
 		if headerErr != nil {
 			rc.Close()
-			return fmt.Errorf("shadowfs: zip header: %w", headerErr)
+			return failedPaths, fmt.Errorf("shadowfs: zip header: %w", headerErr)
 		}
 		_, copyErr := io.Copy(w, rc)
 		rc.Close()
 		if copyErr != nil {
 			// A single corrupt/short file must NOT abort the entire export —
-			// otherwise one bad blob hides all subsequent files. Log + skip.
-			// The zip entry is left as a (possibly truncated) artefact rather
-			// than removed, because zip.Writer can't retract a created entry.
+			// otherwise one bad blob hides all subsequent files. The zip entry
+			// is left as a (possibly truncated) artefact (zip.Writer cannot
+			// retract a created entry), but we record it in failedPaths so the
+			// caller can flag it in the manifest.
 			slog.Warn("shadowfs: zip copy failed, continuing with next file",
 				"file_id", rec.ID, "path", zipPath, "error", copyErr)
+			failedPaths = append(failedPaths, zipPath)
 			continue
 		}
 
@@ -715,7 +726,7 @@ func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zi
 			}
 		}
 	}
-	return nil
+	return failedPaths, nil
 }
 
 // ---------------------------------------------------------------------------
