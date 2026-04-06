@@ -4,18 +4,10 @@ api:
 entryPoints:
   web:
     address: ":80"
-    http:
-      redirections:
-        entryPoint:
-          to: websecure
-          scheme: https
   websecure:
     address: ":443"
   traefik:
     address: ":8082"
-
-ping:
-  entryPoint: traefik
 
 providers:
   docker:
@@ -28,10 +20,12 @@ providers:
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: ${ACME_EMAIL}
       storage: /acme/acme.json
       httpChallenge:
         entryPoint: web
+
+ping:
+  entryPoint: traefik
 
 log:
   level: WARN
