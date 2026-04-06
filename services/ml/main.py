@@ -78,6 +78,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Skadia ML Service", lifespan=lifespan)
 
 
+# Probe endpoints are registered FIRST — before any include_router() call below.
+# FastAPI resolves routes in registration order; keeping probes first ensures no
+# sub-router can ever shadow /livez, /readyz or /health even if someone later
+# drops the prefix from api/health.py (which currently uses prefix="/ml").
+
 @app.get("/livez")
 async def livez():
     """Liveness probe: process is alive. Does NOT check dependencies."""
@@ -139,3 +144,11 @@ app.include_router(forecast_router)
 
 from api.embed import router as embed_router
 app.include_router(embed_router)
+
+# Defensive: verify no imported router shadowed our probe endpoints.
+# Runs at import time — caught immediately if a probe path is accidentally removed
+# or if a future sub-router registers a conflicting path before the probes.
+_probe_paths = {"/livez", "/readyz", "/health"}
+_registered_paths = {route.path for route in app.routes if hasattr(route, "path")}
+for _path in _probe_paths:
+    assert _path in _registered_paths, f"Probe endpoint {_path!r} missing from app routes — registration order broken"
