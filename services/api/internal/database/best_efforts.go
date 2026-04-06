@@ -762,12 +762,20 @@ func (db *DB) GetNearMisses(ctx context.Context, activityID, userID string) ([]N
 	return results, rows.Err()
 }
 
+// EffortPercentileKey builds the composite map key used by GetEffortPercentiles
+// results. Both the DB scan and handler merge code MUST use this helper to keep
+// the encoding consistent.
+func EffortPercentileKey(category, sportGroup string) string {
+	return category + ":" + sportGroup
+}
+
 // GetEffortPercentiles computes the PERCENT_RANK for each best effort belonging
 // to activityID within the user's full eligible pool (same eligibility guards as
 // GetBestEffortsForActivity). Categories with fewer than 5 eligible efforts are
 // omitted — the percentile is not meaningful with too small a sample.
 //
-// Returns map[category+":"+sport_group]percentile (0.0 = worst, 1.0 = best).
+// Returns a map keyed by EffortPercentileKey(category, sportGroup) → percentile
+// (0.0 = worst, 1.0 = best).
 // For time-based efforts lower is better, for value-based higher is better;
 // PERCENT_RANK is inverted so that 1.0 always means "best in pool".
 func (db *DB) GetEffortPercentiles(ctx context.Context, activityID, userID string) (map[string]float64, error) {
@@ -834,7 +842,7 @@ func (db *DB) GetEffortPercentiles(ctx context.Context, activityID, userID strin
 		if err := rows.Scan(&category, &sportGroup, &pctRank); err != nil {
 			return nil, fmt.Errorf("scan effort percentile: %w", err)
 		}
-		result[category+":"+sportGroup] = pctRank
+		result[EffortPercentileKey(category, sportGroup)] = pctRank
 	}
 	return result, rows.Err()
 }

@@ -89,7 +89,11 @@ func backfillSuuntoColumnsForUser(ctx context.Context, h *Handler, userID string
 		        (array_agg(developer_fields->>'recovery_time' ORDER BY time DESC)
 		            FILTER (WHERE developer_fields->>'recovery_time' IS NOT NULL))[1]::real AS recovery
 		    FROM activity_streams
-		    WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		    WHERE activity_id IN (
+		        SELECT id FROM activities
+		        WHERE user_id = $1
+		          AND (suunto_vo2max IS NULL AND suunto_peak_epoc IS NULL AND suunto_recovery_time_h IS NULL)
+		    )
 		      AND developer_fields IS NOT NULL
 		    GROUP BY activity_id
 		)
