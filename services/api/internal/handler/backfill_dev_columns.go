@@ -92,7 +92,7 @@ func backfillSuuntoColumnsForUser(ctx context.Context, h *Handler, userID string
 		    WHERE activity_id IN (
 		        SELECT id FROM activities
 		        WHERE user_id = $1
-		          AND (suunto_vo2max IS NULL AND suunto_peak_epoc IS NULL AND suunto_recovery_time_h IS NULL)
+		          AND (suunto_vo2max IS NULL OR suunto_peak_epoc IS NULL OR suunto_recovery_time_h IS NULL)
 		    )
 		      AND developer_fields IS NOT NULL
 		    GROUP BY activity_id

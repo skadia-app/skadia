@@ -87,8 +87,13 @@ function downsample<T>(data: T[], maxPoints: number): T[] {
 }
 
 function downsamplePairs(xs: number[], ys: number[], maxPoints: number): [number, number][] {
-  if (xs.length <= maxPoints) return xs.map((x, i) => [x, ys[i]])
-  const step = xs.length / maxPoints
+  const n = Math.min(xs.length, ys.length)
+  if (n <= maxPoints) {
+    const out: [number, number][] = []
+    for (let i = 0; i < n; i++) out.push([xs[i], ys[i]])
+    return out
+  }
+  const step = n / maxPoints
   const out: [number, number][] = []
   for (let i = 0; i < maxPoints; i++) {
     const idx = Math.floor(i * step)
