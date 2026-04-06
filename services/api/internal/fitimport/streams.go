@@ -547,39 +547,10 @@ func ExtractStreams(records []*mesgdef.Record, fieldDescs []*mesgdef.FieldDescri
 			}
 			if len(devFields) > 0 {
 				// Promote known developer fields to dedicated columns.
-				extractDevFloat := func(key string) *float64 {
-					if v, ok := devFields[key]; ok {
-						switch val := v.(type) {
-						case float64:
-							return &val
-						case float32:
-							f := float64(val)
-							return &f
-						}
-					}
-					return nil
-				}
-				extractDevInt16 := func(key string) *int16 {
-					if v, ok := devFields[key]; ok {
-						switch val := v.(type) {
-						case float64:
-							i := int16(val)
-							return &i
-						case float32:
-							i := int16(val)
-							return &i
-						case int64:
-							i := int16(val)
-							return &i
-						}
-					}
-					return nil
-				}
-
-				sp.RunningSmoothnessPct = extractDevFloat("running_smoothness")
-				sp.GlucoseMgDl = extractDevFloat("glucose")
-				sp.RadarVehicleCount = extractDevInt16("radar_current")
-				sp.RadarTotalCount = extractDevInt16("radar_total")
+				sp.RunningSmoothnessPct = devFieldFloat(devFields, "running_smoothness")
+				sp.GlucoseMgDl = devFieldFloat(devFields, "glucose")
+				sp.RadarVehicleCount = devFieldInt16(devFields, "radar_current")
+				sp.RadarTotalCount = devFieldInt16(devFields, "radar_total")
 
 				// Radar nearest range: first element > -1 from radar_ranges array.
 				if rangesVal, ok := devFields["radar_ranges"]; ok {
@@ -660,4 +631,44 @@ func ExtractStreams(records []*mesgdef.Record, fieldDescs []*mesgdef.FieldDescri
 	}
 
 	return activityutil.FillMissingDistanceAndSpeed(activityutil.FixDistanceResets(streams))
+}
+
+// devFieldFloat extracts a float64 developer field value by key, accepting
+// both float64 and float32 source types. Returns nil if the key is missing
+// or the value type is unsupported.
+func devFieldFloat(fields map[string]any, key string) *float64 {
+	v, ok := fields[key]
+	if !ok {
+		return nil
+	}
+	switch val := v.(type) {
+	case float64:
+		return &val
+	case float32:
+		f := float64(val)
+		return &f
+	}
+	return nil
+}
+
+// devFieldInt16 extracts an int16 developer field value by key, accepting
+// float64, float32, and int64 source types. Returns nil if the key is missing
+// or the value type is unsupported.
+func devFieldInt16(fields map[string]any, key string) *int16 {
+	v, ok := fields[key]
+	if !ok {
+		return nil
+	}
+	switch val := v.(type) {
+	case float64:
+		i := int16(val)
+		return &i
+	case float32:
+		i := int16(val)
+		return &i
+	case int64:
+		i := int16(val)
+		return &i
+	}
+	return nil
 }

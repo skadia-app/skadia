@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
@@ -59,7 +60,7 @@ func (h *Handler) GetActivityBestEfforts(w http.ResponseWriter, r *http.Request)
 			slog.Warn("get effort percentiles failed", "activity_id", activityID, "error", err)
 		} else {
 			for i := range bestEfforts {
-				key := bestEfforts[i].Category + ":" + bestEfforts[i].SportGroup
+				key := database.EffortPercentileKey(bestEfforts[i].Category, bestEfforts[i].SportGroup)
 				if pct, ok := percentiles[key]; ok {
 					p := pct
 					bestEfforts[i].Percentile = &p
