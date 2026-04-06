@@ -22,7 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// brouterCache caches the result of the BRouter profiles2 directory scan.
+// brouterCache caches the result of the BRouter profiles directory scan.
 var (
 	brouterCacheMu    sync.Mutex
 	brouterCacheTime  time.Time
@@ -100,7 +100,7 @@ func (h *Handler) HandleListProfiles(w http.ResponseWriter, r *http.Request) {
 		profiles = append(profiles, cached...)
 	} else {
 		brouterCacheMu.Unlock()
-		brouterDir := filepath.Join("data", "brouter", "profiles2")
+		brouterDir := h.Config.BRouterProfilesDir
 		matches, _ := filepath.Glob(filepath.Join(brouterDir, "*.brf"))
 		var items []profileListItem
 		for _, path := range matches {
@@ -486,7 +486,7 @@ func (h *Handler) HandleUploadBrouterProfile(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	brouterDir := filepath.Join("data", "brouter", "profiles2")
+	brouterDir := h.Config.BRouterProfilesDir
 	if err := os.MkdirAll(brouterDir, 0o755); err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to create profiles directory", r.URL.Path)
 		return
@@ -520,7 +520,7 @@ func (h *Handler) HandleDeleteBrouterProfile(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	brouterDir := filepath.Join("data", "brouter", "profiles2")
+	brouterDir := h.Config.BRouterProfilesDir
 	dest := filepath.Join(brouterDir, name+".brf")
 
 	if err := os.Remove(dest); err != nil {
