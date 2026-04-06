@@ -466,56 +466,88 @@ func buildMetricFromRows(rows interface {
 	}, nil
 }
 
-// healthMetricFromSteps builds a daily-steps HealthMetric from health_daily_summary.
-func (db *DB) healthMetricFromSteps(ctx context.Context, userID string, from, to time.Time) (*HealthMetric, error) {
+// healthMetricFromDailySummaryTriple fetches steps, stress, and body battery in a single
+// query against health_daily_summary (all share the same table and WHERE clause).
+// Rows where a column is NULL are excluded from the respective metric's point series.
+func (db *DB) healthMetricFromDailySummaryTriple(ctx context.Context, userID string, from, to time.Time) (steps, stress, bb *HealthMetric, err error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT calendar_date::text, total_steps::float
+		SELECT
+			calendar_date::text,
+			total_steps::float,
+			stress_avg::float,
+			body_battery_max::float
 		FROM health_daily_summary
 		WHERE user_id = $1
-		  AND total_steps IS NOT NULL
+		  AND (total_steps IS NOT NULL OR stress_avg IS NOT NULL OR body_battery_max IS NOT NULL)
 		  AND calendar_date BETWEEN $2::date AND $3::date
 		ORDER BY calendar_date
 	`, userID, from.Format("2006-01-02"), to.Format("2006-01-02"))
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	defer rows.Close()
-	return buildMetricFromRows(rows, "steps", "steps")
+
+	var stepsPoints, stressPoints, bbPoints []HealthMetricPoint
+	for rows.Next() {
+		var date string
+		var totalSteps, stressAvg, bodyBatteryMax *float64
+		if err := rows.Scan(&date, &totalSteps, &stressAvg, &bodyBatteryMax); err != nil {
+			return nil, nil, nil, fmt.Errorf("scan daily summary triple: %w", err)
+		}
+		if totalSteps != nil {
+			stepsPoints = append(stepsPoints, HealthMetricPoint{Date: date, Value: *totalSteps})
+		}
+		if stressAvg != nil {
+			stressPoints = append(stressPoints, HealthMetricPoint{Date: date, Value: *stressAvg})
+		}
+		if bodyBatteryMax != nil {
+			bbPoints = append(bbPoints, HealthMetricPoint{Date: date, Value: *bodyBatteryMax})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, nil, err
+	}
+
+	steps = buildMetricFromPoints(stepsPoints, "steps", "steps")
+	stress = buildMetricFromPoints(stressPoints, "stress", "pts")
+	bb = buildMetricFromPoints(bbPoints, "body_battery", "pts")
+	return steps, stress, bb, nil
 }
 
-// healthMetricFromStress builds a daily-average-stress HealthMetric from health_daily_summary.
-func (db *DB) healthMetricFromStress(ctx context.Context, userID string, from, to time.Time) (*HealthMetric, error) {
-	rows, err := db.Pool.Query(ctx, `
-		SELECT calendar_date::text, stress_avg::float
-		FROM health_daily_summary
-		WHERE user_id = $1
-		  AND stress_avg IS NOT NULL
-		  AND calendar_date BETWEEN $2::date AND $3::date
-		ORDER BY calendar_date
-	`, userID, from.Format("2006-01-02"), to.Format("2006-01-02"))
-	if err != nil {
-		return nil, err
+// buildMetricFromPoints assembles a HealthMetric from a pre-scanned point slice.
+// Returns nil when there are no points (no data for the period).
+func buildMetricFromPoints(points []HealthMetricPoint, name, unit string) *HealthMetric {
+	if len(points) == 0 {
+		return nil
 	}
-	defer rows.Close()
-	return buildMetricFromRows(rows, "stress", "pts")
-}
-
-// healthMetricFromBodyBattery builds a daily body-battery-max HealthMetric from health_daily_summary.
-// Uses body_battery_max (peak charged value during the day).
-func (db *DB) healthMetricFromBodyBattery(ctx context.Context, userID string, from, to time.Time) (*HealthMetric, error) {
-	rows, err := db.Pool.Query(ctx, `
-		SELECT calendar_date::text, body_battery_max::float
-		FROM health_daily_summary
-		WHERE user_id = $1
-		  AND body_battery_max IS NOT NULL
-		  AND calendar_date BETWEEN $2::date AND $3::date
-		ORDER BY calendar_date
-	`, userID, from.Format("2006-01-02"), to.Format("2006-01-02"))
-	if err != nil {
-		return nil, err
+	current := points[len(points)-1].Value
+	var sumRecent, sumPrior float64
+	var cntRecent, cntPrior int
+	n := len(points)
+	for i, p := range points {
+		if i >= n-7 {
+			sumRecent += p.Value
+			cntRecent++
+		} else if i >= n-14 {
+			sumPrior += p.Value
+			cntPrior++
+		}
 	}
-	defer rows.Close()
-	return buildMetricFromRows(rows, "body_battery", "pts")
+	var trend float64
+	if cntPrior > 0 && cntRecent > 0 {
+		avgRecent := sumRecent / float64(cntRecent)
+		avgPrior := sumPrior / float64(cntPrior)
+		if avgPrior != 0 {
+			trend = (avgRecent - avgPrior) / avgPrior * 100
+		}
+	}
+	return &HealthMetric{
+		Name:    name,
+		Current: current,
+		Unit:    unit,
+		Trend:   trend,
+		Points:  points,
+	}
 }
 
 // ActivityGlucosePoint holds average blood glucose for one activity.
