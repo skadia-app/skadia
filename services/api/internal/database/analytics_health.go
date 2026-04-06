@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"golang.org/x/sync/errgroup"
 )
 
 // HRVPoint is a single HRV data point for chart rendering.
@@ -259,59 +260,64 @@ type HealthMetric struct {
 
 // GetHealthMetrics returns aggregated health metric grid values for the given period.
 // Included metrics: RHR, HRV, sleep duration, sleep score, weight, steps, stress, body battery.
+// All 8 sub-queries run in parallel via errgroup; steps/stress/body-battery share one query.
 func (db *DB) GetHealthMetrics(ctx context.Context, userID string, from, to time.Time) ([]HealthMetric, error) {
-	var metrics []HealthMetric
+	g, gctx := errgroup.WithContext(ctx)
 
-	// --- Resting Heart Rate (from health_daily_summary) ---
-	rhrMetric, err := db.healthMetricFromDailyRHR(ctx, userID, from, to)
-	if err == nil && rhrMetric != nil {
-		metrics = append(metrics, *rhrMetric)
+	var (
+		rhrMetric        *HealthMetric
+		hrvMetric        *HealthMetric
+		sleepDurMetric   *HealthMetric
+		sleepScoreMetric *HealthMetric
+		weightMetric     *HealthMetric
+		stepsMetric      *HealthMetric
+		stressMetric     *HealthMetric
+		bbMetric         *HealthMetric
+	)
+
+	g.Go(func() error {
+		var err error
+		rhrMetric, err = db.healthMetricFromDailyRHR(gctx, userID, from, to)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		hrvMetric, err = db.healthMetricFromHRV(gctx, userID, from, to)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		sleepDurMetric, err = db.healthMetricFromSleepDuration(gctx, userID, from, to)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		sleepScoreMetric, err = db.healthMetricFromSleepScore(gctx, userID, from, to)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		weightMetric, err = db.healthMetricFromWeight(gctx, userID, from, to)
+		return err
+	})
+	// Steps, stress, and body battery all read health_daily_summary with the same
+	// WHERE clause; collapse into one round-trip.
+	g.Go(func() error {
+		var err error
+		stepsMetric, stressMetric, bbMetric, err = db.healthMetricFromDailySummaryTriple(gctx, userID, from, to)
+		return err
+	})
+
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
 
-	// --- HRV Mean RMSSD ---
-	hrvMetric, err := db.healthMetricFromHRV(ctx, userID, from, to)
-	if err == nil && hrvMetric != nil {
-		metrics = append(metrics, *hrvMetric)
-	}
-
-	// --- Sleep Duration ---
-	sleepDurMetric, err := db.healthMetricFromSleepDuration(ctx, userID, from, to)
-	if err == nil && sleepDurMetric != nil {
-		metrics = append(metrics, *sleepDurMetric)
-	}
-
-	// --- Sleep Score ---
-	sleepScoreMetric, err := db.healthMetricFromSleepScore(ctx, userID, from, to)
-	if err == nil && sleepScoreMetric != nil {
-		metrics = append(metrics, *sleepScoreMetric)
-	}
-
-	// --- Weight ---
-	weightMetric, err := db.healthMetricFromWeight(ctx, userID, from, to)
-	if err == nil && weightMetric != nil {
-		metrics = append(metrics, *weightMetric)
-	}
-
-	// --- Steps ---
-	stepsMetric, err := db.healthMetricFromSteps(ctx, userID, from, to)
-	if err == nil && stepsMetric != nil {
-		metrics = append(metrics, *stepsMetric)
-	}
-
-	// --- Stress (daily average) ---
-	stressMetric, err := db.healthMetricFromStress(ctx, userID, from, to)
-	if err == nil && stressMetric != nil {
-		metrics = append(metrics, *stressMetric)
-	}
-
-	// --- Body Battery (daily max) ---
-	bbMetric, err := db.healthMetricFromBodyBattery(ctx, userID, from, to)
-	if err == nil && bbMetric != nil {
-		metrics = append(metrics, *bbMetric)
-	}
-
-	if metrics == nil {
-		metrics = []HealthMetric{}
+	// Assemble result in the original stable order.
+	metrics := []HealthMetric{}
+	for _, m := range []*HealthMetric{rhrMetric, hrvMetric, sleepDurMetric, sleepScoreMetric, weightMetric, stepsMetric, stressMetric, bbMetric} {
+		if m != nil {
+			metrics = append(metrics, *m)
+		}
 	}
 	return metrics, nil
 }

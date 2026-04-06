@@ -276,18 +276,20 @@ export default function ActivityComparisonPage() {
     )
   }
 
-  // Find best values for highlighting
-  function findBestIdx(row: MetricRow): number | null {
-    const values = activities.map(a => row.getRawValue(a))
-    const validIdxs = values.map((v, i) => ({ v, i })).filter(({ v }) => v != null && !isNaN(v as number))
-    if (validIdxs.length < 2) return null
-    const higherIsBetter = row.higherIsBetter ?? false
-    return validIdxs.reduce((best, curr) =>
-      higherIsBetter
-        ? ((curr.v as number) > (best.v as number) ? curr : best)
-        : ((curr.v as number) < (best.v as number) ? curr : best),
-    ).i
-  }
+  // Find best values for highlighting — memoized to avoid recomputing on every render
+  const bestIdxMap = useMemo(() =>
+    METRIC_ROWS.map(row => {
+      const values = activities.map(a => row.getRawValue(a))
+      const validIdxs = values.map((v, i) => ({ v, i })).filter(({ v }) => v != null && !isNaN(v as number))
+      if (validIdxs.length < 2) return null
+      const higherIsBetter = row.higherIsBetter ?? false
+      return validIdxs.reduce((best, curr) =>
+        higherIsBetter
+          ? ((curr.v as number) > (best.v as number) ? curr : best)
+          : ((curr.v as number) < (best.v as number) ? curr : best),
+      ).i
+    }),
+  [activities])
 
   return (
     <div className="space-y-6">
@@ -337,8 +339,8 @@ export default function ActivityComparisonPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
-            {METRIC_ROWS.map(row => {
-              const bestIdx = findBestIdx(row)
+            {METRIC_ROWS.map((row, rowIndex) => {
+              const bestIdx = bestIdxMap[rowIndex]
               return (
                 <tr key={row.label}>
                   <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400 font-medium">
@@ -478,10 +480,7 @@ function ComparisonChart({
 
       if (!hasValidData(yDataRaw)) return null
 
-      const xData = downsample(xDataRaw, 1000)
-      const yData = downsample(yDataRaw, 1000)
-
-      const data = xData.map((x, j) => [x, yData[j]])
+      const data = downsamplePairs(xDataRaw, yDataRaw, 1000)
 
       return {
         name: a.title ?? a.title_auto ?? sportLabel(a.sport_type, a.sub_type),
@@ -491,7 +490,6 @@ function ComparisonChart({
         lineStyle: { width: 1.5, color: COMPARE_COLORS[i] },
         itemStyle: { color: COMPARE_COLORS[i] },
         emphasis: { lineStyle: { width: 2 } },
-        sampling: 'lttb' as const,
       }
     }).filter(Boolean)
 

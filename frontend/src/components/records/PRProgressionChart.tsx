@@ -24,14 +24,8 @@ function rankColor(rank: number): string {
 
 // ── Value formatting ───────────────────────────────────────────────────────
 
-/** Format a y-axis value for display.  Power categories → Watts, otherwise → mm:ss. */
+/** Format a y-axis value for display. Power categories → Watts, otherwise → mm:ss. */
 function formatYValue(category: string, value: number): string {
-  if (category.startsWith('power_')) return `${Math.round(value)} W`
-  return fmtDuration(value)
-}
-
-/** Y-axis label — abbreviated for tick marks. */
-function formatYTick(category: string, value: number): string {
   if (category.startsWith('power_')) return `${Math.round(value)} W`
   return fmtDuration(value)
 }
@@ -117,7 +111,7 @@ export function PRProgressionChart({
         axisLabel: {
           color: theme.textColor,
           fontSize: 10,
-          formatter: (val: number) => formatYTick(category, val),
+          formatter: (val: number) => formatYValue(category, val),
         },
         splitLine: {
           lineStyle: { color: theme.gridLineColor, type: 'dashed' as const },
