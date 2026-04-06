@@ -10,6 +10,13 @@ import (
 	"strings"
 )
 
+// BRouterPaths holds configurable filesystem paths for BRouter operations.
+// The JAR path is intentionally excluded — it is baked into the container image.
+type BRouterPaths struct {
+	ProfilesDir string // e.g. /data/brouter/profiles (shared with BRouter container)
+	DEMDir      string // e.g. /data/dem (parent of sonny-05/ and glo30/ sub-dirs)
+}
+
 // BuildBRouterSegments builds rd5 segment files from local PBF data using
 // BRouter's mapcreator classes (OsmFastCutter, PosUnifier, WayLinker).
 // This replaces the previous approach of downloading pre-built segments
@@ -18,7 +25,7 @@ import (
 // The build mirrors the upstream create-routing-data.sh script from
 // ghcr.io/mjaschen/brouter-routingdata-builder but runs Java directly
 // inside the API container.
-func (p *Pipeline) BuildBRouterSegments(ctx context.Context, regions []Region,
+func (p *Pipeline) BuildBRouterSegments(ctx context.Context, paths BRouterPaths, regions []Region,
 	osmDataDir, segmentsDir string, reporter ProgressReporter) error {
 
 	// 1. Find PBF files for the imported regions (unfiltered *-latest.osm.pbf)
@@ -57,21 +64,20 @@ func (p *Pipeline) BuildBRouterSegments(ctx context.Context, regions []Region,
 		}
 	}
 
-	// 4. BRouter paths — JAR baked into image, profiles via bind-mount
-	// (shared with BRouter container so both use the same lookups.dat version)
-	const (
-		jar         = "/brouter/brouter.jar"
-		lookups     = "/data/brouter/profiles/lookups.dat"
-		allBrf      = "/data/brouter/profiles/all.brf"
-		trekkingBrf = "/data/brouter/profiles/trekking.brf"
-		softBrf     = "/data/brouter/profiles/softaccess.brf"
-	)
+	// 4. BRouter paths — JAR is baked into the container image (not user-configurable).
+	// Profiles and DEM dirs come from BRouterPaths so callers can inject config values.
+	const jar = "/brouter/brouter.jar"
+
+	lookups     := filepath.Join(paths.ProfilesDir, "lookups.dat")
+	allBrf      := filepath.Join(paths.ProfilesDir, "all.brf")
+	trekkingBrf := filepath.Join(paths.ProfilesDir, "trekking.brf")
+	softBrf     := filepath.Join(paths.ProfilesDir, "softaccess.brf")
 
 	// DEM directories — BRouter accepts HGT files; we pass all available
 	// resolution tiers. PosUnifier takes two args: srtm1 and srtm3 dirs.
 	// We use our highest-res DEM as "srtm1" and GLO-30 as "srtm3" fallback.
-	srtm1Dir := "/data/dem/sonny-05"
-	srtm3Dir := "/data/dem/glo30"
+	srtm1Dir := filepath.Join(paths.DEMDir, "sonny-05")
+	srtm3Dir := filepath.Join(paths.DEMDir, "glo30")
 
 	// Ensure DEM dirs exist (may be empty if user hasn't downloaded DEM yet)
 	os.MkdirAll(srtm1Dir, 0o755)

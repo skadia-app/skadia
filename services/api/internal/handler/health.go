@@ -48,6 +48,7 @@ type HandlerConfig struct {
 	OSMDataDir         string // directory for OSM PBF files (default /data/osm)
 	DEMDataDir         string // directory for DEM/HGT files (default /data/dem)
 	BRouterSegmentsDir string // directory for BRouter segment files (default /data/brouter/segments)
+	BRouterProfilesDir string // directory for BRouter profile files (default /data/brouter/profiles)
 	TilesDir           string // directory for offline PMTiles map files (default /data/tiles)
 	// ShadowFS — used by rename handlers and admin dashboard
 	LibraryBasePath string // e.g. /data/library (local backend only)
