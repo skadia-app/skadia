@@ -90,14 +90,18 @@ func TestBuildExportQuery_NoSpecialCols(t *testing.T) {
 }
 
 func TestIsDenied(t *testing.T) {
+	// Sync with ExportDenyColumns in gdpr_columns.go.
+	// totp_secret + recovery_codes are NOT in the deny-list because TOTP/2FA
+	// is not yet implemented in Skadia — when those columns are added to
+	// `users`, both the deny-list and this test must be updated.
 	tests := []struct {
 		table  string
 		column string
 		want   bool
 	}{
 		{"users", "password_hash", true},
-		{"users", "totp_secret", true},
-		{"users", "recovery_codes", true},
+		{"users", "totp_secret", false},   // not in schema yet, not in deny-list
+		{"users", "recovery_codes", false}, // not in schema yet, not in deny-list
 		{"users", "username", false},
 		{"oauth_connections", "access_token", true},
 		{"oauth_connections", "refresh_token", true},
