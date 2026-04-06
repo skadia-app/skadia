@@ -16,9 +16,13 @@ func (h *Handler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 		providers = append(providers, "google")
 	}
 
+	var userCount int
+	h.DB.Pool.QueryRow(r.Context(), "SELECT count(*) FROM users WHERE deleted_at IS NULL").Scan(&userCount) //nolint:errcheck
+
 	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]any{
 		"registration_mode": h.Config.RegistrationMode,
 		"social_providers":  providers,
 		"smtp_configured":   h.Config.SMTPHost != "",
+		"bootstrap_mode":    userCount == 0,
 	})
 }

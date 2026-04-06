@@ -263,6 +263,47 @@ func (db *DB) CreateUserWithPassword(ctx context.Context, email, username, passw
 	return u, nil
 }
 
+// CreateBootstrapAdmin creates the first admin user with an advisory lock to prevent races.
+// Returns (nil, nil) if users already exist (someone was faster).
+func (db *DB) CreateBootstrapAdmin(ctx context.Context, email, username, passwordHash string, ipAddress net.IP) (*model.User, error) {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// Advisory lock prevents race conditions with parallel bootstrap requests.
+	// Released automatically at COMMIT/ROLLBACK.
+	const bootstrapLockID int64 = 0x666974706970655f // "skadia_" as int64
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", bootstrapLockID); err != nil {
+		return nil, fmt.Errorf("advisory lock: %w", err)
+	}
+
+	// Double-check inside the lock: still no users?
+	var count int
+	if err := tx.QueryRow(ctx, "SELECT count(*) FROM users WHERE deleted_at IS NULL").Scan(&count); err != nil {
+		return nil, fmt.Errorf("count users: %w", err)
+	}
+	if count > 0 {
+		return nil, nil // Someone was faster — not an error
+	}
+
+	u, err := scanUser(tx.QueryRow(ctx,
+		`INSERT INTO users (username, email, password_hash, registration_source,
+		 email_verified, is_admin, is_active, created_by_ip)
+		 VALUES ($1, $2, $3, 'email', true, true, true, $4)
+		 RETURNING `+allUserColumns,
+		username, email, passwordHash, ipAddress))
+	if err != nil {
+		return nil, fmt.Errorf("create bootstrap admin: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+	return u, nil
+}
+
 // GetOrCreateUserByOAuth looks up or creates a user via OAuth provider.
 // Returns (user, isNewUser, error). Returns ErrEmailCollision if the provider
 // email already belongs to an existing user.

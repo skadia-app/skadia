@@ -261,9 +261,5 @@ func (h *Handler) GetDEMRegionStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) demDataDir() string {
-	dir := os.Getenv("DEM_DATA_DIR")
-	if dir == "" {
-		dir = "/data/dem"
-	}
-	return dir
+	return h.Config.DEMDataDir
 }

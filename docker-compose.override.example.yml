@@ -1,0 +1,7 @@
+# Development overrides — copy to docker-compose.override.yml for local development.
+# docker-compose.override.yml is automatically loaded by Compose and .gitignored.
+services:
+  ml:
+    volumes:
+      - ./services/ml:/app:Z
+    user: root  # Dev: Source-Mount braucht root wegen Host-UID-Mapping

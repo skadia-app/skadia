@@ -40,8 +40,18 @@ import (
 )
 
 func main() {
+	// Parse LOG_LEVEL before config.Load() so startup logs use the correct level.
+	logLevel := slog.LevelInfo
+	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {
+	case "debug":
+		logLevel = slog.LevelDebug
+	case "warn":
+		logLevel = slog.LevelWarn
+	case "error":
+		logLevel = slog.LevelError
+	}
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: logLevel,
 	})))
 
 	// ── migrate-storage subcommand ─────────────────────────────────────────────
@@ -434,6 +444,11 @@ func main() {
 			RoutingGraphPath:    cfg.RoutingGraphPath,
 			RoutingTimeout:      parseDuration(os.Getenv("ROUTING_TIMEOUT"), 30*time.Second),
 			MaxUploadSize:       cfg.MaxUploadSize,
+			OSMDataDir:         cfg.OSMDataDir,
+			DEMDataDir:         cfg.DEMDataDir,
+			BRouterSegmentsDir: cfg.BRouterSegmentsDir,
+			BRouterProfilesDir: cfg.BRouterProfilesDir,
+			TilesDir:           cfg.TilesDir,
 			LibraryBasePath:     cfg.LibraryBasePath,
 			StorageBackend:      cfg.StorageBackend,
 			KeepVersions:        cfg.LibraryKeepVersions,
@@ -656,7 +671,11 @@ func main() {
 	r.Use(chimiddleware.Recoverer)
 
 	// Public routes (no authentication required)
-	r.Get("/health", h.Health)
+	// Probe endpoints — outside /api/ prefix, accessed directly by container healthchecks
+	r.Get("/livez", h.Livez)
+	r.Get("/readyz", h.Readyz)
+	r.Get("/healthz", h.Healthz)
+	r.Get("/health", h.Healthz) // backwards compat alias
 	r.Get("/api/v1/coverage/info", h.CoverageBuildInfo)
 	r.Get("/api/v1/coverage/tiles/*", h.CoverageTile)
 	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)

@@ -164,6 +164,9 @@ func (p *Publisher) PublishPhotoEmbed(ev PhotoEmbedEvent) error {
 	return nil
 }
 
+// IsConnected returns whether the NATS connection is active.
+func (p *Publisher) IsConnected() bool { return p.nc.IsConnected() }
+
 // JetStream returns the JetStream context for creating consumers.
 func (p *Publisher) JetStream() natsgo.JetStreamContext {
 	return p.js
