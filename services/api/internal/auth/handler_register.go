@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net"
@@ -14,7 +15,18 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
+
+// isBootstrapMode returns true if no users exist yet (henne-ei case).
+func (h *Handler) isBootstrapMode(ctx context.Context) (bool, error) {
+	var count int
+	err := h.DB.Pool.QueryRow(ctx, "SELECT count(*) FROM users WHERE deleted_at IS NULL").Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count == 0, nil
+}
 
 // Register handles POST /auth/register.
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
@@ -30,10 +42,20 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Registration mode check — before validation to avoid external calls (HIBP) on rejection.
-	if h.Config.RegistrationMode == "invite" {
-		httputil.WriteJSONNoCache(w, http.StatusForbidden, map[string]string{"error": "registration_disabled"})
+	// Bootstrap: If no users exist, allow registration regardless of mode.
+	isBootstrap, bsErr := h.isBootstrapMode(r.Context())
+	if bsErr != nil {
+		slog.Error("bootstrap check failed", "error", bsErr)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
+	}
+
+	// Registration mode check — before validation to avoid external calls (HIBP) on rejection.
+	if !isBootstrap {
+		if h.Config.RegistrationMode == "invite" {
+			httputil.WriteJSONNoCache(w, http.StatusForbidden, map[string]string{"error": "registration_disabled"})
+			return
+		}
 	}
 
 	// Normalize email (I3).
@@ -100,8 +122,21 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	// Create user.
 	ip := net.ParseIP(middleware.ClientIP(r))
-	isActive := h.Config.RegistrationMode != "approval"
-	user, err := h.DB.CreateUserWithPassword(r.Context(), req.Email, req.Username, hash, "email", ip, isActive)
+	var user *model.User
+	if isBootstrap {
+		user, err = h.DB.CreateBootstrapAdmin(r.Context(), req.Email, req.Username, hash, ip)
+		if err == nil && user == nil {
+			// Race: someone else just created the first user.
+			httputil.WriteJSONNoCache(w, http.StatusConflict, map[string]string{"error": "admin_already_created"})
+			return
+		}
+		if err == nil {
+			slog.Info("auth.bootstrap", "user_id", user.ID, "email", req.Email)
+		}
+	} else {
+		isActive := h.Config.RegistrationMode != "approval"
+		user, err = h.DB.CreateUserWithPassword(r.Context(), req.Email, req.Username, hash, "email", ip, isActive)
+	}
 	if err != nil {
 		slog.Error("create user failed", "error", err)
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
@@ -111,34 +146,39 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	slog.Info("auth.register", "user_id", user.ID, "mode", h.Config.RegistrationMode)
 	go h.DB.LogAuthEvent(h.shutdownCtx, user.ID, "register", middleware.ClientIP(r), r.UserAgent(), map[string]string{"mode": h.Config.RegistrationMode})
 
-	// In approval mode, notify admins about the pending registration.
-	if h.Config.RegistrationMode == "approval" {
-		if h.Mailer.IsConfigured() {
-			go h.notifyAdminsNewRegistration(user)
+	if !isBootstrap {
+		// In approval mode, notify admins about the pending registration.
+		if h.Config.RegistrationMode == "approval" {
+			if h.Mailer.IsConfigured() {
+				go h.notifyAdminsNewRegistration(user)
+			}
 		}
-	}
 
-	// Generate verification token.
-	token, err := GenerateToken()
-	if err != nil {
-		slog.Error("generate verification token failed", "error", err)
-		// User was created but token generation failed — not fatal.
-		httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"status": "verification_email_sent"})
-		return
-	}
+		// Generate verification token.
+		token, err := GenerateToken()
+		if err != nil {
+			slog.Error("generate verification token failed", "error", err)
+			// User was created but token generation failed — not fatal.
+			httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"status": "verification_email_sent"})
+			return
+		}
 
-	tokenHash := HashToken(token)
-	if err := h.DB.CreateEmailToken(r.Context(), uuid.MustParse(user.ID), tokenHash, "verification",
-		time.Now().Add(24*time.Hour)); err != nil {
-		slog.Error("create verification token failed", "error", err)
-	}
+		tokenHash := HashToken(token)
+		if err := h.DB.CreateEmailToken(r.Context(), uuid.MustParse(user.ID), tokenHash, "verification",
+			time.Now().Add(24*time.Hour)); err != nil {
+			slog.Error("create verification token failed", "error", err)
+		}
 
-	// Send verification email (async) — send the RAW token, not the hash.
-	if h.Mailer.IsConfigured() {
-		h.Mailer.SendVerificationEmail(req.Email, req.Username, token)
-		httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"status": "verification_email_sent"})
+		// Send verification email (async) — send the RAW token, not the hash.
+		if h.Mailer.IsConfigured() {
+			h.Mailer.SendVerificationEmail(req.Email, req.Username, token)
+			httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"status": "verification_email_sent"})
+		} else {
+			httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"status": "created"})
+		}
 	} else {
-		httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"status": "created"})
+		// Bootstrap admin: email is pre-verified, no verification mail needed.
+		httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"status": "admin_created"})
 	}
 }
 
