@@ -11,6 +11,11 @@ entryPoints:
           scheme: https
   websecure:
     address: ":443"
+  traefik:
+    address: ":8082"
+
+ping:
+  entryPoint: traefik
 
 providers:
   docker:
