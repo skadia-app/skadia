@@ -691,7 +691,13 @@ func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zi
 		_, copyErr := io.Copy(w, rc)
 		rc.Close()
 		if copyErr != nil {
-			return fmt.Errorf("shadowfs: zip copy: %w", copyErr)
+			// A single corrupt/short file must NOT abort the entire export —
+			// otherwise one bad blob hides all subsequent files. Log + skip.
+			// The zip entry is left as a (possibly truncated) artefact rather
+			// than removed, because zip.Writer can't retract a created entry.
+			slog.Warn("shadowfs: zip copy failed, continuing with next file",
+				"file_id", rec.ID, "path", zipPath, "error", copyErr)
+			continue
 		}
 
 		// Include .meta companion in export (backup/restore without DB).

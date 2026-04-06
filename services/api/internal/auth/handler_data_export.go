@@ -334,19 +334,22 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 		}
 		topMsg := fmt.Sprintf("export incomplete: %d table(s) errored: %s: %s",
 			len(allErrs), allErrs[0].Table, allErrs[0].Error)
+		// Explicit type casts on every parameter — jsonb_build_object is
+		// polymorphic, so pgx cannot infer types from the function signature
+		// and PostgreSQL refuses the prepared statement otherwise (SQLSTATE 42P18).
 		if _, err := h.DB.Pool.Exec(ctx,
 			`UPDATE background_jobs SET
 				status = 'failed',
-				error = $5,
+				error = $5::text,
 				metadata = jsonb_build_object(
-					'sha256', $2,
+					'sha256', $2::text,
 					'size_bytes', $3::bigint,
-					'file_path', $4,
+					'file_path', $4::text,
 					'export_errors', $6::jsonb,
 					'incomplete_tables', $7::jsonb
 				),
 				updated_at = NOW()
-			 WHERE id = $1`,
+			 WHERE id = $1::uuid`,
 			jobID, checksum, sizeBytes, tmpPath, topMsg, errPayload, incompletePayload); err != nil {
 			return fmt.Errorf("store partial-fail metadata: %w", err)
 		}
@@ -367,11 +370,12 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	}
 
 	// 13b. Success path: store metadata, mark completed, schedule cleanup.
+	// Explicit type casts on every parameter (same reason as the partial-fail path above).
 	if _, err := h.DB.Pool.Exec(ctx,
 		`UPDATE background_jobs SET
-			metadata = jsonb_build_object('sha256', $2, 'size_bytes', $3::bigint, 'file_path', $4),
+			metadata = jsonb_build_object('sha256', $2::text, 'size_bytes', $3::bigint, 'file_path', $4::text),
 			updated_at = NOW()
-		 WHERE id = $1`,
+		 WHERE id = $1::uuid`,
 		jobID, checksum, sizeBytes, tmpPath); err != nil {
 		return fmt.Errorf("store metadata: %w", err)
 	}

@@ -19,6 +19,26 @@ type querier interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
+// formatUUID converts the raw [16]byte that pgx returns for `uuid` columns
+// into the standard 8-4-4-4-12 dashed string form. Inlined here (rather than
+// importing google/uuid) so the export package keeps a small dependency
+// footprint and the format is not coupled to a third-party UUID lib.
+func formatUUID(b [16]byte) string {
+	const hexDigits = "0123456789abcdef"
+	var buf [36]byte
+	idx := 0
+	for i := 0; i < 16; i++ {
+		if i == 4 || i == 6 || i == 8 || i == 10 {
+			buf[idx] = '-'
+			idx++
+		}
+		buf[idx] = hexDigits[b[i]>>4]
+		buf[idx+1] = hexDigits[b[i]&0x0f]
+		idx += 2
+	}
+	return string(buf[:])
+}
+
 // columnInfo holds the name and underlying PostgreSQL type name of a column.
 type columnInfo struct {
 	Name    string
@@ -203,6 +223,19 @@ func exportTable(ctx context.Context, zw *zip.Writer, q querier, zipPath, table,
 					switch v := val.(type) {
 					case []byte:
 						row[col.Name] = hex.EncodeToString(v)
+					default:
+						row[col.Name] = val
+					}
+					continue
+				case pgtype.UUIDOID:
+					// pgx returns uuid columns as [16]byte. Without conversion the
+					// JSON encoder serialises them as a 16-element integer array,
+					// which is unreadable and unimportable.
+					switch v := val.(type) {
+					case [16]byte:
+						row[col.Name] = formatUUID(v)
+					case string:
+						row[col.Name] = v
 					default:
 						row[col.Name] = val
 					}
