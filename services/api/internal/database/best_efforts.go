@@ -455,8 +455,13 @@ func (db *DB) GetBestEffortRecalcActivities(ctx context.Context, userID string) 
 		     COALESCE(a.distance_m, 0),
 		     COALESCE(a.elevation_gain_m, 0),
 		     COALESCE(a.elapsed_time_s, 0),
-		     COALESCE((SELECT MAX(elevation_gain_m) FROM activity_climbs WHERE activity_id = a.id), 0)
+		     COALESCE(cl.biggest_climb, 0)
 		 FROM activities a
+		 LEFT JOIN LATERAL (
+		     SELECT MAX(elevation_gain_m) AS biggest_climb
+		     FROM activity_climbs
+		     WHERE activity_id = a.id
+		 ) cl ON true
 		 WHERE a.user_id = $1
 		   AND NOT COALESCE(a.exclude_from_stats, false)
 		   AND NOT COALESCE(a.is_group_secondary, false)
@@ -513,8 +518,13 @@ func (db *DB) GetBestEffortActivityInfo(ctx context.Context, activityID string) 
 		     COALESCE(a.distance_m, 0),
 		     COALESCE(a.elevation_gain_m, 0),
 		     COALESCE(a.elapsed_time_s, 0),
-		     COALESCE((SELECT MAX(elevation_gain_m) FROM activity_climbs WHERE activity_id = a.id), 0)
+		     COALESCE(cl.biggest_climb, 0)
 		 FROM activities a
+		 LEFT JOIN LATERAL (
+		     SELECT MAX(elevation_gain_m) AS biggest_climb
+		     FROM activity_climbs
+		     WHERE activity_id = a.id
+		 ) cl ON true
 		 WHERE a.id = $1
 		   AND NOT COALESCE(a.exclude_from_stats, false)
 		   AND NOT COALESCE(a.is_group_secondary, false)

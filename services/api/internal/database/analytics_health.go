@@ -263,6 +263,7 @@ type HealthMetric struct {
 // All 8 sub-queries run in parallel via errgroup; steps/stress/body-battery share one query.
 func (db *DB) GetHealthMetrics(ctx context.Context, userID string, from, to time.Time) ([]HealthMetric, error) {
 	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(3) // cap parallel DB queries to avoid pgxpool starvation under burst load
 
 	var (
 		rhrMetric        *HealthMetric
@@ -336,7 +337,18 @@ func (db *DB) healthMetricFromDailyRHR(ctx context.Context, userID string, from,
 		return nil, err
 	}
 	defer rows.Close()
-	return buildMetricFromRows(rows, "rhr", "bpm")
+	var points []HealthMetricPoint
+	for rows.Next() {
+		var p HealthMetricPoint
+		if err := rows.Scan(&p.Date, &p.Value); err != nil {
+			return nil, fmt.Errorf("scan metric rhr: %w", err)
+		}
+		points = append(points, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return buildMetricFromPoints(points, "rhr", "bpm"), nil
 }
 
 // healthMetricFromHRV builds an HRV-mean HealthMetric from health_readiness_scores.
@@ -354,7 +366,18 @@ func (db *DB) healthMetricFromHRV(ctx context.Context, userID string, from, to t
 		return nil, err
 	}
 	defer rows.Close()
-	return buildMetricFromRows(rows, "hrv_rmssd", "ms")
+	var points []HealthMetricPoint
+	for rows.Next() {
+		var p HealthMetricPoint
+		if err := rows.Scan(&p.Date, &p.Value); err != nil {
+			return nil, fmt.Errorf("scan metric hrv_rmssd: %w", err)
+		}
+		points = append(points, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return buildMetricFromPoints(points, "hrv_rmssd", "ms"), nil
 }
 
 // healthMetricFromSleepDuration builds a sleep-duration HealthMetric from health_sleep.
@@ -373,7 +396,18 @@ func (db *DB) healthMetricFromSleepDuration(ctx context.Context, userID string, 
 		return nil, err
 	}
 	defer rows.Close()
-	return buildMetricFromRows(rows, "sleep_duration", "min")
+	var points []HealthMetricPoint
+	for rows.Next() {
+		var p HealthMetricPoint
+		if err := rows.Scan(&p.Date, &p.Value); err != nil {
+			return nil, fmt.Errorf("scan metric sleep_duration: %w", err)
+		}
+		points = append(points, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return buildMetricFromPoints(points, "sleep_duration", "min"), nil
 }
 
 // healthMetricFromSleepScore builds a sleep-score HealthMetric from health_sleep.
@@ -390,7 +424,18 @@ func (db *DB) healthMetricFromSleepScore(ctx context.Context, userID string, fro
 		return nil, err
 	}
 	defer rows.Close()
-	return buildMetricFromRows(rows, "sleep_score", "pts")
+	var points []HealthMetricPoint
+	for rows.Next() {
+		var p HealthMetricPoint
+		if err := rows.Scan(&p.Date, &p.Value); err != nil {
+			return nil, fmt.Errorf("scan metric sleep_score: %w", err)
+		}
+		points = append(points, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return buildMetricFromPoints(points, "sleep_score", "pts"), nil
 }
 
 // healthMetricFromWeight builds a weight HealthMetric from health_weight_entries.
@@ -406,64 +451,18 @@ func (db *DB) healthMetricFromWeight(ctx context.Context, userID string, from, t
 		return nil, err
 	}
 	defer rows.Close()
-	return buildMetricFromRows(rows, "weight", "kg")
-}
-
-// buildMetricFromRows reads (date text, value float64) rows and assembles a HealthMetric.
-// Trend is the % difference between the average of the last 7 points and the prior 7 points.
-func buildMetricFromRows(rows interface {
-	Next() bool
-	Scan(...any) error
-	Err() error
-}, name, unit string) (*HealthMetric, error) {
 	var points []HealthMetricPoint
 	for rows.Next() {
-		var date string
-		var value float64
-		if err := rows.Scan(&date, &value); err != nil {
-			return nil, fmt.Errorf("scan metric %s: %w", name, err)
+		var p HealthMetricPoint
+		if err := rows.Scan(&p.Date, &p.Value); err != nil {
+			return nil, fmt.Errorf("scan metric weight: %w", err)
 		}
-		points = append(points, HealthMetricPoint{Date: date, Value: value})
+		points = append(points, p)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if len(points) == 0 {
-		return nil, nil
-	}
-
-	// Current value: last point.
-	current := points[len(points)-1].Value
-
-	// Trend: avg of last 7 vs. avg of prior 7.
-	var sumRecent, sumPrior float64
-	var cntRecent, cntPrior int
-	n := len(points)
-	for i, p := range points {
-		if i >= n-7 {
-			sumRecent += p.Value
-			cntRecent++
-		} else if i >= n-14 {
-			sumPrior += p.Value
-			cntPrior++
-		}
-	}
-	var trend float64
-	if cntPrior > 0 && cntRecent > 0 {
-		avgRecent := sumRecent / float64(cntRecent)
-		avgPrior := sumPrior / float64(cntPrior)
-		if avgPrior != 0 {
-			trend = (avgRecent - avgPrior) / avgPrior * 100
-		}
-	}
-
-	return &HealthMetric{
-		Name:    name,
-		Current: current,
-		Unit:    unit,
-		Trend:   trend,
-		Points:  points,
-	}, nil
+	return buildMetricFromPoints(points, "weight", "kg"), nil
 }
 
 // healthMetricFromDailySummaryTriple fetches steps, stress, and body battery in a single
