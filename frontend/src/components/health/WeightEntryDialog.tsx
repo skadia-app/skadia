@@ -272,51 +272,9 @@ export default function WeightEntryDialog({ onClose }: Props) {
                 </div>
               </div>
 
-              {/* Row 2: Hydration + Visceral Fat */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                    Hydration
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step={0.1}
-                      placeholder="55.0"
-                      value={hydrationStr}
-                      onChange={e => setHydrationStr(e.target.value)}
-                      className={AUTH_INPUT_CLASS}
-                      disabled
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400 pointer-events-none">
-                      %
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-neutral-400">Nur aus Gerätesync</p>
-                </div>
+              {/* Additional body-comp fields (hydration, visceral fat, metabolic age) are imported from synced devices */}
 
-                <div>
-                  <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                    Viszeralfett
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      min={0}
-                      placeholder=""
-                      value={visceralFatStr}
-                      onChange={e => setVisceralFatStr(e.target.value)}
-                      className={AUTH_INPUT_CLASS}
-                      disabled
-                    />
-                  </div>
-                  <p className="mt-1 text-xs text-neutral-400">Nur aus Gerätesync</p>
-                </div>
-              </div>
-
-              {/* Row 3: Protein % + Subcutaneous Fat % */}
+              {/* Row 2: Protein % + Subcutaneous Fat % */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
@@ -405,7 +363,7 @@ export default function WeightEntryDialog({ onClose }: Props) {
                 </div>
               </div>
 
-              {/* Row 5: Total Body Water + Metabolic Age */}
+              {/* Row 5: Total Body Water */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
@@ -425,29 +383,6 @@ export default function WeightEntryDialog({ onClose }: Props) {
                       L
                     </span>
                   </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                    Metabolisches Alter
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      min={1}
-                      max={120}
-                      step={1}
-                      placeholder=""
-                      value={metabolicAgeStr}
-                      onChange={e => setMetabolicAgeStr(e.target.value)}
-                      className={AUTH_INPUT_CLASS}
-                      disabled
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400 pointer-events-none">
-                      J
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-neutral-400">Nur aus Gerätesync</p>
                 </div>
               </div>
             </div>
