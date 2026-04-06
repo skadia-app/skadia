@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { useToast } from '@/lib/toast'
 import { createBloodPressure } from '@/api/healthMutations'
+import { fmtLocalDateTimeInput } from '@/lib/format'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 
 // ── ESH/ESC 2018 blood pressure categories ────────────────────────────────────
@@ -33,11 +34,6 @@ function classifyBloodPressure(systolic: number, diastolic: number): BPCategory 
   return { label: 'Hypertonie Grad 3', color: 'text-rose-700 dark:text-rose-400', bg: 'bg-rose-100 dark:bg-rose-950/30 border-rose-300 dark:border-rose-700/50' }
 }
 
-function toLocalDateTimeString(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -51,7 +47,7 @@ export default function BloodPressureEntryDialog({ onClose }: Props) {
   const [systolicStr, setSystolicStr] = useState('')
   const [diastolicStr, setDiastolicStr] = useState('')
   const [pulseStr, setPulseStr] = useState('')
-  const [measuredAt, setMeasuredAt] = useState(() => toLocalDateTimeString(new Date()))
+  const [measuredAt, setMeasuredAt] = useState(() => fmtLocalDateTimeInput(new Date()))
 
   const systolic = parseInt(systolicStr, 10)
   const diastolic = parseInt(diastolicStr, 10)

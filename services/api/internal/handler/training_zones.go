@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -13,6 +12,13 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
+// Zone type constants shared with other packages.
+const (
+	ZoneTypeHR    = "hr"
+	ZoneTypePower = "power"
+	ZoneTypeSpeed = "speed"
+)
+
 // TrainingZonesResponse is the top-level response for GET /api/v1/training-zones.
 type TrainingZonesResponse struct {
 	Sports []SportZones `json:"sports"`
@@ -20,8 +26,8 @@ type TrainingZonesResponse struct {
 
 // SportZones groups all zone details for a single sport (keyed by fit_sport_id).
 type SportZones struct {
-	Sport      int16                 `json:"sport"`
-	SportLabel string                `json:"sport_label"`
+	Sport      int16                  `json:"sport"`
+	SportLabel string                 `json:"sport_label"`
 	Zones      map[string]*ZoneDetail `json:"zones"` // keys: "hr", "power", "speed"
 }
 
@@ -39,21 +45,6 @@ type ZoneDetail struct {
 func sportLabelFromFitID(id int16) string {
 	sportType := fitimport.SportToString(typedef.Sport(id))
 	return sport.SportLabel(sportType, "")
-}
-
-// zoneTypeKey maps a training_zones.zone_type DB value to the JSON key used in
-// the ZoneDetail map ("hr", "power", or "speed").
-func zoneTypeKey(zoneType string) string {
-	switch zoneType {
-	case "hr":
-		return "hr"
-	case "power":
-		return "power"
-	case "speed":
-		return "speed"
-	default:
-		return zoneType
-	}
 }
 
 // modelZoneToDetail converts a model.TrainingZone into the API ZoneDetail DTO.
@@ -85,6 +76,30 @@ func (h *Handler) GetTrainingZonesAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Single query for all zone rows (avoids N+1).
+	allZones, err := h.DB.GetTrainingZones(r.Context(), userID, nil, nil)
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", fmt.Sprintf("failed to list zones: %v", err), r.URL.Path)
+		return
+	}
+
+	// Build a map from sport ID → SportZones, populated with the actual zone data.
+	bySport := make(map[int16]*SportZones)
+	for i := range allZones {
+		z := &allZones[i]
+		sz, exists := bySport[z.Sport]
+		if !exists {
+			sz = &SportZones{
+				Sport:      z.Sport,
+				SportLabel: sportLabelFromFitID(z.Sport),
+				Zones:      make(map[string]*ZoneDetail),
+			}
+			bySport[z.Sport] = sz
+		}
+		sz.Zones[z.ZoneType] = modelZoneToDetail(z)
+	}
+
+	// Also include sports from activities that have no zones yet (empty Zones map).
 	sportIDs, err := h.DB.GetAllTrainingZoneSports(r.Context(), userID)
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", fmt.Sprintf("failed to list sports: %v", err), r.URL.Path)
@@ -94,24 +109,16 @@ func (h *Handler) GetTrainingZonesAll(w http.ResponseWriter, r *http.Request) {
 	resp := TrainingZonesResponse{
 		Sports: make([]SportZones, 0, len(sportIDs)),
 	}
-
 	for _, sid := range sportIDs {
-		zones, err := h.DB.GetTrainingZones(r.Context(), userID, &sid, nil)
-		if err != nil {
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", fmt.Sprintf("failed to get zones for sport %d: %v", sid, err), r.URL.Path)
-			return
+		if sz, exists := bySport[sid]; exists {
+			resp.Sports = append(resp.Sports, *sz)
+		} else {
+			resp.Sports = append(resp.Sports, SportZones{
+				Sport:      sid,
+				SportLabel: sportLabelFromFitID(sid),
+				Zones:      make(map[string]*ZoneDetail),
+			})
 		}
-
-		sz := SportZones{
-			Sport:      sid,
-			SportLabel: sportLabelFromFitID(sid),
-			Zones:      make(map[string]*ZoneDetail),
-		}
-		for i := range zones {
-			key := zoneTypeKey(zones[i].ZoneType)
-			sz.Zones[key] = modelZoneToDetail(&zones[i])
-		}
-		resp.Sports = append(resp.Sports, sz)
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, resp)
@@ -119,17 +126,17 @@ func (h *Handler) GetTrainingZonesAll(w http.ResponseWriter, r *http.Request) {
 
 // updateTrainingZonesRequest is the body accepted by PUT /api/v1/training-zones.
 type updateTrainingZonesRequest struct {
-	Sport                    int16    `json:"sport"`
-	SubSport                 int16    `json:"sub_sport"`
-	ZoneType                 string   `json:"zone_type"`
-	ZoneNames                []string `json:"zone_names"`
+	Sport                    int16     `json:"sport"`
+	SubSport                 int16     `json:"sub_sport"`
+	ZoneType                 string    `json:"zone_type"`
+	ZoneNames                []string  `json:"zone_names"`
 	ZoneHighs                []float64 `json:"zone_highs"`
-	ThresholdHeartRate       *int16   `json:"threshold_heart_rate,omitempty"`
-	FunctionalThresholdPower *int32   `json:"functional_threshold_power,omitempty"`
-	ThresholdSpeedMps        *float64 `json:"threshold_speed_mps,omitempty"`
-	MaxHeartRate             *int16   `json:"max_heart_rate,omitempty"`
-	HrCalcType               *int16   `json:"hr_calc_type,omitempty"`
-	PwrCalcType              *int16   `json:"pwr_calc_type,omitempty"`
+	ThresholdHeartRate       *int16    `json:"threshold_heart_rate,omitempty"`
+	FunctionalThresholdPower *int32    `json:"functional_threshold_power,omitempty"`
+	ThresholdSpeedMps        *float64  `json:"threshold_speed_mps,omitempty"`
+	MaxHeartRate             *int16    `json:"max_heart_rate,omitempty"`
+	HrCalcType               *int16    `json:"hr_calc_type,omitempty"`
+	PwrCalcType              *int16    `json:"pwr_calc_type,omitempty"`
 }
 
 // UpdateTrainingZones saves training zone data for a single sport/sub_sport/zone_type
@@ -142,9 +149,8 @@ func (h *Handler) UpdateTrainingZones(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req updateTrainingZonesRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+	req, ok := httputil.DecodeJSON[updateTrainingZonesRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -172,17 +178,17 @@ func (h *Handler) UpdateTrainingZones(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch req.ZoneType {
-	case "hr":
+	case ZoneTypeHR:
 		if req.ThresholdHeartRate == nil || *req.ThresholdHeartRate <= 0 {
 			httputil.WriteError(w, http.StatusUnprocessableEntity, "Validation Error", "threshold_heart_rate must be > 0 for HR zones", r.URL.Path)
 			return
 		}
-	case "power":
+	case ZoneTypePower:
 		if req.FunctionalThresholdPower == nil || *req.FunctionalThresholdPower <= 0 {
 			httputil.WriteError(w, http.StatusUnprocessableEntity, "Validation Error", "functional_threshold_power must be > 0 for power zones", r.URL.Path)
 			return
 		}
-	case "speed":
+	case ZoneTypeSpeed:
 		// threshold_speed_mps is optional for speed zones; no extra check required
 	default:
 		httputil.WriteError(w, http.StatusUnprocessableEntity, "Validation Error", fmt.Sprintf("unknown zone_type %q (expected: hr, power, speed)", req.ZoneType), r.URL.Path)

@@ -86,6 +86,17 @@ function downsample<T>(data: T[], maxPoints: number): T[] {
   return Array.from({ length: maxPoints }, (_, i) => data[Math.floor(i * step)])
 }
 
+function downsamplePairs(xs: number[], ys: number[], maxPoints: number): [number, number][] {
+  if (xs.length <= maxPoints) return xs.map((x, i) => [x, ys[i]])
+  const step = xs.length / maxPoints
+  const out: [number, number][] = []
+  for (let i = 0; i < maxPoints; i++) {
+    const idx = Math.floor(i * step)
+    out.push([xs[idx], ys[idx]])
+  }
+  return out
+}
+
 function formatHr(v: number | null | undefined): string {
   if (v == null || isNaN(v)) return '\u2014'
   return `${Math.round(v)} bpm`

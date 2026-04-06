@@ -4,12 +4,8 @@ import { ModalShell } from '@/components/ui/ModalShell'
 import { useToast } from '@/lib/toast'
 import { createWeightEntry } from '@/api/healthMutations'
 import { getUserProfile } from '@/api/settings'
+import { fmtLocalDateTimeInput } from '@/lib/format'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
-
-function toLocalDateTimeString(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
 
 function parseOptionalFloat(s: string): number | null {
   if (s.trim() === '') return null
@@ -33,7 +29,7 @@ export default function WeightEntryDialog({ onClose }: Props) {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
 
-  const [measuredAt, setMeasuredAt] = useState(() => toLocalDateTimeString(new Date()))
+  const [measuredAt, setMeasuredAt] = useState(() => fmtLocalDateTimeInput(new Date()))
   const [weightStr, setWeightStr] = useState('')
   const [bmiStr, setBmiStr] = useState('')
   const [bodyFatStr, setBodyFatStr] = useState('')
@@ -42,14 +38,11 @@ export default function WeightEntryDialog({ onClose }: Props) {
   // Extended fields
   const [muscleMassStr, setMuscleMassStr] = useState('')
   const [boneMassStr, setBoneMassStr] = useState('')
-  const [hydrationStr, setHydrationStr] = useState('')  // stored separately — not in backend create, display-only note
-  const [visceralFatStr, setVisceralFatStr] = useState('')  // display-only note
   const [proteinPctStr, setProteinPctStr] = useState('')
   const [subcutFatStr, setSubcutFatStr] = useState('')
   const [skelMusclePctStr, setSkelMusclePctStr] = useState('')
   const [leanBodyMassStr, setLeanBodyMassStr] = useState('')
   const [totalBodyWaterStr, setTotalBodyWaterStr] = useState('')
-  const [metabolicAgeStr, setMetabolicAgeStr] = useState('')  // display-only, not in backend create
 
   // Load profile to auto-compute BMI
   const { data: profile } = useQuery({

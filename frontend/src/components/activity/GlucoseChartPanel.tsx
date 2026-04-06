@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import {
@@ -9,6 +10,7 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { useECharts } from '@/hooks/useECharts'
+import { fmtDuration } from '@/lib/format'
 import type { StreamPoint } from '@/api/types'
 
 echarts.use([
@@ -43,19 +45,6 @@ interface GlucoseChartPanelProps {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function buildXValues(streams: StreamPoint[]): number[] {
-  if (streams.length === 0) return []
-  const t0 = new Date(streams[0].time).getTime()
-  return streams.map(s => Math.round((new Date(s.time).getTime() - t0) / 1000))
-}
-
-function formatElapsed(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = seconds % 60
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  return `${m}:${String(s).padStart(2, '0')}`
-}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 

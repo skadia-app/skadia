@@ -133,6 +133,15 @@ export function fmtDateMedium(iso: string, timezone?: string | null): string {
   return new Date(iso).toLocaleDateString('de-DE', opts)
 }
 
+/**
+ * Format a Date as a `datetime-local` input value (YYYY-MM-DDTHH:MM).
+ * Uses local time — suitable for `<input type="datetime-local">` default values.
+ */
+export function fmtLocalDateTimeInput(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 // ── Byte / size formatters ──────────────────────────────────────────────────
 
 /** Format bytes as human-readable string (B / KB / MB / GB / TB). Returns '—' for null/NaN/0. */

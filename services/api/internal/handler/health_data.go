@@ -42,7 +42,6 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 	switch req.Type {
 
 	case "hrv":
-		// Parse HRV fields: rmssd_ms (float64), time_of_day (string, optional)
 		var d struct {
 			RmssdMS   *float64 `json:"rmssd_ms"`
 			SdrrMS    *float64 `json:"sdrr_ms"`
@@ -76,8 +75,6 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case "sleep":
-		// Parse sleep fields matching model.HealthSleep.
-		// SleepStartUTC/SleepEndUTC are optional strings in RFC3339; default to midnight of date.
 		var d struct {
 			SleepStartUTC string `json:"sleep_start_utc"`
 			SleepEndUTC   string `json:"sleep_end_utc"`
@@ -123,7 +120,6 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case "blood_pressure":
-		// Parse blood pressure fields matching model.HealthBloodPressure.
 		var d struct {
 			Systolic  int  `json:"systolic"`
 			Diastolic int  `json:"diastolic"`
@@ -152,7 +148,6 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case "weight":
-		// Parse weight fields matching model.HealthWeightEntry
 		var d struct {
 			WeightG     int      `json:"weight_g"`
 			BMI         *float64 `json:"bmi"`
@@ -188,7 +183,6 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case "resting_hr":
-		// Store resting HR in health_daily_summary using UPSERT.
 		var d struct {
 			RestingHR *int `json:"resting_hr_bpm"`
 		}
@@ -209,39 +203,27 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 		}
 
 	default:
-		// Not yet implemented type — accept gracefully with 202 Accepted
-		httputil.WriteJSON(w, http.StatusAccepted, map[string]string{
-			"status": "accepted",
-			"note":   "type '" + req.Type + "' not yet implemented",
-		})
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown health data type: "+req.Type, r.URL.Path)
 		return
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// defaultDateRange returns from/to query params, defaulting to the last 30 days.
-func defaultDateRange(r *http.Request) (from, to string) {
+// defaultRange returns from/to query params, defaulting to the last 30 days.
+// When useTimestamp is true the defaults are formatted as RFC3339; otherwise as YYYY-MM-DD.
+func defaultRange(r *http.Request, useTimestamp bool) (from, to string) {
 	from = r.URL.Query().Get("from")
 	to = r.URL.Query().Get("to")
+	format := "2006-01-02"
+	if useTimestamp {
+		format = time.RFC3339
+	}
 	if from == "" {
-		from = time.Now().AddDate(0, -1, 0).Format("2006-01-02")
+		from = time.Now().AddDate(0, -1, 0).Format(format)
 	}
 	if to == "" {
-		to = time.Now().Format("2006-01-02")
-	}
-	return from, to
-}
-
-// defaultTimestampRange returns from/to as timestamps defaulting to last 30 days.
-func defaultTimestampRange(r *http.Request) (from, to string) {
-	from = r.URL.Query().Get("from")
-	to = r.URL.Query().Get("to")
-	if from == "" {
-		from = time.Now().AddDate(0, -1, 0).Format(time.RFC3339)
-	}
-	if to == "" {
-		to = time.Now().Format(time.RFC3339)
+		to = time.Now().Format(format)
 	}
 	return from, to
 }
@@ -258,12 +240,7 @@ func healthListHandler[T any](
 		if !ok {
 			return
 		}
-		var from, to string
-		if useTimestamp {
-			from, to = defaultTimestampRange(r)
-		} else {
-			from, to = defaultDateRange(r)
-		}
+		from, to := defaultRange(r, useTimestamp)
 		items, err := fetch(r.Context(), userID, from, to)
 		if err != nil {
 			slog.Error("get "+label+" failed", "error", err)
@@ -306,10 +283,7 @@ func (h *Handler) CreateHealthWeightEntry(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	measuredAt, err := time.Parse(time.RFC3339, create.MeasuredAtUTC)
-	if err != nil {
-		measuredAt = time.Now().UTC()
-	}
+	measuredAt := parseOrNow(create.MeasuredAtUTC)
 
 	sourceType := create.SourceType
 	if sourceType == "" {
@@ -380,10 +354,7 @@ func (h *Handler) CreateHealthBloodPressure(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	measuredAt, err := time.Parse(time.RFC3339, req.MeasuredAt)
-	if err != nil {
-		measuredAt = time.Now().UTC()
-	}
+	measuredAt := parseOrNow(req.MeasuredAt)
 
 	entry := &model.HealthBloodPressure{
 		UserID:        userID,
@@ -419,6 +390,16 @@ func (h *Handler) GetHealthBloodPressure(w http.ResponseWriter, r *http.Request)
 }
 func (h *Handler) GetHealthFitnessAge(w http.ResponseWriter, r *http.Request) {
 	healthListHandler(h, h.DB.GetHealthFitnessAge, false, "health fitness age")(w, r)
+}
+
+// parseOrNow parses s as RFC3339 and returns time.Now().UTC() on failure.
+// Use this when a timestamp field is optional but must default to the current wall-clock
+// time rather than a fixed epoch or midnight, so that same-day entries remain distinct.
+func parseOrNow(s string) time.Time {
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.UTC()
+	}
+	return time.Now().UTC()
 }
 
 // parseDateOrRFC3339 parses s as RFC3339 first (preserving the time component),
