@@ -5,6 +5,7 @@ export interface AuthConfig {
   registration_mode: 'invite' | 'open' | 'approval'
   social_providers: string[]
   smtp_configured: boolean
+  bootstrap_mode?: boolean
 }
 
 export async function getAuthConfig(): Promise<AuthConfig> {
