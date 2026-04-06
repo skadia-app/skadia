@@ -2,6 +2,7 @@ package analytics
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -38,9 +39,21 @@ func TestParseFilters_Seasons(t *testing.T) {
 func TestBuildWhereClause_Empty(t *testing.T) {
 	f := AnalyticsFilter{}
 	clause, args := f.BuildWhereClause(1)
-	// Even with no explicit filters, exclude_from_stats is always applied.
-	if clause != " AND NOT a.exclude_from_stats" || len(args) != 0 {
-		t.Errorf("expected exclude_from_stats clause, got %q with %d args", clause, len(args))
+	// Even with no explicit filters, two defensive filters are always applied:
+	//   - exclude_from_stats (virtual + manual activities flagged via 6eef1a19)
+	//   - is_group_secondary (recording-group secondaries via fc87504e, so the
+	//     stats don't double-count members of the same clique)
+	// Use Contains checks rather than an exact-string match so future default
+	// filters don't break this test mechanically — the point is that both
+	// defaults are present and there are no bind args.
+	if !strings.Contains(clause, "NOT a.exclude_from_stats") {
+		t.Errorf("expected clause to include 'NOT a.exclude_from_stats', got %q", clause)
+	}
+	if !strings.Contains(clause, "NOT a.is_group_secondary") {
+		t.Errorf("expected clause to include 'NOT a.is_group_secondary', got %q", clause)
+	}
+	if len(args) != 0 {
+		t.Errorf("expected zero bind args for empty filter, got %d", len(args))
 	}
 }
 
