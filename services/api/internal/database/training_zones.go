@@ -7,75 +7,64 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-// upsertTrainingZonesCore is the shared implementation for both Upsert variants.
-//
-// When forceOverride is true the ON CONFLICT branch unconditionally sets
-// source_type = 'manual_override' (used by UpsertTrainingZonesManual).
-// When forceOverride is false the source_type_priority() function decides
-// which value wins (used by UpsertTrainingZones).
-//
-// The INSERT source_type value is taken from zone.SourceType when
-// forceOverride is false, and hard-coded to 'manual_override' when true.
-func (db *DB) upsertTrainingZonesCore(ctx context.Context, zone *model.TrainingZone, forceOverride bool) error {
-	var sql string
-	if forceOverride {
-		sql = `
-			INSERT INTO training_zones (
-				user_id, sport, sub_sport, zone_type,
-				max_heart_rate, threshold_heart_rate, functional_threshold_power,
-				hr_calc_type, pwr_calc_type,
-				zone_names, zone_highs, source_type, threshold_speed_mps
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual_override', $12)
-			ON CONFLICT (user_id, sport, sub_sport, zone_type) DO UPDATE SET
-				max_heart_rate             = EXCLUDED.max_heart_rate,
-				threshold_heart_rate       = EXCLUDED.threshold_heart_rate,
-				functional_threshold_power = EXCLUDED.functional_threshold_power,
-				hr_calc_type               = EXCLUDED.hr_calc_type,
-				pwr_calc_type              = EXCLUDED.pwr_calc_type,
-				zone_names                 = EXCLUDED.zone_names,
-				zone_highs                 = EXCLUDED.zone_highs,
-				threshold_speed_mps        = EXCLUDED.threshold_speed_mps,
-				source_type                = 'manual_override',
-				updated_at                 = NOW()`
-	} else {
-		sql = `
-			INSERT INTO training_zones (
-				user_id, sport, sub_sport, zone_type,
-				max_heart_rate, threshold_heart_rate, functional_threshold_power,
-				hr_calc_type, pwr_calc_type,
-				zone_names, zone_highs, source_type, threshold_speed_mps
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-			ON CONFLICT (user_id, sport, sub_sport, zone_type) DO UPDATE SET
-				max_heart_rate             = EXCLUDED.max_heart_rate,
-				threshold_heart_rate       = EXCLUDED.threshold_heart_rate,
-				functional_threshold_power = EXCLUDED.functional_threshold_power,
-				hr_calc_type               = EXCLUDED.hr_calc_type,
-				pwr_calc_type              = EXCLUDED.pwr_calc_type,
-				zone_names                 = EXCLUDED.zone_names,
-				zone_highs                 = EXCLUDED.zone_highs,
-				threshold_speed_mps        = EXCLUDED.threshold_speed_mps,
-				source_type = CASE
-					WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(training_zones.source_type)
-					THEN EXCLUDED.source_type
-					ELSE training_zones.source_type
-				END,
-				updated_at = NOW()`
-	}
+// upsertZonesConflictClause is the shared ON CONFLICT SET clause used by
+// both the priority-checked and manual-override upsert paths.
+const upsertZonesConflictClause = `
+			max_heart_rate             = EXCLUDED.max_heart_rate,
+			threshold_heart_rate       = EXCLUDED.threshold_heart_rate,
+			functional_threshold_power = EXCLUDED.functional_threshold_power,
+			hr_calc_type               = EXCLUDED.hr_calc_type,
+			pwr_calc_type              = EXCLUDED.pwr_calc_type,
+			zone_names                 = EXCLUDED.zone_names,
+			zone_highs                 = EXCLUDED.zone_highs,
+			threshold_speed_mps        = EXCLUDED.threshold_speed_mps,
+			updated_at                 = NOW()`
 
-	var err error
-	if forceOverride {
-		_, err = db.Pool.Exec(ctx, sql,
-			zone.UserID, zone.Sport, zone.SubSport, zone.ZoneType,
-			zone.MaxHeartRate, zone.ThresholdHeartRate, zone.FunctionalThresholdPower,
-			zone.HrCalcType, zone.PwrCalcType,
-			zone.ZoneNames, zone.ZoneHighs, zone.ThresholdSpeedMps)
-	} else {
-		_, err = db.Pool.Exec(ctx, sql,
-			zone.UserID, zone.Sport, zone.SubSport, zone.ZoneType,
-			zone.MaxHeartRate, zone.ThresholdHeartRate, zone.FunctionalThresholdPower,
-			zone.HrCalcType, zone.PwrCalcType,
-			zone.ZoneNames, zone.ZoneHighs, zone.SourceType, zone.ThresholdSpeedMps)
-	}
+// upsertTrainingZonesWithPriority inserts or updates a training zone row,
+// letting source_type_priority() decide which source_type wins on conflict.
+// The INSERT uses zone.SourceType as-is ($12) alongside the other zone fields ($13).
+func (db *DB) upsertTrainingZonesWithPriority(ctx context.Context, zone *model.TrainingZone) error {
+	sql := `
+		INSERT INTO training_zones (
+			user_id, sport, sub_sport, zone_type,
+			max_heart_rate, threshold_heart_rate, functional_threshold_power,
+			hr_calc_type, pwr_calc_type,
+			zone_names, zone_highs, source_type, threshold_speed_mps
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		ON CONFLICT (user_id, sport, sub_sport, zone_type) DO UPDATE SET
+			` + upsertZonesConflictClause + `,
+			source_type = CASE
+				WHEN source_type_priority(EXCLUDED.source_type) >= source_type_priority(training_zones.source_type)
+				THEN EXCLUDED.source_type
+				ELSE training_zones.source_type
+			END`
+	_, err := db.Pool.Exec(ctx, sql,
+		zone.UserID, zone.Sport, zone.SubSport, zone.ZoneType,
+		zone.MaxHeartRate, zone.ThresholdHeartRate, zone.FunctionalThresholdPower,
+		zone.HrCalcType, zone.PwrCalcType,
+		zone.ZoneNames, zone.ZoneHighs, zone.SourceType, zone.ThresholdSpeedMps)
+	return err
+}
+
+// upsertTrainingZonesForceOverride inserts or updates a training zone row,
+// unconditionally setting source_type = 'manual_override' on both INSERT and
+// conflict UPDATE — bypassing source_type_priority() entirely.
+func (db *DB) upsertTrainingZonesForceOverride(ctx context.Context, zone *model.TrainingZone) error {
+	sql := `
+		INSERT INTO training_zones (
+			user_id, sport, sub_sport, zone_type,
+			max_heart_rate, threshold_heart_rate, functional_threshold_power,
+			hr_calc_type, pwr_calc_type,
+			zone_names, zone_highs, source_type, threshold_speed_mps
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual_override', $12)
+		ON CONFLICT (user_id, sport, sub_sport, zone_type) DO UPDATE SET
+			` + upsertZonesConflictClause + `,
+			source_type = 'manual_override'`
+	_, err := db.Pool.Exec(ctx, sql,
+		zone.UserID, zone.Sport, zone.SubSport, zone.ZoneType,
+		zone.MaxHeartRate, zone.ThresholdHeartRate, zone.FunctionalThresholdPower,
+		zone.HrCalcType, zone.PwrCalcType,
+		zone.ZoneNames, zone.ZoneHighs, zone.ThresholdSpeedMps)
 	return err
 }
 
@@ -83,14 +72,14 @@ func (db *DB) upsertTrainingZonesCore(ctx context.Context, zone *model.TrainingZ
 // Zone values use EXCLUDED (NOT COALESCE) — latest import wins since zones are user-defined settings.
 // source_type_priority() decides which source_type wins on conflict.
 func (db *DB) UpsertTrainingZones(ctx context.Context, zone *model.TrainingZone) error {
-	return db.upsertTrainingZonesCore(ctx, zone, false)
+	return db.upsertTrainingZonesWithPriority(ctx, zone)
 }
 
 // UpsertTrainingZonesManual upserts a training zone with source_type = 'manual_override'.
 // Unlike UpsertTrainingZones, this bypasses source_type_priority() so that a manual
 // user edit always wins over any auto-detected value (priority 60, the highest).
 func (db *DB) UpsertTrainingZonesManual(ctx context.Context, zone *model.TrainingZone) error {
-	return db.upsertTrainingZonesCore(ctx, zone, true)
+	return db.upsertTrainingZonesForceOverride(ctx, zone)
 }
 
 // GetTrainingZones returns all training zones for a user, optionally filtered by sport
