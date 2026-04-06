@@ -5,6 +5,7 @@ RUN apt-get update -qq && apt-get install -y -qq \
     libheif-dev \
     libjxl-dev \
     build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
