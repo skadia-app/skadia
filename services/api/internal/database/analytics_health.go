@@ -260,7 +260,8 @@ type HealthMetric struct {
 
 // GetHealthMetrics returns aggregated health metric grid values for the given period.
 // Included metrics: RHR, HRV, sleep duration, sleep score, weight, steps, stress, body battery.
-// All 8 sub-queries run in parallel via errgroup; steps/stress/body-battery share one query.
+// 6 sub-queries run in parallel via errgroup (capped at 3 concurrent via SetLimit);
+// steps/stress/body-battery share one query against health_daily_summary.
 func (db *DB) GetHealthMetrics(ctx context.Context, userID string, from, to time.Time) ([]HealthMetric, error) {
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(3) // cap parallel DB queries to avoid pgxpool starvation under burst load

@@ -98,9 +98,9 @@ func backfillSuuntoColumnsForUser(ctx context.Context, h *Handler, userID string
 		    GROUP BY activity_id
 		)
 		UPDATE activities a SET
-		    suunto_vo2max        = sv.vo2max,
-		    suunto_peak_epoc     = sv.epoc,
-		    suunto_recovery_time_h = sv.recovery
+		    suunto_vo2max          = COALESCE(sv.vo2max,   a.suunto_vo2max),
+		    suunto_peak_epoc       = COALESCE(sv.epoc,     a.suunto_peak_epoc),
+		    suunto_recovery_time_h = COALESCE(sv.recovery, a.suunto_recovery_time_h)
 		FROM suunto_vals sv
 		WHERE a.id = sv.activity_id
 		  AND (sv.vo2max IS NOT NULL OR sv.epoc IS NOT NULL OR sv.recovery IS NOT NULL)
