@@ -61,6 +61,7 @@ Alle Optionen in `.env.example` dokumentiert. Wichtig:
 
 - `DOMAIN` — Hostname (default: `localhost`)
 - `STORAGE_BACKEND` — `local` oder `s3`
+- `COMPOSE_PROFILES` — Optionale Features (`ml`, `llm`, `s3`, kommagetrennt)
 - `REGISTRATION_MODE` — `invite`, `open` oder `approval`
 - `LOG_LEVEL` — `debug`, `info`, `warn`, `error`
 
