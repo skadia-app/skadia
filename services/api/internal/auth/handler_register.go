@@ -18,11 +18,29 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-// isBootstrapMode returns true if no users exist yet (henne-ei case).
+// isBootstrapMode reports whether the installation has zero users (henne-ei
+// case). Used by the Register handler to allow the first admin to register
+// regardless of REGISTRATION_MODE, and by AuthConfig to signal the frontend
+// to show a dedicated "create first admin" setup UI.
+//
+// Semantics:
+//   - (false, nil) — no DB wired. Expected in unit tests with the stub Handler
+//     (see testHandler in handler_test.go). Returning false means "treat as
+//     normal install" which is the correct default for tests that exercise
+//     non-bootstrap code paths.
+//   - (true, nil) — DB reports zero non-deleted users. First admin flow.
+//   - (false, err) — DB query failed. Callers decide the policy: Register
+//     treats it as fatal (returns 500) because proceeding with the wrong
+//     registration mode would be unsafe; AuthConfig logs and falls back to
+//     false because the public config endpoint must stay responsive and
+//     exposing the bootstrap UI on a transient DB outage would be a worse UX
+//     than a login form that can't temporarily authenticate.
 func (h *Handler) isBootstrapMode(ctx context.Context) (bool, error) {
+	if h.DB == nil || h.DB.Pool == nil {
+		return false, nil
+	}
 	var count int
-	err := h.DB.Pool.QueryRow(ctx, "SELECT count(*) FROM users WHERE deleted_at IS NULL").Scan(&count)
-	if err != nil {
+	if err := h.DB.Pool.QueryRow(ctx, "SELECT count(*) FROM users WHERE deleted_at IS NULL").Scan(&count); err != nil {
 		return false, err
 	}
 	return count == 0, nil
