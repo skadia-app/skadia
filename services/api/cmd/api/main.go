@@ -40,8 +40,18 @@ import (
 )
 
 func main() {
+	// Parse LOG_LEVEL before config.Load() so startup logs use the correct level.
+	logLevel := slog.LevelInfo
+	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {
+	case "debug":
+		logLevel = slog.LevelDebug
+	case "warn":
+		logLevel = slog.LevelWarn
+	case "error":
+		logLevel = slog.LevelError
+	}
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: logLevel,
 	})))
 
 	// ── migrate-storage subcommand ─────────────────────────────────────────────
