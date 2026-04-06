@@ -4,14 +4,20 @@ from contextlib import asynccontextmanager
 
 import nats
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from pythonjsonlogger.json import JsonFormatter
 
 from db import get_pool, close_pool
 from nats_consumer import start_consumers, get_metrics
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+
+_log_handler = logging.StreamHandler()
+_log_handler.setFormatter(JsonFormatter(
+    fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
+    rename_fields={"asctime": "timestamp", "levelname": "level", "name": "logger"},
+))
+logging.basicConfig(level=getattr(logging, log_level, logging.INFO), handlers=[_log_handler])
 logger = logging.getLogger(__name__)
 
 _nc: nats.NATS | None = None
@@ -72,9 +78,46 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Skadia ML Service", lifespan=lifespan)
 
 
+@app.get("/livez")
+async def livez():
+    """Liveness probe: process is alive. Does NOT check dependencies."""
+    return {"status": "ok"}
+
+
 @app.get("/health")
 async def health():
+    """Alias for /livez — backwards compat for ml_probe.go capabilities check."""
     return {"status": "ok"}
+
+
+@app.get("/readyz")
+async def readyz():
+    """Readiness probe: returns 200 if DB and NATS (if configured) are connected, 503 otherwise."""
+    issues = {}
+
+    # Check DB
+    try:
+        pool = await get_pool()
+        if pool is not None:
+            async with pool.acquire() as conn:
+                await conn.execute("SELECT 1")
+        else:
+            issues["db"] = "not configured"
+    except Exception as e:
+        issues["db"] = str(e)
+
+    # Check NATS (only if configured)
+    try:
+        if _nc is not None:
+            if not _nc.is_connected:
+                issues["nats"] = "disconnected"
+        # If _nc is None, NATS isn't configured — skip check
+    except Exception as e:
+        issues["nats"] = str(e)
+
+    if issues:
+        return JSONResponse(status_code=503, content={"status": "not ready", **issues})
+    return {"status": "ready"}
 
 
 @app.get("/metrics")
