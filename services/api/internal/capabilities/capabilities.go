@@ -46,7 +46,10 @@ func InvalidateCache() {
 // Detect probes the database and BRouter to determine which features are
 // available at runtime. All checks are best-effort — failures are logged
 // and treated as "not available". Results are cached for 60 seconds.
-func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL, tileDir string) Capabilities {
+//
+// tileDir is the routing-tiles directory (BadRouter .bin files).
+// pmTilesDir is the directory scanned for offline PMTiles map files.
+func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL, tileDir, pmTilesDir string) Capabilities {
 	cacheMu.Lock()
 	if time.Now().Before(cacheExpires) {
 		cached := cachedCaps
@@ -84,9 +87,8 @@ func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL, tileDir string)
 		caps.DEMCorrection = true
 	}
 
-	// OfflineMap: PMTiles files present in /data/tiles/?
-	tilesDir := "/data/tiles"
-	if entries, err := os.ReadDir(tilesDir); err == nil {
+	// OfflineMap: PMTiles files present in configured tiles directory?
+	if entries, err := os.ReadDir(pmTilesDir); err == nil {
 		for _, e := range entries {
 			if strings.HasSuffix(e.Name(), ".pmtiles") {
 				caps.OfflineMap = true

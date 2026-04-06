@@ -257,9 +257,6 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	graphPath := h.Config.RoutingGraphPath
-	if graphPath == "" {
-		graphPath = "/data/routing/graph.bin"
-	}
 	tileDir := filepath.Join(filepath.Dir(graphPath), "tiles")
 
 	entityName := "Routing Tiles"
@@ -276,7 +273,11 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 	const tileCacheBytes = 4_000_000_000 // 4 GB — consistent with startup default
 
 	shutdown.Go(jobID, func(ctx context.Context) {
-		hgtDirs := []string{"/data/dem/sonny-05", "/data/dem/sonny-1", "/data/dem/glo30"}
+		hgtDirs := []string{
+			filepath.Join(h.Config.DEMDataDir, "sonny-05"),
+			filepath.Join(h.Config.DEMDataDir, "sonny-1"),
+			filepath.Join(h.Config.DEMDataDir, "glo30"),
+		}
 		workers := 2
 		var tilesBuilt atomic.Int64
 		var countedTiles sync.Map // tileID → true, prevents double-counting
@@ -327,9 +328,6 @@ func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	graphPath := h.Config.RoutingGraphPath
-	if graphPath == "" {
-		graphPath = "/data/routing/graph.bin"
-	}
 	tileDir := filepath.Join(filepath.Dir(graphPath), "tiles")
 
 	entityName := "Landmarks"
@@ -389,10 +387,7 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		// Auto-detect: find all regions that have PBF files on disk
-		osmDataDir := os.Getenv("OSM_DATA_DIR")
-		if osmDataDir == "" {
-			osmDataDir = "/data/osm"
-		}
+		osmDataDir := h.Config.OSMDataDir
 		for _, reg := range osmregions.Regions {
 			pbfPath := filepath.Join(osmDataDir, reg.ID+"-latest.osm.pbf")
 			if info, err := os.Stat(pbfPath); err == nil && info.Size() > 0 {
@@ -430,14 +425,8 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	shutdown.Go(jobID, func(ctx context.Context) {
-		osmDataDir := os.Getenv("OSM_DATA_DIR")
-		if osmDataDir == "" {
-			osmDataDir = "/data/osm"
-		}
-		segmentsDir := os.Getenv("BROUTER_SEGMENTS_DIR")
-		if segmentsDir == "" {
-			segmentsDir = "/data/brouter/segments"
-		}
+		osmDataDir := h.Config.OSMDataDir
+		segmentsDir := h.Config.BRouterSegmentsDir
 
 		pipeline := &osmregions.Pipeline{
 			Pool:    h.DB.Pool,
@@ -523,10 +512,7 @@ func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	segmentsDir := os.Getenv("BROUTER_SEGMENTS_DIR")
-	if segmentsDir == "" {
-		segmentsDir = "/data/brouter/segments"
-	}
+	segmentsDir := h.Config.BRouterSegmentsDir
 
 	shutdown.Go(jobID, func(ctx context.Context) {
 		res, err := osmregions.DownloadBRouterSegments(ctx, tiles, segmentsDir,

@@ -130,10 +130,7 @@ func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
 
 	// Dependency check: tiles require DEM (unless already present)
 	if req.BuildTiles && !req.DownloadDEM {
-		demDir := os.Getenv("DEM_DATA_DIR")
-		if demDir == "" {
-			demDir = "/data/dem"
-		}
+		demDir := h.Config.DEMDataDir
 		hgtDir := filepath.Join(demDir, "glo30")
 		entries, _ := os.ReadDir(hgtDir)
 		hasHGT := false
@@ -189,11 +186,8 @@ func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, regions []osmregions.Region, req osmImportRequest) {
 	pipeline := &osmregions.Pipeline{
 		Pool:    h.DB.Pool,
-		DataDir: os.Getenv("OSM_DATA_DIR"),
+		DataDir: h.Config.OSMDataDir,
 		DBURL:   os.Getenv("DATABASE_URL"),
-	}
-	if pipeline.DataDir == "" {
-		pipeline.DataDir = "/data/osm"
 	}
 	mainReporter := &jobReporter{db: h.DB, jobID: jobID}
 
@@ -233,10 +227,7 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 	}
 
 	if req.BuildBRouter && len(succeededRegions) > 0 {
-		segmentsDir := os.Getenv("BROUTER_SEGMENTS_DIR")
-		if segmentsDir == "" {
-			segmentsDir = "/data/brouter/segments"
-		}
+		segmentsDir := h.Config.BRouterSegmentsDir
 		mainReporter.SetPhase("brouter_segments")
 		mainReporter.SetProgress(0)
 		slog.Info("osm import: building BRouter segments", "dir", segmentsDir)
@@ -248,10 +239,7 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 	// DEM Download (before enrichment, tiles need it)
 	if req.DownloadDEM && len(succeededRegions) > 0 {
 		mainReporter.SetPhase("dem_download")
-		demDir := os.Getenv("DEM_DATA_DIR")
-		if demDir == "" {
-			demDir = "/data/dem"
-		}
+		demDir := h.Config.DEMDataDir
 		cfg := dem.DefaultGLO30(demDir)
 
 		// Collect cells for all succeeded regions
@@ -352,10 +340,7 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 			slog.Warn("osm import: coverage build already running, skipping")
 		} else {
 			mainReporter.SetPhase("coverage")
-			graphPath := os.Getenv("ROUTING_GRAPH_PATH")
-			if graphPath == "" {
-				graphPath = "/data/routing/graph.bin"
-			}
+			graphPath := h.Config.RoutingGraphPath
 			coverageDir := filepath.Join(filepath.Dir(graphPath), "coverage")
 
 			// Compute union BBox filter (minLat, minLon, maxLat, maxLon)
@@ -418,12 +403,13 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 				filterBBox[3] = max(filterBBox[3], reg.MaxLat)
 			}
 
-			graphPath := os.Getenv("ROUTING_GRAPH_PATH")
-			if graphPath == "" {
-				graphPath = "/data/routing/graph.bin"
-			}
+			graphPath := h.Config.RoutingGraphPath
 			tileDir := filepath.Join(filepath.Dir(graphPath), "tiles")
-			hgtDirs := []string{"/data/dem/sonny-05", "/data/dem/sonny-1", "/data/dem/glo30"}
+			hgtDirs := []string{
+				filepath.Join(h.Config.DEMDataDir, "sonny-05"),
+				filepath.Join(h.Config.DEMDataDir, "sonny-1"),
+				filepath.Join(h.Config.DEMDataDir, "glo30"),
+			}
 
 			mainReporter.SetPhase("tiles")
 			// Implicit force=true: fresh import data → stale tiles must be replaced
