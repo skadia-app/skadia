@@ -2,6 +2,9 @@
 .env
 .superpowers/
 
+# Garage — generated from garage.toml.template (contains secrets)
+garage/garage.toml
+
 # Data / temp (Laufzeitdaten, nicht im Git)
 # data/* statt data/ damit Unterverzeichnisse per !-Ausnahme freigebbar sind
 data/*
