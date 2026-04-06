@@ -60,7 +60,19 @@ func startStaleExportCleanup(ctx context.Context, pool *pgxpool.Pool) {
 
 // cleanupStaleExportJobs removes files and marks stale export jobs as failed.
 // Called periodically by the background timer started via startStaleExportCleanup.
+//
+// Two cleanup classes:
+//
+//  1. STALE: queued/running jobs that have not made progress in >30 min are
+//     marked as 'failed' (their pod must have crashed). Their tmp file (if
+//     any) is deleted.
+//
+//  2. EXPIRED: completed/failed jobs whose tmp file is older than 25 hours
+//     are deleted. The 24h-cleanup goroutine started by executeExportJobOnce
+//     would normally do this, but is lost on pod-restart — without this
+//     fallback the file leaks indefinitely.
 func cleanupStaleExportJobs(ctx context.Context, pool *pgxpool.Pool) {
+	// Class 1: stale running/queued
 	staleRows, err := pool.Query(ctx,
 		`SELECT metadata->>'file_path' FROM background_jobs
 		 WHERE job_type = 'gdpr_export' AND status IN ('queued','running')
@@ -69,13 +81,13 @@ func cleanupStaleExportJobs(ctx context.Context, pool *pgxpool.Pool) {
 	if err != nil {
 		slog.Error("gdpr export cleanup: query stale jobs failed", "error", err)
 	} else {
-		defer staleRows.Close()
 		for staleRows.Next() {
 			var path string
 			if staleRows.Scan(&path) == nil && path != "" && isValidExportPath(path) {
 				os.Remove(path)
 			}
 		}
+		staleRows.Close()
 	}
 
 	if _, err := pool.Exec(ctx,
@@ -83,6 +95,39 @@ func cleanupStaleExportJobs(ctx context.Context, pool *pgxpool.Pool) {
 		 WHERE job_type = 'gdpr_export' AND status IN ('queued','running')
 		 AND updated_at < NOW() - INTERVAL '30 minutes'`); err != nil {
 		slog.Error("gdpr export cleanup: update stale jobs failed", "error", err)
+	}
+
+	// Class 2: expired completed/failed jobs (file leaked because the
+	// in-process 24h goroutine was lost on pod-restart). Delete the file and
+	// clear the file_path from metadata so the next sweep doesn't re-attempt.
+	expiredRows, err := pool.Query(ctx,
+		`SELECT id, metadata->>'file_path' FROM background_jobs
+		 WHERE job_type = 'gdpr_export' AND status IN ('completed','failed')
+		 AND updated_at < NOW() - INTERVAL '25 hours'
+		 AND metadata->>'file_path' IS NOT NULL`)
+	if err != nil {
+		slog.Error("gdpr export cleanup: query expired jobs failed", "error", err)
+		return
+	}
+	type expired struct{ id, path string }
+	var expiredJobs []expired
+	for expiredRows.Next() {
+		var e expired
+		if err := expiredRows.Scan(&e.id, &e.path); err == nil && e.path != "" {
+			expiredJobs = append(expiredJobs, e)
+		}
+	}
+	expiredRows.Close()
+
+	for _, e := range expiredJobs {
+		if isValidExportPath(e.path) {
+			os.Remove(e.path)
+		}
+		// Strip file_path from metadata so we don't keep retrying.
+		if _, err := pool.Exec(ctx,
+			`UPDATE background_jobs SET metadata = metadata - 'file_path' WHERE id = $1`, e.id); err != nil {
+			slog.Warn("gdpr export cleanup: clear file_path failed", "job_id", e.id, "error", err)
+		}
 	}
 }
 
@@ -258,10 +303,16 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	}
 
 	// 8. ShadowFS files (outside TX — files are content-addressed and immutable).
+	//    failedFiles captures zip-entry paths that could not be fully written
+	//    (e.g. corrupt S3 blobs). The list is surfaced in the manifest so the
+	//    user knows which files in the ZIP are empty/truncated.
+	var failedFiles []string
 	if h.ShadowFS != nil {
-		if err := h.ShadowFS.StreamToZip(ctx, userID, zw); err != nil {
+		fp, err := h.ShadowFS.StreamToZip(ctx, userID, zw)
+		if err != nil {
 			slog.Error("data export: file store stream failed", "error", err)
 		}
+		failedFiles = fp
 	} else if basePath := h.Config.ShadowFSBasePath; basePath != "" {
 		streamShadowFSToZip(basePath, userID, zw)
 	}
@@ -271,8 +322,10 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	//    between TX commit and ZIP finalisation. No fresh DB call.
 	writeZipJSON(zw, "columns.json", columnsMapToExported(colCache))
 
-	// 10. manifest.json — MUST be the LAST file in the ZIP (so entity_counts
-	//     and incomplete_tables reflect the final state).
+	// 10. manifest.json — MUST be the LAST file in the ZIP (so entity_counts,
+	//     incomplete_tables, failed_files and export_errors reflect the final
+	//     state). export_errors is included verbatim so a user inspecting the
+	//     ZIP offline can see what failed without DB access.
 	allErrs := append([]exportTableError{}, introspectErrs...)
 	allErrs = append(allErrs, exportErrs...)
 	manifest := map[string]any{
@@ -290,6 +343,10 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 			incompleteTables = append(incompleteTables, e.Table)
 		}
 		manifest["incomplete_tables"] = incompleteTables
+		manifest["export_errors"] = allErrs
+	}
+	if len(failedFiles) > 0 {
+		manifest["failed_files"] = failedFiles
 	}
 	writeZipJSON(zw, "manifest.json", manifest)
 
@@ -505,22 +562,23 @@ func (h *Handler) exportAllTables(ctx context.Context, zw *zip.Writer, tx querie
 
 	for _, t := range specs {
 		n, err := exportTable(ctx, zw, tx, t.zipPath, t.table, t.where, colCache[t.table], userID)
-		if n > 0 {
-			counts[t.table] = n
-		}
+		// Only record counts for fully-successful tables. A partial-row count
+		// from an errored export is misleading: the importer should treat the
+		// table as missing (incomplete_tables list) rather than as "X rows".
 		if err != nil {
 			errs = append(errs, exportTableError{Table: t.table, Error: err.Error()})
+		} else if n > 0 {
+			counts[t.table] = n
 		}
 	}
 
 	// Health data (TimescaleDB hypertables).
 	for _, table := range healthTables {
 		n, err := exportTable(ctx, zw, tx, fmt.Sprintf("data/health/%s.json", table), table, "user_id = $1", colCache[table], userID)
-		if n > 0 {
-			counts[table] = n
-		}
 		if err != nil {
 			errs = append(errs, exportTableError{Table: table, Error: err.Error()})
+		} else if n > 0 {
+			counts[table] = n
 		}
 	}
 
@@ -553,7 +611,10 @@ func (h *Handler) DataExportStatus(w http.ResponseWriter, r *http.Request) {
 		"updated_at": updatedAt,
 	}
 
-	if status == "completed" && len(metadata) > 0 {
+	// Surface metadata for both completed AND failed (partial-export) jobs.
+	// A failed job may still have a downloadable ZIP for debugging — the
+	// `partial: true` flag tells the frontend to warn the user.
+	if (status == "completed" || status == "failed") && len(metadata) > 0 {
 		var meta map[string]any
 		if json.Unmarshal(metadata, &meta) == nil {
 			if v, ok := meta["sha256"]; ok {
@@ -562,12 +623,23 @@ func (h *Handler) DataExportStatus(w http.ResponseWriter, r *http.Request) {
 			if v, ok := meta["size_bytes"]; ok {
 				resp["size_bytes"] = v
 			}
-			resp["download_url"] = fmt.Sprintf("/api/v1/auth/data-export/%s/download", jobID)
+			if filePath, ok := meta["file_path"].(string); ok && filePath != "" {
+				resp["download_url"] = fmt.Sprintf("/api/v1/auth/data-export/%s/download", jobID)
+				if status == "failed" {
+					resp["partial"] = true
+				}
+			}
+			if v, ok := meta["incomplete_tables"]; ok {
+				resp["incomplete_tables"] = v
+			}
 		}
 	}
 
 	if status == "failed" && errText != nil {
-		resp["error"] = "export_failed" // Don't leak internal error details to client
+		// Don't leak internal SQL/error details, but distinguish between
+		// stale-pod failures and real export failures so the frontend can
+		// pick the right user-facing message.
+		resp["error"] = "export_failed"
 	}
 
 	httputil.WriteJSONNoCache(w, http.StatusOK, resp)
@@ -602,7 +674,10 @@ func (h *Handler) DataExportDownload(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 		return
 	}
-	if status != "completed" {
+	// Allow downloading partial-export ZIPs from failed jobs, too — they are
+	// useful for debugging "why is my export incomplete?". The DataExportStatus
+	// response sets `partial: true` for these so the UI can warn the user.
+	if status != "completed" && status != "failed" {
 		httputil.WriteJSONNoCache(w, http.StatusConflict, map[string]string{"error": "not_completed"})
 		return
 	}

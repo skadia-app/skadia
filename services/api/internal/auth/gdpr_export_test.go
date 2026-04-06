@@ -89,6 +89,47 @@ func TestBuildExportQuery_NoSpecialCols(t *testing.T) {
 	}
 }
 
+func TestFormatUUID(t *testing.T) {
+	// Standard UUID round-trip: known bytes → standard 8-4-4-4-12 string.
+	tests := []struct {
+		name string
+		in   [16]byte
+		want string
+	}{
+		{
+			name: "all zeros",
+			in:   [16]byte{},
+			want: "00000000-0000-0000-0000-000000000000",
+		},
+		{
+			name: "user dev (id=1)",
+			in:   [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+			want: "00000000-0000-0000-0000-000000000001",
+		},
+		{
+			name: "all 0xff",
+			in:   [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+			want: "ffffffff-ffff-ffff-ffff-ffffffffffff",
+		},
+		{
+			name: "mixed",
+			in:   [16]byte{0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe, 0xba, 0xbe, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0},
+			want: "deadbeef-cafe-babe-1234-56789abcdef0",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatUUID(tc.in)
+			if got != tc.want {
+				t.Errorf("formatUUID(%v) = %q, want %q", tc.in, got, tc.want)
+			}
+			if len(got) != 36 {
+				t.Errorf("formatUUID length = %d, want 36", len(got))
+			}
+		})
+	}
+}
+
 func TestIsDenied(t *testing.T) {
 	// Sync with ExportDenyColumns in gdpr_columns.go.
 	// totp_secret + recovery_codes are NOT in the deny-list because TOTP/2FA

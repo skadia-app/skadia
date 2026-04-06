@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"time"
 
@@ -241,8 +242,27 @@ func (db *DB) GetAuditLog(ctx context.Context, eventType, userID string,
 	return entries, total, nil
 }
 
-// LogAuthEvent records an auth event in the audit log.
+// LogAuthEvent records an auth event in the audit log. Best-effort: failures
+// are logged at ERROR level (so they remain visible in centralised logs and
+// can trigger alerts) but do not propagate up to the caller, preserving the
+// fire-and-forget contract used throughout the codebase.
+//
+// For audit events where the absence of the entry is itself a compliance
+// issue (e.g. GDPR purge events), use LogAuthEventStrict — it returns the
+// error so callers can hard-fail instead of silently losing the audit trail.
 func (db *DB) LogAuthEvent(ctx context.Context, userID, eventType, ipAddress, userAgent string, details map[string]string) {
+	if err := db.LogAuthEventStrict(ctx, userID, eventType, ipAddress, userAgent, details); err != nil {
+		slog.Error("auth_audit_log insert failed",
+			"event_type", eventType, "user_id", userID, "error", err)
+	}
+}
+
+// LogAuthEventStrict is the error-returning variant of LogAuthEvent. Use this
+// for audit events where the lack of an entry is a compliance violation:
+// GDPR purge lifecycle events, account deletion confirmations, admin actions
+// that affect other users' data. The caller decides the error policy
+// (fail-fast, retry, fallback channel, etc).
+func (db *DB) LogAuthEventStrict(ctx context.Context, userID, eventType, ipAddress, userAgent string, details map[string]string) error {
 	var uid *string
 	if userID != "" {
 		uid = &userID
@@ -253,12 +273,18 @@ func (db *DB) LogAuthEvent(ctx context.Context, userID, eventType, ipAddress, us
 	}
 	var detailsJSON []byte
 	if len(details) > 0 {
-		detailsJSON, _ = json.Marshal(details)
+		var err error
+		if detailsJSON, err = json.Marshal(details); err != nil {
+			return fmt.Errorf("marshal audit details: %w", err)
+		}
 	}
-	_, _ = db.Pool.Exec(ctx,
+	if _, err := db.Pool.Exec(ctx,
 		`INSERT INTO auth_audit_log (user_id, event_type, ip_address, user_agent, details)
 		 VALUES ($1, $2, $3::inet, $4, $5::jsonb)`,
-		uid, eventType, ip, userAgent, detailsJSON)
+		uid, eventType, ip, userAgent, detailsJSON); err != nil {
+		return fmt.Errorf("auth_audit_log insert: %w", err)
+	}
+	return nil
 }
 
 // --- Cleanup ---

@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/skadia-app/skadia/services/api/internal/database"
 )
 
 // testPool returns a pgxpool.Pool connected to the database specified by
@@ -188,6 +190,57 @@ func TestExportedTablesMatchRegistry(t *testing.T) {
 			t.Errorf("ExportedTables contains %q but it is not in GDPRRegistry", table)
 		} else if cat != Export && cat != External {
 			t.Errorf("ExportedTables contains %q but its category is %v (expected Export or External)", table, cat)
+		}
+	}
+}
+
+// TestGdprExportTablesMatchExportedTables verifies that the static table
+// list returned by gdprExportTables() (the actual call sites in
+// handler_data_export.go that drive the export) matches the ExportedTables
+// slice in gdpr_registry.go (which the registry-coverage tests rely on).
+//
+// Without this test the two lists could drift: a new table added to one but
+// not the other would either be silently absent from the export (drift in
+// gdprExportTables) or incorrectly flagged as missing by
+// TestExportedTablesMatchRegistry (drift in ExportedTables). The two are
+// supposed to be the same set, just expressed for two different purposes.
+//
+// Health tables are exported separately (via database.AllHealthTables in the
+// handler) and are listed only in ExportedTables, so we exclude them from
+// the diff.
+func TestGdprExportTablesMatchExportedTables(t *testing.T) {
+	// Build the set of tables actually exported by the handler.
+	specs := gdprExportTables()
+	handlerSet := make(map[string]bool, len(specs))
+	for _, s := range specs {
+		handlerSet[s.table] = true
+	}
+
+	// Build the set of registry-listed exported tables, minus health tables
+	// (which are added dynamically from database.AllHealthTables in the
+	// handler, not via gdprExportTables).
+	healthSet := make(map[string]bool)
+	for _, table := range database.AllHealthTables() {
+		healthSet[table] = true
+	}
+	registrySet := make(map[string]bool, len(ExportedTables))
+	for _, table := range ExportedTables {
+		if healthSet[table] {
+			continue
+		}
+		registrySet[table] = true
+	}
+
+	// Tables in the handler but not in the registry list.
+	for table := range handlerSet {
+		if !registrySet[table] {
+			t.Errorf("gdprExportTables contains %q but ExportedTables does not — registry drift", table)
+		}
+	}
+	// Tables in the registry but not in the handler.
+	for table := range registrySet {
+		if !handlerSet[table] {
+			t.Errorf("ExportedTables contains %q but gdprExportTables does not — handler drift", table)
 		}
 	}
 }

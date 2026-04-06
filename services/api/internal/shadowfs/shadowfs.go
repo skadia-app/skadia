@@ -14,7 +14,12 @@ type ShadowFS interface {
 	Delete(ctx context.Context, userID, fileID string) error
 	DeleteAllForUser(ctx context.Context, userID string) error
 	List(ctx context.Context, userID string, fileType *string) ([]FileRecord, error)
-	StreamToZip(ctx context.Context, userID string, zw *zip.Writer) error
+	// StreamToZip writes all exportable user files into zw. The return value
+	// `failedPaths` lists ZIP entry paths whose content could NOT be copied
+	// (e.g. corrupt S3 blobs, transient network errors): the entry exists in
+	// the ZIP but is empty/truncated. Callers SHOULD surface this list in the
+	// export manifest so the user knows the export is incomplete.
+	StreamToZip(ctx context.Context, userID string, zw *zip.Writer) (failedPaths []string, err error)
 	Resolve(ctx context.Context, userID, fileID string) (ResolvedFile, error)
 	DiskUsage(ctx context.Context, userID string) (int64, error)
 	Archive(ctx context.Context, userID, fileID, replacedByID string) error

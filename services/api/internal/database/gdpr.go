@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // HealthHypertables lists health tables backed by TimescaleDB hypertables.
@@ -70,9 +71,31 @@ func (db *DB) PurgeDeletedUsers(ctx context.Context, storageCleanup func(ctx con
 }
 
 // ErrPurgeSkipped is returned when a purge is requested but the user is no
-// longer marked for deletion. Callers (notably PurgeDeletedUsers) should treat
-// this as a non-error and continue with the next user.
-var ErrPurgeSkipped = errors.New("GDPR: purge skipped: user not marked for deletion")
+// longer marked for deletion (or another worker holds the per-user advisory
+// lock). Callers (notably PurgeDeletedUsers) should treat this as a non-error
+// and continue with the next user.
+var ErrPurgeSkipped = errors.New("GDPR: purge skipped: user not marked for deletion or already in progress")
+
+// isTransientPgError reports whether a postgres error is the kind that may
+// succeed on a retry: serialization failures, deadlocks, lock-not-available
+// races. These are typically caused by concurrent activity on the same rows
+// and resolve on their own.
+//
+// Permanent errors (constraint violations, missing columns, syntax errors,
+// permission denied, etc.) return false and are not retried.
+func isTransientPgError(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	switch pgErr.Code {
+	case "40001", // serialization_failure
+		"40P01", // deadlock_detected
+		"55P03": // lock_not_available
+		return true
+	}
+	return false
+}
 
 // DeleteUserData performs a multi-phase GDPR data deletion for a single user.
 //
@@ -113,127 +136,172 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	startedAt := time.Now()
 	slog.Info("GDPR purge starting", "user_id", userID)
 
-	// Audit: gdpr_purge_started — written before any data is touched.
-	// user_id is set so admins can correlate this with the user; ON DELETE
-	// SET NULL ensures the row survives the user-row deletion (the FK link
-	// is severed but the audit entry stays in auth_audit_log).
-	db.LogAuthEvent(ctx, userID, "gdpr_purge_started", "", "system", map[string]string{
-		"user_id": userID, // also in details so it stays visible after FK SET NULL
-	})
+	// ---- Acquire dedicated connection + per-user advisory lock ----
+	//
+	// The advisory lock makes the entire purge per-user serialised across the
+	// whole cluster: two pods (or two goroutines in the same pod) cannot purge
+	// the same user concurrently. Without this, they would race on:
+	//   - the unique partial index `idx_bg_jobs_one_running` (would reject the
+	//     second INSERT with 23505 silently if we still ignored the error)
+	//   - Phase 1 deletes (idempotent but doubly wasteful)
+	//   - Phase 2 TX on the user row (FOR UPDATE serialises but only AFTER both
+	//     pods have already done all of Phase 1's heavy lifting)
+	//
+	// The lock is held on a dedicated connection checked out from the pool for
+	// the entire purge, then released on conn.Release() at the end. We use a
+	// session-level lock (pg_try_advisory_lock) rather than transaction-level
+	// because Phase 1 runs OUTSIDE any TX, so the lock has to outlive multiple
+	// statements.
+	conn, err := db.Pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("GDPR: acquire connection: %w", err)
+	}
+	defer conn.Release()
 
-	// Track purge in background_jobs for live admin-UI visibility.
-	// This is ephemeral; auth_audit_log is the persistent audit trail.
+	var locked bool
+	if err := conn.QueryRow(ctx,
+		`SELECT pg_try_advisory_lock(hashtextextended('gdpr_purge:' || $1, 0))`, userID).Scan(&locked); err != nil {
+		return fmt.Errorf("GDPR: acquire advisory lock: %w", err)
+	}
+	if !locked {
+		slog.Warn("GDPR: another purge for this user is in progress, skipping", "user_id", userID)
+		return ErrPurgeSkipped
+	}
+	defer func() {
+		if _, err := conn.Exec(ctx,
+			`SELECT pg_advisory_unlock(hashtextextended('gdpr_purge:' || $1, 0))`, userID); err != nil {
+			slog.Warn("GDPR: release advisory lock failed", "user_id", userID, "error", err)
+		}
+	}()
+
+	// ---- Audit: gdpr_purge_started (HARD-FAIL if the audit insert errors) ----
 	//
-	// We capture the inserted row's id explicitly so all subsequent UPDATEs
-	// target THIS purge attempt — not a stale 'running' row that a previous
-	// crashed run left behind. Without the explicit id, a crashed-then-resumed
-	// purge would race with the startup job_resume sweeper, which marks stale
-	// 'running' rows as 'failed' before our INSERT can land. The unique partial
-	// index `idx_bg_jobs_one_running` would also reject our INSERT during the
-	// race window.
+	// The audit trail MUST exist for compliance. If we cannot write the
+	// "started" event, abort BEFORE doing any data work — the absence of an
+	// audit trail is itself a GDPR violation. LogAuthEventStrict returns the
+	// error so we can fail fast here.
+	if err := db.LogAuthEventStrict(ctx, userID, "gdpr_purge_started", "", "system", map[string]string{
+		"user_id": userID, // also in details so it stays visible after FK SET NULL
+	}); err != nil {
+		slog.Error("GDPR_AUDIT_LOST: gdpr_purge_started insert failed, aborting purge",
+			"user_id", userID, "error", err)
+		return fmt.Errorf("GDPR: audit gdpr_purge_started: %w", err)
+	}
+
+	// ---- Insert tracking row (advisory-lock-protected, no race possible) ----
 	//
-	// Cleanup-then-insert pattern: drop any leftover 'running' gdpr_purge for
-	// this user (the row is just a tracking artefact, not an audit record),
-	// THEN insert ours, capture the id with RETURNING.
-	db.Pool.Exec(ctx, `DELETE FROM background_jobs
+	// The lock guarantees no concurrent INSERT, so we can safely DELETE any
+	// leftover 'running' row from a crashed previous attempt and INSERT-RETURNING
+	// our own. We capture the id explicitly so all subsequent UPDATEs target
+	// THIS purge attempt and never accidentally hit a stale row.
+	conn.Exec(ctx, `DELETE FROM background_jobs
 		WHERE job_type = 'gdpr_purge' AND user_id = $1 AND status = 'running'`, userID)
 	var purgeJobID string
-	if err := db.Pool.QueryRow(ctx, `INSERT INTO background_jobs (id, job_type, user_id, status)
+	if err := conn.QueryRow(ctx, `INSERT INTO background_jobs (id, job_type, user_id, status)
 		VALUES (gen_random_uuid(), 'gdpr_purge', $1, 'running')
 		RETURNING id`, userID).Scan(&purgeJobID); err != nil {
-		// Hard fail — without a tracking row we cannot mark progress reliably.
-		slog.Error("GDPR: insert tracking job failed", "user_id", userID, "error", err)
-		db.LogAuthEvent(ctx, "", "gdpr_purge_failed", "", "system", map[string]string{
+		// Tracking row failed — purge cannot proceed safely.
+		if auditErr := db.LogAuthEventStrict(ctx, "", "gdpr_purge_failed", "", "system", map[string]string{
 			"user_id": userID,
 			"phase":   "init",
 			"error":   err.Error(),
-		})
+		}); auditErr != nil {
+			slog.Error("GDPR_AUDIT_LOST: gdpr_purge_failed (init) insert failed",
+				"user_id", userID, "error", auditErr)
+		}
 		return fmt.Errorf("GDPR: insert tracking job: %w", err)
 	}
 
-	// recordPurgeFailure marks the background_jobs row as failed (outside the
-	// Phase 2 TX so it survives a TX rollback) AND writes a persistent
-	// gdpr_purge_failed event to auth_audit_log with phase + error details.
+	// recordPurgeFailure marks the background_jobs row as failed AND writes
+	// a persistent gdpr_purge_failed event to auth_audit_log with phase + error
+	// details. Both writes happen on the locked connection so they remain
+	// per-user serialised. If the audit insert ALSO fails, log at ERROR level
+	// with a special "GDPR_AUDIT_LOST" tag so a centralised log alert can fire
+	// — the caller is already in failure state and cannot meaningfully recover.
 	//
 	// Outside-TX background_jobs update: spec Phase 0.3 explicitly permits
 	// this — a failed purge MUST be visible to admins even if the TX is
-	// rolled back. Phase 0.3 forbids the markJobDone (success) outside TX
-	// path, NOT the failure-status outside TX path.
+	// rolled back. Phase 0.3 forbids markJobDone (success) outside TX, NOT
+	// the failure-status outside TX.
 	//
-	// The audit event is written with user_id="" (NULL in DB) and the actual
-	// purged user-id stored under details.user_id. This avoids FK violations
-	// when the failure happens AFTER `DELETE FROM users` but before commit
-	// (the user row is gone but the audit insert would fail FK check).
+	// Audit event uses user_id="" (NULL in DB) and stores the actual purged
+	// user-id under details.user_id. This avoids FK violations when the failure
+	// happens AFTER `DELETE FROM users` (the user row is gone but the audit
+	// insert would otherwise FK-violate).
 	recordPurgeFailure := func(phase, errMsg string) {
-		if _, err := db.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'failed', error = $2, finished_at = NOW()
+		if _, err := conn.Exec(ctx, `UPDATE background_jobs SET status = 'failed', error = $2, finished_at = NOW()
 			WHERE id = $1`, purgeJobID, errMsg); err != nil {
-			slog.Warn("GDPR: recordPurgeFailure update failed", "user_id", userID, "error", err)
+			slog.Error("GDPR: recordPurgeFailure update failed", "user_id", userID, "error", err)
 		}
-		db.LogAuthEvent(ctx, "", "gdpr_purge_failed", "", "system", map[string]string{
+		if err := db.LogAuthEventStrict(ctx, "", "gdpr_purge_failed", "", "system", map[string]string{
 			"user_id": userID,
 			"phase":   phase,
 			"error":   errMsg,
-		})
+		}); err != nil {
+			slog.Error("GDPR_AUDIT_LOST: gdpr_purge_failed event could not be written",
+				"user_id", userID, "phase", phase, "audit_error", err)
+		}
 	}
 
-	// ---- Phase 1: Hypertables + non-cascading dependents (outside TX) ----
+	// ---- Phase 1: Hypertables + non-cascading dependents (with retry) ----
 	//
-	// Phase-1 errors are aggregated. If ANY delete fails, the purge aborts
-	// before Phase 1.5/Phase 2, leaving the user row intact for a retry.
-	// This prevents the silent-data-loss scenario where a hypertable delete
-	// fails but Phase 2 commits anyway, leaving orphaned GDPR data behind.
+	// Phase-1 errors are aggregated. Per-table transient errors (serialization
+	// failures, deadlocks, lock-not-available) are retried up to 3× with linear
+	// backoff. Permanent errors (constraint violations, missing columns) are
+	// not retried — they will not succeed on a retry and would just delay the
+	// failure report.
+	//
+	// If ANY delete still fails after retries, the purge aborts BEFORE Phase 1.5
+	// and Phase 2 — the user row stays intact and a future cron-run can pick up
+	// where this attempt left off (Phase 1 deletes are idempotent: DELETE WHERE
+	// on an already-empty table is a no-op).
 	var phase1Errors []string
 
-	// Get activity IDs for stream cleanup.
+	retryDelete := func(name, sql string, args ...any) {
+		const maxAttempts = 3
+		var lastErr error
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			if _, err := conn.Exec(ctx, sql, args...); err != nil {
+				lastErr = err
+				if !isTransientPgError(err) || attempt == maxAttempts {
+					break
+				}
+				backoff := time.Duration(attempt) * 250 * time.Millisecond
+				slog.Warn("GDPR: phase1 delete transient error, retrying",
+					"table", name, "attempt", attempt, "backoff_ms", backoff.Milliseconds(), "error", err)
+				time.Sleep(backoff)
+				continue
+			}
+			return // success
+		}
+		slog.Error("GDPR: delete phase1 table failed permanently",
+			"table", name, "error", lastErr)
+		phase1Errors = append(phase1Errors, fmt.Sprintf("%s: %s", name, lastErr))
+	}
+
 	actIDs := db.getUserActivityIDs(ctx, userID)
-
-	// activity_streams: cascaded from activities, but TimescaleDB hypertables
-	// occasionally fail to cascade reliably — delete explicitly.
 	if len(actIDs) > 0 {
-		if _, err := db.Pool.Exec(ctx,
-			`DELETE FROM activity_streams WHERE activity_id = ANY($1)`, actIDs); err != nil {
-			slog.Error("GDPR: delete activity_streams failed", "error", err)
-			phase1Errors = append(phase1Errors, fmt.Sprintf("activity_streams: %s", err))
-		}
+		retryDelete("activity_streams",
+			`DELETE FROM activity_streams WHERE activity_id = ANY($1)`, actIDs)
 	}
 
-	// Get segment IDs owned by this user.
 	segIDs := db.getUserSegmentIDs(ctx, userID)
-
-	// segment_efforts on user's own segments.
 	if len(segIDs) > 0 {
-		if _, err := db.Pool.Exec(ctx,
-			`DELETE FROM segment_efforts WHERE segment_id = ANY($1)`, segIDs); err != nil {
-			slog.Error("GDPR: delete segment_efforts for segment failed", "error", err)
-			phase1Errors = append(phase1Errors, fmt.Sprintf("segment_efforts(by segment): %s", err))
-		}
+		retryDelete("segment_efforts(by_segment)",
+			`DELETE FROM segment_efforts WHERE segment_id = ANY($1)`, segIDs)
 	}
-
-	// segment_efforts by this user on OTHER people's segments.
 	if len(actIDs) > 0 {
-		if _, err := db.Pool.Exec(ctx,
-			`DELETE FROM segment_efforts WHERE activity_id = ANY($1)`, actIDs); err != nil {
-			slog.Error("GDPR: delete segment_efforts by activity failed", "error", err)
-			phase1Errors = append(phase1Errors, fmt.Sprintf("segment_efforts(by activity): %s", err))
-		}
+		retryDelete("segment_efforts(by_activity)",
+			`DELETE FROM segment_efforts WHERE activity_id = ANY($1)`, actIDs)
 	}
 
-	// Health hypertables (CASCADE unreliable on hypertables — delete explicitly).
 	for _, table := range HealthHypertables {
-		if _, err := db.Pool.Exec(ctx,
-			fmt.Sprintf(`DELETE FROM %s WHERE user_id = $1`, pgx.Identifier{table}.Sanitize()), userID); err != nil {
-			slog.Error("GDPR: delete health hypertable failed", "table", table, "error", err)
-			phase1Errors = append(phase1Errors, fmt.Sprintf("%s: %s", table, err))
-		}
+		retryDelete(table,
+			fmt.Sprintf(`DELETE FROM %s WHERE user_id = $1`, pgx.Identifier{table}.Sanitize()), userID)
 	}
-
-	// Health regular tables (no CASCADE from users).
 	for _, table := range HealthRegularTables {
-		if _, err := db.Pool.Exec(ctx,
-			fmt.Sprintf(`DELETE FROM %s WHERE user_id = $1`, pgx.Identifier{table}.Sanitize()), userID); err != nil {
-			slog.Error("GDPR: delete health table failed", "table", table, "error", err)
-			phase1Errors = append(phase1Errors, fmt.Sprintf("%s: %s", table, err))
-		}
+		retryDelete(table,
+			fmt.Sprintf(`DELETE FROM %s WHERE user_id = $1`, pgx.Identifier{table}.Sanitize()), userID)
 	}
 
 	if len(phase1Errors) > 0 {
@@ -254,9 +322,9 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 		}
 	}
 
-	// ---- Phase 2: Transaction for everything else ----
+	// ---- Phase 2: Transaction for everything else (on the locked connection) ----
 
-	tx, err := db.Pool.Begin(ctx)
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		recordPurgeFailure("phase2_begin_tx", err.Error())
 		return fmt.Errorf("GDPR begin tx: %w", err)
@@ -271,27 +339,27 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 		return fmt.Errorf("GDPR: user %s not found: %w", userID, err)
 	}
 	if deletedAt == nil {
-		// Skipped is NOT a failure — the user revoked their deletion.
-		// Mark the background_jobs row as 'completed' with a "skipped" error
-		// hint, and emit gdpr_purge_skipped (NOT gdpr_purge_failed) so admin
-		// monitoring can filter these out. The user still exists at this
-		// point, so we can keep the FK on user_id intact for the audit event.
-		if _, err := db.Pool.Exec(ctx,
+		// Skipped is NOT a failure — the user revoked their deletion. The
+		// user still exists at this point, so we can keep the FK on user_id
+		// intact for the audit event.
+		if _, err := conn.Exec(ctx,
 			`UPDATE background_jobs SET status = 'completed', error = 'skipped: user not marked for deletion', finished_at = NOW()
 			 WHERE id = $1`, purgeJobID); err != nil {
 			slog.Warn("GDPR: mark skipped purge failed", "user_id", userID, "error", err)
 		}
-		db.LogAuthEvent(ctx, userID, "gdpr_purge_skipped", "", "system", map[string]string{
+		if err := db.LogAuthEventStrict(ctx, userID, "gdpr_purge_skipped", "", "system", map[string]string{
 			"user_id": userID,
 			"reason":  "user no longer marked for deletion",
-		})
+		}); err != nil {
+			slog.Error("GDPR_AUDIT_LOST: gdpr_purge_skipped event could not be written",
+				"user_id", userID, "error", err)
+		}
 		return ErrPurgeSkipped
 	}
 
 	// Tables without CASCADE on users that still need explicit deletion.
 	// (best_efforts, best_effort_exclusions, activity_edits removed — they
-	// have transitive CASCADE chains via users/activities and are cleaned
-	// up by the final DELETE FROM users.)
+	// have transitive CASCADE chains via users/activities.)
 
 	// user_daily_features: no FK constraint at all (TEXT user_id).
 	if _, err := tx.Exec(ctx, `DELETE FROM user_daily_features WHERE user_id = $1`, userID); err != nil {
@@ -350,16 +418,14 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	// background_jobs: clear all OTHER background_jobs for this user. The
 	// gdpr_purge row is intentionally KEPT and marked 'completed' below
 	// (still inside this TX) so the admin UI can show its final state.
-	// background_jobs has no FK on users, so the surviving row does not
-	// block DELETE FROM users.
 	if _, err := tx.Exec(ctx, `DELETE FROM background_jobs WHERE user_id = $1 AND job_type != 'gdpr_purge'`, userID); err != nil {
 		slog.Warn("GDPR: delete background_jobs failed", "error", err)
 	}
 
 	// Mark the gdpr_purge tracking row as 'completed' INSIDE the TX so it
-	// commits atomically with DELETE FROM users. If we did this post-commit
-	// the WHERE filter could miss the row (race with the startup job_resume
-	// sweeper or with deferred metadata updates).
+	// commits atomically with DELETE FROM users. HARD-FAIL on UPDATE error:
+	// without a valid completed-status row, admin UI / monitoring cannot
+	// distinguish a real success from a crashed-mid-purge.
 	durationMs := time.Since(startedAt).Milliseconds()
 	if _, err := tx.Exec(ctx,
 		`UPDATE background_jobs SET status = 'completed', finished_at = NOW(),
@@ -369,10 +435,29 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 				'duration_ms', $4::bigint
 			)
 		 WHERE id = $1`, purgeJobID, len(actIDs), len(segIDs), durationMs); err != nil {
-		slog.Warn("GDPR: mark purge completed failed", "user_id", userID, "error", err)
+		recordPurgeFailure("phase2_mark_completed", err.Error())
+		return fmt.Errorf("GDPR: mark purge completed: %w", err)
 	}
 
-	// DELETE user — CASCADE handles all remaining dependent tables.
+	// Write the gdpr_purge_completed audit event INSIDE the TX (BEFORE the
+	// DELETE FROM users) so that:
+	//   1. Either the audit event commits atomically with the user deletion,
+	//      OR neither commits (rollback) — no half-state.
+	//   2. The user_id FK is still valid here, so the audit row is inserted
+	//      with the correct top-level user_id. After commit, ON DELETE SET NULL
+	//      will null it (FK-link removed), but the row stays in auth_audit_log
+	//      with details.user_id preserving the link.
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO auth_audit_log (user_id, event_type, ip_address, user_agent, details)
+		 VALUES ($1::uuid, 'gdpr_purge_completed', NULL, 'system', $2::jsonb)`,
+		userID, fmt.Sprintf(`{"user_id":%q,"activities":%d,"segments":%d,"duration_ms":%d}`,
+			userID, len(actIDs), len(segIDs), durationMs)); err != nil {
+		recordPurgeFailure("phase2_audit_completed", err.Error())
+		return fmt.Errorf("GDPR: insert completed audit event: %w", err)
+	}
+
+	// DELETE user — CASCADE handles all remaining dependent tables. The
+	// auth_audit_log row inserted above is preserved via ON DELETE SET NULL.
 	if _, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
 		recordPurgeFailure("phase2_delete_user", err.Error())
 		return fmt.Errorf("GDPR: delete user: %w", err)
@@ -382,18 +467,6 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 		recordPurgeFailure("phase2_commit", err.Error())
 		return fmt.Errorf("GDPR: commit: %w", err)
 	}
-
-	// ---- Success audit event (post-commit) ----
-	//
-	// user_id is intentionally empty here: the user row is gone, so an INSERT
-	// with a non-null user_id would FK-violate. The purged user-id is preserved
-	// in details.user_id so admins can correlate.
-	db.LogAuthEvent(ctx, "", "gdpr_purge_completed", "", "system", map[string]string{
-		"user_id":     userID,
-		"activities":  fmt.Sprintf("%d", len(actIDs)),
-		"segments":    fmt.Sprintf("%d", len(segIDs)),
-		"duration_ms": fmt.Sprintf("%d", durationMs),
-	})
 
 	slog.Info("GDPR purge complete", "user_id", userID,
 		"activities", len(actIDs), "segments", len(segIDs), "duration_ms", durationMs)
