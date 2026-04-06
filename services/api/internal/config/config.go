@@ -66,6 +66,14 @@ type Config struct {
 	BRouterURL       string // e.g. http://brouter:17777
 	RoutingGraphPath string // path to binary graph file
 
+	// Data directories — all with /data/ defaults, overridable via env vars
+	OSMDataDir         string
+	DEMDataDir         string
+	BRouterSegmentsDir string
+	BRouterProfilesDir string
+	TilesDir           string
+	RoutingDir         string
+
 	// Auth (Go-native)
 	RegistrationMode   string // "invite" (default), "open", "approval"
 	OAuthEncryptionKey string // 32-byte hex for AES-256-GCM (social login tokens)
@@ -133,6 +141,13 @@ func Load() (*Config, error) {
 
 		BRouterURL:       os.Getenv("BROUTER_URL"),
 		RoutingGraphPath: getEnvDefault("ROUTING_GRAPH_PATH", "/data/routing/graph.bin"),
+
+		OSMDataDir:         getEnvDefault("OSM_DATA_DIR", "/data/osm"),
+		DEMDataDir:         getEnvDefault("DEM_DATA_DIR", "/data/dem"),
+		BRouterSegmentsDir: getEnvDefault("BROUTER_SEGMENTS_DIR", "/data/brouter/segments"),
+		BRouterProfilesDir: getEnvDefault("BROUTER_PROFILES_DIR", "/data/brouter/profiles"),
+		TilesDir:           getEnvDefault("TILES_DIR", "/data/tiles"),
+		RoutingDir:         getEnvDefault("ROUTING_DIR", "/data/routing"),
 
 		RegistrationMode:   getEnvDefault("REGISTRATION_MODE", "invite"),
 		OAuthEncryptionKey: os.Getenv("OAUTH_ENCRYPTION_KEY"),
@@ -237,8 +252,8 @@ func validateLibraryBasePath(p string) error {
 	}
 	// Require the path to be under /data/ or /srv/ to prevent accidental
 	// use of arbitrary system directories.
-	if !strings.HasPrefix(p, "/data/") && !strings.HasPrefix(p, "/srv/") {
-		return fmt.Errorf("LIBRARY_BASE_PATH must be under /data/ or /srv/, got %q", p)
+	if !strings.HasPrefix(p, "/data/") && !strings.HasPrefix(p, "/srv/") && !strings.HasPrefix(p, "/var/lib/") {
+		return fmt.Errorf("LIBRARY_BASE_PATH must be under /data/, /srv/ or /var/lib/, got %q", p)
 	}
 	return nil
 }
