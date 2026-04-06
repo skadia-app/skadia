@@ -229,10 +229,7 @@ func (h *Handler) DeleteOSMRegion(w http.ResponseWriter, r *http.Request) {
 		`DELETE FROM osm_import_regions WHERE region_id = $1`, regionID)
 
 	// Delete PBF files to reclaim disk space
-	dataDir := os.Getenv("OSM_DATA_DIR")
-	if dataDir == "" {
-		dataDir = "/data/osm"
-	}
+	dataDir := h.Config.OSMDataDir
 	pbfPath := filepath.Join(dataDir, regionID+"-latest.osm.pbf")
 	os.Remove(pbfPath)
 	os.Remove(strings.TrimSuffix(pbfPath, ".osm.pbf") + "-filtered.osm.pbf")
@@ -429,11 +426,7 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 	regionFilter := strings.Join(req.Regions, ",")
 	shutdown.Go(jobID, func(ctx context.Context) {
 		reporter := &jobReporter{db: h.DB, jobID: jobID}
-		dataDir := os.Getenv("OSM_DATA_DIR")
-		if dataDir == "" {
-			dataDir = "/data/osm"
-		}
-		pipeline := &osmregions.Pipeline{Pool: h.DB.Pool, DataDir: dataDir, DBURL: os.Getenv("DATABASE_URL")}
+		pipeline := &osmregions.Pipeline{Pool: h.DB.Pool, DataDir: h.Config.OSMDataDir, DBURL: os.Getenv("DATABASE_URL")}
 		pipeline.RunEnrichmentAndSplitting(ctx, regionFilter, reporter)
 	})
 
@@ -630,10 +623,7 @@ func (h *Handler) runRegionUpdate(ctx context.Context, jobID, regionID, label, r
 	// Phase 2: Full reimport from patched PBF (osmium filter → osm2pgsql → merge)
 	// RunPerRegion skips PBF download because patched file has fresh ModTime (< 7d threshold).
 	// It also updates replication_url, last_sequence_number, data_date from PBF header.
-	dataDir := os.Getenv("OSM_DATA_DIR")
-	if dataDir == "" {
-		dataDir = "/data/osm"
-	}
+	dataDir := h.Config.OSMDataDir
 	reg, ok := osmregions.RegionByID(regionID)
 	if !ok {
 		slog.Error("osm update: region not in catalog", "region", regionID)
@@ -869,11 +859,7 @@ func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []pa
 	// may fragment. Full merge requires refactoring RunPerRegion to accept a pre-merged
 	// PBF path — planned as follow-up.
 	reporter.SetPhase("import")
-	dataDir := os.Getenv("OSM_DATA_DIR")
-	if dataDir == "" {
-		dataDir = "/data/osm"
-	}
-	pipeline := &osmregions.Pipeline{Pool: h.DB.Pool, DataDir: dataDir, DBURL: os.Getenv("DATABASE_URL")}
+	pipeline := &osmregions.Pipeline{Pool: h.DB.Pool, DataDir: h.Config.OSMDataDir, DBURL: os.Getenv("DATABASE_URL")}
 
 	// Load categories: union of all patched regions' categories
 	catSet := make(map[string]bool)
@@ -926,10 +912,7 @@ func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []pa
 	// Phase 5: Optional tiles
 	if rebuildTiles {
 		// DEM guard
-		demDir := os.Getenv("DEM_DATA_DIR")
-		if demDir == "" {
-			demDir = "/data/dem"
-		}
+		demDir := h.Config.DEMDataDir
 		hgtDir := filepath.Join(demDir, "glo30")
 		entries, _ := os.ReadDir(hgtDir)
 		hasHGT := false
@@ -948,10 +931,7 @@ func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []pa
 
 		// Coverage Build
 		reporter.SetPhase("coverage")
-		graphPath := os.Getenv("ROUTING_GRAPH_PATH")
-		if graphPath == "" {
-			graphPath = "/data/routing/graph.bin"
-		}
+		graphPath := h.Config.RoutingGraphPath
 		coverageDir := filepath.Join(filepath.Dir(graphPath), "coverage")
 		coverageOpts := coverage.BuildCoverageOptions{
 			BaseDir: coverageDir,
@@ -967,7 +947,11 @@ func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []pa
 		tileDir := filepath.Join(filepath.Dir(graphPath), "tiles")
 		// HGT dirs in priority order: highest resolution first
 		hgtDirs := []string{}
-		for _, dir := range []string{"/data/dem/sonny-05", "/data/dem/sonny-1", hgtDir} {
+		for _, dir := range []string{
+			filepath.Join(h.Config.DEMDataDir, "sonny-05"),
+			filepath.Join(h.Config.DEMDataDir, "sonny-1"),
+			hgtDir,
+		} {
 			if _, err := os.Stat(dir); err == nil {
 				hgtDirs = append(hgtDirs, dir)
 			}
