@@ -25,6 +25,15 @@ type columnInfo struct {
 	UDTName string // e.g. "int4", "text", "jsonb", "geometry", "bytea"
 }
 
+// exportTableError records a failure to export a single table. The export
+// worker collects these and either marks the job as failed (with the list
+// surfaced in background_jobs.metadata.export_errors) or — when empty —
+// marks the job as completed.
+type exportTableError struct {
+	Table string `json:"table"`
+	Error string `json:"error"`
+}
+
 // introspectColumns returns the ordered list of columns for the given table
 // from information_schema.columns, restricted to the public schema.
 func introspectColumns(ctx context.Context, q querier, table string) ([]columnInfo, error) {
@@ -108,21 +117,26 @@ func buildExportQuery(cols []columnInfo, table, where string) (string, []columnI
 	return query, activeCols
 }
 
-// exportTable introspects the table's columns, builds a safe SELECT query,
-// streams all matching rows as a JSON array into a ZIP entry at zipPath,
-// and returns the number of rows written.
+// exportTable streams all rows of `table` matching `where` as a JSON array
+// into a ZIP entry at zipPath. Column metadata MUST be provided in `cols` —
+// the function does NOT introspect the schema itself. This decoupling is
+// deliberate: introspection happens once via the connection pool BEFORE the
+// export transaction begins, so a failed data query inside the TX cannot
+// poison subsequent information_schema reads (SQLSTATE 25P02 cascade).
+//
+// Returns the number of rows written and an error. A non-nil error means the
+// table's data is incomplete or missing entirely; the worker collects these
+// errors and surfaces them via background_jobs.metadata.export_errors.
 //
 // The where clause and args follow the same security contract as buildExportQuery:
 // they originate from internal, hardcoded call sites — never from user input.
-func exportTable(ctx context.Context, zw *zip.Writer, q querier, zipPath, table, where string, args ...any) int {
-	cols, err := introspectColumns(ctx, q, table)
-	if err != nil {
-		slog.Error("gdpr export: introspect columns failed", "table", table, "error", err)
-		return 0
-	}
+func exportTable(ctx context.Context, zw *zip.Writer, q querier, zipPath, table, where string, cols []columnInfo, args ...any) (int, error) {
 	if len(cols) == 0 {
-		slog.Warn("gdpr export: no columns found, skipping", "table", table)
-		return 0
+		// Empty cols means introspection failed pre-TX. The error is already
+		// in the worker's collected list; we skip the entry without creating
+		// a misleading empty `[]` file.
+		slog.Warn("gdpr export: no columns cached, skipping", "table", table)
+		return 0, nil
 	}
 
 	query, activeCols := buildExportQuery(cols, table, where)
@@ -130,14 +144,14 @@ func exportTable(ctx context.Context, zw *zip.Writer, q querier, zipPath, table,
 	rows, err := q.Query(ctx, query, args...)
 	if err != nil {
 		slog.Error("gdpr export: query failed", "table", table, "error", err)
-		return 0
+		return 0, fmt.Errorf("export %s: query: %w", table, err)
 	}
 	defer rows.Close()
 
 	w, err := createZipEntry(zw, zipPath)
 	if err != nil {
 		slog.Error("gdpr export: create zip entry failed", "path", zipPath, "error", err)
-		return 0
+		return 0, fmt.Errorf("export %s: create zip entry: %w", table, err)
 	}
 
 	w.Write([]byte("["))
@@ -148,7 +162,8 @@ func exportTable(ctx context.Context, zw *zip.Writer, q querier, zipPath, table,
 		rawVals, err := rows.Values()
 		if err != nil {
 			slog.Error("gdpr export: row values failed", "table", table, "error", err)
-			continue
+			w.Write([]byte("]"))
+			return count, fmt.Errorf("export %s: row values: %w", table, err)
 		}
 
 		fds := rows.FieldDescriptions()
@@ -205,9 +220,10 @@ func exportTable(ctx context.Context, zw *zip.Writer, q querier, zipPath, table,
 		data, encErr := json.Marshal(row)
 		if encErr != nil {
 			slog.Error("gdpr export: encode row failed", "table", table, "error", encErr)
-		} else {
-			w.Write(data)
+			w.Write([]byte("]"))
+			return count, fmt.Errorf("export %s: encode row: %w", table, encErr)
 		}
+		w.Write(data)
 		count++
 	}
 
@@ -215,32 +231,56 @@ func exportTable(ctx context.Context, zw *zip.Writer, q querier, zipPath, table,
 
 	if err := rows.Err(); err != nil {
 		slog.Error("gdpr export: rows iteration error", "table", table, "error", err)
+		return count, fmt.Errorf("export %s: rows iteration: %w", table, err)
 	}
 
-	return count
+	return count, nil
 }
 
-// exportColumns returns the list of exportable column names for table —
-// denied columns are excluded; geometry columns are included by their original
-// name (e.g. "center").
-//
-// NOTE: Geometry columns are listed by their original name here, but the actual
-// export data contains GeoJSON (produced via ST_AsGeoJSON in buildExportQuery).
-// The importer (Phase 3) must detect geometry columns via information_schema
-// when importing and handle the GeoJSON→WKB conversion accordingly.
-func exportColumns(ctx context.Context, q querier, table string) []string {
-	cols, err := introspectColumns(ctx, q, table)
-	if err != nil {
-		slog.Error("gdpr export: exportColumns introspect failed", "table", table, "error", err)
-		return nil
-	}
-
-	names := make([]string, 0, len(cols))
-	for _, col := range cols {
-		if isDenied(table, col.Name) {
+// introspectAllTables introspects every table in `tables` via the connection
+// pool (NOT a transaction). Failures are collected per-table; successful
+// introspections are returned in the cache map. This must run BEFORE the
+// export TX is opened — see exportTable doc for the rationale.
+func introspectAllTables(ctx context.Context, pool querier, tables []string) (map[string][]columnInfo, []exportTableError) {
+	cache := make(map[string][]columnInfo, len(tables))
+	var errs []exportTableError
+	for _, table := range tables {
+		cols, err := introspectColumns(ctx, pool, table)
+		if err != nil {
+			slog.Error("gdpr export: introspect columns failed", "table", table, "error", err)
+			errs = append(errs, exportTableError{Table: table, Error: err.Error()})
 			continue
 		}
-		names = append(names, col.Name)
+		if len(cols) == 0 {
+			slog.Warn("gdpr export: introspect returned no columns", "table", table)
+			errs = append(errs, exportTableError{Table: table, Error: "no columns found in information_schema"})
+			continue
+		}
+		cache[table] = cols
 	}
-	return names
+	return cache, errs
+}
+
+// columnsMapToExported converts the introspected column cache into the
+// {table: [col, ...]} shape used by columns.json. Denied columns are filtered
+// out via isDenied; geometry columns retain their original name (the export
+// data contains GeoJSON via ST_AsGeoJSON in buildExportQuery).
+//
+// The importer (Phase 3) must consult information_schema on the target DB
+// to detect geometry columns and apply the GeoJSON→WKB conversion.
+func columnsMapToExported(cache map[string][]columnInfo) map[string][]string {
+	out := make(map[string][]string, len(cache))
+	for table, cols := range cache {
+		names := make([]string, 0, len(cols))
+		for _, col := range cols {
+			if isDenied(table, col.Name) {
+				continue
+			}
+			names = append(names, col.Name)
+		}
+		if len(names) > 0 {
+			out[table] = names
+		}
+	}
+	return out
 }
