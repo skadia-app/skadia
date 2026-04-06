@@ -8,6 +8,7 @@ import (
 	"github.com/alexedwards/argon2id"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // ChangePassword handles POST /auth/change-password (authenticated).
@@ -42,15 +43,31 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 
 	// Load user to determine whether current_password is required.
-	user, err := h.DB.GetUserByID(r.Context(), userID)
-	if err != nil {
-		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-		return
+	//
+	// current_password is only optional for OAuth-only users who have never set a
+	// password (PasswordHash == nil && MustChangePassword). For every other case
+	// (normal users, admin-reset users with an existing password) it's required.
+	//
+	// The JWT only exposes must_change_password, not whether a password hash
+	// exists, so we must consult the DB. If the DB is not wired (unit tests with
+	// the testHandler stub), we fall through to the safe default
+	// (requireCurrentPassword = true) — this matches the default contract and
+	// prevents SIGSEGV when the test doesn't exercise the DB path. Any DB write
+	// further down will still bail out with 503 because h.DB is nil.
+	var user *model.User
+	if h.DB != nil && h.DB.Pool != nil {
+		loaded, err := h.DB.GetUserByID(r.Context(), userID)
+		if err != nil {
+			httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		user = loaded
 	}
 
-	// OAuth-Only or admin-created users without a password: current_password not required.
+	// Default: current_password is required. Only loosen when we positively know
+	// the user is OAuth-only with no password set.
 	requireCurrentPassword := true
-	if user.PasswordHash == nil && user.MustChangePassword {
+	if user != nil && user.PasswordHash == nil && user.MustChangePassword {
 		requireCurrentPassword = false
 	}
 
@@ -61,6 +78,13 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(req.CurrentPassword) > 1000 {
 			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "password_too_long"})
+			return
+		}
+		// Hash comparison requires the loaded user. If DB was nil (test stub),
+		// there is nothing to compare against — fail closed with 503 instead of
+		// accepting any password.
+		if user == nil {
+			httputil.WriteJSONNoCache(w, http.StatusServiceUnavailable, map[string]string{"error": "service_unavailable"})
 			return
 		}
 		if user.PasswordHash == nil {
