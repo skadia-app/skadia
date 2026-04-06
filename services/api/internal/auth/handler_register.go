@@ -143,8 +143,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("auth.register", "user_id", user.ID, "mode", h.Config.RegistrationMode)
-	go h.DB.LogAuthEvent(h.shutdownCtx, user.ID, "register", middleware.ClientIP(r), r.UserAgent(), map[string]string{"mode": h.Config.RegistrationMode})
+	mode := h.Config.RegistrationMode
+	if isBootstrap {
+		mode = "bootstrap"
+	}
+	slog.Info("auth.register", "user_id", user.ID, "mode", mode)
+	go h.DB.LogAuthEvent(h.shutdownCtx, user.ID, "register", middleware.ClientIP(r), r.UserAgent(), map[string]string{"mode": mode})
 
 	if !isBootstrap {
 		// In approval mode, notify admins about the pending registration.
