@@ -464,6 +464,28 @@ function SessionsSection() {
 
 // ── Danger Zone Section ─────────────────────────────────────────────────────
 
+// abortableSleep resolves after `ms` milliseconds, or rejects with an
+// AbortError immediately when the signal is aborted. This avoids letting a
+// pending setTimeout race past a component unmount.
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'))
+      return
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', onAbort)
+      reject(new DOMException('Aborted', 'AbortError'))
+    }
+    signal.addEventListener('abort', onAbort)
+  })
+}
+
 function DangerZoneSection() {
   const { hasPassword } = useUser()
   const navigate = useNavigate()
@@ -498,39 +520,63 @@ function DangerZoneSection() {
     setExporting(true)
     try {
       const { job_id } = await startDataExport()
-      addToast({ type: 'info', title: 'Datenexport gestartet...' })
+      addToast({ type: 'info', title: 'Datenexport gestartet' })
 
       // Poll for completion (max 10 min = 120 × 5s)
       for (let i = 0; i < 120; i++) {
         if (abort.signal.aborted) return
-        await new Promise(r => setTimeout(r, 5000))
+        await abortableSleep(5000, abort.signal)
         const status = await getDataExportStatus(job_id)
         if (status.status === 'completed' && status.download_url) {
           if (!status.download_url.startsWith('/api/')) {
             addToast({ type: 'error', title: 'Ungültige Download-URL', duration: 0 })
             return
           }
-          window.open(status.download_url, '_blank')
-          const sizeStr = status.size_bytes
-            ? `${(status.size_bytes / 1024 / 1024).toFixed(1)} MB`
-            : ''
+          // Programmatic anchor click — bypasses popup blockers that intercept
+          // window.open() outside of synchronous user gestures.
+          const a = document.createElement('a')
+          a.href = status.download_url
+          a.download = ''
+          a.rel = 'noopener noreferrer'
+          document.body.appendChild(a)
+          a.click()
+          a.remove()
+
+          const detailParts: string[] = []
+          if (status.sha256) detailParts.push(`SHA-256: ${status.sha256}`)
+          if (status.size_bytes) {
+            detailParts.push(`${(status.size_bytes / 1024 / 1024).toFixed(1)} MB`)
+          }
           addToast({
             type: 'success',
             title: 'Datenexport heruntergeladen',
-            message: status.sha256
-              ? `SHA-256: ${status.sha256}${sizeStr ? ` (${sizeStr})` : ''}`
-              : undefined,
+            message: detailParts.length > 0 ? detailParts.join(' · ') : undefined,
             duration: 0,
           })
           return
         }
         if (status.status === 'failed') {
-          addToast({ type: 'error', title: `Export fehlgeschlagen: ${status.error ?? 'Unbekannter Fehler'}`, duration: 0 })
+          if (status.error === 'export_failed') {
+            addToast({
+              type: 'error',
+              title: 'Datenexport fehlgeschlagen',
+              message: 'Bitte versuche es später erneut. Falls das Problem bestehen bleibt, kontaktiere den Support.',
+              duration: 0,
+            })
+          } else {
+            addToast({
+              type: 'error',
+              title: 'Datenexport fehlgeschlagen',
+              message: status.error ?? 'Unbekannter Fehler',
+              duration: 0,
+            })
+          }
           return
         }
       }
-      addToast({ type: 'error', title: 'Export-Timeout', duration: 0 })
+      addToast({ type: 'error', title: 'Datenexport-Zeitüberschreitung', duration: 0 })
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return
       if (!abort.signal.aborted) {
         addToast({ type: 'error', title: 'Datenexport fehlgeschlagen', duration: 0 })
       }

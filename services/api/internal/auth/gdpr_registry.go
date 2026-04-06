@@ -16,13 +16,6 @@ const (
 	Global
 )
 
-// ManuallyExportedTables lists tables that are exported via custom logic rather than
-// the generic exportTable() helper. These must be handled explicitly in the export handler.
-var ManuallyExportedTables = map[string]bool{
-	// exported as account.json + profile.json with field scrubbing
-	"users": true,
-}
-
 // GDPRRegistry maps every user-related (and relevant global) table to its TableCategory.
 // A compile-time test verifies this registry against the live DB schema — any table
 // with a user_id column that is absent here will fail CI.
@@ -78,20 +71,20 @@ var GDPRRegistry = map[string]TableCategory{
 	// -------------------------------------------------------------------------
 	// External — externally sourced; should be exported
 	// -------------------------------------------------------------------------
-	"activity_weather":        External,
-	"health_blood_pressure":   External,
-	"health_daily_summary":    External,
-	"health_fitness_age":      External,
-	"health_hrv_night_values": External,
+	"activity_weather":          External,
+	"health_blood_pressure":     External,
+	"health_daily_summary":      External,
+	"health_fitness_age":        External,
+	"health_hrv_night_values":   External,
 	"health_monitoring_samples": External,
-	"health_readiness_scores": External,
-	"health_sleep":            External,
-	"health_snapshots":        External, // ehem. health_hrv_snapshots, Mig 000113
-	"health_spo2_snapshots":   External,
-	"health_stress_snapshots": External,
-	"health_training_load":    External,
-	"health_weight_entries":   External,
-	"import_log":              External,
+	"health_readiness_scores":   External,
+	"health_sleep":              External,
+	"health_snapshots":          External, // ehem. health_hrv_snapshots, Mig 000113
+	"health_spo2_snapshots":     External,
+	"health_stress_snapshots":   External,
+	"health_training_load":      External,
+	"health_weight_entries":     External,
+	"import_log":                External,
 
 	// -------------------------------------------------------------------------
 	// Derived — regenerated on re-import; exported for convenience only
@@ -99,6 +92,8 @@ var GDPRRegistry = map[string]TableCategory{
 	"activity_climb_pro_events": Derived,
 	"activity_climbs":           Derived,
 	"activity_detected_laps":    Derived,
+	"activity_dive_gases":       Derived, // FIT-dive data, cascades from activities
+	"activity_dive_settings":    Derived, // FIT-dive data, cascades from activities
 	"activity_events":           Derived,
 	"activity_geo_tags":         Derived,
 	"activity_hr_data":          Derived,
@@ -118,6 +113,7 @@ var GDPRRegistry = map[string]TableCategory{
 	"activity_streams":          Derived,
 	"activity_surfaces":         Derived,
 	"activity_tag_removals":     Derived,
+	"activity_time_in_zone":     Derived, // FIT-zone data, cascades from activities
 	"activity_tracks":           Derived,
 	"analytics_cache":           Derived,
 	"enrichment_errors":         Derived,
@@ -134,34 +130,34 @@ var GDPRRegistry = map[string]TableCategory{
 	// -------------------------------------------------------------------------
 	// System — security/transient; not exported
 	// -------------------------------------------------------------------------
-	"auth_audit_log":       System, // user_id SET NULL by design
-	"auth_codes":           System,
-	"background_jobs":      System,
-	"device_tokens":        System,
-	"email_tokens":         System,
-	"garmin_import_jobs":   System,
-	"garmin_import_mappings": System,
-	"hotfolder_imports":    System,
-	"import_queue":         System, // transiente Import-Queue
-	"komoot_credentials":   System,
-	"notifications":        System,
-	"refresh_tokens":       System,
-	"strava_import_jobs":   System,
+	"auth_audit_log":          System, // user_id SET NULL by design
+	"auth_codes":              System,
+	"background_jobs":         System,
+	"device_tokens":           System,
+	"email_tokens":            System,
+	"garmin_import_jobs":      System,
+	"garmin_import_mappings":  System,
+	// hotfolder_imports removed — table never existed in DB (stale aspirational entry, Mig cleanup)
+	"import_queue":            System, // transiente Import-Queue
+	"komoot_credentials":      System,
+	"notifications":           System,
+	"refresh_tokens":          System,
+	"strava_import_jobs":      System,
 
 	// -------------------------------------------------------------------------
 	// Global — no user_id; no GDPR relevance
 	// -------------------------------------------------------------------------
 	"developer_field_definitions": Global, // FIT-Schema-Lookup, kein user_id
-	"sport_taxonomy":              Global,
-	"system_flags":                Global,
+	// sport_taxonomy removed — table never existed in DB (stale aspirational entry, Mig cleanup)
+	"system_flags": Global,
 }
 
 // ExportedTables lists all tables exported via exportTable() in handler_data_export.go.
-// Used by compile-time tests to verify that every Export/External table (minus
-// ManuallyExportedTables) is actually included in the data export.
+// Used by compile-time tests to verify that every Export/External table is actually
+// included in the data export.
 // Keep in sync with the tables slice in exportUserDataInTx().
 var ExportedTables = []string{
-	"users", // Also in ManuallyExportedTables (account.json); listed here for profile.json via exportTable
+	"users", // exported as account.json + profile.json with field scrubbing
 	"activities",
 	"gear",
 	"tags",
@@ -223,3 +219,4 @@ var ExportedTables = []string{
 }
 
 // commute_clusters is intentionally absent — table was dropped in Mig 000288.
+// hotfolder_imports and sport_taxonomy were removed — never existed in DB (stale entries after Mig cleanup).

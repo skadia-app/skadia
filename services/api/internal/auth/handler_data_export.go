@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -191,8 +192,29 @@ func (h *Handler) executeExportJob(ctx context.Context, jobID, userID string) er
 }
 
 // executeExportJobOnce performs the export in a single REPEATABLE READ transaction.
+//
+// Architecture:
+//   - Schema introspection runs PRE-TX via the connection pool (information_schema
+//     reads do not need snapshot consistency, and a per-table data-query failure
+//     inside the TX must NOT poison subsequent introspection reads — that's the
+//     SQLSTATE 25P02 cascade we hit before).
+//   - All data queries run inside one REPEATABLE READ ReadOnly TX so the export
+//     is a consistent snapshot of the user's data.
+//   - Per-table errors are collected; an export with any errors is marked as
+//     `failed` (not `completed`), the partial ZIP is kept on disk for debug
+//     download, and `background_jobs.metadata.export_errors` lists the failures.
 func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string) error {
-	// 1. Open REPEATABLE READ read-only TX for consistent snapshot.
+	// 1. Build the static table list (no DB).
+	specs := gdprExportTables()
+	healthTables := database.AllHealthTables()
+	allNames := gdprAllTableNames(specs, healthTables)
+
+	// 2. Pre-TX column introspection via the pool. Failures here mean a table
+	//    was renamed/dropped without the export code being updated; they are
+	//    surfaced via the export_errors list, not by aborting the whole job.
+	colCache, introspectErrs := introspectAllTables(ctx, h.DB.Pool, allNames)
+
+	// 3. Open REPEATABLE READ read-only TX for a consistent data snapshot.
 	tx, err := h.DB.Pool.BeginTx(ctx, pgx.TxOptions{
 		IsoLevel:   pgx.RepeatableRead,
 		AccessMode: pgx.ReadOnly,
@@ -202,20 +224,21 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	}
 	defer tx.Rollback(ctx)
 
-	// 2. Read schema version from TX snapshot.
+	// 4. Read schema version from the TX snapshot so it matches the exported data.
 	var schemaMigration int
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&schemaMigration); err != nil {
 		return fmt.Errorf("read schema_migrations: %w", err)
 	}
 
-	// 3. Create temporary ZIP file.
+	// 5. Create temporary ZIP file.
 	tmpFile, err := os.CreateTemp("", "skadia-export-*.zip")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}
 	defer tmpFile.Close()
 	tmpPath := tmpFile.Name()
-	// Clean up on failure (success path moves ownership to background_jobs.metadata).
+	// Clean up on failure (success path and partial-fail path both move ownership
+	// to background_jobs.metadata so the file survives until the 24h cleanup).
 	cleanupNeeded := true
 	defer func() {
 		if cleanupNeeded {
@@ -225,15 +248,16 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 
 	zw := zip.NewWriter(tmpFile)
 
-	// 4. Export all tables via TX.
-	entityCounts := h.exportAllTables(ctx, zw, tx, userID)
+	// 6. Export all tables via the TX.
+	entityCounts, exportErrs := h.exportAllTables(ctx, zw, tx, userID, colCache, specs, healthTables)
 
-	// 5. Commit TX (release snapshot).
+	// 7. Commit TX (release snapshot). Data writes are done; remaining steps
+	//    only touch the ZIP and the (immutable) ShadowFS file store.
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit tx: %w", err)
 	}
 
-	// 6. ShadowFS files (outside TX — files are immutable).
+	// 8. ShadowFS files (outside TX — files are content-addressed and immutable).
 	if h.ShadowFS != nil {
 		if err := h.ShadowFS.StreamToZip(ctx, userID, zw); err != nil {
 			slog.Error("data export: file store stream failed", "error", err)
@@ -242,27 +266,34 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 		streamShadowFSToZip(basePath, userID, zw)
 	}
 
-	// 7. columns.json (needs fresh connection since TX is committed).
-	exportedColumns := make(map[string][]string)
-	for table := range entityCounts {
-		cols := exportColumns(ctx, h.DB.Pool, table)
-		if len(cols) > 0 {
-			exportedColumns[table] = cols
-		}
-	}
-	writeZipJSON(zw, "columns.json", exportedColumns)
+	// 9. columns.json — built from the pre-TX introspection cache, so it is
+	//    consistent with the exported data even if a schema migration runs
+	//    between TX commit and ZIP finalisation. No fresh DB call.
+	writeZipJSON(zw, "columns.json", columnsMapToExported(colCache))
 
-	// 8. manifest.json as LAST file.
+	// 10. manifest.json — MUST be the LAST file in the ZIP (so entity_counts
+	//     and incomplete_tables reflect the final state).
+	allErrs := append([]exportTableError{}, introspectErrs...)
+	allErrs = append(allErrs, exportErrs...)
 	manifest := map[string]any{
 		"format_version":   1,
 		"schema_migration": schemaMigration,
 		"exported_at":      time.Now().Format(time.RFC3339),
 		"user_id":          userID,
 		"entity_counts":    entityCounts,
+		"categories":       gdprCategoriesForManifest(),
+		// skadia_version omitted: no build-time version constant.
+	}
+	if len(allErrs) > 0 {
+		incompleteTables := make([]string, 0, len(allErrs))
+		for _, e := range allErrs {
+			incompleteTables = append(incompleteTables, e.Table)
+		}
+		manifest["incomplete_tables"] = incompleteTables
 	}
 	writeZipJSON(zw, "manifest.json", manifest)
 
-	// 9. Close ZIP + flush file to disk before re-opening for SHA-256.
+	// 11. Close ZIP + flush file to disk before re-opening for SHA-256.
 	if err := zw.Close(); err != nil {
 		return fmt.Errorf("close zip: %w", err)
 	}
@@ -270,7 +301,7 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 		return fmt.Errorf("close temp file: %w", err)
 	}
 
-	// 10. Compute SHA-256.
+	// 12. Compute SHA-256 of the final ZIP.
 	f, err := os.Open(tmpPath)
 	if err != nil {
 		return fmt.Errorf("reopen for hash: %w", err)
@@ -287,7 +318,55 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	sizeBytes := fi.Size()
 	checksum := hex.EncodeToString(hasher.Sum(nil))
 
-	// 11. Store file metadata, then mark completed (with notification).
+	// 13a. Partial-export path: errors present → mark failed, keep ZIP for debug.
+	if len(allErrs) > 0 {
+		errPayload, mErr := json.Marshal(allErrs)
+		if mErr != nil {
+			errPayload = []byte("[]")
+		}
+		incomplete := make([]string, 0, len(allErrs))
+		for _, e := range allErrs {
+			incomplete = append(incomplete, e.Table)
+		}
+		incompletePayload, mErr := json.Marshal(incomplete)
+		if mErr != nil {
+			incompletePayload = []byte("[]")
+		}
+		topMsg := fmt.Sprintf("export incomplete: %d table(s) errored: %s: %s",
+			len(allErrs), allErrs[0].Table, allErrs[0].Error)
+		if _, err := h.DB.Pool.Exec(ctx,
+			`UPDATE background_jobs SET
+				status = 'failed',
+				error = $5,
+				metadata = jsonb_build_object(
+					'sha256', $2,
+					'size_bytes', $3::bigint,
+					'file_path', $4,
+					'export_errors', $6::jsonb,
+					'incomplete_tables', $7::jsonb
+				),
+				updated_at = NOW()
+			 WHERE id = $1`,
+			jobID, checksum, sizeBytes, tmpPath, topMsg, errPayload, incompletePayload); err != nil {
+			return fmt.Errorf("store partial-fail metadata: %w", err)
+		}
+		cleanupNeeded = false // file is referenced by metadata.file_path
+
+		// Schedule cleanup after 24h.
+		go func(path string) {
+			time.Sleep(24 * time.Hour)
+			if isValidExportPath(path) {
+				os.Remove(path)
+			}
+		}(tmpPath)
+
+		// Return an error so runExportJob's error wrapper logs the failure
+		// (the metadata + status are already in place; the wrapper only
+		// re-sets status='failed' which is idempotent).
+		return fmt.Errorf("%s", topMsg)
+	}
+
+	// 13b. Success path: store metadata, mark completed, schedule cleanup.
 	if _, err := h.DB.Pool.Exec(ctx,
 		`UPDATE background_jobs SET
 			metadata = jsonb_build_object('sha256', $2, 'size_bytes', $3::bigint, 'file_path', $4),
@@ -313,21 +392,19 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	return nil
 }
 
-// exportAllTables runs all table exports within the given transaction, returning entity counts.
-func (h *Handler) exportAllTables(ctx context.Context, zw *zip.Writer, tx querier, userID string) map[string]int {
-	counts := make(map[string]int)
+// gdprExportTableSpec describes one table to export: ZIP path, source table
+// name, and the static WHERE clause (which uses $1 for the user UUID).
+type gdprExportTableSpec struct {
+	zipPath string
+	table   string
+	where   string
+}
 
-	// User data exported via profile.json (SELECT * minus deny-list).
-	// account.json removed — was redundant subset.
-
-	// All table exports via TX.
-	type tableExport struct {
-		zipPath string
-		table   string
-		where   string
-	}
-
-	tables := []tableExport{
+// gdprExportTables returns the static list of non-health tables to export.
+// Used both pre-TX (for column introspection) and inside the TX (for the
+// actual data queries) to guarantee they operate on the same set.
+func gdprExportTables() []gdprExportTableSpec {
+	return []gdprExportTableSpec{
 		{"data/profile.json", "users", "id = $1"},
 		{"data/activities.json", "activities", "user_id = $1 ORDER BY started_at DESC"},
 		{"data/gear.json", "gear", "user_id = $1"},
@@ -336,7 +413,7 @@ func (h *Handler) exportAllTables(ctx context.Context, zw *zip.Writer, tx querie
 		{"data/planned_routes.json", "planned_routes", "user_id = $1"},
 		{"data/activity_weather.json", "activity_weather", "activity_id IN (SELECT id FROM activities WHERE user_id = $1)"},
 		{"data/workouts.json", "workouts", "user_id = $1"},
-		{"data/workout_steps.json", "workout_steps", "workout_id IN (SELECT id FROM workouts WHERE user_id = $1) ORDER BY workout_id, step_order"},
+		{"data/workout_steps.json", "workout_steps", "workout_id IN (SELECT id FROM workouts WHERE user_id = $1) ORDER BY workout_id, message_index"},
 		{"data/devices.json", "devices", "user_id = $1"},
 		{"data/chat_sessions.json", "chat_sessions", "user_id = $1"},
 		{"data/chat_messages.json", "chat_messages", "session_id IN (SELECT id FROM chat_sessions WHERE user_id = $1) ORDER BY created_at"},
@@ -375,23 +452,75 @@ func (h *Handler) exportAllTables(ctx context.Context, zw *zip.Writer, tx querie
 		{"data/activity_developer_apps.json", "activity_developer_apps", "activity_id IN (SELECT id FROM activities WHERE user_id = $1)"},
 		{"data/routing_profiles.json", "routing_profiles", "user_id = $1"},
 	}
+}
 
-	for _, t := range tables {
-		n := exportTable(ctx, zw, tx, t.zipPath, t.table, t.where, userID)
+// gdprAllTableNames returns every table that the export touches — the static
+// list plus all health tables. Used to drive pre-TX column introspection.
+func gdprAllTableNames(specs []gdprExportTableSpec, healthTables []string) []string {
+	out := make([]string, 0, len(specs)+len(healthTables))
+	for _, s := range specs {
+		out = append(out, s.table)
+	}
+	out = append(out, healthTables...)
+	return out
+}
+
+// gdprCategoriesForManifest derives the {"primary": [...], "external": [...]}
+// structure from the GDPRRegistry. The lists are alphabetically sorted so the
+// manifest output is stable across runs.
+func gdprCategoriesForManifest() map[string][]string {
+	var primary, external []string
+	for table, cat := range GDPRRegistry {
+		switch cat {
+		case Export:
+			primary = append(primary, table)
+		case External:
+			external = append(external, table)
+		}
+	}
+	sort.Strings(primary)
+	sort.Strings(external)
+	return map[string][]string{
+		"primary":  primary,
+		"external": external,
+	}
+}
+
+// exportAllTables runs all table exports within the given transaction, using
+// pre-cached column metadata from `colCache`. Returns entity counts and a list
+// of per-table export errors. A non-empty error slice means the export is
+// incomplete and should be marked as failed.
+func (h *Handler) exportAllTables(ctx context.Context, zw *zip.Writer, tx querier, userID string,
+	colCache map[string][]columnInfo, specs []gdprExportTableSpec, healthTables []string,
+) (map[string]int, []exportTableError) {
+	counts := make(map[string]int)
+	var errs []exportTableError
+
+	// User data exported via profile.json (SELECT * minus deny-list).
+	// account.json removed — was redundant subset.
+
+	for _, t := range specs {
+		n, err := exportTable(ctx, zw, tx, t.zipPath, t.table, t.where, colCache[t.table], userID)
 		if n > 0 {
 			counts[t.table] = n
+		}
+		if err != nil {
+			errs = append(errs, exportTableError{Table: t.table, Error: err.Error()})
 		}
 	}
 
 	// Health data (TimescaleDB hypertables).
-	for _, table := range database.AllHealthTables() {
-		n := exportTable(ctx, zw, tx, fmt.Sprintf("data/health/%s.json", table), table, "user_id = $1", userID)
+	for _, table := range healthTables {
+		n, err := exportTable(ctx, zw, tx, fmt.Sprintf("data/health/%s.json", table), table, "user_id = $1", colCache[table], userID)
 		if n > 0 {
 			counts[table] = n
 		}
+		if err != nil {
+			errs = append(errs, exportTableError{Table: table, Error: err.Error()})
+		}
 	}
 
-	return counts
+	return counts, errs
 }
 
 // DataExportStatus handles GET /auth/data-export/{jobID} — returns export job status.
