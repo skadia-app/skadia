@@ -236,6 +236,13 @@ func (h *Handler) executeExportJob(ctx context.Context, jobID, userID string) er
 	return fmt.Errorf("gdpr export: max retries exceeded")
 }
 
+// skadiaExportVersion is the human-readable version tag embedded in
+// every GDPR export manifest. Increment this string when the export format
+// or export pipeline changes in a way that an importer should know about.
+// Format: YYYY.MM (calendar versioning). Currently bumped manually; a future
+// build-time -ldflags injection can replace this constant.
+const skadiaExportVersion = "2026.04"
+
 // executeExportJobOnce performs the export in a single REPEATABLE READ transaction.
 //
 // Architecture:
@@ -254,9 +261,19 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	healthTables := database.AllHealthTables()
 	allNames := gdprAllTableNames(specs, healthTables)
 
-	// 2. Pre-TX column introspection via the pool. Failures here mean a table
-	//    was renamed/dropped without the export code being updated; they are
-	//    surfaced via the export_errors list, not by aborting the whole job.
+	// 2a. Read schema migration version BEFORE introspection. This is the
+	//     baseline we will compare against inside the TX (Finding #7 defense).
+	//     On error we use 0 — a mismatch will then always trigger on any non-zero
+	//     in-TX version, which is the conservative/safe direction.
+	var preIntrospectMigration int
+	if err := h.DB.Pool.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&preIntrospectMigration); err != nil {
+		slog.Warn("gdpr export: could not read pre-introspect schema version, defaulting to 0", "error", err)
+		preIntrospectMigration = 0
+	}
+
+	// 2b. Pre-TX column introspection via the pool. Failures here mean a table
+	//     was renamed/dropped without the export code being updated; they are
+	//     surfaced via the export_errors list, not by aborting the whole job.
 	colCache, introspectErrs := introspectAllTables(ctx, h.DB.Pool, allNames)
 
 	// 3. Open REPEATABLE READ read-only TX for a consistent data snapshot.
@@ -273,6 +290,16 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	var schemaMigration int
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&schemaMigration); err != nil {
 		return fmt.Errorf("read schema_migrations: %w", err)
+	}
+
+	// Defense-in-depth: if a schema migration ran between step 2a and now,
+	// the column cache built in step 2b may be stale — data queries inside the
+	// TX could fail with "column X does not exist". Abort conservatively so the
+	// caller gets a clean error rather than a silently-broken export.
+	// TODO: executeExportJob's serialization-failure retry loop could be extended
+	// to also retry on this migration-race error class; left out of scope for now.
+	if schemaMigration != preIntrospectMigration {
+		return fmt.Errorf("schema migration ran during introspection (pre=%d, in_tx=%d) — please retry", preIntrospectMigration, schemaMigration)
 	}
 
 	// 5. Create temporary ZIP file.
@@ -330,12 +357,12 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	allErrs = append(allErrs, exportErrs...)
 	manifest := map[string]any{
 		"format_version":   1,
+		"skadia_version":  skadiaExportVersion,
 		"schema_migration": schemaMigration,
 		"exported_at":      time.Now().Format(time.RFC3339),
 		"user_id":          userID,
 		"entity_counts":    entityCounts,
 		"categories":       gdprCategoriesForManifest(),
-		// skadia_version omitted: no build-time version constant.
 	}
 	if len(allErrs) > 0 {
 		incompleteTables := make([]string, 0, len(allErrs))
@@ -389,8 +416,12 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 		if mErr != nil {
 			incompletePayload = []byte("[]")
 		}
-		topMsg := fmt.Sprintf("export incomplete: %d table(s) errored: %s: %s",
-			len(allErrs), allErrs[0].Table, allErrs[0].Error)
+		// topMsg omits the raw error string intentionally: SQL error messages can
+		// leak schema internals (column names, constraint names, PostgreSQL hints).
+		// Full error details are stored in metadata.export_errors[] which is only
+		// visible in the admin UI, not returned to the end user.
+		topMsg := fmt.Sprintf("export incomplete: %d table(s) errored, first failure on %q",
+			len(allErrs), allErrs[0].Table)
 		// Explicit type casts on every parameter — jsonb_build_object is
 		// polymorphic, so pgx cannot infer types from the function signature
 		// and PostgreSQL refuses the prepared statement otherwise (SQLSTATE 42P18).
