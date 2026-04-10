@@ -864,7 +864,6 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         leftValues={data.torqueEffL} rightValues={data.torqueEffR}
         leftLabel="Drehmoment-Eff. Links" rightLabel="Drehmoment-Eff. Rechts"
         leftColor="#EC4899" rightColor="#A855F7"
-        leftAxisName="Links\n(%)" rightAxisName="Rechts\n(%)"
         tooltipTitle="Drehmoment-Eff."
         leftTooltipSuffix="Links" rightTooltipSuffix="Rechts" />)
 
@@ -874,7 +873,6 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         leftValues={data.pedalSmL} rightValues={data.pedalSmR}
         leftLabel="Tritt-Gleichm. Links" rightLabel="Tritt-Gleichm. Rechts"
         leftColor="#A855F7" rightColor="#8B5CF6"
-        leftAxisName="Links\n(%)" rightAxisName="Rechts\n(%)"
         tooltipTitle="Tritt-Gleichm."
         leftTooltipSuffix="Links" rightTooltipSuffix="Rechts" />)
 
@@ -931,7 +929,6 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         rightValues={data.staminaCurrent}
         leftLabel="Stamina (Potential)" rightLabel="Stamina (Aktuell)"
         leftColor="#8B5CF6" rightColor="#EC4899"
-        leftAxisName="%" rightAxisName="%"
         leftTooltipSuffix="Potential" rightTooltipSuffix="Aktuell"
         tooltipTitle="Garmin Stamina" />)
 
@@ -1313,25 +1310,26 @@ function DeveloperFieldChart({
     })
   }, [devFieldInfos])
 
-  const fieldValues = useMemo(() => {
-    const map = new Map<string, (number | null)[]>()
+  const xData = useMemo(() => xMode === 'distance' ? data.distanceKm : data.elapsedMin, [data, xMode])
+  const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+
+  const seriesDataMap = useMemo(() => {
+    const map = new Map<string, (number | null)[][]>()
     for (const field of fields) {
-      map.set(field.field_key, streams.map(s => {
+      const vals = streams.map(s => {
         const v = s.developer_fields?.[field.field_key]
         if (v == null || typeof v !== 'number' || isNaN(v) || !isFinite(v)) return null
         return v
-      }))
+      })
+      map.set(field.field_key, xData.map((x, i) => [x, vals[i]]))
     }
     return map
-  }, [streams, fields])
-
-  const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
-  const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+  }, [streams, fields, xData])
 
   const containerRef = useECharts(
     () => {
       const unitGroups = groupDevFieldsByUnit(fields)
-      const yAxes: echarts.EChartsCoreOption['yAxis'] = []
+      const yAxes: any[] = []
       const fieldYAxisIndex = new Map<string, number>()
       let axisIdx = 0
       for (const [unit, groupFields] of unitGroups) {
@@ -1351,17 +1349,20 @@ function DeveloperFieldChart({
         axisIdx++
       }
 
-      const series: echarts.EChartsCoreOption['series'] = []
+      const series: any[] = []
       let colorIdx = 0
       for (const field of fields) {
         const displayName = getDevFieldLabel(field.field_key, field.field_name)
-        const vals = fieldValues.get(field.field_key) ?? []
+        const dataArr = seriesDataMap.get(field.field_key) ?? []
         const color = DEV_FIELD_COLORS[displayName] ?? DEV_FIELD_PALETTE[colorIdx % DEV_FIELD_PALETTE.length]
         if (!DEV_FIELD_COLORS[displayName]) colorIdx++
         series.push({
           type: 'line', name: displayName,
-          data: xData.map((x, i) => [x, vals[i] ?? null]),
+          data: dataArr,
           showSymbol: false,
+          sampling: 'lttb',
+          large: true,
+          largeThreshold: 2000,
           lineStyle: { width: 1.5, color }, itemStyle: { color },
           connectNulls: false,
           yAxisIndex: fieldYAxisIndex.get(field.field_key) ?? 0,
@@ -1422,11 +1423,12 @@ function DeveloperFieldChart({
         dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none', zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false }],
       }
     },
-    [fields, fieldValues, xData, xMax, xMode],
+    [fields, seriesDataMap, xData, xMax, xMode],
     (chart) => {
       return setupChartInteractions({ chart, chartId: 'developer-fields', onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
     }
   )
+
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
@@ -1467,10 +1469,16 @@ function DecoChartPanel({
   const hasN2 = hasValidData(data.n2Pct)
   const hasDecoStop = hasValidData(data.decoStopM)
 
+  const xData = useMemo(() => xMode === 'distance' ? data.distanceKm : data.elapsedMin, [data, xMode])
+  const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+
+  const seriesDataNdl = useMemo(() => hasNdl ? xData.map((x, i) => [x, data.ndlMin[i]]) : [], [xData, data.ndlMin, hasNdl])
+  const seriesDataCns = useMemo(() => hasCns ? xData.map((x, i) => [x, data.cnsPct[i]]) : [], [xData, data.cnsPct, hasCns])
+  const seriesDataN2 = useMemo(() => hasN2 ? xData.map((x, i) => [x, data.n2Pct[i]]) : [], [xData, data.n2Pct, hasN2])
+  const seriesDataDecoStop = useMemo(() => hasDecoStop ? xData.map((x, i) => [x, data.decoStopM[i]]) : [], [xData, data.decoStopM, hasDecoStop])
+
   const containerRef = useECharts(
     () => {
-      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
-      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
       const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
 
       const xFormatter = xMode === 'distance'
@@ -1479,35 +1487,35 @@ function DecoChartPanel({
 
       const mlData = buildSplitMarkLines(splitMarkers, xMode)
 
-      // Map to [x, y] pairs — required for type:'value' xAxis
-      const xy = (values: number[]) => values.map((v, i) => [xData[i], v])
-
       const series: Record<string, unknown>[] = []
       if (hasNdl) series.push({
-        name: 'NDL', type: 'line', data: xy(data.ndlMin), symbol: 'none',
+        name: 'NDL', type: 'line', data: seriesDataNdl, symbol: 'none',
+        sampling: 'lttb', large: true, largeThreshold: 2000,
         lineStyle: { color: '#22c55e', width: 2 }, itemStyle: { color: '#22c55e' },
         yAxisIndex: 0, markLine: mlData.length > 0 ? { data: mlData, silent: true } : undefined,
       })
       if (hasCns) series.push({
-        name: 'CNS%', type: 'line', data: xy(data.cnsPct), symbol: 'none',
+        name: 'CNS%', type: 'line', data: seriesDataCns, symbol: 'none',
+        sampling: 'lttb', large: true, largeThreshold: 2000,
         lineStyle: { color: '#ef4444', width: 2 }, itemStyle: { color: '#ef4444' },
         yAxisIndex: 1,
       })
       if (hasN2) series.push({
-        name: 'N₂%', type: 'line', data: xy(data.n2Pct), symbol: 'none',
+        name: 'N₂%', type: 'line', data: seriesDataN2, symbol: 'none',
+        sampling: 'lttb', large: true, largeThreshold: 2000,
         lineStyle: { color: '#3b82f6', width: 2 }, itemStyle: { color: '#3b82f6' },
         yAxisIndex: 2,
       })
       if (hasDecoStop) series.push({
-        name: 'Deko-Stop', type: 'line', data: xy(data.decoStopM), symbol: 'none',
-        step: 'end',
+        name: 'Deko-Stop', type: 'line', data: seriesDataDecoStop, symbol: 'none',
+        step: 'end', sampling: 'lttb', large: true, largeThreshold: 2000,
         lineStyle: { color: '#f97316', width: 2, type: 'dashed' }, itemStyle: { color: '#f97316' },
         yAxisIndex: 3,
       })
 
       return {
         animation: false,
-        grid: { left: 52, right: 110, top: 8, bottom: 36 },
+        grid: { left: 52, right: 110, top: gridTop, bottom: 36 },
 
         brush: {
           toolbox: [],
@@ -1542,7 +1550,7 @@ function DecoChartPanel({
             const p = arr[0] as { dataIndex?: number }
             if (p?.dataIndex == null) return ''
             const idx = p.dataIndex
-            const xVal = xMode === 'distance' ? data.distanceKm[idx] : data.elapsedMin[idx]
+            const xVal = xData[idx]
             const posLine = buildTooltipPosLine(xVal, xMode, data)
             const units: Record<string, string> = { NDL: ' min', 'CNS%': ' %', 'N₂%': ' %', 'Deko-Stop': ' m' }
             let html = `<div style="line-height:1.75;min-width:150px">`
@@ -1587,10 +1595,8 @@ function DecoChartPanel({
         series,
       }
     },
-    [data, xMode, splitMarkers, hasNdl, hasCns, hasN2, hasDecoStop],
+    [data, xMode, splitMarkers, hasNdl, hasCns, hasN2, hasDecoStop, seriesDataNdl, seriesDataCns, seriesDataN2, seriesDataDecoStop],
     (chart) => {
-      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
     },
   )
@@ -1648,16 +1654,16 @@ interface PowerPhaseAvg {
 
 function buildGaugeOption(
   startDeg: number, endDeg: number,
-  peakStartDeg: number, peakEndDeg: number,
-  fullColor: string, peakColor: string,
+  fullColor: string,
   ringColor: string, label: string, balance: string | null,
-): Record<string, unknown> {
+): any {
   // ECharts gauge: startAngle=90 means 12 o'clock (TDC), clockwise
   // Gauge angles are counter-clockwise in ECharts, so we invert
-  const toGaugeAngle = (deg: number) => 90 - deg
+  // (Internal logic in buildGaugeColors handles the mapping to [0, 1] offsets)
 
   return {
     type: 'gauge',
+    // ... rest of config
     center: ['50%', '50%'],
     radius: '90%',
     startAngle: 90,
@@ -1707,7 +1713,7 @@ function buildGaugeOption(
       },
     },
     // Overlay for peak phase via markLine is not supported,
-    // so we use a second gauge series for the peak
+    // so we use a second gauge series for the peak (handled in caller)
   }
 }
 
@@ -1764,51 +1770,37 @@ function PowerPhaseGaugePanel({ phaseData, streams, hoverIdx }: {
 
     const leftFull = buildGaugeOption(
       d.leftStart, d.leftEnd,
-      d.leftPeakStart, d.leftPeakEnd,
-      '#34d399', '#10b981', ringColor, 'LINKS', balL,
+      '#34d399', ringColor, 'LINKS', balL,
     )
-    const leftPeak = {
-      ...buildGaugeOption(
-        d.leftPeakStart, d.leftPeakEnd,
-        d.leftPeakStart, d.leftPeakEnd,
-        '#10b981', '#10b981', 'transparent', '', null,
-      ),
-      title: { show: false },
-      axisLine: {
-        lineStyle: {
-          width: 16,
-          color: buildGaugeColors(d.leftPeakStart, d.leftPeakEnd, '#10b981', 'transparent'),
-        },
-      },
-    }
+    const leftPeak = buildGaugeOption(
+      d.leftPeakStart, d.leftPeakEnd,
+      '#10b981', 'transparent', '', null,
+    )
+    leftPeak.title = { show: false }
+    leftPeak.axisLine.lineStyle.width = 16
+    leftPeak.axisLine.lineStyle.color = buildGaugeColors(d.leftPeakStart, d.leftPeakEnd, '#10b981', 'transparent')
 
     const rightFull = buildGaugeOption(
       d.rightStart, d.rightEnd,
-      d.rightPeakStart, d.rightPeakEnd,
-      '#60a5fa', '#3b82f6', ringColor, 'RECHTS', balR,
+      '#60a5fa', ringColor, 'RECHTS', balR,
     )
-    const rightPeak = {
-      ...buildGaugeOption(
-        d.rightPeakStart, d.rightPeakEnd,
-        d.rightPeakStart, d.rightPeakEnd,
-        '#3b82f6', '#3b82f6', 'transparent', '', null,
-      ),
-      title: { show: false },
-      axisLine: {
-        lineStyle: {
-          width: 16,
-          color: buildGaugeColors(d.rightPeakStart, d.rightPeakEnd, '#3b82f6', 'transparent'),
-        },
-      },
-    }
+    const rightPeak = buildGaugeOption(
+      d.rightPeakStart, d.rightPeakEnd,
+      '#3b82f6', 'transparent', '', null,
+    )
+    rightPeak.title = { show: false }
+    rightPeak.axisLine.lineStyle.width = 16
+    rightPeak.axisLine.lineStyle.color = buildGaugeColors(d.rightPeakStart, d.rightPeakEnd, '#3b82f6', 'transparent')
 
     // Two gauges side by side — center in upper 75% to leave room for labels below
     const cy = '44%'
+    const r = '70%'
+    
     leftFull.center = ['25%', cy]
     leftPeak.center = ['25%', cy]
     rightFull.center = ['75%', cy]
     rightPeak.center = ['75%', cy]
-    const r = '70%'
+    
     leftFull.radius = r
     leftPeak.radius = r
     rightFull.radius = r
@@ -1876,8 +1868,6 @@ interface PedalDualChartPanelProps {
   rightLabel: string
   leftColor: string
   rightColor: string
-  leftAxisName: string
-  rightAxisName: string
   tooltipTitle: string
   /** Suffix shown after each value in the tooltip */
   leftTooltipSuffix: string
@@ -1896,17 +1886,20 @@ interface PedalDualChartPanelProps {
 
 function PedalDualChartPanel({
   chartId, data, leftValues, rightValues, leftLabel, rightLabel,
-  leftColor, rightColor, leftAxisName, rightAxisName, tooltipTitle,
+  leftColor, rightColor, tooltipTitle,
   leftTooltipSuffix, rightTooltipSuffix,
   headerUnit = '%',
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
   brushZoomLockRef, xMode, splitMarkers,
 }: PedalDualChartPanelProps) {
+  const xData = useMemo(() => xMode === 'distance' ? data.distanceKm : data.elapsedMin, [data, xMode])
+  const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+
+  const seriesDataLeft = useMemo(() => xData.map((x, i) => [x, leftValues[i]]), [xData, leftValues])
+  const seriesDataRight = useMemo(() => xData.map((x, i) => [x, rightValues[i]]), [xData, rightValues])
+
   const containerRef = useECharts(
     () => {
-      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
-      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-
       const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
       const xFormatter = xMode === 'distance'
         ? (v: number) => v.toFixed(1)
@@ -1963,7 +1956,7 @@ function PedalDualChartPanel({
             const p = arr[0] as { dataIndex?: number }
             if (p?.dataIndex == null) return ''
             const idx = p.dataIndex
-            const xVal = xMode === 'distance' ? data.distanceKm[idx] : data.elapsedMin[idx]
+            const xVal = xData[idx]
             const posLine = buildTooltipPosLine(xVal, xMode, data)
             let html = `<div style="line-height:1.75;min-width:160px">`
             html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
@@ -2001,8 +1994,11 @@ function PedalDualChartPanel({
         series: [
           {
             type: 'line',
-            data: xData.map((x, i) => [x, leftValues[i]]),
+            data: seriesDataLeft,
             showSymbol: false,
+            sampling: 'lttb',
+            large: true,
+            largeThreshold: 2000,
             lineStyle: { width: 1.5, color: leftColor },
             itemStyle: { color: leftColor },
             connectNulls: false,
@@ -2016,8 +2012,11 @@ function PedalDualChartPanel({
           },
           {
             type: 'line',
-            data: xData.map((x, i) => [x, rightValues[i]]),
+            data: seriesDataRight,
             showSymbol: false,
+            sampling: 'lttb',
+            large: true,
+            largeThreshold: 2000,
             lineStyle: { width: 1.5, color: rightColor },
             itemStyle: { color: rightColor },
             connectNulls: false,
@@ -2036,13 +2035,12 @@ function PedalDualChartPanel({
         ],
       } as echarts.EChartsCoreOption
     },
-    [data, xMode, splitMarkers, leftValues, rightValues, leftColor, rightColor, tooltipTitle], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, xMode, splitMarkers, seriesDataLeft, seriesDataRight, leftColor, rightColor, tooltipTitle], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
-      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
     },
   )
+
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
@@ -2124,6 +2122,9 @@ function SpeedPaceChartPanel({
   const hasStrydNgp = speedMode === 'pace' && hasValidData(data.strydNgpMinKm)
   const hasCorosEffort = speedMode === 'pace' && hasValidData(data.corosEffortPaceMinKm)
 
+  const xData = useMemo(() => xMode === 'distance' ? data.distanceKm : data.elapsedMin, [data, xMode])
+  const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+
   const paceSmoothed = useMemo(() => {
     if (speedMode !== 'pace') return null
     const divisor = isRowingSport ? 500 : isSwimSport ? 100 : 1000
@@ -2152,6 +2153,13 @@ function SpeedPaceChartPanel({
     hasCorosEffort ? sma(data.corosEffortPaceMinKm) : null
   , [data, hasCorosEffort])
 
+  const seriesDataSpeed = useMemo(() => speedMode === 'speed' ? xData.map((x, i) => [x, data.speed[i]]) : [], [xData, data.speed, speedMode])
+  const seriesDataPace = useMemo(() => paceSmoothed ? xData.map((x, i) => [x, paceSmoothed[i]]) : [], [xData, paceSmoothed])
+  const seriesDataGarmin = useMemo(() => garminSmoothed ? xData.map((x, i) => [x, garminSmoothed[i]]) : [], [xData, garminSmoothed])
+  const seriesDataRe3 = useMemo(() => re3Smoothed ? xData.map((x, i) => [x, re3Smoothed[i]]) : [], [xData, re3Smoothed])
+  const seriesDataStryd = useMemo(() => strydNgpSmoothed ? xData.map((x, i) => [x, strydNgpSmoothed[i]]) : [], [xData, strydNgpSmoothed])
+  const seriesDataCoros = useMemo(() => corosEffortSmoothed ? xData.map((x, i) => [x, corosEffortSmoothed[i]]) : [], [xData, corosEffortSmoothed])
+
   const paceUnit = isRowingSport ? 'min/500m' : isSwimSport ? 'min/100m' : 'min/km'
   // fieldLabel('speed', ...) returns sport-specific label (e.g. "Pace" for foot) — but in
   // speed mode we always want "Geschwindigkeit" regardless of sport type
@@ -2159,9 +2167,6 @@ function SpeedPaceChartPanel({
 
   const containerRef = useECharts(
     () => {
-      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
-      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-
       const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
       const xFormatter = xMode === 'distance'
         ? (v: number) => v.toFixed(1)
@@ -2220,7 +2225,7 @@ function SpeedPaceChartPanel({
               if (p?.dataIndex == null) return ''
               const idx = p.dataIndex
               const v = data.speed[idx]
-              const xVal = xMode === 'distance' ? data.distanceKm[idx] : data.elapsedMin[idx]
+              const xVal = xData[idx]
               const posLine = buildTooltipPosLine(xVal, xMode, data)
               let html = `<div style="line-height:1.75;min-width:130px">`
               html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
@@ -2249,8 +2254,11 @@ function SpeedPaceChartPanel({
 
           series: [{
             type: 'line',
-            data: xData.map((x, i) => [x, data.speed[i]]),
+            data: seriesDataSpeed,
             showSymbol: false,
+            sampling: 'lttb',
+            large: true,
+            largeThreshold: 2000,
             lineStyle: { width: 1.5, color: '#3b82f6' },
             itemStyle: { color: '#3b82f6' },
             connectNulls: false,
@@ -2296,8 +2304,11 @@ function SpeedPaceChartPanel({
         {
           type: 'line',
           name: 'Pace',
-          data: xData.map((x, i) => [x, ps[i]]),
+          data: seriesDataPace,
           showSymbol: false,
+          sampling: 'lttb',
+          large: true,
+          largeThreshold: 2000,
           lineStyle: { width: 1.5, color: COLOR_PACE },
           itemStyle: { color: COLOR_PACE },
           connectNulls: false,
@@ -2312,8 +2323,11 @@ function SpeedPaceChartPanel({
         ...(gs ? [{
           type: 'line' as const,
           name: 'Garmin GAP',
-          data: xData.map((x, i) => [x, gs[i]]),
+          data: seriesDataGarmin,
           showSymbol: false,
+          sampling: 'lttb',
+          large: true,
+          largeThreshold: 2000,
           lineStyle: { width: 1.5, color: COLOR_GARMIN_GAP },
           itemStyle: { color: COLOR_GARMIN_GAP },
           connectNulls: false,
@@ -2321,8 +2335,11 @@ function SpeedPaceChartPanel({
         ...(rs ? [{
           type: 'line' as const,
           name: 'RE3 GAP',
-          data: xData.map((x, i) => [x, rs[i]]),
+          data: seriesDataRe3,
           showSymbol: false,
+          sampling: 'lttb',
+          large: true,
+          largeThreshold: 2000,
           lineStyle: { width: 1.5, color: COLOR_RE3_GAP },
           itemStyle: { color: COLOR_RE3_GAP },
           connectNulls: false,
@@ -2330,8 +2347,11 @@ function SpeedPaceChartPanel({
         ...(ns ? [{
           type: 'line' as const,
           name: 'Stryd NGP',
-          data: xData.map((x, i) => [x, ns[i]]),
+          data: seriesDataStryd,
           showSymbol: false,
+          sampling: 'lttb',
+          large: true,
+          largeThreshold: 2000,
           lineStyle: { width: 1.5, color: '#a855f7' },
           itemStyle: { color: '#a855f7' },
           symbol: 'none',
@@ -2341,8 +2361,11 @@ function SpeedPaceChartPanel({
         ...(cs ? [{
           type: 'line' as const,
           name: 'Coros Effort Pace',
-          data: xData.map((x, i) => [x, cs[i]]),
+          data: seriesDataCoros,
           showSymbol: false,
+          sampling: 'lttb',
+          large: true,
+          largeThreshold: 2000,
           lineStyle: { width: 1.5, color: COLOR_COROS_EFFORT },
           itemStyle: { color: COLOR_COROS_EFFORT },
           connectNulls: false,
@@ -2398,7 +2421,7 @@ function SpeedPaceChartPanel({
             const p = arr[0] as { dataIndex?: number }
             if (p?.dataIndex == null) return ''
             const idx = p.dataIndex
-            const xVal = xMode === 'distance' ? data.distanceKm[idx] : data.elapsedMin[idx]
+            const xVal = xData[idx]
             const posLine = buildTooltipPosLine(xVal, xMode, data)
             let html = `<div style="line-height:1.75;min-width:180px">`
             html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
@@ -2472,13 +2495,12 @@ function SpeedPaceChartPanel({
         }],
       } as echarts.EChartsCoreOption
     },
-    [data, speedMode, sportType, xMode, splitMarkers, paceSmoothed, garminSmoothed, re3Smoothed, strydNgpSmoothed, corosEffortSmoothed], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, speedMode, sportType, xMode, splitMarkers, seriesDataSpeed, seriesDataPace, seriesDataGarmin, seriesDataRe3, seriesDataStryd, seriesDataCoros], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
-      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
     },
   )
+
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
@@ -2573,13 +2595,16 @@ function RunningDynamicsChartPanel({
   chartId, data, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
   brushZoomLockRef, xMode, splitMarkers,
 }: RunningDynamicsChartPanelProps) {
+  const xData = useMemo(() => xMode === 'distance' ? data.distanceKm : data.elapsedMin, [data, xMode])
+  const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+  const gctValues = data.groundContactTime
+  const voValues = data.verticalOscillation
+
+  const seriesDataGct = useMemo(() => xData.map((x, i) => [x, gctValues[i]]), [xData, gctValues])
+  const seriesDataVo = useMemo(() => xData.map((x, i) => [x, voValues[i]]), [xData, voValues])
+
   const containerRef = useECharts(
     () => {
-      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
-      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-      const gctValues = data.groundContactTime
-      const voValues = data.verticalOscillation
-
       const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
       const xFormatter = xMode === 'distance'
         ? (v: number) => v.toFixed(1)
@@ -2636,7 +2661,7 @@ function RunningDynamicsChartPanel({
             const p = arr[0] as { dataIndex?: number }
             if (p?.dataIndex == null) return ''
             const idx = p.dataIndex
-            const xVal = xMode === 'distance' ? data.distanceKm[idx] : data.elapsedMin[idx]
+            const xVal = xData[idx]
             const posLine = buildTooltipPosLine(xVal, xMode, data)
             let html = `<div style="line-height:1.75;min-width:150px">`
             html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
@@ -2683,8 +2708,11 @@ function RunningDynamicsChartPanel({
           {
             type: 'line',
             yAxisIndex: 0,
-            data: xData.map((x, i) => [x, gctValues[i]]),
+            data: seriesDataGct,
             showSymbol: false,
+            sampling: 'lttb',
+            large: true,
+            largeThreshold: 2000,
             lineStyle: { width: 1.5, color: '#10B981' },
             itemStyle: { color: '#10B981' },
             connectNulls: false,
@@ -2699,8 +2727,11 @@ function RunningDynamicsChartPanel({
           {
             type: 'line',
             yAxisIndex: 1,
-            data: xData.map((x, i) => [x, voValues[i]]),
+            data: seriesDataVo,
             showSymbol: false,
+            sampling: 'lttb',
+            large: true,
+            largeThreshold: 2000,
             lineStyle: { width: 1.5, color: '#06B6D4' },
             itemStyle: { color: '#06B6D4' },
             connectNulls: false,
@@ -2719,13 +2750,12 @@ function RunningDynamicsChartPanel({
         ],
       } as echarts.EChartsCoreOption
     },
-    [data, xMode, splitMarkers], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, xMode, splitMarkers, seriesDataGct, seriesDataVo], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
-      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
     },
   )
+
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
@@ -2767,12 +2797,14 @@ function RunningSmoothnessChartPanel({
   chartId, data, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
   brushZoomLockRef, xMode, splitMarkers,
 }: RunningSmoothnessChartPanelProps) {
+  const xData = useMemo(() => xMode === 'distance' ? data.distanceKm : data.elapsedMin, [data, xMode])
+  const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+  const values = data.runningSmoothness
+
+  const seriesData = useMemo(() => xData.map((x, i) => [x, values[i]]), [xData, values])
+
   const containerRef = useECharts(
     () => {
-      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
-      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-      const values = data.runningSmoothness
-
       const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
       const xFormatter = xMode === 'distance'
         ? (v: number) => v.toFixed(1)
@@ -2829,7 +2861,7 @@ function RunningSmoothnessChartPanel({
             const p = arr[0] as { dataIndex?: number }
             if (p?.dataIndex == null) return ''
             const idx = p.dataIndex
-            const xVal = xMode === 'distance' ? data.distanceKm[idx] : data.elapsedMin[idx]
+            const xVal = xData[idx]
             const posLine = buildTooltipPosLine(xVal, xMode, data)
             let html = `<div style="line-height:1.75;min-width:150px">`
             html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
@@ -2864,8 +2896,11 @@ function RunningSmoothnessChartPanel({
         series: [
           {
             type: 'line',
-            data: xData.map((x, i) => [x, values[i]]),
+            data: seriesData,
             showSymbol: false,
+            sampling: 'lttb',
+            large: true,
+            largeThreshold: 2000,
             lineStyle: { width: 1.5, color: '#8B5CF6' },
             itemStyle: { color: '#8B5CF6' },
             areaStyle: { color: 'rgba(139,92,246,0.08)' },
@@ -2892,13 +2927,12 @@ function RunningSmoothnessChartPanel({
         ],
       } as echarts.EChartsCoreOption
     },
-    [data, xMode, splitMarkers], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, xMode, splitMarkers, seriesData], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
-      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
     },
   )
+
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
@@ -2939,11 +2973,13 @@ function ScatterChartPanel({
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
   brushZoomLockRef, xMode, splitMarkers,
 }: ScatterChartPanelProps) {
+  const xData = useMemo(() => xMode === 'distance' ? data.distanceKm : data.elapsedMin, [data, xMode])
+  const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+
+  const seriesData = useMemo(() => xData.map((x, i) => [x, values[i]]), [xData, values])
+
   const containerRef = useECharts(
     () => {
-      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
-      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-
       const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
       const xFormatter = xMode === 'distance'
         ? (v: number) => v.toFixed(1)
@@ -3018,7 +3054,7 @@ function ScatterChartPanel({
             if (p?.dataIndex == null || !p.data) return ''
             const idx = p.dataIndex
             const val = p.data[1]
-            const xVal = xMode === 'distance' ? data.distanceKm[idx] : data.elapsedMin[idx]
+            const xVal = xData[idx]
             const posLine = buildTooltipPosLine(xVal, xMode, data)
             return `<div style="line-height:1.75;min-width:120px"><div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div><div style="font-size:13px;color:${color}"><strong>${!isNaN(val) ? val.toFixed(2) : '—'}\u202f${unit}</strong></div></div>`
           },
@@ -3047,8 +3083,10 @@ function ScatterChartPanel({
 
         series: [{
           type: 'scatter',
-          data: xData.map((x, i) => [x, values[i]]),
+          data: seriesData,
           symbolSize: 3,
+          large: true,
+          largeThreshold: 2000,
           itemStyle: { color, opacity: 0.7 },
           ...(mlData.length > 0 ? {
             markLine: {
@@ -3069,13 +3107,12 @@ function ScatterChartPanel({
         }],
       } as echarts.EChartsCoreOption
     },
-    [data, values, xMode, splitMarkers],
+    [data, values, xMode, splitMarkers, seriesData], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
-      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
     },
   )
+
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
@@ -3144,14 +3181,54 @@ function ChartPanel({
   brushZoomLockRef, markLines = 'none', altitudeSmartY, showGradeColor, xMode,
   sunMarkLines, splitMarkers, overrideValues, invertY, tooltipValueFn, yAxisFixed, extraSeries,
 }: ChartPanelProps) {
+  const values = useMemo(() => {
+    if (overrideValues) return overrideValues
+    if (!field) return []
+    return (data as any)[field] as number[]
+  }, [data, field, overrideValues])
+  const xData = useMemo(() => xMode === 'distance' ? data.distanceKm : data.elapsedMin, [data, xMode])
+  const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
+
+  // Optimization: Pre-map series data to [x, y] pairs once per data/mode change.
+  // This avoids O(N) mapping on every ECharts option rebuild.
+  const mainSeriesData = useMemo(() => {
+    if (showGradeColor) {
+      // Dimension 2 is grade_pct for visualMap colorization
+      const gradeArr = data.grade
+      const result: [number, number, number][] = new Array(xData.length)
+      for (let i = 0; i < xData.length; i++) {
+        result[i] = [xData[i], values[i], gradeArr[i]]
+      }
+      return result
+    }
+    const result: [number, number][] = new Array(xData.length)
+    for (let i = 0; i < xData.length; i++) {
+      result[i] = [xData[i], values[i]]
+    }
+    return result
+  }, [xData, values, showGradeColor, data.grade])
+
+  const extraSeriesMapped = useMemo(() => {
+    return extraSeries?.map(es => ({
+      ...es,
+      data: xData.map((x, i) => [x, es.values[i]]),
+    }))
+  }, [xData, extraSeries])
+
+  // Optimization: Pre-map simple [x, y] pairs for the overlay line in grade-colored charts.
+  const mainSeriesLineData = useMemo(() => {
+    if (!showGradeColor) return null
+    const result: [number, number][] = new Array(xData.length)
+    for (let i = 0; i < xData.length; i++) {
+      result[i] = [xData[i], values[i]]
+    }
+    return result
+  }, [xData, values, showGradeColor])
+
   const containerRef = useECharts(
     () => {
-      const values = overrideValues ?? (field ? data[field] : [])
-      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
-      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-
       // ── Y-axis smart scaling ─────────────────────────────────────────────────
-      const yAxisExtra: Record<string, unknown> = {}
+      const yAxisExtra: any = {}
       if (altitudeSmartY) {
         const range = calcAltitudeYRange(values)
         if (range) { yAxisExtra.min = range.min; yAxisExtra.max = range.max }
@@ -3190,7 +3267,7 @@ function ChartPanel({
       const buildTooltip = (idx: number): string => {
         const v = values[idx]
         if (isNaN(v)) return ''
-        const xVal = xMode === 'distance' ? data.distanceKm[idx] : data.elapsedMin[idx]
+        const xVal = xData[idx]
         const posLine = buildTooltipPosLine(xVal, xMode, data)
 
         const valStr = tooltipValueFn ? tooltipValueFn(v) : `${v.toFixed(decimals)}\u2009${unit}`
@@ -3221,7 +3298,7 @@ function ChartPanel({
 
       const xFormatter = xMode === 'distance'
         ? (v: number) => v.toFixed(1)
-        : (v: number) => formatElapsed(v, data.maxElapsed)
+        : (v: number) => formatElapsed(v, xMax)
 
       return {
         animation: false,
@@ -3299,8 +3376,11 @@ function ChartPanel({
               // Series 0: colored area driven by grade (dimension 2) via visualMap
               {
                 type: 'line',
-                data: xData.map((x, i) => [x, values[i], data.grade[i]]),
+                data: mainSeriesData,
                 showSymbol: false,
+                sampling: 'lttb',
+                large: true,
+                largeThreshold: 2000,
                 lineStyle: { width: 0, color: 'transparent' },
                 itemStyle: { color },
                 areaStyle: { color: `${color}20`, opacity: 1 },
@@ -3309,8 +3389,11 @@ function ChartPanel({
               // Series 1: green line on top (no area, carries markLine/markPoint)
               {
                 type: 'line',
-                data: xData.map((x, i) => [x, values[i]]),
+                data: mainSeriesLineData ?? [],
                 showSymbol: false,
+                sampling: 'lttb',
+                large: true,
+                largeThreshold: 2000,
                 lineStyle: { width: 1.5, color },
                 itemStyle: { color },
                 areaStyle: undefined,
@@ -3336,7 +3419,7 @@ function ChartPanel({
                 ...(sunMarkLines && sunMarkLines.length > 0 ? {
                   markPoint: {
                     data: sunMarkLines.map(sm => ({
-                      coord: [sm.xAxis, yAxisExtra.max ?? Math.ceil(Math.max(...values.filter(v => !isNaN(v))))],
+                      coord: [sm.xAxis, yAxisExtra.max ?? Math.ceil(Math.max(...values.filter((v: number) => !isNaN(v))))],
                       symbol: sm.type === 'sunrise' ? SUNRISE_SVG : SUNSET_SVG,
                       symbolSize: 24,
                       symbolOffset: [0, -14],
@@ -3350,8 +3433,11 @@ function ChartPanel({
           : [
               {
                 type: 'line',
-                data: xData.map((x, i) => [x, values[i]]),
+                data: mainSeriesData,
                 showSymbol: false,
+                sampling: 'lttb',
+                large: true,
+                largeThreshold: 2000,
                 lineStyle: { width: 1.5, color },
                 itemStyle: { color },
                 areaStyle: area ? { color: `${color}20` } : undefined,
@@ -3377,7 +3463,7 @@ function ChartPanel({
                 ...(sunMarkLines && sunMarkLines.length > 0 ? {
                   markPoint: {
                     data: sunMarkLines.map(sm => ({
-                      coord: [sm.xAxis, yAxisExtra.max ?? Math.ceil(Math.max(...values.filter(v => !isNaN(v))))],
+                      coord: [sm.xAxis, yAxisExtra.max ?? Math.ceil(Math.max(...values.filter((v: number) => !isNaN(v))))],
                       symbol: sm.type === 'sunrise' ? SUNRISE_SVG : SUNSET_SVG,
                       symbolSize: 24,
                       symbolOffset: [0, -14],
@@ -3387,11 +3473,14 @@ function ChartPanel({
                   },
                 } : {}),
               },
-              ...(extraSeries ?? []).map(es => ({
+              ...(extraSeriesMapped ?? []).map(es => ({
                 type: 'line' as const,
                 name: es.name,
-                data: xData.map((x, i) => [x, es.values[i]]),
+                data: es.data,
                 showSymbol: false,
+                sampling: 'lttb',
+                large: true,
+                largeThreshold: 2000,
                 symbol: es.symbol ?? 'none',
                 lineStyle: es.lineStyle
                   ? { ...es.lineStyle, type: 'solid' as const }
@@ -3434,13 +3523,12 @@ function ChartPanel({
         ],
       } as echarts.EChartsCoreOption
     },
-    [data, field, xMode, splitMarkers, showGradeColor, overrideValues, invertY, yAxisFixed, extraSeries], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, field, xMode, splitMarkers, showGradeColor, overrideValues, invertY, yAxisFixed, mainSeriesData, extraSeriesMapped], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
-      const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
-      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
     },
   )
+
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
@@ -3485,6 +3573,7 @@ function GearChartPanel({
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
   brushZoomLockRef, xMode, splitMarkers,
 }: GearChartPanelProps) {
+  const xData = useMemo(() => xMode === 'distance' ? data.distanceKm : data.elapsedMin, [data, xMode])
   const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
 
   // Build step-chart series: [xVal, ratio] pairs for ECharts step:'start' line
@@ -3625,6 +3714,9 @@ function GearChartPanel({
           data: stepData,
           step: 'start',
           showSymbol: false,
+          sampling: 'lttb',
+          large: true,
+          largeThreshold: 2000,
           lineStyle: { width: 2, color: '#6366f1' },
           itemStyle: { color: '#6366f1' },
           areaStyle: { color: 'rgba(99,102,241,0.12)' },
@@ -3650,10 +3742,10 @@ function GearChartPanel({
     },
     [data, stepData, gearPoints, xMode, splitMarkers, xMax], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
-      const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
     },
   )
+
 
   if (stepData.length === 0) return null
 
