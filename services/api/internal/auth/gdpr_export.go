@@ -174,7 +174,21 @@ func exportTable(ctx context.Context, zw *zip.Writer, q querier, zipPath, table,
 		return 0, fmt.Errorf("export %s: create zip entry: %w", table, err)
 	}
 
-	w.Write([]byte("["))
+	// wrErr aggregates the first write error from the zip writer. All subsequent
+	// writes are skipped once wrErr is set to avoid further corruption. Checked
+	// at the end of the function; disk-full or internal-buffer failures in the
+	// zip writer would otherwise produce syntactically invalid JSON silently.
+	var wrErr error
+	zipWrite := func(b []byte) {
+		if wrErr != nil {
+			return
+		}
+		if _, werr := w.Write(b); werr != nil {
+			wrErr = werr
+		}
+	}
+
+	zipWrite([]byte("["))
 	count := 0
 	row := make(map[string]any, len(activeCols))
 
@@ -182,7 +196,7 @@ func exportTable(ctx context.Context, zw *zip.Writer, q querier, zipPath, table,
 		rawVals, err := rows.Values()
 		if err != nil {
 			slog.Error("gdpr export: row values failed", "table", table, "error", err)
-			w.Write([]byte("]"))
+			zipWrite([]byte("]"))
 			return count, fmt.Errorf("export %s: row values: %w", table, err)
 		}
 
@@ -231,9 +245,18 @@ func exportTable(ctx context.Context, zw *zip.Writer, q querier, zipPath, table,
 					// pgx returns uuid columns as [16]byte. Without conversion the
 					// JSON encoder serialises them as a 16-element integer array,
 					// which is unreadable and unimportable.
+					// Defensive future-proofing: a pgx TypeMap update may cause pgx
+					// to decode UUIDs as pgtype.UUID (struct) instead of [16]byte.
+					// Handle both to avoid {"Bytes":[…],"Valid":true} in the export.
 					switch v := val.(type) {
 					case [16]byte:
 						row[col.Name] = formatUUID(v)
+					case pgtype.UUID:
+						if v.Valid {
+							row[col.Name] = formatUUID(v.Bytes)
+						} else {
+							row[col.Name] = nil
+						}
 					case string:
 						row[col.Name] = v
 					default:
@@ -248,23 +271,27 @@ func exportTable(ctx context.Context, zw *zip.Writer, q querier, zipPath, table,
 		}
 
 		if count > 0 {
-			w.Write([]byte(","))
+			zipWrite([]byte(","))
 		}
 		data, encErr := json.Marshal(row)
 		if encErr != nil {
 			slog.Error("gdpr export: encode row failed", "table", table, "error", encErr)
-			w.Write([]byte("]"))
+			zipWrite([]byte("]"))
 			return count, fmt.Errorf("export %s: encode row: %w", table, encErr)
 		}
-		w.Write(data)
+		zipWrite(data)
 		count++
 	}
 
-	w.Write([]byte("]"))
+	zipWrite([]byte("]"))
 
 	if err := rows.Err(); err != nil {
 		slog.Error("gdpr export: rows iteration error", "table", table, "error", err)
 		return count, fmt.Errorf("export %s: rows iteration: %w", table, err)
+	}
+
+	if wrErr != nil {
+		return count, fmt.Errorf("export %s: write to zip: %w", table, wrErr)
 	}
 
 	return count, nil

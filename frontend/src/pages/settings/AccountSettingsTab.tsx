@@ -19,6 +19,7 @@ import {
 } from '@/api/auth'
 import { fmtDateTime, parseUserAgent } from '@/lib/format'
 import { SettingsSection as Section } from '@/components/ui/SettingsSection'
+import { accountSettingsStrings as S } from '@/lib/strings/account-settings'
 
 // ── Profile Section ─────────────────────────────────────────────────────────
 
@@ -520,7 +521,7 @@ function DangerZoneSection() {
     setExporting(true)
     try {
       const { job_id } = await startDataExport()
-      addToast({ type: 'info', title: 'Datenexport gestartet' })
+      addToast({ type: 'info', title: S.dataExport.started.title })
 
       // Poll for completion (max 10 min = 120 × 5s)
       for (let i = 0; i < 120; i++) {
@@ -529,14 +530,15 @@ function DangerZoneSection() {
         const status = await getDataExportStatus(job_id)
         if (status.status === 'completed' && status.download_url) {
           if (!status.download_url.startsWith('/api/')) {
-            addToast({ type: 'error', title: 'Ungültige Download-URL', duration: 0 })
+            addToast({ type: 'error', title: S.dataExport.invalidUrl.title, duration: 0 })
             return
           }
           // Programmatic anchor click — bypasses popup blockers that intercept
           // window.open() outside of synchronous user gestures.
           const a = document.createElement('a')
           a.href = status.download_url
-          a.download = ''
+          const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+          a.download = `skadia-export-${today}.zip`
           a.rel = 'noopener noreferrer'
           document.body.appendChild(a)
           a.click()
@@ -549,8 +551,8 @@ function DangerZoneSection() {
           }
           addToast({
             type: 'success',
-            title: 'Datenexport heruntergeladen',
-            message: detailParts.length > 0 ? detailParts.join(' · ') : undefined,
+            title: S.dataExport.completed.title,
+            message: detailParts.length > 0 ? detailParts.join(S.dataExport.detailSeparator) : undefined,
             duration: 0,
           })
           return
@@ -559,14 +561,14 @@ function DangerZoneSection() {
           if (status.error === 'export_failed') {
             addToast({
               type: 'error',
-              title: 'Datenexport fehlgeschlagen',
-              message: 'Bitte versuche es später erneut. Falls das Problem bestehen bleibt, kontaktiere den Support.',
+              title: S.dataExport.failed.title,
+              message: S.dataExport.failed.messageGeneric,
               duration: 0,
             })
           } else {
             addToast({
               type: 'error',
-              title: 'Datenexport fehlgeschlagen',
+              title: S.dataExport.failed.title,
               message: status.error ?? 'Unbekannter Fehler',
               duration: 0,
             })
@@ -574,11 +576,11 @@ function DangerZoneSection() {
           return
         }
       }
-      addToast({ type: 'error', title: 'Datenexport-Zeitüberschreitung', duration: 0 })
+      addToast({ type: 'error', title: S.dataExport.timeout.title, message: S.dataExport.timeout.message, duration: 0 })
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') return
       if (!abort.signal.aborted) {
-        addToast({ type: 'error', title: 'Datenexport fehlgeschlagen', duration: 0 })
+        addToast({ type: 'error', title: S.dataExport.failed.title, duration: 0 })
       }
     } finally {
       setExporting(false)
