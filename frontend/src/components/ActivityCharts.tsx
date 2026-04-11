@@ -3063,11 +3063,16 @@ function ScatterChartPanel({
 
         series: [{
           type: 'scatter',
-          // Scatter uses the raw [x,y] pair per point. We skip `large:true` on purpose:
-          // it switches ECharts into a simplified WebGL-less renderer that disables
-          // per-point hover/tooltip — and hover is the whole point of this chart.
+          // We deliberately avoid `large:true` — it switches ECharts into a simplified
+          // renderer that disables per-point hover/tooltip, and hover is the whole
+          // point of this chart. Instead we use `progressive` chunked rendering,
+          // which keeps every point interactive but draws them in ~2k-point batches
+          // to avoid blocking the main thread on dense sporadic series (e.g. stroke
+          // distance on long swims or stride length on ultras).
           data: xData.map((x, i) => [x, values[i]]),
           symbolSize: 3,
+          progressive: 2000,
+          progressiveThreshold: 5000,
           itemStyle: { color, opacity: 0.7 },
           ...(mlData.length > 0 ? {
             markLine: {
