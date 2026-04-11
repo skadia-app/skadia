@@ -104,7 +104,7 @@ export default function RouteComparisonPanel({
                 }}
                 className="ml-auto px-2.5 py-1 text-[11px] font-medium rounded-md bg-accent-DEFAULT text-white hover:bg-accent-600 transition-colors cursor-pointer shrink-0"
               >
-                Uebernehmen
+                Übernehmen
               </button>
             </div>
           )
