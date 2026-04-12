@@ -25,6 +25,11 @@ var routingValleSeg = os.Getenv("ROUTING_VALLE_SEG") == "true"
 // Default (empty) = crossing-flanks strategy.
 var _ = os.Getenv("LANDMARK_STRATEGY") // read in landmark_unified.go
 
+// ReachableState is an exported alias for reachableState so that callers
+// outside the routing package (e.g. handler) can hold a reference returned
+// by FindReachableWithCoords without accessing unexported internals.
+type ReachableState = reachableState
+
 // UnifiedRouter is a Router backed by any GraphReader (e.g. TiledGraphReader).
 // Uses a semaphore for concurrency control instead of a pre-allocated pool.
 type UnifiedRouter struct {
