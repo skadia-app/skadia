@@ -519,10 +519,13 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 	edgeCoordStart := make([]int, nEdges)
 	// edgeTags1[i] = Tags1 for edge i (used for segment metadata)
 	edgeTags1 := make([]uint64, nEdges)
+	// edgeHandles collects raw handles for WayID-based overlap detection.
+	edgeHandles := make([]uint64, 0, nEdges)
 
 	for i := range nEdges {
 		// Record the edge handle and tags from the next node's state
 		edgeHandle := chain[i+1].edgeHandle
+		edgeHandles = append(edgeHandles, edgeHandle)
 
 		// Add the network node itself (start of this edge)
 		nodeLat, nodeLon, nodeEle := reader.NodeCoord(chain[i].nodeID)
@@ -634,6 +637,7 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 		QualitySum:  qualitySum,
 		AscentSum:   ascentSum,
 		DescentSum:  descentSum,
+		EdgeHandles: edgeHandles,
 	}
 }
 

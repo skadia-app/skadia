@@ -24,6 +24,11 @@ type RouteResult struct {
 	QualitySum float32 `json:"-"` // Σ (edge.dist × edge.flat_factor_raw)
 	AscentSum  float32 `json:"-"`
 	DescentSum float32 `json:"-"`
+
+	// EdgeHandles stores the edge handle sequence of the route.
+	// Used for WayID-based overlap detection in round-trip quality gate.
+	// Populated by retrackUnified; empty for approach segments.
+	EdgeHandles []uint64 `json:"-"`
 }
 
 // AvgFlat returns the distance-weighted average flat cost factor of this route.
@@ -181,6 +186,7 @@ func mergeLegs(legs []*RouteResult) *RouteResult {
 		result.PassStats.Pass0DurationMs += leg.PassStats.Pass0DurationMs
 		result.PassStats.Pass1DurationMs += leg.PassStats.Pass1DurationMs
 		result.PassStats.TotalDurationMs += leg.PassStats.TotalDurationMs
+		result.EdgeHandles = append(result.EdgeHandles, leg.EdgeHandles...)
 	}
 	return result
 }

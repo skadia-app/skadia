@@ -121,16 +121,23 @@ func BuildRouteResultFromEdges(
 	targetState *paretoState,
 	reader GraphReader,
 ) *RouteResult {
+	// Convert EdgeHandle slice to uint64 slice for RouteResult.EdgeHandles.
+	edgeHandles := make([]uint64, len(edges))
+	for i, e := range edges {
+		edgeHandles[i] = uint64(e)
+	}
+
 	result := &RouteResult{
 		DistanceM: float64(targetState.dist),
 		AscentM:   float64(targetState.ascent),
 		DescentM:  float64(targetState.descent),
 		Cost:      float64(targetState.cost),
 
-		DistSum:    targetState.dist,
-		QualitySum: targetState.qualitySum,
-		AscentSum:  targetState.ascent,
-		DescentSum: targetState.descent,
+		DistSum:     targetState.dist,
+		QualitySum:  targetState.qualitySum,
+		AscentSum:   targetState.ascent,
+		DescentSum:  targetState.descent,
+		EdgeHandles: edgeHandles,
 	}
 
 	// Walk edges to build geometry: emit source node coord, then intermediate points.
@@ -173,6 +180,20 @@ func BuildRouteResultFromEdges(
 	}
 
 	return result
+}
+
+// ExtractWayIDsFromHandles returns the set of OSM way IDs for raw edge handles.
+// Used by suggestRoundTripVariant to compute WayID overlap for RouteVia results,
+// where Segments[].OsmWayID is always 0 (not available through GraphReader).
+func ExtractWayIDsFromHandles(handles []uint64, reader GraphReader) map[int64]bool {
+	set := make(map[int64]bool, len(handles))
+	for _, h := range handles {
+		id := reader.EdgeOSMID(h)
+		if id != 0 {
+			set[id] = true
+		}
+	}
+	return set
 }
 
 // ExtractWayIDsFromRouteResult returns the set of OSM way IDs used by this route.
