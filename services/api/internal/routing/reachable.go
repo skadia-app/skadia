@@ -197,6 +197,14 @@ func findReachable(ctx context.Context, reader GraphReader, src uint64,
 		})
 	}
 
+	// Emit Prometheus metrics after expansion.
+	for _, front := range rs.fronts {
+		ParetoFrontSize.Observe(float64(len(front.activeIDs)))
+	}
+	if rs.truncated {
+		ParetoTruncatedCount.WithLabelValues(rs.truncatedReason).Inc()
+	}
+
 	return rs, nil
 }
 

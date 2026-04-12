@@ -13,7 +13,6 @@ type paretoState struct {
 	descent    float32
 	dist       float32
 	qualitySum float32
-	avgFlat    float32 // populated at EXPORT time
 
 	pathState PathState
 	lastDX    float32
@@ -91,6 +90,7 @@ func (rs *reachableState) tryInsert(nodeID uint64, new paretoState) (uint32, boo
 	}
 
 	newID := uint32(len(rs.slab.states))
+	new.nodeID = nodeID // defensive: ensure nodeID matches the front key
 	rs.slab.states = append(rs.slab.states, new)
 
 	j := 0
