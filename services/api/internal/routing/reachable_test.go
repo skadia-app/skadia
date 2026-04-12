@@ -38,7 +38,7 @@ func TestFindReachableBasic(t *testing.T) {
 		t.Fatal("no nearest node")
 	}
 
-	nodes, truncated := findReachable(context.Background(), reader, src, cfg, 100000, 10000)
+	nodes, truncated := findReachableLegacy(context.Background(), reader, src, cfg, 100000, 10000)
 	if len(nodes) == 0 {
 		t.Fatal("expected reachable nodes")
 	}
@@ -63,7 +63,7 @@ func TestFindReachableTruncation(t *testing.T) {
 	src, _, _ := reader.NearestNode(47.05, 8.05)
 
 	// maxExpansions=1 should truncate immediately
-	nodes, truncated := findReachable(context.Background(), reader, src, cfg, 100000, 1)
+	nodes, truncated := findReachableLegacy(context.Background(), reader, src, cfg, 100000, 1)
 	if !truncated {
 		t.Error("should be truncated with maxExpansions=1")
 	}
