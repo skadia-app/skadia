@@ -1,7 +1,8 @@
 // frontend/src/components/SegmentEditorModal.tsx
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import maplibregl from 'maplibre-gl'
+import maplibregl, { type RequestParameters } from 'maplibre-gl'
+import { getToken } from '@/lib/auth'
 import 'maplibre-gl/dist/maplibre-gl.css'
 // @ts-ignore
 import MapboxDraw from 'maplibre-gl-draw'
@@ -225,13 +226,13 @@ export default function SegmentEditorModal({
     if (m.getSource(layerId)) m.removeSource(layerId)
     m.addSource(layerId, {
       type: 'vector',
-      tiles: [`${window.location.origin}/tiles/heatmap_lines_mvt/{z}/{x}/{y}${userId ? `?user_id=${encodeURIComponent(userId)}` : ''}`],
+      tiles: [`${window.location.origin}/api/v1/tiles/heatmap_lines/{z}/{x}/{y}${userId ? `?user_id=${encodeURIComponent(userId)}` : ''}`],
     })
     m.addLayer({
       id: layerId,
       type: 'line',
       source: layerId,
-      'source-layer': 'heatmap_lines_mvt',
+      'source-layer': 'heatmap_lines',
       paint: { 'line-color': '#f97316', 'line-width': 2, 'line-opacity': 0.5 },
     })
   }
@@ -244,6 +245,13 @@ export default function SegmentEditorModal({
       style: buildRasterStyle(mapStyle),
       center: [11.0, 48.0],
       zoom: 10,
+      transformRequest: (url: string): RequestParameters => {
+        if (url.includes('/api/v1/tiles/')) {
+          const token = getToken()
+          if (token) return { url, headers: { Authorization: `Bearer ${token}` } }
+        }
+        return { url }
+      },
     })
     mapRef.current = map
 

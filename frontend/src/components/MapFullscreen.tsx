@@ -1,7 +1,8 @@
 import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
-import maplibregl from 'maplibre-gl'
+import maplibregl, { type RequestParameters } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { getToken } from '@/lib/auth'
 import { useQuery } from '@tanstack/react-query'
 import { listActivityPhotos, type ActivityPhoto } from '@/api/activityPhotos'
 import { apiDownload } from '@/api/client'
@@ -262,6 +263,13 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
         container: el,
         style: buildRasterStyle(baseStyle),
         attributionControl: {},
+        transformRequest: (url: string): RequestParameters => {
+          if (url.includes('/api/v1/tiles/')) {
+            const token = getToken()
+            if (token) return { url, headers: { Authorization: `Bearer ${token}` } }
+          }
+          return { url }
+        },
       })
 
       map.addControl(new maplibregl.NavigationControl(), 'top-right')

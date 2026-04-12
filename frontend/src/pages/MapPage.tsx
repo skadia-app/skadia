@@ -1,7 +1,8 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useLocation } from 'react-router-dom'
-import maplibregl from 'maplibre-gl'
+import maplibregl, { type RequestParameters } from 'maplibre-gl'
+import { getToken } from '@/lib/auth'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import MapFilters from '@/components/MapFilters'
 import CustomMapsPanel from '@/components/CustomMapsPanel'
@@ -181,10 +182,10 @@ function buildTileUrl(
   userId?: string, // privacy: filter by current user
   electricTagId?: string, // ID of the E-Bike system tag (for tristate filter)
 ): string {
+  // Heatmap tiles are routed through the Go API for authentication + per-user isolation.
   // MapLibre v5 lädt Tiles in einem Web Worker. Worker können relative URLs
-  // (/tiles/...) nicht auflösen → immer absolute URL erzwingen.
-  // VITE_MARTIN_URL muss daher eine absolute URL sein (z.B. https://skadia.example.com/tiles).
-  const martinBase = import.meta.env.VITE_MARTIN_URL ?? `${window.location.origin}/tiles`
+  // nicht auflösen → immer absolute URL erzwingen.
+  const martinBase = import.meta.env.VITE_MARTIN_URL ?? `${window.location.origin}/api/v1/tiles`
   const base = `${martinBase}/${source}/{z}/{x}/{y}`
   const params = new URLSearchParams()
 
@@ -770,6 +771,16 @@ export default function MapPage() {
       center: savedViewport ? savedViewport.center : [10.45, 51.16],
       zoom: savedViewport ? savedViewport.zoom : 6,
       attributionControl: { compact: false },
+      transformRequest: (url: string): RequestParameters => {
+        // Attach JWT Bearer token to tile requests routed through the API proxy.
+        if (url.includes('/api/v1/tiles/')) {
+          const token = getToken()
+          if (token) {
+            return { url, headers: { Authorization: `Bearer ${token}` } }
+          }
+        }
+        return { url }
+      },
     })
 
     map.addControl(new maplibregl.NavigationControl(), 'top-left')
@@ -1752,7 +1763,7 @@ export default function MapPage() {
   useEffect(() => {
     const map = mapRef.current
     if (!map || styleVersion === 0) return
-    const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/tiles`
+    const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/api/v1/tiles`
     const summitTileUrl = currentUserId
       ? `${martinBase}/summits/{z}/{x}/{y}?user_id=${encodeURIComponent(currentUserId)}`
       : `${martinBase}/summits/{z}/{x}/{y}`
@@ -1831,7 +1842,7 @@ export default function MapPage() {
   useEffect(() => {
     const map = mapRef.current
     if (!map || styleVersion === 0) return
-    const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/tiles`
+    const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/api/v1/tiles`
 
     if (overlayState.showWaters) {
       if (!map.getSource('waters-source')) {
@@ -1867,7 +1878,7 @@ export default function MapPage() {
   useEffect(() => {
     const map = mapRef.current
     if (!map || styleVersion === 0) return
-    const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/tiles`
+    const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/api/v1/tiles`
     const forestTileUrl = currentUserId
       ? `${martinBase}/forests/{z}/{x}/{y}?user_id=${encodeURIComponent(currentUserId)}`
       : `${martinBase}/forests/{z}/{x}/{y}`
@@ -1941,7 +1952,7 @@ export default function MapPage() {
   useEffect(() => {
     const map = mapRef.current
     if (!map || styleVersion === 0) return
-    const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/tiles`
+    const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? `${window.location.origin}/api/v1/tiles`
 
     if (overlayState.showAmenities) {
       const poisTileUrl = `${martinBase}/pois_mvt/{z}/{x}/{y}`

@@ -1,8 +1,9 @@
 import type { Map as MaplibreMap } from 'maplibre-gl'
 
+/** Tile base URL — routed through the Go API for authentication + per-user heatmap isolation. */
 const MARTIN_BASE: string =
   (import.meta as unknown as { env: Record<string, string> }).env?.VITE_MARTIN_URL ??
-  `${window.location.origin}/tiles`
+  `${window.location.origin}/api/v1/tiles`
 
 export const HEATMAP_SOURCE_ID = 'heatmap'
 

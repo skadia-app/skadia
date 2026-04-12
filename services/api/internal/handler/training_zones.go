@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/muktihari/fit/profile/typedef"
@@ -9,6 +11,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
@@ -223,10 +226,25 @@ func (h *Handler) UpdateTrainingZones(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: trigger background TSS recompute after zone update
-	// Use h.DB.InsertBackgroundJobGuarded + shutdown.Go with h.PMC.RecomputeAllTSS
-	// once that is wired into the PUT flow (requires deciding whether to kick it
-	// automatically or provide a separate endpoint like POST /training-zones/recompute-tss).
+	// Trigger background TSS recompute so historical PMC values reflect the new thresholds.
+	if h.PMC != nil {
+		entityName := "TSS-Neuberechnung"
+		jobID, created, err := h.DB.InsertBackgroundJobGuarded(r.Context(), userID,
+			"recompute_all_tss", nil, &entityName, 0)
+		if err != nil {
+			slog.Error("failed to create TSS recompute job", "err", err, "user_id", userID)
+		} else if created {
+			pmcSvc := h.PMC
+			shutdown.Go(jobID, func(ctx context.Context) {
+				err := pmcSvc.RecomputeAllTSS(ctx, userID)
+				if err != nil {
+					_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true, err.Error())
+				} else {
+					_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false, "")
+				}
+			})
+		}
+	}
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

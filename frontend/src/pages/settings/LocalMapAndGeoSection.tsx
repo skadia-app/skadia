@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { getToken } from '@/lib/auth'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import OSMImportModal from '@/components/OSMImportModal'
 import { DEMSettings } from '@/components/DEMSettings'
@@ -49,7 +50,7 @@ function OsmStatCard({ value, label, labelClassName }: { value: number; label: s
 }
 
 export function LocalMapAndGeoSection() {
-  const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? '/tiles'
+  const martinBase = (import.meta.env.VITE_MARTIN_URL as string | undefined) ?? '/api/v1/tiles'
   const styleUrl = `${martinBase}/style.json`
 
   // Martin status
@@ -61,7 +62,11 @@ export function LocalMapAndGeoSection() {
     let cancelled = false
     setMartinStatus('loading')
     setMartinSources([])
-    fetch(styleUrl, { signal: AbortSignal.timeout(5000) })
+    const token = getToken()
+    fetch(styleUrl, {
+      signal: AbortSignal.timeout(5000),
+      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+    })
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.json()

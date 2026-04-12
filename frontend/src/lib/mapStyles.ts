@@ -61,7 +61,7 @@ export const BASE_STYLES: Record<BaseStyle, StyleDef> = {
   local: {
     label: 'Lokal',
     type: 'vector',
-    styleUrl: '/tiles/style.json',
+    styleUrl: '/api/v1/tiles/style.json',
   },
   offline: {
     label: 'Offline (Protomaps)',
@@ -70,7 +70,7 @@ export const BASE_STYLES: Record<BaseStyle, StyleDef> = {
   },
 }
 
-const MARTIN_BASE = (typeof import.meta !== 'undefined' && (import.meta as { env?: Record<string, string> }).env?.VITE_MARTIN_URL) || '/martin'
+const MARTIN_BASE = (typeof import.meta !== 'undefined' && (import.meta as { env?: Record<string, string> }).env?.VITE_MARTIN_URL) || '/api/v1/tiles'
 
 export function buildOfflineProtomapsStyle(): StyleSpecification {
   return {
