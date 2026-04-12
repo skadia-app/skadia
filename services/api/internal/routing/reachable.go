@@ -1,15 +1,195 @@
-// reachable.go — AlphaShape/ConvexHull utilities for isochrone + SuggestRoutes.
-// The Dijkstra expansion (findReachable) will be added here in task 1a.6 as the
-// new Pareto-based implementation. Legacy scalar-cost Dijkstra lives in reachable_legacy.go.
+// reachable.go — Pareto-based findReachable + AlphaShape/ConvexHull utilities
+// for isochrone + SuggestRoutes.
+// Legacy scalar-cost Dijkstra lives in reachable_legacy.go.
 package routing
 
 import (
+	"context"
 	"math"
 	"sort"
 
+	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 	"github.com/fogleman/delaunay"
 	"github.com/paulmach/orb"
 )
+
+// frontContainsState checks whether the given stateID is still active in the front.
+func frontContainsState(front *paretoFront, stateID uint32) bool {
+	for _, id := range front.activeIDs {
+		if id == stateID {
+			return true
+		}
+	}
+	return false
+}
+
+// findReachable expands Pareto-Dijkstra from src until all reachable nodes within
+// maxBudget are found. Uses 2D Pareto dominance over (cost, ascent) so each node
+// can hold multiple non-dominated states. Expansion logic mirrors legacy
+// (hysteresis, turn costs, way class penalties, coverage accumulation) but adds
+// per-state ascent/descent/dist/qualitySum accumulators.
+func findReachable(ctx context.Context, reader GraphReader, src uint64,
+	cfg *CostConfig, maxBudget float32,
+) (*reachableState, error) {
+
+	rs := newReachableState()
+	frontier := paretoFrontier{entries: make([]paretoFrontierEntry, 0, 8192)}
+
+	// Insert root state.
+	rootState := paretoState{
+		cost:          0,
+		ascent:        0,
+		parentStateID: rootStateID,
+	}
+	rootID, _ := rs.tryInsert(src, rootState)
+	rootFront := rs.fronts[src]
+	frontier.Push(paretoFrontierEntry{
+		nodeID:   src,
+		stateID:  rootID,
+		cost:     0,
+		frontGen: rootFront.generation,
+	})
+
+	expansions := 0
+
+	for frontier.Len() > 0 {
+		if expansions&(reachableCheckCancel-1) == 0 {
+			if err := ctx.Err(); err != nil {
+				return rs, err
+			}
+		}
+		expansions++
+		if expansions > maxExpansions {
+			rs.markExpansionTruncated()
+			break
+		}
+
+		entry := frontier.Pop()
+
+		// Stale-entry check: front generation changed or state no longer active.
+		front, ok := rs.fronts[entry.nodeID]
+		if !ok {
+			continue
+		}
+		if front.generation != entry.frontGen || !frontContainsState(front, entry.stateID) {
+			continue
+		}
+
+		curState := rs.slab.states[entry.stateID]
+		if curState.cost > maxBudget {
+			continue
+		}
+
+		curLat, curLon, _ := reader.NodeCoord(entry.nodeID)
+
+		reader.ForEachEdge(entry.nodeID, func(ev EdgeView) {
+			ecf := cfg.EdgeCost(ev.Tags1, ev.Tags2)
+			if ecf.Flat >= costBlocked {
+				return
+			}
+
+			// Penalty integration (Phase 1b):
+			// penalty := lookupWayPenalty(ev.ElevHandle, reader, cfg.WayPenalties)
+			// applyPenaltyToECF(&ecf, penalty)
+
+			hr := propagateHysteresis(curState.pathState, ev.DeltaEle*100, int32(ev.Dist)*10, cfg)
+
+			cfUp := ecf.Up
+			cfDown := ecf.Down
+			if cfUp == 0 {
+				cfUp = ecf.Flat
+			}
+			if cfDown == 0 {
+				cfDown = ecf.Flat
+			}
+			flatW := float32(1.0) - hr.UpWeight - hr.DownWeight
+			if flatW < 0 {
+				flatW = 0
+			}
+			cf := cfUp*hr.UpWeight + ecf.Flat*flatW + cfDown*hr.DownWeight
+			distCost := float32(ev.Dist) / 100.0 * cf
+
+			turnCost, newDX, newDY := computeTurnCost(
+				curLon, curLat, ev.TargetLon, ev.TargetLat,
+				curState.lastDX, curState.lastDY, cfg.TurnCost, ev.Dist)
+
+			var initialCost float32
+			if curState.lastWC != ecf.WayClass && curState.lastWC > 0 {
+				if ecf.WayClass == 1 || curState.lastWC == 1 {
+					initialCost = 10000
+				} else {
+					initialCost = cfg.TurnCost * 2
+				}
+			}
+
+			newCost := curState.cost + distCost + hr.ElevCost + initialCost + turnCost
+
+			if newCost > maxBudget {
+				return
+			}
+
+			// Ascent / descent from DeltaEle (decimeters -> meters).
+			deltaM := float32(ev.DeltaEle) / 10.0
+			newAscent := curState.ascent
+			newDescent := curState.descent
+			if deltaM > 0 {
+				newAscent += deltaM
+			} else {
+				newDescent += -deltaM
+			}
+
+			// Distance accumulation (centimeters -> meters).
+			edgeDistM := float32(ev.Dist) / 100.0
+
+			// Quality sum: unpenalised flat factor * distance.
+			newQualitySum := curState.qualitySum + edgeDistM*ecf.Flat
+
+			// Accumulate distance-weighted coverage scores.
+			covDist := edgeDistM
+			newCovForest := curState.covForestSum + float32(graph.DecodeForestPct(ev.Tags2))/100.0*covDist
+			newCovNoise := curState.covNoiseSum + float32(graph.DecodeNoiseScore(ev.Tags2))/100.0*covDist
+			newCovProtected := curState.covProtectedSum + float32(graph.DecodeProtectedArea(ev.Tags2))/3.0*covDist
+			newCovUrban := curState.covUrbanSum + float32(graph.DecodeUrbanization(ev.Tags2))/7.0*covDist
+			newCovRiver := curState.covRiverSum + float32(graph.DecodeRiverProximity(ev.Tags2))/7.0*covDist
+			newCovTraffic := curState.covTrafficSum + float32(graph.DecodeTrafficClass(ev.Tags2))/6.0*covDist
+			newCovDistSum := curState.covDistSum + covDist
+
+			candidate := paretoState{
+				cost:            newCost,
+				ascent:          newAscent,
+				descent:         newDescent,
+				dist:            curState.dist + edgeDistM,
+				qualitySum:      newQualitySum,
+				pathState:       hr.State,
+				lastDX:          newDX,
+				lastDY:          newDY,
+				handle:          ev.ElevHandle,
+				parentStateID:   entry.stateID,
+				lastWC:          ecf.WayClass,
+				covForestSum:    newCovForest,
+				covNoiseSum:     newCovNoise,
+				covProtectedSum: newCovProtected,
+				covUrbanSum:     newCovUrban,
+				covRiverSum:     newCovRiver,
+				covTrafficSum:   newCovTraffic,
+				covDistSum:      newCovDistSum,
+			}
+
+			newID, inserted := rs.tryInsert(ev.Target, candidate)
+			if inserted {
+				targetFront := rs.fronts[ev.Target]
+				frontier.Push(paretoFrontierEntry{
+					nodeID:   ev.Target,
+					stateID:  newID,
+					cost:     newCost,
+					frontGen: targetFront.generation,
+				})
+			}
+		})
+	}
+
+	return rs, nil
+}
 
 const reachableCheckCancel = 4096
 
