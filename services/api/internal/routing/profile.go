@@ -1164,3 +1164,29 @@ func ApplySurfaceTendency(p *ProfileConfig, tendency string) {
 		mul(&p.TrackCost, 15, 0, 2.0)
 	}
 }
+
+const (
+	HikingBaselineAvgFlat   = 1.4
+	MtbBaselineAvgFlat      = 1.3
+	GravelBaselineAvgFlat   = 1.1
+	TrekkingBaselineAvgFlat = 1.2
+	RoadBaselineAvgFlat     = 1.0
+)
+
+// ProfileBaselineAvgFlat returns the empirical baseline AvgFlat for a profile.
+func ProfileBaselineAvgFlat(profile string) float32 {
+	switch profile {
+	case "hiking":
+		return HikingBaselineAvgFlat
+	case "mtb":
+		return MtbBaselineAvgFlat
+	case "gravel":
+		return GravelBaselineAvgFlat
+	case "trekking":
+		return TrekkingBaselineAvgFlat
+	case "road":
+		return RoadBaselineAvgFlat
+	default:
+		return HikingBaselineAvgFlat
+	}
+}
