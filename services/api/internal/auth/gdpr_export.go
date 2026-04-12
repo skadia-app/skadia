@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -27,7 +28,7 @@ func formatUUID(b [16]byte) string {
 	const hexDigits = "0123456789abcdef"
 	var buf [36]byte
 	idx := 0
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		if i == 4 || i == 6 || i == 8 || i == 10 {
 			buf[idx] = '-'
 			idx++
@@ -91,12 +92,7 @@ func isDenied(table, column string) bool {
 	if !ok {
 		return false
 	}
-	for _, d := range denied {
-		if d == column {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(denied, column)
 }
 
 // buildExportQuery constructs a SELECT statement for the given table that:
