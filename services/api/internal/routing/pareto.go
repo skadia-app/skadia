@@ -125,3 +125,10 @@ func (rs *reachableState) markExpansionTruncated() {
 		rs.truncatedReason = "both"
 	}
 }
+
+type paretoFrontierEntry struct {
+	nodeID   uint64
+	stateID  uint32
+	cost     float32
+	frontGen uint32
+}
