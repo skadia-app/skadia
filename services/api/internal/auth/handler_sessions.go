@@ -29,7 +29,7 @@ func (h *Handler) ListMySessions(w http.ResponseWriter, r *http.Request) {
 
 	// Get current family_id from refresh token cookie
 	var currentFamilyID string
-	if cookie, err := r.Cookie("refresh_token"); err == nil && cookie.Value != "" {
+	if cookie, err := r.Cookie(RefreshCookieName); err == nil && cookie.Value != "" {
 		hashedToken := HashToken(cookie.Value)
 		h.DB.Pool.QueryRow(r.Context(),
 			`SELECT family_id::text FROM refresh_tokens WHERE token_hash = $1 AND revoked = false`,
