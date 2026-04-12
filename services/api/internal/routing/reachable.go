@@ -88,11 +88,15 @@ func findReachable(ctx context.Context, reader GraphReader, src uint64,
 				return
 			}
 
-			// Penalty integration (Phase 1b):
-			// penalty := lookupWayPenalty(ev.ElevHandle, reader, cfg.WayPenalties)
-			// applyPenaltyToECF(&ecf, penalty)
+			// Apply way penalty (monotone, >= 1.0)
+			penalty := lookupWayPenalty(ev.ElevHandle, reader, cfg.WayPenalties)
+			applyPenaltyToECF(&ecf, penalty)
 
 			hr := propagateHysteresis(curState.pathState, ev.DeltaEle*100, int32(ev.Dist)*10, cfg)
+			// Penalty scales elevCost too (critical for alpine avoidance)
+			if penalty > 1.0 {
+				hr.ElevCost *= penalty
+			}
 
 			cfUp := ecf.Up
 			cfDown := ecf.Down
