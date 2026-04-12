@@ -269,6 +269,11 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 				return // impassable
 			}
 
+			// Way penalty: bias repeated edges (round-trip quality gate, phase 1b.5).
+			// Fast path: returns 1.0 immediately when WayPenalties is nil/empty.
+			penalty := lookupWayPenalty(ev.ElevHandle, reader, cfg.WayPenalties)
+			applyPenaltyToECF(&ecf, penalty)
+
 			// Hysteresis: elevation cost + slope weights
 			var newPathState PathState
 			var elevCost, upWeight, downWeight float32
@@ -299,6 +304,11 @@ func findRouteUnified(ctx context.Context, reader GraphReader,
 					upWeight = hr.UpWeight
 					downWeight = hr.DownWeight
 				}
+			}
+
+			// Apply penalty to elevation cost as well (penalty > 1.0 check is free).
+			if penalty > 1.0 {
+				elevCost *= penalty
 			}
 
 			// Slope-weighted costfactor interpolation (BRouter-exact)
