@@ -4,16 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/alexedwards/argon2id"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/config"
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
@@ -1033,5 +1038,97 @@ func TestAdminCannotDeactivateSelf(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp["error"] != "cannot_deactivate_self" {
 		t.Errorf("expected error 'cannot_deactivate_self', got %q", resp["error"])
+	}
+}
+
+// --- ListMySessions — is_current regression ---
+//
+// Regression test for the hardcoded "refresh_token" cookie name bug.
+// Before the fix, r.Cookie("refresh_token") always failed because the cookie
+// is named RefreshCookieName ("skadia_refresh"), leaving currentFamilyID empty
+// and is_current permanently false.
+//
+// Requires TEST_DATABASE_URL to be set; skipped otherwise.
+func TestListMySessionsIsCurrent(t *testing.T) {
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
+	}
+
+	ctx := context.Background()
+
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("connect to test DB: %v", err)
+	}
+	defer pool.Close()
+
+	db := &database.DB{Pool: pool}
+
+	// Insert a minimal test user.
+	userID := uuid.New().String()
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, username, email, email_verified, registration_source)
+		 VALUES ($1, $2, $3, true, 'test')`,
+		userID, "test_sessions_"+userID[:8], "test_sessions_"+userID[:8]+"@example.com",
+	)
+	if err != nil {
+		t.Fatalf("insert test user: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, "DELETE FROM refresh_tokens WHERE user_id = $1", userID)
+		pool.Exec(ctx, "DELETE FROM users WHERE id = $1", userID)
+	})
+
+	// Create a refresh token for this user.
+	rawToken, err := GenerateToken()
+	if err != nil {
+		t.Fatalf("GenerateToken: %v", err)
+	}
+	tokenHash := HashToken(rawToken)
+	familyID := uuid.New().String()
+	expiresAt := time.Now().Add(RefreshTokenExpiry)
+
+	err = db.CreateRefreshToken(ctx, userID, familyID, tokenHash, "test-agent", net.IPv4(127, 0, 0, 1), expiresAt)
+	if err != nil {
+		t.Fatalf("CreateRefreshToken: %v", err)
+	}
+
+	// Build the handler with a real DB.
+	h := testHandler(t, &config.Config{})
+	h.DB = db
+
+	// Request with the correct cookie name (skadia_refresh).
+	req := httptest.NewRequest(http.MethodGet, "/auth/sessions", nil)
+	req.AddCookie(&http.Cookie{Name: RefreshCookieName, Value: rawToken})
+	ctx2 := context.WithValue(req.Context(), middleware.UserIDKey, userID)
+	req = req.WithContext(ctx2)
+	w := httptest.NewRecorder()
+
+	h.ListMySessions(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var body struct {
+		Sessions []sessionEntry `json:"sessions"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(body.Sessions) == 0 {
+		t.Fatal("expected at least one session in response")
+	}
+
+	hasCurrent := false
+	for _, s := range body.Sessions {
+		if s.IsCurrent {
+			hasCurrent = true
+			break
+		}
+	}
+	if !hasCurrent {
+		t.Error("expected at least one session with is_current=true; got none — possible cookie name mismatch")
 	}
 }
