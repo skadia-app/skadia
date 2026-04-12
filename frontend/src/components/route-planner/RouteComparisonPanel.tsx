@@ -3,7 +3,8 @@ import type { RouteSuggestion } from '@/api/routes'
 import { variantLabel, loopQualityDisplay, suggestRoutesStrings } from '@/lib/strings/suggest-routes'
 import { useToast } from '@/lib/toast'
 
-export const SUGGESTION_COLORS = ['#F97316', '#3B82F6', '#22C55E']
+export const SUGGESTION_COLORS = ['#F97316', '#3B82F6', '#22C55E', '#A855F7', '#EF4444']
+// Orange, Blue, Green, Purple, Red — 5 distinct colors for up to 5 variants
 
 interface RouteComparisonPanelProps {
   suggestions: RouteSuggestion[]
