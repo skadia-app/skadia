@@ -903,6 +903,9 @@ func main() {
 			r.Get("/activities/{id}/health-context", h.GetActivityHealthContext)
 			r.Get("/activities/{id}/best-efforts", h.GetActivityBestEfforts)
 
+			// Tile proxy — authenticates and enforces per-user heatmap isolation
+			r.Get("/tiles/*", h.ProxyMartinTile)
+
 			// Training Zones
 			r.Get("/training-zones", h.GetTrainingZonesAll)
 			r.Put("/training-zones", h.UpdateTrainingZones)

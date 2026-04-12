@@ -1,6 +1,6 @@
 import { apiClient } from './client'
 
-const MARTIN_BASE = import.meta.env.VITE_MARTIN_URL ?? '/tiles'
+const MARTIN_BASE = import.meta.env.VITE_MARTIN_URL ?? '/api/v1/tiles'
 
 export function getHeatmapTileUrl(params?: {
   user_id?: string
