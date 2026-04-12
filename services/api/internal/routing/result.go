@@ -131,6 +131,12 @@ func haversineSum(pts []LatLonEle) float64 {
 	return sum
 }
 
+// MergeLegs concatenates multiple RouteResults (via-point legs) into one.
+// Exported wrapper around mergeLegs for use by handler code.
+func MergeLegs(legs []*RouteResult) *RouteResult {
+	return mergeLegs(legs)
+}
+
 // mergeLegs concatenates multiple RouteResults (via-point legs) into one.
 func mergeLegs(legs []*RouteResult) *RouteResult {
 	if len(legs) == 0 {

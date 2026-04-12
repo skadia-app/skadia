@@ -112,6 +112,18 @@ func ExtractWayIDsFromEdges(edges []EdgeHandle, reader GraphReader) map[int64]bo
 	return set
 }
 
+// ReconstructAndBuildRoute reconstructs the edge path from root to targetStateID
+// and builds a full RouteResult. This avoids exporting reachableState/paretoState
+// to callers outside the routing package.
+func ReconstructAndBuildRoute(rs *reachableState, targetStateID uint32, reader GraphReader) (*RouteResult, []EdgeHandle, error) {
+	edges, targetState, err := ReconstructPath(rs, targetStateID)
+	if err != nil {
+		return nil, nil, err
+	}
+	result := BuildRouteResultFromEdges(edges, targetState, reader)
+	return result, edges, nil
+}
+
 // ComputeWayIDOverlap returns the overlap of two WayID sets:
 // |A ∩ B| / min(|A|, |B|). Returns 0 if either set is empty.
 func ComputeWayIDOverlap(a, b map[int64]bool) float64 {
