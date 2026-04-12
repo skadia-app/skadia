@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"strconv"
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -85,7 +86,13 @@ func (m *GraphManager) InitTiledReader(tileDir string, cacheBytes int64) (bool, 
 	if os.Getenv("ROUTING_BIDIRECTIONAL") == "true" {
 		maxConcurrent = m.MaxConcurrentRoutes()
 	}
-	m.unifiedRouter = NewUnifiedRouter(reader, maxConcurrent)
+	isoConcurrency := 2
+	if v := os.Getenv("SKADIA_ISO_CONCURRENCY"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			isoConcurrency = n
+		}
+	}
+	m.unifiedRouter = NewUnifiedRouter(reader, maxConcurrent, isoConcurrency)
 
 	// Initialize TileManager for status display (tile_count, tile_cached).
 	mgr, err := NewTileManager(tileDir, cacheBytes)
@@ -116,7 +123,13 @@ func (m *GraphManager) UnifiedRouter() *UnifiedRouter {
 		if os.Getenv("ROUTING_BIDIRECTIONAL") == "true" {
 			maxC = m.MaxConcurrentRoutes()
 		}
-		m.unifiedRouter = NewUnifiedRouter(m.tiledReader, maxC)
+		isoConcurrency := 2
+		if v := os.Getenv("SKADIA_ISO_CONCURRENCY"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				isoConcurrency = n
+			}
+		}
+		m.unifiedRouter = NewUnifiedRouter(m.tiledReader, maxC, isoConcurrency)
 		slog.Info("unified router lazily recreated after tile rebuild")
 	}
 	return m.unifiedRouter
