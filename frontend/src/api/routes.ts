@@ -124,11 +124,16 @@ export interface RouteSuggestionParams {
   surface_tendency?: 'trails' | 'forest_roads' | 'mixed' | 'paved'
   max_sac_scale?: number
   max_mtb_scale?: number
+  target_ascent_m?: number
+  ascent_tolerance_pct?: number
+  max_variants?: number
+  variant_ids?: string[]
 }
 
 export interface RouteSuggestionResponse {
   suggestions: RouteSuggestion[]
   coverage_available: boolean
+  partial_search: boolean
 }
 
 export interface ListRoutesResponse {
@@ -365,10 +370,22 @@ export async function computeInternalRoute(
 export interface RouteSuggestion {
   variant: number
   profile: string
-  via_point?: [number, number]
+  via_point: [number, number]
+
+  variant_id: string
+  variant_label_key: string
+
   distance_m: number
   ascent_m: number
   descent_m: number
+  avg_flat: number
+
+  loop_quality: 'loop' | 'partial_loop' | 'out_and_back'
+  overlap_pct: number
+
+  distance_target_achieved: boolean
+  ascent_target_achieved: boolean
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   geojson: any  // Backend sends json.RawMessage — access as geojson.features directly
   is_fallback: boolean
