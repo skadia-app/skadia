@@ -1,9 +1,13 @@
+import { useEffect, useRef } from 'react'
 import type { RouteSuggestion } from '@/api/routes'
+import { variantLabel, loopQualityDisplay, suggestRoutesStrings } from '@/lib/strings/suggest-routes'
+import { useToast } from '@/lib/toast'
 
 export const SUGGESTION_COLORS = ['#F97316', '#3B82F6', '#22C55E']
 
 interface RouteComparisonPanelProps {
   suggestions: RouteSuggestion[]
+  partialSearch?: boolean
   hoveredIndex: number | null
   onHover: (index: number | null) => void
   onSelect: (index: number) => void
@@ -23,11 +27,41 @@ function formatElevation(meters: number): string {
 
 export default function RouteComparisonPanel({
   suggestions,
+  partialSearch,
   hoveredIndex,
   onHover,
   onSelect,
   onCancel,
 }: RouteComparisonPanelProps) {
+  const { addToast } = useToast()
+  const toastShown = useRef(false)
+
+  useEffect(() => {
+    if (toastShown.current || !suggestions || suggestions.length === 0) return
+    toastShown.current = true
+
+    if (suggestions.some(s => !s.ascent_target_achieved)) {
+      addToast({
+        type: 'warning',
+        ...suggestRoutesStrings.warnings.ascentNotAchieved,
+      })
+    }
+
+    if (suggestions.some(s => !s.distance_target_achieved)) {
+      addToast({
+        type: 'warning',
+        ...suggestRoutesStrings.warnings.distanceNotAchieved,
+      })
+    }
+
+    if (partialSearch) {
+      addToast({
+        type: 'info',
+        ...suggestRoutesStrings.warnings.partialSearch,
+      })
+    }
+  }, [suggestions, partialSearch])
+
   return (
     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 w-auto max-w-[min(36rem,calc(100vw-2rem))] rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-xl p-3 space-y-2">
       <div className="flex items-center justify-between px-1">
@@ -70,8 +104,8 @@ export default function RouteComparisonPanel({
               />
 
               {/* Variant label */}
-              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 w-6 shrink-0">
-                #{s.variant}
+              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 w-20 shrink-0 truncate">
+                {variantLabel(s.variant_id || '')}
               </span>
 
               {/* Distance */}
@@ -89,12 +123,18 @@ export default function RouteComparisonPanel({
                 <span className="text-red-500 dark:text-red-400">&#8595;</span> {formatElevation(s.descent_m)}
               </span>
 
-              {/* Fallback badge */}
-              {s.is_fallback && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-                  Fallback
-                </span>
-              )}
+              {/* Loop quality badge */}
+              {s.loop_quality && (() => {
+                const quality = loopQualityDisplay(s.loop_quality)
+                return (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300"
+                    title={quality.label}
+                  >
+                    {quality.icon}
+                  </span>
+                )
+              })()}
 
               {/* Select button */}
               <button

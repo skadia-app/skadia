@@ -370,6 +370,7 @@ export default function MapPage() {
   const [showSuggestionDialog, setShowSuggestionDialog] = useState(false)
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [routeSuggestions, setRouteSuggestions] = useState<RouteSuggestion[] | null>(null)
+  const [suggestionPartialSearch, setSuggestionPartialSearch] = useState(false)
   const suggestionCountRef = useRef(0)
   const [hoveredSuggestion, setHoveredSuggestion] = useState<number | null>(null)
   const [showProfileChart, setShowProfileChart] = useState(false)
@@ -410,6 +411,7 @@ export default function MapPage() {
     setShowSaveDialog(false)
     setShowProfileChart(false)
     setRouteSuggestions(null)
+    setSuggestionPartialSearch(false)
     planner.clear()
   }, [planner])
 
@@ -2317,6 +2319,7 @@ export default function MapPage() {
                   return
                 }
                 setRouteSuggestions(response.suggestions)
+                setSuggestionPartialSearch(response.partial_search)
                 setShowSuggestionDialog(false)
               }}
             />
@@ -2327,6 +2330,7 @@ export default function MapPage() {
         {routeSuggestions && (
           <RouteComparisonPanel
             suggestions={routeSuggestions}
+            partialSearch={suggestionPartialSearch}
             hoveredIndex={hoveredSuggestion}
             onHover={setHoveredSuggestion}
             onSelect={(index) => {
