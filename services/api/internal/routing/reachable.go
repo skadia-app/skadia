@@ -40,6 +40,7 @@ func findReachable(ctx context.Context, reader GraphReader, src uint64,
 		cost:          0,
 		ascent:        0,
 		parentStateID: rootStateID,
+		nodeID:        src,
 	}
 	rootID, _ := rs.tryInsert(src, rootState)
 	rootFront := rs.fronts[src]
@@ -52,7 +53,7 @@ func findReachable(ctx context.Context, reader GraphReader, src uint64,
 
 	expansions := 0
 
-	for frontier.Len() > 0 {
+	for !rs.truncated && frontier.Len() > 0 {
 		if expansions&(reachableCheckCancel-1) == 0 {
 			if err := ctx.Err(); err != nil {
 				return rs, err
@@ -87,6 +88,9 @@ func findReachable(ctx context.Context, reader GraphReader, src uint64,
 			if ecf.Flat >= costBlocked {
 				return
 			}
+
+			// Save raw (unpenalized) flat factor before applying way penalty.
+			rawFlat := ecf.Flat
 
 			// Apply way penalty (monotone, >= 1.0)
 			penalty := lookupWayPenalty(ev.ElevHandle, reader, cfg.WayPenalties)
@@ -146,7 +150,7 @@ func findReachable(ctx context.Context, reader GraphReader, src uint64,
 			edgeDistM := float32(ev.Dist) / 100.0
 
 			// Quality sum: unpenalised flat factor * distance.
-			newQualitySum := curState.qualitySum + edgeDistM*ecf.Flat
+			newQualitySum := curState.qualitySum + edgeDistM*rawFlat
 
 			// Accumulate distance-weighted coverage scores.
 			covDist := edgeDistM
@@ -168,6 +172,7 @@ func findReachable(ctx context.Context, reader GraphReader, src uint64,
 				lastDX:          newDX,
 				lastDY:          newDY,
 				handle:          ev.ElevHandle,
+				nodeID:          ev.Target,
 				parentStateID:   entry.stateID,
 				lastWC:          ecf.WayClass,
 				covForestSum:    newCovForest,

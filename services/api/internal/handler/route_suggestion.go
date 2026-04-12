@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"slices"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -276,6 +277,17 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	if len(filtered) == 0 {
 		filtered = reachable
 	}
+
+	// Sort filtered nodes by NodeID for deterministic variant selection across calls.
+	slices.SortFunc(filtered, func(a, b routing.ReachableNode) int {
+		if a.NodeID < b.NodeID {
+			return -1
+		}
+		if a.NodeID > b.NodeID {
+			return 1
+		}
+		return 0
+	})
 
 	// --- Step 3: Select semantic variants ---
 	selCtx := routing.VariantSelectionContext{
