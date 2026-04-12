@@ -434,11 +434,12 @@ func (r *UnifiedRouter) RouteVia(ctx context.Context, waypoints []LatLon,
 	return result, nil
 }
 
-// FindReachable finds all nodes reachable within the given cost budget.
-// Uses the isochrone semaphore (2 concurrent) to limit resource usage.
+// FindReachable finds all nodes reachable within the given cost budget
+// using Pareto-Dijkstra over (cost, ascent). Returns the full reachableState
+// (for later reconstruction) + truncated flag + error.
 func (r *UnifiedRouter) FindReachable(ctx context.Context,
-	lat, lon float64, cfg *CostConfig, maxBudget float32, maxExpansions int,
-) (map[uint64]reachableNodeLegacy, bool, error) {
+	lat, lon float64, cfg *CostConfig, maxBudget float32,
+) (*reachableState, bool, error) {
 
 	select {
 	case r.isoSem <- struct{}{}:
@@ -452,8 +453,11 @@ func (r *UnifiedRouter) FindReachable(ctx context.Context,
 		return nil, false, fmt.Errorf("no graph node within 5km of coordinate")
 	}
 
-	nodes, truncated := findReachableLegacy(ctx, r.reader, src, cfg, maxBudget, maxExpansions)
-	return nodes, truncated, nil
+	rs, err := findReachable(ctx, r.reader, src, cfg, maxBudget)
+	if err != nil {
+		return rs, rs != nil && rs.truncated, err
+	}
+	return rs, rs.truncated, nil
 }
 
 // NodePareto is a single Pareto-optimal path to a reachable node with all
@@ -562,45 +566,90 @@ func (r *UnifiedRouter) nodeHasUsableEdge(nodeID uint64, cfg *CostConfig) bool {
 	return usable
 }
 
-// FindReachableWithCoords returns reachable nodes with coordinates and
-// Terra Incognita flags. Used by SuggestRoutes and Isochrone.
-// Returns (nodes, truncated, error). truncated is true when the expansion
-// limit (500k) was hit before the budget was exhausted.
+// FindReachableWithCoords returns reachable nodes with per-state Pareto
+// coverage plus Terra Incognita flags. Used by SuggestRoutes and Isochrone.
 func (r *UnifiedRouter) FindReachableWithCoords(ctx context.Context,
 	lat, lon float64, cfg *CostConfig, maxBudget float32,
 	visitedWayIDs map[int64]bool,
-) ([]ReachableNode, bool, error) {
+) ([]ReachableNode, *reachableState, bool, error) {
 
-	nodes, truncated, err := r.FindReachable(ctx, lat, lon, cfg, maxBudget, 500000)
+	rs, truncated, err := r.FindReachable(ctx, lat, lon, cfg, maxBudget)
 	if err != nil {
-		return nil, false, err
+		return nil, rs, truncated, err
 	}
 
-	result := make([]ReachableNode, 0, len(nodes))
-	for nodeID, rn := range nodes {
+	result := make([]ReachableNode, 0, len(rs.fronts))
+	for nodeID, front := range rs.fronts {
+		if len(front.activeIDs) == 0 {
+			continue
+		}
+
 		nodeLat, nodeLon, _ := r.reader.NodeCoord(nodeID)
+
+		states := make([]NodePareto, len(front.activeIDs))
+		slabIDs := make([]uint32, len(front.activeIDs))
+		for i, slabID := range front.activeIDs {
+			s := rs.slab.states[slabID]
+			slabIDs[i] = slabID
+			states[i] = NodePareto{
+				Cost:      s.cost,
+				Ascent:    s.ascent,
+				Descent:   s.descent,
+				DistanceM: s.dist,
+				AvgFlat:   paretoAvgFlat(s),
+
+				ForestPct:      paretoCovNorm(s.covForestSum, s.covDistSum),
+				NoiseScore:     paretoCovNorm(s.covNoiseSum, s.covDistSum),
+				ProtectedArea:  paretoCovNorm(s.covProtectedSum, s.covDistSum),
+				Urbanization:   paretoCovNorm(s.covUrbanSum, s.covDistSum),
+				RiverProximity: paretoCovNorm(s.covRiverSum, s.covDistSum),
+				TrafficClass:   paretoCovNorm(s.covTrafficSum, s.covDistSum),
+			}
+		}
+
+		minCostState := rs.slab.states[front.activeIDs[0]]
 		unknown := false
-		if visitedWayIDs != nil && rn.EdgeHandle != 0 {
-			osmID := r.reader.EdgeOSMID(rn.EdgeHandle)
+		if visitedWayIDs != nil && minCostState.handle != 0 {
+			osmID := r.reader.EdgeOSMID(minCostState.handle)
 			if osmID != 0 {
 				unknown = !visitedWayIDs[osmID]
 			}
 		}
-		result = append(result, ReachableNode{
-			NodeID:         nodeID,
-			Cost:           rn.Cost,
-			Lat:            float64(nodeLat) / 1e7,
-			Lon:            float64(nodeLon) / 1e7,
-			Unknown:        unknown,
-			ForestPct:      rn.ForestPct,
-			NoiseScore:     rn.NoiseScore,
-			ProtectedArea:  rn.ProtectedArea,
-			Urbanization:   rn.Urbanization,
-			RiverProximity: rn.RiverProximity,
-			TrafficClass:   rn.TrafficClass,
-		})
+
+		// Set deprecated aliases from States[0] for backward compat
+		rn := ReachableNode{
+			NodeID:       nodeID,
+			Lat:          float64(nodeLat) / 1e7,
+			Lon:          float64(nodeLon) / 1e7,
+			Unknown:      unknown,
+			States:       states,
+			StateSlabIDs: slabIDs,
+			Cost:         minCostState.cost,
+			ForestPct:    states[0].ForestPct,
+			NoiseScore:   states[0].NoiseScore,
+			ProtectedArea: states[0].ProtectedArea,
+			Urbanization: states[0].Urbanization,
+			RiverProximity: states[0].RiverProximity,
+			TrafficClass: states[0].TrafficClass,
+		}
+		result = append(result, rn)
 	}
-	return result, truncated, nil
+
+	return result, rs, truncated, nil
+}
+
+func paretoAvgFlat(s paretoState) float32 {
+	if s.covDistSum == 0 {
+		return 0
+	}
+	return s.qualitySum / s.covDistSum
+}
+
+func paretoCovNorm(sum, dist float32) float32 {
+	if dist == 0 {
+		return 0
+	}
+	return sum / dist
 }
 
 // routeLegPass1 runs Pass1 + Retrack for a single leg given a Pass0 result.

@@ -247,7 +247,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --- Step 1: FindReachableWithCoords (P18: BEFORE spawning variant goroutines) ---
-	reachable, _, err := router.FindReachableWithCoords(r.Context(), startLat, startLon, cfg, halfBudgetCost, visitedWayIDs)
+	reachable, _, _, err := router.FindReachableWithCoords(r.Context(), startLat, startLon, cfg, halfBudgetCost, visitedWayIDs)
 	if err != nil {
 		slog.Error("suggest routes: FindReachableWithCoords failed", "error", err, "user_id", userID)
 		httputil.WriteError(w, http.StatusInternalServerError, "Routing Error", "reachability query failed", r.URL.Path)
