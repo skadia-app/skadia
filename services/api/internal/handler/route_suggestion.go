@@ -115,6 +115,11 @@ type RouteSuggestionResponse struct {
 //
 // POST /api/v1/routes/suggest
 func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
+	suggestStart := time.Now()
+	defer func() {
+		routing.SuggestRoutesDuration.WithLabelValues("total").Observe(time.Since(suggestStart).Seconds())
+	}()
+
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
@@ -289,6 +294,12 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		return 0
 	})
 
+	// Hard limit to prevent O(n²) in SelectVariants with huge pools.
+	const maxVariantPool = 10000
+	if len(filtered) > maxVariantPool {
+		filtered = filtered[:maxVariantPool]
+	}
+
 	// --- Step 3: Select semantic variants ---
 	selCtx := routing.VariantSelectionContext{
 		TargetDistanceM: req.TargetDistanceM,
@@ -336,6 +347,21 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = g.Wait()
 
+	// Check if all variants failed — return 500 instead of an empty 200.
+	allFailed := true
+	for _, res := range results {
+		if res != nil {
+			allFailed = false
+			break
+		}
+	}
+	if allFailed && len(selected) > 0 {
+		slog.Error("suggest routes: all variant constructions failed", "variants", len(selected))
+		httputil.WriteError(w, http.StatusInternalServerError, "Routing Error",
+			"all route variants failed to compute", r.URL.Path)
+		return
+	}
+
 	// --- Step 5: Build response ---
 	var suggestions []RouteSuggestion
 	for i, res := range results {
@@ -349,9 +375,9 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		distanceAchieved := math.Abs(merged.DistanceM-req.TargetDistanceM) <= 0.15*req.TargetDistanceM
 		ascentAchieved := true
 		if req.TargetAscentM != nil {
-			tolerance := 0.2
+			tolerance := 0.2 // default 20%
 			if req.AscentTolerancePct != nil {
-				tolerance = *req.AscentTolerancePct
+				tolerance = *req.AscentTolerancePct / 100.0 // convert percent to factor (e.g. 20 → 0.20)
 			}
 			ascentAchieved = math.Abs(merged.AscentM-*req.TargetAscentM) <= tolerance**req.TargetAscentM
 		}
