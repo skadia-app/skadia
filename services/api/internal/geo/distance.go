@@ -35,6 +35,18 @@ func PointToMercator(p orb.Point) orb.Point {
 	}
 }
 
+// BearingDeg returns the initial bearing in degrees (0–360, clockwise from north)
+// from (lat1, lon1) to (lat2, lon2) using WGS84 coordinates.
+func BearingDeg(lat1, lon1, lat2, lon2 float64) float64 {
+	lat1r := lat1 * math.Pi / 180
+	lat2r := lat2 * math.Pi / 180
+	dLon := (lon2 - lon1) * math.Pi / 180
+	x := math.Sin(dLon) * math.Cos(lat2r)
+	y := math.Cos(lat1r)*math.Sin(lat2r) - math.Sin(lat1r)*math.Cos(lat2r)*math.Cos(dLon)
+	bearing := math.Atan2(x, y) * 180 / math.Pi
+	return math.Mod(bearing+360, 360)
+}
+
 // LineStringToMercator projects an entire WGS84 LineString to Spherical
 // Pseudo-Mercator. Returns a NEW LineString (does not modify the input).
 func LineStringToMercator(ls orb.LineString) orb.LineString {
