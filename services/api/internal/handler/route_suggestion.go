@@ -410,19 +410,18 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// filterByDistanceBand selects reachable nodes whose first Pareto state
+// filterByDistanceBand selects reachable nodes where at least one Pareto state
 // distance falls within [target*lowPct, target*highPct].
 func filterByDistanceBand(reachable []routing.ReachableNode, target, lowPct, highPct float64) []routing.ReachableNode {
 	var out []routing.ReachableNode
 	lowM := float32(target * lowPct)
 	highM := float32(target * highPct)
 	for _, rn := range reachable {
-		if len(rn.States) == 0 {
-			continue
-		}
-		d := rn.States[0].DistanceM
-		if d >= lowM && d <= highM {
-			out = append(out, rn)
+		for _, s := range rn.States {
+			if s.DistanceM >= lowM && s.DistanceM <= highM {
+				out = append(out, rn)
+				break // node has at least one matching state
+			}
 		}
 	}
 	return out

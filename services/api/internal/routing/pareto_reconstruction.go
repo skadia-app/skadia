@@ -19,6 +19,7 @@ func ReconstructPath(
 	const maxHops = 10000
 
 	if int(targetStateID) >= len(rs.slab.states) {
+		ReconstructionFailureCount.Inc()
 		return nil, nil, fmt.Errorf("reconstruction: targetStateID %d out of range (slab len %d)",
 			targetStateID, len(rs.slab.states))
 	}
@@ -33,6 +34,7 @@ func ReconstructPath(
 			return edges, targetState, nil
 		}
 		if int(curID) >= len(rs.slab.states) {
+			ReconstructionFailureCount.Inc()
 			return nil, nil, fmt.Errorf("reconstruction: stateID %d out of range", curID)
 		}
 		state := &rs.slab.states[curID]
@@ -41,6 +43,7 @@ func ReconstructPath(
 		}
 		curID = state.parentStateID
 	}
+	ReconstructionFailureCount.Inc()
 	return nil, nil, errors.New("reconstruction: max hops exceeded (corrupt parent chain)")
 }
 
@@ -56,6 +59,7 @@ func reconstructPathWithNodes(
 	const maxHops = 10000
 
 	if int(targetStateID) >= len(rs.slab.states) {
+		ReconstructionFailureCount.Inc()
 		return nil, nil, nil, fmt.Errorf("reconstruction: targetStateID %d out of range (slab len %d)",
 			targetStateID, len(rs.slab.states))
 	}
@@ -85,6 +89,7 @@ func reconstructPathWithNodes(
 			return edges, nodeIDs, targetState, nil
 		}
 		if int(curID) >= len(rs.slab.states) {
+			ReconstructionFailureCount.Inc()
 			return nil, nil, nil, fmt.Errorf("reconstruction: stateID %d out of range", curID)
 		}
 		state := &rs.slab.states[curID]
@@ -94,6 +99,7 @@ func reconstructPathWithNodes(
 		})
 		curID = state.parentStateID
 	}
+	ReconstructionFailureCount.Inc()
 	return nil, nil, nil, errors.New("reconstruction: max hops exceeded (corrupt parent chain)")
 }
 
@@ -198,6 +204,7 @@ func ExtractWayIDsFromEdges(edges []EdgeHandle, reader GraphReader) map[int64]bo
 func ReconstructAndBuildRoute(rs *reachableState, targetStateID uint32, reader GraphReader) (*RouteResult, []EdgeHandle, error) {
 	edges, nodeIDs, targetState, err := reconstructPathWithNodes(rs, targetStateID)
 	if err != nil {
+		// ReconstructionFailureCount already incremented inside reconstructPathWithNodes.
 		return nil, nil, err
 	}
 	result := BuildRouteResultFromEdges(edges, nodeIDs, targetState, reader)
