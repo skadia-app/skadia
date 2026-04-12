@@ -35,11 +35,16 @@ type UnifiedRouter struct {
 
 // NewUnifiedRouter creates a router backed by any GraphReader.
 // maxConcurrent limits simultaneous routing queries (semaphore-based).
-func NewUnifiedRouter(reader GraphReader, maxConcurrent int) *UnifiedRouter {
+// maxConcurrentIsochrones limits concurrent isochrone/reachability expansions
+// (defaults to 2 if <= 0; override via SKADIA_ISO_CONCURRENCY env).
+func NewUnifiedRouter(reader GraphReader, maxConcurrent int, maxConcurrentIsochrones int) *UnifiedRouter {
+	if maxConcurrentIsochrones <= 0 {
+		maxConcurrentIsochrones = 2
+	}
 	return &UnifiedRouter{
 		reader: reader,
 		sem:    make(chan struct{}, maxConcurrent),
-		isoSem: make(chan struct{}, 2),
+		isoSem: make(chan struct{}, maxConcurrentIsochrones),
 	}
 }
 

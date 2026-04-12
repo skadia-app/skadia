@@ -108,7 +108,7 @@ func simpleCostConfig() *CostConfig {
 // newTestRouter creates a UnifiedRouter backed by a SingleGraphReader.
 func newTestRouter(g *graph.Graph) *UnifiedRouter {
 	reader := &SingleGraphReader{G: g, TileID: 0}
-	return NewUnifiedRouter(reader, 4)
+	return NewUnifiedRouter(reader, 4, 2)
 }
 
 func TestRoute_Triangle_ShortestPath(t *testing.T) {
