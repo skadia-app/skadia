@@ -122,6 +122,8 @@ func BuildCostConfig(p ProfileConfig) (*CostConfig, error) {
 		cfg.SnapThresholdM = 100 // default
 	}
 
+	cfg.EdgeCostRaw = cfg.EdgeCost
+
 	return cfg, nil
 }
 

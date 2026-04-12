@@ -77,6 +77,16 @@ type CostConfig struct {
 	// Edge cost function — receives packed tag words directly, no Graph pointer needed.
 	// Enables GraphReader abstraction where only tags are available (Phase 2+).
 	EdgeCost func(tags1, tags2 uint64) EdgeCostFactors
+
+	// WayPenalties maps OSM way ID to a cost multiplier (must be >= 1.0).
+	// Nil means no penalties active (fast path in lookupWayPenalty).
+	WayPenalties map[int64]float32
+
+	// EdgeCostRaw is the unpenalized edge cost closure. Used for metrics
+	// accumulation during retrack so that QualitySum reflects true path
+	// quality, not penalty-distorted cost.
+	// When WayPenalties is nil, EdgeCost and EdgeCostRaw are the same closure.
+	EdgeCostRaw func(tags1, tags2 uint64) EdgeCostFactors
 }
 
 // RouteRequest defines start/destination for a routing query.
