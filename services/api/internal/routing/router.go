@@ -456,14 +456,49 @@ func (r *UnifiedRouter) FindReachable(ctx context.Context,
 	return nodes, truncated, nil
 }
 
-// ReachableNode is the exported type for isochrone/suggest consumers.
+// NodePareto is a single Pareto-optimal path to a reachable node with all
+// of its per-state metrics and per-state coverage signature.
+type NodePareto struct {
+	// Pareto axes
+	Cost   float32
+	Ascent float32
+
+	// Metrics
+	Descent   float32
+	DistanceM float32
+	AvgFlat   float32
+
+	// Per-state coverage (distance-weighted averages along the path)
+	ForestPct      float32
+	NoiseScore     float32
+	ProtectedArea  float32
+	Urbanization   float32
+	RiverProximity float32
+	TrafficClass   float32
+}
+
+// ReachableNode is the exported representation of a reachable node, built
+// after findReachable completes from the active pareto front of each node.
 type ReachableNode struct {
 	NodeID  uint64
-	Cost    float32
 	Lat     float64
 	Lon     float64
 	Unknown bool // Terra Incognita: incoming edge OSM-ID not in visited set
-	// Path-averaged coverage scores, normalized [0, 1]
+
+	// Pareto-optimal states, sorted by cost ascending.
+	States []NodePareto
+
+	// Slab indices corresponding 1:1 to States[] — used by variant selection
+	// to drive ReconstructPath without public API leakage.
+	StateSlabIDs []uint32
+
+	// Deprecated: Cost is an alias for States[0].Cost, preserved so that
+	// isochrone handlers don't require code changes during the feature-flag
+	// rollout window.
+	Cost float32
+
+	// Deprecated: coverage aliases for backward compat with isochrone.
+	// Set from States[0] at export time.
 	ForestPct      float32
 	NoiseScore     float32
 	ProtectedArea  float32
