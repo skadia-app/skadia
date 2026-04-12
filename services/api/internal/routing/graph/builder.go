@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"time"
 
@@ -112,6 +113,28 @@ func bboxWhereClause(bbox *[4]float64) string {
 		" AND geom && ST_MakeEnvelope(%f, %f, %f, %f, 4326)",
 		bbox[1], bbox[0], bbox[3], bbox[2],
 	)
+}
+
+// isStrictOneway returns true if oneway=yes on this highway type applies to ALL
+// profiles (no reverse edge should be created). Trails and motorways are strict;
+// streets are vehicle-only (reverse edge created, cost closure decides per-profile).
+func isStrictOneway(highway string, tags *RawTags) bool {
+	switch highway {
+	case "motorway", "motorway_link", "trunk", "trunk_link":
+		return true
+	case "path", "footway", "bridleway", "steps", "via_ferrata", "pedestrian":
+		return true
+	case "track":
+		// Paved farm tracks (grade1/2, no trail ratings) are road-like.
+		// Unknown tracktype ("") is treated as strict (conservative default).
+		if (tags.Tracktype == "grade1" || tags.Tracktype == "grade2") &&
+			tags.SacScale == "" && tags.MtbScale == "" {
+			return false
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 // Build constructs the complete graph from PostGIS data.
@@ -283,6 +306,7 @@ const waysQueryBase = `
 		COALESCE(cycleway, ''), COALESCE(cycleway_left, ''), COALESCE(cycleway_right, ''), COALESCE(cycleway_both, ''),
 		COALESCE(maxspeed, ''), COALESCE(lanes, 0),
 		COALESCE(oneway, false), COALESCE(oneway_bicycle, false),
+		COALESCE(oneway_reverse, false),
 		COALESCE(bridge, false), COALESCE(tunnel, false),
 		COALESCE(ford, false), COALESCE(lit, false),
 		COALESCE(segregated, false), COALESCE(bicycle_road, false),
@@ -322,6 +346,7 @@ const waysQueryBaseMinimal = `
 		COALESCE(cycleway, ''), COALESCE(cycleway_left, ''), COALESCE(cycleway_right, ''), COALESCE(cycleway_both, ''),
 		COALESCE(maxspeed, ''), COALESCE(lanes, 0),
 		COALESCE(oneway, false), COALESCE(oneway_bicycle, false),
+		COALESCE(oneway_reverse, false),
 		COALESCE(bridge, false), COALESCE(tunnel, false),
 		COALESCE(ford, false), COALESCE(lit, false),
 		COALESCE(segregated, false), COALESCE(bicycle_road, false),
@@ -487,7 +512,7 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 		var cw, cwLeft, cwRight, cwBoth string
 		var maxspeed string
 		var lanes int
-		var oneway, onewayBicycle, bridge, tunnel, ford, lit bool
+		var oneway, onewayBicycle, onewayReverse, bridge, tunnel, ford, lit bool
 		var segregated, bicycleRoad bool
 		var forestPct, noiseScore, trafficClass, protectedArea int
 		var isCycleroute, isHikeroute bool
@@ -508,7 +533,7 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 				&access, &foot, &bicycle, &horse,
 				&cw, &cwLeft, &cwRight, &cwBoth,
 				&maxspeed, &lanes,
-				&oneway, &onewayBicycle, &bridge, &tunnel, &ford, &lit,
+				&oneway, &onewayBicycle, &onewayReverse, &bridge, &tunnel, &ford, &lit,
 				&segregated, &bicycleRoad,
 				&isCycleroute, &isHikeroute,
 				&cyclerouteNetwork, &hikerouteNetwork,
@@ -523,7 +548,7 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 				&access, &foot, &bicycle, &horse,
 				&cw, &cwLeft, &cwRight, &cwBoth,
 				&maxspeed, &lanes,
-				&oneway, &onewayBicycle, &bridge, &tunnel, &ford, &lit,
+				&oneway, &onewayBicycle, &onewayReverse, &bridge, &tunnel, &ford, &lit,
 				&segregated, &bicycleRoad,
 				&forestPct, &noiseScore, &trafficClass, &protectedArea,
 				&isCycleroute, &isHikeroute,
@@ -550,7 +575,7 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 			CyclewayBoth: cwBoth, Maxspeed: maxspeed,
 			Width: width, Incline: incline, Sidewalk: sidewalk,
 			Lanes:  lanes,
-			Oneway: oneway, OnewayBicycle: onewayBicycle,
+			Oneway: oneway, OnewayBicycle: onewayBicycle, OnewayReverse: onewayReverse,
 			Bridge: bridge, Tunnel: tunnel, Ford: ford, Lit: lit,
 			Segregated: segregated, BicycleRoad: bicycleRoad,
 		}
@@ -598,7 +623,23 @@ func StreamTopology(ctx context.Context, pool *pgxpool.Pool, totalWays int64,
 		tags1 := EncodeOSMTags(&tags)
 		tags2 := EncodeEdgeTags2(&tags, &enrichment)
 
-		isOneway := oneway
+		// Handle oneway=-1: reverse coords so forward edge = real direction.
+		// DEM-based elevation profiles are automatically correct because
+		// geometry is written to WaySegments AFTER this coord reversal.
+		if onewayReverse {
+			slices.Reverse(coords)
+			oneway = true
+			tags.Oneway = true
+			tags.Incline = NegateInclineStr(tags.Incline)
+			// Re-encode BOTH tags because oneway is in tags1 bit 36,
+			// incline is in tags2 bits 47-54.
+			tags1 = EncodeOSMTags(&tags)
+			tags2 = EncodeEdgeTags2(&tags, &enrichment)
+		}
+
+		// Strict oneway (trails, motorways): no reverse edge.
+		// Vehicle oneway (streets): reverse edge created, cost closure decides.
+		isOneway := oneway && isStrictOneway(highway, &tags)
 
 		// Generate edges between consecutive network nodes.
 		// Node IDs are looked up via binary search (no map needed).
@@ -712,7 +753,7 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 		var cw, cwLeft, cwRight, cwBoth string
 		var maxspeed string
 		var lanes int
-		var oneway, onewayBicycle, bridge, tunnel, ford, lit bool
+		var oneway, onewayBicycle, onewayReverse, bridge, tunnel, ford, lit bool
 		var segregated, bicycleRoad bool
 		var forestPct, noiseScore, trafficClass, protectedArea int
 		var isCycleroute, isHikeroute bool
@@ -729,7 +770,7 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 			&access, &foot, &bicycle, &horse,
 			&cw, &cwLeft, &cwRight, &cwBoth,
 			&maxspeed, &lanes,
-			&oneway, &onewayBicycle, &bridge, &tunnel, &ford, &lit,
+			&oneway, &onewayBicycle, &onewayReverse, &bridge, &tunnel, &ford, &lit,
 			&segregated, &bicycleRoad,
 			&forestPct, &noiseScore, &trafficClass, &protectedArea,
 			&isCycleroute, &isHikeroute,
@@ -753,7 +794,7 @@ func LoadWays(ctx context.Context, pool *pgxpool.Pool) ([]RawWay, error) {
 			CyclewayBoth: cwBoth, Maxspeed: maxspeed,
 			Width: width, Incline: incline, Sidewalk: sidewalk,
 			Lanes:  lanes,
-			Oneway: oneway, OnewayBicycle: onewayBicycle,
+			Oneway: oneway, OnewayBicycle: onewayBicycle, OnewayReverse: onewayReverse,
 			Bridge: bridge, Tunnel: tunnel, Ford: ford, Lit: lit,
 			Segregated: segregated, BicycleRoad: bicycleRoad,
 		}
