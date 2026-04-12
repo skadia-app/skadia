@@ -88,3 +88,45 @@ func BuildRouteResultFromEdges(
 
 	return result
 }
+
+// ExtractWayIDsFromRouteResult returns the set of OSM way IDs used by this route.
+func ExtractWayIDsFromRouteResult(r *RouteResult) map[int64]bool {
+	set := make(map[int64]bool, len(r.Segments))
+	for _, seg := range r.Segments {
+		if seg.OsmWayID != 0 {
+			set[seg.OsmWayID] = true
+		}
+	}
+	return set
+}
+
+// ExtractWayIDsFromEdges returns the set of OSM way IDs for an edge-handle list.
+func ExtractWayIDsFromEdges(edges []EdgeHandle, reader GraphReader) map[int64]bool {
+	set := make(map[int64]bool, len(edges))
+	for _, h := range edges {
+		id := reader.EdgeOSMID(uint64(h))
+		if id != 0 {
+			set[id] = true
+		}
+	}
+	return set
+}
+
+// ComputeWayIDOverlap returns the overlap of two WayID sets:
+// |A ∩ B| / min(|A|, |B|). Returns 0 if either set is empty.
+func ComputeWayIDOverlap(a, b map[int64]bool) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	intersection := 0
+	for id := range a {
+		if b[id] {
+			intersection++
+		}
+	}
+	minLen := len(a)
+	if len(b) < minLen {
+		minLen = len(b)
+	}
+	return float64(intersection) / float64(minLen)
+}
