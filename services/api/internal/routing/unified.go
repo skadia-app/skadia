@@ -464,7 +464,8 @@ func buildTrackIndexUnified(state *SparseRouterState, dst uint64, stopAt uint64)
 // Segments: Contiguous edges with the same OSM way ID are grouped into
 // RouteSegments with highway/surface/sac_scale/mtb_scale/tracktype metadata.
 func retrackUnified(reader GraphReader, state *SparseRouterState,
-	bestDstNode uint64, srcVE *VirtualEndpoint, dstVE *VirtualEndpoint) *RouteResult {
+	bestDstNode uint64, srcVE *VirtualEndpoint, dstVE *VirtualEndpoint,
+	cfg *CostConfig) *RouteResult {
 
 	// Walk parent chain from bestDstNode -> src seed
 	type pathEdge struct {
@@ -511,6 +512,9 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 	var coords []LatLonEle
 	var totalAscent, totalDescent float64
 
+	// Accumulators for RouteResult quality-gate metrics (phase 1b.6).
+	var distSum, qualitySum, ascentSum, descentSum float32
+
 	// edgeCoordStart[i] = coordinate index where edge i starts (the network node)
 	edgeCoordStart := make([]int, nEdges)
 	// edgeTags1[i] = Tags1 for edge i (used for segment metadata)
@@ -555,6 +559,29 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 
 		// A09: Tags1 for segment metadata — stored in nodeState during A*, O(1) lookup.
 		edgeTags1[i] = state.nodes[chain[i+1].nodeID].EdgeTags1
+
+		// Phase 1b.6: populate DistSum/QualitySum/AscentSum/DescentSum accumulators.
+		// Use EdgeCostRaw (unpenalized) so QualitySum reflects true path quality.
+		// Tags2 is not stored in nodeState, so we look it up via ForEachEdge by handle.
+		if cfg != nil && cfg.EdgeCostRaw != nil {
+			srcNode := chain[i].nodeID
+			reader.ForEachEdge(srcNode, func(ev EdgeView) {
+				if ev.ElevHandle != edgeHandle {
+					return
+				}
+				ecfRaw := cfg.EdgeCostRaw(ev.Tags1, ev.Tags2)
+				edgeDistM := float32(ev.Dist) / 100.0
+
+				distSum += edgeDistM
+				qualitySum += edgeDistM * ecfRaw.Flat
+
+				if ev.DeltaEle > 0 {
+					ascentSum += float32(ev.DeltaEle) / 10.0
+				} else if ev.DeltaEle < 0 {
+					descentSum += float32(-ev.DeltaEle) / 10.0
+				}
+			})
+		}
 	}
 
 	// Add last node (destination)
@@ -603,6 +630,10 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 		DescentM:    totalDescent,
 		Cost:        float64(state.nodes[bestDstNode].BestCost),
 		Segments:    segments,
+		DistSum:     distSum,
+		QualitySum:  qualitySum,
+		AscentSum:   ascentSum,
+		DescentSum:  descentSum,
 	}
 }
 

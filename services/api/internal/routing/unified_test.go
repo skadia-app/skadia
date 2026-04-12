@@ -168,7 +168,7 @@ func TestFindRouteUnified_MultiEdgePath(t *testing.T) {
 	}
 
 	// Retrack and check distance: 4 edges × 100m = 400m (haversine may differ slightly)
-	result := retrackUnified(reader, pass1.state, pass1.bestDstNode, nil, nil)
+	result := retrackUnified(reader, pass1.state, pass1.bestDstNode, nil, nil, cfg)
 	if result == nil {
 		t.Fatal("retrack returned nil")
 	}
@@ -246,7 +246,7 @@ func TestRetrackUnified_CoordinateCount(t *testing.T) {
 		t.Fatalf("pass1 failed: %v", err)
 	}
 
-	result := retrackUnified(reader, pass1.state, pass1.bestDstNode, nil, nil)
+	result := retrackUnified(reader, pass1.state, pass1.bestDstNode, nil, nil, cfg)
 	if result == nil {
 		t.Fatal("retrack returned nil")
 	}
@@ -328,7 +328,7 @@ func TestRetrackUnified_AscentDescent(t *testing.T) {
 		t.Fatalf("pass1 failed: %v", err)
 	}
 
-	result := retrackUnified(reader, pass1.state, pass1.bestDstNode, nil, nil)
+	result := retrackUnified(reader, pass1.state, pass1.bestDstNode, nil, nil, cfg)
 	if result == nil {
 		t.Fatal("retrack returned nil")
 	}
@@ -412,7 +412,7 @@ func TestExpandedFlag_PreventsCycle(t *testing.T) {
 	}
 
 	result := retrackUnified(reader, res.state,
-		res.bestDstNode, nil, nil)
+		res.bestDstNode, nil, nil, cfg)
 	if result == nil {
 		t.Fatal("retrackUnified returned nil — broken parent chain")
 	}
@@ -451,7 +451,7 @@ func TestFindRouteUnified_BasicRoute(t *testing.T) {
 	}
 
 	// Retrack
-	result := retrackUnified(reader, pass1.state, pass1.bestDstNode, nil, nil)
+	result := retrackUnified(reader, pass1.state, pass1.bestDstNode, nil, nil, cfg)
 	if result == nil {
 		t.Fatal("retrack returned nil")
 	}

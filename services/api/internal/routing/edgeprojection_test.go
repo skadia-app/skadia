@@ -245,7 +245,7 @@ func TestRetrackUnified_VirtualEndpoints(t *testing.T) {
 	}
 
 	// Retrack with VEs
-	result := retrackUnified(reader, res1.state, res1.bestDstNode, srcVE, dstVE)
+	result := retrackUnified(reader, res1.state, res1.bestDstNode, srcVE, dstVE, cfg)
 	if result == nil {
 		t.Fatal("retrackUnified with VEs returned nil")
 	}
