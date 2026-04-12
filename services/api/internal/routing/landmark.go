@@ -233,42 +233,6 @@ func EstimateAvgCostPerKm(reader GraphReader, startNode uint64, setID LandmarkSe
 	return ratios[len(ratios)/2]
 }
 
-// ComputeAvgCostfactor estimates the average flat costfactor for a given EdgeCost closure.
-// Uses a representative distribution of highway classes weighted by expected trail mix.
-func ComputeAvgCostfactor(edgeCost func(tags1, tags2 uint64) EdgeCostFactors) float32 {
-	type hwWeight struct {
-		hwBits uint64
-		weight float32
-	}
-	distribution := []hwWeight{
-		{3, 0.05},  // primary
-		{4, 0.10},  // secondary
-		{5, 0.15},  // tertiary
-		{6, 0.30},  // residential
-		{8, 0.20},  // track
-		{9, 0.15},  // path
-		{11, 0.05}, // cycleway
-	}
-
-	var sum float32
-	for _, hw := range distribution {
-		ecf := edgeCost(hw.hwBits, 0)
-		if ecf.Flat < costBlocked {
-			sum += ecf.Flat * hw.weight
-		}
-	}
-	return sum
-}
-
-// ScaledAvgCostPerKm adjusts the landmark-based cost/km to the actual profile.
-// Scales landmarkAvg by the ratio of profileCf to landmarkCf.
-func ScaledAvgCostPerKm(landmarkAvg, profileCf, landmarkCf float32) float32 {
-	if landmarkCf <= 0 {
-		return landmarkAvg
-	}
-	return landmarkAvg * (profileCf / landmarkCf)
-}
-
 // equirectDistKm computes approximate distance in km between two int32 coords (×1e7).
 // Uses standard math.Cos for build-time precision.
 // See also: equirectDist() in distance.go (float32 meters, Bhaskara approx for hot path).

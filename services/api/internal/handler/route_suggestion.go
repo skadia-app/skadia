@@ -204,28 +204,9 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	startLat := req.Start[1]
 	startLon := req.Start[0]
 
-	// --- Compute half-budget (dynamic from landmark distances, fallback static) ---
+	// --- Compute half-budget ---
 	halfDistKm := (req.TargetDistanceM / 1000.0) / 2.0
-	var halfBudgetCost float32
-	{
-		rdr := router.Reader()
-		startNode, _, snapOk := rdr.NearestNode(startLat, startLon)
-		meta := rdr.LandmarkMeta()
-		if snapOk && meta != nil && meta.LandmarkCount > 0 {
-			setID := routing.SelectLandmarkSet(cfg, meta)
-			dynamicAvg := routing.EstimateAvgCostPerKm(rdr, startNode, setID)
-			if dynamicAvg > 0 {
-				edgeCostFn := routing.BuildLandmarkEdgeCostClosure()
-				lcfg := routing.BuildLandmarkCostConfig(routing.LandmarkCostConfigs[setID], edgeCostFn)
-				landmarkCf := routing.ComputeAvgCostfactor(lcfg.EdgeCost)
-				profileCf := routing.ComputeAvgCostfactor(cfg.EdgeCost)
-				halfBudgetCost = float32(halfDistKm) * routing.ScaledAvgCostPerKm(dynamicAvg, profileCf, landmarkCf)
-			}
-		}
-		if halfBudgetCost <= 0 {
-			halfBudgetCost = float32(halfDistKm) * cfg.AvgCostPerKm // Fallback
-		}
-	}
+	halfBudgetCost := float32(halfDistKm) * cfg.AvgCostPerKm * 1.5
 
 	// --- Terra Incognita: load visited way IDs ---
 	var visitedWayIDs map[int64]bool
