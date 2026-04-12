@@ -20,6 +20,7 @@ require (
 	github.com/nats-io/nats.go v1.49.0
 	github.com/paulmach/orb v0.12.0
 	github.com/pdfcpu/pdfcpu v0.11.1
+	github.com/prometheus/client_golang v1.23.2
 	github.com/ringsaturn/tzf v1.0.4
 	github.com/sixdouglas/suncalc v0.0.0-20250114185126-291b1938b70c
 	github.com/wneessen/go-mail v0.7.2
@@ -65,7 +66,6 @@ require (
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
