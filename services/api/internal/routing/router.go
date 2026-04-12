@@ -438,7 +438,7 @@ func (r *UnifiedRouter) RouteVia(ctx context.Context, waypoints []LatLon,
 // Uses the isochrone semaphore (2 concurrent) to limit resource usage.
 func (r *UnifiedRouter) FindReachable(ctx context.Context,
 	lat, lon float64, cfg *CostConfig, maxBudget float32, maxExpansions int,
-) (map[uint64]reachableNode, bool, error) {
+) (map[uint64]reachableNodeLegacy, bool, error) {
 
 	select {
 	case r.isoSem <- struct{}{}:
@@ -452,7 +452,7 @@ func (r *UnifiedRouter) FindReachable(ctx context.Context,
 		return nil, false, fmt.Errorf("no graph node within 5km of coordinate")
 	}
 
-	nodes, truncated := findReachable(ctx, r.reader, src, cfg, maxBudget, maxExpansions)
+	nodes, truncated := findReachableLegacy(ctx, r.reader, src, cfg, maxBudget, maxExpansions)
 	return nodes, truncated, nil
 }
 
