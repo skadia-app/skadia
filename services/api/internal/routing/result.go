@@ -17,6 +17,21 @@ type RouteResult struct {
 	PassStats    PassStats      `json:"stats"`
 	ApproachFrom []LatLonEle    `json:"-"` // Straight line: click point → edge projection (start)
 	ApproachTo   []LatLonEle    `json:"-"` // Straight line: edge projection → click point (end)
+
+	// Accumulators for Quality-Gate AvgFlat computation.
+	// Populated during retrack (findRouteUnified) or reconstruction (Pareto).
+	DistSum    float32 `json:"-"`
+	QualitySum float32 `json:"-"` // Σ (edge.dist × edge.flat_factor_raw)
+	AscentSum  float32 `json:"-"`
+	DescentSum float32 `json:"-"`
+}
+
+// AvgFlat returns the distance-weighted average flat cost factor of this route.
+func (r *RouteResult) AvgFlat() float32 {
+	if r.DistSum == 0 {
+		return 0
+	}
+	return r.QualitySum / r.DistSum
 }
 
 // LatLonEle is a coordinate with elevation.
@@ -139,6 +154,10 @@ func mergeLegs(legs []*RouteResult) *RouteResult {
 		result.AscentM += leg.AscentM
 		result.DescentM += leg.DescentM
 		result.Cost += leg.Cost
+		result.DistSum += leg.DistSum
+		result.QualitySum += leg.QualitySum
+		result.AscentSum += leg.AscentSum
+		result.DescentSum += leg.DescentSum
 
 		segOffset := 0
 		if i > 0 {
