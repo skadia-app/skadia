@@ -1,8 +1,11 @@
 package routing
 
 import (
+	"context"
 	"testing"
 	"unsafe"
+
+	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
 func TestParetoStateSize(t *testing.T) {
@@ -127,4 +130,165 @@ func TestParetoFrontierHeapOrder(t *testing.T) {
 		}
 		prev = e.cost
 	}
+}
+
+// --- tinyTestReader: minimal GraphReader mock for Pareto integration tests ---
+
+// tinyTestReader is a hand-built 3-node bidirectional graph:
+//
+//	Node 0 (src): lat=47.0°, lon=11.0°, ele=5000 dm
+//	Node 1:       lat=47.005°, lon=11.005°, ele=6000 dm (+100 m ascent)
+//	Node 2:       lat=47.01°, lon=11.0°, ele=5000 dm
+//
+// Edges (bidirectional):
+//
+//	0↔1: 700 m, +100 m ascent (0→1), tags=path (hw=16)
+//	1↔2: 700 m, -100 m descent (1→2), tags=track (hw=15)
+//	0↔2: 1000 m, flat, tags=residential (hw=11)
+type tinyTestReader struct{}
+
+// tags1 helpers: highway enum is bits 0-4 of tags1.
+// path=16, track=15, residential=11 — all accessible under "hiking".
+const (
+	tinyTags1Path        = uint64(16) // path
+	tinyTags1Track       = uint64(15) // track
+	tinyTags1Residential = uint64(11) // residential
+)
+
+// nodeCoords holds lat, lon, ele for each node.
+var tinyNodes = [3]struct{ lat, lon, ele int32 }{
+	{lat: 470000000, lon: 110000000, ele: 5000}, // node 0
+	{lat: 470050000, lon: 110050000, ele: 6000}, // node 1
+	{lat: 470100000, lon: 110000000, ele: 5000}, // node 2
+}
+
+// tinyEdges maps nodeID → outgoing EdgeViews.
+var tinyEdges = map[uint64][]EdgeView{
+	0: {
+		{Target: 1, TargetLat: tinyNodes[1].lat, TargetLon: tinyNodes[1].lon,
+			Dist: 70000, Tags1: tinyTags1Path, DeltaEle: +1000},
+		{Target: 2, TargetLat: tinyNodes[2].lat, TargetLon: tinyNodes[2].lon,
+			Dist: 100000, Tags1: tinyTags1Residential, DeltaEle: 0},
+	},
+	1: {
+		{Target: 0, TargetLat: tinyNodes[0].lat, TargetLon: tinyNodes[0].lon,
+			Dist: 70000, Tags1: tinyTags1Path, DeltaEle: -1000},
+		{Target: 2, TargetLat: tinyNodes[2].lat, TargetLon: tinyNodes[2].lon,
+			Dist: 70000, Tags1: tinyTags1Track, DeltaEle: -1000},
+	},
+	2: {
+		{Target: 1, TargetLat: tinyNodes[1].lat, TargetLon: tinyNodes[1].lon,
+			Dist: 70000, Tags1: tinyTags1Track, DeltaEle: +1000},
+		{Target: 0, TargetLat: tinyNodes[0].lat, TargetLon: tinyNodes[0].lon,
+			Dist: 100000, Tags1: tinyTags1Residential, DeltaEle: 0},
+	},
+}
+
+func (r *tinyTestReader) ForEachEdge(nodeID uint64, fn func(EdgeView)) {
+	for _, ev := range tinyEdges[nodeID] {
+		fn(ev)
+	}
+}
+
+func (r *tinyTestReader) NodeCoord(nodeID uint64) (lat, lon, ele int32) {
+	if int(nodeID) < len(tinyNodes) {
+		n := tinyNodes[nodeID]
+		return n.lat, n.lon, n.ele
+	}
+	return 0, 0, 0
+}
+
+// All remaining GraphReader methods are unused by findReachable — panic stubs.
+
+func (r *tinyTestReader) ForEachInEdge(_ uint64, _ func(EdgeView)) {
+	panic("tinyTestReader: ForEachInEdge not implemented")
+}
+
+func (r *tinyTestReader) NearestNode(_, _ float64) (uint64, float64, bool) {
+	panic("tinyTestReader: NearestNode not implemented")
+}
+
+func (r *tinyTestReader) FindNearestEdge(_, _ float64, _ func(uint64) bool) (graph.EdgeProjection, bool) {
+	panic("tinyTestReader: FindNearestEdge not implemented")
+}
+
+func (r *tinyTestReader) EdgeElevProfile(_ uint64) ([]int32, []uint16) {
+	panic("tinyTestReader: EdgeElevProfile not implemented")
+}
+
+func (r *tinyTestReader) EdgeGeometry(_ uint64) ([]int32, []int32) {
+	panic("tinyTestReader: EdgeGeometry not implemented")
+}
+
+func (r *tinyTestReader) EdgeOSMID(_ uint64) int64 {
+	panic("tinyTestReader: EdgeOSMID not implemented")
+}
+
+func (r *tinyTestReader) LandmarkDists(_ LandmarkSetID, _ uint64) []float32 {
+	return nil
+}
+
+func (r *tinyTestReader) LandmarkDistsInto(_ LandmarkSetID, _ uint64, _ []float32, _ []byte) []float32 {
+	return nil
+}
+
+func (r *tinyTestReader) LandmarkDistsPageInto(_ LandmarkSetID, _ uint32, _, _ uint32, _ []float32, _ []byte) []float32 {
+	return nil
+}
+
+func (r *tinyTestReader) LandmarkMeta() *graph.LandmarkMetaData {
+	return nil
+}
+
+func (r *tinyTestReader) GraphAt(_, _ float64) *graph.Graph {
+	return nil
+}
+
+func (r *tinyTestReader) HasTilesFor(_, _, _, _ float64) bool {
+	return true
+}
+
+// --- Integration test ---
+
+func TestFindReachablePareto_SmallGraph(t *testing.T) {
+	reader := &tinyTestReader{}
+	cfg, err := BuildCostConfig(ProfileConfig{Profile: "hiking"})
+	if err != nil {
+		t.Fatalf("BuildCostConfig: %v", err)
+	}
+
+	ctx := context.Background()
+	rs, err := findReachable(ctx, reader, 0, cfg, 50000)
+	if err != nil {
+		t.Fatalf("findReachable: %v", err)
+	}
+
+	// Verify we reached at least 3 nodes (0, 1, 2).
+	if len(rs.fronts) < 3 {
+		t.Errorf("expected at least 3 reachable nodes, got %d", len(rs.fronts))
+	}
+
+	// Verify not truncated on tiny graph.
+	if rs.truncated {
+		t.Errorf("should not be truncated on small graph (reason: %q)", rs.truncatedReason)
+	}
+
+	// Verify all fronts have at least 1 active state.
+	for nodeID, front := range rs.fronts {
+		if len(front.activeIDs) == 0 {
+			t.Errorf("node %d has empty front", nodeID)
+		}
+	}
+
+	// Verify source node (0) has cost 0.
+	if front, ok := rs.fronts[0]; ok && len(front.activeIDs) > 0 {
+		srcState := rs.slab.states[front.activeIDs[0]]
+		if srcState.cost != 0 {
+			t.Errorf("source node cost = %v, expected 0", srcState.cost)
+		}
+	} else {
+		t.Error("source node 0 not found in fronts")
+	}
+
+	t.Logf("reachable nodes: %d, total states in slab: %d", len(rs.fronts), len(rs.slab.states))
 }
