@@ -113,14 +113,10 @@ func suggestRoundTripVariant(
 		return nil, fmt.Errorf("leg2 natural: %w", err)
 	}
 
-	// ExtractWayIDsFromRouteResult reads Segments[].OsmWayID. RouteVia builds segments via
-	// makeSegmentFromTags which always sets OsmWayID=0 (not available through GraphReader).
-	// As a result leg2NaturalWayIDs is always empty and overlap is always 0 — meaning the
-	// high-overlap branch (penalty rerun) is never triggered via this path. The overlap
-	// metric is therefore unreliable for RouteVia results. leg1WayIDs (from ExtractWayIDsFromEdges
-	// via ReconstructAndBuildRoute) is correct because it uses reader.EdgeOSMID() directly.
-	// TODO: populate Segments[].OsmWayID in retrackUnified to fix overlap detection for leg2.
-	leg2NaturalWayIDs := routing.ExtractWayIDsFromRouteResult(leg2Natural)
+	// Use EdgeHandles (populated by retrackUnified) to extract WayIDs via reader.EdgeOSMID().
+	// Segments[].OsmWayID is always 0 for RouteVia results (makeSegmentFromTags has no
+	// GraphReader access), so ExtractWayIDsFromRouteResult would always return an empty set.
+	leg2NaturalWayIDs := routing.ExtractWayIDsFromHandles(leg2Natural.EdgeHandles, router.Reader())
 	overlap := routing.ComputeWayIDOverlap(leg1WayIDs, leg2NaturalWayIDs)
 	naturalQualityOK := passesQualityGate(leg1, leg2Natural, baselineAvgFlat, opts)
 
@@ -161,7 +157,7 @@ func suggestRoundTripVariant(
 		} else if passesQualityGate(leg1, leg2Penalized, baselineAvgFlat, opts) {
 			leg2Final = leg2Penalized
 			newOverlap := routing.ComputeWayIDOverlap(leg1WayIDs,
-				routing.ExtractWayIDsFromRouteResult(leg2Penalized))
+				routing.ExtractWayIDsFromHandles(leg2Penalized.EdgeHandles, router.Reader()))
 			if newOverlap < opts.OverlapCheckThreshold {
 				quality = LoopQualityLoop
 			} else {
