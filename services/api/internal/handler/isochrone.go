@@ -152,7 +152,7 @@ func (h *Handler) Isochrone(w http.ResponseWriter, r *http.Request) {
 	startLat := req.Start[1]
 	startLon := req.Start[0]
 
-	reachable, truncated, err := router.FindReachableWithCoords(
+	reachable, _, truncated, err := router.FindReachableWithCoords(
 		r.Context(), startLat, startLon, cfg, budget, nil,
 	)
 	if err != nil {
