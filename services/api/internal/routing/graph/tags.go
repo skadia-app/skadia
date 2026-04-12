@@ -32,6 +32,7 @@ type RawTags struct {
 	Lanes           int
 	Oneway          bool
 	OnewayBicycle   bool
+	OnewayReverse   bool
 	Bridge          bool
 	Tunnel          bool
 	Ford            bool
@@ -506,4 +507,25 @@ func ParseIncline(s string) uint8 {
 	}
 	v := min(max(int(math.Round(f))+128, 0), 255)
 	return uint8(v)
+}
+
+// NegateInclineStr reverses the sign of an OSM incline string.
+// Used when reversing way coordinates for oneway=-1.
+func NegateInclineStr(s string) string {
+	switch s {
+	case "up":
+		return "down"
+	case "down":
+		return "up"
+	case "steep":
+		return "-steep"
+	case "-steep":
+		return "steep"
+	case "flat", "":
+		return s
+	}
+	if strings.HasPrefix(s, "-") {
+		return s[1:]
+	}
+	return "-" + s
 }

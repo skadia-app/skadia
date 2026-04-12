@@ -325,6 +325,20 @@ func buildEdgeCostClosure(p ProfileConfig) func(tags1, tags2 uint64) EdgeCostFac
 		sf := graph.DecodeSurface(tags1)
 		access := graph.DecodeAccess(tags1)
 
+		// --- Vehicle-oneway check for reverse edges ---
+		// Reverse edges on vehicle-oneway streets exist so foot profiles can
+		// traverse against traffic. Bike profiles respect oneway_bicycle.
+		if tags1&(1<<61) != 0 { // reverse edge
+			if tags1&(1<<36) != 0 { // oneway=yes on this way
+				if bike {
+					if tags1&(1<<37) != 0 { // oneway_bicycle=true
+						return EdgeCostFactors{Flat: costBlocked}
+					}
+				}
+				// foot/hiking: allowed — no penalty
+			}
+		}
+
 		// --- Access checks ---
 		if access == 3 { // private
 			return EdgeCostFactors{Flat: costBlocked}

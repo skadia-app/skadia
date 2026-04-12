@@ -695,3 +695,43 @@ func TestDefaultSportTypes(t *testing.T) {
 		t.Errorf("unknown should have empty sport types, got %v", st)
 	}
 }
+
+func TestOnewayReverseEdgeCostClosure(t *testing.T) {
+	// Encode a residential edge with oneway=yes, oneway_bicycle=true
+	residentialTags := &graph.RawTags{
+		Highway:       "residential",
+		Oneway:        true,
+		OnewayBicycle: true,
+	}
+	tags1 := graph.EncodeOSMTags(residentialTags)
+	tags2 := graph.EncodeEdgeTags2(residentialTags, &graph.RawEnrichment{})
+	reverseTags1 := tags1 | (1 << 61) // reverse-edge marker
+
+	// Hiking profile: reverse edge on vehicle-oneway should be ALLOWED
+	hikingCfg, _ := BuildCostConfig(ProfileConfig{Profile: "hiking"})
+	hikingCost := hikingCfg.EdgeCost(reverseTags1, tags2)
+	if hikingCost.Flat >= costBlocked {
+		t.Errorf("hiking profile blocked on reverse vehicle-oneway residential, want allowed")
+	}
+
+	// Trekking (bike) profile: reverse edge should be BLOCKED (oneway_bicycle=true)
+	trekkingCfg, _ := BuildCostConfig(ProfileConfig{Profile: "trekking"})
+	trekkingCost := trekkingCfg.EdgeCost(reverseTags1, tags2)
+	if trekkingCost.Flat < costBlocked {
+		t.Errorf("trekking profile allowed on reverse vehicle-oneway residential, want blocked")
+	}
+
+	// Bike profile with oneway_bicycle=false: should be ALLOWED (with penalty, not blocked)
+	residentialTagsNoBike := &graph.RawTags{
+		Highway:       "residential",
+		Oneway:        true,
+		OnewayBicycle: false,
+	}
+	tags1NoBike := graph.EncodeOSMTags(residentialTagsNoBike)
+	reverseTags1NoBike := tags1NoBike | (1 << 61)
+	tags2NoBike := graph.EncodeEdgeTags2(residentialTagsNoBike, &graph.RawEnrichment{})
+	trekkingCostNoBike := trekkingCfg.EdgeCost(reverseTags1NoBike, tags2NoBike)
+	if trekkingCostNoBike.Flat >= costBlocked {
+		t.Errorf("trekking profile blocked on reverse residential with oneway_bicycle=false, want allowed (penalized)")
+	}
+}

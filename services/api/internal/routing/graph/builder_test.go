@@ -89,6 +89,63 @@ func TestBuildFromWaysPreservesBarriers(t *testing.T) {
 	}
 }
 
+func TestIsStrictOneway(t *testing.T) {
+	tests := []struct {
+		highway   string
+		tracktype string
+		sacScale  string
+		mtbScale  string
+		want      bool
+	}{
+		// Motorways: always strict
+		{"motorway", "", "", "", true},
+		{"motorway_link", "", "", "", true},
+		{"trunk", "", "", "", true},
+		{"trunk_link", "", "", "", true},
+		// Trails: always strict
+		{"path", "", "", "", true},
+		{"footway", "", "", "", true},
+		{"steps", "", "", "", true},
+		{"via_ferrata", "", "", "", true},
+		{"pedestrian", "", "", "", true},
+		{"bridleway", "", "", "", true},
+		// Track: depends on grade + trail ratings
+		{"track", "", "", "", true},          // unknown grade → strict (conservative)
+		{"track", "grade3", "", "", true},     // rough track → strict
+		{"track", "grade4", "", "", true},     // rough track → strict
+		{"track", "grade5", "", "", true},     // rough track → strict
+		{"track", "grade1", "", "", false},    // paved farm road → vehicle
+		{"track", "grade2", "", "", false},    // gravel farm road → vehicle
+		{"track", "grade1", "T1", "", true},   // has sac_scale → strict
+		{"track", "grade2", "", "0", true},    // has mtb_scale → strict
+		// Streets: never strict
+		{"residential", "", "", "", false},
+		{"tertiary", "", "", "", false},
+		{"secondary", "", "", "", false},
+		{"primary", "", "", "", false},
+		{"unclassified", "", "", "", false},
+		{"service", "", "", "", false},
+		{"cycleway", "", "", "", false},
+		{"living_street", "", "", "", false},
+		{"primary_link", "", "", "", false},
+		{"secondary_link", "", "", "", false},
+		{"tertiary_link", "", "", "", false},
+	}
+	for _, tt := range tests {
+		tags := &RawTags{
+			Highway:   tt.highway,
+			Tracktype: tt.tracktype,
+			SacScale:  tt.sacScale,
+			MtbScale:  tt.mtbScale,
+		}
+		got := isStrictOneway(tt.highway, tags)
+		if got != tt.want {
+			t.Errorf("isStrictOneway(%q, tracktype=%q, sac=%q, mtb=%q) = %v, want %v",
+				tt.highway, tt.tracktype, tt.sacScale, tt.mtbScale, got, tt.want)
+		}
+	}
+}
+
 func init() {
 	_ = time.Now
 }

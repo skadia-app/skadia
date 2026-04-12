@@ -556,6 +556,29 @@ func TestDecodeIsReverse(t *testing.T) {
 	}
 }
 
+func TestNegateInclineStr(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"15%", "-15%"},
+		{"-10%", "10%"},
+		{"up", "down"},
+		{"down", "up"},
+		{"steep", "-steep"},
+		{"-steep", "steep"},
+		{"flat", "flat"},
+		{"", ""},
+		{"5°", "-5°"},
+		{"-12°", "12°"},
+		{"3", "-3"},
+		{"-7", "7"},
+	}
+	for _, tt := range tests {
+		got := NegateInclineStr(tt.in)
+		if got != tt.want {
+			t.Errorf("NegateInclineStr(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestIsReverseDoesNotAffectOSMTags(t *testing.T) {
 	// Bit 61 is reserve in EdgeTags1 — setting it must not corrupt other fields.
 	tags := &RawTags{
