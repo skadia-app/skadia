@@ -132,3 +132,57 @@ type paretoFrontierEntry struct {
 	cost     float32
 	frontGen uint32
 }
+
+type paretoFrontier struct {
+	entries []paretoFrontierEntry
+}
+
+func (f *paretoFrontier) Len() int { return len(f.entries) }
+
+func (f *paretoFrontier) Push(e paretoFrontierEntry) {
+	f.entries = append(f.entries, e)
+	f.siftUp(len(f.entries) - 1)
+}
+
+func (f *paretoFrontier) Pop() paretoFrontierEntry {
+	top := f.entries[0]
+	n := len(f.entries)
+	f.entries[0] = f.entries[n-1]
+	f.entries = f.entries[:n-1]
+	if len(f.entries) > 0 {
+		f.siftDown(0)
+	}
+	return top
+}
+
+func (f *paretoFrontier) siftUp(i int) {
+	for i > 0 {
+		parent := (i - 1) / 2
+		if f.entries[i].cost < f.entries[parent].cost {
+			f.entries[i], f.entries[parent] = f.entries[parent], f.entries[i]
+			i = parent
+		} else {
+			break
+		}
+	}
+}
+
+func (f *paretoFrontier) siftDown(i int) {
+	n := len(f.entries)
+	for {
+		left := 2*i + 1
+		right := 2*i + 2
+		smallest := i
+		if left < n && f.entries[left].cost < f.entries[smallest].cost {
+			smallest = left
+		}
+		if right < n && f.entries[right].cost < f.entries[smallest].cost {
+			smallest = right
+		}
+		if smallest == i {
+			break
+		}
+		f.entries[i], f.entries[smallest] = f.entries[smallest], f.entries[i]
+		i = smallest
+	}
+}

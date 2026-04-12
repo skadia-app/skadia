@@ -108,3 +108,23 @@ func TestTryInsertSortedOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestParetoFrontierHeapOrder(t *testing.T) {
+	f := paretoFrontier{entries: make([]paretoFrontierEntry, 0, 16)}
+	costs := []float32{50, 10, 30, 20, 40}
+	for i, c := range costs {
+		f.Push(paretoFrontierEntry{
+			nodeID:  uint64(i),
+			stateID: uint32(i),
+			cost:    c,
+		})
+	}
+	prev := float32(0)
+	for f.Len() > 0 {
+		e := f.Pop()
+		if e.cost < prev {
+			t.Errorf("heap order violated: %f < %f", e.cost, prev)
+		}
+		prev = e.cost
+	}
+}
