@@ -54,3 +54,26 @@ func TestReconstructPath_MaxHopsSafeguard(t *testing.T) {
 		t.Error("expected error for cyclic chain")
 	}
 }
+
+func TestComputeWayIDOverlap(t *testing.T) {
+	a := map[int64]bool{1: true, 2: true, 3: true}
+	b := map[int64]bool{2: true, 3: true, 4: true}
+	got := ComputeWayIDOverlap(a, b)
+	want := 2.0 / 3.0
+	if got < want-0.001 || got > want+0.001 {
+		t.Errorf("overlap = %v, want ~%v", got, want)
+	}
+}
+
+func TestComputeWayIDOverlap_Empty(t *testing.T) {
+	if ComputeWayIDOverlap(nil, map[int64]bool{1: true}) != 0 {
+		t.Error("empty set should give 0 overlap")
+	}
+}
+
+func TestComputeWayIDOverlap_Identical(t *testing.T) {
+	a := map[int64]bool{1: true, 2: true}
+	if ComputeWayIDOverlap(a, a) != 1.0 {
+		t.Errorf("identical sets should give 1.0 overlap")
+	}
+}
