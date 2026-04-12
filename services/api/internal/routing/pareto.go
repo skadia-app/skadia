@@ -20,6 +20,7 @@ type paretoState struct {
 	lastDY    float32
 
 	handle uint64
+	nodeID uint64 // graph node this state belongs to (set on insertion)
 
 	parentStateID uint32
 	lastWC        uint8
