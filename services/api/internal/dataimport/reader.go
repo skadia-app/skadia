@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -171,10 +172,13 @@ func OpenSource(path string) (Source, error) {
 
 // ZipSource reads from a single GDPR export ZIP file.
 type ZipSource struct {
-	path string // absolute path to the ZIP file, used by EstimatedFileBytes
-	rc   *zip.ReadCloser
-	zr   *zip.Reader
-	idx  map[string]*zip.File
+	path    string // absolute path to the ZIP file, used by EstimatedFileBytes
+	rc      *zip.ReadCloser
+	zr      *zip.Reader
+	idx     map[string]*zip.File
+	colOnce sync.Once
+	colMap  map[string][]string
+	colErr  error
 }
 
 // NewZipSource opens a ZIP file and indexes its entries.
@@ -239,20 +243,26 @@ func (s *ZipSource) ListFiles() ([]string, error) {
 }
 
 func (s *ZipSource) Columns() (map[string][]string, error) {
-	rc, err := s.openZipEntry("columns.json")
-	if err != nil {
-		return nil, nil // columns.json is optional
-	}
-	defer rc.Close()
-	raw, err := io.ReadAll(rc)
-	if err != nil {
-		return nil, fmt.Errorf("dataimport: read columns.json: %w", err)
-	}
-	var m map[string][]string
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil, fmt.Errorf("dataimport: parse columns.json: %w", err)
-	}
-	return m, nil
+	s.colOnce.Do(func() {
+		rc, err := s.openZipEntry("columns.json")
+		if err != nil {
+			s.colMap = nil
+			return // columns.json is optional
+		}
+		defer rc.Close()
+		raw, err := io.ReadAll(rc)
+		if err != nil {
+			s.colErr = fmt.Errorf("dataimport: read columns.json: %w", err)
+			return
+		}
+		var m map[string][]string
+		if err := json.Unmarshal(raw, &m); err != nil {
+			s.colErr = fmt.Errorf("dataimport: parse columns.json: %w", err)
+			return
+		}
+		s.colMap = m
+	})
+	return s.colMap, s.colErr
 }
 
 func (s *ZipSource) EstimatedFileBytes() int64 {
@@ -281,7 +291,10 @@ func (s *ZipSource) openZipEntry(name string) (io.ReadCloser, error) {
 
 // DirSource reads from an extracted (unpacked) GDPR export directory.
 type DirSource struct {
-	root string
+	root    string
+	colOnce sync.Once
+	colMap  map[string][]string
+	colErr  error
 }
 
 // NewDirSource returns a DirSource rooted at dir.
@@ -335,20 +348,26 @@ func (s *DirSource) ListFiles() ([]string, error) {
 }
 
 func (s *DirSource) Columns() (map[string][]string, error) {
-	rc, err := s.open("columns.json")
-	if err != nil {
-		return nil, nil // optional
-	}
-	defer rc.Close()
-	raw, err := io.ReadAll(rc)
-	if err != nil {
-		return nil, fmt.Errorf("dataimport: read columns.json: %w", err)
-	}
-	var m map[string][]string
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil, fmt.Errorf("dataimport: parse columns.json: %w", err)
-	}
-	return m, nil
+	s.colOnce.Do(func() {
+		rc, err := s.open("columns.json")
+		if err != nil {
+			s.colMap = nil
+			return // optional
+		}
+		defer rc.Close()
+		raw, err := io.ReadAll(rc)
+		if err != nil {
+			s.colErr = fmt.Errorf("dataimport: read columns.json: %w", err)
+			return
+		}
+		var m map[string][]string
+		if err := json.Unmarshal(raw, &m); err != nil {
+			s.colErr = fmt.Errorf("dataimport: parse columns.json: %w", err)
+			return
+		}
+		s.colMap = m
+	})
+	return s.colMap, s.colErr
 }
 
 // EstimatedFileBytes returns the total size of all regular files under the
