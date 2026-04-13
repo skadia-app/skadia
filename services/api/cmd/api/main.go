@@ -23,6 +23,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/dataimport"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/garmin"
 	"github.com/skadia-app/skadia/services/api/internal/handler"
@@ -251,6 +252,118 @@ func main() {
 			slog.Info("progress", "current", current, "total", total)
 		}); err != nil {
 			slog.Error("build-coverage failed", "error", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	// ── import subcommand ──────────────────────────────────────────────────────
+	// Usage: api import --archive <path> --target-user <uuid> [--force]
+	// Imports a GDPR export ZIP or directory into an existing user account.
+	if len(os.Args) > 1 && os.Args[1] == "import" {
+		fs := flag.NewFlagSet("import", flag.ExitOnError)
+		archivePath := fs.String("archive", "", "Path to export ZIP or directory (required)")
+		targetUser := fs.String("target-user", "", "Target user UUID (required)")
+		force := fs.Bool("force", false, "Skip non-empty account warning")
+		if err := fs.Parse(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "import: flag parse error: %v\n", err)
+			os.Exit(1)
+		}
+
+		if *archivePath == "" || *targetUser == "" {
+			fmt.Fprintln(os.Stderr, "Usage: api import --archive <path> --target-user <uuid> [--force]")
+			os.Exit(1)
+		}
+
+		cfg, err := config.Load()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "import: config load failed: %v\n", err)
+			os.Exit(1)
+		}
+		ctx := context.Background()
+		db, err := database.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "import: database connect failed: %v\n", err)
+			os.Exit(1)
+		}
+		defer db.Close()
+		if err := migrate.Run(ctx, db.Pool); err != nil {
+			fmt.Fprintf(os.Stderr, "import: migrations failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		var localBE, s3BE shadowfs.StorageBackend
+		if cfg.LibraryBasePath != "" {
+			localBE = shadowfs.NewLocalBackend(cfg.LibraryBasePath)
+		}
+		if cfg.S3Endpoint != "" {
+			s3BE = shadowfs.NewS3Backend(cfg.S3Endpoint, cfg.S3AccessKey, cfg.S3SecretKey,
+				cfg.S3Bucket, cfg.S3Region, cfg.S3ForcePathStyle)
+		}
+
+		sfs := shadowfs.NewUnifiedShadowFS(db.Pool, localBE, s3BE, cfg.StorageBackend,
+			cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), cfg.LibraryKeepVersions,
+			cfg.MaxUserStorageBytes, cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
+
+		source, err := dataimport.OpenSource(*archivePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "import: open source failed: %v\n", err)
+			os.Exit(1)
+		}
+		defer source.Close()
+
+		engine := &dataimport.Engine{
+			DB:       db.Pool,
+			ShadowFS: sfs,
+			Config: dataimport.EngineConfig{
+				StorageBackend:  cfg.StorageBackend,
+				LibraryBasePath: cfg.LibraryBasePath,
+				MaxStorageBytes: cfg.MaxUserStorageBytes,
+			},
+		}
+
+		if !*force {
+			vr, err := engine.ValidateAccount(ctx, *targetUser)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "import: ValidateAccount failed: %v\n", err)
+				os.Exit(1)
+			}
+			for _, w := range vr.Warnings {
+				fmt.Fprintf(os.Stderr, "WARNING: %s\n", w)
+			}
+			if len(vr.Warnings) > 0 {
+				fmt.Fprint(os.Stderr, "Continue? [y/N] ")
+				var answer string
+				fmt.Scanln(&answer)
+				if answer != "y" && answer != "Y" {
+					os.Exit(0)
+				}
+			}
+		}
+
+		result, err := engine.RunImport(ctx, dataimport.ImportInput{
+			Source:       source,
+			TargetUserID: *targetUser,
+			OnProgress: func(ev dataimport.ProgressEvent) {
+				fmt.Fprintf(os.Stderr, "\r[Phase %d/%d] %s", ev.Phase, ev.PhasesTotal, ev.Message)
+			},
+		})
+		fmt.Fprintln(os.Stderr) // newline after progress
+
+		if result != nil {
+			fmt.Printf("Imported: %d entities, %d files (%d bytes)\n",
+				result.EntitiesImported, result.FilesImported, result.BytesImported)
+			fmt.Printf("Skipped: %d, Failed: %d\n", result.EntitiesSkipped, result.EntitiesFailed)
+			for _, w := range result.Warnings {
+				fmt.Fprintf(os.Stderr, "WARNING: %s\n", w)
+			}
+			for _, e := range result.Errors {
+				fmt.Fprintf(os.Stderr, "ERROR [phase %d, table %s, row %d]: %s\n",
+					e.Phase, e.Table, e.RowIndex, e.Error)
+			}
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Import failed: %v\n", err)
 			os.Exit(1)
 		}
 		os.Exit(0)
@@ -748,6 +861,10 @@ func main() {
 			r.With(middleware.RateLimitPerUser(authRL, "export-status:", 60.0/60, 10)).
 				Get("/data-export/{jobID}", authHandler.DataExportStatus)
 			r.Get("/data-export/{jobID}/download", authHandler.DataExportDownload)
+			r.With(middleware.RateLimitPerUser(authRL, "import:", 1.0/300, 1)).
+				Post("/data-import", authHandler.DataImport)
+			r.With(middleware.RateLimitPerUser(authRL, "import-status:", 60.0/60, 10)).
+				Get("/data-import/{jobID}", authHandler.DataImportStatus)
 		})
 	})
 
