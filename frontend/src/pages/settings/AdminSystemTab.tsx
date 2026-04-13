@@ -39,18 +39,18 @@ const ENV_VAR_NAMES: Record<string, string> = {
   'smtp.username': 'SMTP_USERNAME',
   'smtp.password': 'SMTP_PASSWORD',
   'smtp.from': 'SMTP_FROM',
-  'smtp.tls_mode': 'SMTP_TLS_MODE',
+  'smtp.tls': 'SMTP_TLS',
   'app.name': 'APP_NAME',
   'app.url': 'APP_URL',
-  'app.registration_mode': 'REGISTRATION_MODE',
-  'social.strava_client_id': 'STRAVA_CLIENT_ID',
-  'social.strava_client_secret': 'STRAVA_CLIENT_SECRET',
-  'social.google_client_id': 'GOOGLE_CLIENT_ID',
-  'social.google_client_secret': 'GOOGLE_CLIENT_SECRET',
-  'storage.hotfolder_mode': 'HOTFOLDER_MODE',
-  'storage.library_sync': 'LIBRARY_SYNC',
-  'storage.library_sync_auto_import': 'LIBRARY_SYNC_AUTO_IMPORT',
-  'db.timescaledb_compression': 'TIMESCALEDB_COMPRESSION',
+  'registration.mode': 'REGISTRATION_MODE',
+  'social.strava.client_id': 'STRAVA_CLIENT_ID',
+  'social.strava.client_secret': 'STRAVA_CLIENT_SECRET',
+  'social.google.client_id': 'GOOGLE_CLIENT_ID',
+  'social.google.client_secret': 'GOOGLE_CLIENT_SECRET',
+  'hotfolder.mode': 'HOTFOLDER_MODE',
+  'library.sync_enabled': 'LIBRARY_SYNC_ENABLED',
+  'library.sync_auto_import': 'LIBRARY_SYNC_AUTO_IMPORT',
+  'timescale.compression': 'TIMESCALEDB_COMPRESSION',
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -168,7 +168,7 @@ function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
     setUsername(getValue(settings, 'smtp', 'username'))
     setPassword(getValue(settings, 'smtp', 'password') ? '***' : '')
     setFrom(getValue(settings, 'smtp', 'from'))
-    setTlsMode(getValue(settings, 'smtp', 'tls_mode') || 'starttls')
+    setTlsMode(getValue(settings, 'smtp', 'tls') || 'starttls')
   }, [settings])
 
   const smtpConfigured = host.trim() !== ''
@@ -182,7 +182,7 @@ function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
         'smtp.username': username || null,
         'smtp.password': password === '***' ? '***' : (password || null),
         'smtp.from': from || null,
-        'smtp.tls_mode': tlsMode || null,
+        'smtp.tls': tlsMode || null,
       })
       addToast({ type: 'success', title: 'Einstellungen gespeichert' })
       onSaved()
@@ -287,8 +287,8 @@ function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
           label="TLS-Modus"
           value={tlsMode}
           onChange={setTlsMode}
-          disabled={isLocked(settings, 'smtp', 'tls_mode')}
-          fieldKey="smtp.tls_mode"
+          disabled={isLocked(settings, 'smtp', 'tls')}
+          fieldKey="smtp.tls"
           options={[
             { value: 'starttls', label: 'STARTTLS' },
             { value: 'ssl', label: 'SSL/TLS' },
@@ -312,7 +312,7 @@ interface RegistrationSectionProps {
 
 function RegistrationSection({ settings, smtpConfigured, onSaved }: RegistrationSectionProps) {
   const { addToast } = useToast()
-  const [registrationMode, setRegistrationMode] = useState('invitation')
+  const [registrationMode, setRegistrationMode] = useState('invite')
   const [appName, setAppName] = useState('')
   const [appUrl, setAppUrl] = useState('')
   const [originalAppUrl, setOriginalAppUrl] = useState('')
@@ -320,7 +320,7 @@ function RegistrationSection({ settings, smtpConfigured, onSaved }: Registration
 
   useEffect(() => {
     if (!settings) return
-    setRegistrationMode(getValue(settings, 'app', 'registration_mode') || 'invitation')
+    setRegistrationMode(getValue(settings, 'registration', 'mode') || 'invite')
     setAppName(getValue(settings, 'app', 'name'))
     const url = getValue(settings, 'app', 'url')
     setAppUrl(url)
@@ -333,7 +333,7 @@ function RegistrationSection({ settings, smtpConfigured, onSaved }: Registration
     setSaving(true)
     try {
       await putAdminSettings({
-        'app.registration_mode': registrationMode || null,
+        'registration.mode': registrationMode || null,
         'app.name': appName || null,
         'app.url': appUrl || null,
       })
@@ -348,13 +348,13 @@ function RegistrationSection({ settings, smtpConfigured, onSaved }: Registration
   }
 
   function handleReset() {
-    setRegistrationMode('invitation')
+    setRegistrationMode('invite')
     setAppName('')
     setAppUrl('')
   }
 
   const REGISTRATION_MODES = [
-    { value: 'invitation', label: 'Einladung', description: 'Nur per Einladungslink registrieren' },
+    { value: 'invite', label: 'Einladung', description: 'Nur per Einladungslink registrieren' },
     { value: 'open', label: 'Offen', description: 'Jeder kann sich registrieren' },
     { value: 'approval', label: 'Genehmigung', description: 'Registrierung erfordert Admin-Freigabe' },
   ]
@@ -374,7 +374,7 @@ function RegistrationSection({ settings, smtpConfigured, onSaved }: Registration
                 registrationMode === mode.value
                   ? 'border-accent-400 bg-accent-50 dark:bg-accent-900/20 dark:border-accent-600'
                   : 'border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600'
-              } ${isLocked(settings, 'app', 'registration_mode') ? 'opacity-50 cursor-not-allowed' : ''}`}
+              } ${isLocked(settings, 'registration', 'mode') ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <input
                 type="radio"
@@ -382,7 +382,7 @@ function RegistrationSection({ settings, smtpConfigured, onSaved }: Registration
                 value={mode.value}
                 checked={registrationMode === mode.value}
                 onChange={() => setRegistrationMode(mode.value)}
-                disabled={isLocked(settings, 'app', 'registration_mode')}
+                disabled={isLocked(settings, 'registration', 'mode')}
                 className="mt-0.5 accent-accent-500"
               />
               <div>
@@ -392,8 +392,8 @@ function RegistrationSection({ settings, smtpConfigured, onSaved }: Registration
             </label>
           ))}
         </div>
-        {isLocked(settings, 'app', 'registration_mode') && (
-          <LockedHint fieldKey="app.registration_mode" />
+        {isLocked(settings, 'registration', 'mode') && (
+          <LockedHint fieldKey="registration.mode" />
         )}
         {registrationMode === 'open' && !smtpConfigured && (
           <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
@@ -533,20 +533,20 @@ function SocialLoginSection({ settings, onSaved }: SocialLoginSectionProps) {
 
   useEffect(() => {
     if (!settings) return
-    setStravaClientId(getValue(settings, 'social', 'strava_client_id'))
-    setStravaClientSecret(getValue(settings, 'social', 'strava_client_secret') ? '***' : '')
-    setGoogleClientId(getValue(settings, 'social', 'google_client_id'))
-    setGoogleClientSecret(getValue(settings, 'social', 'google_client_secret') ? '***' : '')
+    setStravaClientId(getValue(settings, 'social', 'strava.client_id'))
+    setStravaClientSecret(getValue(settings, 'social', 'strava.client_secret') ? '***' : '')
+    setGoogleClientId(getValue(settings, 'social', 'google.client_id'))
+    setGoogleClientSecret(getValue(settings, 'social', 'google.client_secret') ? '***' : '')
   }, [settings])
 
   async function handleSave() {
     setSaving(true)
     try {
       await putAdminSettings({
-        'social.strava_client_id': stravaClientId || null,
-        'social.strava_client_secret': stravaClientSecret === '***' ? '***' : (stravaClientSecret || null),
-        'social.google_client_id': googleClientId || null,
-        'social.google_client_secret': googleClientSecret === '***' ? '***' : (googleClientSecret || null),
+        'social.strava.client_id': stravaClientId || null,
+        'social.strava.client_secret': stravaClientSecret === '***' ? '***' : (stravaClientSecret || null),
+        'social.google.client_id': googleClientId || null,
+        'social.google.client_secret': googleClientSecret === '***' ? '***' : (googleClientSecret || null),
       })
       addToast({ type: 'success', title: 'Einstellungen gespeichert' })
       onSaved()
@@ -576,10 +576,10 @@ function SocialLoginSection({ settings, onSaved }: SocialLoginSectionProps) {
           clientSecret={stravaClientSecret}
           onClientIdChange={setStravaClientId}
           onClientSecretChange={setStravaClientSecret}
-          clientIdKey="social.strava_client_id"
-          clientSecretKey="social.strava_client_secret"
-          clientIdLocked={isLocked(settings, 'social', 'strava_client_id')}
-          clientSecretLocked={isLocked(settings, 'social', 'strava_client_secret')}
+          clientIdKey="social.strava.client_id"
+          clientSecretKey="social.strava.client_secret"
+          clientIdLocked={isLocked(settings, 'social', 'strava.client_id')}
+          clientSecretLocked={isLocked(settings, 'social', 'strava.client_secret')}
         />
         <ProviderBlock
           name="Google"
@@ -587,10 +587,10 @@ function SocialLoginSection({ settings, onSaved }: SocialLoginSectionProps) {
           clientSecret={googleClientSecret}
           onClientIdChange={setGoogleClientId}
           onClientSecretChange={setGoogleClientSecret}
-          clientIdKey="social.google_client_id"
-          clientSecretKey="social.google_client_secret"
-          clientIdLocked={isLocked(settings, 'social', 'google_client_id')}
-          clientSecretLocked={isLocked(settings, 'social', 'google_client_secret')}
+          clientIdKey="social.google.client_id"
+          clientSecretKey="social.google.client_secret"
+          clientIdLocked={isLocked(settings, 'social', 'google.client_id')}
+          clientSecretLocked={isLocked(settings, 'social', 'google.client_secret')}
         />
       </div>
 
@@ -617,10 +617,10 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
 
   useEffect(() => {
     if (!settings) return
-    setHotfolderMode(getValue(settings, 'storage', 'hotfolder_mode') || 'disabled')
-    setLibrarySync(getValue(settings, 'storage', 'library_sync') === 'true')
-    setLibrarySyncAutoImport(getValue(settings, 'storage', 'library_sync_auto_import') === 'true')
-    setTimescaleCompression(getValue(settings, 'db', 'timescaledb_compression') === 'true')
+    setHotfolderMode(getValue(settings, 'hotfolder', 'mode') || 'disabled')
+    setLibrarySync(getValue(settings, 'library', 'sync_enabled') === 'true')
+    setLibrarySyncAutoImport(getValue(settings, 'library', 'sync_auto_import') === 'true')
+    setTimescaleCompression(getValue(settings, 'timescale', 'compression') === 'true')
   }, [settings])
 
   function handleTimescaleToggle(newVal: boolean) {
@@ -635,10 +635,10 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
     setSaving(true)
     try {
       await putAdminSettings({
-        'storage.hotfolder_mode': hotfolderMode || null,
-        'storage.library_sync': String(librarySync),
-        'storage.library_sync_auto_import': String(librarySyncAutoImport),
-        'db.timescaledb_compression': String(timescaleCompression),
+        'hotfolder.mode': hotfolderMode || null,
+        'library.sync_enabled': String(librarySync),
+        'library.sync_auto_import': String(librarySyncAutoImport),
+        'timescale.compression': String(timescaleCompression),
       })
       addToast({ type: 'success', title: 'Einstellungen gespeichert' })
       onSaved()
@@ -689,12 +689,12 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
         label="Hotfolder-Modus"
         value={hotfolderMode}
         onChange={setHotfolderMode}
-        disabled={isLocked(settings, 'storage', 'hotfolder_mode')}
-        fieldKey="storage.hotfolder_mode"
+        disabled={isLocked(settings, 'hotfolder', 'mode')}
+        fieldKey="hotfolder.mode"
         options={[
           { value: 'disabled', label: 'Deaktiviert' },
-          { value: 'admin_only', label: 'Nur Admin' },
-          { value: 'self_service', label: 'Self-Service' },
+          { value: 'admin-only', label: 'Nur Admin' },
+          { value: 'self-service', label: 'Self-Service' },
         ]}
       />
 
@@ -703,14 +703,14 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
           <div className="min-w-0 flex-1">
             <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Library Sync</span>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">Aktivitätsdateien automatisch mit dem Hotfolder synchronisieren</p>
-            {isLocked(settings, 'storage', 'library_sync') && (
-              <LockedHint fieldKey="storage.library_sync" />
+            {isLocked(settings, 'library', 'sync_enabled') && (
+              <LockedHint fieldKey="library.sync_enabled" />
             )}
           </div>
           <Toggle
             checked={librarySync}
             onChange={setLibrarySync}
-            disabled={isLocked(settings, 'storage', 'library_sync')}
+            disabled={isLocked(settings, 'library', 'sync_enabled')}
             aria-label="Library Sync aktivieren"
           />
         </div>
@@ -721,14 +721,14 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
               Library Sync Auto-Import
             </span>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">Neue Dateien im Hotfolder automatisch importieren</p>
-            {isLocked(settings, 'storage', 'library_sync_auto_import') && (
-              <LockedHint fieldKey="storage.library_sync_auto_import" />
+            {isLocked(settings, 'library', 'sync_auto_import') && (
+              <LockedHint fieldKey="library.sync_auto_import" />
             )}
           </div>
           <Toggle
             checked={librarySyncAutoImport}
             onChange={setLibrarySyncAutoImport}
-            disabled={!librarySync || isLocked(settings, 'storage', 'library_sync_auto_import')}
+            disabled={!librarySync || isLocked(settings, 'library', 'sync_auto_import')}
             aria-label="Library Sync Auto-Import aktivieren"
           />
         </div>
@@ -737,14 +737,14 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
           <div className="min-w-0 flex-1">
             <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">TimescaleDB-Kompression</span>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">Aktivitätsstreams komprimieren (empfohlen bei großen Datenmengen)</p>
-            {isLocked(settings, 'db', 'timescaledb_compression') && (
-              <LockedHint fieldKey="db.timescaledb_compression" />
+            {isLocked(settings, 'timescale', 'compression') && (
+              <LockedHint fieldKey="timescale.compression" />
             )}
           </div>
           <Toggle
             checked={timescaleCompression}
             onChange={handleTimescaleToggle}
-            disabled={isLocked(settings, 'db', 'timescaledb_compression')}
+            disabled={isLocked(settings, 'timescale', 'compression')}
             aria-label="TimescaleDB-Kompression aktivieren"
           />
         </div>
