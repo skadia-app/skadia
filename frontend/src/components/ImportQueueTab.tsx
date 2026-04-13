@@ -11,6 +11,7 @@ import {
 import { resolveSportConflict } from '@/api/sportConflict'
 import { fetchActivities } from '@/api/activities'
 import { fmtDateCompact } from '@/lib/format'
+import { sportLabel } from '@/lib/sportTaxonomy'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -412,26 +413,49 @@ function ImportErrorItem({ item, onRefresh }: ItemProps) {
 
 function SportConflictItem({ item, onRefresh }: ItemProps) {
   const activityId = item.metadata?.activity_id
-  const dismissMutation = useMutation({
-    mutationFn: () =>
+  const platformSport = item.metadata?.platform_sport as string | undefined
+  const fileSport = item.metadata?.file_sport as string | undefined
+  const platformSource = item.metadata?.platform_source as string | undefined
+  const fileSource = item.metadata?.file_source as string | undefined
+
+  const resolveMutation = useMutation({
+    mutationFn: (sportType?: string) =>
       activityId
-        ? resolveSportConflict(activityId) // no sport_type = keep current, dismiss only
+        ? resolveSportConflict(activityId, sportType)
         : deleteQueueItem(item.id),
     onSuccess: onRefresh,
   })
 
-  const platformSport = item.metadata?.platform_sport
-  const fileSport = item.metadata?.file_sport
+  const isPending = resolveMutation.isPending
+
+  // No actual conflict (e.g. "training vs training") — show simplified dismiss
+  const isSameType = platformSport && fileSport && platformSport === fileSport
+
+  // Build choice labels: sport label + source hint
+  const sourceLabel = (src?: string) => {
+    if (!src) return ''
+    if (src === 'fit') return 'FIT-Datei'
+    if (src === 'strava') return 'Strava'
+    if (src === 'garmin') return 'Garmin'
+    if (src === 'komoot') return 'Komoot'
+    return src
+  }
 
   return (
     <div className="space-y-3">
       <div>
-        {platformSport && fileSport ? (
+        {isSameType ? (
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+            Kein echter Konflikt — beide Quellen melden{' '}
+            <span className="font-medium text-neutral-700 dark:text-neutral-200">{sportLabel(platformSport)}</span>
+          </p>
+        ) : platformSport && fileSport ? (
           <p className="text-sm text-neutral-700 dark:text-neutral-300">
-            Sport-Typ-Konflikt:{' '}
-            <span className="font-medium">{platformSport}</span>
+            <span className="font-medium">{sportLabel(platformSport)}</span>
+            {platformSource ? <span className="text-neutral-400"> ({sourceLabel(platformSource)})</span> : null}
             {' vs '}
-            <span className="font-medium">{fileSport}</span>
+            <span className="font-medium">{sportLabel(fileSport)}</span>
+            {fileSource ? <span className="text-neutral-400"> ({sourceLabel(fileSource)})</span> : null}
           </p>
         ) : (
           <p className="text-sm text-neutral-700 dark:text-neutral-300">Sport-Typ-Konflikt</p>
@@ -445,13 +469,44 @@ function SportConflictItem({ item, onRefresh }: ItemProps) {
           </Link>
         )}
       </div>
-      <button
-        onClick={() => dismissMutation.mutate()}
-        disabled={dismissMutation.isPending}
-        className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {dismissMutation.isPending ? 'Wird verworfen…' : 'Verwerfen'}
-      </button>
+
+      {isSameType ? (
+        <button
+          onClick={() => resolveMutation.mutate(undefined)}
+          disabled={isPending}
+          className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {isPending ? 'Wird aufgelöst…' : 'Auflösen'}
+        </button>
+      ) : (
+        <div className="flex gap-2 flex-wrap">
+          {platformSport && (
+            <button
+              onClick={() => resolveMutation.mutate(platformSport)}
+              disabled={isPending}
+              className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isPending ? '…' : sportLabel(platformSport)}
+            </button>
+          )}
+          {fileSport && fileSport !== platformSport && (
+            <button
+              onClick={() => resolveMutation.mutate(fileSport)}
+              disabled={isPending}
+              className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-700 dark:text-neutral-200 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isPending ? '…' : sportLabel(fileSport)}
+            </button>
+          )}
+          <button
+            onClick={() => resolveMutation.mutate(undefined)}
+            disabled={isPending}
+            className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Verwerfen
+          </button>
+        </div>
+      )}
     </div>
   )
 }
