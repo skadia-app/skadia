@@ -263,6 +263,12 @@ func validateLibraryBasePath(p string) error {
 // uses a potentially compromised env var).
 func getSecret(key, defaultValue string) string {
 	if filePath := os.Getenv(key + "_FILE"); filePath != "" {
+		filePath = filepath.Clean(filePath)
+		if !filepath.IsAbs(filePath) {
+			slog.Error("FATAL: secret file path must be absolute",
+				"key", key+"_FILE", "path", filePath)
+			os.Exit(1)
+		}
 		data, err := os.ReadFile(filePath)
 		if err != nil {
 			slog.Error("FATAL: secret file unreadable — refusing to fall back to env var",

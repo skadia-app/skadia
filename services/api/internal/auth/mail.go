@@ -245,7 +245,7 @@ func (m *Mailer) sendRaw(to, subject, templateName, htmlBody, textBody string) e
 	case "none":
 		opts = append(opts, gomail.WithTLSPortPolicy(gomail.NoTLS))
 	default: // "starttls"
-		opts = append(opts, gomail.WithTLSPortPolicy(gomail.TLSOpportunistic))
+		opts = append(opts, gomail.WithTLSPortPolicy(gomail.TLSMandatory))
 	}
 
 	const maxAttempts = 3
