@@ -338,7 +338,10 @@ func walkAndRemap(val any, idMap *IDMap) any {
 			// Check if this key is a remap target across any table.
 			if isJSONBRemapKey(k) {
 				if s, ok := stringVal(child); ok && s != "" {
-					out[k] = idMap.Get(s)
+					if mapped, exists := idMap.GetIfExists(s); exists {
+						out[k] = mapped
+					}
+					// else: leave original value — referenced entity not in export
 					continue
 				}
 			}
@@ -636,8 +639,16 @@ func (e *Engine) runJSONBRemap(ctx context.Context, idMap *IDMap, userID string)
 				result := walkAndRemap(raw, idMap)
 				remapped[i] = result
 				// Change detection: marshal and compare bytes.
-				rawJSON, _ := json.Marshal(raw)
-				resultJSON, _ := json.Marshal(result)
+				rawJSON, err := json.Marshal(raw)
+				if err != nil {
+					rows.Close()
+					return fmt.Errorf("jsonb remap marshal original %s row %s: %w", table, rowID, err)
+				}
+				resultJSON, err := json.Marshal(result)
+				if err != nil {
+					rows.Close()
+					return fmt.Errorf("jsonb remap marshal remapped %s row %s: %w", table, rowID, err)
+				}
 				if !bytes.Equal(rawJSON, resultJSON) {
 					changed = true
 				}
@@ -658,7 +669,10 @@ func (e *Engine) runJSONBRemap(ctx context.Context, idMap *IDMap, userID string)
 			for i, col := range jsonbCols {
 				setClauses[i] = fmt.Sprintf("%s = $%d", pgx.Identifier{col}.Sanitize(), i+1)
 				// Marshal back to JSON bytes for pgx JSONB binding.
-				b, _ := json.Marshal(upd.values[i])
+				b, err := json.Marshal(upd.values[i])
+				if err != nil {
+					return fmt.Errorf("jsonb remap marshal update %s col %s: %w", table, col, err)
+				}
 				args = append(args, b)
 			}
 			args = append(args, upd.id)
