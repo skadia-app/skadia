@@ -17,6 +17,8 @@ func (db *DB) InsertLaps(ctx context.Context, activityID string, laps []model.La
 	}
 
 	batch := &pgx.Batch{}
+	// Delete any existing laps first so re-processing an activity (enrich/replace) is idempotent.
+	batch.Queue(`DELETE FROM activity_laps WHERE activity_id = $1`, activityID)
 	for _, l := range laps {
 		batch.Queue(`
 			INSERT INTO activity_laps (
@@ -199,7 +201,8 @@ func (db *DB) InsertLaps(ctx context.Context, activityID string, laps []model.La
 	br := db.Pool.SendBatch(ctx, batch)
 	defer br.Close()
 
-	for range laps {
+	// 1 DELETE + len(laps) INSERTs
+	for range 1 + len(laps) {
 		if _, err := br.Exec(); err != nil {
 			return fmt.Errorf("insert lap: %w", err)
 		}

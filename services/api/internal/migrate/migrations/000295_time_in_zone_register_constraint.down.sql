@@ -1,0 +1,2 @@
+-- Reverting this would require dropping the constraint and recreating it as a
+-- plain index, but that would break the running application. No-op rollback.
