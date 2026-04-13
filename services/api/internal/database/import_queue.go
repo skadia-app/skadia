@@ -12,11 +12,11 @@ import (
 type ImportQueueItem struct {
 	ID               string         `json:"id"`
 	UserID           string         `json:"user_id"`
-	QueueType        string         `json:"queue_type"` // image_no_exif|image_ambiguous|pdf_untyped|duplicate|import_error
+	QueueType        string         `json:"item_type"`  // image_no_exif|image_ambiguous|pdf_untyped|duplicate|import_error|sport_conflict
 	Status           string         `json:"status"`     // pending|resolved|dismissed
-	OriginalFilename string         `json:"original_filename"`
+	OriginalFilename string         `json:"filename"`
 	ContentType      string         `json:"content_type"`
-	FileSizeBytes    *int64         `json:"file_size_bytes,omitempty"`
+	FileSizeBytes    *int64         `json:"file_size,omitempty"`
 	StorageBackend   *string        `json:"storage_backend,omitempty"`
 	StoragePath      *string        `json:"storage_path,omitempty"`
 	Metadata         map[string]any `json:"metadata"`
