@@ -467,8 +467,16 @@ func (e *Engine) doInsert(
 		strings.Join(valParts, ", "),
 	)
 
-	if _, err := tx.Exec(ctx, query, args...); err != nil {
+	if isHealthTable(spec.Name) {
+		query += " ON CONFLICT DO NOTHING"
+	}
+
+	tag, err := tx.Exec(ctx, query, args...)
+	if err != nil {
 		return failed, fmt.Errorf("doInsert %s: %w", spec.Name, err)
+	}
+	if isHealthTable(spec.Name) && tag.RowsAffected() == 0 {
+		return skipped, nil
 	}
 	return inserted, nil
 }

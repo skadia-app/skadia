@@ -64,7 +64,7 @@ func introspectAllTables(ctx context.Context, pool *pgxpool.Pool) (map[string][]
 		result[spec.Name] = cols
 	}
 
-	for _, spec := range healthTables(false) {
+	for _, spec := range healthTables() {
 		if spec.Skip {
 			continue
 		}

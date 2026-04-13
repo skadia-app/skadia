@@ -258,20 +258,20 @@ func main() {
 	}
 
 	// ── import subcommand ──────────────────────────────────────────────────────
-	// Usage: api import --archive <path> --target-user <uuid> [--force]
+	// Usage: api import --archive <path> --target-user <uuid>
 	// Imports a GDPR export ZIP or directory into an existing user account.
+	// The target account must have no existing activities or uploaded files.
 	if len(os.Args) > 1 && os.Args[1] == "import" {
 		fs := flag.NewFlagSet("import", flag.ExitOnError)
 		archivePath := fs.String("archive", "", "Path to export ZIP or directory (required)")
 		targetUser := fs.String("target-user", "", "Target user UUID (required)")
-		force := fs.Bool("force", false, "Skip non-empty account warning")
 		if err := fs.Parse(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "import: flag parse error: %v\n", err)
 			os.Exit(1)
 		}
 
 		if *archivePath == "" || *targetUser == "" {
-			fmt.Fprintln(os.Stderr, "Usage: api import --archive <path> --target-user <uuid> [--force]")
+			fmt.Fprintln(os.Stderr, "Usage: api import --archive <path> --target-user <uuid>")
 			os.Exit(1)
 		}
 
@@ -322,23 +322,14 @@ func main() {
 			},
 		}
 
-		if !*force {
-			vr, err := engine.ValidateAccount(ctx, *targetUser)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "import: ValidateAccount failed: %v\n", err)
-				os.Exit(1)
-			}
-			for _, w := range vr.Warnings {
-				fmt.Fprintf(os.Stderr, "WARNING: %s\n", w)
-			}
-			if len(vr.Warnings) > 0 {
-				fmt.Fprint(os.Stderr, "Continue? [y/N] ")
-				var answer string
-				fmt.Scanln(&answer)
-				if answer != "y" && answer != "Y" {
-					os.Exit(0)
-				}
-			}
+		vr, err := engine.ValidateAccount(ctx, *targetUser)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "import: ValidateAccount failed: %v\n", err)
+			os.Exit(1)
+		}
+		if !vr.CanImport {
+			fmt.Fprintf(os.Stderr, "import: %s\n", vr.Warnings[0])
+			os.Exit(1)
 		}
 
 		result, err := engine.RunImport(ctx, dataimport.ImportInput{

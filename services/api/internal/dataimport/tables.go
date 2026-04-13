@@ -335,14 +335,9 @@ func allTables() []tableSpec {
 }
 
 // healthTables returns the 12 health tables for import.
-// If nonFreshAccount is true the conflict mode is cmReplace (existing rows
-// are deleted first); otherwise cmInsert is used (fresh account, no conflicts).
-func healthTables(nonFreshAccount bool) []tableSpec {
-	cm := cmInsert
-	if nonFreshAccount {
-		cm = cmReplace
-	}
-
+// All health tables use cmInsert; doInsert appends ON CONFLICT DO NOTHING so
+// duplicate rows (same natural key) are silently skipped rather than failing.
+func healthTables() []tableSpec {
 	names := []string{
 		"health_daily_summary",
 		"health_sleep",
@@ -364,7 +359,7 @@ func healthTables(nonFreshAccount bool) []tableSpec {
 			Name:     name,
 			Phase:    7,
 			PKField:  "",
-			Conflict: cm,
+			Conflict: cmInsert,
 		}
 	}
 	return specs
