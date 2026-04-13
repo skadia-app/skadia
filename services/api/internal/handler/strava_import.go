@@ -344,12 +344,9 @@ func scanExistingStravaMedia(ctx context.Context, h *Handler, userID string, src
 }
 
 // stravaCSVHeader builds a column-name → column-index map from a Strava CSV header row.
+// Delegates to the strava package's csvHeader which handles EN↔DE aliases.
 func stravaCSVHeader(row []string) map[string]int {
-	h := make(map[string]int, len(row))
-	for i, col := range row {
-		h[col] = i
-	}
-	return h
+	return strava.CSVHeader(row)
 }
 
 // UploadStravaZIPScan accepts a ZIP upload, extracts it to a temp directory, runs a scan

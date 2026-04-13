@@ -38,6 +38,9 @@ type UnifiedShadowFS struct {
 	s3BucketDefault  string
 	s3BucketActivity string
 	s3BucketMedia    string
+	// S3 ping cache — avoids a HeadBucket call on every readiness probe.
+	s3PingOK atomic.Bool
+	s3PingAt atomic.Int64 // unix timestamp of last ping attempt
 }
 
 // NewUnifiedShadowFS creates a UnifiedShadowFS.
@@ -65,6 +68,58 @@ func NewUnifiedShadowFS(
 	}
 	u.target.Store(targetBackend)
 	return u
+}
+
+// PingS3 checks S3 connectivity if an S3 backend is configured.
+// Returns nil if S3 is not configured or if the ping succeeds.
+//
+// Results are cached for 30 seconds to avoid a HeadBucket round-trip on every
+// readiness probe (K8s typically probes every 10–15 s). A transient S3 latency
+// spike will therefore not immediately flip the pod out of the load balancer.
+// All configured unique buckets (default, activity, media) are checked.
+func (u *UnifiedShadowFS) PingS3(ctx context.Context) error {
+	if u.s3 == nil {
+		return nil
+	}
+	s3be, ok := u.s3.(*S3Backend)
+	if !ok {
+		return nil
+	}
+
+	const cacheTTL = 30
+	if u.s3PingOK.Load() && time.Now().Unix()-u.s3PingAt.Load() < cacheTTL {
+		return nil
+	}
+
+	// Collect unique buckets to check.
+	seen := make(map[string]struct{})
+	buckets := []string{u.s3BucketDefault}
+	seen[u.s3BucketDefault] = struct{}{}
+	for _, bkt := range []string{u.s3BucketActivity, u.s3BucketMedia} {
+		if bkt != "" {
+			if _, dup := seen[bkt]; !dup {
+				buckets = append(buckets, bkt)
+				seen[bkt] = struct{}{}
+			}
+		}
+	}
+
+	for _, bkt := range buckets {
+		if err := s3be.PingBucket(ctx, bkt); err != nil {
+			u.s3PingOK.Store(false)
+			u.s3PingAt.Store(time.Now().Unix())
+			return err
+		}
+	}
+
+	u.s3PingOK.Store(true)
+	u.s3PingAt.Store(time.Now().Unix())
+	return nil
+}
+
+// S3Configured reports whether an S3 backend is wired up.
+func (u *UnifiedShadowFS) S3Configured() bool {
+	return u.s3 != nil
 }
 
 // backendFor returns the StorageBackend for the given storage_backend value.

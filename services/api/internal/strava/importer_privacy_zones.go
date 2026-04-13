@@ -44,7 +44,7 @@ func (p *PrivacyZonesImporter) Import(ctx context.Context, params ImportParams) 
 		return result, nil
 	}
 
-	hdr := csvHeader(rows[0])
+	hdr := CSVHeader(rows[0])
 	total := len(rows) - 1
 
 	for i, row := range rows[1:] {
@@ -113,17 +113,26 @@ func (p *PrivacyZonesImporter) Import(ctx context.Context, params ImportParams) 
 	return result, nil
 }
 
-// parseRadiusToMeters converts Strava radius strings like "0,40 Kilometer" to meters.
+// parseRadiusToMeters converts Strava radius strings like "0,40 Kilometer",
+// "0.25 Mile", or "0.40 Kilometer" to meters.
 func parseRadiusToMeters(s string) int {
 	s = strings.TrimSpace(s)
-	// Remove unit suffix
-	s = strings.ReplaceAll(s, " Kilometer", "")
-	s = strings.ReplaceAll(s, " kilometer", "")
-	s = strings.ReplaceAll(s, " km", "")
-	// Parse German decimal number
-	km, ok := parseGermanFloat(s)
-	if !ok || km <= 0 {
+	isMiles := strings.Contains(strings.ToLower(s), "mile")
+
+	// Remove unit suffixes (both languages, both unit systems)
+	for _, suffix := range []string{
+		" Kilometer", " kilometer", " km",
+		" Miles", " miles", " Mile", " mile", " mi",
+	} {
+		s = strings.ReplaceAll(s, suffix, "")
+	}
+
+	val, ok := parseNumber(s)
+	if !ok || val <= 0 {
 		return 0
 	}
-	return int(km * 1000)
+	if isMiles {
+		return int(val * 1609.344)
+	}
+	return int(val * 1000)
 }

@@ -82,15 +82,12 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		return result, nil
 	}
 
-	hdr := csvHeader(rows[0])
+	hdr := CSVHeader(rows[0])
 	total := len(rows) - 1
 
-	// L53: Warn when key columns are missing — likely a non-German locale export.
-	for _, col := range []string{"Dateiname", "Aktivitäts-ID", "Name der Aktivität"} {
-		if _, ok := hdr[col]; !ok {
-			slog.Warn("strava activities: expected CSV column not found — export may use a different locale",
-				"column", col)
-		}
+	// Detect locale for logging (aliases make both languages work transparently).
+	if _, ok := hdr["Activity ID"]; ok {
+		slog.Info("strava activities: detected English-language export")
 	}
 
 	slog.Info("strava activities: found rows", "count", total)
@@ -152,8 +149,12 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 
 		// E-Bike normalization
 		isElectric := false
-		if sportType == "e_biking" || sportType == "e_bike" {
+		switch sportType {
+		case "e_biking", "e_bike":
 			sportType = "cycling"
+			isElectric = true
+		case "e_mountain_biking":
+			sportType = "mountain_biking"
 			isElectric = true
 		}
 
@@ -177,9 +178,9 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 
 		// Distances: column 17 is metres
 		distanceM, _ := parseGermanFloat(colVal(row, hdr["Distanz"]))
-		// But multiple "Distanz" columns exist — use index 17 explicitly for metres
-		if idx := findNthCol(rows[0], "Distanz", 2); idx >= 0 {
-			if v, ok := parseGermanFloat(colVal(row, idx)); ok {
+		// But multiple "Distanz"/"Distance" columns exist — use the 2nd explicitly for metres.
+		if idx := findNthColMulti(rows[0], 2, "Distanz", "Distance"); idx >= 0 {
+			if v, ok := parseNumber(colVal(row, idx)); ok {
 				distanceM = v
 			}
 		}
@@ -187,20 +188,20 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		// Elevation gain
 		elevGainM, _ := parseGermanFloat(colVal(row, hdr["Höhenzunahme"]))
 		// Max / min elevation
-		maxElevM, _ := parseGermanFloat(colVal(row, hdr["Max. Höhe"]))
-		minElevM, _ := parseGermanFloat(colVal(row, hdr["Min. Höhe"]))
+		maxElevM, hasMaxElev := parseGermanFloat(colVal(row, hdr["Max. Höhe"]))
+		minElevM, hasMinElev := parseGermanFloat(colVal(row, hdr["Min. Höhe"]))
 
 		// Speed
 		maxSpeedMS, _ := parseGermanFloat(colVal(row, hdr["Höchstgeschw."]))
 		avgSpeedMS, _ := parseGermanFloat(colVal(row, hdr["Durchschnittliche Geschwindigkeit"]))
 
-		// Heart rate — two "Max. Herzfrequenz" columns: col 7 and col 30
-		// Use the second occurrence (col 30) which is numeric bpm
-		avgHR, _ := parseGermanFloat(colVal(row, hdr["Durchschnittliche Herzfrequenz"]))
-		maxHR, _ := parseGermanInt(colVal(row, hdr["Max. Herzfrequenz"]))
+		// Heart rate — two "Max. Herzfrequenz"/"Max Heart Rate" columns: col 7 and col 30
+		// Use the second occurrence (col 30) which is numeric bpm.
+		avgHR, _ := parseNumber(colVal(row, hdr["Durchschnittliche Herzfrequenz"]))
+		maxHR, _ := parseInt(colVal(row, hdr["Max. Herzfrequenz"]))
 		// Prefer the second Max. HR occurrence (col 30) if col 7 is the same
-		if maxHR2Idx := findNthCol(rows[0], "Max. Herzfrequenz", 2); maxHR2Idx >= 0 {
-			if v, ok := parseGermanInt(colVal(row, maxHR2Idx)); ok && v > 0 {
+		if maxHR2Idx := findNthColMulti(rows[0], 2, "Max. Herzfrequenz", "Max Heart Rate"); maxHR2Idx >= 0 {
+			if v, ok := parseInt(colVal(row, maxHR2Idx)); ok && v > 0 {
 				maxHR = v
 			}
 		}
@@ -215,7 +216,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		calories, _ := parseGermanInt(colVal(row, hdr["Kalorien"]))
 
 		// Temperature
-		avgTempC, _ := parseGermanFloat(colVal(row, hdr["Durchschnittliche Temperatur"]))
+		avgTempC, hasTempC := parseGermanFloat(colVal(row, hdr["Durchschnittliche Temperatur"]))
 
 		// TSS (from training load if available)
 		tss, _ := parseGermanFloat(colVal(row, hdr["Trainingsbelastung"]))
@@ -262,10 +263,10 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		if elevGainM > 0 {
 			data.ElevationGainM = elevGainM
 		}
-		if maxElevM > 0 {
+		if hasMaxElev {
 			data.MaxElevationM = maxElevM
 		}
-		if minElevM > 0 {
+		if hasMinElev {
 			data.MinElevationM = minElevM
 		}
 		if maxSpeedMS > 0 {
@@ -286,7 +287,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		if calories > 0 {
 			data.TotalCalories = calories
 		}
-		if avgTempC != 0 {
+		if hasTempC {
 			data.AvgTemperatureC = avgTempC
 		}
 		if tss > 0 {
@@ -743,115 +744,252 @@ func mergeActivityData(base, parsed *model.ActivityData) {
 	}
 }
 
-// parseStravaDateTime parses "DD.MM.YYYY, HH:MM:SS" into a time.Time (UTC).
+// parseStravaDateTime parses Strava date strings in German ("DD.MM.YYYY, HH:MM:SS")
+// or English ("Jun 29, 2025, 3:30:55 PM") format into a time.Time (UTC).
 func parseStravaDateTime(s string) (time.Time, error) {
 	s = strings.TrimSpace(s)
-	// Format: "13.08.2019, 09:54:21"
-	t, err := time.Parse("02.01.2006, 15:04:05", s)
-	if err != nil {
-		// Try without comma
-		t, err = time.Parse("02.01.2006 15:04:05", s)
+
+	// English format: "Jun 29, 2025, 3:30:55 PM" or "Jun 4, 2025, 2:00:00 PM"
+	if t, err := time.Parse("Jan 2, 2006, 3:04:05 PM", s); err == nil {
+		return t, nil
 	}
-	return t, err
+	// English 24h variant (some locales)
+	if t, err := time.Parse("Jan 2, 2006, 15:04:05", s); err == nil {
+		return t, nil
+	}
+
+	// German format: "13.08.2019, 09:54:21"
+	if t, err := time.Parse("02.01.2006, 15:04:05", s); err == nil {
+		return t, nil
+	}
+	// German without comma
+	if t, err := time.Parse("02.01.2006 15:04:05", s); err == nil {
+		return t, nil
+	}
+
+	return time.Time{}, fmt.Errorf("cannot parse date %q: no known format matched", s)
 }
 
-// mapStravaSportType maps German Strava sport type strings to Skadia canonical sport types.
+// mapStravaSportType maps Strava sport type strings to Skadia canonical sport types.
+//
+// English names come from the Strava API SportType enum (verified, PascalCase in API,
+// space-separated in CSV export). German names are ONLY included when verified from
+// actual German Strava GDPR exports — no guesses.
+//
+// Sources:
+//   - API: https://developers.strava.com/docs/reference/ (50 SportTypes as of 2025)
+//   - New (Feb 2026): Padel, Basketball, Volleyball, Cricket, Dance
+//   - German: verified from strava_export_deutsch/ and original codebase
 func mapStravaSportType(stravaSport string) string {
-	// Normalize
 	s := strings.TrimSpace(stravaSport)
 	switch s {
-	// Cycling
-	case "Radfahrt", "Radfahren":
+	// ── Cycling ─────────────────────────────────────────────────────────
+	// EN: Ride | DE verified: Radfahrt, Radfahren
+	case "Ride", "Radfahrt", "Radfahren":
 		return "cycling"
-	case "E-Bike-Radfahrt", "E-Bike":
+	// EN: E-Bike Ride | DE verified: E-Bike-Radfahrt, E-Bike
+	case "E-Bike Ride", "E-Bike-Radfahrt", "E-Bike":
 		return "e_biking" // normalized to cycling + is_electric downstream
-	case "Mountainbiking":
+	// EN: Mountain Bike Ride | DE verified: Mountainbiking, Mountainbike-Fahrt
+	case "Mountain Bike Ride", "Mountainbiking", "Mountainbike-Fahrt":
 		return "mountain_biking"
-	case "Gravelbike", "Gravel-Radfahrt":
+	// EN: E-Mountain Bike Ride (API: EMountainBikeRide)
+	case "E-Mountain Bike Ride":
+		return "e_mountain_biking" // normalized to mountain_biking + is_electric downstream
+	// EN: Gravel Ride | DE verified: Gravelbike, Gravel-Radfahrt
+	case "Gravel Ride", "Gravelbike", "Gravel-Radfahrt":
 		return "gravel_cycling"
-	case "Virtuelles Radfahren", "VirtualRide":
+	// EN: Virtual Ride | DE verified: Virtuelles Radfahren
+	case "Virtual Ride", "VirtualRide", "Virtuelles Radfahren":
 		return "virtual_ride"
-	case "Virtuelles Laufen", "VirtualRun":
-		return "virtual_run"
-	case "Virtuelles Rudern", "VirtualRow":
-		return "virtual_row"
-	case "Indoor-Radfahren", "Spinning":
+	// DE verified: Indoor-Radfahren, Spinning
+	case "Indoor Cycling", "Indoor-Radfahren", "Spinning":
 		return "indoor_cycling"
-	// Running
-	case "Lauf", "Laufen":
+	// EN: Handcycle
+	case "Handcycle":
+		return "cycling"
+	// EN: Velomobile
+	case "Velomobile":
+		return "cycling"
+
+	// ── Running ─────────────────────────────────────────────────────────
+	// EN: Run | DE verified: Lauf, Laufen
+	case "Run", "Lauf", "Laufen":
 		return "running"
-	case "Trailrunning", "Trailrun":
+	// EN: Trail Run | DE verified: Trailrunning, Trailrun
+	case "Trail Run", "Trailrunning", "Trailrun":
 		return "trail_running"
-	case "Treadmill-Lauf", "Laufband":
+	// DE verified: Treadmill-Lauf, Laufband
+	case "Treadmill", "Treadmill-Lauf", "Laufband":
 		return "treadmill_running"
-	// Hiking / Walking
-	case "Wandern", "Wanderung":
+	// EN: Virtual Run | DE verified: Virtuelles Laufen
+	case "Virtual Run", "VirtualRun", "Virtuelles Laufen":
+		return "virtual_run"
+
+	// ── Hiking / Walking ────────────────────────────────────────────────
+	// EN: Hike | DE verified: Wandern, Wanderung
+	case "Hike", "Wandern", "Wanderung":
 		return "hiking"
-	case "Spaziergang":
+	// EN: Walk | DE verified: Spaziergang
+	case "Walk", "Spaziergang":
 		return "walking"
-	// Swimming
-	case "Schwimmen":
+
+	// ── Swimming ────────────────────────────────────────────────────────
+	// EN: Swim | DE verified: Schwimmen
+	case "Swim", "Schwimmen":
 		return "swimming"
-	case "Freiwasserschwimmen":
+	// DE verified: Freiwasserschwimmen
+	case "Open Water Swim", "Freiwasserschwimmen":
 		return "open_water_swimming"
-	// Water sports
-	case "Stand-up-Paddeln", "SUP":
+
+	// ── Water sports ────────────────────────────────────────────────────
+	// EN: Stand Up Paddling | DE verified: Stand-up-Paddeln, SUP
+	case "Stand Up Paddling", "Stand-up-Paddeln", "SUP":
 		return "stand_up_paddleboarding"
-	case "Kajak fahren", "Kajak":
+	// EN: Kayaking | DE verified: Kajak fahren, Kajak
+	case "Kayaking", "Kajak fahren", "Kajak":
 		return "kayaking"
-	case "Rudern":
+	// EN: Rowing | DE verified: Rudern
+	case "Rowing", "Rudern":
 		return "rowing"
-	case "Kanufahren":
+	// EN: Canoeing | DE verified: Kanufahren
+	case "Canoeing", "Kanufahren":
 		return "kayaking"
-	// Winter sports
-	case "Skifahren", "Ski alpin":
+	// EN: Virtual Row | DE verified: Virtuelles Rudern
+	case "Virtual Row", "VirtualRow", "Virtuelles Rudern":
+		return "virtual_row"
+	// EN: Sail
+	case "Sail":
+		return "sailing"
+	// EN: Surfing
+	case "Surfing":
+		return "surfing"
+	// EN: Kitesurf
+	case "Kitesurf":
+		return "kitesurfing"
+	// EN: Windsurf
+	case "Windsurf":
+		return "windsurfing"
+
+	// ── Winter sports ───────────────────────────────────────────────────
+	// EN: Alpine Ski | DE verified: Skifahren, Ski alpin
+	case "Alpine Ski", "Skifahren", "Ski alpin":
 		return "alpine_skiing"
-	case "Langlauf", "Skilanglauf":
+	// EN: Nordic Ski | DE verified: Langlauf, Skilanglauf
+	case "Nordic Ski", "Langlauf", "Skilanglauf":
 		return "cross_country_skiing"
-	case "Snowboarden", "Snowboard":
+	// EN: Backcountry Ski
+	case "Backcountry Ski":
+		return "backcountry_skiing"
+	// EN: Snowboard | DE verified: Snowboarden
+	case "Snowboard", "Snowboarden":
 		return "snowboarding"
-	case "Schneeschuhwandern":
+	// EN: Snowshoe | DE verified: Schneeschuhwandern
+	case "Snowshoe", "Schneeschuhwandern":
 		return "snowshoeing"
-	// Fitness
-	case "Krafttraining", "Gewichtheben":
+	// EN: Ice Skate
+	case "Ice Skate":
+		return "ice_skating"
+	// EN: Roller Ski
+	case "Roller Ski":
+		return "cross_country_skiing" // closest taxonomy match
+
+	// ── Fitness / Gym ───────────────────────────────────────────────────
+	// EN: Weight Training | DE verified: Krafttraining, Gewichtheben
+	case "Weight Training", "Krafttraining", "Gewichtheben":
 		return "strength_training"
+	// EN: Yoga | identical in DE
 	case "Yoga":
 		return "yoga"
+	// EN: Pilates | identical in DE
+	case "Pilates":
+		return "pilates"
+	// EN: Crossfit | identical in DE
 	case "Crossfit":
 		return "training"
+	// EN: HIIT (HighIntensityIntervalTraining) | identical in DE
 	case "HIIT":
 		return "hiit"
-	// Climbing
-	case "Klettern", "Felsenklettern", "Bouldern":
+	// EN: Workout
+	case "Workout":
+		return "training"
+	// EN: Elliptical
+	case "Elliptical":
+		return "fitness_equipment"
+	// EN: Stair-Stepper (API: StairStepper)
+	case "Stair-Stepper":
+		return "fitness_equipment"
+	// EN: Dance (added Feb 2026)
+	case "Dance":
+		return "dance"
+
+	// ── Climbing ────────────────────────────────────────────────────────
+	// EN: Rock Climbing | DE verified: Klettern, Felsenklettern, Bouldern
+	case "Rock Climbing", "Klettern", "Felsenklettern", "Bouldern":
 		return "rock_climbing"
-	// Multi-sport
+
+	// ── Racquet / Ball / Team sports ────────────────────────────────────
+	// EN: Tennis | identical in DE
+	case "Tennis":
+		return "tennis"
+	// EN: Badminton | identical in DE
+	case "Badminton":
+		return "badminton"
+	// EN: Table Tennis
+	case "Table Tennis":
+		return "table_tennis"
+	// EN: Squash | identical in DE
+	case "Squash":
+		return "squash"
+	// EN: Pickleball | identical in DE
+	case "Pickleball":
+		return "pickleball"
+	// EN: Racquetball
+	case "Racquetball":
+		return "racket"
+	// EN: Padel (added Feb 2026) | identical in DE
+	case "Padel":
+		return "racket"
+	// EN: Football (Soccer) — Strava's CSV name for Soccer
+	case "Football (Soccer)", "Soccer":
+		return "soccer"
+	// EN: Golf | identical in DE
+	case "Golf":
+		return "golf"
+	// EN: Basketball (added Feb 2026) | identical in DE
+	case "Basketball":
+		return "basketball"
+	// EN: Volleyball (added Feb 2026) | identical in DE
+	case "Volleyball":
+		return "volleyball"
+	// EN: Cricket (added Feb 2026) | identical in DE
+	case "Cricket":
+		return "cricket"
+
+	// ── Other ───────────────────────────────────────────────────────────
+	// EN: Inline Skate
+	case "Inline Skate":
+		return "inline_skating"
+	// EN: Skateboard
+	case "Skateboard":
+		return "inline_skating" // closest taxonomy match
+	// EN: Wheelchair
+	case "Wheelchair":
+		return "generic"
 	case "Triathlon":
 		return "triathlon"
-	// Other
 	case "Multisport":
 		return "multi_sport"
+	// DE verified: Sonstiges, Andere
 	case "Sonstiges", "Andere":
 		return "generic"
+
 	default:
-		// Unknown type — map to generic
 		slog.Debug("strava: unmapped sport type", "strava_type", s)
 		return "generic"
 	}
 }
 
-// findNthCol finds the index of the nth occurrence (1-based) of a column name in the header row.
-func findNthCol(headerRow []string, colName string, n int) int {
-	count := 0
-	for i, h := range headerRow {
-		if strings.TrimSpace(h) == colName {
-			count++
-			if count == n {
-				return i
-			}
-		}
-	}
-	return -1
-}
 
 // extractWeatherFields previously populated flat weather_* columns from Strava CSV.
 // TODO(weather-improvements Task 6): migrate to InsertWeatherReadings via activity_weather table.
