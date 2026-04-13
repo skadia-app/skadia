@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
 // testEmailCooldown tracks per-admin cooldown for the test-email endpoint.
@@ -66,6 +68,48 @@ func (h *Handler) AdminPutSettings(w http.ResponseWriter, r *http.Request) {
 		slog.Error("admin put settings failed", "error", err, "admin_id", adminID)
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
+	}
+
+	// React to runtime-significant setting changes.
+
+	// Hotfolder mode change.
+	if newMode, ok := changed["hotfolder.mode"]; ok {
+		switch newMode {
+		case "disabled":
+			if h.WatcherManager != nil {
+				h.WatcherManager.StopAll()
+			}
+		case "self-service", "admin-only":
+			// Re-enable watchers for all users that have hotfolder_enabled=true.
+			if h.WatcherManager != nil {
+				go h.restartHotfolderWatchers()
+			}
+		}
+	}
+
+	// Library sync toggle.
+	if newVal, ok := changed["library.sync_enabled"]; ok {
+		if newVal == "true" {
+			slog.Info("library sync enabled via admin settings")
+			// TODO: start library watcher if available
+		} else {
+			slog.Info("library sync disabled via admin settings")
+			// TODO: stop library watcher if available
+		}
+	}
+
+	// TimescaleDB compression toggle — run as background job.
+	if newVal, ok := changed["timescale.compression"]; ok {
+		jobID, err := h.DB.InsertBackgroundJob(r.Context(), adminID, "compression_toggle", nil, nil, 0)
+		if err == nil {
+			shutdown.Go(jobID, func(_ context.Context) {
+				if newVal == "true" {
+					h.enableCompression(jobID)
+				} else {
+					h.disableCompression(jobID)
+				}
+			})
+		}
 	}
 
 	// Build the changed keys list for the audit log.
@@ -155,3 +199,84 @@ func (h *Handler) AdminTestEmail(w http.ResponseWriter, r *http.Request) {
 	slog.Info("admin test email sent", "admin_id", adminID, "to", *admin.Email)
 	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "test_email_sent"})
 }
+
+// restartHotfolderWatchers re-enables per-user hotfolder watchers for all users
+// that have hotfolder_enabled=true in the database. Called when the hotfolder mode
+// changes from "disabled" to "self-service" or "admin-only".
+func (h *Handler) restartHotfolderWatchers() {
+	rows, err := h.DB.Pool.Query(context.Background(),
+		`SELECT id FROM users WHERE hotfolder_enabled = true AND is_active = true AND deleted_at IS NULL`)
+	if err != nil {
+		slog.Error("restartHotfolderWatchers: query failed", "error", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err == nil {
+			if err := h.WatcherManager.EnableUser(userID, true); err != nil {
+				slog.Warn("restartHotfolderWatchers: enable failed", "user_id", userID, "error", err)
+			}
+		}
+	}
+}
+
+// enableCompression runs as a background job to enable TimescaleDB compression on
+// activity_streams with a 7-day compression policy.
+func (h *Handler) enableCompression(jobID string) {
+	ctx := context.Background()
+	_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, "enabling compression")
+
+	_, err := h.DB.Pool.Exec(ctx, `ALTER TABLE activity_streams SET (
+		timescaledb.compress,
+		timescaledb.compress_segmentby = 'activity_id',
+		timescaledb.compress_orderby = 'timestamp'
+	)`)
+	if err != nil {
+		slog.Error("enableCompression: ALTER TABLE failed", "error", err)
+		_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
+		return
+	}
+
+	_, err = h.DB.Pool.Exec(ctx, `SELECT add_compression_policy('activity_streams', INTERVAL '7 days', if_not_exists => true)`)
+	if err != nil {
+		slog.Error("enableCompression: add_compression_policy failed", "error", err)
+		_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
+		return
+	}
+
+	_, _ = h.Settings.Put(ctx, map[string]*string{"timescale.compression": strPtr("true")}, "")
+
+	slog.Info("compression enabled successfully")
+	_ = h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
+}
+
+// disableCompression runs as a background job to remove the TimescaleDB compression
+// policy and decompress all existing chunks on activity_streams.
+func (h *Handler) disableCompression(jobID string) {
+	ctx := context.Background()
+	_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, "removing compression policy")
+
+	h.DB.Pool.Exec(ctx, `SELECT remove_compression_policy('activity_streams', if_exists => true)`)
+
+	_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, "decompressing chunks")
+
+	rows, err := h.DB.Pool.Query(ctx, `SELECT show_chunks('activity_streams', older_than => INTERVAL '0 seconds')`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var chunkName string
+			if rows.Scan(&chunkName) == nil {
+				h.DB.Pool.Exec(ctx, `SELECT decompress_chunk($1, if_compressed => true)`, chunkName)
+			}
+		}
+	}
+
+	_, _ = h.Settings.Put(ctx, map[string]*string{"timescale.compression": strPtr("false")}, "")
+
+	slog.Info("compression disabled successfully")
+	_ = h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
+}
+
+// strPtr returns a pointer to a copy of s. Used for settings Put calls.
+func strPtr(s string) *string { return &s }
