@@ -700,39 +700,52 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
       />
 
       <div className="space-y-3 pt-2">
-        <div className="flex items-center justify-between gap-4 py-1">
-          <div className="min-w-0 flex-1">
-            <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Library Sync</span>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">Aktivitätsdateien automatisch mit dem Hotfolder synchronisieren</p>
-            {isLocked(settings, 'library', 'sync_enabled') && (
-              <LockedHint fieldKey="library.sync_enabled" />
-            )}
-          </div>
-          <Toggle
-            checked={librarySync}
-            onChange={setLibrarySync}
-            disabled={isLocked(settings, 'library', 'sync_enabled')}
-            aria-label="Library Sync aktivieren"
-          />
-        </div>
+        {(() => {
+          const isS3 = settings?._meta?.storage_backend === 's3'
+          return (
+            <>
+              <div className="flex items-center justify-between gap-4 py-1">
+                <div className="min-w-0 flex-1">
+                  <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Library Sync</span>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">Bibliotheksverzeichnis auf Dateiänderungen überwachen</p>
+                  {isS3 && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Nur bei lokalem Storage verfügbar (S3 aktiv)</p>
+                  )}
+                  {isLocked(settings, 'library', 'sync_enabled') && (
+                    <LockedHint fieldKey="library.sync_enabled" />
+                  )}
+                </div>
+                <Toggle
+                  checked={librarySync}
+                  onChange={setLibrarySync}
+                  disabled={isS3 || isLocked(settings, 'library', 'sync_enabled')}
+                  aria-label="Library Sync aktivieren"
+                />
+              </div>
 
-        <div className="flex items-center justify-between gap-4 py-1 pl-4 border-l-2 border-neutral-200 dark:border-neutral-700">
-          <div className="min-w-0 flex-1">
-            <span className={`text-sm font-medium ${!librarySync ? 'text-neutral-400 dark:text-neutral-600' : 'text-neutral-900 dark:text-neutral-100'}`}>
-              Library Sync Auto-Import
-            </span>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">Neue Dateien im Hotfolder automatisch importieren</p>
-            {isLocked(settings, 'library', 'sync_auto_import') && (
-              <LockedHint fieldKey="library.sync_auto_import" />
-            )}
-          </div>
-          <Toggle
-            checked={librarySyncAutoImport}
-            onChange={setLibrarySyncAutoImport}
-            disabled={!librarySync || isLocked(settings, 'library', 'sync_auto_import')}
-            aria-label="Library Sync Auto-Import aktivieren"
-          />
-        </div>
+              <div className="flex items-center justify-between gap-4 py-1 pl-4 border-l-2 border-neutral-200 dark:border-neutral-700">
+                <div className="min-w-0 flex-1">
+                  <span className={`text-sm font-medium ${(!librarySync || isS3) ? 'text-neutral-400 dark:text-neutral-600' : 'text-neutral-900 dark:text-neutral-100'}`}>
+                    Library Sync Auto-Import
+                  </span>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">Neue Dateien im Bibliotheksverzeichnis automatisch importieren</p>
+                  {isS3 && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Nur bei lokalem Storage verfügbar (S3 aktiv)</p>
+                  )}
+                  {isLocked(settings, 'library', 'sync_auto_import') && (
+                    <LockedHint fieldKey="library.sync_auto_import" />
+                  )}
+                </div>
+                <Toggle
+                  checked={librarySyncAutoImport}
+                  onChange={setLibrarySyncAutoImport}
+                  disabled={isS3 || !librarySync || isLocked(settings, 'library', 'sync_auto_import')}
+                  aria-label="Library Sync Auto-Import aktivieren"
+                />
+              </div>
+            </>
+          )
+        })()}
 
         <div className="flex items-center justify-between gap-4 py-1">
           <div className="min-w-0 flex-1">
