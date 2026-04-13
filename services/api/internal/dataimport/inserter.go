@@ -67,6 +67,7 @@ func (e *Engine) importTable(
 	exportMigration int,
 	result *ImportResult,
 	onProgress func(ProgressEvent),
+	deferredFKs *[]deferredFK,
 ) error {
 	// 1. Determine data path.
 	dataPath := fmt.Sprintf("data/%s.json", spec.Name)
@@ -156,9 +157,7 @@ func (e *Engine) importTable(
 
 		// Merge deferred FKs.
 		if len(localDeferred) > 0 {
-			e.mu.Lock()
-			e.deferredFKs = append(e.deferredFKs, localDeferred...)
-			e.mu.Unlock()
+			*deferredFKs = append(*deferredFKs, localDeferred...)
 		}
 
 		switch res {
