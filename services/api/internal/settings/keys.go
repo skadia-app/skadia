@@ -7,6 +7,7 @@ package settings
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // KeyDef describes a single configurable setting.
@@ -67,9 +68,30 @@ var AllKeys = []KeyDef{
 	},
 	{
 		Key: "app.name", EnvVar: "APP_NAME", Default: "Skadia", Encrypted: false, Group: "app",
+		Validate: func(v string) error {
+			if v == "" {
+				return fmt.Errorf("app.name must not be empty")
+			}
+			if len(v) > 100 {
+				return fmt.Errorf("app.name must not exceed 100 characters")
+			}
+			return nil
+		},
 	},
 	{
 		Key: "app.url", EnvVar: "APP_URL", Default: "http://localhost:5173", Encrypted: false, Group: "app",
+		Validate: func(v string) error {
+			if v == "" {
+				return fmt.Errorf("app.url must not be empty")
+			}
+			if len(v) > 500 {
+				return fmt.Errorf("app.url must not exceed 500 characters")
+			}
+			if !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
+				return fmt.Errorf("app.url must start with http:// or https://")
+			}
+			return nil
+		},
 	},
 	{
 		Key: "social.strava.client_id", EnvVar: "STRAVA_CLIENT_ID", Default: "", Encrypted: false, Group: "social",
