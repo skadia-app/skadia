@@ -894,16 +894,19 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 	}
 	if filters.Search != "" {
 		idx++
+		// The EXISTS subquery is self-contained (uses activities.id, not the outer rgm alias)
+		// so it works in both the main list query and the COUNT query.
 		conds = append(conds, fmt.Sprintf(`(
 			title ILIKE '%%' || $%d || '%%'
 			OR title_auto ILIKE '%%' || $%d || '%%'
-			OR (rgm.group_id IS NOT NULL AND EXISTS (
-				SELECT 1 FROM recording_group_members rgm_s
+			OR EXISTS (
+				SELECT 1 FROM recording_group_members rgm_p
+				JOIN recording_group_members rgm_s ON rgm_s.group_id = rgm_p.group_id
 				JOIN activities a_s ON a_s.id = rgm_s.activity_id
-				WHERE rgm_s.group_id = rgm.group_id
+				WHERE rgm_p.activity_id = activities.id
 				  AND rgm_s.activity_id != activities.id
 				  AND (a_s.title ILIKE '%%' || $%d || '%%' OR a_s.title_auto ILIKE '%%' || $%d || '%%')
-			))
+			)
 		)`, idx, idx, idx, idx))
 		args = append(args, filters.Search)
 	}
