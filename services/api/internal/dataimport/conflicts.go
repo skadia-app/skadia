@@ -96,6 +96,6 @@ func fkTargetExists(ctx context.Context, tx pgx.Tx, spec tableSpec, row map[stri
 		return exists, nil
 
 	default:
-		return true, nil
+		return false, fmt.Errorf("fkTargetExists: unhandled cmSkipWarn table %q — add an explicit case", spec.Name)
 	}
 }
