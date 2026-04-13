@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { AdminStorageLimitsSection } from '@/pages/settings/AdminStorageLimitsSection'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/api/client'
 import { useToast } from '@/lib/toast'
@@ -421,24 +422,28 @@ export default function AdminStorageDashboard() {
           </div>
         </section>
 
-        {/* Type counts */}
-        <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-          <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/40 flex items-center gap-2">
-            <Layers className="w-4 h-4 text-neutral-500" />
-            <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-              {LABELS.typeCounts.heading}
-            </h3>
-          </div>
-          <div className="px-4 py-4 space-y-3">
-            {typeEntries.length === 0 ? (
-              <p className="text-sm text-neutral-400">{LABELS.typeCounts.noData}</p>
-            ) : (
-              typeEntries.map(([type, count]) => (
-                <TypeCountCard key={type} type={type} count={count} maxCount={maxCount} />
-              ))
-            )}
-          </div>
-        </section>
+        {/* Type counts + Limits */}
+        <div className="flex flex-col gap-6">
+          <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+            <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/40 flex items-center gap-2">
+              <Layers className="w-4 h-4 text-neutral-500" />
+              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                {LABELS.typeCounts.heading}
+              </h3>
+            </div>
+            <div className="px-4 py-4 space-y-3">
+              {typeEntries.length === 0 ? (
+                <p className="text-sm text-neutral-400">{LABELS.typeCounts.noData}</p>
+              ) : (
+                typeEntries.map(([type, count]) => (
+                  <TypeCountCard key={type} type={type} count={count} maxCount={maxCount} />
+                ))
+              )}
+            </div>
+          </section>
+
+          <AdminStorageLimitsSection />
+        </div>
 
       </div>
 
