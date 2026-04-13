@@ -618,9 +618,9 @@ func (e *Engine) writeImportLog(
 		"skadia_version":   manifest.SkadiaVersion,
 	})
 
-	status := "success"
+	status := "completed"
 	if result.EntitiesFailed > 0 {
-		status = "partial"
+		status = "error"
 	}
 
 	id := uuid.New().String()
