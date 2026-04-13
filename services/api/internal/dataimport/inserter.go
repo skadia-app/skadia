@@ -1,6 +1,7 @@
 package dataimport
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -261,7 +262,17 @@ func (e *Engine) prepareRow(
 			continue
 		}
 		if oldRef, ok := stringVal(val); ok && oldRef != "" {
-			out[fk] = idMap.Get(oldRef)
+			// File-reference columns: use GetIfExists to avoid phantom UUIDs
+			// for files that weren't in the export.
+			if isFileRefColumn(spec.Name, fk) {
+				if newRef, exists := idMap.GetIfExists(oldRef); exists {
+					out[fk] = newRef
+				} else {
+					out[fk] = nil // File missing from export
+				}
+			} else {
+				out[fk] = idMap.Get(oldRef)
+			}
 		}
 	}
 
@@ -307,15 +318,6 @@ func (e *Engine) prepareRow(
 		out["refresh_token"] = nil
 		out["token_expiry"] = nil
 		out["status"] = "reconnection_required"
-	}
-
-	// 8. JSONB UUID remapping.
-	if jsonbCols, ok := jsonbRemapFields[spec.Name]; ok {
-		for _, col := range jsonbCols {
-			if val, has := out[col]; has && val != nil {
-				out[col] = walkAndRemap(val, idMap)
-			}
-		}
 	}
 
 	return out
@@ -567,4 +569,109 @@ func stringVal(val any) (string, bool) {
 	}
 	s, ok := val.(string)
 	return s, ok
+}
+
+// ---------------------------------------------------------------------------
+// runJSONBRemap — Phase 9
+// ---------------------------------------------------------------------------
+
+// runJSONBRemap updates JSONB columns that contain entity UUIDs.
+// Called in Phase 9 after ALL entities are in the IDMap (including cmMergeID overrides).
+func (e *Engine) runJSONBRemap(ctx context.Context, idMap *IDMap, userID string) error {
+	tx, err := e.DB.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("jsonb remap begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	for table, jsonbCols := range jsonbRemapFields {
+		// Look up correct user column for this table.
+		spec := findSpecByName(table)
+		userCol := getUserCol(spec)
+		if userCol == "" {
+			continue // Table has no user column.
+		}
+
+		// Build SELECT for id::text + JSONB columns.
+		selectCols := []string{"id::text"}
+		for _, col := range jsonbCols {
+			selectCols = append(selectCols, pgx.Identifier{col}.Sanitize())
+		}
+		query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = $1",
+			strings.Join(selectCols, ", "),
+			pgx.Identifier{table}.Sanitize(),
+			pgx.Identifier{userCol}.Sanitize(),
+		)
+		rows, err := tx.Query(ctx, query, userID)
+		if err != nil {
+			return fmt.Errorf("jsonb remap SELECT %s: %w", table, err)
+		}
+
+		type rowUpdate struct {
+			id     string
+			values []any
+		}
+		var updates []rowUpdate
+
+		for rows.Next() {
+			vals := make([]any, len(jsonbCols)+1)
+			ptrs := make([]any, len(vals))
+			for i := range vals {
+				ptrs[i] = &vals[i]
+			}
+			if err := rows.Scan(ptrs...); err != nil {
+				rows.Close()
+				return fmt.Errorf("jsonb remap scan %s: %w", table, err)
+			}
+
+			rowID, _ := vals[0].(string)
+			changed := false
+			remapped := make([]any, len(jsonbCols))
+			for i, raw := range vals[1:] {
+				if raw == nil {
+					remapped[i] = nil
+					continue
+				}
+				// pgx returns JSONB as map[string]any or []any.
+				result := walkAndRemap(raw, idMap)
+				remapped[i] = result
+				// Change detection: marshal and compare bytes.
+				rawJSON, _ := json.Marshal(raw)
+				resultJSON, _ := json.Marshal(result)
+				if !bytes.Equal(rawJSON, resultJSON) {
+					changed = true
+				}
+			}
+			if changed {
+				updates = append(updates, rowUpdate{id: rowID, values: remapped})
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("jsonb remap rows %s: %w", table, err)
+		}
+
+		// Apply updates.
+		for _, upd := range updates {
+			setClauses := make([]string, len(jsonbCols))
+			args := make([]any, 0, len(jsonbCols)+1)
+			for i, col := range jsonbCols {
+				setClauses[i] = fmt.Sprintf("%s = $%d", pgx.Identifier{col}.Sanitize(), i+1)
+				// Marshal back to JSON bytes for pgx JSONB binding.
+				b, _ := json.Marshal(upd.values[i])
+				args = append(args, b)
+			}
+			args = append(args, upd.id)
+			updateQuery := fmt.Sprintf("UPDATE %s SET %s WHERE id = $%d",
+				pgx.Identifier{table}.Sanitize(),
+				strings.Join(setClauses, ", "),
+				len(jsonbCols)+1,
+			)
+			if _, err := tx.Exec(ctx, updateQuery, args...); err != nil {
+				return fmt.Errorf("jsonb remap UPDATE %s row %s: %w", table, upd.id, err)
+			}
+		}
+	}
+
+	return tx.Commit(ctx)
 }
