@@ -167,12 +167,39 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 
 	// ── 8. Run phases ────────────────────────────────────────────────────────
 	byPhase := groupByPhase(tables)
+	const totalPhases = 11 // phases 0–10
+
+	// Phase 0: Disk-space check + import all files (except edit-sidecars).
+	if e.Config.LibraryBasePath != "" && e.Config.StorageBackend == "local" {
+		est := input.Source.EstimatedFileBytes()
+		if est > 0 {
+			var stat syscall.Statfs_t
+			if err := syscall.Statfs(e.Config.LibraryBasePath, &stat); err == nil {
+				available := int64(stat.Bavail) * int64(stat.Bsize)
+				if est > available {
+					return result, fmt.Errorf("RunImport: insufficient disk space — need ~%d bytes, have %d available", est, available)
+				}
+			}
+		}
+	}
+	if input.OnProgress != nil {
+		input.OnProgress(ProgressEvent{Phase: 0, PhaseName: "files", PhasesTotal: totalPhases, Message: "Importing files..."})
+	}
+	fileIndex, err := e.importAllFiles(ctx, input.Source, idMap, input.TargetUserID, result, input.OnProgress)
+	if err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Phase 0 partial failure: %v — orphaned files may exist, delete the account to clean up", err))
+		return result, fmt.Errorf("RunImport phase 0 (files): %w", err)
+	}
+	result.PhasesCompleted = 1
 
 	// Phase 1: profile
-	if err := e.runPhase1(ctx, input, manifest); err != nil {
-		return nil, fmt.Errorf("RunImport phase 1: %w", err)
+	if input.OnProgress != nil {
+		input.OnProgress(ProgressEvent{Phase: 1, PhaseName: "profile", PhasesTotal: totalPhases, Message: "Updating profile..."})
 	}
-	result.PhasesCompleted++
+	if err := e.runPhase1(ctx, input, manifest); err != nil {
+		return result, fmt.Errorf("RunImport phase 1: %w", err)
+	}
+	result.PhasesCompleted = 2
 
 	// Phases 2, 3, 4 — single TX each
 	for _, phase := range []int{2, 3, 4} {
@@ -181,61 +208,78 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 			result.PhasesCompleted++
 			continue
 		}
+		if input.OnProgress != nil {
+			input.OnProgress(ProgressEvent{Phase: phase, PhasesTotal: totalPhases, Message: fmt.Sprintf("Importing phase %d...", phase)})
+		}
 		if err := e.runSingleTXPhase(ctx, phase, specs, input, idMap, schemaMap, manifest.SchemaMigration, result); err != nil {
-			return nil, fmt.Errorf("RunImport phase %d: %w", phase, err)
+			return result, fmt.Errorf("RunImport phase %d: %w", phase, err)
 		}
 		result.PhasesCompleted++
 	}
 
-	// Disk-space check before Phase 5
-	if e.Config.LibraryBasePath != "" {
-		totalFileBytes := manifest.TotalFileSizeBytes()
-		if totalFileBytes > 0 {
-			var stat syscall.Statfs_t
-			if err := syscall.Statfs(e.Config.LibraryBasePath, &stat); err == nil {
-				available := int64(stat.Bavail) * int64(stat.Bsize)
-				if totalFileBytes > available {
-					return nil, fmt.Errorf(
-						"RunImport: insufficient disk space — need %d bytes, have %d bytes available in %s",
-						totalFileBytes, available, e.Config.LibraryBasePath,
-					)
-				}
-			}
-		}
+	// Phase 5: Activities — per-activity TX (WAL safety, parent_id self-FK).
+	if input.OnProgress != nil {
+		input.OnProgress(ProgressEvent{Phase: 5, PhasesTotal: totalPhases, Message: "Importing activities..."})
 	}
-
-	// Phase 5: per-activity TX + remaining files
-	activitySpec := findSpec("activities", tables)
-	fileAttachSpec := findSpec("file_attachments", tables)
-	activityCount, err := e.runPhase5(ctx, input, idMap, schemaMap, activitySpec, fileAttachSpec, manifest.SchemaMigration, result)
+	activityCount, err := e.runPhase5Activities(ctx, input, idMap, schemaMap, manifest.SchemaMigration, result)
 	if err != nil {
-		return nil, fmt.Errorf("RunImport phase 5: %w", err)
+		return result, fmt.Errorf("RunImport phase 5: %w", err)
 	}
 	result.PhasesCompleted++
 
-	// Phase 5b: deferred FK resolution
+	// Phase 6: Activity-dependent entities + edit-sidecars.
+	phase6Specs := byPhase[6]
+	if input.OnProgress != nil {
+		input.OnProgress(ProgressEvent{Phase: 6, PhasesTotal: totalPhases, Message: "Importing activity-dependent data..."})
+	}
+	// Import edit-sidecars first (they need activity IDs in IDMap).
+	e.importEditSidecars(ctx, input.Source, idMap, input.TargetUserID, fileIndex, result)
+	// Then import Phase 6 tables.
+	if len(phase6Specs) > 0 {
+		if err := e.runSingleTXPhase(ctx, 6, phase6Specs, input, idMap, schemaMap, manifest.SchemaMigration, result); err != nil {
+			return result, fmt.Errorf("RunImport phase 6: %w", err)
+		}
+	}
+	result.PhasesCompleted++
+
+	// Phase 7: Health + External + file_attachments.
+	phase7Specs := byPhase[7]
+	if len(phase7Specs) > 0 {
+		if input.OnProgress != nil {
+			input.OnProgress(ProgressEvent{Phase: 7, PhasesTotal: totalPhases, Message: "Importing health data..."})
+		}
+		if err := e.runSingleTXPhase(ctx, 7, phase7Specs, input, idMap, schemaMap, manifest.SchemaMigration, result); err != nil {
+			return result, fmt.Errorf("RunImport phase 7: %w", err)
+		}
+	}
+	result.PhasesCompleted++
+
+	// Phase 8: Deferred FK resolution.
+	if input.OnProgress != nil {
+		input.OnProgress(ProgressEvent{Phase: 8, PhasesTotal: totalPhases, Message: "Resolving deferred references..."})
+	}
 	if err := e.runPhase5b(ctx, idMap); err != nil {
-		return nil, fmt.Errorf("RunImport phase 5b: %w", err)
+		return result, fmt.Errorf("RunImport phase 8 (deferred FKs): %w", err)
 	}
+	result.PhasesCompleted++
 
-	// Phases 6, 7 — single TX each
-	for _, phase := range []int{6, 7} {
-		specs := byPhase[phase]
-		if len(specs) == 0 {
-			result.PhasesCompleted++
-			continue
-		}
-		if err := e.runSingleTXPhase(ctx, phase, specs, input, idMap, schemaMap, manifest.SchemaMigration, result); err != nil {
-			return nil, fmt.Errorf("RunImport phase %d: %w", phase, err)
-		}
-		result.PhasesCompleted++
+	// Phase 9: JSONB remapping (after all entity IDs are finalized).
+	if input.OnProgress != nil {
+		input.OnProgress(ProgressEvent{Phase: 9, PhasesTotal: totalPhases, Message: "Remapping JSONB references..."})
 	}
+	if err := e.runJSONBRemap(ctx, idMap, input.TargetUserID); err != nil {
+		return result, fmt.Errorf("RunImport phase 9 (JSONB remap): %w", err)
+	}
+	result.PhasesCompleted++
 
-	// Phase 8: enrichment jobs + warnings
+	// Phase 10: Enrichment.
+	if input.OnProgress != nil {
+		input.OnProgress(ProgressEvent{Phase: 10, PhasesTotal: totalPhases, Message: "Triggering enrichment..."})
+	}
 	if err := triggerEnrichment(ctx, e.DB, input.TargetUserID, activityCount); err != nil {
-		// Non-fatal: log as warning but don't abort.
 		result.Warnings = append(result.Warnings, fmt.Sprintf("triggerEnrichment: %v", err))
 	}
+	result.PhasesCompleted++
 
 	// ── 9. Write import_log entry ────────────────────────────────────────────
 	if err := e.writeImportLog(ctx, input.TargetUserID, result, manifest, start); err != nil {
@@ -351,31 +395,24 @@ func (e *Engine) runSingleTXPhase(
 	return nil
 }
 
-// runPhase5 handles the per-activity-TX import of activities and their files.
-// Returns the count of activity rows imported.
-func (e *Engine) runPhase5(
+// runPhase5Activities imports activities with per-activity transactions.
+// Files are already imported in Phase 0; no file handling here.
+func (e *Engine) runPhase5Activities(
 	ctx context.Context,
 	input ImportInput,
 	idMap *IDMap,
 	schemaMap map[string][]targetColumn,
-	activitySpec tableSpec,
-	fileAttachSpec tableSpec,
 	exportMigration int,
 	result *ImportResult,
 ) (int, error) {
-	// Load file index once.
-	fileIndex, err := loadUserFilesIndex(input.Source)
-	if err != nil {
-		return 0, fmt.Errorf("loadUserFilesIndex: %w", err)
-	}
+	allTbls := allTables()
+	allTbls = append(allTbls, healthTables()...)
+	activitySpec := findSpec("activities", allTbls)
 
 	// Read activities JSON.
 	rc, err := input.Source.OpenData("data/activities.json")
 	if err != nil {
-		// No activities — import remaining files then return.
-		if err2 := e.importRemainingFiles(ctx, input, idMap, fileIndex, result); err2 != nil {
-			return 0, fmt.Errorf("importRemainingFiles (no activities): %w", err2)
-		}
+		// No activities file — skip.
 		return 0, nil
 	}
 	defer rc.Close()
@@ -390,7 +427,7 @@ func (e *Engine) runPhase5(
 		return 0, fmt.Errorf("decode activities.json: %w", err)
 	}
 
-	// Determine export columns for activities.
+	// Determine export columns.
 	exportCols := exportColumnsForTable(input.Source, "activities")
 	if len(exportCols) == 0 {
 		exportCols = extractKeysFromFirstRow(activityRows)
@@ -402,75 +439,15 @@ func (e *Engine) runPhase5(
 	activitiesWithoutFile := 0
 
 	for i, rawRow := range activityRows {
-		// Apply transformers before anything else.
 		rawRow = applyTransformers(exportMigration, "activities", rawRow)
 
-		// Import file_id and sidecar_file_id BEFORE the activity row.
-		// Track whether this activity has a primary original file.
+		// Track whether this activity has a primary file.
 		fileID, hasFileID := stringVal(rawRow["file_id"])
-		hasOriginalFile := hasFileID && fileID != ""
-
-		for _, fkCol := range []string{"file_id", "sidecar_file_id"} {
-			if oldID, ok := stringVal(rawRow[fkCol]); ok && oldID != "" {
-				if _, alreadyMapped := idMap.GetIfExists(oldID); !alreadyMapped {
-					if err := e.importFileByID(ctx, input.Source, idMap, input.TargetUserID, oldID, fileIndex, result); err != nil {
-						return activityCount, fmt.Errorf("activity row %d: importFileByID %s=%s: %w", i, fkCol, oldID, err)
-					}
-				}
-			}
-		}
-
-		if !hasOriginalFile {
+		if !hasFileID || fileID == "" {
 			activitiesWithoutFile++
 		}
 
-		// Capture old PK before prepareRow remaps it.
 		oldID := extractOldID(rawRow, activitySpec)
-
-		// ── Activity dedup ────────────────────────────────────────────────────
-		// For activities with a file: deduplicate via file_hash.
-		if hasFileID && fileID != "" {
-			if rec, ok := fileIndex[fileID]; ok && rec.FileHash != nil && *rec.FileHash != "" {
-				var existingFileID, existingActivityID string
-				dedupErr := e.DB.QueryRow(ctx,
-					`SELECT uf.id, COALESCE(a.id, '') FROM user_files uf
-					 LEFT JOIN activities a ON a.file_id = uf.id
-					 WHERE uf.user_id = $1 AND uf.file_hash = $2
-					 LIMIT 1`,
-					input.TargetUserID, *rec.FileHash,
-				).Scan(&existingFileID, &existingActivityID)
-				if dedupErr == nil {
-					// File already exists — skip this activity.
-					idMap.Set(fileID, existingFileID)
-					if existingActivityID != "" && oldID != "" {
-						idMap.Set(oldID, existingActivityID)
-					}
-					result.EntitiesSkipped++
-					continue
-				}
-				// pgx.ErrNoRows → file doesn't exist yet, proceed with import.
-			}
-		} else {
-			// Activity without a file: dedup via started_at + sport_type.
-			startedAt := rawRow["started_at"]
-			sportType := rawRow["sport_type"]
-			if startedAt != nil && sportType != nil {
-				var existingID string
-				dedupErr := e.DB.QueryRow(ctx,
-					`SELECT id FROM activities
-					 WHERE user_id = $1 AND started_at = $2 AND sport_type = $3
-					 LIMIT 1`,
-					input.TargetUserID, startedAt, sportType,
-				).Scan(&existingID)
-				if dedupErr == nil {
-					if oldID != "" {
-						idMap.Set(oldID, existingID)
-					}
-					result.EntitiesSkipped++
-					continue
-				}
-			}
-		}
 
 		// Per-activity transaction.
 		tx, err := e.DB.Begin(ctx)
@@ -500,7 +477,6 @@ func (e *Engine) runPhase5(
 			continue
 		}
 
-		// Merge deferred FKs only for successfully inserted rows.
 		if len(localDeferred) > 0 {
 			e.mu.Lock()
 			e.deferredFKs = append(e.deferredFKs, localDeferred...)
@@ -540,56 +516,12 @@ func (e *Engine) runPhase5(
 		}
 	}
 
-	// Warn if any activities lack an original file (no sensor-data reconstruction possible).
 	if activitiesWithoutFile > 0 {
 		result.Warnings = append(result.Warnings,
 			fmt.Sprintf("%d activities without original file — sensor data (streams) cannot be reconstructed", activitiesWithoutFile))
 	}
 
-	// Import file_attachments in a single TX.
-	if !fileAttachSpec.Skip && fileAttachSpec.Name != "" {
-		faTargetCols := schemaMap[fileAttachSpec.Name]
-		if err := func() error {
-			tx, err := e.DB.Begin(ctx)
-			if err != nil {
-				return fmt.Errorf("file_attachments begin tx: %w", err)
-			}
-			defer tx.Rollback(ctx) //nolint:errcheck
-			if err := e.importTable(ctx, tx, fileAttachSpec, input.Source, idMap, input.TargetUserID, faTargetCols, exportMigration, result, input.OnProgress); err != nil {
-				return fmt.Errorf("file_attachments importTable: %w", err)
-			}
-			return tx.Commit(ctx)
-		}(); err != nil {
-			return activityCount, err
-		}
-	}
-
-	// Import remaining files (media, documents not linked to activities).
-	if err := e.importRemainingFiles(ctx, input, idMap, fileIndex, result); err != nil {
-		return activityCount, fmt.Errorf("importRemainingFiles: %w", err)
-	}
-
 	return activityCount, nil
-}
-
-// importRemainingFiles imports any user_files that have not yet been mapped
-// through the IDMap (i.e. not already imported as activity originals).
-func (e *Engine) importRemainingFiles(
-	ctx context.Context,
-	input ImportInput,
-	idMap *IDMap,
-	fileIndex map[string]userFileRecord,
-	result *ImportResult,
-) error {
-	for oldID := range fileIndex {
-		if _, alreadyMapped := idMap.GetIfExists(oldID); alreadyMapped {
-			continue
-		}
-		if err := e.importFileByID(ctx, input.Source, idMap, input.TargetUserID, oldID, fileIndex, result); err != nil {
-			return fmt.Errorf("importRemainingFiles: %w", err)
-		}
-	}
-	return nil
 }
 
 // runPhase5b resolves deferred FK columns collected during earlier phases.
