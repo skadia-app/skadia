@@ -105,7 +105,7 @@ func Load() (*Config, error) {
 		ListenAddr:      getEnvDefault("LISTEN_ADDR", ":8080"),
 		DevAuth:         os.Getenv("DEV_AUTH") == "true",
 		FrontendURL:     getEnvDefault("FRONTEND_URL", "http://localhost:5173"),
-		JWTSecret:       os.Getenv("JWT_SECRET"),
+		JWTSecret:       getSecret("JWT_SECRET", ""),
 
 		ShadowFSBasePath: os.Getenv("SHADOW_FS_BASE_PATH"),
 		HotfolderPath:    os.Getenv("HOTFOLDER_PATH"),
@@ -122,8 +122,8 @@ func Load() (*Config, error) {
 
 		// S3 with fallback to GARAGE_* for backward compatibility
 		S3Endpoint:       getEnvDefault("S3_ENDPOINT", os.Getenv("GARAGE_ENDPOINT")),
-		S3AccessKey:      getEnvDefault("S3_ACCESS_KEY", os.Getenv("GARAGE_ACCESS_KEY")),
-		S3SecretKey:      getEnvDefault("S3_SECRET_KEY", os.Getenv("GARAGE_SECRET_KEY")),
+		S3AccessKey:      getSecret("S3_ACCESS_KEY", os.Getenv("GARAGE_ACCESS_KEY")),
+		S3SecretKey:      getSecret("S3_SECRET_KEY", os.Getenv("GARAGE_SECRET_KEY")),
 		S3Bucket:         getEnvDefault("S3_BUCKET", "skadia"),
 		S3Region:         getEnvDefault("S3_REGION", "garage"),
 		S3ForcePathStyle: os.Getenv("S3_FORCE_PATH_STYLE") == "true",
@@ -132,9 +132,9 @@ func Load() (*Config, error) {
 
 		LiteLLMConfigPath:  getEnvDefault("LITELLM_CONFIG_PATH", "/app/litellm/config.yaml"),
 		LiteLLMInternalURL: getEnvDefault("LITELLM_INTERNAL_URL", "http://litellm:4000"),
-		LLMEncryptionKey:   os.Getenv("LLM_ENCRYPTION_KEY"),
+		LLMEncryptionKey:   getSecret("LLM_ENCRYPTION_KEY", ""),
 
-		KomootEncryptionKey: getEnvDefault("KOMOOT_ENCRYPTION_KEY", os.Getenv("LLM_ENCRYPTION_KEY")),
+		KomootEncryptionKey: getSecret("KOMOOT_ENCRYPTION_KEY", getSecret("LLM_ENCRYPTION_KEY", "")),
 
 		MLServiceURL: getEnvDefault("ML_SERVICE_URL", "http://ml:8000"),
 
@@ -148,11 +148,11 @@ func Load() (*Config, error) {
 		TilesDir:           getEnvDefault("TILES_DIR", "/data/tiles"),
 
 		RegistrationMode:   getEnvDefault("REGISTRATION_MODE", "invite"),
-		OAuthEncryptionKey: os.Getenv("OAUTH_ENCRYPTION_KEY"),
+		OAuthEncryptionKey: getSecret("OAUTH_ENCRYPTION_KEY", ""),
 		StravaClientID:     os.Getenv("STRAVA_CLIENT_ID"),
-		StravaClientSecret: os.Getenv("STRAVA_CLIENT_SECRET"),
+		StravaClientSecret: getSecret("STRAVA_CLIENT_SECRET", ""),
 		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
-		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		GoogleClientSecret: getSecret("GOOGLE_CLIENT_SECRET", ""),
 		AppName:            getEnvDefault("APP_NAME", "Skadia"),
 		AppURL:             getEnvDefault("APP_URL", "http://localhost:5173"),
 		TrustedProxyCIDRs:  os.Getenv("TRUSTED_PROXY_CIDRS"),
@@ -161,7 +161,7 @@ func Load() (*Config, error) {
 		SMTPHost:     os.Getenv("SMTP_HOST"),
 		SMTPPort:     parseIntDefault(os.Getenv("SMTP_PORT"), 587),
 		SMTPUsername: os.Getenv("SMTP_USERNAME"),
-		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
+		SMTPPassword: getSecret("SMTP_PASSWORD", ""),
 		SMTPFrom:     os.Getenv("SMTP_FROM"),
 		SMTPTLSMode:  getEnvDefault("SMTP_TLS", "starttls"),
 	}
@@ -197,7 +197,7 @@ func Load() (*Config, error) {
 	}
 
 	// M29: Warn when KomootEncryptionKey falls back to LLMEncryptionKey — key-separation best practice.
-	if os.Getenv("KOMOOT_ENCRYPTION_KEY") == "" && cfg.LLMEncryptionKey != "" {
+	if os.Getenv("KOMOOT_ENCRYPTION_KEY") == "" && os.Getenv("KOMOOT_ENCRYPTION_KEY_FILE") == "" && cfg.LLMEncryptionKey != "" {
 		slog.Warn("KOMOOT_ENCRYPTION_KEY not set — falling back to LLM_ENCRYPTION_KEY; set KOMOOT_ENCRYPTION_KEY for key separation")
 	}
 
@@ -254,6 +254,32 @@ func validateLibraryBasePath(p string) error {
 		return fmt.Errorf("LIBRARY_BASE_PATH must be under /data/, /srv/ or /var/lib/, got %q", p)
 	}
 	return nil
+}
+
+// getSecret reads a secret from either KEY_FILE (file path) or KEY (direct value).
+// _FILE takes precedence. The file content is trimmed of leading/trailing whitespace.
+// When _FILE is set, the file MUST be readable — falling back to the direct env var
+// silently would be a security risk (operator thinks they use file secrets but actually
+// uses a potentially compromised env var).
+func getSecret(key, defaultValue string) string {
+	if filePath := os.Getenv(key + "_FILE"); filePath != "" {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			slog.Error("FATAL: secret file unreadable — refusing to fall back to env var",
+				"key", key+"_FILE", "path", filePath, "error", err)
+			os.Exit(1)
+		}
+		v := strings.TrimSpace(string(data))
+		if v == "" {
+			slog.Error("FATAL: secret file is empty", "key", key+"_FILE", "path", filePath)
+			os.Exit(1)
+		}
+		return v
+	}
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultValue
 }
 
 func getEnvDefault(key, defaultValue string) string {
