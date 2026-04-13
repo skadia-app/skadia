@@ -2230,7 +2230,108 @@ func fileSize(t *testing.T, path string) int64 {
 }
 
 // ---------------------------------------------------------------------------
-// Test 25: TestNonEmptyAccount
+// Test 25: TestEditSidecarPhase6
+// ---------------------------------------------------------------------------
+
+// TestEditSidecarPhase6 verifies that:
+//  1. A file with file_type="edit" is skipped by Phase 0 (importAllFiles) and
+//     imported in Phase 6 (importEditSidecars) after the parent activity exists.
+//  2. The ParentID passed to ShadowFS.Put is the *new* remapped activity UUID,
+//     not the old export UUID and not nil.
+func TestEditSidecarPhase6(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	actOldID := uuid.New().String()
+	editFileOldID := uuid.New().String()
+	now := time.Now().UTC()
+
+	schemaMig := currentSchemaMigration(t, pool)
+
+	userFilesJSON := mustMarshalJSON(t, []map[string]any{
+		{
+			"id":           editFileOldID,
+			"file_type":    "edit",
+			"content_type": "application/json",
+			"file_name":    "edit.json",
+			"size_bytes":   12,
+			"parent_type":  "activity",
+			"parent_id":    actOldID,
+			"has_sidecar":  false,
+			"status":       "active",
+		},
+	})
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: schemaMig,
+		columns: map[string][]string{
+			"activities": {"id", "user_id", "title", "sport_type", "started_at"},
+		},
+		activities: []map[string]any{
+			{
+				"id":         actOldID,
+				"user_id":    srcUser,
+				"title":      "Edit Sidecar Activity",
+				"sport_type": "running",
+				"started_at": now.Format(time.RFC3339),
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/user_files.json":    userFilesJSON,
+			"files/edit/edit.json":    []byte(`{"edits":[]}`),
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	// trackingMockShadowFS records ParentID values passed to Put.
+	trackingFS := &trackingMockShadowFS{dbMockShadowFS: newDBMockShadowFS(pool)}
+
+	eng := &Engine{
+		DB:       pool,
+		ShadowFS: trackingFS,
+		Config:   EngineConfig{},
+	}
+	result, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	// Edit-sidecar must be counted as imported (Phase 6).
+	if result.FilesImported < 1 {
+		t.Errorf("expected at least 1 file imported (edit sidecar), got %d", result.FilesImported)
+	}
+
+	// Verify that ShadowFS.Put was called for the edit sidecar with a non-nil,
+	// remapped ParentID — not the old export activity UUID, not nil.
+	trackingFS.trackMu.Lock()
+	defer trackingFS.trackMu.Unlock()
+
+	var foundEditPut bool
+	for i, pid := range trackingFS.parentIDs {
+		_ = i
+		if pid == nil {
+			// An edit sidecar with nil ParentID would mean the activity wasn't in IDMap yet.
+			// That would indicate a Phase 6 ordering bug.
+			continue
+		}
+		if *pid == actOldID {
+			t.Errorf("ShadowFS.Put received old export activity UUID %q as ParentID — remap failed", actOldID)
+		} else {
+			foundEditPut = true
+		}
+	}
+	if !foundEditPut {
+		t.Error("edit sidecar ParentID was nil — activity was not in IDMap when importEditSidecars ran (Phase 6 ordering bug)")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 26: TestNonEmptyAccount
 // ---------------------------------------------------------------------------
 
 // TestNonEmptyAccount verifies that importing onto a user who already has
