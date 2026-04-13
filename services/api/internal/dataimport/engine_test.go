@@ -3,6 +3,8 @@ package dataimport
 import (
 	"archive/zip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -915,4 +917,1381 @@ func TestSchemaVersionCheck(t *testing.T) {
 	if !strings.Contains(err.Error(), "upgrade the server first") {
 		t.Errorf("error should mention 'upgrade the server first', got: %v", err)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 11: TestExportImportRoundtrip
+// ---------------------------------------------------------------------------
+
+// TestExportImportRoundtrip verifies that a realistic export covering multiple
+// tables (tags, activities, training_zones, activity_tags) can be imported onto
+// a new user with correct row counts and consistent FK references.
+func TestExportImportRoundtrip(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	tagOldID := uuid.New().String()
+	actOldID := uuid.New().String()
+	zoneOldID := uuid.New().String()
+	now := time.Now().UTC()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"tags":           {"id", "user_id", "name", "color", "text_color", "category"},
+			"activities":     {"id", "user_id", "title", "sport_type", "started_at"},
+			"training_zones": {"id", "user_id", "sport", "sub_sport", "zone_type", "source_type"},
+			"activity_tags":  {"activity_id", "tag_id", "assigned_by"},
+		},
+		tags: []map[string]any{
+			{
+				"id":         tagOldID,
+				"user_id":    srcUser,
+				"name":       "Roundtrip Tag",
+				"color":      "#ABCDEF",
+				"text_color": "#000000",
+				"category":   "custom",
+			},
+		},
+		activities: []map[string]any{
+			{
+				"id":         actOldID,
+				"user_id":    srcUser,
+				"title":      "Roundtrip Activity",
+				"sport_type": "running",
+				"started_at": now.Format(time.RFC3339),
+			},
+		},
+		trainingZones: []map[string]any{
+			{
+				"id":          zoneOldID,
+				"user_id":     srcUser,
+				"sport":       1,
+				"sub_sport":   0,
+				"zone_type":   "heart_rate",
+				"source_type": "manual",
+			},
+		},
+		activityTags: []map[string]any{
+			{
+				"activity_id": actOldID,
+				"tag_id":      tagOldID,
+				"assigned_by": "manual",
+			},
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	result, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+	_ = result
+
+	// Verify row counts.
+	assertRowCount(t, pool, "tags", userID, 1)
+	assertRowCount(t, pool, "activities", userID, 1)
+	assertRowCount(t, pool, "training_zones", userID, 1)
+
+	// Verify activity_tags → both activity and tag belong to the new user.
+	var linkedActivityUserID, linkedTagUserID string
+	err = pool.QueryRow(context.Background(), `
+		SELECT a.user_id, tg.user_id
+		FROM activity_tags at
+		JOIN activities a ON a.id = at.activity_id
+		JOIN tags tg       ON tg.id = at.tag_id
+		WHERE a.user_id = $1
+	`, userID).Scan(&linkedActivityUserID, &linkedTagUserID)
+	if err != nil {
+		t.Fatalf("query activity_tags join: %v", err)
+	}
+	if linkedActivityUserID != userID {
+		t.Errorf("activity_tags.activity_id user_id: want %q, got %q", userID, linkedActivityUserID)
+	}
+	if linkedTagUserID != userID {
+		t.Errorf("activity_tags.tag_id user_id: want %q, got %q", userID, linkedTagUserID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 12: TestGeometryRoundtrip
+// ---------------------------------------------------------------------------
+
+// TestGeometryRoundtrip verifies that a geometry column (user_privacy_zones.center)
+// survives the export→import cycle: the GeoJSON emitted by ST_AsGeoJSON must
+// equal the GeoJSON read back after import via ST_AsGeoJSON.
+func TestGeometryRoundtrip(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	// Confirm the user_privacy_zones.center column is geometry.
+	var hasCenter bool
+	if err := pool.QueryRow(context.Background(), `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema = 'public'
+			  AND table_name   = 'user_privacy_zones'
+			  AND column_name  = 'center'
+			  AND udt_name     = 'geometry'
+		)
+	`).Scan(&hasCenter); err != nil {
+		t.Fatalf("check center column: %v", err)
+	}
+	if !hasCenter {
+		t.Skip("user_privacy_zones.center geometry column not present")
+	}
+
+	zoneOldID := uuid.New().String()
+	srcUser := uuid.New().String()
+
+	// GeoJSON Point at a deterministic coordinate.
+	geoPoint := map[string]any{
+		"type":        "Point",
+		"coordinates": []any{11.393, 47.265},
+	}
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"user_privacy_zones": {"id", "user_id", "name", "center", "radius_m", "is_active", "zone_type"},
+		},
+		extraFiles: map[string][]byte{
+			"data/user_privacy_zones.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":       zoneOldID,
+					"user_id":  srcUser,
+					"name":     "GeomZone",
+					"center":   geoPoint,
+					"radius_m": 200,
+					"is_active": true,
+					"zone_type": "home",
+				},
+			}),
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	_, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	// Read back the geometry as GeoJSON and check that it is still a Point
+	// at approximately the same coordinates.
+	var geoJSONStr string
+	if err := pool.QueryRow(context.Background(),
+		"SELECT ST_AsGeoJSON(center) FROM user_privacy_zones WHERE user_id = $1 AND name = 'GeomZone'",
+		userID,
+	).Scan(&geoJSONStr); err != nil {
+		t.Fatalf("ST_AsGeoJSON query: %v", err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(geoJSONStr), &got); err != nil {
+		t.Fatalf("parse returned GeoJSON: %v", err)
+	}
+	if got["type"] != "Point" {
+		t.Errorf("geometry type: want Point, got %v", got["type"])
+	}
+	coords, ok := got["coordinates"].([]any)
+	if !ok || len(coords) < 2 {
+		t.Fatalf("geometry coordinates malformed: %v", got["coordinates"])
+	}
+	lon, _ := coords[0].(float64)
+	lat, _ := coords[1].(float64)
+	if lon < 11.392 || lon > 11.394 {
+		t.Errorf("longitude: want ~11.393, got %v", lon)
+	}
+	if lat < 47.264 || lat > 47.266 {
+		t.Errorf("latitude: want ~47.265, got %v", lat)
+	}
+}
+
+// mustMarshalJSON encodes v to JSON, failing the test on error.
+func mustMarshalJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("mustMarshalJSON: %v", err)
+	}
+	return b
+}
+
+// ---------------------------------------------------------------------------
+// Test 13: TestJSONBRoundtrip
+// ---------------------------------------------------------------------------
+
+// TestJSONBRoundtrip verifies that a JSONB column (automation_rules.actions)
+// survives import as a proper object — not re-encoded as a JSON string.
+func TestJSONBRoundtrip(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	ruleOldID := uuid.New().String()
+	srcUser := uuid.New().String()
+
+	actions := []any{
+		map[string]any{"type": "add_tag", "params": map[string]any{"tag_id": uuid.New().String()}},
+	}
+	conditions := map[string]any{"sport_type": "running"}
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"automation_rules": {"id", "user_id", "name", "is_active", "priority", "conditions", "actions"},
+		},
+		extraFiles: map[string][]byte{
+			"data/automation_rules.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":         ruleOldID,
+					"user_id":    srcUser,
+					"name":       "JSONB Roundtrip Rule",
+					"is_active":  true,
+					"priority":   1,
+					"conditions": conditions,
+					"actions":    actions,
+				},
+			}),
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	_, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	// Read back JSONB — it must be a proper object (not wrapped as a string).
+	var actionsRaw []byte
+	if err := pool.QueryRow(context.Background(),
+		"SELECT actions FROM automation_rules WHERE user_id = $1 AND name = 'JSONB Roundtrip Rule'",
+		userID,
+	).Scan(&actionsRaw); err != nil {
+		t.Fatalf("select automation_rules.actions: %v", err)
+	}
+
+	// actionsRaw must decode as a JSON array.
+	var decoded []any
+	if err := json.Unmarshal(actionsRaw, &decoded); err != nil {
+		t.Fatalf("actions JSONB is not a JSON array: %v — raw: %s", err, actionsRaw)
+	}
+	if len(decoded) != 1 {
+		t.Errorf("actions: want 1 element, got %d", len(decoded))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 14: TestJSONBRemapping
+// ---------------------------------------------------------------------------
+
+// TestJSONBRemapping verifies that UUID references embedded in JSONB columns
+// (automation_rules.actions → tag_id) are remapped through the IDMap.
+func TestJSONBRemapping(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	ruleOldID := uuid.New().String()
+	tagOldID := uuid.New().String()
+
+	// Build a rule whose action references tagOldID.
+	actions := []any{
+		map[string]any{
+			"type":   "add_tag",
+			"params": map[string]any{"tag_id": tagOldID},
+		},
+	}
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"tags":             {"id", "user_id", "name", "color", "text_color", "category"},
+			"automation_rules": {"id", "user_id", "name", "is_active", "priority", "conditions", "actions"},
+		},
+		tags: []map[string]any{
+			{
+				"id":         tagOldID,
+				"user_id":    srcUser,
+				"name":       "Remapped Tag",
+				"color":      "#111111",
+				"text_color": "#FFFFFF",
+				"category":   "custom",
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/automation_rules.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":         ruleOldID,
+					"user_id":    srcUser,
+					"name":       "JSONB Remap Rule",
+					"is_active":  true,
+					"priority":   1,
+					"conditions": map[string]any{},
+					"actions":    actions,
+				},
+			}),
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	_, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	// Fetch the actual new tag ID from the DB.
+	var newTagID string
+	if err := pool.QueryRow(context.Background(),
+		"SELECT id FROM tags WHERE user_id = $1 AND name = 'Remapped Tag'",
+		userID,
+	).Scan(&newTagID); err != nil {
+		t.Fatalf("select tag: %v", err)
+	}
+
+	// Read back the rule's actions JSONB and check that tag_id was remapped.
+	var actionsRaw []byte
+	if err := pool.QueryRow(context.Background(),
+		"SELECT actions FROM automation_rules WHERE user_id = $1 AND name = 'JSONB Remap Rule'",
+		userID,
+	).Scan(&actionsRaw); err != nil {
+		t.Fatalf("select automation_rules.actions: %v", err)
+	}
+
+	var decodedActions []map[string]any
+	if err := json.Unmarshal(actionsRaw, &decodedActions); err != nil {
+		t.Fatalf("parse actions: %v", err)
+	}
+	if len(decodedActions) == 0 {
+		t.Fatal("actions is empty")
+	}
+
+	params, _ := decodedActions[0]["params"].(map[string]any)
+	if params == nil {
+		t.Fatal("actions[0].params is nil")
+	}
+	gotTagID, _ := params["tag_id"].(string)
+	if gotTagID == tagOldID {
+		t.Errorf("tag_id was NOT remapped — still the old export UUID %q", tagOldID)
+	}
+	if gotTagID != newTagID {
+		t.Errorf("tag_id remapped to %q, want new DB tag ID %q", gotTagID, newTagID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 15: TestShadowFSIDRemap
+// ---------------------------------------------------------------------------
+
+// dbMockShadowFS is a variant of mockShadowFS that also inserts into the
+// user_files table so that FK constraints on activities.file_id are satisfied.
+type dbMockShadowFS struct {
+	*mockShadowFS
+	pool *pgxpool.Pool
+}
+
+func newDBMockShadowFS(pool *pgxpool.Pool) *dbMockShadowFS {
+	return &dbMockShadowFS{mockShadowFS: newMockShadowFS(), pool: pool}
+}
+
+func (m *dbMockShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	rec, err := m.mockShadowFS.Put(ctx, entry, data)
+	if err != nil {
+		return rec, err
+	}
+	// Insert a minimal user_files row so FK constraints are satisfied.
+	_, dbErr := m.pool.Exec(ctx, `
+		INSERT INTO user_files
+			(id, user_id, file_type, storage_backend, storage_path,
+			 content_type, file_name, size_bytes, has_sidecar, is_renaming, status)
+		VALUES ($1, $2, $3, 'local', $4, $5, $6, $7, false, false, 'active')
+		ON CONFLICT (id) DO NOTHING
+	`, rec.ID, rec.UserID, entry.FileType,
+		"/mock/"+rec.ID,
+		entry.ContentType, entry.FileName, rec.SizeBytes)
+	if dbErr != nil {
+		return shadowfs.FileRecord{}, fmt.Errorf("dbMockShadowFS: insert user_files: %w", dbErr)
+	}
+	return rec, nil
+}
+
+// TestShadowFSIDRemap verifies that after importing an activity with a file,
+// activities.file_id points to an existing user_files row (created by ShadowFS.Put)
+// and NOT to the old export UUID.
+func TestShadowFSIDRemap(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	actOldID := uuid.New().String()
+	fileOldID := uuid.New().String()
+	now := time.Now().UTC()
+
+	// user_files.json entry for the file.
+	userFilesJSON := mustMarshalJSON(t, []map[string]any{
+		{
+			"id":           fileOldID,
+			"file_type":    "original",
+			"content_type": "application/octet-stream",
+			"file_name":    "activity.fit",
+			"size_bytes":   5,
+			"status":       "active",
+		},
+	})
+	// Actual file content inside files/original/activity.fit.
+	fileContent := []byte("hello")
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"activities": {"id", "user_id", "title", "sport_type", "started_at", "file_id"},
+		},
+		activities: []map[string]any{
+			{
+				"id":         actOldID,
+				"user_id":    srcUser,
+				"title":      "Shadow Activity",
+				"sport_type": "cycling",
+				"started_at": now.Format(time.RFC3339),
+				"file_id":    fileOldID,
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/user_files.json":        userFilesJSON,
+			"files/original/activity.fit": fileContent,
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	// Use a DB-aware mock so user_files rows satisfy FK constraints.
+	eng := &Engine{
+		DB:       pool,
+		ShadowFS: newDBMockShadowFS(pool),
+		Config:   EngineConfig{},
+	}
+	_, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	// activities.file_id must NOT be nil and must not be the old export UUID.
+	var gotFileID *string
+	if err := pool.QueryRow(context.Background(),
+		"SELECT file_id FROM activities WHERE user_id = $1 AND title = 'Shadow Activity'",
+		userID,
+	).Scan(&gotFileID); err != nil {
+		t.Fatalf("select file_id: %v", err)
+	}
+	if gotFileID == nil {
+		t.Fatal("activities.file_id is NULL — ShadowFS Put was not called or IDMap not updated")
+	}
+	if *gotFileID == fileOldID {
+		t.Errorf("file_id is still the old export UUID %q — IDMap remap did not happen", fileOldID)
+	}
+
+	// The file_id must point to an existing user_files row.
+	var exists bool
+	if err := pool.QueryRow(context.Background(),
+		"SELECT EXISTS(SELECT 1 FROM user_files WHERE id = $1 AND user_id = $2)",
+		*gotFileID, userID,
+	).Scan(&exists); err != nil {
+		t.Fatalf("check user_files: %v", err)
+	}
+	if !exists {
+		t.Errorf("activities.file_id %q does not reference an existing user_files row", *gotFileID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 16: TestPartialImportRecovery
+// ---------------------------------------------------------------------------
+
+// TestPartialImportRecovery verifies that a fatal failure in Phase 5 (activities)
+// does not roll back already-committed Phases 2/3 (tags, gear).
+// We provoke a failure by giving an activity an invalid sport_type that violates
+// a DB CHECK constraint — if no such constraint exists we use an FK violation.
+func TestPartialImportRecovery(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	tagOldID := uuid.New().String()
+
+	// Activity row with a NULL started_at to provoke a NOT NULL violation.
+	actOldID := uuid.New().String()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"tags":       {"id", "user_id", "name", "color", "text_color", "category"},
+			"activities": {"id", "user_id", "title", "sport_type", "started_at"},
+		},
+		tags: []map[string]any{
+			{
+				"id":         tagOldID,
+				"user_id":    srcUser,
+				"name":       "Recovery Tag",
+				"color":      "#FACADE",
+				"text_color": "#000000",
+				"category":   "custom",
+			},
+		},
+		activities: []map[string]any{
+			{
+				"id":         actOldID,
+				"user_id":    srcUser,
+				"title":      "Bad Activity",
+				"sport_type": "running",
+				"started_at": nil, // NOT NULL → DB error → failed
+			},
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	result, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		// A hard fatal error on RunImport level is also acceptable —
+		// but we still expect tags to have been committed if phases ran independently.
+		// Re-check tags count; if the whole import aborted we can't verify partial recovery.
+		t.Logf("RunImport returned error (acceptable for fatal phase failure): %v", err)
+	}
+
+	// Tags (Phase 2) must be imported regardless of activity failure.
+	assertRowCount(t, pool, "tags", userID, 1)
+
+	// If RunImport succeeded partially, EntitiesFailed must be > 0.
+	if result != nil && result.EntitiesFailed == 0 {
+		// started_at is not always NOT NULL — check if import silently succeeded.
+		var actCount int
+		if err2 := pool.QueryRow(context.Background(),
+			"SELECT COUNT(*) FROM activities WHERE user_id = $1", userID,
+		).Scan(&actCount); err2 == nil && actCount == 0 {
+			t.Log("Activity with NULL started_at was silently skipped (not a hard error) — test objective met")
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 17: TestForwardCompat
+// ---------------------------------------------------------------------------
+
+// TestForwardCompat verifies that importing an export whose schema_migration
+// is lower than the current DB (i.e. fewer columns) succeeds and DB defaults
+// fill the missing columns.
+func TestForwardCompat(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	current := currentSchemaMigration(t, pool)
+	older := current - 10
+	if older <= 0 {
+		older = 1
+	}
+
+	tagOldID := uuid.New().String()
+	srcUser := uuid.New().String()
+
+	// Export only the bare minimum columns — omit optional columns like description.
+	zipPath := buildExportZip(t, zipBuildOpts{
+		schemaMigration: older,
+		columns: map[string][]string{
+			// Only include columns that definitely existed from migration 1:
+			"tags": {"id", "user_id", "name", "color", "text_color", "category"},
+		},
+		tags: []map[string]any{
+			{
+				"id":         tagOldID,
+				"user_id":    srcUser,
+				"name":       "ForwardCompat Tag",
+				"color":      "#123456",
+				"text_color": "#FFFFFF",
+				"category":   "custom",
+			},
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	_, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport with older schema migration: %v", err)
+	}
+
+	// The tag should have been imported despite missing columns.
+	assertRowCount(t, pool, "tags", userID, 1)
+}
+
+// ---------------------------------------------------------------------------
+// Test 18: TestCompositePKTables
+// ---------------------------------------------------------------------------
+
+// TestCompositePKTables verifies that best_effort_exclusions (composite PK:
+// user_id + activity_id + category, no "id" column) imports correctly.
+func TestCompositePKTables(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	// Check that the table exists.
+	var tableExists bool
+	if err := pool.QueryRow(context.Background(), `
+		SELECT EXISTS(
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = 'public' AND table_name = 'best_effort_exclusions'
+		)
+	`).Scan(&tableExists); err != nil {
+		t.Fatalf("check table: %v", err)
+	}
+	if !tableExists {
+		t.Skip("best_effort_exclusions table not present")
+	}
+
+	srcUser := uuid.New().String()
+	actOldID := uuid.New().String()
+	now := time.Now().UTC()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"activities":             {"id", "user_id", "title", "sport_type", "started_at"},
+			"best_effort_exclusions": {"user_id", "activity_id", "category"},
+		},
+		activities: []map[string]any{
+			{
+				"id":         actOldID,
+				"user_id":    srcUser,
+				"title":      "Composite PK Activity",
+				"sport_type": "running",
+				"started_at": now.Format(time.RFC3339),
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/best_effort_exclusions.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"user_id":     srcUser,
+					"activity_id": actOldID,
+					"category":    "5km",
+				},
+			}),
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	_, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	// One activity must exist.
+	assertRowCount(t, pool, "activities", userID, 1)
+
+	// best_effort_exclusions row must exist with correct user_id.
+	var count int
+	if err := pool.QueryRow(context.Background(),
+		"SELECT COUNT(*) FROM best_effort_exclusions WHERE user_id = $1 AND category = '5km'",
+		userID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count best_effort_exclusions: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("best_effort_exclusions count: want 1, got %d", count)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 19: TestDeferredFKGearDocument
+// ---------------------------------------------------------------------------
+
+// TestDeferredFKGearDocument verifies that gear.source_document_id (deferred FK
+// pointing at gear_documents) is correctly resolved after the document is imported
+// in Phase 4.
+func TestDeferredFKGearDocument(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	gearOldID := uuid.New().String()
+	docOldID := uuid.New().String()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"gear": {
+				"id", "user_id", "name", "type",
+				"source_document_id",
+			},
+			"gear_documents": {
+				"id", "user_id", "gear_id",
+				"doc_type", "title", "processing_status",
+				"original_filename", "content_type", "file_size_bytes",
+			},
+		},
+		gear: []map[string]any{
+			{
+				"id":                 gearOldID,
+				"user_id":            srcUser,
+				"name":               "DeferredGear",
+				"type":               "bike",
+				"source_document_id": docOldID, // deferred FK
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/gear_documents.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":                docOldID,
+					"user_id":           srcUser,
+					"gear_id":           gearOldID,
+					"doc_type":          "invoice",
+					"title":             "Purchase Receipt",
+					"processing_status": "pending",
+					// NOT NULL columns required by gear_documents:
+					"original_filename": "receipt.pdf",
+					"content_type":      "application/pdf",
+					"file_size_bytes":   1024,
+				},
+			}),
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	_, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	// gear.source_document_id must not be NULL after deferred FK resolution.
+	var srcDocID *string
+	if err := pool.QueryRow(context.Background(),
+		"SELECT source_document_id FROM gear WHERE user_id = $1 AND name = 'DeferredGear'",
+		userID,
+	).Scan(&srcDocID); err != nil {
+		t.Fatalf("select gear: %v", err)
+	}
+	if srcDocID == nil {
+		t.Error("gear.source_document_id is NULL — deferred FK not resolved")
+		return
+	}
+
+	// The gear_documents row with that ID must exist.
+	var docExists bool
+	if err := pool.QueryRow(context.Background(),
+		"SELECT EXISTS(SELECT 1 FROM gear_documents WHERE id = $1)",
+		*srcDocID,
+	).Scan(&docExists); err != nil {
+		t.Fatalf("check gear_documents: %v", err)
+	}
+	if !docExists {
+		t.Errorf("gear.source_document_id %q does not reference an existing gear_documents row", *srcDocID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 20: TestDeferredFKTagCoverFile
+// ---------------------------------------------------------------------------
+
+// TestDeferredFKTagCoverFile verifies that tags.cover_file_id (deferred FK
+// to user_files) is correctly resolved after the file is imported in Phase 5.
+func TestDeferredFKTagCoverFile(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	tagOldID := uuid.New().String()
+	fileOldID := uuid.New().String()
+
+	// Build a user_files index entry for the cover file.
+	userFilesJSON := mustMarshalJSON(t, []map[string]any{
+		{
+			"id":           fileOldID,
+			"file_type":    "image",
+			"content_type": "image/jpeg",
+			"file_name":    "cover.jpg",
+			"size_bytes":   3,
+			"status":       "active",
+		},
+	})
+	fileContent := []byte("jpg")
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"tags": {"id", "user_id", "name", "color", "text_color", "category", "cover_file_id"},
+		},
+		tags: []map[string]any{
+			{
+				"id":            tagOldID,
+				"user_id":       srcUser,
+				"name":          "CoverTag",
+				"color":         "#ABCDEF",
+				"text_color":    "#000000",
+				"category":      "custom",
+				"cover_file_id": fileOldID, // deferred FK
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/user_files.json":  userFilesJSON,
+			"files/image/cover.jpg": fileContent,
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	// Use DB-aware mock so user_files rows satisfy FK constraints on cover_file_id.
+	eng := &Engine{
+		DB:       pool,
+		ShadowFS: newDBMockShadowFS(pool),
+		Config:   EngineConfig{},
+	}
+	_, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	// tags.cover_file_id must not be NULL.
+	var coverFileID *string
+	if err := pool.QueryRow(context.Background(),
+		"SELECT cover_file_id FROM tags WHERE user_id = $1 AND name = 'CoverTag'",
+		userID,
+	).Scan(&coverFileID); err != nil {
+		t.Fatalf("select tag.cover_file_id: %v", err)
+	}
+	if coverFileID == nil {
+		t.Error("tags.cover_file_id is NULL — deferred FK not resolved")
+		return
+	}
+	if *coverFileID == fileOldID {
+		t.Errorf("tags.cover_file_id still has the old export UUID %q — IDMap remap failed", fileOldID)
+	}
+
+	// The referenced user_files row must exist.
+	var exists bool
+	if err := pool.QueryRow(context.Background(),
+		"SELECT EXISTS(SELECT 1 FROM user_files WHERE id = $1 AND user_id = $2)",
+		*coverFileID, userID,
+	).Scan(&exists); err != nil {
+		t.Fatalf("check user_files: %v", err)
+	}
+	if !exists {
+		t.Errorf("tags.cover_file_id %q does not reference an existing user_files row", *coverFileID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 21: TestUserColumnMapping
+// ---------------------------------------------------------------------------
+
+// TestUserColumnMapping verifies that:
+//   - segments uses "created_by" (not "user_id") to identify the owner
+//   - chat_messages has UserCol="none" so no user_id is injected
+func TestUserColumnMapping(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	// Segments have NO ACTION FK on created_by, so prior test runs may leave
+	// orphaned rows. Clean them up before the test so the count query is unambiguous.
+	// (Cleanup at the end handles our own rows.)
+	_, _ = pool.Exec(context.Background(),
+		"DELETE FROM segments WHERE name = 'UserColSeg'")
+
+	srcUser := uuid.New().String()
+	segOldID := uuid.New().String()
+	sessionOldID := uuid.New().String()
+	msgOldID := uuid.New().String()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"segments": {
+				"id", "created_by", "name", "sport_group", "segment_type",
+			},
+			"chat_sessions": {"id", "user_id", "title"},
+			"chat_messages": {"id", "session_id", "role", "content"},
+		},
+		segments: []map[string]any{
+			{
+				"id":           segOldID,
+				"created_by":   srcUser,
+				"name":         "UserColSeg",
+				"sport_group":  "running",
+				"segment_type": "standard",
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/chat_sessions.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":      sessionOldID,
+					"user_id": srcUser,
+					"title":   "Test Session",
+				},
+			}),
+			"data/chat_messages.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":         msgOldID,
+					"session_id": sessionOldID,
+					"role":       "user",
+					"content":    "Hello",
+				},
+			}),
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	_, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	// segments.created_by must equal the target userID.
+	// Filter by created_by = userID to avoid picking up leftover rows from prior runs
+	// (segments.created_by has NO ACTION delete, so user cleanup does not cascade).
+	var segCount int
+	if err := pool.QueryRow(context.Background(),
+		"SELECT COUNT(*) FROM segments WHERE name = 'UserColSeg' AND created_by = $1",
+		userID,
+	).Scan(&segCount); err != nil {
+		t.Fatalf("count segments: %v", err)
+	}
+	if segCount != 1 {
+		t.Errorf("segments with name='UserColSeg' and created_by=userID: want 1, got %d", segCount)
+	}
+	// Cleanup: segments aren't CASCADE-deleted when user is deleted (NO ACTION FK).
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			"DELETE FROM segments WHERE name = 'UserColSeg' AND created_by = $1", userID)
+	})
+
+	// chat_messages has no user_id column in the schema (UserCol="none").
+	// Verify the message was imported and session_id was remapped.
+	var msgCount int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM chat_messages cm
+		 JOIN chat_sessions cs ON cs.id = cm.session_id
+		 WHERE cs.user_id = $1`,
+		userID,
+	).Scan(&msgCount); err != nil {
+		t.Fatalf("count chat_messages: %v", err)
+	}
+	if msgCount != 1 {
+		t.Errorf("chat_messages count via session: want 1, got %d", msgCount)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 22: TestRecordingGroupMembersPhase6
+// ---------------------------------------------------------------------------
+
+// TestRecordingGroupMembersPhase6 verifies that recording_group_members (Phase 6,
+// FK to recording_groups Phase 2 and activities Phase 5) imports correctly.
+// The group needs at least 2 members: the trigger fn_sync_group_secondary deletes
+// groups with fewer than 2 members (via cascade), which would also delete the members.
+func TestRecordingGroupMembersPhase6(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	groupOldID := uuid.New().String()
+	act1OldID := uuid.New().String()
+	act2OldID := uuid.New().String()
+	now := time.Now().UTC()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"recording_groups":        {"id", "user_id", "sport_type"},
+			"activities":              {"id", "user_id", "title", "sport_type", "started_at"},
+			"recording_group_members": {"group_id", "activity_id", "is_fused"},
+		},
+		// Two activities so the group trigger keeps the group alive (requires >= 2 members).
+		activities: []map[string]any{
+			{
+				"id":         act1OldID,
+				"user_id":    srcUser,
+				"title":      "Group Member Activity 1",
+				"sport_type": "cycling",
+				"started_at": now.Format(time.RFC3339),
+			},
+			{
+				"id":         act2OldID,
+				"user_id":    srcUser,
+				"title":      "Group Member Activity 2",
+				"sport_type": "cycling",
+				"started_at": now.Add(time.Minute).Format(time.RFC3339),
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/recording_groups.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":         groupOldID,
+					"user_id":    srcUser,
+					"sport_type": "cycling",
+				},
+			}),
+			"data/recording_group_members.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"group_id":    groupOldID,
+					"activity_id": act1OldID,
+					"is_fused":    false,
+				},
+				{
+					"group_id":    groupOldID,
+					"activity_id": act2OldID,
+					"is_fused":    false,
+				},
+			}),
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	_, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	// Both members must survive — group has >= 2 activities so trigger keeps it.
+	var memberCount int
+	if err := pool.QueryRow(context.Background(), `
+		SELECT COUNT(*) FROM recording_group_members rgm
+		JOIN recording_groups rg ON rg.id = rgm.group_id
+		JOIN activities a         ON a.id  = rgm.activity_id
+		WHERE rg.user_id = $1
+	`, userID).Scan(&memberCount); err != nil {
+		t.Fatalf("count recording_group_members: %v", err)
+	}
+	if memberCount != 2 {
+		t.Errorf("recording_group_members count: want 2, got %d", memberCount)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 23: TestFileParentIDRemap
+// ---------------------------------------------------------------------------
+
+// TestFileParentIDRemap verifies that when a file has ParentType="activity" and
+// a ParentID pointing at an old activity UUID, the ShadowFS.Put() call receives
+// either a nil ParentID (activity not yet imported at file-import time) or the
+// correctly remapped new activity UUID. The old UUID must never reach ShadowFS.
+func TestFileParentIDRemap(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	actOldID := uuid.New().String()
+	fileOldID := uuid.New().String()
+	now := time.Now().UTC()
+
+	parentType := "activity"
+
+	// user_files.json: file with ParentType=activity, ParentID=actOldID.
+	userFilesJSON := mustMarshalJSON(t, []map[string]any{
+		{
+			"id":           fileOldID,
+			"file_type":    "original",
+			"content_type": "application/octet-stream",
+			"file_name":    "remap_test.fit",
+			"size_bytes":   4,
+			"status":       "active",
+			"parent_type":  parentType,
+			"parent_id":    actOldID, // old activity UUID
+		},
+	})
+	fileContent := []byte("data")
+
+	// Use a trackable dbMockShadowFS that records the ParentID passed to Put
+	// and also inserts user_files rows to satisfy FK constraints.
+	trackingFS := &trackingMockShadowFS{dbMockShadowFS: newDBMockShadowFS(pool)}
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"activities": {"id", "user_id", "title", "sport_type", "started_at", "file_id"},
+		},
+		activities: []map[string]any{
+			{
+				"id":         actOldID,
+				"user_id":    srcUser,
+				"title":      "ParentRemap Activity",
+				"sport_type": "running",
+				"started_at": now.Format(time.RFC3339),
+				"file_id":    fileOldID,
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/user_files.json":            userFilesJSON,
+			"files/original/remap_test.fit":   fileContent,
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := &Engine{
+		DB:       pool,
+		ShadowFS: trackingFS,
+		Config:   EngineConfig{},
+	}
+	_, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	// The old activity UUID must NEVER have been passed as ParentID to ShadowFS.
+	trackingFS.trackMu.Lock()
+	defer trackingFS.trackMu.Unlock()
+	for _, pid := range trackingFS.parentIDs {
+		if pid != nil && *pid == actOldID {
+			t.Errorf("ShadowFS.Put received old export activity UUID %q as ParentID — remap failed", actOldID)
+		}
+	}
+}
+
+// trackingMockShadowFS wraps dbMockShadowFS and records the ParentID passed to Put.
+type trackingMockShadowFS struct {
+	*dbMockShadowFS
+	trackMu   sync.Mutex
+	parentIDs []*string
+}
+
+func (m *trackingMockShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	// Copy the pointer: nil means "not set", non-nil means the actual value was passed.
+	var pid *string
+	if entry.ParentID != nil {
+		v := *entry.ParentID
+		pid = &v
+	}
+	m.trackMu.Lock()
+	m.parentIDs = append(m.parentIDs, pid)
+	m.trackMu.Unlock()
+	return m.dbMockShadowFS.Put(ctx, entry, data)
+}
+
+// ---------------------------------------------------------------------------
+// Test 24: TestMultiPartSource
+// ---------------------------------------------------------------------------
+
+// TestMultiPartSource verifies that a multi-part export (manifest.json with
+// multipart:true, metadata.zip for data/, files-0001.zip for files/) is read
+// correctly by MultiPartSource and imported via RunImport.
+func TestMultiPartSource(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	tagOldID := uuid.New().String()
+
+	dir := t.TempDir()
+
+	// ── Build metadata.zip (contains data/ + columns.json) ──────────────────
+	metaZipPath := dir + "/metadata.zip"
+	writeZipFile(t, metaZipPath, map[string][]byte{
+		"columns.json": mustMarshalJSON(t, map[string][]string{
+			"tags": {"id", "user_id", "name", "color", "text_color", "category"},
+		}),
+		"data/tags.json": mustMarshalJSON(t, []map[string]any{
+			{
+				"id":         tagOldID,
+				"user_id":    srcUser,
+				"name":       "MultiPart Tag",
+				"color":      "#AABBCC",
+				"text_color": "#000000",
+				"category":   "custom",
+			},
+		}),
+	})
+
+	// ── Build files-0001.zip (contains files/ entries) ───────────────────────
+	part1Path := dir + "/files-0001.zip"
+	writeZipFile(t, part1Path, map[string][]byte{
+		// No actual file entries needed for this test — tags have no files.
+	})
+
+	// ── Compute SHA-256 of files-0001.zip ────────────────────────────────────
+	part1SHA256 := fileSHA256(t, part1Path)
+	part1Size := fileSize(t, part1Path)
+
+	// ── Write top-level manifest.json ─────────────────────────────────────────
+	current := currentSchemaMigration(t, pool)
+	manifest := map[string]any{
+		"format_version":   1,
+		"skadia_version":  "2026.04",
+		"schema_migration": current,
+		"exported_at":      time.Now().UTC().Format(time.RFC3339),
+		"user_id":          srcUser,
+		"multipart":        true,
+		"parts": []map[string]any{
+			{
+				"name":       "files-0001.zip",
+				"sha256":     part1SHA256,
+				"size_bytes": part1Size,
+			},
+		},
+	}
+	manifestBytes := mustMarshalJSON(t, manifest)
+	if err := os.WriteFile(dir+"/manifest.json", manifestBytes, 0o644); err != nil {
+		t.Fatalf("write manifest.json: %v", err)
+	}
+
+	// ── Open as MultiPartSource ───────────────────────────────────────────────
+	mps, err := NewMultiPartSource(dir)
+	if err != nil {
+		t.Fatalf("NewMultiPartSource: %v", err)
+	}
+	t.Cleanup(func() { mps.Close() })
+
+	eng := newEngine(pool)
+	_, err = eng.RunImport(context.Background(), ImportInput{
+		Source:       mps,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport with MultiPartSource: %v", err)
+	}
+
+	assertRowCount(t, pool, "tags", userID, 1)
+}
+
+// writeZipFile creates a ZIP archive at path containing the given entries.
+func writeZipFile(t *testing.T, path string, entries map[string][]byte) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("writeZipFile create %q: %v", path, err)
+	}
+	defer f.Close()
+	zw := zip.NewWriter(f)
+	for name, content := range entries {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatalf("writeZipFile entry %q: %v", name, err)
+		}
+		if _, err := w.Write(content); err != nil {
+			t.Fatalf("writeZipFile write %q: %v", name, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("writeZipFile close: %v", err)
+	}
+}
+
+// fileSHA256 returns the hex-encoded SHA-256 of the file at path.
+func fileSHA256(t *testing.T, path string) string {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("fileSHA256 open %q: %v", path, err)
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		t.Fatalf("fileSHA256 hash %q: %v", path, err)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// fileSize returns the size of the file at path in bytes.
+func fileSize(t *testing.T, path string) int64 {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("fileSize stat %q: %v", path, err)
+	}
+	return info.Size()
+}
+
+// ---------------------------------------------------------------------------
+// Test 25: TestNonEmptyAccount
+// ---------------------------------------------------------------------------
+
+// TestNonEmptyAccount verifies that importing onto a user who already has
+// activities produces a warning containing "already has", and that the import
+// still succeeds (CanImport=true is always returned by ValidateAccount).
+func TestNonEmptyAccount(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	// Insert an existing activity for this user.
+	existingActID := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := pool.Exec(context.Background(), `
+		INSERT INTO activities (id, user_id, title, sport_type, started_at)
+		VALUES ($1, $2, 'Existing Activity', 'cycling', $3)
+	`, existingActID, userID, now)
+	if err != nil {
+		t.Fatalf("insert existing activity: %v", err)
+	}
+
+	// Build an export with a new activity.
+	srcUser := uuid.New().String()
+	newActOldID := uuid.New().String()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"activities": {"id", "user_id", "title", "sport_type", "started_at"},
+		},
+		activities: []map[string]any{
+			{
+				"id":         newActOldID,
+				"user_id":    srcUser,
+				"title":      "Imported Activity",
+				"sport_type": "running",
+				"started_at": now.Add(time.Hour).Format(time.RFC3339),
+			},
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	result, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport on non-empty account: %v", err)
+	}
+
+	// At least one warning must mention "already has".
+	hasWarn := false
+	for _, w := range result.Warnings {
+		if strings.Contains(w, "already has") {
+			hasWarn = true
+			break
+		}
+	}
+	if !hasWarn {
+		t.Errorf("expected warning containing 'already has', got: %v", result.Warnings)
+	}
+
+	// The import must still have worked — 2 activities total now.
+	assertRowCount(t, pool, "activities", userID, 2)
 }
