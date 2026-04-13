@@ -493,6 +493,32 @@ func main() {
 		slog.Info("startup: stale running jobs marked as failed")
 	}
 
+	// Clean up garmin_import_jobs and strava_import_jobs the same way.
+	// These use separate tables (not background_jobs) so the UPDATE above does not
+	// reach them.  Without this, a job interrupted by a container restart stays
+	// status='running' for up to 2 hours and the frontend reconnects in a loop,
+	// showing "Verbinde mit laufendem Import…" indefinitely.
+	for _, importTable := range [2]string{"garmin_import_jobs", "strava_import_jobs"} {
+		var q string
+		switch importTable {
+		case "garmin_import_jobs":
+			q = `UPDATE garmin_import_jobs
+			     SET status = 'failed', completed_at = NOW(),
+			         errors = jsonb_build_array('server restart cleanup')
+			     WHERE status = 'running'`
+		case "strava_import_jobs":
+			q = `UPDATE strava_import_jobs
+			     SET status = 'failed', completed_at = NOW(),
+			         errors = jsonb_build_array('server restart cleanup')
+			     WHERE status = 'running'`
+		}
+		if res, cleanErr := db.Pool.Exec(context.Background(), q); cleanErr != nil {
+			slog.Warn("startup: failed to clean up stale "+importTable+" jobs", "error", cleanErr)
+		} else if res.RowsAffected() > 0 {
+			slog.Info("startup: stale "+importTable+" jobs marked as failed", "count", res.RowsAffected())
+		}
+	}
+
 	// NOTE: Stale running jobs are handled later via h.ResumeInterruptedJobs
 	// after the Handler is fully initialised (needs DB + Handler for matching).
 
