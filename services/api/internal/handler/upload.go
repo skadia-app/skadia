@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/garmin"
@@ -27,9 +28,12 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	maxUploadSize := h.Config.MaxUploadSize
-	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
-	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+	maxUpload, _ := strconv.ParseInt(h.Settings.Get("limits.max_upload_bytes").Value, 10, 64)
+	if maxUpload <= 0 {
+		maxUpload = 52428800
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
+	if err := r.ParseMultipartForm(maxUpload); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "file too large or invalid multipart form", r.URL.Path)
 		return
 	}
@@ -48,9 +52,9 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Detect format + decompress .gz if needed
-	maxSize := h.Config.MaxUploadSize
+	maxSize, _ := strconv.ParseInt(h.Settings.Get("limits.max_upload_bytes").Value, 10, 64)
 	if maxSize <= 0 {
-		maxSize = 50 << 20
+		maxSize = 52428800
 	}
 	decompressed, format, decompErr := detectFormatAndDecompress(fileBytes, header.Filename, maxSize*10)
 	if decompErr != nil {

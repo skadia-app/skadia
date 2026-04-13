@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/garmin"
@@ -34,12 +35,9 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 	if fileSize == 0 {
 		return fmt.Errorf("empty file: %s", filename)
 	}
-	var maxSize int64
-	if h.Config != nil {
-		maxSize = h.Config.MaxUploadSize
-	}
+	maxSize, _ := strconv.ParseInt(h.Settings.Get("limits.max_upload_bytes").Value, 10, 64)
 	if maxSize <= 0 {
-		maxSize = 50 << 20 // default 50 MB
+		maxSize = 52428800 // default 50 MB
 	}
 	if fileSize > maxSize {
 		return fmt.Errorf("file too large: %d bytes (max %d)", fileSize, maxSize)

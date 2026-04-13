@@ -17,6 +17,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
@@ -31,6 +32,7 @@ func limitBody(w http.ResponseWriter, r *http.Request) {
 type Handler struct {
 	DB          *database.DB
 	Config      *config.Config
+	Settings    *settings.SettingsStore
 	Mailer      *Mailer
 	RL          *middleware.RateLimiter // for per-email rate limiting (body-parsed)
 	ShadowFS    shadowfs.ShadowFS       // unified storage (nil = legacy ShadowFS only)
@@ -42,10 +44,11 @@ type Handler struct {
 // NewHandler creates an auth handler. shutdownCtx should be the server's
 // lifecycle context so background goroutines (e.g. ForgotPassword email)
 // are cancelled on graceful shutdown.
-func NewHandler(db *database.DB, cfg *config.Config, mailer *Mailer, rl *middleware.RateLimiter, shutdownCtx context.Context) *Handler {
+func NewHandler(db *database.DB, cfg *config.Config, st *settings.SettingsStore, mailer *Mailer, rl *middleware.RateLimiter, shutdownCtx context.Context) *Handler {
 	return &Handler{
 		DB:          db,
 		Config:      cfg,
+		Settings:    st,
 		Mailer:      mailer,
 		RL:          rl,
 		secret:      cfg.JWTSecretBytes,
