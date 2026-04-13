@@ -200,3 +200,85 @@ func findFilePath(source Source, rec userFileRecord) string {
 
 	return ""
 }
+
+// importAllFiles imports ALL user files from the export into ShadowFS (Phase 0).
+// Edit-sidecars (file_type="edit") are skipped — they require ParentID=activity_id
+// which is not yet available. Use importEditSidecars after activities are imported.
+// Returns the fileIndex for use by importEditSidecars in Phase 6.
+func (e *Engine) importAllFiles(
+	ctx context.Context,
+	source Source,
+	idMap *IDMap,
+	userID string,
+	result *ImportResult,
+	onProgress func(ProgressEvent),
+) (map[string]userFileRecord, error) {
+	fileIndex, err := loadUserFilesIndex(source)
+	if err != nil {
+		return nil, err
+	}
+
+	total := len(fileIndex)
+	imported := 0
+
+	for oldFileID, rec := range fileIndex {
+		// Skip edit-sidecars — they need ParentID=activity_id (Phase 6).
+		if rec.FileType == "edit" {
+			continue
+		}
+
+		if err := e.importFileByID(ctx, source, idMap, userID, oldFileID, fileIndex, result); err != nil {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("Phase 0 file %s (%s): %v", oldFileID, rec.FileName, err))
+			continue // Non-fatal: skip this file, continue with others.
+		}
+
+		imported++
+		if onProgress != nil && imported%100 == 0 {
+			onProgress(ProgressEvent{
+				Phase:         0,
+				PhaseName:     "files",
+				Message:       fmt.Sprintf("Importing files... %d/%d", imported, total),
+				FilesImported: result.FilesImported,
+				BytesImported: result.BytesImported,
+			})
+		}
+	}
+
+	return fileIndex, nil
+}
+
+// importEditSidecars imports edit-sidecar files (file_type="edit") that were
+// skipped in Phase 0. Called in Phase 6 after activities exist in the IDMap.
+// fileIndex is the same map returned by importAllFiles.
+func (e *Engine) importEditSidecars(
+	ctx context.Context,
+	source Source,
+	idMap *IDMap,
+	userID string,
+	fileIndex map[string]userFileRecord,
+	result *ImportResult,
+) {
+	for oldFileID, rec := range fileIndex {
+		if rec.FileType != "edit" {
+			continue
+		}
+		// Skip if already imported (shouldn't happen but be safe).
+		if _, exists := idMap.GetIfExists(oldFileID); exists {
+			continue
+		}
+		// Pre-remap ParentID (activity_id) so importFileByID sees the correct value.
+		// IMPORTANT: rec is a value copy; write back to map so importFileByID reads
+		// the remapped ParentID when building the FileEntry.
+		if rec.ParentID != nil && *rec.ParentID != "" {
+			if newParent, ok := idMap.GetIfExists(*rec.ParentID); ok {
+				rec.ParentID = &newParent
+				fileIndex[oldFileID] = rec // Write back so importFileByID uses it.
+			}
+		}
+		if err := e.importFileByID(ctx, source, idMap, userID, oldFileID, fileIndex, result); err != nil {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("Edit sidecar %s: %v", oldFileID, err))
+		}
+	}
+}
