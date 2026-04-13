@@ -134,6 +134,7 @@ var GDPRRegistry = map[string]TableCategory{
 	"auth_codes":              System,
 	"background_jobs":         System,
 	"device_tokens":           System,
+	"server_settings":         System,
 	"email_tokens":            System,
 	"garmin_import_jobs":      System,
 	"garmin_import_mappings":  System,
