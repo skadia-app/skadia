@@ -121,9 +121,11 @@ func allTables() []tableSpec {
 			NaturalKey: []string{"name"},
 		},
 		{
-			Name:    "automation_rules",
-			Phase:   2,
-			PKField: "id",
+			Name:       "automation_rules",
+			Phase:      2,
+			PKField:    "id",
+			Conflict:   cmMergeID,
+			NaturalKey: []string{"name"},
 		},
 		{
 			Name:    "oauth_connections",
