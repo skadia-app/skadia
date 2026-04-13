@@ -379,7 +379,7 @@ var profileAllowList = []string{
 // jsonbRemapFields lists the JSONB *column names* (top-level row columns) that
 // must be walked and have embedded UUID references remapped through the IDMap.
 var jsonbRemapFields = map[string][]string{
-	"automation_rules": {"actions", "conditions"},
+	"automation_rules": {"actions", "conditions", "condition_groups"},
 }
 
 // jsonbRemapKeys is the set of JSON object keys whose string values are UUID

@@ -2,6 +2,7 @@ package dataimport
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -2398,4 +2399,208 @@ func TestNonEmptyAccount(t *testing.T) {
 
 	// The existing activity must not have been affected.
 	assertRowCount(t, pool, "activities", userID, 1)
+}
+
+// ---------------------------------------------------------------------------
+// Test: TestJSONBRemapNullColumn (Finding #18)
+// ---------------------------------------------------------------------------
+
+// TestJSONBRemapNullColumn verifies that runJSONBRemap correctly skips NULL
+// JSONB columns without error. The condition_groups column is nullable and
+// included in jsonbRemapFields; when NULL the remap must skip it gracefully.
+func TestJSONBRemapNullColumn(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+
+	tagOldID := uuid.New().String()
+	srcUser := uuid.New().String()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: schemaMig,
+		columns: map[string][]string{
+			"tags":             {"id", "user_id", "name", "color", "text_color", "category"},
+			"automation_rules": {"id", "user_id", "name", "is_active", "priority", "conditions", "actions"},
+		},
+		tags: []map[string]any{
+			{
+				"id":         tagOldID,
+				"user_id":    srcUser,
+				"name":       "TestTag",
+				"color":      "#000",
+				"text_color": "#FFF",
+				"category":   "custom",
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/automation_rules.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":         uuid.New().String(),
+					"user_id":    srcUser,
+					"name":       "NullConditionGroups",
+					"is_active":  true,
+					"priority":   1,
+					"conditions": map[string]any{},
+					"actions":    []map[string]any{{"type": "add_tag", "params": map[string]any{"tag_id": tagOldID}}},
+					// condition_groups intentionally absent → DB default NULL
+				},
+			}),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	eng := newEngine(pool)
+	result, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	// Rule should be imported with actions remapped and condition_groups NULL.
+	var actionsRaw []byte
+	var conditionGroupsRaw *[]byte
+	err = pool.QueryRow(ctx,
+		"SELECT actions, condition_groups FROM automation_rules WHERE user_id = $1 AND name = 'NullConditionGroups' LIMIT 1",
+		userID,
+	).Scan(&actionsRaw, &conditionGroupsRaw)
+	if err != nil {
+		t.Fatalf("query rule: %v", err)
+	}
+	if conditionGroupsRaw != nil {
+		t.Error("condition_groups should be NULL")
+	}
+	// Verify actions were remapped (tag_id should NOT be the old ID).
+	if bytes.Contains(actionsRaw, []byte(tagOldID)) {
+		t.Error("actions still contain old tag_id — JSONB remap failed")
+	}
+	_ = result
+}
+
+// ---------------------------------------------------------------------------
+// Test: TestPhase0MissingFileBlob (Finding #19)
+// ---------------------------------------------------------------------------
+
+// TestPhase0MissingFileBlob verifies that when a file is listed in
+// user_files.json but the actual blob is missing from the ZIP, importFileByID
+// logs a warning and returns nil (non-fatal). The activity referencing this
+// file should end up with file_id = NULL.
+func TestPhase0MissingFileBlob(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+
+	missingFileID := uuid.New().String()
+	actID := uuid.New().String()
+	srcUser := uuid.New().String()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: schemaMig,
+		columns: map[string][]string{
+			"activities": {"id", "user_id", "sport_type", "started_at", "title", "file_id"},
+		},
+		activities: []map[string]any{
+			{
+				"id":         actID,
+				"user_id":    srcUser,
+				"sport_type": "running",
+				"started_at": "2026-01-01T10:00:00Z",
+				"title":      "No File",
+				"file_id":    missingFileID,
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/user_files.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":           missingFileID,
+					"file_type":    "original",
+					"content_type": "application/fit",
+					"file_name":    "missing.fit",
+					"size_bytes":   1000,
+					"has_sidecar":  false,
+					"status":       "active",
+				},
+			}),
+			// NOTE: No "files/original/missing.fit" blob!
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	eng := newEngine(pool)
+	result, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err != nil {
+		t.Fatalf("RunImport should succeed despite missing blob: %v", err)
+	}
+
+	// File blob is missing -> importFileByID returns nil (logs warning), no IDMap entry.
+	// Activity's file_id should be NULL (GetIfExists returns false).
+	var fileID *string
+	err = pool.QueryRow(ctx,
+		"SELECT file_id FROM activities WHERE user_id = $1 LIMIT 1", userID,
+	).Scan(&fileID)
+	if err != nil {
+		t.Fatalf("query activity: %v", err)
+	}
+	if fileID != nil {
+		t.Errorf("activity file_id should be NULL when file blob is missing, got %q", *fileID)
+	}
+	_ = result
+}
+
+// ---------------------------------------------------------------------------
+// Test: TestFileRefMissingFile (Finding #20)
+// ---------------------------------------------------------------------------
+
+// TestFileRefMissingFile verifies that a fileRef column (tags.cover_file_id)
+// becomes NULL when the referenced file is not in the export at all (no
+// user_files.json entry, no blob). This exercises the GetIfExists path in
+// prepareRow for file-reference columns.
+func TestFileRefMissingFile(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+
+	fakeFileID := uuid.New().String() // Referenced but not in user_files.json
+	srcUser := uuid.New().String()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: schemaMig,
+		tags: []map[string]any{
+			{
+				"id":            uuid.New().String(),
+				"user_id":       srcUser,
+				"name":          "TagNoFile",
+				"color":         "#FF0000",
+				"text_color":    "#000",
+				"category":      "custom",
+				"cover_file_id": fakeFileID,
+			},
+		},
+		// No user_files.json, no file blobs.
+	})
+
+	src := openZipSource(t, zipPath)
+	eng := newEngine(pool)
+	result, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	// cover_file_id should be NULL (file not in IDMap -> GetIfExists -> nil).
+	var coverFileID *string
+	err = pool.QueryRow(ctx,
+		"SELECT cover_file_id FROM tags WHERE user_id = $1 AND name = 'TagNoFile' LIMIT 1",
+		userID,
+	).Scan(&coverFileID)
+	if err != nil {
+		t.Fatalf("query tag: %v", err)
+	}
+	if coverFileID != nil {
+		t.Errorf("cover_file_id should be NULL when file is missing, got %q", *coverFileID)
+	}
+	_ = result
 }
