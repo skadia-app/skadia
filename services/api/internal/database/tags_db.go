@@ -360,8 +360,8 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 	}
 	for _, s := range seeds {
 		if _, err := db.Pool.Exec(ctx, `
-			INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
-			VALUES ($1, $2, $3, $4, true, false, $5)
+			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+			VALUES ($1, $2, $3, $4, 'system', true, false, $5)
 			ON CONFLICT (user_id, name) DO NOTHING`,
 			userID, s.name, s.color, s.textColor, s.desc,
 		); err != nil {
@@ -371,9 +371,9 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 
 	// Rundtour — rule-managed (set_field + add_tag via automation rule)
 	if _, err := db.Pool.Exec(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
-		VALUES ($1, 'Rundtour', '#10B981', '#1a1a1a', true, false, 'Automatisch bei Aktivitaeten die als Rundtour erkannt wurden (Sync mit is_round_trip)')
-		ON CONFLICT (user_id, name) DO UPDATE SET is_auto = false, conditions = NULL, condition_groups = NULL, conditions_logic = NULL`,
+		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+		VALUES ($1, 'Rundtour', '#10B981', '#1a1a1a', 'system', true, false, 'Automatisch bei Aktivitaeten die als Rundtour erkannt wurden (Sync mit is_round_trip)')
+		ON CONFLICT (user_id, name) DO UPDATE SET category = 'system', is_auto = false, conditions = NULL, condition_groups = NULL, conditions_logic = NULL`,
 		userID,
 	); err != nil {
 		return fmt.Errorf("seed Rundtour tag: %w", err)
@@ -402,8 +402,8 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 
 	// E-Bike system tag (no conditions — synced via automation rule with is_electric column).
 	if _, err := db.Pool.Exec(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
-		VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', true, false, 'Automatisch bei E-Bike-Aktivitäten (Sync mit is_electric)')
+		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+		VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', 'system', true, false, 'Automatisch bei E-Bike-Aktivitäten (Sync mit is_electric)')
 		ON CONFLICT (user_id, name) DO NOTHING`,
 		userID,
 	); err != nil {
@@ -412,8 +412,8 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 
 	// Pendeln system tag (synced via is_commute column, analogous to E-Bike/Indoor).
 	if _, err := db.Pool.Exec(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
-		VALUES ($1, 'Pendeln', '#6B7280', '#FFFFFF', true, false, 'Automatisch bei Pendel-Aktivitäten (Sync mit is_commute)')
+		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+		VALUES ($1, 'Pendeln', '#6B7280', '#FFFFFF', 'system', true, false, 'Automatisch bei Pendel-Aktivitäten (Sync mit is_commute)')
 		ON CONFLICT (user_id, name) DO NOTHING`,
 		userID,
 	); err != nil {
@@ -422,8 +422,8 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 
 	// Indoor system tag (synced via is_indoor column, analogous to E-Bike).
 	if _, err := db.Pool.Exec(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
-		VALUES ($1, 'Indoor', '#3B82F6', '#FFFFFF', true, false, 'Automatisch bei Indoor-Aktivitäten (Sync mit is_indoor)')
+		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+		VALUES ($1, 'Indoor', '#3B82F6', '#FFFFFF', 'system', true, false, 'Automatisch bei Indoor-Aktivitäten (Sync mit is_indoor)')
 		ON CONFLICT (user_id, name) DO NOTHING`,
 		userID,
 	); err != nil {
@@ -494,8 +494,8 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 
 	// Virtual system tag
 	if _, err := db.Pool.Exec(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
-		VALUES ($1, 'virtuell', '#8B5CF6', '#FFFFFF', true, false, 'Automatisch bei virtuellen Aktivitäten (Sync mit is_virtual)')
+		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+		VALUES ($1, 'virtuell', '#8B5CF6', '#FFFFFF', 'system', true, false, 'Automatisch bei virtuellen Aktivitäten (Sync mit is_virtual)')
 		ON CONFLICT (user_id, name) DO NOTHING`,
 		userID,
 	); err != nil {
