@@ -144,7 +144,8 @@ func allTables() []tableSpec {
 			Name:     "custom_map_markers",
 			Phase:    3,
 			PKField:  "id",
-			FKFields: []string{"map_id", "image_file_id"},
+			FKFields: []string{"map_id"},
+			Deferred: []string{"image_file_id"}, // file imported in Phase 5 via ShadowFS
 		},
 		{
 			Name:     "workout_steps",
@@ -216,7 +217,8 @@ func allTables() []tableSpec {
 			Name:     "gear_documents",
 			Phase:    4,
 			PKField:  "id",
-			FKFields: []string{"gear_id", "file_id", "component_id", "service_event_id"},
+			FKFields: []string{"gear_id", "component_id", "service_event_id"},
+			Deferred: []string{"file_id"}, // file imported in Phase 5 via ShadowFS
 		},
 		{
 			Name:     "bike_setups",
@@ -228,7 +230,8 @@ func allTables() []tableSpec {
 			Name:     "route_photos",
 			Phase:    4,
 			PKField:  "id",
-			FKFields: []string{"route_id", "file_id"},
+			FKFields: []string{"route_id"},
+			Deferred: []string{"file_id"}, // file imported in Phase 5 via ShadowFS
 		},
 		{
 			Name:     "route_tags",
