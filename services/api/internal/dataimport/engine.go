@@ -397,6 +397,7 @@ func (e *Engine) runSingleTXPhase(
 
 // runPhase5Activities imports activities with per-activity transactions.
 // Files are already imported in Phase 0; no file handling here.
+// Uses streaming JSON decoding to avoid loading all activities into memory.
 func (e *Engine) runPhase5Activities(
 	ctx context.Context,
 	input ImportInput,
@@ -409,7 +410,6 @@ func (e *Engine) runPhase5Activities(
 	allTbls = append(allTbls, healthTables()...)
 	activitySpec := findSpec("activities", allTbls)
 
-	// Read activities JSON.
 	rc, err := input.Source.OpenData("data/activities.json")
 	if err != nil {
 		// No activities file — skip.
@@ -417,34 +417,54 @@ func (e *Engine) runPhase5Activities(
 	}
 	defer rc.Close()
 
-	rawActivities, err := io.ReadAll(rc)
+	dec := json.NewDecoder(rc)
+	openTok, err := dec.Token()
 	if err != nil {
-		return 0, fmt.Errorf("read activities.json: %w", err)
+		return 0, fmt.Errorf("runPhase5Activities: read opening token: %w", err)
+	}
+	switch v := openTok.(type) {
+	case json.Delim:
+		if v != '[' {
+			return 0, fmt.Errorf("runPhase5Activities: expected JSON array, got %q", v)
+		}
+	default:
+		return 0, nil // null or scalar → no activities
 	}
 
-	var activityRows []map[string]any
-	if err := json.Unmarshal(rawActivities, &activityRows); err != nil {
-		return 0, fmt.Errorf("decode activities.json: %w", err)
-	}
-
-	// Determine export columns.
+	// Determine export columns — lazy from first row if metadata unavailable.
 	exportCols := exportColumnsForTable(input.Source, "activities")
-	if len(exportCols) == 0 {
-		exportCols = extractKeysFromFirstRow(activityRows)
-	}
 	targetCols := schemaMap[activitySpec.Name]
-	insertCols, geometryCols := computeInsertColumns(exportCols, targetCols)
+	var insertCols []string
+	var geometryCols map[string]bool
+	colsReady := len(exportCols) > 0
+	if colsReady {
+		insertCols, geometryCols = computeInsertColumns(exportCols, targetCols)
+	}
 
 	activityCount := 0
-	activitiesWithoutFile := 0
+	activitiesWithMissingFile := 0
+	i := 0
 
-	for i, rawRow := range activityRows {
+	for dec.More() {
+		var rawRow map[string]any
+		if err := dec.Decode(&rawRow); err != nil {
+			return activityCount, fmt.Errorf("runPhase5Activities: decode row %d: %w", i, err)
+		}
+
+		if !colsReady {
+			exportCols = extractKeysFromRow(rawRow)
+			insertCols, geometryCols = computeInsertColumns(exportCols, targetCols)
+			colsReady = true
+		}
+
 		rawRow = applyTransformers(exportMigration, "activities", rawRow)
 
-		// Track whether this activity has a primary file.
+		// Track files referenced but not in export (Finding #14).
 		fileID, hasFileID := stringVal(rawRow["file_id"])
-		if !hasFileID || fileID == "" {
-			activitiesWithoutFile++
+		if hasFileID && fileID != "" {
+			if _, exists := idMap.GetIfExists(fileID); !exists {
+				activitiesWithMissingFile++
+			}
 		}
 
 		oldID := extractOldID(rawRow, activitySpec)
@@ -474,6 +494,7 @@ func (e *Engine) runPhase5Activities(
 				OldID:    oldID,
 				Error:    errMsg,
 			})
+			i++
 			continue
 		}
 
@@ -506,7 +527,6 @@ func (e *Engine) runPhase5Activities(
 				Phase:            5,
 				PhaseName:        "activities",
 				Table:            "activities",
-				EntitiesTotal:    len(activityRows),
 				EntitiesImported: result.EntitiesImported,
 				EntitiesSkipped:  result.EntitiesSkipped,
 				EntitiesFailed:   result.EntitiesFailed,
@@ -514,11 +534,12 @@ func (e *Engine) runPhase5Activities(
 				BytesImported:    result.BytesImported,
 			})
 		}
+		i++
 	}
 
-	if activitiesWithoutFile > 0 {
+	if activitiesWithMissingFile > 0 {
 		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("%d activities without original file — sensor data (streams) cannot be reconstructed", activitiesWithoutFile))
+			fmt.Sprintf("%d activities reference files not found in the export — sensor data (streams) cannot be reconstructed", activitiesWithMissingFile))
 	}
 
 	return activityCount, nil
