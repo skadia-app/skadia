@@ -28,23 +28,23 @@ import (
 
 func (h *Handler) stravaOAuthConfig() *oauth2.Config {
 	return &oauth2.Config{
-		ClientID:     h.Config.StravaClientID,
-		ClientSecret: h.Config.StravaClientSecret,
+		ClientID:     h.Settings.Get("social.strava.client_id").Value,
+		ClientSecret: h.Settings.Get("social.strava.client_secret").Value,
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  "https://www.strava.com/oauth/authorize",
 			TokenURL: "https://www.strava.com/oauth/token",
 		},
-		RedirectURL: h.Config.AppURL + "/api/v1/auth/social/strava/callback",
+		RedirectURL: h.Settings.Get("app.url").Value + "/api/v1/auth/social/strava/callback",
 		Scopes:      []string{"read"},
 	}
 }
 
 func (h *Handler) googleOAuthConfig() *oauth2.Config {
 	return &oauth2.Config{
-		ClientID:     h.Config.GoogleClientID,
-		ClientSecret: h.Config.GoogleClientSecret,
+		ClientID:     h.Settings.Get("social.google.client_id").Value,
+		ClientSecret: h.Settings.Get("social.google.client_secret").Value,
 		Endpoint:     google.Endpoint,
-		RedirectURL:  h.Config.AppURL + "/api/v1/auth/social/google/callback",
+		RedirectURL:  h.Settings.Get("app.url").Value + "/api/v1/auth/social/google/callback",
 		Scopes:       []string{"openid", "email", "profile"},
 	}
 }
@@ -59,13 +59,13 @@ func (h *Handler) SocialLogin(w http.ResponseWriter, r *http.Request) {
 	var oauthCfg *oauth2.Config
 	switch provider {
 	case "strava":
-		if h.Config.StravaClientID == "" {
+		if h.Settings.Get("social.strava.client_id").Value == "" {
 			httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "provider not configured"})
 			return
 		}
 		oauthCfg = h.stravaOAuthConfig()
 	case "google":
-		if h.Config.GoogleClientID == "" {
+		if h.Settings.Get("social.google.client_id").Value == "" {
 			httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "provider not configured"})
 			return
 		}
@@ -213,12 +213,12 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Redirect to frontend callback page with the auth code (URL-encoded for defense-in-depth).
-	http.Redirect(w, r, h.Config.FrontendURL+"/callback?code="+url.QueryEscape(authCode), http.StatusTemporaryRedirect)
+	http.Redirect(w, r, h.Settings.Get("app.url").Value+"/callback?code="+url.QueryEscape(authCode), http.StatusTemporaryRedirect)
 }
 
 // socialError redirects to the frontend login page with an error code.
 func (h *Handler) socialError(w http.ResponseWriter, r *http.Request, errCode string) {
-	http.Redirect(w, r, h.Config.FrontendURL+"/login?error="+errCode, http.StatusTemporaryRedirect)
+	http.Redirect(w, r, h.Settings.Get("app.url").Value+"/login?error="+errCode, http.StatusTemporaryRedirect)
 }
 
 // --- Provider Profile Fetching ---

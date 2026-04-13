@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -126,11 +127,14 @@ func (h *Handler) StorageDashboard(w http.ResponseWriter, r *http.Request) {
 		basePath = "s3"
 	}
 
+	keepVersions, _ := strconv.Atoi(h.Settings.Get("library.keep_versions").Value)
+	syncEnabled := h.Settings.Get("library.sync_enabled").Value == "true"
+
 	httputil.WriteJSON(w, http.StatusOK, storageDashboardResponse{
 		Backend:      h.Config.StorageBackend,
 		BasePath:     basePath,
-		KeepVersions: h.Config.KeepVersions,
-		SyncEnabled:  h.Config.SyncEnabled,
+		KeepVersions: keepVersions,
+		SyncEnabled:  syncEnabled,
 		Users:        users,
 		TypeCounts:   typeCounts,
 	})

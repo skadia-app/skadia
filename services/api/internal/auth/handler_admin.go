@@ -319,7 +319,7 @@ func (h *Handler) AdminResetPassword(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "password_reset"})
 
 	} else if req.SendEmail {
-		if h.Config.SMTPHost == "" {
+		if h.Settings.Get("smtp.host").Value == "" {
 			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "smtp_not_configured"})
 			return
 		}
