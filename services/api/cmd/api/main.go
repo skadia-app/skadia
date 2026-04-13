@@ -486,6 +486,20 @@ func main() {
 		cfg.MaxUserStorageBytes, cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
 	slog.Info("shadowfs: unified backend active", "target", cfg.StorageBackend)
 
+	// S3 startup connectivity check — fail fast when STORAGE_BACKEND=s3 but S3 is unreachable.
+	// Without this guard, imports silently lose media files (uploaded to non-existent S3,
+	// then temp directory cleaned up → data permanently lost).
+	if cfg.StorageBackend == "s3" && store.S3Configured() {
+		pingCtx, pingCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := store.PingS3(pingCtx); err != nil {
+			pingCancel()
+			slog.Error("STORAGE_BACKEND=s3 but S3 is unreachable — refusing to start (would cause silent data loss on imports)", "error", err)
+			os.Exit(1)
+		}
+		pingCancel()
+		slog.Info("shadowfs: S3 connectivity verified", "endpoint", cfg.S3Endpoint, "bucket", cfg.S3Bucket)
+	}
+
 	// PMC service — always created; used by event consumer and recompute endpoint.
 	pmcService := &pmc.Service{DB: db}
 
@@ -968,6 +982,7 @@ func main() {
 				r.Get("/users/{id}/sessions", authHandler.AdminListUserSessions)
 				r.Post("/users/{id}/revoke-sessions", authHandler.AdminRevokeUserSessions)
 				r.Get("/audit-log", authHandler.AdminAuditLog)
+				r.Post("/test-email", authHandler.AdminTestEmail)
 				r.Post("/users/{id}/restore", authHandler.AdminRestoreUser)
 			})
 

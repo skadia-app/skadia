@@ -1,0 +1,10 @@
+{{.AppName}} — SMTP-Test
+
+Hallo {{.Username}},
+
+diese Test-Email bestätigt, dass die SMTP-Konfiguration von {{.AppName}}
+korrekt funktioniert. Email-Benachrichtigungen (Verifizierung,
+Passwort-Reset, Einladungen) sind einsatzbereit.
+
+---
+{{.AppName}} — {{.AppURL}}

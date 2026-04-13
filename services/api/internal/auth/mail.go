@@ -187,7 +187,29 @@ func (m *Mailer) send(to, subject, templateName string, data emailData) {
 	slog.Info("email sent", "to", to, "template", templateName)
 }
 
+// SendTestEmail sends a test email synchronously and returns any error
+// so the caller (admin endpoint) can report it to the frontend.
+func (m *Mailer) SendTestEmail(to, username string) error {
+	if !m.IsConfigured() {
+		return fmt.Errorf("SMTP not configured")
+	}
+	data := emailData{
+		AppName:  m.appName,
+		AppURL:   m.frontendURL,
+		Username: username,
+	}
+	var htmlBuf, textBuf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&htmlBuf, "templates/test_email.html", data); err != nil {
+		return fmt.Errorf("render HTML template: %w", err)
+	}
+	if err := tmpl.ExecuteTemplate(&textBuf, "templates/test_email.txt", data); err != nil {
+		return fmt.Errorf("render text template: %w", err)
+	}
+	return m.sendRaw(to, fmt.Sprintf("[%s] SMTP-Test", m.appName), "test_email", htmlBuf.String(), textBuf.String())
+}
+
 // sendRaw creates an SMTP client and dispatches the message.
+// Retries up to 2 times on transient dial/send errors (1s, 3s backoff).
 func (m *Mailer) sendRaw(to, subject, templateName, htmlBody, textBody string) error {
 	msg := gomail.NewMsg()
 	if err := msg.From(m.from); err != nil {
@@ -200,29 +222,54 @@ func (m *Mailer) sendRaw(to, subject, templateName, htmlBody, textBody string) e
 	msg.SetBodyString(gomail.TypeTextHTML, htmlBody)
 	msg.AddAlternativeString(gomail.TypeTextPlain, textBody)
 
-	var tlsPolicy gomail.TLSPolicy
-	switch m.tlsMode {
-	case "ssl":
-		tlsPolicy = gomail.TLSMandatory
-	case "none":
-		tlsPolicy = gomail.NoTLS
-	default: // "starttls"
-		tlsPolicy = gomail.TLSOpportunistic
+	// Build client options based on TLS mode.
+	opts := []gomail.Option{
+		gomail.WithPort(m.port),
+		gomail.WithTimeout(5 * time.Second),
 	}
 
-	client, err := gomail.NewClient(m.host,
-		gomail.WithPort(m.port),
-		gomail.WithSMTPAuth(gomail.SMTPAuthPlain),
-		gomail.WithUsername(m.username),
-		gomail.WithPassword(m.password),
-		gomail.WithTLSPortPolicy(tlsPolicy),
-		gomail.WithTimeout(10*time.Second),
-	)
-	if err != nil {
-		return fmt.Errorf("create client: %w", err)
+	// Only enable SMTP auth when credentials are provided.
+	// Relay servers without auth would reject an unsolicited PLAIN attempt.
+	if m.username != "" || m.password != "" {
+		opts = append(opts,
+			gomail.WithSMTPAuth(gomail.SMTPAuthPlain),
+			gomail.WithUsername(m.username),
+			gomail.WithPassword(m.password),
+		)
 	}
-	if err := client.DialAndSend(msg); err != nil {
-		return fmt.Errorf("dial and send: %w", err)
+
+	switch m.tlsMode {
+	case "ssl":
+		// Implicit SSL/TLS (port 465) — direct TLS connection, no STARTTLS negotiation.
+		opts = append(opts, gomail.WithSSL())
+	case "none":
+		opts = append(opts, gomail.WithTLSPortPolicy(gomail.NoTLS))
+	default: // "starttls"
+		opts = append(opts, gomail.WithTLSPortPolicy(gomail.TLSOpportunistic))
 	}
-	return nil
+
+	const maxAttempts = 3
+	backoff := 1 * time.Second
+	var lastErr error
+
+	for attempt := range maxAttempts {
+		client, err := gomail.NewClient(m.host, opts...)
+		if err != nil {
+			return fmt.Errorf("create client: %w", err)
+		}
+		if err := client.DialAndSend(msg); err != nil {
+			lastErr = err
+			if attempt < maxAttempts-1 {
+				slog.Warn("email send failed, retrying",
+					"template", templateName, "to", to,
+					"attempt", attempt+1, "backoff", backoff, "error", err)
+				time.Sleep(backoff)
+				backoff *= 3
+				continue
+			}
+		} else {
+			return nil
+		}
+	}
+	return fmt.Errorf("dial and send (after %d attempts): %w", maxAttempts, lastErr)
 }
