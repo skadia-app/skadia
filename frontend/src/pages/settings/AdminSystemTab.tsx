@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { SettingsSection } from '@/components/ui/SettingsSection'
 import Toggle from '@/components/Toggle'
 import { useToast } from '@/lib/toast'
@@ -761,11 +762,15 @@ export default function AdminSystemTab() {
   const [settings, setSettings] = useState<SettingsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
 
   function loadSettings() {
     setLoadError(null)
     getAdminSettings()
-      .then(setSettings)
+      .then(data => {
+        setSettings(data)
+        queryClient.invalidateQueries({ queryKey: ['admin-settings'] })
+      })
       .catch(err => setLoadError(err instanceof Error ? err.message : 'Laden fehlgeschlagen'))
       .finally(() => setLoading(false))
   }
