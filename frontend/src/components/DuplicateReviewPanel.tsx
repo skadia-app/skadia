@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
 import { useToast } from '@/lib/toast'
@@ -101,15 +101,52 @@ function GroupCard({ member, isRichest }: GroupCardProps) {
 
 interface GroupItemProps {
   group: RecordingGroup
-  tracks: MiniMapTrack[]
   onDissolved: () => void
 }
 
-function GroupItem({ group, tracks, onDissolved }: GroupItemProps) {
+function GroupItem({ group, onDissolved }: GroupItemProps) {
   const navigate = useNavigate()
   const { addToast } = useToast()
   const [dissolving, setDissolving] = useState(false)
   const [selectedSport, setSelectedSport] = useState<string | null>(null)
+
+  // Lazy-load streams only once the card scrolls into view
+  const cardRef = useRef<HTMLDivElement>(null)
+  const [inView, setInView] = useState(false)
+  useEffect(() => {
+    const el = cardRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setInView(true); observer.disconnect() } },
+      { rootMargin: '200px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  const gpsMembers = (group.members ?? []).filter(m => m.has_gps)
+  const streamQueries = useQueries({
+    queries: gpsMembers.map(m => ({
+      queryKey: ['activity-streams', m.activity_id],
+      queryFn: () => fetchActivityStreams(m.activity_id),
+      enabled: inView,
+      staleTime: 5 * 60 * 1000,
+    })),
+  })
+
+  const tracks: MiniMapTrack[] = (group.members ?? []).map((m, i) => {
+    const gpsIdx = gpsMembers.findIndex(gm => gm.activity_id === m.activity_id)
+    const points = gpsIdx >= 0
+      ? (streamQueries[gpsIdx]?.data ?? [])
+          .filter(p => p.lat != null && p.lng != null)
+          .map(p => ({ lat: p.lat!, lng: p.lng! }))
+      : []
+    return {
+      points,
+      color: getSourceColor(i),
+      label: deviceLabel(m.recording_device_name ?? m.source_device, m.source, m.original_file_format) ?? `Aufnahme ${i + 1}`,
+    }
+  })
 
   const members = group.members ?? []
 
@@ -141,7 +178,7 @@ function GroupItem({ group, tracks, onDissolved }: GroupItemProps) {
   const timeDiff = timeDiffText(members)
 
   return (
-    <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 mb-6 shadow-sm">
+    <div ref={cardRef} className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 mb-6 shadow-sm">
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
         <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full font-semibold">
@@ -217,38 +254,6 @@ export default function DuplicateReviewPanel({ groups, onDone }: DuplicateReview
 
   const visible = groups.filter(g => !dissolved.has(g.id))
 
-  // Collect all members that have GPS across all visible groups
-  const gpsMembers = visible.flatMap(g =>
-    g.members.filter(m => m.has_gps).map(m => ({ groupId: g.id, member: m }))
-  )
-
-  // Load GPS streams for all GPS-capable members in parallel
-  const streamQueries = useQueries({
-    queries: gpsMembers.map(({ member }) => ({
-      queryKey: ['activity-streams', member.activity_id],
-      queryFn: () => fetchActivityStreams(member.activity_id),
-      staleTime: 5 * 60 * 1000, // 5 min — group data is stable
-    })),
-  })
-
-  // Build a lookup: groupId → MiniMapTrack[]
-  const tracksByGroup: Record<string, MiniMapTrack[]> = {}
-  for (const g of visible) {
-    const memberTracks: MiniMapTrack[] = g.members.map((m, i) => {
-      const gpsIdx = gpsMembers.findIndex(gm => gm.member.activity_id === m.activity_id)
-      const streams = gpsIdx >= 0 ? (streamQueries[gpsIdx]?.data ?? []) : []
-      const points = streams
-        .filter(p => p.lat != null && p.lng != null)
-        .map(p => ({ lat: p.lat!, lng: p.lng! }))
-      return {
-        points,
-        color: getSourceColor(i),
-        label: deviceLabel(m.recording_device_name ?? m.source_device, m.source, m.original_file_format) ?? `Aufnahme ${i + 1}`,
-      }
-    })
-    tracksByGroup[g.id] = memberTracks
-  }
-
   if (visible.length === 0) {
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-8 text-center">
@@ -272,7 +277,6 @@ export default function DuplicateReviewPanel({ groups, onDone }: DuplicateReview
         <GroupItem
           key={group.id}
           group={group}
-          tracks={tracksByGroup[group.id] ?? []}
           onDissolved={() => setDissolved(prev => new Set([...prev, group.id]))}
         />
       ))}
