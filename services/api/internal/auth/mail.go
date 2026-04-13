@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"html/template"
 	"log/slog"
+	"strconv"
 	"time"
 
 	gomail "github.com/wneessen/go-mail"
 
-	"github.com/skadia-app/skadia/services/api/internal/config"
+	"github.com/skadia-app/skadia/services/api/internal/settings"
 )
 
 //go:embed templates/*.html templates/*.txt
@@ -24,33 +25,17 @@ func init() {
 
 // Mailer handles sending auth-related emails.
 type Mailer struct {
-	host        string
-	port        int
-	username    string
-	password    string
-	from        string
-	appName     string
-	frontendURL string // for email action links
-	tlsMode     string // starttls | ssl | none
+	settings *settings.SettingsStore
 }
 
-// NewMailer creates a mailer from config.
-func NewMailer(cfg *config.Config) *Mailer {
-	return &Mailer{
-		host:        cfg.SMTPHost,
-		port:        cfg.SMTPPort,
-		username:    cfg.SMTPUsername,
-		password:    cfg.SMTPPassword,
-		from:        cfg.SMTPFrom,
-		appName:     cfg.AppName,
-		frontendURL: cfg.FrontendURL,
-		tlsMode:     cfg.SMTPTLSMode,
-	}
+// NewMailer creates a mailer backed by the SettingsStore.
+func NewMailer(s *settings.SettingsStore) *Mailer {
+	return &Mailer{settings: s}
 }
 
 // IsConfigured returns true if SMTP is configured.
 func (m *Mailer) IsConfigured() bool {
-	return m.host != ""
+	return m.settings.Get("smtp.host").Value != ""
 }
 
 type emailData struct {
@@ -71,73 +56,85 @@ type adminApprovalData struct {
 
 // SendVerificationEmail sends an email verification link asynchronously.
 func (m *Mailer) SendVerificationEmail(to, username, token string) {
+	appName := m.settings.Get("app.name").Value
+	frontendURL := m.settings.Get("app.url").Value
 	data := emailData{
-		AppName:   m.appName,
-		AppURL:    m.frontendURL,
+		AppName:   appName,
+		AppURL:    frontendURL,
 		Username:  username,
-		ActionURL: fmt.Sprintf("%s/verify-email?token=%s", m.frontendURL, token),
+		ActionURL: fmt.Sprintf("%s/verify-email?token=%s", frontendURL, token),
 	}
-	go m.send(to, fmt.Sprintf("[%s] Email verifizieren", m.appName), "verify_email", data)
+	go m.send(to, fmt.Sprintf("[%s] Email verifizieren", appName), "verify_email", data)
 }
 
 // SendResetEmail sends a password reset link asynchronously.
 func (m *Mailer) SendResetEmail(to, username, token string) {
+	appName := m.settings.Get("app.name").Value
+	frontendURL := m.settings.Get("app.url").Value
 	data := emailData{
-		AppName:   m.appName,
-		AppURL:    m.frontendURL,
+		AppName:   appName,
+		AppURL:    frontendURL,
 		Username:  username,
-		ActionURL: fmt.Sprintf("%s/reset-password?token=%s", m.frontendURL, token),
+		ActionURL: fmt.Sprintf("%s/reset-password?token=%s", frontendURL, token),
 	}
-	go m.send(to, fmt.Sprintf("[%s] Passwort zurücksetzen", m.appName), "reset_password", data)
+	go m.send(to, fmt.Sprintf("[%s] Passwort zurücksetzen", appName), "reset_password", data)
 }
 
 // SendInviteEmail sends an invite email with a reset-password link so the
 // invited user can set their initial password. Called asynchronously.
 func (m *Mailer) SendInviteEmail(to, username, token string) {
+	appName := m.settings.Get("app.name").Value
+	frontendURL := m.settings.Get("app.url").Value
 	data := emailData{
-		AppName:   m.appName,
-		AppURL:    m.frontendURL,
+		AppName:   appName,
+		AppURL:    frontendURL,
 		Username:  username,
-		ActionURL: fmt.Sprintf("%s/reset-password?token=%s", m.frontendURL, token),
+		ActionURL: fmt.Sprintf("%s/reset-password?token=%s", frontendURL, token),
 	}
-	go m.send(to, fmt.Sprintf("[%s] Einladung — Konto einrichten", m.appName), "invite_user", data)
+	go m.send(to, fmt.Sprintf("[%s] Einladung — Konto einrichten", appName), "invite_user", data)
 }
 
 // SendChangeEmailVerification sends a verification link for an email change request.
 // The link is sent to the NEW email address (not the old one).
 // Called synchronously — the caller wraps in a goroutine.
 func (m *Mailer) SendChangeEmailVerification(to, username, token string) {
+	appName := m.settings.Get("app.name").Value
+	frontendURL := m.settings.Get("app.url").Value
 	data := emailData{
-		AppName:   m.appName,
-		AppURL:    m.frontendURL,
+		AppName:   appName,
+		AppURL:    frontendURL,
 		Username:  username,
-		ActionURL: fmt.Sprintf("%s/confirm-email-change?token=%s", m.frontendURL, token),
+		ActionURL: fmt.Sprintf("%s/confirm-email-change?token=%s", frontendURL, token),
 	}
-	m.send(to, fmt.Sprintf("[%s] Email-Adresse bestätigen", m.appName), "change_email", data)
+	m.send(to, fmt.Sprintf("[%s] Email-Adresse bestätigen", appName), "change_email", data)
 }
 
 // SendDeletionEmail sends an account deletion confirmation with a cancel link.
 // Called asynchronously via goroutine by the caller.
 func (m *Mailer) SendDeletionEmail(to, username, cancelToken string) {
+	appName := m.settings.Get("app.name").Value
+	frontendURL := m.settings.Get("app.url").Value
 	data := emailData{
-		AppName:   m.appName,
-		AppURL:    m.frontendURL,
+		AppName:   appName,
+		AppURL:    frontendURL,
 		Username:  username,
-		ActionURL: fmt.Sprintf("%s/cancel-deletion?token=%s", m.frontendURL, cancelToken),
+		ActionURL: fmt.Sprintf("%s/cancel-deletion?token=%s", frontendURL, cancelToken),
 	}
-	m.send(to, fmt.Sprintf("[%s] Account-Löschung bestätigt", m.appName), "account_deletion", data)
+	m.send(to, fmt.Sprintf("[%s] Account-Löschung bestätigt", appName), "account_deletion", data)
 }
 
 // SendAdminApprovalNeeded notifies an admin that a new registration is pending approval.
 func (m *Mailer) SendAdminApprovalNeeded(to, newUsername, newEmail string) {
+	appName := m.settings.Get("app.name").Value
+	frontendURL := m.settings.Get("app.url").Value
 	data := adminApprovalData{
-		AppName:  m.appName,
-		AppURL:   m.frontendURL,
+		AppName:  appName,
+		AppURL:   frontendURL,
 		Username: newUsername,
 		Email:    newEmail,
-		AdminURL: fmt.Sprintf("%s/admin/users", m.frontendURL),
+		AdminURL: fmt.Sprintf("%s/admin/users", frontendURL),
 	}
-	go m.sendApproval(to, fmt.Sprintf("[%s] Neue Registrierung wartet auf Freigabe", m.appName), data)
+	go m.sendApproval(to, fmt.Sprintf("[%s] Neue Registrierung wartet auf Freigabe", appName), data)
 }
 
 func (m *Mailer) sendApproval(to, subject string, data adminApprovalData) {
@@ -193,9 +190,11 @@ func (m *Mailer) SendTestEmail(to, username string) error {
 	if !m.IsConfigured() {
 		return fmt.Errorf("SMTP not configured")
 	}
+	appName := m.settings.Get("app.name").Value
+	frontendURL := m.settings.Get("app.url").Value
 	data := emailData{
-		AppName:  m.appName,
-		AppURL:   m.frontendURL,
+		AppName:  appName,
+		AppURL:   frontendURL,
 		Username: username,
 	}
 	var htmlBuf, textBuf bytes.Buffer
@@ -205,14 +204,25 @@ func (m *Mailer) SendTestEmail(to, username string) error {
 	if err := tmpl.ExecuteTemplate(&textBuf, "templates/test_email.txt", data); err != nil {
 		return fmt.Errorf("render text template: %w", err)
 	}
-	return m.sendRaw(to, fmt.Sprintf("[%s] SMTP-Test", m.appName), "test_email", htmlBuf.String(), textBuf.String())
+	return m.sendRaw(to, fmt.Sprintf("[%s] SMTP-Test", appName), "test_email", htmlBuf.String(), textBuf.String())
 }
 
 // sendRaw creates an SMTP client and dispatches the message.
 // Retries up to 2 times on transient dial/send errors (1s, 3s backoff).
 func (m *Mailer) sendRaw(to, subject, templateName, htmlBody, textBody string) error {
+	host := m.settings.Get("smtp.host").Value
+	portStr := m.settings.Get("smtp.port").Value
+	port, _ := strconv.Atoi(portStr)
+	if port <= 0 {
+		port = 587
+	}
+	username := m.settings.Get("smtp.username").Value
+	password := m.settings.Get("smtp.password").Value
+	from := m.settings.Get("smtp.from").Value
+	tlsMode := m.settings.Get("smtp.tls").Value
+
 	msg := gomail.NewMsg()
-	if err := msg.From(m.from); err != nil {
+	if err := msg.From(from); err != nil {
 		return fmt.Errorf("set from: %w", err)
 	}
 	if err := msg.To(to); err != nil {
@@ -224,21 +234,21 @@ func (m *Mailer) sendRaw(to, subject, templateName, htmlBody, textBody string) e
 
 	// Build client options based on TLS mode.
 	opts := []gomail.Option{
-		gomail.WithPort(m.port),
+		gomail.WithPort(port),
 		gomail.WithTimeout(5 * time.Second),
 	}
 
 	// Only enable SMTP auth when credentials are provided.
 	// Relay servers without auth would reject an unsolicited PLAIN attempt.
-	if m.username != "" || m.password != "" {
+	if username != "" || password != "" {
 		opts = append(opts,
 			gomail.WithSMTPAuth(gomail.SMTPAuthPlain),
-			gomail.WithUsername(m.username),
-			gomail.WithPassword(m.password),
+			gomail.WithUsername(username),
+			gomail.WithPassword(password),
 		)
 	}
 
-	switch m.tlsMode {
+	switch tlsMode {
 	case "ssl":
 		// Implicit SSL/TLS (port 465) — direct TLS connection, no STARTTLS negotiation.
 		opts = append(opts, gomail.WithSSL())
@@ -253,7 +263,7 @@ func (m *Mailer) sendRaw(to, subject, templateName, htmlBody, textBody string) e
 	var lastErr error
 
 	for attempt := range maxAttempts {
-		client, err := gomail.NewClient(m.host, opts...)
+		client, err := gomail.NewClient(host, opts...)
 		if err != nil {
 			return fmt.Errorf("create client: %w", err)
 		}
