@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alexedwards/argon2id"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
@@ -419,6 +420,38 @@ func main() {
 			"set_at", maintenanceSetAt,
 			"help", "Complete the storage migration or see docs for recovery steps")
 		os.Exit(1)
+	}
+
+	// Bootstrap admin from env vars (for headless/CI setup).
+	if cfg.BootstrapAdminUser != "" {
+		if cfg.BootstrapAdminPassword == "" {
+			slog.Error("BOOTSTRAP_ADMIN_USER is set but BOOTSTRAP_ADMIN_PASSWORD is empty — refusing to create admin with empty password")
+		} else {
+			var userCount int
+			if err := db.Pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&userCount); err != nil {
+				slog.Error("bootstrap admin: count users failed", "error", err)
+			} else if userCount == 0 {
+				hash, err := argon2id.CreateHash(cfg.BootstrapAdminPassword, auth.GetArgon2Params())
+				if err != nil {
+					slog.Error("bootstrap admin: hash password failed", "error", err)
+				} else {
+					var newUserID string
+					err := db.Pool.QueryRow(ctx, `INSERT INTO users (id, username, password_hash, is_admin, is_active, email_verified, created_at)
+						VALUES (gen_random_uuid(), $1, $2, true, true, true, now()) RETURNING id`,
+						cfg.BootstrapAdminUser, hash).Scan(&newUserID)
+					if err != nil {
+						slog.Error("bootstrap admin: create user failed", "error", err)
+					} else {
+						slog.Info("bootstrap admin created", "username", cfg.BootstrapAdminUser, "user_id", newUserID)
+						go db.LogAuthEvent(ctx, newUserID, "bootstrap_admin_created", "127.0.0.1", "setup.sh",
+							map[string]string{"username": cfg.BootstrapAdminUser})
+					}
+				}
+			} else {
+				slog.Warn("BOOTSTRAP_ADMIN_USER is set but users already exist — remove BOOTSTRAP_ADMIN_PASSWORD from .env")
+			}
+		}
+		slog.Warn("SECURITY: BOOTSTRAP_ADMIN_PASSWORD is still set in .env — remove it for security")
 	}
 
 	// Clean up stale processing entries from previous runs (crash recovery).
