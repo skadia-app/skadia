@@ -19,7 +19,7 @@ ALTER TABLE users ADD COLUMN fusion_computed_seq BIGINT NOT NULL DEFAULT 0;
 -- Trigger-Funktion
 CREATE OR REPLACE FUNCTION invalidate_fusion_cache() RETURNS trigger AS $$
 DECLARE
-    affected_user TEXT;
+    affected_user UUID;
 BEGIN
     IF TG_OP = 'DELETE' THEN
         affected_user := OLD.user_id;
