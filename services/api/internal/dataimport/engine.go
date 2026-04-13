@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -26,11 +25,9 @@ type EngineConfig struct {
 
 // Engine orchestrates the GDPR data import.
 type Engine struct {
-	DB          *pgxpool.Pool
-	ShadowFS    shadowfs.ShadowFS
-	Config      EngineConfig
-	deferredFKs []deferredFK
-	mu          sync.Mutex
+	DB       *pgxpool.Pool
+	ShadowFS shadowfs.ShadowFS
+	Config   EngineConfig
 }
 
 type deferredFK struct {
@@ -93,11 +90,9 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	start := time.Now()
 	result := &ImportResult{UserID: input.TargetUserID}
 
-	// Reset deferred FKs so repeated calls to RunImport don't accumulate state
-	// from a previous run.
-	e.mu.Lock()
-	e.deferredFKs = nil
-	e.mu.Unlock()
+	// deferredFKs collects FK references that cannot be resolved immediately
+	// (e.g. self-referential parent_id). Resolved in Phase 8 (runPhase5b).
+	var deferredFKs []deferredFK
 
 	// ── 1. Read + validate manifest ─────────────────────────────────────────
 	manifest, err := input.Source.Manifest()
@@ -211,7 +206,7 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 		if input.OnProgress != nil {
 			input.OnProgress(ProgressEvent{Phase: phase, PhasesTotal: totalPhases, Message: fmt.Sprintf("Importing phase %d...", phase)})
 		}
-		if err := e.runSingleTXPhase(ctx, phase, specs, input, idMap, schemaMap, manifest.SchemaMigration, result); err != nil {
+		if err := e.runSingleTXPhase(ctx, phase, specs, input, idMap, schemaMap, manifest.SchemaMigration, result, &deferredFKs); err != nil {
 			return result, fmt.Errorf("RunImport phase %d: %w", phase, err)
 		}
 		result.PhasesCompleted++
@@ -221,7 +216,7 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	if input.OnProgress != nil {
 		input.OnProgress(ProgressEvent{Phase: 5, PhasesTotal: totalPhases, Message: "Importing activities..."})
 	}
-	activityCount, err := e.runPhase5Activities(ctx, input, idMap, schemaMap, manifest.SchemaMigration, result)
+	activityCount, err := e.runPhase5Activities(ctx, input, idMap, schemaMap, manifest.SchemaMigration, result, &deferredFKs)
 	if err != nil {
 		return result, fmt.Errorf("RunImport phase 5: %w", err)
 	}
@@ -236,7 +231,7 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	e.importEditSidecars(ctx, input.Source, idMap, input.TargetUserID, fileIndex, result)
 	// Then import Phase 6 tables.
 	if len(phase6Specs) > 0 {
-		if err := e.runSingleTXPhase(ctx, 6, phase6Specs, input, idMap, schemaMap, manifest.SchemaMigration, result); err != nil {
+		if err := e.runSingleTXPhase(ctx, 6, phase6Specs, input, idMap, schemaMap, manifest.SchemaMigration, result, &deferredFKs); err != nil {
 			return result, fmt.Errorf("RunImport phase 6: %w", err)
 		}
 	}
@@ -248,7 +243,7 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 		if input.OnProgress != nil {
 			input.OnProgress(ProgressEvent{Phase: 7, PhasesTotal: totalPhases, Message: "Importing health data..."})
 		}
-		if err := e.runSingleTXPhase(ctx, 7, phase7Specs, input, idMap, schemaMap, manifest.SchemaMigration, result); err != nil {
+		if err := e.runSingleTXPhase(ctx, 7, phase7Specs, input, idMap, schemaMap, manifest.SchemaMigration, result, &deferredFKs); err != nil {
 			return result, fmt.Errorf("RunImport phase 7: %w", err)
 		}
 	}
@@ -258,7 +253,7 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	if input.OnProgress != nil {
 		input.OnProgress(ProgressEvent{Phase: 8, PhasesTotal: totalPhases, Message: "Resolving deferred references..."})
 	}
-	if err := e.runPhase5b(ctx, idMap); err != nil {
+	if err := e.runPhase5b(ctx, idMap, deferredFKs); err != nil {
 		return result, fmt.Errorf("RunImport phase 8 (deferred FKs): %w", err)
 	}
 	result.PhasesCompleted++
@@ -360,6 +355,7 @@ func (e *Engine) runSingleTXPhase(
 	schemaMap map[string][]targetColumn,
 	exportMigration int,
 	result *ImportResult,
+	deferredFKs *[]deferredFK,
 ) error {
 	tx, err := e.DB.Begin(ctx)
 	if err != nil {
@@ -384,7 +380,7 @@ func (e *Engine) runSingleTXPhase(
 			})
 		}
 		targetCols := schemaMap[spec.Name]
-		if err := e.importTable(ctx, tx, spec, input.Source, idMap, input.TargetUserID, targetCols, exportMigration, result, input.OnProgress); err != nil {
+		if err := e.importTable(ctx, tx, spec, input.Source, idMap, input.TargetUserID, targetCols, exportMigration, result, input.OnProgress, deferredFKs); err != nil {
 			return fmt.Errorf("phase %d table %s: %w", phase, spec.Name, err)
 		}
 	}
@@ -405,6 +401,7 @@ func (e *Engine) runPhase5Activities(
 	schemaMap map[string][]targetColumn,
 	exportMigration int,
 	result *ImportResult,
+	deferredFKs *[]deferredFK,
 ) (int, error) {
 	allTbls := allTables()
 	allTbls = append(allTbls, healthTables()...)
@@ -499,9 +496,7 @@ func (e *Engine) runPhase5Activities(
 		}
 
 		if len(localDeferred) > 0 {
-			e.mu.Lock()
-			e.deferredFKs = append(e.deferredFKs, localDeferred...)
-			e.mu.Unlock()
+			*deferredFKs = append(*deferredFKs, localDeferred...)
 		}
 
 		if err := tx.Commit(ctx); err != nil {
@@ -547,13 +542,8 @@ func (e *Engine) runPhase5Activities(
 
 // runPhase5b resolves deferred FK columns collected during earlier phases.
 // All updates are wrapped in a single transaction for atomicity.
-func (e *Engine) runPhase5b(ctx context.Context, idMap *IDMap) error {
-	e.mu.Lock()
-	deferred := make([]deferredFK, len(e.deferredFKs))
-	copy(deferred, e.deferredFKs)
-	e.mu.Unlock()
-
-	if len(deferred) == 0 {
+func (e *Engine) runPhase5b(ctx context.Context, idMap *IDMap, deferredFKs []deferredFK) error {
+	if len(deferredFKs) == 0 {
 		return nil
 	}
 
@@ -563,7 +553,7 @@ func (e *Engine) runPhase5b(ctx context.Context, idMap *IDMap) error {
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	for _, dfk := range deferred {
+	for _, dfk := range deferredFKs {
 		newValue, ok := idMap.GetIfExists(dfk.oldValue)
 		if !ok {
 			// Target was never imported — leave NULL.
@@ -599,7 +589,7 @@ func (e *Engine) writeImportLog(
 ) error {
 	durationMs := int(time.Since(start).Milliseconds())
 
-	meta, _ := json.Marshal(map[string]any{
+	meta, err := json.Marshal(map[string]any{
 		"entities_imported": result.EntitiesImported,
 		"entities_skipped":  result.EntitiesSkipped,
 		"entities_failed":   result.EntitiesFailed,
@@ -609,6 +599,9 @@ func (e *Engine) writeImportLog(
 		"export_migration":  manifest.SchemaMigration,
 		"skadia_version":   manifest.SkadiaVersion,
 	})
+	if err != nil {
+		return fmt.Errorf("marshal import log metadata: %w", err)
+	}
 
 	status := "completed"
 	if result.EntitiesFailed > 0 {
@@ -616,7 +609,7 @@ func (e *Engine) writeImportLog(
 	}
 
 	id := uuid.New().String()
-	_, err := e.DB.Exec(ctx, `
+	_, err = e.DB.Exec(ctx, `
 		INSERT INTO import_log
 			(id, user_id, source_platform, filename, status, duration_ms, metadata)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)

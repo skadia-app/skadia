@@ -642,7 +642,6 @@ func TestDeferredFK(t *testing.T) {
 		ShadowFS: newMockShadowFS(),
 		Config:   EngineConfig{},
 	}
-	eng.deferredFKs = nil // reset for clarity
 
 	_, err := eng.RunImport(context.Background(), ImportInput{
 		Source:       src,
