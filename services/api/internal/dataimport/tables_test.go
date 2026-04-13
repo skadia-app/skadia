@@ -100,6 +100,38 @@ func TestFKMapCompleteness(t *testing.T) {
 // TestFileRefColumnsCompleteness verifies that every FK column pointing to
 // user_files is listed in fileRefColumns. Missing entries would cause
 // phantom UUID generation for files that weren't in the export.
+// TestJSONBRemapKeysCompleteness verifies that jsonbRemapKeys contains all
+// known UUID-referencing keys used in JSONB columns (automation_rules actions,
+// conditions, condition_groups). When adding new UUID-referencing fields to
+// automation rules, add them here AND to jsonbRemapKeys.
+func TestJSONBRemapKeysCompleteness(t *testing.T) {
+	// Known UUID-referencing keys in automation_rules JSONB columns.
+	// Derived from rules/engine.go:
+	//   actionParams: gear_id (set_gear), tag_id (add_tag / remove_tag)
+	//   conditionValue: segment_id (has_segment_effort, segment_effort_rank, segment_effort_time_s)
+	knownUUIDKeys := []string{"gear_id", "tag_id", "segment_id"}
+
+	for _, key := range knownUUIDKeys {
+		if !jsonbRemapKeys[key] {
+			t.Errorf("jsonbRemapKeys missing %q — JSONB UUID references will not be remapped during import", key)
+		}
+	}
+
+	// Reverse check: no stale entries.
+	for key := range jsonbRemapKeys {
+		found := false
+		for _, k := range knownUUIDKeys {
+			if k == key {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("jsonbRemapKeys has %q but it's not in the known UUID key list — remove if no longer used", key)
+		}
+	}
+}
+
 func TestFileRefColumnsCompleteness(t *testing.T) {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
