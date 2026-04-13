@@ -35,7 +35,7 @@ const LABELS = {
   backendS3: 'S3',
   usersTable: {
     heading: 'Speicherverbrauch pro Benutzer',
-    libraryDir: 'Verzeichnis',
+    user: 'Benutzer',
     diskUsage: 'Aktiv',
     fileCount: 'Dateien',
     archiveSize: 'Archiv',
@@ -70,6 +70,8 @@ const LABELS = {
 
 interface StorageUserRow {
   user_id: string
+  username: string
+  email: string
   library_dir: string
   disk_usage_bytes: number
   file_count: number
@@ -313,9 +315,9 @@ export default function AdminStorageDashboard() {
                     <button
                       className="flex items-center gap-1 cursor-pointer hover:text-neutral-700 dark:hover:text-neutral-200"
                       onClick={() => toggleSort('library_dir')}
-                      aria-label={`${LABELS.actions.sortBy} ${LABELS.usersTable.libraryDir}`}
+                      aria-label={`${LABELS.actions.sortBy} ${LABELS.usersTable.user}`}
                     >
-                      {LABELS.usersTable.libraryDir}
+                      {LABELS.usersTable.user}
                       <SortIcon col="library_dir" sortKey={sortKey} sortDir={sortDir} />
                     </button>
                   </th>
@@ -372,8 +374,20 @@ export default function AdminStorageDashboard() {
                       key={user.user_id}
                       className="border-b border-neutral-100 dark:border-neutral-800 last:border-0 hover:bg-neutral-50 dark:hover:bg-neutral-800/30 transition-colors"
                     >
-                      <td className="px-4 py-2.5 font-mono text-xs text-neutral-700 dark:text-neutral-300 max-w-[200px] truncate">
-                        {user.library_dir}
+                      <td className="px-4 py-2.5 max-w-[240px]">
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                          <span className="font-medium text-sm text-neutral-900 dark:text-neutral-100 truncate">
+                            {user.username}
+                          </span>
+                          {user.email && (
+                            <span className="text-xs text-neutral-500 dark:text-neutral-400 truncate">
+                              {user.email}
+                            </span>
+                          )}
+                          <code className="font-mono text-xs text-neutral-400 dark:text-neutral-500 truncate">
+                            {user.library_dir}
+                          </code>
+                        </div>
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
                         {fmtBytes(user.disk_usage_bytes)}

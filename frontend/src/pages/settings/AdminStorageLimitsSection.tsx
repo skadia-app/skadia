@@ -133,11 +133,11 @@ export function AdminStorageLimitsSection() {
 
     if (uploadField) {
       const bytes = parseInt(uploadField.value, 10)
-      setMaxUploadMB(isNaN(bytes) ? '' : String(Math.round(bytes / MB)))
+      setMaxUploadMB(isNaN(bytes) ? '50' : String(Math.round(bytes / MB)))
     }
     if (storageField) {
       const bytes = parseInt(storageField.value, 10)
-      setMaxUserStorageGB(isNaN(bytes) ? '' : String(Math.round(bytes / GB)))
+      setMaxUserStorageGB(isNaN(bytes) ? '50' : String(Math.round(bytes / GB)))
     }
     if (keepField) {
       setKeepVersions(keepField.value)
