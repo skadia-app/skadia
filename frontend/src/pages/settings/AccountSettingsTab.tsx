@@ -15,7 +15,9 @@ import {
   revokeSession,
   deleteAccount,
   startDataExport, getDataExportStatus,
+  startDataImport, getDataImportStatus,
   type UserSession,
+  type DataImportStatus,
 } from '@/api/auth'
 import { fmtDateTime, parseUserAgent } from '@/lib/format'
 import { SettingsSection as Section } from '@/components/ui/SettingsSection'
@@ -463,6 +465,270 @@ function SessionsSection() {
   )
 }
 
+// ── Data Import Section ─────────────────────────────────────────────────────
+
+type ImportPhase = 'upload' | 'progress' | 'result'
+
+interface ImportResult {
+  imported: number
+  skipped: number
+  errors: string[]
+}
+
+function parseImportResult(status: DataImportStatus): ImportResult {
+  // The backend encodes final counts in metadata.message as JSON or
+  // falls back to a plain message. We attempt a best-effort parse.
+  const msg = status.metadata?.message ?? ''
+  try {
+    const parsed = JSON.parse(msg) as Partial<ImportResult>
+    return {
+      imported: parsed.imported ?? 0,
+      skipped: parsed.skipped ?? 0,
+      errors: Array.isArray(parsed.errors) ? parsed.errors : [],
+    }
+  } catch {
+    return { imported: 0, skipped: 0, errors: status.error ? [status.error] : [] }
+  }
+}
+
+function DataImportSection() {
+  const { addToast } = useToast()
+  const [phase, setPhase] = useState<ImportPhase>('upload')
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [logLines, setLogLines] = useState<string[]>([])
+  const [progressCurrent, setProgressCurrent] = useState(0)
+  const [progressTotal, setProgressTotal] = useState(0)
+  const [result, setResult] = useState<ImportResult | null>(null)
+  const [errorsExpanded, setErrorsExpanded] = useState(false)
+  const importAbortRef = useRef<AbortController | null>(null)
+  const logEndRef = useRef<HTMLDivElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    return () => { importAbortRef.current?.abort() }
+  }, [])
+
+  // Auto-scroll log to bottom whenever new lines arrive
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [logLines])
+
+  async function handleImport() {
+    if (!selectedFile) return
+    const abort = new AbortController()
+    importAbortRef.current = abort
+    setUploading(true)
+    try {
+      const { job_id } = await startDataImport(selectedFile)
+      addToast({ type: 'info', title: S.dataImport.started.title })
+      setUploading(false)
+      setPhase('progress')
+      setLogLines([])
+
+      // Poll every 2 s (max ~30 min = 900 iterations)
+      for (let i = 0; i < 900; i++) {
+        if (abort.signal.aborted) return
+        await abortableSleep(2000, abort.signal)
+        const status = await getDataImportStatus(job_id)
+
+        // Update progress bar
+        if (status.progress_total && status.progress_total > 0) {
+          setProgressCurrent(status.progress_current ?? 0)
+          setProgressTotal(status.progress_total)
+        }
+
+        // Append phase log line if metadata arrived
+        if (status.metadata?.message) {
+          const prefix = status.status === 'running' ? '●' : '✓'
+          const line = `${prefix} ${status.metadata.message}`
+          // Avoid duplicate lines
+          setLogLines(prev => {
+            const last = prev[prev.length - 1] ?? ''
+            if (last === line) return prev
+            // Replace running-indicator of same phase with completed version
+            if (last.startsWith('●') && line.startsWith('✓')) {
+              return [...prev.slice(0, -1), line]
+            }
+            return [...prev, line]
+          })
+        }
+
+        if (status.status === 'completed') {
+          const parsed = parseImportResult(status)
+          setResult(parsed)
+          setPhase('result')
+          addToast({ type: 'success', title: S.dataImport.completed.title })
+          return
+        }
+        if (status.status === 'failed') {
+          const errMsg = status.error ?? S.dataImport.failed.messageGeneric
+          addToast({ type: 'error', title: S.dataImport.failed.title, message: errMsg, duration: 0 })
+          setResult({ imported: 0, skipped: 0, errors: [errMsg] })
+          setPhase('result')
+          return
+        }
+      }
+      addToast({ type: 'error', title: S.dataImport.timeout.title, message: S.dataImport.timeout.message, duration: 0 })
+      setPhase('upload')
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return
+      if (!abort.signal.aborted) {
+        addToast({ type: 'error', title: S.dataImport.failed.title, duration: 0 })
+      }
+      setPhase('upload')
+    } finally {
+      setUploading(false)
+      importAbortRef.current = null
+    }
+  }
+
+  function handleReset() {
+    setPhase('upload')
+    setSelectedFile(null)
+    setLogLines([])
+    setProgressCurrent(0)
+    setProgressTotal(0)
+    setResult(null)
+    setErrorsExpanded(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const progressPct = progressTotal > 0
+    ? Math.round((progressCurrent / progressTotal) * 100)
+    : 0
+
+  return (
+    <Section title="Daten importieren" description={S.dataImport.uploadDescription}>
+      {phase === 'upload' && (
+        <div className="space-y-4">
+          {/* File picker row */}
+          <div className="flex items-center gap-3">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".zip"
+              className="hidden"
+              onChange={e => setSelectedFile(e.target.files?.[0] ?? null)}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+            >
+              {S.dataImport.selectFile}
+            </button>
+            <span className="text-sm text-neutral-500 dark:text-neutral-400 truncate max-w-xs">
+              {selectedFile ? selectedFile.name : S.dataImport.noFileSelected}
+            </span>
+          </div>
+
+          {/* Size hint */}
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">{S.dataImport.uploadHint}</p>
+
+          {/* Start button */}
+          <button
+            type="button"
+            onClick={handleImport}
+            disabled={!selectedFile || uploading}
+            className="px-4 py-2 rounded-lg bg-accent-DEFAULT text-white text-sm font-medium hover:bg-accent-600 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {uploading ? S.dataImport.uploadButtonPending : S.dataImport.uploadButton}
+          </button>
+        </div>
+      )}
+
+      {phase === 'progress' && (
+        <div className="space-y-4">
+          {/* Progress bar */}
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs text-neutral-500 dark:text-neutral-400">
+              <span>{progressTotal > 0 ? `${progressCurrent} / ${progressTotal}` : 'Wird verarbeitet...'}</span>
+              {progressTotal > 0 && <span>{progressPct} %</span>}
+            </div>
+            <div className="h-2 rounded-full bg-neutral-200 dark:bg-neutral-700 overflow-hidden">
+              <div
+                className="h-full bg-accent-DEFAULT rounded-full transition-all duration-500"
+                style={{ width: progressTotal > 0 ? `${progressPct}%` : '100%' }}
+              />
+            </div>
+          </div>
+
+          {/* Scrolling log */}
+          <div className="h-48 overflow-y-auto rounded-lg bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 p-3 font-mono text-xs text-neutral-700 dark:text-neutral-300 space-y-0.5">
+            {logLines.length === 0 && (
+              <p className="text-neutral-400 dark:text-neutral-500">Warte auf Status-Updates...</p>
+            )}
+            {logLines.map((line, idx) => (
+              <p key={idx} className={line.startsWith('●') ? 'text-accent-DEFAULT' : 'text-green-600 dark:text-green-400'}>
+                {line}
+              </p>
+            ))}
+            <div ref={logEndRef} />
+          </div>
+        </div>
+      )}
+
+      {phase === 'result' && result && (
+        <div className="space-y-4">
+          {/* Summary row */}
+          <div className="flex flex-wrap gap-4 text-sm">
+            <span className="text-green-600 dark:text-green-400 font-medium">
+              {result.imported === 1 ? '1' : result.imported} {S.dataImport.resultImported}
+            </span>
+            {result.skipped > 0 && (
+              <span className="text-neutral-500 dark:text-neutral-400">
+                {result.skipped === 1 ? '1' : result.skipped} {S.dataImport.resultSkipped}
+              </span>
+            )}
+            {result.errors.length > 0 && (
+              <span className="text-red-600 dark:text-red-400">
+                {result.errors.length === 1 ? '1' : result.errors.length} {S.dataImport.resultErrors}
+              </span>
+            )}
+          </div>
+
+          {/* Collapsible error list */}
+          {result.errors.length > 0 && (
+            <div className="rounded-lg border border-red-200 dark:border-red-800 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setErrorsExpanded(v => !v)}
+                className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50 transition-colors cursor-pointer"
+              >
+                {S.dataImport.errorsHeading}
+                <span className="text-xs">{errorsExpanded ? '▲' : '▼'}</span>
+              </button>
+              {errorsExpanded && (
+                <ul className="px-3 py-2 space-y-1 font-mono text-xs text-neutral-700 dark:text-neutral-300 max-h-40 overflow-y-auto">
+                  {result.errors.map((err, idx) => (
+                    <li key={idx} className="text-red-600 dark:text-red-400">{err}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {/* Hint: enrichment */}
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">{S.dataImport.resultEnrichmentHint}</p>
+
+          {/* Hint: OAuth */}
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">{S.dataImport.resultOAuthHint}</p>
+
+          {/* New import button */}
+          <button
+            type="button"
+            onClick={handleReset}
+            className="px-4 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+          >
+            {S.dataImport.newImportButton}
+          </button>
+        </div>
+      )}
+    </Section>
+  )
+}
+
 // ── Danger Zone Section ─────────────────────────────────────────────────────
 
 // abortableSleep resolves after `ms` milliseconds, or rejects with an
@@ -707,6 +973,7 @@ export default function AccountSettingsTab() {
       <EmailSection />
       <PasswordSection />
       <SessionsSection />
+      <DataImportSection />
       <DangerZoneSection />
     </div>
   )

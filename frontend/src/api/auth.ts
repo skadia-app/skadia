@@ -382,3 +382,38 @@ export async function getDataExportStatus(jobId: string): Promise<{
   }
   return res.json()
 }
+
+// ── Data Import ─────────────────────────────────────────────────────────────
+
+export interface DataImportStatus {
+  job_id: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  error?: string
+  progress_current?: number
+  progress_total?: number
+  metadata?: {
+    phase: number
+    phase_name: string
+    message: string
+  }
+}
+
+export async function startDataImport(file: File): Promise<{ job_id: string; status: string }> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await apiFetch('/api/v1/auth/data-import', { method: 'POST', body: form })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(d.error ?? 'Import start failed')
+  }
+  return res.json()
+}
+
+export async function getDataImportStatus(jobId: string): Promise<DataImportStatus> {
+  const res = await apiFetch(`/api/v1/auth/data-import/${jobId}`)
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(d.error ?? 'Import status check failed')
+  }
+  return res.json()
+}
