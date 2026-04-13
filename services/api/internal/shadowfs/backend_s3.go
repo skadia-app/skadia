@@ -208,4 +208,22 @@ func (b *S3Backend) ListFunc(ctx context.Context, prefix string, opts *BackendOp
 	return nil
 }
 
+// Ping checks S3 connectivity by issuing a HeadBucket request against the default bucket.
+// Returns nil if the bucket is reachable, an error otherwise.
+func (b *S3Backend) Ping(ctx context.Context) error {
+	return b.PingBucket(ctx, b.defaultBucket)
+}
+
+// PingBucket checks S3 connectivity for a specific bucket via HeadBucket.
+// Returns nil if the bucket is reachable, an error otherwise.
+func (b *S3Backend) PingBucket(ctx context.Context, bucket string) error {
+	_, err := b.client.HeadBucket(ctx, &s3.HeadBucketInput{
+		Bucket: aws.String(bucket),
+	})
+	if err != nil {
+		return fmt.Errorf("s3 ping (HeadBucket %q): %w", bucket, err)
+	}
+	return nil
+}
+
 var _ StorageBackend = (*S3Backend)(nil)

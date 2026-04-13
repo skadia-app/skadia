@@ -46,7 +46,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 
 	// --- Bikes ---
 	if rows, err := params.Source.ReadCSV("bikes.csv"); err == nil && len(rows) >= 2 {
-		hdr := csvHeader(rows[0])
+		hdr := CSVHeader(rows[0])
 		total := len(rows) - 1
 		for i, row := range rows[1:] {
 			if params.OnProgress != nil {
@@ -113,7 +113,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 
 	// --- Shoes ---
 	if rows, err := params.Source.ReadCSV("shoes.csv"); err == nil && len(rows) >= 2 {
-		hdr := csvHeader(rows[0])
+		hdr := CSVHeader(rows[0])
 		total := len(rows) - 1
 		for i, row := range rows[1:] {
 			if params.OnProgress != nil {
@@ -171,7 +171,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 
 	// --- Components ---
 	if rows, err := params.Source.ReadCSV("components.csv"); err == nil && len(rows) >= 2 {
-		hdr := csvHeader(rows[0])
+		hdr := CSVHeader(rows[0])
 		total := len(rows) - 1
 		for i, row := range rows[1:] {
 			bikeName := colVal(row, hdr["Fahrradname"])
@@ -249,10 +249,19 @@ func buildGearName(name, brand, model string) string {
 }
 
 // mapStravaDefaultSports converts Strava sport strings to Skadia sport types.
+// Handles both comma-separated (German export) and pipe-separated (English export).
 func mapStravaDefaultSports(sports string) []string {
+	// Detect separator: pipe takes precedence (English export).
+	sep := ","
+	if strings.Contains(sports, "|") {
+		sep = "|"
+	}
 	var result []string
-	for s := range strings.SplitSeq(sports, ",") {
+	for s := range strings.SplitSeq(sports, sep) {
 		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
 		mapped := mapStravaSportType(s)
 		if mapped != "" {
 			result = append(result, mapped)

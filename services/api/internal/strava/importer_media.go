@@ -47,7 +47,7 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 	// by reading activities.csv "Medien" column (pipe-separated UUID paths).
 	uuidToActivityID := buildMediaActivityMap(ctx, params)
 
-	hdr := csvHeader(rows[0])
+	hdr := CSVHeader(rows[0])
 	total := len(rows) - 1
 	slog.Info("strava media: found photos", "count", total, "mapped", len(uuidToActivityID))
 
@@ -166,10 +166,12 @@ func buildMediaActivityMap(ctx context.Context, params ImportParams) map[string]
 		return m
 	}
 
-	hdr := csvHeader(rows[0])
+	hdr := CSVHeader(rows[0])
+	// csvHeader aliases ensure both German and English column names work.
 	medienCol, hasMediaCol := hdr["Medien"]
 	stravaIDCol, hasIDCol := hdr["Aktivitäts-ID"]
 	if !hasMediaCol || !hasIDCol {
+		slog.Debug("strava media: activities.csv missing Medien/Aktivitäts-ID columns for media mapping")
 		return m
 	}
 

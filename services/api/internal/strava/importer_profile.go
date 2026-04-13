@@ -41,7 +41,7 @@ func (p *ProfileImporter) Import(ctx context.Context, params ImportParams) (*Imp
 
 	// --- 1. profile.csv ---
 	if rows, err := params.Source.ReadCSV("profile.csv"); err == nil && len(rows) >= 2 {
-		hdr := csvHeader(rows[0])
+		hdr := CSVHeader(rows[0])
 		row := rows[1]
 
 		// Gender: "Männlich" / "Weiblich"
@@ -55,9 +55,10 @@ func (p *ProfileImporter) Import(ctx context.Context, params ImportParams) (*Imp
 			}
 		}
 
-		// Weight (kg) from profile: "84.0" (dot decimal, no unit)
+		// Weight from profile: "84.0" (kg) or "180.0" (could be lb depending on prefs).
+		// profile.csv weight has no unit suffix — assume kg (Strava stores kg internally).
 		if idx, ok := hdr["Gewicht"]; ok {
-			if w, ok2 := parseGermanFloat(colVal(row, idx)); ok2 && w > 0 {
+			if w, ok2 := parseNumber(colVal(row, idx)); ok2 && w > 0 {
 				imp.WeightKg = float32(w)
 			}
 		}
@@ -67,23 +68,35 @@ func (p *ProfileImporter) Import(ctx context.Context, params ImportParams) (*Imp
 
 	// --- 2. general_preferences.csv ---
 	if rows, err := params.Source.ReadCSV("general_preferences.csv"); err == nil && len(rows) >= 2 {
-		hdr := csvHeader(rows[0])
+		hdr := CSVHeader(rows[0])
 		row := rows[1]
 
-		// Geburtsdatum: "14.07.1990" (DD.MM.YYYY)
+		// Birth date: "14.07.1990" (German) or "Aug 13, 1998" (English)
 		if idx, ok := hdr["Geburtsdatum"]; ok {
 			dateStr := colVal(row, idx)
-			if t, err := time.Parse("02.01.2006", dateStr); err == nil {
-				birthDate = t.Format("2006-01-02") // ISO 8601
+			var parsed bool
+			for _, layout := range []string{
+				"02.01.2006",        // German: DD.MM.YYYY
+				"Jan 2, 2006",       // English: Mon D, YYYY
+				"January 2, 2006",   // English long
+				"2006-01-02",        // ISO
+			} {
+				if t, err := time.Parse(layout, dateStr); err == nil {
+					birthDate = t.Format("2006-01-02")
+					parsed = true
+					break
+				}
+			}
+			if !parsed && dateStr != "" {
+				slog.Warn("strava profile: cannot parse birth date", "date", dateStr)
 			}
 		}
 
-		// Gewicht: "84,0 kg" — strip " kg" suffix
+		// Weight: "84,0 kg" (German) or "180.0 lb" (English Imperial).
+		// parseWeightToKg handles kg/lb suffix and converts to kg.
 		if idx, ok := hdr["Gewicht"]; ok {
 			weightStr := colVal(row, idx)
-			weightStr = strings.ReplaceAll(weightStr, " kg", "")
-			weightStr = strings.ReplaceAll(weightStr, "kg", "")
-			if w, ok2 := parseGermanFloat(weightStr); ok2 && w > 0 && imp.WeightKg == 0 {
+			if w, ok2 := parseWeightToKg(weightStr); ok2 && w > 0 && imp.WeightKg == 0 {
 				imp.WeightKg = float32(w)
 			}
 		}
@@ -93,14 +106,14 @@ func (p *ProfileImporter) Import(ctx context.Context, params ImportParams) (*Imp
 			ftpStr := colVal(row, idx)
 			ftpStr = strings.ReplaceAll(ftpStr, " W", "")
 			ftpStr = strings.ReplaceAll(ftpStr, "W", "")
-			if ftp, ok2 := parseGermanInt(ftpStr); ok2 && ftp > 0 {
+			if ftp, ok2 := parseInt(ftpStr); ok2 && ftp > 0 {
 				imp.FTP = ftp
 			}
 		}
 
-		// Max HR: "185"
+		// Max HR: "185" or "193"
 		if idx, ok := hdr["Maximale Herzfrequenz"]; ok {
-			if hr, ok2 := parseGermanInt(colVal(row, idx)); ok2 && hr > 0 {
+			if hr, ok2 := parseInt(colVal(row, idx)); ok2 && hr > 0 {
 				imp.MaxHR = hr
 			}
 		}

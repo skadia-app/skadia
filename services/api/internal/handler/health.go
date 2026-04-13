@@ -99,6 +99,17 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// S3 check: when ShadowFS is configured with S3, verify the bucket is reachable.
+	if usfs, ok := h.ShadowFS.(*shadowfs.UnifiedShadowFS); ok && usfs.S3Configured() {
+		if err := usfs.PingS3(ctx); err != nil {
+			httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"status": "not ready",
+				"s3":     err.Error(),
+			})
+			return
+		}
+	}
+
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
@@ -121,6 +132,17 @@ func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 	} else if !h.Events.IsConnected() {
 		status["status"] = "degraded"
 		status["nats"] = "disconnected"
+	}
+
+	if usfs, ok := h.ShadowFS.(*shadowfs.UnifiedShadowFS); ok && usfs.S3Configured() {
+		if err := usfs.PingS3(ctx); err != nil {
+			status["status"] = "degraded"
+			status["s3"] = err.Error()
+		} else {
+			status["s3"] = "ok"
+		}
+	} else {
+		status["s3"] = "not configured"
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, status)
