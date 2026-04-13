@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useToast } from '@/lib/toast'
 import { getAdminSettings, putAdminSettings, type SettingField } from '@/api/adminSettings'
 
@@ -111,6 +111,7 @@ function NumberField({ label, unit, hint, value, locked, settingsKey, onChange }
 
 export function AdminStorageLimitsSection() {
   const { addToast } = useToast()
+  const queryClient = useQueryClient()
 
   const { data: settings, isLoading, isError } = useQuery({
     queryKey: ['admin-settings'],
@@ -169,6 +170,7 @@ export function AdminStorageLimitsSection() {
     },
     onSuccess: () => {
       addToast({ type: 'success', title: LABELS.saveSuccess })
+      queryClient.invalidateQueries({ queryKey: ['admin-settings'] })
     },
     onError: (err: Error) => {
       addToast({ type: 'error', title: LABELS.saveError, message: err.message, duration: 0 })
