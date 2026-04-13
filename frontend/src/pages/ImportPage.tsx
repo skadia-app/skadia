@@ -248,9 +248,7 @@ function ScanResultsView({ result, onContinue }: ScanResultsProps) {
             >
               <div className="font-medium text-sm">{categoryLabel(cat)}</div>
               <div className="text-xs text-neutral-500 mt-0.5">
-                {(cat === 'activities' || cat === 'media')
-                  ? `${stats.new} neu · ${stats.existing} vorhanden · ${stats.found} gesamt`
-                  : `${stats.found} gefunden`}
+                {stats.found === 1 ? '1 gefunden' : `${stats.found} gefunden`}
               </div>
             </div>
           ) : null
@@ -313,9 +311,7 @@ function ConfigPhase({ platform, scanResult, options, onChange, onStart }: Confi
               />
               <span className="flex-1 text-sm">{categoryLabel(cat)}</span>
               <span className="text-xs text-neutral-400">
-                {cat === 'activities'
-                  ? `${stats.new} neu · ${stats.existing} vorhanden`
-                  : `${stats.found} gefunden`}
+                {stats.found === 1 ? '1 gefunden' : `${stats.found} gefunden`}
               </span>
             </label>
           )

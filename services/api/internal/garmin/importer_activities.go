@@ -123,7 +123,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		}
 		current++
 		if params.OnProgress != nil {
-			params.OnProgress(current, total, "activities: "+ref.fileName)
+			params.OnProgress(current, total, fmt.Sprintf("activities: %d/%d %s", current, total, ref.fileName))
 		}
 
 		var batchIDPtr *string
