@@ -18,6 +18,7 @@ import { fmtDateTime, parseUserAgent } from '@/lib/format'
 import { useDebounce } from '@/lib/useDebounce'
 import { useToast } from '@/lib/toast'
 import { ModalShell } from '@/components/ui/ModalShell'
+import ConfirmModal from '@/components/ConfirmModal'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -448,49 +449,6 @@ function SessionsDialog({
 
 // ── Confirmation Dialog ─────────────────────────────────────────────────────
 
-function ConfirmDialog({
-  title,
-  message,
-  confirmLabel,
-  confirmClass,
-  isPending,
-  onConfirm,
-  onClose,
-}: {
-  title: string
-  message: string
-  confirmLabel: string
-  confirmClass?: string
-  isPending: boolean
-  onConfirm: () => void
-  onClose: () => void
-}) {
-  return (
-    <ModalShell onClose={onClose} maxWidth="max-w-sm">
-      <div className="space-y-4">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <p className="text-sm text-neutral-600 dark:text-neutral-400">{message}</p>
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            onClick={onClose}
-            disabled={isPending}
-            className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Abbrechen
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={isPending}
-            className={`flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed ${confirmClass ?? 'bg-red-600 hover:bg-red-700'}`}
-          >
-            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </ModalShell>
-  )
-}
 
 // ── User Actions Menu ───────────────────────────────────────────────────────
 
@@ -895,7 +853,7 @@ export default function AdminUsersPage() {
       )}
 
       {confirmAction && (
-        <ConfirmDialog
+        <ConfirmModal
           title={CONFIRM_CONFIG[confirmAction.type].title}
           message={CONFIRM_CONFIG[confirmAction.type].message}
           confirmLabel={CONFIRM_CONFIG[confirmAction.type].label}

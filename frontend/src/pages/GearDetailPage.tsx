@@ -24,6 +24,7 @@ import type {
   BikeSetup, GearDocument,
 } from '@/api/types'
 import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
+import { useModal } from '@/lib/modal'
 import GearForm from '@/components/GearForm'
 import GearDocumentSection from '@/components/GearDocumentSection'
 
@@ -1642,6 +1643,7 @@ function AuthenticatedGearImage({
 
 function ComponentImagesSection({ componentId }: { componentId: string }) {
   const queryClient = useQueryClient()
+  const { openModal } = useModal()
   const [uploading, setUploading] = useState(false)
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
 
@@ -1708,7 +1710,14 @@ function ComponentImagesSection({ componentId }: { componentId: string }) {
               </svg>
             </div>
             <button
-              onClick={(e) => { e.stopPropagation(); confirm('Foto löschen?') && deleteMutation.mutate(doc.id) }}
+              onClick={(e) => { e.stopPropagation(); openModal({
+                title: 'Foto löschen?',
+                message: 'Das Foto wird unwiderruflich gelöscht.',
+                buttons: [
+                  { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+                  { label: 'Löschen', variant: 'destructive', onClick: () => deleteMutation.mutate(doc.id) },
+                ],
+              }) }}
               className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
             >
               ×
@@ -1755,6 +1764,7 @@ function ComponentImagesSection({ componentId }: { componentId: string }) {
 
 function GearImagesSection({ gearId }: { gearId: string }) {
   const queryClient = useQueryClient()
+  const { openModal } = useModal()
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
@@ -1795,10 +1805,15 @@ function GearImagesSection({ gearId }: { gearId: string }) {
 
   const handleDelete = useCallback((docId: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (confirm('Foto wirklich löschen?')) {
-      deleteMutation.mutate(docId)
-    }
-  }, [deleteMutation])
+    openModal({
+      title: 'Foto löschen?',
+      message: 'Das Foto wird unwiderruflich gelöscht.',
+      buttons: [
+        { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+        { label: 'Löschen', variant: 'destructive', onClick: () => deleteMutation.mutate(docId) },
+      ],
+    })
+  }, [deleteMutation, openModal])
 
   return (
     <div>

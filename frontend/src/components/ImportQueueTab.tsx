@@ -12,6 +12,7 @@ import { resolveSportConflict } from '@/api/sportConflict'
 import { fetchActivities } from '@/api/activities'
 import { fmtDateCompact } from '@/lib/format'
 import { sportLabel } from '@/lib/sportTaxonomy'
+import { useToast } from '@/lib/toast'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -412,6 +413,7 @@ function ImportErrorItem({ item, onRefresh }: ItemProps) {
 // ---------------------------------------------------------------------------
 
 function SportConflictItem({ item, onRefresh }: ItemProps) {
+  const { addToast } = useToast()
   const activityId = item.metadata?.activity_id
   const platformSport = item.metadata?.platform_sport as string | undefined
   const fileSport = item.metadata?.file_sport as string | undefined
@@ -424,6 +426,7 @@ function SportConflictItem({ item, onRefresh }: ItemProps) {
         ? resolveSportConflict(activityId, sportType)
         : deleteQueueItem(item.id),
     onSuccess: onRefresh,
+    onError: (err) => addToast({ type: 'error', title: 'Konflikt konnte nicht aufgelöst werden', message: err instanceof Error ? err.message : 'Unbekannter Fehler', duration: 0 }),
   })
 
   const isPending = resolveMutation.isPending

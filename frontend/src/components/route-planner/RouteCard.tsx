@@ -17,6 +17,7 @@ import { deleteRoute, exportRouteGPX, type PlannedRoute } from '@/api/routes'
 import { fmtDist } from '@/lib/format'
 import { sportLabel, sportColor } from '@/lib/sportTaxonomy'
 import { useToast } from '@/lib/toast'
+import { useModal } from '@/lib/modal'
 import { triggerBlobDownload } from '@/lib/utils'
 
 // ── Mini-map SVG ──────────────────────────────────────────────────────────────
@@ -143,6 +144,7 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
+  const { openModal } = useModal()
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -180,9 +182,15 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
   const handleDelete = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     setMenuOpen(false)
-    if (!confirm(`Route "${route.name}" wirklich löschen?`)) return
-    deleteMutation.mutate()
-  }, [route.name, deleteMutation])
+    openModal({
+      title: 'Route löschen?',
+      message: `Route "${route.name}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`,
+      buttons: [
+        { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+        { label: 'Löschen', variant: 'destructive', onClick: () => deleteMutation.mutate() },
+      ],
+    })
+  }, [route.name, deleteMutation, openModal])
 
   const handleOpenPlanner = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
