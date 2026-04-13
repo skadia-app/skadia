@@ -252,17 +252,21 @@ func (h *Handler) runImportJob(jobID, userID, zipPath string) {
 
 	// Throttle for progress updates: max 1 DB write per second.
 	var lastProgress time.Time
+	var phasesTotal int
 	onProgress := func(ev dataimport.ProgressEvent) {
 		now := time.Now()
 		if now.Sub(lastProgress) < time.Second {
 			return
 		}
 		lastProgress = now
+		if ev.PhasesTotal > 0 {
+			phasesTotal = ev.PhasesTotal
+		}
 		metaJSON, _ := json.Marshal(map[string]any{
 			"file_path":         zipPath,
 			"phase":             ev.Phase,
 			"phase_name":        ev.PhaseName,
-			"phases_total":      ev.PhasesTotal,
+			"phases_total":      phasesTotal,
 			"table":             ev.Table,
 			"entities_imported": ev.EntitiesImported,
 			"entities_skipped":  ev.EntitiesSkipped,
@@ -272,12 +276,19 @@ func (h *Handler) runImportJob(jobID, userID, zipPath string) {
 			"bytes_imported":    ev.BytesImported,
 			"message":           ev.Message,
 		})
+		// Phase-based progress: Phase 0–10, PhasesTotal = 11.
+		var phaseName *string
+		if ev.PhaseName != "" {
+			phaseName = &ev.PhaseName
+		} else if ev.Table != "" {
+			phaseName = &ev.Table
+		}
 		h.DB.Pool.Exec(ctx,
 			`UPDATE background_jobs
 			 SET progress_current = $2, progress_total = $3,
-			     metadata = $4::jsonb, updated_at = NOW()
+			     phase = $4, metadata = $5::jsonb, updated_at = NOW()
 			 WHERE id = $1`,
-			jobID, ev.EntitiesImported, ev.EntitiesTotal, metaJSON)
+			jobID, ev.Phase, phasesTotal, phaseName, metaJSON)
 	}
 
 	result, err := engine.RunImport(ctx, dataimport.ImportInput{
