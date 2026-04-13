@@ -894,7 +894,17 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 	}
 	if filters.Search != "" {
 		idx++
-		conds = append(conds, fmt.Sprintf("(title ILIKE '%%' || $%d || '%%' OR title_auto ILIKE '%%' || $%d || '%%')", idx, idx))
+		conds = append(conds, fmt.Sprintf(`(
+			title ILIKE '%%' || $%d || '%%'
+			OR title_auto ILIKE '%%' || $%d || '%%'
+			OR (rgm.group_id IS NOT NULL AND EXISTS (
+				SELECT 1 FROM recording_group_members rgm_s
+				JOIN activities a_s ON a_s.id = rgm_s.activity_id
+				WHERE rgm_s.group_id = rgm.group_id
+				  AND rgm_s.activity_id != activities.id
+				  AND (a_s.title ILIKE '%%' || $%d || '%%' OR a_s.title_auto ILIKE '%%' || $%d || '%%')
+			))
+		)`, idx, idx, idx, idx))
 		args = append(args, filters.Search)
 	}
 	if len(filters.IncludeTags) > 0 {
@@ -1002,7 +1012,18 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 		return nil, fmt.Errorf("count activities: %w", err)
 	}
 
-	selectCols := `activities.id, sport_type, sub_type, title, started_at, distance_m,
+	selectCols := `activities.id, sport_type, sub_type,
+		COALESCE(
+			NULLIF(activities.title, ''),
+			(SELECT NULLIF(a2.title, '')
+			 FROM recording_group_members rgm2
+			 JOIN activities a2 ON a2.id = rgm2.activity_id
+			 WHERE rgm2.group_id = rgm.group_id
+			   AND rgm2.activity_id != activities.id
+			   AND a2.title IS NOT NULL AND a2.title != ''
+			 LIMIT 1)
+		) AS title,
+		started_at, distance_m,
 		elapsed_time_s, elevation_gain_m, elevation_loss_m, is_indoor, is_electric, is_virtual, exclude_from_heatmap, exclude_from_stats, visibility,
 		created_at, updated_at, sport_conflict_pending, timezone, rgm.group_id`
 
