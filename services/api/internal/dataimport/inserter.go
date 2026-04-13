@@ -340,8 +340,9 @@ func walkAndRemap(val any, idMap *IDMap) any {
 				if s, ok := stringVal(child); ok && s != "" {
 					if mapped, exists := idMap.GetIfExists(s); exists {
 						out[k] = mapped
+					} else {
+						out[k] = child // preserve original — entity not in export
 					}
-					// else: leave original value — referenced entity not in export
 					continue
 				}
 			}
