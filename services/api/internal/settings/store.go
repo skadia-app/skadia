@@ -191,7 +191,12 @@ func (s *SettingsStore) GetAll() map[string]map[string]CachedSetting {
 		if _, ok := result[kd.Group]; !ok {
 			result[kd.Group] = make(map[string]CachedSetting)
 		}
-		result[kd.Group][kd.Key] = snapshot[kd.Key]
+		// Use the short key (strip "<group>." prefix) so the frontend can access
+		// nested fields with getValue(settings, group, shortKey) without repeating
+		// the group prefix. E.g. "smtp.host" is stored as settings["smtp"]["host"].
+		prefix := kd.Group + "."
+		shortKey := strings.TrimPrefix(kd.Key, prefix)
+		result[kd.Group][shortKey] = snapshot[kd.Key]
 	}
 	return result
 }
