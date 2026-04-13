@@ -472,9 +472,9 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		// Upsert the "E-Bike" system tag and link it to this activity.
 		var electricTagID string
 		row := db.Pool.QueryRow(ctx, `
-			INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
-			VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', true, false, 'Automatisch bei E-Bike-Aktivitäten (Sync mit is_electric)')
-			ON CONFLICT (user_id, name) DO UPDATE SET name = tags.name
+			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+			VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', 'system', true, false, 'Automatisch bei E-Bike-Aktivitäten (Sync mit is_electric)')
+			ON CONFLICT (user_id, name) DO UPDATE SET category = 'system'
 			RETURNING id
 		`, userID)
 		if err := row.Scan(&electricTagID); err == nil {
@@ -494,9 +494,9 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		// Upsert the "Indoor" system tag and link it to this activity.
 		var indoorTagID string
 		row := db.Pool.QueryRow(ctx, `
-			INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
-			VALUES ($1, 'Indoor', '#3B82F6', '#FFFFFF', true, false, 'Automatisch bei Indoor-Aktivitäten (Sync mit is_indoor)')
-			ON CONFLICT (user_id, name) DO UPDATE SET name = tags.name
+			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+			VALUES ($1, 'Indoor', '#3B82F6', '#FFFFFF', 'system', true, false, 'Automatisch bei Indoor-Aktivitäten (Sync mit is_indoor)')
+			ON CONFLICT (user_id, name) DO UPDATE SET category = 'system'
 			RETURNING id
 		`, userID)
 		if err := row.Scan(&indoorTagID); err == nil {
@@ -521,9 +521,9 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 
 		var manualTagID string
 		row := db.Pool.QueryRow(ctx, `
-			INSERT INTO tags (user_id, name, color, text_color, is_system, is_auto, description)
-			VALUES ($1, 'manuell', '#6B7280', '#FFFFFF', true, false, 'Manuell erstellte Aktivität')
-			ON CONFLICT (user_id, name) DO UPDATE SET name = tags.name
+			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+			VALUES ($1, 'manuell', '#6B7280', '#FFFFFF', 'system', true, false, 'Manuell erstellte Aktivität')
+			ON CONFLICT (user_id, name) DO UPDATE SET category = 'system'
 			RETURNING id
 		`, userID)
 		if err := row.Scan(&manualTagID); err == nil {
