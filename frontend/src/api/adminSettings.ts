@@ -6,7 +6,13 @@ export interface SettingField {
   locked?: boolean
 }
 
-export type SettingsResponse = Record<string, Record<string, SettingField>>
+export interface SettingsResponseMeta {
+  storage_backend?: string
+}
+
+export type SettingsResponse = Record<string, Record<string, SettingField>> & {
+  _meta?: SettingsResponseMeta
+}
 
 export async function getAdminSettings(): Promise<SettingsResponse> {
   const res = await apiFetch('/api/v1/admin/settings')
