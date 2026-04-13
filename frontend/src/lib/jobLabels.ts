@@ -2,8 +2,8 @@
 export const JOB_TYPE_LABELS: Record<string, string> = {
   osm_import:              'OSM-Import',
   osm_enrichment:          'OSM-Anreicherung',
-  garmin_import:           'Garmin-Synchronisierung',
-  strava_import:           'Strava-Synchronisierung',
+  garmin_import:           'Garmin-Import',
+  strava_import:           'Strava-Import',
   komoot_import:           'Komoot-Import',
   segment_recompute:       'Segment-Neuberechnung',
   activity_recompute:      'Aktivität neu berechnen',
