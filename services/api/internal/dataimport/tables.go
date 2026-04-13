@@ -408,6 +408,7 @@ var fileRefColumns = map[string][]string{
 	"custom_map_markers": {"image_file_id"},
 	"activities":         {"file_id", "sidecar_file_id"},
 	"activity_photos":    {"file_id"},
+	"file_attachments":   {"file_id"},
 }
 
 // isFileRefColumn reports whether col on table is a file-reference column.
