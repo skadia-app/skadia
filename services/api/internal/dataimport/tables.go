@@ -63,9 +63,10 @@ func allTables() []tableSpec {
 			PKField: "id",
 		},
 		{
-			Name:    "recording_groups",
-			Phase:   2,
-			PKField: "id",
+			Name:     "recording_groups",
+			Phase:    2,
+			PKField:  "id",
+			Deferred: []string{"primary_activity_id"},
 		},
 		{
 			Name:       "workouts",
@@ -152,15 +153,16 @@ func allTables() []tableSpec {
 			FKFields: []string{"workout_id"},
 		},
 		{
-			Name:    "chain_rotation_groups",
-			Phase:   3,
-			PKField: "id",
+			Name:     "chain_rotation_groups",
+			Phase:    3,
+			PKField:  "id",
+			FKFields: []string{"gear_id"},
 		},
 		{
 			Name:     "chain_rotation_members",
 			Phase:    3,
 			PKField:  "id",
-			FKFields: []string{"group_id"},
+			FKFields: []string{"group_id", "component_id"},
 		},
 		{
 			Name:       "gear",
@@ -198,22 +200,23 @@ func allTables() []tableSpec {
 			FKFields: []string{"component_id", "gear_id"},
 		},
 		{
-			Name:     "gear_service_events",
-			Phase:    4,
-			PKField:  "id",
-			FKFields: []string{"component_id"},
-		},
-		{
+			// Must come before gear_service_events (events.interval_id → intervals.id).
 			Name:     "gear_service_intervals",
 			Phase:    4,
 			PKField:  "id",
 			FKFields: []string{"component_id"},
 		},
 		{
+			Name:     "gear_service_events",
+			Phase:    4,
+			PKField:  "id",
+			FKFields: []string{"component_id", "interval_id"},
+		},
+		{
 			Name:     "gear_documents",
 			Phase:    4,
 			PKField:  "id",
-			FKFields: []string{"gear_id", "file_id"},
+			FKFields: []string{"gear_id", "file_id", "component_id", "service_event_id"},
 		},
 		{
 			Name:     "bike_setups",
@@ -248,7 +251,7 @@ func allTables() []tableSpec {
 			Name:     "activities",
 			Phase:    5,
 			PKField:  "id",
-			FKFields: []string{"gear_id", "recording_group_id", "file_id", "sidecar_file_id"},
+			FKFields: []string{"gear_id", "recording_group_id", "file_id", "sidecar_file_id", "parent_id", "recording_device_id", "workout_id"},
 		},
 		{
 			// entity_id is resolved dynamically (polymorphic FK).
@@ -285,7 +288,7 @@ func allTables() []tableSpec {
 			Name:     "activity_developer_apps",
 			Phase:    6,
 			PKField:  "",
-			FKFields: []string{"activity_id"},
+			FKFields: []string{"activity_id", "device_id"},
 			Conflict: cmInsert,
 		},
 		{
