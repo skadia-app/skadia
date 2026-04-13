@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/auth"
 	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
@@ -13,6 +14,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
@@ -32,6 +34,9 @@ type Handler struct {
 	PMC          *pmc.Service          // TSS/PMC recomputation service
 	BestEfforts  *bestefforts.Service  // best effort computation service
 	recomputeJob recomputeJobState     // in-memory state for async recompute-all
+
+	Settings *settings.SettingsStore // server settings store (DB-backed, cached)
+	Mailer   *auth.Mailer            // for admin test-email endpoint
 }
 
 type HandlerConfig struct {

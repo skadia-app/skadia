@@ -36,6 +36,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
@@ -497,6 +498,9 @@ func main() {
 	// Best Efforts service — always created; used by recompute and recalc endpoints.
 	bestEffortsService := &bestefforts.Service{Store: db}
 
+	// Settings store — write-through cache over server_settings table.
+	settingsStore := settings.NewSettingsStore(db, cfg.SettingsEncryptionKey)
+
 	// NATS (optional - log warning if unavailable)
 	var pub *event.Publisher
 	pub, err = event.NewPublisher(cfg.NatsURL)
@@ -653,6 +657,10 @@ func main() {
 	authRL := middleware.NewRateLimiter(ctx)
 	authHandler := auth.NewHandler(db, cfg, authMailer, authRL, ctx)
 	authHandler.ShadowFS = store
+
+	// Wire settings store and mailer into main handler (needed for admin settings endpoints).
+	h.Settings = settingsStore
+	h.Mailer = authMailer
 
 	// Library watcher (polling, local backend only)
 	if cfg.StorageBackend == "local" && cfg.LibrarySyncEnabled {
@@ -973,8 +981,13 @@ func main() {
 				r.Get("/users/{id}/sessions", authHandler.AdminListUserSessions)
 				r.Post("/users/{id}/revoke-sessions", authHandler.AdminRevokeUserSessions)
 				r.Get("/audit-log", authHandler.AdminAuditLog)
-				r.Post("/test-email", authHandler.AdminTestEmail)
 				r.Post("/users/{id}/restore", authHandler.AdminRestoreUser)
+
+				// Server settings
+				r.Get("/settings", h.AdminGetSettings)
+				r.Put("/settings", h.AdminPutSettings)
+				r.Post("/settings/reload", h.AdminReloadSettings)
+				r.Post("/settings/test-email", h.AdminTestEmail)
 			})
 
 			// ── Regular authenticated routes ──
