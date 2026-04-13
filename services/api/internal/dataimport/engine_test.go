@@ -2604,3 +2604,83 @@ func TestFileRefMissingFile(t *testing.T) {
 	}
 	_ = result
 }
+
+// ---------------------------------------------------------------------------
+// Test: TestJSONBRemapMissingEntity
+// ---------------------------------------------------------------------------
+
+// TestJSONBRemapMissingEntity verifies that JSONB UUID references to entities
+// NOT in the export are preserved as-is (not remapped to phantom UUIDs and
+// not dropped from the JSONB structure).
+func TestJSONBRemapMissingEntity(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+
+	srcUser := uuid.New().String()
+	// gear_id that is NOT exported (no gear.json in the ZIP).
+	missingGearID := uuid.New().String()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: schemaMig,
+		extraFiles: map[string][]byte{
+			"data/automation_rules.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":         uuid.New().String(),
+					"user_id":    srcUser,
+					"name":       "MissingGearRule",
+					"is_active":  true,
+					"priority":   1,
+					"conditions": map[string]any{},
+					"actions": []any{
+						map[string]any{
+							"type":   "set_gear",
+							"params": map[string]any{"gear_id": missingGearID},
+						},
+					},
+				},
+			}),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	eng := newEngine(pool)
+	_, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	// Read back the rule's actions JSONB.
+	var actionsRaw []byte
+	err = pool.QueryRow(ctx,
+		"SELECT actions FROM automation_rules WHERE user_id = $1 AND name = 'MissingGearRule'",
+		userID,
+	).Scan(&actionsRaw)
+	if err != nil {
+		t.Fatalf("select automation_rules.actions: %v", err)
+	}
+
+	var decodedActions []map[string]any
+	if err := json.Unmarshal(actionsRaw, &decodedActions); err != nil {
+		t.Fatalf("parse actions: %v", err)
+	}
+	if len(decodedActions) == 0 {
+		t.Fatal("actions is empty")
+	}
+
+	params, ok := decodedActions[0]["params"].(map[string]any)
+	if !ok {
+		t.Fatal("params is not a map")
+	}
+
+	// gear_id should be preserved as the original UUID (not remapped, not dropped).
+	gearID, ok := params["gear_id"].(string)
+	if !ok {
+		t.Fatal("gear_id is missing from params — walkAndRemap dropped it instead of preserving")
+	}
+	if gearID != missingGearID {
+		t.Errorf("gear_id should be preserved as original %q, got %q", missingGearID, gearID)
+	}
+}
