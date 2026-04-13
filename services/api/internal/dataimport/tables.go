@@ -121,9 +121,13 @@ func allTables() []tableSpec {
 			Conflict:   cmMergeID,
 			NaturalKey: []string{"name"},
 		},
+		// automation_rules is Phase 4 (not Phase 2) because its JSONB config
+		// contains gear_id (Phase 3), tag_id (Phase 2 cmMergeID), and segment_id
+		// (Phase 3). The JSONB remapping must happen AFTER all referenced entities
+		// are in the IDMap — including cmMergeID overrides.
 		{
 			Name:    "automation_rules",
-			Phase:   2,
+			Phase:   4,
 			PKField: "id",
 		},
 		{
