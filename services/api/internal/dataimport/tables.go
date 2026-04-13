@@ -49,7 +49,6 @@ func allTables() []tableSpec {
 			FKFields:   []string{"cover_file_id"},
 			Conflict:   cmMergeID,
 			NaturalKey: []string{"name"},
-			Deferred:   []string{"cover_file_id"},
 		},
 		{
 			Name:     "training_zones",
@@ -121,13 +120,9 @@ func allTables() []tableSpec {
 			Conflict:   cmMergeID,
 			NaturalKey: []string{"name"},
 		},
-		// automation_rules is Phase 4 (not Phase 2) because its JSONB config
-		// contains gear_id (Phase 3), tag_id (Phase 2 cmMergeID), and segment_id
-		// (Phase 3). The JSONB remapping must happen AFTER all referenced entities
-		// are in the IDMap — including cmMergeID overrides.
 		{
 			Name:    "automation_rules",
-			Phase:   4,
+			Phase:   2,
 			PKField: "id",
 		},
 		{
@@ -148,8 +143,7 @@ func allTables() []tableSpec {
 			Name:     "custom_map_markers",
 			Phase:    3,
 			PKField:  "id",
-			FKFields: []string{"map_id"},
-			Deferred: []string{"image_file_id"}, // file imported in Phase 5 via ShadowFS
+			FKFields: []string{"map_id", "image_file_id"},
 		},
 		{
 			Name:     "workout_steps",
@@ -165,7 +159,7 @@ func allTables() []tableSpec {
 		},
 		{
 			Name:     "chain_rotation_members",
-			Phase:    3,
+			Phase:    4,
 			PKField:  "id",
 			FKFields: []string{"group_id", "component_id"},
 		},
@@ -196,7 +190,8 @@ func allTables() []tableSpec {
 			Name:     "gear_components",
 			Phase:    4,
 			PKField:  "id",
-			FKFields: []string{"gear_id", "parent_component_id", "source_document_id"},
+			FKFields: []string{"gear_id", "parent_component_id"},
+			Deferred: []string{"source_document_id"},
 		},
 		{
 			Name:     "component_assignments",
@@ -221,8 +216,7 @@ func allTables() []tableSpec {
 			Name:     "gear_documents",
 			Phase:    4,
 			PKField:  "id",
-			FKFields: []string{"gear_id", "component_id", "service_event_id"},
-			Deferred: []string{"file_id"}, // file imported in Phase 5 via ShadowFS
+			FKFields: []string{"gear_id", "component_id", "service_event_id", "file_id"},
 		},
 		{
 			Name:     "bike_setups",
@@ -234,8 +228,7 @@ func allTables() []tableSpec {
 			Name:     "route_photos",
 			Phase:    4,
 			PKField:  "id",
-			FKFields: []string{"route_id"},
-			Deferred: []string{"file_id"}, // file imported in Phase 5 via ShadowFS
+			FKFields: []string{"route_id", "file_id"},
 		},
 		{
 			Name:     "route_tags",
@@ -259,13 +252,7 @@ func allTables() []tableSpec {
 			Phase:    5,
 			PKField:  "id",
 			FKFields: []string{"gear_id", "recording_group_id", "file_id", "sidecar_file_id", "parent_id", "recording_device_id", "workout_id"},
-		},
-		{
-			// entity_id is resolved dynamically (polymorphic FK).
-			Name:     "file_attachments",
-			Phase:    5,
-			PKField:  "id",
-			FKFields: []string{"file_id"},
+			Deferred: []string{"parent_id"},
 		},
 
 		// ── Phase 6: Activity-dependent ────────────────────────────────────────
@@ -326,6 +313,15 @@ func allTables() []tableSpec {
 
 		// ── Phase 7: External ──────────────────────────────────────────────────
 
+		{
+			// entity_id is resolved dynamically (polymorphic FK).
+			// Phase 7 because entity_id may reference Phase 6 entities
+			// (chat_sessions, activity_photos, etc.).
+			Name:     "file_attachments",
+			Phase:    7,
+			PKField:  "id",
+			FKFields: []string{"file_id"},
+		},
 		{
 			Name:     "activity_weather",
 			Phase:    7,
@@ -402,8 +398,36 @@ var jsonbRemapKeys = map[string]bool{
 	"segment_id": true,
 }
 
+// fileRefColumns lists FK columns that reference user_files.
+// During prepareRow, these use idMap.GetIfExists (not Get) to avoid
+// generating phantom UUIDs for files that weren't in the export.
+var fileRefColumns = map[string][]string{
+	"tags":               {"cover_file_id"},
+	"gear_documents":     {"file_id"},
+	"route_photos":       {"file_id"},
+	"custom_map_markers": {"image_file_id"},
+	"activities":         {"file_id", "sidecar_file_id"},
+	"activity_photos":    {"file_id"},
+}
+
+// isFileRefColumn reports whether col on table is a file-reference column.
+func isFileRefColumn(table, col string) bool {
+	for _, c := range fileRefColumns[table] {
+		if c == col {
+			return true
+		}
+	}
+	return false
+}
+
 // ExportedTableSpecs returns all table specs (including skipped entries) for
 // use in CI tests that verify registry completeness.
 func ExportedTableSpecs() []tableSpec {
 	return allTables()
+}
+
+// findSpecByName returns the tableSpec with the given name from allTables and
+// healthTables. Returns a zero-value tableSpec if not found.
+func findSpecByName(name string) tableSpec {
+	return findSpec(name, append(allTables(), healthTables()...))
 }
