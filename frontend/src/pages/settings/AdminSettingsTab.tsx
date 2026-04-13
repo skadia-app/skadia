@@ -50,8 +50,8 @@ export default function AdminSettingsTab() {
       {activeSubTab === 'users' && <AdminUsersPage />}
       {activeSubTab === 'storage' && (
         <>
-          <AdminStorageDashboard />
           <AdminStorageLimitsSection />
+          <AdminStorageDashboard />
         </>
       )}
       {activeSubTab === 'system' && <AdminSystemTab />}
