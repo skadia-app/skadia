@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/alexedwards/argon2id"
@@ -16,13 +15,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
-)
-
-// testEmailCooldown tracks per-admin cooldown for the test-email endpoint.
-var (
-	testEmailLastSent   = make(map[string]time.Time)
-	testEmailLastSentMu sync.Mutex
-	testEmailCooldown   = 60 * time.Second
 )
 
 // adminUserEntry is the JSON response shape for admin user listings.
@@ -405,52 +397,6 @@ func parseIntDefault(s string, def int) int {
 		return def
 	}
 	return v
-}
-
-// AdminTestEmail handles POST /admin/test-email — sends a test email to the requesting admin.
-// Synchronous: returns success/failure so the admin sees whether SMTP works.
-// Rate-limited to 1 request per minute per admin to prevent SMTP flooding.
-func (h *Handler) AdminTestEmail(w http.ResponseWriter, r *http.Request) {
-	if h.Config.SMTPHost == "" {
-		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "smtp_not_configured"})
-		return
-	}
-
-	adminID := middleware.GetUserID(r.Context())
-
-	// Per-admin cooldown.
-	testEmailLastSentMu.Lock()
-	if last, ok := testEmailLastSent[adminID]; ok && time.Since(last) < testEmailCooldown {
-		remaining := testEmailCooldown - time.Since(last)
-		testEmailLastSentMu.Unlock()
-		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]any{
-			"error":      "rate_limited",
-			"retry_after": int(remaining.Seconds()),
-		})
-		return
-	}
-	testEmailLastSent[adminID] = time.Now()
-	testEmailLastSentMu.Unlock()
-
-	admin, err := h.DB.GetUserByID(r.Context(), adminID)
-	if err != nil {
-		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-		return
-	}
-	if admin.Email == nil {
-		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "admin_has_no_email"})
-		return
-	}
-
-	if err := h.Mailer.SendTestEmail(*admin.Email, admin.Username); err != nil {
-		slog.Error("admin test email failed", "error", err, "admin_id", adminID)
-		httputil.WriteJSONNoCache(w, http.StatusBadGateway, map[string]string{"error": "smtp_send_failed"})
-		return
-	}
-
-	go h.DB.LogAuthEvent(h.shutdownCtx, adminID, "admin_test_email", middleware.ClientIP(r), r.UserAgent(), nil)
-	slog.Info("admin test email sent", "admin_id", adminID, "to", *admin.Email)
-	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "test_email_sent"})
 }
 
 // notifyAdminsNewRegistration emails all active admins about a pending approval request.
