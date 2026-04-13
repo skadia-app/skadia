@@ -1040,6 +1040,8 @@ func main() {
 				r.Get("/users/{id}/sessions", authHandler.AdminListUserSessions)
 				r.Post("/users/{id}/revoke-sessions", authHandler.AdminRevokeUserSessions)
 				r.Post("/users/{id}/hotfolder", h.AdminToggleUserHotfolder)
+				r.Post("/users/{id}/set-admin", authHandler.AdminSetUserAdmin)
+				r.Delete("/users/{id}", authHandler.AdminDeleteUser)
 				r.Get("/audit-log", authHandler.AdminAuditLog)
 				r.Post("/users/{id}/restore", authHandler.AdminRestoreUser)
 

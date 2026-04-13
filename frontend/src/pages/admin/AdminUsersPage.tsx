@@ -9,9 +9,14 @@ import {
   adminCreateUser,
   getAdminUserSessions,
   adminRevokeUserSessions,
+  adminSetUserAdmin,
+  adminDeleteUser,
+  adminSetUserHotfolder,
+  getMe,
   type AdminUser,
   type AdminUserSession,
 } from '@/api/auth'
+import { getAdminSettings } from '@/api/adminSettings'
 import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 import { fmtDateTime, parseUserAgent } from '@/lib/format'
@@ -24,6 +29,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import {
   Search,
@@ -31,10 +37,15 @@ import {
   MoreHorizontal,
   Shield,
   ShieldOff,
+  ShieldCheck,
+  ShieldX,
   KeyRound,
   Monitor,
   Ban,
   Loader2,
+  FolderOpen,
+  FolderX,
+  Trash2,
 } from 'lucide-react'
 
 // ── Centralized i18n-ready labels ───────────────────────────────────────────
@@ -54,11 +65,23 @@ const REGISTRATION_SOURCE_LABELS: Record<string, string> = {
   oauth_github: 'GitHub',
 }
 
+const ADMIN_ERROR_LABELS: Record<string, string> = {
+  last_admin: 'Dies ist der letzte aktive Admin — Aktion nicht möglich',
+  cannot_demote_self: 'Du kannst dir selbst die Admin-Rechte nicht entziehen',
+  cannot_delete_self: 'Du kannst deinen eigenen Account nicht löschen',
+  confirmation_mismatch: 'Bestätigung stimmt nicht überein',
+  user_not_found: 'Benutzer nicht gefunden',
+}
+
 const PAGE_SIZE = 50
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const fmtTs = (iso: string | null): string => (iso ? fmtDateTime(iso) : '—')
+
+function getAdminErrorMessage(code: string): string {
+  return ADMIN_ERROR_LABELS[code] ?? getAuthErrorMessage(code)
+}
 
 function StatusBadge({ user }: { user: AdminUser }) {
   if (user.deleted_at) {
@@ -447,19 +470,132 @@ function SessionsDialog({
   )
 }
 
-// ── Confirmation Dialog ─────────────────────────────────────────────────────
+// ── Delete User Dialog (two-step confirmation) ──────────────────────────────
 
+function DeleteUserDialog({
+  user,
+  onClose,
+  onDeleted,
+}: {
+  user: AdminUser
+  onClose: () => void
+  onDeleted: () => void
+}) {
+  const [step, setStep] = useState<1 | 2>(1)
+  const [confirmInput, setConfirmInput] = useState('')
+  const { addToast } = useToast()
+
+  const mutation = useMutation({
+    mutationFn: () => adminDeleteUser(user.id, confirmInput),
+    onSuccess: () => {
+      addToast({ type: 'success', title: `Benutzer "${user.username}" gelöscht` })
+      onDeleted()
+      onClose()
+    },
+    onError: (err: Error) => {
+      addToast({ type: 'error', title: getAdminErrorMessage(err.message), duration: 0 })
+    },
+  })
+
+  const canConfirm = confirmInput === user.username
+
+  return (
+    <ModalShell onClose={onClose} maxWidth="max-w-sm">
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
+            <Trash2 className="h-5 w-5 text-red-600 dark:text-red-400" />
+          </div>
+          <h2 className="text-lg font-semibold">Benutzer löschen</h2>
+        </div>
+
+        {step === 1 && (
+          <>
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800/40 dark:bg-red-900/10">
+              <p className="text-sm font-medium text-red-700 dark:text-red-400">
+                Achtung: Diese Aktion kann nicht rückgängig gemacht werden
+              </p>
+              <ul className="mt-2 space-y-1 text-sm text-red-600 dark:text-red-300">
+                <li>• Der Benutzer <strong>{user.username}</strong> wird deaktiviert und als gelöscht markiert</li>
+                <li>• Alle Sitzungen werden sofort beendet</li>
+                <li>• Alle Aktivitäten und Daten bleiben erhalten (soft delete)</li>
+              </ul>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                onClick={onClose}
+                className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={() => setStep(2)}
+                className="cursor-pointer rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+              >
+                Weiter
+              </button>
+            </div>
+          </>
+        )}
+
+        {step === 2 && (
+          <>
+            <p className="text-sm text-neutral-600 dark:text-neutral-400">
+              Tippe <strong className="font-mono text-neutral-800 dark:text-neutral-200">{user.username}</strong> ein um das Löschen zu bestätigen:
+            </p>
+            <input
+              type="text"
+              value={confirmInput}
+              onChange={e => setConfirmInput(e.target.value)}
+              className={AUTH_INPUT_CLASS}
+              placeholder={user.username}
+              autoFocus
+              onKeyDown={e => {
+                if (e.key === 'Enter' && canConfirm && !mutation.isPending) {
+                  mutation.mutate()
+                }
+              }}
+            />
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                onClick={() => { setStep(1); setConfirmInput('') }}
+                disabled={mutation.isPending}
+                className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Zurück
+              </button>
+              <button
+                onClick={() => mutation.mutate()}
+                disabled={!canConfirm || mutation.isPending}
+                className="flex cursor-pointer items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Endgültig löschen
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </ModalShell>
+  )
+}
 
 // ── User Actions Menu ───────────────────────────────────────────────────────
 
 function UserActionsMenu({
   user,
+  currentUserId,
+  hotfolderGlobalMode,
   onAction,
 }: {
   user: AdminUser
-  onAction: (action: 'activate' | 'deactivate' | 'reset-password' | 'sessions' | 'revoke-sessions') => void
+  currentUserId: string
+  hotfolderGlobalMode: string
+  onAction: (action: 'activate' | 'deactivate' | 'reset-password' | 'sessions' | 'revoke-sessions' | 'set-admin' | 'delete' | 'toggle-hotfolder') => void
 }) {
   const isDeleted = user.deleted_at != null
+  const isSelf = user.id === currentUserId
+  const hotfolderAvailable = hotfolderGlobalMode !== 'disabled'
 
   return (
     <DropdownMenu>
@@ -471,7 +607,7 @@ function UserActionsMenu({
           <MoreHorizontal className="h-4 w-4" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-52">
+      <DropdownMenuContent align="end" className="w-56">
         {!isDeleted && (
           <>
             {user.is_active ? (
@@ -485,16 +621,54 @@ function UserActionsMenu({
                 Aktivieren
               </DropdownMenuItem>
             )}
+
+            {/* Promote / Demote admin */}
+            {user.is_admin ? (
+              <DropdownMenuItem
+                onClick={() => !isSelf && onAction('set-admin')}
+                disabled={isSelf}
+                className="gap-2"
+                title={isSelf ? 'Du kannst dir selbst die Admin-Rechte nicht entziehen' : undefined}
+              >
+                <ShieldX className="h-4 w-4 text-violet-500" />
+                <span className={isSelf ? 'opacity-50' : ''}>Adminrechte entziehen</span>
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onClick={() => onAction('set-admin')} className="gap-2">
+                <ShieldCheck className="h-4 w-4 text-violet-500" />
+                Zum Admin machen
+              </DropdownMenuItem>
+            )}
+
+            {/* Hotfolder toggle — only if global hotfolder mode is not disabled */}
+            {hotfolderAvailable && (
+              <DropdownMenuItem onClick={() => onAction('toggle-hotfolder')} className="gap-2">
+                {user.hotfolder_enabled ? (
+                  <>
+                    <FolderX className="h-4 w-4 text-orange-500" />
+                    Hotfolder deaktivieren
+                  </>
+                ) : (
+                  <>
+                    <FolderOpen className="h-4 w-4 text-orange-500" />
+                    Hotfolder aktivieren
+                  </>
+                )}
+              </DropdownMenuItem>
+            )}
+
             <DropdownMenuItem onClick={() => onAction('reset-password')} className="gap-2">
               <KeyRound className="h-4 w-4 text-amber-500" />
               Passwort zurücksetzen
             </DropdownMenuItem>
           </>
         )}
+
         <DropdownMenuItem onClick={() => onAction('sessions')} className="gap-2">
           <Monitor className="h-4 w-4 text-blue-500" />
           Sitzungen anzeigen
         </DropdownMenuItem>
+
         {!isDeleted && (
           <DropdownMenuItem
             onClick={() => onAction('revoke-sessions')}
@@ -503,6 +677,19 @@ function UserActionsMenu({
             <Ban className="h-4 w-4" />
             Alle Sitzungen widerrufen
           </DropdownMenuItem>
+        )}
+
+        {!isDeleted && !isSelf && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => onAction('delete')}
+              className="gap-2 text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+            >
+              <Trash2 className="h-4 w-4" />
+              Benutzer löschen...
+            </DropdownMenuItem>
+          </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -521,8 +708,9 @@ export default function AdminUsersPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [resetPasswordUser, setResetPasswordUser] = useState<AdminUser | null>(null)
   const [sessionsUser, setSessionsUser] = useState<AdminUser | null>(null)
+  const [deleteUser, setDeleteUser] = useState<AdminUser | null>(null)
   const [confirmAction, setConfirmAction] = useState<{
-    type: 'activate' | 'deactivate' | 'revoke-sessions'
+    type: 'activate' | 'deactivate' | 'revoke-sessions' | 'set-admin' | 'toggle-hotfolder'
     user: AdminUser
   } | null>(null)
 
@@ -540,6 +728,22 @@ export default function AdminUsersPage() {
       }),
   })
 
+  // Current user (to detect self)
+  const { data: me } = useQuery({
+    queryKey: ['me'],
+    queryFn: getMe,
+    staleTime: 60_000,
+  })
+  const currentUserId = me?.user_id ?? ''
+
+  // Global hotfolder mode (to conditionally show hotfolder toggle)
+  const { data: adminSettings } = useQuery({
+    queryKey: ['admin-settings'],
+    queryFn: getAdminSettings,
+    staleTime: 60_000,
+  })
+  const hotfolderGlobalMode = (adminSettings?.hotfolder as Record<string, { value: string }> | undefined)?.mode?.value ?? 'disabled'
+
   const users: AdminUser[] = data?.users ?? []
   const total: number = data?.total ?? 0
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1
@@ -556,7 +760,7 @@ export default function AdminUsersPage() {
     setOffset(0)
   }, [])
 
-  // ── Mutations for confirm actions ──
+  // ── Mutations ──
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function useConfirmMutation(fn: (id: string) => Promise<any>, title: string) {
@@ -568,7 +772,8 @@ export default function AdminUsersPage() {
         setConfirmAction(null)
       },
       onError: (err: Error) => {
-        addToast({ type: 'error', title: getAuthErrorMessage(err.message), duration: 0 })
+        addToast({ type: 'error', title: getAdminErrorMessage(err.message), duration: 0 })
+        setConfirmAction(null)
       },
     })
   }
@@ -577,9 +782,41 @@ export default function AdminUsersPage() {
   const deactivateMutation = useConfirmMutation(adminDeactivateUser, 'Benutzer deaktiviert')
   const revokeSessionsMutation = useConfirmMutation(adminRevokeUserSessions, 'Alle Sitzungen widerrufen')
 
+  const setAdminMutation = useMutation({
+    mutationFn: ({ id, isAdmin }: { id: string; isAdmin: boolean }) => adminSetUserAdmin(id, isAdmin),
+    onSuccess: (_data, vars) => {
+      addToast({
+        type: 'success',
+        title: vars.isAdmin ? 'Admin-Rechte vergeben' : 'Admin-Rechte entzogen',
+      })
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+      setConfirmAction(null)
+    },
+    onError: (err: Error) => {
+      addToast({ type: 'error', title: getAdminErrorMessage(err.message), duration: 0 })
+      setConfirmAction(null)
+    },
+  })
+
+  const hotfolderMutation = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => adminSetUserHotfolder(id, enabled),
+    onSuccess: (_data, vars) => {
+      addToast({
+        type: 'success',
+        title: vars.enabled ? 'Hotfolder aktiviert' : 'Hotfolder deaktiviert',
+      })
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+      setConfirmAction(null)
+    },
+    onError: (err: Error) => {
+      addToast({ type: 'error', title: getAdminErrorMessage(err.message), duration: 0 })
+      setConfirmAction(null)
+    },
+  })
+
   function handleUserAction(
     user: AdminUser,
-    action: 'activate' | 'deactivate' | 'reset-password' | 'sessions' | 'revoke-sessions',
+    action: 'activate' | 'deactivate' | 'reset-password' | 'sessions' | 'revoke-sessions' | 'set-admin' | 'delete' | 'toggle-hotfolder',
   ) {
     switch (action) {
       case 'activate':
@@ -597,6 +834,15 @@ export default function AdminUsersPage() {
       case 'revoke-sessions':
         setConfirmAction({ type: 'revoke-sessions', user })
         break
+      case 'set-admin':
+        setConfirmAction({ type: 'set-admin', user })
+        break
+      case 'toggle-hotfolder':
+        setConfirmAction({ type: 'toggle-hotfolder', user })
+        break
+      case 'delete':
+        setDeleteUser(user)
+        break
     }
   }
 
@@ -613,11 +859,21 @@ export default function AdminUsersPage() {
       case 'revoke-sessions':
         revokeSessionsMutation.mutate(user.id)
         break
+      case 'set-admin':
+        setAdminMutation.mutate({ id: user.id, isAdmin: !user.is_admin })
+        break
+      case 'toggle-hotfolder':
+        hotfolderMutation.mutate({ id: user.id, enabled: !user.hotfolder_enabled })
+        break
     }
   }
 
   const confirmPending =
-    activateMutation.isPending || deactivateMutation.isPending || revokeSessionsMutation.isPending
+    activateMutation.isPending ||
+    deactivateMutation.isPending ||
+    revokeSessionsMutation.isPending ||
+    setAdminMutation.isPending ||
+    hotfolderMutation.isPending
 
   const CONFIRM_CONFIG: Record<string, { title: string; message: string; label: string; cls?: string }> = {
     activate: {
@@ -635,6 +891,22 @@ export default function AdminUsersPage() {
       title: 'Alle Sitzungen widerrufen',
       message: `Alle aktiven Sitzungen von "${confirmAction?.user.username}" werden sofort beendet. Der Benutzer muss sich neu anmelden.`,
       label: 'Widerrufen',
+    },
+    'set-admin': {
+      title: confirmAction?.user.is_admin ? 'Adminrechte entziehen' : 'Zum Admin machen',
+      message: confirmAction?.user.is_admin
+        ? `Sollen die Admin-Rechte von "${confirmAction?.user.username}" entzogen werden? Alle aktiven Sitzungen werden beendet.`
+        : `Soll "${confirmAction?.user.username}" zum Admin gemacht werden? Alle aktiven Sitzungen werden beendet, damit neue Berechtigungen greifen.`,
+      label: confirmAction?.user.is_admin ? 'Entziehen' : 'Zum Admin machen',
+      cls: confirmAction?.user.is_admin ? undefined : 'bg-violet-600 hover:bg-violet-700',
+    },
+    'toggle-hotfolder': {
+      title: confirmAction?.user.hotfolder_enabled ? 'Hotfolder deaktivieren' : 'Hotfolder aktivieren',
+      message: confirmAction?.user.hotfolder_enabled
+        ? `Hotfolder für "${confirmAction?.user.username}" deaktivieren?`
+        : `Hotfolder für "${confirmAction?.user.username}" aktivieren?`,
+      label: confirmAction?.user.hotfolder_enabled ? 'Deaktivieren' : 'Aktivieren',
+      cls: confirmAction?.user.hotfolder_enabled ? undefined : 'bg-orange-600 hover:bg-orange-700',
     },
   }
 
@@ -749,6 +1021,14 @@ export default function AdminUsersPage() {
                           Unverifiziert
                         </span>
                       )}
+                      {user.hotfolder_enabled && !isDeleted && (
+                        <span
+                          className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-orange-500/10 text-orange-600 dark:text-orange-400"
+                          title="Hotfolder aktiv"
+                        >
+                          Hotfolder
+                        </span>
+                      )}
                     </div>
                     {user.display_name && user.display_name !== user.username && (
                       <div className={`text-xs text-neutral-500 ${isDeleted ? 'line-through' : ''}`}>
@@ -791,6 +1071,8 @@ export default function AdminUsersPage() {
                   <td className="px-4 py-3 text-right">
                     <UserActionsMenu
                       user={user}
+                      currentUserId={currentUserId}
+                      hotfolderGlobalMode={hotfolderGlobalMode}
                       onAction={action => handleUserAction(user, action)}
                     />
                   </td>
@@ -852,7 +1134,15 @@ export default function AdminUsersPage() {
         />
       )}
 
-      {confirmAction && (
+      {deleteUser && (
+        <DeleteUserDialog
+          user={deleteUser}
+          onClose={() => setDeleteUser(null)}
+          onDeleted={() => queryClient.invalidateQueries({ queryKey: ['admin-users'] })}
+        />
+      )}
+
+      {confirmAction && CONFIRM_CONFIG[confirmAction.type] && (
         <ConfirmModal
           title={CONFIRM_CONFIG[confirmAction.type].title}
           message={CONFIRM_CONFIG[confirmAction.type].message}
