@@ -29,4 +29,5 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   thumbnail_backfill:      'Thumbnails regenerieren',
   shadowfs_reconcile:      'Dateispeicher-Prüfung',
   fusion_queue_compute:    'Fusionskandidaten berechnen',
+  data_import:             'Datenimport',
 }

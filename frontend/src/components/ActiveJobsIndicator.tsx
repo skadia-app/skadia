@@ -31,6 +31,7 @@ function formatElapsed(startedAt: string): string {
 function JobRow({ job }: { job: ActiveJob }) {
   const isOSMJob = job.job_type === 'osm_import' || job.job_type === 'osm_enrichment'
   const isDataImport = job.job_type === 'garmin_import' || job.job_type === 'strava_import' || job.job_type === 'komoot_import'
+  const isGDPRImport = job.job_type === 'data_import'
 
   const label = job.job_type === 'segment_recompute'
     ? `Segment „${job.entity_name ?? 'Segment'}"`
@@ -136,8 +137,32 @@ function JobRow({ job }: { job: ActiveJob }) {
           </>
         )}
 
+        {/* GDPR Data Import: Phase-basierter Fortschritt */}
+        {isGDPRImport && job.status === 'running' && (
+          <>
+            {job.phase && (
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+                {job.phase}
+              </p>
+            )}
+            <div className="mt-1 h-1 bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden">
+              {job.progress_total > 0 ? (
+                <div
+                  className="h-full bg-accent-DEFAULT rounded-full transition-all duration-500"
+                  style={{ width: `${Math.round((job.progress_current / job.progress_total) * 100)}%` }}
+                />
+              ) : (
+                <div className="h-full w-full rounded-full bg-accent-DEFAULT/40 animate-[shimmer_1.5s_ease-in-out_infinite]" style={{ backgroundImage: 'linear-gradient(90deg, transparent 0%, var(--color-accent-DEFAULT) 50%, transparent 100%)', backgroundSize: '200% 100%' }} />
+              )}
+            </div>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
+              {`Phase ${job.progress_current + 1} / ${job.progress_total} · ${formatElapsed(job.started_at)}`}
+            </p>
+          </>
+        )}
+
         {/* Normale Jobs: Fortschrittsbalken + SubLabel */}
-        {!isOSMJob && (
+        {!isOSMJob && !isGDPRImport && (
           <>
             {job.status === 'running' && (
               <div className="mt-1 h-1 bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden relative">

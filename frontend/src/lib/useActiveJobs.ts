@@ -63,6 +63,12 @@ export function useActiveJobs() {
         if (job.job_type === 'fusion_queue_compute') {
           queryClient.invalidateQueries({ queryKey: ['fusion-queue'] })
         }
+        if (job.job_type === 'data_import') {
+          queryClient.invalidateQueries({ queryKey: ['activities'] })
+          queryClient.invalidateQueries({ queryKey: ['tags'] })
+          queryClient.invalidateQueries({ queryKey: ['gear'] })
+          queryClient.invalidateQueries({ queryKey: ['segments'] })
+        }
       }
     }
 
