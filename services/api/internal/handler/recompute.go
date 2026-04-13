@@ -655,9 +655,8 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 
 	// 5b. Delete + re-insert activity details (laps, splits, lengths, climb pro, events, sets, jumps, hr data, segment laps, time-in-zone).
 	if doDetails {
-		// Batch all 11 deletes in one round-trip.
+		// Batch all 10 deletes in one round-trip (laps are deleted inside InsertLaps).
 		detailBatch := &pgx.Batch{}
-		detailBatch.Queue("DELETE FROM activity_laps WHERE activity_id = $1", activityID)
 		detailBatch.Queue("DELETE FROM activity_splits WHERE activity_id = $1", activityID)
 		detailBatch.Queue("DELETE FROM activity_split_summaries WHERE activity_id = $1", activityID)
 		detailBatch.Queue("DELETE FROM activity_lengths WHERE activity_id = $1", activityID)
@@ -669,7 +668,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		detailBatch.Queue("DELETE FROM activity_segment_laps WHERE activity_id = $1", activityID)
 		detailBatch.Queue("DELETE FROM activity_time_in_zone WHERE activity_id = $1", activityID)
 		br := h.DB.Pool.SendBatch(ctx, detailBatch)
-		for range 11 {
+		for range 10 {
 			if _, err := br.Exec(); err != nil {
 				br.Close()
 				return fmt.Errorf("batch delete details: %w", err)
