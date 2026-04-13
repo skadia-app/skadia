@@ -2234,8 +2234,7 @@ func fileSize(t *testing.T, path string) int64 {
 // ---------------------------------------------------------------------------
 
 // TestNonEmptyAccount verifies that importing onto a user who already has
-// activities produces a warning containing "already has", and that the import
-// still succeeds (CanImport=true is always returned by ValidateAccount).
+// activities is rejected with a hard error (CanImport=false).
 func TestNonEmptyAccount(t *testing.T) {
 	pool := testDB(t)
 	userID := createTestUser(t, pool)
@@ -2271,27 +2270,31 @@ func TestNonEmptyAccount(t *testing.T) {
 	})
 	src := openZipSource(t, zipPath)
 
+	// ValidateAccount must report CanImport=false.
 	eng := newEngine(pool)
-	result, err := eng.RunImport(context.Background(), ImportInput{
+	vr, err := eng.ValidateAccount(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("ValidateAccount: %v", err)
+	}
+	if vr.CanImport {
+		t.Errorf("ValidateAccount: expected CanImport=false for account with activities, got true")
+	}
+	if len(vr.Warnings) == 0 || !strings.Contains(vr.Warnings[0], "activities") {
+		t.Errorf("ValidateAccount: expected warning mentioning 'activities', got: %v", vr.Warnings)
+	}
+
+	// RunImport must return an error (hard gate).
+	_, importErr := eng.RunImport(context.Background(), ImportInput{
 		Source:       src,
 		TargetUserID: userID,
 	})
-	if err != nil {
-		t.Fatalf("RunImport on non-empty account: %v", err)
+	if importErr == nil {
+		t.Fatalf("RunImport: expected error for non-empty account, got nil")
+	}
+	if !strings.Contains(importErr.Error(), "activities") {
+		t.Errorf("RunImport error should mention 'activities', got: %v", importErr)
 	}
 
-	// At least one warning must mention "already has".
-	hasWarn := false
-	for _, w := range result.Warnings {
-		if strings.Contains(w, "already has") {
-			hasWarn = true
-			break
-		}
-	}
-	if !hasWarn {
-		t.Errorf("expected warning containing 'already has', got: %v", result.Warnings)
-	}
-
-	// The import must still have worked — 2 activities total now.
-	assertRowCount(t, pool, "activities", userID, 2)
+	// The existing activity must not have been affected.
+	assertRowCount(t, pool, "activities", userID, 1)
 }

@@ -57,37 +57,30 @@ type ValidationResult struct {
 // ValidateAccount
 // ---------------------------------------------------------------------------
 
-// ValidateAccount checks whether TargetUserID already owns data that the import
-// would overwrite. It always returns CanImport=true; non-empty Warnings
-// indicate that the account is not fresh.
+// ValidateAccount checks whether TargetUserID already owns activities or files
+// that would conflict with a fresh import.
+// Auto-generated defaults (tags, gear, zones, settings) are not checked here.
+// Returns CanImport=false when activities or user_files are present.
 func (e *Engine) ValidateAccount(ctx context.Context, userID string) (*ValidationResult, error) {
+	var actCount, fileCount int
+	if err := e.DB.QueryRow(ctx,
+		"SELECT COUNT(*) FROM activities WHERE user_id = $1", userID,
+	).Scan(&actCount); err != nil {
+		return nil, fmt.Errorf("ValidateAccount: count activities: %w", err)
+	}
+	if err := e.DB.QueryRow(ctx,
+		"SELECT COUNT(*) FROM user_files WHERE user_id = $1", userID,
+	).Scan(&fileCount); err != nil {
+		return nil, fmt.Errorf("ValidateAccount: count user_files: %w", err)
+	}
+
 	res := &ValidationResult{CanImport: true}
-
-	type tableCheck struct {
-		table string
-		label string
+	if actCount > 0 || fileCount > 0 {
+		res.CanImport = false
+		res.Warnings = append(res.Warnings, fmt.Sprintf(
+			"account has %d activities and %d files; import requires an account without activities or uploaded files — create a new account or delete existing data first",
+			actCount, fileCount))
 	}
-	checks := []tableCheck{
-		{"activities", "activities"},
-		{"gear", "gear"},
-		{"user_files", "files"},
-	}
-
-	for _, c := range checks {
-		var count int
-		err := e.DB.QueryRow(ctx,
-			fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE user_id = $1", pgx.Identifier{c.table}.Sanitize()),
-			userID,
-		).Scan(&count)
-		if err != nil {
-			return nil, fmt.Errorf("ValidateAccount: count %s: %w", c.table, err)
-		}
-		if count > 0 {
-			res.Warnings = append(res.Warnings,
-				fmt.Sprintf("account already has %d %s; existing data may be replaced or merged", count, c.label))
-		}
-	}
-
 	return res, nil
 }
 
@@ -151,13 +144,14 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 		return nil, fmt.Errorf("RunImport: a data export or import is already running for this user")
 	}
 
-	// ── 5. ValidateAccount → nonFreshAccount ─────────────────────────────────
+	// ── 5. ValidateAccount — hard gate: reject non-empty accounts ───────────
 	validation, err := e.ValidateAccount(ctx, input.TargetUserID)
 	if err != nil {
 		return nil, fmt.Errorf("RunImport: ValidateAccount: %w", err)
 	}
-	nonFreshAccount := len(validation.Warnings) > 0
-	result.Warnings = append(result.Warnings, validation.Warnings...)
+	if !validation.CanImport {
+		return nil, fmt.Errorf("RunImport: %s", validation.Warnings[0])
+	}
 
 	// ── 6. IDMap + schema introspection ──────────────────────────────────────
 	idMap := NewIDMap(manifest.UserID, input.TargetUserID)
@@ -169,7 +163,7 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 
 	// ── 7. Build ordered table list ───────────────────────────────────────────
 	tables := allTables()
-	tables = append(tables, healthTables(nonFreshAccount)...)
+	tables = append(tables, healthTables()...)
 
 	// ── 8. Run phases ────────────────────────────────────────────────────────
 	byPhase := groupByPhase(tables)
@@ -432,6 +426,51 @@ func (e *Engine) runPhase5(
 
 		// Capture old PK before prepareRow remaps it.
 		oldID := extractOldID(rawRow, activitySpec)
+
+		// ── Activity dedup ────────────────────────────────────────────────────
+		// For activities with a file: deduplicate via file_hash.
+		if hasFileID && fileID != "" {
+			if rec, ok := fileIndex[fileID]; ok && rec.FileHash != nil && *rec.FileHash != "" {
+				var existingFileID, existingActivityID string
+				dedupErr := e.DB.QueryRow(ctx,
+					`SELECT uf.id, COALESCE(a.id, '') FROM user_files uf
+					 LEFT JOIN activities a ON a.file_id = uf.id
+					 WHERE uf.user_id = $1 AND uf.file_hash = $2
+					 LIMIT 1`,
+					input.TargetUserID, *rec.FileHash,
+				).Scan(&existingFileID, &existingActivityID)
+				if dedupErr == nil {
+					// File already exists — skip this activity.
+					idMap.Set(fileID, existingFileID)
+					if existingActivityID != "" && oldID != "" {
+						idMap.Set(oldID, existingActivityID)
+					}
+					result.EntitiesSkipped++
+					continue
+				}
+				// pgx.ErrNoRows → file doesn't exist yet, proceed with import.
+			}
+		} else {
+			// Activity without a file: dedup via started_at + sport_type.
+			startedAt := rawRow["started_at"]
+			sportType := rawRow["sport_type"]
+			if startedAt != nil && sportType != nil {
+				var existingID string
+				dedupErr := e.DB.QueryRow(ctx,
+					`SELECT id FROM activities
+					 WHERE user_id = $1 AND started_at = $2 AND sport_type = $3
+					 LIMIT 1`,
+					input.TargetUserID, startedAt, sportType,
+				).Scan(&existingID)
+				if dedupErr == nil {
+					if oldID != "" {
+						idMap.Set(oldID, existingID)
+					}
+					result.EntitiesSkipped++
+					continue
+				}
+			}
+		}
 
 		// Per-activity transaction.
 		tx, err := e.DB.Begin(ctx)
