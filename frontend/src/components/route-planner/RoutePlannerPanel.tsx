@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { RouteWaypoint, RouteSegment, PlannedRoute } from '@/api/routes'
 import { useToast } from '@/lib/toast'
+import { useModal } from '@/lib/modal'
 import type { ProfileConfig } from '@/lib/routingProfiles'
 import { getProfileDefaults } from '@/lib/routingProfiles'
 import { fmtDist, fmtDurationMin } from '@/lib/format'
@@ -251,6 +252,7 @@ export default function RoutePlannerPanel({
   isSaving = false,
 }: RoutePlannerPanelProps) {
   const { addToast } = useToast()
+  const { openModal } = useModal()
   const queryClient = useQueryClient()
   const [collapsed, setCollapsed] = useState(false)
   const dragIndexRef = useRef<number | null>(null)
@@ -592,9 +594,14 @@ export default function RoutePlannerPanel({
                             {p.editable && (
                               <button
                                 onClick={() => {
-                                  if (confirm(`Profil "${p.name}" wirklich löschen?`)) {
-                                    deleteMutation.mutate(p.id)
-                                  }
+                                  openModal({
+                                    title: 'Profil löschen?',
+                                    message: `Profil "${p.name}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`,
+                                    buttons: [
+                                      { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+                                      { label: 'Löschen', variant: 'destructive', onClick: () => deleteMutation.mutate(p.id) },
+                                    ],
+                                  })
                                 }}
                                 title="Profil löschen"
                                 className="text-neutral-300 dark:text-neutral-600 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer flex-shrink-0"

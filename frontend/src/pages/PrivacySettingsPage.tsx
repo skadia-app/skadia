@@ -8,6 +8,7 @@ import PrivacyZoneEditor from '@/components/PrivacyZoneEditor'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { circlePolygon } from '@/lib/geoUtils'
 import { useToast } from '@/lib/toast'
+import { useModal } from '@/lib/modal'
 
 // Photon reverse-geocoding (public endpoint, no API key required)
 interface PhotonResult {
@@ -302,6 +303,7 @@ export default function PrivacySettingsPage() {
   const [showEditor, setShowEditor] = useState(false)
   const [commuteZones, setCommuteZones] = useState<{ start: string; end: string } | null>(null)
   const { addToast } = useToast()
+  const { openModal } = useModal()
 
   const commuteRuleMut = useMutation({
     mutationFn: () => createCommuteRuleFromZones(commuteZones!.start, commuteZones!.end),
@@ -342,7 +344,14 @@ export default function PrivacySettingsPage() {
   function handleNew() { setEditingZone(null); setShowEditor(true) }
   function handleEditorClose() { setShowEditor(false); setEditingZone(null) }
   function handleDelete(zone: PrivacyZone) {
-    if (confirm(`"${zone.name}" wirklich löschen?`)) deleteMutation.mutate(zone.id)
+    openModal({
+      title: `"${zone.name}" wirklich löschen?`,
+      message: 'Die private Zone wird unwiderruflich entfernt.',
+      buttons: [
+        { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+        { label: 'Löschen', variant: 'destructive', onClick: () => deleteMutation.mutate(zone.id) },
+      ],
+    })
   }
 
   if (showEditor) {

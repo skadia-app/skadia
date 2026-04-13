@@ -5,6 +5,7 @@ import { Pencil, Check, X, Trash2, Merge } from 'lucide-react'
 import { fetchDevice, fetchDevices, fetchDeviceActivities, updateDeviceCustomName, deleteDevice, mergeDevices } from '@/api/hardware'
 import type { DeviceActivity } from '@/api/hardware'
 import { formatDistance } from '@/lib/utils'
+import { useModal } from '@/lib/modal'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { connectionTypeLabel, deviceTypeBadgeLabel } from '@/lib/deviceUtils'
 import { fmtDateMedium } from '@/lib/format'
@@ -46,6 +47,7 @@ export default function DeviceDetailPage() {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
   const [showMerge, setShowMerge] = useState(false)
   const [mergeTargetId, setMergeTargetId] = useState('')
+  const { openModal } = useModal()
 
   const { data: device, isLoading: deviceLoading } = useQuery({
     queryKey: ['device', id],
@@ -287,8 +289,14 @@ export default function DeviceDetailPage() {
         </button>
         <button
           onClick={() => {
-            if (confirm(`"${displayName}" wirklich löschen? Aktivitäten behalten ihre Daten, verlieren aber die Gerätezuordnung.`))
-              deleteMutation.mutate()
+            openModal({
+              title: `"${displayName}" wirklich löschen?`,
+              message: 'Aktivitäten behalten ihre Daten, verlieren aber die Gerätezuordnung.',
+              buttons: [
+                { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+                { label: 'Löschen', variant: 'destructive', onClick: () => deleteMutation.mutate() },
+              ],
+            })
           }}
           disabled={deleteMutation.isPending}
           className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border border-rose-200 dark:border-rose-800
@@ -326,8 +334,15 @@ export default function DeviceDetailPage() {
             </select>
             <button
               onClick={() => {
-                if (mergeTargetId && confirm('Geräte wirklich zusammenführen? Diese Aktion kann nicht rückgängig gemacht werden.'))
-                  mergeMutation.mutate(mergeTargetId)
+                if (!mergeTargetId) return
+                openModal({
+                  title: 'Geräte wirklich zusammenführen?',
+                  message: 'Diese Aktion kann nicht rückgängig gemacht werden.',
+                  buttons: [
+                    { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+                    { label: 'Zusammenführen', variant: 'destructive', onClick: () => mergeMutation.mutate(mergeTargetId) },
+                  ],
+                })
               }}
               disabled={!mergeTargetId || mergeMutation.isPending}
               className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600

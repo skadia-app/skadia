@@ -7,7 +7,7 @@ import {
 } from '@/api/gear'
 import { useToast } from '@/lib/toast'
 import type { GearDocument } from '@/api/types'
-import { ModalShell } from '@/components/ui/ModalShell'
+import ConfirmModal from '@/components/ConfirmModal'
 import { triggerUrlDownload } from '@/lib/utils'
 const COMPACT_INPUT_CLASS = 'w-full px-4 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 text-sm focus:outline-none focus:ring-1 focus:ring-accent-400'
 
@@ -282,9 +282,12 @@ export default function GearDocumentSection({ gearId }: Props) {
 
       {/* Delete Confirm */}
       {deleteConfirmId && (
-        <DeleteConfirmDialog
+        <ConfirmModal
+          title="Dokument löschen?"
+          message="Das Dokument wird unwiderruflich gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden."
+          confirmLabel="Löschen"
           onConfirm={() => deleteMutation.mutate(deleteConfirmId)}
-          onCancel={() => setDeleteConfirmId(null)}
+          onClose={() => setDeleteConfirmId(null)}
           isPending={deleteMutation.isPending}
         />
       )}
@@ -660,40 +663,3 @@ function PreviewPanel({
   )
 }
 
-// ── Delete Confirm Dialog ──────────────────────────────────────────────────────
-
-function DeleteConfirmDialog({
-  onConfirm,
-  onCancel,
-  isPending,
-}: {
-  onConfirm: () => void
-  onCancel: () => void
-  isPending: boolean
-}) {
-  return (
-    <ModalShell onClose={onCancel} maxWidth="max-w-sm">
-        <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-2">
-          Dokument löschen?
-        </h3>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-5">
-          Das Dokument wird unwiderruflich gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden.
-        </p>
-        <div className="flex justify-end gap-2">
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-          >
-            Abbrechen
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={isPending}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
-          >
-            {isPending ? 'Wird gelöscht...' : 'Löschen'}
-          </button>
-        </div>
-    </ModalShell>
-  )
-}
