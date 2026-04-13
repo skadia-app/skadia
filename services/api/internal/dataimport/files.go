@@ -267,15 +267,9 @@ func (e *Engine) importEditSidecars(
 		if _, exists := idMap.GetIfExists(oldFileID); exists {
 			continue
 		}
-		// Pre-remap ParentID (activity_id) so importFileByID sees the correct value.
-		// IMPORTANT: rec is a value copy; write back to map so importFileByID reads
-		// the remapped ParentID when building the FileEntry.
-		if rec.ParentID != nil && *rec.ParentID != "" {
-			if newParent, ok := idMap.GetIfExists(*rec.ParentID); ok {
-				rec.ParentID = &newParent
-				fileIndex[oldFileID] = rec // Write back so importFileByID uses it.
-			}
-		}
+		// importFileByID handles ParentID remapping via idMap.GetIfExists — no
+		// pre-remap needed here. The activity is in IDMap after Phase 5, so
+		// importFileByID will find actOldID → actNewID correctly.
 		if err := e.importFileByID(ctx, source, idMap, userID, oldFileID, fileIndex, result); err != nil {
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("Edit sidecar %s: %v", oldFileID, err))
