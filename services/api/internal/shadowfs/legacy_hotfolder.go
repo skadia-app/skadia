@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -215,16 +216,19 @@ func isValidActivityExt(name string) bool {
 type WatcherManager struct {
 	basePath string
 	callback func(userID, filePath string) error
+	settings *settings.SettingsStore
 	mu       sync.RWMutex
 	watchers map[string]*Watcher // userID → Watcher
 }
 
 // NewWatcherManager creates a manager rooted at basePath.
 // callback is invoked with the owning userID and the full file path.
-func NewWatcherManager(basePath string, callback func(userID, filePath string) error) *WatcherManager {
+// settings is used to read the hotfolder.mode setting for mode-based access control.
+func NewWatcherManager(basePath string, callback func(userID, filePath string) error, settings *settings.SettingsStore) *WatcherManager {
 	return &WatcherManager{
 		basePath: basePath,
 		callback: callback,
+		settings: settings,
 		watchers: make(map[string]*Watcher),
 	}
 }
@@ -239,8 +243,22 @@ func (wm *WatcherManager) UserPath(userID string) (string, error) {
 }
 
 // EnableUser starts a watcher for the user's hotfolder subdirectory.
+// isAdmin must be true if the caller is acting with admin privileges.
+// Returns an error if the hotfolder.mode setting prohibits enabling for this user.
 // If a watcher is already running for this user, this is a no-op.
-func (wm *WatcherManager) EnableUser(userID string) error {
+func (wm *WatcherManager) EnableUser(userID string, isAdmin bool) error {
+	if wm.settings != nil {
+		mode := wm.settings.Get("hotfolder.mode").Value
+		switch mode {
+		case "disabled":
+			return fmt.Errorf("hotfolder is globally disabled")
+		case "admin-only":
+			if !isAdmin {
+				return fmt.Errorf("hotfolder is admin-only")
+			}
+		}
+	}
+
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 	if _, exists := wm.watchers[userID]; exists {
@@ -270,12 +288,14 @@ func (wm *WatcherManager) DisableUser(userID string) {
 	}
 }
 
-// StopAll stops all running watchers. Call on server shutdown.
+// StopAll stops all running watchers. Call on server shutdown or when the
+// hotfolder mode is changed to "disabled".
 func (wm *WatcherManager) StopAll() {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
-	for _, w := range wm.watchers {
+	for uid, w := range wm.watchers {
 		w.Stop()
+		delete(wm.watchers, uid)
 	}
-	wm.watchers = make(map[string]*Watcher)
+	slog.Info("hotfolder: all watchers stopped (mode changed to disabled)")
 }

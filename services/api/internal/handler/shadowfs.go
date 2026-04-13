@@ -117,7 +117,7 @@ func (h *Handler) UpdateShadowFSSettingsCompat(w http.ResponseWriter, r *http.Re
 		}
 		if h.WatcherManager != nil && *req.HotfolderEnabled != currentEnabled {
 			if *req.HotfolderEnabled {
-				if err := h.WatcherManager.EnableUser(userID); err != nil {
+				if err := h.WatcherManager.EnableUser(userID, false); err != nil {
 					slog.Warn("shadow-fs compat: hotfolder watcher enable failed", "user", userID, "error", err)
 				}
 			} else {

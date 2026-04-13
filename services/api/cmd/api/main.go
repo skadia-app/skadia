@@ -1515,7 +1515,7 @@ func main() {
 		defer serverCancel()
 		wm := shadowfs.NewWatcherManager(shadowFSCfg.HotfolderPath, func(userID, filePath string) error {
 			return h.UploadFromFile(serverCtx, userID, filePath)
-		})
+		}, settingsStore)
 		h.WatcherManager = wm
 		defer wm.StopAll()
 
@@ -1525,7 +1525,7 @@ func main() {
 			slog.Warn("hotfolder: failed to load enabled users", "error", err)
 		} else {
 			for _, userID := range enabledUsers {
-				if err := wm.EnableUser(userID); err != nil {
+				if err := wm.EnableUser(userID, false); err != nil {
 					slog.Warn("hotfolder: failed to start watcher for user",
 						"user_id", userID, "error", err)
 				}
