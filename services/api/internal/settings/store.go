@@ -15,10 +15,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// sentinelUnchanged is the sentinel value a caller sends for an encrypted field
-// to signal "keep whatever is already stored — do not change it".
-const sentinelUnchanged = "__UNCHANGED__"
-
 // sentinelMasked is the API-visible placeholder that the frontend sends back
 // when it received "***" for an encrypted field and does not want to change it.
 const sentinelMasked = "***"
