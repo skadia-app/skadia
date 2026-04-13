@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
@@ -24,6 +28,8 @@ var (
 
 // AdminGetSettings handles GET /api/v1/admin/settings.
 // Returns all settings grouped by category; encrypted values are masked as "***".
+// Also includes a "_meta" envelope with read-only server-side context that is
+// env-only (not settable via PUT /settings).
 func (h *Handler) AdminGetSettings(w http.ResponseWriter, r *http.Request) {
 	all := h.Settings.GetAll()
 
@@ -37,7 +43,22 @@ func (h *Handler) AdminGetSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	httputil.WriteJSONNoCache(w, http.StatusOK, all)
+	// Attach read-only server metadata so the frontend can make decisions
+	// (e.g. disable Library Sync toggles when storage backend is S3).
+	storageBackend := "local"
+	if h.Config != nil && h.Config.StorageBackend != "" {
+		storageBackend = h.Config.StorageBackend
+	}
+
+	resp := map[string]any{}
+	for k, v := range all {
+		resp[k] = v
+	}
+	resp["_meta"] = map[string]string{
+		"storage_backend": storageBackend,
+	}
+
+	httputil.WriteJSONNoCache(w, http.StatusOK, resp)
 }
 
 // AdminPutSettings handles PUT /api/v1/admin/settings.
@@ -297,3 +318,64 @@ func (h *Handler) disableCompression(jobID string) {
 
 // strPtr returns a pointer to a copy of s. Used for settings Put calls.
 func strPtr(s string) *string { return &s }
+
+// AdminToggleUserHotfolder handles POST /api/v1/admin/users/{id}/hotfolder.
+// Enables or disables the per-user hotfolder watcher.
+// Request body: {"enabled": true|false}
+func (h *Handler) AdminToggleUserHotfolder(w http.ResponseWriter, r *http.Request) {
+	targetID := chi.URLParam(r, "id")
+	if _, err := uuid.Parse(targetID); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_user_id"})
+		return
+	}
+
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+
+	// Verify the global hotfolder mode allows per-user hotfolders.
+	mode := h.Settings.Get("hotfolder.mode").Value
+	if mode == "disabled" {
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "hotfolder_disabled"})
+		return
+	}
+
+	ctx := r.Context()
+	currentEnabled, err := h.DB.GetUserHotfolderEnabled(ctx, targetID)
+	if err != nil {
+		slog.Error("admin toggle hotfolder: get current state failed", "user_id", targetID, "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	if err := h.DB.UpdateUserHotfolderEnabled(ctx, targetID, req.Enabled); err != nil {
+		slog.Error("admin toggle hotfolder: update failed", "user_id", targetID, "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	if h.WatcherManager != nil && req.Enabled != currentEnabled {
+		if req.Enabled {
+			if err := h.WatcherManager.EnableUser(targetID, false); err != nil {
+				slog.Warn("admin toggle hotfolder: enable watcher failed", "user_id", targetID, "error", err)
+			}
+		} else {
+			h.WatcherManager.DisableUser(targetID)
+		}
+	}
+
+	adminID := middleware.GetUserID(ctx)
+	go h.DB.LogAuthEvent(ctx, adminID, "admin_toggle_hotfolder",
+		middleware.ClientIP(r), r.UserAgent(),
+		map[string]string{"target_user_id": targetID, "enabled": strconv.FormatBool(req.Enabled)})
+
+	slog.Info("admin toggled user hotfolder", "user_id", targetID, "enabled", req.Enabled, "admin_id", adminID)
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]any{
+		"status":  "ok",
+		"enabled": req.Enabled,
+	})
+}

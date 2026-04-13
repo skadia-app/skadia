@@ -1013,6 +1013,7 @@ func main() {
 				r.Post("/users/{id}/reset-password", authHandler.AdminResetPassword)
 				r.Get("/users/{id}/sessions", authHandler.AdminListUserSessions)
 				r.Post("/users/{id}/revoke-sessions", authHandler.AdminRevokeUserSessions)
+				r.Post("/users/{id}/hotfolder", h.AdminToggleUserHotfolder)
 				r.Get("/audit-log", authHandler.AdminAuditLog)
 				r.Post("/users/{id}/restore", authHandler.AdminRestoreUser)
 
