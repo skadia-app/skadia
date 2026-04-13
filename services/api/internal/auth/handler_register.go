@@ -70,7 +70,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	// Registration mode check — before validation to avoid external calls (HIBP) on rejection.
 	if !isBootstrap {
-		if h.Config.RegistrationMode == "invite" {
+		if h.Settings.Get("registration.mode").Value == "invite" {
 			httputil.WriteJSONNoCache(w, http.StatusForbidden, map[string]string{"error": "registration_disabled"})
 			return
 		}
@@ -149,7 +149,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		isActive := h.Config.RegistrationMode != "approval"
+		isActive := h.Settings.Get("registration.mode").Value != "approval"
 		user, err = h.DB.CreateUserWithPassword(r.Context(), req.Email, req.Username, hash, "email", ip, isActive)
 	}
 	if err != nil {
@@ -158,7 +158,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mode := h.Config.RegistrationMode
+	mode := h.Settings.Get("registration.mode").Value
 	if isBootstrap {
 		mode = "bootstrap"
 	}
@@ -167,7 +167,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	if !isBootstrap {
 		// In approval mode, notify admins about the pending registration.
-		if h.Config.RegistrationMode == "approval" {
+		if h.Settings.Get("registration.mode").Value == "approval" {
 			if h.Mailer.IsConfigured() {
 				go h.notifyAdminsNewRegistration(user)
 			}
