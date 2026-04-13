@@ -64,9 +64,10 @@ func ValidateConfig(cfg *config.Config) {
 		cfg.JWTSecretBytes = decoded
 	}
 
-	// OAuth encryption key — required when social login is configured
+	// OAuth encryption key — warn when social login is configured via env but key is missing.
+	// Social login can now also be configured via UI/DB, so this is no longer fatal.
 	if (cfg.StravaClientID != "" || cfg.GoogleClientID != "") && cfg.OAuthEncryptionKey == "" {
-		log.Fatal("OAUTH_ENCRYPTION_KEY required when social login is enabled. Generate: openssl rand -hex 32")
+		slog.Warn("OAUTH_ENCRYPTION_KEY not set — social login configured via env will not work. Generate: openssl rand -hex 32")
 	}
 	if cfg.OAuthEncryptionKey != "" {
 		decoded, err := hex.DecodeString(cfg.OAuthEncryptionKey)
@@ -86,10 +87,11 @@ func ValidateConfig(cfg *config.Config) {
 	// SMTP warning (not fatal — works without for invite mode).
 	// SMTP_TLS defaults to "starttls" (port 587). Supported values: "starttls" | "ssl" | "none".
 	// Do NOT use "none" in production — credentials are sent in plaintext.
+	// SMTP can now be configured via the DB settings store, so missing env config is only a warning.
 	if cfg.SMTPHost == "" {
-		slog.Warn("SMTP not configured — email features disabled")
+		slog.Warn("SMTP not configured via env — email features require SMTP configuration via DB settings or env")
 		if cfg.RegistrationMode == "open" {
-			log.Fatal("REGISTRATION_MODE=open requires SMTP to be configured (email verification)")
+			slog.Warn("REGISTRATION_MODE=open without env SMTP — ensure smtp.host is configured in DB settings for email verification")
 		}
 	}
 

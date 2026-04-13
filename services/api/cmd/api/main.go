@@ -688,7 +688,7 @@ func main() {
 	// Auth handler (Go-native auth)
 	authMailer := auth.NewMailer(settingsStore)
 	authRL := middleware.NewRateLimiter(ctx)
-	authHandler := auth.NewHandler(db, cfg, authMailer, authRL, ctx)
+	authHandler := auth.NewHandler(db, cfg, settingsStore, authMailer, authRL, ctx)
 	authHandler.ShadowFS = store
 
 	// Wire settings store and mailer into main handler (needed for admin settings endpoints).
