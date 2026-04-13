@@ -218,7 +218,12 @@ func (e *Engine) importAllFiles(
 		return nil, err
 	}
 
-	total := len(fileIndex)
+	total := 0
+	for _, rec := range fileIndex {
+		if rec.FileType != "edit" {
+			total++
+		}
+	}
 	imported := 0
 
 	for oldFileID, rec := range fileIndex {
