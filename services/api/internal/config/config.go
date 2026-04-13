@@ -92,6 +92,16 @@ type Config struct {
 	SMTPPassword string
 	SMTPFrom     string
 	SMTPTLSMode  string // starttls (default) | ssl | none
+
+	// Settings store encryption
+	SettingsEncryptionKey string // 32-byte hex for AES-256-GCM (server_settings table)
+
+	// Bootstrap admin (consumed once on first start when no users exist)
+	BootstrapAdminUser     string
+	BootstrapAdminPassword string
+
+	// Hotfolder (new 3-mode model, replaces HotfolderEnabled boolean)
+	HotfolderMode string // "disabled" (default), "admin-only", "self-service"
 }
 
 func Load() (*Config, error) {
@@ -164,6 +174,27 @@ func Load() (*Config, error) {
 		SMTPPassword: getSecret("SMTP_PASSWORD", ""),
 		SMTPFrom:     os.Getenv("SMTP_FROM"),
 		SMTPTLSMode:  getEnvDefault("SMTP_TLS", "starttls"),
+
+		SettingsEncryptionKey: getSecret("SETTINGS_ENCRYPTION_KEY", getSecret("OAUTH_ENCRYPTION_KEY", "")),
+
+		BootstrapAdminUser:     os.Getenv("BOOTSTRAP_ADMIN_USER"),
+		BootstrapAdminPassword: getSecret("BOOTSTRAP_ADMIN_PASSWORD", ""),
+
+		HotfolderMode: getEnvDefault("HOTFOLDER_MODE", ""),
+	}
+
+	// FRONTEND_URL → APP_URL unification: FRONTEND_URL is the legacy alias.
+	if os.Getenv("APP_URL") == "" && os.Getenv("FRONTEND_URL") != "" {
+		cfg.AppURL = cfg.FrontendURL
+	}
+
+	// HOTFOLDER_ENABLED backward compatibility → HOTFOLDER_MODE
+	if cfg.HotfolderMode == "" {
+		if cfg.HotfolderEnabled {
+			cfg.HotfolderMode = "self-service"
+		} else {
+			cfg.HotfolderMode = "disabled"
+		}
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -199,6 +230,16 @@ func Load() (*Config, error) {
 	// M29: Warn when KomootEncryptionKey falls back to LLMEncryptionKey — key-separation best practice.
 	if os.Getenv("KOMOOT_ENCRYPTION_KEY") == "" && os.Getenv("KOMOOT_ENCRYPTION_KEY_FILE") == "" && cfg.LLMEncryptionKey != "" {
 		slog.Warn("KOMOOT_ENCRYPTION_KEY not set — falling back to LLM_ENCRYPTION_KEY; set KOMOOT_ENCRYPTION_KEY for key separation")
+	}
+
+	// Validate SETTINGS_ENCRYPTION_KEY when set.
+	if cfg.SettingsEncryptionKey != "" {
+		if decoded, err := hex.DecodeString(cfg.SettingsEncryptionKey); err != nil || len(decoded) != 32 {
+			return nil, fmt.Errorf("SETTINGS_ENCRYPTION_KEY must be 64 hex chars (32 bytes). Generate: openssl rand -hex 32")
+		}
+	}
+	if os.Getenv("SETTINGS_ENCRYPTION_KEY") == "" && os.Getenv("SETTINGS_ENCRYPTION_KEY_FILE") == "" && cfg.SettingsEncryptionKey != "" {
+		slog.Warn("SETTINGS_ENCRYPTION_KEY not set — falling back to OAUTH_ENCRYPTION_KEY; set SETTINGS_ENCRYPTION_KEY for key separation")
 	}
 
 	// L29: Validate STORAGE_BACKEND.
