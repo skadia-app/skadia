@@ -11,6 +11,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
@@ -49,6 +50,20 @@ func (h *Handler) AdminPutSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	adminID := middleware.GetUserID(r.Context())
+
+	// Bug 2 fix: capture before-values for audit trail before any mutation.
+	beforeValues := make(map[string]string, len(updates))
+	for key := range updates {
+		beforeValues[key] = h.Settings.Get(key).Value
+	}
+
+	// Bug 3 fix: extract timescale.compression before Put() — it must not be
+	// persisted by Put() itself; the background job writes it after success.
+	var compressionChange *string
+	if v, ok := updates["timescale.compression"]; ok {
+		compressionChange = v
+		delete(updates, "timescale.compression")
+	}
 
 	changed, err := h.Settings.Put(r.Context(), updates, adminID)
 	if err != nil {
@@ -99,7 +114,9 @@ func (h *Handler) AdminPutSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TimescaleDB compression toggle — run as background job.
-	if newVal, ok := changed["timescale.compression"]; ok {
+	// The key is NOT written by Put(); the job writes it after successful completion.
+	if compressionChange != nil {
+		newVal := *compressionChange
 		jobID, err := h.DB.InsertBackgroundJob(r.Context(), adminID, "compression_toggle", nil, nil, 0)
 		if err == nil {
 			shutdown.Go(jobID, func(_ context.Context) {
@@ -110,6 +127,8 @@ func (h *Handler) AdminPutSettings(w http.ResponseWriter, r *http.Request) {
 				}
 			})
 		}
+		// Include the key in changedKeys for the audit log.
+		changed["timescale.compression"] = newVal
 	}
 
 	// Build the changed keys list for the audit log.
@@ -119,21 +138,19 @@ func (h *Handler) AdminPutSettings(w http.ResponseWriter, r *http.Request) {
 		changedKeys = append(changedKeys, key)
 	}
 
-	// Audit log: record which keys changed (no values logged for any key).
-	auditDetails := make(map[string]string, 1)
-	if len(changedKeys) > 0 {
-		// Encode the list as a comma-joined string to fit the map[string]string audit schema.
-		joined := ""
-		for i, k := range changedKeys {
-			if i > 0 {
-				joined += ","
-			}
-			joined += k
+	// Audit log: record changed keys with before/after values for non-encrypted keys.
+	meta := map[string]string{
+		"changed_keys": strings.Join(changedKeys, ","),
+	}
+	for _, key := range changedKeys {
+		def, ok := settings.KeysByKey[key]
+		if ok && !def.Encrypted {
+			meta["before_"+key] = beforeValues[key]
+			meta["after_"+key] = changed[key]
 		}
-		auditDetails["changed_keys"] = joined
 	}
 	go h.DB.LogAuthEvent(r.Context(), adminID, "admin_settings_update",
-		middleware.ClientIP(r), r.UserAgent(), auditDetails)
+		middleware.ClientIP(r), r.UserAgent(), meta)
 
 	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]any{
 		"status":  "settings_updated",

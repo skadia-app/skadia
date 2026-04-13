@@ -280,7 +280,7 @@ func (s *SettingsStore) Put(ctx context.Context, updates map[string]*string, adm
 		return nil, errors.New("hotfolder.mode requires the HOTFOLDER_PATH environment variable to be set")
 	}
 
-	// --- Phase 3: write to DB ---
+	// --- Phase 3: write to DB (single transaction for atomicity) ---
 
 	changed = make(map[string]string)
 
@@ -290,12 +290,18 @@ func (s *SettingsStore) Put(ctx context.Context, updates map[string]*string, adm
 		adminIDParam = adminID
 	}
 
+	tx, err := s.db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("settings: begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
 	for key, valPtr := range updates {
 		kd := KeysByKey[key]
 
 		if valPtr == nil {
 			// Delete row — revert to env/default.
-			if _, execErr := s.db.Pool.Exec(ctx,
+			if _, execErr := tx.Exec(ctx,
 				`DELETE FROM server_settings WHERE key = $1`, key); execErr != nil {
 				return nil, fmt.Errorf("settings: delete %q: %w", key, execErr)
 			}
@@ -320,7 +326,7 @@ func (s *SettingsStore) Put(ctx context.Context, updates map[string]*string, adm
 			storeValue = enc
 		}
 
-		_, execErr := s.db.Pool.Exec(ctx,
+		_, execErr := tx.Exec(ctx,
 			`INSERT INTO server_settings (key, value, encrypted, updated_at, updated_by)
 			 VALUES ($1, $2, $3, now(), $4)
 			 ON CONFLICT (key) DO UPDATE
@@ -334,6 +340,10 @@ func (s *SettingsStore) Put(ctx context.Context, updates map[string]*string, adm
 			return nil, fmt.Errorf("settings: upsert %q: %w", key, execErr)
 		}
 		changed[key] = v
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("settings: commit: %w", err)
 	}
 
 	// --- Phase 4: invalidate cache ---
