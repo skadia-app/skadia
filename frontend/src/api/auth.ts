@@ -184,6 +184,7 @@ export interface AdminUser {
   last_login_at: string | null
   created_at: string
   deleted_at: string | null
+  hotfolder_enabled: boolean
 }
 
 export interface AdminUsersResponse {
@@ -286,6 +287,45 @@ export async function adminRevokeUserSessions(id: string): Promise<{ status: str
   if (!res.ok) {
     const data = await res.json().catch(() => ({})) as { error?: string }
     throw new Error(data.error ?? 'Session revocation failed')
+  }
+  return res.json() as Promise<{ status: string }>
+}
+
+export async function adminSetUserAdmin(id: string, isAdmin: boolean): Promise<{ status: string }> {
+  const res = await apiFetch(`/api/v1/admin/users/${id}/set-admin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_admin: isAdmin }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'Set admin failed')
+  }
+  return res.json() as Promise<{ status: string }>
+}
+
+export async function adminDeleteUser(id: string, confirm: string): Promise<{ status: string }> {
+  const res = await apiFetch(`/api/v1/admin/users/${id}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirm }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'User deletion failed')
+  }
+  return res.json() as Promise<{ status: string }>
+}
+
+export async function adminSetUserHotfolder(id: string, enabled: boolean): Promise<{ status: string }> {
+  const res = await apiFetch(`/api/v1/admin/users/${id}/hotfolder`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'Hotfolder toggle failed')
   }
   return res.json() as Promise<{ status: string }>
 }
