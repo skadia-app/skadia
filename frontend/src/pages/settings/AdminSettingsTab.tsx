@@ -2,15 +2,18 @@ import { useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import AdminStorageDashboard from '@/components/AdminStorageDashboard'
 import AdminUsersPage from '@/pages/admin/AdminUsersPage'
+import { AdminStorageLimitsSection } from '@/pages/settings/AdminStorageLimitsSection'
+import AdminSystemTab from '@/pages/settings/AdminSystemTab'
 
 const SUB_TABS = [
   { id: 'users' as const, label: 'Benutzer' },
   { id: 'storage' as const, label: 'Speicher' },
+  { id: 'system' as const, label: 'System' },
 ] as const
 
 type SubTab = (typeof SUB_TABS)[number]['id']
 
-const VALID_SUBS = new Set<SubTab>(['users', 'storage'])
+const VALID_SUBS = new Set<SubTab>(['users', 'storage', 'system'])
 
 export default function AdminSettingsTab() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -45,7 +48,13 @@ export default function AdminSettingsTab() {
       </div>
 
       {activeSubTab === 'users' && <AdminUsersPage />}
-      {activeSubTab === 'storage' && <AdminStorageDashboard />}
+      {activeSubTab === 'storage' && (
+        <>
+          <AdminStorageDashboard />
+          <AdminStorageLimitsSection />
+        </>
+      )}
+      {activeSubTab === 'system' && <AdminSystemTab />}
     </div>
   )
 }
