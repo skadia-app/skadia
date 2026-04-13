@@ -653,7 +653,7 @@ func main() {
 	analyticsHandler := analyticshandler.NewHandlerWithML(db, pub, mlClient)
 
 	// Auth handler (Go-native auth)
-	authMailer := auth.NewMailer(cfg)
+	authMailer := auth.NewMailer(settingsStore)
 	authRL := middleware.NewRateLimiter(ctx)
 	authHandler := auth.NewHandler(db, cfg, authMailer, authRL, ctx)
 	authHandler.ShadowFS = store
