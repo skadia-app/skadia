@@ -170,6 +170,7 @@ export default function RecordingGroupPage() {
 
   const [settingPrimaryId, setSettingPrimaryId] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [dissolveConfirm, setDissolveConfirm] = useState(false)
 
   const openFullscreen = useCallback(() => setIsFullscreen(true), [])
   const closeFullscreen = useCallback(() => setIsFullscreen(false), [])
@@ -414,20 +415,32 @@ export default function RecordingGroupPage() {
             Aktivitäten fusionieren
           </button>
 
-          {/* Dissolve group button (right, red outline + confirm) */}
-          <button
-            className="border border-red-400 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 dark:text-red-400 dark:border-red-700 px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={dissolveMutation.isPending}
-            onClick={() => {
-              if (window.confirm(
-                'Gruppe auflösen?\n\nDie Aufnahmegruppe wird aufgelöst. Die einzelnen Aktivitäten bleiben erhalten, werden aber nicht mehr als zusammengehörig behandelt. Diese Aktion kann nicht rückgängig gemacht werden.'
-              )) {
-                dissolveMutation.mutate()
-              }
-            }}
-          >
-            {dissolveMutation.isPending ? 'Wird aufgelöst…' : 'Gruppe auflösen'}
-          </button>
+          {/* Dissolve group button (right, red outline + inline confirm) */}
+          {dissolveConfirm ? (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-neutral-600 dark:text-neutral-400">Wirklich auflösen?</span>
+              <button
+                onClick={() => { dissolveMutation.mutate(); setDissolveConfirm(false) }}
+                disabled={dissolveMutation.isPending}
+                className="px-3 py-1.5 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              >
+                {dissolveMutation.isPending ? 'Wird aufgelöst…' : 'Ja, auflösen'}
+              </button>
+              <button
+                onClick={() => setDissolveConfirm(false)}
+                className="px-3 py-1.5 rounded-lg text-sm font-medium border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+              >
+                Abbrechen
+              </button>
+            </div>
+          ) : (
+            <button
+              className="border border-red-400 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 dark:text-red-400 dark:border-red-700 px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer"
+              onClick={() => setDissolveConfirm(true)}
+            >
+              Gruppe auflösen
+            </button>
+          )}
         </div>
       </div>
     </SourcesProvider>
