@@ -625,6 +625,7 @@ func main() {
 			RoutingGraphPath:    cfg.RoutingGraphPath,
 			RoutingTimeout:      parseDuration(os.Getenv("ROUTING_TIMEOUT"), 30*time.Second),
 			MaxUploadSize:       cfg.MaxUploadSize,
+			ImportAllowedDirs:   cfg.ImportAllowedDirs,
 			OSMDataDir:         cfg.OSMDataDir,
 			DEMDataDir:         cfg.DEMDataDir,
 			BRouterSegmentsDir: cfg.BRouterSegmentsDir,

@@ -62,10 +62,12 @@ func (h *Handler) DetectStravaModules(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
-	if _, err := importutil.ValidateImportSourcePath(req.SourcePath); err != nil {
+	cleaned, err := importutil.ValidateImportSourcePathWithDirs(req.SourcePath, h.importAllowedDirs())
+	if err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
+	req.SourcePath = cleaned
 
 	src := strava.NewDirSource(req.SourcePath)
 	registry := h.buildStravaRegistry()
@@ -93,10 +95,12 @@ func (h *Handler) StartStravaImport(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
-	if _, err := importutil.ValidateImportSourcePath(req.SourcePath); err != nil {
+	cleaned, err := importutil.ValidateImportSourcePathWithDirs(req.SourcePath, h.importAllowedDirs())
+	if err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
+	req.SourcePath = cleaned
 
 	cb := h.stravaJobCallbacks()
 	h.startImportAsync(w, r, userID, req.SourcePath, isTempSourcePath(req.SourcePath), cb,
@@ -226,10 +230,12 @@ func (h *Handler) ScanStravaExport(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
-	if _, err := importutil.ValidateImportSourcePath(req.SourcePath); err != nil {
+	cleaned, err := importutil.ValidateImportSourcePathWithDirs(req.SourcePath, h.importAllowedDirs())
+	if err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
+	req.SourcePath = cleaned
 
 	src := strava.NewDirSource(req.SourcePath)
 	registry := h.buildStravaRegistry()

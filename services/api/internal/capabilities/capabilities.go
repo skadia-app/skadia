@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,10 @@ type Capabilities struct {
 	Isochrone       bool `json:"isochrone"`
 	RouteSuggestion bool `json:"route_suggestion"`
 	MLService       bool `json:"ml_service"`
+	// ImportPathEnabled is true when IMPORT_ALLOWED_DIRS is configured, allowing
+	// users to specify local filesystem paths for Garmin/Strava imports instead
+	// of being limited to ZIP uploads. False in default/cloud deployments.
+	ImportPathEnabled bool `json:"import_path_enabled"`
 }
 
 const cacheTTL = 60 * time.Second
@@ -49,7 +54,7 @@ func InvalidateCache() {
 //
 // tileDir is the routing-tiles directory (BadRouter .bin files).
 // pmTilesDir is the directory scanned for offline PMTiles map files.
-func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL, tileDir, pmTilesDir string) Capabilities {
+func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL, tileDir, pmTilesDir string, importAllowedDirs []string) Capabilities {
 	cacheMu.Lock()
 	if time.Now().Before(cacheExpires) {
 		cached := cachedCaps
@@ -116,6 +121,16 @@ func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL, tileDir, pmTile
 
 	// ML Service availability (cached from background probe)
 	caps.MLService = MLServiceAvailable()
+
+	// ImportPathEnabled: true if at least one allowed import dir is configured
+	// beyond /tmp (which is the secure default for multi-user deployments).
+	tmpDir := os.TempDir()
+	for _, dir := range importAllowedDirs {
+		if dir != "" && filepath.Clean(dir) != filepath.Clean(tmpDir) {
+			caps.ImportPathEnabled = true
+			break
+		}
+	}
 
 	cacheMu.Lock()
 	cachedCaps = caps

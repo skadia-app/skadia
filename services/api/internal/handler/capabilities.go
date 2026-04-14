@@ -21,15 +21,17 @@ func (h *Handler) GetCapabilities(w http.ResponseWriter, r *http.Request) {
 	brouterURL := ""
 	tileDir := ""
 	pmTilesDir := ""
+	var importAllowedDirs []string
 	if h.Config != nil {
 		brouterURL = h.Config.BRouterURL
 		if h.Config.RoutingGraphPath != "" {
 			tileDir = filepath.Join(filepath.Dir(h.Config.RoutingGraphPath), "tiles")
 		}
 		pmTilesDir = h.Config.TilesDir
+		importAllowedDirs = h.Config.ImportAllowedDirs
 	}
 
-	caps := capabilities.Detect(r.Context(), h.DB.Pool, brouterURL, tileDir, pmTilesDir)
+	caps := capabilities.Detect(r.Context(), h.DB.Pool, brouterURL, tileDir, pmTilesDir, importAllowedDirs)
 
 	slog.Info("capabilities detected",
 		"user_id", userID,
