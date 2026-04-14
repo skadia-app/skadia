@@ -486,7 +486,7 @@ function DeleteUserDialog({
   const { addToast } = useToast()
 
   const mutation = useMutation({
-    mutationFn: () => adminDeleteUser(user.id, confirmInput),
+    mutationFn: () => adminDeleteUser(user.id, user.username),
     onSuccess: () => {
       addToast({ type: 'success', title: `Benutzer "${user.username}" gelöscht` })
       onDeleted()
@@ -497,7 +497,7 @@ function DeleteUserDialog({
     },
   })
 
-  const canConfirm = confirmInput === user.username
+  const canConfirm = confirmInput.trim().toLowerCase() === user.username.toLowerCase() && !mutation.isPending
 
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-sm">
@@ -551,8 +551,8 @@ function DeleteUserDialog({
               placeholder={user.username}
               autoFocus
               onKeyDown={e => {
-                if (e.key === 'Enter' && canConfirm && !mutation.isPending) {
-                  mutation.mutate()
+                if (e.key === 'Enter') {
+                  e.preventDefault()
                 }
               }}
             />
@@ -566,7 +566,7 @@ function DeleteUserDialog({
               </button>
               <button
                 onClick={() => mutation.mutate()}
-                disabled={!canConfirm || mutation.isPending}
+                disabled={!canConfirm}
                 className="flex cursor-pointer items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
