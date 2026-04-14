@@ -102,6 +102,11 @@ type Config struct {
 
 	// Hotfolder (new 3-mode model, replaces HotfolderEnabled boolean)
 	HotfolderMode string // "disabled" (default), "admin-only", "self-service"
+
+	// ImportAllowedDirs lists additional directories (beyond /tmp) that are
+	// trusted for source-path-based imports (Garmin, Strava). Colon-separated.
+	// Example: IMPORT_ALLOWED_DIRS=/home/user/exports:/mnt/imports
+	ImportAllowedDirs []string
 }
 
 func Load() (*Config, error) {
@@ -180,7 +185,8 @@ func Load() (*Config, error) {
 		BootstrapAdminUser:     os.Getenv("BOOTSTRAP_ADMIN_USER"),
 		BootstrapAdminPassword: getSecret("BOOTSTRAP_ADMIN_PASSWORD", ""),
 
-		HotfolderMode: getEnvDefault("HOTFOLDER_MODE", ""),
+		HotfolderMode:     getEnvDefault("HOTFOLDER_MODE", ""),
+		ImportAllowedDirs: parseColonList(os.Getenv("IMPORT_ALLOWED_DIRS")),
 	}
 
 	// FRONTEND_URL → APP_URL unification: FRONTEND_URL is the legacy alias.
@@ -357,6 +363,26 @@ func parseMaxStorageBytes(s string, defaultVal int64) int64 {
 		return defaultVal
 	}
 	return v
+}
+
+func parseColonList(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(s, ":") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		part = filepath.Clean(part)
+		if !filepath.IsAbs(part) {
+			slog.Warn("IMPORT_ALLOWED_DIRS: ignoring non-absolute entry", "entry", part)
+			continue
+		}
+		out = append(out, part)
+	}
+	return out
 }
 
 func parseMaxUploadSize(s string, defaultVal int64) int64 {

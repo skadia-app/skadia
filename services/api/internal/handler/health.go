@@ -56,6 +56,10 @@ type HandlerConfig struct {
 	BRouterSegmentsDir string // directory for BRouter segment files (default /data/brouter/segments)
 	BRouterProfilesDir string // directory for BRouter profile files (default /data/brouter/profiles)
 	TilesDir           string // directory for offline PMTiles map files (default /data/tiles)
+	// ImportAllowedDirs lists extra directories beyond /tmp that are trusted for
+	// source-path imports (Garmin, Strava). Populated from IMPORT_ALLOWED_DIRS.
+	ImportAllowedDirs []string
+
 	// ShadowFS — used by rename handlers and admin dashboard
 	LibraryBasePath string // e.g. /data/library (local backend only)
 	StorageBackend  string // "local" or "s3"
@@ -151,4 +155,13 @@ func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, status)
+}
+
+// importAllowedDirs returns the configured import allowed directories,
+// or nil if Config is not initialised (e.g. in tests).
+func (h *Handler) importAllowedDirs() []string {
+	if h.Config == nil {
+		return nil
+	}
+	return h.Config.ImportAllowedDirs
 }

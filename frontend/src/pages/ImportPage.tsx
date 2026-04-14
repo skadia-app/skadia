@@ -11,6 +11,7 @@ import {
   type ConflictStrategy,
 } from '@/api/importWizard'
 import { fetchImportQueueCount } from '@/api/importQueue'
+import { getCapabilities } from '@/api/routes'
 import {
   komootLogin,
   komootScan,
@@ -27,13 +28,6 @@ const ImportQueueTab = lazy(() => import('@/components/ImportQueueTab'))
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-interface DetectedModule {
-  name: string
-  description: string
-  available: boolean
-  item_count: number
-}
 
 interface ImportJob {
   id: string
@@ -59,14 +53,6 @@ type WizardPhase = 'scan' | 'config' | 'import'
 // API helpers — Garmin
 // ---------------------------------------------------------------------------
 
-async function detectGarminModules(sourcePath: string): Promise<DetectedModule[]> {
-  const res = await apiClient<{ modules: DetectedModule[] }>('/import/garmin/detect', {
-    method: 'POST',
-    body: { source_path: sourcePath },
-  })
-  return res.modules ?? []
-}
-
 async function startGarminImportJob(sourcePath: string, modules: string[], options: ImportOptions): Promise<string> {
   const res = await apiClient<{ job_id: string }>('/import/garmin/start', {
     method: 'POST',
@@ -91,14 +77,6 @@ async function uploadGarminZIPScan(
 // ---------------------------------------------------------------------------
 // API helpers — Strava
 // ---------------------------------------------------------------------------
-
-async function detectStravaModules(sourcePath: string): Promise<DetectedModule[]> {
-  const res = await apiClient<{ modules: DetectedModule[] }>('/import/strava/detect', {
-    method: 'POST',
-    body: { source_path: sourcePath },
-  })
-  return res.modules ?? []
-}
 
 async function startStravaImportJob(sourcePath: string, modules: string[], options: ImportOptions): Promise<string> {
   const res = await apiClient<{ job_id: string }>('/import/strava/start', {
@@ -149,8 +127,8 @@ const MAX_LOG_ENTRIES = 200
 // Default prefill paths
 // ---------------------------------------------------------------------------
 
-const DEFAULT_GARMIN_PATH = '/home/user/Projekte/Skadia/garmin_export/DI_CONNECT'
-const DEFAULT_STRAVA_PATH = '/home/user/Projekte/Skadia/strava_export'
+const DEFAULT_GARMIN_PATH = ''
+const DEFAULT_STRAVA_PATH = ''
 
 // ---------------------------------------------------------------------------
 // Step indicator
@@ -602,10 +580,11 @@ interface ImportPanelProps {
   dirLabel: string
   dirHint: string
   dirPlaceholder: string
-  detectFn: (path: string) => Promise<DetectedModule[]>
   startFn: (path: string, modules: string[], options: ImportOptions) => Promise<string>
   pollFn: (jobId: string) => Promise<ImportJob>
   scanZipFn: (file: File, onUploaded?: () => void) => Promise<{ source_path: string; scan_result: ScanResult }>
+  pathImportEnabled: boolean
+  capsLoading: boolean
 }
 
 function ImportPanel({
@@ -617,6 +596,8 @@ function ImportPanel({
   startFn,
   pollFn,
   scanZipFn,
+  pathImportEnabled,
+  capsLoading,
 }: ImportPanelProps) {
   const queryClient = useQueryClient()
   const STORAGE_KEY = `skadia-import-job-${platform}`
@@ -848,78 +829,104 @@ function ImportPanel({
         }}
       />
 
-      {/* Source path input — always visible */}
-      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
-        <div>
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">
-            {dirLabel}
-          </h2>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">{dirHint}</p>
-        </div>
-        <input
-          type="text"
-          value={sourcePath}
-          onChange={e => {
-            setSourcePath(e.target.value)
-            // Reset wizard if path changes
-            if (phase !== 'scan') {
-              setPhase('scan')
-              setScanResult(null)
-              setScanError(null)
-            }
-          }}
-          placeholder={dirPlaceholder}
-          disabled={(phase === 'import' && importing) || uploadStatus !== 'idle'}
-          className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50 disabled:cursor-not-allowed"
-        />
-        {/* Action buttons — only in scan phase before results are shown */}
-        {phase === 'scan' && uploadStatus === 'idle' && !scanResult && (
-          <div className="flex flex-col items-stretch gap-3">
-            <button
-              onClick={handleAnalyse}
-              disabled={scanning || !sourcePath.trim()}
-              className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
-            >
-              {scanning ? (
+      {/* Source section */}
+      {capsLoading ? (
+        <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
+          <div className="animate-pulse space-y-3">
+            <div className="h-5 bg-neutral-200 dark:bg-neutral-700 rounded w-48" />
+            <div className="h-4 bg-neutral-200 dark:bg-neutral-700 rounded w-3/4" />
+            <div className="h-10 bg-neutral-200 dark:bg-neutral-700 rounded" />
+          </div>
+        </section>
+      ) : (
+        <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
+          <div>
+            <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">
+              {pathImportEnabled ? dirLabel : 'Export hochladen'}
+            </h2>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+              {pathImportEnabled
+                ? dirHint
+                : 'Lade die Export-ZIP deines Accounts direkt hoch.'}
+            </p>
+          </div>
+
+          {/* Path input — only shown when server has IMPORT_ALLOWED_DIRS configured */}
+          {pathImportEnabled && (
+            <input
+              type="text"
+              value={sourcePath}
+              onChange={e => {
+                setSourcePath(e.target.value)
+                if (phase !== 'scan') {
+                  setPhase('scan')
+                  setScanResult(null)
+                  setScanError(null)
+                }
+              }}
+              placeholder={dirPlaceholder}
+              disabled={(phase === 'import' && importing) || uploadStatus !== 'idle'}
+              className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+          )}
+
+          {/* Action buttons — only in scan phase before results are shown */}
+          {phase === 'scan' && uploadStatus === 'idle' && !scanResult && (
+            <div className="flex flex-col items-stretch gap-3">
+              {pathImportEnabled && (
                 <>
-                  <svg className="w-4 h-4 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
-                  Analysiere…
+                  <button
+                    onClick={handleAnalyse}
+                    disabled={scanning || !sourcePath.trim()}
+                    className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                  >
+                    {scanning ? (
+                      <>
+                        <svg className="w-4 h-4 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                        </svg>
+                        Analysiere…
+                      </>
+                    ) : (
+                      'Analysieren'
+                    )}
+                  </button>
+                  {scanError && <p className="text-sm text-red-600 dark:text-red-400">{scanError}</p>}
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-px bg-neutral-200 dark:bg-neutral-700" />
+                    <span className="text-xs text-neutral-400">oder ZIP hochladen</span>
+                    <div className="flex-1 h-px bg-neutral-200 dark:bg-neutral-700" />
+                  </div>
                 </>
-              ) : (
-                'Analysieren'
               )}
-            </button>
-            {scanError && <p className="text-sm text-red-600 dark:text-red-400">{scanError}</p>}
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-px bg-neutral-200 dark:bg-neutral-700" />
-              <span className="text-xs text-neutral-400">oder ZIP hochladen</span>
-              <div className="flex-1 h-px bg-neutral-200 dark:bg-neutral-700" />
+              {scanError && !pathImportEnabled && (
+                <p className="text-sm text-red-600 dark:text-red-400">{scanError}</p>
+              )}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="cursor-pointer flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
+              >
+                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12V4m0 0l-3 3m3-3l3 3" />
+                </svg>
+                ZIP hochladen
+              </button>
             </div>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="cursor-pointer flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
-            >
-              <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12V4m0 0l-3 3m3-3l3 3" />
+          )}
+
+          {/* Upload / scan in progress indicator */}
+          {uploadStatus !== 'idle' && (
+            <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+              <svg className="w-4 h-4 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
               </svg>
-              ZIP hochladen
-            </button>
-          </div>
-        )}
-        {/* Upload / scan in progress indicator */}
-        {uploadStatus !== 'idle' && (
-          <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
-            <svg className="w-4 h-4 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-            </svg>
-            {uploadStatus === 'uploading' ? 'ZIP wird hochgeladen…' : 'Wird analysiert…'}
-          </div>
-        )}
-      </section>
+              {uploadStatus === 'uploading' ? 'ZIP wird hochgeladen…' : 'Wird analysiert…'}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Wizard panel */}
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
@@ -1589,6 +1596,13 @@ export default function ImportPage() {
     retry: false,
   })
 
+  const { data: capabilities, isPending: capsLoading } = useQuery({
+    queryKey: ['capabilities'],
+    queryFn: getCapabilities,
+    staleTime: 30_000,
+  })
+  const pathImportEnabled = capabilities?.import_path_enabled ?? false
+
   return (
     <div className="max-w-3xl mx-auto space-y-8 py-6 px-4">
       <div>
@@ -1637,10 +1651,11 @@ export default function ImportPage() {
           dirLabel="Garmin-Export-Verzeichnis"
           dirHint="Gib den absoluten Pfad zum entpackten Garmin-Export an, oder lade die Export-ZIP direkt hoch."
           dirPlaceholder="/pfad/zum/garmin/export"
-          detectFn={detectGarminModules}
           startFn={startGarminImportJob}
           pollFn={getGarminImportJob}
           scanZipFn={uploadGarminZIPScan}
+          pathImportEnabled={pathImportEnabled}
+          capsLoading={capsLoading}
         />
       </div>
 
@@ -1651,10 +1666,11 @@ export default function ImportPage() {
           dirLabel="Strava-Export-Verzeichnis"
           dirHint="Gib den absoluten Pfad zum entpackten Strava-Export an, oder lade die Export-ZIP direkt hoch."
           dirPlaceholder="/pfad/zum/strava/export"
-          detectFn={detectStravaModules}
           startFn={startStravaImportJob}
           pollFn={getStravaImportJob}
           scanZipFn={uploadStravaZIPScan}
+          pathImportEnabled={pathImportEnabled}
+          capsLoading={capsLoading}
         />
       </div>
 
