@@ -94,16 +94,16 @@ var AllKeys = []KeyDef{
 		},
 	},
 	{
-		Key: "social.strava.client_id", EnvVar: "STRAVA_CLIENT_ID", Default: "", Encrypted: false, Group: "social",
+		Key: "social.strava_client_id", EnvVar: "STRAVA_CLIENT_ID", Default: "", Encrypted: false, Group: "social",
 	},
 	{
-		Key: "social.strava.client_secret", EnvVar: "STRAVA_CLIENT_SECRET", Default: "", Encrypted: true, Group: "social",
+		Key: "social.strava_client_secret", EnvVar: "STRAVA_CLIENT_SECRET", Default: "", Encrypted: true, Group: "social",
 	},
 	{
-		Key: "social.google.client_id", EnvVar: "GOOGLE_CLIENT_ID", Default: "", Encrypted: false, Group: "social",
+		Key: "social.google_client_id", EnvVar: "GOOGLE_CLIENT_ID", Default: "", Encrypted: false, Group: "social",
 	},
 	{
-		Key: "social.google.client_secret", EnvVar: "GOOGLE_CLIENT_SECRET", Default: "", Encrypted: true, Group: "social",
+		Key: "social.google_client_secret", EnvVar: "GOOGLE_CLIENT_SECRET", Default: "", Encrypted: true, Group: "social",
 	},
 	{
 		Key: "limits.max_upload_bytes", EnvVar: "MAX_UPLOAD_SIZE", Default: "52428800", Encrypted: false, Group: "limits",

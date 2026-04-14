@@ -44,10 +44,10 @@ const ENV_VAR_NAMES: Record<string, string> = {
   'app.name': 'APP_NAME',
   'app.url': 'APP_URL',
   'registration.mode': 'REGISTRATION_MODE',
-  'social.strava.client_id': 'STRAVA_CLIENT_ID',
-  'social.strava.client_secret': 'STRAVA_CLIENT_SECRET',
-  'social.google.client_id': 'GOOGLE_CLIENT_ID',
-  'social.google.client_secret': 'GOOGLE_CLIENT_SECRET',
+  'social.strava_client_id': 'STRAVA_CLIENT_ID',
+  'social.strava_client_secret': 'STRAVA_CLIENT_SECRET',
+  'social.google_client_id': 'GOOGLE_CLIENT_ID',
+  'social.google_client_secret': 'GOOGLE_CLIENT_SECRET',
   'hotfolder.mode': 'HOTFOLDER_MODE',
   'library.sync_enabled': 'LIBRARY_SYNC_ENABLED',
   'library.sync_auto_import': 'LIBRARY_SYNC_AUTO_IMPORT',
@@ -534,20 +534,20 @@ function SocialLoginSection({ settings, onSaved }: SocialLoginSectionProps) {
 
   useEffect(() => {
     if (!settings) return
-    setStravaClientId(getValue(settings, 'social', 'strava.client_id'))
-    setStravaClientSecret(getValue(settings, 'social', 'strava.client_secret') ? '***' : '')
-    setGoogleClientId(getValue(settings, 'social', 'google.client_id'))
-    setGoogleClientSecret(getValue(settings, 'social', 'google.client_secret') ? '***' : '')
+    setStravaClientId(getValue(settings, 'social', 'strava_client_id'))
+    setStravaClientSecret(getValue(settings, 'social', 'strava_client_secret') ? '***' : '')
+    setGoogleClientId(getValue(settings, 'social', 'google_client_id'))
+    setGoogleClientSecret(getValue(settings, 'social', 'google_client_secret') ? '***' : '')
   }, [settings])
 
   async function handleSave() {
     setSaving(true)
     try {
       await putAdminSettings({
-        'social.strava.client_id': stravaClientId || null,
-        'social.strava.client_secret': stravaClientSecret === '***' ? '***' : (stravaClientSecret || null),
-        'social.google.client_id': googleClientId || null,
-        'social.google.client_secret': googleClientSecret === '***' ? '***' : (googleClientSecret || null),
+        'social.strava_client_id': stravaClientId || null,
+        'social.strava_client_secret': stravaClientSecret === '***' ? '***' : (stravaClientSecret || null),
+        'social.google_client_id': googleClientId || null,
+        'social.google_client_secret': googleClientSecret === '***' ? '***' : (googleClientSecret || null),
       })
       addToast({ type: 'success', title: 'Einstellungen gespeichert' })
       onSaved()
@@ -577,10 +577,10 @@ function SocialLoginSection({ settings, onSaved }: SocialLoginSectionProps) {
           clientSecret={stravaClientSecret}
           onClientIdChange={setStravaClientId}
           onClientSecretChange={setStravaClientSecret}
-          clientIdKey="social.strava.client_id"
-          clientSecretKey="social.strava.client_secret"
-          clientIdLocked={isLocked(settings, 'social', 'strava.client_id')}
-          clientSecretLocked={isLocked(settings, 'social', 'strava.client_secret')}
+          clientIdKey="social.strava_client_id"
+          clientSecretKey="social.strava_client_secret"
+          clientIdLocked={isLocked(settings, 'social', 'strava_client_id')}
+          clientSecretLocked={isLocked(settings, 'social', 'strava_client_secret')}
         />
         <ProviderBlock
           name="Google"
@@ -588,10 +588,10 @@ function SocialLoginSection({ settings, onSaved }: SocialLoginSectionProps) {
           clientSecret={googleClientSecret}
           onClientIdChange={setGoogleClientId}
           onClientSecretChange={setGoogleClientSecret}
-          clientIdKey="social.google.client_id"
-          clientSecretKey="social.google.client_secret"
-          clientIdLocked={isLocked(settings, 'social', 'google.client_id')}
-          clientSecretLocked={isLocked(settings, 'social', 'google.client_secret')}
+          clientIdKey="social.google_client_id"
+          clientSecretKey="social.google_client_secret"
+          clientIdLocked={isLocked(settings, 'social', 'google_client_id')}
+          clientSecretLocked={isLocked(settings, 'social', 'google_client_secret')}
         />
       </div>
 
