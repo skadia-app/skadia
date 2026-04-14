@@ -35,24 +35,10 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Last-admin check: prevent the only remaining admin from deleting their account.
-	if user.IsAdmin {
-		var otherAdmins int
-		if err := h.DB.Pool.QueryRow(r.Context(),
-			`SELECT count(*) FROM users WHERE is_admin = true AND id != $1
-			 AND is_active = true AND deleted_at IS NULL`, userID).Scan(&otherAdmins); err != nil {
-			slog.Error("delete account: count other admins failed", "error", err)
-			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-			return
-		}
-		if otherAdmins == 0 {
-			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "last_admin"})
-			return
-		}
-	}
-
 	// Authentication: password-based users must provide their password,
 	// OAuth-only users must type a confirmation phrase.
+	// Do this before opening the transaction to avoid holding locks during slow
+	// argon2id computation.
 	if user.PasswordHash != nil {
 		match, err := argon2id.ComparePasswordAndHash(req.Password, *user.PasswordHash)
 		if err != nil || !match {
@@ -66,8 +52,34 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	tx, err := h.DB.Pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("delete account: begin tx failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	// Last-admin check: SELECT … FOR UPDATE serializes concurrent self-deletions
+	// so the second request sees the first's committed result.
+	if user.IsAdmin {
+		var otherAdmins int
+		if err := tx.QueryRow(r.Context(),
+			`SELECT count(*) FROM users WHERE is_admin = true AND id != $1
+			 AND is_active = true AND deleted_at IS NULL
+			 FOR UPDATE`, userID).Scan(&otherAdmins); err != nil {
+			slog.Error("delete account: count other admins failed", "error", err)
+			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		if otherAdmins == 0 {
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "last_admin"})
+			return
+		}
+	}
+
 	// Soft-delete: mark user as deleted, deactivate, clear pending email change.
-	if _, err := h.DB.Pool.Exec(r.Context(),
+	if _, err := tx.Exec(r.Context(),
 		`UPDATE users SET deleted_at = NOW(), is_active = false, pending_email = NULL
 		 WHERE id = $1`, userID); err != nil {
 		slog.Error("delete account: soft-delete failed", "error", err)
@@ -75,10 +87,20 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clean up pending email-change tokens.
-	_, _ = h.DB.Pool.Exec(r.Context(),
+	// Clean up pending email-change tokens inside the same transaction.
+	if _, err := tx.Exec(r.Context(),
 		`DELETE FROM email_tokens WHERE user_id = $1 AND type = 'email_change'`,
-		uuid.MustParse(userID))
+		uuid.MustParse(userID)); err != nil {
+		slog.Error("delete account: cleanup email_tokens failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("delete account: commit failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
 
 	// Revoke all sessions to force immediate logout everywhere.
 	if err := h.DB.RevokeAllUserTokens(r.Context(), userID); err != nil {
