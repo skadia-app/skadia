@@ -24,6 +24,7 @@ type gpxFile struct {
 }
 
 type gpxMeta struct {
+	Name string `xml:"name"`
 	Time string `xml:"time"`
 }
 
@@ -99,14 +100,21 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 		isElectric = true
 	}
 
+	// Prefer the track name; fall back to the metadata name (used e.g. by Bosch eBike).
+	activityTitle := strings.TrimSpace(trk.Name)
+	if activityTitle == "" {
+		activityTitle = strings.TrimSpace(gpx.Metadata.Name)
+	}
+
 	data := &model.ActivityData{
 		FileFormat:      "gpx",
 		OriginalName:    filename,
+		Title:           activityTitle,
 		Source:          source,
 		SourceDevice:    sourceDevice,
 		SportType:       sport,
 		SubType:         subType,
-		IsElectric:         isElectric,
+		IsElectric:      isElectric,
 		RecordingDevice: recordingDevice,
 	}
 

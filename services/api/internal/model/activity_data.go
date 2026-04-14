@@ -85,6 +85,12 @@ type ActivityData struct {
 	// Transient — not persisted directly in ActivityData but handed to the device registry.
 	RecordingDevice *DeviceUpsert
 
+	// Title is the activity name embedded in the source file (e.g. GPX <metadata><name> or
+	// <trk><name>, TCX <Activity><Id>). When non-empty, it is written to the title column on
+	// import so it appears instead of the auto-generated title.
+	// Transient — not persisted directly; applied via RunStage1 → fields["title"].
+	Title string `json:"-"`
+
 	// SportName is the name from the FIT Sport message (MesgNum 12), used as auto-title fallback.
 	// Transient — not persisted directly.
 	SportName string `json:"-"`

@@ -403,6 +403,11 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 
+	// Title from source file (e.g. GPX <metadata><name> / <trk><name>)
+	if data.Title != "" {
+		fields["title"] = data.Title
+	}
+
 	// Auto title
 	startCity, _ := fields["start_city"].(string)
 	if title := GenerateAutoTitle(data.SportType, startCity); title != "" {
