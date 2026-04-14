@@ -417,6 +417,9 @@ func (h *Handler) AdminSetUserAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	adminID := middleware.GetUserID(r.Context())
+	// Check 1: Self-demotion is never allowed, regardless of admin count.
+	// This takes precedence over the last_admin guard so the caller receives the
+	// more precise error code ("cannot_demote_self" vs. "last_admin").
 	if targetID == adminID && !req.IsAdmin {
 		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "cannot_demote_self"})
 		return
@@ -430,9 +433,11 @@ func (h *Handler) AdminSetUserAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
+	// Check 2: Prevent removing the last active admin (system lock-out guard).
+	// Only reached when targetID != adminID — self-demotion is already blocked above.
+	// SELECT … FOR UPDATE locks the other admin rows, serializing concurrent
+	// demotions so the second request sees the first's committed result.
 	if !req.IsAdmin {
-		// SELECT … FOR UPDATE locks the other admin rows, serializing concurrent
-		// demotions so the second request sees the first's committed result.
 		var count int
 		if err := tx.QueryRow(r.Context(),
 			`SELECT count(*) FROM users
@@ -491,6 +496,10 @@ func (h *Handler) AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	adminID := middleware.GetUserID(r.Context())
+	// Check 1: Self-deletion is never allowed.
+	// This fires before the last_admin guard so the caller receives the more
+	// precise error code ("cannot_delete_self" rather than "last_admin") in the
+	// edge case where the acting admin is also the sole admin.
 	if targetID == adminID {
 		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "cannot_delete_self"})
 		return
@@ -512,8 +521,10 @@ func (h *Handler) AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
+	// Check 2: Prevent deleting the last active admin (system lock-out guard).
+	// Only reached when targetID != adminID — self-deletion is already blocked above.
+	// SELECT … FOR UPDATE serializes concurrent deletions of admin accounts.
 	if target.IsAdmin {
-		// SELECT … FOR UPDATE serializes concurrent deletions of admin accounts.
 		var count int
 		if err := tx.QueryRow(r.Context(),
 			`SELECT count(*) FROM users
