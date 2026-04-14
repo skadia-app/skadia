@@ -86,6 +86,12 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	sport, subType := mapGPXType(trk.Type)
 	source, sourceDevice, recordingDevice := parseGPXCreator(gpx.Creator)
 
+	// If the GPX has no type but the creator identifies it as an e-bike app,
+	// default to e_biking so the normalisation below picks it up correctly.
+	if sport == "unknown" && source == "Bosch eBike App" {
+		sport = "e_biking"
+	}
+
 	// E-Bike normalization
 	isElectric := false
 	if sport == "e_biking" || sport == "e_bike" {
@@ -436,6 +442,8 @@ func parseGPXCreator(creator string) (source, device string, du *model.DeviceUps
 	case strings.Contains(cl, "bryton"):
 		source = "Bryton"
 		device = c
+	case strings.Contains(cl, "bosch-ebike.com") || strings.Contains(cl, "bosch ebike"):
+		source = "Bosch eBike App"
 	case strings.Contains(cl, "zwift"):
 		source = "Zwift"
 	case strings.Contains(cl, "endomondo"):
