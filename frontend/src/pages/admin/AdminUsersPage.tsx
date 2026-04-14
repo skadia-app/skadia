@@ -73,6 +73,13 @@ const ADMIN_ERROR_LABELS: Record<string, string> = {
   user_not_found: 'Benutzer nicht gefunden',
 }
 
+const USER_ACTION_LABELS = {
+  promoteToAdmin: 'Zum Admin machen',
+  demoteFromAdmin: 'Adminrechte entziehen',
+  enableHotfolder: 'Hotfolder aktivieren',
+  disableHotfolder: 'Hotfolder deaktivieren',
+}
+
 const PAGE_SIZE = 50
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -518,7 +525,7 @@ function DeleteUserDialog({
               <ul className="mt-2 space-y-1 text-sm text-red-600 dark:text-red-300">
                 <li>• Der Benutzer <strong>{user.username}</strong> wird deaktiviert und als gelöscht markiert</li>
                 <li>• Alle Sitzungen werden sofort beendet</li>
-                <li>• Alle Aktivitäten und Daten bleiben erhalten (soft delete)</li>
+                <li>• Alle Daten werden nach <strong>30 Tagen endgültig gelöscht</strong> — innerhalb dieser Frist ist eine Wiederherstellung möglich</li>
               </ul>
             </div>
             <div className="flex justify-end gap-2 pt-1">
@@ -628,15 +635,15 @@ function UserActionsMenu({
                 onClick={() => !isSelf && onAction('set-admin')}
                 disabled={isSelf}
                 className="gap-2"
-                title={isSelf ? 'Du kannst dir selbst die Admin-Rechte nicht entziehen' : undefined}
+                title={isSelf ? ADMIN_ERROR_LABELS.cannot_demote_self : undefined}
               >
                 <ShieldX className="h-4 w-4 text-violet-500" />
-                <span className={isSelf ? 'opacity-50' : ''}>Adminrechte entziehen</span>
+                <span className={isSelf ? 'opacity-50' : ''}>{USER_ACTION_LABELS.demoteFromAdmin}</span>
               </DropdownMenuItem>
             ) : (
               <DropdownMenuItem onClick={() => onAction('set-admin')} className="gap-2">
                 <ShieldCheck className="h-4 w-4 text-violet-500" />
-                Zum Admin machen
+                {USER_ACTION_LABELS.promoteToAdmin}
               </DropdownMenuItem>
             )}
 
@@ -646,12 +653,12 @@ function UserActionsMenu({
                 {user.hotfolder_enabled ? (
                   <>
                     <FolderX className="h-4 w-4 text-orange-500" />
-                    Hotfolder deaktivieren
+                    {USER_ACTION_LABELS.disableHotfolder}
                   </>
                 ) : (
                   <>
                     <FolderOpen className="h-4 w-4 text-orange-500" />
-                    Hotfolder aktivieren
+                    {USER_ACTION_LABELS.enableHotfolder}
                   </>
                 )}
               </DropdownMenuItem>
@@ -893,15 +900,15 @@ export default function AdminUsersPage() {
       label: 'Widerrufen',
     },
     'set-admin': {
-      title: confirmAction?.user.is_admin ? 'Adminrechte entziehen' : 'Zum Admin machen',
+      title: confirmAction?.user.is_admin ? USER_ACTION_LABELS.demoteFromAdmin : USER_ACTION_LABELS.promoteToAdmin,
       message: confirmAction?.user.is_admin
         ? `Sollen die Admin-Rechte von "${confirmAction?.user.username}" entzogen werden? Alle aktiven Sitzungen werden beendet.`
         : `Soll "${confirmAction?.user.username}" zum Admin gemacht werden? Alle aktiven Sitzungen werden beendet, damit neue Berechtigungen greifen.`,
-      label: confirmAction?.user.is_admin ? 'Entziehen' : 'Zum Admin machen',
+      label: confirmAction?.user.is_admin ? 'Entziehen' : USER_ACTION_LABELS.promoteToAdmin,
       cls: confirmAction?.user.is_admin ? undefined : 'bg-violet-600 hover:bg-violet-700',
     },
     'toggle-hotfolder': {
-      title: confirmAction?.user.hotfolder_enabled ? 'Hotfolder deaktivieren' : 'Hotfolder aktivieren',
+      title: confirmAction?.user.hotfolder_enabled ? USER_ACTION_LABELS.disableHotfolder : USER_ACTION_LABELS.enableHotfolder,
       message: confirmAction?.user.hotfolder_enabled
         ? `Hotfolder für "${confirmAction?.user.username}" deaktivieren?`
         : `Hotfolder für "${confirmAction?.user.username}" aktivieren?`,
