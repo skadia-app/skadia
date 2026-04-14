@@ -31,6 +31,7 @@ type storageDashboardUserRow struct {
 	LibraryDir       string     `json:"library_dir"`
 	DiskUsageBytes   int64      `json:"disk_usage_bytes"`
 	FileCount        int64      `json:"file_count"`
+	TotalFiles       int64      `json:"total_files"`
 	ArchiveSizeBytes int64      `json:"archive_size_bytes"`
 	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
 }
@@ -65,6 +66,7 @@ func (h *Handler) StorageDashboard(w http.ResponseWriter, r *http.Request) {
 			COALESCE(u.library_dir_name, u.id::text) AS library_dir,
 			COALESCE(SUM(uf.size_bytes) FILTER (WHERE uf.status = 'active'),  0) AS disk_usage_bytes,
 			COUNT(uf.id)                              FILTER (WHERE uf.status = 'active')   AS file_count,
+			COUNT(uf.id)                                                                     AS total_files,
 			COALESCE(SUM(uf.size_bytes) FILTER (WHERE uf.status = 'archived'), 0) AS archive_size_bytes,
 			u.deleted_at
 		FROM users u
@@ -82,7 +84,7 @@ func (h *Handler) StorageDashboard(w http.ResponseWriter, r *http.Request) {
 	users := make([]storageDashboardUserRow, 0)
 	for userRows.Next() {
 		var row storageDashboardUserRow
-		if err := userRows.Scan(&row.UserID, &row.Username, &row.Email, &row.LibraryDir, &row.DiskUsageBytes, &row.FileCount, &row.ArchiveSizeBytes, &row.DeletedAt); err != nil {
+		if err := userRows.Scan(&row.UserID, &row.Username, &row.Email, &row.LibraryDir, &row.DiskUsageBytes, &row.FileCount, &row.TotalFiles, &row.ArchiveSizeBytes, &row.DeletedAt); err != nil {
 			slog.Error("admin/storage: scan user row", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not scan user row", r.URL.Path)
 			return
@@ -95,11 +97,10 @@ func (h *Handler) StorageDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ── per-type counts (active files only) ───────────────────────────────
+	// ── per-type counts (all statuses) ────────────────────────────────────
 	typeRows, err := h.DB.Pool.Query(ctx, `
 		SELECT file_type, COUNT(*) AS cnt
 		FROM user_files
-		WHERE status = 'active'
 		GROUP BY file_type
 		ORDER BY file_type
 	`)

@@ -77,6 +77,7 @@ interface StorageUserRow {
   library_dir: string
   disk_usage_bytes: number
   file_count: number
+  total_files: number
   archive_size_bytes: number
   deleted_at?: string | null
 }
@@ -95,7 +96,7 @@ interface ActionResponse {
   job_id?: string
 }
 
-type SortKey = 'library_dir' | 'disk_usage_bytes' | 'file_count' | 'archive_size_bytes'
+type SortKey = 'library_dir' | 'disk_usage_bytes' | 'total_files' | 'archive_size_bytes'
 type SortDir = 'asc' | 'desc'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -341,15 +342,15 @@ export default function AdminStorageDashboard() {
                   <th
                     scope="col"
                     className="px-4 py-2 font-medium text-right"
-                    aria-sort={sortKey === 'file_count' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                    aria-sort={sortKey === 'total_files' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                   >
                     <button
                       className="flex items-center gap-1 cursor-pointer hover:text-neutral-700 dark:hover:text-neutral-200 ml-auto"
-                      onClick={() => toggleSort('file_count')}
+                      onClick={() => toggleSort('total_files')}
                       aria-label={`${LABELS.actions.sortBy} ${LABELS.usersTable.fileCount}`}
                     >
                       {LABELS.usersTable.fileCount}
-                      <SortIcon col="file_count" sortKey={sortKey} sortDir={sortDir} />
+                      <SortIcon col="total_files" sortKey={sortKey} sortDir={sortDir} />
                     </button>
                   </th>
                   <th
@@ -404,7 +405,7 @@ export default function AdminStorageDashboard() {
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
                         {/* TODO(i18n): replace 'de-DE' with user locale */}
-                        {user.file_count.toLocaleString('de-DE')}
+                        {user.total_files.toLocaleString('de-DE')}
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         <span className={`inline-flex items-center gap-1 tabular-nums ${
