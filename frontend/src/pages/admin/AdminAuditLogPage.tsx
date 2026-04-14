@@ -24,6 +24,12 @@ const EVENT_LABELS: Record<string, string> = {
   profile_update: 'Profil aktualisiert',
   data_export_requested: 'Datenexport',
   email_change_requested: 'E-Mail-Änderung angefragt',
+  admin_toggle_hotfolder: 'Admin: Hotfolder-Toggle',
+  admin_promote_user: 'Admin: Benutzer zum Admin gemacht',
+  admin_demote_user: 'Admin: Admin-Rechte entzogen',
+  admin_delete_user: 'Admin: Benutzer gelöscht',
+  admin_settings_update: 'Admin: Server-Einstellungen geändert',
+  bootstrap_admin_created: 'Bootstrap-Admin erstellt',
 }
 
 const EVENT_COLORS: Record<string, string> = {
@@ -45,6 +51,12 @@ const EVENT_COLORS: Record<string, string> = {
   email_changed: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
   profile_update: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
   data_export_requested: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+  admin_toggle_hotfolder: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  admin_promote_user: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
+  admin_demote_user: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+  admin_delete_user: 'bg-red-500/10 text-red-600 dark:text-red-400',
+  admin_settings_update: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+  bootstrap_admin_created: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
 }
 
 const PAGE_SIZE = 50
