@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
@@ -70,9 +71,8 @@ func (a *ActivitiesImporter) Detect(src ExportSource) (bool, int, error) {
 	return count > 0, count, nil
 }
 
-// TODO(visibility): Parse DI_CONNECT/DI-Connect-Fitness/*_summarizedActivities.json to extract
-// the "rule" field ("private"/"public") per activity and map it to data.Visibility.
-// This requires matching summarizedActivities entries to FIT files by Garmin activity ID.
+// TODO(visibility): Extend loadActivityIDMap to also extract the "rule" field ("private"/"public")
+// per activity and map it to data.Visibility during import.
 
 func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*ImportResult, error) {
 	result := &ImportResult{}
@@ -108,6 +108,11 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 
 	slog.Info("garmin activities: found activity files", "count", total)
 
+	// Build a map from start time → real Garmin Connect activity ID.
+	// UploadedFiles filenames contain upload file IDs, not the activity IDs shown
+	// in Garmin Connect URLs — the summarizedActivities JSON has the real IDs.
+	activityIDMap := loadActivityIDMap(params.Source)
+
 	// Cache open ZIP readers to avoid re-opening per file.
 	zipReaders := make(map[string]*zip.ReadCloser)
 	defer func() {
@@ -140,9 +145,6 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			tracker.Error(ctx, err)
 			continue
 		}
-
-		// Extract Garmin activity ID from filename: email_activityId_originalName.ext
-		garminActivityID := extractActivityID(ref.fileName)
 
 		// Detect format
 		format := importutil.DetectFormat(fileBytes, ref.fileName)
@@ -194,7 +196,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				}
 
 				meta := importer.ImportMetadata{
-					GarminActivityID: garminActivityID,
+					GarminActivityID: resolveGarminActivityID(activityIDMap, sessions[0].StartedAt),
 					SourcePlatform:   "garmin",
 					ConflictStrategy: params.Options.ConflictStrategy,
 				}
@@ -259,7 +261,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		tracker.SetFileHash(ctx, hashStr)
 
 		meta := importer.ImportMetadata{
-			GarminActivityID: garminActivityID,
+			GarminActivityID: resolveGarminActivityID(activityIDMap, data.StartedAt),
 			SourcePlatform:   "garmin",
 			ConflictStrategy: params.Options.ConflictStrategy,
 		}
@@ -327,6 +329,68 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 
 	slog.Info("garmin activities import done", "imported", result.Imported, "skipped", result.Skipped, "errors", len(result.Errors))
 	return result, nil
+}
+
+// loadActivityIDMap reads all *_summarizedActivities.json files from the export and builds
+// a map from activity start time (Unix seconds) to the real Garmin Connect activity ID.
+//
+// Background: UploadedFiles ZIP entries are named "<email>_<uploadFileID>.fit" where the
+// upload file ID is NOT the Garmin Connect activity ID shown in connect.garmin.com URLs.
+// The real activity IDs are in summarizedActivities.json, keyed by start time.
+//
+// Timestamps that appear more than once map to 0 (ambiguous; caller falls back to filename ID).
+func loadActivityIDMap(src ExportSource) map[int64]int64 {
+	files, err := src.FindFiles("DI_CONNECT/DI-Connect-Fitness/*_summarizedActivities.json")
+	if err != nil || len(files) == 0 {
+		return nil
+	}
+	type entry struct {
+		ActivityID   int64   `json:"activityId"`
+		StartTimeGmt float64 `json:"startTimeGmt"` // Unix milliseconds
+	}
+	type fileRoot []struct {
+		Activities []entry `json:"summarizedActivitiesExport"`
+	}
+	m := make(map[int64]int64)
+	seen := make(map[int64]bool)
+	for _, f := range files {
+		var root fileRoot
+		if err := src.ReadJSON(f, &root); err != nil {
+			slog.Warn("garmin activities: cannot read summarizedActivities", "file", f, "err", err)
+			continue
+		}
+		for _, section := range root {
+			for _, a := range section.Activities {
+				if a.ActivityID <= 0 || a.StartTimeGmt <= 0 {
+					continue
+				}
+				ts := int64(a.StartTimeGmt / 1000)
+				if seen[ts] {
+					m[ts] = 0 // ambiguous — two activities with same start second
+					continue
+				}
+				seen[ts] = true
+				m[ts] = a.ActivityID
+			}
+		}
+	}
+	slog.Info("garmin activities: loaded summarizedActivities ID map", "entries", len(m))
+	return m
+}
+
+// resolveGarminActivityID returns the real Garmin Connect activity ID for an activity
+// with the given start time. Returns 0 if the map is nil, has no entry for this
+// timestamp, or has an ambiguous entry — in all those cases backfillPlatformIDs
+// will skip the write (meta.GarminActivityID <= 0), leaving any existing correct
+// value untouched. The upload file ID from the filename is never stored directly:
+// it is not a Garmin Connect activity ID and would produce broken deep-links.
+func resolveGarminActivityID(activityIDMap map[int64]int64, startTime time.Time) int64 {
+	if activityIDMap == nil {
+		return 0
+	}
+	id := activityIDMap[startTime.Unix()]
+	// id == 0 means either not found or ambiguous — both cases: skip write.
+	return id
 }
 
 // isActivityFile returns true for FIT, GPX, TCX files (not CSV etc.)

@@ -157,9 +157,21 @@ func (db *DB) ListActiveGarminImportJobs(ctx context.Context, userID string) ([]
 // --- Garmin IDs on activities / gear ---
 
 // SetActivityGarminID sets the garmin_activity_id on an existing activity.
+// Uses COALESCE semantics: an already-set value is never overwritten.
+// For an explicit overwrite (e.g. backfill of wrong IDs), use ForceSetActivityGarminID.
 func (db *DB) SetActivityGarminID(ctx context.Context, activityID string, garminID int64) error {
 	_, err := db.Pool.Exec(ctx,
 		`UPDATE activities SET garmin_activity_id = COALESCE(garmin_activity_id, $2) WHERE id = $1`,
+		activityID, garminID,
+	)
+	return err
+}
+
+// ForceSetActivityGarminID unconditionally overwrites garmin_activity_id.
+// Use this only for targeted backfills where a previously stored ID is known to be wrong.
+func (db *DB) ForceSetActivityGarminID(ctx context.Context, activityID string, garminID int64) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE activities SET garmin_activity_id = $2 WHERE id = $1`,
 		activityID, garminID,
 	)
 	return err
