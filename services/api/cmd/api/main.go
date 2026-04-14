@@ -486,7 +486,7 @@ func main() {
 		UPDATE background_jobs
 		SET status = 'failed',
 		    finished_at = NOW(),
-		    error = 'server restart cleanup'
+		    error = 'Durch Server-Neustart unterbrochen'
 		WHERE status = 'running'`); cleanErr != nil {
 		slog.Warn("startup: failed to clean up stale running jobs", "error", cleanErr)
 	} else {
@@ -504,12 +504,12 @@ func main() {
 		case "garmin_import_jobs":
 			q = `UPDATE garmin_import_jobs
 			     SET status = 'failed', completed_at = NOW(),
-			         errors = jsonb_build_array('server restart cleanup')
+			         errors = jsonb_build_array('Import durch Server-Neustart unterbrochen. Bitte erneut starten.')
 			     WHERE status = 'running'`
 		case "strava_import_jobs":
 			q = `UPDATE strava_import_jobs
 			     SET status = 'failed', completed_at = NOW(),
-			         errors = jsonb_build_array('server restart cleanup')
+			         errors = jsonb_build_array('Import durch Server-Neustart unterbrochen. Bitte erneut starten.')
 			     WHERE status = 'running'`
 		}
 		if res, cleanErr := db.Pool.Exec(context.Background(), q); cleanErr != nil {
