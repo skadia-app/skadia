@@ -558,7 +558,7 @@ func main() {
 	bestEffortsService := &bestefforts.Service{Store: db}
 
 	// Settings store — write-through cache over server_settings table.
-	settingsStore := settings.NewSettingsStore(db, cfg.SettingsEncryptionKey)
+	settingsStore := settings.NewSettingsStore(db, cfg.SettingsEncryptionKey, cfg.StorageBackend)
 
 	// NATS (optional - log warning if unavailable)
 	var pub *event.Publisher
