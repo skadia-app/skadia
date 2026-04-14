@@ -1139,6 +1139,10 @@ func main() {
 			r.Get("/activities/{id}/geo-tags", h.GetGeoTags)
 			r.Get("/activities/{id}/enrichment-status", h.GetEnrichmentStatus)
 
+			// User-triggered enrichment backfills (non-admin, user-scoped).
+			r.Get("/enrichment/geocoding-gap", h.GeocodingGap)
+			r.Post("/enrichment/geocoding-backfill", h.GeocodingBackfill)
+
 			r.Get("/tags", h.ListTags)
 			r.Post("/tags", h.CreateTag)
 			r.Patch("/tags/{id}", h.UpdateTag)

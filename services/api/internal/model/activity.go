@@ -549,6 +549,13 @@ type EnrichmentSettings struct {
 
 	// pHash Hamming-distance threshold for photo deduplication (1–10, Migration 000149).
 	PhashThresholdBits int `json:"phash_threshold_bits"`
+
+	// External reverse-geocode fallback (Migration 000300).
+	// Used ONLY when primary PostGIS/osm_boundaries query returns empty (no local OSM data).
+	// "off" (default) = no external requests; "nominatim" and "photon" hit public APIs.
+	GeocodeFallbackProvider string  `json:"geocode_fallback_provider"`
+	GeocodeFallbackURL      *string `json:"geocode_fallback_url,omitempty"` // optional custom URL (self-hosted proxy)
+	GeocodeFallbackTimeoutS int     `json:"geocode_fallback_timeout_s"`
 }
 
 // EnabledModules returns the list of enrichment module names that are currently

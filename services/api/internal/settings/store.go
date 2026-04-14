@@ -175,7 +175,16 @@ func (s *SettingsStore) buildCachedSetting(kd KeyDef, dbRows map[string]struct {
 
 // Get returns the cached setting for key. If key is unknown it returns a
 // zero CachedSetting (empty value, source "default").
+//
+// Nil-safe: callers that were wired up before the SettingsStore existed (or
+// pass a nil store for tests that only exercise code paths unrelated to
+// runtime settings) get a zero value back instead of a panic. Wrapping
+// every `h.Settings.Get(...)` in a nil check at the call site would clutter
+// the code without improving behaviour.
 func (s *SettingsStore) Get(key string) CachedSetting {
+	if s == nil {
+		return CachedSetting{}
+	}
 	s.mu.RLock()
 	cs := s.cache[key]
 	s.mu.RUnlock()

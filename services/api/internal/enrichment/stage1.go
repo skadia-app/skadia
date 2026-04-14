@@ -364,9 +364,11 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		fields["elevation_source"] = "device"
 	}
 
-	// Reverse geocoding (PostGIS; skip virtual — GPS is simulated)
+	// Reverse geocoding (PostGIS primary; optional external fallback via user
+	// settings — Nominatim or Photon when osm_boundaries has no match).
+	// Skip virtual activities: GPS is simulated.
 	if data.StartLat != 0 && data.StartLng != 0 && !data.IsVirtual {
-		if geo, err := ReverseGeocode(ctx, db.Pool, data.StartLat, data.StartLng); err == nil && geo != nil {
+		if geo, err := ReverseGeocode(ctx, db, userID, data.StartLat, data.StartLng); err == nil && geo != nil {
 			if geo.City != "" {
 				fields["start_city"] = geo.City
 			}
@@ -382,7 +384,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 	if data.EndLat != 0 && data.EndLng != 0 && !data.IsVirtual {
-		if geo, err := ReverseGeocode(ctx, db.Pool, data.EndLat, data.EndLng); err == nil && geo != nil {
+		if geo, err := ReverseGeocode(ctx, db, userID, data.EndLat, data.EndLng); err == nil && geo != nil {
 			if geo.City != "" {
 				fields["end_city"] = geo.City
 			}
@@ -414,6 +416,21 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		fields["title_auto"] = title
 	}
 
+	// Auto-tags we want to ensure are present on the activity. We intentionally
+	// do NOT load the current tags array here and write it back — that pattern
+	// has a read-modify-write race against parallel automation-rule workers that
+	// also touch activities.tags (#20). Instead we collect the tag names we want
+	// to add and merge them atomically in SQL below via array || + unnest DISTINCT.
+	var autoTagsToAdd []string
+	addAutoTag := func(name string) {
+		for _, existing := range autoTagsToAdd {
+			if existing == name {
+				return
+			}
+		}
+		autoTagsToAdd = append(autoTagsToAdd, name)
+	}
+
 	// Sub-type to automatic tag conversion:
 	// - cycling + commuting sub_type  → tag "Pendeln", clear sub_type
 	// - strength_training/hiit + amrap → tag "AMRAP"
@@ -426,18 +443,10 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		data.SubType = "" // prevent downstream use
 	}
 	if (data.SportType == "strength_training" || data.SportType == "hiit") && data.SubType == "amrap" {
-		tagBase, _ := fields["tags"].([]string)
-		if tagBase == nil {
-			tagBase = data.Tags
-		}
-		fields["tags"] = appendTagIfMissing(tagBase, "AMRAP")
+		addAutoTag("AMRAP")
 	}
 	if (data.SportType == "strength_training" || data.SportType == "hiit") && data.SubType == "emom" {
-		tagBase, _ := fields["tags"].([]string)
-		if tagBase == nil {
-			tagBase = data.Tags
-		}
-		fields["tags"] = appendTagIfMissing(tagBase, "EMOM")
+		addAutoTag("EMOM")
 	}
 	// Race sub-sports (FIT SubSport) → tag "Wettkampf"
 	raceSubSports := map[string]bool{
@@ -445,11 +454,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		"ultra":     true,
 	}
 	if raceSubSports[data.SubType] {
-		tagBase, _ := fields["tags"].([]string)
-		if tagBase == nil {
-			tagBase = data.Tags
-		}
-		fields["tags"] = appendTagIfMissing(tagBase, "Wettkampf")
+		addAutoTag("Wettkampf")
 		// Ensure the "Wettkampf" tag exists in the tags table and is linked in activity_tags
 		// so that analytics filters (which join activity_tags) can find this activity.
 		// Stage2 has no race module, so we do the full upsert here.
@@ -468,11 +473,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	// E-Bike tag: if is_electric is true, ensure "E-Bike" tag is in tags array
 	// and link in activity_tags junction table (same pattern as "Wettkampf" above).
 	if data.IsElectric {
-		tagBase, _ := fields["tags"].([]string)
-		if tagBase == nil {
-			tagBase = data.Tags
-		}
-		fields["tags"] = appendTagIfMissing(tagBase, "E-Bike")
+		addAutoTag("E-Bike")
 
 		// Upsert the "E-Bike" system tag and link it to this activity.
 		var electricTagID string
@@ -490,11 +491,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	// Indoor tag: if is_indoor is true, ensure "Indoor" tag is in tags array
 	// and link in activity_tags junction table (same pattern as E-Bike above).
 	if data.IsIndoor {
-		tagBase, _ := fields["tags"].([]string)
-		if tagBase == nil {
-			tagBase = data.Tags
-		}
-		fields["tags"] = appendTagIfMissing(tagBase, "Indoor")
+		addAutoTag("Indoor")
 
 		// Upsert the "Indoor" system tag and link it to this activity.
 		var indoorTagID string
@@ -518,11 +515,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 
 	// Manual activity tag: if is_manual_entry is true, ensure "manuell" tag
 	if data.IsManualEntry {
-		tagBase, _ := fields["tags"].([]string)
-		if tagBase == nil {
-			tagBase = data.Tags
-		}
-		fields["tags"] = appendTagIfMissing(tagBase, "manuell")
+		addAutoTag("manuell")
 
 		var manualTagID string
 		row := db.Pool.QueryRow(ctx, `
@@ -536,13 +529,31 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 
-	if len(fields) == 0 {
+	if len(fields) == 0 && len(autoTagsToAdd) == 0 {
 		return
 	}
 
-	if err := db.UpdateEnrichmentFields(ctx, activityID, fields); err != nil {
-		slog.Error("stage1 enrichment failed", "activity_id", activityID, "error", err)
-		return
+	if len(fields) > 0 {
+		if err := db.UpdateEnrichmentFields(ctx, activityID, fields); err != nil {
+			slog.Error("stage1 enrichment failed", "activity_id", activityID, "error", err)
+			return
+		}
+	}
+
+	// Merge auto-tags atomically: union of existing and new tags, de-duplicated.
+	// This replaces the previous read-modify-write pattern that raced with
+	// automation rule workers (#20, #19).
+	if len(autoTagsToAdd) > 0 {
+		if _, err := db.Pool.Exec(ctx, `
+			UPDATE activities
+			SET tags = (
+				SELECT ARRAY(SELECT DISTINCT unnest(COALESCE(tags, '{}') || $2::text[]))
+			)
+			WHERE id = $1
+		`, activityID, autoTagsToAdd); err != nil {
+			slog.Warn("stage1: merge auto-tags failed",
+				"activity_id", activityID, "tags", autoTagsToAdd, "error", err)
+		}
 	}
 
 	// Load enrichment settings once — used both for geo-enrichment gating and

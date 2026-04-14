@@ -13,7 +13,9 @@ import { Link } from 'react-router-dom'
 import { getShadowFSSettings, updateShadowFSSettings, getHeatmapSettings, updateHeatmapSettings } from '@/api/settings'
 import { getImportSettings, updateImportSettings, type ImportSettings, type ConflictStrategy } from '@/api/importWizard'
 import { fetchSportTypeStats } from '@/api/stats'
-import { backfillEnrichment } from '@/api/enrichment'
+import { backfillEnrichment, fetchGeocodingGap, startGeocodingBackfill } from '@/api/enrichment'
+import { ApiError } from '@/api/client'
+import { fetchActiveJobs } from '@/api/jobs'
 import type { EnrichmentSettings } from '@/api/types'
 import { recomputePhotoPreviews, recomputePhotoEmbeddings, backfillPhash } from '@/api/activityPhotos'
 import { useToast } from '@/lib/toast'
@@ -344,6 +346,481 @@ function PhotoPreviewSection() {
 }
 
 
+// -----------------------------------------------------------------------
+// Geocoding Fallback Section (external reverse-geocoding)
+// -----------------------------------------------------------------------
+
+const GEOCODE_PROVIDER_OPTIONS = [
+  { value: 'off',       label: 'Aus' },
+  { value: 'nominatim', label: 'Nominatim (OpenStreetMap)' },
+  { value: 'photon',    label: 'Photon (Komoot)' },
+] as const
+
+type GeocodeProvider = typeof GEOCODE_PROVIDER_OPTIONS[number]['value']
+
+const GEOCODE_PLACEHOLDERS: Record<Exclude<GeocodeProvider, 'off'>, string> = {
+  nominatim: 'https://nominatim.openstreetmap.org',
+  photon:    'https://photon.komoot.io',
+}
+
+const GEOCODE_PROVIDER_NOTES: Record<Exclude<GeocodeProvider, 'off'>, string> = {
+  nominatim: 'Strenge Rate-Limits (1 Anfrage/Sekunde global). Für gelegentliche Anfragen ausreichend.',
+  photon:    'Community-Dienst ohne offizielle Garantien (Fair-Use).',
+}
+
+const GEOCODE_PROVIDER_SERVICES: Record<Exclude<GeocodeProvider, 'off'>, string> = {
+  nominatim: 'Dienst: OpenStreetMap Foundation.',
+  photon:    'Dienst: Komoot (Photon).',
+}
+
+const GEOCODE_STRINGS = {
+  sectionTitle:       'Standort-Erkennung',
+  sectionDescription: 'Externer Reverse-Geocoding-Dienst als Fallback, wenn lokale OSM-Daten keinen Ortsnamen liefern.',
+  providerLabel:      'Dienst',
+  privacyNotice:      'Wenn aktiviert, werden Start-Koordinaten (auf ca. 75–110 m gerundet) an den externen Dienst übermittelt. Nur bei Aktivitäten, für die lokale OSM-Daten keine Stadt liefern.',
+  urlLabel:           'Server-URL (optional)',
+  urlHelp:            'Leer lassen für den öffentlichen Dienst. Eigener Wert nur bei Reverse-Proxy oder Self-Hosting nötig.',
+  timeoutLabel:       'Zeitüberschreitung',
+  timeoutUnit:        'Sekunden',
+  attribution:        'Daten © OpenStreetMap-Mitwirkende (ODbL).',
+  saved:              'Einstellung gespeichert',
+  invalidTimeout:     'Zeitüberschreitung muss zwischen 1 und 30 Sekunden liegen',
+
+  // "Geocoding nachholen" subsection
+  backfillTitle:       'Ortsnamen nachtragen',
+  backfillDescription: 'Ältere Aktivitäten, die vor dem Aktivieren des Fallbacks importiert wurden, haben möglicherweise noch keinen Ortsnamen.',
+  backfillCountZero:   'Alle Aktivitäten haben einen Ortsnamen.',
+  backfillCountOne:    '1 Aktivität ohne Ortsangabe',
+  backfillCountMany:   (n: number) => `${n} Aktivitäten ohne Ortsangabe`,
+  backfillButton:      'Jetzt nachholen',
+  backfillRunning:     'Läuft …',
+  backfillProgress:    (done: number, total: number) => `${done} / ${total} bearbeitet`,
+  backfillStartError:  'Backfill konnte nicht gestartet werden',
+  backfillStartProviderOff:    'Bitte erst einen Geocoding-Dienst aktivieren',
+  backfillStartProviderOffMsg: 'Wähle oben einen Fallback-Dienst aus, bevor du Ortsnamen nachträgst.',
+  backfillAlreadyRunning:    'Backfill läuft bereits',
+  backfillAlreadyRunningMsg: 'Fortschritt im Header-Indikator sichtbar.',
+  backfillComplete:    'Geocoding abgeschlossen',
+  backfillAbortedProviderOff: 'Geocoding abgebrochen',
+  backfillAbortedProviderOffMsg: 'Der Fallback-Dienst wurde während des Backfills deaktiviert.',
+  backfillFailed:      'Geocoding fehlgeschlagen',
+} as const
+
+function GeocodingFallbackSection() {
+  const { addToast } = useToast()
+  const { settings, isLoading, isError, mutation } = useEnrichmentSettings()
+
+  const provider: GeocodeProvider = (settings?.geocode_fallback_provider ?? 'off') as GeocodeProvider
+  const savedUrl = settings?.geocode_fallback_url ?? ''
+  const savedTimeout = settings?.geocode_fallback_timeout_s ?? 5
+
+  const [urlLocal, setUrlLocal] = useState<string | null>(null)
+  const [timeoutLocal, setTimeoutLocal] = useState<number | null>(null)
+
+  const urlValue = urlLocal ?? savedUrl
+  const timeoutValue = timeoutLocal ?? savedTimeout
+
+  function handleProviderChange(next: GeocodeProvider) {
+    if (!settings) return
+    if (next === provider) return
+    mutation.mutate(
+      { geocode_fallback_provider: next },
+      { onSuccess: () => addToast({ type: 'success', title: GEOCODE_STRINGS.saved }) },
+    )
+  }
+
+  function commitUrl() {
+    if (!settings) return
+    const trimmed = urlValue.trim()
+    const nextVal = trimmed === '' ? null : trimmed
+    if (nextVal === (savedUrl || null)) {
+      setUrlLocal(null)
+      return
+    }
+    mutation.mutate(
+      { geocode_fallback_url: nextVal },
+      {
+        onSuccess: () => {
+          setUrlLocal(null)
+          addToast({ type: 'success', title: GEOCODE_STRINGS.saved })
+        },
+      },
+    )
+  }
+
+  function commitTimeout() {
+    if (!settings) return
+    const n = Math.round(timeoutValue)
+    if (!Number.isFinite(n) || n < 1 || n > 30) {
+      addToast({ type: 'error', title: GEOCODE_STRINGS.invalidTimeout, duration: 0 })
+      setTimeoutLocal(null)
+      return
+    }
+    if (n === savedTimeout) {
+      setTimeoutLocal(null)
+      return
+    }
+    mutation.mutate(
+      { geocode_fallback_timeout_s: n },
+      {
+        onSuccess: () => {
+          setTimeoutLocal(null)
+          addToast({ type: 'success', title: GEOCODE_STRINGS.saved })
+        },
+      },
+    )
+  }
+
+  const showDetails = provider !== 'off'
+
+  return (
+    <SettingsSection
+      title={GEOCODE_STRINGS.sectionTitle}
+      description={GEOCODE_STRINGS.sectionDescription}
+    >
+      {isError && (
+        <p className="text-sm text-red-500 dark:text-red-400">
+          Einstellungen konnten nicht geladen werden.
+        </p>
+      )}
+
+      <div>
+        <label
+          htmlFor="geocode-provider"
+          className="text-sm font-medium text-neutral-700 dark:text-neutral-300 block mb-1"
+        >
+          {GEOCODE_STRINGS.providerLabel}
+        </label>
+        <select
+          id="geocode-provider"
+          value={provider}
+          disabled={isLoading || mutation.isPending}
+          onChange={e => handleProviderChange(e.target.value as GeocodeProvider)}
+          className="w-64 px-3 py-1.5 text-sm rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {GEOCODE_PROVIDER_OPTIONS.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Privacy notice — prominent, directly under the dropdown */}
+      <div
+        role="note"
+        className="rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-200"
+      >
+        {GEOCODE_STRINGS.privacyNotice}
+      </div>
+
+      {showDetails && (
+        <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800/60 space-y-4">
+          {/* URL override */}
+          <div>
+            <label
+              htmlFor="geocode-url"
+              className="text-sm font-medium text-neutral-700 dark:text-neutral-300 block mb-1"
+            >
+              {GEOCODE_STRINGS.urlLabel}
+            </label>
+            <input
+              id="geocode-url"
+              type="url"
+              inputMode="url"
+              placeholder={GEOCODE_PLACEHOLDERS[provider as Exclude<GeocodeProvider, 'off'>]}
+              value={urlValue}
+              disabled={isLoading || mutation.isPending}
+              onChange={e => setUrlLocal(e.target.value)}
+              onBlur={commitUrl}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  ;(e.target as HTMLInputElement).blur()
+                }
+              }}
+              className="block w-full max-w-md text-sm bg-neutral-50 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
+              {GEOCODE_STRINGS.urlHelp}
+            </p>
+          </div>
+
+          {/* Timeout */}
+          <div>
+            <label
+              htmlFor="geocode-timeout"
+              className="text-sm font-medium text-neutral-700 dark:text-neutral-300 block mb-1"
+            >
+              {GEOCODE_STRINGS.timeoutLabel}
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="geocode-timeout"
+                type="number"
+                min={1}
+                max={30}
+                step={1}
+                value={timeoutValue}
+                disabled={isLoading || mutation.isPending}
+                onChange={e => setTimeoutLocal(Number(e.target.value))}
+                onBlur={commitTimeout}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    ;(e.target as HTMLInputElement).blur()
+                  }
+                }}
+                className="w-24 text-sm bg-neutral-50 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed tabular-nums"
+              />
+              <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                {GEOCODE_STRINGS.timeoutUnit}
+              </span>
+            </div>
+          </div>
+
+          {/* Backfill historical activities whose start_city is still empty */}
+          <GeocodingBackfillBlock />
+
+          {/* Provider-specific notes + common attribution */}
+          <div className="text-xs text-neutral-500 dark:text-neutral-400 space-y-1">
+            <p>{GEOCODE_PROVIDER_NOTES[provider as Exclude<GeocodeProvider, 'off'>]}</p>
+            <p>
+              {GEOCODE_STRINGS.attribution}{' '}
+              {GEOCODE_PROVIDER_SERVICES[provider as Exclude<GeocodeProvider, 'off'>]}
+            </p>
+          </div>
+        </div>
+      )}
+    </SettingsSection>
+  )
+}
+
+/**
+ * "Jetzt nachholen"-Button für Aktivitäten ohne start_city.
+ *
+ * Sichtbar nur innerhalb des GeocodingFallbackSection, also implizit nur wenn
+ * der Provider aktiv ist. Polling des Job-Fortschritts läuft über
+ * fetchActiveJobs (dasselbe query-key wie der globale Job-Indikator), mit
+ * aktivem 2-Sekunden-Intervall, solange wir eine job_id tracken.
+ */
+function GeocodingBackfillBlock() {
+  const queryClient = useQueryClient()
+  const { addToast } = useToast()
+
+  // staleTime: 5s — generic refetch cadence that catches cases we don't
+  // invalidate explicitly (e.g. a new activity imported in another tab).
+  // Direct invalidation after a backfill completes still runs via the
+  // useEffect below and is immediate regardless of this value.
+  const gapQuery = useQuery({
+    queryKey: ['geocoding-gap'],
+    queryFn: fetchGeocodingGap,
+    staleTime: 5_000,
+  })
+
+  // Keep the gap count in sync when new activities appear: the user might
+  // import a GPS file elsewhere, which would leave the "0 without start_city"
+  // label stale and the "Jetzt nachholen"-button disabled until staleTime
+  // expires + a refetch trigger fires. There is no dedicated "activity_imported"
+  // event bus in the frontend; react-query's queryCache is the next-best signal.
+  // We mark geocoding-gap stale whenever any ['activities', …] query settles.
+  useEffect(() => {
+    const cache = queryClient.getQueryCache()
+    const unsubscribe = cache.subscribe(event => {
+      if (event.type !== 'updated') return
+      const queryKey = event.query.queryKey
+      if (!Array.isArray(queryKey) || queryKey[0] !== 'activities') return
+      // Only react to settled fetches (success) — ignore loading/error transitions
+      // to avoid double-fetches.
+      const action = event.action
+      if (action.type !== 'success') return
+      queryClient.invalidateQueries({ queryKey: ['geocoding-gap'] })
+    })
+    return unsubscribe
+  }, [queryClient])
+
+  // Tracks the specific backfill job we started — distinguishes "my click"
+  // from any other geocoding job that might be running (e.g. a parallel tab).
+  const [activeJobId, setActiveJobId] = useState<string | null>(null)
+
+  // Poll while a job is tracked. 2s is aggressive enough for a visible bar
+  // without hammering the server, and stops as soon as the job finishes.
+  const jobsQuery = useQuery({
+    queryKey: ['active-jobs'],
+    queryFn: fetchActiveJobs,
+    refetchInterval: activeJobId ? 2000 : false,
+    enabled: activeJobId !== null,
+  })
+
+  const trackedJob = activeJobId
+    ? jobsQuery.data?.jobs.find(j => j.id === activeJobId)
+    : undefined
+
+  // When the tracked job completes, clear state + invalidate caches that
+  // now show stale city data. Toast type differentiates three outcomes:
+  //   - completed           → success
+  //   - failed + provider-off reason → warning (user-induced, recoverable)
+  //   - failed + other error         → error   (unexpected)
+  // The backend's BackgroundJob payload exposes an optional `error` string
+  // that is only populated when `status === 'failed'`; ActiveJob doesn't yet
+  // declare it in the shared TS type, so we read it via a narrow local cast.
+  useEffect(() => {
+    if (!trackedJob) return
+    if (trackedJob.status !== 'completed' && trackedJob.status !== 'failed') return
+
+    setActiveJobId(null)
+    queryClient.invalidateQueries({ queryKey: ['geocoding-gap'] })
+    queryClient.invalidateQueries({ queryKey: ['activities'] })
+
+    if (trackedJob.status === 'completed') {
+      addToast({ type: 'success', title: GEOCODE_STRINGS.backfillComplete })
+      return
+    }
+
+    // The backend encodes well-known failure reasons as a structured prefix
+    // on the job's `error` string (e.g. "[provider_disabled] <human text>").
+    // Checking the prefix is i18n-stable; the suffix remains a human-readable
+    // message for DB inspection and future extension.
+    const errorMessage = (trackedJob as { error?: string }).error ?? ''
+    const providerOff = errorMessage.startsWith('[provider_disabled]')
+
+    if (providerOff) {
+      addToast({
+        type: 'warning',
+        title: GEOCODE_STRINGS.backfillAbortedProviderOff,
+        message: GEOCODE_STRINGS.backfillAbortedProviderOffMsg,
+      })
+    } else {
+      addToast({
+        type: 'error',
+        title: GEOCODE_STRINGS.backfillFailed,
+        message: errorMessage || undefined,
+        duration: 0,
+      })
+    }
+  }, [trackedJob, queryClient, addToast])
+
+  const running = activeJobId !== null && trackedJob?.status !== 'completed' && trackedJob?.status !== 'failed'
+  const count = gapQuery.data?.count ?? 0
+
+  async function handleStart() {
+    try {
+      const { job_id, total } = await startGeocodingBackfill()
+      setActiveJobId(job_id)
+      // Seed the active-jobs cache so the progress bar appears immediately —
+      // otherwise we wait up to 2s for the first refetch before anything renders.
+      //
+      // Tradeoff: the seeded job briefly appears in the global ActiveJobsIndicator
+      // until the next /jobs/active refetch confirms it (or the SSE `init` frame
+      // arrives, whichever is sooner). We accept this minor flicker because the
+      // alternative — invalidate + await a round-trip — delays the local progress
+      // bar by 100-300ms on every click, which feels sluggish in the common case.
+      // The seed is harmless: identical shape, same job_id, so the server's view
+      // overwrites it cleanly without UI churn.
+      queryClient.setQueryData<{ jobs: unknown[]; pending_enrichments: number } | undefined>(
+        ['active-jobs'],
+        (prev) => {
+          const seed = {
+            id: job_id,
+            job_type: 'geocoding_backfill',
+            status: 'running' as const,
+            progress_current: 0,
+            progress_total: total,
+            started_at: new Date().toISOString(),
+          }
+          if (!prev) return { jobs: [seed], pending_enrichments: 0 }
+          return { ...prev, jobs: [...(prev.jobs as unknown[]), seed] }
+        },
+      )
+    } catch (err) {
+      // Structured error_code discriminates user-recoverable conditions from
+      // genuine failures. The backend guarantees well-known codes via
+      // application/json bodies; see ApiError.json in @/api/client.
+      if (err instanceof ApiError && err.json && typeof err.json.error_code === 'string') {
+        const code = err.json.error_code
+        if (code === 'provider_disabled') {
+          addToast({
+            type: 'warning',
+            title: GEOCODE_STRINGS.backfillStartProviderOff,
+            message: GEOCODE_STRINGS.backfillStartProviderOffMsg,
+          })
+          return
+        }
+        if (code === 'already_running') {
+          // Adopt the already-running job so the progress bar reflects it.
+          const existingJobId = typeof err.json.job_id === 'string' ? err.json.job_id : ''
+          if (existingJobId) {
+            setActiveJobId(existingJobId)
+          }
+          addToast({
+            type: 'info',
+            title: GEOCODE_STRINGS.backfillAlreadyRunning,
+            message: GEOCODE_STRINGS.backfillAlreadyRunningMsg,
+          })
+          return
+        }
+      }
+      const message = err instanceof Error ? err.message : String(err)
+      addToast({
+        type: 'error',
+        title: GEOCODE_STRINGS.backfillStartError,
+        message,
+        duration: 0,
+      })
+    }
+  }
+
+  const gapLabel =
+    count === 0
+      ? GEOCODE_STRINGS.backfillCountZero
+      : count === 1
+        ? GEOCODE_STRINGS.backfillCountOne
+        : GEOCODE_STRINGS.backfillCountMany(count)
+
+  const current = trackedJob?.progress_current ?? 0
+  const total = trackedJob?.progress_total ?? 0
+  const percent = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0
+
+  return (
+    <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800/60 space-y-3">
+      <div>
+        <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+          {GEOCODE_STRINGS.backfillTitle}
+        </p>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+          {GEOCODE_STRINGS.backfillDescription}
+        </p>
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-sm tabular-nums text-neutral-700 dark:text-neutral-300">
+          {gapLabel}
+        </span>
+        <button
+          type="button"
+          onClick={handleStart}
+          disabled={running || count === 0 || gapQuery.isLoading}
+          className="px-3 py-1.5 text-sm font-medium rounded-lg text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:bg-neutral-300 dark:disabled:bg-neutral-700 disabled:text-neutral-500 dark:disabled:text-neutral-400 disabled:cursor-not-allowed transition-colors"
+        >
+          {running ? GEOCODE_STRINGS.backfillRunning : GEOCODE_STRINGS.backfillButton}
+        </button>
+      </div>
+
+      {running && total > 0 && (
+        <div className="space-y-1">
+          <div className="h-2 rounded-full bg-neutral-200 dark:bg-neutral-800 overflow-hidden">
+            <div
+              className="h-full bg-accent-DEFAULT transition-[width] duration-300 ease-out"
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 tabular-nums">
+            {GEOCODE_STRINGS.backfillProgress(current, total)}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 type SettingsTab = 'general' | 'import' | 'karte' | 'analysen' | 'ai' | 'konto' | 'admin'
 const VALID_TABS = new Set<SettingsTab>(['general', 'import', 'karte', 'analysen', 'ai', 'konto', 'admin'])
 
@@ -460,7 +937,7 @@ export default function SettingsPage() {
       )}
 
       {activeTab === 'analysen' && (
-        <div role="tabpanel" id="settings-panel-analysen" aria-labelledby="settings-tab-analysen">
+        <div role="tabpanel" id="settings-panel-analysen" aria-labelledby="settings-tab-analysen" className="space-y-8">
           <AutomatischeAnalysenSection />
         </div>
       )}
@@ -617,6 +1094,9 @@ export default function SettingsPage() {
 
       {/* Karteneinstellungen */}
       <HeatmapSettingsSection />
+
+      {/* Reverse-Geocoding-Fallback (externer Dienst) */}
+      <GeocodingFallbackSection />
 
       {/* Lokale Karten & Geodaten */}
       {isAdmin && <LocalMapAndGeoSection />}

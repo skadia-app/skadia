@@ -14,7 +14,7 @@ export async function apiClient<T>(path: string, options: RequestOptions = {}): 
     const refreshed = await refreshToken()
     if (refreshed) {
       const retry = await doFetch(path, options)
-      if (!retry.ok) throw new ApiError(retry.status, await retry.text())
+      if (!retry.ok) throw await apiErrorFromResponse(retry)
       return retry.json() as Promise<T>
     }
     clearToken()
@@ -23,7 +23,7 @@ export async function apiClient<T>(path: string, options: RequestOptions = {}): 
   }
 
   if (!response.ok) {
-    throw new ApiError(response.status, await response.text())
+    throw await apiErrorFromResponse(response)
   }
 
   if (response.status === 204) return null as unknown as T
@@ -89,7 +89,7 @@ export function apiUploadWithProgress<T>(
         return
       }
       if (xhr.status < 200 || xhr.status >= 300) {
-        reject(new ApiError(xhr.status, xhr.responseText))
+        reject(apiErrorFromXhr(xhr))
         return
       }
       try {
@@ -129,7 +129,7 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
         credentials: 'include',
         body: formData,
       })
-      if (!retry.ok) throw new ApiError(retry.status, await retry.text())
+      if (!retry.ok) throw await apiErrorFromResponse(retry)
       return retry.json() as Promise<T>
     }
     clearToken()
@@ -137,18 +137,66 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
     throw new ApiError(401, 'Unauthorized')
   }
 
-  if (!res.ok) throw new ApiError(res.status, await res.text())
+  if (!res.ok) throw await apiErrorFromResponse(res)
   return res.json() as Promise<T>
 }
 
+/**
+ * ApiError carries the HTTP status plus the server-provided error payload.
+ *
+ * `body` is the raw response text (always present, possibly empty). When the
+ * server answered with `content-type: application/json` and the payload
+ * parses, `json` holds the decoded object — callers should discriminate on
+ * `json?.error_code` to react to well-known, i18n-stable conditions without
+ * matching brittle regex on `message`.
+ *
+ * Shape of structured JSON bodies produced by the Go backend (non-exhaustive):
+ *   { error_code: 'provider_disabled', message: string }
+ *   { error_code: 'already_running',   job_id: string, message?: string }
+ */
 export class ApiError extends Error {
   constructor(
-    public status: number,
-    public body: string,
+    public readonly status: number,
+    public readonly body: string,
+    public readonly json?: Record<string, unknown>,
   ) {
     super(`API error ${status}: ${body}`)
     this.name = 'ApiError'
   }
+}
+
+/** Build an ApiError from a non-ok fetch Response, parsing JSON when possible. */
+async function apiErrorFromResponse(res: Response): Promise<ApiError> {
+  const text = await res.text()
+  const ct = res.headers.get('content-type') ?? ''
+  if (ct.includes('application/json') && text.length > 0) {
+    try {
+      const parsed = JSON.parse(text) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return new ApiError(res.status, text, parsed as Record<string, unknown>)
+      }
+    } catch {
+      /* fall through to raw-text ApiError */
+    }
+  }
+  return new ApiError(res.status, text)
+}
+
+/** Build an ApiError from an XHR response, parsing JSON when possible. */
+function apiErrorFromXhr(xhr: XMLHttpRequest): ApiError {
+  const text = xhr.responseText ?? ''
+  const ct = xhr.getResponseHeader('content-type') ?? ''
+  if (ct.includes('application/json') && text.length > 0) {
+    try {
+      const parsed = JSON.parse(text) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return new ApiError(xhr.status, text, parsed as Record<string, unknown>)
+      }
+    } catch {
+      /* fall through to raw-text ApiError */
+    }
+  }
+  return new ApiError(xhr.status, text)
 }
 
 /** Parse filename from Content-Disposition header. */

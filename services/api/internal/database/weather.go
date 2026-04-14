@@ -80,19 +80,37 @@ func (db *DB) SyncWeatherTagsToActivityTags(ctx context.Context, activityID, use
 		}
 	}
 
-	// Sync TEXT[] cache
+	// Sync TEXT[] cache — only weather system tags. Previous implementation
+	// rebuilt the entire tags array from the junction table, which also
+	// re-injected stale non-weather tags (e.g. border-crossing rule tags
+	// that had been assigned in older enrichment runs and survived in the
+	// junction table despite being absent from the denormalized array).
+	// Now we touch only the weather tags: remove weather names not in the
+	// new set, then append the new ones if missing.
+	_, err = db.Pool.Exec(ctx,
+		`UPDATE activities SET tags = COALESCE(ARRAY(
+		     SELECT t FROM unnest(COALESCE(tags, '{}'::text[])) AS t
+		     WHERE t NOT IN (
+		         SELECT name FROM tags
+		         WHERE user_id = $2 AND is_system = true AND category = 'weather'
+		           AND name != ALL($3::text[])
+		     )
+		 ), '{}'::text[])
+		 WHERE id = $1`,
+		activityID, userID, systemTagNames)
+	if err != nil {
+		return fmt.Errorf("sync weather tags: remove stale from cache: %w", err)
+	}
 	_, err = db.Pool.Exec(ctx,
 		`UPDATE activities a
-		 SET tags = COALESCE((
-		     SELECT array_agg(DISTINCT t.name ORDER BY t.name)
-		     FROM activity_tags at2
-		     JOIN tags t ON t.id = at2.tag_id
-		     WHERE at2.activity_id = a.id
-		 ), '{}')
+		 SET tags = COALESCE(a.tags, '{}'::text[]) || ARRAY(
+		     SELECT n FROM unnest($2::text[]) AS n
+		     WHERE NOT (n = ANY(COALESCE(a.tags, '{}'::text[])))
+		 )
 		 WHERE a.id = $1`,
-		activityID)
+		activityID, systemTagNames)
 	if err != nil {
-		return fmt.Errorf("sync weather tags: update cache: %w", err)
+		return fmt.Errorf("sync weather tags: append new to cache: %w", err)
 	}
 
 	// Update activity_count for affected weather tags

@@ -36,10 +36,13 @@ func (db *DB) InsertBackgroundJob(ctx context.Context, userID, jobType string, e
 }
 
 // InsertBackgroundJobGuarded inserts a new running job only if no job of the same
-// type is already running. It is race-free under READ COMMITTED because
-// idx_bg_jobs_one_running (partial unique index on job_type WHERE status='running')
-// causes the second concurrent INSERT to fail with a unique_violation (23505).
-// Returns ("", false, nil) when a job is already running.
+// type is already running FOR THE SAME USER. The guard is per-user (not global)
+// since migration 000285 scoped idx_bg_jobs_one_running to (user_id, job_type)
+// WHERE status='running'. It is race-free under READ COMMITTED because the
+// partial unique index causes the second concurrent INSERT from the same user
+// to fail with a unique_violation (23505); different users can still run
+// same-type jobs in parallel.
+// Returns ("", false, nil) when a job is already running for this user.
 // Returns (jobID, true, nil) when the job was successfully inserted.
 func (db *DB) InsertBackgroundJobGuarded(ctx context.Context, userID, jobType string, entityID, entityName *string, total int64) (string, bool, error) {
 	id := uuid.New().String()
@@ -162,6 +165,7 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 		"fusion_queue_compute":     "Fusionskandidaten berechnen",
 		"recalc_best_efforts":      "Bestleistungen neu berechnen",
 		"recompute_all_tss":        "TSS für alle Aktivitäten neu berechnen",
+		"geocoding_backfill":       "Ortsnamen nachtragen",
 	}
 	label := labels[jobType]
 	if label == "" {

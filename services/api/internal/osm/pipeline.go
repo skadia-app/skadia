@@ -88,6 +88,125 @@ var categoryToTable = map[string][]string{
 	// "ferries" intentionally omitted — uses targeted DELETE, not TRUNCATE
 }
 
+// osmWaysRestoreStmts: Migrations-Spalten und Constraints auf osm_ways die nach
+// osm2pgsql --create verloren gehen. Gated auf categories ∈ {ways, ferries, climbing}.
+// DELETE + UNIQUE INDEX sind KEINE ADD COLUMN Statements — deshalb separat behandelt,
+// damit sie NICHT gegen leere oder nicht-existierende Tabellen feuern.
+//
+// Concurrency note (DELETE vor CREATE UNIQUE INDEX):
+// Dieser Block läuft seriell im selben Goroutine-Kontext NACH `osm2pgsql` exit
+// (siehe Pipeline.Run, Phase „Schema-Restore"). Während der Schema-Restore-Phase
+// existiert kein weiterer Writer auf osm_ways: osm2pgsql ist der einzige Importer
+// und hat bereits terminiert, Enrichment/Coverage/Tile-Builds starten erst NACH
+// Run() returns (siehe handler/osm_import.go). Parallele OSM-Imports werden über
+// background_jobs verhindert. Daher sind DELETE (Dedup) und CREATE UNIQUE INDEX
+// race-frei — kein concurrent-writer kann zwischen beiden ein duplicates osm_id
+// einfügen. Kein TRANSACTION-Wrap nötig.
+var osmWaysRestoreStmts = []string{
+	// Routing-Spalten (ursprünglich aus 000129 osm_trails, umbenannt in 000151)
+	"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS length_m DOUBLE PRECISION",
+	"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS avg_slope DOUBLE PRECISION",
+	"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS is_lift BOOLEAN DEFAULT FALSE",
+	// Enrichment-Spalten (000157)
+	"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS forest_pct SMALLINT",
+	"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS noise_score SMALLINT",
+	"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS traffic_class SMALLINT",
+	"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS protected_area SMALLINT",
+	"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS landuse_class SMALLINT",
+	"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS is_cycleroute BOOLEAN DEFAULT false",
+	"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS is_hikeroute BOOLEAN DEFAULT false",
+	"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS cycleroute_network TEXT",
+	"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS hikeroute_network TEXT",
+	// Coverage-Spalten (000183)
+	"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS urbanization SMALLINT",
+	"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS river_proximity SMALLINT",
+	// W6: Dedup + unique osm_id constraint (000195) — lost after --create.
+	// Dedup first: Lua can produce same osm_id with highway+ferry for one way.
+	`DELETE FROM osm_ways a USING osm_ways b WHERE a.osm_id = b.osm_id AND a.way_id < b.way_id`,
+	"CREATE UNIQUE INDEX IF NOT EXISTS idx_osm_ways_osm_id ON osm_ways (osm_id)",
+}
+
+// tableRestoreStmts: Pro osm_*-Tabelle die Liste der ADD COLUMN IF NOT EXISTS
+// Statements, die nach osm2pgsql --create erneut ausgeführt werden müssen.
+// Nur Spalten auflisten, die NICHT im Lua-Schema (skadia-osm.lua) definiert sind.
+// Gated via categoryToRestoreTables unten — Statements laufen nur für Tabellen,
+// deren Kategorie in config.Categories enthalten ist.
+var tableRestoreStmts = map[string][]string{
+	// osm_boundaries — country_code aus 000012 (ursprüngliche CREATE TABLE),
+	// source_region aus 000164 (Multi-Region).
+	"osm_boundaries": {
+		"ALTER TABLE osm_boundaries ADD COLUMN IF NOT EXISTS country_code TEXT",
+		"ALTER TABLE osm_boundaries ADD COLUMN IF NOT EXISTS source_region TEXT",
+	},
+	// Alle anderen Tabellen: nur source_region aus 000164.
+	"osm_pois":        {"ALTER TABLE osm_pois ADD COLUMN IF NOT EXISTS source_region TEXT"},
+	"osm_forests":     {"ALTER TABLE osm_forests ADD COLUMN IF NOT EXISTS source_region TEXT"},
+	"osm_landuse":     {"ALTER TABLE osm_landuse ADD COLUMN IF NOT EXISTS source_region TEXT"},
+	"osm_railways":    {"ALTER TABLE osm_railways ADD COLUMN IF NOT EXISTS source_region TEXT"},
+	"osm_waterways":   {"ALTER TABLE osm_waterways ADD COLUMN IF NOT EXISTS source_region TEXT"},
+	"osm_waters":      {"ALTER TABLE osm_waters ADD COLUMN IF NOT EXISTS source_region TEXT"},
+	"osm_glaciers":    {"ALTER TABLE osm_glaciers ADD COLUMN IF NOT EXISTS source_region TEXT"},
+	"osm_wetlands":    {"ALTER TABLE osm_wetlands ADD COLUMN IF NOT EXISTS source_region TEXT"},
+	"osm_pistes":      {"ALTER TABLE osm_pistes ADD COLUMN IF NOT EXISTS source_region TEXT"},
+	"osm_piste_areas": {"ALTER TABLE osm_piste_areas ADD COLUMN IF NOT EXISTS source_region TEXT"},
+	"osm_lifts":       {"ALTER TABLE osm_lifts ADD COLUMN IF NOT EXISTS source_region TEXT"},
+	// osm_routes: Multi-Region-Tracking läuft über die Junction-Table osm_route_regions
+	// (Mig 000164). osm_routes hat daher KEINE source_region-Spalte — deshalb absichtlich
+	// kein Eintrag hier. ACHTUNG: Sollte künftig eine Migration source_region (oder eine
+	// andere nicht-Lua-Spalte) auf osm_routes hinzufügen, MUSS hier ein Eintrag ergänzt
+	// UND "routes" aus restoreExemptCategories entfernt werden, sonst verschwinden die
+	// Spalten beim nächsten osm2pgsql --create.
+	// osm_route_way_members: role/source aus 000158 sind bereits im aktuellen Lua-Schema.
+	// osm_ways: siehe osmWaysRestoreStmts (Spezialfall mit DELETE + UNIQUE INDEX).
+}
+
+// categoryToRestoreTables mappt Import-Kategorie → osm_*-Tabellen für Schema-Restore.
+// Spiegelt categoryToTable + categoryToPOI (POI-Kategorien → osm_pois).
+// osm_ways-Kategorien (ways/ferries/climbing) sind NICHT enthalten — osm_ways wird
+// separat über osmWaysRestoreStmts behandelt.
+var categoryToRestoreTables = map[string][]string{
+	// POI-tragende Kategorien → osm_pois
+	"summits":        {"osm_pois"},
+	"passes":         {"osm_pois"},
+	"settlements":    {"osm_pois"},
+	"gastronomy":     {"osm_pois"},
+	"accommodation":  {"osm_pois"},
+	"infrastructure": {"osm_pois"},
+	"transport":      {"osm_pois"},
+	"viewpoints":     {"osm_pois"},
+	"shops":          {"osm_pois"},
+	"sport":          {"osm_pois"},
+	"camping":        {"osm_pois"},
+	"information":    {"osm_pois"},
+	"landmarks":      {"osm_pois"},
+	"religion":       {"osm_pois"},
+	"wind_turbines":  {"osm_pois"},
+	// Eigenständige Tabellen (spiegelt categoryToTable)
+	"waterways":  {"osm_waterways", "osm_waters"},
+	"forests":    {"osm_forests"},
+	"glaciers":   {"osm_glaciers"},
+	"wetlands":   {"osm_wetlands"},
+	"boundaries": {"osm_boundaries"},
+	"pistes":     {"osm_pistes", "osm_piste_areas"},
+	"lifts":      {"osm_lifts"},
+	"landuse":    {"osm_landuse"},
+	"railways":   {"osm_railways"},
+	// "routes" intentionally omitted — Multi-Region via Junction-Table, keine Restore-Spalten.
+}
+
+// restoreExemptCategories sind Kategorien, die absichtlich kein Mapping in
+// categoryToRestoreTables haben: ways/ferries/climbing werden über
+// osmWaysRestoreStmts behandelt (Spezialfall mit DELETE + UNIQUE INDEX),
+// routes hat keine Restore-Spalten (Multi-Region via osm_route_regions
+// Junction-Table, Mig 000164). Eine Kategorie, die weder hier noch in
+// categoryToRestoreTables auftaucht, löst in Pipeline.Run eine Warnung aus.
+var restoreExemptCategories = map[string]bool{
+	"ways":     true,
+	"ferries":  true,
+	"climbing": true,
+	"routes":   true,
+}
+
 // Env-Vars für Lua-Script (eine Kategorie kann mehrere Lua-Flags setzen)
 var categoryEnvVars = map[string][]string{
 	"summits":        {"SKADIA_IMPORT_PEAKS"},
@@ -397,31 +516,43 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 	os.Remove(flatNodesPath)
 
 	// === Schema-Restore: osm2pgsql --create löscht alle Migrations-Spalten ===
-	// osm_ways entstand als Umbenennung von osm_trails (000151). Nach jedem --create
-	// rekonstruiert osm2pgsql nur das Lua-Schema — Routing- und Enrichment-Spalten fehlen.
+	// osm2pgsql baut public.osm_* nur aus dem Lua-Schema neu. Alle Spalten die per
+	// Migration hinzugefügt wurden (source_region, country_code, Routing, Enrichment,
+	// Coverage) fehlen danach. ADD COLUMN IF NOT EXISTS ist idempotent → safe.
+	// Gated: nur Tabellen deren Kategorie in `categories` ausgewählt wurde.
+
+	// osm_ways: Spezialfall mit zusätzlicher Dedup + UNIQUE INDEX.
+	// osm_ways entstand als Umbenennung von osm_trails (000151).
 	if slices.Contains(categories, "ways") || slices.Contains(categories, "ferries") || slices.Contains(categories, "climbing") {
-		for _, stmt := range []string{
-			// Routing-Spalten (ursprünglich aus 000129 osm_trails)
-			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS length_m DOUBLE PRECISION",
-			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS avg_slope DOUBLE PRECISION",
-			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS is_lift BOOLEAN DEFAULT FALSE",
-			// Enrichment-Spalten (000157)
-			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS forest_pct SMALLINT",
-			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS noise_score SMALLINT",
-			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS traffic_class SMALLINT",
-			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS protected_area SMALLINT",
-			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS landuse_class SMALLINT",
-			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS is_cycleroute BOOLEAN DEFAULT false",
-			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS is_hikeroute BOOLEAN DEFAULT false",
-			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS cycleroute_network TEXT",
-			"ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS hikeroute_network TEXT",
-			// W6: Dedup + unique osm_id constraint (000195) — lost after --create.
-			// Dedup first: Lua can produce same osm_id with highway+ferry for one way.
-			`DELETE FROM osm_ways a USING osm_ways b WHERE a.osm_id = b.osm_id AND a.way_id < b.way_id`,
-			"CREATE UNIQUE INDEX IF NOT EXISTS idx_osm_ways_osm_id ON osm_ways (osm_id)",
-		} {
+		for _, stmt := range osmWaysRestoreStmts {
 			if _, err := p.Pool.Exec(ctx, stmt); err != nil {
-				slog.Warn("osm import: schema restore failed", "error", err)
+				slog.Warn("osm import: schema restore failed", "table", "osm_ways", "error", err)
+			}
+		}
+	}
+
+	// Alle anderen osm_*-Tabellen: Migration-Spalten aus `tableRestoreStmts` wiederherstellen.
+	// Doppelte Tabellen-Restores vermeiden (z.B. viele POI-Kategorien → osm_pois).
+	restoredTables := make(map[string]bool, len(tableRestoreStmts))
+	for _, cat := range categories {
+		tables := categoryToRestoreTables[cat]
+		if tables == nil && !restoreExemptCategories[cat] {
+			// Unbekannte oder neue Kategorie ohne Restore-Mapping. Silent-skip wäre
+			// gefährlich: Migrations-Spalten (source_region etc.) gingen nach dem
+			// nächsten osm2pgsql --create verloren. Loud warning damit ein zukünftiger
+			// Kategorie-Add nicht vergisst das Mapping zu pflegen.
+			slog.Warn("osm import: no schema-restore mapping for category", "category", cat)
+			continue
+		}
+		for _, table := range tables {
+			if restoredTables[table] {
+				continue
+			}
+			restoredTables[table] = true
+			for _, stmt := range tableRestoreStmts[table] {
+				if _, err := p.Pool.Exec(ctx, stmt); err != nil {
+					slog.Warn("osm import: schema restore failed", "table", table, "error", err)
+				}
 			}
 		}
 	}

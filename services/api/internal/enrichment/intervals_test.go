@@ -218,3 +218,59 @@ func TestIntervalSmoothWindow_Constant(t *testing.T) {
 //
 //go:fix inline
 func intPtr(v int) *int { return new(v) }
+
+// TestClassifySegments_AvgHRRounding verifies that classifySegments now rounds
+// the HR mean instead of truncating via int-division (#62).
+//
+// Scenario: 3 HR samples {150, 151, 151} — old code did (150+151+151)/3 = 150
+// via int division (truncation), new code does round(452/3) = round(150.666…)
+// = 151. The regression would fire with any triplet whose sum is not divisible
+// by the count and whose fractional mean is ≥ 0.5.
+func TestClassifySegments_AvgHRRounding(t *testing.T) {
+	now := time.Now()
+	sec := func(n int) time.Time { return now.Add(time.Duration(n) * time.Second) }
+
+	// HR values chosen so the mean is 150.666… — truncation yields 150, rounding yields 151.
+	hr1, hr2, hr3 := 150, 151, 151
+	// signal values are irrelevant for HR aggregation — only used for intensity classification.
+	signal := []float64{100, 100, 100}
+	pts := []intervalStream{
+		{T: sec(0), HeartRate: &hr1},
+		{T: sec(1), HeartRate: &hr2},
+		{T: sec(2), HeartRate: &hr3},
+	}
+
+	segs := []intervalSegment{
+		{startIdx: 0, endIdx: 2, startT: pts[0].T, endT: pts[2].T},
+	}
+	classified := classifySegments(segs, signal, pts)
+	if len(classified) != 1 {
+		t.Fatalf("got %d segments, want 1", len(classified))
+	}
+	if classified[0].avgHR == nil {
+		t.Fatal("avgHR is nil")
+	}
+	if got := *classified[0].avgHR; got != 151 {
+		t.Errorf("avgHR = %d, want 151 (rounded) — regression to int-division truncation", got)
+	}
+}
+
+// TestLegacyIntervalTagNames_ContainsBoth verifies that retractIntervalTag
+// will clean up both the canonical and the legacy "Intervall-Training" name
+// (#23). This is a pure constant check — the actual DB retraction logic is
+// covered by integration tests when TEST_DATABASE_URL is set.
+func TestLegacyIntervalTagNames_ContainsBoth(t *testing.T) {
+	want := map[string]bool{
+		"Intervalltraining":  true,
+		"Intervall-Training": true,
+	}
+	got := make(map[string]bool, len(legacyIntervalTagNames))
+	for _, n := range legacyIntervalTagNames {
+		got[n] = true
+	}
+	for name := range want {
+		if !got[name] {
+			t.Errorf("legacyIntervalTagNames missing %q", name)
+		}
+	}
+}

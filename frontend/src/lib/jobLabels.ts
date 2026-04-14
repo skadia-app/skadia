@@ -23,6 +23,7 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   dem_import:              'Höhenmodell importieren',
   apply_rules:             'Regeln anwenden',
   weather_backfill:        'Wetter-Daten nachfüllen',
+  geocoding_backfill:      'Ortsnamen nachtragen',
   tile_build:              'Routing-Tiles erstellen',
   brouter_segment_build:   'BRouter-Segmente erstellen',
   brouter_segment_download: 'BRouter-Segmente herunterladen',
