@@ -421,10 +421,23 @@ func (h *Handler) AdminSetUserAdmin(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "cannot_demote_self"})
 		return
 	}
+
+	tx, err := h.DB.Pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("admin set-admin: begin tx failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	defer tx.Rollback(r.Context())
+
 	if !req.IsAdmin {
+		// SELECT … FOR UPDATE locks the other admin rows, serializing concurrent
+		// demotions so the second request sees the first's committed result.
 		var count int
-		if err := h.DB.Pool.QueryRow(r.Context(),
-			`SELECT count(*) FROM users WHERE is_admin = true AND is_active = true AND id != $1 AND deleted_at IS NULL`,
+		if err := tx.QueryRow(r.Context(),
+			`SELECT count(*) FROM users
+			 WHERE is_admin = true AND is_active = true AND id != $1 AND deleted_at IS NULL
+			 FOR UPDATE`,
 			targetID).Scan(&count); err != nil {
 			slog.Error("admin set-admin: count admins failed", "error", err)
 			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
@@ -435,12 +448,21 @@ func (h *Handler) AdminSetUserAdmin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, err := h.DB.Pool.Exec(r.Context(),
+
+	if _, err := tx.Exec(r.Context(),
 		`UPDATE users SET is_admin = $2 WHERE id = $1`, targetID, req.IsAdmin); err != nil {
 		slog.Error("admin set-admin failed", "error", err, "target_user_id", targetID)
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("admin set-admin: commit failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	// Token revocation and audit log run after a successful commit.
 	h.DB.RevokeAllUserTokens(r.Context(), targetID)
 	event := "admin_promote_user"
 	if !req.IsAdmin {
@@ -482,10 +504,21 @@ func (h *Handler) AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "confirmation_mismatch"})
 		return
 	}
+	tx, err := h.DB.Pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("admin delete user: begin tx failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	defer tx.Rollback(r.Context())
+
 	if target.IsAdmin {
+		// SELECT … FOR UPDATE serializes concurrent deletions of admin accounts.
 		var count int
-		if err := h.DB.Pool.QueryRow(r.Context(),
-			`SELECT count(*) FROM users WHERE is_admin = true AND is_active = true AND id != $1 AND deleted_at IS NULL`,
+		if err := tx.QueryRow(r.Context(),
+			`SELECT count(*) FROM users
+			 WHERE is_admin = true AND is_active = true AND id != $1 AND deleted_at IS NULL
+			 FOR UPDATE`,
 			targetID).Scan(&count); err != nil {
 			slog.Error("admin delete user: count admins failed", "error", err)
 			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
@@ -496,12 +529,21 @@ func (h *Handler) AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, err := h.DB.Pool.Exec(r.Context(),
+
+	if _, err := tx.Exec(r.Context(),
 		`UPDATE users SET deleted_at = now(), is_active = false WHERE id = $1`, targetID); err != nil {
 		slog.Error("admin delete user failed", "error", err, "target_user_id", targetID)
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("admin delete user: commit failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	// Token revocation and audit log run after a successful commit.
 	h.DB.RevokeAllUserTokens(r.Context(), targetID)
 	go h.DB.LogAuthEvent(h.shutdownCtx, adminID, "admin_delete_user", middleware.ClientIP(r), r.UserAgent(),
 		map[string]string{"target_user_id": targetID, "target_username": target.Username})
