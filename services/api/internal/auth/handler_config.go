@@ -10,10 +10,10 @@ import (
 // AuthConfig handles GET /auth/config (public, no authentication required).
 func (h *Handler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 	providers := make([]string, 0, 2)
-	if h.Settings.Get("social.strava.client_id").Value != "" {
+	if h.Settings.Get("social.strava_client_id").Value != "" {
 		providers = append(providers, "strava")
 	}
-	if h.Settings.Get("social.google.client_id").Value != "" {
+	if h.Settings.Get("social.google_client_id").Value != "" {
 		providers = append(providers, "google")
 	}
 

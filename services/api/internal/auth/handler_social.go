@@ -28,8 +28,8 @@ import (
 
 func (h *Handler) stravaOAuthConfig() *oauth2.Config {
 	return &oauth2.Config{
-		ClientID:     h.Settings.Get("social.strava.client_id").Value,
-		ClientSecret: h.Settings.Get("social.strava.client_secret").Value,
+		ClientID:     h.Settings.Get("social.strava_client_id").Value,
+		ClientSecret: h.Settings.Get("social.strava_client_secret").Value,
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  "https://www.strava.com/oauth/authorize",
 			TokenURL: "https://www.strava.com/oauth/token",
@@ -41,8 +41,8 @@ func (h *Handler) stravaOAuthConfig() *oauth2.Config {
 
 func (h *Handler) googleOAuthConfig() *oauth2.Config {
 	return &oauth2.Config{
-		ClientID:     h.Settings.Get("social.google.client_id").Value,
-		ClientSecret: h.Settings.Get("social.google.client_secret").Value,
+		ClientID:     h.Settings.Get("social.google_client_id").Value,
+		ClientSecret: h.Settings.Get("social.google_client_secret").Value,
 		Endpoint:     google.Endpoint,
 		RedirectURL:  h.Settings.Get("app.url").Value + "/api/v1/auth/social/google/callback",
 		Scopes:       []string{"openid", "email", "profile"},
@@ -59,13 +59,13 @@ func (h *Handler) SocialLogin(w http.ResponseWriter, r *http.Request) {
 	var oauthCfg *oauth2.Config
 	switch provider {
 	case "strava":
-		if h.Settings.Get("social.strava.client_id").Value == "" {
+		if h.Settings.Get("social.strava_client_id").Value == "" {
 			httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "provider not configured"})
 			return
 		}
 		oauthCfg = h.stravaOAuthConfig()
 	case "google":
-		if h.Settings.Get("social.google.client_id").Value == "" {
+		if h.Settings.Get("social.google_client_id").Value == "" {
 			httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "provider not configured"})
 			return
 		}
