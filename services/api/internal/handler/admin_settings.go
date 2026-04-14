@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -86,19 +87,25 @@ func (h *Handler) AdminPutSettings(w http.ResponseWriter, r *http.Request) {
 		delete(updates, "timescale.compression")
 	}
 
+	// F25: Skip compression job when the value is not actually changing.
+	if compressionChange != nil {
+		currentCompression := h.Settings.Get("timescale.compression").Value
+		newVal := ""
+		if compressionChange != nil {
+			newVal = *compressionChange
+		}
+		if newVal == currentCompression {
+			compressionChange = nil // no change — skip background job
+		}
+	}
+
 	changed, err := h.Settings.Put(r.Context(), updates, adminID)
 	if err != nil {
-		msg := err.Error()
 		// Validation/policy errors (unknown key, locked field, cross-field constraint,
-		// value format) contain user-readable detail and should be returned as 400.
-		// DB/crypto errors contain internal detail — return 500 with a generic message.
-		isClientError := strings.Contains(msg, "unknown settings key") ||
-			strings.Contains(msg, "is locked by environment variable") ||
-			strings.Contains(msg, "requires") ||
-			strings.Contains(msg, "must be") ||
-			strings.Contains(msg, "cannot store")
-		if isClientError {
-			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": msg})
+		// value format) are wrapped with settings.ErrValidation and map to HTTP 400.
+		// DB/crypto errors are internal — return 500 with a generic message.
+		if errors.Is(err, settings.ErrValidation) {
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
 		slog.Error("admin put settings failed", "error", err, "admin_id", adminID)
@@ -341,6 +348,14 @@ func (h *Handler) AdminToggleUserHotfolder(w http.ResponseWriter, r *http.Reques
 	mode := h.Settings.Get("hotfolder.mode").Value
 	if mode == "disabled" {
 		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "hotfolder_disabled"})
+		return
+	}
+
+	// F7: WatcherManager must be available before we commit a DB change the
+	// watcher daemon cannot honour. Fail loudly instead of a silent no-op.
+	if h.WatcherManager == nil {
+		slog.Error("admin toggle hotfolder: WatcherManager not configured")
+		httputil.WriteJSONNoCache(w, http.StatusServiceUnavailable, map[string]string{"error": "hotfolder_unavailable"})
 		return
 	}
 

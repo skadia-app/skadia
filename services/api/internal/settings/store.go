@@ -19,6 +19,10 @@ import (
 // when it received "***" for an encrypted field and does not want to change it.
 const sentinelMasked = "***"
 
+// ErrValidation indicates a client-side validation error (invalid input,
+// locked field, unknown key, cross-field constraint). Should map to HTTP 400.
+var ErrValidation = errors.New("settings validation error")
+
 // CachedSetting holds the resolved value and metadata for a single key.
 type CachedSetting struct {
 	Value     string `json:"value"`
@@ -232,7 +236,7 @@ func (s *SettingsStore) Put(ctx context.Context, updates map[string]*string, adm
 	for key, valPtr := range updates {
 		kd, ok := KeysByKey[key]
 		if !ok {
-			return nil, fmt.Errorf("unknown settings key %q", key)
+			return nil, fmt.Errorf("unknown settings key %q: %w", key, ErrValidation)
 		}
 
 		// Locked (env-overridden) fields cannot be changed via the API.
@@ -240,7 +244,7 @@ func (s *SettingsStore) Put(ctx context.Context, updates map[string]*string, adm
 		locked := s.cache[key].Locked
 		s.mu.RUnlock()
 		if locked {
-			return nil, fmt.Errorf("setting %q is locked by environment variable %q and cannot be changed via the API", key, kd.EnvVar)
+			return nil, fmt.Errorf("setting %q is locked by environment variable %q and cannot be changed via the API: %w", key, kd.EnvVar, ErrValidation)
 		}
 
 		if valPtr == nil {
@@ -260,13 +264,13 @@ func (s *SettingsStore) Put(ctx context.Context, updates map[string]*string, adm
 		// Per-key validation.
 		if kd.Validate != nil {
 			if err := kd.Validate(v); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 			}
 		}
 
 		// Encryption requirement check.
 		if kd.Encrypted && s.encryptionKey == "" {
-			return nil, fmt.Errorf("cannot store encrypted setting %q: SETTINGS_ENCRYPTION_KEY is not configured", key)
+			return nil, fmt.Errorf("cannot store encrypted setting %q: SETTINGS_ENCRYPTION_KEY is not configured: %w", key, ErrValidation)
 		}
 
 		effective[key] = v
@@ -275,20 +279,20 @@ func (s *SettingsStore) Put(ctx context.Context, updates map[string]*string, adm
 	// --- Phase 2: cross-field validation ---
 
 	if effective["registration.mode"] == "open" && effective["smtp.host"] == "" {
-		return nil, errors.New("registration.mode=open requires smtp.host to be configured")
+		return nil, fmt.Errorf("registration.mode=open requires smtp.host to be configured: %w", ErrValidation)
 	}
 	if effective["library.sync_auto_import"] == "true" && effective["library.sync_enabled"] != "true" {
-		return nil, errors.New("library.sync_auto_import=true requires library.sync_enabled=true")
+		return nil, fmt.Errorf("library.sync_auto_import=true requires library.sync_enabled=true: %w", ErrValidation)
 	}
 	if effective["hotfolder.mode"] != "disabled" && os.Getenv("HOTFOLDER_PATH") == "" {
-		return nil, errors.New("hotfolder.mode requires the HOTFOLDER_PATH environment variable to be set")
+		return nil, fmt.Errorf("hotfolder.mode requires the HOTFOLDER_PATH environment variable to be set: %w", ErrValidation)
 	}
 	if s.storageBackend == "s3" {
 		if v, ok := updates["library.sync_enabled"]; ok && v != nil && *v == "true" {
-			return nil, errors.New("library.sync_enabled requires local storage backend (current: s3)")
+			return nil, fmt.Errorf("library.sync_enabled requires local storage backend (current: s3): %w", ErrValidation)
 		}
 		if v, ok := updates["library.sync_auto_import"]; ok && v != nil && *v == "true" {
-			return nil, errors.New("library.sync_auto_import requires local storage backend (current: s3)")
+			return nil, fmt.Errorf("library.sync_auto_import requires local storage backend (current: s3): %w", ErrValidation)
 		}
 	}
 
