@@ -25,13 +25,14 @@ import (
 
 // storageDashboardUserRow holds per-user storage statistics.
 type storageDashboardUserRow struct {
-	UserID           string `json:"user_id"`
-	Username         string `json:"username"`
-	Email            string `json:"email"`
-	LibraryDir       string `json:"library_dir"`
-	DiskUsageBytes   int64  `json:"disk_usage_bytes"`
-	FileCount        int64  `json:"file_count"`
-	ArchiveSizeBytes int64  `json:"archive_size_bytes"`
+	UserID           string     `json:"user_id"`
+	Username         string     `json:"username"`
+	Email            string     `json:"email"`
+	LibraryDir       string     `json:"library_dir"`
+	DiskUsageBytes   int64      `json:"disk_usage_bytes"`
+	FileCount        int64      `json:"file_count"`
+	ArchiveSizeBytes int64      `json:"archive_size_bytes"`
+	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
 }
 
 // storageDashboardResponse is the JSON shape for GET /api/v1/admin/storage.
@@ -64,10 +65,11 @@ func (h *Handler) StorageDashboard(w http.ResponseWriter, r *http.Request) {
 			COALESCE(u.library_dir_name, u.id::text) AS library_dir,
 			COALESCE(SUM(uf.size_bytes) FILTER (WHERE uf.status = 'active'),  0) AS disk_usage_bytes,
 			COUNT(uf.id)                              FILTER (WHERE uf.status = 'active')   AS file_count,
-			COALESCE(SUM(uf.size_bytes) FILTER (WHERE uf.status = 'archived'), 0) AS archive_size_bytes
+			COALESCE(SUM(uf.size_bytes) FILTER (WHERE uf.status = 'archived'), 0) AS archive_size_bytes,
+			u.deleted_at
 		FROM users u
 		LEFT JOIN user_files uf ON uf.user_id = u.id
-		GROUP BY u.id, u.username, u.email, u.library_dir_name
+		GROUP BY u.id, u.username, u.email, u.library_dir_name, u.deleted_at
 		ORDER BY u.id
 	`)
 	if err != nil {
@@ -80,7 +82,7 @@ func (h *Handler) StorageDashboard(w http.ResponseWriter, r *http.Request) {
 	users := make([]storageDashboardUserRow, 0)
 	for userRows.Next() {
 		var row storageDashboardUserRow
-		if err := userRows.Scan(&row.UserID, &row.Username, &row.Email, &row.LibraryDir, &row.DiskUsageBytes, &row.FileCount, &row.ArchiveSizeBytes); err != nil {
+		if err := userRows.Scan(&row.UserID, &row.Username, &row.Email, &row.LibraryDir, &row.DiskUsageBytes, &row.FileCount, &row.ArchiveSizeBytes, &row.DeletedAt); err != nil {
 			slog.Error("admin/storage: scan user row", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "could not scan user row", r.URL.Path)
 			return

@@ -46,6 +46,7 @@ const LABELS = {
     noData: 'Keine Daten',
   },
   archiveWarning: 'Archiv > 1 GB',
+  deletedBadge: 'Gelöscht',
   actions: {
     heading: 'Verwaltungsaktionen',
     reconcile: 'Abgleich starten',
@@ -77,6 +78,7 @@ interface StorageUserRow {
   disk_usage_bytes: number
   file_count: number
   archive_size_bytes: number
+  deleted_at?: string | null
 }
 
 interface StorageDashboardData {
@@ -377,8 +379,15 @@ export default function AdminStorageDashboard() {
                     >
                       <td className="px-4 py-2.5 max-w-[240px]">
                         <div className="flex flex-col gap-0.5 min-w-0">
-                          <span className="font-medium text-sm text-neutral-900 dark:text-neutral-100 truncate">
-                            {user.username}
+                          <span className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-medium text-sm text-neutral-900 dark:text-neutral-100 truncate">
+                              {user.username}
+                            </span>
+                            {user.deleted_at && (
+                              <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-red-500/10 text-red-600 dark:text-red-400">
+                                {LABELS.deletedBadge}
+                              </span>
+                            )}
                           </span>
                           {user.email && (
                             <span className="text-xs text-neutral-500 dark:text-neutral-400 truncate">
