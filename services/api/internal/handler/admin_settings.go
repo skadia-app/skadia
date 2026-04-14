@@ -345,6 +345,21 @@ func (h *Handler) AdminToggleUserHotfolder(w http.ResponseWriter, r *http.Reques
 	}
 
 	ctx := r.Context()
+
+	// Verify the user exists and is not soft-deleted.
+	var exists bool
+	if err := h.DB.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NULL)`,
+		targetID).Scan(&exists); err != nil {
+		slog.Error("admin toggle hotfolder: existence check failed", "user_id", targetID, "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	if !exists {
+		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "user_not_found"})
+		return
+	}
+
 	currentEnabled, err := h.DB.GetUserHotfolderEnabled(ctx, targetID)
 	if err != nil {
 		slog.Error("admin toggle hotfolder: get current state failed", "user_id", targetID, "error", err)
