@@ -168,6 +168,13 @@ func init() {
 	KeysByGroup = make(map[string][]KeyDef)
 
 	for _, kd := range AllKeys {
+		// F9 defense-in-depth: Key must start with "<Group>." so that GetAll()
+		// can strip the group prefix for frontend consumption. A key that
+		// doesn't match would silently pass through TrimPrefix and break
+		// the frontend lookup.
+		if !strings.HasPrefix(kd.Key, kd.Group+".") {
+			panic(fmt.Sprintf("settings: key %q must start with group prefix %q.", kd.Key, kd.Group+"."))
+		}
 		KeysByKey[kd.Key] = kd
 		KeysByGroup[kd.Group] = append(KeysByGroup[kd.Group], kd)
 	}
