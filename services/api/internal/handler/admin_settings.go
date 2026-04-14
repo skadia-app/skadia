@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -290,9 +291,10 @@ func (h *Handler) enableCompression(jobID string) {
 		return
 	}
 
+	// F28: actor="system" — adminID is intentionally empty so updated_by is NULL (system-initiated).
 	_, _ = h.Settings.Put(ctx, map[string]*string{"timescale.compression": strPtr("true")}, "")
 
-	slog.Info("compression enabled successfully")
+	slog.Info("compression enabled successfully", "actor", "system", "job_id", jobID)
 	_ = h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 }
 
@@ -317,9 +319,10 @@ func (h *Handler) disableCompression(jobID string) {
 		}
 	}
 
+	// F28: actor="system" — adminID is intentionally empty so updated_by is NULL (system-initiated).
 	_, _ = h.Settings.Put(ctx, map[string]*string{"timescale.compression": strPtr("false")}, "")
 
-	slog.Info("compression disabled successfully")
+	slog.Info("compression disabled successfully", "actor", "system", "job_id", jobID)
 	_ = h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 }
 
@@ -345,9 +348,14 @@ func (h *Handler) AdminToggleUserHotfolder(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Verify the global hotfolder mode allows per-user hotfolders.
-	mode := h.Settings.Get("hotfolder.mode").Value
-	if mode == "disabled" {
+	if h.Settings.Get("hotfolder.mode").Value == "disabled" {
 		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "hotfolder_disabled"})
+		return
+	}
+
+	// F11: Verify hotfolder path is configured — otherwise EnableUser would fail silently.
+	if os.Getenv("HOTFOLDER_PATH") == "" {
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "hotfolder_path_not_configured"})
 		return
 	}
 
@@ -389,8 +397,12 @@ func (h *Handler) AdminToggleUserHotfolder(w http.ResponseWriter, r *http.Reques
 	}
 
 	if h.WatcherManager != nil && req.Enabled != currentEnabled {
-		if req.Enabled {
-			if err := h.WatcherManager.EnableUser(targetID, false); err != nil {
+		// F6: Re-check mode after DB update to avoid race with AdminPutSettings("hotfolder.mode"="disabled").
+		currentMode := h.Settings.Get("hotfolder.mode").Value
+		if currentMode == "disabled" {
+			slog.Warn("admin toggle hotfolder: mode disabled concurrently, skipping watcher start", "user_id", targetID)
+		} else if req.Enabled {
+			if err := h.WatcherManager.EnableUser(targetID, true); err != nil {
 				slog.Warn("admin toggle hotfolder: enable watcher failed", "user_id", targetID, "error", err)
 			}
 		} else {
