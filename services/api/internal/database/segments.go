@@ -1251,7 +1251,7 @@ func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID stri
 		a.moving_time_s,
 		a.started_at,
 		a.sport_type,
-		a.title,
+		COALESCE(a.title, '') AS title,
 		se.is_reverse,
 		a.gear_id,
 		g.name AS gear_name,
