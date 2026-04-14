@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { SettingsSection } from '@/components/ui/SettingsSection'
 import Toggle from '@/components/Toggle'
 import { useToast } from '@/lib/toast'
@@ -772,29 +772,20 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function AdminSystemTab() {
-  const [settings, setSettings] = useState<SettingsResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
   const queryClient = useQueryClient()
+  const { data: settings, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['admin-settings'],
+    queryFn: getAdminSettings,
+    staleTime: 60_000,
+  })
 
-  function loadSettings() {
-    setLoadError(null)
-    getAdminSettings()
-      .then(data => {
-        setSettings(data)
-        queryClient.invalidateQueries({ queryKey: ['admin-settings'] })
-      })
-      .catch(err => setLoadError(err instanceof Error ? err.message : 'Laden fehlgeschlagen'))
-      .finally(() => setLoading(false))
+  function handleSaved() {
+    queryClient.invalidateQueries({ queryKey: ['admin-settings'] })
   }
-
-  useEffect(() => {
-    loadSettings()
-  }, [])
 
   const smtpConfigured = (settings?.smtp?.host?.value ?? '').trim() !== ''
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-neutral-400 text-sm">
         Einstellungen werden geladen…
@@ -802,13 +793,13 @@ export default function AdminSystemTab() {
     )
   }
 
-  if (loadError) {
+  if (isError) {
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-3">
-        <p className="text-red-500 text-sm">{loadError}</p>
+        <p className="text-red-500 text-sm">{error instanceof Error ? error.message : 'Laden fehlgeschlagen'}</p>
         <button
           type="button"
-          onClick={loadSettings}
+          onClick={() => refetch()}
           className="text-sm text-accent-500 hover:text-accent-600 cursor-pointer transition-colors"
         >
           Erneut versuchen
@@ -819,10 +810,10 @@ export default function AdminSystemTab() {
 
   return (
     <div className="space-y-6">
-      <SmtpSection settings={settings} onSaved={loadSettings} />
-      <RegistrationSection settings={settings} smtpConfigured={smtpConfigured} onSaved={loadSettings} />
-      <SocialLoginSection settings={settings} onSaved={loadSettings} />
-      <FilesystemSection settings={settings} onSaved={loadSettings} />
+      <SmtpSection settings={settings ?? null} onSaved={handleSaved} />
+      <RegistrationSection settings={settings ?? null} smtpConfigured={smtpConfigured} onSaved={handleSaved} />
+      <SocialLoginSection settings={settings ?? null} onSaved={handleSaved} />
+      <FilesystemSection settings={settings ?? null} onSaved={handleSaved} />
     </div>
   )
 }
