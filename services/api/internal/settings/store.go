@@ -30,20 +30,23 @@ type CachedSetting struct {
 // SettingsStore is a write-through cache over the server_settings table.
 // All public methods are safe for concurrent use.
 type SettingsStore struct {
-	db            *database.DB
-	encryptionKey string // hex-encoded 32-byte key; may be empty
-	mu            sync.RWMutex
-	cache         map[string]CachedSetting
+	db             *database.DB
+	encryptionKey  string // hex-encoded 32-byte key; may be empty
+	storageBackend string // "local" or "s3"; set from config at startup
+	mu             sync.RWMutex
+	cache          map[string]CachedSetting
 }
 
 // NewSettingsStore creates a store and eagerly loads the cache from the DB.
 // ctx is used only for the initial DB query; the store can be used after ctx
 // is cancelled.
-func NewSettingsStore(db *database.DB, encryptionKey string) *SettingsStore {
+// storageBackend must be "local" or "s3" (mirrors config.StorageBackend).
+func NewSettingsStore(db *database.DB, encryptionKey, storageBackend string) *SettingsStore {
 	s := &SettingsStore{
-		db:            db,
-		encryptionKey: encryptionKey,
-		cache:         make(map[string]CachedSetting, len(AllKeys)),
+		db:             db,
+		encryptionKey:  encryptionKey,
+		storageBackend: storageBackend,
+		cache:          make(map[string]CachedSetting, len(AllKeys)),
 	}
 	// loadCache is best-effort at startup; log but don't panic on DB error.
 	if err := s.loadCache(context.Background()); err != nil {
@@ -279,6 +282,14 @@ func (s *SettingsStore) Put(ctx context.Context, updates map[string]*string, adm
 	}
 	if effective["hotfolder.mode"] != "disabled" && os.Getenv("HOTFOLDER_PATH") == "" {
 		return nil, errors.New("hotfolder.mode requires the HOTFOLDER_PATH environment variable to be set")
+	}
+	if s.storageBackend == "s3" {
+		if v, ok := updates["library.sync_enabled"]; ok && v != nil && *v == "true" {
+			return nil, errors.New("library.sync_enabled requires local storage backend (current: s3)")
+		}
+		if v, ok := updates["library.sync_auto_import"]; ok && v != nil && *v == "true" {
+			return nil, errors.New("library.sync_auto_import requires local storage backend (current: s3)")
+		}
 	}
 
 	// --- Phase 3: write to DB (single transaction for atomicity) ---
