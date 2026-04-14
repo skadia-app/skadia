@@ -301,7 +301,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
             <span>Auf:</span>
             {activity.garmin_activity_id && (
               <a
-                href={`https://connect.garmin.com/modern/activity/${activity.garmin_activity_id}`}
+                href={`https://connect.garmin.com/app/activity/${activity.garmin_activity_id}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-accent hover:underline"
