@@ -423,9 +423,13 @@ func (h *Handler) AdminSetUserAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	if !req.IsAdmin {
 		var count int
-		h.DB.Pool.QueryRow(r.Context(),
+		if err := h.DB.Pool.QueryRow(r.Context(),
 			`SELECT count(*) FROM users WHERE is_admin = true AND is_active = true AND id != $1 AND deleted_at IS NULL`,
-			targetID).Scan(&count)
+			targetID).Scan(&count); err != nil {
+			slog.Error("admin set-admin: count admins failed", "error", err)
+			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
 		if count == 0 {
 			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "last_admin"})
 			return
@@ -480,9 +484,13 @@ func (h *Handler) AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if target.IsAdmin {
 		var count int
-		h.DB.Pool.QueryRow(r.Context(),
+		if err := h.DB.Pool.QueryRow(r.Context(),
 			`SELECT count(*) FROM users WHERE is_admin = true AND is_active = true AND id != $1 AND deleted_at IS NULL`,
-			targetID).Scan(&count)
+			targetID).Scan(&count); err != nil {
+			slog.Error("admin delete user: count admins failed", "error", err)
+			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
 		if count == 0 {
 			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "last_admin"})
 			return
