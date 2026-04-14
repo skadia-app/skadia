@@ -7,7 +7,7 @@ import { getAdminSettings, putAdminSettings, type SettingField } from '@/api/adm
 
 const LABELS = {
   title: 'Speicher-Limits',
-  description: 'Upload- und Speichergrößen sowie Dateiversioniierung.',
+  description: 'Upload- und Speichergrößen sowie Dateiversionierung.',
   maxUpload: {
     label: 'Max. Upload-Größe',
     unit: 'MB',
@@ -36,6 +36,14 @@ const LABELS = {
   saveError: 'Speichern fehlgeschlagen',
   loading: 'Lade Einstellungen…',
   loadError: 'Einstellungen konnten nicht geladen werden.',
+  validationUpload: {
+    title: 'Ungültige Max Upload-Größe',
+    message: 'Bitte eine positive Zahl eingeben oder Feld leer lassen für Default.',
+  },
+  validationStorage: {
+    title: 'Ungültiger Max Benutzer-Speicher',
+    message: 'Bitte eine positive Zahl eingeben oder Feld leer lassen für Default.',
+  },
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -153,21 +161,7 @@ export function AdminStorageLimitsSection() {
   const keepLocked = keepField?.locked ?? false
 
   const saveMut = useMutation({
-    mutationFn: () => {
-      const updates: Record<string, string> = {}
-      if (!uploadLocked) {
-        const mb = parseInt(maxUploadMB, 10)
-        if (!isNaN(mb) && mb > 0) updates['limits.max_upload_bytes'] = String(mb * MB)
-      }
-      if (!storageLocked) {
-        const gb = parseInt(maxUserStorageGB, 10)
-        if (!isNaN(gb) && gb > 0) updates['limits.max_user_storage_bytes'] = String(gb * GB)
-      }
-      if (!keepLocked) {
-        updates['library.keep_versions'] = keepVersions
-      }
-      return putAdminSettings(updates)
-    },
+    mutationFn: (updates: Record<string, string | null>) => putAdminSettings(updates),
     onSuccess: () => {
       addToast({ type: 'success', title: LABELS.saveSuccess })
       queryClient.invalidateQueries({ queryKey: ['admin-settings'] })
@@ -176,6 +170,44 @@ export function AdminStorageLimitsSection() {
       addToast({ type: 'error', title: LABELS.saveError, message: err.message, duration: 0 })
     },
   })
+
+  function handleSave() {
+    const updates: Record<string, string | null> = {}
+
+    if (!uploadLocked) {
+      const mbStr = maxUploadMB.trim()
+      if (mbStr === '') {
+        updates['limits.max_upload_bytes'] = null
+      } else {
+        const mb = parseInt(mbStr, 10)
+        if (isNaN(mb) || mb <= 0) {
+          addToast({ type: 'error', title: LABELS.validationUpload.title, message: LABELS.validationUpload.message, duration: 0 })
+          return
+        }
+        updates['limits.max_upload_bytes'] = String(mb * MB)
+      }
+    }
+
+    if (!storageLocked) {
+      const gbStr = maxUserStorageGB.trim()
+      if (gbStr === '') {
+        updates['limits.max_user_storage_bytes'] = null
+      } else {
+        const gb = parseInt(gbStr, 10)
+        if (isNaN(gb) || gb <= 0) {
+          addToast({ type: 'error', title: LABELS.validationStorage.title, message: LABELS.validationStorage.message, duration: 0 })
+          return
+        }
+        updates['limits.max_user_storage_bytes'] = String(gb * GB)
+      }
+    }
+
+    if (!keepLocked) {
+      updates['library.keep_versions'] = keepVersions
+    }
+
+    saveMut.mutate(updates)
+  }
 
   function handleKeepVersionsChange(value: string) {
     if (value === '0') {
@@ -264,7 +296,7 @@ export function AdminStorageLimitsSection() {
       {/* Save */}
       <div className="pt-1 border-t border-neutral-100 dark:border-neutral-800">
         <button
-          onClick={() => saveMut.mutate()}
+          onClick={handleSave}
           disabled={saveMut.isPending || allLocked}
           className="px-4 py-1.5 rounded-lg text-sm font-medium bg-accent-DEFAULT text-white hover:bg-accent-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
         >
