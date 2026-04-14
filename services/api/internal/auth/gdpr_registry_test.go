@@ -245,6 +245,35 @@ func TestGdprExportTablesMatchExportedTables(t *testing.T) {
 	}
 }
 
+// TestSystemCacheTablesExplicitlyRegistered verifies that specific system-level
+// cache tables — which contain user-sourced data but are correctly categorized
+// as System — are explicitly registered. These tables would not be caught by
+// the user_id heuristic in TestAllUserTablesInGDPRRegistry (they have no
+// user_id column or FK chain), so a manual registry entry is required.
+//
+// The list doubles as documentation of WHICH caches are knowingly tracked as
+// System: adding a new user-sourced cache without appending it here will not
+// break any other test, so this dedicated assertion is the tripwire.
+func TestSystemCacheTablesExplicitlyRegistered(t *testing.T) {
+	expectSystem := []string{
+		// reverse_geocode_cache: generic coord→name cache. PK is (lat*1000,
+		// lng*1000, provider), ~100 m grid, 30 d TTL. No user_id column, no
+		// tracking correlation possible. See gdpr_registry.go comment for
+		// full rationale.
+		"reverse_geocode_cache",
+	}
+	for _, table := range expectSystem {
+		cat, ok := GDPRRegistry[table]
+		if !ok {
+			t.Errorf("system cache table %q is missing from GDPRRegistry — must be registered as System", table)
+			continue
+		}
+		if cat != System {
+			t.Errorf("system cache table %q has category %v, want System", table, cat)
+		}
+	}
+}
+
 // TestRegistryEntriesExistInSchema verifies that every non-Global entry in
 // GDPRRegistry corresponds to an actual table (or partition/materialized view)
 // in the database schema. This catches stale registry entries after a migration

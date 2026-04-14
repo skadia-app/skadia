@@ -515,7 +515,7 @@ func (db *DB) SeedRecommendedRules(ctx context.Context, userID string) {
 		{"Ultramarathon", "#7C3AED"},
 		{"Marathon", "#D97706"},
 		{"Halbmarathon", "#9CA3AF"},
-		{"Intervall-Training", "#EA580C"},
+		{"Intervalltraining", "#EA580C"},
 		{"Mit Einkehr", "#16A34A"},
 		{"Grenzquerung", "#0891B2"},
 	}
@@ -570,9 +570,9 @@ func (db *DB) SeedRecommendedRules(ctx context.Context, userID string) {
 			)`,
 			userID, branches)
 	}
-	// Intervall-Training: enrichment field has_structured_intervals = true
-	if id, ok := tagIDs["Intervall-Training"]; ok {
-		createRule("Intervall-Training", 40,
+	// Intervalltraining: enrichment field has_structured_intervals = true
+	if id, ok := tagIDs["Intervalltraining"]; ok {
+		createRule("Intervalltraining", 40,
 			`[{"field":"has_structured_intervals","op":"eq","value":true}]`,
 			`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
 			"on_enrichment_complete")
@@ -1081,4 +1081,49 @@ func (db *DB) GetSystemTagID(ctx context.Context, userID, name string) (string, 
 		SELECT id FROM tags WHERE user_id = $1 AND name = $2 AND is_system = true`,
 		userID, name).Scan(&id)
 	return id, err
+}
+
+// RenameSystemRule renames an automation rule owned by the given user IFF it is
+// a system rule (is_system = true). User-created rules that happen to share the
+// old name are intentionally left untouched.
+//
+// This helper exists specifically to prevent a repeat of the bug found in
+// migrations 000298 and 000299, both of which did
+//
+//	UPDATE automation_rules SET name = '<new>' WHERE name = '<old>';
+//
+// without any is_system filter. If a user had manually created a rule named
+// "Intervall-Training" (or "Intervalltraining" in the mirror direction), the
+// bulk UPDATE silently overwrote the user's own rule name — irrecoverable once
+// applied. The review bumped this to Finding #26.
+//
+// All future code paths (including migrations launched via `DO $$ ... $$`
+// blocks OR orchestrated by Go) MUST either call this helper or otherwise
+// ensure `is_system = true` is part of their WHERE clause. Global renames of
+// rule names without that filter are never safe, because nothing prevents a
+// user from picking the same name we ship.
+//
+// Returns the number of rows affected (which can only be 0 when no matching
+// system rule exists for this user, or 1 when one does — the (user_id,
+// system_type) uniqueness constraint for system rules guarantees at most one
+// match, but we do not rely on that invariant here).
+func (db *DB) RenameSystemRule(ctx context.Context, userID, oldName, newName string) (int64, error) {
+	if oldName == "" || newName == "" {
+		return 0, fmt.Errorf("RenameSystemRule: empty name")
+	}
+	if oldName == newName {
+		return 0, nil
+	}
+	tag, err := db.Pool.Exec(ctx, `
+		UPDATE automation_rules
+		   SET name = $3
+		 WHERE user_id = $1
+		   AND name = $2
+		   AND is_system = true`,
+		userID, oldName, newName,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("RenameSystemRule: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }

@@ -2,10 +2,13 @@ package enrichment
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
@@ -242,7 +245,13 @@ type classifiedSegment struct {
 func enrichStreamIntervals(ctx context.Context, db *database.DB, userID, activityID string, stream []EnrichmentStreamPoint) error {
 	// Sport gate: whitelist approach — only eligible sports get interval detection.
 	var sportType string
-	_ = db.Pool.QueryRow(ctx, "SELECT sport_type FROM activities WHERE id = $1", activityID).Scan(&sportType)
+	var isElectric bool
+	if err := db.Pool.QueryRow(ctx,
+		"SELECT sport_type, COALESCE(is_electric, false) FROM activities WHERE id = $1",
+		activityID).Scan(&sportType, &isElectric); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		slog.Warn("intervals: load sport_type/is_electric failed",
+			"activity_id", activityID, "error", err)
+	}
 
 	eligible := intervalEligibleExtra[sportType]
 	if !eligible {
@@ -270,7 +279,7 @@ func enrichStreamIntervals(ctx context.Context, db *database.DB, userID, activit
 	}
 
 	// Tier 2: Heuristic (only for GPX/TCX or FIT without structured workouts).
-	return enrichStreamIntervalsHeuristic(ctx, db, userID, activityID, stream)
+	return enrichStreamIntervalsHeuristic(ctx, db, userID, activityID, stream, isElectric)
 }
 
 // enrichStreamIntervalsHeuristic is the Tier-2 binary-segmentation detector.
@@ -278,7 +287,10 @@ func enrichStreamIntervals(ctx context.Context, db *database.DB, userID, activit
 //   - minimum intervalMinHardSegments (3) hard phases required
 //   - confidence score >= 0.7 required before tagging
 //   - retraction: removes auto-tag + intervals when evidence is insufficient
-func enrichStreamIntervalsHeuristic(ctx context.Context, db *database.DB, userID, activityID string, stream []EnrichmentStreamPoint) error {
+//
+// isElectric suppresses the Power channel (motor assist dominates the signal
+// on e-bikes, so high power does not imply a hard training phase).
+func enrichStreamIntervalsHeuristic(ctx context.Context, db *database.DB, userID, activityID string, stream []EnrichmentStreamPoint, isElectric bool) error {
 	// 1. Map shared stream — all points included, nulls handled per-field in extractSignal.
 	pts := make([]intervalStream, len(stream))
 	for i, sp := range stream {
@@ -291,17 +303,25 @@ func enrichStreamIntervalsHeuristic(ctx context.Context, db *database.DB, userID
 		}
 	}
 
+	// Any early exit path below must also retract a stale tag + activity_intervals
+	// rows from a previous enrichment. Without this, a device that once recorded
+	// HR but no longer does (battery empty, strap removed, e-bike with power-only
+	// sensor after a firmware change) would keep its old "Intervalltraining" tag
+	// forever via the has_structured_intervals automation rule.
 	if len(pts) < 2 {
+		retractIntervalTag(ctx, db, activityID, userID)
 		return nil
 	}
 	durationS := pts[len(pts)-1].T.Sub(pts[0].T).Seconds()
 	if durationS < intervalMinActivityS {
+		retractIntervalTag(ctx, db, activityID, userID)
 		return nil
 	}
 
 	// 2. Extract + smooth primary signal.
-	signal := extractSignal(pts)
+	signal := extractSignal(pts, isElectric)
 	if signal == nil {
+		retractIntervalTag(ctx, db, activityID, userID)
 		return nil
 	}
 
@@ -315,6 +335,7 @@ func enrichStreamIntervalsHeuristic(ctx context.Context, db *database.DB, userID
 	sortSegments(segs)
 
 	if len(segs) == 0 {
+		retractIntervalTag(ctx, db, activityID, userID)
 		return nil
 	}
 
@@ -488,46 +509,78 @@ func computeIntervalConfidence(classified []classifiedSegment) float64 {
 	}
 }
 
-// retractIntervalTag removes the auto-assigned "Intervalltraining" tag and
-// deletes any existing activity_intervals rows. Called when the algorithm
-// determines an activity does NOT have structured intervals.
+// legacyIntervalTagNames lists historical auto-tag names that must also be
+// retracted so residual tags from older releases don't persist forever.
+// The canonical tag is "Intervalltraining"; "Intervall-Training" was written
+// by a previous release (see 298/299 episode) and is still on some activities.
+var legacyIntervalTagNames = []string{"Intervalltraining", "Intervall-Training"}
+
+// retractIntervalTag removes the auto-assigned "Intervalltraining" tag (plus
+// the legacy "Intervall-Training" name) and deletes any existing
+// activity_intervals rows. Called when the algorithm determines an activity
+// does NOT have structured intervals.
 // Manual tags assigned by the user are protected and never removed.
+//
+// All three statements (delete intervals, delete tag link, update tags array)
+// run inside a single transaction so parallel enrichment runs for the same
+// activity cannot interleave and leave inconsistent state (#22).
 func retractIntervalTag(ctx context.Context, db *database.DB, activityID, userID string) {
-	// Delete interval rows.
-	db.Pool.Exec(ctx, "DELETE FROM activity_intervals WHERE activity_id = $1", activityID) //nolint:errcheck
+	err := pgx.BeginFunc(ctx, db.Pool, func(tx pgx.Tx) error {
+		// Delete interval rows.
+		if _, err := tx.Exec(ctx,
+			"DELETE FROM activity_intervals WHERE activity_id = $1", activityID); err != nil {
+			return fmt.Errorf("delete intervals: %w", err)
+		}
 
-	// Find the auto-assigned tag entry.
-	var tagID string
-	err := db.Pool.QueryRow(ctx, `
-		SELECT t.id FROM tags t
-		JOIN activity_tags at ON at.tag_id = t.id
-		WHERE at.activity_id = $1 AND t.user_id = $2
-		  AND t.name = 'Intervalltraining' AND at.assigned_by = 'auto'
-	`, activityID, userID).Scan(&tagID)
+		for _, tagName := range legacyIntervalTagNames {
+			// Find the auto-assigned tag entry for this legacy name.
+			var tagID string
+			err := tx.QueryRow(ctx, `
+				SELECT t.id FROM tags t
+				JOIN activity_tags at ON at.tag_id = t.id
+				WHERE at.activity_id = $1 AND t.user_id = $2
+				  AND t.name = $3 AND at.assigned_by = 'auto'
+			`, activityID, userID, tagName).Scan(&tagID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue // no auto-tag with this name — nothing to retract
+			}
+			if err != nil {
+				return fmt.Errorf("lookup auto-tag %q: %w", tagName, err)
+			}
+
+			if _, err := tx.Exec(ctx,
+				"DELETE FROM activity_tags WHERE activity_id = $1 AND tag_id = $2",
+				activityID, tagID); err != nil {
+				return fmt.Errorf("unlink auto-tag %q: %w", tagName, err)
+			}
+
+			// Only strip the name from the denormalised tags array when no
+			// manual tag with that exact name remains. array_remove removes
+			// ALL occurrences, which would also wipe a manual entry.
+			var hasManualTag bool
+			if err := tx.QueryRow(ctx, `
+				SELECT EXISTS(
+					SELECT 1 FROM activity_tags at
+					JOIN tags t ON at.tag_id = t.id
+					WHERE at.activity_id = $1 AND t.name = $2
+					  AND at.assigned_by != 'auto'
+				)`, activityID, tagName).Scan(&hasManualTag); err != nil {
+				return fmt.Errorf("check manual tag %q: %w", tagName, err)
+			}
+
+			if !hasManualTag {
+				if _, err := tx.Exec(ctx,
+					`UPDATE activities SET tags = array_remove(tags, $2) WHERE id = $1`,
+					activityID, tagName); err != nil {
+					return fmt.Errorf("remove %q from tags array: %w", tagName, err)
+				}
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		return // no auto-tag exists — nothing to retract
-	}
-
-	db.Pool.Exec(ctx, //nolint:errcheck
-		"DELETE FROM activity_tags WHERE activity_id = $1 AND tag_id = $2",
-		activityID, tagID)
-
-	// Only update the denormalised tags array when no manual tag remains.
-	// array_remove removes ALL occurrences, which would also wipe a manually
-	// assigned "Intervalltraining" tag → check first.
-	var hasManualTag bool
-	_ = db.Pool.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM activity_tags at
-			JOIN tags t ON at.tag_id = t.id
-			WHERE at.activity_id = $1 AND t.name = 'Intervalltraining'
-			  AND at.assigned_by != 'auto'
-		)`, activityID).Scan(&hasManualTag)
-
-	if !hasManualTag {
-		db.Pool.Exec(ctx, //nolint:errcheck
-			`UPDATE activities SET tags = array_remove(tags, 'Intervalltraining')
-			 WHERE id = $1`, activityID)
+		slog.Warn("intervals: retract tag transaction failed",
+			"activity_id", activityID, "error", err)
 	}
 }
 
@@ -591,14 +644,25 @@ func forwardBackfill(raw []float64, isValid []bool) {
 	}
 }
 
-// extractSignal picks the best signal channel (power > HR > speed) and applies
+// extractSignal picks the best signal channel (power > HR) and applies
 // forward-backfill for nulls then rolling-mean smoothing.
-// Returns nil if no channel has >50 % non-null coverage.
-func extractSignal(pts []intervalStream) []float64 {
+// Returns nil if neither power nor HR has >50 % non-null coverage.
+//
+// Speed is intentionally NOT used as a fallback. Speed variations on outdoor
+// activities are driven by terrain (hills, traffic lights, wind) and, for
+// e-bikes, by motor-assist mode changes — not by training intensity. Feeding
+// speed into the binary-segmentation detector produces confident-looking false
+// positives on pure endurance rides. Without power or HR, the device simply
+// does not have enough signal to claim "Intervalltraining".
+//
+// Power is ALSO skipped when isElectric is true. On an e-bike, the recorded
+// power is the rider+motor combined output; a "high power" phase can be pure
+// Turbo-mode assist, not effort. Only HR remains as a trustworthy signal.
+func extractSignal(pts []intervalStream, isElectric bool) []float64 {
 	n := len(pts)
 
-	// Power
-	{
+	// Power — skipped on e-bikes (motor assistance masks rider effort).
+	if !isElectric {
 		cnt := 0
 		for _, p := range pts {
 			if p.PowerW != nil {
@@ -633,28 +697,6 @@ func extractSignal(pts []intervalStream) []float64 {
 			for i, p := range pts {
 				if p.HeartRate != nil {
 					raw[i] = float64(*p.HeartRate)
-					valid[i] = true
-				}
-			}
-			forwardBackfill(raw, valid)
-			return rollingMean(raw, intervalSmoothWindow)
-		}
-	}
-
-	// Speed
-	{
-		cnt := 0
-		for _, p := range pts {
-			if p.SpeedMS != nil {
-				cnt++
-			}
-		}
-		if cnt > n/2 {
-			raw := make([]float64, n)
-			valid := make([]bool, n)
-			for i, p := range pts {
-				if p.SpeedMS != nil {
-					raw[i] = *p.SpeedMS
 					valid[i] = true
 				}
 			}
@@ -852,7 +894,9 @@ func classifySegments(segs []intervalSegment, signal []float64, pts []intervalSt
 			cs.avgPower = &v
 		}
 		if hrCnt > 0 {
-			v := hrSum / hrCnt
+			// avgHR column is INT (services/api/internal/migrate/migrations/000101_activity_intervals.up.sql)
+			// so we round to nearest instead of relying on Go int-division truncation.
+			v := int(math.Round(float64(hrSum) / float64(hrCnt)))
 			cs.avgHR = &v
 		}
 		if speedCnt > 0 {

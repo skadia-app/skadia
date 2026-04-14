@@ -510,6 +510,10 @@ export interface EnrichmentSettings {
   video_clip_frames?: number
   // pHash Hamming-distance threshold for photo deduplication (1–10, Default 3). Migration 000149.
   phash_threshold_bits?: number
+  // External reverse-geocoding fallback (used only when local OSM has no city). Migration 000300.
+  geocode_fallback_provider?: 'off' | 'nominatim' | 'photon'
+  geocode_fallback_url?: string | null
+  geocode_fallback_timeout_s?: number
 }
 
 export interface Climb {
@@ -1098,6 +1102,7 @@ export interface RecordingGroup {
 export interface RecordingGroupMember {
   activity_id: string
   is_fused: boolean
+  is_fusion_source: boolean
   is_primary: boolean
   title: string | null
   title_auto: string | null
@@ -1122,6 +1127,7 @@ export interface FusionMergeRequestV2 {
   gps_fusion_config?: { primary_source: string; extend_track: boolean }
   title_source?: string
   tags_merge: boolean
+  tags_source?: string  // if set and !tags_merge: take tags from this source only
   gear_source?: string
   fit_level: boolean
   group_id?: string

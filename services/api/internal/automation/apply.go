@@ -234,16 +234,25 @@ func EvaluateRule(rule model.AutomationRule, actMap map[string]any) bool {
 			return false
 		}
 	}
-	// Flat conditions
+	// Flat conditions. Empty arrays (`[]`) are treated as no-match (false) —
+	// this is the safe default so a User-Preview or Bulk-Apply on a rule with
+	// no conditions does NOT accidentally match every activity (which would be
+	// destructive for actions like add_tag / set_field).
 	if len(rule.ConditionGroups) > 0 && string(rule.ConditionGroups) != "null" {
 		var groups []rules.ConditionGroup
-		if err := json.Unmarshal(rule.ConditionGroups, &groups); err == nil && len(groups) > 0 {
+		if err := json.Unmarshal(rule.ConditionGroups, &groups); err == nil {
+			if len(groups) == 0 {
+				return false
+			}
 			return rules.EvaluateGroups(groups, actMap)
 		}
 	}
-	if len(rule.Conditions) > 0 {
+	if len(rule.Conditions) > 0 && string(rule.Conditions) != "null" {
 		var conditions []rules.Condition
-		if err := json.Unmarshal(rule.Conditions, &conditions); err == nil && len(conditions) > 0 {
+		if err := json.Unmarshal(rule.Conditions, &conditions); err == nil {
+			if len(conditions) == 0 {
+				return false
+			}
 			return rules.Evaluate(conditions, actMap)
 		}
 	}

@@ -126,9 +126,13 @@ func TestEvaluateRule(t *testing.T) {
 			false,
 		},
 		{
-			"empty conditions = vacuously true (match-all)",
+			// Empty conditions MUST be no-match (false). A User-Preview or
+			// Bulk-Apply on a rule without conditions would otherwise match
+			// every activity and apply destructive actions (add_tag, set_field)
+			// across the whole dataset. Safer default: require explicit intent.
+			"empty conditions = no-match (false)",
 			`[]`,
-			true,
+			false,
 		},
 	}
 	for _, tt := range tests {

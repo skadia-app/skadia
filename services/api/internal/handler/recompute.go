@@ -440,16 +440,32 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 
 // reprocessActivity is the shared core logic: download -> parse -> selectively replace data.
 // scope controls which categories to reprocess (nil = all):
-//   - "streams": streams + track
-//   - "sensors": sensor records
-//   - "details": laps, splits, split summaries, lengths, climb pro events
-//   - "metrics": all computed metrics (times, distances, HR, power, etc.)
-//   - "sport_type": sport_type + sub_type (only if not manually set)
-//   - "tags": re-evaluate autotag rules and update tags
-//   - "segments": segment efforts + lap detection
-//   - "geo": Stage 2 geo enrichment (summits, forests, water, stops, lifts, surfaces, borders)
-//   - "best_efforts": recompute best effort records for this activity
-//   - "running_form": compute duty factor, vertical ratio, GCT asymmetry + fatigue indices (running/trail_running only)
+//
+//   - "streams":      streams + track. Needs file re-parse. Triggers RunStage1
+//                     (track geometry feeds start_city / title_auto / is_commute).
+//   - "sensors":      sensor records (HR, power, cadence zones). Needs file re-parse.
+//                     Triggers RunStage1 because re-parse rewrites activity metadata.
+//   - "details":      laps, splits, split summaries, lengths, climb pro events. Needs
+//                     file re-parse. Triggers RunStage1 for the same reason.
+//   - "metrics":      all computed metrics (times, distances, HR, power, etc.). Needs
+//                     file re-parse. Triggers RunStage1.
+//   - "sport_type":   sport_type + sub_type (only if not manually set). Triggers
+//                     RunStage1 because auto-title depends on sport type.
+//   - "tags":         re-evaluate autotag rules and update tags. Triggers RunStage1
+//                     (Stage 1 writes base tags like "Commute", "Indoor").
+//   - "geo":          Stage 2 geo enrichment (summits, forests, water, stops, lifts,
+//                     surfaces, borders). Triggers RunStage1 with `!doGeo==false` so
+//                     Stage 1 kicks off Stage 2 via NATS.
+//   - "segments":     segment efforts + lap detection. Works purely on streams +
+//                     activity metadata that already exists — does NOT trigger
+//                     RunStage1 (no dependency on start_city / title_auto / tags).
+//   - "best_efforts": recompute best effort records for this activity. Works on the
+//                     stream only. Does NOT trigger RunStage1.
+//   - "running_form": compute duty factor, vertical ratio, GCT asymmetry + fatigue
+//                     indices (running/trail_running only). Works on the stream only.
+//                     Does NOT trigger RunStage1.
+//   - "speed_smooth": opt-in median filter on speed_ms. Never part of "all". Does
+//                     NOT trigger RunStage1 (stream-only; see comment in block 8.).
 //
 // skipAnalyticsEvent suppresses PublishAnalyticsInvalidate when true (used in bulk recompute
 // to avoid flooding — the caller publishes a single invalidation after all workers complete).
@@ -767,7 +783,27 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	}
 
 	// 8. Stage 1 Enrichment (synchronous, ~50ms). Triggers Stage 2 via NATS at the end.
-	if data.HasGPS && data.StartLat != 0 {
+	// Skip for speed_smooth-only recompute: RunStage1 writes fields["tags"] from the
+	// freshly re-parsed file, which overwrites activities.tags and erases every tag
+	// accumulated after the original import (manual, auto-enrichment, automation-rules).
+	// Speed smoothing only touches stream speeds — it has no business rewriting tags.
+	//
+	// Stage 1 trigger rule: scopes that either re-parse the file (streams, sensors,
+	// details, metrics, sport_type) or that rewrite activity metadata (tags, geo)
+	// DO set doStage1, because Stage 1 recomputes start_city, title_auto, is_commute,
+	// and base tags from the fresh data. The following scopes deliberately do NOT
+	// trigger Stage 1:
+	//   - doSegments:    operates on streams + pre-existing metadata; no dependency
+	//                    on start_city / title_auto / is_commute.
+	//   - doBestEfforts: pure stream computation; no metadata dependency.
+	//   - doRunningForm: pure stream computation; no metadata dependency.
+	//   - doSpeedSmooth: rewrites stream speed values only; explicitly must not
+	//                    re-run Stage 1 to preserve user tags (see above).
+	// If any of those scopes ever grows a dependency on Stage-1 output
+	// (start_city, title_auto, is_commute, base tags, etc.), add it to the
+	// expression below.
+	doStage1 := allScope || doStreams || doMetrics || doSportType || doTags || doDetails || doSensors || doGeo
+	if data.HasGPS && data.StartLat != 0 && doStage1 {
 		var gr routing.GraphReader
 		if h.GraphManager != nil {
 			gr = h.GraphManager.Reader()

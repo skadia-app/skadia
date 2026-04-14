@@ -31,6 +31,30 @@ export async function backfillEnrichment(): Promise<{ processed: number; errors:
   return apiClient<{ processed: number; errors: number; error_details?: string }>('/admin/backfill-enrichment', { method: 'POST' })
 }
 
+/**
+ * Reports how many GPS activities currently have no resolved start_city.
+ * These are the candidates for the user-facing "Geocoding nachholen" action
+ * in Settings → Karte → Standort-Erkennung.
+ */
+export async function fetchGeocodingGap(): Promise<{ count: number }> {
+  return apiClient<{ count: number }>('/enrichment/geocoding-gap')
+}
+
+/**
+ * Starts a background job that reverse-geocodes every activity without a
+ * start_city using PostGIS + the user's configured fallback provider. Requires
+ * the provider to be set to something other than "off" — otherwise the server
+ * returns 400 with `{ error_code: "provider_disabled" }` and the thrown
+ * ApiError exposes the parsed body via `ApiError.json`.
+ *
+ * When another backfill is already in flight, the server returns 409 with
+ * `{ error_code: "already_running", job_id }`. Callers should discriminate on
+ * `err.json?.error_code` rather than pattern-matching the localized message.
+ */
+export async function startGeocodingBackfill(): Promise<{ job_id: string; total: number }> {
+  return apiClient<{ job_id: string; total: number }>('/enrichment/geocoding-backfill', { method: 'POST' })
+}
+
 export async function fetchStops(activityId: string): Promise<ActivityStop[]> {
   return apiClient<ActivityStop[]>(`/activities/${activityId}/stops`)
 }

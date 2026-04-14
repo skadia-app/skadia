@@ -21,6 +21,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/settings"
 )
 
 // testHandler creates a Handler with test config and no DB (nil).
@@ -38,7 +39,15 @@ func testHandler(t *testing.T, cfg *config.Config) *Handler {
 	if cfg.JWTSecret == "" {
 		cfg.JWTSecret = strings.Repeat("ab", 32) // 64 hex chars
 	}
-	return NewHandler(nil, cfg, &Mailer{}, middleware.NewRateLimiter(context.Background()), context.Background())
+	// Populate a test-only SettingsStore from cfg so handlers that read
+	// from Settings (registration.mode, social.*, smtp.*) see the same
+	// values the test set on cfg.
+	testSettings := settings.NewStoreForTest(map[string]string{
+		"registration.mode":         cfg.RegistrationMode,
+		"social.strava_client_id":   cfg.StravaClientID,
+		"social.google_client_id":   cfg.GoogleClientID,
+	})
+	return NewHandler(nil, cfg, testSettings, &Mailer{}, middleware.NewRateLimiter(context.Background()), context.Background())
 }
 
 // --- AuthConfig Endpoint ---

@@ -509,6 +509,216 @@ func (h *Handler) GetEnrichmentStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GeocodingGap reports how many activities currently have no start_city and
+// could benefit from a reverse-geocoding backfill.
+//
+// GET /api/v1/enrichment/geocoding-gap
+func (h *Handler) GeocodingGap(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	count, err := h.DB.CountActivitiesWithoutStartCity(r.Context(), userID)
+	if err != nil {
+		slog.Error("geocoding gap count failed", "error", err, "user_id", userID)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to count geocoding gap", r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]int{"count": count})
+}
+
+// GeocodingBackfill runs reverse geocoding for all activities that have a
+// start_location but no start_city yet. Requires the user to have enabled an
+// external fallback provider (PostGIS-only instances will already have been
+// resolved at import time, so the gap can only be filled by the fallback).
+//
+// POST /api/v1/enrichment/geocoding-backfill
+func (h *Handler) GeocodingBackfill(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	// Pre-flight: the backfill only has a realistic chance of filling cities
+	// when the external fallback is enabled. Letting it run with the provider
+	// set to "off" would produce a job that processes 0 of N activities — the
+	// classic "it did nothing" confusion the UI tries to avoid. Reject the
+	// request with a user-visible message instead.
+	settings, err := h.DB.GetEnrichmentSettings(r.Context(), userID)
+	if err != nil {
+		slog.Error("geocoding backfill: load settings failed", "error", err, "user_id", userID)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load settings", r.URL.Path)
+		return
+	}
+	if settings == nil || settings.GeocodeFallbackProvider == "" || settings.GeocodeFallbackProvider == "off" {
+		// Structured error envelope: error_code + message so the frontend can
+		// differentiate user-recoverable cases from genuine failures without
+		// parsing the raw German message string (brittle across i18n changes).
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]any{
+			"error_code": "provider_disabled",
+			"message":    "Bitte erst externen Geocoding-Dienst aktivieren",
+		})
+		return
+	}
+
+	candidates, err := h.DB.ListActivitiesWithoutStartCity(r.Context(), userID)
+	if err != nil {
+		slog.Error("geocoding backfill: list candidates failed", "error", err, "user_id", userID)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list candidates", r.URL.Path)
+		return
+	}
+
+	total := len(candidates)
+	// Idempotency guard (#30): InsertBackgroundJobGuarded fails with (jobID="", ok=false)
+	// when a geocoding_backfill job is already running for this user. Returning 409
+	// prevents double-click from spawning a second goroutine that would race over the
+	// same candidates list.
+	jobID, inserted, err := h.DB.InsertBackgroundJobGuarded(r.Context(), userID, "geocoding_backfill", nil, nil, int64(total))
+	if err != nil {
+		slog.Error("geocoding backfill: insert job failed", "error", err, "user_id", userID)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		return
+	}
+	if !inserted {
+		// Already running — look up the existing job ID so the client can poll it.
+		var existingJobID string
+		_ = h.DB.Pool.QueryRow(r.Context(),
+			`SELECT id FROM background_jobs
+			 WHERE user_id = $1 AND job_type = 'geocoding_backfill' AND status = 'running'
+			 ORDER BY started_at DESC LIMIT 1`,
+			userID).Scan(&existingJobID)
+		httputil.WriteJSON(w, http.StatusConflict, map[string]any{
+			"error_code": "already_running",
+			"job_id":     existingJobID,
+			"message":    "Backfill läuft bereits",
+		})
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
+		"job_id": jobID,
+		"total":  total,
+	})
+
+	// TODO(shutdown-ctx): The Handler struct has no central shutdownCtx today
+	// (every other backfill in this package uses context.Background() the same
+	// way — see weather_backfill, sport_conflict, recompute, training_zones).
+	// Introducing a shared shutdownCtx is a cross-cutting change that belongs
+	// into a separate refactor touching Handler/health.go plus all backfills.
+	// For now we continue with context.Background() + 30 min hard timeout,
+	// matching existing peers. Settings-change-driven early termination (#32)
+	// is handled explicitly in runGeocodingBackfill below.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		if err := h.runGeocodingBackfill(ctx, userID, jobID, candidates); err != nil {
+			slog.Warn("geocoding backfill failed", "job_id", jobID, "error", err)
+			_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
+		}
+	}()
+}
+
+// geocodingBackfillSettingsCheckEvery controls how often the goroutine re-reads
+// enrichment settings to detect a mid-run provider deactivation (#32).
+const geocodingBackfillSettingsCheckEvery = 25
+
+// runGeocodingBackfill iterates the pre-fetched candidate list and reverse-
+// geocodes each one. Rate-limiting and caching live inside enrichment.ReverseGeocode
+// (Nominatim enforces 1 req/s globally); we therefore don't throttle here.
+//
+// Every geocodingBackfillSettingsCheckEvery iterations the handler re-reads
+// the user's enrichment settings. If the external provider has been disabled
+// mid-run, further reverse-geocodes would only return nil (no-op, slow). We
+// abort the loop and mark the job as failed with an explanatory reason so the
+// UI can surface "Abgebrochen: Provider deaktiviert" instead of "Completed:
+// 0 of N filled" (#32).
+//
+// Performance (finding #72): the refreshed settings snapshot is also threaded
+// into enrichment.ReverseGeocodeWithSettings so the fallback path does not
+// re-query user_enrichment_settings on every candidate. On a 419-activity
+// backfill that used to add 419 redundant DB round-trips; now we do one read
+// per geocodingBackfillSettingsCheckEvery-sized chunk plus the initial load.
+func (h *Handler) runGeocodingBackfill(ctx context.Context, userID, jobID string, candidates []database.GeocodingGapCandidate) error {
+	var filled, skipped, failed int
+
+	// Preload settings — the initial POST handler already verified the provider
+	// is enabled, but we still refresh every N iterations below to detect a
+	// mid-run deactivation (#32). If this initial load fails, we fall through
+	// with settings=nil; ReverseGeocodeWithSettings then re-reads per call as
+	// a safety net until the next refresh tick succeeds.
+	settings, sErr := h.DB.GetEnrichmentSettings(ctx, userID)
+	if sErr != nil {
+		slog.Warn("geocoding backfill: initial settings load failed (continuing without preload)",
+			"job_id", jobID, "error", sErr)
+		settings = nil
+	}
+
+	for i, c := range candidates {
+		if ctx.Err() != nil {
+			break
+		}
+
+		// Detect provider deactivation mid-run (#32). Re-read settings every
+		// N iterations to amortize the DB hit, and always on the first item
+		// so an immediate deactivation is caught before any API call fires.
+		// The refreshed snapshot is also handed to ReverseGeocodeWithSettings
+		// below to suppress per-call re-reads (#72).
+		if i == 0 || i%geocodingBackfillSettingsCheckEvery == 0 {
+			cur, sErr := h.DB.GetEnrichmentSettings(ctx, userID)
+			if sErr != nil {
+				slog.Warn("geocoding backfill: settings reload failed (continuing)",
+					"job_id", jobID, "error", sErr)
+			} else if cur == nil || cur.GeocodeFallbackProvider == "" || cur.GeocodeFallbackProvider == "off" {
+				slog.Info("geocoding backfill: aborted — provider disabled",
+					"job_id", jobID, "user_id", userID,
+					"processed", i, "filled", filled, "skipped", skipped, "failed", failed)
+				// Structured prefix "[provider_disabled] …" is consumed by the
+				// frontend to surface a user-recoverable warning toast instead
+				// of a generic error. Keep the human-readable suffix for logs
+				// and direct DB inspection.
+				return h.DB.CompleteBackgroundJob(ctx, jobID, true,
+					"[provider_disabled] Abgebrochen: Provider deaktiviert")
+			} else {
+				settings = cur
+			}
+		}
+
+		result, err := enrichment.ReverseGeocodeWithSettings(ctx, h.DB, userID, settings, c.Lat, c.Lng)
+		switch {
+		case err != nil:
+			slog.Warn("geocoding backfill: reverse-geocode failed",
+				"activity_id", c.ID, "lat", c.Lat, "lng", c.Lng, "error", err)
+			failed++
+		case result == nil || result.City == "":
+			// Neither PostGIS nor fallback produced a city — skip but count.
+			skipped++
+		default:
+			if upErr := h.DB.UpdateActivityStartCityFields(ctx, c.ID,
+				result.City, result.State, result.Country, result.CountryCode,
+			); upErr != nil {
+				slog.Warn("geocoding backfill: update failed",
+					"activity_id", c.ID, "error", upErr)
+				failed++
+			} else {
+				filled++
+			}
+		}
+
+		// Progress every 10 iterations + at the very end so small jobs
+		// (< 10 items) also reach 100% in the UI.
+		if (i+1)%10 == 0 || i+1 == len(candidates) {
+			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1))
+		}
+	}
+
+	slog.Info("geocoding backfill complete",
+		"job_id", jobID, "user_id", userID,
+		"total", len(candidates), "filled", filled, "skipped", skipped, "failed", failed)
+	return h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
+}
+
 // GetEnrichmentSettings returns the user's enrichment settings.
 func (h *Handler) GetEnrichmentSettings(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)

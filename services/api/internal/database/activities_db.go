@@ -2535,3 +2535,89 @@ func (db *DB) GetActivityStartEnd(ctx context.Context, activityID, userID string
 		activityID, userID).Scan(&coords[0], &coords[1], &coords[2], &coords[3])
 	return coords, err
 }
+
+// GeocodingGapCandidate holds the minimal data needed to reverse-geocode a single
+// activity during the geocoding backfill job.
+type GeocodingGapCandidate struct {
+	ID  string
+	Lat float64
+	Lng float64
+}
+
+// geocodingGapWhere is the shared predicate for the geocoding backfill. Kept in
+// one place so CountActivitiesWithoutStartCity and ListActivitiesWithoutStartCity
+// stay in sync.
+//
+// Note on has_gps NULL handling: older activities predating the has_gps column
+// population may have NULL despite having a valid start_location. We therefore
+// accept rows where has_gps is TRUE *or* NULL, and rely on the subsequent
+// `start_location IS NOT NULL` check to reject truly location-less rows. This
+// is equivalent to the previous, more verbose predicate (finding #94).
+const geocodingGapWhere = `
+	user_id = $1
+	AND (has_gps = TRUE OR has_gps IS NULL)
+	AND start_location IS NOT NULL
+	AND (start_city IS NULL OR start_city = '')
+	AND is_virtual = FALSE`
+
+// CountActivitiesWithoutStartCity returns the number of GPS activities for the
+// user that have start_location but no start_city — the pool of candidates for
+// the "Geocoding nachholen" backfill job.
+func (db *DB) CountActivitiesWithoutStartCity(ctx context.Context, userID string) (int, error) {
+	var n int
+	err := db.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activities WHERE`+geocodingGapWhere,
+		userID,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count geocoding gap: %w", err)
+	}
+	return n, nil
+}
+
+// ListActivitiesWithoutStartCity returns id + start coordinates of every
+// activity that CountActivitiesWithoutStartCity would count, ordered from
+// newest to oldest so progress feels natural ("latest activities get the city
+// first").
+func (db *DB) ListActivitiesWithoutStartCity(ctx context.Context, userID string) ([]GeocodingGapCandidate, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id,
+		       ST_Y(start_location::geometry) AS lat,
+		       ST_X(start_location::geometry) AS lng
+		FROM activities
+		WHERE`+geocodingGapWhere+`
+		ORDER BY started_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list geocoding gap: %w", err)
+	}
+	defer rows.Close()
+
+	var out []GeocodingGapCandidate
+	for rows.Next() {
+		var c GeocodingGapCandidate
+		if err := rows.Scan(&c.ID, &c.Lat, &c.Lng); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// UpdateActivityStartCityFields writes the four reverse-geocoded start-location
+// fields for a single activity. Only non-empty values overwrite existing DB
+// values — this keeps a partial PostGIS result (e.g. country only) from
+// clobbering a previous good value.
+func (db *DB) UpdateActivityStartCityFields(ctx context.Context, activityID, city, state, country, countryCode string) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE activities SET
+			start_city         = COALESCE(NULLIF($2, ''), start_city),
+			start_state        = COALESCE(NULLIF($3, ''), start_state),
+			start_country      = COALESCE(NULLIF($4, ''), start_country),
+			start_country_code = COALESCE(NULLIF($5, ''), start_country_code)
+		WHERE id = $1`,
+		activityID, city, state, country, countryCode,
+	)
+	return err
+}

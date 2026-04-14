@@ -143,6 +143,13 @@ var GDPRRegistry = map[string]TableCategory{
 	"komoot_credentials":      System,
 	"notifications":           System,
 	"refresh_tokens":          System,
+	// reverse_geocode_cache: System-Kategorie gerechtfertigt trotz user-stammender
+	// Koordinaten. Rationale: PK ist (lat*1000, lng*1000, provider) = ~100m-Grid
+	// (Mig 000300), 30d TTL, keine user_id-Spalte, keine Tracking-Korrelation
+	// möglich (mehrere User teilen sich die Cache-Einträge). Cache dient rein der
+	// Deduplizierung externer Nominatim/Photon-Lookups — Export wäre bedeutungslos
+	// (generisch pro Grid-Zelle), Delete-on-User-Delete würde andere User schädigen.
+	"reverse_geocode_cache": System,
 	"strava_import_jobs":      System,
 
 	// -------------------------------------------------------------------------
