@@ -86,12 +86,13 @@ interface NumberFieldProps {
   unit: string
   hint: string
   value: string
+  placeholder?: string
   locked: boolean
   settingsKey: string
   onChange: (v: string) => void
 }
 
-function NumberField({ label, unit, hint, value, locked, settingsKey, onChange }: NumberFieldProps) {
+function NumberField({ label, unit, hint, value, placeholder, locked, settingsKey, onChange }: NumberFieldProps) {
   return (
     <div className="space-y-1">
       <label className="block text-sm font-medium text-neutral-800 dark:text-neutral-200">
@@ -104,6 +105,7 @@ function NumberField({ label, unit, hint, value, locked, settingsKey, onChange }
           min={1}
           step={1}
           value={value}
+          placeholder={placeholder}
           disabled={locked}
           onChange={e => onChange(e.target.value)}
           className="w-36 rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT disabled:opacity-50 disabled:cursor-not-allowed"
@@ -141,11 +143,19 @@ export function AdminStorageLimitsSection() {
 
     if (uploadField) {
       const bytes = parseInt(uploadField.value, 10)
-      setMaxUploadMB(isNaN(bytes) ? '50' : String(Math.round(bytes / MB)))
+      if (!isNaN(bytes) && bytes > 0) {
+        setMaxUploadMB(String(Math.round(bytes / MB)))
+      } else {
+        setMaxUploadMB('')  // kein hardcoded default — API gibt den default mit
+      }
     }
     if (storageField) {
       const bytes = parseInt(storageField.value, 10)
-      setMaxUserStorageGB(isNaN(bytes) ? '50' : String(Math.round(bytes / GB)))
+      if (!isNaN(bytes) && bytes > 0) {
+        setMaxUserStorageGB(String(Math.round(bytes / GB)))
+      } else {
+        setMaxUserStorageGB('')  // kein hardcoded default — API gibt den default mit
+      }
     }
     if (keepField) {
       setKeepVersions(keepField.value)
@@ -255,6 +265,7 @@ export function AdminStorageLimitsSection() {
           unit={LABELS.maxUpload.unit}
           hint={LABELS.maxUpload.hint}
           value={maxUploadMB}
+          placeholder={uploadField ? `Standard: ${Math.round(parseInt(uploadField.value, 10) / MB)}` : undefined}
           locked={uploadLocked}
           settingsKey="limits.max_upload_bytes"
           onChange={setMaxUploadMB}
@@ -265,6 +276,7 @@ export function AdminStorageLimitsSection() {
           unit={LABELS.maxUserStorage.unit}
           hint={LABELS.maxUserStorage.hint}
           value={maxUserStorageGB}
+          placeholder={storageField ? `Standard: ${Math.round(parseInt(storageField.value, 10) / GB)}` : undefined}
           locked={storageLocked}
           settingsKey="limits.max_user_storage_bytes"
           onChange={setMaxUserStorageGB}
