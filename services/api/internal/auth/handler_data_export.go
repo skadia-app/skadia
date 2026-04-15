@@ -543,6 +543,7 @@ func gdprExportTables() []gdprExportTableSpec {
 		{"data/best_effort_exclusions.json", "best_effort_exclusions", "user_id = $1"},
 		{"data/activity_developer_apps.json", "activity_developer_apps", "activity_id IN (SELECT id FROM activities WHERE user_id = $1)"},
 		{"data/routing_profiles.json", "routing_profiles", "user_id = $1"},
+		{"data/activity_fusion_memberships.json", "activity_fusion_memberships", "merged_id IN (SELECT id FROM activities WHERE user_id = $1) AND source_id IN (SELECT id FROM activities WHERE user_id = $1)"},
 	}
 }
 
