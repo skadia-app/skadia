@@ -1970,11 +1970,32 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// V2-Sources zurücksetzen: is_fusion_source = FALSE; parent_id war nie gesetzt.
+	// ── Atomic state-flip: legacy flags + memberships ────────────────────────
+	// Begin a transaction that resets both the legacy world (is_fusion_source /
+	// parent_id) and the memberships world (activity_fusion_memberships) in one
+	// atomic commit.  Advisory lock serialises concurrent Merge/Revert per user.
+	flipTx, err := h.DB.Pool.Begin(ctx)
+	if err != nil {
+		slog.Error("revert-fusion: begin tx failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to begin revert tx", r.URL.Path)
+		return
+	}
+	defer flipTx.Rollback(ctx) //nolint:errcheck — no-op if committed
+
+	lockKey := dbutil.AdvisoryLockKey("fusion:" + userID)
+	if _, err := flipTx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, lockKey); err != nil {
+		slog.Error("revert-fusion: advisory lock failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "lock failed", r.URL.Path)
+		return
+	}
+
+	// (a) V2-Sources zurücksetzen: is_fusion_source = FALSE; parent_id war nie gesetzt.
 	// NOT EXISTS: wenn eine Source auch in einer ANDEREN Fusion (M2 != id) referenziert ist,
 	// darf is_fusion_source nicht auf FALSE gesetzt werden — sie bleibt gebackt in M2.
+	// NOTE: cross-fusion guard still uses jsonb_each_text(fusion_sources) — intentional
+	// for Phase 1 (Dual-Write); rewritten to memberships in Phase 2a (Task 14).
 	if len(sourceIDs) > 0 {
-		if _, err := h.DB.Pool.Exec(ctx,
+		if _, err := flipTx.Exec(ctx,
 			`UPDATE activities SET is_fusion_source = FALSE, parent_id = NULL
 			 WHERE id = ANY($1) AND user_id = $2
 			   AND NOT EXISTS (
@@ -1988,21 +2009,43 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 			   )`,
 			sourceIDs, userID, id,
 		); err != nil {
-			slog.Warn("revert-fusion: reset fusion source flags failed", "error", err)
+			slog.Error("revert-fusion: reset V2 flags failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "reset V2 failed", r.URL.Path)
+			return
 		}
 	}
 
-	// Alle versteckten Quellen (parent_id = id) wiederherstellen + is_fusion_source zurücksetzen.
+	// (b) Alle versteckten Quellen (parent_id = id) wiederherstellen + is_fusion_source zurücksetzen.
 	// Für Group-Fusions (V2): parent_id war nie gesetzt, daher ist das ein No-Op für parent_id,
 	// aber is_fusion_source = FALSE ist in jedem Fall korrekt (Legacy-Bugfix).
 	// CASCADE entfernt die Fusion-Aktivität aus recording_group_members; der DEFERRED-Trigger
 	// berechnet is_group_secondary + primary_activity_id neu.
-	if _, err := h.DB.Pool.Exec(ctx,
+	if _, err := flipTx.Exec(ctx,
 		`UPDATE activities SET parent_id = NULL, is_fusion_source = FALSE WHERE parent_id = $1 AND user_id = $2`,
 		id, userID,
 	); err != nil {
-		slog.Error("revert-fusion: restore sources failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to restore sources", r.URL.Path)
+		slog.Error("revert-fusion: restore V1 sources failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "restore V1 failed", r.URL.Path)
+		return
+	}
+
+	// (c) Memberships cleanup — must happen before DeleteActivity so that tests
+	// and Exit-Gate SQL reading memberships as source-of-truth see a consistent
+	// state during Phase 1 (Dual-Write).
+	if err := database.DeleteFusionMembershipsForMerged(ctx, flipTx, id); err != nil {
+		slog.Error("revert-fusion: delete memberships failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "delete memberships failed", r.URL.Path)
+		return
+	}
+
+	// Commit — legacy world + memberships world flip atomically.
+	// Post-commit work (cleanupActivityFiles, DELETE streams, DeleteActivity,
+	// candidate + cache invalidation, best-efforts recompute) runs outside the tx.
+	// If the process crashes after this Commit but before DeleteActivity the merged
+	// activity is orphaned — the Exit-Gate SQL (Task 8) detects this; recovery is manual.
+	if err := flipTx.Commit(ctx); err != nil {
+		slog.Error("revert-fusion: commit flip tx failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "commit failed", r.URL.Path)
 		return
 	}
 

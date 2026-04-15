@@ -47,12 +47,16 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -996,4 +1000,186 @@ func TestFusionMerge_ProductionDataSmoke(t *testing.T) {
 	if totalRows < 29000 {
 		t.Errorf("total rows: want ≥29000, got %d", totalRows)
 	}
+}
+
+// ─── Test 9: RevertFusion atomically clears memberships (Phase 1 Dual-Write) ──
+
+// TestRevertFusionClearsMembershipsInDualWrite asserts that RevertFusion atomically
+// removes both legacy is_fusion_source + fusion_sources flags AND the corresponding
+// rows in activity_fusion_memberships. Part of Task 4b (Phase 1 Dual-Write).
+//
+// Fixed state:
+//   - activity_fusion_memberships rows for mergedID are gone after RevertFusion.
+//   - Source activities still exist with is_fusion_source = FALSE.
+//   - Merged activity no longer exists (DeleteActivity ran post-commit).
+func TestRevertFusionClearsMembershipsInDualWrite(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	targetID := insertMinimalActivity(t, db, userID)
+	sourceID := insertMinimalActivity(t, db, userID)
+
+	base := time.Now().UTC().Truncate(time.Second)
+	insertStreams(t, db, targetID, []model.StreamPoint{
+		{Time: base, HeartRate: fusionPtrI16(130)},
+		{Time: base.Add(1 * time.Second), HeartRate: fusionPtrI16(132)},
+	})
+	insertStreams(t, db, sourceID, []model.StreamPoint{
+		{Time: base, PowerW: fusionPtrI16(200)},
+		{Time: base.Add(1 * time.Second), PowerW: fusionPtrI16(205)},
+	})
+
+	// Seed merged activity + memberships + legacy flags in one tx.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin seed tx: %v", err)
+	}
+
+	targetAct, err := db.GetActivity(ctx, targetID)
+	if err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("GetActivity target: %v", err)
+	}
+
+	mergedAct, err := createMergedActivity(ctx, tx, targetAct)
+	if err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("createMergedActivity: %v", err)
+	}
+
+	tempName, err := createTempMergedStreams(ctx, tx)
+	if err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("createTempMergedStreams: %v", err)
+	}
+	if err := copyTargetStreamsInto(ctx, tx, tempName, mergedAct.ID, targetID); err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("copyTargetStreamsInto: %v", err)
+	}
+	if err := fusionMergeStreamColumn(ctx, tx, tempName, sourceID, "power_w"); err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("fusionMergeStreamColumn: %v", err)
+	}
+	if err := finalizeStreamsMerge(ctx, tx, tempName); err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("finalizeStreamsMerge: %v", err)
+	}
+
+	// Mark sources as fusion children (V1-style: parent_id + is_fusion_source).
+	for _, sid := range []string{targetID, sourceID} {
+		if _, err := tx.Exec(ctx,
+			`UPDATE activities SET parent_id = $2, is_fusion_source = TRUE WHERE id = $1`,
+			sid, mergedAct.ID,
+		); err != nil {
+			tx.Rollback(ctx) //nolint:errcheck
+			t.Fatalf("mark source as fusion child (%s): %v", sid, err)
+		}
+	}
+
+	// Set fusion_sources JSON so RevertFusion recognises the merged activity.
+	fusionSourcesJSON := fmt.Sprintf(`{"hr":"%s","power":"%s"}`, targetID, sourceID)
+	if _, err := tx.Exec(ctx,
+		`UPDATE activities SET fusion_sources = $2::jsonb WHERE id = $1`,
+		mergedAct.ID, fusionSourcesJSON,
+	); err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("set fusion_sources: %v", err)
+	}
+
+	// Write memberships (Dual-Write: memberships mirror the legacy flags).
+	memberships := []database.FusionMembership{
+		{MergedID: mergedAct.ID, SourceID: targetID, FieldKey: "hr", UserID: userID},
+		{MergedID: mergedAct.ID, SourceID: sourceID, FieldKey: "power", UserID: userID},
+	}
+	if err := database.InsertFusionMemberships(ctx, tx, memberships); err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("InsertFusionMemberships: %v", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seed tx: %v", err)
+	}
+
+	// Pre-condition: memberships exist for mergedID.
+	var beforeCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activity_fusion_memberships WHERE merged_id = $1`, mergedAct.ID,
+	).Scan(&beforeCount); err != nil {
+		t.Fatalf("count memberships before revert: %v", err)
+	}
+	if beforeCount < 2 {
+		t.Fatalf("expected ≥2 memberships before revert, got %d — seed broken", beforeCount)
+	}
+	t.Logf("Memberships before RevertFusion: %d", beforeCount)
+
+	// Pre-condition: sources have is_fusion_source = TRUE.
+	for _, sid := range []string{targetID, sourceID} {
+		var isFusionSource bool
+		if err := pool.QueryRow(ctx,
+			`SELECT is_fusion_source FROM activities WHERE id = $1`, sid,
+		).Scan(&isFusionSource); err != nil {
+			t.Fatalf("check is_fusion_source for %s: %v", sid, err)
+		}
+		if !isFusionSource {
+			t.Fatalf("source %s: expected is_fusion_source=TRUE before revert", sid)
+		}
+	}
+
+	// Call RevertFusion via its HTTP handler.
+	h := &Handler{DB: db}
+
+	req := httptest.NewRequest(http.MethodDelete, "/activities/"+mergedAct.ID+"/fusion", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", mergedAct.ID)
+	req = req.WithContext(
+		context.WithValue(
+			context.WithValue(req.Context(), chi.RouteCtxKey, rctx),
+			middleware.UserIDKey, userID,
+		),
+	)
+	rr := httptest.NewRecorder()
+	h.RevertFusion(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("RevertFusion: expected 204, got %d — body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Post-condition: memberships for mergedID are gone.
+	var afterMembershipCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activity_fusion_memberships WHERE merged_id = $1`, mergedAct.ID,
+	).Scan(&afterMembershipCount); err != nil {
+		t.Fatalf("count memberships after revert: %v", err)
+	}
+	if afterMembershipCount != 0 {
+		t.Errorf("activity_fusion_memberships still has %d rows for merged_id after RevertFusion (want 0)",
+			afterMembershipCount)
+	}
+
+	// Post-condition: merged activity is gone.
+	var mergedExists bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM activities WHERE id = $1)`, mergedAct.ID,
+	).Scan(&mergedExists); err != nil {
+		t.Fatalf("check merged activity exists: %v", err)
+	}
+	if mergedExists {
+		t.Errorf("merged activity %s still exists after RevertFusion (want deleted)", mergedAct.ID)
+	}
+
+	// Post-condition: source activities still exist with is_fusion_source = FALSE.
+	for _, sid := range []string{targetID, sourceID} {
+		var isFusionSource bool
+		if err := pool.QueryRow(ctx,
+			`SELECT is_fusion_source FROM activities WHERE id = $1`, sid,
+		).Scan(&isFusionSource); err != nil {
+			t.Fatalf("check is_fusion_source for %s after revert: %v", sid, err)
+		}
+		if isFusionSource {
+			t.Errorf("source %s: is_fusion_source=TRUE after RevertFusion (want FALSE)", sid)
+		}
+	}
+	t.Logf("RevertFusion: memberships=0, merged deleted, sources restored — OK")
 }
