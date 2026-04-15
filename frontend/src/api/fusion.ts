@@ -30,6 +30,7 @@ export interface FusionMergeRequest {
   gps_fusion_config?: GPSFusionConfig
   title_source?: string
   tags_merge: boolean
+  tags_source?: string  // if set and !tags_merge: take tags from this source only
   gear_source?: string
 }
 

@@ -21,9 +21,14 @@ export const FUSION_FIELDS = {
   PEDAL_SMOOTHNESS_R: 'pedal_smoothness_r',
 } as const
 
+// ── Meta-field keys (title / tags live outside fieldMap, but share the table UI) ─
+
+export const META_TITLE_KEY = '__meta_title__'
+export const META_TAGS_KEY = '__meta_tags__'
+
 // ── Field definitions ─────────────────────────────────────────────────────────
 
-type FieldCategory = 'core' | 'running' | 'pedal'
+type FieldCategory = 'meta' | 'core' | 'running' | 'pedal'
 
 interface FieldDef {
   key: string
@@ -35,6 +40,20 @@ interface FieldDef {
 }
 
 const FIELDS: FieldDef[] = [
+  {
+    key: META_TITLE_KEY,
+    label: 'Titel',
+    category: 'meta',
+    hasKey: null,
+    allowFuse: false,
+  },
+  {
+    key: META_TAGS_KEY,
+    label: 'Tags',
+    category: 'meta',
+    hasKey: null,
+    allowFuse: true,
+  },
   {
     key: FUSION_FIELDS.GPS,
     label: 'GPS-Track',
@@ -153,7 +172,8 @@ const FIELDS: FieldDef[] = [
 // ── Category divider rows ─────────────────────────────────────────────────────
 
 const CATEGORY_LABELS: Record<FieldCategory, string | null> = {
-  core: null, // no divider for core
+  meta: 'Metadaten', // divider above the two meta rows (Titel, Tags)
+  core: null, // no divider for core — meta divider separates visually
   running: 'Running Dynamics',
   pedal: 'Pedal Analytics',
 }
@@ -172,6 +192,12 @@ interface FusionFieldTableProps {
   activities: FusionActivityInfo[]
   fieldMap: Record<string, string>
   onFieldChange: (field: string, sourceId: string) => void
+  // Meta selections live outside fieldMap (semantic: not stream merges).
+  titleSource: string | null
+  onTitleChange: (sourceId: string) => void
+  // tagsSelection: either a source UUID (= tags from that source), or "fuse" (= merge all).
+  tagsSelection: string | null
+  onTagsChange: (selection: string) => void
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -180,33 +206,47 @@ export default function FusionFieldTable({
   activities,
   fieldMap,
   onFieldChange,
+  titleSource,
+  onTitleChange,
+  tagsSelection,
+  onTagsChange,
 }: FusionFieldTableProps) {
   const manyColumns = activities.length > 4
 
   // Track which category dividers have been rendered
   const renderedDividers = new Set<FieldCategory>()
 
+  // Resolve the selected source ID + change handler for each field, unified so
+  // meta rows (title/tags) and stream fields share the same rendering code.
+  const selectionFor = (field: FieldDef): { selected: string | undefined; onChange: (sourceId: string) => void } => {
+    if (field.key === META_TITLE_KEY) return { selected: titleSource ?? undefined, onChange: onTitleChange }
+    if (field.key === META_TAGS_KEY) return { selected: tagsSelection ?? undefined, onChange: onTagsChange }
+    return { selected: fieldMap[field.key], onChange: (id: string) => onFieldChange(field.key, id) }
+  }
+
   const rows: React.ReactNode[] = []
 
   for (const field of FIELDS) {
-    // Insert category divider on first field of each non-core category
-    if (field.category !== 'core' && !renderedDividers.has(field.category)) {
+    // Insert a category divider on the first field of each category that has a label.
+    // Categories without a label (currently: 'core') render no divider.
+    const catLabel = CATEGORY_LABELS[field.category]
+    if (catLabel && !renderedDividers.has(field.category)) {
       renderedDividers.add(field.category)
-      const catLabel = CATEGORY_LABELS[field.category]
+      const isExpandable = field.category === 'running' || field.category === 'pedal'
       rows.push(
         <tr key={`divider-${field.category}`} className="border-b border-neutral-100 dark:border-neutral-800 bg-blue-50/30 dark:bg-blue-900/10">
           <td className="py-2.5 font-medium text-blue-700 dark:text-blue-400 text-xs">
             {catLabel}
           </td>
           <td colSpan={activities.length + 1} className="py-2.5 text-xs text-blue-600 dark:text-blue-500 text-center">
-            ↓ Erweiterte Felder
+            {isExpandable ? '↓ Erweiterte Felder' : ''}
           </td>
         </tr>
       )
     }
 
-    const selected = fieldMap[field.key]
-    const isCategoryField = field.category !== 'core'
+    const { selected, onChange } = selectionFor(field)
+    const isCategoryField = field.category === 'running' || field.category === 'pedal'
 
     rows.push(
       <tr
@@ -234,7 +274,7 @@ export default function FusionFieldTable({
                   value={a.id}
                   checked={isSelected}
                   disabled={!hasData}
-                  onChange={() => hasData && onFieldChange(field.key, a.id)}
+                  onChange={() => hasData && onChange(a.id)}
                   className="accent-accent-DEFAULT"
                 />
                 {field.getDisplay && (
@@ -255,7 +295,7 @@ export default function FusionFieldTable({
                 name={`field-${field.key}`}
                 value="fuse"
                 checked={selected === 'fuse'}
-                onChange={() => onFieldChange(field.key, 'fuse')}
+                onChange={() => onChange('fuse')}
                 className="accent-accent-DEFAULT"
               />
               <span className="text-xs text-accent-DEFAULT font-medium">Fuse</span>

@@ -155,11 +155,19 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
   const [showRevertFusionModal, setShowRevertFusionModal] = useState(false)
   const [conflictOpen, setConflictOpen] = useState(false)
 
+  const sourceIds = activity.fusion_sources
+    ? Array.from(new Set(Object.values(activity.fusion_sources))).filter(id => id !== activity.id && id !== 'fuse')
+    : []
+
   const revertFusionMutation = useMutation({
     mutationFn: () => revertFusion(activity.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activities'] })
-      navigate('/activities')
+      if (sourceIds.length > 0) {
+        navigate(`/activities/${sourceIds[0]}`)
+      } else {
+        navigate('/activities')
+      }
     },
     onError: () => {
       addToast({ type: 'error', title: 'Fusion konnte nicht rückgängig gemacht werden', message: 'Bitte erneut versuchen.' })
