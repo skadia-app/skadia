@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -45,6 +46,12 @@ type FusionMergeRequest struct {
 	// Zusätzlich zum normalen DB-Level-Merge.
 	FitLevel bool `json:"fit_level"`
 }
+
+// ErrAlreadyFused is returned when a FusionMerge attempt includes a source
+// activity that is already a member of another merged activity. The preflight
+// check inside each merge tx (after advisory-lock acquisition) rejects this
+// case, which protects against concurrent merges of the same [A, B] set.
+var ErrAlreadyFused = errors.New("one or more sources already belong to a fusion")
 
 // validStreamFields mappt logische Feld-Namen auf activity_streams-Spaltennamen.
 var validStreamFields = map[string]string{
@@ -180,6 +187,24 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, lockKey); err != nil {
 		slog.Error("fusion-merge: advisory lock failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "fusion advisory lock: "+err.Error(), r.URL.Path)
+		return
+	}
+
+	// Preflight: after holding the lock, re-check that no source is already fused.
+	// This closes the race window between two parallel FusionMerge calls for the same
+	// user: the first commits its memberships, the second (after lock-release wait)
+	// sees them and returns 409 Conflict.
+	var alreadyFusedV1 bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM activity_fusion_memberships WHERE source_id = ANY($1))`,
+		allIDs,
+	).Scan(&alreadyFusedV1); err != nil {
+		slog.Error("fusion-merge: preflight query failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "preflight failed", r.URL.Path)
+		return
+	}
+	if alreadyFusedV1 {
+		httputil.WriteError(w, http.StatusConflict, "Conflict", ErrAlreadyFused.Error(), r.URL.Path)
 		return
 	}
 
@@ -1543,6 +1568,24 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, lockKeyV2); err != nil {
 		slog.Error("fusion-merge-v2: advisory lock failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "fusion advisory lock: "+err.Error(), r.URL.Path)
+		return
+	}
+
+	// Preflight: after holding the lock, re-check that no source is already fused.
+	// This closes the race window between two parallel FusionMerge calls for the same
+	// user: the first commits its memberships, the second (after lock-release wait)
+	// sees them and returns 409 Conflict.
+	var alreadyFusedV2 bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM activity_fusion_memberships WHERE source_id = ANY($1))`,
+		req.Sources,
+	).Scan(&alreadyFusedV2); err != nil {
+		slog.Error("fusion-merge-v2: preflight query failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "preflight failed", r.URL.Path)
+		return
+	}
+	if alreadyFusedV2 {
+		httputil.WriteError(w, http.StatusConflict, "Conflict", ErrAlreadyFused.Error(), r.URL.Path)
 		return
 	}
 
