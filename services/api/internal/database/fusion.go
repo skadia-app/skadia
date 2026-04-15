@@ -13,17 +13,21 @@ import (
 )
 
 // GetFusionQueueActivities gibt Aktivitäten eines Users zurück
-// die GPS-Daten haben und noch nicht is_fusion_source sind.
+// die GPS-Daten haben und noch nicht als Fusion-Quelle oder Merge-Ziel bekannt sind.
 // limit <= 0 gibt alle zurück; limit > 0 beschränkt auf die neuesten N.
 func (db *DB) GetFusionQueueActivities(ctx context.Context, userID string, limit int) ([]string, error) {
 	query := `
 		SELECT a.id
 		FROM activities a
 		WHERE a.user_id = $1
-		  AND a.is_fusion_source = FALSE
 		  AND a.is_group_secondary = FALSE
-		  AND a.fusion_sources IS NULL
 		  AND a.has_gps = TRUE
+		  AND NOT EXISTS (
+		      SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id
+		  )
+		  AND NOT EXISTS (
+		      SELECT 1 FROM activity_fusion_memberships m WHERE m.merged_id = a.id
+		  )
 		ORDER BY a.started_at DESC`
 	var rows pgx.Rows
 	var err error
@@ -107,8 +111,8 @@ func (db *DB) FindFusionCandidates(ctx context.Context, userID string, activityI
         SELECT b.id FROM activities a
         JOIN activities b ON b.user_id = a.user_id
             AND b.id != a.id
-            AND b.is_fusion_source = FALSE
             AND b.is_group_secondary = FALSE
+            AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = b.id)
             AND (
                 -- Zeitlicher Overlap: Aktivitäten überschneiden sich
                 (b.ended_at IS NOT NULL AND a.ended_at IS NOT NULL
@@ -214,13 +218,16 @@ func (db *DB) GetAllFusionCandidatePairs(ctx context.Context, userID string) ([]
 // GetMultisportChildIDs gibt die Teilmenge der übergebenen IDs zurück,
 // die aus der Clique-Bildung ausgeschlossen werden müssen:
 // Multisport-Teilaktivitäten (parent_id IS NOT NULL) oder
-// Fusion-Quell-Aktivitäten (is_fusion_source = TRUE, Spec §3.4).
+// Fusion-Quell-Aktivitäten (Spec §3.4, geprüft via activity_fusion_memberships).
 func (db *DB) GetMultisportChildIDs(ctx context.Context, activityIDs []string) (map[string]bool, error) {
 	if len(activityIDs) == 0 {
 		return map[string]bool{}, nil
 	}
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id FROM activities WHERE id = ANY($1) AND (parent_id IS NOT NULL OR is_fusion_source = TRUE)`,
+		`SELECT a.id FROM activities a WHERE a.id = ANY($1) AND (
+		    a.parent_id IS NOT NULL
+		    OR EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
+		)`,
 		activityIDs,
 	)
 	if err != nil {
