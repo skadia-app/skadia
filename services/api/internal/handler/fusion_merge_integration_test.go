@@ -52,6 +52,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1401,4 +1402,144 @@ func TestDualWriteConsistency(t *testing.T) {
 			len(derivedSet), len(storedSet))
 	}
 	t.Logf("Dual-Write semantic equivalence: derived=%d == stored=%d — OK", len(derivedSet), len(storedSet))
+}
+
+// ─── Test: Concurrent FusionMerge for the same user ──────────────────────────
+
+// TestFusionMergeConcurrentSameUser verifies that the advisory lock + preflight
+// check prevent two parallel FusionMerge calls for the same user from both
+// succeeding. Part of Phase 1 Task 7b.
+//
+// Scenario: user owns activities A and B (two sources).
+// Two goroutines race on FusionMergeV2([A, B]). The advisory lock serialises
+// them. After the first commits its membership rows, the second sees those rows
+// in the preflight SELECT EXISTS and returns 409 Conflict.
+//
+// Assertions:
+//   - Exactly one goroutine gets 201 Created.
+//   - Exactly one goroutine gets 409 Conflict.
+//   - No 500 responses.
+//   - Exactly one merged activity exists for the [A, B] pair.
+func TestFusionMergeConcurrentSameUser(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+
+	base := time.Date(2024, 7, 1, 9, 0, 0, 0, time.UTC)
+	lat, lng := fusionPtrF64(47.5), fusionPtrF64(11.5)
+	insertStreams(t, db, actA, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(130)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(132)},
+	})
+	insertStreams(t, db, actB, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, PowerW: fusionPtrI16(210)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, PowerW: fusionPtrI16(215)},
+	})
+
+	// Build the request body: FusionMergeV2 with sources=[A, B].
+	reqBodyStr := fmt.Sprintf(
+		`{"sources":[%q,%q],"field_map":{"hr":%q,"power":%q},"tags_merge":false}`,
+		actA, actB, actA, actB,
+	)
+
+	type result struct {
+		code int
+		body string
+	}
+	results := make(chan result, 2)
+	start := make(chan struct{})
+
+	h := &Handler{DB: db}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
+				strings.NewReader(reqBodyStr))
+			httpReq.Header.Set("Content-Type", "application/json")
+			httpReq = httpReq.WithContext(
+				context.WithValue(httpReq.Context(), middleware.UserIDKey, userID),
+			)
+			rr := httptest.NewRecorder()
+
+			// Wait until both goroutines are ready to maximise concurrency.
+			<-start
+
+			h.FusionMergeV2(rr, httpReq)
+			results <- result{code: rr.Code, body: rr.Body.String()}
+		}()
+	}
+
+	// Release both goroutines simultaneously.
+	close(start)
+	wg.Wait()
+	close(results)
+
+	var codes []int
+	for r := range results {
+		codes = append(codes, r.code)
+		if r.code == http.StatusInternalServerError {
+			t.Errorf("unexpected 500 from FusionMergeV2: body=%s", r.body)
+		}
+	}
+
+	if len(codes) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(codes))
+	}
+
+	successCount, conflictCount := 0, 0
+	for _, c := range codes {
+		switch c {
+		case http.StatusCreated:
+			successCount++
+		case http.StatusConflict:
+			conflictCount++
+		default:
+			t.Errorf("unexpected status code %d", c)
+		}
+	}
+	if successCount != 1 {
+		t.Errorf("expected exactly 1 success (201), got %d (codes: %v)", successCount, codes)
+	}
+	if conflictCount != 1 {
+		t.Errorf("expected exactly 1 conflict (409), got %d (codes: %v)", conflictCount, codes)
+	}
+
+	// DB invariant: exactly one merged activity created for the [A, B] pair.
+	var mergedCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(DISTINCT merged_id) FROM activity_fusion_memberships
+		 WHERE source_id IN ($1, $2)`,
+		actA, actB,
+	).Scan(&mergedCount); err != nil {
+		t.Fatalf("count distinct merged_id: %v", err)
+	}
+	if mergedCount != 1 {
+		t.Errorf("expected exactly 1 merged activity in memberships, got %d", mergedCount)
+	}
+
+	// DB invariant: exactly one activity row for that merged_id.
+	var activityCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activities
+		 WHERE id IN (
+		     SELECT DISTINCT merged_id FROM activity_fusion_memberships
+		     WHERE source_id IN ($1, $2)
+		 )`,
+		actA, actB,
+	).Scan(&activityCount); err != nil {
+		t.Fatalf("count merged activity rows: %v", err)
+	}
+	if activityCount != 1 {
+		t.Errorf("expected exactly 1 merged activity row in activities, got %d", activityCount)
+	}
+
+	t.Logf("Concurrent FusionMergeV2: 1×201, 1×409, 1 merged activity — OK")
 }
