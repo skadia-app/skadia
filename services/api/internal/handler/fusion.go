@@ -119,7 +119,7 @@ func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 			ON b.user_id = a.user_id
 			AND b.id != a.id
 			AND ABS(EXTRACT(EPOCH FROM (b.started_at - a.started_at))) <= $4
-			AND b.is_fusion_source = FALSE
+			AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = b.id)
 			AND b.is_group_secondary = FALSE
 		WHERE a.id = $1 AND a.user_id = $5
 		ORDER BY ABS(EXTRACT(EPOCH FROM (b.started_at - a.started_at)))
