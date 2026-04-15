@@ -96,6 +96,7 @@ export default function ActivityDetailPage() {
     queryKey: ['activity', activeActivityId],
     queryFn: () => fetchActivity(activeActivityId!),
     enabled: !!activeActivityId,
+    staleTime: 5 * 60 * 1000,
   })
 
   const { data: weatherPrefs } = useQuery({
@@ -109,6 +110,7 @@ export default function ActivityDetailPage() {
     queryKey: ['activity-streams', activeActivityId],
     queryFn: () => fetchActivityStreams(activeActivityId!),
     enabled: !!activeActivityId,
+    staleTime: 5 * 60 * 1000,
   })
 
   const { data: sensors } = useQuery({

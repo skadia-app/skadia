@@ -56,7 +56,9 @@ export default function FusionPage() {
   // selectedSources: ordered list of activity IDs (2–6)
   const [selectedSources, setSelectedSources] = useState<string[]>([])
   const [fieldMap, setFieldMap] = useState<Record<string, string>>({})
-  const [tagsMerge, setTagsMerge] = useState(false)
+  // tagsSelection: either a source UUID (= tags from that source only)
+  // or the literal "fuse" (= merge tags from all sources).
+  const [tagsSelection, setTagsSelection] = useState<string | null>(null)
   const [titleSource, setTitleSource] = useState<string | null>(null)
   const [gpsPrimarySource, setGpsPrimarySource] = useState('')
   const [gpsExtendTrack, setGpsExtendTrack] = useState(false)
@@ -86,7 +88,14 @@ export default function FusionPage() {
     if (initialisedRef.current) return
     if (groupMembers.length > 0) {
       initialisedRef.current = true
-      setSelectedSources(groupMembers.slice(0, 6).map(m => m.activity_id))
+      // Prefer members that are not currently baked into another fusion
+      // (is_fusion_source=false). If that filter would leave fewer than two
+      // candidates — e.g. all members carry a stale flag from a prior merged
+      // activity — fall back to the full group so the user has something to
+      // work with. They can still remove individual sources manually.
+      const eligible = groupMembers.filter(m => !m.is_fusion_source)
+      const pick = eligible.length >= 2 ? eligible : groupMembers
+      setSelectedSources(pick.slice(0, 6).map(m => m.activity_id))
     } else if (idsParam) {
       const ids = idsParam.split(',').filter(Boolean).slice(0, 6)
       if (ids.length > 0) {
@@ -223,12 +232,14 @@ export default function FusionPage() {
     })
     setFieldMap({})
     setTitleSource(null)
+    setTagsSelection(null)
   }
 
   const handleSourceRemove = (index: number) => {
     setSelectedSources(prev => prev.filter((_, i) => i !== index))
     setFieldMap({})
     setTitleSource(null)
+    setTagsSelection(null)
   }
 
   const handleAddSource = () => {
@@ -264,7 +275,8 @@ export default function FusionPage() {
             ? { primary_source: gpsPrimarySource || selectedSources[0], extend_track: gpsExtendTrack }
             : undefined,
         title_source: titleSource ?? undefined,
-        tags_merge: tagsMerge,
+        tags_merge: tagsSelection === 'fuse',
+        tags_source: tagsSelection && tagsSelection !== 'fuse' ? tagsSelection : undefined,
         fit_level: false,
         group_id: groupId ?? undefined,
       })
@@ -441,61 +453,7 @@ export default function FusionPage() {
         </SourcesProvider>
       )}
 
-      {/* Titel + Tags */}
-      {selectedSources.length >= 2 && (
-        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-5 space-y-4">
-          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-            Titel &amp; Tags
-          </h2>
-
-          {/* Titel */}
-          <div>
-            <p className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-2">
-              Titel — Quelle wählen
-            </p>
-            <div className="flex flex-wrap gap-3">
-              {fusionActivities.map(a => (
-                <label key={a.id} className="inline-flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="title-source"
-                    value={a.id}
-                    checked={titleSource === a.id}
-                    onChange={() => setTitleSource(a.id)}
-                    className="accent-accent-DEFAULT"
-                  />
-                  <span
-                    className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                    style={{ background: `${a.color}22`, color: a.color }}
-                  >
-                    {a.label}
-                  </span>
-                  {a.deviceLabel && (
-                    <span className="text-xs text-neutral-400">{a.deviceLabel}</span>
-                  )}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Tags */}
-          <div>
-            <label className="inline-flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={tagsMerge}
-                onChange={e => setTagsMerge(e.target.checked)}
-                className="accent-accent-DEFAULT"
-              />
-              <span className="text-xs text-neutral-600 dark:text-neutral-400">
-                Tags aus allen Quellen zusammenführen
-              </span>
-            </label>
-          </div>
-        </div>
-      )}
-
-      {/* Feld-Tabelle */}
+      {/* Feld-Tabelle (inkl. Meta-Zeilen Titel/Tags) */}
       {selectedSources.length >= 2 && (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-5">
           <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">
@@ -507,6 +465,10 @@ export default function FusionPage() {
             onFieldChange={(field, sourceId) =>
               setFieldMap(prev => ({ ...prev, [field]: sourceId }))
             }
+            titleSource={titleSource}
+            onTitleChange={setTitleSource}
+            tagsSelection={tagsSelection}
+            onTagsChange={setTagsSelection}
           />
 
           {/* GPS-Fusion-Konfiguration */}
