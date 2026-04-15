@@ -45,11 +45,13 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -1182,4 +1184,221 @@ func TestRevertFusionClearsMembershipsInDualWrite(t *testing.T) {
 		}
 	}
 	t.Logf("RevertFusion: memberships=0, merged deleted, sources restored — OK")
+}
+
+// ─── Test N: Dual-Write Consistency ───────────────────────────────────────────
+
+// TestDualWriteConsistency verifies that after one successful FusionMerge (V2),
+// the legacy fusion_sources JSONB and the new activity_fusion_memberships rows
+// describe the same fusion semantically. Part of Phase 1 Dual-Write (Task 5).
+//
+// Scenario: 3 activities A, B, C — each with overlapping timestamps.
+//
+//	FieldMap: {"gps": "fuse", "hr": B, "power": C}
+//
+// Legacy world:  fusion_sources JSONB = {"gps":"fuse","hr":"<B>","power":"<C>"}
+// Memberships:   5 rows — gps×3 (fuse expands to A,B,C) + hr×1 (B) + power×1 (C)
+// Equivalence:   deriveFusionMemberships(mergedID, userID, jsonb, sources) == stored rows
+func TestDualWriteConsistency(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+	actC := insertMinimalActivity(t, db, userID)
+
+	base := time.Date(2024, 6, 1, 8, 0, 0, 0, time.UTC)
+	lat, lng := fusionPtrF64(47.0), fusionPtrF64(11.0)
+
+	// A: GPS + HR
+	insertStreams(t, db, actA, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(120)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(122)},
+	})
+	// B: GPS + HR (the "hr" source)
+	insertStreams(t, db, actB, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(140)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(142)},
+	})
+	// C: GPS + Power (the "power" source)
+	insertStreams(t, db, actC, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, PowerW: fusionPtrI16(200)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, PowerW: fusionPtrI16(205)},
+	})
+
+	// Build V2 request: Sources=[A,B,C], FieldMap={"gps":"fuse","hr":B,"power":C}
+	reqBody := fmt.Sprintf(
+		`{"sources":[%q,%q,%q],"field_map":{"gps":"fuse","hr":%q,"power":%q},"tags_merge":false}`,
+		actA, actB, actC, actB, actC,
+	)
+
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
+		strings.NewReader(reqBody))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq = httpReq.WithContext(
+		context.WithValue(httpReq.Context(), middleware.UserIDKey, userID),
+	)
+
+	rr := httptest.NewRecorder()
+	h := &Handler{DB: db}
+	h.FusionMergeV2(rr, httpReq)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("FusionMergeV2: expected 201, got %d — body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Decode merged ID from response.
+	var resp struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response body: %v", err)
+	}
+	mergedID := resp.ID
+	if mergedID == "" {
+		t.Fatal("response did not include an id")
+	}
+	t.Logf("FusionMergeV2: merged activity id = %s", mergedID)
+
+	// ── 1. Legacy world: fusion_sources JSONB ────────────────────────────────
+
+	var fusionSourcesRaw []byte
+	if err := pool.QueryRow(ctx,
+		`SELECT fusion_sources FROM activities WHERE id = $1`, mergedID,
+	).Scan(&fusionSourcesRaw); err != nil {
+		t.Fatalf("read fusion_sources from activities: %v", err)
+	}
+	if fusionSourcesRaw == nil {
+		t.Fatal("fusion_sources is NULL on merged activity — legacy write broken")
+	}
+
+	var fusionSources map[string]string
+	if err := json.Unmarshal(fusionSourcesRaw, &fusionSources); err != nil {
+		t.Fatalf("unmarshal fusion_sources JSONB: %v", err)
+	}
+
+	// Must have exactly 3 keys: gps, hr, power.
+	wantKeys := []string{"gps", "hr", "power"}
+	for _, k := range wantKeys {
+		if _, ok := fusionSources[k]; !ok {
+			t.Errorf("fusion_sources JSONB missing key %q; got %v", k, fusionSources)
+		}
+	}
+	if len(fusionSources) != 3 {
+		t.Errorf("fusion_sources JSONB: want 3 keys, got %d: %v", len(fusionSources), fusionSources)
+	}
+	if fusionSources["gps"] != "fuse" {
+		t.Errorf("fusion_sources[gps]: want %q, got %q", "fuse", fusionSources["gps"])
+	}
+	if fusionSources["hr"] != actB {
+		t.Errorf("fusion_sources[hr]: want %q (actB), got %q", actB, fusionSources["hr"])
+	}
+	if fusionSources["power"] != actC {
+		t.Errorf("fusion_sources[power]: want %q (actC), got %q", actC, fusionSources["power"])
+	}
+	t.Logf("Legacy fusion_sources JSONB: %v — OK", fusionSources)
+
+	// ── 2. Memberships world: activity_fusion_memberships ────────────────────
+
+	type memberRow struct {
+		FieldKey string
+		SourceID string
+	}
+	rows, err := pool.Query(ctx,
+		`SELECT field_key, source_id FROM activity_fusion_memberships WHERE merged_id = $1`,
+		mergedID,
+	)
+	if err != nil {
+		t.Fatalf("query activity_fusion_memberships: %v", err)
+	}
+	defer rows.Close()
+
+	var members []memberRow
+	for rows.Next() {
+		var m memberRow
+		if err := rows.Scan(&m.FieldKey, &m.SourceID); err != nil {
+			t.Fatalf("scan membership row: %v", err)
+		}
+		members = append(members, m)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate memberships: %v", err)
+	}
+
+	// 5 rows total: gps→{A,B,C}, hr→{B}, power→{C}
+	if len(members) != 5 {
+		t.Errorf("activity_fusion_memberships: want 5 rows, got %d: %v", len(members), members)
+	}
+
+	// Count per field_key.
+	countByField := make(map[string]int)
+	sourcesByField := make(map[string]map[string]bool)
+	for _, m := range members {
+		countByField[m.FieldKey]++
+		if sourcesByField[m.FieldKey] == nil {
+			sourcesByField[m.FieldKey] = make(map[string]bool)
+		}
+		sourcesByField[m.FieldKey][m.SourceID] = true
+	}
+
+	if countByField["gps"] != 3 {
+		t.Errorf("memberships gps: want 3 rows (fuse expansion), got %d", countByField["gps"])
+	}
+	for _, src := range []string{actA, actB, actC} {
+		if !sourcesByField["gps"][src] {
+			t.Errorf("memberships gps: missing source_id=%s", src)
+		}
+	}
+
+	if countByField["hr"] != 1 {
+		t.Errorf("memberships hr: want 1 row, got %d", countByField["hr"])
+	}
+	if !sourcesByField["hr"][actB] {
+		t.Errorf("memberships hr: want source_id=%s (actB), got %v", actB, sourcesByField["hr"])
+	}
+
+	if countByField["power"] != 1 {
+		t.Errorf("memberships power: want 1 row, got %d", countByField["power"])
+	}
+	if !sourcesByField["power"][actC] {
+		t.Errorf("memberships power: want source_id=%s (actC), got %v", actC, sourcesByField["power"])
+	}
+	t.Logf("activity_fusion_memberships: 5 rows, field counts=%v — OK", countByField)
+
+	// ── 3. Semantic equivalence: derived == stored ────────────────────────────
+	//
+	// Re-derive memberships from the stored JSONB using the same logic as the
+	// handler (deriveFusionMemberships). The result must match the stored rows.
+
+	allSources := []string{actA, actB, actC}
+	derived := deriveFusionMemberships(mergedID, userID, fusionSources, allSources)
+
+	// Build normalised sets for comparison (order-independent).
+	type memberKey struct{ Field, Source string }
+	derivedSet := make(map[memberKey]bool, len(derived))
+	for _, m := range derived {
+		derivedSet[memberKey{m.FieldKey, m.SourceID}] = true
+	}
+	storedSet := make(map[memberKey]bool, len(members))
+	for _, m := range members {
+		storedSet[memberKey{m.FieldKey, m.SourceID}] = true
+	}
+
+	for k := range derivedSet {
+		if !storedSet[k] {
+			t.Errorf("semantic mismatch: derived membership {field=%s, source=%s} not in stored rows", k.Field, k.Source)
+		}
+	}
+	for k := range storedSet {
+		if !derivedSet[k] {
+			t.Errorf("semantic mismatch: stored membership {field=%s, source=%s} not in derived set", k.Field, k.Source)
+		}
+	}
+	if len(derivedSet) != len(storedSet) {
+		t.Errorf("semantic mismatch: derived has %d distinct memberships, stored has %d",
+			len(derivedSet), len(storedSet))
+	}
+	t.Logf("Dual-Write semantic equivalence: derived=%d == stored=%d — OK", len(derivedSet), len(storedSet))
 }
