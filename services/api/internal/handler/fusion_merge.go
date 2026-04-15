@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/dbutil"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/fusion"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -66,6 +67,34 @@ var validStreamFields = map[string]string{
 	"torque_effectiveness_r": "right_torque_effectiveness_pct",
 	"pedal_smoothness_l":     "left_pedal_smoothness_pct",
 	"pedal_smoothness_r":     "right_pedal_smoothness_pct",
+}
+
+// deriveFusionMemberships builds the membership list from the merge request.
+// "fuse"-literal (GPS stitching) expands to one row per source in allSources.
+// Concrete source-ids produce exactly one row each.
+// userID is the owner — same for merged + all sources (fusion across users is rejected upstream).
+func deriveFusionMemberships(mergedID, userID string, fieldMap map[string]string, allSources []string) []database.FusionMembership {
+	out := make([]database.FusionMembership, 0, len(fieldMap)+len(allSources))
+	for fieldKey, srcID := range fieldMap {
+		if srcID == "fuse" {
+			for _, s := range allSources {
+				out = append(out, database.FusionMembership{
+					MergedID: mergedID,
+					SourceID: s,
+					FieldKey: fieldKey,
+					UserID:   userID,
+				})
+			}
+			continue
+		}
+		out = append(out, database.FusionMembership{
+			MergedID: mergedID,
+			SourceID: srcID,
+			FieldKey: fieldKey,
+			UserID:   userID,
+		})
+	}
+	return out
 }
 
 // FusionMerge führt eine 3-Quellen-Fusion durch und erstellt eine neue Aktivität:
@@ -144,6 +173,15 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// Serialise concurrent Merge/Revert for the same user via an advisory lock
+	// that is scoped to the transaction (released automatically on Commit/Rollback).
+	lockKey := dbutil.AdvisoryLockKey("fusion:" + userID)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, lockKey); err != nil {
+		slog.Error("fusion-merge: advisory lock failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "fusion advisory lock: "+err.Error(), r.URL.Path)
+		return
+	}
 
 	// 1. Neue Aktivität erstellen (Kopie der Target-Metadaten).
 	merged, err := createMergedActivity(ctx, tx, activities[targetID])
@@ -260,6 +298,17 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		); err != nil {
 			slog.Warn("fusion-merge: hide source failed", "id", id, "error", err)
 		}
+	}
+
+	// 8b. Dual-write: insert into activity_fusion_memberships (new normalised table).
+	// allIDs = [targetID] + req.Sources — req.Sources contains the extra sources only,
+	// so we pass req.Sources as allSources and include the full allIDs as the "all sources"
+	// slice so that "fuse" expansions cover every participant.
+	memberships := deriveFusionMemberships(merged.ID, userID, req.FieldMap, allIDs)
+	if err := database.InsertFusionMemberships(ctx, tx, memberships); err != nil {
+		slog.Error("fusion-merge: insert memberships failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "insert memberships (v1): "+err.Error(), r.URL.Path)
+		return
 	}
 
 	// Commit transaction — all DB mutations are now durable.
@@ -1488,6 +1537,15 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	// Serialise concurrent Merge/Revert for the same user via an advisory lock
+	// that is scoped to the transaction (released automatically on Commit/Rollback).
+	lockKeyV2 := dbutil.AdvisoryLockKey("fusion:" + userID)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, lockKeyV2); err != nil {
+		slog.Error("fusion-merge-v2: advisory lock failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "fusion advisory lock: "+err.Error(), r.URL.Path)
+		return
+	}
+
 	// 1. Create new activity from the richest source's metadata.
 	merged, err := createMergedActivity(ctx, tx, metadataSource)
 	if err != nil {
@@ -1641,6 +1699,14 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 			ended_at   = COALESCE((SELECT MAX(time) FROM activity_streams WHERE activity_id = $1), ended_at)
 		WHERE id = $1`, merged.ID); err != nil {
 		slog.Warn("fusion-merge-v2: update time bounds failed", "error", err)
+	}
+
+	// 9b. Dual-write: insert into activity_fusion_memberships (new normalised table).
+	membershipsV2 := deriveFusionMemberships(merged.ID, userID, req.FieldMap, req.Sources)
+	if err := database.InsertFusionMemberships(ctx, tx, membershipsV2); err != nil {
+		slog.Error("fusion-merge-v2: insert memberships failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "insert memberships (v2): "+err.Error(), r.URL.Path)
+		return
 	}
 
 	// Commit transaction.
