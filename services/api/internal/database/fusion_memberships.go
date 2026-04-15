@@ -113,6 +113,75 @@ func (db *DB) CountFusionMembershipsAsSource(ctx context.Context, activityID str
 	return n, err
 }
 
+// GetFusionMembershipsForActivities returns every membership row whose merged_id is in
+// the given slice, plus the source-count per activity. One roundtrip instead of N+1
+// per-row queries on list endpoints.
+//
+// Returns:
+//   - memberships: map[mergedID] -> []FusionMembership  (only merged activities are keys)
+//   - sourceCounts: map[sourceID] -> int                (only source activities are keys)
+func (db *DB) GetFusionMembershipsForActivities(
+	ctx context.Context,
+	activityIDs []string,
+) (memberships map[string][]FusionMembership, sourceCounts map[string]int, err error) {
+	if len(activityIDs) == 0 {
+		return map[string][]FusionMembership{}, map[string]int{}, nil
+	}
+
+	memberships = make(map[string][]FusionMembership)
+	sourceCounts = make(map[string]int)
+
+	// Memberships where any given id is the merged_id.
+	rows, err := db.Pool.Query(ctx,
+		`SELECT merged_id, source_id, field_key, user_id
+		 FROM activity_fusion_memberships
+		 WHERE merged_id = ANY($1)
+		 ORDER BY merged_id, field_key, source_id`,
+		activityIDs,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("query memberships for batch: %w", err)
+	}
+	for rows.Next() {
+		var m FusionMembership
+		if err := rows.Scan(&m.MergedID, &m.SourceID, &m.FieldKey, &m.UserID); err != nil {
+			rows.Close()
+			return nil, nil, err
+		}
+		memberships[m.MergedID] = append(memberships[m.MergedID], m)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, nil, err
+	}
+	rows.Close()
+
+	// Source counts where any given id is the source_id.
+	countRows, err := db.Pool.Query(ctx,
+		`SELECT source_id, COUNT(DISTINCT merged_id)
+		 FROM activity_fusion_memberships
+		 WHERE source_id = ANY($1)
+		 GROUP BY source_id`,
+		activityIDs,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("query source counts for batch: %w", err)
+	}
+	defer countRows.Close()
+	for countRows.Next() {
+		var sid string
+		var cnt int
+		if err := countRows.Scan(&sid, &cnt); err != nil {
+			return nil, nil, err
+		}
+		sourceCounts[sid] = cnt
+	}
+	if err := countRows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return memberships, sourceCounts, nil
+}
+
 // IsFusionSourceViaMemberships returns true iff activityID appears as source in any membership.
 // Replaces the is_fusion_source column read — used by list/queue eligibility filters.
 func (db *DB) IsFusionSourceViaMemberships(ctx context.Context, activityID string) (bool, error) {

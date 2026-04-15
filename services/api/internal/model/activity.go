@@ -303,6 +303,22 @@ type Activity struct {
 	RunningFormFatigueDuty   *float64 `json:"running_form_fatigue_duty,omitempty"`
 	RunningFormFatigueVR     *float64 `json:"running_form_fatigue_vr,omitempty"`
 	RunningFormTier          *int     `json:"running_form_tier,omitempty"`
+
+	// Fusion Consistency — Phase 2 Dual-Read fields.
+	// FusionMemberships lists the source activities and field keys for a merged activity.
+	// Populated from activity_fusion_memberships; elided when empty (non-merged activities).
+	FusionMemberships []FusionMembershipResponse `json:"fusion_memberships,omitempty"`
+	// FusionSourceCount is how many distinct merged activities reference this activity as a source.
+	// Drives the Cross-Fusion badge. Elided when 0 (non-source activities).
+	FusionSourceCount int `json:"fusion_source_count,omitempty"`
+}
+
+// FusionMembershipResponse is the API-facing projection of a fusion membership row.
+// MergedID and UserID are elided: clients infer MergedID from the enclosing activity's
+// id, and UserID is always the caller's own.
+type FusionMembershipResponse struct {
+	SourceID string `json:"source_id"`
+	FieldKey string `json:"field_key"`
 }
 
 // SportConflictMeta holds conflict metadata embedded from import_queue.
