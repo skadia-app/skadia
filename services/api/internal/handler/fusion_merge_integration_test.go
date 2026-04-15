@@ -1543,3 +1543,121 @@ func TestFusionMergeConcurrentSameUser(t *testing.T) {
 
 	t.Logf("Concurrent FusionMergeV2: 1×201, 1×409, 1 merged activity — OK")
 }
+
+// TestFusionMergeV1ConcurrentSameUser covers the same concurrency guarantees as
+// TestFusionMergeConcurrentSameUser but for the V1 path (URL-target + extras body).
+// This closes Rev-2 R6 (V1 preflight uses allIDs = [targetID, ...req.Sources], but no
+// V1-specific concurrency test existed in Phase 1 Task 7b).
+func TestFusionMergeV1ConcurrentSameUser(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	actTarget := insertMinimalActivity(t, db, userID)
+	actExtraA := insertMinimalActivity(t, db, userID)
+	actExtraB := insertMinimalActivity(t, db, userID)
+
+	base := time.Date(2024, 7, 1, 9, 0, 0, 0, time.UTC)
+	lat, lng := fusionPtrF64(47.5), fusionPtrF64(11.5)
+	insertStreams(t, db, actTarget, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(130)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(132)},
+	})
+	insertStreams(t, db, actExtraA, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(135)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(137)},
+	})
+	insertStreams(t, db, actExtraB, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, PowerW: fusionPtrI16(210)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, PowerW: fusionPtrI16(215)},
+	})
+
+	// V1 request body: Sources are the *extras* (target comes from URL).
+	reqBodyStr := fmt.Sprintf(
+		`{"sources":[%q,%q],"field_map":{"hr":%q,"power":%q},"tags_merge":false}`,
+		actExtraA, actExtraB, actExtraA, actExtraB,
+	)
+
+	type result struct {
+		code int
+		body string
+	}
+	results := make(chan result, 2)
+	start := make(chan struct{})
+
+	h := &Handler{DB: db}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			httpReq := httptest.NewRequest(http.MethodPost,
+				"/activities/"+actTarget+"/fusion-merge",
+				strings.NewReader(reqBodyStr))
+			httpReq.Header.Set("Content-Type", "application/json")
+			httpReq = httpReq.WithContext(
+				context.WithValue(httpReq.Context(), middleware.UserIDKey, userID),
+			)
+			// V1 reads the target from chi URL param "id".
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("id", actTarget)
+			httpReq = httpReq.WithContext(context.WithValue(httpReq.Context(), chi.RouteCtxKey, rctx))
+			rr := httptest.NewRecorder()
+
+			<-start
+			h.FusionMerge(rr, httpReq)
+			results <- result{code: rr.Code, body: rr.Body.String()}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+	close(results)
+
+	var codes []int
+	for r := range results {
+		codes = append(codes, r.code)
+		if r.code == http.StatusInternalServerError {
+			t.Errorf("unexpected 500 from FusionMerge V1: body=%s", r.body)
+		}
+	}
+	if len(codes) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(codes))
+	}
+
+	successCount, conflictCount := 0, 0
+	for _, c := range codes {
+		switch c {
+		case http.StatusCreated:
+			successCount++
+		case http.StatusConflict:
+			conflictCount++
+		default:
+			t.Errorf("unexpected status code %d", c)
+		}
+	}
+	if successCount != 1 {
+		t.Errorf("expected exactly 1 success (201), got %d (codes: %v)", successCount, codes)
+	}
+	if conflictCount != 1 {
+		t.Errorf("expected exactly 1 conflict (409), got %d (codes: %v)", conflictCount, codes)
+	}
+
+	// DB invariant: exactly one merged activity created for the [target, extraA, extraB] set.
+	var mergedCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(DISTINCT merged_id) FROM activity_fusion_memberships
+		 WHERE source_id IN ($1, $2, $3)`,
+		actTarget, actExtraA, actExtraB,
+	).Scan(&mergedCount); err != nil {
+		t.Fatalf("count distinct merged_id: %v", err)
+	}
+	if mergedCount != 1 {
+		t.Errorf("expected exactly 1 merged activity in memberships, got %d", mergedCount)
+	}
+
+	t.Logf("Concurrent FusionMerge V1: 1×201, 1×409, 1 merged activity — OK")
+}
