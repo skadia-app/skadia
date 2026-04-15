@@ -89,11 +89,12 @@ export default function FusionPage() {
     if (groupMembers.length > 0) {
       initialisedRef.current = true
       // Prefer members that are not currently baked into another fusion
-      // (is_fusion_source=false). If that filter would leave fewer than two
-      // candidates — e.g. all members carry a stale flag from a prior merged
-      // activity — fall back to the full group so the user has something to
-      // work with. They can still remove individual sources manually.
-      const eligible = groupMembers.filter(m => !m.is_fusion_source)
+      // (fusion_source_count=0 means not a source of any merged activity).
+      // If that filter would leave fewer than two candidates — e.g. all members
+      // are sources of a prior merged activity — fall back to the full group so
+      // the user has something to work with. They can still remove individual
+      // sources manually.
+      const eligible = groupMembers.filter(m => m.fusion_source_count === 0)
       const pick = eligible.length >= 2 ? eligible : groupMembers
       setSelectedSources(pick.slice(0, 6).map(m => m.activity_id))
     } else if (idsParam) {
