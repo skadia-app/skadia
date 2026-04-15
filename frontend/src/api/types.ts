@@ -1102,7 +1102,7 @@ export interface RecordingGroup {
 export interface RecordingGroupMember {
   activity_id: string
   is_fused: boolean
-  is_fusion_source: boolean
+  fusion_source_count: number
   is_primary: boolean
   title: string | null
   title_auto: string | null
