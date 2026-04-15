@@ -413,7 +413,7 @@ func (db *DB) GetBestEffortRecalcIDs(ctx context.Context, userID string) ([]stri
 		 WHERE user_id = $1
 		   AND NOT COALESCE(exclude_from_stats, false)
 		   AND NOT COALESCE(is_group_secondary, false)
-		   AND NOT COALESCE(is_fusion_source, false)
+		   AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = activities.id)
 		   AND (num_sessions IS NULL OR num_sessions <= 1)
 		 ORDER BY started_at ASC`,
 		userID,
@@ -465,7 +465,7 @@ func (db *DB) GetBestEffortRecalcActivities(ctx context.Context, userID string) 
 		 WHERE a.user_id = $1
 		   AND NOT COALESCE(a.exclude_from_stats, false)
 		   AND NOT COALESCE(a.is_group_secondary, false)
-		   AND NOT COALESCE(a.is_fusion_source, false)
+		   AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
 		   AND (a.num_sessions IS NULL OR a.num_sessions <= 1)
 		 ORDER BY a.started_at ASC`,
 		userID,
@@ -528,7 +528,7 @@ func (db *DB) GetBestEffortActivityInfo(ctx context.Context, activityID string) 
 		 WHERE a.id = $1
 		   AND NOT COALESCE(a.exclude_from_stats, false)
 		   AND NOT COALESCE(a.is_group_secondary, false)
-		   AND NOT COALESCE(a.is_fusion_source, false)`,
+		   AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)`,
 		activityID,
 	)
 	var info bestefforts.ActivityInfo
