@@ -16,9 +16,11 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/fusion"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
@@ -35,6 +37,7 @@ type FusionMergeRequest struct {
 	GPSFusionConfig *GPSFusionConfig  `json:"gps_fusion_config,omitempty"`
 	TitleSource     *string           `json:"title_source,omitempty"`
 	TagsMerge       bool              `json:"tags_merge"`
+	TagsSource      *string           `json:"tags_source,omitempty"`
 	GearSource      *string           `json:"gear_source,omitempty"`
 	// FitLevel: wenn true, werden die Original-FIT-Dateien aus S3 geladen,
 	// auf Protokoll-Ebene zusammengeführt und als neue FIT-Datei gespeichert.
@@ -83,6 +86,14 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "max 6 activities total", r.URL.Path)
 		return
 	}
+	if len(req.FieldMap) == 0 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "field_map must not be empty", r.URL.Path)
+		return
+	}
+	if req.TagsMerge && req.TagsSource != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "tags_merge and tags_source are mutually exclusive", r.URL.Path)
+		return
+	}
 
 	allIDs := append([]string{targetID}, req.Sources...)
 
@@ -106,6 +117,21 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "fuse only allowed for gps field", r.URL.Path)
 			return
 		}
+	}
+
+	// tagsSource / titleSource / gearSource must reference one of the authorized sources.
+	// Without this, an attacker could pass another user's activity UUID and leak data.
+	if req.TagsSource != nil && !slices.Contains(allIDs, *req.TagsSource) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "tags_source not in sources list", r.URL.Path)
+		return
+	}
+	if req.TitleSource != nil && !slices.Contains(allIDs, *req.TitleSource) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "title_source not in sources list", r.URL.Path)
+		return
+	}
+	if req.GearSource != nil && !slices.Contains(allIDs, *req.GearSource) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "gear_source not in sources list", r.URL.Path)
+		return
 	}
 
 	ctx := r.Context()
@@ -135,87 +161,40 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Streams der Target-Aktivität in neue Aktivität kopieren (alle Spalten).
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO activity_streams (
-		     activity_id, time,
-		     lat, lng, altitude_m, speed_ms, distance_m,
-		     heart_rate, power_w, cadence, temperature_c,
-		     respiration_rate, stress_level,
-		     ground_contact_time_ms, vertical_oscillation_mm, stance_time_percent, left_right_balance,
-		     grade_pct, vertical_speed_ms, gps_accuracy_m, calories, resistance,
-		     total_cycles, accumulated_power_w, absolute_pressure_pa, ascent_rate_ms,
-		     time_from_course_s, activity_type, device_index, step_length_mm,
-		     vertical_ratio_pct, stance_time_balance_pct, cycle_length_m, fractional_cadence,
-		     left_torque_effectiveness_pct, right_torque_effectiveness_pct,
-		     left_pedal_smoothness_pct, right_pedal_smoothness_pct, combined_pedal_smoothness_pct,
-		     left_pco_mm, right_pco_mm,
-		     left_power_phase_start_deg, left_power_phase_end_deg,
-		     left_power_phase_peak_start_deg, left_power_phase_peak_end_deg,
-		     right_power_phase_start_deg, right_power_phase_end_deg,
-		     right_power_phase_peak_start_deg, right_power_phase_peak_end_deg,
-		     total_hemoglobin_conc, total_hemoglobin_conc_min, total_hemoglobin_conc_max,
-		     saturated_hemoglobin_pct, saturated_hemoglobin_pct_min, saturated_hemoglobin_pct_max,
-		     motor_power_w, ebike_travel_range_km, ebike_battery_level_pct,
-		     ebike_assist_mode, ebike_assist_level_pct,
-		     core_temperature_c, enhanced_respiration_rate, current_stress,
-		     battery_soc_pct, grit, flow, stroke_type, zone, ball_speed_ms,
-		     depth_m, next_stop_depth_m, next_stop_time_s, time_to_surface_s,
-		     ndl_time_s, cns_load_pct, n2_load_pct, air_time_remaining_s,
-		     pressure_sac, volume_sac, rmv, po2,
-		     developer_fields, heading, potential_stamina, stamina, gap_speed_ms
-		 )
-		 SELECT
-		     $2, time,
-		     lat, lng, altitude_m, speed_ms, distance_m,
-		     heart_rate, power_w, cadence, temperature_c,
-		     respiration_rate, stress_level,
-		     ground_contact_time_ms, vertical_oscillation_mm, stance_time_percent, left_right_balance,
-		     grade_pct, vertical_speed_ms, gps_accuracy_m, calories, resistance,
-		     total_cycles, accumulated_power_w, absolute_pressure_pa, ascent_rate_ms,
-		     time_from_course_s, activity_type, device_index, step_length_mm,
-		     vertical_ratio_pct, stance_time_balance_pct, cycle_length_m, fractional_cadence,
-		     left_torque_effectiveness_pct, right_torque_effectiveness_pct,
-		     left_pedal_smoothness_pct, right_pedal_smoothness_pct, combined_pedal_smoothness_pct,
-		     left_pco_mm, right_pco_mm,
-		     left_power_phase_start_deg, left_power_phase_end_deg,
-		     left_power_phase_peak_start_deg, left_power_phase_peak_end_deg,
-		     right_power_phase_start_deg, right_power_phase_end_deg,
-		     right_power_phase_peak_start_deg, right_power_phase_peak_end_deg,
-		     total_hemoglobin_conc, total_hemoglobin_conc_min, total_hemoglobin_conc_max,
-		     saturated_hemoglobin_pct, saturated_hemoglobin_pct_min, saturated_hemoglobin_pct_max,
-		     motor_power_w, ebike_travel_range_km, ebike_battery_level_pct,
-		     ebike_assist_mode, ebike_assist_level_pct,
-		     core_temperature_c, enhanced_respiration_rate, current_stress,
-		     battery_soc_pct, grit, flow, stroke_type, zone, ball_speed_ms,
-		     depth_m, next_stop_depth_m, next_stop_time_s, time_to_surface_s,
-		     ndl_time_s, cns_load_pct, n2_load_pct, air_time_remaining_s,
-		     pressure_sac, volume_sac, rmv, po2,
-		     developer_fields, heading, potential_stamina, stamina, gap_speed_ms
-		 FROM activity_streams WHERE activity_id = $1
-		 ORDER BY time ASC`,
-		targetID, merged.ID,
-	); err != nil {
-		slog.Error("fusion-merge: copy streams failed", "error", err)
+	// 2. TEMP TABLE erstellen + Ziel-Activity hineinkopieren.
+	// Alle weiteren Overlays werden auf der TEMP TABLE gemacht (kein Hypertable →
+	// kein Compression-Problem). finalizeStreamsMerge schreibt danach in activity_streams.
+	tempName, err := createTempMergedStreams(ctx, tx)
+	if err != nil {
+		slog.Error("fusion-merge: create temp table failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to create temp table", r.URL.Path)
+		return
+	}
+
+	if err := copyTargetStreamsInto(ctx, tx, tempName, merged.ID, targetID); err != nil {
+		slog.Error("fusion-merge: copy streams to temp failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to copy streams", r.URL.Path)
 		return
 	}
 
-	// 3. Stream-Felder zusammenführen (auf neue Aktivität angewendet).
+	// 3. Stream-Felder zusammenführen (auf TEMP TABLE angewendet).
 	for field, sourceID := range req.FieldMap {
 		if sourceID == merged.ID || sourceID == targetID {
-			// Ziel = neue Aktivität oder original Target → Streams bereits kopiert.
+			// Ziel = neue Aktivität oder original Target → Streams bereits in TEMP kopiert.
 			continue
 		}
 
 		if field == "gps" {
 			if sourceID == "fuse" {
-				if err := h.fuseGPSTracks(ctx, tx, merged.ID, req.Sources, req.GPSFusionConfig); err != nil {
+				// allIDs = target + extras: GPS-Stitcher muss alle Quellen kennen
+				// (inkl. Target-GPS das bereits in TEMP liegt), damit Target-Timestamps
+				// nicht aus dem Stitching herausfallen.
+				if err := h.fuseGPSTracks(ctx, tx, tempName, merged.ID, allIDs, req.GPSFusionConfig); err != nil {
 					httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 					return
 				}
 			} else {
-				if err := fusionMergeGPSFromSource(ctx, tx, merged.ID, sourceID); err != nil {
+				if err := fusionMergeGPSFromSource(ctx, tx, tempName, sourceID); err != nil {
 					slog.Error("fusion-merge: GPS merge failed", "error", err)
 					httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "GPS merge failed", r.URL.Path)
 					return
@@ -225,11 +204,18 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		}
 
 		col := validStreamFields[field]
-		if err := fusionMergeStreamColumn(ctx, tx, merged.ID, sourceID, col); err != nil {
+		if err := fusionMergeStreamColumn(ctx, tx, tempName, sourceID, col); err != nil {
 			slog.Error("fusion-merge: stream column merge failed", "field", field, "col", col, "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", fmt.Sprintf("merge field %s failed", field), r.URL.Path)
 			return
 		}
+	}
+
+	// 3b. TEMP TABLE → activity_streams finalisieren.
+	if err := finalizeStreamsMerge(ctx, tx, tempName); err != nil {
+		slog.Error("fusion-merge: finalize streams merge failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to finalize streams", r.URL.Path)
+		return
 	}
 
 	// 4-7 + rebuild + audit log: shared finalization within transaction.
@@ -238,11 +224,15 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		"sources":   allIDs,
 		"field_map": req.FieldMap,
 	})
-	// V1: skip title override when the designated source is the target itself
-	// (the merged activity already has the target's title from createMergedActivity).
+	// V1: skip title/gear override when the designated source is the target itself
+	// (the merged activity already has the target's title/gear from createMergedActivity).
 	titleSource := req.TitleSource
 	if titleSource != nil && *titleSource == targetID {
 		titleSource = nil
+	}
+	gearSourceV1 := req.GearSource
+	if gearSourceV1 != nil && *gearSourceV1 == targetID {
+		gearSourceV1 = nil
 	}
 	fp := fusionFinalizeParams{
 		userID:            userID,
@@ -252,7 +242,9 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		fieldMap:          req.FieldMap,
 		titleSource:       titleSource,
 		tagsMerge:         req.TagsMerge,
-		gearSource:        req.GearSource,
+		tagsSource:        req.TagsSource,
+		gearSource:        gearSourceV1,
+		metadataSourceID:  targetID,
 		fitLevel:          req.FitLevel,
 		fitLevelTargetID:  targetID,
 		fitLevelSourceIDs: req.Sources,
@@ -320,8 +312,15 @@ type fusionFinalizeParams struct {
 	titleSource *string
 	// tagsMerge, if true, merges tags from all sources.
 	tagsMerge bool
+	// tagsSource, if non-nil, designates a single source activity whose tags
+	// overwrite the merged activity's tags. Ignored when tagsMerge is true
+	// (fuse wins over single-source pick).
+	tagsSource *string
 	// gearSource, if non-nil, designates the source for gear.
 	gearSource *string
+	// metadataSourceID is the source whose metadata createMergedActivity copied
+	// (targetID in V1, richest source ID in V2). Used as default tag source.
+	metadataSourceID string
 	// fitLevel, if true, triggers a FIT-protocol-level merge post-commit.
 	fitLevel bool
 	// fitLevelTargetID is the "target" activity for fitLevelMerge (targetID in V1, Sources[0] in V2).
@@ -352,16 +351,91 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 
 	// Step 5: Gear from designated source.
 	if p.gearSource != nil {
-		if src, ok := p.activities[*p.gearSource]; ok && src.GearID != nil {
-			tx.Exec(ctx, `UPDATE activities SET gear_id = $2, has_edits = true WHERE id = $1`, p.merged.ID, src.GearID) //nolint:errcheck
+		if src, ok := p.activities[*p.gearSource]; ok {
+			if src.GearID != nil {
+				tx.Exec(ctx, `UPDATE activities SET gear_id = $2, has_edits = true WHERE id = $1`, p.merged.ID, src.GearID) //nolint:errcheck
+			} else {
+				slog.Info("fusion-merge: gearSource has no gear_id set, merged activity retains metadata-source gear",
+					"gear_source", *p.gearSource)
+			}
 		}
 	}
 
-	// Step 6: Tags merge from all source activities.
+	// Step 6: Tags — three mutually exclusive modes:
+	//   1. tagsMerge=true                     → union of all sources' tags (fuse)
+	//   2. tagsSource!=nil && !tagsMerge      → overwrite with tags from the designated source
+	//   3. default                            → Junction-Rows aus metadata-Source kopieren
 	if p.tagsMerge {
 		for _, srcID := range p.allSourceIDs {
 			if err := fusionMergeActivityTags(ctx, tx, p.merged.ID, srcID); err != nil {
 				slog.Warn("fusion-merge: merge tags failed", "source", srcID, "error", err)
+			}
+		}
+		// Recompute tags.activity_count for all tags now linked to the merged activity.
+		// fusionMergeActivityTags updates per-tag counts individually but does not handle
+		// the denormalized TEXT[] cache sync on the activity itself (done via SQL inside
+		// fusionMergeActivityTags already). We must still update activity_count here to
+		// account for the merged activity being newly linked via the tagsMerge path.
+		if _, err := tx.Exec(ctx,
+			`UPDATE tags SET activity_count = (
+			    SELECT COUNT(DISTINCT activity_id) FROM activity_tags WHERE tag_id = tags.id
+			 ) WHERE id IN (SELECT tag_id FROM activity_tags WHERE activity_id = $1)`,
+			p.merged.ID,
+		); err != nil {
+			slog.Warn("fusion-merge: recompute tags.activity_count after tagsMerge failed", "error", err)
+		}
+	} else if p.tagsSource != nil {
+		// Keep activities.tags TEXT[] AND activity_tags junction in sync, otherwise
+		// tag-filter queries (which go through the junction) will not find this activity.
+		if _, err := tx.Exec(ctx,
+			`UPDATE activities t SET tags = s.tags, has_edits = true
+			 FROM activities s WHERE t.id = $1 AND s.id = $2`,
+			p.merged.ID, *p.tagsSource,
+		); err != nil {
+			slog.Warn("fusion-merge: set tags TEXT[] from source failed", "source", *p.tagsSource, "error", err)
+		} else {
+			// Populate junction: copy all activity_tags rows from source to merged.
+			// ON CONFLICT DO NOTHING because createMergedActivity's INSERT-SELECT
+			// doesn't create junction rows (activity_tags is a separate table), so
+			// the junction is empty at this point — the conflict guard is defensive.
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO activity_tags (activity_id, tag_id, assigned_by)
+				 SELECT $1, tag_id, 'merge' FROM activity_tags WHERE activity_id = $2
+				 ON CONFLICT (activity_id, tag_id) DO NOTHING`,
+				p.merged.ID, *p.tagsSource,
+			); err != nil {
+				slog.Warn("fusion-merge: copy activity_tags junction from source failed", "source", *p.tagsSource, "error", err)
+			}
+			// Increment tags.activity_count for each tag now linked to the merged activity.
+			if _, err := tx.Exec(ctx,
+				`UPDATE tags SET activity_count = (
+				    SELECT COUNT(DISTINCT activity_id) FROM activity_tags WHERE tag_id = tags.id
+				 ) WHERE id IN (SELECT tag_id FROM activity_tags WHERE activity_id = $1)`,
+				p.merged.ID,
+			); err != nil {
+				slog.Warn("fusion-merge: recompute tags.activity_count failed", "error", err)
+			}
+		}
+	} else if p.metadataSourceID != "" {
+		// Default: keine explizite Wahl → Junction-Rows aus metadata-Source kopieren.
+		// createMergedActivity kopiert activities.tags TEXT[] per INSERT-SELECT, aber
+		// activity_tags (Junction) ist eine separate Tabelle — sie muss manuell befüllt werden.
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO activity_tags (activity_id, tag_id, assigned_by)
+			 SELECT $1, tag_id, 'merge' FROM activity_tags WHERE activity_id = $2
+			 ON CONFLICT (activity_id, tag_id) DO NOTHING`,
+			p.merged.ID, p.metadataSourceID,
+		); err != nil {
+			slog.Warn("fusion-merge: copy default tags junction failed", "error", err)
+		} else {
+			// activity_count neu berechnen: Tag war bisher an metadata-Source → count +1 (merged).
+			if _, err := tx.Exec(ctx,
+				`UPDATE tags SET activity_count = (
+				    SELECT COUNT(DISTINCT activity_id) FROM activity_tags WHERE tag_id = tags.id
+				 ) WHERE id IN (SELECT tag_id FROM activity_tags WHERE activity_id = $1)`,
+				p.merged.ID,
+			); err != nil {
+				slog.Warn("fusion-merge: recompute default tags.activity_count failed", "error", err)
 			}
 		}
 	}
@@ -381,17 +455,79 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 		}
 	}
 
-	// Rebuild track + heatmap (best-effort, uses db.Pool internally — outside tx).
-	if p.merged.HasGPS {
-		if err := h.DB.RebuildActivityTrack(ctx, p.merged.ID); err != nil {
-			slog.Warn("fusion-merge: rebuild track failed", "error", err)
-		}
-		if !p.merged.ExcludeFromHeatmap {
-			if err := h.DB.RebuildHeatmapData(ctx, p.merged.ID); err != nil {
-				slog.Warn("fusion-merge: rebuild heatmap failed", "error", err)
-			}
-		}
-		h.DB.InvalidateTerraIncognitaCache(ctx, p.userID)
+	// NOTE: Track + heatmap rebuild was moved to postCommitFusionCleanup.
+	// These calls run on db.Pool (not tx) and therefore cannot see rows inserted
+	// inside this still-open transaction. They must execute AFTER tx.Commit().
+
+	// Step 7a: has_gps aus tatsächlich vorhandenen Streams ableiten.
+	// Muss NACH dem Stream-Merge (Steps 2/3) und VOR dem Aggregate-Recompute (Step 7b)
+	// laufen, damit der Wert auf den fusionierten Streams basiert — nicht auf der
+	// Metadata-Source oder dem fieldMap (der User könnte "gps" auf eine GPS-lose
+	// Source gesetzt haben oder "fuse" ohne GPS in irgendeiner Source).
+	if _, err := tx.Exec(ctx, `
+		UPDATE activities SET has_gps = EXISTS(
+			SELECT 1 FROM activity_streams
+			WHERE activity_id = $1 AND lat IS NOT NULL AND lng IS NOT NULL
+		) WHERE id = $1`, p.merged.ID,
+	); err != nil {
+		slog.Warn("fusion-merge: has_gps recompute from streams failed", "error", err)
+	}
+
+	// Step 7b: Aggregate-Recompute aus den gemergten Streams.
+	// COALESCE(sub.X, a.X): wenn der Stream-Wert NULL ist (z.B. weil das Feld nicht im
+	// FieldMap enthalten war und die Streams daher NULL haben), bleibt der aus der
+	// metadata-Source kopierte Wert erhalten statt auf NULL überschrieben zu werden.
+	// elapsed_time_s wird NICHT neu berechnet: MAX(time)-MIN(time) ergibt die
+	// Gesamtzeitspanne, nicht die moving_time. Der Wert wurde korrekt aus der
+	// metadata-Source kopiert; Step 9 (V2) korrigiert started_at/ended_at separat.
+	// elevation_gain_m/elevation_loss_m werden hier NICHT gesetzt — sie erfordern
+	// kumulative Differenzberechnung (separater Algorithmus, TODO).
+	if _, err := tx.Exec(ctx, `
+		UPDATE activities a SET
+			distance_m            = COALESCE(sub.max_dist,  a.distance_m),
+			avg_speed_ms          = COALESCE(sub.avg_speed, a.avg_speed_ms),
+			max_speed_ms          = COALESCE(sub.max_speed, a.max_speed_ms),
+			min_speed_ms          = COALESCE(sub.min_speed, a.min_speed_ms),
+			avg_heart_rate        = COALESCE(sub.avg_hr,    a.avg_heart_rate),
+			max_heart_rate        = COALESCE(sub.max_hr,    a.max_heart_rate),
+			min_heart_rate        = COALESCE(sub.min_hr,    a.min_heart_rate),
+			avg_power_w           = COALESCE(sub.avg_pw,    a.avg_power_w),
+			max_power_w           = COALESCE(sub.max_pw,    a.max_power_w),
+			min_power_w           = COALESCE(sub.min_pw,    a.min_power_w),
+			avg_cadence           = COALESCE(sub.avg_cad,   a.avg_cadence),
+			max_cadence           = COALESCE(sub.max_cad,   a.max_cadence),
+			avg_temperature_c     = COALESCE(sub.avg_temp,  a.avg_temperature_c),
+			min_temperature_c     = COALESCE(sub.min_temp,  a.min_temperature_c),
+			max_temperature_c     = COALESCE(sub.max_temp,  a.max_temperature_c),
+			avg_altitude_m        = COALESCE(sub.avg_alt,   a.avg_altitude_m),
+			max_elevation_m       = COALESCE(sub.max_alt,   a.max_elevation_m),
+			min_elevation_m       = COALESCE(sub.min_alt,   a.min_elevation_m)
+		FROM (
+			SELECT
+				MAX(distance_m)                                              AS max_dist,
+				AVG(speed_ms) FILTER (WHERE speed_ms IS NOT NULL)::real      AS avg_speed,
+				MAX(speed_ms)                                                AS max_speed,
+				MIN(speed_ms) FILTER (WHERE speed_ms > 0)                    AS min_speed,
+				AVG(heart_rate) FILTER (WHERE heart_rate IS NOT NULL)::int   AS avg_hr,
+				MAX(heart_rate)                                              AS max_hr,
+				MIN(heart_rate) FILTER (WHERE heart_rate > 0)                AS min_hr,
+				AVG(power_w) FILTER (WHERE power_w IS NOT NULL)::int         AS avg_pw,
+				MAX(power_w)                                                 AS max_pw,
+				MIN(power_w) FILTER (WHERE power_w > 0)                      AS min_pw,
+				AVG(cadence) FILTER (WHERE cadence IS NOT NULL)::int         AS avg_cad,
+				MAX(cadence)                                                 AS max_cad,
+				AVG(temperature_c) FILTER (WHERE temperature_c IS NOT NULL)::real AS avg_temp,
+				MIN(temperature_c) FILTER (WHERE temperature_c IS NOT NULL)   AS min_temp,
+				MAX(temperature_c) FILTER (WHERE temperature_c IS NOT NULL)   AS max_temp,
+				AVG(altitude_m) FILTER (WHERE altitude_m IS NOT NULL)::real   AS avg_alt,
+				MAX(altitude_m)    FILTER (WHERE altitude_m IS NOT NULL)      AS max_alt,
+				MIN(altitude_m)    FILTER (WHERE altitude_m IS NOT NULL)      AS min_alt
+			FROM activity_streams WHERE activity_id = $1
+		) sub
+		WHERE a.id = $1`,
+		p.merged.ID,
+	); err != nil {
+		slog.Warn("fusion-merge: aggregate recompute from streams failed", "error", err)
 	}
 
 	// Audit log (inside transaction).
@@ -408,6 +544,27 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 // FIT-level merge (if requested), sidecar .meta write, fusion candidate cache invalidation,
 // and best-effort computation for the newly created merged activity.
 func (h *Handler) postCommitFusionCleanup(ctx context.Context, p fusionFinalizeParams) {
+	// Rebuild track + heatmap AFTER commit — only now can db.Pool see the new
+	// merged activity and its streams. EnsureActivityTrack is used because
+	// RebuildActivityTrack only UPDATEs an existing row (which doesn't exist yet).
+	// Lade merged activity frisch, damit has_gps/exclude_from_heatmap den
+	// nach-Commit-Zustand (inkl. Fix 2 has_gps-Update) widerspiegeln.
+	freshMerged, freshErr := h.DB.GetActivity(ctx, p.merged.ID)
+	if freshErr != nil || freshMerged == nil {
+		slog.Warn("fusion-merge: reload merged activity failed, skipping track rebuild",
+			"id", p.merged.ID, "error", freshErr)
+	} else if freshMerged.HasGPS {
+		if err := h.DB.EnsureActivityTrack(ctx, p.merged.ID); err != nil {
+			slog.Warn("fusion-merge: ensure track failed", "error", err)
+		}
+		if !freshMerged.ExcludeFromHeatmap {
+			if err := h.DB.RebuildHeatmapData(ctx, p.merged.ID); err != nil {
+				slog.Warn("fusion-merge: rebuild heatmap failed", "error", err)
+			}
+		}
+		h.DB.InvalidateTerraIncognitaCache(ctx, p.userID)
+	}
+
 	// FIT-level merge (non-DB, after commit, non-fatal).
 	if p.fitLevel && p.fitLevelTargetID != "" {
 		if err := h.fitLevelMerge(ctx, p.userID, p.fitLevelTargetID, p.merged.ID, p.fitLevelSourceIDs, p.fieldMap, p.activities); err != nil {
@@ -450,36 +607,162 @@ func (h *Handler) postCommitFusionCleanup(ctx context.Context, p fusionFinalizeP
 			}
 		})
 	}
+
+	// Re-Enrichment der merged activity (async, non-fatal).
+	// RunStage1 berechnet time_of_day, timezone, sunrise/sunset, intensity etc.
+	// RunGeoAndPublishStage2 enrichiert Gipfel, Orte, Oberflächen, löst Stage-2-Event aus.
+	// GraphReader: h.GraphManager.Reader() wenn verfügbar, sonst nil (surface detection
+	// wird dann übersprungen; alle PostGIS-basierten Geo-Module laufen normal).
+	{
+		mergedID := p.merged.ID
+		userID := p.userID
+		db := h.DB
+		events := h.Events
+		var gr routing.GraphReader
+		if h.GraphManager != nil {
+			gr = h.GraphManager.Reader()
+		}
+		shutdown.Go("re-enrich-fusion-merge:"+mergedID, func(ctx context.Context) {
+			// Lade die merged Activity frisch innerhalb des goroutine-Kontexts, damit
+			// alle Felder (has_gps, location_lat/lng, started_at, ended_at, etc.) den
+			// endgültigen Post-Commit-Zustand widerspiegeln.
+			act, err := db.GetActivity(ctx, mergedID)
+			if err != nil || act == nil {
+				slog.Warn("fusion-merge: re-enrich: reload merged activity failed", "id", mergedID, "error", err)
+				return
+			}
+			// enrichment_status race guard: atomisch auf 'running' setzen.
+			// Wenn ein paralleler Scheduler die Activity bereits gegriffen hat,
+			// überspringen wir — Doppel-Enrichment würde Inkonsistenzen erzeugen.
+			tag, claimErr := db.Pool.Exec(ctx,
+				`UPDATE activities SET enrichment_status = 'running'
+				 WHERE id = $1 AND enrichment_status = 'pending'`, mergedID)
+			if claimErr != nil {
+				slog.Warn("fusion-merge: re-enrich: claim enrichment_status failed", "id", mergedID, "error", claimErr)
+				return
+			}
+			if tag.RowsAffected() == 0 {
+				// Scheduler hat die Activity bereits gegriffen — kein Doppel-Enrichment.
+				return
+			}
+			// Build ActivityData aus den geladenen Activity-Feldern.
+			// Diese Felder werden von RunStage1 für Intensität, TSS, TRIMP, Timezone,
+			// Weather, Sunrise/Sunset, AutoTitle etc. benötigt.
+			data := &model.ActivityData{
+				SportType: act.SportType,
+				StartedAt: act.StartedAt,
+				IsVirtual: act.IsVirtual,
+				IsIndoor:  act.IsIndoor,
+				HasGPS:    act.HasGPS,
+			}
+			if act.EndedAt != nil {
+				data.EndedAt = *act.EndedAt
+			}
+			if act.ElapsedTimeS != nil {
+				data.ElapsedTimeS = *act.ElapsedTimeS
+			}
+			if act.MovingTimeS != nil {
+				data.MovingTimeS = *act.MovingTimeS
+			}
+			if act.DistanceM != nil {
+				data.DistanceM = *act.DistanceM
+			}
+			if act.ElevationGainM != nil {
+				data.ElevationGainM = *act.ElevationGainM
+			}
+			if act.ElevationLossM != nil {
+				data.ElevationLossM = *act.ElevationLossM
+			}
+			if act.AvgSpeedMS != nil {
+				data.AvgSpeedMS = *act.AvgSpeedMS
+			}
+			if act.MaxSpeedMS != nil {
+				data.MaxSpeedMS = *act.MaxSpeedMS
+			}
+			if act.AvgHeartRate != nil {
+				data.AvgHeartRate = *act.AvgHeartRate
+			}
+			if act.MaxHeartRate != nil {
+				data.MaxHeartRate = *act.MaxHeartRate
+			}
+			if act.AvgPowerW != nil {
+				data.AvgPowerW = *act.AvgPowerW
+			}
+			if act.MaxPowerW != nil {
+				data.MaxPowerW = *act.MaxPowerW
+			}
+			if act.NormalizedPowerW != nil {
+				data.NormalizedPowerW = *act.NormalizedPowerW
+			}
+			// GPS start/end coordinates — StartLat/Lng from track, fallback to location_lat/lng.
+			if act.StartLat != nil {
+				data.StartLat = *act.StartLat
+			} else if act.LocationLat != nil {
+				data.StartLat = *act.LocationLat
+			}
+			if act.StartLon != nil {
+				data.StartLng = *act.StartLon
+			} else if act.LocationLng != nil {
+				data.StartLng = *act.LocationLng
+			}
+			if act.EndLat != nil {
+				data.EndLat = *act.EndLat
+			}
+			if act.EndLon != nil {
+				data.EndLng = *act.EndLon
+			}
+			if act.SubType != nil {
+				data.SubType = *act.SubType
+			}
+			enrichment.RunStage1(ctx, db, userID, mergedID, data, events,
+				true /* asyncWeather */, false /* skipStreamEnrichment */, gr, false /* skipGeo */)
+			enrichment.RunGeoAndPublishStage2(ctx, db, userID, mergedID,
+				act.HasGPS, act.SportType, act.IsVirtual, events, gr)
+		})
+	}
 }
 
-// fusionMergeStreamColumn kopiert eine einzelne Stream-Spalte von sourceID → targetID
-// (nur für Zeitpunkte die in beiden Aktivitäten vorhanden sind).
-func fusionMergeStreamColumn(ctx context.Context, q database.Querier, targetID, sourceID, column string) error {
+// fusionMergeStreamColumn kopiert eine einzelne Stream-Spalte von sourceID → tempName.
+// tempName ist die TEMP TABLE (kein Hypertable), UPDATE funktioniert zuverlässig.
+// s liest aus activity_streams (kann compressed sein) → nur JOIN/SELECT, kein UPDATE dort.
+func fusionMergeStreamColumn(ctx context.Context, q database.Querier, tempName, sourceID, column string) error {
 	query := fmt.Sprintf(`
-		UPDATE activity_streams t
+		UPDATE %s t
 		SET %s = s.%s
 		FROM activity_streams s
-		WHERE t.activity_id = $1
-		  AND s.activity_id = $2
-		  AND t.time = s.time
+		WHERE t.time = s.time
+		  AND s.activity_id = $1
 		  AND s.%s IS NOT NULL`,
-		column, column, column)
-	_, err := q.Exec(ctx, query, targetID, sourceID)
+		tempName, column, column, column)
+	_, err := q.Exec(ctx, query, sourceID)
 	return err
 }
 
-// fusionMergeGPSFromSource kopiert lat/lng von sourceID → targetID (timestamp-matched).
-func fusionMergeGPSFromSource(ctx context.Context, q database.Querier, targetID, sourceID string) error {
-	_, err := q.Exec(ctx, `
-		UPDATE activity_streams t
-		SET lat = s.lat, lng = s.lng
+// fusionMergeGPSFromSource kopiert lat/lng von sourceID → tempName (timestamp-matched).
+// tempName ist die TEMP TABLE (kein Hypertable), UPDATE funktioniert zuverlässig.
+// s liest aus activity_streams (kann compressed sein) → nur JOIN/SELECT, kein UPDATE dort.
+func fusionMergeGPSFromSource(ctx context.Context, q database.Querier, tempName, sourceID string) error {
+	// Copy the whole GPS package (position + derived metrics) in one UPDATE.
+	// Without distance_m/speed_ms/altitude_m the merged activity's stream chart has
+	// no x-axis (all points collapse at distance=0) and no speed/pace curve.
+	// altitude_m is included here even though it has its own FieldMap key — the
+	// separate "altitude" overlay runs afterwards and overwrites this value when
+	// the user picked a different source for altitude.
+	_, err := q.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s t
+		SET lat            = s.lat,
+		    lng            = s.lng,
+		    altitude_m     = COALESCE(s.altitude_m,     t.altitude_m),
+		    distance_m     = COALESCE(s.distance_m,     t.distance_m),
+		    speed_ms       = COALESCE(s.speed_ms,       t.speed_ms),
+		    gps_accuracy_m = COALESCE(s.gps_accuracy_m, t.gps_accuracy_m),
+		    heading        = COALESCE(s.heading,        t.heading)
 		FROM activity_streams s
-		WHERE t.activity_id = $1
-		  AND s.activity_id = $2
-		  AND t.time = s.time
+		WHERE t.time = s.time
+		  AND s.activity_id = $1
 		  AND s.lat IS NOT NULL
-		  AND s.lng IS NOT NULL`,
-		targetID, sourceID)
+		  AND s.lng IS NOT NULL`, tempName),
+		sourceID)
 	return err
 }
 
@@ -821,7 +1104,7 @@ func createMergedActivity(ctx context.Context, q database.Querier, src *model.Ac
 			net_distance_m, net_ascent_m, net_descent_m, exclude_lift_subtraction,
 			location_lat, location_lng,
 			weather_temp_min_c, weather_temp_max_c, weather_wind_speed_max_ms,
-			garmin_activity_id, strava_activity_id, komoot_tour_id,
+			NULL::bigint, NULL::bigint, NULL::bigint,
 			edits_applied_at,
 			is_commute,
 			elevation_source, distance_source,
@@ -1014,12 +1297,19 @@ func applyFusionMetadataOverrides(
 		allSourceIDs = append(allSourceIDs, id)
 	}
 	// Step 1: NULL out external IDs + set source = 'fusion'.
+	// recording_device_id and original_filename are also cleared: the merged
+	// activity wasn't recorded by a single device, so frontends that derive a
+	// device label from these fields would otherwise mis-label it as the
+	// metadata source's device (e.g. "Garmin Instinct 2X") instead of "Fusion".
 	if _, err := q.Exec(ctx, `UPDATE activities SET
 		garmin_activity_id = NULL,
 		strava_activity_id = NULL,
 		komoot_tour_id = NULL,
 		source = 'fusion',
-		source_device = NULL
+		source_device = NULL,
+		recording_device_id = NULL,
+		original_filename = NULL,
+		original_file_format = NULL
 	WHERE id = $1`, mergedID); err != nil {
 		return fmt.Errorf("null external IDs: %w", err)
 	}
@@ -1098,6 +1388,7 @@ type FusionMergeRequestV2 struct {
 	GPSFusionConfig *GPSFusionConfig  `json:"gps_fusion_config,omitempty"`
 	TitleSource     *string           `json:"title_source,omitempty"`
 	TagsMerge       bool              `json:"tags_merge"`
+	TagsSource      *string           `json:"tags_source,omitempty"`
 	GearSource      *string           `json:"gear_source,omitempty"`
 	FitLevel        bool              `json:"fit_level"`
 	GroupID         *string           `json:"group_id,omitempty"` // if fusing from a recording group
@@ -1124,6 +1415,14 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "max 6 sources", r.URL.Path)
 		return
 	}
+	if len(req.FieldMap) == 0 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "field_map must not be empty", r.URL.Path)
+		return
+	}
+	if req.TagsMerge && req.TagsSource != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "tags_merge and tags_source are mutually exclusive", r.URL.Path)
+		return
+	}
 
 	// Load all activities + ownership check.
 	activities, ok := h.loadAndVerifyActivities(w, r, userID, req.Sources)
@@ -1145,6 +1444,21 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "fuse only allowed for gps field", r.URL.Path)
 			return
 		}
+	}
+
+	// tagsSource / titleSource / gearSource must reference one of the authorized sources.
+	// Without this, an attacker could pass another user's activity UUID and leak data.
+	if req.TagsSource != nil && !slices.Contains(req.Sources, *req.TagsSource) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "tags_source not in sources list", r.URL.Path)
+		return
+	}
+	if req.TitleSource != nil && !slices.Contains(req.Sources, *req.TitleSource) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "title_source not in sources list", r.URL.Path)
+		return
+	}
+	if req.GearSource != nil && !slices.Contains(req.Sources, *req.GearSource) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "gear_source not in sources list", r.URL.Path)
+		return
 	}
 
 	// Validate group_id if provided.
@@ -1190,18 +1504,12 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Build unified timeline: INSERT skeleton rows for all unique timestamps across
-	//    all source activities referenced in the FieldMap.
-	sourceSet := make(map[string]struct{})
-	for _, srcID := range req.FieldMap {
-		if srcID != "fuse" {
-			sourceSet[srcID] = struct{}{}
-		}
-	}
-	// For "fuse" GPS mode, all sources contribute timestamps.
-	if req.FieldMap["gps"] == "fuse" {
-		for _, id := range req.Sources {
-			sourceSet[id] = struct{}{}
-		}
+	//    all source activities. We use req.Sources (alle vom User deklarierten Quellen)
+	//    statt nur fieldMap-Werte — sonst fehlen Timestamps von Sources die keinem Feld
+	//    explizit zugewiesen sind (z.B. bei 3-Quellen-Fusion mit nur 2 field_map-Einträgen).
+	sourceSet := make(map[string]struct{}, len(req.Sources))
+	for _, id := range req.Sources {
+		sourceSet[id] = struct{}{}
 	}
 
 	uniqueSources := make([]string, 0, len(sourceSet))
@@ -1209,22 +1517,32 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 		uniqueSources = append(uniqueSources, id)
 	}
 
-	if err := insertUnifiedTimeline(ctx, tx, merged.ID, uniqueSources); err != nil {
+	// 2b. TEMP TABLE erstellen + Unified Timeline hineinfügen.
+	// Alle Overlays werden auf der TEMP TABLE gemacht (kein Hypertable → kein Compression-Problem).
+	// finalizeStreamsMerge schreibt danach in activity_streams.
+	tempName, err := createTempMergedStreams(ctx, tx)
+	if err != nil {
+		slog.Error("fusion-merge-v2: create temp table failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to create temp table", r.URL.Path)
+		return
+	}
+
+	if err := insertUnifiedTimelineInto(ctx, tx, tempName, merged.ID, uniqueSources); err != nil {
 		slog.Error("fusion-merge-v2: build unified timeline failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to build unified timeline", r.URL.Path)
 		return
 	}
 
-	// 3. For each field in FieldMap, overlay data from the designated source.
+	// 3. For each field in FieldMap, overlay data from the designated source (on TEMP TABLE).
 	for field, sourceID := range req.FieldMap {
 		if field == "gps" {
 			if sourceID == "fuse" {
-				if err := h.fuseGPSTracks(ctx, tx, merged.ID, req.Sources, req.GPSFusionConfig); err != nil {
+				if err := h.fuseGPSTracks(ctx, tx, tempName, merged.ID, req.Sources, req.GPSFusionConfig); err != nil {
 					httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 					return
 				}
 			} else {
-				if err := fusionMergeGPSFromSource(ctx, tx, merged.ID, sourceID); err != nil {
+				if err := fusionMergeGPSFromSource(ctx, tx, tempName, sourceID); err != nil {
 					slog.Error("fusion-merge-v2: GPS merge failed", "error", err)
 					httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "GPS merge failed", r.URL.Path)
 					return
@@ -1234,11 +1552,18 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 		}
 
 		col := validStreamFields[field]
-		if err := fusionMergeStreamColumn(ctx, tx, merged.ID, sourceID, col); err != nil {
+		if err := fusionMergeStreamColumn(ctx, tx, tempName, sourceID, col); err != nil {
 			slog.Error("fusion-merge-v2: stream column merge failed", "field", field, "col", col, "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", fmt.Sprintf("merge field %s failed", field), r.URL.Path)
 			return
 		}
+	}
+
+	// 3b. TEMP TABLE → activity_streams finalisieren.
+	if err := finalizeStreamsMerge(ctx, tx, tempName); err != nil {
+		slog.Error("fusion-merge-v2: finalize streams merge failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to finalize streams", r.URL.Path)
+		return
 	}
 
 	// 4-7 + rebuild + audit log: shared finalization within transaction.
@@ -1254,15 +1579,32 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 		fitLevelTargetID = req.Sources[0]
 		fitLevelSourceIDs = req.Sources[1:]
 	}
+	// Skip redundant title/tags/gear UPDATEs when the user-designated source equals the
+	// metadata source — the INSERT-SELECT in createMergedActivity already copied
+	// those fields from there. Same pattern as V1's targetID guard.
+	titleSourceV2 := req.TitleSource
+	if titleSourceV2 != nil && *titleSourceV2 == metadataSource.ID {
+		titleSourceV2 = nil
+	}
+	tagsSourceV2 := req.TagsSource
+	if tagsSourceV2 != nil && *tagsSourceV2 == metadataSource.ID {
+		tagsSourceV2 = nil
+	}
+	gearSourceV2 := req.GearSource
+	if gearSourceV2 != nil && *gearSourceV2 == metadataSource.ID {
+		gearSourceV2 = nil
+	}
 	fp := fusionFinalizeParams{
 		userID:            userID,
 		merged:            merged,
 		allSourceIDs:      req.Sources,
 		activities:        activities,
 		fieldMap:          req.FieldMap,
-		titleSource:       req.TitleSource,
+		titleSource:       titleSourceV2,
 		tagsMerge:         req.TagsMerge,
-		gearSource:        req.GearSource,
+		tagsSource:        tagsSourceV2,
+		gearSource:        gearSourceV2,
+		metadataSourceID:  metadataSource.ID,
 		fitLevel:          req.FitLevel,
 		fitLevelTargetID:  fitLevelTargetID,
 		fitLevelSourceIDs: fitLevelSourceIDs,
@@ -1270,16 +1612,24 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 	}
 	h.applyFusionTxExtras(ctx, tx, fp)
 
-	// 8. Source visibility: group-aware vs legacy.
-	if req.GroupID == nil || *req.GroupID == "" {
-		// Legacy ad-hoc mode: hide sources via parent_id.
-		// Group mode: sources stay visible; fused activity joins the group post-commit.
-		for _, id := range req.Sources {
+	// 8. Mark all sources as fusion sources (so they are excluded from the
+	// fusion-candidate list for future merges) and, in legacy mode, hide them
+	// via parent_id. In group mode sources stay visible but still must be flagged.
+	legacyMode := req.GroupID == nil || *req.GroupID == ""
+	for _, id := range req.Sources {
+		if legacyMode {
 			if _, err := tx.Exec(ctx,
-				`UPDATE activities SET parent_id = $2 WHERE id = $1 AND user_id = $3`,
+				`UPDATE activities SET parent_id = $2, is_fusion_source = TRUE WHERE id = $1 AND user_id = $3`,
 				id, merged.ID, userID,
 			); err != nil {
-				slog.Warn("fusion-merge-v2: hide source failed", "id", id, "error", err)
+				slog.Warn("fusion-merge-v2: hide source + flag fusion source failed", "id", id, "error", err)
+			}
+		} else {
+			if _, err := tx.Exec(ctx,
+				`UPDATE activities SET is_fusion_source = TRUE WHERE id = $1 AND user_id = $2`,
+				id, userID,
+			); err != nil {
+				slog.Warn("fusion-merge-v2: flag fusion source failed", "id", id, "error", err)
 			}
 		}
 	}
@@ -1305,6 +1655,12 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 		if err := h.DB.AddRecordingGroupMemberFused(ctx, *req.GroupID, merged.ID); err != nil {
 			slog.Error("fusion-merge-v2: add fused member to group failed", "group", *req.GroupID, "error", err)
 			// Non-fatal: the merge itself succeeded.
+		} else {
+			// Merged activity als Primary der Gruppe setzen; der Trigger
+			// trg_group_primary_sync setzt is_group_secondary für die anderen Members.
+			if err := h.DB.SetRecordingGroupPrimary(ctx, *req.GroupID, merged.ID); err != nil {
+				slog.Warn("fusion-merge-v2: set group primary failed", "group", *req.GroupID, "error", err)
+			}
 		}
 	}
 
@@ -1315,16 +1671,40 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusCreated, map[string]string{"id": merged.ID})
 }
 
-// insertUnifiedTimeline creates skeleton rows in activity_streams for the merged activity
-// using the UNION of all timestamps from the given source activities.
-// Each row has only (activity_id, time) — field data is overlaid afterwards.
-func insertUnifiedTimeline(ctx context.Context, q database.Querier, mergedID string, sourceIDs []string) error {
+// createTempMergedStreams erstellt eine TEMP TABLE mit identischer Struktur zu
+// activity_streams plus einem UNIQUE INDEX auf (time). Da TEMP-Tables keine
+// Hypertable-Compression kennen, funktionieren UPDATE und ON CONFLICT darauf
+// zuverlässig — auch wenn die Quell-Daten in compressed TimescaleDB-Chunks liegen.
+// ON COMMIT DROP: Die Tabelle wird automatisch am Transaktions-Ende gelöscht.
+func createTempMergedStreams(ctx context.Context, q database.Querier) (string, error) {
+	tempName := fmt.Sprintf("merged_streams_tmp_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
+	// INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING GENERATED: erbt DEFAULT-Werte,
+	// CHECK-Constraints und GENERATED-Spalten. FK-Constraints werden via LIKE nie vererbt
+	// (PostgreSQL-Semantik), daher ist das für TEMP-Tables safe. INCLUDING ALL würde
+	// zusätzlich Storage-Parameter und Statistiken vererben — nicht sinnvoll für TEMP.
+	if _, err := q.Exec(ctx, fmt.Sprintf(
+		`CREATE TEMP TABLE %s (LIKE activity_streams INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING GENERATED) ON COMMIT DROP`, tempName,
+	)); err != nil {
+		return "", fmt.Errorf("create temp table: %w", err)
+	}
+	// (activity_id, time) statt nur (time): semantisch korrekt, da activity_id
+	// in der TEMP TABLE immer mergedID ist, aber verhindert stille Fehler wenn
+	// zwei Quellen denselben Timestamp haben.
+	if _, err := q.Exec(ctx, fmt.Sprintf(
+		`CREATE UNIQUE INDEX ON %s (activity_id, time)`, tempName,
+	)); err != nil {
+		return "", fmt.Errorf("create unique index on temp table: %w", err)
+	}
+	return tempName, nil
+}
+
+// insertUnifiedTimelineInto fügt UNION-Timestamps aller sourceIDs in die TEMP TABLE ein.
+// activity_id wird auf mergedID gesetzt, alle anderen Felder bleiben NULL.
+func insertUnifiedTimelineInto(ctx context.Context, q database.Querier, tempName, mergedID string, sourceIDs []string) error {
 	if len(sourceIDs) == 0 {
 		return nil
 	}
 
-	// Build a UNION ALL query for all source timestamps, then INSERT DISTINCT into merged.
-	// Using a parameterized approach: $1 = mergedID, $2..$N+1 = sourceIDs.
 	args := make([]any, 0, len(sourceIDs)+1)
 	args = append(args, mergedID)
 
@@ -1337,15 +1717,46 @@ func insertUnifiedTimeline(ctx context.Context, q database.Querier, mergedID str
 	}
 
 	query := fmt.Sprintf(`
-		INSERT INTO activity_streams (activity_id, time)
+		INSERT INTO %s (activity_id, time)
 		SELECT $1, t.time FROM (
 			%s
 		) t
 		GROUP BY t.time
 		ORDER BY t.time ASC`,
-		strings.Join(unions, " UNION ALL "))
+		tempName, strings.Join(unions, " UNION ALL "))
 
 	_, err := q.Exec(ctx, query, args...)
+	return err
+}
+
+// copyTargetStreamsInto kopiert alle Felder der Ziel-Aktivität in die TEMP TABLE.
+// Wird für V1 (FusionMerge) als initialer Copy verwendet, bevor Overlays angewendet werden.
+//
+// Implementiert als zwei Statements ohne Spaltenliste, damit zukünftige
+// activity_streams-Erweiterungen (ADD COLUMN) automatisch mitgehen — TEMP wurde
+// via `LIKE activity_streams` strukturidentisch erstellt, daher ist `SELECT *`
+// safe. Das anschließende UPDATE setzt activity_id auf mergedID um.
+func copyTargetStreamsInto(ctx context.Context, q database.Querier, tempName, mergedID, targetID string) error {
+	if _, err := q.Exec(ctx, fmt.Sprintf(
+		`INSERT INTO %s SELECT * FROM activity_streams WHERE activity_id = $1 ORDER BY time ASC`,
+		tempName,
+	), targetID); err != nil {
+		return fmt.Errorf("copy target streams: %w", err)
+	}
+	if _, err := q.Exec(ctx, fmt.Sprintf(
+		`UPDATE %s SET activity_id = $1`, tempName,
+	), mergedID); err != nil {
+		return fmt.Errorf("rewrite activity_id in temp: %w", err)
+	}
+	return nil
+}
+
+// finalizeStreamsMerge kopiert alle Rows aus der TEMP TABLE in activity_streams.
+// activity_id ist bereits korrekt gesetzt (mergedID), kein Override nötig.
+func finalizeStreamsMerge(ctx context.Context, q database.Querier, tempName string) error {
+	_, err := q.Exec(ctx, fmt.Sprintf(
+		`INSERT INTO activity_streams SELECT * FROM %s ORDER BY time ASC`, tempName,
+	))
 	return err
 }
 
@@ -1455,18 +1866,64 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Collect source IDs before the UPDATE (parent_id will be NULL afterwards).
+	// Collect source IDs via zwei Wege:
+	// 1. parent_id-Query (V1-Sources haben parent_id = id)
+	// 2. FusionSources-JSON auf der Activity (V2-Sources haben parent_id=NULL)
+	seenIDs := make(map[string]struct{})
 	var sourceIDs []string
+
+	// Weg 1: parent_id (V1)
 	if rows, qErr := h.DB.Pool.Query(ctx,
 		`SELECT id FROM activities WHERE parent_id = $1 AND user_id = $2`, id, userID,
 	); qErr == nil {
 		for rows.Next() {
 			var sid string
 			if err := rows.Scan(&sid); err == nil {
-				sourceIDs = append(sourceIDs, sid)
+				if _, dup := seenIDs[sid]; !dup {
+					seenIDs[sid] = struct{}{}
+					sourceIDs = append(sourceIDs, sid)
+				}
 			}
 		}
 		rows.Close()
+	}
+
+	// Weg 2: FusionSources-JSON (V2 — sources haben keine parent_id)
+	if activity.FusionSources != nil {
+		var fusionSrcMap database.FusionSources
+		if jsonErr := json.Unmarshal(activity.FusionSources, &fusionSrcMap); jsonErr == nil {
+			for _, srcID := range fusionSrcMap {
+				if srcID == "fuse" {
+					continue
+				}
+				if _, dup := seenIDs[srcID]; !dup {
+					seenIDs[srcID] = struct{}{}
+					sourceIDs = append(sourceIDs, srcID)
+				}
+			}
+		}
+	}
+
+	// V2-Sources zurücksetzen: is_fusion_source = FALSE; parent_id war nie gesetzt.
+	// NOT EXISTS: wenn eine Source auch in einer ANDEREN Fusion (M2 != id) referenziert ist,
+	// darf is_fusion_source nicht auf FALSE gesetzt werden — sie bleibt gebackt in M2.
+	if len(sourceIDs) > 0 {
+		if _, err := h.DB.Pool.Exec(ctx,
+			`UPDATE activities SET is_fusion_source = FALSE, parent_id = NULL
+			 WHERE id = ANY($1) AND user_id = $2
+			   AND NOT EXISTS (
+			       SELECT 1 FROM activities m
+			       WHERE m.user_id = $2
+			         AND m.id != $3
+			         AND EXISTS (
+			             SELECT 1 FROM jsonb_each_text(m.fusion_sources) kv
+			             WHERE kv.value = activities.id::text
+			         )
+			   )`,
+			sourceIDs, userID, id,
+		); err != nil {
+			slog.Warn("revert-fusion: reset fusion source flags failed", "error", err)
+		}
 	}
 
 	// Alle versteckten Quellen (parent_id = id) wiederherstellen + is_fusion_source zurücksetzen.
@@ -1485,6 +1942,14 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 
 	// Clean up ShadowFS files before deleting the fusion result.
 	h.cleanupActivityFiles(ctx, userID, id)
+
+	// Streams explizit löschen bevor die Aktivität gelöscht wird.
+	// TimescaleDB compressed chunks (nach >7 Tagen) unterstützen DELETE ab v2.11 —
+	// explizites DELETE ist zuverlässiger als auf CASCADE vom Hypertable zu warten.
+	// Fehler sind nicht-fatal: die Activity-Löschung wird trotzdem versucht.
+	if _, err := h.DB.Pool.Exec(ctx, `DELETE FROM activity_streams WHERE activity_id = $1`, id); err != nil {
+		slog.Warn("revert-fusion: delete streams failed (continuing with activity delete)", "error", err)
+	}
 
 	// Fusion-Ergebnis löschen.
 	if err := h.DB.DeleteActivity(ctx, userID, id); err != nil {

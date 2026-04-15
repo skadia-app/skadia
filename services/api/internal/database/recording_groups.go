@@ -45,6 +45,7 @@ type RecordingGroupMember struct {
 type RecordingGroupMemberDetail struct {
 	ActivityID         string    `json:"activity_id"`
 	IsFused            bool      `json:"is_fused"`
+	IsFusionSource     bool      `json:"is_fusion_source"`
 	IsPrimary          bool      `json:"is_primary"`
 	Title              *string   `json:"title,omitempty"`
 	TitleAuto          *string   `json:"title_auto,omitempty"`
@@ -237,7 +238,7 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 		rows, err = db.Pool.Query(ctx, `
 			SELECT
 				rg.id, rg.user_id, rg.primary_activity_id, rg.sport_type, rg.created_at, rg.confirmed,
-				rgm.activity_id, rgm.is_fused,
+				rgm.activity_id, rgm.is_fused, a.is_fusion_source,
 				(rg.primary_activity_id = rgm.activity_id) AS is_primary,
 				a.title, a.title_auto, a.started_at, a.sport_type,
 				a.source_device, a.source, `+deviceNameSelect+`,
@@ -268,7 +269,7 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 		)
 		if err := rows.Scan(
 			&g.ID, &g.UserID, &g.PrimaryActivityID, &g.SportType, &g.CreatedAt, &g.Confirmed,
-			&member.ActivityID, &member.IsFused, &member.IsPrimary,
+			&member.ActivityID, &member.IsFused, &member.IsFusionSource, &member.IsPrimary,
 			&member.Title, &member.TitleAuto, &member.StartedAt, &member.SportType,
 			&member.SourceDevice, &member.Source, &member.RecordingDeviceName, &member.OriginalFileFormat, &member.DistanceM, &member.ElapsedTimeS,
 			&member.FieldRichness, &member.HasGPS, &member.ElevationGainM, &member.ElevationLossM,
@@ -433,7 +434,7 @@ func (db *DB) DissolveRecordingGroup(ctx context.Context, groupID string) error 
 func (db *DB) GetRecordingGroupMembers(ctx context.Context, groupID string) ([]RecordingGroupMemberDetail, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT
-			rgm.activity_id, rgm.is_fused,
+			rgm.activity_id, rgm.is_fused, a.is_fusion_source,
 			(rg.primary_activity_id = rgm.activity_id) AS is_primary,
 			a.title, a.title_auto, a.started_at, a.sport_type,
 			a.source_device, a.source, `+deviceNameSelect+`,
@@ -455,7 +456,7 @@ func (db *DB) GetRecordingGroupMembers(ctx context.Context, groupID string) ([]R
 	for rows.Next() {
 		var m RecordingGroupMemberDetail
 		if err := rows.Scan(
-			&m.ActivityID, &m.IsFused, &m.IsPrimary,
+			&m.ActivityID, &m.IsFused, &m.IsFusionSource, &m.IsPrimary,
 			&m.Title, &m.TitleAuto, &m.StartedAt, &m.SportType,
 			&m.SourceDevice, &m.Source, &m.RecordingDeviceName, &m.OriginalFileFormat, &m.DistanceM, &m.ElapsedTimeS,
 			&m.FieldRichness, &m.HasGPS, &m.ElevationGainM, &m.ElevationLossM,
