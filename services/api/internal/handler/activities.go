@@ -131,6 +131,29 @@ func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Populate fusion membership fields — one roundtrip for the whole page.
+	if len(list.Activities) > 0 {
+		ids := make([]string, len(list.Activities))
+		for i := range list.Activities {
+			ids[i] = list.Activities[i].ID
+		}
+		membsByMerged, countsBySource, fusionErr := h.DB.GetFusionMembershipsForActivities(r.Context(), ids)
+		if fusionErr != nil {
+			slog.Warn("list activities: get fusion memberships failed", "error", fusionErr)
+		} else {
+			for i := range list.Activities {
+				id := list.Activities[i].ID
+				for _, m := range membsByMerged[id] {
+					list.Activities[i].FusionMemberships = append(list.Activities[i].FusionMemberships,
+						model.FusionMembershipResponse{SourceID: m.SourceID, FieldKey: m.FieldKey})
+				}
+				if c, ok := countsBySource[id]; ok {
+					list.Activities[i].FusionSourceCount = c
+				}
+			}
+		}
+	}
+
 	httputil.WriteJSON(w, http.StatusOK, list)
 }
 
@@ -150,6 +173,21 @@ func (h *Handler) GetActivity(w http.ResponseWriter, r *http.Request) {
 	if activity == nil || activity.UserID != userID {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
+	}
+
+	// Populate fusion membership fields.
+	if memberships, fusionErr := h.DB.GetFusionMembershipsForMerged(r.Context(), id); fusionErr == nil {
+		for _, m := range memberships {
+			activity.FusionMemberships = append(activity.FusionMemberships,
+				model.FusionMembershipResponse{SourceID: m.SourceID, FieldKey: m.FieldKey})
+		}
+	} else {
+		slog.Warn("get activity: get fusion memberships failed", "id", id, "error", fusionErr)
+	}
+	if count, fusionErr := h.DB.CountFusionMembershipsAsSource(r.Context(), id); fusionErr == nil {
+		activity.FusionSourceCount = count
+	} else {
+		slog.Warn("get activity: count fusion source memberships failed", "id", id, "error", fusionErr)
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, activity)
@@ -185,6 +223,30 @@ func (h *Handler) GetChildActivities(w http.ResponseWriter, r *http.Request) {
 	if children == nil {
 		children = []model.Activity{}
 	}
+
+	// Populate fusion membership fields — one roundtrip for all children.
+	if len(children) > 0 {
+		childIDs := make([]string, len(children))
+		for i := range children {
+			childIDs[i] = children[i].ID
+		}
+		membsByMerged, countsBySource, fusionErr := h.DB.GetFusionMembershipsForActivities(r.Context(), childIDs)
+		if fusionErr != nil {
+			slog.Warn("get child activities: get fusion memberships failed", "parent_id", id, "error", fusionErr)
+		} else {
+			for i := range children {
+				cid := children[i].ID
+				for _, m := range membsByMerged[cid] {
+					children[i].FusionMemberships = append(children[i].FusionMemberships,
+						model.FusionMembershipResponse{SourceID: m.SourceID, FieldKey: m.FieldKey})
+				}
+				if c, ok := countsBySource[cid]; ok {
+					children[i].FusionSourceCount = c
+				}
+			}
+		}
+	}
+
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{"children": children})
 }
 
@@ -279,6 +341,21 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("update activity: delete stale sport_group best efforts failed", "id", actID, "error", err)
 			}
 		})
+	}
+
+	// Populate fusion membership fields.
+	if memberships, fusionErr := h.DB.GetFusionMembershipsForMerged(r.Context(), id); fusionErr == nil {
+		for _, m := range memberships {
+			activity.FusionMemberships = append(activity.FusionMemberships,
+				model.FusionMembershipResponse{SourceID: m.SourceID, FieldKey: m.FieldKey})
+		}
+	} else {
+		slog.Warn("update activity: get fusion memberships failed", "id", id, "error", fusionErr)
+	}
+	if count, fusionErr := h.DB.CountFusionMembershipsAsSource(r.Context(), id); fusionErr == nil {
+		activity.FusionSourceCount = count
+	} else {
+		slog.Warn("update activity: count fusion source memberships failed", "id", id, "error", fusionErr)
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, activity)
