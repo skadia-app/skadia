@@ -79,7 +79,24 @@ func applyFusionSources(
 	sources database.FusionSources,
 	selfID string,
 ) []model.StreamResponse {
-	// Load each unique source activity once.
+	// Baked-Check per source: a source is "baked into THIS merged activity" when:
+	//   V1: source.parent_id == selfID (source was hidden under this merged activity)
+	//   V2: srcID appears as a Value in selfID's fusion_sources JSON AND is_fusion_source=TRUE
+	//
+	// Caution: is_fusion_source=TRUE alone is NOT sufficient — the source may be baked
+	// into a DIFFERENT merged activity (M2 != selfID). We must check that the source is
+	// specifically referenced by THIS activity's fusion_sources to avoid cross-fusion
+	// false-positives that would incorrectly skip stream overlay for M2.
+	//
+	// Build the set of IDs that are specifically baked into this merged activity (from
+	// the sources parameter itself, excluding "fuse").
+	selfSourceSet := make(map[string]struct{}, len(sources))
+	for _, id := range sources {
+		if id != "fuse" {
+			selfSourceSet[id] = struct{}{}
+		}
+	}
+
 	sourceStreams := map[string][]model.StreamResponse{}
 	for _, srcID := range sources {
 		if srcID == selfID {
@@ -88,14 +105,29 @@ func applyFusionSources(
 		if _, loaded := sourceStreams[srcID]; loaded {
 			continue
 		}
+		var parentID *string
+		var isFusionSource bool
+		if err := db.Pool.QueryRow(ctx,
+			`SELECT parent_id, is_fusion_source FROM activities WHERE id = $1`, srcID,
+		).Scan(&parentID, &isFusionSource); err != nil {
+			slog.Warn("applyFusionSources: baked-check lookup failed", "src_id", srcID, "error", err)
+			continue
+		}
+		// V1 baked: parent_id points at selfID.
+		if parentID != nil && *parentID == selfID {
+			continue
+		}
+		// V2 baked: srcID is in THIS activity's fusion_sources AND is_fusion_source=TRUE.
+		// Using selfSourceSet (derived from the sources parameter) to avoid a second DB
+		// round-trip — sources already contains the values from selfID's fusion_sources JSON.
+		if isFusionSource {
+			if _, inSelf := selfSourceSet[srcID]; inSelf {
+				continue
+			}
+		}
 		ss, err := db.GetStreams(ctx, srcID)
 		if err != nil {
 			slog.Warn("applyFusionSources: load source streams failed", "src_id", srcID, "error", err)
-			continue
-		}
-		// Baked-Check: Quelle gehört zu dieser Aktivität → Streams bereits direkt kopiert.
-		srcAct, _ := db.GetActivity(ctx, srcID)
-		if srcAct != nil && srcAct.ParentID != nil && *srcAct.ParentID == selfID {
 			continue
 		}
 		sourceStreams[srcID] = ss

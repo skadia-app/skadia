@@ -19,12 +19,14 @@ type dbQuerier interface {
 
 // StreamPoint repräsentiert einen GPS-Punkt mit Zeitstempel
 type StreamPoint struct {
-	Time      time.Time
-	Lat       *float64
-	Lng       *float64
-	AltitudeM *float64
-	SpeedMS   *float64
-	DistanceM *float64
+	Time        time.Time
+	Lat         *float64
+	Lng         *float64
+	AltitudeM   *float64
+	SpeedMS     *float64
+	DistanceM   *float64
+	Heading     *float64
+	GPSAccuracyM *float64
 }
 
 // StitchConfig konfiguriert den Stitching-Algorithmus
@@ -33,23 +35,27 @@ type StitchConfig struct {
 	ExtendTrack   bool
 }
 
-// StitchGPSTracks führt GPS-Streams aus mehreren Quellen zu einem Track zusammen.
+// StitchGPSTracks führt GPS-Streams aus mehreren Quellen zu einem Track zusammen
+// und schreibt das Ergebnis in die TEMP TABLE tempName.
+//
+// tempName: Name der TEMP TABLE (kein Hypertable), in die der fusionierte Track geschrieben wird.
+//           Die Tabelle muss bereits existieren und einen UNIQUE INDEX auf (time) haben.
+// mergedID: UUID der neu erstellten merged Activity — wird als activity_id in TEMP gesetzt.
 //
 // Algorithmus:
 // 1. Alle Quell-Streams laden und nach Zeit sortieren
 // 2. Unified Timeline aus allen einzigartigen Zeitpunkten erstellen
 // 3. Für jeden Zeitpunkt: Primary-Source bevorzugen, sonst Fallback
-// 4. Ergebnis per UPSERT in Target-Stream schreiben
+// 4. Ergebnis per INSERT ON CONFLICT in tempName schreiben
 func StitchGPSTracks(
 	ctx context.Context,
 	q dbQuerier,
-	targetID string,
+	tempName string,
+	mergedID string,
 	sourceIDs []string,
 	config *StitchConfig,
 ) error {
-	allIDs := make([]string, 0, len(sourceIDs)+1)
-	allIDs = append(allIDs, targetID)
-	allIDs = append(allIDs, sourceIDs...)
+	allIDs := sourceIDs
 
 	// 1. Alle Streams laden
 	streams := make(map[string][]StreamPoint, len(allIDs))
@@ -87,9 +93,11 @@ func StitchGPSTracks(
 		indices[id] = idx
 	}
 
-	primaryID := targetID
+	var primaryID string
 	if config != nil && config.PrimarySource != "" {
 		primaryID = config.PrimarySource
+	} else if len(allIDs) > 0 {
+		primaryID = allIDs[0]
 	}
 
 	// 4. Für jeden Zeitpunkt die beste Quelle wählen
@@ -133,13 +141,13 @@ func StitchGPSTracks(
 		}
 	}
 
-	// 5. Ergebnis in Target-Stream schreiben
-	return writeStitchedStream(ctx, q, targetID, result)
+	// 5. Ergebnis in TEMP TABLE schreiben
+	return writeStitchedStream(ctx, q, tempName, mergedID, result)
 }
 
 func loadGPSStream(ctx context.Context, q dbQuerier, activityID string) ([]StreamPoint, error) {
 	rows, err := q.Query(ctx, `
-		SELECT time, lat, lng, altitude_m, speed_ms, distance_m
+		SELECT time, lat, lng, altitude_m, speed_ms, distance_m, heading, gps_accuracy_m
 		FROM activity_streams
 		WHERE activity_id = $1
 		ORDER BY time ASC
@@ -152,7 +160,7 @@ func loadGPSStream(ctx context.Context, q dbQuerier, activityID string) ([]Strea
 	var points []StreamPoint
 	for rows.Next() {
 		var p StreamPoint
-		if err := rows.Scan(&p.Time, &p.Lat, &p.Lng, &p.AltitudeM, &p.SpeedMS, &p.DistanceM); err != nil {
+		if err := rows.Scan(&p.Time, &p.Lat, &p.Lng, &p.AltitudeM, &p.SpeedMS, &p.DistanceM, &p.Heading, &p.GPSAccuracyM); err != nil {
 			return nil, err
 		}
 		points = append(points, p)
@@ -160,22 +168,31 @@ func loadGPSStream(ctx context.Context, q dbQuerier, activityID string) ([]Strea
 	return points, rows.Err()
 }
 
-func writeStitchedStream(ctx context.Context, q dbQuerier, targetID string, points []StreamPoint) error {
-	const upsertSQL = `
-		INSERT INTO activity_streams (activity_id, time, lat, lng, altitude_m, speed_ms, distance_m)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+// writeStitchedStream schreibt die fusionierten GPS-Punkte in die TEMP TABLE tempName.
+// tempName hat einen UNIQUE INDEX auf (activity_id, time), daher ON CONFLICT
+// (activity_id, time) DO UPDATE. mergedID wird als activity_id für neue Rows
+// gesetzt (bei ON CONFLICT nicht überschrieben).
+// Distanz-Recompute und Activity-Update entfallen hier — das übernimmt applyFusionTxExtras
+// nach finalizeStreamsMerge (auf den finalen activity_streams Rows).
+func writeStitchedStream(ctx context.Context, q dbQuerier, tempName, mergedID string, points []StreamPoint) error {
+	upsertSQL := fmt.Sprintf(`
+		INSERT INTO %s (activity_id, time, lat, lng, altitude_m, speed_ms, distance_m, heading, gps_accuracy_m)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (activity_id, time) DO UPDATE
 		SET lat = EXCLUDED.lat, lng = EXCLUDED.lng,
-			altitude_m = COALESCE(EXCLUDED.altitude_m, activity_streams.altitude_m),
-			speed_ms = COALESCE(EXCLUDED.speed_ms, activity_streams.speed_ms),
-			distance_m = COALESCE(EXCLUDED.distance_m, activity_streams.distance_m)`
+			altitude_m = COALESCE(EXCLUDED.altitude_m, %s.altitude_m),
+			speed_ms = COALESCE(EXCLUDED.speed_ms, %s.speed_ms),
+			distance_m = COALESCE(EXCLUDED.distance_m, %s.distance_m),
+			heading = COALESCE(EXCLUDED.heading, %s.heading),
+			gps_accuracy_m = COALESCE(EXCLUDED.gps_accuracy_m, %s.gps_accuracy_m)`,
+		tempName, tempName, tempName, tempName, tempName, tempName)
 
 	batch := &pgx.Batch{}
 	for _, p := range points {
 		if p.Lat == nil || p.Lng == nil {
 			continue
 		}
-		batch.Queue(upsertSQL, targetID, p.Time, p.Lat, p.Lng, p.AltitudeM, p.SpeedMS, p.DistanceM)
+		batch.Queue(upsertSQL, mergedID, p.Time, p.Lat, p.Lng, p.AltitudeM, p.SpeedMS, p.DistanceM, p.Heading, p.GPSAccuracyM)
 	}
 	if batch.Len() > 0 {
 		br := q.SendBatch(ctx, batch)
@@ -189,44 +206,7 @@ func writeStitchedStream(ctx context.Context, q dbQuerier, targetID string, poin
 			return fmt.Errorf("batch close: %w", err)
 		}
 	}
-
-	// Distanz neu berechnen (kumulativ aus GPS-Punkten)
-	_, err := q.Exec(ctx, `
-		WITH ordered AS (
-			SELECT time, lat, lng,
-				   LAG(lat) OVER (ORDER BY time) AS prev_lat,
-				   LAG(lng) OVER (ORDER BY time) AS prev_lng
-			FROM activity_streams
-			WHERE activity_id = $1 AND lat IS NOT NULL AND lng IS NOT NULL
-			ORDER BY time
-		),
-		distances AS (
-			SELECT time,
-				   SUM(CASE WHEN prev_lat IS NOT NULL THEN
-					   ST_Distance(
-						   ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography,
-						   ST_SetSRID(ST_MakePoint(prev_lng, prev_lat), 4326)::geography
-					   )
-				   ELSE 0 END) OVER (ORDER BY time) AS cumulative_m
-			FROM ordered
-		)
-		UPDATE activity_streams s
-		SET distance_m = d.cumulative_m
-		FROM distances d
-		WHERE s.activity_id = $1 AND s.time = d.time
-	`, targetID)
-	if err != nil {
-		return fmt.Errorf("recalculate distance: %w", err)
-	}
-
-	// Gesamtdistanz auf Activity aktualisieren
-	_, err = q.Exec(ctx, `
-		UPDATE activities SET
-			distance_m = (SELECT MAX(distance_m) FROM activity_streams WHERE activity_id = $1 AND distance_m IS NOT NULL),
-			has_edits = true
-		WHERE id = $1
-	`, targetID)
-	return err
+	return nil
 }
 
 func sortTimes(times []time.Time) {

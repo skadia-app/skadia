@@ -31,10 +31,11 @@ type GPSFusionConfig struct {
 // fuseGPSTracks ist die echte Implementierung des GPS-Stitching-Stubs.
 // Sie wird von MergeActivity (fusion_merge.go) aufgerufen.
 //
-// targetID: Aktivität, in die der fusionierte Track geschrieben wird.
-// sourceIDs: Bis zu 2 weitere Aktivitäten als GPS-Quellen (max. 3 gesamt inkl. Target).
-// config: Optionale Konfiguration; nil bedeutet Target ist Primary, kein Extend.
-func (h *Handler) fuseGPSTracks(ctx context.Context, q database.Querier, targetID string, sourceIDs []string, config *GPSFusionConfig) error {
+// tempName: Name der TEMP TABLE, in die der fusionierte Track geschrieben wird.
+// mergedID: UUID der neu erstellten merged Activity (activity_id in TEMP).
+// sourceIDs: Bis zu 6 Aktivitäten als GPS-Quellen.
+// config: Optionale Konfiguration; nil bedeutet kein Primary, kein Extend.
+func (h *Handler) fuseGPSTracks(ctx context.Context, q database.Querier, tempName, mergedID string, sourceIDs []string, config *GPSFusionConfig) error {
 	var stitchConfig *fusion.StitchConfig
 	if config != nil {
 		stitchConfig = &fusion.StitchConfig{
@@ -42,5 +43,5 @@ func (h *Handler) fuseGPSTracks(ctx context.Context, q database.Querier, targetI
 			ExtendTrack:   config.ExtendTrack,
 		}
 	}
-	return fusion.StitchGPSTracks(ctx, q, targetID, sourceIDs, stitchConfig)
+	return fusion.StitchGPSTracks(ctx, q, tempName, mergedID, sourceIDs, stitchConfig)
 }
