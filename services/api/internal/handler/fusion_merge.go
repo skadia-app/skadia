@@ -2035,20 +2035,14 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 	// (a) V2-Sources zurücksetzen: is_fusion_source = FALSE; parent_id war nie gesetzt.
 	// NOT EXISTS: wenn eine Source auch in einer ANDEREN Fusion (M2 != id) referenziert ist,
 	// darf is_fusion_source nicht auf FALSE gesetzt werden — sie bleibt gebackt in M2.
-	// NOTE: cross-fusion guard still uses jsonb_each_text(fusion_sources) — intentional
-	// for Phase 1 (Dual-Write); rewritten to memberships in Phase 2a (Task 14).
+	// cross-fusion guard reads memberships directly.
 	if len(sourceIDs) > 0 {
 		if _, err := flipTx.Exec(ctx,
 			`UPDATE activities SET is_fusion_source = FALSE, parent_id = NULL
 			 WHERE id = ANY($1) AND user_id = $2
 			   AND NOT EXISTS (
-			       SELECT 1 FROM activities m
-			       WHERE m.user_id = $2
-			         AND m.id != $3
-			         AND EXISTS (
-			             SELECT 1 FROM jsonb_each_text(m.fusion_sources) kv
-			             WHERE kv.value = activities.id::text
-			         )
+			       SELECT 1 FROM activity_fusion_memberships
+			       WHERE source_id = activities.id AND merged_id != $3::uuid
 			   )`,
 			sourceIDs, userID, id,
 		); err != nil {
