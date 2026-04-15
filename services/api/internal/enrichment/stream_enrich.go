@@ -128,7 +128,12 @@ func RunStreamEnrichment(ctx context.Context, db *database.DB, userID, activityI
 	// Skip stream enrichment for water-category sports (diving, swimming, etc.).
 	// Ascent detection, stop detection, and interval detection all rely on
 	// altitude/speed data that is meaningless or zero underwater.
-	if act, err := db.GetActivity(ctx, activityID); err == nil {
+	//
+	// Note: db.GetActivity returns (nil, nil) when the row is not found
+	// (cf. pgx.ErrNoRows branch). Guard against nil here — the post-commit
+	// fusion-cleanup goroutine outlives the request and can race with test
+	// teardown or source-activity deletion.
+	if act, err := db.GetActivity(ctx, activityID); err == nil && act != nil {
 		if def, ok := sport.GetSportDef(act.SportType); ok && def.CategoryKey == "water" {
 			slog.Debug("stream enrichment: skipping for water sport",
 				"activity_id", activityID,
