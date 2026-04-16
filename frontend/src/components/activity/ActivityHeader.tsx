@@ -12,7 +12,7 @@ import type { Activity } from '@/api/types'
 import { SportIcon } from '@/components/SportIcon'
 import SportConflictBadge from '@/components/SportConflictBadge'
 import SportConflictModal from '@/components/SportConflictModal'
-import MergeDialog from '@/components/MergeDialog'
+import FieldCopyDialog from '@/components/FieldCopyDialog'
 import ReprocessScopeModal from '@/components/activity/ReprocessScopeModal'
 import { sportDetailLabel } from '@/lib/sportTaxonomy'
 import { triggerBlobDownload, cn } from '@/lib/utils'
@@ -44,7 +44,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
   const [multisportConfirm, setMultisportConfirm] = useState(false)
   const [ungroupConfirm, setUngroupConfirm] = useState(false)
   const [ungroupLoading, setUngroupLoading] = useState(false)
-  const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
+  const [fieldCopyDialogOpen, setFieldCopyDialogOpen] = useState(false)
   const [openInPlannerLoading, setOpenInPlannerLoading] = useState(false)
   const { data: routingCapabilities } = useQuery({
     queryKey: ['routing-capabilities'],
@@ -546,9 +546,9 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
         </>
       )}
 
-      {/* Merge dialog */}
-      {mergeDialogOpen && (
-        <MergeDialog activity={activity} onClose={() => setMergeDialogOpen(false)} />
+      {/* Field Copy dialog */}
+      {fieldCopyDialogOpen && (
+        <FieldCopyDialog activity={activity} onClose={() => setFieldCopyDialogOpen(false)} />
       )}
       {/* Fusion-Revert confirmation modal */}
       {showRevertFusionModal && (
