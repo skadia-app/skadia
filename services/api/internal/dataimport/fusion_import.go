@@ -21,7 +21,9 @@ package dataimport
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -198,6 +200,13 @@ func RunLegacyFusionMembershipsIfNeeded(
 		rc.Close()
 		return nil // v_new — handled by phase 6 generic importTable
 	}
+	// Only treat "file absent" as the legitimate v_old path.
+	// IO errors, permission issues, or corruption must propagate — silently
+	// falling through would skip derivation without telling the caller.
+	if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("dataimport: check memberships.json: %w", err)
+	}
+	// fs.ErrNotExist → legitimate v_old path, continue below.
 
 	// Re-read activities.json to collect fusion_sources + parent_id.
 	actRC, err := src.OpenData("data/activities.json")
@@ -213,10 +222,25 @@ func RunLegacyFusionMembershipsIfNeeded(
 		return fmt.Errorf("RunLegacyFusionMemberships: read opening token: %w", err)
 	}
 	if d, ok := tok.(json.Delim); !ok || d != '[' {
-		return nil // Not a JSON array; nothing to derive.
+		// Finding #23: warn instead of silently returning nothing.
+		slog.Warn("dataimport: activities.json top-level not an array — fusion derivation skipped",
+			"token", fmt.Sprintf("%v", tok))
+		return nil
 	}
 
+	// Streaming pre-filter (Finding #12): only accumulate records that have
+	// fusion_sources populated; all other rows are decoded and discarded inline.
+	// Peak heap usage therefore scales with the number of fused activities, not
+	// the total activity count.
+	//
+	// However, the "fuse" fan-out expansion needs to know which activities had
+	// parent_id = <merged_id> — including children that themselves have no
+	// fusion_sources.  We therefore also build parentToChildren inline during
+	// the single streaming pass, keyed by the old parent UUID.
 	var records []legacyActivityRecord
+	// parentOldID → []oldChildID (for "fuse" expansion)
+	parentToChildrenOld := make(map[string][]string)
+
 	for dec.More() {
 		var row map[string]any
 		if err := dec.Decode(&row); err != nil {
@@ -228,14 +252,14 @@ func RunLegacyFusionMembershipsIfNeeded(
 			continue
 		}
 
-		rec := legacyActivityRecord{OldID: oldID}
-
-		// Extract old parent_id (for "fuse" fan-out expansion).
-		if parentID, ok := stringVal(row["parent_id"]); ok {
-			rec.OldParentID = parentID
+		// Collect parent_id for every row so the parentToChildrenOld map is complete.
+		oldParentID, _ := stringVal(row["parent_id"])
+		if oldParentID != "" {
+			parentToChildrenOld[oldParentID] = append(parentToChildrenOld[oldParentID], oldID)
 		}
 
-		// Extract fusion_sources JSONB.
+		// Extract fusion_sources JSONB — drop the row when absent.
+		var fusionSources map[string]string
 		if fsRaw := row["fusion_sources"]; fsRaw != nil {
 			// fusion_sources arrives as map[string]any from JSON decode.
 			if fsMap, ok := fsRaw.(map[string]any); ok && len(fsMap) > 0 {
@@ -246,48 +270,46 @@ func RunLegacyFusionMembershipsIfNeeded(
 					}
 				}
 				if len(sources) > 0 {
-					rec.FusionSources = sources
+					fusionSources = sources
 				}
 			}
 		}
-
-		records = append(records, rec)
-	}
-
-	// No fusion_sources found in any activity → v_regular.
-	hasFusion := false
-	for _, r := range records {
-		if len(r.FusionSources) > 0 {
-			hasFusion = true
-			break
+		if fusionSources == nil {
+			continue // Not a fused activity — no need to keep the record.
 		}
+
+		records = append(records, legacyActivityRecord{
+			OldID:         oldID,
+			OldParentID:   oldParentID,
+			FusionSources: fusionSources,
+		})
 	}
-	if !hasFusion {
+
+	// Pre-filter means records only contains fused activities — any empty slice = v_regular.
+	if len(records) == 0 {
 		return nil
 	}
 
-	// Build importedActivityIDs (new UUIDs) and parentID → children map.
-	importedActivityIDs := make(map[string]bool, len(records))
-	// parentOldID → []newChildID (for "fuse" expansion)
-	parentToChildren := make(map[string][]string, len(records))
+	// importedActivityIDs must cover all imported activities (not just the fused ones)
+	// so that concrete source UUIDs in fusion_sources can be validated.
+	importedActivityIDs := idMap.NewIDSet()
 
-	for _, r := range records {
-		newID, ok := idMap.GetIfExists(r.OldID)
-		if !ok {
-			continue
-		}
-		importedActivityIDs[newID] = true
-		if r.OldParentID != "" {
-			parentToChildren[r.OldParentID] = append(parentToChildren[r.OldParentID], newID)
+	// parentToChildren maps old merged ID → []new child IDs, built from the
+	// parentToChildrenOld map (old parent → []old child) by remapping via idMap.
+	parentToChildren := make(map[string][]string, len(parentToChildrenOld))
+	for oldParent, oldChildren := range parentToChildrenOld {
+		for _, oldChild := range oldChildren {
+			newChildID, ok := idMap.GetIfExists(oldChild)
+			if !ok {
+				continue
+			}
+			parentToChildren[oldParent] = append(parentToChildren[oldParent], newChildID)
 		}
 	}
 
 	// Derive memberships.
 	var allMemberships []database.FusionMembership
 	for _, r := range records {
-		if len(r.FusionSources) == 0 {
-			continue
-		}
 		newMergedID, ok := idMap.GetIfExists(r.OldID)
 		if !ok {
 			slog.Warn("dataimport: RunLegacyFusionMemberships: merged activity not in IDMap — skipping",
