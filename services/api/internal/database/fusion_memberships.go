@@ -230,16 +230,6 @@ func (db *DB) GetActivityTitle(ctx context.Context, activityID string) (string, 
 	return title, err
 }
 
-// IsFusionSourceViaMemberships returns true iff activityID appears as source in any membership.
-// Replaces the is_fusion_source column read — used by list/queue eligibility filters.
-func (db *DB) IsFusionSourceViaMemberships(ctx context.Context, activityID string) (bool, error) {
-	var exists bool
-	err := db.Pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM activity_fusion_memberships WHERE source_id = $1)`,
-		activityID).Scan(&exists)
-	return exists, err
-}
-
 // ListSourcesForMerged returns distinct source_ids of a merged activity.
 // Used by RevertFusion to restore sources.
 func (db *DB) ListSourcesForMerged(ctx context.Context, mergedID string) ([]string, error) {
