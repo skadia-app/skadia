@@ -290,18 +290,41 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
             )}
           </div>
         )}
-        {(activity.fusion_memberships?.length ?? 0) > 0 && (
-          <div className="flex items-center gap-2 mt-1">
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-violet-100 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
-              ⚡ Fusion Ergebnis
-            </span>
-            <button
-              onClick={() => setShowRevertFusionModal(true)}
-              disabled={revertFusionMutation.isPending}
-              className="text-xs text-neutral-500 hover:text-red-600 dark:hover:text-red-400 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Fusion rückgängig
-            </button>
+        {((activity.fusion_memberships?.length ?? 0) > 0 || !!activity.recording_group_id || (activity.fusion_source_count ?? 0) > 0) && (
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            {(activity.fusion_memberships?.length ?? 0) > 0 && (
+              <>
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-violet-100 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800"
+                  title={`Fusion aus ${activity.fusion_memberships!.length} ${activity.fusion_memberships!.length === 1 ? 'Quelle' : 'Quellen'}`}
+                >
+                  ⚡ F — Fusion Ergebnis
+                </span>
+                <button
+                  onClick={() => setShowRevertFusionModal(true)}
+                  disabled={revertFusionMutation.isPending}
+                  className="text-xs text-neutral-500 hover:text-red-600 dark:hover:text-red-400 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Fusion rückgängig
+                </button>
+              </>
+            )}
+            {!!activity.recording_group_id && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-orange-100 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800"
+                title="Gruppenaufzeichnung"
+              >
+                G — Gruppenaufzeichnung
+              </span>
+            )}
+            {(activity.fusion_source_count ?? 0) > 0 && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-indigo-100 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                title={`Diese Aktivität ist Quelle für ${activity.fusion_source_count} Fusion${(activity.fusion_source_count ?? 0) === 1 ? '' : 'en'}`}
+              >
+                {(activity.fusion_source_count ?? 0) === 1 ? 'Fusionsquelle' : `Quelle für ${activity.fusion_source_count} Fusionen`}
+              </span>
+            )}
           </div>
         )}
         {(activity.garmin_activity_id || activity.strava_activity_id || activity.komoot_tour_id) && (

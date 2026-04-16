@@ -1616,7 +1616,7 @@ function ActivityRow({
       <td className="px-4 py-3">
         <span className="inline-flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
           <span className="w-4 text-center text-xs flex-shrink-0">
-            {activity.is_indoor ? <span className="text-blue-500 font-bold text-sm">I</span> : activity.is_electric ? <span className="text-green-600 font-bold text-sm">E</span> : activity.is_virtual ? <span className="text-purple-500 font-bold text-sm">V</span> : activity.sport_type === 'multisport' ? <span className="text-red-800 font-bold text-sm">M</span> : activity.recording_group_id ? <span className="text-orange-600 font-bold text-sm" title="Aufnahmegruppe">F</span> : null}
+            {activity.is_indoor ? <span className="text-blue-500 font-bold text-sm">I</span> : activity.is_electric ? <span className="text-green-600 font-bold text-sm">E</span> : activity.is_virtual ? <span className="text-purple-500 font-bold text-sm">V</span> : activity.sport_type === 'multisport' ? <span className="text-red-800 font-bold text-sm">M</span> : (activity.fusion_memberships?.length ?? 0) > 0 ? <span className="text-violet-600 font-bold text-sm" title="Fusion Ergebnis">F</span> : activity.recording_group_id ? <span className="text-orange-600 font-bold text-sm" title="Gruppenaufzeichnung">G</span> : null}
           </span>
           <SportIcon sport={activity.sport_type} subType={activity.sub_type} isElectric={activity.is_electric} className="w-4 h-4 flex-shrink-0" />
           <span className="text-xs">{label}</span>
