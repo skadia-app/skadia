@@ -17,6 +17,11 @@ type FusionMemberSnapshot struct {
 }
 
 type MetaFile struct {
+	// SchemaVersion is a hint for human reading of .meta files. The reader
+	// does not key on this field — it performs feature-detection on the
+	// presence of optional fields (e.g. FusionMembers) — so older files
+	// without a version, or with a wrong version, still parse correctly.
+	// Current value written by GenerateMetaFull / GenerateMetaFusion: 2.
 	SchemaVersion    int       `json:"schema_version"`
 	SkadiaID        string    `json:"skadia_id"`
 	OriginalFilename string    `json:"original_filename"`
