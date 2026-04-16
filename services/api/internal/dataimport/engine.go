@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"syscall"
 	"time"
@@ -236,6 +237,16 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 		}
 	}
 	result.PhasesCompleted++
+
+	// Phase 6b: v_old_fusion backwards-compat — derive fusion memberships from
+	// legacy fusion_sources JSONB when no activity_fusion_memberships.json was
+	// present in the export (Spec §7.2).
+	// This is a no-op for v_new (memberships file present) and v_regular exports.
+	if err := RunLegacyFusionMembershipsIfNeeded(ctx, e.DB, input.Source, idMap, input.TargetUserID, manifest.SchemaMigration); err != nil {
+		// Non-fatal: log + warn, do not abort the whole import.
+		slog.Warn("dataimport: RunLegacyFusionMembershipsIfNeeded failed", "error", err)
+		result.Warnings = append(result.Warnings, fmt.Sprintf("legacy fusion memberships derivation: %v", err))
+	}
 
 	// Phase 7: Health + External + file_attachments.
 	phase7Specs := byPhase[7]
