@@ -611,7 +611,7 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 	// Runs inside the same TX to keep atomicity.
 	// FATAL: if any sub-operation fails (e.g. photos reassigned but geo_tags failed), the
 	// TX must be rolled back — partial related-table state is worse than none at all.
-	if err := copyRelatedTablesUnion(ctx, tx, p.merged.ID, p.allSourceIDs, p.metadataSourceID); err != nil {
+	if err := copyRelatedTablesUnion(ctx, tx, p.merged.ID, p.allSourceIDs, p.metadataSourceID, p.userID); err != nil {
 		return fmt.Errorf("related-tables union-copy: %w", err)
 	}
 
@@ -661,14 +661,23 @@ func (h *Handler) postCommitFusionCleanup(ctx context.Context, p fusionFinalizeP
 			slog.Error("fusion-merge: FIT-level merge failed", "target", p.merged.ID, "error", err)
 		} else {
 			slog.Info("fusion-merge: FIT-level merge completed", "target", p.merged.ID)
+			// fitLevelMerge writes a new file_hash + file_id to the activities row.
+			// Reload freshMerged so the sidecar block below uses the updated file_id —
+			// without this, sidecar.WriteMetaCompanionFor would receive the stale/nil
+			// file_id that was set before the FIT-level merge ran.
+			if reloaded, reloadErr := h.DB.GetActivity(ctx, p.merged.ID); reloadErr == nil && reloaded != nil {
+				freshMerged = reloaded
+			} else {
+				slog.Warn("fusion-merge: reload merged activity after fitLevelMerge failed, sidecar may use stale file_id",
+					"id", p.merged.ID, "error", reloadErr)
+			}
 		}
 	}
 
 	// Write .meta companion for merged activity (ShadowFS).
 	// Uses GenerateMetaFusion to embed fusion lineage into the sidecar so that
 	// GDPR export/import can reconstruct memberships from the .meta file alone.
-	// Reuses freshMerged loaded above — no DB write mutates the merged activity between
-	// the track-rebuild block and here, so the same snapshot is current.
+	// freshMerged is reloaded above when fitLevelMerge ran, so file_id is current.
 	{
 		if mergedAct := freshMerged; mergedAct != nil {
 			memberships, _ := h.DB.GetFusionMembershipsForMerged(ctx, p.merged.ID)
@@ -962,7 +971,7 @@ func fusionMergeActivityTags(ctx context.Context, q database.Querier, targetID, 
 // occupy the unique slot. We therefore reassign the existing photo rows to the merged
 // activity via UPDATE instead of copying. Sources are hidden (parent_id) after merge,
 // so the photos remain accessible through the merged activity.
-func copyRelatedTablesUnion(ctx context.Context, tx database.Querier, mergedID string, sources []string, metadataSourceID string) error {
+func copyRelatedTablesUnion(ctx context.Context, tx database.Querier, mergedID string, sources []string, metadataSourceID string, userID string) error {
 	// Defensive: mergedID is used in SQL identifier construction (TEMP TABLE names).
 	// Validate it is a well-formed UUID before any formatting to prevent SQL injection
 	// if the call path ever changes to accept external input.
@@ -974,12 +983,14 @@ func copyRelatedTablesUnion(ctx context.Context, tx database.Querier, mergedID s
 	// COALESCE preserves the original source_activity_id if a photo was already reassigned
 	// during a previous fusion (transitive). RevertFusion uses source_activity_id to restore
 	// activity_id before DeleteActivity triggers CASCADE — preventing data loss.
+	// user_id filter: defense-in-depth — only reassign photos owned by the same user,
+	// preventing cross-user data bleed if source IDs are ever supplied from untrusted input.
 	if _, err := tx.Exec(ctx,
 		`UPDATE activity_photos
 		 SET activity_id = $1,
 		     source_activity_id = COALESCE(source_activity_id, activity_id)
-		 WHERE activity_id = ANY($2)`,
-		mergedID, sources,
+		 WHERE activity_id = ANY($2) AND user_id = $3`,
+		mergedID, sources, userID,
 	); err != nil {
 		return fmt.Errorf("activity_photos reassign: %w", err)
 	}
@@ -2210,13 +2221,19 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 	// Pre-check (outside lock): is this activity a fusion result at all?
 	// This fast-fails obviously invalid requests without contending on the advisory lock.
 	// The authoritative check is the re-read inside the lock below.
-	preCheckMemberships, err := h.DB.GetFusionMembershipsForMerged(ctx, id)
-	if err != nil {
+	// user_id filter: defense-in-depth — a second call-site that omits the prior GetActivity
+	// ownership check must not be able to observe another user's memberships.
+	var preCheckCount int
+	if err := h.DB.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activity_fusion_memberships
+		 WHERE merged_id = $1 AND user_id = $2`,
+		id, userID,
+	).Scan(&preCheckCount); err != nil {
 		slog.Error("revert-fusion: pre-check get memberships failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "get memberships failed", r.URL.Path)
 		return
 	}
-	if len(preCheckMemberships) == 0 {
+	if preCheckCount == 0 {
 		// No memberships outside the lock → definitively not a fusion result.
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "activity is not a fusion result", r.URL.Path)
 		return
@@ -2324,7 +2341,30 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// (c) Memberships DELETE runs before DeleteActivity so RevertFusion leaves the DB in a
+	// (c) Restore photos to their original source activities so the subsequent
+	// DeleteActivity(mergedID) does NOT CASCADE-delete them. Runs inside flipTx to
+	// preserve atomicity — if the restore fails the entire revert rolls back, memberships
+	// remain intact, and the user gets a 500 they can retry. Photos without
+	// source_activity_id (uploaded directly to the merged activity, not reassigned during
+	// fusion) have no origin to restore to and will be CASCADE-deleted when the merged
+	// activity row is deleted post-commit.
+	// user_id filter: defense-in-depth, mirrors the copyRelatedTablesUnion reassign.
+	if _, err := flipTx.Exec(ctx,
+		`UPDATE activity_photos
+		 SET activity_id = source_activity_id,
+		     source_activity_id = NULL
+		 WHERE activity_id = $1
+		   AND user_id = $2
+		   AND source_activity_id IS NOT NULL`,
+		id, userID,
+	); err != nil {
+		slog.Error("revert-fusion: restore photos failed", "merged_id", id, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error",
+			"restore photos failed", r.URL.Path)
+		return
+	}
+
+	// (d) Memberships DELETE runs before DeleteActivity so RevertFusion leaves the DB in a
 	// consistent state for any observer (tests, operators) between the two steps.
 	if err := database.DeleteFusionMembershipsForMerged(ctx, flipTx, id); err != nil {
 		slog.Error("revert-fusion: delete memberships failed", "error", err)
@@ -2332,7 +2372,7 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Commit — legacy world + memberships world flip atomically.
+	// Commit — parent_id flip + photo-restore + memberships-delete happen atomically.
 	// Post-commit work (cleanupActivityFiles, DELETE streams, DeleteActivity,
 	// candidate + cache invalidation, best-efforts recompute) runs outside the tx.
 	// If the process crashes after this Commit but before DeleteActivity the merged
@@ -2345,23 +2385,6 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 
 	// Clean up ShadowFS files before deleting the fusion result.
 	h.cleanupActivityFiles(ctx, userID, id)
-
-	// Restore photos to their original source activities before DeleteActivity triggers
-	// CASCADE on activity_photos.activity_id_fkey. Photos with source_activity_id != NULL
-	// were reassigned during fusion — move them back. Photos without source_activity_id
-	// (uploaded directly to the merged activity) have no origin to restore to and will
-	// be CASCADE-deleted along with the merged activity row.
-	if _, err := h.DB.Pool.Exec(ctx,
-		`UPDATE activity_photos
-		 SET activity_id = source_activity_id,
-		     source_activity_id = NULL
-		 WHERE activity_id = $1 AND source_activity_id IS NOT NULL`,
-		id,
-	); err != nil {
-		slog.Error("revert-fusion: restore photos failed", "merged_id", id, "error", err)
-		// Non-fatal: continue with the revert. Photos that failed to restore will be
-		// CASCADE-deleted. Log at ERROR level so operators can recover from backups if needed.
-	}
 
 	// Streams explizit löschen bevor die Aktivität gelöscht wird.
 	// TimescaleDB compressed chunks (nach >7 Tagen) unterstützen DELETE ab v2.11 —
