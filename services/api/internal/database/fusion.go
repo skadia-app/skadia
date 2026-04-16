@@ -87,15 +87,6 @@ func (db *DB) GetFusionSources(ctx context.Context, activityID string) (FusionSo
 	return sources, json.Unmarshal(raw, &sources)
 }
 
-// MarkAsFusionSource markiert eine Aktivität als Quell-Aktivität einer Fusion.
-// Fusion-Sources werden in der Aktivitätsliste ausgeblendet.
-func (db *DB) MarkAsFusionSource(ctx context.Context, activityID string) error {
-	_, err := db.Pool.Exec(ctx,
-		`UPDATE activities SET is_fusion_source = TRUE WHERE id = $1`, activityID,
-	)
-	return err
-}
-
 // FindFusionCandidates sucht Aktivitäten die zeitlich nahe beieinander liegen.
 // timeWindowMin gibt das maximale Zeitfenster in Minuten an (Default 30).
 // Sport-Typ wird bewusst NICHT gefiltert, da dieselbe Aktivität
