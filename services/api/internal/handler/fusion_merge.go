@@ -336,7 +336,8 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 8b. Dual-write: insert into activity_fusion_memberships (new normalised table).
+	// 8b. Insert into activity_fusion_memberships — the sole source-of-truth for fusion state
+	// since Phase 3. parent_id (step 8) is a UI-visibility hint only; memberships own the data.
 	// allIDs = [targetID] + req.Sources — req.Sources contains the extra sources only,
 	// so we pass req.Sources as allSources and include the full allIDs as the "all sources"
 	// slice so that "fuse" expansions cover every participant.
@@ -1950,7 +1951,8 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("fusion-merge-v2: update time bounds failed", "error", err)
 	}
 
-	// 9b. Dual-write: insert into activity_fusion_memberships (new normalised table).
+	// 9b. Insert into activity_fusion_memberships — the sole source-of-truth for fusion state
+	// since Phase 3. parent_id (step 8) is a UI-visibility hint only; memberships own the data.
 	membershipsV2 := deriveFusionMemberships(merged.ID, userID, req.FieldMap, req.Sources)
 	if err := database.InsertFusionMemberships(ctx, tx, membershipsV2); err != nil {
 		slog.Error("fusion-merge-v2: insert memberships failed", "error", err)
@@ -2259,10 +2261,10 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// (a) V2-Sources zurücksetzen: parent_id = NULL (war nie gesetzt, aber Defensive).
-	// NOT EXISTS: wenn eine Source auch in einer ANDEREN Fusion (M2 != id) referenziert ist,
-	// bleibt parent_id wie es ist — sie bleibt gebackt in M2.
-	// cross-fusion guard reads memberships directly.
+	// (a) Reset parent_id = NULL for all sources.
+	// NOT EXISTS guard: if a source is also referenced by another fusion (merged_id != id),
+	// its parent_id is left unchanged — it remains hidden under that other merged activity.
+	// The cross-fusion guard reads activity_fusion_memberships directly.
 	if len(sourceIDs) > 0 {
 		if _, err := flipTx.Exec(ctx,
 			`UPDATE activities SET parent_id = NULL
@@ -2279,10 +2281,12 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// (b) Alle versteckten Quellen (parent_id = id) wiederherstellen.
-	// Für Group-Fusions (V2): parent_id war nie gesetzt, daher ist das ein No-Op.
-	// CASCADE entfernt die Fusion-Aktivität aus recording_group_members; der DEFERRED-Trigger
-	// berechnet is_group_secondary + primary_activity_id neu.
+	// (b) Reset parent_id on any source that still points at the merged activity.
+	// Applies to both V1 (always set parent_id=merged on sources) and V2-legacy-mode
+	// (the default V2 path without group context, which also sets parent_id).
+	// For V2-group-mode (group_id in the request), parent_id was never set and this UPDATE is a no-op.
+	// CASCADE on DELETE activities removes the fusion from recording_group_members; the DEFERRED
+	// trigger recomputes is_group_secondary + primary_activity_id.
 	if _, err := flipTx.Exec(ctx,
 		`UPDATE activities SET parent_id = NULL WHERE parent_id = $1 AND user_id = $2`,
 		id, userID,
@@ -2292,9 +2296,8 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// (c) Memberships cleanup — must happen before DeleteActivity so that tests
-	// and Exit-Gate SQL reading memberships as source-of-truth see a consistent
-	// state during Phase 1 (Dual-Write).
+	// (c) Memberships DELETE runs before DeleteActivity so RevertFusion leaves the DB in a
+	// consistent state for any observer (tests, operators) between the two steps.
 	if err := database.DeleteFusionMembershipsForMerged(ctx, flipTx, id); err != nil {
 		slog.Error("revert-fusion: delete memberships failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "delete memberships failed", r.URL.Path)
