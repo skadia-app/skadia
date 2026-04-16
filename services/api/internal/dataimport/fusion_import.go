@@ -112,13 +112,13 @@ func FilterByMergedID(memberships []database.FusionMembership, mergedID string) 
 // DeriveFromLegacyFusionSources converts a pre-000302 fusion_sources JSONB value
 // into activity_fusion_memberships rows for a single merged activity.
 //
-//   fusionSources:        the JSONB map {field_key -> source_id | "fuse"}
-//   mergedID:             the activity owning the fusion_sources field (new/remapped UUID)
-//   parentIDChildren:     other new activity IDs in import scope that had parent_id == mergedID
-//                         in the old export (used for "fuse" fan-out expansion;
-//                         pass nil if not derivable — V1 parent_id info is absent)
-//   importUserID:         the new user's UUID (membership's user_id field)
-//   importedActivityIDs:  all new activity IDs in import scope (source_id must be in this set)
+//	fusionSources:        the JSONB map {field_key -> source_id | "fuse"}
+//	mergedID:             the activity owning the fusion_sources field (new/remapped UUID)
+//	parentIDChildren:     other new activity IDs in import scope that had parent_id == mergedID
+//	                      in the old export (used for "fuse" fan-out expansion;
+//	                      pass nil if not derivable — V1 parent_id info is absent)
+//	importUserID:         the new user's UUID (membership's user_id field)
+//	importedActivityIDs:  all new activity IDs in import scope (source_id must be in this set)
 //
 // Returns the derived memberships. Warnings are logged for "fuse" literals that
 // cannot be expanded (empty parentIDChildren) — lost information from V1 exports.

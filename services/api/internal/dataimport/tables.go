@@ -13,16 +13,16 @@ const (
 
 // tableSpec describes one importable table.
 type tableSpec struct {
-	Name           string
-	Phase          int
-	FKFields       []string
-	PKField        string       // "id" for most, "" for composite/BIGSERIAL PK.
-	Conflict       conflictMode
-	NaturalKey     []string     // Columns for conflict detection (besides user_id).
-	UserCol        string       // "" = default "user_id", "none" = no user col, other = explicit name.
-	Skip           bool         // true = don't import (best_efforts, import_log, users).
-	Deferred       []string     // FK columns set NULL and updated in Phase 5b.
-	IgnoreConflicts bool        // true = append ON CONFLICT DO NOTHING (composite-PK / idempotent tables).
+	Name            string
+	Phase           int
+	FKFields        []string
+	PKField         string // "id" for most, "" for composite/BIGSERIAL PK.
+	Conflict        conflictMode
+	NaturalKey      []string // Columns for conflict detection (besides user_id).
+	UserCol         string   // "" = default "user_id", "none" = no user col, other = explicit name.
+	Skip            bool     // true = don't import (best_efforts, import_log, users).
+	Deferred        []string // FK columns set NULL and updated in Phase 5b.
+	IgnoreConflicts bool     // true = append ON CONFLICT DO NOTHING (composite-PK / idempotent tables).
 }
 
 // getUserCol resolves the effective user-column name for a tableSpec.
