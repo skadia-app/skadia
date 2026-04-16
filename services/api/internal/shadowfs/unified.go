@@ -978,5 +978,63 @@ func (u *UnifiedShadowFS) DeleteCompanions(ctx context.Context, userID, fileID s
 	return nil
 }
 
+// ---------------------------------------------------------------------------
+// Path-based companion methods (PutCompanionAt / GetCompanionAt / DeleteCompanionAt)
+// ---------------------------------------------------------------------------
+// These bypass the user_files table and are used for sidecars that have no
+// corresponding source file (fusion activities, manual-entry activities).
+// The current write target ("local" or "s3") is always used.
+// For fusion activities the file type is treated as "activity" for bucket
+// routing, which keeps them in the same bucket as their source activities.
+
+const fusionCompanionFileType = "activity"
+
+// PutCompanionAt writes raw bytes to a caller-supplied path without touching
+// user_files. path is a relative ShadowFS key (e.g. "{user_id}/activity-{id}.meta").
+func (u *UnifiedShadowFS) PutCompanionAt(ctx context.Context, path string, data []byte) error {
+	be, _, err := u.targetBackend()
+	if err != nil {
+		return fmt.Errorf("shadowfs: PutCompanionAt backend: %w", err)
+	}
+	opts := u.bucketOpts(fusionCompanionFileType)
+	_, _, err = be.Write(ctx, path, bytes.NewReader(data), "application/json", false, opts)
+	if err != nil {
+		return fmt.Errorf("shadowfs: PutCompanionAt %q: %w", path, err)
+	}
+	return nil
+}
+
+// GetCompanionAt reads raw bytes from a caller-supplied path.
+// Returns (nil, ErrNotFound) if the object does not exist.
+func (u *UnifiedShadowFS) GetCompanionAt(ctx context.Context, path string) ([]byte, error) {
+	be, _, err := u.targetBackend()
+	if err != nil {
+		return nil, fmt.Errorf("shadowfs: GetCompanionAt backend: %w", err)
+	}
+	opts := u.bucketOpts(fusionCompanionFileType)
+	rc, err := be.Read(ctx, path, opts)
+	if err != nil {
+		// Both local and S3 backends surface os.ErrNotExist / NoSuchKey as wrapped errors.
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("shadowfs: GetCompanionAt %q: %w", path, ErrNotFound)
+		}
+		return nil, fmt.Errorf("shadowfs: GetCompanionAt %q: %w", path, err)
+	}
+	defer rc.Close()
+	return io.ReadAll(io.LimitReader(rc, 1<<20)) // 1 MB cap
+}
+
+// DeleteCompanionAt removes an arbitrary-path sidecar. Errors are silently
+// swallowed — this is idempotent cleanup.
+func (u *UnifiedShadowFS) DeleteCompanionAt(ctx context.Context, path string) error {
+	be, _, err := u.targetBackend()
+	if err != nil {
+		return nil // No backend → nothing to delete.
+	}
+	opts := u.bucketOpts(fusionCompanionFileType)
+	_ = be.Delete(ctx, path, opts)
+	return nil
+}
+
 // Compile-time interface check.
 var _ ShadowFS = (*UnifiedShadowFS)(nil)

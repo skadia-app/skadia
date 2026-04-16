@@ -3,9 +3,14 @@ package shadowfs
 import (
 	"archive/zip"
 	"context"
+	"errors"
 	"io"
 	"time"
 )
+
+// ErrNotFound is returned by GetCompanionAt (and similar path-based readers)
+// when the requested object does not exist in the underlying storage.
+var ErrNotFound = errors.New("shadowfs: object not found")
 
 // ShadowFS is the unified storage abstraction for all user files.
 type ShadowFS interface {
@@ -26,6 +31,20 @@ type ShadowFS interface {
 	PutCompanion(ctx context.Context, userID, fileID, suffix string, data []byte) error
 	GetCompanion(ctx context.Context, userID, fileID, suffix string) ([]byte, error)
 	DeleteCompanions(ctx context.Context, userID, fileID string) error
+
+	// PutCompanionAt writes raw bytes to an arbitrary ShadowFS path without
+	// requiring a user_files row. Used for fusion + manual-entry sidecars that
+	// do not correspond to a source file.
+	// path must be a relative key such as "{user_id}/activity-{activity_id}.meta".
+	PutCompanionAt(ctx context.Context, path string, data []byte) error
+
+	// GetCompanionAt reads raw bytes from an arbitrary ShadowFS path.
+	// Returns (nil, ErrNotFound) when the object does not exist.
+	GetCompanionAt(ctx context.Context, path string) ([]byte, error)
+
+	// DeleteCompanionAt removes an arbitrary-path sidecar.
+	// Errors are silently swallowed (idempotent cleanup).
+	DeleteCompanionAt(ctx context.Context, path string) error
 }
 
 // FileEntry is the input for Put().
