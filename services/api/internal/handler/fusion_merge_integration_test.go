@@ -2121,7 +2121,7 @@ func TestRelatedTablesUnionCopy(t *testing.T) {
 	}
 
 	sources := []string{actA, actB}
-	if err := copyRelatedTablesUnion(ctx, tx, mergedID, sources, actA /*metadataSourceID*/); err != nil {
+	if err := copyRelatedTablesUnion(ctx, tx, mergedID, sources, actA /*metadataSourceID*/, userID); err != nil {
 		tx.Rollback(ctx) //nolint:errcheck
 		t.Fatalf("copyRelatedTablesUnion: %v", err)
 	}
