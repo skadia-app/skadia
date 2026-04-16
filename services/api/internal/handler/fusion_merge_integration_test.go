@@ -2691,3 +2691,620 @@ func TestRevertFusionWrongUser(t *testing.T) {
 // This requires a ShadowFS stub plus paired FIT fixtures; neither is available in
 // the integration test harness today. The fix (reload freshMerged after
 // fitLevelMerge) needs targeted coverage once a ShadowFS mock is added.
+
+// ─── Finding #8: Transitive Fusion Photo Restore ─────────────────────────────
+
+// TestTransitiveFusionPhotoRestore covers Round-2 critic Finding #8:
+// When A+B→M1 (first fusion) and M1+C→M2 (second fusion), then:
+//
+//   - During fuse(A,B)→M1: P_A.source_activity_id = A, P_B.source_activity_id = B.
+//   - During fuse(M1,C)→M2: the COALESCE on source_activity_id preserves
+//     P_A.source_activity_id = A (not M1) and P_B.source_activity_id = B.
+//     P_C.source_activity_id = C.
+//
+// Revert M2:
+//   - P_A → activity_id = A  (note: A is still hidden under M1)
+//   - P_B → activity_id = B
+//   - P_C → activity_id = C
+//
+// This test documents the INCONSISTENCY: after reverting M2, P_A is restored to A
+// which remains hidden (parent_id = M1).  A is visible only when M1 is later
+// reverted.  The photo is not lost, but the visibility state is surprising — the
+// critic flag stands.
+//
+// Revert M1:
+//   - A and B become visible (parent_id = NULL).
+//   - P_A is already on A; P_B is already on B.  Photos are intact.
+//
+// This test documents current behaviour.  If COALESCE were ever removed and
+// source_activity_id were overwritten with M1 during the second fusion, the
+// assertion at "P_A.source_activity_id = A after M2 merge" would fail — which
+// is the regression the test is guarding against.
+func TestTransitiveFusionPhotoRestore(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+	actC := insertMinimalActivity(t, db, userID)
+
+	base := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
+	lat, lng := fusionPtrF64(47.1), fusionPtrF64(11.1)
+
+	// Seed minimal streams so FusionMergeV2 does not reject empty-stream sources.
+	insertStreams(t, db, actA, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(130)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(132)},
+	})
+	insertStreams(t, db, actB, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, PowerW: fusionPtrI16(200)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, PowerW: fusionPtrI16(205)},
+	})
+	insertStreams(t, db, actC, []model.StreamPoint{
+		{Time: base.Add(2 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(135)},
+		{Time: base.Add(3 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(137)},
+	})
+
+	// Each source gets exactly one photo with a unique file_hash so the
+	// (user_id, file_hash) unique constraint cannot fire.
+	insertPhotoFor := func(t *testing.T, activityID, fileHash string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO activity_photos
+			  (user_id, activity_id, original_filename, content_type, file_size_bytes, file_hash)
+			 VALUES ($1, $2, 'test.jpg', 'image/jpeg', 1024, $3)`,
+			userID, activityID, fileHash,
+		); err != nil {
+			t.Fatalf("insert photo (%s) for %s: %v", fileHash, activityID, err)
+		}
+	}
+
+	insertPhotoFor(t, actA, "transitive-photo-a")
+	insertPhotoFor(t, actB, "transitive-photo-b")
+	insertPhotoFor(t, actC, "transitive-photo-c")
+
+	// photoSourceOf returns the source_activity_id of the photo currently owned by
+	// the given activity.  Returns "" if the activity has no photos or source_activity_id
+	// is NULL.
+	photoSourceOf := func(t *testing.T, activityID string) string {
+		t.Helper()
+		var sourceID *string
+		err := pool.QueryRow(ctx,
+			`SELECT source_activity_id FROM activity_photos WHERE activity_id = $1 LIMIT 1`,
+			activityID,
+		).Scan(&sourceID)
+		if err != nil {
+			t.Fatalf("query source_activity_id for %s: %v", activityID, err)
+		}
+		if sourceID == nil {
+			return ""
+		}
+		return *sourceID
+	}
+
+	countPhotosOf := func(t *testing.T, activityID string) int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM activity_photos WHERE activity_id = $1`, activityID,
+		).Scan(&n); err != nil {
+			t.Fatalf("count photos for %s: %v", activityID, err)
+		}
+		return n
+	}
+
+	// ── Step 1: Fuse A + B → M1 ───────────────────────────────────────────────
+
+	h := &Handler{DB: db}
+
+	fuseV2 := func(t *testing.T, sources []string, fieldMap string) string {
+		t.Helper()
+		srcJSON := "["
+		for i, s := range sources {
+			if i > 0 {
+				srcJSON += ","
+			}
+			srcJSON += fmt.Sprintf("%q", s)
+		}
+		srcJSON += "]"
+		reqBody := fmt.Sprintf(`{"sources":%s,"field_map":%s,"tags_merge":false}`, srcJSON, fieldMap)
+		httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
+			strings.NewReader(reqBody))
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq = httpReq.WithContext(
+			context.WithValue(httpReq.Context(), middleware.UserIDKey, userID),
+		)
+		rr := httptest.NewRecorder()
+		h.FusionMergeV2(rr, httpReq)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("FusionMergeV2: expected 201, got %d — body: %s", rr.Code, rr.Body.String())
+		}
+		var resp struct {
+			ID string `json:"id"`
+		}
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if resp.ID == "" {
+			t.Fatal("response missing id")
+		}
+		return resp.ID
+	}
+
+	revertActivity := func(t *testing.T, mergedID string) {
+		t.Helper()
+		revertReq := httptest.NewRequest(http.MethodDelete, "/activities/"+mergedID+"/fusion", nil)
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", mergedID)
+		revertReq = revertReq.WithContext(
+			context.WithValue(
+				context.WithValue(revertReq.Context(), chi.RouteCtxKey, rctx),
+				middleware.UserIDKey, userID,
+			),
+		)
+		rr := httptest.NewRecorder()
+		h.RevertFusion(rr, revertReq)
+		if rr.Code != http.StatusNoContent {
+			t.Fatalf("RevertFusion(%s): expected 204, got %d — body: %s",
+				mergedID, rr.Code, rr.Body.String())
+		}
+	}
+
+	// Fuse A + B using hr from A and power from B.
+	m1ID := fuseV2(t, []string{actA, actB},
+		fmt.Sprintf(`{"hr":%q,"power":%q}`, actA, actB))
+	t.Logf("A+B → M1=%s", m1ID)
+
+	// Assertions after M1 creation:
+	// — M1 owns all 2 photos (P_A, P_B).
+	if got := countPhotosOf(t, m1ID); got != 2 {
+		t.Errorf("after fuse(A,B): M1 photos: want 2, got %d", got)
+	}
+	// — A and B have no photos (reassigned to M1).
+	if got := countPhotosOf(t, actA); got != 0 {
+		t.Errorf("after fuse(A,B): A photos: want 0 (reassigned to M1), got %d", got)
+	}
+	if got := countPhotosOf(t, actB); got != 0 {
+		t.Errorf("after fuse(A,B): B photos: want 0 (reassigned to M1), got %d", got)
+	}
+
+	// — source_activity_id of P_A = A (COALESCE: was NULL → set to A's activity_id).
+	// — source_activity_id of P_B = B.
+	// Query per source_activity_id within M1's photo set.
+	var paSourceID, pbSourceID *string
+	if err := pool.QueryRow(ctx,
+		`SELECT source_activity_id FROM activity_photos
+		 WHERE activity_id = $1 AND file_hash = 'transitive-photo-a'`,
+		m1ID,
+	).Scan(&paSourceID); err != nil {
+		t.Fatalf("query P_A source_activity_id: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT source_activity_id FROM activity_photos
+		 WHERE activity_id = $1 AND file_hash = 'transitive-photo-b'`,
+		m1ID,
+	).Scan(&pbSourceID); err != nil {
+		t.Fatalf("query P_B source_activity_id: %v", err)
+	}
+
+	if paSourceID == nil || *paSourceID != actA {
+		t.Errorf("after fuse(A,B): P_A.source_activity_id: want %s (A), got %v", actA, paSourceID)
+	}
+	if pbSourceID == nil || *pbSourceID != actB {
+		t.Errorf("after fuse(A,B): P_B.source_activity_id: want %s (B), got %v", actB, pbSourceID)
+	}
+	t.Logf("after fuse(A,B): P_A.source=%s (A), P_B.source=%s (B) — COALESCE OK", actA, actB)
+
+	// ── Step 2: Fuse M1 + C → M2 ──────────────────────────────────────────────
+
+	m2ID := fuseV2(t, []string{m1ID, actC},
+		fmt.Sprintf(`{"hr":%q,"power":%q}`, m1ID, actC))
+	t.Logf("M1+C → M2=%s", m2ID)
+
+	// Assertions after M2 creation:
+	// — M2 owns all 3 photos (P_A, P_B from M1, P_C from C).
+	if got := countPhotosOf(t, m2ID); got != 3 {
+		t.Errorf("after fuse(M1,C): M2 photos: want 3, got %d", got)
+	}
+	// — M1 has no photos (reassigned to M2).
+	if got := countPhotosOf(t, m1ID); got != 0 {
+		t.Errorf("after fuse(M1,C): M1 photos: want 0 (reassigned to M2), got %d", got)
+	}
+	// — C has no photos (reassigned to M2).
+	if got := countPhotosOf(t, actC); got != 0 {
+		t.Errorf("after fuse(M1,C): C photos: want 0 (reassigned to M2), got %d", got)
+	}
+
+	// Transitive COALESCE check: P_A must still point to A (not M1) after second fusion.
+	// This is the key assertion for Finding #8.
+	var paSource2ID *string
+	if err := pool.QueryRow(ctx,
+		`SELECT source_activity_id FROM activity_photos
+		 WHERE activity_id = $1 AND file_hash = 'transitive-photo-a'`,
+		m2ID,
+	).Scan(&paSource2ID); err != nil {
+		t.Fatalf("query P_A source_activity_id after second fusion: %v", err)
+	}
+
+	if paSource2ID == nil {
+		t.Errorf("after fuse(M1,C): P_A.source_activity_id is NULL — COALESCE did not preserve A; "+
+			"this breaks RevertFusion(M2) which would have nowhere to restore P_A")
+	} else if *paSource2ID == m1ID {
+		// This is what would happen if COALESCE were removed: the second fusion overwrites
+		// source_activity_id with M1 instead of preserving A.
+		t.Errorf("after fuse(M1,C): P_A.source_activity_id = M1 (%s), want A (%s) — "+
+			"COALESCE did not preserve original source; transitive-restore bug confirmed",
+			m1ID, actA)
+	} else if *paSource2ID != actA {
+		t.Errorf("after fuse(M1,C): P_A.source_activity_id = %s, want %s (A)", *paSource2ID, actA)
+	} else {
+		t.Logf("after fuse(M1,C): P_A.source_activity_id=%s (A) — transitive COALESCE preserved correctly", actA)
+	}
+
+	// P_B and P_C: verify source_activity_id correct.
+	var pbSource2ID, pcSourceID *string
+	if err := pool.QueryRow(ctx,
+		`SELECT source_activity_id FROM activity_photos
+		 WHERE activity_id = $1 AND file_hash = 'transitive-photo-b'`,
+		m2ID,
+	).Scan(&pbSource2ID); err != nil {
+		t.Fatalf("query P_B source_activity_id after second fusion: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT source_activity_id FROM activity_photos
+		 WHERE activity_id = $1 AND file_hash = 'transitive-photo-c'`,
+		m2ID,
+	).Scan(&pcSourceID); err != nil {
+		t.Fatalf("query P_C source_activity_id after second fusion: %v", err)
+	}
+	if pbSource2ID == nil || *pbSource2ID != actB {
+		t.Errorf("after fuse(M1,C): P_B.source_activity_id: want %s (B), got %v", actB, pbSource2ID)
+	}
+	if pcSourceID == nil || *pcSourceID != actC {
+		t.Errorf("after fuse(M1,C): P_C.source_activity_id: want %s (C), got %v", actC, pcSourceID)
+	}
+
+	// ── Step 3: Revert M2 ─────────────────────────────────────────────────────
+
+	revertActivity(t, m2ID)
+	t.Logf("Reverted M2=%s", m2ID)
+
+	// After reverting M2:
+	// — P_A is restored to A (activity_id = A).
+	//   INCONSISTENCY NOTE (Finding #8): A still has parent_id = M1 (A is hidden under M1).
+	//   The photo is not lost but it is attached to a hidden activity.
+	//   This test DOCUMENTS the inconsistency — it is not an error in the current codebase.
+	if got := countPhotosOf(t, actA); got != 1 {
+		t.Errorf("after revert(M2): A photos: want 1 (P_A restored), got %d — "+
+			"photo restore via source_activity_id failed", got)
+	}
+	// — P_B restored to B.
+	if got := countPhotosOf(t, actB); got != 1 {
+		t.Errorf("after revert(M2): B photos: want 1 (P_B restored), got %d", got)
+	}
+	// — P_C restored to C.
+	if got := countPhotosOf(t, actC); got != 1 {
+		t.Errorf("after revert(M2): C photos: want 1 (P_C restored), got %d", got)
+	}
+	// — source_activity_id cleared on restored photos.
+	if got := photoSourceOf(t, actA); got != "" {
+		t.Errorf("after revert(M2): P_A.source_activity_id: want NULL (cleared), got %s", got)
+	}
+	if got := photoSourceOf(t, actB); got != "" {
+		t.Errorf("after revert(M2): P_B.source_activity_id: want NULL (cleared), got %s", got)
+	}
+	if got := photoSourceOf(t, actC); got != "" {
+		t.Errorf("after revert(M2): P_C.source_activity_id: want NULL (cleared), got %s", got)
+	}
+	// — M2 no longer exists.
+	var m2Exists bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM activities WHERE id = $1)`, m2ID,
+	).Scan(&m2Exists); err != nil {
+		t.Fatalf("check M2 exists after revert: %v", err)
+	}
+	if m2Exists {
+		t.Errorf("after revert(M2): M2 activity still exists — should have been deleted")
+	}
+
+	// — M1 STILL EXISTS with memberships intact.
+	//   (Reverting M2 must not touch M1.)
+	var m1MembershipCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activity_fusion_memberships WHERE merged_id = $1`, m1ID,
+	).Scan(&m1MembershipCount); err != nil {
+		t.Fatalf("count M1 memberships after revert(M2): %v", err)
+	}
+	if m1MembershipCount == 0 {
+		t.Errorf("after revert(M2): M1 memberships gone — reverting M2 must not affect M1")
+	}
+	t.Logf("after revert(M2): M1 memberships=%d (intact) — OK", m1MembershipCount)
+
+	// — A is still hidden (parent_id = M1) because M1 was not reverted.
+	//   This documents the Finding #8 inconsistency: photo P_A is on A but A is hidden.
+	var aParentID *string
+	if err := pool.QueryRow(ctx,
+		`SELECT parent_id FROM activities WHERE id = $1`, actA,
+	).Scan(&aParentID); err != nil {
+		t.Fatalf("check A parent_id after revert(M2): %v", err)
+	}
+	if aParentID == nil || *aParentID != m1ID {
+		t.Logf("FINDING #8 NOTE: expected A.parent_id = M1 after revert(M2) (A is hidden under M1), "+
+			"but got parent_id = %v — state may differ from expected inconsistency", aParentID)
+	} else {
+		t.Logf("FINDING #8 DOCUMENTED: A.parent_id = M1 after revert(M2); "+
+			"P_A is restored to A but A remains hidden — inconsistency documented, not a crash")
+	}
+
+	// ── Step 4: Revert M1 ─────────────────────────────────────────────────────
+
+	revertActivity(t, m1ID)
+	t.Logf("Reverted M1=%s", m1ID)
+
+	// After reverting M1:
+	// — A visible (parent_id = NULL).
+	var aParentAfterM1 *string
+	if err := pool.QueryRow(ctx,
+		`SELECT parent_id FROM activities WHERE id = $1`, actA,
+	).Scan(&aParentAfterM1); err != nil {
+		t.Fatalf("check A parent_id after revert(M1): %v", err)
+	}
+	if aParentAfterM1 != nil {
+		t.Errorf("after revert(M1): A.parent_id: want NULL (visible), got %s", *aParentAfterM1)
+	}
+	// — B visible (parent_id = NULL).
+	var bParentAfterM1 *string
+	if err := pool.QueryRow(ctx,
+		`SELECT parent_id FROM activities WHERE id = $1`, actB,
+	).Scan(&bParentAfterM1); err != nil {
+		t.Fatalf("check B parent_id after revert(M1): %v", err)
+	}
+	if bParentAfterM1 != nil {
+		t.Errorf("after revert(M1): B.parent_id: want NULL (visible), got %s", *bParentAfterM1)
+	}
+	// — Photos stay on A and B (not re-hidden).
+	if got := countPhotosOf(t, actA); got != 1 {
+		t.Errorf("after revert(M1): A photos: want 1 (P_A, not moved), got %d", got)
+	}
+	if got := countPhotosOf(t, actB); got != 1 {
+		t.Errorf("after revert(M1): B photos: want 1 (P_B, not moved), got %d", got)
+	}
+	// — M1 deleted.
+	var m1Exists bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM activities WHERE id = $1)`, m1ID,
+	).Scan(&m1Exists); err != nil {
+		t.Fatalf("check M1 exists after revert(M1): %v", err)
+	}
+	if m1Exists {
+		t.Errorf("after revert(M1): M1 still exists — should have been deleted")
+	}
+
+	t.Logf("Transitive fusion photo restore: A=%d photos, B=%d photos, C=%d photos — OK",
+		countPhotosOf(t, actA), countPhotosOf(t, actB), countPhotosOf(t, actC))
+}
+
+// ─── Finding #15: V1 edge case — empty Sources slice ─────────────────────────
+
+// TestFusionMergeV1_NoSources_EdgeCase covers Round-2 critic Finding #15:
+// POST /activities/{id}/fusion-merge with an empty "sources" array.
+//
+// The V1 handler constructs allIDs = [targetID] + req.Sources.  With req.Sources=[],
+// allIDs has only 1 element.  The sourcesToHide slice computed at line ~315 would then
+// be empty (since the only ID is merged.ID itself, which is excluded from hiding).
+// The UPDATE is skipped — no panic, but the merged activity is created with zero
+// fusion sources listed (only the target itself).
+//
+// Current validation: the field_map must not be empty (checked at top of handler),
+// but no check requires Sources to be non-empty for V1.  The only field_map value
+// that can reference the zero-sources list is the targetID itself.
+//
+// This test documents:
+//   (a) Whether V1 rejects {"sources":[], "field_map":{"hr":"<targetID>"}} with 400,
+//   (b) If accepted — the resulting state is sane (no hidden sources, memberships
+//       correctly reflect target-only, targetID NOT set as parent_id-hidden).
+//
+// Also tests the V2 analogue: V2 rejects with 400 "at least 2 sources required".
+func TestFusionMergeV1_NoSources_EdgeCase(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	targetID := insertMinimalActivity(t, db, userID)
+
+	base := time.Date(2025, 4, 1, 8, 0, 0, 0, time.UTC)
+	lat, lng := fusionPtrF64(47.2), fusionPtrF64(11.2)
+	insertStreams(t, db, targetID, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(140)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(142)},
+	})
+
+	h := &Handler{DB: db}
+
+	// ── V1: empty sources, field_map points to targetID ───────────────────────
+	// field_map: {"hr": targetID} — targetID is in allIDs so the validation passes.
+	reqBody := fmt.Sprintf(`{"sources":[],"field_map":{"hr":%q},"tags_merge":false}`, targetID)
+	httpReq := httptest.NewRequest(
+		http.MethodPost, "/activities/"+targetID+"/fusion-merge",
+		strings.NewReader(reqBody),
+	)
+	httpReq.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", targetID)
+	httpReq = httpReq.WithContext(
+		context.WithValue(
+			context.WithValue(httpReq.Context(), chi.RouteCtxKey, rctx),
+			middleware.UserIDKey, userID,
+		),
+	)
+	rr := httptest.NewRecorder()
+	h.FusionMerge(rr, httpReq)
+
+	t.Logf("V1 empty-sources response: %d — %s", rr.Code, rr.Body.String())
+
+	switch rr.Code {
+	case http.StatusBadRequest:
+		// Preferred outcome: handler validates and rejects before any DB work.
+		t.Logf("V1 empty-sources: correctly rejected with 400 — no state change expected")
+
+		// Confirm the target activity is untouched (no phantom merged activity created).
+		var parentID *string
+		if err := pool.QueryRow(ctx,
+			`SELECT parent_id FROM activities WHERE id = $1`, targetID,
+		).Scan(&parentID); err != nil {
+			t.Fatalf("check targetID parent_id: %v", err)
+		}
+		if parentID != nil {
+			t.Errorf("V1 empty-sources 400: targetID parent_id should be NULL but got %s — "+
+				"target was unexpectedly hidden despite rejection", *parentID)
+		}
+		// No memberships should reference targetID as a source of a newly created merged activity
+		// (we can't know the merged ID since it was rejected, but we can check there's no
+		// recently created membership that would point back to target as source).
+		var memberCount int
+		if err := pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM activity_fusion_memberships WHERE source_id = $1`, targetID,
+		).Scan(&memberCount); err != nil {
+			t.Fatalf("count memberships for targetID as source: %v", err)
+		}
+		if memberCount != 0 {
+			t.Errorf("V1 empty-sources 400: found %d fusion memberships for targetID as source — "+
+				"unexpected state after rejection", memberCount)
+		}
+
+	case http.StatusCreated:
+		// V1 accepted the empty-sources request.  Document and verify the resulting state
+		// is sane — this path should be rare (V1 has no guard) but must not crash or
+		// leave the DB in an inconsistent state.
+		t.Logf("V1 empty-sources: accepted — verifying state sanity (finding #15 path)")
+
+		var resp struct {
+			ID string `json:"id"`
+		}
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode 201 response: %v", err)
+		}
+		mergedID := resp.ID
+		t.Cleanup(func() {
+			// Best-effort cleanup: delete created merged activity so it doesn't pollute
+			// other tests (normal tests clean up via insertTestUser's cleanup).
+			pool.Exec(context.Background(), //nolint:errcheck
+				`DELETE FROM activities WHERE id = $1`, mergedID)
+		})
+
+		// Sanity: merged activity exists.
+		var mergedExists bool
+		if err := pool.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM activities WHERE id = $1)`, mergedID,
+		).Scan(&mergedExists); err != nil {
+			t.Fatalf("check merged activity exists: %v", err)
+		}
+		if !mergedExists {
+			t.Fatalf("V1 empty-sources 201: merged activity %s not found in DB", mergedID)
+		}
+
+		// targetID was in allIDs (len=1); sourcesToHide excludes merged.ID so the
+		// list would be [targetID].  Verify targetID is hidden under mergedID.
+		var targetParentID *string
+		if err := pool.QueryRow(ctx,
+			`SELECT parent_id FROM activities WHERE id = $1`, targetID,
+		).Scan(&targetParentID); err != nil {
+			t.Fatalf("check targetID parent_id: %v", err)
+		}
+		if targetParentID == nil || *targetParentID != mergedID {
+			t.Logf("V1 empty-sources 201: targetID parent_id = %v (not hidden under merged) — "+
+				"sourcesToHide was empty, target was not hidden", targetParentID)
+		} else {
+			t.Logf("V1 empty-sources 201: targetID parent_id = %s (hidden under merged)", mergedID)
+		}
+
+		// Memberships should exist (at minimum one row for the field_map entry).
+		var memberCount int
+		if err := pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM activity_fusion_memberships WHERE merged_id = $1`, mergedID,
+		).Scan(&memberCount); err != nil {
+			t.Fatalf("count memberships for merged: %v", err)
+		}
+		t.Logf("V1 empty-sources 201: memberships=%d for merged=%s", memberCount, mergedID)
+
+		// activity_edits row should be present (audit log in applyFusionTxExtras).
+		var editCount int
+		if err := pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM activity_edits WHERE activity_id = $1 AND edit_type = 'fusion_merge'`,
+			mergedID,
+		).Scan(&editCount); err != nil {
+			t.Fatalf("count activity_edits for merged: %v", err)
+		}
+		if editCount == 0 {
+			t.Errorf("V1 empty-sources 201: no fusion_merge audit record — applyFusionTxExtras may not have run")
+		}
+
+	default:
+		t.Errorf("V1 empty-sources: unexpected status %d — want 400 (validation reject) or 201 (accepted)",
+			rr.Code)
+	}
+
+	// ── V2 analogue: always rejects with 400 ─────────────────────────────────
+	// FusionMergeV2 has explicit validation: len(req.Sources) < 2 → 400.
+	v2ReqBody := fmt.Sprintf(`{"sources":[],"field_map":{"hr":%q},"tags_merge":false}`, targetID)
+	v2Req := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
+		strings.NewReader(v2ReqBody))
+	v2Req.Header.Set("Content-Type", "application/json")
+	v2Req = v2Req.WithContext(
+		context.WithValue(v2Req.Context(), middleware.UserIDKey, userID),
+	)
+	v2RR := httptest.NewRecorder()
+	h.FusionMergeV2(v2RR, v2Req)
+
+	if v2RR.Code != http.StatusBadRequest {
+		t.Errorf("V2 empty-sources: want 400 (at least 2 sources required), got %d — body: %s",
+			v2RR.Code, v2RR.Body.String())
+	} else {
+		t.Logf("V2 empty-sources: correctly rejected with 400 — OK")
+	}
+
+	// V2 with exactly 1 source (also below minimum).
+	v2Single := fmt.Sprintf(`{"sources":[%q],"field_map":{"hr":%q},"tags_merge":false}`,
+		targetID, targetID)
+	v2SingleReq := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
+		strings.NewReader(v2Single))
+	v2SingleReq.Header.Set("Content-Type", "application/json")
+	v2SingleReq = v2SingleReq.WithContext(
+		context.WithValue(v2SingleReq.Context(), middleware.UserIDKey, userID),
+	)
+	v2SingleRR := httptest.NewRecorder()
+	h.FusionMergeV2(v2SingleRR, v2SingleReq)
+
+	if v2SingleRR.Code != http.StatusBadRequest {
+		t.Errorf("V2 single-source: want 400 (at least 2 sources required), got %d — body: %s",
+			v2SingleRR.Code, v2SingleRR.Body.String())
+	} else {
+		t.Logf("V2 single-source: correctly rejected with 400 — OK")
+	}
+}
+
+// ─── Finding #21: copyRelatedTablesUnion partial-failure rollback ─────────────
+
+// TestCopyRelatedTablesUnionPartialFailureRollsBack covers Round-2 critic Finding #21:
+// the Batch-1 fix made copyRelatedTablesUnion errors fatal (return err instead of
+// slog.Warn), so the caller (applyFusionTxExtras) rolls back the TX on failure.
+// No test currently verifies this rollback path.
+//
+// Inducing a mid-union DB failure without a mock pgx.Tx is not straightforward:
+//   - pgx provides no "fail next Exec" hook.
+//   - Constraint violations require pre-seeding that is invalid only mid-TX.
+//   - Wrapping pgx.Tx with an interceptor needs a mock-Querier infrastructure
+//     that does not yet exist in this test suite.
+//
+// For now this test is skipped with a TODO.  The guard (return err path in
+// copyRelatedTablesUnion) is exercised only at the compile-time level today.
+// A follow-up ticket is created at docs/internal/2026-04-25-fusion-partial-failure-test.md.
+//
+// See also: the TODO block at the end of this file for related skipped tests.
+func TestCopyRelatedTablesUnionPartialFailureRollsBack(t *testing.T) {
+	t.Skip("TODO: induce mid-union failure — requires mock Querier infrastructure. " +
+		"See Finding #21 from Round-2 critic and docs/internal/2026-04-25-fusion-partial-failure-test.md")
+}
