@@ -200,6 +200,12 @@ func (db *DB) GetFusionMembershipsForActivities(
 
 // GetLatestEditData returns the edit_data JSONB of the most recent activity_edits
 // row for (activity_id, edit_type). Returns nil (no error) if no row exists.
+//
+// SCOPE WARNING: this function does NOT filter by user_id. Callers MUST
+// confirm the activityID belongs to the authenticated user BEFORE calling
+// this helper — otherwise edit metadata could leak across users.
+// Today's only caller (postCommitFusionCleanup) enforces this via
+// prior GetActivity + ownership-check.
 func (db *DB) GetLatestEditData(ctx context.Context, activityID, editType string) (json.RawMessage, error) {
 	var raw json.RawMessage
 	err := db.Pool.QueryRow(ctx,
