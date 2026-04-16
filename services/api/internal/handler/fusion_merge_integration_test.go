@@ -2173,3 +2173,382 @@ func TestRelatedTablesUnionCopy(t *testing.T) {
 
 	t.Logf("related-tables union-copy: photos=2 (reassigned) geo_tags=3 (dedup) privacy_sections=2 — OK")
 }
+
+// ─── Test: RevertFusion restores photos ───────────────────────────────────────
+
+// TestRevertFusionRestoresPhotos verifies Finding #12 from the Fusion Consistency
+// Refactor critic: photos reassigned to the merged activity during fusion are
+// restored to their original source before DeleteActivity triggers CASCADE.
+//
+// Pre-fix behaviour: RevertFusion called DeleteActivity(mergedID) → CASCADE on
+// activity_photos.activity_id_fkey permanently deleted both source photos.
+//
+// Fixed behaviour: source_activity_id records the origin during fusion; RevertFusion
+// restores activity_id = source_activity_id before the delete.
+//
+// Setup:
+//
+//	Source A: 2 photos (hash-revert-a1, hash-revert-a2)
+//	Source B: 1 photo  (hash-revert-b1)
+//	Fuse A+B → merged M.
+//
+// Assertions after fusion:
+//
+//	M.photos == 3, with source_activity_id set for all.
+//	A.photos == 0 (reassigned to M).
+//	B.photos == 0 (reassigned to M).
+//
+// Assertions after RevertFusion(M):
+//
+//	A.photos == 2 (restored from M via source_activity_id).
+//	B.photos == 1 (restored from M via source_activity_id).
+//	M activity no longer exists.
+func TestRevertFusionRestoresPhotos(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+
+	base := time.Date(2024, 10, 1, 8, 0, 0, 0, time.UTC)
+	lat, lng := fusionPtrF64(47.3), fusionPtrF64(11.4)
+	insertStreams(t, db, actA, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(140)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(142)},
+	})
+	insertStreams(t, db, actB, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, PowerW: fusionPtrI16(220)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, PowerW: fusionPtrI16(225)},
+	})
+
+	// Insert photos: 2 for A, 1 for B.
+	insertPhoto := func(t *testing.T, activityID, fileHash string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO activity_photos
+			  (user_id, activity_id, original_filename, content_type, file_size_bytes, file_hash)
+			 VALUES ($1, $2, 'test.jpg', 'image/jpeg', 512, $3)`,
+			userID, activityID, fileHash,
+		); err != nil {
+			t.Fatalf("insert photo (%s) for %s: %v", fileHash, activityID, err)
+		}
+	}
+	insertPhoto(t, actA, "hash-revert-a1")
+	insertPhoto(t, actA, "hash-revert-a2")
+	insertPhoto(t, actB, "hash-revert-b1")
+
+	countPhotos := func(t *testing.T, activityID string) int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM activity_photos WHERE activity_id = $1`, activityID,
+		).Scan(&n); err != nil {
+			t.Fatalf("count photos for %s: %v", activityID, err)
+		}
+		return n
+	}
+
+	// Pre-merge: both sources have their photos.
+	if got := countPhotos(t, actA); got != 2 {
+		t.Fatalf("pre-merge: actA photos: want 2, got %d", got)
+	}
+	if got := countPhotos(t, actB); got != 1 {
+		t.Fatalf("pre-merge: actB photos: want 1, got %d", got)
+	}
+
+	// Fuse A + B → merged M via FusionMergeV2.
+	h := &Handler{DB: db}
+	reqBodyStr := fmt.Sprintf(
+		`{"sources":[%q,%q],"field_map":{"hr":%q,"power":%q},"tags_merge":false}`,
+		actA, actB, actA, actB,
+	)
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
+		strings.NewReader(reqBodyStr))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq = httpReq.WithContext(
+		context.WithValue(httpReq.Context(), middleware.UserIDKey, userID),
+	)
+	rr := httptest.NewRecorder()
+	h.FusionMergeV2(rr, httpReq)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("FusionMergeV2: expected 201, got %d — body: %s", rr.Code, rr.Body.String())
+	}
+	var mergeResp struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&mergeResp); err != nil {
+		t.Fatalf("decode merge response: %v", err)
+	}
+	mergedID := mergeResp.ID
+	if mergedID == "" {
+		t.Fatal("merge response did not include an id")
+	}
+	t.Logf("A+B → M=%s", mergedID)
+
+	// Post-merge assertions: M has 3 photos, source_activity_id populated.
+	if got := countPhotos(t, mergedID); got != 3 {
+		t.Errorf("post-merge: merged photos: want 3, got %d", got)
+	}
+	if got := countPhotos(t, actA); got != 0 {
+		t.Errorf("post-merge: actA photos: want 0 (reassigned to merged), got %d", got)
+	}
+	if got := countPhotos(t, actB); got != 0 {
+		t.Errorf("post-merge: actB photos: want 0 (reassigned to merged), got %d", got)
+	}
+
+	// Verify source_activity_id is set for all merged photos.
+	var photosWithSource, photosWithoutSource int
+	if err := pool.QueryRow(ctx,
+		`SELECT
+		    COUNT(*) FILTER (WHERE source_activity_id IS NOT NULL),
+		    COUNT(*) FILTER (WHERE source_activity_id IS NULL)
+		 FROM activity_photos WHERE activity_id = $1`,
+		mergedID,
+	).Scan(&photosWithSource, &photosWithoutSource); err != nil {
+		t.Fatalf("query source_activity_id counts: %v", err)
+	}
+	if photosWithSource != 3 {
+		t.Errorf("post-merge: photos with source_activity_id: want 3, got %d", photosWithSource)
+	}
+	if photosWithoutSource != 0 {
+		t.Errorf("post-merge: photos without source_activity_id: want 0, got %d", photosWithoutSource)
+	}
+	t.Logf("post-merge: merged=%d photos, all have source_activity_id — OK", photosWithSource)
+
+	// Verify the source_activity_id values point back to the correct sources.
+	var aPhotosInMerged, bPhotosInMerged int
+	if err := pool.QueryRow(ctx,
+		`SELECT
+		    COUNT(*) FILTER (WHERE source_activity_id = $2),
+		    COUNT(*) FILTER (WHERE source_activity_id = $3)
+		 FROM activity_photos WHERE activity_id = $1`,
+		mergedID, actA, actB,
+	).Scan(&aPhotosInMerged, &bPhotosInMerged); err != nil {
+		t.Fatalf("query per-source counts in merged: %v", err)
+	}
+	if aPhotosInMerged != 2 {
+		t.Errorf("post-merge: photos from actA in merged: want 2, got %d", aPhotosInMerged)
+	}
+	if bPhotosInMerged != 1 {
+		t.Errorf("post-merge: photos from actB in merged: want 1, got %d", bPhotosInMerged)
+	}
+
+	// ── Revert M ─────────────────────────────────────────────────────────────
+
+	revertReq := httptest.NewRequest(http.MethodDelete, "/activities/"+mergedID+"/fusion", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", mergedID)
+	revertReq = revertReq.WithContext(
+		context.WithValue(
+			context.WithValue(revertReq.Context(), chi.RouteCtxKey, rctx),
+			middleware.UserIDKey, userID,
+		),
+	)
+	rrRevert := httptest.NewRecorder()
+	h.RevertFusion(rrRevert, revertReq)
+	if rrRevert.Code != http.StatusNoContent {
+		t.Fatalf("RevertFusion: expected 204, got %d — body: %s", rrRevert.Code, rrRevert.Body.String())
+	}
+
+	// Post-revert assertions: photos restored to original sources.
+	if got := countPhotos(t, actA); got != 2 {
+		t.Errorf("post-revert: actA photos: want 2 (restored from merged), got %d", got)
+	}
+	if got := countPhotos(t, actB); got != 1 {
+		t.Errorf("post-revert: actB photos: want 1 (restored from merged), got %d", got)
+	}
+
+	// Merged activity is gone.
+	var mergedExists bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM activities WHERE id = $1)`, mergedID,
+	).Scan(&mergedExists); err != nil {
+		t.Fatalf("check merged exists after revert: %v", err)
+	}
+	if mergedExists {
+		t.Errorf("post-revert: merged activity %s still exists — should have been deleted", mergedID)
+	}
+
+	// source_activity_id cleared after restore.
+	var withSourceID int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activity_photos WHERE source_activity_id IS NOT NULL AND activity_id IN ($1, $2)`,
+		actA, actB,
+	).Scan(&withSourceID); err != nil {
+		t.Fatalf("query source_activity_id after revert: %v", err)
+	}
+	if withSourceID != 0 {
+		t.Errorf("post-revert: photos with source_activity_id still set: want 0, got %d", withSourceID)
+	}
+
+	t.Logf("RevertFusion restored photos: actA=%d, actB=%d — OK",
+		countPhotos(t, actA), countPhotos(t, actB))
+}
+
+// ─── Test: RevertFusion concurrent same-user serializes ───────────────────────
+
+// TestRevertFusionConcurrentSameUser verifies that two concurrent RevertFusion
+// calls for the same merged activity serialize correctly:
+//   - One call succeeds (204 No Content).
+//   - The other returns 409 Conflict (idempotent — detected under advisory lock).
+//   - No 500 Internal Server Error from either request.
+//   - The merged activity is deleted exactly once (no dangling state).
+//
+// This test covers Finding #17 from the Fusion Consistency Refactor critic:
+// the race window between GetFusionMembershipsForMerged (outside lock) and
+// the lock acquisition that caused the second concurrent request to see non-empty
+// memberships and then fail on DeleteActivity (already deleted by the first).
+func TestRevertFusionConcurrentSameUser(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+
+	base := time.Date(2024, 11, 1, 9, 0, 0, 0, time.UTC)
+	lat, lng := fusionPtrF64(47.6), fusionPtrF64(11.6)
+	insertStreams(t, db, actA, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(135)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(137)},
+	})
+	insertStreams(t, db, actB, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, PowerW: fusionPtrI16(215)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, PowerW: fusionPtrI16(220)},
+	})
+
+	// Fuse A + B → merged M.
+	h := &Handler{DB: db}
+	reqBodyStr := fmt.Sprintf(
+		`{"sources":[%q,%q],"field_map":{"hr":%q,"power":%q},"tags_merge":false}`,
+		actA, actB, actA, actB,
+	)
+	mergeReq := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
+		strings.NewReader(reqBodyStr))
+	mergeReq.Header.Set("Content-Type", "application/json")
+	mergeReq = mergeReq.WithContext(
+		context.WithValue(mergeReq.Context(), middleware.UserIDKey, userID),
+	)
+	mergeRR := httptest.NewRecorder()
+	h.FusionMergeV2(mergeRR, mergeReq)
+	if mergeRR.Code != http.StatusCreated {
+		t.Fatalf("FusionMergeV2: expected 201, got %d — body: %s", mergeRR.Code, mergeRR.Body.String())
+	}
+	var mergeResp struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(mergeRR.Body).Decode(&mergeResp); err != nil {
+		t.Fatalf("decode merge response: %v", err)
+	}
+	mergedID := mergeResp.ID
+	if mergedID == "" {
+		t.Fatal("merge response did not include an id")
+	}
+	t.Logf("Fused A+B → M=%s", mergedID)
+
+	// Build identical revert requests.
+	buildRevertReq := func() *http.Request {
+		req := httptest.NewRequest(http.MethodDelete, "/activities/"+mergedID+"/fusion", nil)
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", mergedID)
+		return req.WithContext(
+			context.WithValue(
+				context.WithValue(req.Context(), chi.RouteCtxKey, rctx),
+				middleware.UserIDKey, userID,
+			),
+		)
+	}
+
+	type result struct {
+		code int
+		body string
+	}
+	results := make(chan result, 2)
+	start := make(chan struct{})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rr := httptest.NewRecorder()
+			<-start
+			h.RevertFusion(rr, buildRevertReq())
+			results <- result{code: rr.Code, body: rr.Body.String()}
+		}()
+	}
+
+	// Release both goroutines simultaneously.
+	close(start)
+	wg.Wait()
+	close(results)
+
+	var codes []int
+	for res := range results {
+		codes = append(codes, res.code)
+		if res.code == http.StatusInternalServerError {
+			t.Errorf("unexpected 500 from RevertFusion: body=%s", res.body)
+		}
+	}
+
+	if len(codes) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(codes))
+	}
+
+	successCount, conflictCount := 0, 0
+	for _, c := range codes {
+		switch c {
+		case http.StatusNoContent:
+			successCount++
+		case http.StatusConflict:
+			conflictCount++
+		default:
+			t.Errorf("unexpected status code %d (codes: %v)", c, codes)
+		}
+	}
+	if successCount != 1 {
+		t.Errorf("expected exactly 1 success (204), got %d (codes: %v)", successCount, codes)
+	}
+	if conflictCount != 1 {
+		t.Errorf("expected exactly 1 conflict (409), got %d (codes: %v)", conflictCount, codes)
+	}
+
+	// DB invariants: merged activity deleted, no dangling memberships.
+	var mergedExists bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM activities WHERE id = $1)`, mergedID,
+	).Scan(&mergedExists); err != nil {
+		t.Fatalf("check merged exists after concurrent revert: %v", err)
+	}
+	if mergedExists {
+		t.Errorf("merged activity %s still exists after concurrent RevertFusion", mergedID)
+	}
+
+	var membershipCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activity_fusion_memberships WHERE merged_id = $1`, mergedID,
+	).Scan(&membershipCount); err != nil {
+		t.Fatalf("count memberships after concurrent revert: %v", err)
+	}
+	if membershipCount != 0 {
+		t.Errorf("dangling memberships after concurrent RevertFusion: got %d, want 0", membershipCount)
+	}
+
+	// Sources are restored.
+	for lbl, sid := range map[string]string{"A": actA, "B": actB} {
+		var exists bool
+		if err := pool.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM activities WHERE id = $1 AND parent_id IS NULL)`, sid,
+		).Scan(&exists); err != nil {
+			t.Fatalf("check source %s exists: %v", lbl, err)
+		}
+		if !exists {
+			t.Errorf("source %s (%s) missing or has non-NULL parent_id after concurrent revert", lbl, sid)
+		}
+	}
+
+	t.Logf("Concurrent RevertFusion: 1×204, 1×409, merged deleted, sources intact — OK")
+}
