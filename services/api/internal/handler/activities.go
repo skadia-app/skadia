@@ -139,7 +139,10 @@ func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 		}
 		membsByMerged, countsBySource, fusionErr := h.DB.GetFusionMembershipsForActivities(r.Context(), ids)
 		if fusionErr != nil {
-			slog.Warn("list activities: get fusion memberships failed", "error", fusionErr)
+			slog.Error("fusion_memberships batch fetch failed — list endpoint returning partial data",
+				"action", "fusion_memberships_batch_error",
+				"activity_count", len(ids),
+				"error", fusionErr)
 		} else {
 			for i := range list.Activities {
 				id := list.Activities[i].ID
@@ -232,7 +235,11 @@ func (h *Handler) GetChildActivities(w http.ResponseWriter, r *http.Request) {
 		}
 		membsByMerged, countsBySource, fusionErr := h.DB.GetFusionMembershipsForActivities(r.Context(), childIDs)
 		if fusionErr != nil {
-			slog.Warn("get child activities: get fusion memberships failed", "parent_id", id, "error", fusionErr)
+			slog.Error("fusion_memberships batch fetch failed — child-activities endpoint returning partial data",
+				"action", "fusion_memberships_batch_error",
+				"parent_id", id,
+				"activity_count", len(childIDs),
+				"error", fusionErr)
 		} else {
 			for i := range children {
 				cid := children[i].ID
