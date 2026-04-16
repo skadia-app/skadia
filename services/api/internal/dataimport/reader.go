@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -280,7 +281,7 @@ func (s *ZipSource) Close() error {
 func (s *ZipSource) openZipEntry(name string) (io.ReadCloser, error) {
 	f, ok := s.idx[name]
 	if !ok {
-		return nil, fmt.Errorf("dataimport: entry %q not found in zip", name)
+		return nil, fmt.Errorf("dataimport: entry %q not found in zip: %w", name, fs.ErrNotExist)
 	}
 	return f.Open()
 }

@@ -72,3 +72,16 @@ func (m *IDMap) GetIfExists(oldID string) (string, bool) {
 	newID, ok := m.m[oldID]
 	return newID, ok
 }
+
+// NewIDSet returns all mapped new IDs as a boolean set.
+// This is a snapshot — further Set/Get calls after this point are not reflected.
+func (m *IDMap) NewIDSet() map[string]bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string]bool, len(m.m)+1)
+	for _, newID := range m.m {
+		out[newID] = true
+	}
+	out[m.targetUserID] = true
+	return out
+}
