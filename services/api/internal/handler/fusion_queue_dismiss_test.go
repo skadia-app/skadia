@@ -251,6 +251,68 @@ func TestDismissFusionCandidate_MissingIDs(t *testing.T) {
 	}
 }
 
+// TestDismissFusionCandidate_BodyTooLarge verifies that a body exceeding 1 KiB returns 413.
+func TestDismissFusionCandidate_BodyTooLarge(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := uuid.New().String()
+
+	h := &Handler{DB: db}
+
+	// Build a body that exceeds 1024 bytes.
+	padding := make([]byte, 1024)
+	for i := range padding {
+		padding[i] = 'x'
+	}
+	bigBody := `{"activity_id_a":"` + string(padding) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/fusion-candidates/dismiss", bytes.NewReader([]byte(bigBody)))
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, userID))
+	rr := httptest.NewRecorder()
+	h.DismissFusionCandidate(rr, req)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413 for body > 1 KiB, got %d", rr.Code)
+	}
+}
+
+// TestDismissFusionCandidate_InvalidUUID_A verifies that a non-UUID activity_id_a returns 400.
+func TestDismissFusionCandidate_InvalidUUID_A(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := uuid.New().String()
+
+	h := &Handler{DB: db}
+
+	body := `{"activity_id_a":"not-a-uuid","activity_id_b":"` + uuid.New().String() + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/fusion-candidates/dismiss", bytes.NewReader([]byte(body)))
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, userID))
+	rr := httptest.NewRecorder()
+	h.DismissFusionCandidate(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid UUID in activity_id_a, got %d", rr.Code)
+	}
+}
+
+// TestDismissFusionCandidate_InvalidUUID_B verifies that a non-UUID activity_id_b returns 400.
+func TestDismissFusionCandidate_InvalidUUID_B(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := uuid.New().String()
+
+	h := &Handler{DB: db}
+
+	body := `{"activity_id_a":"` + uuid.New().String() + `","activity_id_b":"not-a-uuid"}`
+	req := httptest.NewRequest(http.MethodPost, "/fusion-candidates/dismiss", bytes.NewReader([]byte(body)))
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, userID))
+	rr := httptest.NewRecorder()
+	h.DismissFusionCandidate(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid UUID in activity_id_b, got %d", rr.Code)
+	}
+}
+
 // TestDismissFusionCandidate_CrossUser verifies that a dismiss request from user B
 // does not affect user A's fusion_candidates row.
 //

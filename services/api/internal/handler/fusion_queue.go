@@ -3,12 +3,15 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/fusion"
@@ -379,11 +382,24 @@ func (h *Handler) DismissFusionCandidate(w http.ResponseWriter, r *http.Request)
 		B string `json:"activity_id_b"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			httputil.WriteError(w, http.StatusRequestEntityTooLarge, "Too Large", "body exceeds 1 KiB limit", r.URL.Path)
+			return
+		}
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if body.A == "" || body.B == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "activity_id_a and activity_id_b required", r.URL.Path)
+		return
+	}
+	if _, err := uuid.Parse(body.A); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "activity_id_a not a valid UUID", r.URL.Path)
+		return
+	}
+	if _, err := uuid.Parse(body.B); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "activity_id_b not a valid UUID", r.URL.Path)
 		return
 	}
 
