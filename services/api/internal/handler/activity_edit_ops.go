@@ -435,14 +435,14 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ── Merge ─────────────────────────────────────────────────────────────────────
+// ── CopyFields ────────────────────────────────────────────────────────────────
 
-// MergeActivities copies selected fields from a source activity into the target.
+// CopyFields copies selected fields from a source activity into the target.
 // Valid fields: "hr", "power", "cadence", "temperature", "title", "tags", "gear".
 //
-// POST /api/v1/activities/{id}/merge
+// POST /api/v1/activities/{id}/copy-fields
 // Body: { "source_id": "uuid", "fields": ["hr", "power", ...] }
-func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) CopyFields(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
@@ -526,60 +526,54 @@ func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 
 	if len(streamFields) > 0 {
 		if err := h.mergeStreamFields(r.Context(), targetID, req.SourceID, streamFields); err != nil {
-			slog.Error("merge: stream fields failed", "target", targetID, "source", req.SourceID, "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to merge stream fields", r.URL.Path)
+			slog.Error("copy-fields: stream fields failed", "target", targetID, "source", req.SourceID, "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to copy stream fields", r.URL.Path)
 			return
 		}
 	}
 
-	// Rebuild track and heatmap after GPS merge.
+	// Rebuild track and heatmap after GPS copy.
 	if fieldSet["gps"] {
 		ctx := r.Context()
 		if err := h.DB.RebuildActivityTrack(ctx, targetID); err != nil {
-			slog.Warn("merge: track rebuild failed", "id", targetID, "err", err)
+			slog.Warn("copy-fields: track rebuild failed", "id", targetID, "err", err)
 		}
 		if !target.ExcludeFromHeatmap {
 			if err := h.DB.RebuildHeatmapData(ctx, targetID); err != nil {
-				slog.Warn("merge: heatmap rebuild failed", "id", targetID, "err", err)
+				slog.Warn("copy-fields: heatmap rebuild failed", "id", targetID, "err", err)
 			}
 		}
 		h.DB.InvalidateTerraIncognitaCache(ctx, userID)
 	}
 
-	// Merge title.
+	// Copy title.
 	if fieldSet["title"] && source.Title != nil {
 		_, err = h.DB.Pool.Exec(r.Context(),
 			`UPDATE activities SET title = $2, has_edits = true WHERE id = $1`,
 			targetID, *source.Title,
 		)
 		if err != nil {
-			slog.Warn("merge: update title failed", "error", err)
+			slog.Warn("copy-fields: update title failed", "error", err)
 		}
 	}
 
-	// Merge gear.
+	// Copy gear.
 	if fieldSet["gear"] && source.GearID != nil {
 		_, err = h.DB.Pool.Exec(r.Context(),
 			`UPDATE activities SET gear_id = $2, has_edits = true WHERE id = $1`,
 			targetID, *source.GearID,
 		)
 		if err != nil {
-			slog.Warn("merge: update gear failed", "error", err)
+			slog.Warn("copy-fields: update gear failed", "error", err)
 		}
 	}
 
-	// Merge tags: copy all tag associations from source to target.
+	// Copy tags: copy all tag associations from source to target.
 	if fieldSet["tags"] {
 		if err := h.mergeActivityTags(r.Context(), targetID, req.SourceID, userID); err != nil {
-			slog.Warn("merge: copy tags failed", "error", err)
+			slog.Warn("copy-fields: copy tags failed", "error", err)
 		}
 	}
-
-	// Mark source as fusion source.
-	_, _ = h.DB.Pool.Exec(r.Context(),
-		`UPDATE activities SET is_fusion_source = true WHERE id = $1`,
-		req.SourceID,
-	)
 
 	// Record in activity_edits audit log.
 	editData, _ := json.Marshal(map[string]any{
@@ -588,16 +582,16 @@ func (h *Handler) MergeActivities(w http.ResponseWriter, r *http.Request) {
 	})
 	if _, execErr := h.DB.Pool.Exec(r.Context(),
 		`INSERT INTO activity_edits (activity_id, user_id, edit_type, edit_data)
-		 VALUES ($1, $2, 'merge', $3)`,
+		 VALUES ($1, $2, 'field_copy', $3)`,
 		targetID, userID, editData,
 	); execErr != nil {
-		slog.Warn("merge: failed to insert audit record", "id", targetID, "error", execErr)
+		slog.Warn("copy-fields: failed to insert audit record", "id", targetID, "error", execErr)
 	}
 
 	// Append to sidecar.
 	h.appendSidecarEdits(r.Context(), userID, targetID, []editor.Edit{
 		{
-			Type:   "merge",
+			Type:   "field_copy",
 			Method: req.SourceID,
 		},
 	})
