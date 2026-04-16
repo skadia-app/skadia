@@ -58,6 +58,11 @@ export const WEATHER_DISPLAY_FIELD_OPTIONS: { key: string; label: string }[] = [
   { key: 'condition',        label: 'Wetterlage (Text)' },
 ]
 
+export interface FusionMembership {
+  source_id: string
+  field_key: string
+}
+
 export interface Activity {
   id: string
   user_id: string
@@ -149,8 +154,8 @@ export interface Activity {
   // Multisport parent/child
   parent_id?: string | null
   child_count?: number
-  // Fusion result: maps stream fields to source activity IDs.
-  fusion_sources?: Record<string, string> | null
+  // Fusion result: list of (field_key, source_activity_id) pairs.
+  fusion_memberships?: FusionMembership[] | null
   // Recording group this activity belongs to.
   recording_group_id?: string | null
   // Platform IDs for deep-linking back to the source platform.

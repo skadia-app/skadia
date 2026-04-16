@@ -155,8 +155,8 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
   const [showRevertFusionModal, setShowRevertFusionModal] = useState(false)
   const [conflictOpen, setConflictOpen] = useState(false)
 
-  const sourceIds = activity.fusion_sources
-    ? Array.from(new Set(Object.values(activity.fusion_sources))).filter(id => id !== activity.id && id !== 'fuse')
+  const sourceIds = activity.fusion_memberships
+    ? Array.from(new Set(activity.fusion_memberships.map(m => m.source_id))).filter(id => id !== activity.id && id !== 'fuse')
     : []
 
   const revertFusionMutation = useMutation({
@@ -290,7 +290,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
             )}
           </div>
         )}
-        {activity.fusion_sources && (
+        {(activity.fusion_memberships?.length ?? 0) > 0 && (
           <div className="flex items-center gap-2 mt-1">
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-violet-100 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
               ⚡ Fusion Ergebnis
