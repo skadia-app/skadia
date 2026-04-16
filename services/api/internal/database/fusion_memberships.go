@@ -61,7 +61,21 @@ func DeleteFusionMembershipsForMerged(ctx context.Context, tx pgx.Tx, mergedID s
 
 // GetFusionMembershipsForMerged returns all memberships for a merged activity.
 func (db *DB) GetFusionMembershipsForMerged(ctx context.Context, mergedID string) ([]FusionMembership, error) {
-	rows, err := db.Pool.Query(ctx,
+	return getFusionMembershipsForMergedOnQuerier(ctx, db.Pool, mergedID)
+}
+
+// GetFusionMembershipsForMergedTx is the tx-bound variant of GetFusionMembershipsForMerged.
+// Use when the read must participate in a transaction — e.g. under an advisory lock in
+// RevertFusion, so that a concurrent revert cannot see stale membership state between
+// the lock acquisition and the actual membership read.
+func (db *DB) GetFusionMembershipsForMergedTx(ctx context.Context, q Querier, mergedID string) ([]FusionMembership, error) {
+	return getFusionMembershipsForMergedOnQuerier(ctx, q, mergedID)
+}
+
+// getFusionMembershipsForMergedOnQuerier is the shared implementation for both
+// GetFusionMembershipsForMerged and GetFusionMembershipsForMergedTx.
+func getFusionMembershipsForMergedOnQuerier(ctx context.Context, q Querier, mergedID string) ([]FusionMembership, error) {
+	rows, err := q.Query(ctx,
 		`SELECT merged_id, source_id, field_key, user_id
 		 FROM activity_fusion_memberships
 		 WHERE merged_id = $1
