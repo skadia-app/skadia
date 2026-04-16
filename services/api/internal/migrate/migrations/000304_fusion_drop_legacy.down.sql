@@ -1,3 +1,11 @@
+-- 🛑 DO NOT ROLL BACK WITHOUT REVIEW 🛑
+-- See the up-migration's RUNBOOK NOTICE. This script is lossy for
+-- multi-source-per-field-key memberships created after the up-migration ran.
+-- Before executing:
+--   1. Confirm same deployment window OR accept data-loss.
+--   2. Back up activity_fusion_memberships first (pg_dump -t activity_fusion_memberships).
+--   3. Approve with tech lead.
+
 -- Down for migration 000304.
 --
 -- WARNING — NOT fully lossless (Finding #22):

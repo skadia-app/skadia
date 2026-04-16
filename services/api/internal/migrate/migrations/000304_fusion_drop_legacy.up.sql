@@ -1,3 +1,16 @@
+-- ⚠️  RUNBOOK NOTICE ⚠️
+-- This migration DROPS the legacy is_fusion_source + fusion_sources columns.
+-- After this runs, any rollback via the .down.sql MUST happen within the
+-- same deployment window (same day ideally). New memberships with multi-source
+-- per-field-key — semantically unrepresentable in the legacy schema —
+-- collapse to the literal "fuse" on rollback and lose source-id precision.
+--
+-- Rollback decision tree:
+--   - Same deployment, no new merges happened → down is safe.
+--   - Production traffic post-migration with new merges → down is LOSSY.
+--     Prefer forward-fix over rollback. Document the data-loss risk to
+--     stakeholders before running down.sql.
+
 -- Phase 3 Task 26 — drop legacy fusion columns + V1-parent hiding cleanup.
 -- Prerequisite: All production reads migrated to activity_fusion_memberships
 -- (Phases 2a-2d). Dual-Write removed in Task 27 (follow-up).
