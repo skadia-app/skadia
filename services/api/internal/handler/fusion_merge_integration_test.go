@@ -1661,3 +1661,403 @@ func TestFusionMergeV1ConcurrentSameUser(t *testing.T) {
 
 	t.Logf("Concurrent FusionMerge V1: 1×201, 1×409, 1 merged activity — OK")
 }
+
+// ─── Test: Fusion-of-Fusion lifecycle ─────────────────────────────────────────
+
+// TestFusionOfFusionLifecycle verifies the two-level fusion scenario:
+//
+//	A + B → M1 (gps field), then M1 + C → M2 (gps field).
+//
+// Assertions:
+//   - memberships has (M2, M1, 'gps') and (M1, A, 'gps'), (M1, B, 'gps').
+//   - memberships does NOT have (M2, A, 'gps') — lineage truncates at M1
+//     (memberships tracks DIRECT source, not transitive).
+//   - Revert M2: (M2, *) memberships gone; M2 activity deleted; M1 intact.
+//   - Revert M1: (M1, *) memberships gone; M1 activity deleted; A and B intact.
+func TestFusionOfFusionLifecycle(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+	actC := insertMinimalActivity(t, db, userID)
+
+	base := time.Date(2024, 9, 1, 7, 0, 0, 0, time.UTC)
+	lat, lng := fusionPtrF64(47.2), fusionPtrF64(11.2)
+
+	// A: GPS
+	insertStreams(t, db, actA, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng},
+	})
+	// B: GPS + HR
+	insertStreams(t, db, actB, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(130)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(132)},
+	})
+	// C: GPS + Power
+	insertStreams(t, db, actC, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, PowerW: fusionPtrI16(200)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, PowerW: fusionPtrI16(205)},
+	})
+
+	h := &Handler{DB: db}
+
+	// ── Step 1: Fuse A + B → M1 (fuse-mode GPS: both A and B contribute) ────
+
+	reqBodyM1 := fmt.Sprintf(
+		`{"sources":[%q,%q],"field_map":{"gps":"fuse"},"tags_merge":false}`,
+		actA, actB,
+	)
+	httpReqM1 := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
+		strings.NewReader(reqBodyM1))
+	httpReqM1.Header.Set("Content-Type", "application/json")
+	httpReqM1 = httpReqM1.WithContext(
+		context.WithValue(httpReqM1.Context(), middleware.UserIDKey, userID),
+	)
+	rrM1 := httptest.NewRecorder()
+	h.FusionMergeV2(rrM1, httpReqM1)
+	if rrM1.Code != http.StatusCreated {
+		t.Fatalf("FusionMergeV2 (A+B→M1): expected 201, got %d — body: %s",
+			rrM1.Code, rrM1.Body.String())
+	}
+	var respM1 struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(rrM1.Body).Decode(&respM1); err != nil {
+		t.Fatalf("decode M1 response: %v", err)
+	}
+	M1 := respM1.ID
+	if M1 == "" {
+		t.Fatal("M1 response did not include an id")
+	}
+	t.Logf("A+B → M1 = %s", M1)
+
+	// Verify M1 memberships: (M1, A, 'gps') and (M1, B, 'gps').
+	m1Members, err := db.GetFusionMembershipsForMerged(ctx, M1)
+	if err != nil {
+		t.Fatalf("GetFusionMembershipsForMerged(M1): %v", err)
+	}
+	m1SourceSet := make(map[string]bool)
+	for _, m := range m1Members {
+		if m.FieldKey != "gps" {
+			t.Errorf("M1 membership: expected field_key='gps', got %q", m.FieldKey)
+		}
+		m1SourceSet[m.SourceID] = true
+	}
+	if !m1SourceSet[actA] {
+		t.Errorf("M1 memberships: missing source A (%s)", actA)
+	}
+	if !m1SourceSet[actB] {
+		t.Errorf("M1 memberships: missing source B (%s)", actB)
+	}
+	if len(m1Members) != 2 {
+		t.Errorf("M1 memberships: want 2, got %d: %v", len(m1Members), m1Members)
+	}
+	t.Logf("M1 memberships: %v — OK", m1SourceSet)
+
+	// M1 needs streams for M2 fusion to work — M1 is the GPS source for M2.
+	// The FusionMergeV2 handler already writes M1's merged streams via finalizeStreamsMerge,
+	// so M1 has streams at this point.
+
+	// ── Step 2: Fuse M1 + C → M2 ─────────────────────────────────────────────
+
+	reqBodyM2 := fmt.Sprintf(
+		`{"sources":[%q,%q],"field_map":{"gps":%q,"power":%q},"tags_merge":false}`,
+		M1, actC, M1, actC,
+	)
+	httpReqM2 := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
+		strings.NewReader(reqBodyM2))
+	httpReqM2.Header.Set("Content-Type", "application/json")
+	httpReqM2 = httpReqM2.WithContext(
+		context.WithValue(httpReqM2.Context(), middleware.UserIDKey, userID),
+	)
+	rrM2 := httptest.NewRecorder()
+	h.FusionMergeV2(rrM2, httpReqM2)
+	if rrM2.Code != http.StatusCreated {
+		t.Fatalf("FusionMergeV2 (M1+C→M2): expected 201, got %d — body: %s",
+			rrM2.Code, rrM2.Body.String())
+	}
+	var respM2 struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(rrM2.Body).Decode(&respM2); err != nil {
+		t.Fatalf("decode M2 response: %v", err)
+	}
+	M2 := respM2.ID
+	if M2 == "" {
+		t.Fatal("M2 response did not include an id")
+	}
+	t.Logf("M1+C → M2 = %s", M2)
+
+	// ── Assertions on M2 memberships ─────────────────────────────────────────
+
+	m2Members, err := db.GetFusionMembershipsForMerged(ctx, M2)
+	if err != nil {
+		t.Fatalf("GetFusionMembershipsForMerged(M2): %v", err)
+	}
+
+	// (M2, M1, 'gps') must exist.
+	foundM2M1 := false
+	// (M2, A, 'gps') must NOT exist — lineage truncates at M1.
+	foundM2A := false
+	for _, m := range m2Members {
+		if m.SourceID == M1 && m.FieldKey == "gps" {
+			foundM2M1 = true
+		}
+		if m.SourceID == actA {
+			foundM2A = true
+		}
+	}
+	if !foundM2M1 {
+		t.Errorf("M2 memberships: expected (M2, M1, 'gps') but not found; rows: %v", m2Members)
+	}
+	if foundM2A {
+		t.Errorf("M2 memberships: unexpected (M2, A, ...) — lineage must not be transitive; rows: %v", m2Members)
+	}
+	t.Logf("M2 memberships: %d rows, (M2,M1) present=%v, (M2,A) absent=%v — OK",
+		len(m2Members), foundM2M1, !foundM2A)
+
+	// ── Revert M2 ────────────────────────────────────────────────────────────
+
+	revertReq := httptest.NewRequest(http.MethodDelete, "/activities/"+M2+"/fusion", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", M2)
+	revertReq = revertReq.WithContext(
+		context.WithValue(
+			context.WithValue(revertReq.Context(), chi.RouteCtxKey, rctx),
+			middleware.UserIDKey, userID,
+		),
+	)
+	rrRevert := httptest.NewRecorder()
+	h.RevertFusion(rrRevert, revertReq)
+	if rrRevert.Code != http.StatusNoContent {
+		t.Fatalf("RevertFusion(M2): expected 204, got %d — body: %s",
+			rrRevert.Code, rrRevert.Body.String())
+	}
+
+	// (M2, *) memberships gone.
+	var m2Count int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activity_fusion_memberships WHERE merged_id = $1`, M2,
+	).Scan(&m2Count); err != nil {
+		t.Fatalf("count M2 memberships after revert: %v", err)
+	}
+	if m2Count != 0 {
+		t.Errorf("after RevertFusion(M2): want 0 memberships, got %d", m2Count)
+	}
+
+	// M2 activity deleted.
+	var m2Exists bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM activities WHERE id = $1)`, M2,
+	).Scan(&m2Exists); err != nil {
+		t.Fatalf("check M2 exists after revert: %v", err)
+	}
+	if m2Exists {
+		t.Errorf("M2 activity still exists after RevertFusion(M2)")
+	}
+
+	// M1 still exists with its memberships intact.
+	var m1Exists bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM activities WHERE id = $1)`, M1,
+	).Scan(&m1Exists); err != nil {
+		t.Fatalf("check M1 exists after RevertFusion(M2): %v", err)
+	}
+	if !m1Exists {
+		t.Errorf("M1 activity was deleted by RevertFusion(M2) — should be intact")
+	}
+
+	m1AfterCount, err := db.CountFusionMembershipsAsSource(ctx, actA)
+	if err != nil {
+		t.Fatalf("CountFusionMembershipsAsSource(A) after RevertFusion(M2): %v", err)
+	}
+	if m1AfterCount != 1 {
+		t.Errorf("after RevertFusion(M2): A should still be a source of M1 only (want 1), got %d", m1AfterCount)
+	}
+	t.Logf("After RevertFusion(M2): M1 intact, A still source of M1 — OK")
+
+	// ── Revert M1 ────────────────────────────────────────────────────────────
+
+	revertReq2 := httptest.NewRequest(http.MethodDelete, "/activities/"+M1+"/fusion", nil)
+	rctx2 := chi.NewRouteContext()
+	rctx2.URLParams.Add("id", M1)
+	revertReq2 = revertReq2.WithContext(
+		context.WithValue(
+			context.WithValue(revertReq2.Context(), chi.RouteCtxKey, rctx2),
+			middleware.UserIDKey, userID,
+		),
+	)
+	rrRevert2 := httptest.NewRecorder()
+	h.RevertFusion(rrRevert2, revertReq2)
+	if rrRevert2.Code != http.StatusNoContent {
+		t.Fatalf("RevertFusion(M1): expected 204, got %d — body: %s",
+			rrRevert2.Code, rrRevert2.Body.String())
+	}
+
+	// (M1, *) memberships gone.
+	var m1Count int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activity_fusion_memberships WHERE merged_id = $1`, M1,
+	).Scan(&m1Count); err != nil {
+		t.Fatalf("count M1 memberships after revert: %v", err)
+	}
+	if m1Count != 0 {
+		t.Errorf("after RevertFusion(M1): want 0 memberships, got %d", m1Count)
+	}
+
+	// M1 activity deleted.
+	var m1Exists2 bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM activities WHERE id = $1)`, M1,
+	).Scan(&m1Exists2); err != nil {
+		t.Fatalf("check M1 exists after RevertFusion(M1): %v", err)
+	}
+	if m1Exists2 {
+		t.Errorf("M1 activity still exists after RevertFusion(M1)")
+	}
+
+	// A and B still exist as normal activities.
+	for _, id := range []string{actA, actB} {
+		var exists bool
+		if err := pool.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM activities WHERE id = $1)`, id,
+		).Scan(&exists); err != nil {
+			t.Fatalf("check source %s exists after RevertFusion(M1): %v", id, err)
+		}
+		if !exists {
+			t.Errorf("source activity %s deleted by RevertFusion(M1) — should remain", id)
+		}
+	}
+	t.Logf("After RevertFusion(M1): M1 deleted, A and B intact — OK")
+}
+
+// ─── Test: Cross-Fusion (one source in multiple merges) ───────────────────────
+
+// TestCrossFusion verifies the schema-level constraints and DB method behaviour
+// for the cross-fusion state: one source activity referenced in two distinct
+// merged activities with different field keys.
+//
+// NOTE: The FusionMergeV2 handler enforces that a source can only belong to one
+// fusion at a time (preflight 409 guard). The cross-fusion state is therefore
+// created via direct DB insertion (bypassing the handler) to test the schema and
+// membership query methods in isolation from the application-level guard.
+//
+// State seeded directly:
+//
+//	M1: merged activity, A is source with field_key='gps'
+//	M2: merged activity, A is source with field_key='hr'
+//
+// Assertions:
+//   - CountFusionMembershipsAsSource(A) == 2
+//   - GetFusionMembershipsAsSource(A) returns 2 entries with distinct MergedIDs.
+//   - After direct DB deletion of A: both (M1, A) and (M2, A) membership rows
+//     gone via CASCADE. M1 and M2 activities still exist (degraded-source state).
+func TestCrossFusion(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	actA := insertMinimalActivity(t, db, userID) // shared source
+	actB := insertMinimalActivity(t, db, userID) // co-source for M1
+	actC := insertMinimalActivity(t, db, userID) // co-source for M2
+
+	// M1 and M2 are bare merged-activity placeholders — no streams needed for
+	// this test since we're testing memberships + CASCADE, not stream correctness.
+	actM1 := insertMinimalActivity(t, db, userID)
+	actM2 := insertMinimalActivity(t, db, userID)
+
+	// Seed memberships directly (bypassing handler preflight).
+	// M1: sources are A (gps) and B (gps).
+	// M2: sources are A (hr) and C (hr).
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin seed tx: %v", err)
+	}
+	memberships := []database.FusionMembership{
+		{MergedID: actM1, SourceID: actA, FieldKey: "gps", UserID: userID},
+		{MergedID: actM1, SourceID: actB, FieldKey: "gps", UserID: userID},
+		{MergedID: actM2, SourceID: actA, FieldKey: "hr", UserID: userID},
+		{MergedID: actM2, SourceID: actC, FieldKey: "hr", UserID: userID},
+	}
+	if err := database.InsertFusionMemberships(ctx, tx, memberships); err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("InsertFusionMemberships: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seed tx: %v", err)
+	}
+	t.Logf("Seeded cross-fusion: M1=%s, M2=%s, shared source A=%s", actM1, actM2, actA)
+
+	// ── Assert: A is source of 2 distinct merges ──────────────────────────────
+
+	count, err := db.CountFusionMembershipsAsSource(ctx, actA)
+	if err != nil {
+		t.Fatalf("CountFusionMembershipsAsSource(A): %v", err)
+	}
+	if count != 2 {
+		t.Errorf("CountFusionMembershipsAsSource(A): want 2, got %d", count)
+	}
+
+	asMember, err := db.GetFusionMembershipsAsSource(ctx, actA)
+	if err != nil {
+		t.Fatalf("GetFusionMembershipsAsSource(A): %v", err)
+	}
+	if len(asMember) != 2 {
+		t.Errorf("GetFusionMembershipsAsSource(A): want 2 rows, got %d: %v", len(asMember), asMember)
+	}
+
+	// Both M1 and M2 must appear as distinct MergedIDs.
+	mergedSet := make(map[string]bool)
+	for _, m := range asMember {
+		mergedSet[m.MergedID] = true
+	}
+	if !mergedSet[actM1] {
+		t.Errorf("GetFusionMembershipsAsSource(A): M1 (%s) not in merged set %v", actM1, mergedSet)
+	}
+	if !mergedSet[actM2] {
+		t.Errorf("GetFusionMembershipsAsSource(A): M2 (%s) not in merged set %v", actM2, mergedSet)
+	}
+	t.Logf("A is source in merges: %v — OK", mergedSet)
+
+	// ── Delete A directly (simulating user delete), assert CASCADE ────────────
+
+	if _, err := pool.Exec(ctx,
+		`DELETE FROM activities WHERE id = $1 AND user_id = $2`, actA, userID,
+	); err != nil {
+		t.Fatalf("direct delete of A: %v", err)
+	}
+
+	// Both (M1, A) and (M2, A) membership rows must be gone via CASCADE.
+	var aSourceCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activity_fusion_memberships WHERE source_id = $1`, actA,
+	).Scan(&aSourceCount); err != nil {
+		t.Fatalf("count memberships for deleted A: %v", err)
+	}
+	if aSourceCount != 0 {
+		t.Errorf("after deleting A: want 0 membership rows with source_id=A, got %d"+
+			"\n  This indicates the CASCADE on activity_fusion_memberships.source_id FK"+
+			"\n  is missing or not set up correctly — escalate to Phase 3 gate.",
+			aSourceCount)
+	}
+	t.Logf("CASCADE delete: A gone, 0 membership rows with source_id=A — OK")
+
+	// M1 and M2 activities still exist (degraded-source state — Phase 5 candidate).
+	for lbl, id := range map[string]string{"M1": actM1, "M2": actM2} {
+		var exists bool
+		if err := pool.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM activities WHERE id = $1)`, id,
+		).Scan(&exists); err != nil {
+			t.Fatalf("check %s exists after A deleted: %v", lbl, err)
+		}
+		if !exists {
+			t.Errorf("%s activity deleted when source A was deleted — want it to remain (degraded-source state)", lbl)
+		}
+	}
+	t.Logf("M1 and M2 still exist as degraded-source activities — OK")
+}
