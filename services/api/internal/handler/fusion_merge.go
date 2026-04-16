@@ -318,13 +318,21 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 8. Alle Quellen (inkl. Target) via parent_id verstecken.
+	// 8. Alle Quellen (inkl. Target) via parent_id verstecken — einzelnes atomares UPDATE.
+	sourcesToHide := make([]string, 0, len(allIDs))
 	for _, id := range allIDs {
+		if id != merged.ID {
+			sourcesToHide = append(sourcesToHide, id)
+		}
+	}
+	if len(sourcesToHide) > 0 {
 		if _, err := tx.Exec(ctx,
-			`UPDATE activities SET parent_id = $2 WHERE id = $1 AND user_id = $3`,
-			id, merged.ID, userID,
+			`UPDATE activities SET parent_id = $1 WHERE id = ANY($2) AND user_id = $3`,
+			merged.ID, sourcesToHide, userID,
 		); err != nil {
-			slog.Warn("fusion-merge: hide source failed", "id", id, "error", err)
+			slog.Error("fusion-merge: hide sources failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "hide sources failed: "+err.Error(), r.URL.Path)
+			return
 		}
 	}
 
@@ -1911,16 +1919,24 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 8. In legacy mode, hide sources via parent_id.
+	// 8. In legacy mode, hide sources via parent_id — single atomic UPDATE.
 	// Membership rows (step 9b) are the sole source-of-truth for fusion state.
 	legacyMode := req.GroupID == nil || *req.GroupID == ""
 	if legacyMode {
+		sourcesToHideV2 := make([]string, 0, len(req.Sources))
 		for _, id := range req.Sources {
+			if id != merged.ID {
+				sourcesToHideV2 = append(sourcesToHideV2, id)
+			}
+		}
+		if len(sourcesToHideV2) > 0 {
 			if _, err := tx.Exec(ctx,
-				`UPDATE activities SET parent_id = $2 WHERE id = $1 AND user_id = $3`,
-				id, merged.ID, userID,
+				`UPDATE activities SET parent_id = $1 WHERE id = ANY($2) AND user_id = $3`,
+				merged.ID, sourcesToHideV2, userID,
 			); err != nil {
-				slog.Warn("fusion-merge-v2: hide source failed", "id", id, "error", err)
+				slog.Error("fusion-merge-v2: hide sources failed", "error", err)
+				httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "hide sources (v2) failed: "+err.Error(), r.URL.Path)
+				return
 			}
 		}
 	}
