@@ -7,6 +7,15 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
+// FusionMemberSnapshot captures per-field-key fusion lineage at merge-time.
+// Used by the sidecar writer to persist a self-contained record; consumed
+// by GDPR export/import to reconstruct memberships across restores.
+type FusionMemberSnapshot struct {
+	SourceID    string `json:"source_id"`
+	SourceTitle string `json:"source_title,omitempty"`
+	FieldKey    string `json:"field_key"`
+}
+
 type MetaFile struct {
 	SchemaVersion    int       `json:"schema_version"`
 	SkadiaID        string    `json:"skadia_id"`
@@ -44,6 +53,12 @@ type MetaFile struct {
 	LocationLat            *float64 `json:"location_lat,omitempty"`
 	LocationLng            *float64 `json:"location_lng,omitempty"`
 	TitleIsManual          bool     `json:"title_is_manual,omitempty"`
+
+	// v2 fields — present only for fusion activities (omitempty keeps regular
+	// metadata files free of fusion noise).
+	Fusion        bool                   `json:"fusion,omitempty"`
+	FusionRequest json.RawMessage        `json:"fusion_request,omitempty"` // copy of activity_edits.edit_data
+	FusionMembers []FusionMemberSnapshot `json:"fusion_members,omitempty"`
 }
 
 // GenerateMeta creates a MetaFile from ActivityData (FIT-parsed import data).
@@ -58,7 +73,7 @@ func GenerateMeta(activityID string, data *model.ActivityData) *MetaFile {
 //   - User-editable fields always come from activity (when not nil).
 func GenerateMetaFull(activityID string, data *model.ActivityData, activity *model.Activity) *MetaFile {
 	m := &MetaFile{
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 		SkadiaID:     activityID,
 		CreatedAt: func() time.Time {
 			if activity != nil {
@@ -116,6 +131,34 @@ func GenerateMetaFull(activityID string, data *model.ActivityData, activity *mod
 	}
 
 	return m
+}
+
+// GenerateMetaFusion creates a MetaFile for a fusion or manual-entry activity.
+// No file_id since these activities have no source-file.
+// memberships may be nil/empty for manual-entry; the Fusion flag is derived.
+// editData is the raw JSONB from activity_edits.edit_data ({"fusion_merge",...});
+// may be nil for manual-entry.
+func GenerateMetaFusion(activityID string, activity *model.Activity, memberships []FusionMemberSnapshot, editData json.RawMessage) *MetaFile {
+	m := GenerateMetaFull(activityID, nil, activity)
+	m.Fusion = len(memberships) > 0
+	m.FusionRequest = editData
+	m.FusionMembers = memberships
+	return m
+}
+
+// ReadMeta unmarshals MetaFile bytes with feature-detection on the fusion
+// fields. If a legacy file has fusion_members populated but fusion=false
+// (malformed), the flag is corrected on read. SchemaVersion is used only
+// informationally — all branches are driven by field presence, not version.
+func ReadMeta(data []byte) (*MetaFile, error) {
+	var m MetaFile
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	if len(m.FusionMembers) > 0 && !m.Fusion {
+		m.Fusion = true
+	}
+	return &m, nil
 }
 
 func (m *MetaFile) Marshal() ([]byte, error) {
