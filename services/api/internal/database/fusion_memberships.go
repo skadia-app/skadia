@@ -68,8 +68,12 @@ func (db *DB) GetFusionMembershipsForMerged(ctx context.Context, mergedID string
 // Use when the read must participate in a transaction — e.g. under an advisory lock in
 // RevertFusion, so that a concurrent revert cannot see stale membership state between
 // the lock acquisition and the actual membership read.
-func (db *DB) GetFusionMembershipsForMergedTx(ctx context.Context, q Querier, mergedID string) ([]FusionMembership, error) {
-	return getFusionMembershipsForMergedOnQuerier(ctx, q, mergedID)
+//
+// The parameter type is pgx.Tx (not Querier) to enforce the contract at compile-time:
+// passing a *pgxpool.Pool here would silently bypass the advisory-lock scope, allowing
+// a concurrent revert to interleave between lock acquisition and the membership read.
+func (db *DB) GetFusionMembershipsForMergedTx(ctx context.Context, tx pgx.Tx, mergedID string) ([]FusionMembership, error) {
+	return getFusionMembershipsForMergedOnQuerier(ctx, tx, mergedID)
 }
 
 // getFusionMembershipsForMergedOnQuerier is the shared implementation for both
