@@ -202,15 +202,6 @@ export async function splitActivity(id: string, req: SplitRequest): Promise<Spli
   return apiClient<SplitResponse>(`/activities/${id}/split`, { method: 'POST', body: req })
 }
 
-export interface MergeRequest {
-  source_id: string
-  fields: string[]
-}
-
-export async function mergeActivities(id: string, req: MergeRequest): Promise<Activity> {
-  return apiClient<Activity>(`/activities/${id}/merge`, { method: 'POST', body: req })
-}
-
 // ── Data Corrections ──────────────────────────────────────────────────────────
 
 export interface CorrectionJobResponse {
