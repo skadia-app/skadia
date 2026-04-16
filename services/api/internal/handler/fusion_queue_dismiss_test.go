@@ -250,3 +250,55 @@ func TestDismissFusionCandidate_MissingIDs(t *testing.T) {
 		t.Fatalf("expected 400 for empty IDs, got %d", rr.Code)
 	}
 }
+
+// TestDismissFusionCandidate_CrossUser verifies that a dismiss request from user B
+// does not affect user A's fusion_candidates row.
+//
+// dismiss is idempotent: if the row doesn't match (wrong user_id), the UPDATE
+// simply hits 0 rows and returns 204. The key assertion is that user A's row
+// still has dismissed_at = NULL afterwards.
+func TestDismissFusionCandidate_CrossUser(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	// User A owns the candidate pair.
+	userA := insertTestUser(t, pool)
+	a1 := insertMinimalActivity(t, db, userA)
+	a2 := insertMinimalActivity(t, db, userA)
+
+	cA, cB := a1, a2
+	if cA > cB {
+		cA, cB = cB, cA
+	}
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO fusion_candidates (user_id, activity_id_a, activity_id_b, overlap_percent, field_richness_a, field_richness_b, time_diff_sec)
+		VALUES ($1, $2, $3, 88.0, 9, 7, 20.0)
+	`, userA, cA, cB)
+	if err != nil {
+		t.Fatalf("insert fusion_candidates for userA: %v", err)
+	}
+
+	// User B attempts to dismiss user A's pair.
+	userB := insertTestUser(t, pool)
+	h := &Handler{DB: db}
+	code := dismissRequest(t, h, userB, cA, cB)
+	// Must return 204 (idempotent from B's perspective — no matching row).
+	if code != http.StatusNoContent {
+		t.Fatalf("cross-user dismiss: expected 204, got %d", code)
+	}
+
+	// User A's row must still have dismissed_at = NULL.
+	var dismissedAt *time.Time
+	err = pool.QueryRow(ctx, `
+		SELECT dismissed_at FROM fusion_candidates
+		WHERE user_id = $1 AND activity_id_a = $2 AND activity_id_b = $3
+	`, userA, cA, cB).Scan(&dismissedAt)
+	if err != nil {
+		t.Fatalf("cross-user check: query dismissed_at: %v", err)
+	}
+	if dismissedAt != nil {
+		t.Fatal("cross-user isolation violated: user A's row was dismissed by user B")
+	}
+}

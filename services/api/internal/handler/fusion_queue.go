@@ -372,16 +372,18 @@ func (h *Handler) DismissFusionCandidate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1024)
+
 	var body struct {
 		A string `json:"activity_id_a"`
 		B string `json:"activity_id_b"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 	if body.A == "" || body.B == "" {
-		http.Error(w, "activity_id_a and activity_id_b required", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "activity_id_a and activity_id_b required", r.URL.Path)
 		return
 	}
 
@@ -398,7 +400,7 @@ func (h *Handler) DismissFusionCandidate(w http.ResponseWriter, r *http.Request)
 	`, userID, a, b)
 	if err != nil {
 		slog.Error("dismiss fusion candidate: DB error", "user_id", userID, "a", a, "b", b, "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
 		return
 	}
 	// Idempotent: kein Match (bereits dismissed oder Paar existiert nicht) → 204.
