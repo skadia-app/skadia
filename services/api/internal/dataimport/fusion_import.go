@@ -11,10 +11,20 @@ package dataimport
 // The per-activity ingest loop in engine.go uses the generic importTable path
 // for the memberships file (Phase 6, table "activity_fusion_memberships").
 // These helpers are additional utilities used by the import engine and tests.
+//
+// v_old_fusion wiring:
+//   engine.go calls RunLegacyFusionMembershipsIfNeeded after phase 6 completes.
+//   It re-reads data/activities.json, extracts fusion_sources JSONB, and
+//   calls DeriveFromLegacyFusionSources to produce memberships that are then
+//   inserted via database.InsertFusionMemberships.
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
@@ -95,6 +105,245 @@ func FilterByMergedID(memberships []database.FusionMembership, mergedID string) 
 		}
 	}
 	return out
+}
+
+// DeriveFromLegacyFusionSources converts a pre-000302 fusion_sources JSONB value
+// into activity_fusion_memberships rows for a single merged activity.
+//
+//   fusionSources:        the JSONB map {field_key -> source_id | "fuse"}
+//   mergedID:             the activity owning the fusion_sources field (new/remapped UUID)
+//   parentIDChildren:     other new activity IDs in import scope that had parent_id == mergedID
+//                         in the old export (used for "fuse" fan-out expansion;
+//                         pass nil if not derivable — V1 parent_id info is absent)
+//   importUserID:         the new user's UUID (membership's user_id field)
+//   importedActivityIDs:  all new activity IDs in import scope (source_id must be in this set)
+//
+// Returns the derived memberships. Warnings are logged for "fuse" literals that
+// cannot be expanded (empty parentIDChildren) — lost information from V1 exports.
+func DeriveFromLegacyFusionSources(
+	fusionSources map[string]string,
+	mergedID string,
+	parentIDChildren []string,
+	importUserID string,
+	importedActivityIDs map[string]bool,
+) []database.FusionMembership {
+	out := make([]database.FusionMembership, 0, len(fusionSources))
+	for fieldKey, value := range fusionSources {
+		if value == "fuse" {
+			if len(parentIDChildren) == 0 {
+				slog.Warn("dataimport: fusion_sources fuse-literal could not be expanded (no parent_id children in scope)",
+					"merged_id", mergedID, "field_key", fieldKey)
+				continue
+			}
+			for _, childID := range parentIDChildren {
+				if !importedActivityIDs[childID] {
+					slog.Warn("dataimport: fuse-expansion child outside import scope — skipping",
+						"merged_id", mergedID, "child_id", childID)
+					continue
+				}
+				out = append(out, database.FusionMembership{
+					MergedID: mergedID, SourceID: childID,
+					FieldKey: fieldKey, UserID: importUserID,
+				})
+			}
+			continue
+		}
+		// UUID value (concrete source_id). This is a new/remapped UUID already.
+		if !importedActivityIDs[value] {
+			slog.Warn("dataimport: fusion_sources concrete source outside import scope — skipping",
+				"merged_id", mergedID, "source_id", value, "field_key", fieldKey)
+			continue
+		}
+		out = append(out, database.FusionMembership{
+			MergedID: mergedID, SourceID: value,
+			FieldKey: fieldKey, UserID: importUserID,
+		})
+	}
+	return out
+}
+
+// legacyActivityRecord holds the fields extracted from a single activity row in
+// a pre-302 export that are needed for v_old_fusion derivation.
+type legacyActivityRecord struct {
+	OldID         string
+	OldParentID   string
+	FusionSources map[string]string // nil if absent
+}
+
+// RunLegacyFusionMembershipsIfNeeded implements the v_old_fusion backwards-compat
+// path described in Spec §7.2.
+//
+// It is a no-op when the export already contains data/activity_fusion_memberships.json
+// (v_new path — memberships are imported by the generic phase 6 table handler).
+//
+// When the memberships file is absent, it re-reads data/activities.json,
+// extracts fusion_sources JSONB from each row, maps old UUIDs to new ones via
+// idMap, and inserts the derived memberships via database.InsertFusionMemberships.
+//
+// exportMigration is the SchemaMigration value from the manifest; for exports
+// older than 302 the fusion_sources column is expected to be present when
+// fusion was in use.
+func RunLegacyFusionMembershipsIfNeeded(
+	ctx context.Context,
+	db *pgxpool.Pool,
+	src Source,
+	idMap *IDMap,
+	importUserID string,
+	exportMigration int,
+) error {
+	// v_new check: if the memberships file exists, the generic importer already
+	// handled it — nothing to do.
+	rc, err := src.OpenData("data/activity_fusion_memberships.json")
+	if err == nil {
+		rc.Close()
+		return nil // v_new — handled by phase 6 generic importTable
+	}
+
+	// Re-read activities.json to collect fusion_sources + parent_id.
+	actRC, err := src.OpenData("data/activities.json")
+	if err != nil {
+		return nil // No activities file — nothing to derive.
+	}
+	defer actRC.Close()
+
+	dec := json.NewDecoder(actRC)
+	// Consume opening '['.
+	tok, err := dec.Token()
+	if err != nil {
+		return fmt.Errorf("RunLegacyFusionMemberships: read opening token: %w", err)
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '[' {
+		return nil // Not a JSON array; nothing to derive.
+	}
+
+	var records []legacyActivityRecord
+	for dec.More() {
+		var row map[string]any
+		if err := dec.Decode(&row); err != nil {
+			slog.Warn("dataimport: RunLegacyFusionMemberships: decode row failed — skipping", "error", err)
+			continue
+		}
+		oldID, _ := stringVal(row["id"])
+		if oldID == "" {
+			continue
+		}
+
+		rec := legacyActivityRecord{OldID: oldID}
+
+		// Extract old parent_id (for "fuse" fan-out expansion).
+		if parentID, ok := stringVal(row["parent_id"]); ok {
+			rec.OldParentID = parentID
+		}
+
+		// Extract fusion_sources JSONB.
+		if fsRaw := row["fusion_sources"]; fsRaw != nil {
+			// fusion_sources arrives as map[string]any from JSON decode.
+			if fsMap, ok := fsRaw.(map[string]any); ok && len(fsMap) > 0 {
+				sources := make(map[string]string, len(fsMap))
+				for k, v := range fsMap {
+					if sv, ok := v.(string); ok {
+						sources[k] = sv
+					}
+				}
+				if len(sources) > 0 {
+					rec.FusionSources = sources
+				}
+			}
+		}
+
+		records = append(records, rec)
+	}
+
+	// No fusion_sources found in any activity → v_regular.
+	hasFusion := false
+	for _, r := range records {
+		if len(r.FusionSources) > 0 {
+			hasFusion = true
+			break
+		}
+	}
+	if !hasFusion {
+		return nil
+	}
+
+	// Build importedActivityIDs (new UUIDs) and parentID → children map.
+	importedActivityIDs := make(map[string]bool, len(records))
+	// parentOldID → []newChildID (for "fuse" expansion)
+	parentToChildren := make(map[string][]string, len(records))
+
+	for _, r := range records {
+		newID, ok := idMap.GetIfExists(r.OldID)
+		if !ok {
+			continue
+		}
+		importedActivityIDs[newID] = true
+		if r.OldParentID != "" {
+			parentToChildren[r.OldParentID] = append(parentToChildren[r.OldParentID], newID)
+		}
+	}
+
+	// Derive memberships.
+	var allMemberships []database.FusionMembership
+	for _, r := range records {
+		if len(r.FusionSources) == 0 {
+			continue
+		}
+		newMergedID, ok := idMap.GetIfExists(r.OldID)
+		if !ok {
+			slog.Warn("dataimport: RunLegacyFusionMemberships: merged activity not in IDMap — skipping",
+				"old_id", r.OldID)
+			continue
+		}
+
+		// Remap fusion_sources values: concrete UUIDs are old IDs that need remapping.
+		remapped := make(map[string]string, len(r.FusionSources))
+		for fieldKey, value := range r.FusionSources {
+			if value == "fuse" {
+				remapped[fieldKey] = "fuse"
+				continue
+			}
+			newSourceID, ok := idMap.GetIfExists(value)
+			if !ok {
+				slog.Warn("dataimport: RunLegacyFusionMemberships: source UUID not in IDMap — skipping field",
+					"old_merged_id", r.OldID, "old_source_id", value, "field_key", fieldKey)
+				continue
+			}
+			remapped[fieldKey] = newSourceID
+		}
+
+		// parent_id children for "fuse" expansion: look up children of the old merged ID.
+		var parentChildren []string
+		if kids, ok := parentToChildren[r.OldID]; ok {
+			parentChildren = kids
+		}
+
+		derived := DeriveFromLegacyFusionSources(
+			remapped, newMergedID, parentChildren, importUserID, importedActivityIDs,
+		)
+		allMemberships = append(allMemberships, derived...)
+	}
+
+	if len(allMemberships) == 0 {
+		return nil
+	}
+
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("RunLegacyFusionMemberships: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if err := database.InsertFusionMemberships(ctx, tx, allMemberships); err != nil {
+		return fmt.Errorf("RunLegacyFusionMemberships: insert memberships: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("RunLegacyFusionMemberships: commit: %w", err)
+	}
+
+	slog.Info("dataimport: RunLegacyFusionMemberships: derived and inserted legacy memberships",
+		"count", len(allMemberships))
+	return nil
 }
 
 // MembershipsEqual does an order-independent comparison of two membership slices.
