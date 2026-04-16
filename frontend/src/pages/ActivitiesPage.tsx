@@ -1003,7 +1003,7 @@ export default function ActivitiesPage() {
             deleteIds.length === 1 &&
             (() => {
               const act = activities.find(a => a.id === deleteIds[0])
-              return !!(act && (act.sport_type === 'multisport' || act.fusion_sources != null))
+              return !!(act && (act.sport_type === 'multisport' || (act.fusion_memberships?.length ?? 0) > 0))
             })()
           }
         />
