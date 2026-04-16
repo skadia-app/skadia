@@ -646,9 +646,25 @@ func (h *Handler) postCommitFusionCleanup(ctx context.Context, p fusionFinalizeP
 	}
 
 	// Write .meta companion for merged activity (ShadowFS).
-	mergedAct, _ := h.DB.GetActivity(ctx, p.merged.ID)
-	if mergedAct != nil && mergedAct.FileID != nil && *mergedAct.FileID != "" {
-		sidecar.WriteMetaCompanion(ctx, h.ShadowFS, h.DB, p.userID, p.merged.ID, *mergedAct.FileID, nil, mergedAct)
+	// Uses GenerateMetaFusion to embed fusion lineage into the sidecar so that
+	// GDPR export/import can reconstruct memberships from the .meta file alone.
+	{
+		mergedAct, _ := h.DB.GetActivity(ctx, p.merged.ID)
+		if mergedAct != nil {
+			memberships, _ := h.DB.GetFusionMembershipsForMerged(ctx, p.merged.ID)
+			snapshots := make([]sidecar.FusionMemberSnapshot, len(memberships))
+			for i, m := range memberships {
+				title, _ := h.DB.GetActivityTitle(ctx, m.SourceID)
+				snapshots[i] = sidecar.FusionMemberSnapshot{
+					SourceID:    m.SourceID,
+					SourceTitle: title,
+					FieldKey:    m.FieldKey,
+				}
+			}
+			editData, _ := h.DB.GetLatestEditData(ctx, p.merged.ID, "fusion_merge")
+			meta := sidecar.GenerateMetaFusion(p.merged.ID, mergedAct, snapshots, editData)
+			sidecar.WriteMetaCompanionFor(ctx, h.ShadowFS, h.DB, p.userID, p.merged.ID, mergedAct.FileID, meta)
+		}
 	}
 
 	// Remove cached fusion candidates for all source activities.

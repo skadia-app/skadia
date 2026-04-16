@@ -2,6 +2,8 @@ package database
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -180,6 +182,38 @@ func (db *DB) GetFusionMembershipsForActivities(
 		return nil, nil, err
 	}
 	return memberships, sourceCounts, nil
+}
+
+// GetLatestEditData returns the edit_data JSONB of the most recent activity_edits
+// row for (activity_id, edit_type). Returns nil (no error) if no row exists.
+func (db *DB) GetLatestEditData(ctx context.Context, activityID, editType string) (json.RawMessage, error) {
+	var raw json.RawMessage
+	err := db.Pool.QueryRow(ctx,
+		`SELECT edit_data FROM activity_edits
+		 WHERE activity_id = $1 AND edit_type = $2
+		 ORDER BY created_at DESC LIMIT 1`,
+		activityID, editType).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("GetLatestEditData(%s, %s): %w", activityID, editType, err)
+	}
+	return raw, nil
+}
+
+// GetActivityTitle returns the display title of an activity (COALESCE(title, '')).
+// Used by the sidecar writer to embed a human-readable source title in the
+// FusionMemberSnapshot.
+func (db *DB) GetActivityTitle(ctx context.Context, activityID string) (string, error) {
+	var title string
+	err := db.Pool.QueryRow(ctx,
+		`SELECT COALESCE(title, '') FROM activities WHERE id = $1`,
+		activityID).Scan(&title)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return title, err
 }
 
 // IsFusionSourceViaMemberships returns true iff activityID appears as source in any membership.
