@@ -639,7 +639,8 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 	}
 
 	// TODO(phase-5): extract a per-activity segment_efforts recomputer and call it
-	// here. Currently segment-matches land on next user-triggered segment recompute.
+	// here. See docs/internal/2026-04-23-fusion-segment-efforts-recompute.md.
+	// Currently segment-matches land on next user-triggered segment recompute.
 
 	// Audit log (inside transaction).
 	// FATAL: the audit record is required for GDPR accountability. A failed INSERT
@@ -998,6 +999,21 @@ func (h *Handler) copyGearIfPresent(ctx context.Context, tx database.Querier, me
 }
 
 // ─── Phase 4b: Related-Tables Union-Copy ──────────────────────────────────────
+
+// allowedRelatedTables is the exhaustive set of table names that may be used as SQL
+// identifiers in copyRelatedTableSingle and copyRelatedTableUnion. Both functions
+// format tableName into a TEMP TABLE DDL via fmt.Sprintf; a closed allow-list provides
+// defense-in-depth against accidental SQL injection if the call path ever changes to
+// accept user-supplied table names.
+var allowedRelatedTables = map[string]struct{}{
+	"activity_photos":           {},
+	"activity_geo_tags":         {},
+	"activity_privacy_sections": {},
+	"activity_tag_removals":     {},
+	"activity_developer_apps":   {},
+	"best_effort_exclusions":    {},
+}
+
 //
 // copyRelatedTablesUnion union-copies all Phase 4b related tables from source activities
 // into the merged activity inside the same transaction. Must be called while the merged
@@ -1084,6 +1100,9 @@ func copyRelatedTablesUnion(ctx context.Context, tx database.Querier, mergedID s
 //  3. UPDATE temp SET activity_id = mergedID, id = gen_random_uuid() (when table has own UUID PK).
 //  4. INSERT INTO target from temp with the provided ON CONFLICT clause.
 func copyRelatedTableUnion(ctx context.Context, tx database.Querier, mergedID string, sources []string, tableName string, onConflictClause string) error {
+	if _, ok := allowedRelatedTables[tableName]; !ok {
+		return fmt.Errorf("copyRelatedTableUnion: table %q not in allow-list", tableName)
+	}
 	tempName := fmt.Sprintf("tmp_merge_%s_%s", tableName, strings.ReplaceAll(mergedID, "-", ""))
 
 	if _, err := tx.Exec(ctx, fmt.Sprintf(
@@ -1133,6 +1152,9 @@ func copyRelatedTableSingle(ctx context.Context, tx database.Querier, mergedID s
 	}
 	if _, err := uuid.Parse(sourceID); err != nil {
 		return fmt.Errorf("copyRelatedTableSingle: sourceID not a valid UUID: %w", err)
+	}
+	if _, ok := allowedRelatedTables[tableName]; !ok {
+		return fmt.Errorf("copyRelatedTableSingle: table %q not in allow-list", tableName)
 	}
 	tempName := fmt.Sprintf("tmp_single_%s_%s", tableName, strings.ReplaceAll(mergedID, "-", ""))
 
