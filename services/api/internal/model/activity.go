@@ -110,8 +110,10 @@ type Activity struct {
 	// Multisport parent/child
 	ParentID   *string `json:"parent_id,omitempty"`
 	ChildCount int     `json:"child_count,omitempty"` // Computed, not in DB
-	// Fusion result: maps stream fields to source activity IDs.
-	FusionSources json.RawMessage `json:"fusion_sources,omitempty"`
+	// FusionSources is retained as a wire-compat stub for Release N (Task 27-rollout).
+	// Stale browser bundles reading this field see null and skip the branch gracefully.
+	// Removed in Task 27b (Release N+1). Never populated — zero value marshals to null.
+	FusionSources json.RawMessage `json:"fusion_sources"`
 	// Recording group: true if this activity is a secondary (non-primary) member of a recording group.
 	IsGroupSecondary bool `json:"is_group_secondary"`
 	// RecordingGroupID is the ID of the recording group this activity belongs to, if any.

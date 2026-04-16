@@ -730,10 +730,10 @@ func TestFusionMerge_RevertFusion_DeletesStreams(t *testing.T) {
 		t.Fatalf("finalizeStreamsMerge: %v", err)
 	}
 
-	// Mark sources as fusion children.
+	// Mark sources as fusion children (V1: hide via parent_id).
 	for _, id := range []string{targetID, sourceID} {
 		if _, err := tx.Exec(ctx,
-			`UPDATE activities SET parent_id = $2, is_fusion_source = TRUE WHERE id = $1`,
+			`UPDATE activities SET parent_id = $2 WHERE id = $1`,
 			id, mergedAct.ID,
 		); err != nil {
 			tx.Rollback(ctx) //nolint:errcheck
@@ -741,15 +741,14 @@ func TestFusionMerge_RevertFusion_DeletesStreams(t *testing.T) {
 		}
 	}
 
-	// Set fusion_sources so RevertFusion recognises the activity as a fusion result.
-	// Use $2::jsonb cast because fusion_sources is a JSONB column.
-	fusionSourcesJSON := fmt.Sprintf(`{"hr":"%s","power":"%s"}`, targetID, sourceID)
-	if _, err := tx.Exec(ctx,
-		`UPDATE activities SET fusion_sources = $2::jsonb WHERE id = $1`,
-		mergedAct.ID, fusionSourcesJSON,
-	); err != nil {
+	// Seed memberships so RevertFusion recognises the activity as a fusion result.
+	memberships := []database.FusionMembership{
+		{MergedID: mergedAct.ID, SourceID: targetID, FieldKey: "hr", UserID: userID},
+		{MergedID: mergedAct.ID, SourceID: sourceID, FieldKey: "power", UserID: userID},
+	}
+	if err := database.InsertFusionMemberships(ctx, tx, memberships); err != nil {
 		tx.Rollback(ctx) //nolint:errcheck
-		t.Fatalf("set fusion_sources: %v", err)
+		t.Fatalf("InsertFusionMemberships: %v", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -1005,17 +1004,17 @@ func TestFusionMerge_ProductionDataSmoke(t *testing.T) {
 	}
 }
 
-// ─── Test 9: RevertFusion atomically clears memberships (Phase 1 Dual-Write) ──
+// ─── Test 9: RevertFusion atomically clears memberships ───────────────────────
 
-// TestRevertFusionClearsMembershipsInDualWrite asserts that RevertFusion atomically
-// removes both legacy is_fusion_source + fusion_sources flags AND the corresponding
-// rows in activity_fusion_memberships. Part of Task 4b (Phase 1 Dual-Write).
+// TestRevertFusionClearsMemberships asserts that RevertFusion atomically removes
+// the activity_fusion_memberships rows and restores source parent_id to NULL.
+// Memberships are the sole source-of-truth for fusion state (Task 27).
 //
 // Fixed state:
 //   - activity_fusion_memberships rows for mergedID are gone after RevertFusion.
-//   - Source activities still exist with is_fusion_source = FALSE.
+//   - Source activities still exist with parent_id = NULL.
 //   - Merged activity no longer exists (DeleteActivity ran post-commit).
-func TestRevertFusionClearsMembershipsInDualWrite(t *testing.T) {
+func TestRevertFusionClearsMemberships(t *testing.T) {
 	pool := fusionTestPool(t)
 	ctx := context.Background()
 	db := &database.DB{Pool: pool}
@@ -1070,10 +1069,10 @@ func TestRevertFusionClearsMembershipsInDualWrite(t *testing.T) {
 		t.Fatalf("finalizeStreamsMerge: %v", err)
 	}
 
-	// Mark sources as fusion children (V1-style: parent_id + is_fusion_source).
+	// Mark sources as fusion children (V1-style: hide via parent_id).
 	for _, sid := range []string{targetID, sourceID} {
 		if _, err := tx.Exec(ctx,
-			`UPDATE activities SET parent_id = $2, is_fusion_source = TRUE WHERE id = $1`,
+			`UPDATE activities SET parent_id = $2 WHERE id = $1`,
 			sid, mergedAct.ID,
 		); err != nil {
 			tx.Rollback(ctx) //nolint:errcheck
@@ -1081,17 +1080,7 @@ func TestRevertFusionClearsMembershipsInDualWrite(t *testing.T) {
 		}
 	}
 
-	// Set fusion_sources JSON so RevertFusion recognises the merged activity.
-	fusionSourcesJSON := fmt.Sprintf(`{"hr":"%s","power":"%s"}`, targetID, sourceID)
-	if _, err := tx.Exec(ctx,
-		`UPDATE activities SET fusion_sources = $2::jsonb WHERE id = $1`,
-		mergedAct.ID, fusionSourcesJSON,
-	); err != nil {
-		tx.Rollback(ctx) //nolint:errcheck
-		t.Fatalf("set fusion_sources: %v", err)
-	}
-
-	// Write memberships (Dual-Write: memberships mirror the legacy flags).
+	// Write memberships — sole source-of-truth after dual-write removal.
 	memberships := []database.FusionMembership{
 		{MergedID: mergedAct.ID, SourceID: targetID, FieldKey: "hr", UserID: userID},
 		{MergedID: mergedAct.ID, SourceID: sourceID, FieldKey: "power", UserID: userID},
@@ -1117,16 +1106,16 @@ func TestRevertFusionClearsMembershipsInDualWrite(t *testing.T) {
 	}
 	t.Logf("Memberships before RevertFusion: %d", beforeCount)
 
-	// Pre-condition: sources have is_fusion_source = TRUE.
+	// Pre-condition: sources are hidden via parent_id.
 	for _, sid := range []string{targetID, sourceID} {
-		var isFusionSource bool
+		var parentID *string
 		if err := pool.QueryRow(ctx,
-			`SELECT is_fusion_source FROM activities WHERE id = $1`, sid,
-		).Scan(&isFusionSource); err != nil {
-			t.Fatalf("check is_fusion_source for %s: %v", sid, err)
+			`SELECT parent_id FROM activities WHERE id = $1`, sid,
+		).Scan(&parentID); err != nil {
+			t.Fatalf("check parent_id for %s: %v", sid, err)
 		}
-		if !isFusionSource {
-			t.Fatalf("source %s: expected is_fusion_source=TRUE before revert", sid)
+		if parentID == nil || *parentID != mergedAct.ID {
+			t.Fatalf("source %s: expected parent_id=%s before revert, got %v", sid, mergedAct.ID, parentID)
 		}
 	}
 
@@ -1172,35 +1161,33 @@ func TestRevertFusionClearsMembershipsInDualWrite(t *testing.T) {
 		t.Errorf("merged activity %s still exists after RevertFusion (want deleted)", mergedAct.ID)
 	}
 
-	// Post-condition: source activities still exist with is_fusion_source = FALSE.
+	// Post-condition: source activities still exist with parent_id = NULL (restored).
 	for _, sid := range []string{targetID, sourceID} {
-		var isFusionSource bool
+		var parentID *string
 		if err := pool.QueryRow(ctx,
-			`SELECT is_fusion_source FROM activities WHERE id = $1`, sid,
-		).Scan(&isFusionSource); err != nil {
-			t.Fatalf("check is_fusion_source for %s after revert: %v", sid, err)
+			`SELECT parent_id FROM activities WHERE id = $1`, sid,
+		).Scan(&parentID); err != nil {
+			t.Fatalf("check parent_id for %s after revert: %v", sid, err)
 		}
-		if isFusionSource {
-			t.Errorf("source %s: is_fusion_source=TRUE after RevertFusion (want FALSE)", sid)
+		if parentID != nil {
+			t.Errorf("source %s: parent_id=%s after RevertFusion (want NULL)", sid, *parentID)
 		}
 	}
-	t.Logf("RevertFusion: memberships=0, merged deleted, sources restored — OK")
+	t.Logf("RevertFusion: memberships=0, merged deleted, sources restored (parent_id=NULL) — OK")
 }
 
-// ─── Test N: Dual-Write Consistency ───────────────────────────────────────────
+// ─── Test N: Fusion Memberships After FusionMergeV2 ───────────────────────────
 
-// TestDualWriteConsistency verifies that after one successful FusionMerge (V2),
-// the legacy fusion_sources JSONB and the new activity_fusion_memberships rows
-// describe the same fusion semantically. Part of Phase 1 Dual-Write (Task 5).
+// TestFusionMembershipsAfterFuse verifies that after one successful FusionMerge (V2),
+// the activity_fusion_memberships rows correctly describe the fusion.
+// Memberships are the sole source-of-truth (Task 27).
 //
 // Scenario: 3 activities A, B, C — each with overlapping timestamps.
 //
 //	FieldMap: {"gps": "fuse", "hr": B, "power": C}
 //
-// Legacy world:  fusion_sources JSONB = {"gps":"fuse","hr":"<B>","power":"<C>"}
 // Memberships:   5 rows — gps×3 (fuse expands to A,B,C) + hr×1 (B) + power×1 (C)
-// Equivalence:   deriveFusionMemberships(mergedID, userID, jsonb, sources) == stored rows
-func TestDualWriteConsistency(t *testing.T) {
+func TestFusionMembershipsAfterFuse(t *testing.T) {
 	pool := fusionTestPool(t)
 	ctx := context.Background()
 	db := &database.DB{Pool: pool}
@@ -1263,45 +1250,7 @@ func TestDualWriteConsistency(t *testing.T) {
 	}
 	t.Logf("FusionMergeV2: merged activity id = %s", mergedID)
 
-	// ── 1. Legacy world: fusion_sources JSONB ────────────────────────────────
-
-	var fusionSourcesRaw []byte
-	if err := pool.QueryRow(ctx,
-		`SELECT fusion_sources FROM activities WHERE id = $1`, mergedID,
-	).Scan(&fusionSourcesRaw); err != nil {
-		t.Fatalf("read fusion_sources from activities: %v", err)
-	}
-	if fusionSourcesRaw == nil {
-		t.Fatal("fusion_sources is NULL on merged activity — legacy write broken")
-	}
-
-	var fusionSources map[string]string
-	if err := json.Unmarshal(fusionSourcesRaw, &fusionSources); err != nil {
-		t.Fatalf("unmarshal fusion_sources JSONB: %v", err)
-	}
-
-	// Must have exactly 3 keys: gps, hr, power.
-	wantKeys := []string{"gps", "hr", "power"}
-	for _, k := range wantKeys {
-		if _, ok := fusionSources[k]; !ok {
-			t.Errorf("fusion_sources JSONB missing key %q; got %v", k, fusionSources)
-		}
-	}
-	if len(fusionSources) != 3 {
-		t.Errorf("fusion_sources JSONB: want 3 keys, got %d: %v", len(fusionSources), fusionSources)
-	}
-	if fusionSources["gps"] != "fuse" {
-		t.Errorf("fusion_sources[gps]: want %q, got %q", "fuse", fusionSources["gps"])
-	}
-	if fusionSources["hr"] != actB {
-		t.Errorf("fusion_sources[hr]: want %q (actB), got %q", actB, fusionSources["hr"])
-	}
-	if fusionSources["power"] != actC {
-		t.Errorf("fusion_sources[power]: want %q (actC), got %q", actC, fusionSources["power"])
-	}
-	t.Logf("Legacy fusion_sources JSONB: %v — OK", fusionSources)
-
-	// ── 2. Memberships world: activity_fusion_memberships ────────────────────
+	// ── Memberships world: activity_fusion_memberships ────────────────────────
 
 	type memberRow struct {
 		FieldKey string
@@ -1368,13 +1317,14 @@ func TestDualWriteConsistency(t *testing.T) {
 	}
 	t.Logf("activity_fusion_memberships: 5 rows, field counts=%v — OK", countByField)
 
-	// ── 3. Semantic equivalence: derived == stored ────────────────────────────
+	// ── Semantic check: derived == stored ─────────────────────────────────────
 	//
-	// Re-derive memberships from the stored JSONB using the same logic as the
+	// Re-derive memberships from the known field_map using the same logic as the
 	// handler (deriveFusionMemberships). The result must match the stored rows.
 
+	knownFieldMap := map[string]string{"gps": "fuse", "hr": actB, "power": actC}
 	allSources := []string{actA, actB, actC}
-	derived := deriveFusionMemberships(mergedID, userID, fusionSources, allSources)
+	derived := deriveFusionMemberships(mergedID, userID, knownFieldMap, allSources)
 
 	// Build normalised sets for comparison (order-independent).
 	type memberKey struct{ Field, Source string }
@@ -1401,7 +1351,7 @@ func TestDualWriteConsistency(t *testing.T) {
 		t.Errorf("semantic mismatch: derived has %d distinct memberships, stored has %d",
 			len(derivedSet), len(storedSet))
 	}
-	t.Logf("Dual-Write semantic equivalence: derived=%d == stored=%d — OK", len(derivedSet), len(storedSet))
+	t.Logf("Memberships semantic check: derived=%d == stored=%d — OK", len(derivedSet), len(storedSet))
 }
 
 // ─── Test: Concurrent FusionMerge for the same user ──────────────────────────
