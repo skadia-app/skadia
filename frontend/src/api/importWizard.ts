@@ -120,6 +120,13 @@ export async function getFusionQueue(limit = 20): Promise<FusionQueueResponse> {
   return apiClient<FusionQueueResponse>(`/fusion-queue?limit=${limit}`)
 }
 
+export async function dismissFusionCandidate(activityIdA: string, activityIdB: string): Promise<void> {
+  return apiClient<void>('/fusion-candidates/dismiss', {
+    method: 'POST',
+    body: { activity_id_a: activityIdA, activity_id_b: activityIdB },
+  })
+}
+
 // Gear Merge API (ergänzend zu gear.ts)
 export async function getGearDuplicateCandidates(): Promise<[string, string][]> {
   return apiClient<[string, string][]>('/gear/duplicate-candidates')
