@@ -14,12 +14,16 @@ import (
 // GetFusionQueueActivities gibt Aktivitäten eines Users zurück
 // die GPS-Daten haben und noch nicht als Fusion-Quelle oder Merge-Ziel bekannt sind.
 // limit <= 0 gibt alle zurück; limit > 0 beschränkt auf die neuesten N.
+//
+// Phase 4a workshop-gate confirmed (avg 98.5% GPS overlap on group-pairs): include
+// is_group_secondary rows — they're often legitimate fusion candidates where two
+// devices recorded the same ride. User-visible outcome: group → fusion resolution
+// from the workshop queue.
 func (db *DB) GetFusionQueueActivities(ctx context.Context, userID string, limit int) ([]string, error) {
 	query := `
 		SELECT a.id
 		FROM activities a
 		WHERE a.user_id = $1
-		  AND a.is_group_secondary = FALSE
 		  AND a.has_gps = TRUE
 		  AND NOT EXISTS (
 		      SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id
