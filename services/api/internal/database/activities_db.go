@@ -1010,7 +1010,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 
 	var total int
 	if err := db.Pool.QueryRow(ctx,
-		fmt.Sprintf(`SELECT COUNT(*) FROM activities WHERE user_id = $1 AND parent_id IS NULL AND NOT is_group_secondary %s`, countFilterSQL), countArgs...,
+		fmt.Sprintf(`SELECT COUNT(*) FROM activities WHERE user_id = $1 AND parent_id IS NULL AND NOT is_group_secondary AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships WHERE source_id = activities.id) %s`, countFilterSQL), countArgs...,
 	).Scan(&total); err != nil {
 		return nil, fmt.Errorf("count activities: %w", err)
 	}
@@ -1062,6 +1062,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 					WHERE user_id = $1
 						AND parent_id IS NULL
 						AND NOT is_group_secondary
+						AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships WHERE source_id = activities.id)
 						AND (%s, activities.id) %s ($2, $3)
 						%s
 					ORDER BY %s
@@ -1084,6 +1085,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 				WHERE user_id = $1
 					AND parent_id IS NULL
 					AND NOT is_group_secondary
+					AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships WHERE source_id = activities.id)
 					AND %s IS NULL
 					AND activities.id %s $2
 					%s
@@ -1111,6 +1113,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 					WHERE user_id = $1
 						AND parent_id IS NULL
 						AND NOT is_group_secondary
+						AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships WHERE source_id = activities.id)
 						%s
 						%s
 					ORDER BY %s
@@ -1135,6 +1138,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 			WHERE user_id = $1
 			AND parent_id IS NULL
 			AND NOT is_group_secondary
+			AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships WHERE source_id = activities.id)
 			%s
 			ORDER BY %s
 			LIMIT $%d`, selectCols, filterSQL, orderClause, limitIdx)
