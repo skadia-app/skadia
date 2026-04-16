@@ -635,8 +635,8 @@ func (h *Handler) postCommitFusionCleanup(ctx context.Context, p fusionFinalizeP
 	// Rebuild track + heatmap AFTER commit — only now can db.Pool see the new
 	// merged activity and its streams. EnsureActivityTrack is used because
 	// RebuildActivityTrack only UPDATEs an existing row (which doesn't exist yet).
-	// Lade merged activity frisch, damit has_gps/exclude_from_heatmap den
-	// nach-Commit-Zustand (inkl. Fix 2 has_gps-Update) widerspiegeln.
+	// Load merged activity fresh so has_gps/exclude_from_heatmap reflect the post-commit
+	// state. freshMerged is reused by the sidecar block below.
 	freshMerged, freshErr := h.DB.GetActivity(ctx, p.merged.ID)
 	if freshErr != nil || freshMerged == nil {
 		slog.Warn("fusion-merge: reload merged activity failed, skipping track rebuild",
@@ -665,9 +665,10 @@ func (h *Handler) postCommitFusionCleanup(ctx context.Context, p fusionFinalizeP
 	// Write .meta companion for merged activity (ShadowFS).
 	// Uses GenerateMetaFusion to embed fusion lineage into the sidecar so that
 	// GDPR export/import can reconstruct memberships from the .meta file alone.
+	// Reuses freshMerged loaded above — no DB write mutates the merged activity between
+	// the track-rebuild block and here, so the same snapshot is current.
 	{
-		mergedAct, _ := h.DB.GetActivity(ctx, p.merged.ID)
-		if mergedAct != nil {
+		if mergedAct := freshMerged; mergedAct != nil {
 			memberships, _ := h.DB.GetFusionMembershipsForMerged(ctx, p.merged.ID)
 			snapshots := make([]sidecar.FusionMemberSnapshot, len(memberships))
 			for i, m := range memberships {
