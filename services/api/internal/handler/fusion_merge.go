@@ -441,7 +441,9 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 	if p.gearSource != nil {
 		if src, ok := p.activities[*p.gearSource]; ok {
 			if src.GearID != nil {
-				tx.Exec(ctx, `UPDATE activities SET gear_id = $2, has_edits = true WHERE id = $1`, p.merged.ID, src.GearID) //nolint:errcheck
+				if _, err := tx.Exec(ctx, `UPDATE activities SET gear_id = $2, has_edits = true WHERE id = $1`, p.merged.ID, src.GearID); err != nil {
+				slog.Warn("fusion-merge: gear copy failed", "merged_id", p.merged.ID, "src", src.ID, "error", err)
+			}
 			} else {
 				slog.Info("fusion-merge: gearSource has no gear_id set, merged activity retains metadata-source gear",
 					"gear_source", *p.gearSource)
@@ -952,6 +954,13 @@ func fusionMergeActivityTags(ctx context.Context, q database.Querier, targetID, 
 // activity via UPDATE instead of copying. Sources are hidden (parent_id) after merge,
 // so the photos remain accessible through the merged activity.
 func copyRelatedTablesUnion(ctx context.Context, tx database.Querier, mergedID string, sources []string, metadataSourceID string) error {
+	// Defensive: mergedID is used in SQL identifier construction (TEMP TABLE names).
+	// Validate it is a well-formed UUID before any formatting to prevent SQL injection
+	// if the call path ever changes to accept external input.
+	if _, err := uuid.Parse(mergedID); err != nil {
+		return fmt.Errorf("copyRelatedTablesUnion: mergedID not a valid UUID: %w", err)
+	}
+
 	// Photos: reassign (UPDATE activity_id) rather than copy — see strategy note above.
 	// COALESCE preserves the original source_activity_id if a photo was already reassigned
 	// during a previous fusion (transitive). RevertFusion uses source_activity_id to restore
