@@ -11,7 +11,7 @@ import { MergeComparisonTable } from '@/components/MergeComparisonTable'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 
-interface MergeDialogProps {
+interface FieldCopyDialogProps {
   activity: Activity
   onClose: () => void
 }
@@ -54,7 +54,7 @@ function calculateOverlap(target: Activity, source: Activity): string {
   return `Zeitüberlappung: ${pct}% (${mins} min)`
 }
 
-export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
+export default function FieldCopyDialog({ activity, onClose }: FieldCopyDialogProps) {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
   const { accent } = useAccentColor()
@@ -65,7 +65,7 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
 
   // Fetch recent activities as candidates
   const { data: activitiesData } = useQuery({
-    queryKey: ['activities-merge-candidates', search],
+    queryKey: ['activities-field-copy-candidates', search],
     queryFn: () => fetchActivities(undefined, 50, 'started_at', 'desc', search ? { search } : undefined),
     staleTime: 30_000,
   })
@@ -102,7 +102,7 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
 
   const mutation = useMutation({
     mutationFn: () =>
-      apiClient<Activity>(`/activities/${activity.id}/merge`, {
+      apiClient<Activity>(`/activities/${activity.id}/copy-fields`, {
         method: 'POST',
         body: {
           source_id: selectedSourceId,
@@ -112,11 +112,11 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
       queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
-      addToast({ type: 'success', title: 'Aktivitäten fusioniert', message: 'Ausgewählte Felder wurden übernommen.' })
+      addToast({ type: 'success', title: 'Felder übernommen', message: 'Ausgewählte Felder wurden übernommen.' })
       onClose()
     },
     onError: (err) => {
-      addToast({ type: 'error', title: 'Fusion fehlgeschlagen', message: String(err), duration: 0 })
+      addToast({ type: 'error', title: 'Felder übernehmen fehlgeschlagen', message: String(err), duration: 0 })
     },
   })
 
@@ -125,8 +125,8 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
 
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-4xl" className="bg-white dark:bg-neutral-950 rounded-lg shadow-lg w-[90vw] max-h-[90vh] overflow-auto">
-        <h2 id="merge-dialog-title" className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">
-          Aktivitäten fusionieren
+        <h2 id="field-copy-dialog-title" className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">
+          Felder übernehmen
         </h2>
         <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
           Felder aus einer Quell-Aktivität in diese Aktivität übernehmen.
@@ -189,12 +189,12 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
             {/* Warning */}
             {selectedSourceId && (
               <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                Die Quell-Aktivität wird als Fusionsquelle markiert und aus der normalen Liste ausgeblendet.
+                Die Quell-Aktivität wird als Feld-Kopie-Quelle markiert und aus der normalen Liste ausgeblendet.
               </p>
             )}
             {selectedFields.includes('gps') && (
               <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                GPS-Merge überschreibt die Koordinaten im Überlappungszeitraum.
+                GPS-Felder überschreiben die Koordinaten im Überlappungszeitraum.
                 Track und Heatmap werden automatisch neu berechnet.
               </p>
             )}
@@ -229,7 +229,7 @@ export default function MergeDialog({ activity, onClose }: MergeDialogProps) {
             className="cursor-pointer px-4 py-2 rounded-md text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
             style={{ backgroundColor: accent.shade500 }}
           >
-            {mutation.isPending ? 'Wird fusioniert…' : 'Fusionieren'}
+            {mutation.isPending ? 'Wird übernommen…' : 'Übernehmen'}
           </button>
         </div>
     </ModalShell>
