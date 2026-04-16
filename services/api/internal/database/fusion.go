@@ -64,6 +64,11 @@ func (db *DB) GetFusionQueueActivities(ctx context.Context, userID string, limit
 // auf verschiedenen Geräten mit unterschiedlichem Sport-Typ geloggt werden kann
 // (z.B. Wanderung als "cycling" auf Radcomputer + "hiking" auf GPS-Gerät).
 // Gibt IDs von Kandidaten zurück (max. 10).
+//
+// Phase 4a workshop-gate confirmed (avg 98.5% GPS overlap, fraction 1.00) —
+// group secondaries are legitimate fusion candidates (same ride, second device).
+// is_group_secondary=FALSE filter removed here to keep Tier-2 import matching
+// aligned with the workshop queue (GetFusionQueueActivities, Task 41).
 func (db *DB) FindFusionCandidates(ctx context.Context, userID string, activityID string, timeWindowMin int) ([]string, error) {
 	if timeWindowMin <= 0 {
 		timeWindowMin = 30
@@ -73,7 +78,7 @@ func (db *DB) FindFusionCandidates(ctx context.Context, userID string, activityI
         SELECT b.id FROM activities a
         JOIN activities b ON b.user_id = a.user_id
             AND b.id != a.id
-            AND b.is_group_secondary = FALSE
+            -- is_group_secondary filter removed Phase 4a gate
             AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = b.id)
             AND (
                 -- Zeitlicher Overlap: Aktivitäten überschneiden sich
