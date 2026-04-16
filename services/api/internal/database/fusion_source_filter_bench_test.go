@@ -1,5 +1,11 @@
 //go:build integration
 
+// fusion_source_filter_bench_test.go compares membership-absence query shapes
+// (NOT EXISTS vs LEFT JOIN IS NULL) at 1k/5k/10k fixture sizes. Variant A
+// (legacy is_fusion_source column check) was removed after migration 000304
+// dropped the column — the historical Appendix A result ("NOT EXISTS chosen,
+// within 10% of column-check") remains in the design spec for context.
+
 package database
 
 import (
@@ -65,15 +71,15 @@ func (f *fusionFixture) cleanup() {
 }
 
 // seedFusionFixture inserts n activities for a fresh user.
-// ~10% of them (ceil(n/10)) are fusion sources: is_fusion_source=TRUE plus a
-// matching row in activity_fusion_memberships.  For each source activity Src,
-// a distinct "merged" activity Mrg (also belonging to the same user) is chosen
-// as merged_id — the merged_id activities are NOT marked as sources.
+// ~10% of them (ceil(n/10)) are fusion sources: each gets a matching row in
+// activity_fusion_memberships. For each source activity Src, a distinct
+// "merged" activity Mrg (also belonging to the same user) is chosen as
+// merged_id — the merged_id activities are NOT themselves sources.
 //
-// Consistency guarantee: every is_fusion_source=TRUE row has exactly one
-// membership row, and no membership row points at a non-source activity.
-// Variants A (column) and B/C (memberships) must therefore return the same
-// set of non-source activity IDs.
+// Consistency guarantee: every source activity has exactly one membership row,
+// and no membership row points at a non-source activity.
+// Variants B/C (memberships-based absence queries) must therefore return the
+// same set of non-source activity IDs.
 func seedFusionFixture(b *testing.B, ctx context.Context, pool *pgxpool.Pool, n int) fusionFixture {
 	b.Helper()
 
@@ -82,8 +88,8 @@ func seedFusionFixture(b *testing.B, ctx context.Context, pool *pgxpool.Pool, n 
 
 	suffix := fmt.Sprintf("%d-%s", time.Now().UnixNano(), uuid.New().String()[:8])
 	insertAct := `INSERT INTO activities
-	              (id, user_id, sport_type, title, started_at, file_hash, visibility, enrichment_status, is_fusion_source)
-	              VALUES ($1, $2, 'running', $3, $4, $5, 'private', 'complete', $6)`
+	              (id, user_id, sport_type, title, started_at, file_hash, visibility, enrichment_status)
+	              VALUES ($1, $2, 'running', $3, $4, $5, 'private', 'complete')`
 
 	ids := make([]string, n)
 	for i := 0; i < n; i++ {
@@ -104,14 +110,12 @@ func seedFusionFixture(b *testing.B, ctx context.Context, pool *pgxpool.Pool, n 
 
 	t0 := time.Now().UTC()
 	for i, id := range ids {
-		isFusionSource := i < numSources
 		ts := t0.Add(time.Duration(i) * time.Second)
 		if _, err := pool.Exec(ctx, insertAct,
 			id, userID,
 			fmt.Sprintf("bench-act-%d-%s", i, suffix),
 			ts,
 			fmt.Sprintf("bench-hash-%d-%s", i, suffix),
-			isFusionSource,
 		); err != nil {
 			fix.cleanup()
 			b.Fatalf("seedFusionFixture: insert activity %d: %v", i, err)
@@ -131,19 +135,8 @@ func seedFusionFixture(b *testing.B, ctx context.Context, pool *pgxpool.Pool, n 
 		}
 	}
 
-	// Sanity-check: Variant A count == Variant B count == Variant C count.
-	// (n - numSources) activities have is_fusion_source=FALSE.
-	// The merged activities at the tail are also non-source (is_fusion_source=FALSE),
-	// so Variant A returns n-numSources rows.
-	// Variants B/C should return the same.
-	var countA, countB, countC int
-	if err := pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM activities
-		 WHERE is_fusion_source = FALSE AND user_id = $1`, userID,
-	).Scan(&countA); err != nil {
-		fix.cleanup()
-		b.Fatalf("seedFusionFixture: countA: %v", err)
-	}
+	// Sanity-check: Variants B and C must agree on the count of non-source activities.
+	var countB, countC int
 	if err := pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM activities a
 		 WHERE a.user_id = $1
@@ -163,10 +156,10 @@ func seedFusionFixture(b *testing.B, ctx context.Context, pool *pgxpool.Pool, n 
 		b.Fatalf("seedFusionFixture: countC: %v", err)
 	}
 
-	if countA != countB || countB != countC {
+	if countB != countC {
 		fix.cleanup()
-		b.Fatalf("seedFusionFixture: inconsistent row counts: A=%d B=%d C=%d (n=%d, numSources=%d)",
-			countA, countB, countC, n, numSources)
+		b.Fatalf("seedFusionFixture: inconsistent row counts: B=%d C=%d (n=%d, numSources=%d)",
+			countB, countC, n, numSources)
 	}
 
 	return fix
@@ -185,19 +178,6 @@ func drainRows(b *testing.B, rows interface{ Next() bool; Err() error; Close() }
 		b.Fatalf("drainRows: %v", err)
 	}
 	_ = scanned
-}
-
-// runVariantA executes the legacy column-check query and drains all rows.
-func runVariantA(b *testing.B, ctx context.Context, pool *pgxpool.Pool, userID string) {
-	b.Helper()
-	rows, err := pool.Query(ctx,
-		`SELECT id FROM activities WHERE is_fusion_source = FALSE AND user_id = $1`,
-		userID,
-	)
-	if err != nil {
-		b.Fatalf("variantA: %v", err)
-	}
-	drainRows(b, rows)
 }
 
 // runVariantB executes the NOT EXISTS sub-select query and drains all rows.
@@ -234,19 +214,6 @@ func runVariantC(b *testing.B, ctx context.Context, pool *pgxpool.Pool, userID s
 
 // --- 1k benchmarks ---
 
-func BenchmarkFusionSourceFilter_ColumnCheck_1k(b *testing.B) {
-	ctx := context.Background()
-	pool := benchFusionPool(b)
-	b.StopTimer()
-	fix := seedFusionFixture(b, ctx, pool, 1000)
-	b.Cleanup(fix.cleanup)
-	b.ResetTimer()
-	b.StartTimer()
-	for i := 0; i < b.N; i++ {
-		runVariantA(b, ctx, pool, fix.userID)
-	}
-}
-
 func BenchmarkFusionSourceFilter_NotExists_1k(b *testing.B) {
 	ctx := context.Background()
 	pool := benchFusionPool(b)
@@ -275,19 +242,6 @@ func BenchmarkFusionSourceFilter_LeftJoin_1k(b *testing.B) {
 
 // --- 5k benchmarks ---
 
-func BenchmarkFusionSourceFilter_ColumnCheck_5k(b *testing.B) {
-	ctx := context.Background()
-	pool := benchFusionPool(b)
-	b.StopTimer()
-	fix := seedFusionFixture(b, ctx, pool, 5000)
-	b.Cleanup(fix.cleanup)
-	b.ResetTimer()
-	b.StartTimer()
-	for i := 0; i < b.N; i++ {
-		runVariantA(b, ctx, pool, fix.userID)
-	}
-}
-
 func BenchmarkFusionSourceFilter_NotExists_5k(b *testing.B) {
 	ctx := context.Background()
 	pool := benchFusionPool(b)
@@ -315,19 +269,6 @@ func BenchmarkFusionSourceFilter_LeftJoin_5k(b *testing.B) {
 }
 
 // --- 10k benchmarks (gate) ---
-
-func BenchmarkFusionSourceFilter_ColumnCheck_10k(b *testing.B) {
-	ctx := context.Background()
-	pool := benchFusionPool(b)
-	b.StopTimer()
-	fix := seedFusionFixture(b, ctx, pool, 10000)
-	b.Cleanup(fix.cleanup)
-	b.ResetTimer()
-	b.StartTimer()
-	for i := 0; i < b.N; i++ {
-		runVariantA(b, ctx, pool, fix.userID)
-	}
-}
 
 func BenchmarkFusionSourceFilter_NotExists_10k(b *testing.B) {
 	ctx := context.Background()
