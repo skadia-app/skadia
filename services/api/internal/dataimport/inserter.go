@@ -472,7 +472,8 @@ func (e *Engine) doInsert(
 		strings.Join(valParts, ", "),
 	)
 
-	if isHealthTable(spec.Name) {
+	ignoreConflicts := isHealthTable(spec.Name) || spec.IgnoreConflicts
+	if ignoreConflicts {
 		query += " ON CONFLICT DO NOTHING"
 	}
 
@@ -480,7 +481,7 @@ func (e *Engine) doInsert(
 	if err != nil {
 		return failed, fmt.Errorf("doInsert %s: %w", spec.Name, err)
 	}
-	if isHealthTable(spec.Name) && tag.RowsAffected() == 0 {
+	if ignoreConflicts && tag.RowsAffected() == 0 {
 		return skipped, nil
 	}
 	return inserted, nil

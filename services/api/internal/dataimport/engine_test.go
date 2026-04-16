@@ -155,6 +155,26 @@ func (m *mockShadowFS) GetCompanion(_ context.Context, _, _, _ string) ([]byte, 
 	return nil, nil
 }
 
+func (m *mockShadowFS) PutCompanionAt(_ context.Context, path string, data []byte) error {
+	m.mu.Lock()
+	m.files[path] = data
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *mockShadowFS) GetCompanionAt(_ context.Context, path string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if d, ok := m.files[path]; ok {
+		return d, nil
+	}
+	return nil, shadowfs.ErrNotFound
+}
+
+func (m *mockShadowFS) DeleteCompanionAt(_ context.Context, _ string) error {
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // buildExportZip
 // ---------------------------------------------------------------------------
