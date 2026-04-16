@@ -672,12 +672,21 @@ func (h *Handler) postCommitFusionCleanup(ctx context.Context, p fusionFinalizeP
 	{
 		if mergedAct := freshMerged; mergedAct != nil {
 			memberships, _ := h.DB.GetFusionMembershipsForMerged(ctx, p.merged.ID)
+			// Batch-load titles for all source IDs in one query.
+			sourceIDs := make([]string, len(memberships))
+			for i, m := range memberships {
+				sourceIDs[i] = m.SourceID
+			}
+			titles, err := h.DB.GetActivityTitles(ctx, sourceIDs)
+			if err != nil {
+				slog.Warn("post-commit: failed to batch-load source titles", "error", err)
+				titles = map[string]string{} // fall back to empty titles
+			}
 			snapshots := make([]sidecar.FusionMemberSnapshot, len(memberships))
 			for i, m := range memberships {
-				title, _ := h.DB.GetActivityTitle(ctx, m.SourceID)
 				snapshots[i] = sidecar.FusionMemberSnapshot{
 					SourceID:    m.SourceID,
-					SourceTitle: title,
+					SourceTitle: titles[m.SourceID], // "" if missing — not fatal
 					FieldKey:    m.FieldKey,
 				}
 			}
@@ -1059,6 +1068,15 @@ func copyRelatedTableUnion(ctx context.Context, tx database.Querier, mergedID st
 // copyRelatedTableSingle is the single-source variant of copyRelatedTableUnion.
 // Used for metadata-source-wins tables where only one source's rows should seed the merged activity.
 func copyRelatedTableSingle(ctx context.Context, tx database.Querier, mergedID string, sourceID string, tableName string, onConflictClause string) error {
+	// Defensive: both IDs are interpolated into SQL identifier strings via fmt.Sprintf.
+	// Validate they are well-formed UUIDs to prevent SQL injection if the call path
+	// ever changes to accept external input.
+	if _, err := uuid.Parse(mergedID); err != nil {
+		return fmt.Errorf("copyRelatedTableSingle: mergedID not a valid UUID: %w", err)
+	}
+	if _, err := uuid.Parse(sourceID); err != nil {
+		return fmt.Errorf("copyRelatedTableSingle: sourceID not a valid UUID: %w", err)
+	}
 	tempName := fmt.Sprintf("tmp_single_%s_%s", tableName, strings.ReplaceAll(mergedID, "-", ""))
 
 	if _, err := tx.Exec(ctx, fmt.Sprintf(

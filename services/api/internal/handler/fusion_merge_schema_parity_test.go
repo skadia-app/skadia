@@ -1,8 +1,8 @@
 package handler
 
-// fusion_merge_schema_parity_test.go — CI guard for hasOwnUUIDPK switch.
+// fusion_merge_schema_parity_test.go — CI guard for relatedTableHasOwnUUIDPK switch.
 //
-// hasOwnUUIDPK (in fusion_merge.go) hard-codes a set of related tables whose
+// relatedTableHasOwnUUIDPK (in fusion_merge.go) hard-codes a set of related tables whose
 // primary key is their own UUID "id" column — as opposed to tables whose PK is
 // the foreign-key activity_id. copyRelatedTablesUnion uses this flag to decide
 // whether to re-roll a new UUID for copied rows.
@@ -13,7 +13,7 @@ package handler
 //
 // This test catches drift: it queries the live schema to determine whether
 // each related table has an "id" column that is part of the primary key, then
-// compares the result against hasOwnUUIDPK.
+// compares the result against relatedTableHasOwnUUIDPK.
 //
 // Requires TEST_DATABASE_URL; skipped when the env var is unset.
 
@@ -22,7 +22,7 @@ import (
 	"testing"
 )
 
-// TestHasOwnUUIDPK_MatchesRealSchema verifies that the hasOwnUUIDPK switch
+// TestHasOwnUUIDPK_MatchesRealSchema verifies that the relatedTableHasOwnUUIDPK switch
 // agrees with the live database schema for every Phase 4b related table.
 func TestHasOwnUUIDPK_MatchesRealSchema(t *testing.T) {
 	pool := fusionTestPool(t)
@@ -67,15 +67,15 @@ func TestHasOwnUUIDPK_MatchesRealSchema(t *testing.T) {
 				t.Fatalf("schema query for %s: %v", table, err)
 			}
 
-			expected := hasOwnUUIDPK(table)
+			expected := relatedTableHasOwnUUIDPK(table)
 			if idIsPK != expected {
 				t.Errorf(
-					"%s: hasOwnUUIDPK=%v but schema says id-is-PK=%v — "+
-						"switch is out of sync with the real schema; update hasOwnUUIDPK in fusion_merge.go",
+					"%s: relatedTableHasOwnUUIDPK=%v but schema says id-is-PK=%v — "+
+						"switch is out of sync with the real schema; update relatedTableHasOwnUUIDPK in fusion_merge.go",
 					table, expected, idIsPK,
 				)
 			} else {
-				t.Logf("%s: hasOwnUUIDPK=%v — matches schema", table, expected)
+				t.Logf("%s: relatedTableHasOwnUUIDPK=%v — matches schema", table, expected)
 			}
 		})
 	}
