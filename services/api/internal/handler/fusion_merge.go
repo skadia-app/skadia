@@ -442,8 +442,8 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 		if src, ok := p.activities[*p.gearSource]; ok {
 			if src.GearID != nil {
 				if _, err := tx.Exec(ctx, `UPDATE activities SET gear_id = $2, has_edits = true WHERE id = $1`, p.merged.ID, src.GearID); err != nil {
-				slog.Warn("fusion-merge: gear copy failed", "merged_id", p.merged.ID, "src", src.ID, "error", err)
-			}
+					slog.Warn("fusion-merge: gear copy failed", "merged_id", p.merged.ID, "src", src.ID, "error", err)
+				}
 			} else {
 				slog.Info("fusion-merge: gearSource has no gear_id set, merged activity retains metadata-source gear",
 					"gear_source", *p.gearSource)
@@ -1134,11 +1134,16 @@ func copyRelatedTableSingle(ctx context.Context, tx database.Querier, mergedID s
 // return false — activity_id rewrite alone suffices.
 func relatedTableHasOwnUUIDPK(table string) bool {
 	switch table {
-	case "activity_photos":            return true  // PK: id UUID
-	case "activity_geo_tags":          return true  // PK: id UUID
-	case "activity_privacy_sections":  return true  // PK: id UUID
-	case "activity_developer_apps":    return true  // id UUID (unique idx), PK (activity_id, application_id)
-	default:                           return false // compound PK, no standalone id
+	case "activity_photos":
+		return true // PK: id UUID
+	case "activity_geo_tags":
+		return true // PK: id UUID
+	case "activity_privacy_sections":
+		return true // PK: id UUID
+	case "activity_developer_apps":
+		return true // id UUID (unique idx), PK (activity_id, application_id)
+	default:
+		return false // compound PK, no standalone id
 	}
 }
 
@@ -1699,8 +1704,8 @@ func applyFusionMetadataOverrides(
 // FusionMergeRequestV2 describes the body for POST /api/v1/fusion-merge (no target).
 // All sources are equal — the unified timeline is built from ALL timestamps.
 type FusionMergeRequestV2 struct {
-	Sources         []string          `json:"sources"`            // all equal, min 2, max 6
-	FieldMap        map[string]string `json:"field_map"`          // "hr" → "uuid-B", "gps" → "fuse"
+	Sources         []string          `json:"sources"`   // all equal, min 2, max 6
+	FieldMap        map[string]string `json:"field_map"` // "hr" → "uuid-B", "gps" → "fuse"
 	GPSFusionConfig *GPSFusionConfig  `json:"gps_fusion_config,omitempty"`
 	TitleSource     *string           `json:"title_source,omitempty"`
 	TagsMerge       bool              `json:"tags_merge"`
