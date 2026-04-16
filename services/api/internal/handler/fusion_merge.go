@@ -588,6 +588,19 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 		slog.Warn("fusion-merge: aggregate recompute from streams failed", "error", err)
 	}
 
+	// Step 7c: Phase 4b — union-copy related tables (photos, geo_tags, privacy_sections,
+	// tag_removals, developer_apps, best_effort_exclusions) from all sources into merged.
+	// Must run AFTER the merged activity row exists and streams are written so FK constraints hold.
+	// Runs inside the same TX to keep atomicity.
+	if err := copyRelatedTablesUnion(ctx, tx, p.merged.ID, p.allSourceIDs, p.metadataSourceID); err != nil {
+		slog.Warn("fusion-merge: related-tables union-copy failed", "merged_id", p.merged.ID, "error", err)
+		// Non-fatal: merged activity is still valid without related tables.
+		// Log and continue rather than aborting the transaction.
+	}
+
+	// TODO(phase-5): extract a per-activity segment_efforts recomputer and call it
+	// here. Currently segment-matches land on next user-triggered segment recompute.
+
 	// Audit log (inside transaction).
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO activity_edits (activity_id, user_id, edit_type, edit_data)
@@ -882,6 +895,173 @@ func fusionMergeActivityTags(ctx context.Context, q database.Querier, targetID, 
 		WHERE a.id = $1`, targetID,
 	)
 	return nil
+}
+
+// ─── Phase 4b: Related-Tables Union-Copy ──────────────────────────────────────
+//
+// copyRelatedTablesUnion union-copies all Phase 4b related tables from source activities
+// into the merged activity inside the same transaction. Must be called while the merged
+// activity row already exists (FK constraint on activity_id).
+//
+// Table strategies:
+//   - activity_photos            → reassign (UPDATE activity_id to mergedID); see note below
+//   - activity_geo_tags          → union, dedup by (activity_id, osm_id) WHERE osm_id IS NOT NULL
+//   - activity_privacy_sections  → union, no dedup (duplicates harmless for privacy masking)
+//   - activity_tag_removals      → union, dedup by PK (activity_id, tag_id)
+//   - activity_developer_apps    → metadata-source-wins, then union fallback
+//   - best_effort_exclusions     → metadata-source-wins only (user preference, not union)
+//
+// Photos strategy note: activity_photos has a user-level unique constraint on
+// (user_id, file_hash) WHERE file_hash IS NOT NULL. This prevents INSERT-based
+// copying because the source rows (with the same user_id + file_hash) already
+// occupy the unique slot. We therefore reassign the existing photo rows to the merged
+// activity via UPDATE instead of copying. Sources are hidden (parent_id) after merge,
+// so the photos remain accessible through the merged activity.
+func copyRelatedTablesUnion(ctx context.Context, tx database.Querier, mergedID string, sources []string, metadataSourceID string) error {
+	// Photos: reassign (UPDATE activity_id) rather than copy — see strategy note above.
+	if _, err := tx.Exec(ctx,
+		`UPDATE activity_photos SET activity_id = $1 WHERE activity_id = ANY($2)`,
+		mergedID, sources,
+	); err != nil {
+		return fmt.Errorf("activity_photos reassign: %w", err)
+	}
+	if err := copyRelatedTableUnion(ctx, tx, mergedID, sources, "activity_geo_tags",
+		`ON CONFLICT (activity_id, osm_id) WHERE osm_id IS NOT NULL DO NOTHING`); err != nil {
+		return fmt.Errorf("activity_geo_tags: %w", err)
+	}
+	if err := copyRelatedTableUnion(ctx, tx, mergedID, sources, "activity_privacy_sections",
+		``); err != nil {
+		return fmt.Errorf("activity_privacy_sections: %w", err)
+	}
+	if err := copyRelatedTableUnion(ctx, tx, mergedID, sources, "activity_tag_removals",
+		`ON CONFLICT (activity_id, tag_id) DO NOTHING`); err != nil {
+		return fmt.Errorf("activity_tag_removals: %w", err)
+	}
+
+	// Metadata-source-wins tables: seed from metadataSource first, then union remainder.
+	// The first INSERT claims all rows that might conflict; subsequent union INSERT DO NOTHINGs.
+	if err := copyRelatedTableSingle(ctx, tx, mergedID, metadataSourceID, "activity_developer_apps",
+		`ON CONFLICT (activity_id, application_id) DO NOTHING`); err != nil {
+		return fmt.Errorf("activity_developer_apps (metadata-source seed): %w", err)
+	}
+	if err := copyRelatedTableUnion(ctx, tx, mergedID, sources, "activity_developer_apps",
+		`ON CONFLICT (activity_id, application_id) DO NOTHING`); err != nil {
+		return fmt.Errorf("activity_developer_apps (union fallback): %w", err)
+	}
+
+	// best_effort_exclusions: metadata-source-wins only — user explicitly excluded an effort
+	// from that source; don't blindly import exclusions from other sources.
+	if err := copyRelatedTableSingle(ctx, tx, mergedID, metadataSourceID, "best_effort_exclusions",
+		`ON CONFLICT DO NOTHING`); err != nil {
+		return fmt.Errorf("best_effort_exclusions: %w", err)
+	}
+
+	return nil
+}
+
+// copyRelatedTableUnion copies rows from all source activities into mergedID using a
+// TEMP TABLE as staging area. The temp table is session-scoped and dropped ON COMMIT.
+// The UUID suffix derived from mergedID ensures no collision across parallel merge TXs.
+//
+// Steps:
+//  1. CREATE TEMP TABLE (LIKE source INCLUDING ...) — schema-drift safe.
+//  2. INSERT INTO temp from all sources (WHERE activity_id = ANY($sources)).
+//  3. UPDATE temp SET activity_id = mergedID, id = gen_random_uuid() (when table has own UUID PK).
+//  4. INSERT INTO target from temp with the provided ON CONFLICT clause.
+func copyRelatedTableUnion(ctx context.Context, tx database.Querier, mergedID string, sources []string, tableName string, onConflictClause string) error {
+	tempName := fmt.Sprintf("tmp_merge_%s_%s", tableName, strings.ReplaceAll(mergedID, "-", ""))
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(
+		`CREATE TEMP TABLE %s (LIKE %s INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING GENERATED) ON COMMIT DROP`,
+		tempName, tableName,
+	)); err != nil {
+		return fmt.Errorf("create temp %s: %w", tempName, err)
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(
+		`INSERT INTO %s SELECT * FROM %s WHERE activity_id = ANY($1)`,
+		tempName, tableName,
+	), sources); err != nil {
+		return fmt.Errorf("copy sources to %s: %w", tempName, err)
+	}
+
+	if relatedTableHasOwnUUIDPK(tableName) {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(
+			`UPDATE %s SET activity_id = $1, id = gen_random_uuid()`, tempName),
+			mergedID); err != nil {
+			return fmt.Errorf("rewrite activity_id+id on %s: %w", tempName, err)
+		}
+	} else {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(
+			`UPDATE %s SET activity_id = $1`, tempName),
+			mergedID); err != nil {
+			return fmt.Errorf("rewrite activity_id on %s: %w", tempName, err)
+		}
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(
+		`INSERT INTO %s SELECT * FROM %s %s`, tableName, tempName, onConflictClause,
+	)); err != nil {
+		return fmt.Errorf("insert %s from temp: %w", tableName, err)
+	}
+	return nil
+}
+
+// copyRelatedTableSingle is the single-source variant of copyRelatedTableUnion.
+// Used for metadata-source-wins tables where only one source's rows should seed the merged activity.
+func copyRelatedTableSingle(ctx context.Context, tx database.Querier, mergedID string, sourceID string, tableName string, onConflictClause string) error {
+	tempName := fmt.Sprintf("tmp_single_%s_%s", tableName, strings.ReplaceAll(mergedID, "-", ""))
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(
+		`CREATE TEMP TABLE %s (LIKE %s INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING GENERATED) ON COMMIT DROP`,
+		tempName, tableName,
+	)); err != nil {
+		return fmt.Errorf("create temp %s: %w", tempName, err)
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(
+		`INSERT INTO %s SELECT * FROM %s WHERE activity_id = $1`,
+		tempName, tableName,
+	), sourceID); err != nil {
+		return fmt.Errorf("copy source to %s: %w", tempName, err)
+	}
+
+	if relatedTableHasOwnUUIDPK(tableName) {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(
+			`UPDATE %s SET activity_id = $1, id = gen_random_uuid()`, tempName),
+			mergedID); err != nil {
+			return fmt.Errorf("rewrite activity_id+id on %s: %w", tempName, err)
+		}
+	} else {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(
+			`UPDATE %s SET activity_id = $1`, tempName),
+			mergedID); err != nil {
+			return fmt.Errorf("rewrite activity_id on %s: %w", tempName, err)
+		}
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(
+		`INSERT INTO %s SELECT * FROM %s %s`, tableName, tempName, onConflictClause,
+	)); err != nil {
+		return fmt.Errorf("insert %s from temp (single): %w", tableName, err)
+	}
+	return nil
+}
+
+// relatedTableHasOwnUUIDPK returns true when a Phase 4b related table has a standalone
+// UUID `id` column that must be re-rolled during the TEMP-pattern INSERT to prevent
+// PK or unique-constraint collisions on the target table.
+//
+// Tables with compound PKs (activity_id, other_col) and NO separate id column
+// return false — activity_id rewrite alone suffices.
+func relatedTableHasOwnUUIDPK(table string) bool {
+	switch table {
+	case "activity_photos":            return true  // PK: id UUID
+	case "activity_geo_tags":          return true  // PK: id UUID
+	case "activity_privacy_sections":  return true  // PK: id UUID
+	case "activity_developer_apps":    return true  // id UUID (unique idx), PK (activity_id, application_id)
+	default:                           return false // compound PK, no standalone id
+	}
 }
 
 // fitLevelMerge lädt die Original-FIT-Dateien (via ShadowFS oder S3-Fallback),
