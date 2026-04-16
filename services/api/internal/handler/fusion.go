@@ -5,44 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 )
-
-// SetActivityFusion godoc
-// POST /api/v1/activities/{id}/fusion
-// Body: {"gps": "uuid-A", "hr": "uuid-B", ...}
-func (h *Handler) SetActivityFusion(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httputil.RequireUserID(w, r)
-	if !ok {
-		return
-	}
-	activityID := chi.URLParam(r, "id")
-
-	sources, ok := httputil.DecodeJSON[database.FusionSources](w, r)
-	if !ok {
-		return
-	}
-
-	// Mark all referenced source activities as fusion sources so they are
-	// hidden from the normal activity list.
-	for _, srcID := range sources {
-		if srcID != activityID {
-			if err := h.DB.MarkAsFusionSource(r.Context(), srcID); err != nil {
-				slog.Warn("mark fusion source failed", "src_id", srcID, "error", err)
-			}
-		}
-	}
-
-	if err := h.DB.SetFusionSources(r.Context(), activityID, userID, sources); err != nil {
-		slog.Error("set fusion sources", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to set fusion sources", r.URL.Path)
-		return
-	}
-
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
 
 // FusionCandidate beschreibt eine Aktivität die als Fusionsquelle in Frage kommt.
 type FusionCandidate struct {

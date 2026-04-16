@@ -71,15 +71,6 @@ export async function updateImportSettings(s: ImportSettings): Promise<ImportSet
 }
 
 // Fusion API
-export interface FusionSources {
-  gps?: string
-  hr?: string
-  power?: string
-  cadence?: string
-  temperature?: string
-  metadata?: string
-}
-
 export interface FusionCandidate {
   id: string
   title: string
@@ -90,13 +81,6 @@ export interface FusionCandidate {
 
 export async function getFusionCandidates(activityId: string): Promise<FusionCandidate[]> {
   return apiClient<FusionCandidate[]>(`/activities/${activityId}/fusion-candidates`)
-}
-
-export async function setActivityFusion(activityId: string, sources: FusionSources): Promise<void> {
-  return apiClient<void>(`/activities/${activityId}/fusion`, {
-    method: 'POST',
-    body: sources,
-  })
 }
 
 // Fusion Queue (Tier-2 GPS-Similarity)

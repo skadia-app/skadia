@@ -1087,7 +1087,6 @@ func main() {
 			r.Get("/activities/{id}/climb-pro", h.GetClimbProEvents)
 			r.Get("/activities/{id}/intervals", h.GetActivityIntervals)
 			r.Get("/activities/{id}/export", h.ExportActivity)
-			r.Post("/activities/{id}/fusion", h.SetActivityFusion)
 			r.Get("/activities/{id}/fusion-candidates", h.GetFusionCandidates)
 			r.Get("/activities/{id}/zone-distribution", h.GetZoneDistribution)
 			r.Get("/activities/{id}/children", h.GetChildActivities)
