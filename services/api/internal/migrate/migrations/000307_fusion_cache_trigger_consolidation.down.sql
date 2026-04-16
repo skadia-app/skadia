@@ -2,6 +2,7 @@
 -- NOTE: the function body below was identical to invalidate_fusion_cache at the time
 -- of mig 000307. If invalidate_fusion_cache has since drifted, this rollback will no
 -- longer perfectly reverse the consolidation — intentional, documented in ADR.
+-- See ADR: docs/internal/2026-04-16-adr-fusion-cache-trigger-consolidation.md
 BEGIN;
 
 CREATE OR REPLACE FUNCTION fn_bump_fusion_cache_seq() RETURNS trigger AS $$
