@@ -49,10 +49,11 @@ func WriteMetaCompanion(
 // has a fully-populated MetaFile (e.g. fusion activities built via
 // GenerateMetaFusion). It resolves the write target based on fileID:
 //
-//   - fileID != nil && non-empty → writes via PutCompanion (file_id-based path)
+//   - fileID != nil && non-empty → writes via PutCompanion (file_id-based path,
+//     sets has_sidecar=true on the user_files row).
 //   - fileID == nil or empty    → fusion/manual-entry without a source file;
-//     the sidecar write is skipped here and will be wired by Task 35 once
-//     ShadowFS gains direct-path write support for file-less activities.
+//     writes via PutCompanionAt to the path-only key
+//     "{user_id}/activity-{activity_id}.meta" (no user_files row involved).
 //
 // Best-effort: never returns an error, never blocks the caller.
 func WriteMetaCompanionFor(
@@ -66,15 +67,39 @@ func WriteMetaCompanionFor(
 	if fs == nil || meta == nil {
 		return
 	}
-	if fileID == nil || *fileID == "" {
-		// No source-file sidecar path available yet. Task 35 will add
-		// direct-path write support for fusion activities.
-		slog.Debug("sidecar: WriteMetaCompanionFor skipped — no file_id (fusion/manual-entry)",
-			"activity_id", activityID,
-			"logical_key", MetaPath(userID, activityID, nil))
+
+	if fileID != nil && *fileID != "" {
+		// Regular activity: go through PutCompanion so user_files gets the row.
+		writeMetaToCompanion(ctx, fs, db, userID, activityID, *fileID, meta)
 		return
 	}
-	writeMetaToCompanion(ctx, fs, db, userID, activityID, *fileID, meta)
+
+	// Fusion / manual-entry — path-only write via PutCompanionAt.
+	// Enrich GearName snapshot the same way writeMetaToCompanion does.
+	if meta.GearID != "" && db != nil {
+		var gearName string
+		if err := db.Pool.QueryRow(ctx,
+			`SELECT name FROM gear WHERE id = $1`, meta.GearID,
+		).Scan(&gearName); err == nil {
+			meta.GearName = gearName
+		}
+	}
+
+	metaBytes, err := meta.Marshal()
+	if err != nil {
+		slog.Warn("sidecar: WriteMetaCompanionFor marshal failed",
+			"activity_id", activityID, "error", err)
+		return
+	}
+	if metaBytes == nil {
+		return
+	}
+
+	logicalPath := MetaPath(userID, activityID, nil)
+	if err := fs.PutCompanionAt(ctx, logicalPath, metaBytes); err != nil {
+		slog.Warn("sidecar: WriteMetaCompanionFor PutCompanionAt failed",
+			"activity_id", activityID, "path", logicalPath, "error", err)
+	}
 }
 
 // writeMetaToCompanion is the shared write path for both WriteMetaCompanion and
