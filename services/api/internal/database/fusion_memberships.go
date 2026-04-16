@@ -236,6 +236,30 @@ func (db *DB) GetActivityTitle(ctx context.Context, activityID string) (string, 
 	return title, err
 }
 
+// GetActivityTitles returns a map of activity_id -> title for the given IDs.
+// Missing IDs are absent from the returned map (not an error).
+// Used by postCommitFusionCleanup to batch-load source titles in one query.
+func (db *DB) GetActivityTitles(ctx context.Context, ids []string) (map[string]string, error) {
+	if len(ids) == 0 {
+		return map[string]string{}, nil
+	}
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, COALESCE(title, '') FROM activities WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]string, len(ids))
+	for rows.Next() {
+		var id, title string
+		if err := rows.Scan(&id, &title); err != nil {
+			return nil, err
+		}
+		out[id] = title
+	}
+	return out, rows.Err()
+}
+
 // ListSourcesForMerged returns distinct source_ids of a merged activity.
 // Used by RevertFusion to restore sources.
 func (db *DB) ListSourcesForMerged(ctx context.Context, mergedID string) ([]string, error) {
