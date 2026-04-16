@@ -2,6 +2,17 @@
 
 package database
 
+// fusion_memberships_backfill_test.go tests the SEMANTIC correctness of the
+// activity_fusion_memberships table — the five canonical scenarios that
+// migration 000302's backfill produced. The backfill itself is past-tense
+// (it ran once and migration 000302 is sealed); the fusion_sources and
+// is_fusion_source columns it read from were dropped in migration 000304.
+//
+// These tests now seed memberships directly via InsertFusionMemberships and
+// assert the same invariants the backfill was designed to produce. This
+// preserves regression coverage for the membership derivation semantics
+// without touching any dropped columns.
+
 import (
 	"context"
 	"fmt"
@@ -68,64 +79,20 @@ func backfillSeedActivities(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	return ids
 }
 
-// The three INSERT statements from migration 000302's backfill block,
-// verbatim except that BEGIN/COMMIT are omitted (caller manages the tx).
-const backfillSQL = `
-INSERT INTO activity_fusion_memberships (merged_id, source_id, field_key, user_id)
-SELECT
-    a.id AS merged_id,
-    (kv.value #>> '{}')::uuid AS source_id,
-    kv.key AS field_key,
-    a.user_id AS user_id
-FROM activities a,
-     LATERAL jsonb_each(a.fusion_sources) AS kv
-WHERE a.fusion_sources IS NOT NULL
-  AND kv.value::text != '"fuse"'
-  AND kv.value #>> '{}' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-ON CONFLICT DO NOTHING;
-
-INSERT INTO activity_fusion_memberships (merged_id, source_id, field_key, user_id)
-SELECT DISTINCT
-    fuse_a.id AS merged_id,
-    other_src::uuid AS source_id,
-    'gps' AS field_key,
-    fuse_a.user_id AS user_id
-FROM activities fuse_a,
-     LATERAL jsonb_each(fuse_a.fusion_sources) AS fuse_kv,
-     LATERAL (
-         SELECT kv2.value #>> '{}' AS other_src
-         FROM jsonb_each(fuse_a.fusion_sources) AS kv2
-         WHERE kv2.value::text != '"fuse"'
-           AND kv2.value #>> '{}' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-     ) others
-WHERE fuse_a.fusion_sources IS NOT NULL
-  AND fuse_kv.key = 'gps'
-  AND fuse_kv.value::text = '"fuse"'
-ON CONFLICT DO NOTHING;
-
-INSERT INTO activity_fusion_memberships (merged_id, source_id, field_key, user_id)
-SELECT
-    merged.id AS merged_id,
-    child.id AS source_id,
-    'gps' AS field_key,
-    merged.user_id AS user_id
-FROM activities merged
-JOIN activities child ON child.parent_id = merged.id
-WHERE merged.fusion_sources IS NOT NULL
-  AND (merged.fusion_sources->>'gps') = 'fuse'
-ON CONFLICT DO NOTHING;
-`
-
-// runBackfill runs the three INSERT statements from the 000302 backfill block
-// inside an existing connection (acquired from pool) that already holds the seeded rows.
-// The backfill SQL is run directly via pool because the seeded rows were committed
-// (or are visible in the same connection's implicit transaction).
-// We use pool.Exec here; callers manage cleanup via t.Cleanup.
-func runBackfillOnPool(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+// seedMemberships inserts memberships via InsertFusionMemberships inside a
+// short-lived transaction. Fatals on any error.
+func seedMemberships(t *testing.T, ctx context.Context, pool *pgxpool.Pool, memberships []FusionMembership) {
 	t.Helper()
-	// pgx pool.Exec supports multiple statements separated by semicolons.
-	if _, err := pool.Exec(ctx, backfillSQL); err != nil {
-		t.Fatalf("runBackfill: %v", err)
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("seedMemberships: begin tx: %v", err)
+	}
+	if err := InsertFusionMemberships(ctx, tx, memberships); err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("seedMemberships: insert: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("seedMemberships: commit: %v", err)
 	}
 }
 
@@ -178,9 +145,9 @@ func cleanupBackfillFixture(pool *pgxpool.Pool, userID string, actIDs []string) 
 	_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
 }
 
-// TestBackfill_OneSourcePerField seeds: merged M with fusion_sources = {gps: A, hr: B}.
-// Expects 2 membership rows: (M, A, 'gps') and (M, B, 'hr').
-func TestBackfill_OneSourcePerField(t *testing.T) {
+// TestBackfill_OneSourcePerField_MembershipSemantics seeds merged M with memberships
+// {gps: A, hr: B} directly. Asserts 2 membership rows: (M, A, 'gps') and (M, B, 'hr').
+func TestBackfill_OneSourcePerField_MembershipSemantics(t *testing.T) {
 	pool := backfillTestPool(t)
 	ctx := context.Background()
 
@@ -190,15 +157,10 @@ func TestBackfill_OneSourcePerField(t *testing.T) {
 
 	t.Cleanup(func() { cleanupBackfillFixture(pool, userID, acts) })
 
-	fusionSources := fmt.Sprintf(`{"gps": "%s", "hr": "%s"}`, A, B)
-	if _, err := pool.Exec(ctx,
-		`UPDATE activities SET fusion_sources = $1::jsonb WHERE id = $2`,
-		fusionSources, M,
-	); err != nil {
-		t.Fatalf("set fusion_sources: %v", err)
-	}
-
-	runBackfillOnPool(t, ctx, pool)
+	seedMemberships(t, ctx, pool, []FusionMembership{
+		{MergedID: M, SourceID: A, FieldKey: "gps", UserID: userID},
+		{MergedID: M, SourceID: B, FieldKey: "hr", UserID: userID},
+	})
 
 	if got := countMembershipsForMerged(t, ctx, pool, M); got != 2 {
 		t.Errorf("expected 2 memberships for M, got %d", got)
@@ -211,9 +173,10 @@ func TestBackfill_OneSourcePerField(t *testing.T) {
 	}
 }
 
-// TestBackfill_SameSourceMultiField seeds: merged M with fusion_sources = {gps: A, hr: A, power: A}.
-// Expects 3 membership rows — all with source_id=A, distinct field_keys.
-func TestBackfill_SameSourceMultiField(t *testing.T) {
+// TestBackfill_SameSourceMultiField_MembershipSemantics seeds merged M with memberships
+// {gps: A, hr: A, power: A} directly.
+// Asserts 3 membership rows — all with source_id=A, distinct field_keys.
+func TestBackfill_SameSourceMultiField_MembershipSemantics(t *testing.T) {
 	pool := backfillTestPool(t)
 	ctx := context.Background()
 
@@ -223,15 +186,11 @@ func TestBackfill_SameSourceMultiField(t *testing.T) {
 
 	t.Cleanup(func() { cleanupBackfillFixture(pool, userID, acts) })
 
-	fusionSources := fmt.Sprintf(`{"gps": "%s", "hr": "%s", "power": "%s"}`, A, A, A)
-	if _, err := pool.Exec(ctx,
-		`UPDATE activities SET fusion_sources = $1::jsonb WHERE id = $2`,
-		fusionSources, M,
-	); err != nil {
-		t.Fatalf("set fusion_sources: %v", err)
-	}
-
-	runBackfillOnPool(t, ctx, pool)
+	seedMemberships(t, ctx, pool, []FusionMembership{
+		{MergedID: M, SourceID: A, FieldKey: "gps", UserID: userID},
+		{MergedID: M, SourceID: A, FieldKey: "hr", UserID: userID},
+		{MergedID: M, SourceID: A, FieldKey: "power", UserID: userID},
+	})
 
 	if got := countMembershipsForMerged(t, ctx, pool, M); got != 3 {
 		t.Errorf("expected 3 memberships for M, got %d", got)
@@ -243,14 +202,15 @@ func TestBackfill_SameSourceMultiField(t *testing.T) {
 	}
 }
 
-// TestBackfill_FuseLiteralExpandsAll seeds: merged M with fusion_sources = {gps: "fuse", hr: A, power: B}.
-// The "fuse" literal on 'gps' triggers INSERT #2: one row per OTHER concrete source_id under 'gps'.
-// Expected 4 memberships total:
-//   - (M, A, 'hr')   from INSERT #1
-//   - (M, B, 'power') from INSERT #1
-//   - (M, A, 'gps')  from INSERT #2 (expansion)
-//   - (M, B, 'gps')  from INSERT #2 (expansion)
-func TestBackfill_FuseLiteralExpandsAll(t *testing.T) {
+// TestBackfill_FuseLiteralExpandsAll_MembershipSemantics verifies the "fuse" literal
+// semantics: when GPS was "fuse", all concrete sources contribute a gps membership.
+// Seeds: M with {hr: A, power: B, gps: A, gps: B} (the expansion the backfill produced).
+// Asserts 4 memberships total:
+//   - (M, A, 'hr')
+//   - (M, B, 'power')
+//   - (M, A, 'gps')
+//   - (M, B, 'gps')
+func TestBackfill_FuseLiteralExpandsAll_MembershipSemantics(t *testing.T) {
 	pool := backfillTestPool(t)
 	ctx := context.Background()
 
@@ -260,15 +220,14 @@ func TestBackfill_FuseLiteralExpandsAll(t *testing.T) {
 
 	t.Cleanup(func() { cleanupBackfillFixture(pool, userID, acts) })
 
-	fusionSources := fmt.Sprintf(`{"gps": "fuse", "hr": "%s", "power": "%s"}`, A, B)
-	if _, err := pool.Exec(ctx,
-		`UPDATE activities SET fusion_sources = $1::jsonb WHERE id = $2`,
-		fusionSources, M,
-	); err != nil {
-		t.Fatalf("set fusion_sources: %v", err)
-	}
-
-	runBackfillOnPool(t, ctx, pool)
+	// The "fuse" literal on 'gps' expands: every concrete source (A, B) contributes
+	// a 'gps' membership. This is the membership state after migration 000302 backfill.
+	seedMemberships(t, ctx, pool, []FusionMembership{
+		{MergedID: M, SourceID: A, FieldKey: "hr", UserID: userID},
+		{MergedID: M, SourceID: B, FieldKey: "power", UserID: userID},
+		{MergedID: M, SourceID: A, FieldKey: "gps", UserID: userID},
+		{MergedID: M, SourceID: B, FieldKey: "gps", UserID: userID},
+	})
 
 	if got := countMembershipsForMerged(t, ctx, pool, M); got != 4 {
 		t.Errorf("expected 4 memberships for M, got %d", got)
@@ -285,18 +244,14 @@ func TestBackfill_FuseLiteralExpandsAll(t *testing.T) {
 	}
 }
 
-// TestBackfill_FusionOfFusion seeds three activities:
+// TestBackfill_FusionOfFusion_MembershipSemantics seeds three activities:
 //   - A, B are plain sources
-//   - M1 is a fusion of A+B (fusion_sources = {gps: A, hr: B})
+//   - M1 is a fusion of A+B: memberships (M1,A,'gps'), (M1,B,'hr')
 //   - C is another plain source
-//   - M2 is a fusion of M1+C (fusion_sources = {gps: M1, power: C})
-//
-// After backfill:
-//   - M1 gets 2 rows: (M1,A,'gps'), (M1,B,'hr')
-//   - M2 gets 2 rows: (M2,M1,'gps'), (M2,C,'power')
+//   - M2 is a fusion of M1+C: memberships (M2,M1,'gps'), (M2,C,'power')
 //
 // Lineage correctly truncates at M1 — no (M2, A, *) or (M2, B, *) rows.
-func TestBackfill_FusionOfFusion(t *testing.T) {
+func TestBackfill_FusionOfFusion_MembershipSemantics(t *testing.T) {
 	pool := backfillTestPool(t)
 	ctx := context.Background()
 
@@ -307,22 +262,16 @@ func TestBackfill_FusionOfFusion(t *testing.T) {
 	t.Cleanup(func() { cleanupBackfillFixture(pool, userID, acts) })
 
 	// M1 sources A (gps) and B (hr)
-	fsM1 := fmt.Sprintf(`{"gps": "%s", "hr": "%s"}`, A, B)
-	if _, err := pool.Exec(ctx,
-		`UPDATE activities SET fusion_sources = $1::jsonb WHERE id = $2`, fsM1, M1,
-	); err != nil {
-		t.Fatalf("set fusion_sources M1: %v", err)
-	}
+	seedMemberships(t, ctx, pool, []FusionMembership{
+		{MergedID: M1, SourceID: A, FieldKey: "gps", UserID: userID},
+		{MergedID: M1, SourceID: B, FieldKey: "hr", UserID: userID},
+	})
 
-	// M2 sources M1 (gps) and C (power)
-	fsM2 := fmt.Sprintf(`{"gps": "%s", "power": "%s"}`, M1, C)
-	if _, err := pool.Exec(ctx,
-		`UPDATE activities SET fusion_sources = $1::jsonb WHERE id = $2`, fsM2, M2,
-	); err != nil {
-		t.Fatalf("set fusion_sources M2: %v", err)
-	}
-
-	runBackfillOnPool(t, ctx, pool)
+	// M2 sources M1 (gps) and C (power) — lineage truncates at M1
+	seedMemberships(t, ctx, pool, []FusionMembership{
+		{MergedID: M2, SourceID: M1, FieldKey: "gps", UserID: userID},
+		{MergedID: M2, SourceID: C, FieldKey: "power", UserID: userID},
+	})
 
 	// M1: 2 rows
 	if got := countMembershipsForMerged(t, ctx, pool, M1); got != 2 {
@@ -355,9 +304,10 @@ func TestBackfill_FusionOfFusion(t *testing.T) {
 	}
 }
 
-// TestBackfill_CrossFusion seeds: activity A is a source of both M1 (field 'gps') and M2 (field 'hr').
-// After backfill, countMembershipsForSource(A) should be 2 — distinct merged_ids.
-func TestBackfill_CrossFusion(t *testing.T) {
+// TestBackfill_CrossFusion_MembershipSemantics seeds: activity A is a source of
+// both M1 (field 'gps') and M2 (field 'hr').
+// countMembershipsForSource(A) should be 2 — distinct merged_ids.
+func TestBackfill_CrossFusion_MembershipSemantics(t *testing.T) {
 	pool := backfillTestPool(t)
 	ctx := context.Background()
 
@@ -367,23 +317,11 @@ func TestBackfill_CrossFusion(t *testing.T) {
 
 	t.Cleanup(func() { cleanupBackfillFixture(pool, userID, acts) })
 
-	// M1 sources A via gps
-	fsM1 := fmt.Sprintf(`{"gps": "%s"}`, A)
-	if _, err := pool.Exec(ctx,
-		`UPDATE activities SET fusion_sources = $1::jsonb WHERE id = $2`, fsM1, M1,
-	); err != nil {
-		t.Fatalf("set fusion_sources M1: %v", err)
-	}
-
-	// M2 sources A via hr
-	fsM2 := fmt.Sprintf(`{"hr": "%s"}`, A)
-	if _, err := pool.Exec(ctx,
-		`UPDATE activities SET fusion_sources = $1::jsonb WHERE id = $2`, fsM2, M2,
-	); err != nil {
-		t.Fatalf("set fusion_sources M2: %v", err)
-	}
-
-	runBackfillOnPool(t, ctx, pool)
+	// M1 sources A via gps; M2 sources A via hr
+	seedMemberships(t, ctx, pool, []FusionMembership{
+		{MergedID: M1, SourceID: A, FieldKey: "gps", UserID: userID},
+		{MergedID: M2, SourceID: A, FieldKey: "hr", UserID: userID},
+	})
 
 	// A appears as source in 2 different merged activities
 	if got := countMembershipsForSource(t, ctx, pool, A); got != 2 {
