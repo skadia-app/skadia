@@ -2,7 +2,6 @@ package database
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -54,38 +53,6 @@ func (db *DB) GetFusionQueueActivities(ctx context.Context, userID string, limit
 	return ids, nil
 }
 
-// FusionSources mappt Stream-Typen auf Quell-Aktivitäts-IDs.
-// z.B. {"gps": "uuid-A", "hr": "uuid-B", "power": "uuid-B"}
-type FusionSources map[string]string
-
-// SetFusionSources setzt die fusion_sources einer Aktivität.
-// userID wird als zusätzlicher Guard in die WHERE-Klausel einbezogen,
-// damit der DB-Layer auch bei direkten Aufrufen ownership-sicher ist.
-func (db *DB) SetFusionSources(ctx context.Context, activityID string, userID string, sources FusionSources) error {
-	data, err := json.Marshal(sources)
-	if err != nil {
-		return fmt.Errorf("marshal fusion sources: %w", err)
-	}
-	_, err = db.Pool.Exec(ctx,
-		`UPDATE activities SET fusion_sources = $2 WHERE id = $1 AND user_id = $3`,
-		activityID, data, userID,
-	)
-	return err
-}
-
-// GetFusionSources liest die fusion_sources einer Aktivität.
-// Gibt nil zurück wenn keine vorhanden.
-func (db *DB) GetFusionSources(ctx context.Context, activityID string) (FusionSources, error) {
-	var raw []byte
-	err := db.Pool.QueryRow(ctx,
-		`SELECT fusion_sources FROM activities WHERE id = $1`, activityID,
-	).Scan(&raw)
-	if err != nil || raw == nil {
-		return nil, err
-	}
-	var sources FusionSources
-	return sources, json.Unmarshal(raw, &sources)
-}
 
 // FindFusionCandidates sucht Aktivitäten die zeitlich nahe beieinander liegen.
 // timeWindowMin gibt das maximale Zeitfenster in Minuten an (Default 30).

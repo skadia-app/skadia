@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -315,10 +314,10 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	}
 	h.applyFusionTxExtras(ctx, tx, fp)
 
-	// 8. Alle Quellen (inkl. Target) via parent_id verstecken + als Fusion-Quelle markieren.
+	// 8. Alle Quellen (inkl. Target) via parent_id verstecken.
 	for _, id := range allIDs {
 		if _, err := tx.Exec(ctx,
-			`UPDATE activities SET parent_id = $2, is_fusion_source = TRUE WHERE id = $1 AND user_id = $3`,
+			`UPDATE activities SET parent_id = $2 WHERE id = $1 AND user_id = $3`,
 			id, merged.ID, userID,
 		); err != nil {
 			slog.Warn("fusion-merge: hide source failed", "id", id, "error", err)
@@ -406,7 +405,7 @@ type fusionFinalizeParams struct {
 }
 
 // applyFusionTxExtras applies the shared in-transaction finalization steps to the merged activity:
-// title update (step 4), gear copy (step 5), tags merge (step 6), fusion_sources (step 7),
+// title update (step 4), gear copy (step 5), tags merge (step 6),
 // RebuildActivityTrack + RebuildHeatmapData + InvalidateTerraIncognitaCache (pre-commit rebuilds),
 // and audit log insert.
 // Must be called before tx.Commit. Does not commit.
@@ -511,21 +510,6 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 			); err != nil {
 				slog.Warn("fusion-merge: recompute default tags.activity_count failed", "error", err)
 			}
-		}
-	}
-
-	// Step 7: Set fusion_sources on new activity.
-	sourceMap := make(database.FusionSources, len(p.fieldMap))
-	maps.Copy(sourceMap, p.fieldMap)
-	sourcesJSON, err := json.Marshal(sourceMap)
-	if err != nil {
-		slog.Warn("fusion-merge: marshal fusion sources failed", "error", err)
-	} else {
-		if _, err := tx.Exec(ctx,
-			`UPDATE activities SET fusion_sources = $2 WHERE id = $1 AND user_id = $3`,
-			p.merged.ID, sourcesJSON, p.userID,
-		); err != nil {
-			slog.Warn("fusion-merge: set fusion sources failed", "error", err)
 		}
 	}
 
@@ -1035,8 +1019,8 @@ func (h *Handler) fitLevelMerge(
 // Streams werden NICHT kopiert — das übernimmt der Aufrufer.
 // Alle Spalten aus der activities-Tabelle werden kopiert, außer:
 //   - id (neue UUID), created_at/updated_at (auto), enrichment_status ('pending'),
-//   - has_edits (TRUE), parent_id (NULL), is_fusion_source (FALSE),
-//   - is_group_secondary (FALSE, trigger), fusion_sources (separat gesetzt),
+//   - has_edits (TRUE), parent_id (NULL),
+//   - is_group_secondary (FALSE, trigger),
 //   - file_hash/file_id (NULL oder später per FIT-Merge gesetzt).
 func createMergedActivity(ctx context.Context, q database.Querier, src *model.Activity) (*model.Activity, error) {
 	newID := uuid.New().String()
@@ -1713,24 +1697,16 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 	}
 	h.applyFusionTxExtras(ctx, tx, fp)
 
-	// 8. Mark all sources as fusion sources (so they are excluded from the
-	// fusion-candidate list for future merges) and, in legacy mode, hide them
-	// via parent_id. In group mode sources stay visible but still must be flagged.
+	// 8. In legacy mode, hide sources via parent_id.
+	// Membership rows (step 9b) are the sole source-of-truth for fusion state.
 	legacyMode := req.GroupID == nil || *req.GroupID == ""
-	for _, id := range req.Sources {
-		if legacyMode {
+	if legacyMode {
+		for _, id := range req.Sources {
 			if _, err := tx.Exec(ctx,
-				`UPDATE activities SET parent_id = $2, is_fusion_source = TRUE WHERE id = $1 AND user_id = $3`,
+				`UPDATE activities SET parent_id = $2 WHERE id = $1 AND user_id = $3`,
 				id, merged.ID, userID,
 			); err != nil {
-				slog.Warn("fusion-merge-v2: hide source + flag fusion source failed", "id", id, "error", err)
-			}
-		} else {
-			if _, err := tx.Exec(ctx,
-				`UPDATE activities SET is_fusion_source = TRUE WHERE id = $1 AND user_id = $2`,
-				id, userID,
-			); err != nil {
-				slog.Warn("fusion-merge-v2: flag fusion source failed", "id", id, "error", err)
+				slog.Warn("fusion-merge-v2: hide source failed", "id", id, "error", err)
 			}
 		}
 	}
@@ -1970,14 +1946,22 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
-	if activity.FusionSources == nil {
+
+	// Check via memberships: is this activity a fusion result?
+	memberships, err := h.DB.GetFusionMembershipsForMerged(ctx, id)
+	if err != nil {
+		slog.Error("revert-fusion: get memberships failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "get memberships failed", r.URL.Path)
+		return
+	}
+	if len(memberships) == 0 {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "activity is not a fusion result", r.URL.Path)
 		return
 	}
 
 	// Collect source IDs via zwei Wege:
 	// 1. parent_id-Query (V1-Sources haben parent_id = id)
-	// 2. FusionSources-JSON auf der Activity (V2-Sources haben parent_id=NULL)
+	// 2. Memberships (V2-Sources haben parent_id=NULL, erscheinen aber in activity_fusion_memberships)
 	seenIDs := make(map[string]struct{})
 	var sourceIDs []string
 
@@ -1997,26 +1981,18 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		rows.Close()
 	}
 
-	// Weg 2: FusionSources-JSON (V2 — sources haben keine parent_id)
-	if activity.FusionSources != nil {
-		var fusionSrcMap database.FusionSources
-		if jsonErr := json.Unmarshal(activity.FusionSources, &fusionSrcMap); jsonErr == nil {
-			for _, srcID := range fusionSrcMap {
-				if srcID == "fuse" {
-					continue
-				}
-				if _, dup := seenIDs[srcID]; !dup {
-					seenIDs[srcID] = struct{}{}
-					sourceIDs = append(sourceIDs, srcID)
-				}
-			}
+	// Weg 2: Memberships (V2 — sources haben keine parent_id)
+	for _, m := range memberships {
+		if _, dup := seenIDs[m.SourceID]; !dup {
+			seenIDs[m.SourceID] = struct{}{}
+			sourceIDs = append(sourceIDs, m.SourceID)
 		}
 	}
 
-	// ── Atomic state-flip: legacy flags + memberships ────────────────────────
-	// Begin a transaction that resets both the legacy world (is_fusion_source /
-	// parent_id) and the memberships world (activity_fusion_memberships) in one
-	// atomic commit.  Advisory lock serialises concurrent Merge/Revert per user.
+	// ── Atomic state-flip: parent_id + memberships ────────────────────────────
+	// Begin a transaction that resets parent_id (V1 sources) and removes
+	// activity_fusion_memberships rows in one atomic commit.
+	// Advisory lock serialises concurrent Merge/Revert per user.
 	flipTx, err := h.DB.Pool.Begin(ctx)
 	if err != nil {
 		slog.Error("revert-fusion: begin tx failed", "error", err)
@@ -2032,13 +2008,13 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// (a) V2-Sources zurücksetzen: is_fusion_source = FALSE; parent_id war nie gesetzt.
+	// (a) V2-Sources zurücksetzen: parent_id = NULL (war nie gesetzt, aber Defensive).
 	// NOT EXISTS: wenn eine Source auch in einer ANDEREN Fusion (M2 != id) referenziert ist,
-	// darf is_fusion_source nicht auf FALSE gesetzt werden — sie bleibt gebackt in M2.
+	// bleibt parent_id wie es ist — sie bleibt gebackt in M2.
 	// cross-fusion guard reads memberships directly.
 	if len(sourceIDs) > 0 {
 		if _, err := flipTx.Exec(ctx,
-			`UPDATE activities SET is_fusion_source = FALSE, parent_id = NULL
+			`UPDATE activities SET parent_id = NULL
 			 WHERE id = ANY($1) AND user_id = $2
 			   AND NOT EXISTS (
 			       SELECT 1 FROM activity_fusion_memberships
@@ -2046,19 +2022,18 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 			   )`,
 			sourceIDs, userID, id,
 		); err != nil {
-			slog.Error("revert-fusion: reset V2 flags failed", "error", err)
+			slog.Error("revert-fusion: reset V2 sources failed", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "reset V2 failed", r.URL.Path)
 			return
 		}
 	}
 
-	// (b) Alle versteckten Quellen (parent_id = id) wiederherstellen + is_fusion_source zurücksetzen.
-	// Für Group-Fusions (V2): parent_id war nie gesetzt, daher ist das ein No-Op für parent_id,
-	// aber is_fusion_source = FALSE ist in jedem Fall korrekt (Legacy-Bugfix).
+	// (b) Alle versteckten Quellen (parent_id = id) wiederherstellen.
+	// Für Group-Fusions (V2): parent_id war nie gesetzt, daher ist das ein No-Op.
 	// CASCADE entfernt die Fusion-Aktivität aus recording_group_members; der DEFERRED-Trigger
 	// berechnet is_group_secondary + primary_activity_id neu.
 	if _, err := flipTx.Exec(ctx,
-		`UPDATE activities SET parent_id = NULL, is_fusion_source = FALSE WHERE parent_id = $1 AND user_id = $2`,
+		`UPDATE activities SET parent_id = NULL WHERE parent_id = $1 AND user_id = $2`,
 		id, userID,
 	); err != nil {
 		slog.Error("revert-fusion: restore V1 sources failed", "error", err)
