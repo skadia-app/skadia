@@ -2288,20 +2288,24 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 	var sourceIDs []string
 
 	// Weg 1: parent_id (V1) — read inside the TX so we see consistent state
-	if rows, qErr := flipTx.Query(ctx,
+	v1Rows, qErr := flipTx.Query(ctx,
 		`SELECT id FROM activities WHERE parent_id = $1 AND user_id = $2`, id, userID,
-	); qErr == nil {
-		for rows.Next() {
-			var sid string
-			if err := rows.Scan(&sid); err == nil {
-				if _, dup := seenIDs[sid]; !dup {
-					seenIDs[sid] = struct{}{}
-					sourceIDs = append(sourceIDs, sid)
-				}
+	)
+	if qErr != nil {
+		slog.Error("revert-fusion: query parent_id children failed", "merged_id", id, "error", qErr)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "query V1 sources failed", r.URL.Path)
+		return
+	}
+	for v1Rows.Next() {
+		var sid string
+		if err := v1Rows.Scan(&sid); err == nil {
+			if _, dup := seenIDs[sid]; !dup {
+				seenIDs[sid] = struct{}{}
+				sourceIDs = append(sourceIDs, sid)
 			}
 		}
-		rows.Close()
 	}
+	v1Rows.Close()
 
 	// Weg 2: Memberships (V2 — sources haben keine parent_id)
 	for _, m := range memberships {
