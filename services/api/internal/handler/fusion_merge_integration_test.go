@@ -2011,3 +2011,165 @@ func TestCrossFusion(t *testing.T) {
 	}
 	t.Logf("M1 and M2 still exist as degraded-source activities — OK")
 }
+
+// ─── Test: Phase 4b Related-Tables Union-Copy ─────────────────────────────────
+
+// TestRelatedTablesUnionCopy verifies Phase 4b related-tables copy semantics.
+//
+// Setup:
+//
+//	Activity A: 1 photo (hash="hash-a"), 2 geo_tags (osm_id=100 + osm_id=200), 1 privacy_section
+//	Activity B: 1 photo (hash="hash-b"), 2 geo_tags (osm_id=200 + osm_id=300), 1 privacy_section
+//
+// Fuse A+B → merged M. Assertions:
+//
+//	M.photos              == 2  (hash-a from A, hash-b from B; no collision by file_hash)
+//	M.geo_tags            == 3  (osm_id 100 + 200 + 300; dedup by osm_id — 200 appears in both but counts once)
+//	M.privacy_sections    == 2  (no dedup — one per source, duplicates harmless)
+//	A.photos, B.photos    == 1 each (sources not cannibalized)
+//	A.geo_tags, B.geo_tags== 2 each (sources not cannibalized)
+func TestRelatedTablesUnionCopy(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+
+	// We need a privacy_zone to insert privacy_sections (FK constraint).
+	// center is a PostGIS Point geometry (SRID 4326).
+	var privacyZoneID string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO user_privacy_zones (user_id, name, center, radius_m)
+		 VALUES ($1, 'test-zone', ST_SetSRID(ST_MakePoint(11.0, 47.0), 4326), 200)
+		 RETURNING id`,
+		userID,
+	).Scan(&privacyZoneID); err != nil {
+		t.Fatalf("insert privacy_zone: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM user_privacy_zones WHERE id = $1`, privacyZoneID) //nolint:errcheck
+	})
+
+	// Insert 1 photo per source with distinct file_hashes.
+	insertTestPhoto := func(t *testing.T, activityID, fileHash string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO activity_photos
+			  (user_id, activity_id, original_filename, content_type, file_size_bytes, file_hash)
+			 VALUES ($1, $2, 'test.jpg', 'image/jpeg', 1024, $3)`,
+			userID, activityID, fileHash,
+		); err != nil {
+			t.Fatalf("insert photo for %s: %v", activityID, err)
+		}
+	}
+
+	insertTestPhoto(t, actA, "hash-a")
+	insertTestPhoto(t, actB, "hash-b")
+
+	// Insert geo_tags: A gets osm_id 100+200, B gets osm_id 200+300 (200 overlaps).
+	insertTestGeoTag := func(t *testing.T, activityID string, osmID int64) {
+		t.Helper()
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO activity_geo_tags (activity_id, category, name, osm_id)
+			 VALUES ($1, 'peak', 'Test Peak', $2)`,
+			activityID, osmID,
+		); err != nil {
+			t.Fatalf("insert geo_tag (%d) for %s: %v", osmID, activityID, err)
+		}
+	}
+
+	insertTestGeoTag(t, actA, 100)
+	insertTestGeoTag(t, actA, 200)
+	insertTestGeoTag(t, actB, 200) // overlapping osm_id — should be dedup'd
+	insertTestGeoTag(t, actB, 300)
+
+	// Insert 1 privacy_section per source.
+	insertTestPrivacySection := func(t *testing.T, activityID string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO activity_privacy_sections (activity_id, privacy_zone_id)
+			 VALUES ($1, $2)`,
+			activityID, privacyZoneID,
+		); err != nil {
+			t.Fatalf("insert privacy_section for %s: %v", activityID, err)
+		}
+	}
+
+	insertTestPrivacySection(t, actA)
+	insertTestPrivacySection(t, actB)
+
+	// Create the merged activity (mimics createMergedActivity's INSERT-SELECT).
+	mergedID := uuid.New().String()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO activities (id, user_id, sport_type, started_at, visibility, enrichment_status, has_edits)
+		 SELECT $1, user_id, sport_type, started_at, visibility, 'pending', true
+		 FROM activities WHERE id = $2`,
+		mergedID, actA,
+	); err != nil {
+		t.Fatalf("insert merged activity: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM activities WHERE id = $1`, mergedID) //nolint:errcheck
+	})
+
+	// Run the related-tables union-copy inside a transaction (mirrors the real merge TX).
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+
+	sources := []string{actA, actB}
+	if err := copyRelatedTablesUnion(ctx, tx, mergedID, sources, actA /*metadataSourceID*/); err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("copyRelatedTablesUnion: %v", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	// ── Assertions ────────────────────────────────────────────────────────────
+
+	countRows := func(t *testing.T, table, activityID string) int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx,
+			fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE activity_id = $1`, table), activityID,
+		).Scan(&n); err != nil {
+			t.Fatalf("count %s for %s: %v", table, activityID, err)
+		}
+		return n
+	}
+
+	// Merged activity assertions.
+	if got := countRows(t, "activity_photos", mergedID); got != 2 {
+		t.Errorf("merged photos: want 2, got %d", got)
+	}
+	if got := countRows(t, "activity_geo_tags", mergedID); got != 3 {
+		t.Errorf("merged geo_tags: want 3 (dedup by osm_id — 200 counted once), got %d", got)
+	}
+	if got := countRows(t, "activity_privacy_sections", mergedID); got != 2 {
+		t.Errorf("merged privacy_sections: want 2 (no dedup), got %d", got)
+	}
+
+	// Photos are reassigned (UPDATE activity_id) from sources to merged.
+	// Sources lose their direct photo link — they are hidden after merge anyway (parent_id set).
+	if got := countRows(t, "activity_photos", actA); got != 0 {
+		t.Errorf("source A photos after merge: want 0 (reassigned to merged), got %d", got)
+	}
+	if got := countRows(t, "activity_photos", actB); got != 0 {
+		t.Errorf("source B photos after merge: want 0 (reassigned to merged), got %d", got)
+	}
+
+	// geo_tags and privacy_sections are INSERT-copied (not reassigned), so sources retain originals.
+	if got := countRows(t, "activity_geo_tags", actA); got != 2 {
+		t.Errorf("source A geo_tags after merge: want 2 (union-copied, not cannibalized), got %d", got)
+	}
+	if got := countRows(t, "activity_geo_tags", actB); got != 2 {
+		t.Errorf("source B geo_tags after merge: want 2 (union-copied, not cannibalized), got %d", got)
+	}
+
+	t.Logf("related-tables union-copy: photos=2 (reassigned) geo_tags=3 (dedup) privacy_sections=2 — OK")
+}
