@@ -15,7 +15,7 @@ strict — violating it breaks the schema:
 
 | # | Up | Down prerequisite |
 |---|---|---|
-| 000302 | Create activity_fusion_memberships + trigger | 000304 already rolled back (legacy columns restored) |
+| 000302 | Create activity_fusion_memberships + trigger | 000304 already rolled back (000304_down reads memberships for recovery) |
 | 000303 | Allow edit_type='field_copy' | none |
 | 000304 | Drop legacy is_fusion_source + fusion_sources | **LOSSY if new merges happened post-000304** — see RUNBOOK NOTICE in 000304_up.sql |
 | 000305 | fusion_candidates.dismissed_at | none |
@@ -31,7 +31,7 @@ strict — violating it breaks the schema:
 4. `migrate down 000305` (drops dismissed_at).
 5. `migrate down 000304` (restores legacy columns — LOSSY, see runbook notice in 000304_up.sql).
 6. `migrate down 000303` (reverts CHECK to not allow field_copy).
-7. `migrate down 000302` (drops memberships table + trigger — safe only AFTER step 5, because the recreated trigger in 000304_down.sql references the legacy columns that 000302_down.sql drops).
+7. `migrate down 000302` (drops memberships table + trigger — safe only AFTER step 5, because 000304_down reads `activity_fusion_memberships` to recover fusion data; dropping the table first loses that data irrecoverably).
 
 **Never roll back 000302 without first rolling back 000304.** The
 000304_down.sql script recovers fusion data by reading from
