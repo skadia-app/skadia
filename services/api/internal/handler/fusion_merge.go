@@ -312,7 +312,11 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		fitLevelSourceIDs: req.Sources,
 		auditData:         auditData,
 	}
-	h.applyFusionTxExtras(ctx, tx, fp)
+	if err := h.applyFusionTxExtras(ctx, tx, fp); err != nil {
+		slog.Error("fusion-merge: applyFusionTxExtras failed, rolling back", "merged_id", merged.ID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "merge finalization failed: "+err.Error(), r.URL.Path)
+		return
+	}
 
 	// 8. Alle Quellen (inkl. Target) via parent_id verstecken.
 	for _, id := range allIDs {
@@ -409,7 +413,9 @@ type fusionFinalizeParams struct {
 // RebuildActivityTrack + RebuildHeatmapData + InvalidateTerraIncognitaCache (pre-commit rebuilds),
 // and audit log insert.
 // Must be called before tx.Commit. Does not commit.
-func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, p fusionFinalizeParams) {
+// Returns an error if any fatal step fails (e.g. related-tables union-copy). The caller
+// must roll back the transaction on non-nil return.
+func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, p fusionFinalizeParams) error {
 	// Step 4: Title from designated source.
 	if p.titleSource != nil {
 		if src, ok := p.activities[*p.titleSource]; ok && src.Title != nil {
@@ -592,10 +598,10 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 	// tag_removals, developer_apps, best_effort_exclusions) from all sources into merged.
 	// Must run AFTER the merged activity row exists and streams are written so FK constraints hold.
 	// Runs inside the same TX to keep atomicity.
+	// FATAL: if any sub-operation fails (e.g. photos reassigned but geo_tags failed), the
+	// TX must be rolled back — partial related-table state is worse than none at all.
 	if err := copyRelatedTablesUnion(ctx, tx, p.merged.ID, p.allSourceIDs, p.metadataSourceID); err != nil {
-		slog.Warn("fusion-merge: related-tables union-copy failed", "merged_id", p.merged.ID, "error", err)
-		// Non-fatal: merged activity is still valid without related tables.
-		// Log and continue rather than aborting the transaction.
+		return fmt.Errorf("related-tables union-copy: %w", err)
 	}
 
 	// TODO(phase-5): extract a per-activity segment_efforts recomputer and call it
@@ -609,6 +615,8 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 	); err != nil {
 		slog.Warn("fusion-merge: failed to insert audit record", "id", p.merged.ID, "error", err)
 	}
+
+	return nil
 }
 
 // postCommitFusionCleanup runs the shared post-commit steps:
@@ -935,8 +943,14 @@ func fusionMergeActivityTags(ctx context.Context, q database.Querier, targetID, 
 // so the photos remain accessible through the merged activity.
 func copyRelatedTablesUnion(ctx context.Context, tx database.Querier, mergedID string, sources []string, metadataSourceID string) error {
 	// Photos: reassign (UPDATE activity_id) rather than copy — see strategy note above.
+	// COALESCE preserves the original source_activity_id if a photo was already reassigned
+	// during a previous fusion (transitive). RevertFusion uses source_activity_id to restore
+	// activity_id before DeleteActivity triggers CASCADE — preventing data loss.
 	if _, err := tx.Exec(ctx,
-		`UPDATE activity_photos SET activity_id = $1 WHERE activity_id = ANY($2)`,
+		`UPDATE activity_photos
+		 SET activity_id = $1,
+		     source_activity_id = COALESCE(source_activity_id, activity_id)
+		 WHERE activity_id = ANY($2)`,
 		mergedID, sources,
 	); err != nil {
 		return fmt.Errorf("activity_photos reassign: %w", err)
@@ -1891,7 +1905,11 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 		fitLevelSourceIDs: fitLevelSourceIDs,
 		auditData:         auditData,
 	}
-	h.applyFusionTxExtras(ctx, tx, fp)
+	if err := h.applyFusionTxExtras(ctx, tx, fp); err != nil {
+		slog.Error("fusion-merge-v2: applyFusionTxExtras failed, rolling back", "merged_id", merged.ID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "merge finalization failed: "+err.Error(), r.URL.Path)
+		return
+	}
 
 	// 8. In legacy mode, hide sources via parent_id.
 	// Membership rows (step 9b) are the sole source-of-truth for fusion state.
@@ -2143,26 +2161,66 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check via memberships: is this activity a fusion result?
-	memberships, err := h.DB.GetFusionMembershipsForMerged(ctx, id)
+	// Pre-check (outside lock): is this activity a fusion result at all?
+	// This fast-fails obviously invalid requests without contending on the advisory lock.
+	// The authoritative check is the re-read inside the lock below.
+	preCheckMemberships, err := h.DB.GetFusionMembershipsForMerged(ctx, id)
+	if err != nil {
+		slog.Error("revert-fusion: pre-check get memberships failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "get memberships failed", r.URL.Path)
+		return
+	}
+	if len(preCheckMemberships) == 0 {
+		// No memberships outside the lock → definitively not a fusion result.
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "activity is not a fusion result", r.URL.Path)
+		return
+	}
+
+	// ── Atomic state-flip: parent_id + memberships ────────────────────────────
+	// Advisory lock MUST be acquired BEFORE re-reading memberships to eliminate the
+	// race between concurrent RevertFusion calls for the same user:
+	//   Without the lock-before-reread, two concurrent requests can both read non-empty
+	//   memberships, both enter the flip, and the second hits a 500 on DeleteActivity
+	//   (already deleted by the first). With the lock-before-reread, the second request
+	//   reads empty memberships under the lock and returns 409 Conflict (idempotent).
+	flipTx, err := h.DB.Pool.Begin(ctx)
+	if err != nil {
+		slog.Error("revert-fusion: begin tx failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to begin revert tx", r.URL.Path)
+		return
+	}
+	defer flipTx.Rollback(ctx) //nolint:errcheck — no-op if committed
+
+	lockKey := dbutil.AdvisoryLockKey("fusion:" + userID)
+	if _, err := flipTx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, lockKey); err != nil {
+		slog.Error("revert-fusion: advisory lock failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "lock failed", r.URL.Path)
+		return
+	}
+
+	// Re-read memberships INSIDE the advisory lock.
+	// If empty now but non-empty in the pre-check, a concurrent revert completed
+	// while we were waiting for the lock — return 409 Conflict (idempotent).
+	memberships, err := h.DB.GetFusionMembershipsForMergedTx(ctx, flipTx, id)
 	if err != nil {
 		slog.Error("revert-fusion: get memberships failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "get memberships failed", r.URL.Path)
 		return
 	}
 	if len(memberships) == 0 {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "activity is not a fusion result", r.URL.Path)
+		// Pre-check had memberships; under-lock they are gone — concurrent revert won.
+		httputil.WriteError(w, http.StatusConflict, "Conflict", "activity already reverted by concurrent request", r.URL.Path)
 		return
 	}
 
 	// Collect source IDs via zwei Wege:
-	// 1. parent_id-Query (V1-Sources haben parent_id = id)
-	// 2. Memberships (V2-Sources haben parent_id=NULL, erscheinen aber in activity_fusion_memberships)
+	// 1. parent_id-Query (V1-Sources haben parent_id = id) — must run inside lock TX
+	// 2. Memberships already read above (V2-Sources haben parent_id=NULL)
 	seenIDs := make(map[string]struct{})
 	var sourceIDs []string
 
-	// Weg 1: parent_id (V1)
-	if rows, qErr := h.DB.Pool.Query(ctx,
+	// Weg 1: parent_id (V1) — read inside the TX so we see consistent state
+	if rows, qErr := flipTx.Query(ctx,
 		`SELECT id FROM activities WHERE parent_id = $1 AND user_id = $2`, id, userID,
 	); qErr == nil {
 		for rows.Next() {
@@ -2183,25 +2241,6 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 			seenIDs[m.SourceID] = struct{}{}
 			sourceIDs = append(sourceIDs, m.SourceID)
 		}
-	}
-
-	// ── Atomic state-flip: parent_id + memberships ────────────────────────────
-	// Begin a transaction that resets parent_id (V1 sources) and removes
-	// activity_fusion_memberships rows in one atomic commit.
-	// Advisory lock serialises concurrent Merge/Revert per user.
-	flipTx, err := h.DB.Pool.Begin(ctx)
-	if err != nil {
-		slog.Error("revert-fusion: begin tx failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to begin revert tx", r.URL.Path)
-		return
-	}
-	defer flipTx.Rollback(ctx) //nolint:errcheck — no-op if committed
-
-	lockKey := dbutil.AdvisoryLockKey("fusion:" + userID)
-	if _, err := flipTx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, lockKey); err != nil {
-		slog.Error("revert-fusion: advisory lock failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "lock failed", r.URL.Path)
-		return
 	}
 
 	// (a) V2-Sources zurücksetzen: parent_id = NULL (war nie gesetzt, aber Defensive).
@@ -2259,6 +2298,23 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 
 	// Clean up ShadowFS files before deleting the fusion result.
 	h.cleanupActivityFiles(ctx, userID, id)
+
+	// Restore photos to their original source activities before DeleteActivity triggers
+	// CASCADE on activity_photos.activity_id_fkey. Photos with source_activity_id != NULL
+	// were reassigned during fusion — move them back. Photos without source_activity_id
+	// (uploaded directly to the merged activity) have no origin to restore to and will
+	// be CASCADE-deleted along with the merged activity row.
+	if _, err := h.DB.Pool.Exec(ctx,
+		`UPDATE activity_photos
+		 SET activity_id = source_activity_id,
+		     source_activity_id = NULL
+		 WHERE activity_id = $1 AND source_activity_id IS NOT NULL`,
+		id,
+	); err != nil {
+		slog.Error("revert-fusion: restore photos failed", "merged_id", id, "error", err)
+		// Non-fatal: continue with the revert. Photos that failed to restore will be
+		// CASCADE-deleted. Log at ERROR level so operators can recover from backups if needed.
+	}
 
 	// Streams explizit löschen bevor die Aktivität gelöscht wird.
 	// TimescaleDB compressed chunks (nach >7 Tagen) unterstützen DELETE ab v2.11 —
