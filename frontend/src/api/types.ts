@@ -156,6 +156,9 @@ export interface Activity {
   child_count?: number
   // Fusion result: list of (field_key, source_activity_id) pairs.
   fusion_memberships?: FusionMembership[] | null
+  // How many distinct merged activities reference this activity as a source.
+  // Drives the Cross-Fusion badge. Elided when 0 (non-source activities).
+  fusion_source_count?: number
   // Recording group this activity belongs to.
   recording_group_id?: string | null
   // Platform IDs for deep-linking back to the source platform.
