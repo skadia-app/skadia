@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -355,4 +356,52 @@ func (h *Handler) runCliqueIntegration(ctx context.Context, userID string, thres
 		}
 	}
 	return nil
+}
+
+// DismissFusionCandidate markiert ein Fusion-Kandidatenpaar als ignoriert,
+// sodass es nicht mehr in der Queue auftaucht.
+//
+// POST /fusion-candidates/dismiss
+// Body: {"activity_id_a": "<uuid>", "activity_id_b": "<uuid>"}
+//
+// Die kanonische Reihenfolge (activity_id_a < activity_id_b) wird server-seitig
+// normalisiert. Idempotent: ein bereits dismisstes Paar liefert ebenfalls 204.
+func (h *Handler) DismissFusionCandidate(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		A string `json:"activity_id_a"`
+		B string `json:"activity_id_b"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if body.A == "" || body.B == "" {
+		http.Error(w, "activity_id_a and activity_id_b required", http.StatusBadRequest)
+		return
+	}
+
+	// Kanonische Reihenfolge: A < B (entspricht dem PK/Unique-Index in fusion_candidates).
+	a, b := body.A, body.B
+	if a > b {
+		a, b = b, a
+	}
+
+	tag, err := h.DB.Pool.Exec(r.Context(), `
+		UPDATE fusion_candidates
+		SET dismissed_at = NOW()
+		WHERE user_id = $1 AND activity_id_a = $2 AND activity_id_b = $3 AND dismissed_at IS NULL
+	`, userID, a, b)
+	if err != nil {
+		slog.Error("dismiss fusion candidate: DB error", "user_id", userID, "a", a, "b", b, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	// Idempotent: kein Match (bereits dismissed oder Paar existiert nicht) → 204.
+	_ = tag
+	w.WriteHeader(http.StatusNoContent)
 }

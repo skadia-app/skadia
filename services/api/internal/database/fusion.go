@@ -242,7 +242,7 @@ func (db *DB) GetCachedFusionCandidates(ctx context.Context, userID string, limi
 		FROM fusion_candidates fc
 		JOIN activities a1 ON a1.id = fc.activity_id_a
 		JOIN activities a2 ON a2.id = fc.activity_id_b
-		WHERE fc.user_id = $1
+		WHERE fc.user_id = $1 AND fc.dismissed_at IS NULL
 		ORDER BY fc.overlap_percent DESC
 		LIMIT $2`,
 		userID, limit,

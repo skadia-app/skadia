@@ -1386,6 +1386,7 @@ func main() {
 
 			// Fusion Queue (Tier-2 GPS-Similarity)
 			r.Get("/fusion-queue", h.GetFusionQueue)
+			r.Post("/fusion-candidates/dismiss", h.DismissFusionCandidate)
 
 			// Recording Groups
 			r.Get("/recording-groups", h.GetRecordingGroups)
