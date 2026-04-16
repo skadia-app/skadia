@@ -434,7 +434,8 @@ func (db *DB) DissolveRecordingGroup(ctx context.Context, groupID string) error 
 func (db *DB) GetRecordingGroupMembers(ctx context.Context, groupID string) ([]RecordingGroupMemberDetail, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT
-			rgm.activity_id, rgm.is_fused, a.is_fusion_source,
+			rgm.activity_id, rgm.is_fused,
+			(SELECT COUNT(DISTINCT merged_id) FROM activity_fusion_memberships WHERE source_id = a.id) AS fusion_source_count,
 			(rg.primary_activity_id = rgm.activity_id) AS is_primary,
 			a.title, a.title_auto, a.started_at, a.sport_type,
 			a.source_device, a.source, `+deviceNameSelect+`,
