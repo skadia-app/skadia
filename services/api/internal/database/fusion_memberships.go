@@ -226,7 +226,7 @@ func (db *DB) GetLatestEditData(ctx context.Context, activityID, editType string
 	return raw, nil
 }
 
-// GetActivityTitle returns the display title of an activity (COALESCE(title, '')).
+// GetActivityTitle returns the display title of an activity (COALESCE(title, ”)).
 // Used by the sidecar writer to embed a human-readable source title in the
 // FusionMemberSnapshot.
 func (db *DB) GetActivityTitle(ctx context.Context, activityID string) (string, error) {

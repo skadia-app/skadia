@@ -1026,7 +1026,6 @@ var allowedRelatedTables = map[string]struct{}{
 	"best_effort_exclusions":    {},
 }
 
-//
 // copyRelatedTablesUnion union-copies all Phase 4b related tables from source activities
 // into the merged activity inside the same transaction. Must be called while the merged
 // activity row already exists (FK constraint on activity_id).
