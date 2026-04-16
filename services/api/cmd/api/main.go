@@ -1309,7 +1309,7 @@ func main() {
 			// Non-destructive edit operations (Trim / Split / Merge)
 			r.Post("/activities/{id}/trim", h.TrimActivity)
 			r.Post("/activities/{id}/split", h.SplitActivity)
-			r.Post("/activities/{id}/merge", h.MergeActivities)
+			r.Post("/activities/{id}/copy-fields", h.CopyFields)
 			r.Post("/activities/{id}/fusion-merge", h.FusionMerge)
 			r.Post("/fusion-merge", h.FusionMergeV2) // unified timeline, no target
 			r.Post("/activities/{id}/revert-fusion", h.RevertFusion)
