@@ -710,14 +710,26 @@ func (h *Handler) postCommitFusionCleanup(ctx context.Context, p fusionFinalizeP
 		if mergedAct := freshMerged; mergedAct != nil {
 			memberships, _ := h.DB.GetFusionMembershipsForMerged(ctx, p.merged.ID)
 			// Batch-load titles for all source IDs in one query.
+			// Guard: skip the DB call if there are no memberships (avoids a no-op roundtrip).
 			sourceIDs := make([]string, len(memberships))
 			for i, m := range memberships {
 				sourceIDs[i] = m.SourceID
 			}
-			titles, err := h.DB.GetActivityTitles(ctx, sourceIDs)
-			if err != nil {
-				slog.Warn("post-commit: failed to batch-load source titles", "error", err)
-				titles = map[string]string{} // fall back to empty titles
+			var titles map[string]string
+			if len(sourceIDs) > 0 {
+				var titlesErr error
+				titles, titlesErr = h.DB.GetActivityTitles(ctx, sourceIDs)
+				if titlesErr != nil {
+					// GetActivityTitles returns nil map on error (no partial results).
+					// Fall back to empty titles so the sidecar is still written.
+					slog.Warn("post-commit: batch titles failed — sidecar will omit titles",
+						"action", "sidecar_titles_partial",
+						"merged_id", p.merged.ID,
+						"error", titlesErr)
+					titles = map[string]string{}
+				}
+			} else {
+				titles = map[string]string{}
 			}
 			snapshots := make([]sidecar.FusionMemberSnapshot, len(memberships))
 			for i, m := range memberships {
@@ -2291,9 +2303,14 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pre-check (outside lock): is this activity a fusion result at all?
-	// This fast-fails obviously invalid requests without contending on the advisory lock.
-	// The authoritative check is the re-read inside the lock below.
+	// Pre-check OUTSIDE the advisory lock for fast-path rejection of non-fusion
+	// activities. Running on db.Pool (READ COMMITTED) means this is *best-effort*:
+	// a concurrent RevertFusion that just committed will be seen as either empty
+	// (→ 400 "not a fusion") or non-empty (→ acquire lock → re-read empty → 409
+	// Conflict). Both responses are correct; clients should treat 400/409 as
+	// "this fusion is already being reverted or doesn't exist anymore".
+	// The authoritative check is inside the advisory lock on the GetFusionMembershipsForMergedTx
+	// call below (after pg_advisory_xact_lock).
 	// user_id filter: defense-in-depth — a second call-site that omits the prior GetActivity
 	// ownership check must not be able to observe another user's memberships.
 	var preCheckCount int
