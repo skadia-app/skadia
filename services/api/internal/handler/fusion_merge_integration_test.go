@@ -2552,3 +2552,142 @@ func TestRevertFusionConcurrentSameUser(t *testing.T) {
 
 	t.Logf("Concurrent RevertFusion: 1×204, 1×409, merged deleted, sources intact — OK")
 }
+
+// ─── Test: RevertFusion wrong-user isolation ──────────────────────────────────
+
+// TestRevertFusionWrongUser verifies that user B cannot revert user A's fusion.
+// The pre-check (user-scoped COUNT on activity_fusion_memberships) returns 0 for
+// user B → 400 Bad Request (not a fusion result). Even if that were bypassed, the
+// GetActivity ownership check at the top of RevertFusion returns 404 for user B.
+//
+// This test specifically exercises the BLOCKER #3 fix: the pre-check now carries
+// a user_id filter so a different user sees no memberships for the activity.
+func TestRevertFusionWrongUser(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userA := insertTestUser(t, pool)
+	userB := insertTestUser(t, pool)
+
+	actA := insertMinimalActivity(t, db, userA)
+	actB := insertMinimalActivity(t, db, userA)
+
+	base := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
+	lat, lng := fusionPtrF64(47.5), fusionPtrF64(11.5)
+	insertStreams(t, db, actA, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(130)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(132)},
+	})
+	insertStreams(t, db, actB, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, PowerW: fusionPtrI16(200)},
+		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, PowerW: fusionPtrI16(205)},
+	})
+
+	// User A fuses A+B → M.
+	h := &Handler{DB: db}
+	reqBodyStr := fmt.Sprintf(
+		`{"sources":[%q,%q],"field_map":{"hr":%q,"power":%q},"tags_merge":false}`,
+		actA, actB, actA, actB,
+	)
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
+		strings.NewReader(reqBodyStr))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq = httpReq.WithContext(context.WithValue(httpReq.Context(), middleware.UserIDKey, userA))
+	rr := httptest.NewRecorder()
+	h.FusionMergeV2(rr, httpReq)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("FusionMergeV2 as userA: expected 201, got %d — body: %s", rr.Code, rr.Body.String())
+	}
+	var mergeResp struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&mergeResp); err != nil {
+		t.Fatalf("decode merge response: %v", err)
+	}
+	mergedID := mergeResp.ID
+	if mergedID == "" {
+		t.Fatal("merge response did not include an id")
+	}
+	t.Logf("userA: A+B → M=%s", mergedID)
+
+	// Sanity: merged activity belongs to userA.
+	var ownerID string
+	if err := pool.QueryRow(ctx,
+		`SELECT user_id FROM activities WHERE id = $1`, mergedID,
+	).Scan(&ownerID); err != nil {
+		t.Fatalf("query owner of merged: %v", err)
+	}
+	if ownerID != userA {
+		t.Fatalf("merged activity owner: want userA=%s, got %s", userA, ownerID)
+	}
+
+	// User B tries to revert the merged activity owned by user A → should get 404
+	// (GetActivity ownership check returns 404 before the pre-check runs).
+	revertReq := httptest.NewRequest(http.MethodDelete, "/activities/"+mergedID+"/fusion", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", mergedID)
+	revertReq = revertReq.WithContext(
+		context.WithValue(
+			context.WithValue(revertReq.Context(), chi.RouteCtxKey, rctx),
+			middleware.UserIDKey, userB,
+		),
+	)
+	rrRevert := httptest.NewRecorder()
+	h.RevertFusion(rrRevert, revertReq)
+
+	// Must be 404 (activity not found for this user) — NOT 204.
+	if rrRevert.Code != http.StatusNotFound {
+		t.Errorf("userB revert of userA fusion: want 404, got %d — body: %s",
+			rrRevert.Code, rrRevert.Body.String())
+	}
+
+	// Verify merged activity still exists — revert must have been a no-op.
+	var mergedExists bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM activities WHERE id = $1)`, mergedID,
+	).Scan(&mergedExists); err != nil {
+		t.Fatalf("check merged exists after wrong-user revert: %v", err)
+	}
+	if !mergedExists {
+		t.Errorf("merged activity %s was deleted by wrong-user revert — isolation violated", mergedID)
+	}
+
+	// Verify memberships still intact.
+	var memberCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activity_fusion_memberships WHERE merged_id = $1`, mergedID,
+	).Scan(&memberCount); err != nil {
+		t.Fatalf("count memberships after wrong-user revert: %v", err)
+	}
+	if memberCount == 0 {
+		t.Errorf("memberships for merged %s were removed by wrong-user revert — isolation violated", mergedID)
+	}
+
+	t.Logf("RevertFusion wrong-user: 404, merged intact, memberships=%d — OK", memberCount)
+}
+
+// ─── TODO: TestRevertFusionPhotoRestoreFatalOnError ───────────────────────────
+//
+// TODO: add a test that forces the photo-restore UPDATE inside flipTx to fail and
+// asserts that RevertFusion returns 500, memberships are still present (TX rolled
+// back), and the merged activity still exists (user can retry).
+//
+// Forcing a mid-TX failure without a mock Querier requires either:
+//   (a) A pgx mock/interceptor library — not currently a project dependency.
+//   (b) Intentionally breaking source_activity_id to trigger a FK violation — but
+//       the restore UPDATE does not touch FK-constrained columns.
+//   (c) Withdrawing the DB connection mid-TX using pgxpool test hooks — complex.
+//
+// For now TestRevertFusionRestoresPhotos covers the happy path; a targeted
+// atomicity test needs a DB fault-injection hook.
+
+// ─── TODO: TestFitLevelMergeSidecarFileID ─────────────────────────────────────
+//
+// TODO: add a test that performs a V1 fusion with fit_level=true and asserts that
+// the sidecar's MetaFile carries the file_id written by fitLevelMerge (not the
+// stale pre-merge file_id).
+//
+// This requires a ShadowFS stub plus paired FIT fixtures; neither is available in
+// the integration test harness today. The fix (reload freshMerged after
+// fitLevelMerge) needs targeted coverage once a ShadowFS mock is added.
