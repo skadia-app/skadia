@@ -284,7 +284,7 @@ func allTables() []tableSpec {
 			Name:     "activity_photos",
 			Phase:    6,
 			PKField:  "id",
-			FKFields: []string{"activity_id", "file_id"},
+			FKFields: []string{"activity_id", "file_id", "source_activity_id"},
 		},
 		{
 			// Composite PK (activity_id, application_id where application_id is BYTEA).
