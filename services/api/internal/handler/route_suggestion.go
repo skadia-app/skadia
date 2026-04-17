@@ -415,6 +415,78 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// buildRouteCandidate constructs a RouteCandidate from a CandidateSelection by
+// calling suggestRoundTripVariant and merging coverage from Leg-1 (Pareto state)
+// and Leg-2 (edge-level aggregation).
+func (h *Handler) buildRouteCandidate(
+	ctx context.Context,
+	router *routing.UnifiedRouter,
+	rs *routing.ReachableState,
+	reachable []routing.ReachableNode,
+	sel routing.CandidateSelection,
+	startLat, startLon float64,
+	cfg *routing.CostConfig,
+	opts RoundTripOptions,
+	baselineAvgFlat float32,
+) (*RouteCandidate, error) {
+	svCompat := routing.SelectedVariant{
+		Variant:  routing.SemanticVariant{ID: "pool"},
+		Node:     &reachable[sel.NodeIdx],
+		StateIdx: sel.StateIdx,
+	}
+
+	res, err := suggestRoundTripVariant(ctx, router, rs, startLat, startLon, svCompat, cfg, opts, baselineAvgFlat)
+	if err != nil {
+		return nil, err
+	}
+	if res == nil {
+		return nil, nil
+	}
+
+	merged := routing.MergeLegs([]*routing.RouteResult{res.Leg1, res.Leg2})
+
+	// Leg-1 coverage from Pareto state (distance-weighted averages already computed).
+	state := &reachable[sel.NodeIdx].States[sel.StateIdx]
+	leg1Dist := state.DistanceM
+
+	// Leg-2 coverage via edge-level aggregation.
+	leg2Cov := aggregateLeg2Coverage(res.Leg2.EdgeHandles, router.Reader())
+
+	mergedForest := mergeCoverage(state.ForestPct, leg1Dist, leg2Cov.Forest, leg2Cov.DistM)
+	mergedNoise := mergeCoverage(state.NoiseScore, leg1Dist, leg2Cov.Noise, leg2Cov.DistM)
+	mergedTraffic := mergeCoverage(state.TrafficClass, leg1Dist, leg2Cov.Traffic, leg2Cov.DistM)
+	mergedProtected := mergeCoverage(state.ProtectedArea, leg1Dist, leg2Cov.Protected, leg2Cov.DistM)
+	mergedRiver := mergeCoverage(state.RiverProximity, leg1Dist, leg2Cov.River, leg2Cov.DistM)
+
+	hasCov := leg2Cov.HasAnyCov ||
+		state.ForestPct > 0 ||
+		state.NoiseScore > 0 ||
+		state.TrafficClass > 0 ||
+		state.ProtectedArea > 0 ||
+		state.RiverProximity > 0
+
+	return &RouteCandidate{
+		NodeID:               reachable[sel.NodeIdx].NodeID,
+		ViaLat:               reachable[sel.NodeIdx].Lat,
+		ViaLon:               reachable[sel.NodeIdx].Lon,
+		Leg1:                 res.Leg1,
+		Leg2:                 res.Leg2,
+		Merged:               merged,
+		DistanceM:            merged.DistanceM,
+		AscentM:              merged.AscentM,
+		DescentM:             merged.DescentM,
+		AvgFlat:              merged.AvgFlat(),
+		MergedForestPct:      mergedForest,
+		MergedRiverProximity: mergedRiver,
+		MergedProtectedArea:  mergedProtected,
+		MergedNoiseScore:     mergedNoise,
+		MergedTrafficClass:   mergedTraffic,
+		HasCoverage:          hasCov,
+		LoopQuality:          res.LoopQuality,
+		OverlapPct:           res.OverlapPct,
+	}, nil
+}
+
 // filterByDistanceBand selects reachable nodes where at least one Pareto state
 // distance falls within [target*lowPct, target*highPct].
 func filterByDistanceBand(reachable []routing.ReachableNode, target, lowPct, highPct float64) []routing.ReachableNode {
