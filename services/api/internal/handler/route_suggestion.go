@@ -93,6 +93,9 @@ type RouteSuggestion struct {
 	GeoJSON    json.RawMessage `json:"geojson"`
 	IsFallback bool            `json:"is_fallback"`
 
+	// Descriptors are dynamic variant labels (e.g. "more forest", "less ascent")
+	// populated only when the routing.route_variants_v2 feature flag is enabled.
+	// Empty/nil for v1 responses; clients should tolerate its absence.
 	Descriptors []VariantDescriptor `json:"variant_descriptors,omitempty"`
 }
 
