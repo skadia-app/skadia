@@ -86,7 +86,7 @@ func aggregateLeg2Coverage(handles []uint64, reader routing.GraphReader) leg2Cov
 		// Defensive clamp: ForestPct is 7-bit (0..127); /100 could exceed 1.0.
 		forestPct := float32(min(int(graph.DecodeForestPct(tags2)), 100)) / 100.0
 		noiseScore := float32(graph.DecodeNoiseScore(tags2)) / 100.0
-		trafficClass := float32(graph.DecodeTrafficClass(tags2)) / 6.0 // 0..1.17 scale
+		trafficClass := float32(graph.DecodeTrafficClass(tags2)) / 6.0 // 0..1 scale (raw 0–6, matches reachable.go:162)
 		protected := float32(graph.DecodeProtectedArea(tags2)) / 3.0
 		river := float32(graph.DecodeRiverProximity(tags2)) / 7.0
 
