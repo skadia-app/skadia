@@ -128,3 +128,236 @@ func abs32(v float32) float32 {
 	}
 	return v
 }
+
+// ─── assignLabels tests ───────────────────────────────────────────────────────
+
+func TestAssignLabels_Empty(t *testing.T) {
+	got := assignLabels([]RouteCandidate{{}}, []int{}, false)
+	if got != nil {
+		t.Errorf("expected nil for empty selectedIdx, got %v", got)
+	}
+}
+
+func TestAssignLabels_K1(t *testing.T) {
+	pool := []RouteCandidate{{DistanceM: 10000, AscentM: 200}}
+	got := assignLabels(pool, []int{0}, false)
+	if len(got) != 1 {
+		t.Fatalf("K=1: expected 1 result, got %d", len(got))
+	}
+	if got[0].VariantID != "only" {
+		t.Errorf("K=1: VariantID: want 'only', got %q", got[0].VariantID)
+	}
+	if got[0].VariantLabelKey != "only" {
+		t.Errorf("K=1: VariantLabelKey: want 'only', got %q", got[0].VariantLabelKey)
+	}
+	if got[0].Descriptors != nil {
+		t.Errorf("K=1: Descriptors must be nil, got %v", got[0].Descriptors)
+	}
+}
+
+func TestAssignLabels_K2(t *testing.T) {
+	pool := []RouteCandidate{
+		{DistanceM: 8000, AscentM: 100},
+		{DistanceM: 12000, AscentM: 100},
+	}
+	got := assignLabels(pool, []int{0, 1}, false)
+	if len(got) != 2 {
+		t.Fatalf("K=2: expected 2 results, got %d", len(got))
+	}
+	if got[0].VariantID != "shortest" {
+		t.Errorf("K=2[0]: want 'shortest', got %q", got[0].VariantID)
+	}
+	if got[1].VariantID != "longest" {
+		t.Errorf("K=2[1]: want 'longest', got %q", got[1].VariantID)
+	}
+}
+
+func TestAssignLabels_K2_InputUnsorted(t *testing.T) {
+	// selectedIdx is unsorted — output must still be sorted by DistanceM.
+	pool := []RouteCandidate{
+		{DistanceM: 15000, AscentM: 100},
+		{DistanceM: 9000, AscentM: 100},
+	}
+	got := assignLabels(pool, []int{0, 1}, false)
+	if got[0].VariantID != "shortest" || got[0].Candidate.DistanceM != 9000 {
+		t.Errorf("K=2 unsorted: first result should be shortest (9000m), got %+v", got[0])
+	}
+	if got[1].VariantID != "longest" || got[1].Candidate.DistanceM != 15000 {
+		t.Errorf("K=2 unsorted: second result should be longest (15000m), got %+v", got[1])
+	}
+}
+
+func TestAssignLabels_K3(t *testing.T) {
+	// Indices unsorted on purpose; pool[2]=8000, pool[0]=10000, pool[1]=14000.
+	pool := []RouteCandidate{
+		{DistanceM: 10000, AscentM: 100},
+		{DistanceM: 14000, AscentM: 100},
+		{DistanceM: 8000, AscentM: 100},
+	}
+	got := assignLabels(pool, []int{2, 0, 1}, false)
+	if len(got) != 3 {
+		t.Fatalf("K=3: expected 3 results, got %d", len(got))
+	}
+	want := []struct{ id string; dist float64 }{
+		{"shortest", 8000},
+		{"medium", 10000},
+		{"longest", 14000},
+	}
+	for i, w := range want {
+		if got[i].VariantID != w.id {
+			t.Errorf("K=3[%d]: VariantID want %q, got %q", i, w.id, got[i].VariantID)
+		}
+		if got[i].Candidate.DistanceM != w.dist {
+			t.Errorf("K=3[%d]: DistanceM want %v, got %v", i, w.dist, got[i].Candidate.DistanceM)
+		}
+	}
+}
+
+func TestAssignLabels_NoCoverage_NoCoverageDescriptors(t *testing.T) {
+	// coverageAvailable=false; even though routes have high forest values,
+	// no coverage descriptor should be emitted.
+	pool := []RouteCandidate{
+		{DistanceM: 8000, AscentM: 100, MergedForestPct: 0.8, HasCoverage: true},
+		{DistanceM: 10000, AscentM: 100, MergedForestPct: 0.1, HasCoverage: true},
+		{DistanceM: 12000, AscentM: 100, MergedForestPct: 0.1, HasCoverage: true},
+	}
+	got := assignLabels(pool, []int{0, 1, 2}, false /* coverageAvailable=false */)
+	for _, lr := range got {
+		for _, d := range lr.Descriptors {
+			if d.Key == "high_forest" || d.Key == "high_water" || d.Key == "high_protected" || d.Key == "low_traffic_noise" {
+				t.Errorf("coverage descriptor %q emitted despite coverageAvailable=false", d.Key)
+			}
+		}
+	}
+}
+
+func TestAssignLabels_MixedCoverage(t *testing.T) {
+	// Route 0: no coverage, high ascent (300m vs 100m others).
+	// Routes 1+2: have coverage, lower ascent.
+	// Route 0 should get high_ascent but NOT coverage descriptors.
+	pool := []RouteCandidate{
+		{DistanceM: 8000, AscentM: 300, HasCoverage: false, MergedForestPct: 0.9},
+		{DistanceM: 10000, AscentM: 100, HasCoverage: true, MergedForestPct: 0.1},
+		{DistanceM: 12000, AscentM: 100, HasCoverage: true, MergedForestPct: 0.1},
+	}
+	got := assignLabels(pool, []int{0, 1, 2}, true /* coverageAvailable=true */)
+
+	// Find the LabeledRoute for pool[0] (shortest = 8000m).
+	var shortest *LabeledRoute
+	for i := range got {
+		if got[i].Candidate.DistanceM == 8000 {
+			shortest = &got[i]
+			break
+		}
+	}
+	if shortest == nil {
+		t.Fatal("could not find shortest route in output")
+	}
+
+	hasHighAscent := false
+	for _, d := range shortest.Descriptors {
+		if d.Key == "high_ascent" {
+			hasHighAscent = true
+		}
+		if d.Key == "high_forest" || d.Key == "high_water" || d.Key == "high_protected" || d.Key == "low_traffic_noise" {
+			t.Errorf("route with HasCoverage=false emitted coverage descriptor %q", d.Key)
+		}
+	}
+	if !hasHighAscent {
+		t.Errorf("route with AscentM=300 vs others=100 should have high_ascent descriptor")
+	}
+}
+
+// ─── computeDescriptorsFor tests ─────────────────────────────────────────────
+
+func TestComputeDescriptorsFor_HighAscentThreshold(t *testing.T) {
+	me := RouteCandidate{DistanceM: 10000, AscentM: 200, HasCoverage: false}
+	others := []RouteCandidate{
+		{DistanceM: 10000, AscentM: 100},
+		{DistanceM: 10000, AscentM: 150},
+	}
+	// delta=200-150=50 >= 30, ratio=200/150=1.33 >= 1.2 → high_ascent expected.
+	descs := computeDescriptorsFor(me, others, 10000, false)
+	found := hasDescriptor(descs, "high_ascent")
+	if !found {
+		t.Errorf("expected high_ascent descriptor, got %v", descs)
+	}
+
+	// me.AscentM=120, maxOther=150: delta=-30, ratio<1 → NO high_ascent.
+	me2 := RouteCandidate{DistanceM: 10000, AscentM: 120, HasCoverage: false}
+	descs2 := computeDescriptorsFor(me2, others, 10000, false)
+	if hasDescriptor(descs2, "high_ascent") {
+		t.Errorf("did NOT expect high_ascent when me<others, got %v", descs2)
+	}
+}
+
+func TestComputeDescriptorsFor_HighAscentBoundary_30m(t *testing.T) {
+	others := []RouteCandidate{{DistanceM: 10000, AscentM: 100}}
+	// delta=30 exactly → should trigger (>= 30), ratio=130/100=1.3 >= 1.2.
+	me130 := RouteCandidate{DistanceM: 10000, AscentM: 130}
+	if !hasDescriptor(computeDescriptorsFor(me130, others, 10000, false), "high_ascent") {
+		t.Error("AscentM=130 vs 100: delta=30 should produce high_ascent")
+	}
+
+	// delta=29 → should NOT trigger.
+	me129 := RouteCandidate{DistanceM: 10000, AscentM: 129}
+	if hasDescriptor(computeDescriptorsFor(me129, others, 10000, false), "high_ascent") {
+		t.Error("AscentM=129 vs 100: delta=29 should NOT produce high_ascent")
+	}
+}
+
+func TestComputeDescriptorsFor_HighForestBoundary(t *testing.T) {
+	others := []RouteCandidate{{
+		DistanceM:       10000,
+		MergedForestPct: 0.45,
+		HasCoverage:     true,
+	}}
+
+	// delta=0.10 exactly → should produce high_forest.
+	me55 := RouteCandidate{DistanceM: 10000, MergedForestPct: 0.55, HasCoverage: true}
+	if !hasDescriptor(computeDescriptorsFor(me55, others, 10000, true), "high_forest") {
+		t.Error("ForestPct=0.55 vs 0.45: delta=0.10 should produce high_forest")
+	}
+
+	// delta=0.09 → should NOT produce high_forest.
+	me54 := RouteCandidate{DistanceM: 10000, MergedForestPct: 0.54, HasCoverage: true}
+	if hasDescriptor(computeDescriptorsFor(me54, others, 10000, true), "high_forest") {
+		t.Error("ForestPct=0.54 vs 0.45: delta=0.09 should NOT produce high_forest")
+	}
+}
+
+func TestComputeDescriptorsFor_TargetDistance(t *testing.T) {
+	target := 10000.0
+
+	// me is within 5% (delta=200, 200 <= 500). other is 1000m off.
+	// other_delta=1000 > 2*200=400 → target_distance expected.
+	me := RouteCandidate{DistanceM: 10200}
+	others := []RouteCandidate{{DistanceM: 11000}}
+	if !hasDescriptor(computeDescriptorsFor(me, others, target, false), "target_distance") {
+		t.Error("10200 vs target 10000 should get target_distance")
+	}
+
+	// me=10200, other=10300: me_delta=200, other_delta=300. 300 NOT > 2*200=400 → no target_distance.
+	others2 := []RouteCandidate{{DistanceM: 10300}}
+	if hasDescriptor(computeDescriptorsFor(me, others2, target, false), "target_distance") {
+		t.Error("10200 vs 10300 with target 10000: other not 2x farther, should NOT get target_distance")
+	}
+}
+
+func TestComputeDescriptorsFor_EmptyOthers(t *testing.T) {
+	me := RouteCandidate{DistanceM: 10000, AscentM: 500}
+	got := computeDescriptorsFor(me, nil, 10000, true)
+	if got != nil {
+		t.Errorf("empty others: expected nil descriptors, got %v", got)
+	}
+}
+
+// hasDescriptor reports whether any VariantDescriptor in ds has the given key.
+func hasDescriptor(ds []VariantDescriptor, key string) bool {
+	for _, d := range ds {
+		if d.Key == key {
+			return true
+		}
+	}
+	return false
+}
