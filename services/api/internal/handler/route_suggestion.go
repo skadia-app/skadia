@@ -8,6 +8,8 @@ import (
 	"math"
 	"net/http"
 	"slices"
+	"sort"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -306,6 +308,35 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		filtered = filtered[:maxVariantPool]
 	}
 
+	opts := DefaultRoundTripOptions()
+
+	// --- Feature flag: route_variants_v2 ---
+	useV2 := h.Settings != nil && h.Settings.Get("routing.route_variants_v2").Value == "true"
+	if useV2 {
+		h.suggestRoutesV2Tail(w, r, &req, userID, mappedProfile, filtered,
+			startLat, startLon, rs, router, cfg, opts, baselineAvgFlat, coverageAvailable, truncated)
+		return
+	}
+	h.suggestRoutesV1Tail(w, r, &req, userID, mappedProfile, filtered,
+		startLat, startLon, rs, router, cfg, opts, baselineAvgFlat, coverageAvailable, truncated)
+}
+
+// suggestRoutesV1Tail is the legacy (v1) variant-selection pipeline.
+// It is called when the routing.route_variants_v2 feature flag is "false" (default).
+func (h *Handler) suggestRoutesV1Tail(
+	w http.ResponseWriter, r *http.Request,
+	req *RouteSuggestionRequest, _ string,
+	mappedProfile string,
+	filtered []routing.ReachableNode,
+	startLat, startLon float64,
+	rs *routing.ReachableState,
+	router *routing.UnifiedRouter,
+	cfg *routing.CostConfig,
+	opts RoundTripOptions,
+	baselineAvgFlat float32,
+	coverageAvailable bool,
+	truncated bool,
+) {
 	// --- Step 3: Select semantic variants ---
 	selCtx := routing.VariantSelectionContext{
 		TargetDistanceM: req.TargetDistanceM,
@@ -334,7 +365,6 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	ctx60, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
-	opts := DefaultRoundTripOptions()
 	results := make([]*RoundTripResult, len(selected))
 	g, gctx := errgroup.WithContext(ctx60)
 
@@ -410,6 +440,194 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	if suggestions == nil {
 		suggestions = []RouteSuggestion{}
 	}
+
+	httputil.WriteJSON(w, http.StatusOK, RouteSuggestionResponse{
+		Suggestions: suggestions, CoverageAvailable: coverageAvailable, PartialSearch: truncated,
+	})
+}
+
+// suggestRoutesV2Tail is the new (v2) variant pipeline: BuildCandidatePool →
+// errgroup buildRouteCandidate → CandidateMetrics → PickDiverseIndices →
+// assignLabels → VariantIDs filter → response.
+// It is called when the routing.route_variants_v2 feature flag is "true".
+func (h *Handler) suggestRoutesV2Tail(
+	w http.ResponseWriter, r *http.Request,
+	req *RouteSuggestionRequest, _ string,
+	mappedProfile string,
+	filtered []routing.ReachableNode,
+	startLat, startLon float64,
+	rs *routing.ReachableState,
+	router *routing.UnifiedRouter,
+	cfg *routing.CostConfig,
+	opts RoundTripOptions,
+	baselineAvgFlat float32,
+	coverageAvailable bool,
+	truncated bool,
+) {
+	ctx := r.Context()
+
+	// 1. Pool size: maxVariants + 2, capped at 7.
+	maxVariants := *req.MaxVariants
+	poolSize := maxVariants + 2
+	if poolSize > 7 {
+		poolSize = 7
+	}
+
+	// 2. Build candidate pool.
+	minDist := routing.MinVariantDistanceM(req.TargetDistanceM)
+	pool := routing.BuildCandidatePool(filtered, startLat, startLon, req.TargetDistanceM, poolSize, minDist)
+	routingMetricDiversityPoolSize.Observe(float64(len(pool)))
+	if len(pool) == 0 {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "no candidate pool built", r.URL.Path)
+		return
+	}
+
+	// 3. Build all candidates in parallel via errgroup.
+	ctx60, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	candidates := make([]*RouteCandidate, len(pool))
+	var eg errgroup.Group
+	eg.SetLimit(4)
+	for i, sel := range pool {
+		i, sel := i, sel
+		eg.Go(func() error {
+			c, err := h.buildRouteCandidate(ctx60, router, rs, filtered, sel,
+				startLat, startLon, cfg, opts, baselineAvgFlat)
+			if err != nil {
+				slog.Warn("v2: route candidate failed", "nodeIdx", sel.NodeIdx, "err", err)
+				routingMetricCandidatesBuiltTotal.WithLabelValues("error").Inc()
+				return nil // soft failure — skip this candidate
+			}
+			candidates[i] = c
+			routingMetricCandidatesBuiltTotal.WithLabelValues("ok").Inc()
+			return nil
+		})
+	}
+	_ = eg.Wait()
+
+	// 4. Collect successful candidates.
+	built := make([]RouteCandidate, 0, len(candidates))
+	for _, c := range candidates {
+		if c != nil {
+			built = append(built, *c)
+		}
+	}
+	if len(built) == 0 {
+		httputil.WriteError(w, http.StatusInternalServerError, "Routing Error",
+			"no routes built in v2 pipeline", r.URL.Path)
+		return
+	}
+
+	// 5. Build CandidateMetrics with nullable GreenScore / CalmScore.
+	metrics := make([]routing.CandidateMetrics, len(built))
+	for i, c := range built {
+		m := routing.CandidateMetrics{
+			DistanceM: c.DistanceM,
+			AscentM:   c.AscentM,
+			AvgFlat:   c.AvgFlat,
+			NodeID:    c.NodeID,
+		}
+		if c.HasCoverage && (c.MergedForestPct > 0 || c.MergedRiverProximity > 0 || c.MergedProtectedArea > 0) {
+			green := (c.MergedForestPct + c.MergedRiverProximity + c.MergedProtectedArea) / 3.0
+			m.GreenScore = &green
+		}
+		if c.HasCoverage {
+			calm := 1.0 - (c.MergedTrafficClass+c.MergedNoiseScore)/2.0
+			m.CalmScore = &calm
+		}
+		metrics[i] = m
+	}
+
+	// 6. Diversity selection.
+	selectedIdx := routing.PickDiverseIndices(metrics, req.TargetDistanceM, req.TargetAscentM, maxVariants)
+
+	// 7. Assign labels and descriptors.
+	labeled := assignLabels(built, selectedIdx, req.TargetDistanceM, coverageAvailable)
+	if coverageAvailable {
+		routingMetricCoverageAvailable.WithLabelValues("true").Inc()
+	} else {
+		routingMetricCoverageAvailable.WithLabelValues("false").Inc()
+	}
+
+	// 8. Optional VariantIDs filter (deprecated-ID-safe).
+	if len(req.VariantIDs) > 0 {
+		validIDs := map[string]bool{"shortest": true, "medium": true, "longest": true, "only": true}
+		var keep, deprecated []string
+		for _, id := range req.VariantIDs {
+			if validIDs[id] {
+				keep = append(keep, id)
+			} else {
+				deprecated = append(deprecated, id)
+			}
+		}
+		if len(deprecated) > 0 {
+			slog.Warn("v2: deprecated variant_id in request", "ids", deprecated)
+		}
+		if len(keep) > 0 {
+			keepSet := make(map[string]bool, len(keep))
+			for _, k := range keep {
+				keepSet[k] = true
+			}
+			filtered2 := labeled[:0]
+			for _, lr := range labeled {
+				if keepSet[lr.VariantID] {
+					filtered2 = append(filtered2, lr)
+				} else if keepSet["medium"] && strings.HasPrefix(lr.VariantID, "medium") {
+					filtered2 = append(filtered2, lr)
+				}
+			}
+			labeled = filtered2
+		}
+	}
+
+	// 9. Descriptor metrics.
+	for _, lr := range labeled {
+		for _, d := range lr.Descriptors {
+			routingMetricDescriptorAssigned.WithLabelValues(d.Key).Inc()
+		}
+	}
+
+	// 10. Build response suggestions.
+	suggestions := make([]RouteSuggestion, 0, len(labeled))
+	for i, lr := range labeled {
+		c := lr.Candidate
+		merged := c.Merged
+
+		distanceAchieved := math.Abs(c.DistanceM-req.TargetDistanceM) <= 0.15*req.TargetDistanceM
+		ascentAchieved := true
+		if req.TargetAscentM != nil {
+			tolerance := 0.2
+			if req.AscentTolerancePct != nil {
+				tolerance = *req.AscentTolerancePct / 100.0
+			}
+			ascentAchieved = math.Abs(c.AscentM-*req.TargetAscentM) <= tolerance**req.TargetAscentM
+		}
+
+		suggestions = append(suggestions, RouteSuggestion{
+			Variant:                i + 1,
+			Profile:                mappedProfile,
+			ViaPoint:               [2]float64{c.ViaLon, c.ViaLat},
+			VariantID:              lr.VariantID,
+			VariantLabelKey:        lr.VariantLabelKey,
+			DistanceM:              c.DistanceM,
+			AscentM:                c.AscentM,
+			DescentM:               c.DescentM,
+			AvgFlat:                float64(c.AvgFlat),
+			LoopQuality:            string(c.LoopQuality),
+			OverlapPct:             c.OverlapPct,
+			DistanceTargetAchieved: distanceAchieved,
+			AscentTargetAchieved:   ascentAchieved,
+			GeoJSON:                json.RawMessage(merged.ToGeoJSON()),
+			IsFallback:             c.LoopQuality == LoopQualityOutAndBack,
+			Descriptors:            lr.Descriptors,
+		})
+	}
+
+	// Sort by DistanceM ascending for UX consistency.
+	sort.Slice(suggestions, func(i, j int) bool {
+		return suggestions[i].DistanceM < suggestions[j].DistanceM
+	})
 
 	httputil.WriteJSON(w, http.StatusOK, RouteSuggestionResponse{
 		Suggestions: suggestions, CoverageAvailable: coverageAvailable, PartialSearch: truncated,
