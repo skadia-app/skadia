@@ -92,6 +92,8 @@ type RouteSuggestion struct {
 
 	GeoJSON    json.RawMessage `json:"geojson"`
 	IsFallback bool            `json:"is_fallback"`
+
+	Descriptors []VariantDescriptor `json:"variant_descriptors,omitempty"`
 }
 
 // RouteSuggestionResponse is the JSON response for POST /api/v1/routes/suggest.

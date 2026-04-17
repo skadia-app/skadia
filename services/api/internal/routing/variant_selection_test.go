@@ -60,12 +60,12 @@ func TestSelectVariants_RespectsMaxVariants(t *testing.T) {
 }
 
 // TestSelectVariants_SpatialDiversity verifies that no two selected nodes are
-// within minVariantDistanceM of each other.
+// within MinVariantDistanceM of each other.
 func TestSelectVariants_SpatialDiversity(t *testing.T) {
 	reachable := makeDeterministicFixture()
 	ctx := VariantSelectionContext{TargetDistanceM: 10000}
 	selected := SelectVariants(reachable, 48.0, 11.0, DefaultVariants, 5, ctx)
-	minDist := minVariantDistanceM(ctx.TargetDistanceM)
+	minDist := MinVariantDistanceM(ctx.TargetDistanceM)
 
 	for i := range selected {
 		for j := i + 1; j < len(selected); j++ {
@@ -108,15 +108,15 @@ func TestSelectVariants_ZeroTargetDistance(t *testing.T) {
 // TestMinVariantDistanceM checks boundary conditions.
 func TestMinVariantDistanceM(t *testing.T) {
 	// Floor: short distances must still produce ≥300 m
-	if d := minVariantDistanceM(0); d != 300.0 {
-		t.Errorf("minVariantDistanceM(0) = %.1f, want 300.0", d)
+	if d := MinVariantDistanceM(0); d != 300.0 {
+		t.Errorf("MinVariantDistanceM(0) = %.1f, want 300.0", d)
 	}
-	if d := minVariantDistanceM(1000); d != 300.0 {
-		t.Errorf("minVariantDistanceM(1000) = %.1f, want 300.0 (5%% = 50 m < floor)", d)
+	if d := MinVariantDistanceM(1000); d != 300.0 {
+		t.Errorf("MinVariantDistanceM(1000) = %.1f, want 300.0 (5%% = 50 m < floor)", d)
 	}
 	// Above floor: 5% of 10 km = 500 m
-	if d := minVariantDistanceM(10000); d != 500.0 {
-		t.Errorf("minVariantDistanceM(10000) = %.1f, want 500.0", d)
+	if d := MinVariantDistanceM(10000); d != 500.0 {
+		t.Errorf("MinVariantDistanceM(10000) = %.1f, want 500.0", d)
 	}
 }
 
