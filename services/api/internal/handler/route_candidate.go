@@ -25,9 +25,10 @@ type RouteCandidate struct {
 	MergedNoiseScore     float32
 	MergedTrafficClass   float32
 
-	// HasCoverage is true iff at least one of the five merged coverage values
-	// comes from real coverage data (i.e., at least one edge along the route
-	// had non-zero tags2 coverage bits).
+	// HasCoverage is true iff at least one coverage layer (forest, water,
+	// protected area, noise, or traffic) returned a real measurement for
+	// this route. False means all Merged* values are zero only because no
+	// coverage data exists — not because the route scored zero on merit.
 	HasCoverage bool
 
 	LoopQuality LoopQuality
@@ -42,6 +43,9 @@ type VariantDescriptor struct {
 }
 
 // LabeledRoute is a RouteCandidate plus its assigned variant_id and descriptors.
+//
+// TODO(route-variants-v2): produced by assignLabels (Phase 3). Not yet wired
+// into the handler response path.
 type LabeledRoute struct {
 	Candidate       RouteCandidate
 	VariantID       string
