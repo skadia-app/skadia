@@ -214,6 +214,79 @@ func TestTiledGraphReader_EdgeTags2_CrossTile(t *testing.T) {
 	}
 }
 
+func TestTiledGraphReader_EdgeDistanceCm_CrossTile(t *testing.T) {
+	dir := t.TempDir()
+
+	// Build and serialize two tiles, each with a distinct EdgeDist value.
+	tileID1 := graph.TileIDFromCoord(47.0, 8.0)
+	tileID2 := graph.TileIDFromCoord(48.0, 9.0)
+
+	makeDistGraph := func(tileID uint32, bbox [4]float64, lat0, lat1, lon0, lon1 int32, dist uint32) *graph.Graph {
+		g := &graph.Graph{
+			TileID:          tileID,
+			Version:         graph.FormatVersion,
+			BBox:            bbox,
+			NodeCount:       2,
+			EdgeCount:       1,
+			Offsets:         []uint32{0, 1, 1},
+			Targets:         []uint32{1},
+			EdgeDist:        []uint32{dist},
+			EdgeTags1:       []uint64{0},
+			EdgeTags2:       []uint64{0},
+			EdgeOSMIdx:      []uint32{0},
+			OSMIDPool:       []int64{1},
+			NodeLat:         []int32{lat0, lat1},
+			NodeLon:         []int32{lon0, lon1},
+			NodeEle:         []int32{5000, 5100},
+			NodeTags:        []uint8{0, 0},
+			EdgeGeomOff:     []uint32{0, 0},
+			EdgeGeomLat:     []int32{},
+			EdgeGeomLon:     []int32{},
+			EdgeElevOff:     []uint32{0, 0},
+			EdgeElevProf:    []int32{},
+			EdgeElevSegDist: []uint16{},
+			IsBorder:        []bool{false, false},
+		}
+		g.Grid = graph.BuildSpatialIndex(g, 0.01)
+		return g
+	}
+
+	g1 := makeDistGraph(tileID1, [4]float64{47.0, 8.0, 48.0, 9.0},
+		470500000, 470600000, 80500000, 80600000, 12345)
+	g2 := makeDistGraph(tileID2, [4]float64{48.0, 9.0, 49.0, 10.0},
+		480500000, 480600000, 90500000, 90600000, 67890)
+
+	if err := graph.Serialize(g1, filepath.Join(dir, tileName(tileID1))); err != nil {
+		t.Fatalf("serialize tile1: %v", err)
+	}
+	if err := graph.Serialize(g2, filepath.Join(dir, tileName(tileID2))); err != nil {
+		t.Fatalf("serialize tile2: %v", err)
+	}
+
+	reader := NewTiledGraphReader(dir, 100_000_000)
+
+	// Tile 1, edge 0 → must return tile1's EdgeDist value.
+	handle1 := uint64(tileID1)<<32 | 0
+	got1 := reader.EdgeDistanceCm(handle1)
+	if got1 != 12345 {
+		t.Errorf("tile1 edge0 EdgeDistanceCm: expected 12345, got %d", got1)
+	}
+
+	// Tile 2, edge 0 → must return tile2's EdgeDist value (different tile).
+	handle2 := uint64(tileID2)<<32 | 0
+	got2 := reader.EdgeDistanceCm(handle2)
+	if got2 != 67890 {
+		t.Errorf("tile2 edge0 EdgeDistanceCm: expected 67890, got %d", got2)
+	}
+
+	// Out-of-range edge index → expect 0.
+	handleOOB := uint64(tileID1)<<32 | 999
+	gotOOB := reader.EdgeDistanceCm(handleOOB)
+	if gotOOB != 0 {
+		t.Errorf("out-of-range edge: expected 0, got %d", gotOOB)
+	}
+}
+
 func TestTiledGraphReader_EdgeDistanceCm_MissingTile(t *testing.T) {
 	dir := t.TempDir()
 	// No tiles written → any tile load returns nil.
