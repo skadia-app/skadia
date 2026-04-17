@@ -261,3 +261,91 @@ func makeSimpleTestGraph() *graph.Graph {
 	g.Grid = graph.BuildSpatialIndex(g, 0.01)
 	return g
 }
+
+func TestSingleGraphReader_EdgeTags2(t *testing.T) {
+	g := &graph.Graph{
+		NodeCount:       2,
+		EdgeCount:       2,
+		Offsets:         []uint32{0, 1, 2, 2},
+		Targets:         []uint32{1, 0},
+		EdgeDist:        []uint32{5000, 5000},
+		EdgeTags1:       []uint64{0, 0},
+		EdgeTags2:       []uint64{0xDEADBEEF00000001, 0xCAFEBABE00000002},
+		EdgeOSMIdx:      []uint32{0, 0},
+		OSMIDPool:       []int64{1},
+		NodeLat:         []int32{470000000, 470100000},
+		NodeLon:         []int32{80000000, 80100000},
+		NodeEle:         []int32{5000, 5000},
+		NodeTags:        []uint8{0, 0},
+		EdgeGeomOff:     []uint32{0, 0, 0},
+		EdgeGeomLat:     []int32{},
+		EdgeGeomLon:     []int32{},
+		EdgeElevOff:     []uint32{0, 0, 0},
+		EdgeElevProf:    []int32{},
+		EdgeElevSegDist: []uint16{},
+		IsBorder:        []bool{false, false},
+	}
+	reader := &SingleGraphReader{G: g, TileID: 0}
+
+	// Valid handle → edge 0: expect first Tags2 value.
+	got0 := reader.EdgeTags2(MakeGlobalNodeID(0, 0))
+	if got0 != 0xDEADBEEF00000001 {
+		t.Errorf("edge 0 Tags2: expected 0xDEADBEEF00000001, got 0x%X", got0)
+	}
+
+	// Valid handle → edge 1: expect second Tags2 value.
+	got1 := reader.EdgeTags2(MakeGlobalNodeID(0, 1))
+	if got1 != 0xCAFEBABE00000002 {
+		t.Errorf("edge 1 Tags2: expected 0xCAFEBABE00000002, got 0x%X", got1)
+	}
+
+	// Out-of-range edge index → expect 0.
+	gotOOB := reader.EdgeTags2(MakeGlobalNodeID(0, 999))
+	if gotOOB != 0 {
+		t.Errorf("out-of-range handle: expected 0, got 0x%X", gotOOB)
+	}
+}
+
+func TestSingleGraphReader_EdgeDistanceCm(t *testing.T) {
+	g := &graph.Graph{
+		NodeCount:       2,
+		EdgeCount:       2,
+		Offsets:         []uint32{0, 1, 2, 2},
+		Targets:         []uint32{1, 0},
+		EdgeDist:        []uint32{12345, 67890},
+		EdgeTags1:       []uint64{0, 0},
+		EdgeTags2:       []uint64{0, 0},
+		EdgeOSMIdx:      []uint32{0, 0},
+		OSMIDPool:       []int64{1},
+		NodeLat:         []int32{470000000, 470100000},
+		NodeLon:         []int32{80000000, 80100000},
+		NodeEle:         []int32{5000, 5000},
+		NodeTags:        []uint8{0, 0},
+		EdgeGeomOff:     []uint32{0, 0, 0},
+		EdgeGeomLat:     []int32{},
+		EdgeGeomLon:     []int32{},
+		EdgeElevOff:     []uint32{0, 0, 0},
+		EdgeElevProf:    []int32{},
+		EdgeElevSegDist: []uint16{},
+		IsBorder:        []bool{false, false},
+	}
+	reader := &SingleGraphReader{G: g, TileID: 0}
+
+	// Valid handle → edge 0.
+	got0 := reader.EdgeDistanceCm(MakeGlobalNodeID(0, 0))
+	if got0 != 12345 {
+		t.Errorf("edge 0 DistCm: expected 12345, got %d", got0)
+	}
+
+	// Valid handle → edge 1.
+	got1 := reader.EdgeDistanceCm(MakeGlobalNodeID(0, 1))
+	if got1 != 67890 {
+		t.Errorf("edge 1 DistCm: expected 67890, got %d", got1)
+	}
+
+	// Out-of-range edge index → expect 0.
+	gotOOB := reader.EdgeDistanceCm(MakeGlobalNodeID(0, 999))
+	if gotOOB != 0 {
+		t.Errorf("out-of-range handle: expected 0, got %d", gotOOB)
+	}
+}
