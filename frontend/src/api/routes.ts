@@ -368,6 +368,12 @@ export async function computeInternalRoute(
 
 // === Route Suggestion ===
 
+export interface VariantDescriptor {
+  key: string
+  magnitude: number
+  display_value?: string
+}
+
 export interface RouteSuggestion {
   variant: number
   profile: string
@@ -386,6 +392,8 @@ export interface RouteSuggestion {
 
   distance_target_achieved: boolean
   ascent_target_achieved: boolean
+
+  variant_descriptors?: VariantDescriptor[]
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   geojson: any  // Backend sends json.RawMessage — access as geojson.features directly

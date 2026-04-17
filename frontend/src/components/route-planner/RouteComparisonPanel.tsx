@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { RouteSuggestion } from '@/api/routes'
-import { variantLabel, loopQualityDisplay, suggestRoutesStrings } from '@/lib/strings/suggest-routes'
+import { variantLabel, loopQualityDisplay, descriptorLabel, suggestRoutesStrings } from '@/lib/strings/suggest-routes'
+import type { VariantDescriptor } from '@/api/routes'
 import { useToast } from '@/lib/toast'
 
 export const SUGGESTION_COLORS = ['#F97316', '#3B82F6', '#22C55E', '#A855F7', '#EF4444']
@@ -100,14 +101,29 @@ export default function RouteComparisonPanel({
             >
               {/* Color dot */}
               <span
-                className="w-3 h-3 rounded-full shrink-0"
+                className="w-3 h-3 rounded-full shrink-0 self-start mt-0.5"
                 style={{ backgroundColor: SUGGESTION_COLORS[i % SUGGESTION_COLORS.length] }}
               />
 
-              {/* Variant label */}
-              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 w-20 shrink-0 truncate">
-                {variantLabel(s.variant_id || '')}
-              </span>
+              {/* Variant label + optional descriptor chips */}
+              <div className="flex flex-col gap-0.5 w-20 shrink-0">
+                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 truncate">
+                  {variantLabel(s.variant_id || '')}
+                </span>
+                {s.variant_descriptors && s.variant_descriptors.length > 0 && (
+                  <div className="flex flex-wrap gap-0.5">
+                    {s.variant_descriptors.map((d: VariantDescriptor, idx: number) => (
+                      <span
+                        key={idx}
+                        className="text-[9px] leading-tight px-1 py-px rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 whitespace-nowrap"
+                        title={descriptorLabel(d.key, d.display_value)}
+                      >
+                        {descriptorLabel(d.key, d.display_value)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               {/* Distance */}
               <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 w-16 text-right tabular-nums">
