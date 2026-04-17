@@ -155,6 +155,18 @@ var AllKeys = []KeyDef{
 	{
 		Key: "timescale.compression", EnvVar: "", Default: "false", Encrypted: false, Group: "timescale",
 	},
+	{
+		Key:     "routing.route_variants_v2",
+		EnvVar:  "SKADIA_ROUTING_ROUTE_VARIANTS_V2",
+		Default: "false",
+		Group:   "routing",
+		Validate: func(v string) error {
+			if v != "true" && v != "false" {
+				return fmt.Errorf("routing.route_variants_v2 must be \"true\" or \"false\", got %q", v)
+			}
+			return nil
+		},
+	},
 }
 
 // KeysByKey maps key strings to their KeyDef for O(1) lookup.

@@ -100,6 +100,7 @@ func TestGetAll_GroupedBySection(t *testing.T) {
 		"library",
 		"hotfolder",
 		"timescale",
+		"routing",
 	}
 
 	for _, section := range expectedSections {

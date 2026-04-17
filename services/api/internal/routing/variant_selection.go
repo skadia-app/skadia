@@ -17,10 +17,10 @@ type SelectedVariant struct {
 	Score    float64
 }
 
-// minVariantDistanceM returns the minimum spatial separation (in metres)
+// MinVariantDistanceM returns the minimum spatial separation (in metres)
 // that two selected variant nodes must have. The floor of 300 m prevents
 // trivial near-duplicate variants on short target distances.
-func minVariantDistanceM(targetDistanceM float64) float64 {
+func MinVariantDistanceM(targetDistanceM float64) float64 {
 	return math.Max(300.0, 0.05*targetDistanceM)
 }
 
@@ -73,7 +73,7 @@ func SelectVariants(
 	maxVariants int,
 	ctx VariantSelectionContext,
 ) []SelectedVariant {
-	minDist := minVariantDistanceM(ctx.TargetDistanceM)
+	minDist := MinVariantDistanceM(ctx.TargetDistanceM)
 	selected := make([]SelectedVariant, 0, maxVariants)
 
 	for _, variant := range variants {
