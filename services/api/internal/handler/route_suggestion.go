@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
@@ -429,6 +430,15 @@ func (h *Handler) buildRouteCandidate(
 	opts RoundTripOptions,
 	baselineAvgFlat float32,
 ) (*RouteCandidate, error) {
+	if sel.NodeIdx < 0 || sel.NodeIdx >= len(reachable) {
+		return nil, fmt.Errorf("buildRouteCandidate: NodeIdx %d out of range (len=%d)",
+			sel.NodeIdx, len(reachable))
+	}
+	if sel.StateIdx < 0 || sel.StateIdx >= len(reachable[sel.NodeIdx].States) {
+		return nil, fmt.Errorf("buildRouteCandidate: StateIdx %d out of range for node %d (len=%d)",
+			sel.StateIdx, sel.NodeIdx, len(reachable[sel.NodeIdx].States))
+	}
+
 	svCompat := routing.SelectedVariant{
 		Variant:  routing.SemanticVariant{ID: "pool"},
 		Node:     &reachable[sel.NodeIdx],
