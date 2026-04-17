@@ -132,7 +132,7 @@ func abs32(v float32) float32 {
 // ─── assignLabels tests ───────────────────────────────────────────────────────
 
 func TestAssignLabels_Empty(t *testing.T) {
-	got := assignLabels([]RouteCandidate{{}}, []int{}, false)
+	got := assignLabels([]RouteCandidate{{}}, []int{}, 10000.0, false)
 	if got != nil {
 		t.Errorf("expected nil for empty selectedIdx, got %v", got)
 	}
@@ -140,7 +140,7 @@ func TestAssignLabels_Empty(t *testing.T) {
 
 func TestAssignLabels_K1(t *testing.T) {
 	pool := []RouteCandidate{{DistanceM: 10000, AscentM: 200}}
-	got := assignLabels(pool, []int{0}, false)
+	got := assignLabels(pool, []int{0}, 10000.0, false)
 	if len(got) != 1 {
 		t.Fatalf("K=1: expected 1 result, got %d", len(got))
 	}
@@ -160,7 +160,7 @@ func TestAssignLabels_K2(t *testing.T) {
 		{DistanceM: 8000, AscentM: 100},
 		{DistanceM: 12000, AscentM: 100},
 	}
-	got := assignLabels(pool, []int{0, 1}, false)
+	got := assignLabels(pool, []int{0, 1}, 10000.0, false)
 	if len(got) != 2 {
 		t.Fatalf("K=2: expected 2 results, got %d", len(got))
 	}
@@ -178,7 +178,7 @@ func TestAssignLabels_K2_InputUnsorted(t *testing.T) {
 		{DistanceM: 15000, AscentM: 100},
 		{DistanceM: 9000, AscentM: 100},
 	}
-	got := assignLabels(pool, []int{0, 1}, false)
+	got := assignLabels(pool, []int{0, 1}, 10000.0, false)
 	if got[0].VariantID != "shortest" || got[0].Candidate.DistanceM != 9000 {
 		t.Errorf("K=2 unsorted: first result should be shortest (9000m), got %+v", got[0])
 	}
@@ -194,7 +194,7 @@ func TestAssignLabels_K3(t *testing.T) {
 		{DistanceM: 14000, AscentM: 100},
 		{DistanceM: 8000, AscentM: 100},
 	}
-	got := assignLabels(pool, []int{2, 0, 1}, false)
+	got := assignLabels(pool, []int{2, 0, 1}, 10000.0, false)
 	if len(got) != 3 {
 		t.Fatalf("K=3: expected 3 results, got %d", len(got))
 	}
@@ -221,7 +221,7 @@ func TestAssignLabels_NoCoverage_NoCoverageDescriptors(t *testing.T) {
 		{DistanceM: 10000, AscentM: 100, MergedForestPct: 0.1, HasCoverage: true},
 		{DistanceM: 12000, AscentM: 100, MergedForestPct: 0.1, HasCoverage: true},
 	}
-	got := assignLabels(pool, []int{0, 1, 2}, false /* coverageAvailable=false */)
+	got := assignLabels(pool, []int{0, 1, 2}, 10000.0, false /* coverageAvailable=false */)
 	for _, lr := range got {
 		for _, d := range lr.Descriptors {
 			if d.Key == "high_forest" || d.Key == "high_water" || d.Key == "high_protected" || d.Key == "low_traffic_noise" {
@@ -240,7 +240,7 @@ func TestAssignLabels_MixedCoverage(t *testing.T) {
 		{DistanceM: 10000, AscentM: 100, HasCoverage: true, MergedForestPct: 0.1},
 		{DistanceM: 12000, AscentM: 100, HasCoverage: true, MergedForestPct: 0.1},
 	}
-	got := assignLabels(pool, []int{0, 1, 2}, true /* coverageAvailable=true */)
+	got := assignLabels(pool, []int{0, 1, 2}, 10000.0, true /* coverageAvailable=true */)
 
 	// Find the LabeledRoute for pool[0] (shortest = 8000m).
 	var shortest *LabeledRoute
@@ -349,6 +349,70 @@ func TestComputeDescriptorsFor_EmptyOthers(t *testing.T) {
 	got := computeDescriptorsFor(me, nil, 10000, true)
 	if got != nil {
 		t.Errorf("empty others: expected nil descriptors, got %v", got)
+	}
+}
+
+func TestAssignLabels_K3_TargetDistanceDescriptor(t *testing.T) {
+	// pool[0]=9000m, pool[1]=10200m (closest to 10000 target), pool[2]=14000m.
+	// pool[1]: meDelta=200, within 5% of 10000 (<=500). others: delta(9000)=1000, delta(14000)=4000.
+	// minOtherDistDelta=1000 > 2*200=400 → pool[1] (medium slot) gets target_distance.
+	pool := []RouteCandidate{
+		{DistanceM: 9000, AscentM: 100},
+		{DistanceM: 10200, AscentM: 100},
+		{DistanceM: 14000, AscentM: 100},
+	}
+	got := assignLabels(pool, []int{0, 1, 2}, 10000.0, false)
+	if len(got) != 3 {
+		t.Fatalf("K=3 target_distance: expected 3 results, got %d", len(got))
+	}
+
+	// Find the medium route (pool[1], 10200m).
+	var medium *LabeledRoute
+	for i := range got {
+		if got[i].VariantID == "medium" {
+			medium = &got[i]
+			break
+		}
+	}
+	if medium == nil {
+		t.Fatal("K=3 target_distance: no 'medium' route found")
+	}
+	if medium.Candidate.DistanceM != 10200 {
+		t.Errorf("K=3 target_distance: medium DistanceM want 10200, got %v", medium.Candidate.DistanceM)
+	}
+	if !hasDescriptor(medium.Descriptors, "target_distance") {
+		t.Errorf("K=3 target_distance: pool[1] (10200m) should have target_distance descriptor, got %v", medium.Descriptors)
+	}
+
+	// Other routes must NOT have target_distance.
+	for _, lr := range got {
+		if lr.VariantID == "medium" {
+			continue
+		}
+		if hasDescriptor(lr.Descriptors, "target_distance") {
+			t.Errorf("K=3 target_distance: route %q (%.0fm) should NOT have target_distance", lr.VariantID, lr.Candidate.DistanceM)
+		}
+	}
+}
+
+func TestAssignLabels_K4_MediumNumbering(t *testing.T) {
+	// 4 candidates: shortest, medium-2, medium-3, longest.
+	pool := []RouteCandidate{
+		{DistanceM: 5000, AscentM: 100},
+		{DistanceM: 8000, AscentM: 100},
+		{DistanceM: 11000, AscentM: 100},
+		{DistanceM: 15000, AscentM: 100},
+	}
+	got := assignLabels(pool, []int{0, 1, 2, 3}, 10000.0, false)
+	if len(got) != 4 {
+		t.Fatalf("K=4 numbering: expected 4 results, got %d", len(got))
+	}
+
+	wantIDs := []string{"shortest", "medium-2", "medium-3", "longest"}
+	for i, want := range wantIDs {
+		if got[i].VariantID != want {
+			t.Errorf("K=4 numbering[%d]: VariantID want %q, got %q", i, want, got[i].VariantID)
+		}
 	}
 }
 

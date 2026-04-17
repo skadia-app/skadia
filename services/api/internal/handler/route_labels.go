@@ -16,6 +16,7 @@ import (
 func assignLabels(
 	pool []RouteCandidate,
 	selectedIdx []int,
+	targetDistanceM float64,
 	coverageAvailable bool,
 ) []LabeledRoute {
 	if len(selectedIdx) == 0 {
@@ -85,7 +86,7 @@ func assignLabels(
 			VariantID:       labelKeys[i],
 			VariantLabelKey: labelKeys[i],
 			Descriptors: computeDescriptorsFor(
-				me, others, me.DistanceM, coverageAvailable,
+				me, others, targetDistanceM, coverageAvailable,
 			),
 		}
 	}
