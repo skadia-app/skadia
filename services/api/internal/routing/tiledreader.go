@@ -372,6 +372,24 @@ func (r *TiledGraphReader) EdgeOSMID(handle uint64) int64 {
 	return g.OSMIDPool[osmIdx]
 }
 
+func (r *TiledGraphReader) EdgeTags2(handle uint64) uint64 {
+	tileID, edgeIdx := SplitGlobalNodeID(handle)
+	g := r.tile(tileID)
+	if g == nil || int(edgeIdx) >= len(g.EdgeTags2) {
+		return 0
+	}
+	return g.EdgeTags2[edgeIdx]
+}
+
+func (r *TiledGraphReader) EdgeDistanceCm(handle uint64) uint32 {
+	tileID, edgeIdx := SplitGlobalNodeID(handle)
+	g := r.tile(tileID)
+	if g == nil || int(edgeIdx) >= len(g.EdgeDist) {
+		return 0
+	}
+	return g.EdgeDist[edgeIdx]
+}
+
 func (r *TiledGraphReader) LandmarkDists(setID LandmarkSetID, nodeID uint64) []float32 {
 	tileID, localID := SplitGlobalNodeID(nodeID)
 	g := r.tile(tileID)

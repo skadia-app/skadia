@@ -139,6 +139,101 @@ func TestEstimateTileBytesExcludesMmap(t *testing.T) {
 	}
 }
 
+func TestTiledGraphReader_EdgeTags2_CrossTile(t *testing.T) {
+	dir := t.TempDir()
+
+	// Build and serialize two tiles, each with distinct EdgeTags2 values.
+	tileID1 := graph.TileIDFromCoord(47.0, 8.0)
+	tileID2 := graph.TileIDFromCoord(48.0, 9.0)
+
+	makeTagGraph := func(tileID uint32, bbox [4]float64, lat0, lat1, lon0, lon1 int32, tags2 []uint64) *graph.Graph {
+		g := &graph.Graph{
+			TileID:          tileID,
+			Version:         graph.FormatVersion,
+			BBox:            bbox,
+			NodeCount:       2,
+			EdgeCount:       1,
+			Offsets:         []uint32{0, 1, 1},
+			Targets:         []uint32{1},
+			EdgeDist:        []uint32{10000},
+			EdgeTags1:       []uint64{0},
+			EdgeTags2:       tags2,
+			EdgeOSMIdx:      []uint32{0},
+			OSMIDPool:       []int64{1},
+			NodeLat:         []int32{lat0, lat1},
+			NodeLon:         []int32{lon0, lon1},
+			NodeEle:         []int32{5000, 5100},
+			NodeTags:        []uint8{0, 0},
+			EdgeGeomOff:     []uint32{0, 0},
+			EdgeGeomLat:     []int32{},
+			EdgeGeomLon:     []int32{},
+			EdgeElevOff:     []uint32{0, 0},
+			EdgeElevProf:    []int32{},
+			EdgeElevSegDist: []uint16{},
+			IsBorder:        []bool{false, false},
+		}
+		g.Grid = graph.BuildSpatialIndex(g, 0.01)
+		return g
+	}
+
+	g1 := makeTagGraph(tileID1, [4]float64{47.0, 8.0, 48.0, 9.0},
+		470500000, 470600000, 80500000, 80600000,
+		[]uint64{0xAAAA000000000001})
+	g2 := makeTagGraph(tileID2, [4]float64{48.0, 9.0, 49.0, 10.0},
+		480500000, 480600000, 90500000, 90600000,
+		[]uint64{0xBBBB000000000002})
+
+	if err := graph.Serialize(g1, filepath.Join(dir, tileName(tileID1))); err != nil {
+		t.Fatalf("serialize tile1: %v", err)
+	}
+	if err := graph.Serialize(g2, filepath.Join(dir, tileName(tileID2))); err != nil {
+		t.Fatalf("serialize tile2: %v", err)
+	}
+
+	reader := NewTiledGraphReader(dir, 100_000_000)
+
+	// Tile 1, edge 0 → must return tile1's Tags2 value.
+	handle1 := uint64(tileID1)<<32 | 0
+	got1 := reader.EdgeTags2(handle1)
+	if got1 != 0xAAAA000000000001 {
+		t.Errorf("tile1 edge0 Tags2: expected 0xAAAA000000000001, got 0x%X", got1)
+	}
+
+	// Tile 2, edge 0 → must return tile2's Tags2 value (different tile).
+	handle2 := uint64(tileID2)<<32 | 0
+	got2 := reader.EdgeTags2(handle2)
+	if got2 != 0xBBBB000000000002 {
+		t.Errorf("tile2 edge0 Tags2: expected 0xBBBB000000000002, got 0x%X", got2)
+	}
+
+	// Out-of-range edge index → expect 0.
+	handleOOB := uint64(tileID1)<<32 | 999
+	gotOOB := reader.EdgeTags2(handleOOB)
+	if gotOOB != 0 {
+		t.Errorf("out-of-range edge: expected 0, got 0x%X", gotOOB)
+	}
+}
+
+func TestTiledGraphReader_EdgeDistanceCm_MissingTile(t *testing.T) {
+	dir := t.TempDir()
+	// No tiles written → any tile load returns nil.
+	reader := NewTiledGraphReader(dir, 100_000_000)
+
+	// Any handle to a missing tile must return 0 without panic.
+	missingTileID := graph.TileIDFromCoord(55.0, 25.0)
+	handle := uint64(missingTileID)<<32 | 0
+	got := reader.EdgeDistanceCm(handle)
+	if got != 0 {
+		t.Errorf("missing tile: expected 0, got %d", got)
+	}
+
+	// EdgeTags2 on missing tile must also return 0.
+	gotTags2 := reader.EdgeTags2(handle)
+	if gotTags2 != 0 {
+		t.Errorf("missing tile Tags2: expected 0, got 0x%X", gotTags2)
+	}
+}
+
 // makeTiledTestGraph creates a small graph suitable for Serialize round-trip.
 // Uses coordinates within the 47N/8E tile.
 func makeTiledTestGraph() *graph.Graph {

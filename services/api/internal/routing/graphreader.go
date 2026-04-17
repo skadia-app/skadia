@@ -64,6 +64,16 @@ type GraphReader interface {
 	// Returns 0 if not available.
 	EdgeOSMID(handle uint64) int64
 
+	// EdgeTags2 returns the extended tag uint64 for an edge handle.
+	// Returns 0 if handle is invalid.
+	EdgeTags2(handle uint64) uint64
+
+	// EdgeDistanceCm returns the edge length in centimeters for a handle.
+	// Returns 0 if handle is invalid.
+	// Note: graph.Graph.EdgeDist stores centimeters (uint32); this method
+	// exposes that value directly.
+	EdgeDistanceCm(handle uint64) uint32
+
 	// === ALT Heuristic ===
 
 	// LandmarkDists returns precomputed distances from nodeID to all 16 landmarks
@@ -221,6 +231,24 @@ func (r *SingleGraphReader) EdgeOSMID(handle uint64) int64 {
 		return 0
 	}
 	return g.OSMIDPool[osmIdx]
+}
+
+func (r *SingleGraphReader) EdgeTags2(handle uint64) uint64 {
+	_, edgeIdx := SplitGlobalNodeID(handle)
+	g := r.G
+	if int(edgeIdx) >= len(g.EdgeTags2) {
+		return 0
+	}
+	return g.EdgeTags2[edgeIdx]
+}
+
+func (r *SingleGraphReader) EdgeDistanceCm(handle uint64) uint32 {
+	_, edgeIdx := SplitGlobalNodeID(handle)
+	g := r.G
+	if int(edgeIdx) >= len(g.EdgeDist) {
+		return 0
+	}
+	return g.EdgeDist[edgeIdx]
 }
 
 func (r *SingleGraphReader) LandmarkDists(setID LandmarkSetID, nodeID uint64) []float32 {

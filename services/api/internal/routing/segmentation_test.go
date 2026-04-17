@@ -24,6 +24,8 @@ func (r *segMockReader) NearestNode(_, _ float64) (uint64, float64, bool) { retu
 func (r *segMockReader) EdgeElevProfile(_ uint64) ([]int32, []uint16)     { return nil, nil }
 func (r *segMockReader) EdgeGeometry(_ uint64) ([]int32, []int32)         { return nil, nil }
 func (r *segMockReader) EdgeOSMID(_ uint64) int64                         { return 0 }
+func (r *segMockReader) EdgeTags2(_ uint64) uint64                        { return 0 }
+func (r *segMockReader) EdgeDistanceCm(_ uint64) uint32                   { return 0 }
 func (r *segMockReader) LandmarkDists(_ LandmarkSetID, _ uint64) []float32 {
 	return nil
 }
