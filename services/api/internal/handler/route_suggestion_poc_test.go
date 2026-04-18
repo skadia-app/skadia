@@ -11,6 +11,21 @@ import (
 	"testing"
 )
 
+// TestPOC_DescriptorCalibration is a SMOKE test for the descriptor
+// assignment logic using synthetic, hand-tuned candidate pools.
+//
+// LIMITATION: The synthetic fixtures are constructed to exercise every
+// descriptor branch (monotonic ascent, monotonic forest, etc.), so the
+// resulting "none"-rate is an artifact of the fixture design — NOT an
+// empirical measurement of real-world descriptor assignment rates.
+//
+// Real threshold calibration requires re-running this POC against
+// assignment counts from live route-suggestion traffic AFTER a fresh
+// tile + coverage rebuild (current tiles are 12+ days old).
+//
+// Acceptance criterion in current form (global ≤ 50%, per-region ≤ 80%)
+// verifies only that the code paths are reachable — not that the
+// thresholds are correctly tuned for production data.
 func TestPOC_DescriptorCalibration(t *testing.T) {
 	regions := []string{"flatland", "hills", "alpine", "urban", "coastal"}
 	targetDistances := []float64{5000, 10000, 15000, 20000, 30000}
@@ -133,19 +148,22 @@ func generateSyntheticPool(region string, targetM float64, hasCoverage bool) []R
 	pool := make([]RouteCandidate, 3)
 	for i := 0; i < 3; i++ {
 		pool[i] = RouteCandidate{
-			NodeID:    uint64(i + 1),
-			DistanceM: distances[i],
-			AscentM:   ascents[i],
-			DescentM:  ascents[i],
-			AvgFlat:   1.5,
-			// Introduce some variance between routes so descriptors can fire:
-			MergedForestPct:      forestBase + float32(i)*0.05,
-			MergedRiverProximity: riverBase + float32(i)*0.03,
-			MergedProtectedArea:  protectedBase + float32(i)*0.08,
-			MergedNoiseScore:     noiseBase * (1.0 - float32(i)*0.1),
-			MergedTrafficClass:   trafficBase * (1.0 - float32(i)*0.1),
-			HasCoverage:          hasCoverage,
+			NodeID:      uint64(i + 1),
+			DistanceM:   distances[i],
+			AscentM:     ascents[i],
+			DescentM:    ascents[i],
+			AvgFlat:     1.5,
+			HasCoverage: hasCoverage,
 		}
+		if hasCoverage {
+			// Introduce some variance between routes so descriptors can fire:
+			pool[i].MergedForestPct      = forestBase + float32(i)*0.05
+			pool[i].MergedRiverProximity = riverBase + float32(i)*0.03
+			pool[i].MergedProtectedArea  = protectedBase + float32(i)*0.08
+			pool[i].MergedNoiseScore     = noiseBase * (1.0 - float32(i)*0.1)
+			pool[i].MergedTrafficClass   = trafficBase * (1.0 - float32(i)*0.1)
+		}
+		// else: all Merged* remain 0 (= semantic "no coverage data")
 	}
 	return pool
 }
