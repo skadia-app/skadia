@@ -3,8 +3,8 @@ package routing
 // CandidateSelection identifies a reachable node + which of its Pareto states
 // to use for variant construction.
 //
-// TODO(route-variants-v2): consumed by BuildCandidatePool (Phase 2) and
-// PickDiverseIndices (Phase 3). Not yet wired into the handler response path.
+// Consumed by BuildCandidatePool and PickDiverseIndices in the V2
+// route-suggestion pipeline (routing.route_variants_v2 feature flag).
 type CandidateSelection struct {
 	NodeIdx  int // Index in reachable slice
 	StateIdx int // Index in reachable[NodeIdx].States
@@ -13,8 +13,8 @@ type CandidateSelection struct {
 // CandidateMetrics bundles route-level metrics for diversity selection.
 // Coverage dimensions use pointers to distinguish "no coverage" from "zero coverage".
 //
-// TODO(route-variants-v2): produced by handler pipeline (Phase 4), consumed by
-// computeZScores + PickDiverseIndices (Phase 3). Not yet wired.
+// Consumed by BuildCandidatePool and PickDiverseIndices in the V2
+// route-suggestion pipeline (routing.route_variants_v2 feature flag).
 type CandidateMetrics struct {
 	DistanceM  float64
 	AscentM    float64
