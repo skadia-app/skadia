@@ -47,8 +47,7 @@ type VariantDescriptor struct {
 
 // LabeledRoute is a RouteCandidate plus its assigned variant_id and descriptors.
 //
-// TODO(route-variants-v2): produced by assignLabels (Phase 3). Not yet wired
-// into the handler response path.
+// Produced by assignLabels in the V2 route-suggestion pipeline.
 type LabeledRoute struct {
 	Candidate       RouteCandidate
 	VariantID       string
@@ -86,7 +85,7 @@ func aggregateLeg2Coverage(handles []uint64, reader routing.GraphReader) leg2Cov
 		// Defensive clamp: ForestPct is 7-bit (0..127); /100 could exceed 1.0.
 		forestPct := float32(min(int(graph.DecodeForestPct(tags2)), 100)) / 100.0
 		noiseScore := float32(graph.DecodeNoiseScore(tags2)) / 100.0
-		trafficClass := float32(graph.DecodeTrafficClass(tags2)) / 6.0 // 0..1 scale (raw 0–6, matches reachable.go:162)
+		trafficClass := float32(graph.DecodeTrafficClass(tags2)) / 6.0 // raw 0–7 (3 bits); divided by 6 for consistency with reachable.go:162 — may exceed 1.0 (inherited scale bug, see plan §M-rev3/9)
 		protected := float32(graph.DecodeProtectedArea(tags2)) / 3.0
 		river := float32(graph.DecodeRiverProximity(tags2)) / 7.0
 
@@ -96,7 +95,11 @@ func aggregateLeg2Coverage(handles []uint64, reader routing.GraphReader) leg2Cov
 		agg.Traffic += trafficClass * distM
 		agg.Protected += protected * distM
 		agg.River += river * distM
-		if tags2 != 0 {
+		if graph.DecodeForestPct(tags2) > 0 ||
+			graph.DecodeNoiseScore(tags2) > 0 ||
+			graph.DecodeTrafficClass(tags2) > 0 ||
+			graph.DecodeProtectedArea(tags2) > 0 ||
+			graph.DecodeRiverProximity(tags2) > 0 {
 			agg.HasAnyCov = true
 		}
 	}
