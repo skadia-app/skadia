@@ -110,10 +110,6 @@ type Activity struct {
 	// Multisport parent/child
 	ParentID   *string `json:"parent_id,omitempty"`
 	ChildCount int     `json:"child_count,omitempty"` // Computed, not in DB
-	// FusionSources is retained as a wire-compat stub for Release N (Task 27-rollout).
-	// Stale browser bundles reading this field see null and skip the branch gracefully.
-	// Removed in Task 27b (Release N+1). Never populated — zero value marshals to null.
-	FusionSources json.RawMessage `json:"fusion_sources"`
 	// Recording group: true if this activity is a secondary (non-primary) member of a recording group.
 	IsGroupSecondary bool `json:"is_group_secondary"`
 	// RecordingGroupID is the ID of the recording group this activity belongs to, if any.
@@ -402,8 +398,8 @@ type PMCDay struct {
 	CTL        float64 `json:"ctl"`
 	ATL        float64 `json:"atl"`
 	TSB        float64 `json:"tsb"`
-	ACWR       float64 `json:"acwr"`              // EWMA ATL/CTL — computed on read in database/pmc.go
-	ACWRRA     float64 `json:"acwr_ra"`           // Rolling Average 7:28 uncoupled — computed during recompute
+	ACWR       float64 `json:"acwr"`                  // EWMA ATL/CTL — computed on read in database/pmc.go
+	ACWRRA     float64 `json:"acwr_ra"`               // Rolling Average 7:28 uncoupled — computed during recompute
 	SportGroup string  `json:"sport_group,omitempty"` // empty = "__combined__" (legacy), sport-specific rows use e.g. "cycling"
 }
 
