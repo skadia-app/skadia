@@ -101,7 +101,7 @@ func TestSuggestRoutes_V2_WithoutCoverage_OnlyRankLabels(t *testing.T) {
 		// No coverage-based descriptors expected (CoverageReader=nil).
 		for _, d := range s.Descriptors {
 			coverageKeys := map[string]bool{
-				"high_forest": true, "high_river": true, "high_protected": true,
+				"high_forest": true, "high_water": true, "high_protected": true,
 				"low_traffic_noise": true,
 			}
 			if coverageKeys[d.Key] {
@@ -144,7 +144,9 @@ func TestSuggestRoutes_V2_DeprecatedVariantIDIgnored(t *testing.T) {
 	// does nothing and all suggestions should be returned (fallback).
 	// We only have a 5-node graph so suggestions may be 0; the key invariant
 	// is that no 4xx / 5xx was returned.
-	_ = resp // already validated via status code + JSON parse above
+	if !resp.UsedFallback {
+		t.Errorf("expected UsedFallback=true when all variant_ids are deprecated, got false")
+	}
 }
 
 // -------------------------------------------------------------------
