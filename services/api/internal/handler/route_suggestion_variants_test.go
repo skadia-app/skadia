@@ -83,10 +83,11 @@ func TestSuggestRoutes_V2_WithoutCoverage_OnlyRankLabels(t *testing.T) {
 		t.Error("expected coverage_available=false when CoverageReader=nil")
 	}
 
-	if len(resp.Suggestions) == 0 {
-		// The synthetic graph is small; routing may produce 0 usable variants.
-		// Log and skip rather than fail — the important thing is no 5xx.
-		t.Skip("synthetic graph produced 0 suggestions — routing budget may be too large for 5-node graph")
+	// The 25-node grid graph is sized to produce at least 2 suggestions for a
+	// 10 km target. If this assertion fires the test harness graph is too small.
+	if len(resp.Suggestions) < 2 {
+		t.Fatalf("expected at least 2 suggestions from grid graph, got %d "+
+			"(check testhelper_routing_test.go graph size / distances)", len(resp.Suggestions))
 	}
 
 	if len(resp.Suggestions) > 3 {
@@ -112,12 +113,67 @@ func TestSuggestRoutes_V2_WithoutCoverage_OnlyRankLabels(t *testing.T) {
 }
 
 // -------------------------------------------------------------------
-// T2: V2 with CoverageReader present → coverage_available=true
-// (full ForestDescriptor assignment deferred — requires mock CoverageReader)
+// T2: V2 with CoverageReader present → coverage_available=true AND
+// the route that traverses the high-forest quadrant gets a high_forest
+// descriptor (ForestPct=70 encoded in EdgeTags2 for those edges).
 // -------------------------------------------------------------------
 
 func TestSuggestRoutes_V2_WithCoverage_ForestDescriptorAssigned(t *testing.T) {
-	t.Skip("full coverage integration test requires mock CoverageReader — deferred")
+	// newTestRoutingHandlerWithCoverage sets CoverageReader to a non-nil stub
+	// (empty dir) so coverageAvailable=true. Actual forest values come from
+	// EdgeTags2 bits pre-encoded in the bottom-right quadrant of the grid.
+	setup := newTestRoutingHandlerWithCoverage(t)
+	setup.Handler.Settings = settings.NewStoreForTest(map[string]string{
+		"routing.route_variants_v2": "true",
+	})
+
+	if setup.Handler.CoverageReader == nil {
+		t.Fatal("CoverageReader must be non-nil for this test")
+	}
+
+	const body = `{"start":[12.10,48.99],"target_distance_m":10000,"profile":"hiking"}`
+	w := postSuggestRoutes(setup.Handler, body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	resp := decodeRouteSuggestionResponse(t, w)
+
+	if !resp.CoverageAvailable {
+		t.Error("expected coverage_available=true when CoverageReader is non-nil")
+	}
+
+	if len(resp.Suggestions) < 2 {
+		t.Fatalf("expected at least 2 suggestions from grid graph, got %d", len(resp.Suggestions))
+	}
+
+	// At least one suggestion must carry a high_forest descriptor.
+	// The grid graph encodes ForestPct=70 on edges in the bottom-right quadrant
+	// (row≥2, col≥2). Routes through that quadrant should have MergedForestPct≈0.70,
+	// far exceeding the 0.10 delta threshold vs. flat-quadrant routes (ForestPct=0).
+	var foundHighForest bool
+	for _, s := range resp.Suggestions {
+		for _, d := range s.Descriptors {
+			if d.Key == "high_forest" {
+				foundHighForest = true
+			}
+		}
+	}
+	if !foundHighForest {
+		t.Errorf("expected at least one suggestion with descriptor key 'high_forest'; got suggestions: %v",
+			func() []string {
+				var out []string
+				for _, s := range resp.Suggestions {
+					var keys []string
+					for _, d := range s.Descriptors {
+						keys = append(keys, d.Key)
+					}
+					out = append(out, s.VariantID+":"+strings.Join(keys, ","))
+				}
+				return out
+			}())
+	}
 }
 
 // -------------------------------------------------------------------
