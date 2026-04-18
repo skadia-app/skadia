@@ -8,7 +8,6 @@ import (
 	"math"
 	"net/http"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -107,6 +106,7 @@ type RouteSuggestionResponse struct {
 	Suggestions       []RouteSuggestion `json:"suggestions"`
 	CoverageAvailable bool              `json:"coverage_available"`
 	PartialSearch     bool              `json:"partial_search"`
+	UsedFallback      bool              `json:"used_fallback,omitempty"`
 }
 
 // SuggestRoutes generates round-trip route suggestions starting from the given
@@ -488,7 +488,7 @@ func (h *Handler) suggestRoutesV2Tail(
 
 	candidates := make([]*RouteCandidate, len(pool))
 	var eg errgroup.Group
-	eg.SetLimit(4)
+	eg.SetLimit(h.GraphManager.MaxConcurrentRoutes())
 	for i, sel := range pool {
 		i, sel := i, sel
 		eg.Go(func() error {
@@ -532,8 +532,18 @@ func (h *Handler) suggestRoutesV2Tail(
 			green := (c.MergedForestPct + c.MergedRiverProximity + c.MergedProtectedArea) / 3.0
 			m.GreenScore = &green
 		}
-		if c.HasCoverage {
-			calm := 1.0 - (c.MergedTrafficClass+c.MergedNoiseScore)/2.0
+		if c.HasCoverage && (c.MergedTrafficClass > 0 || c.MergedNoiseScore > 0) {
+			trafficClamped := c.MergedTrafficClass
+			if trafficClamped > 1.0 {
+				trafficClamped = 1.0
+			}
+			calm := 1.0 - (trafficClamped+c.MergedNoiseScore)/2.0
+			if calm < 0 {
+				calm = 0
+			}
+			if calm > 1 {
+				calm = 1
+			}
 			m.CalmScore = &calm
 		}
 		metrics[i] = m
@@ -551,33 +561,42 @@ func (h *Handler) suggestRoutesV2Tail(
 	}
 
 	// 8. Optional VariantIDs filter (deprecated-ID-safe).
+	var usedFallback bool
 	if len(req.VariantIDs) > 0 {
 		validIDs := map[string]bool{"shortest": true, "medium": true, "longest": true, "only": true}
-		var keep, deprecated []string
+		var keep, deprecated, unknown []string
 		for _, id := range req.VariantIDs {
 			if validIDs[id] {
 				keep = append(keep, id)
-			} else {
+			} else if isDeprecatedVariantID(id) {
 				deprecated = append(deprecated, id)
+			} else {
+				unknown = append(unknown, id)
 			}
 		}
 		if len(deprecated) > 0 {
 			slog.Warn("v2: deprecated variant_id in request", "ids", deprecated)
 		}
-		if len(keep) > 0 {
+		if len(unknown) > 0 {
+			slog.Warn("v2: unknown variant_id in request", "ids", unknown)
+		}
+		if len(keep) == 0 {
+			// All requested IDs were deprecated or unknown — return all variants.
+			usedFallback = true
+		} else {
 			keepSet := make(map[string]bool, len(keep))
 			for _, k := range keep {
 				keepSet[k] = true
 			}
-			filtered2 := labeled[:0]
+			filteredLabeled := make([]LabeledRoute, 0, len(labeled))
 			for _, lr := range labeled {
 				if keepSet[lr.VariantID] {
-					filtered2 = append(filtered2, lr)
+					filteredLabeled = append(filteredLabeled, lr)
 				} else if keepSet["medium"] && strings.HasPrefix(lr.VariantID, "medium") {
-					filtered2 = append(filtered2, lr)
+					filteredLabeled = append(filteredLabeled, lr)
 				}
 			}
-			labeled = filtered2
+			labeled = filteredLabeled
 		}
 	}
 
@@ -624,13 +643,13 @@ func (h *Handler) suggestRoutesV2Tail(
 		})
 	}
 
-	// Sort by DistanceM ascending for UX consistency.
-	sort.Slice(suggestions, func(i, j int) bool {
-		return suggestions[i].DistanceM < suggestions[j].DistanceM
-	})
+	// assignLabels already sorts by DistanceM; no redundant sort needed here.
 
 	httputil.WriteJSON(w, http.StatusOK, RouteSuggestionResponse{
-		Suggestions: suggestions, CoverageAvailable: coverageAvailable, PartialSearch: truncated,
+		Suggestions:       suggestions,
+		CoverageAvailable: coverageAvailable,
+		PartialSearch:     truncated,
+		UsedFallback:      usedFallback,
 	})
 }
 
@@ -730,4 +749,15 @@ func filterByDistanceBand(reachable []routing.ReachableNode, target, lowPct, hig
 		}
 	}
 	return out
+}
+
+// isDeprecatedVariantID reports whether id is a v1-era variant identifier that
+// is no longer valid in the v2 pipeline. These are recognised and logged
+// separately from genuinely unknown IDs.
+func isDeprecatedVariantID(id string) bool {
+	switch id {
+	case "calmest", "greenest", "hilly", "balanced", "geometric":
+		return true
+	}
+	return false
 }
