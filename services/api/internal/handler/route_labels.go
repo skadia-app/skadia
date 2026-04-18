@@ -5,6 +5,27 @@ import (
 	"slices"
 )
 
+// Threshold seeds for variant descriptors.
+// These were validated via POC (Phase 0) and may be re-tuned once
+// real coverage data from the next tile rebuild is available.
+const (
+	// Ascent descriptors
+	ascentDeltaThresholdM = 30.0  // min absolute ascent delta (meters) to trigger high/low_ascent
+	ascentHighRatioGate   = 1.2   // me.AscentM / max(others.AscentM) must be ≥ this for high_ascent
+	ascentLowRatioGate    = 0.8   // me.AscentM / min(others.AscentM) must be ≤ this for low_ascent
+	ascentMagnitudeFloorM = 100.0 // divisor floor for ascent magnitude ratio (avoids /0)
+
+	// Coverage descriptors (all absolute pp deltas)
+	forestPpDelta    = 0.10
+	waterPpDelta     = 0.15
+	protectedPpDelta = 0.33
+	trafficNoiseDelta = 0.15
+
+	// Target-distance descriptor
+	targetDistanceWithinFraction = 0.05 // |me - target| ≤ this × target
+	targetDistanceBestRatio      = 2.0  // min_other_delta must be > this × me_delta
+)
+
 // assignLabels assigns a VariantID, VariantLabelKey and dynamic Descriptors to
 // each selected candidate. Input selectedIdx refers to indices into pool.
 //
@@ -162,10 +183,10 @@ func computeDescriptorsFor(
 
 	// --- high_ascent ---
 	ascentDelta := me.AscentM - maxOtherAscent
-	if ascentDelta >= 30 && me.AscentM >= 1.2*maxOtherAscent {
+	if ascentDelta >= ascentDeltaThresholdM && me.AscentM >= ascentHighRatioGate*maxOtherAscent {
 		floor := maxOtherAscent
-		if floor < 100 {
-			floor = 100
+		if floor < ascentMagnitudeFloorM {
+			floor = ascentMagnitudeFloorM
 		}
 		out = append(out, VariantDescriptor{
 			Key:          "high_ascent",
@@ -176,10 +197,10 @@ func computeDescriptorsFor(
 
 	// --- low_ascent ---
 	ascentDeficit := minOtherAscent - me.AscentM
-	if ascentDeficit >= 30 && me.AscentM <= 0.8*minOtherAscent {
+	if ascentDeficit >= ascentDeltaThresholdM && me.AscentM <= ascentLowRatioGate*minOtherAscent {
 		floor := minOtherAscent
-		if floor < 100 {
-			floor = 100
+		if floor < ascentMagnitudeFloorM {
+			floor = ascentMagnitudeFloorM
 		}
 		out = append(out, VariantDescriptor{
 			Key:          "low_ascent",
@@ -196,7 +217,7 @@ func computeDescriptorsFor(
 			myForest = 1.0 // defensive clamp for scale-bug inheritance
 		}
 		forestDelta := myForest - maxOtherForest
-		if myForest > 0 && forestDelta >= 0.10 {
+		if myForest > 0 && forestDelta >= forestPpDelta {
 			out = append(out, VariantDescriptor{
 				Key:          "high_forest",
 				Magnitude:    float64(forestDelta),
@@ -206,7 +227,7 @@ func computeDescriptorsFor(
 
 		// --- high_water ---
 		riverDelta := me.MergedRiverProximity - maxOtherRiver
-		if me.MergedRiverProximity > 0 && riverDelta >= 0.15 {
+		if me.MergedRiverProximity > 0 && riverDelta >= waterPpDelta {
 			out = append(out, VariantDescriptor{
 				Key:          "high_water",
 				Magnitude:    float64(riverDelta),
@@ -216,7 +237,7 @@ func computeDescriptorsFor(
 
 		// --- high_protected ---
 		protectedDelta := me.MergedProtectedArea - maxOtherProtected
-		if me.MergedProtectedArea > 0 && protectedDelta >= 0.33 {
+		if me.MergedProtectedArea > 0 && protectedDelta >= protectedPpDelta {
 			out = append(out, VariantDescriptor{
 				Key:          "high_protected",
 				Magnitude:    float64(protectedDelta),
@@ -227,7 +248,7 @@ func computeDescriptorsFor(
 		// --- low_traffic_noise ---
 		myCombo := (me.MergedTrafficClass + me.MergedNoiseScore) / 2.0
 		comboDeficit := minOtherTrafficNoise - myCombo
-		if comboDeficit >= 0.15 {
+		if comboDeficit >= trafficNoiseDelta {
 			out = append(out, VariantDescriptor{
 				Key:          "low_traffic_noise",
 				Magnitude:    float64(comboDeficit),
@@ -237,11 +258,12 @@ func computeDescriptorsFor(
 	}
 
 	// --- target_distance ---
-	if targetDistanceM > 0 {
+	// target_distance: only meaningful when comparing to ≥ 2 other routes
+	if targetDistanceM > 0 && len(others) >= 2 {
 		meDelta := absDeltaFloat64(me.DistanceM, targetDistanceM)
-		withinBand := meDelta <= 0.05*targetDistanceM
+		withinBand := meDelta <= targetDistanceWithinFraction*targetDistanceM
 		// me must be clearly closer than the nearest other candidate.
-		clearlyBetter := minOtherDistDelta > 2*meDelta
+		clearlyBetter := minOtherDistDelta > targetDistanceBestRatio*meDelta
 		if withinBand && clearlyBetter {
 			out = append(out, VariantDescriptor{
 				Key:          "target_distance",

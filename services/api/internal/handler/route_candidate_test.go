@@ -328,19 +328,26 @@ func TestComputeDescriptorsFor_HighForestBoundary(t *testing.T) {
 
 func TestComputeDescriptorsFor_TargetDistance(t *testing.T) {
 	target := 10000.0
-
-	// me is within 5% (delta=200, 200 <= 500). other is 1000m off.
-	// other_delta=1000 > 2*200=400 → target_distance expected.
 	me := RouteCandidate{DistanceM: 10200}
-	others := []RouteCandidate{{DistanceM: 11000}}
-	if !hasDescriptor(computeDescriptorsFor(me, others, target, false), "target_distance") {
-		t.Error("10200 vs target 10000 should get target_distance")
+
+	// K=2 (len(others)==1): target_distance is suppressed — comparison is
+	// meaningless with only one sibling (F23).
+	others1 := []RouteCandidate{{DistanceM: 11000}}
+	if hasDescriptor(computeDescriptorsFor(me, others1, target, false), "target_distance") {
+		t.Error("K=2: target_distance must be suppressed when len(others) < 2")
 	}
 
-	// me=10200, other=10300: me_delta=200, other_delta=300. 300 NOT > 2*200=400 → no target_distance.
-	others2 := []RouteCandidate{{DistanceM: 10300}}
-	if hasDescriptor(computeDescriptorsFor(me, others2, target, false), "target_distance") {
-		t.Error("10200 vs 10300 with target 10000: other not 2x farther, should NOT get target_distance")
+	// K=3 (len(others)==2): me_delta=200, within 5% of 10000 (<=500).
+	// min(other_delta)=min(1000,4000)=1000 > 2*200=400 → target_distance expected.
+	others2 := []RouteCandidate{{DistanceM: 11000}, {DistanceM: 14000}}
+	if !hasDescriptor(computeDescriptorsFor(me, others2, target, false), "target_distance") {
+		t.Error("K=3: 10200 vs target 10000 with distant others should get target_distance")
+	}
+
+	// K=3: me=10200, others 10300 and 10400. min_other_delta=300 NOT > 2*200=400 → no target_distance.
+	others3 := []RouteCandidate{{DistanceM: 10300}, {DistanceM: 10400}}
+	if hasDescriptor(computeDescriptorsFor(me, others3, target, false), "target_distance") {
+		t.Error("K=3: other not 2x farther, should NOT get target_distance")
 	}
 }
 
