@@ -50,7 +50,10 @@ export type DescriptorID = keyof typeof suggestRoutesStrings.descriptors
 export type LoopQualityID = keyof typeof suggestRoutesStrings.loopQuality
 
 export function variantLabel(id: string): string {
-  const v = suggestRoutesStrings.variants[id as VariantID]
+  // Strip numeric suffix for medium-2, medium-3 etc. → use base key
+  const baseKey = id.replace(/-\d+$/, '')
+  const v = suggestRoutesStrings.variants[baseKey as VariantID]
+    ?? suggestRoutesStrings.variants[id as VariantID]
   return v ? v.label : id
 }
 
