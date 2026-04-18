@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
@@ -25,76 +26,187 @@ type testRoutingSetup struct {
 // integration tests:
 //
 //  1. Creates a temp directory (cleaned up via t.Cleanup).
-//  2. Builds a 5-node synthetic graph and serializes it as a tile file.
+//  2. Builds a 25-node grid graph (5×5) spread over ~5km×5km inside the
+//     48–49°N / 12–13°E tile and serializes it as a tile file.
 //  3. Initialises a TiledGraphReader + GraphManager pointing at that directory.
 //  4. Wraps everything in a *Handler with a no-DB SettingsStore.
 //
-// The returned handler is intentionally lightweight: DB is nil, Events are
-// nil, ShadowFS is nil. SuggestRoutes only touches h.GraphManager,
-// h.CoverageReader, h.Settings, and h.DB (only when PreferUnknown=true or a
-// non-standard profile is requested). Tests that require those paths must wire
-// them separately.
+// Grid layout — origin at top-left, growing south and east:
+//
+//	Row/Col  0        1        2        3        4
+//	  0   (48.990, 12.082)  START  …  …  (48.990, 12.154)
+//	  1   (48.981, 12.082)   …     …  …  …
+//	  2   (48.972, 12.082)   …     …  …  …
+//	  3   (48.963, 12.082)   …     …  …  …
+//	  4   (48.954, 12.082)   …     …  …  (48.954, 12.154)
+//
+// node(row, col):
+//
+//	lat = 48.990 − row×0.009°   (≈ 1 001 m/step south)
+//	lon = 12.082 + col×0.018°   (≈ 1 311 m/step east at 49°N)
+//
+// START = node(0,1) = (48.990, 12.100) matches the test request [12.10, 48.99].
+// All node latitudes lie in [48.954, 48.990] — well inside the 48°N tile so
+// TiledGraphReader.tile() never crosses into the 49°N tile.
+//
+// Edges: grid adjacency (horizontal + vertical) between neighbours, plus
+// every-other diagonal for disjoint round-trip paths. Distances are derived
+// from the real-world step sizes. The bottom-right quadrant (row≥2, col≥2)
+// gets a descending elevation to create ascent when returning. ForestPct=70
+// is encoded in EdgeTags2 for edges entirely in that quadrant so that the
+// coverage-aware descriptor test can assert on high_forest.
+//
+// The returned handler has CoverageReader=nil (coverageAvailable=false).
+// For coverage-enabled tests use newTestRoutingHandlerWithCoverage.
 func newTestRoutingHandler(t *testing.T) *testRoutingSetup {
+	t.Helper()
+	return newTestRoutingHandlerOpts(t, false)
+}
+
+// newTestRoutingHandlerWithCoverage is like newTestRoutingHandler but sets
+// h.CoverageReader to a non-nil stub so that coverageAvailable=true and
+// coverage-based descriptors are computed from the EdgeTags2 forest bits
+// pre-encoded in the bottom-right quadrant edges.
+//
+// The stub DiskCoverageReader points at an empty temp directory; it will
+// return errors/zeros for any actual tile read, but SuggestRoutes reads
+// coverage exclusively from EdgeTags2 and only needs CoverageReader≠nil
+// to set the coverageAvailable flag.
+func newTestRoutingHandlerWithCoverage(t *testing.T) *testRoutingSetup {
+	t.Helper()
+	return newTestRoutingHandlerOpts(t, true)
+}
+
+// newTestRoutingHandlerOpts is the shared implementation.
+func newTestRoutingHandlerOpts(t *testing.T, withCoverage bool) *testRoutingSetup {
 	t.Helper()
 
 	tileDir := t.TempDir()
 
-	// --- Build synthetic graph ---
-	// 5 nodes arranged as a simple star around 48.99°N, 12.10°E so that
-	// FindReachableWithCoords has something to traverse.
+	// ---------------------------------------------------------------------------
+	// 5×5 grid graph.
 	//
-	// Coordinates are stored as int32 × 1e7.
-	// Distances are in centimetres (uint32).
-	// Elevation is in decimetres (int32).
+	// Coordinate scheme:
+	//   node(row, col): lat = 48.990 − row×0.009°, lon = 12.082 + col×0.018°
 	//
-	// Layout (roughly):
-	//   node 0: centre        (48.990, 12.100)  ele 5000 dm = 500 m
-	//   node 1: north         (48.999, 12.100)  ele 5100 dm
-	//   node 2: east          (48.990, 12.110)  ele 5050 dm
-	//   node 3: south         (48.981, 12.100)  ele 4950 dm
-	//   node 4: west          (48.990, 12.090)  ele 4900 dm
+	// At ~49°N:
+	//   0.009° lat ≈ 1 001 m  (using 111_195 m/°)
+	//   0.018° lon ≈ 0.018 × 111_195 × cos(49°) ≈ 1 311 m
 	//
-	// Edges: bidirectional ring 0↔1, 0↔2, 0↔3, 0↔4 plus 1↔2, 2↔3, 3↔4, 4↔1
-	// so the graph is fully connected and round-trips are possible.
-	const nodeCount = 5
-	lats := [nodeCount]int32{
-		int32(48.990 * 1e7),
-		int32(48.999 * 1e7),
-		int32(48.990 * 1e7),
-		int32(48.981 * 1e7),
-		int32(48.990 * 1e7),
-	}
-	lons := [nodeCount]int32{
-		int32(12.100 * 1e7),
-		int32(12.100 * 1e7),
-		int32(12.110 * 1e7),
-		int32(12.100 * 1e7),
-		int32(12.090 * 1e7),
-	}
-	eles := [nodeCount]int32{5000, 5100, 5050, 4950, 4900}
+	// All latitudes 48.954–48.990 are strictly south of 49°N, so
+	// TileIDFromCoord always returns tile 48_12 for every node.
+	// ---------------------------------------------------------------------------
+	const (
+		gridRows = 5
+		gridCols = 5
+		nNodes   = gridRows * gridCols // 25
+	)
 
-	// Directed edges: from → to, dist_cm, highway_enum=16 (path)
-	type edge struct{ from, to, distCm int }
-	directedEdges := []edge{
-		{0, 1, 100_000}, {1, 0, 100_000}, // 0↔1 ~1 km
-		{0, 2, 80_000}, {2, 0, 80_000}, // 0↔2 ~800 m
-		{0, 3, 100_000}, {3, 0, 100_000}, // 0↔3 ~1 km
-		{0, 4, 80_000}, {4, 0, 80_000}, // 0↔4 ~800 m
-		{1, 2, 120_000}, {2, 1, 120_000}, // 1↔2
-		{2, 3, 120_000}, {3, 2, 120_000}, // 2↔3
-		{3, 4, 120_000}, {4, 3, 120_000}, // 3↔4
-		{4, 1, 160_000}, {1, 4, 160_000}, // 4↔1
+	const (
+		topLat  = 48.990 // lat of row 0
+		leftLon = 12.082 // lon of col 0
+		latStep = 0.009  // degrees south per row  ≈ 1 001 m
+		lonStep = 0.018  // degrees east  per col  ≈ 1 311 m
+	)
+
+	// Real-world edge distances in centimetres.
+	const (
+		distVertCm  = 100_100 // latStep × 111_195 m/°
+		distHorizCm = 131_100 // lonStep × 111_195 × cos(49°) m/°
+		distDiagCm  = 164_600 // √(100_100²+131_100²)
+	)
+
+	// nodeIdx converts (row, col) to a flat node index.
+	nodeIdx := func(row, col int) int { return row*gridCols + col }
+
+	// Build node coordinates and base elevations.
+	nodeLat := make([]int32, nNodes)
+	nodeLon := make([]int32, nNodes)
+	nodeEle := make([]int32, nNodes) // decimetres
+
+	for r := 0; r < gridRows; r++ {
+		for c := 0; c < gridCols; c++ {
+			idx := nodeIdx(r, c)
+			lat := topLat - float64(r)*latStep
+			lon := leftLon + float64(c)*lonStep
+			nodeLat[idx] = int32(lat * 1e7)
+			nodeLon[idx] = int32(lon * 1e7)
+
+			// Elevation: flat top rows; bottom-right quadrant (r≥2, c≥2) is elevated
+			// so that south-east routes have ascending approaches.
+			ele := int32(5000)
+			if r >= 2 && c >= 2 {
+				// +25 dm per step deeper into quadrant; max +75 dm
+				ele += int32((r-1)+(c-1)) * 25
+			}
+			nodeEle[idx] = ele
+		}
 	}
 
-	// Count out-degree per node.
-	degree := make([]uint32, nodeCount)
-	for _, e := range directedEdges {
+	// ---------------------------------------------------------------------------
+	// Directed edge list.
+	// ---------------------------------------------------------------------------
+	type dirEdge struct {
+		from, to  int
+		distCm    int
+		forestPct uint8 // 0–100, encoded into EdgeTags2 bits 0-6
+	}
+
+	var edges []dirEdge
+
+	addBidir := func(r1, c1, r2, c2, distCm int) {
+		from := nodeIdx(r1, c1)
+		to := nodeIdx(r2, c2)
+
+		// ForestPct=70 for edges where both endpoints are in the bottom-right
+		// quadrant (r≥2, c≥2).  This lets coverage descriptor tests trigger
+		// high_forest on routes that traverse those edges.
+		var fp uint8
+		if r1 >= 2 && c1 >= 2 && r2 >= 2 && c2 >= 2 {
+			fp = 70
+		}
+
+		edges = append(edges,
+			dirEdge{from: from, to: to, distCm: distCm, forestPct: fp},
+			dirEdge{from: to, to: from, distCm: distCm, forestPct: fp},
+		)
+	}
+
+	// Horizontal edges (same row, adjacent cols).
+	for r := 0; r < gridRows; r++ {
+		for c := 0; c < gridCols-1; c++ {
+			addBidir(r, c, r, c+1, distHorizCm)
+		}
+	}
+
+	// Vertical edges (same col, adjacent rows).
+	for c := 0; c < gridCols; c++ {
+		for r := 0; r < gridRows-1; r++ {
+			addBidir(r, c, r+1, c, distVertCm)
+		}
+	}
+
+	// Diagonal edges (every other cell) — create disjoint round-trip paths
+	// so that MergeLegs can find non-trivial loops.
+	for r := 0; r < gridRows-1; r++ {
+		for c := 0; c < gridCols-1; c++ {
+			if (r+c)%2 == 0 {
+				addBidir(r, c, r+1, c+1, distDiagCm)
+			}
+		}
+	}
+
+	// ---------------------------------------------------------------------------
+	// Build CSR arrays from edge list.
+	// ---------------------------------------------------------------------------
+	edgeCount := uint32(len(edges))
+	degree := make([]uint32, nNodes)
+	for _, e := range edges {
 		degree[e.from]++
 	}
 
-	edgeCount := uint32(len(directedEdges))
-	offsets := make([]uint32, nodeCount+1)
-	for i := 0; i < nodeCount; i++ {
+	offsets := make([]uint32, nNodes+1)
+	for i := 0; i < nNodes; i++ {
 		offsets[i+1] = offsets[i] + degree[i]
 	}
 
@@ -106,18 +218,26 @@ func newTestRoutingHandler(t *testing.T) *testRoutingSetup {
 	edgeGeomOff := make([]uint32, edgeCount+1) // all-zero = no intermediate geom
 	edgeElevOff := make([]uint32, edgeCount+1)
 
-	cursor := make([]uint32, nodeCount)
-	copy(cursor, offsets[:nodeCount])
-	for _, e := range directedEdges {
+	cursor := make([]uint32, nNodes)
+	copy(cursor, offsets[:nNodes])
+	for _, e := range edges {
 		pos := cursor[e.from]
 		cursor[e.from]++
 		targets[pos] = uint32(e.to)
 		edgeDist[pos] = uint32(e.distCm)
 		edgeTags1[pos] = 16 // highway=path enum
+		// Encode ForestPct into EdgeTags2 bits 0-6.
+		edgeTags2[pos] = uint64(e.forestPct) & 0x7F
+	}
+
+	// One OSM-ID entry per node (fake, unique to avoid ID collisions).
+	osmIDPool := make([]int64, nNodes)
+	for i := range osmIDPool {
+		osmIDPool[i] = int64(99900 + i)
 	}
 
 	g := &graph.Graph{
-		NodeCount:       nodeCount,
+		NodeCount:       uint32(nNodes),
 		EdgeCount:       edgeCount,
 		Version:         graph.FormatVersion,
 		Offsets:         offsets,
@@ -126,12 +246,12 @@ func newTestRoutingHandler(t *testing.T) *testRoutingSetup {
 		EdgeTags1:       edgeTags1,
 		EdgeTags2:       edgeTags2,
 		EdgeOSMIdx:      edgeOSMIdx,
-		OSMIDPool:       []int64{99999},
-		NodeLat:         lats[:],
-		NodeLon:         lons[:],
-		NodeEle:         eles[:],
-		NodeTags:        make([]uint8, nodeCount),
-		IsBorder:        make([]bool, nodeCount),
+		OSMIDPool:       osmIDPool,
+		NodeLat:         nodeLat,
+		NodeLon:         nodeLon,
+		NodeEle:         nodeEle,
+		NodeTags:        make([]uint8, nNodes),
+		IsBorder:        make([]bool, nNodes),
 		EdgeGeomOff:     edgeGeomOff,
 		EdgeGeomLat:     []int32{},
 		EdgeGeomLon:     []int32{},
@@ -140,16 +260,13 @@ func newTestRoutingHandler(t *testing.T) *testRoutingSetup {
 		EdgeElevSegDist: []uint16{},
 	}
 
-	// Place the graph inside tile 48N/12E.
+	// All nodes lie in the 48–49°N / 12–13°E tile.
 	tileID := graph.TileIDFromCoord(48.0, 12.0)
 	g.TileID = tileID
-	bbox := graph.TileBBox(tileID)
-	g.BBox = bbox
-
+	g.BBox = graph.TileBBox(tileID)
 	g.Grid = graph.BuildSpatialIndex(g, 0.01)
 
-	// Serialize to the tile file name that TiledGraphReader expects:
-	// tile_{lat}_{lon}.bin  (same formula as the unexported tileName function).
+	// Serialize to the tile file name that TiledGraphReader expects.
 	latFloor := int(tileID/360) - 90
 	lonFloor := int(tileID%360) - 180
 	tileFileName := "tile_" + strconv.Itoa(latFloor) + "_" + strconv.Itoa(lonFloor) + ".bin"
@@ -166,7 +283,7 @@ func newTestRoutingHandler(t *testing.T) *testRoutingSetup {
 		t.Fatalf("newTestRoutingHandler: InitTiledReader: %v", err)
 	}
 	if !loaded {
-		t.Fatalf("newTestRoutingHandler: InitTiledReader: expected tiles to be found in %s", tileDir)
+		t.Fatalf("newTestRoutingHandler: InitTiledReader: expected tiles in %s", tileDir)
 	}
 
 	router := mgr.UnifiedRouter()
@@ -174,25 +291,29 @@ func newTestRoutingHandler(t *testing.T) *testRoutingSetup {
 		t.Fatal("newTestRoutingHandler: UnifiedRouter is nil after InitTiledReader")
 	}
 
-	// --- Settings (no-DB, in-memory) ---
-	// Provide sensible defaults so code paths that call h.Settings.Get don't panic.
+	// --- Settings ---
 	store := settings.NewStoreForTest(map[string]string{
 		"routing.route_variants_v2": "false",
 		"limits.max_upload_bytes":   fmt.Sprintf("%d", 256*1024*1024),
 	})
 
-	// --- Handler ---
+	// --- Coverage reader (optional stub) ---
+	var covReader *coverage.DiskCoverageReader
+	if withCoverage {
+		covDir := t.TempDir()
+		covReader, err = coverage.NewDiskCoverageReader(covDir, 16)
+		if err != nil {
+			t.Fatalf("newTestRoutingHandler: NewDiskCoverageReader: %v", err)
+		}
+	}
+
 	h := &Handler{
-		// DB: nil — SuggestRoutes only touches DB for PreferUnknown and custom
-		// profiles.  Tests that exercise those paths must set h.DB themselves.
 		GraphManager:   mgr,
-		CoverageReader: nil, // coverage unavailable → coverageAvailable=false
+		CoverageReader: covReader,
 		Settings:       store,
 	}
 
-	cleanup := func() {
-		// t.TempDir() already handles deletion; nothing extra needed.
-	}
+	cleanup := func() {}
 	t.Cleanup(cleanup)
 
 	return &testRoutingSetup{
@@ -227,9 +348,10 @@ func TestNewTestRoutingHandler_Smoke(t *testing.T) {
 	if setup.Handler.GraphManager.UnifiedRouter() == nil {
 		t.Fatal("handler.GraphManager.UnifiedRouter() is nil")
 	}
-
-	// Verify that the Settings store returns the expected defaults.
 	if v := setup.Settings.Get("routing.route_variants_v2").Value; v != "false" {
 		t.Errorf("expected routing.route_variants_v2=false, got %q", v)
+	}
+	if setup.Handler.CoverageReader != nil {
+		t.Error("expected CoverageReader=nil for base variant")
 	}
 }
