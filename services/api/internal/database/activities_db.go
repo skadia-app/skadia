@@ -589,7 +589,6 @@ func (db *DB) UpdateActivityFileInfo(ctx context.Context, id, format, filename s
 
 func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, error) {
 	var a model.Activity
-	var hasTrack bool
 	var sportConflictMeta []byte
 
 	err := db.Pool.QueryRow(ctx, `
@@ -611,7 +610,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.start_city, a.end_city, a.start_state, a.start_country, a.start_country_code,
 			a.is_round_trip, a.intensity, a.time_of_day, a.sunrise_at, a.sunset_at, a.gear_id,
 			a.created_at, a.updated_at,
-			COALESCE(t.point_count, 0) > 0,
+			a.has_gps,
 			a.location_lat, a.location_lng,
 			a.lift_count, a.lift_distance_m, a.lift_ascent_m, a.lift_descent_m, a.lift_duration_s,
 			a.exclude_lift_subtraction,
@@ -676,7 +675,6 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		a.running_form_fatigue_duty, a.running_form_fatigue_vr, a.running_form_tier,
 		a.suunto_vo2max, a.suunto_peak_epoc, a.suunto_recovery_time_h
 		FROM activities a
-		LEFT JOIN activity_tracks t ON t.activity_id = a.id
 		LEFT JOIN LATERAL (
 			SELECT metadata FROM import_queue iq
 			WHERE iq.queue_type = 'sport_conflict'
@@ -706,7 +704,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.StartCity, &a.EndCity, &a.StartState, &a.StartCountry, &a.StartCountryCode,
 		&a.IsRoundTrip, &a.Intensity, &a.TimeOfDay, &a.SunriseAt, &a.SunsetAt, &a.GearID,
 		&a.CreatedAt, &a.UpdatedAt,
-		&hasTrack,
+		&a.HasGPS,
 		&a.LocationLat, &a.LocationLng,
 		&a.LiftCount, &a.LiftDistanceM, &a.LiftAscentM, &a.LiftDescentM, &a.LiftDurationS,
 		&a.ExcludeLiftSubtraction,
@@ -774,7 +772,6 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 	if err != nil {
 		return nil, fmt.Errorf("get activity: %w", err)
 	}
-	a.HasGPS = hasTrack
 	a.NeedsClassification = a.SportType == "unknown"
 	if a.Tags == nil {
 		a.Tags = []string{}
