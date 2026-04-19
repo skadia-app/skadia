@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -114,6 +115,32 @@ func TestBuildCandidatePool_MinDistConstraint(t *testing.T) {
 		if sel.NodeIdx == 2 {
 			t.Errorf("node index 2 (too close) must not appear in pool, but it did: %v", result)
 		}
+	}
+}
+
+// TestBuildCandidatePool_Determinism verifies that the same input produces the
+// same output across repeated calls — guards against accidental RNG leaks or
+// map-iteration-order dependencies in the pool-building pipeline.
+// Coverage-equivalent for the deleted TestSelectVariants_Determinism.
+func TestBuildCandidatePool_Determinism(t *testing.T) {
+	// Eight nodes spread around the start point at varying distances and bearings
+	// to exercise the full max-angular-spread selection path.
+	nodes := []ReachableNode{
+		makeNode(1, 49.04, 12.10, 4900), // N
+		makeNode(2, 48.94, 12.10, 5100), // S
+		makeNode(3, 48.99, 12.20, 5000), // E
+		makeNode(4, 48.99, 12.00, 4800), // W
+		makeNode(5, 49.03, 12.17, 4950), // NE
+		makeNode(6, 49.03, 12.03, 5050), // NW
+		makeNode(7, 48.95, 12.17, 5200), // SE
+		makeNode(8, 48.95, 12.03, 4850), // SW
+	}
+
+	r1 := BuildCandidatePool(nodes, startLat, startLon, 10000, 4, 300)
+	r2 := BuildCandidatePool(nodes, startLat, startLon, 10000, 4, 300)
+
+	if !reflect.DeepEqual(r1, r2) {
+		t.Errorf("BuildCandidatePool is non-deterministic: first call=%v second call=%v", r1, r2)
 	}
 }
 
