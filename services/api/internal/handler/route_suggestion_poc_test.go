@@ -57,7 +57,7 @@ func TestPOC_DescriptorCalibration(t *testing.T) {
 				pool := generateSyntheticPool(region, targetM, cov == "full_coverage")
 				coverageAvailable := cov == "full_coverage"
 
-				labeled := assignLabels(pool, []int{0, 1, 2}, targetM, coverageAvailable)
+				labeled := assignLabels(pool, []int{0, 1, 2}, targetM, coverageAvailable, "hiking")
 
 				// Count descriptors per key (including "none" for routes with zero descriptors).
 				for _, lr := range labeled {

@@ -147,7 +147,7 @@ func abs32(v float32) float32 {
 // ─── assignLabels tests ───────────────────────────────────────────────────────
 
 func TestAssignLabels_Empty(t *testing.T) {
-	got := assignLabels([]RouteCandidate{{}}, []int{}, 10000.0, false)
+	got := assignLabels([]RouteCandidate{{}}, []int{}, 10000.0, false, "hiking")
 	if got != nil {
 		t.Errorf("expected nil for empty selectedIdx, got %v", got)
 	}
@@ -155,7 +155,7 @@ func TestAssignLabels_Empty(t *testing.T) {
 
 func TestAssignLabels_K1(t *testing.T) {
 	pool := []RouteCandidate{{DistanceM: 10000, AscentM: 200}}
-	got := assignLabels(pool, []int{0}, 10000.0, false)
+	got := assignLabels(pool, []int{0}, 10000.0, false, "hiking")
 	if len(got) != 1 {
 		t.Fatalf("K=1: expected 1 result, got %d", len(got))
 	}
@@ -175,7 +175,7 @@ func TestAssignLabels_K2(t *testing.T) {
 		{DistanceM: 8000, AscentM: 100},
 		{DistanceM: 12000, AscentM: 100},
 	}
-	got := assignLabels(pool, []int{0, 1}, 10000.0, false)
+	got := assignLabels(pool, []int{0, 1}, 10000.0, false, "hiking")
 	if len(got) != 2 {
 		t.Fatalf("K=2: expected 2 results, got %d", len(got))
 	}
@@ -193,7 +193,7 @@ func TestAssignLabels_K2_InputUnsorted(t *testing.T) {
 		{DistanceM: 15000, AscentM: 100},
 		{DistanceM: 9000, AscentM: 100},
 	}
-	got := assignLabels(pool, []int{0, 1}, 10000.0, false)
+	got := assignLabels(pool, []int{0, 1}, 10000.0, false, "hiking")
 	if got[0].VariantID != "shortest" || got[0].Candidate.DistanceM != 9000 {
 		t.Errorf("K=2 unsorted: first result should be shortest (9000m), got %+v", got[0])
 	}
@@ -209,7 +209,7 @@ func TestAssignLabels_K3(t *testing.T) {
 		{DistanceM: 14000, AscentM: 100},
 		{DistanceM: 8000, AscentM: 100},
 	}
-	got := assignLabels(pool, []int{2, 0, 1}, 10000.0, false)
+	got := assignLabels(pool, []int{2, 0, 1}, 10000.0, false, "hiking")
 	if len(got) != 3 {
 		t.Fatalf("K=3: expected 3 results, got %d", len(got))
 	}
@@ -236,7 +236,7 @@ func TestAssignLabels_NoCoverage_NoCoverageDescriptors(t *testing.T) {
 		{DistanceM: 10000, AscentM: 100, MergedForestPct: 0.1, HasCoverage: true},
 		{DistanceM: 12000, AscentM: 100, MergedForestPct: 0.1, HasCoverage: true},
 	}
-	got := assignLabels(pool, []int{0, 1, 2}, 10000.0, false /* coverageAvailable=false */)
+	got := assignLabels(pool, []int{0, 1, 2}, 10000.0, false /* coverageAvailable=false */, "hiking")
 	for _, lr := range got {
 		for _, d := range lr.Descriptors {
 			if d.Key == "high_forest" || d.Key == "high_water" || d.Key == "high_protected" || d.Key == "low_traffic_noise" {
@@ -255,7 +255,7 @@ func TestAssignLabels_MixedCoverage(t *testing.T) {
 		{DistanceM: 10000, AscentM: 100, HasCoverage: true, MergedForestPct: 0.1},
 		{DistanceM: 12000, AscentM: 100, HasCoverage: true, MergedForestPct: 0.1},
 	}
-	got := assignLabels(pool, []int{0, 1, 2}, 10000.0, true /* coverageAvailable=true */)
+	got := assignLabels(pool, []int{0, 1, 2}, 10000.0, true /* coverageAvailable=true */, "hiking")
 
 	// Find the LabeledRoute for pool[0] (shortest = 8000m).
 	var shortest *LabeledRoute
@@ -292,7 +292,7 @@ func TestComputeDescriptorsFor_HighAscentThreshold(t *testing.T) {
 		{DistanceM: 10000, AscentM: 150},
 	}
 	// delta=200-150=50 >= 30, ratio=200/150=1.33 >= 1.2 → high_ascent expected.
-	descs := computeDescriptorsFor(me, others, 10000, false)
+	descs := computeDescriptorsFor(me, others, 10000, false, defaultOutdoorThresholds)
 	found := hasDescriptor(descs, "high_ascent")
 	if !found {
 		t.Errorf("expected high_ascent descriptor, got %v", descs)
@@ -300,7 +300,7 @@ func TestComputeDescriptorsFor_HighAscentThreshold(t *testing.T) {
 
 	// me.AscentM=120, maxOther=150: delta=-30, ratio<1 → NO high_ascent.
 	me2 := RouteCandidate{DistanceM: 10000, AscentM: 120, HasCoverage: false}
-	descs2 := computeDescriptorsFor(me2, others, 10000, false)
+	descs2 := computeDescriptorsFor(me2, others, 10000, false, defaultOutdoorThresholds)
 	if hasDescriptor(descs2, "high_ascent") {
 		t.Errorf("did NOT expect high_ascent when me<others, got %v", descs2)
 	}
@@ -310,13 +310,13 @@ func TestComputeDescriptorsFor_HighAscentBoundary_30m(t *testing.T) {
 	others := []RouteCandidate{{DistanceM: 10000, AscentM: 100}}
 	// delta=30 exactly → should trigger (>= 30), ratio=130/100=1.3 >= 1.2.
 	me130 := RouteCandidate{DistanceM: 10000, AscentM: 130}
-	if !hasDescriptor(computeDescriptorsFor(me130, others, 10000, false), "high_ascent") {
+	if !hasDescriptor(computeDescriptorsFor(me130, others, 10000, false, defaultOutdoorThresholds), "high_ascent") {
 		t.Error("AscentM=130 vs 100: delta=30 should produce high_ascent")
 	}
 
 	// delta=29 → should NOT trigger.
 	me129 := RouteCandidate{DistanceM: 10000, AscentM: 129}
-	if hasDescriptor(computeDescriptorsFor(me129, others, 10000, false), "high_ascent") {
+	if hasDescriptor(computeDescriptorsFor(me129, others, 10000, false, defaultOutdoorThresholds), "high_ascent") {
 		t.Error("AscentM=129 vs 100: delta=29 should NOT produce high_ascent")
 	}
 }
@@ -330,13 +330,13 @@ func TestComputeDescriptorsFor_HighForestBoundary(t *testing.T) {
 
 	// delta=0.10 exactly → should produce high_forest.
 	me55 := RouteCandidate{DistanceM: 10000, MergedForestPct: 0.55, HasCoverage: true}
-	if !hasDescriptor(computeDescriptorsFor(me55, others, 10000, true), "high_forest") {
+	if !hasDescriptor(computeDescriptorsFor(me55, others, 10000, true, defaultOutdoorThresholds), "high_forest") {
 		t.Error("ForestPct=0.55 vs 0.45: delta=0.10 should produce high_forest")
 	}
 
 	// delta=0.09 → should NOT produce high_forest.
 	me54 := RouteCandidate{DistanceM: 10000, MergedForestPct: 0.54, HasCoverage: true}
-	if hasDescriptor(computeDescriptorsFor(me54, others, 10000, true), "high_forest") {
+	if hasDescriptor(computeDescriptorsFor(me54, others, 10000, true, defaultOutdoorThresholds), "high_forest") {
 		t.Error("ForestPct=0.54 vs 0.45: delta=0.09 should NOT produce high_forest")
 	}
 }
@@ -348,27 +348,27 @@ func TestComputeDescriptorsFor_TargetDistance(t *testing.T) {
 	// K=2 (len(others)==1): target_distance is suppressed — comparison is
 	// meaningless with only one sibling (F23).
 	others1 := []RouteCandidate{{DistanceM: 11000}}
-	if hasDescriptor(computeDescriptorsFor(me, others1, target, false), "target_distance") {
+	if hasDescriptor(computeDescriptorsFor(me, others1, target, false, defaultOutdoorThresholds), "target_distance") {
 		t.Error("K=2: target_distance must be suppressed when len(others) < 2")
 	}
 
 	// K=3 (len(others)==2): me_delta=200, within 5% of 10000 (<=500).
 	// min(other_delta)=min(1000,4000)=1000 > 2*200=400 → target_distance expected.
 	others2 := []RouteCandidate{{DistanceM: 11000}, {DistanceM: 14000}}
-	if !hasDescriptor(computeDescriptorsFor(me, others2, target, false), "target_distance") {
+	if !hasDescriptor(computeDescriptorsFor(me, others2, target, false, defaultOutdoorThresholds), "target_distance") {
 		t.Error("K=3: 10200 vs target 10000 with distant others should get target_distance")
 	}
 
 	// K=3: me=10200, others 10300 and 10400. min_other_delta=300 NOT > 2*200=400 → no target_distance.
 	others3 := []RouteCandidate{{DistanceM: 10300}, {DistanceM: 10400}}
-	if hasDescriptor(computeDescriptorsFor(me, others3, target, false), "target_distance") {
+	if hasDescriptor(computeDescriptorsFor(me, others3, target, false, defaultOutdoorThresholds), "target_distance") {
 		t.Error("K=3: other not 2x farther, should NOT get target_distance")
 	}
 }
 
 func TestComputeDescriptorsFor_EmptyOthers(t *testing.T) {
 	me := RouteCandidate{DistanceM: 10000, AscentM: 500}
-	got := computeDescriptorsFor(me, nil, 10000, true)
+	got := computeDescriptorsFor(me, nil, 10000, true, defaultOutdoorThresholds)
 	if got != nil {
 		t.Errorf("empty others: expected nil descriptors, got %v", got)
 	}
@@ -383,7 +383,7 @@ func TestAssignLabels_K3_TargetDistanceDescriptor(t *testing.T) {
 		{DistanceM: 10200, AscentM: 100},
 		{DistanceM: 14000, AscentM: 100},
 	}
-	got := assignLabels(pool, []int{0, 1, 2}, 10000.0, false)
+	got := assignLabels(pool, []int{0, 1, 2}, 10000.0, false, "hiking")
 	if len(got) != 3 {
 		t.Fatalf("K=3 target_distance: expected 3 results, got %d", len(got))
 	}
@@ -425,7 +425,7 @@ func TestAssignLabels_K4_MediumNumbering(t *testing.T) {
 		{DistanceM: 11000, AscentM: 100},
 		{DistanceM: 15000, AscentM: 100},
 	}
-	got := assignLabels(pool, []int{0, 1, 2, 3}, 10000.0, false)
+	got := assignLabels(pool, []int{0, 1, 2, 3}, 10000.0, false, "hiking")
 	if len(got) != 4 {
 		t.Fatalf("K=4 numbering: expected 4 results, got %d", len(got))
 	}
