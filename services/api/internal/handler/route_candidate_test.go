@@ -10,12 +10,17 @@ import (
 // --- mockGraphReader ---
 
 type mockGraphReader struct {
-	tags2        map[uint64]uint64
-	distCm       map[uint64]uint32
+	tags2         map[uint64]uint64
+	distCm        map[uint64]uint32
 	tags1ByHandle map[uint64]uint64
+	tags2ByHandle map[uint64]uint64
+	distByHandle  map[uint64]uint32
 }
 
 func (m *mockGraphReader) EdgeTags2(h uint64) uint64 {
+	if m.tags2ByHandle != nil {
+		return m.tags2ByHandle[h]
+	}
 	return m.tags2[h]
 }
 func (m *mockGraphReader) EdgeTags1(h uint64) uint64 {
@@ -25,6 +30,9 @@ func (m *mockGraphReader) EdgeTags1(h uint64) uint64 {
 	return 0
 }
 func (m *mockGraphReader) EdgeDistanceCm(h uint64) uint32 {
+	if m.distByHandle != nil {
+		return m.distByHandle[h]
+	}
 	return m.distCm[h]
 }
 
@@ -438,4 +446,76 @@ func hasDescriptor(ds []VariantDescriptor, key string) bool {
 		}
 	}
 	return false
+}
+
+// ─── aggregateLegOutdoor helpers ─────────────────────────────────────────────
+
+// Tags1 bit packing: highway bits 0-4, sac_scale bits 14-16, mtb_scale bits 17-19.
+// Verified graph/tags.go:142-146.
+func thEncodeTags1(hw, sac, mtb uint8) uint64 {
+	var t uint64
+	t |= uint64(hw & 0x1F)
+	t |= uint64(sac&0x7) << 14
+	t |= uint64(mtb&0x7) << 17
+	return t
+}
+
+// Tags2 bit packing: mtb:scale:uphill 30-32, via_ferrata_scale 33-35, trail_visibility 36-38.
+func thEncodeTags2(mtbUp, vfScale, tv uint8) uint64 {
+	var t uint64
+	t |= uint64(mtbUp&0x7) << 30
+	t |= uint64(vfScale&0x7) << 33
+	t |= uint64(tv&0x7) << 36
+	return t
+}
+
+// ─── Tests: aggregateLegOutdoor ──────────────────────────────────────────────
+
+func TestAggregateLegOutdoor_NoTags(t *testing.T) {
+	mock := &mockGraphReader{distByHandle: map[uint64]uint32{1: 1000, 2: 2000, 3: 3000}}
+	out := aggregateLegOutdoor([]uint64{1, 2, 3}, mock)
+	if out.MaxMtbScale != 0 || out.MaxSacScale != 0 {
+		t.Errorf("untagged: want zeros")
+	}
+	if out.DistM != 60.0 {
+		t.Errorf("dist: want 60, got %f", out.DistM)
+	}
+}
+
+func TestAggregateLegOutdoor_MixedTags(t *testing.T) {
+	mock := &mockGraphReader{
+		tags1ByHandle: map[uint64]uint64{
+			1: thEncodeTags1(16, 4, 3),
+			2: thEncodeTags1(22, 0, 0),
+			3: thEncodeTags1(16, 0, 0),
+		},
+		tags2ByHandle: map[uint64]uint64{
+			1: 0,
+			2: thEncodeTags2(0, 2, 0),
+			3: thEncodeTags2(0, 0, 3),
+		},
+		distByHandle: map[uint64]uint32{1: 10000, 2: 5000, 3: 20000},
+	}
+	out := aggregateLegOutdoor([]uint64{1, 2, 3}, mock)
+	if out.MaxSacScale != 4 {
+		t.Errorf("MaxSacScale: want 4, got %d", out.MaxSacScale)
+	}
+	if out.MaxMtbScale != 3 {
+		t.Errorf("MaxMtbScale: want 3, got %d", out.MaxMtbScale)
+	}
+	if !out.HasViaFerrataHighway {
+		t.Errorf("want via_ferrata highway")
+	}
+	if out.MaxViaFerrataScale != 2 {
+		t.Errorf("MaxViaFerrataScale: want 2, got %d", out.MaxViaFerrataScale)
+	}
+	if out.MaxTrailVisibility != 3 {
+		t.Errorf("MaxTrailVisibility: want 3, got %d", out.MaxTrailVisibility)
+	}
+	if out.TaggedDistSac != 100.0 {
+		t.Errorf("TaggedDistSac: want 100, got %f", out.TaggedDistSac)
+	}
+	if out.IntermediateDistTv != 200.0 {
+		t.Errorf("IntermediateDistTv: want 200, got %f", out.IntermediateDistTv)
+	}
 }
