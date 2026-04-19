@@ -300,8 +300,8 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 	// elapsed_time_s wird NICHT neu berechnet: MAX(time)-MIN(time) ergibt die
 	// Gesamtzeitspanne, nicht die moving_time. Der Wert wurde korrekt aus der
 	// metadata-Source kopiert; Step 9 (V2) korrigiert started_at/ended_at separat.
-	// elevation_gain_m/elevation_loss_m werden hier NICHT gesetzt — sie erfordern
-	// kumulative Differenzberechnung (separater Algorithmus, TODO).
+	// elevation_gain_m/elevation_loss_m werden NICHT hier gesetzt — sie erfordern
+	// kumulative Differenzberechnung; das übernimmt Step 7b.1 via computeElevationFromStreams.
 	if _, err := tx.Exec(ctx, `
 		UPDATE activities a SET
 			distance_m            = COALESCE(sub.max_dist,  a.distance_m),
@@ -350,6 +350,25 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 		slog.Warn("fusion-merge: aggregate recompute from streams failed",
 			"action", "fusion_merge_aggregate_recompute_nonfatal",
 			"merged_id", p.merged.ID, "error", err)
+	}
+
+	// Step 7b.1: Elevation aus Streams neu berechnen (Phase 3b): 3m-Dead-Band überschreibt
+	// den vom aggregate-UPDATE kopierten Metadata-Source-Wert, wenn Streams Altitude enthalten.
+	// Fallback: Metadata-Source-Wert bleibt stehen (kein UPDATE bei hasData=false).
+	// Enrichment-Pipeline (enrich.go) preserved existing non-NULL values → unser Wert bleibt stabil.
+	elevGain, elevLoss, hasElevData, elevErr := h.computeElevationFromStreams(ctx, tx, p.merged.ID)
+	if elevErr != nil {
+		return fmt.Errorf("compute elevation from streams: %w", elevErr)
+	}
+	if hasElevData {
+		if _, err := tx.Exec(ctx,
+			`UPDATE activities SET elevation_gain_m = $2, elevation_loss_m = $3 WHERE id = $1`,
+			p.merged.ID, elevGain, elevLoss,
+		); err != nil {
+			return fmt.Errorf("update elevation: %w", err)
+		}
+		slog.Debug("fusion-merge: elevation computed from streams",
+			"activity_id", p.merged.ID, "gain_m", elevGain, "loss_m", elevLoss)
 	}
 
 	// Step 7c: Phase 4b — union-copy related tables (photos, geo_tags, privacy_sections,
@@ -2008,6 +2027,33 @@ func activityFieldRichness(a *model.Activity) int {
 		score++
 	}
 	return score
+}
+
+// computeElevationFromStreams berechnet kumulativen elevation_gain_m / _loss_m
+// mit 3-m Dead-Band-Smoothing (Garmin/Strava-Konvention) aus activity_streams.
+// Returns (gain, loss, hasData). hasData=false wenn keine altitude_m-Samples existieren.
+// NaN-Lücken werden im Window bewahrt; LAG über NULL-Rows produziert NULL-Deltas,
+// die im filtered-CTE herausgefiltert werden.
+func (h *Handler) computeElevationFromStreams(ctx context.Context, tx database.Querier, activityID string) (gain, loss float64, hasData bool, err error) {
+	const deadBandM = 3.0
+	err = tx.QueryRow(ctx, `
+		WITH diffs AS (
+			SELECT altitude_m - LAG(altitude_m) OVER (ORDER BY time) AS delta
+			FROM activity_streams
+			WHERE activity_id = $1
+		),
+		filtered AS (
+			SELECT delta
+			FROM diffs
+			WHERE delta IS NOT NULL AND ABS(delta) > $2
+		)
+		SELECT
+			COALESCE(SUM(delta) FILTER (WHERE delta > 0), 0)::double precision,
+			COALESCE(-SUM(delta) FILTER (WHERE delta < 0), 0)::double precision,
+			COUNT(*) > 0
+		FROM filtered
+	`, activityID, deadBandM).Scan(&gain, &loss, &hasData)
+	return
 }
 
 // RevertFusion löscht eine Fusion-Ergebnis-Aktivität und stellt die Quellen wieder her.
