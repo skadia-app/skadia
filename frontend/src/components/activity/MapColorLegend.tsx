@@ -64,7 +64,7 @@ function ZonesLegend({ scale }: { scale: Extract<ScaleDefinition, { type: 'zones
         {scale.zoneColors.map((color, i) => (
           <li key={i} className="flex items-center gap-1.5 text-[10px]">
             <span className="inline-block w-3 h-3 rounded-sm" style={{ background: color }} />
-            <span className="tabular-nums">Z{i + 1}: &le; {scale.zoneHighs[i]}{' '}{scale.unit}</span>
+            <span className="tabular-nums">Z{i + 1}: ≤ {scale.zoneHighs[i]}{' '}{scale.unit}</span>
           </li>
         ))}
       </ul>
