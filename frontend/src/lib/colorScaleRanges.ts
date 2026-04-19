@@ -203,6 +203,10 @@ export const ALTITUDE_MIN_SPREAD = 50 // m
 export const HR_FALLBACK_MIN_SPREAD = 30 // bpm
 export const POWER_FALLBACK_MIN_SPREAD = 50 // W
 
+/** Minimum spread for cadence (activity-relative scale). Prevents single-cadence
+ *  activities from compressing the palette into noise. */
+export const CADENCE_MIN_SPREAD = 20 // spm/rpm (same unit as the stream)
+
 /**
  * Minimum data coverage (as fraction of total stream points) required for a metric
  * to be offered in the dropdown AND retained by the hook auto-reset.
