@@ -361,7 +361,7 @@ export function serverResponseToConfig(resp: ProfileDefaultsResponse): ProfileCo
   for (const k of numericKeys) {
     const val = resp[k]
     if (val !== null && val !== undefined) {
-      ;(cfg as Record<string, unknown>)[k] = val
+      ;(cfg as unknown as Record<string, unknown>)[k] = val
     }
   }
 
@@ -371,7 +371,7 @@ export function serverResponseToConfig(resp: ProfileDefaultsResponse): ProfileCo
   for (const k of boolKeys) {
     const val = resp[k]
     if (val !== null && val !== undefined) {
-      ;(cfg as Record<string, unknown>)[k] = val
+      ;(cfg as unknown as Record<string, unknown>)[k] = val
     }
   }
 
