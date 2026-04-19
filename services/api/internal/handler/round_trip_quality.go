@@ -94,6 +94,9 @@ func suggestRoundTripVariant(
 	if opts.SoftPenaltyFactor < 1.0 {
 		return nil, fmt.Errorf("SoftPenaltyFactor must be >= 1.0, got %f", opts.SoftPenaltyFactor)
 	}
+	if stateIdx < 0 || stateIdx >= len(node.StateSlabIDs) {
+		return nil, fmt.Errorf("stateIdx %d out of range [0, %d)", stateIdx, len(node.StateSlabIDs))
+	}
 
 	// --- Leg 1: reconstruct from Pareto state ---
 	paretoNode := node
