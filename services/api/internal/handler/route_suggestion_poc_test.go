@@ -54,7 +54,7 @@ func TestPOC_DescriptorCalibration(t *testing.T) {
 		for _, targetM := range targetDistances {
 			for _, cov := range coverageSituations {
 				// Generate 3 synthetic RouteCandidates per combo.
-				pool := generateSyntheticPool(region, targetM, cov == "full_coverage")
+				pool := generateSyntheticPoolFull(region, targetM, cov == "full_coverage")
 				coverageAvailable := cov == "full_coverage"
 
 				labeled := assignLabels(pool, []int{0, 1, 2}, targetM, coverageAvailable, "hiking")
@@ -120,9 +120,58 @@ func TestPOC_DescriptorCalibration(t *testing.T) {
 	t.Logf("CSV written to /tmp/variant-threshold-calibration.csv")
 }
 
-// generateSyntheticPool creates 3 RouteCandidates for a region archetype.
+// generateSyntheticPool creates 3 RouteCandidates for a region archetype using
+// fixed defaults (targetM=10000, hasCoverage=true) and outdoor tag population.
+func generateSyntheticPool(region string) []RouteCandidate {
+	pool := generateSyntheticPoolFull(region, 10000.0, true)
+	switch region {
+	case "alpine":
+		for i := range pool {
+			pool[i].MaxSacScale = uint8(3 + i%3)
+			pool[i].MaxMtbScale = uint8(2 + i%2)
+			pool[i].MaxTrailVisibility = uint8(2 + i%3)
+			pool[i].TaggedPctSac = 0.40 + float32(i)*0.05
+			pool[i].TaggedPctTv = 0.30 + float32(i)*0.05
+			pool[i].TaggedPctMtb = 0.25
+			if i == 2 {
+				pool[i].HasViaFerrataHighway = true
+				pool[i].MaxViaFerrataScale = 2
+				pool[i].TaggedPctVia = 0.02
+			}
+		}
+	case "hills":
+		for i := range pool {
+			pool[i].MaxSacScale = uint8(1 + i%2)
+			pool[i].MaxMtbScale = uint8(1 + i)
+			pool[i].MaxTrailVisibility = uint8(1 + i%3)
+			pool[i].TaggedPctSac = 0.15 + float32(i)*0.05
+			pool[i].TaggedPctTv = 0.15 + float32(i)*0.05
+			pool[i].TaggedPctMtb = 0.10 + float32(i)*0.05
+		}
+	case "urban", "flatland":
+		for i := range pool {
+			pool[i].TaggedPctSac = 0.05
+			pool[i].TaggedPctTv = 0.05
+			pool[i].TaggedPctMtb = 0.05
+		}
+	case "coastal":
+		for i := range pool {
+			pool[i].MaxSacScale = uint8(i % 2)
+			pool[i].MaxTrailVisibility = uint8(1 + i%2)
+			pool[i].TaggedPctSac = 0.20
+			pool[i].TaggedPctTv = 0.25
+			if i == 1 {
+				pool[i].HasViaFerrataHighway = true
+				pool[i].TaggedPctVia = 0.03
+			}
+		}
+	}
+	return pool
+}
+
+// generateSyntheticPoolFull creates 3 RouteCandidates for a region archetype.
 // Route variance: [short, medium, long] relative to target distance.
-func generateSyntheticPool(region string, targetM float64, hasCoverage bool) []RouteCandidate {
+func generateSyntheticPoolFull(region string, targetM float64, hasCoverage bool) []RouteCandidate {
 	// Region-specific base profile
 	var baseAscent float64
 	var forestBase, noiseBase, trafficBase, protectedBase, riverBase float32
@@ -166,4 +215,70 @@ func generateSyntheticPool(region string, targetM float64, hasCoverage bool) []R
 		// else: all Merged* remain 0 (= semantic "no coverage data")
 	}
 	return pool
+}
+
+func TestPOC_OutdoorDescriptors_Acceptance(t *testing.T) {
+	regions := []string{"alpine", "hills", "urban", "flatland", "coastal"}
+	var alpineExposed, flatlandExposed, alpineAlpineFires int
+	var alpineHillsMtbFires, alpineHillsCandidates int
+	var urbanFlatlandTotal, urbanFlatlandDescriptors int
+
+	for _, region := range regions {
+		pool := generateSyntheticPool(region)
+		for i, cand := range pool {
+			others := withoutIdx(pool, i)
+			ds := computeDescriptorsFor(cand, others, 0, false, defaultOutdoorThresholds)
+			switch region {
+			case "alpine", "hills":
+				alpineHillsCandidates++
+				if hasDescriptor(ds, "mtb_technical") {
+					alpineHillsMtbFires++
+				}
+				if region == "alpine" {
+					if hasDescriptor(ds, "alpine_hiking") {
+						alpineAlpineFires++
+					}
+					if hasDescriptor(ds, "exposed") {
+						alpineExposed++
+					}
+				}
+			case "urban", "flatland":
+				urbanFlatlandTotal++
+				urbanFlatlandDescriptors += len(ds)
+				if hasDescriptor(ds, "exposed") {
+					flatlandExposed++
+				}
+			}
+		}
+	}
+
+	if alpineHillsCandidates > 0 && float64(alpineHillsMtbFires)/float64(alpineHillsCandidates) < 0.30 {
+		t.Errorf("mtb_technical too rare in alpine+hills: %d/%d", alpineHillsMtbFires, alpineHillsCandidates)
+	}
+	if alpineAlpineFires == 0 {
+		t.Errorf("alpine_hiking must fire ≥ 1 in alpine")
+	}
+	if flatlandExposed > 0 {
+		t.Errorf("exposed must not fire in flatland/urban: %d", flatlandExposed)
+	}
+	if alpineExposed == 0 {
+		t.Errorf("exposed must fire ≥ 1 in alpine")
+	}
+	// Descriptor-free rate for flatland/urban — expect near-zero fires due to coverage gate.
+	if urbanFlatlandTotal > 0 {
+		avg := float64(urbanFlatlandDescriptors) / float64(urbanFlatlandTotal)
+		if avg > 0.8 {
+			t.Errorf("urban/flatland: too many descriptors per candidate (avg %.2f)", avg)
+		}
+	}
+}
+
+func withoutIdx(pool []RouteCandidate, idx int) []RouteCandidate {
+	out := make([]RouteCandidate, 0, len(pool)-1)
+	for i, c := range pool {
+		if i != idx {
+			out = append(out, c)
+		}
+	}
+	return out
 }
