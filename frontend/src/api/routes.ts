@@ -128,7 +128,6 @@ export interface RouteSuggestionParams {
   target_ascent_m?: number
   ascent_tolerance_pct?: number
   max_variants?: number
-  variant_ids?: string[]
 }
 
 export interface RouteSuggestionResponse {
