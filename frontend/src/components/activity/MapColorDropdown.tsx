@@ -29,6 +29,7 @@ export default function MapColorDropdown({ streams, sportType, metric, onChange,
   const [focusedIdx, setFocusedIdx] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
+  const buttonRefs = useRef<Array<HTMLButtonElement | null>>([])
 
   useClickOutside(containerRef, () => setOpen(false), open)
 
@@ -86,6 +87,13 @@ export default function MapColorDropdown({ streams, sportType, metric, onChange,
     }
   }, [open, availableOptions, metric])
 
+  // Programmatically move DOM focus when focusedIdx changes — WAI-ARIA APG
+  // requires real focus on the current menuitemradio, not just tabIndex.
+  useEffect(() => {
+    if (!open) return
+    buttonRefs.current[focusedIdx]?.focus()
+  }, [focusedIdx, open])
+
   // Arrow-Keys within the menu
   function handleMenuKeyDown(e: React.KeyboardEvent<HTMLUListElement>) {
     if (e.key === 'ArrowDown') {
@@ -108,6 +116,9 @@ export default function MapColorDropdown({ streams, sportType, metric, onChange,
     }
   }
 
+  // Truncate stale refs when availableOptions shrinks (e.g. new activity with fewer metrics)
+  buttonRefs.current = buttonRefs.current.slice(0, availableOptions.length)
+
   return (
     <div ref={containerRef} className="relative">
       <button
@@ -128,7 +139,6 @@ export default function MapColorDropdown({ streams, sportType, metric, onChange,
           role="menu"
           onKeyDown={handleMenuKeyDown}
           tabIndex={-1}
-          autoFocus
           className="absolute top-full left-0 mt-1 min-w-[160px] rounded-lg bg-white dark:bg-neutral-800 shadow-lg border border-neutral-200 dark:border-neutral-700 py-1 z-20 focus:outline-none"
         >
           {availableOptions.map((opt, i) => {
@@ -148,6 +158,7 @@ export default function MapColorDropdown({ streams, sportType, metric, onChange,
               >
                 {/* Primary metric button — carries menuitemradio semantics (#14) */}
                 <button
+                  ref={(el) => { buttonRefs.current[i] = el }}
                   type="button"
                   role="menuitemradio"
                   aria-checked={opt.key === metric}
