@@ -13,6 +13,20 @@
 -- One-time cleanup: existing zombie memberships (activities already fusion-sources
 -- but still listed in recording_group_members). Trigger-driven cleanup from this
 -- migration forward prevents new zombies.
+DO $$
+DECLARE
+    n INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO n
+    FROM recording_group_members rgm
+    WHERE EXISTS (
+        SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = rgm.activity_id
+    );
+    IF n > 0 THEN
+        RAISE NOTICE 'Migration 000313: cleaning up % zombie recording_group_members rows (fusion-source activities)', n;
+    END IF;
+END $$;
+
 DELETE FROM recording_group_members rgm
 WHERE EXISTS (
     SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = rgm.activity_id
