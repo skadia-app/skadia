@@ -49,6 +49,8 @@ type FusionQueueEntry struct {
 	SourceDeviceB       string  `json:"source_device_b"`
 	SourceB             string  `json:"source_b"`
 	OriginalFileFormatB string  `json:"original_file_format_b"`
+	GroupIDA            *string `json:"group_id_a,omitempty"`
+	GroupIDB            *string `json:"group_id_b,omitempty"`
 }
 
 type fusionQueueResponse struct {
@@ -106,6 +108,8 @@ func fusionRowToEntry(row database.FusionCandidateRow) FusionQueueEntry {
 		SourceDeviceB:       derefStr(row.SourceDeviceB),
 		SourceB:             derefStr(row.SourceB),
 		OriginalFileFormatB: derefStr(row.OriginalFileFormatB),
+		GroupIDA:            row.GroupIDA,
+		GroupIDB:            row.GroupIDB,
 	}
 }
 
