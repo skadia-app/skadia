@@ -38,6 +38,9 @@ type RouteCandidate struct {
 	OverlapPct  float64
 
 	// F26: Outdoor-descriptor aggregation over merged.EdgeHandles.
+	// MaxMtbScale/MaxSacScale/MaxViaFerrataScale hold per-route extrema.
+	// MaxMtbScale is the composite: max(mtb_scale, mtb:scale:uphill) per edge,
+	// then max across the whole route. See aggregateLegOutdoor below.
 	MaxMtbScale          uint8   `json:"-"`
 	MaxSacScale          uint8   `json:"-"`
 	MaxViaFerrataScale   uint8   `json:"-"`
@@ -164,19 +167,19 @@ func aggregateLegOutdoor(handles []uint64, reader routing.GraphReader) legOutdoo
 			effMtb = mtbUp
 		}
 
-		if sac > 0 {
+		if sac > 0 && distM > 0 {
 			out.TaggedDistSac += distM
 			if sac > out.MaxSacScale {
 				out.MaxSacScale = sac
 			}
 		}
-		if effMtb > 0 {
+		if effMtb > 0 && distM > 0 {
 			out.TaggedDistMtb += distM
 			if effMtb > out.MaxMtbScale {
 				out.MaxMtbScale = effMtb
 			}
 		}
-		if hw == 22 || vfScale > 0 {
+		if (hw == 22 || vfScale > 0) && distM > 0 {
 			out.TaggedDistVia += distM
 			if hw == 22 {
 				out.HasViaFerrataHighway = true
@@ -185,7 +188,7 @@ func aggregateLegOutdoor(handles []uint64, reader routing.GraphReader) legOutdoo
 				out.MaxViaFerrataScale = vfScale
 			}
 		}
-		if tv > 0 {
+		if tv > 0 && distM > 0 {
 			out.TaggedDistTv += distM
 			if tv > out.MaxTrailVisibility {
 				out.MaxTrailVisibility = tv
