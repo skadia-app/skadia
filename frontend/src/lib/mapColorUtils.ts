@@ -1,4 +1,5 @@
 // frontend/src/lib/mapColorUtils.ts
+import type maplibregl from 'maplibre-gl'
 import type { StreamPoint } from '@/api/types'
 import type { SportZones } from '@/api/trainingZones'
 import {
@@ -471,7 +472,7 @@ export function applyInsideFlag(
 
 export type LineColorExpression =
   | string
-  | (readonly [string, ...unknown[]])   // MapLibre ExpressionSpecification approximation
+  | maplibregl.ExpressionSpecification
 
 export function buildLineColorExpression(scale: ScaleDefinition): LineColorExpression {
   if (scale.type === 'constant') return scale.color

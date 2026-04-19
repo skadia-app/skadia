@@ -106,6 +106,20 @@ describe('aggregateWindow', () => {
   it('zones: returns null when all values are null', () => {
     expect(aggregateWindow([null, null] as (number | null)[], 'zones', [155])).toBeNull()
   })
+
+  // #11: 3-way tie → lowest zone wins
+  it('zones: 3-way tie → lowest zone wins deterministically', () => {
+    // values 150,160,170 → zones via zoneHighs [155,165,175] → zones 1,2,3 each count=1
+    expect(aggregateWindow([150, 160, 170] as (number | null)[], 'zones', [155, 165, 175])).toBe(1)
+  })
+
+  // #29b: NaN handling
+  it('linear: ignores NaN values', () => {
+    expect(aggregateWindow([100, NaN, 120] as (number | null)[], 'linear')).toBe(110)
+  })
+  it('zones: ignores NaN values', () => {
+    expect(aggregateWindow([150, NaN, 160] as (number | null)[], 'zones', [155, 165])).toBe(1)
+  })
 })
 
 describe('downsampleUniform', () => {
@@ -140,6 +154,28 @@ describe('downsampleUniform', () => {
     const r = downsampleUniform(mkStreams(21), 'hr', 10)
     // stride = floor(21/10) = 2, so 11 points sampled, 10 segments; last stride may be 1
     expect(r.strides.length).toBe(r.points.length - 1)
+  })
+
+  // #10: single-point edge case
+  it('handles single-point streams (returns 1 point, 0 segments)', () => {
+    const single: StreamPoint[] = [{ time: 't0', heart_rate: 120, lat: 47, lng: 11 }]
+    const r = downsampleUniform(single, 'hr', 2000)
+    expect(r.points).toHaveLength(1)
+    expect(r.strides).toHaveLength(0)
+    expect(r.aggregated).toHaveLength(0)
+  })
+
+  // #29a: viewport bounds filtering
+  it('downsampleUniform filters by viewportBounds', () => {
+    const streams: StreamPoint[] = [
+      { time: 't0', lat: 47.0, lng: 11.0, heart_rate: 120 },
+      { time: 't1', lat: 48.0, lng: 12.0, heart_rate: 130 }, // outside
+      { time: 't2', lat: 47.1, lng: 11.1, heart_rate: 140 },
+    ]
+    const bounds = { west: 10.9, south: 46.9, east: 11.2, north: 47.2 }
+    const r = downsampleUniform(streams, 'hr', 2000, bounds)
+    expect(r.points).toHaveLength(2)  // indices 0 and 2 only
+    expect(r.streamIndices).toEqual([0, 2])
   })
 })
 
@@ -341,5 +377,28 @@ describe('zoneColors', () => {
 
   it('0 zones throws', () => {
     expect(() => zoneColors(0, HR_ZONE_BASE)).toThrow()
+  })
+})
+
+// ─── Finding #29c: resolveScale zones+speed with m/s → km/h conversion ───────
+
+describe('resolveScale — zones speed (m/s → km/h)', () => {
+  it('resolveScale zones mode for speed converts m/s zone_highs to km/h', () => {
+    const zones: SportZones = {
+      sport: 2, sport_label: 'Cycling',
+      zones: {
+        hr: null,
+        power: null,
+        speed: { zone_highs: [10, 15, 20, 25], threshold_speed_mps: 10, source_type: 'manual', zone_names: ['Z1', 'Z2', 'Z3', 'Z4'] } as any,
+      },
+    }
+    const scale = resolveScale('speed', { speed: 'roadCycling', cadence: 'bike' }, [], zones, 'zones')
+    expect(scale.type).toBe('zones')
+    if (scale.type === 'zones') {
+      // 10 m/s * 3.6 = 36 km/h, etc.
+      expect(scale.zoneHighs).toEqual([36, 54, 72, 90])
+      expect(scale.zoneColors).toHaveLength(4)
+      expect(scale.unit).toBe('km/h')
+    }
   })
 })
