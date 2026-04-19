@@ -696,6 +696,48 @@ func TestDefaultSportTypes(t *testing.T) {
 	}
 }
 
+func intPtr(v int) *int             { return &v }
+func float32Ptr(v float32) *float32 { return &v }
+
+func TestMergeProfile_TrailVisibilityOverrideWins(t *testing.T) {
+	base := ProfileConfig{Profile: "hiking", MaxTrailVisibility: intPtr(4), TrailVisibilityPenalty: float32Ptr(0.3)}
+	override := ProfileConfig{Profile: "hiking", MaxTrailVisibility: intPtr(3), TrailVisibilityPenalty: float32Ptr(0.8)}
+	merged := MergeProfile(base, override)
+	if *merged.MaxTrailVisibility != 3 {
+		t.Errorf("MaxTrailVisibility: want 3, got %d", *merged.MaxTrailVisibility)
+	}
+	if *merged.TrailVisibilityPenalty != 0.8 {
+		t.Errorf("TrailVisibilityPenalty: want 0.8, got %f", *merged.TrailVisibilityPenalty)
+	}
+}
+
+func TestMergeProfile_TrailVisibilityNilOverrideKeepsBase(t *testing.T) {
+	base := ProfileConfig{Profile: "hiking", MaxTrailVisibility: intPtr(4), TrailVisibilityPenalty: float32Ptr(0.3)}
+	override := ProfileConfig{Profile: "hiking"}
+	merged := MergeProfile(base, override)
+	if *merged.MaxTrailVisibility != 4 {
+		t.Errorf("want 4 (base)")
+	}
+	if *merged.TrailVisibilityPenalty != 0.3 {
+		t.Errorf("want 0.3 (base)")
+	}
+}
+
+func TestMergeProfile_TrailVisibilityBothNilKeepsNil(t *testing.T) {
+	base := ProfileConfig{Profile: "hiking"}
+	override := ProfileConfig{Profile: "hiking"}
+	merged := MergeProfile(base, override)
+	if merged.MaxTrailVisibility != nil {
+		t.Errorf("MaxTrailVisibility: want nil, got %v", merged.MaxTrailVisibility)
+	}
+	// Verify Fast-Path (spec §3.2.4): derefInt(nil) == 0 → closure guards skip decode.
+	maxTv := derefInt(merged.MaxTrailVisibility)
+	tvPenalty := deref32(merged.TrailVisibilityPenalty)
+	if maxTv != 0 || tvPenalty != 0.0 {
+		t.Errorf("nil-defaults must dereference to 0; got maxTv=%d tvPenalty=%f", maxTv, tvPenalty)
+	}
+}
+
 func TestOnewayReverseEdgeCostClosure(t *testing.T) {
 	// Encode a residential edge with oneway=yes, oneway_bicycle=true
 	residentialTags := &graph.RawTags{

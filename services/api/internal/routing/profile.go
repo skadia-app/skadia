@@ -27,7 +27,9 @@ type ProfileConfig struct {
 	MaxSacScale   *int  `json:"max_sac_scale,omitempty"`   // 0-6
 	SacPreferred  *int  `json:"sac_preferred,omitempty"`   // 0-6
 	MaxMtbScale   *int  `json:"max_mtb_scale,omitempty"`   // 0-5
-	MaxViaFerrata *int  `json:"max_via_ferrata,omitempty"` // 0-6
+	MaxViaFerrata          *int     `json:"max_via_ferrata,omitempty"` // 0-6
+	MaxTrailVisibility     *int     `json:"max_trail_visibility,omitempty"`     // 0-6 (0 or unset = no limit)
+	TrailVisibilityPenalty *float32 `json:"trail_visibility_penalty,omitempty"` // 0.0-2.0
 	AllowSteps    *bool `json:"allow_steps,omitempty"`
 	AllowFerries  *bool `json:"allow_ferries,omitempty"`
 
@@ -150,6 +152,8 @@ func MergeProfile(base, override ProfileConfig) ProfileConfig {
 	mergePtrInt(&m.SacPreferred, override.SacPreferred)
 	mergePtrInt(&m.MaxMtbScale, override.MaxMtbScale)
 	mergePtrInt(&m.MaxViaFerrata, override.MaxViaFerrata)
+	mergePtrInt(&m.MaxTrailVisibility, override.MaxTrailVisibility)
+	mergePtr(&m.TrailVisibilityPenalty, override.TrailVisibilityPenalty)
 	mergePtrBool(&m.AllowSteps, override.AllowSteps)
 	mergePtrBool(&m.AllowFerries, override.AllowFerries)
 	mergePtr(&m.ForestBonus, override.ForestBonus)
