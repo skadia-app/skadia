@@ -24,7 +24,7 @@ package handler
 //   Bug 4: insertUnifiedTimelineInto only collected sources referenced in fieldMap.
 //          Sources not in fieldMap (but listed in req.Sources) contributed zero
 //          timestamps to the merged activity.
-//          Test: TestFusionMerge_V2_UnifiedTimeline_IncludesAllSources
+//          Test: TestFusionMerge_UnifiedTimeline_IncludesAllSources
 //
 //   Bug 5: fuseGPSTracks was called with req.Sources (not including targetID).
 //          Target-GPS was therefore absent from the stitched track.
@@ -265,9 +265,9 @@ func TestFusionMerge_FullColumnCopy(t *testing.T) {
 	}
 }
 
-// ─── Test 2: V2 Unified Timeline — all sources contribute timestamps ──────────
+// ─── Test 2: Unified Timeline — all sources contribute timestamps ──────────
 
-// TestFusionMerge_V2_UnifiedTimeline_IncludesAllSources verifies that
+// TestFusionMerge_UnifiedTimeline_IncludesAllSources verifies that
 // insertUnifiedTimelineInto includes timestamps from ALL sources, not just those
 // referenced in fieldMap.
 //
@@ -276,7 +276,7 @@ func TestFusionMerge_FullColumnCopy(t *testing.T) {
 //
 // Bug state:  merged timeline has 5 rows (t1–t5), C's t6/t7 are absent.
 // Fixed state: merged timeline has 7 rows (t1–t7).
-func TestFusionMerge_V2_UnifiedTimeline_IncludesAllSources(t *testing.T) {
+func TestFusionMerge_UnifiedTimeline_IncludesAllSources(t *testing.T) {
 	pool := fusionTestPool(t)
 	ctx := context.Background()
 	db := &database.DB{Pool: pool}
@@ -1177,9 +1177,9 @@ func TestRevertFusionClearsMemberships(t *testing.T) {
 	t.Logf("RevertFusion: memberships=0, merged deleted, sources restored (parent_id=NULL) — OK")
 }
 
-// ─── Test N: Fusion Memberships After FusionMergeV2 ───────────────────────────
+// ─── Test N: Fusion Memberships After FusionMerge ───────────────────────────
 
-// TestFusionMembershipsAfterFuse verifies that after one successful FusionMerge (V2),
+// TestFusionMembershipsAfterFuse verifies that after one successful FusionMerge,
 // the activity_fusion_memberships rows correctly describe the fusion.
 // Memberships are the sole source-of-truth (Task 27).
 //
@@ -1217,7 +1217,7 @@ func TestFusionMembershipsAfterFuse(t *testing.T) {
 		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, PowerW: fusionPtrI16(205)},
 	})
 
-	// Build V2 request: Sources=[A,B,C], FieldMap={"gps":"fuse","hr":B,"power":C}
+	// Build request: Sources=[A,B,C], FieldMap={"gps":"fuse","hr":B,"power":C}
 	reqBody := fmt.Sprintf(
 		`{"sources":[%q,%q,%q],"field_map":{"gps":"fuse","hr":%q,"power":%q},"tags_merge":false}`,
 		actA, actB, actC, actB, actC,
@@ -1362,7 +1362,7 @@ func TestFusionMembershipsAfterFuse(t *testing.T) {
 // succeeding. Part of Phase 1 Task 7b.
 //
 // Scenario: user owns activities A and B (two sources).
-// Two goroutines race on FusionMergeV2([A, B]). The advisory lock serialises
+// Two goroutines race on FusionMerge([A, B]). The advisory lock serialises
 // them. After the first commits its membership rows, the second sees those rows
 // in the preflight SELECT EXISTS and returns 409 Conflict.
 //
@@ -1391,7 +1391,7 @@ func TestFusionMergeConcurrentSameUser(t *testing.T) {
 		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, PowerW: fusionPtrI16(215)},
 	})
 
-	// Build the request body: FusionMergeV2 with sources=[A, B].
+	// Build the request body: FusionMerge with sources=[A, B].
 	reqBodyStr := fmt.Sprintf(
 		`{"sources":[%q,%q],"field_map":{"hr":%q,"power":%q},"tags_merge":false}`,
 		actA, actB, actA, actB,
@@ -1496,7 +1496,7 @@ func TestFusionMergeConcurrentSameUser(t *testing.T) {
 }
 
 // TestFusionMergeConcurrentSameUser_ThreeSources covers concurrency guarantees for
-// a 3-source FusionMerge (ported from V1 test; V2 2-source variant is
+// a 3-source FusionMerge (2-source variant is
 // TestFusionMergeConcurrentSameUser above).
 func TestFusionMergeConcurrentSameUser_ThreeSources(t *testing.T) {
 	pool := fusionTestPool(t)
@@ -1523,7 +1523,7 @@ func TestFusionMergeConcurrentSameUser_ThreeSources(t *testing.T) {
 		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, PowerW: fusionPtrI16(215)},
 	})
 
-	// V2 request body: all sources are equal (no target URL param).
+	// Request body: all sources are equal (no target URL param).
 	reqBodyStr := fmt.Sprintf(
 		`{"sources":[%q,%q,%q],"field_map":{"hr":%q,"power":%q},"tags_merge":false}`,
 		actA, actB, actC, actA, actC,
@@ -1705,7 +1705,7 @@ func TestFusionOfFusionLifecycle(t *testing.T) {
 	t.Logf("M1 memberships: %v — OK", m1SourceSet)
 
 	// M1 needs streams for M2 fusion to work — M1 is the GPS source for M2.
-	// The FusionMergeV2 handler already writes M1's merged streams via finalizeStreamsMerge,
+	// The FusionMerge handler already writes M1's merged streams via finalizeStreamsMerge,
 	// so M1 has streams at this point.
 
 	// ── Step 2: Fuse M1 + C → M2 ─────────────────────────────────────────────
@@ -1887,7 +1887,7 @@ func TestFusionOfFusionLifecycle(t *testing.T) {
 // for the cross-fusion state: one source activity referenced in two distinct
 // merged activities with different field keys.
 //
-// NOTE: The FusionMergeV2 handler enforces that a source can only belong to one
+// NOTE: The FusionMerge handler enforces that a source can only belong to one
 // fusion at a time (preflight 409 guard). The cross-fusion state is therefore
 // created via direct DB insertion (bypassing the handler) to test the schema and
 // membership query methods in isolation from the application-level guard.
@@ -2254,7 +2254,7 @@ func TestRevertFusionRestoresPhotos(t *testing.T) {
 		t.Fatalf("pre-merge: actB photos: want 1, got %d", got)
 	}
 
-	// Fuse A + B → merged M via FusionMergeV2.
+	// Fuse A + B → merged M via FusionMerge.
 	h := &Handler{DB: db}
 	reqBodyStr := fmt.Sprintf(
 		`{"sources":[%q,%q],"field_map":{"hr":%q,"power":%q},"tags_merge":false}`,
@@ -2729,7 +2729,7 @@ func TestTransitiveFusionPhotoRestore(t *testing.T) {
 	base := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
 	lat, lng := fusionPtrF64(47.1), fusionPtrF64(11.1)
 
-	// Seed minimal streams so FusionMergeV2 does not reject empty-stream sources.
+	// Seed minimal streams so FusionMerge does not reject empty-stream sources.
 	insertStreams(t, db, actA, []model.StreamPoint{
 		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(130)},
 		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(132)},
@@ -2795,7 +2795,7 @@ func TestTransitiveFusionPhotoRestore(t *testing.T) {
 
 	h := &Handler{DB: db}
 
-	fuseV2 := func(t *testing.T, sources []string, fieldMap string) string {
+	fuse := func(t *testing.T, sources []string, fieldMap string) string {
 		t.Helper()
 		srcJSON := "["
 		for i, s := range sources {
@@ -2849,7 +2849,7 @@ func TestTransitiveFusionPhotoRestore(t *testing.T) {
 	}
 
 	// Fuse A + B using hr from A and power from B.
-	m1ID := fuseV2(t, []string{actA, actB},
+	m1ID := fuse(t, []string{actA, actB},
 		fmt.Sprintf(`{"hr":%q,"power":%q}`, actA, actB))
 	t.Logf("A+B → M1=%s", m1ID)
 
@@ -2895,7 +2895,7 @@ func TestTransitiveFusionPhotoRestore(t *testing.T) {
 
 	// ── Step 2: Fuse M1 + C → M2 ──────────────────────────────────────────────
 
-	m2ID := fuseV2(t, []string{m1ID, actC},
+	m2ID := fuse(t, []string{m1ID, actC},
 		fmt.Sprintf(`{"hr":%q,"power":%q}`, m1ID, actC))
 	t.Logf("M1+C → M2=%s", m2ID)
 
