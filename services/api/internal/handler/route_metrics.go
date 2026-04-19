@@ -48,4 +48,10 @@ var (
 		},
 		[]string{"available"},
 	)
+	routingMetricCandidatePoolTruncated = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "skadia_routing_candidate_pool_truncated_total",
+			Help: "SuggestRoutes requests where the pre-filter pool reached maxVariantPool (10000) and was truncated to prevent O(n²) in BuildCandidatePool.",
+		},
+	)
 )

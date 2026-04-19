@@ -160,6 +160,10 @@ export function useRoutePlanner() {
           duration: 0,
         })
       })
+    // Deps intentionally empty: this is a one-shot mount hydration. addToast is
+    // stable (Context ref), and fetchProfileDefaults / cacheServerDefaults /
+    // getProfileDefaults are module-level imports. Re-firing on every render
+    // would cause a fetch storm.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
