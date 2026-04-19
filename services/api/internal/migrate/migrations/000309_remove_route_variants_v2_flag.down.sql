@@ -1,0 +1,3 @@
+-- Intentional no-op: re-adding the row makes no sense after code-level
+-- KeyDef removal. A rollback of this migration would require reverting
+-- the corresponding code commits as well.

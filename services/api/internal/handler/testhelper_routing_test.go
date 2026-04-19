@@ -365,8 +365,7 @@ func newTestRoutingHandlerOpts(t *testing.T, withCoverage, withOutdoorTags bool)
 
 	// --- Settings ---
 	store := settings.NewStoreForTest(map[string]string{
-		"routing.route_variants_v2": "false",
-		"limits.max_upload_bytes":   fmt.Sprintf("%d", 256*1024*1024),
+		"limits.max_upload_bytes": fmt.Sprintf("%d", 256*1024*1024),
 	})
 
 	// --- Coverage reader (optional stub) ---
@@ -419,9 +418,6 @@ func TestNewTestRoutingHandler_Smoke(t *testing.T) {
 	}
 	if setup.Handler.GraphManager.UnifiedRouter() == nil {
 		t.Fatal("handler.GraphManager.UnifiedRouter() is nil")
-	}
-	if v := setup.Settings.Get("routing.route_variants_v2").Value; v != "false" {
-		t.Errorf("expected routing.route_variants_v2=false, got %q", v)
 	}
 	if setup.Handler.CoverageReader != nil {
 		t.Error("expected CoverageReader=nil for base variant")
