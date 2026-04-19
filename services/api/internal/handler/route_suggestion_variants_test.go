@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/settings"
 )
 
 // contextWithTestUserID injects a synthetic user-id into ctx using the same
@@ -64,10 +63,6 @@ func isValidVariantID(id string) bool {
 func TestSuggestRoutes_V2_WithoutCoverage_OnlyRankLabels(t *testing.T) {
 	setup := newTestRoutingHandler(t)
 
-	// Enable V2 flag by replacing the settings store and wiring it back.
-	setup.Handler.Settings = settings.NewStoreForTest(map[string]string{
-		"routing.route_variants_v2": "true",
-	})
 	// CoverageReader is already nil in the test harness.
 
 	const body = `{"start":[12.10,48.99],"target_distance_m":10000,"profile":"hiking"}`
@@ -123,9 +118,6 @@ func TestSuggestRoutes_V2_WithCoverage_ForestDescriptorAssigned(t *testing.T) {
 	// (empty dir) so coverageAvailable=true. Actual forest values come from
 	// EdgeTags2 bits pre-encoded in the bottom-right quadrant of the grid.
 	setup := newTestRoutingHandlerWithCoverage(t)
-	setup.Handler.Settings = settings.NewStoreForTest(map[string]string{
-		"routing.route_variants_v2": "true",
-	})
 
 	if setup.Handler.CoverageReader == nil {
 		t.Fatal("CoverageReader must be non-nil for this test")
@@ -182,9 +174,6 @@ func TestSuggestRoutes_V2_WithCoverage_ForestDescriptorAssigned(t *testing.T) {
 
 func TestSuggestRoutes_V2_Outdoor_MtbTechnicalAssigned(t *testing.T) {
 	setup := newTestRoutingHandlerWithOutdoor(t)
-	setup.Handler.Settings = settings.NewStoreForTest(map[string]string{
-		"routing.route_variants_v2": "true",
-	})
 
 	const body = `{"start":[12.10,48.99],"target_distance_m":10000,"profile":"hiking"}`
 	w := postSuggestRoutes(setup.Handler, body)
@@ -219,9 +208,6 @@ func TestSuggestRoutes_V2_Outdoor_MtbTechnicalAssigned(t *testing.T) {
 
 func TestSuggestRoutes_V2_Outdoor_SubSegmentsAnnotated(t *testing.T) {
 	setup := newTestRoutingHandlerWithOutdoor(t)
-	setup.Handler.Settings = settings.NewStoreForTest(map[string]string{
-		"routing.route_variants_v2": "true",
-	})
 
 	const body = `{"start":[12.10,48.99],"target_distance_m":10000,"profile":"hiking"}`
 	w := postSuggestRoutes(setup.Handler, body)

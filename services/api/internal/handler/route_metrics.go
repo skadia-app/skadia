@@ -30,7 +30,7 @@ var (
 	routingMetricOutdoorCoverageAvailable = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "skadia_routing_outdoor_coverage_available_total",
-			Help: "V2 SuggestRoutes requests grouped by any-candidate outdoor-coverage availability. Emitted only from suggestRoutesV2Tail (V1 path has no outdoor aggregation — not a data gap, V1 predates F26).",
+			Help: "SuggestRoutes requests grouped by any-candidate outdoor-coverage availability.",
 		},
 		[]string{"available"},
 	)
