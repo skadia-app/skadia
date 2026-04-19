@@ -1898,6 +1898,21 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 
 	// 9b. Insert into activity_fusion_memberships — the sole source-of-truth for fusion state
 	// since Phase 3. parent_id (step 8) is a UI-visibility hint only; memberships own the data.
+	//
+	// Group-Mode: set the session flag BEFORE the INSERTs so that the
+	// AFTER INSERT trigger fn_fusion_source_removes_group_member (000313/000314)
+	// skips its DELETE from recording_group_members.  Without this gate, the
+	// trigger would remove all source-activities from the group during the TX,
+	// causing the deferred trg_group_members_sync to dissolve 2-member groups
+	// at commit time — leaving the post-commit AddRecordingGroupMemberFused with
+	// a FK violation (R3-2).
+	if req.GroupID != nil && *req.GroupID != "" {
+		if _, err := tx.Exec(ctx, `SET LOCAL skadia.skip_rgm_cleanup = 'true'`); err != nil {
+			slog.Error("fusion-merge: set group-mode skip flag failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "set group-mode flag: "+err.Error(), r.URL.Path)
+			return
+		}
+	}
 	memberships := deriveFusionMemberships(merged.ID, userID, req.FieldMap, req.Sources)
 	if err := database.InsertFusionMemberships(ctx, tx, memberships); err != nil {
 		slog.Error("fusion-merge: insert memberships failed", "error", err)

@@ -1,20 +1,25 @@
 package handler
 
-// recording_groups_test.go — Integration tests for AddGroupMember.
+// recording_groups_test.go — Integration tests for AddGroupMember and
+// group-mode FusionMerge.
 //
 // Requires TEST_DATABASE_URL to be set; the whole suite is skipped otherwise.
 //
 // Tests:
-//   - TestAddGroupMember_HappyPath      — POST with valid group + activity → 200 OK, member added
-//   - TestAddGroupMember_OwnershipDenied — group belongs to different user → 403
-//   - TestAddGroupMember_Idempotent     — adding same activity twice → 200 OK both times
+//   - TestAddGroupMember_HappyPath           — POST with valid group + activity → 200 OK, member added
+//   - TestAddGroupMember_OwnershipDenied      — group belongs to different user → 403
+//   - TestAddGroupMember_Idempotent           — adding same activity twice → 200 OK both times
+//   - TestFusionMerge_GroupMode_Preserves2MemberGroup — group-mode fusion must not dissolve the group (R3-2)
+//   - TestAddGroupMember_RejectsFusionSource  — fusion-source activities must be rejected 400 (R3-3)
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -150,4 +155,169 @@ func TestAddGroupMember_Idempotent(t *testing.T) {
 	if len(members) != 3 {
 		t.Fatalf("expected 3 members after idempotent add, got %d", len(members))
 	}
+}
+
+// ─── R3-2: group-mode fusion must not dissolve the recording_group ──────────
+
+// TestFusionMerge_GroupMode_Preserves2MemberGroup verifies the R3-2 fix:
+//   - A 2-member group {A, B} exists.
+//   - FusionMerge is called with group_id = G, sources = [A, B].
+//   - After the merge: 201, the merged activity C exists, and group G still
+//     exists with A, B (is_fused=false) and C (is_fused=true) as members.
+//   - primary_activity_id of G must be C.
+//
+// Before R3-2: trigger 000313 removed A and B from recording_group_members
+// during the TX, causing the deferred sync to dissolve the group at commit.
+// The post-commit AddRecordingGroupMemberFused then hit an FK violation
+// (non-fatal), leaving the merge without group context.
+func TestFusionMerge_GroupMode_Preserves2MemberGroup(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+
+	// Create the 2-member recording group.
+	group, err := db.CreateRecordingGroup(ctx, userID, []string{actA, actB}, actA, "")
+	if err != nil {
+		t.Fatalf("CreateRecordingGroup: %v", err)
+	}
+	groupID := group.ID
+
+	// Perform the group-mode FusionMerge: sources=[A,B], group_id=G.
+	reqBody := fmt.Sprintf(
+		`{"sources":[%q,%q],"field_map":{"gps":%q},"tags_merge":false,"group_id":%q}`,
+		actA, actB, actA, groupID,
+	)
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
+		strings.NewReader(reqBody))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq = httpReq.WithContext(
+		context.WithValue(httpReq.Context(), middleware.UserIDKey, userID),
+	)
+	rr := httptest.NewRecorder()
+	h := &Handler{DB: db}
+	h.FusionMerge(rr, httpReq)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("FusionMerge: expected 201, got %d — body: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode FusionMerge response: %v", err)
+	}
+	mergedID := resp.ID
+	if mergedID == "" {
+		t.Fatal("FusionMerge response did not include an id")
+	}
+	t.Logf("FusionMerge: merged activity id = %s", mergedID)
+
+	// ── Assert: recording_group G still exists ────────────────────────────────
+	reloadedGroup, err := db.GetRecordingGroup(ctx, groupID)
+	if err != nil {
+		t.Fatalf("GetRecordingGroup after fusion: %v", err)
+	}
+	if reloadedGroup == nil {
+		t.Fatal("R3-2: recording_group was dissolved by group-mode fusion — expected it to survive")
+	}
+
+	// ── Assert: primary_activity_id = C (merged) ─────────────────────────────
+	if reloadedGroup.PrimaryActivityID == nil || *reloadedGroup.PrimaryActivityID != mergedID {
+		primaryStr := "<nil>"
+		if reloadedGroup.PrimaryActivityID != nil {
+			primaryStr = *reloadedGroup.PrimaryActivityID
+		}
+		t.Errorf("R3-2: primary_activity_id = %s, want %s", primaryStr, mergedID)
+	}
+
+	// ── Assert: group members contain A, B (sources) and C (merged) ──────────
+	members, err := db.GetRecordingGroupMembers(ctx, groupID)
+	if err != nil {
+		t.Fatalf("GetRecordingGroupMembers after fusion: %v", err)
+	}
+
+	byID := make(map[string]database.RecordingGroupMemberDetail, len(members))
+	for _, m := range members {
+		byID[m.ActivityID] = m
+	}
+
+	if _, ok := byID[actA]; !ok {
+		t.Errorf("R3-2: actA (%s) missing from group members after fusion", actA)
+	}
+	if _, ok := byID[actB]; !ok {
+		t.Errorf("R3-2: actB (%s) missing from group members after fusion", actB)
+	}
+	if m, ok := byID[mergedID]; !ok {
+		t.Errorf("R3-2: merged activity C (%s) missing from group members", mergedID)
+	} else if !m.IsFused {
+		t.Errorf("R3-2: merged activity C (%s) must have is_fused=true", mergedID)
+	}
+
+	t.Logf("R3-2: group %s preserved, primary=%s, members=%d — OK", groupID, mergedID, len(members))
+}
+
+// ─── R3-3: AddGroupMember must reject fusion-source activities ────────────────
+
+// TestAddGroupMember_RejectsFusionSource verifies the R3-3 fix:
+//   - Activities A and B are merged → C (A and B become fusion-sources).
+//   - POST /recording-groups/G/members {activity_id: A} must return 400.
+//   - Group G must have no member A after the rejected call.
+func TestAddGroupMember_RejectsFusionSource(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+
+	// Fuse A + B → C (ad-hoc mode, no group_id).
+	reqBody := fmt.Sprintf(
+		`{"sources":[%q,%q],"field_map":{"gps":%q},"tags_merge":false}`,
+		actA, actB, actA,
+	)
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
+		strings.NewReader(reqBody))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq = httpReq.WithContext(
+		context.WithValue(httpReq.Context(), middleware.UserIDKey, userID),
+	)
+	rrFuse := httptest.NewRecorder()
+	h := &Handler{DB: db}
+	h.FusionMerge(rrFuse, httpReq)
+	if rrFuse.Code != http.StatusCreated {
+		t.Fatalf("FusionMerge setup: expected 201, got %d — body: %s", rrFuse.Code, rrFuse.Body.String())
+	}
+
+	// Create a fresh group with two unrelated activities to hold the group.
+	actX := insertMinimalActivity(t, db, userID)
+	actY := insertMinimalActivity(t, db, userID)
+	group, err := db.CreateRecordingGroup(ctx, userID, []string{actX, actY}, actX, "")
+	if err != nil {
+		t.Fatalf("CreateRecordingGroup: %v", err)
+	}
+
+	// Attempt to add actA (a fusion-source) to group G → must fail with 400.
+	code := doAddGroupMember(t, h, userID, group.ID, actA)
+	if code != http.StatusBadRequest {
+		t.Errorf("R3-3: expected 400 for fusion-source, got %d", code)
+	}
+
+	// Verify actA is not a member of G.
+	members, err := db.GetRecordingGroupMembers(ctx, group.ID)
+	if err != nil {
+		t.Fatalf("GetRecordingGroupMembers: %v", err)
+	}
+	for _, m := range members {
+		if m.ActivityID == actA {
+			t.Errorf("R3-3: actA was added to the group despite being a fusion-source")
+		}
+	}
+
+	t.Logf("R3-3: AddGroupMember correctly rejected fusion-source actA with 400 — OK")
 }
