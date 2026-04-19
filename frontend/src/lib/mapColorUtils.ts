@@ -174,6 +174,28 @@ function zonesScale(metric: Metric, unit: string, zoneHighs: number[]): ScaleDef
 
 export { TEMPERATURE_RANGE } // re-export for component usage
 
+// ─── Sport zone matching ──────────────────────────────────────────────────────
+
+/**
+ * Match an activity to its training-zones entry via fit_sport_id.
+ *
+ * Label-based fallback is intentionally NOT implemented — backend sport_label
+ * is locale-dependent (deutsch) while frontend labels may differ for sub-sport
+ * variants (e.g. "Gravel" vs backend-aggregated "Radfahren").
+ *
+ * Activities without fit_sport_id (pre-FIT-SDK-Phase-3 imports) cannot use
+ * zone coloring — documented limitation.
+ */
+export function matchSportZones(
+  activity: { fit_sport_id?: number | null },
+  allZones: SportZones[],
+): SportZones | null {
+  if (activity.fit_sport_id == null) return null
+  const matches = allZones.filter(z => z.sport === activity.fit_sport_id)
+  if (matches.length === 0) return null
+  return matches[0]
+}
+
 // ─── Pace derivation ──────────────────────────────────────────────────────────
 
 /** Minimum speed (m/s) for defining pace — below this counts as stopped. */

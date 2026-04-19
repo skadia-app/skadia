@@ -257,3 +257,27 @@ describe('LINE_OPACITY_EXPRESSION', () => {
     expect(expr[3]).toBe(0.2)
   })
 })
+
+// ─── Task 15 tests ────────────────────────────────────────────────────────────
+
+import { matchSportZones } from '../mapColorUtils'
+import type { SportZones } from '@/api/trainingZones'
+
+describe('matchSportZones', () => {
+  const zones: SportZones[] = [
+    { sport: 1, sport_label: 'Laufen', zones: { hr: null, power: null, speed: null } },
+    { sport: 2, sport_label: 'Radfahren', zones: { hr: null, power: null, speed: null } },
+  ]
+
+  it('matches by fit_sport_id', () => {
+    expect(matchSportZones({ fit_sport_id: 2 }, zones)?.sport).toBe(2)
+  })
+
+  it('returns null when fit_sport_id is missing', () => {
+    expect(matchSportZones({}, zones)).toBeNull()
+  })
+
+  it('returns null when fit_sport_id does not match any zone', () => {
+    expect(matchSportZones({ fit_sport_id: 99 }, zones)).toBeNull()
+  })
+})
