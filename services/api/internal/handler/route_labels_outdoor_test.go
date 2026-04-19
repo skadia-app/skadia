@@ -94,6 +94,37 @@ func TestComputeDescriptors_AlpineHiking_AllTie_NoFire(t *testing.T) {
 	}
 }
 
+func TestComputeDescriptors_Exposed_AllHaveVia_NoFire(t *testing.T) {
+	th := defaultOutdoorThresholds
+	// Alle 3 candidates haben highway=via_ferrata + Coverage ≥ 1%.
+	// exposed's early-break kickt in → niemand fires.
+	target := mkCand(withVia(true, 2, 0.05))
+	others := []RouteCandidate{
+		mkCand(withVia(true, 3, 0.06)),
+		mkCand(withVia(true, 1, 0.04)),
+	}
+	ds := computeDescriptorsFor(target, others, 0, false, th)
+	if hasDescriptor(ds, "exposed") {
+		t.Errorf("all-have-via must not fire exposed (binary descriptor)")
+	}
+}
+
+func TestComputeDescriptors_LowVisibility_AllTieIntermediate_NoFire(t *testing.T) {
+	th := defaultOutdoorThresholds
+	// Alle 3 Candidates haben gleichen IntermediatePctTv (30%) + gleiches
+	// MaxTrailVisibility=3 (UNTER LowVisMaxTrigger=4 → kein maxTrigger).
+	// Δ = me.IntermediatePctTv - maxOther = 0 < LowVisIntDelta (10%) → kein intTrigger.
+	target := mkCand(withTv(3, 0.30, 0.30))
+	others := []RouteCandidate{
+		mkCand(withTv(3, 0.30, 0.30)),
+		mkCand(withTv(3, 0.30, 0.30)),
+	}
+	ds := computeDescriptorsFor(target, others, 0, false, th)
+	if hasDescriptor(ds, "low_visibility") {
+		t.Errorf("all-tie intermediate + maxTv<trigger must not fire low_visibility")
+	}
+}
+
 func TestComputeDescriptors_AlpineHiking(t *testing.T) {
 	th := defaultOutdoorThresholds
 	target := mkCand(withSac(4, 0.25))
