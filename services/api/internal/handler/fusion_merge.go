@@ -639,7 +639,7 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 	}
 
 	// TODO(phase-5): extract a per-activity segment_efforts recomputer and call it
-	// here. See docs/internal/2026-04-23-fusion-segment-efforts-recompute.md.
+	// here. See docs/internal/2026-04-16-fusion-segment-efforts-recompute.md.
 	// Currently segment-matches land on next user-triggered segment recompute.
 
 	// Audit log (inside transaction).

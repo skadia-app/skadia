@@ -3301,10 +3301,10 @@ func TestFusionMergeV1_NoSources_EdgeCase(t *testing.T) {
 //
 // For now this test is skipped with a TODO.  The guard (return err path in
 // copyRelatedTablesUnion) is exercised only at the compile-time level today.
-// A follow-up ticket is created at docs/internal/2026-04-25-fusion-partial-failure-test.md.
+// A follow-up ticket is created at docs/internal/2026-04-16-fusion-partial-failure-test.md.
 //
 // See also: the TODO block at the end of this file for related skipped tests.
 func TestCopyRelatedTablesUnionPartialFailureRollsBack(t *testing.T) {
 	t.Skip("TODO: induce mid-union failure — requires mock Querier infrastructure. " +
-		"See Finding #21 from Round-2 critic and docs/internal/2026-04-25-fusion-partial-failure-test.md")
+		"See Finding #21 from Round-2 critic and docs/internal/2026-04-16-fusion-partial-failure-test.md")
 }
