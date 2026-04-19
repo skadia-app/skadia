@@ -2805,7 +2805,16 @@ export default function MapPage() {
                   segments={planner.segments}
                   height={140}
                 />
-                <RouteSurfacesBar segments={planner.segments} onHighlight={highlight.setHover} />
+                <RouteSurfacesBar
+                  segments={planner.segments}
+                  onHighlight={highlight.setHover}
+                  pinnedType={
+                    highlight.effective?.kind === 'highway' || highlight.effective?.kind === 'surface'
+                      ? highlight.effective
+                      : null
+                  }
+                  onPin={(t) => highlight.handleClick(t)}
+                />
               </div>
             )}
           </div>
