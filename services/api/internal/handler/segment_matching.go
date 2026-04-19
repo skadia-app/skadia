@@ -26,7 +26,7 @@ const (
 func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, userID, sportType, subType string, gearID *string, activityDate time.Time) {
 	slog.Info("segment matching started", "activity_id", activityID, "sport_type", sportType)
 
-	matchCtx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	matchCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
 	// 1. Spatial pre-filter: only segments within 50m of activity track

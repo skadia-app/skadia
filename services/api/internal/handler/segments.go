@@ -416,13 +416,55 @@ func (h *Handler) recomputeSegmentEfforts(ctx context.Context, segmentID, userID
 	return nil
 }
 
+// recomputeSegmentEffortsForActivity deletes and re-matches segment_efforts
+// only for a specific (segment_id, activity_id) tuple. Used by
+// RecomputeEffortsForActivity (post-fusion cleanup) to avoid the user-wide
+// DELETE that the general recomputeSegmentEfforts handler does.
+//
+// The caller is responsible for running this inside a shutdown.Go goroutine
+// or other long-running context when appropriate.
+func (h *Handler) recomputeSegmentEffortsForActivity(ctx context.Context, segmentID, activityID, userID string) error {
+	// DELETE targeted: only this (segment_id, activity_id) pair — O(1) vs user-wide O(M).
+	if _, err := h.DB.Pool.Exec(ctx,
+		`DELETE FROM segment_efforts WHERE segment_id = $1 AND activity_id = $2`,
+		segmentID, activityID,
+	); err != nil {
+		return fmt.Errorf("delete efforts for segment+activity: %w", err)
+	}
+
+	// Load the activity to get sport metadata required by MatchActivitySegments.
+	act, err := h.DB.GetActivity(ctx, activityID)
+	if err != nil {
+		return fmt.Errorf("load activity for segment rematch: %w", err)
+	}
+	if act == nil {
+		return fmt.Errorf("activity %s not found for segment rematch", activityID)
+	}
+
+	subType := ""
+	if act.SubType != nil {
+		subType = *act.SubType
+	}
+	// Re-match only this single activity against this single segment.
+	// MatchActivitySegments uses GetSpatialCandidateSegments which filters by
+	// segment visibility and activity bbox — the same spatial pre-filter as the
+	// full recompute path, just scoped to one activity.
+	MatchActivitySegments(ctx, h.DB, activityID, userID, act.SportType, subType, act.GearID, act.StartedAt)
+	return nil
+}
+
 // RecomputeEffortsForActivity iterates all segments whose track overlaps
 // with the activity's bbox (from activity_tracks) and recomputes their
-// efforts via recomputeSegmentEfforts. Used by postCommitFusionCleanup
+// efforts via recomputeSegmentEffortsForActivity. Used by postCommitFusionCleanup
 // after a fusion-merge.
 //
 // Table: activity_tracks.bbox (GEOMETRY Polygon 4326, Mig 000004).
 // segment_versions.track (GEOMETRY LineString 4326, Mig 000032 GIST-indexed).
+//
+// Unlike the general recomputeSegmentEfforts (which DELETEs all user efforts
+// for a segment and re-matches every activity), this path targets only the
+// single (segment_id, activity_id) tuple — O(N) per fusion where N is the
+// number of overlapping segments, not O(N×M).
 //
 // Per-segment failures are logged as warnings and do not abort the loop —
 // partial coverage is acceptable since the user can trigger a manual recompute.
@@ -444,7 +486,7 @@ func (h *Handler) RecomputeEffortsForActivity(ctx context.Context, activityID, u
 		if err := rows.Scan(&segID); err != nil {
 			return fmt.Errorf("scan segment_id: %w", err)
 		}
-		if err := h.recomputeSegmentEfforts(ctx, segID, userID); err != nil {
+		if err := h.recomputeSegmentEffortsForActivity(ctx, segID, activityID, userID); err != nil {
 			slog.Warn("post-fusion segment recompute failed",
 				"activity_id", activityID,
 				"segment_id", segID,
