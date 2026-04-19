@@ -421,18 +421,17 @@ func (h *Handler) recomputeSegmentEfforts(ctx context.Context, segmentID, userID
 // RecomputeEffortsForActivity (post-fusion cleanup) to avoid the user-wide
 // DELETE that the general recomputeSegmentEfforts handler does.
 //
+// The DELETE and INSERT are wrapped in a single transaction so that a matching
+// failure never leaves the pair with zero efforts (R2-10): if the INSERT fails,
+// the DELETE is rolled back and the pre-recompute efforts are preserved.
+//
+// Rank updates happen outside the transaction because they are non-critical and
+// idempotent — a partial rank failure does not corrupt effort data.
+//
 // The caller is responsible for running this inside a shutdown.Go goroutine
 // or other long-running context when appropriate.
 func (h *Handler) recomputeSegmentEffortsForActivity(ctx context.Context, segmentID, activityID, userID string) error {
-	// DELETE targeted: only this (segment_id, activity_id) pair — O(1) vs user-wide O(M).
-	if _, err := h.DB.Pool.Exec(ctx,
-		`DELETE FROM segment_efforts WHERE segment_id = $1 AND activity_id = $2`,
-		segmentID, activityID,
-	); err != nil {
-		return fmt.Errorf("delete efforts for segment+activity: %w", err)
-	}
-
-	// Load the activity to get sport metadata required by MatchActivitySegments.
+	// Load the activity to get sport metadata required by collectSegmentEfforts.
 	act, err := h.DB.GetActivity(ctx, activityID)
 	if err != nil {
 		return fmt.Errorf("load activity for segment rematch: %w", err)
@@ -445,11 +444,47 @@ func (h *Handler) recomputeSegmentEffortsForActivity(ctx context.Context, segmen
 	if act.SubType != nil {
 		subType = *act.SubType
 	}
-	// Re-match only this single activity against this single segment.
-	// MatchActivitySegments uses GetSpatialCandidateSegments which filters by
-	// segment visibility and activity bbox — the same spatial pre-filter as the
-	// full recompute path, just scoped to one activity.
-	MatchActivitySegments(ctx, h.DB, activityID, userID, act.SportType, subType, act.GearID, act.StartedAt)
+
+	// Collect new efforts in-memory before opening the transaction — all reads
+	// and pure computation with no side effects.
+	// collectSegmentEfforts applies the same spatial pre-filter as the full
+	// recompute path (GetSpatialCandidateSegments) so only the relevant segment
+	// will produce efforts for this (activity_id, segment_id) pair.
+	allEfforts, matchedSegmentIDs, _, err := collectSegmentEfforts(ctx, h.DB, activityID, userID, act.SportType, subType, act.GearID, act.StartedAt)
+	if err != nil {
+		return fmt.Errorf("collect new efforts for segment rematch: %w", err)
+	}
+
+	// Transactional DELETE + INSERT: if the INSERT fails the DELETE is rolled back,
+	// preserving the pre-recompute state (fixes R2-10 non-atomic delete+match).
+	tx, err := h.beginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx for segment rematch: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM segment_efforts WHERE segment_id = $1 AND activity_id = $2`,
+		segmentID, activityID,
+	); err != nil {
+		return fmt.Errorf("delete efforts for segment+activity: %w", err)
+	}
+
+	if err := database.InsertSegmentEffortsBatchTx(ctx, tx, allEfforts); err != nil {
+		return fmt.Errorf("insert new efforts for segment+activity: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit segment rematch tx: %w", err)
+	}
+
+	// Update ranks outside the transaction — non-critical, idempotent.
+	for segID := range matchedSegmentIDs {
+		if err := h.DB.UpdateSegmentEffortRanks(ctx, segID); err != nil {
+			slog.Warn("segment recompute: update ranks failed",
+				"segment_id", segID, "activity_id", activityID, "error", err)
+		}
+	}
 	return nil
 }
 
