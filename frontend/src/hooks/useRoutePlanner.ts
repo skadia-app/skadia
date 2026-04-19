@@ -130,7 +130,13 @@ export function useRoutePlanner() {
     fetchProfileDefaults('hiking')
       .then(resp => {
         cacheServerDefaults('hiking', resp)
-        setState(s => ({ ...s, profileConfig: getProfileDefaults('hiking') }))
+        setState(s => {
+          // Race-guard: another flow (e.g. loadRoute for deeplink) may have
+          // populated profileConfig between this useEffect firing and the
+          // fetch resolving. Don't overwrite.
+          if (s.profileConfig !== null) return s
+          return { ...s, profileConfig: getProfileDefaults('hiking') }
+        })
       })
       .catch(() => {
         addToast({
