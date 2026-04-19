@@ -289,6 +289,20 @@ export default function FusionPage() {
         activityIds: [...selectedSources, result.id],
       })
 
+      // Surface non-fatal backend warnings (gear copy failed, title nil, etc.)
+      // defensively — absent field means no warnings (backward-compatible with
+      // older server versions that don't send the field).
+      if (result.warnings && result.warnings.length > 0) {
+        for (const warning of result.warnings) {
+          addToast({
+            type: 'warning',
+            title: 'Hinweis zur Fusion',
+            message: warning,
+            duration: 0,
+          })
+        }
+      }
+
       if (groupId) {
         setFusedActivityId(result.id)
         setShowGroupPrimaryDialog(true)

@@ -28,8 +28,16 @@ export async function revertFusion(activityId: string): Promise<void> {
   return apiClient<void>(`/activities/${activityId}/revert-fusion`, { method: 'POST' })
 }
 
-export async function executeFusionMerge(req: FusionMergeRequest): Promise<{ id: string }> {
-  return apiClient<{ id: string }>('/fusion-merge', {
+export interface FusionMergeResponse {
+  id: string
+  /** Non-fatal backend warnings (gear copy failed, title nil, etc.).
+   *  Absent or empty means no warnings. Read defensively — older servers
+   *  always omit this field. */
+  warnings?: string[]
+}
+
+export async function executeFusionMerge(req: FusionMergeRequest): Promise<FusionMergeResponse> {
+  return apiClient<FusionMergeResponse>('/fusion-merge', {
     method: 'POST',
     body: req,
   })
