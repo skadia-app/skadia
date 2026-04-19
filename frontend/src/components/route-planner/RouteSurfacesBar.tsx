@@ -23,6 +23,10 @@ interface Props {
     | { kind: 'surface'; key: string }
     | { kind: 'descriptor'; descriptorKey: 'mtb_technical' | 'alpine_hiking' | 'exposed' | 'low_visibility' }
     | null) => void
+  /** Controlled pin state — managed by parent (e.g. useStickyHighlight). */
+  pinnedType?: { kind: 'highway' | 'surface'; key: string } | null
+  /** Called when the user clicks a chip to toggle pin. Parent owns the state. */
+  onPin?: (type: { kind: 'highway' | 'surface'; key: string } | null) => void
 }
 
 function buildAggregated(
@@ -60,9 +64,8 @@ function buildAggregated(
   return displayed
 }
 
-export default function RouteSurfacesBar({ segments, onHighlight }: Props) {
+export default function RouteSurfacesBar({ segments, onHighlight, pinnedType = null, onPin }: Props) {
   const [hoveredType, setHoveredType] = useState<{ kind: 'highway' | 'surface'; key: string } | null>(null)
-  const [pinnedType, setPinnedType] = useState<{ kind: 'highway' | 'surface'; key: string } | null>(null)
 
   const { highways, surfaces } = useMemo(() => {
     const allWithDistance: { highway: string; surface: string; distanceM: number }[] = []
@@ -87,39 +90,31 @@ export default function RouteSurfacesBar({ segments, onHighlight }: Props) {
 
   const activeType = pinnedType ?? hoveredType
 
-  const handleHighlightChange = useCallback((
-    type: { kind: 'highway' | 'surface'; key: string } | null,
-  ) => {
-    onHighlight?.(type)
-  }, [onHighlight])
-
   const handleHwHover = useCallback((key: string | null) => {
     const next = key ? { kind: 'highway' as const, key } : null
     setHoveredType(next)
-    if (!pinnedType) handleHighlightChange(next)
-  }, [pinnedType, handleHighlightChange])
+    if (!pinnedType) onHighlight?.(next)
+  }, [pinnedType, onHighlight])
 
   const handleHwPin = useCallback((key: string) => {
-    setPinnedType(prev => {
-      const next = prev?.key === key && prev.kind === 'highway' ? null : { kind: 'highway' as const, key }
-      handleHighlightChange(next)
-      return next
-    })
-  }, [handleHighlightChange])
+    const next = pinnedType?.key === key && pinnedType.kind === 'highway'
+      ? null
+      : { kind: 'highway' as const, key }
+    onPin?.(next)
+  }, [pinnedType, onPin])
 
   const handleSfHover = useCallback((key: string | null) => {
     const next = key ? { kind: 'surface' as const, key } : null
     setHoveredType(next)
-    if (!pinnedType) handleHighlightChange(next)
-  }, [pinnedType, handleHighlightChange])
+    if (!pinnedType) onHighlight?.(next)
+  }, [pinnedType, onHighlight])
 
   const handleSfPin = useCallback((key: string) => {
-    setPinnedType(prev => {
-      const next = prev?.key === key && prev.kind === 'surface' ? null : { kind: 'surface' as const, key }
-      handleHighlightChange(next)
-      return next
-    })
-  }, [handleHighlightChange])
+    const next = pinnedType?.key === key && pinnedType.kind === 'surface'
+      ? null
+      : { kind: 'surface' as const, key }
+    onPin?.(next)
+  }, [pinnedType, onPin])
 
   if (highways.length === 0 && surfaces.length === 0) return null
 
