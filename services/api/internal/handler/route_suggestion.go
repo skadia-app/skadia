@@ -111,7 +111,7 @@ type RouteSuggestionResponse struct {
 //  1. Build a CostConfig for the requested BadRouter profile.
 //  2. Run Pareto FindReachableWithCoords to discover nodes reachable within
 //     half the target distance budget (outward leg).
-//  3. Filter by distance band and select candidates via BuildCandidatePool + PickDiverseIndices (V2).
+//  3. Filter by distance band and select candidates via BuildCandidatePool + PickDiverseIndices.
 //  4. For each variant, build a round-trip with quality gate in parallel.
 //  5. Classify loop quality, compute overlap, and return enriched suggestions.
 //
