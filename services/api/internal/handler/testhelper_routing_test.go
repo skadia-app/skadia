@@ -260,7 +260,10 @@ func newTestRoutingHandlerOpts(t *testing.T, withCoverage, withOutdoorTags bool)
 			// TV   → (1,3)↔(2,4): Route 1 exclusive diagonal (r+c=4, exists).
 			//                       IntermediatePct ≈ 35%; intTrigger fires (Δ > 10%).
 			// SAC  → (3,4)↔(4,4): Peripheral vertical, not in any route baseline path.
-			//                       High SAC penalty → router avoids. Soft-fail.
+			//                       encoded=3 (T3) — within hiking max_sac_scale=3, so
+			//                       traversable (not costBlocked). sacPenalty[3]≈5.5
+			//                       causes router preference for alternatives; hard-assert
+			//                       valid only when route is forced through this edge.
 			// VF   → (3,3)↔(4,4): Route 2 diagonal (r+c=6, exists); hw stays path=16.
 			//                       Appears in seg if Route 2 traverses (3,3)→(4,4).
 			//                       Soft-fail.
@@ -276,9 +279,11 @@ func newTestRoutingHandlerOpts(t *testing.T, withCoverage, withOutdoorTags bool)
 				edgeTags2[pos] = (uint64(e.forestPct) & 0x7F) | (uint64(3) << 36)
 			case (e.from == nodeIdx(3, 4) && e.to == nodeIdx(4, 4)) ||
 				(e.from == nodeIdx(4, 4) && e.to == nodeIdx(3, 4)):
-				// sac_scale encoded=4 (alpine_hiking = Display T4) — peripheral edge,
-				// SAC penalty ≈5.5 causes router avoidance. Soft-fail in test.
-				edgeTags1[pos] = 16 | (uint64(4) << 14)
+				// sac_scale encoded=3 (mountain_hiking = Display T3) — peripheral edge.
+				// hiking max_sac_scale=3, so encoded=3 stays traversable (not costBlocked).
+				// sacPenalty[3] ≈ 5.5 makes the router prefer alternatives, but the edge
+				// can still appear in sub-segments when the router is forced through it.
+				edgeTags1[pos] = 16 | (uint64(3) << 14)
 			case (e.from == nodeIdx(3, 3) && e.to == nodeIdx(4, 4)) ||
 				(e.from == nodeIdx(4, 4) && e.to == nodeIdx(3, 3)):
 				// via_ferrata_scale encoded=2 (K2) — hw stays path (16) to avoid

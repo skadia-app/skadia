@@ -316,10 +316,10 @@ func TestSuggestRoutes_V2_Outdoor_MtbTechnicalAssigned(t *testing.T) {
 	}
 	resp := decodeRouteSuggestionResponse(t, w)
 
-	// With harness fixture (mtb-tagged edge (0,0)-(0,1)), at least one route
-	// traversing that edge should gain mtb_technical. If no candidate traverses
-	// the edge, this test is too optimistic — rerun with a narrower fixture.
-	// Per rev5 fixture values: MaxMtbScale=3 on that route → DisplayValue "bis S2".
+	// Fixture places mtb_scale=3 (OSM "2" → display S2) on diagonal (0,2)↔(1,3),
+	// which Route 1 (NE diagonal) traverses exclusively (Routes 0, 2 don't).
+	// TaggedPctMtb ≈ 35% > 20% gate + MaxMtbScale=3 > 0 (maxOther) → mtb_technical fires.
+	// DisplayValue "bis S2". Bei Layout-Regression: seen-Keys werden geloggt.
 	var found bool
 	var seen []string
 	for _, s := range resp.Suggestions {
@@ -330,6 +330,7 @@ func TestSuggestRoutes_V2_Outdoor_MtbTechnicalAssigned(t *testing.T) {
 			}
 		}
 	}
+	t.Logf("observed descriptor keys: %v", seen)
 	if !found {
 		t.Errorf("mtb_technical 'bis S2' not found; observed keys: %v", seen)
 	}
@@ -375,7 +376,7 @@ func TestSuggestRoutes_V2_Outdoor_SubSegmentsAnnotated(t *testing.T) {
 		}
 		for _, feat := range g.Features {
 			for _, seg := range feat.Properties.Segments {
-				if seg.SacScale == "T4" {
+				if seg.SacScale == "T3" {
 					foundSac = true
 				}
 				if seg.MtbScale == "S2" {
@@ -393,11 +394,15 @@ func TestSuggestRoutes_V2_Outdoor_SubSegmentsAnnotated(t *testing.T) {
 	if !foundMtb {
 		t.Errorf("mtb_scale=S2 segment missing")
 	}
-	// SAC: hiking profile penalises T4 (sacPenalty ≈ 5.5) so the router avoids
-	// SAC-tagged edges when alternatives exist. Hard assert intentionally omitted;
-	// SAC segment coverage is tested in unit tests (TestComputeDescriptors_AlpineHiking).
+	// SAC: fixture encodes sac_scale=3 (T3, mountain_hiking) on (3,4)↔(4,4).
+	// hiking max_sac_scale=3 → encoded=3 is traversable (not costBlocked), fixing
+	// the Opus #3 finding (encoded=4 was costBlocked, making the t.Logf branch
+	// permanently soft for the wrong reason). sacPenalty[3] ≈ 3.1 (1.6^3-1) is
+	// additive but (3,4)↔(4,4) is peripheral to all 3 baseline routes, so the
+	// segment still rarely appears. Hard assert requires Option B (placing SAC on
+	// a traversed edge) — deferred. Unit coverage: TestComputeDescriptors_AlpineHiking.
 	if !foundSac {
-		t.Logf("info: sac_scale=T4 segment not seen (hiking-profile SAC penalty causes avoidance; soft-fail)")
+		t.Logf("info: sac_scale=T3 segment not seen (peripheral edge not traversed; soft-fail — Opus #3 Option B needed for hard assert)")
 	}
 	// TV + VF may only appear on specific node-pair-traversing routes — log as soft fails if not found.
 	if !foundTv {
