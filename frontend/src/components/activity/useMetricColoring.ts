@@ -78,6 +78,8 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
 
   // Ref to read current metric inside the auto-reset effect without stale closure.
   const metricRef = useRef(metric)
+  // Retry budget for applyPaintAndData when the 'track' source isn't yet registered.
+  const retriesRef = useRef(0)
   useEffect(() => { metricRef.current = metric }, [metric])
 
   /**
@@ -256,6 +258,9 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
   // Apply to map
   useEffect(() => {
     if (!map || !hasGps) return
+    // Fresh retry budget for each new trigger (featuresWithInside / colorExpression change).
+    // Without this reset a previously exhausted counter would block legitimate future updates.
+    retriesRef.current = 0
     if (!map.isStyleLoaded()) {
       map.once('load', () => applyPaintAndData())
       return
@@ -266,10 +271,16 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
       if (!map) return
       const src = map.getSource('track') as maplibregl.GeoJSONSource | undefined
       if (!src) {
-        // Source/Layer not yet registered by TrackMap — retry on next idle
+        // Source/Layer not yet registered by TrackMap — retry on next idle, bounded.
+        // Typical: source appears on the first idle after TrackMap's load handler.
+        // If not: activity has no track (hasGps=true but <2 valid GPS points) — give up silently.
+        if (retriesRef.current >= 3) return
+        retriesRef.current += 1
         map.once('idle', applyPaintAndData)
         return
       }
+      // Source available — reset counter so future scale/features updates start fresh.
+      retriesRef.current = 0
       src.setData({ type: 'FeatureCollection', features: featuresWithInside })
       if (map.getLayer('track-line')) {
         map.setPaintProperty('track-line', 'line-color', colorExpression as maplibregl.DataDrivenPropertyValueSpecification<string>)
