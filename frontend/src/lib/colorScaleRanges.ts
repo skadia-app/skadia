@@ -203,6 +203,22 @@ export const ALTITUDE_MIN_SPREAD = 50 // m
 export const HR_FALLBACK_MIN_SPREAD = 30 // bpm
 export const POWER_FALLBACK_MIN_SPREAD = 50 // W
 
+/**
+ * Minimum data coverage (as fraction of total stream points) required for a metric
+ * to be offered in the dropdown AND retained by the hook auto-reset.
+ * Must stay in sync between Dropdown availability and Hook reset logic.
+ */
+export const METRIC_AVAILABILITY_THRESHOLDS = {
+  hr:          0.5,
+  speed:       0.5,
+  altitude:    0.5,
+  cadence:     0.4,
+  power:       0.3,
+  temperature: 0.4,
+} as const
+
+export type ThresholdMetric = keyof typeof METRIC_AVAILABILITY_THRESHOLDS
+
 /** Expand [min, max] to at least minSpread, centered on midpoint. */
 export function expandRange(min: number, max: number, minSpread: number): [number, number] {
   if (max - min >= minSpread) return [min, max]

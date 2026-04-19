@@ -19,7 +19,8 @@ import {
   type ScaleDefinition,
 } from '@/lib/mapColorUtils'
 import { fetchTrainingZones } from '@/api/trainingZones'
-import { MOTION_PROFILE_BY_SPORT_TYPE } from '@/lib/colorScaleRanges'
+import { getHeatmapSettings } from '@/api/settings'
+import { MOTION_PROFILE_BY_SPORT_TYPE, METRIC_AVAILABILITY_THRESHOLDS } from '@/lib/colorScaleRanges'
 import { sportChartColor } from '@/lib/sportColors'
 
 const MAX_MAP_SEGMENTS = 2000
@@ -58,25 +59,39 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
   const [metric, setMetric] = useState<Metric>('sport')
   const [modeByMetric, setModeByMetric] = useState<Partial<Record<Metric, Mode>>>({})
 
+  // Ref to read current metric inside the auto-reset effect without stale closure.
+  const metricRef = useRef(metric)
+  useEffect(() => { metricRef.current = metric }, [metric])
+
   /**
    * Auto-reset metric to 'sport' when:
    *   - activity changes (different streams, different availabilities)
-   *   - current metric's data is not available in the new streams (≥ 10 % threshold below)
+   *   - current metric's data is not available in the new streams (per-metric threshold)
    * Prevents sticky metric across activities with different sensor coverage.
    */
   useEffect(() => {
-    if (metric === 'sport') return
+    const current = metricRef.current
+    if (current === 'sport') return
     const fieldForMetric: Partial<Record<Metric, keyof StreamPoint>> = {
       hr: 'heart_rate', speed: 'speed_ms', pace: 'speed_ms',
       altitude: 'altitude_m', cadence: 'cadence',
       power: 'power_w', temperature: 'temperature_c',
     }
-    const field = fieldForMetric[metric]
+    const thresholdForMetric: Partial<Record<Metric, number>> = {
+      hr:          METRIC_AVAILABILITY_THRESHOLDS.hr,
+      speed:       METRIC_AVAILABILITY_THRESHOLDS.speed,
+      pace:        METRIC_AVAILABILITY_THRESHOLDS.speed, // pace = speed coverage
+      altitude:    METRIC_AVAILABILITY_THRESHOLDS.altitude,
+      cadence:     METRIC_AVAILABILITY_THRESHOLDS.cadence,
+      power:       METRIC_AVAILABILITY_THRESHOLDS.power,
+      temperature: METRIC_AVAILABILITY_THRESHOLDS.temperature,
+    }
+    const field = fieldForMetric[current]
+    const threshold = thresholdForMetric[current] ?? 0.3
     if (!field) return
     const defined = streams.reduce((n, s) => s[field] != null ? n + 1 : n, 0)
     const pct = streams.length > 0 ? defined / streams.length : 0
-    // Threshold = 0.3 (most lenient — Power's threshold). Simpler than per-metric thresholds here.
-    if (pct < 0.3) setMetric('sport')
+    if (pct < threshold) setMetric('sport')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streams, activity.sport_type, activity.fit_sport_id])
 
@@ -91,6 +106,16 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
     queryFn: fetchTrainingZones,
     staleTime: 1000 * 60 * 10,
   })
+
+  const { data: heatmapSettings } = useQuery({
+    queryKey: ['heatmap-settings'],
+    queryFn: getHeatmapSettings,
+    staleTime: 60_000,
+  })
+
+  const teleportThresholdM = heatmapSettings?.teleport_filter_activity
+    ? (heatmapSettings.teleport_threshold_m ?? 2000)
+    : 0
 
   // IMPORTANT: depend on scalar activity fields, not the activity object itself.
   // TrackMap builds { sport_type, fit_sport_id } as a fresh object on every render.
@@ -197,8 +222,8 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
 
   const features = useMemo(() => {
     if (!scale) return []
-    return buildSegmentFeatures(downsampled, metric, scale)
-  }, [downsampled, metric, scale])
+    return buildSegmentFeatures(downsampled, metric, scale, teleportThresholdM)
+  }, [downsampled, metric, scale, teleportThresholdM])
 
   const featuresWithInside = useMemo(() =>
     applyInsideFlag(features, zoomRange),
@@ -218,7 +243,12 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
     function applyPaintAndData() {
       if (!map) return
       const src = map.getSource('track') as maplibregl.GeoJSONSource | undefined
-      src?.setData({ type: 'FeatureCollection', features: featuresWithInside })
+      if (!src) {
+        // Source/Layer not yet registered by TrackMap — retry on next idle
+        map.once('idle', applyPaintAndData)
+        return
+      }
+      src.setData({ type: 'FeatureCollection', features: featuresWithInside })
       if (map.getLayer('track-line')) {
         map.setPaintProperty('track-line', 'line-color', colorExpression as maplibregl.DataDrivenPropertyValueSpecification<string>)
         map.setPaintProperty('track-line', 'line-opacity', LINE_OPACITY_EXPRESSION as unknown as maplibregl.DataDrivenPropertyValueSpecification<number>)
@@ -226,21 +256,34 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
     }
   }, [map, hasGps, featuresWithInside, colorExpression])
 
-  // Heading arrows visibility toggle
+  // Heading arrows visibility toggle — also handles late layer registration
   useEffect(() => {
-    if (!map || !map.isStyleLoaded()) return
-    if (map.getLayer('heading-arrows')) {
-      map.setLayoutProperty('heading-arrows', 'visibility', metric === 'sport' ? 'visible' : 'none')
+    if (!map) return
+    const apply = () => {
+      if (map.getLayer('heading-arrows')) {
+        map.setLayoutProperty('heading-arrows', 'visibility', metric === 'sport' ? 'visible' : 'none')
+      }
     }
+    if (map.isStyleLoaded()) {
+      apply()
+    } else {
+      map.once('load', apply)
+    }
+    // Also re-apply if layer is added late
+    map.once('idle', apply)
   }, [map, metric])
 
   // programmaticFit helper — increments counter before fitBounds
   const programmaticFit = useCallback((bounds: maplibregl.LngLatBounds) => {
     if (!map) return
     programmaticFitCountRef.current += 1
-    map.once('moveend', () => {
+    const decrement = () => {
       programmaticFitCountRef.current = Math.max(0, programmaticFitCountRef.current - 1)
-    })
+    }
+    map.once('moveend', decrement)
+    // Fallback in case fitBounds emits no moveend (duration=0 or bounds match):
+    const fallback = window.setTimeout(decrement, 900) // duration 600 + 300 margin
+    map.once('moveend', () => window.clearTimeout(fallback))
     map.fitBounds(bounds, { padding: 50, maxZoom: 18, duration: 600 })
   }, [map])
 

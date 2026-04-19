@@ -3,17 +3,8 @@ import { useMemo, useRef, useState, useEffect } from 'react'
 import type { StreamPoint } from '@/api/types'
 import type { Metric, Mode } from '@/lib/mapColorUtils'
 import { METRIC_LABELS, MODE_LABELS } from '@/lib/colorMetricLabels'
-import { MOTION_PROFILE_BY_SPORT_TYPE } from '@/lib/colorScaleRanges'
+import { MOTION_PROFILE_BY_SPORT_TYPE, METRIC_AVAILABILITY_THRESHOLDS } from '@/lib/colorScaleRanges'
 import { useClickOutside } from '@/hooks/useClickOutside'
-
-const AVAILABILITY_THRESHOLDS: Record<Exclude<Metric, 'sport' | 'pace'>, number> = {
-  hr:          0.5,
-  speed:       0.5,
-  altitude:    0.5,
-  cadence:     0.4,
-  power:       0.3,
-  temperature: 0.4,
-}
 
 function pctNonNull(streams: StreamPoint[], field: keyof StreamPoint): number {
   if (streams.length === 0) return 0
@@ -64,22 +55,22 @@ export default function MapColorDropdown({ streams, sportType, metric, onChange,
     const opts: Array<{ key: Metric; label: string }> = [
       { key: 'sport', label: METRIC_LABELS.sport },
     ]
-    if (pctNonNull(streams, 'heart_rate') >= AVAILABILITY_THRESHOLDS.hr) {
+    if (pctNonNull(streams, 'heart_rate') >= METRIC_AVAILABILITY_THRESHOLDS.hr) {
       opts.push({ key: 'hr', label: METRIC_LABELS.hr })
     }
-    if (pctNonNull(streams, 'speed_ms') >= AVAILABILITY_THRESHOLDS.speed) {
+    if (pctNonNull(streams, 'speed_ms') >= METRIC_AVAILABILITY_THRESHOLDS.speed) {
       opts.push({ key: speedMetric, label: speedLabel })
     }
-    if (pctNonNull(streams, 'altitude_m') >= AVAILABILITY_THRESHOLDS.altitude) {
+    if (pctNonNull(streams, 'altitude_m') >= METRIC_AVAILABILITY_THRESHOLDS.altitude) {
       opts.push({ key: 'altitude', label: METRIC_LABELS.altitude })
     }
-    if (pctNonNull(streams, 'cadence') >= AVAILABILITY_THRESHOLDS.cadence) {
+    if (pctNonNull(streams, 'cadence') >= METRIC_AVAILABILITY_THRESHOLDS.cadence) {
       opts.push({ key: 'cadence', label: cadenceLabel })
     }
-    if (pctNonNull(streams, 'power_w') >= AVAILABILITY_THRESHOLDS.power) {
+    if (pctNonNull(streams, 'power_w') >= METRIC_AVAILABILITY_THRESHOLDS.power) {
       opts.push({ key: 'power', label: METRIC_LABELS.power })
     }
-    if (pctNonNull(streams, 'temperature_c') >= AVAILABILITY_THRESHOLDS.temperature) {
+    if (pctNonNull(streams, 'temperature_c') >= METRIC_AVAILABILITY_THRESHOLDS.temperature) {
       opts.push({ key: 'temperature', label: METRIC_LABELS.temperature })
     }
     return opts

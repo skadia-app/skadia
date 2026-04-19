@@ -84,7 +84,7 @@ export function resolveScale(
     }
 
     case 'altitude': {
-      const values = fullStreams.map(s => s.altitude_m).filter((v): v is number => v != null)
+      const values = fullStreams.map(s => s.altitude_m).filter((v): v is number => v != null && !Number.isNaN(v))
       if (values.length === 0) return fallbackLinear(metric, 'm', 0, 100, VIRIDIS_9)
       const [min, max] = expandRange(Math.min(...values), Math.max(...values), ALTITUDE_MIN_SPREAD)
       return {
@@ -135,7 +135,7 @@ export function resolveScale(
       if (mode === 'zones' && sportZones?.zones.hr) {
         return zonesScale(metric, 'bpm', sportZones.zones.hr.zone_highs)
       }
-      const values = fullStreams.map(s => s.heart_rate).filter((v): v is number => v != null)
+      const values = fullStreams.map(s => s.heart_rate).filter((v): v is number => v != null && !Number.isNaN(v))
       if (values.length === 0) return fallbackLinear(metric, 'bpm', 100, 180, VIRIDIS_9)
       const [min, max] = expandRange(Math.min(...values), Math.max(...values), HR_FALLBACK_MIN_SPREAD)
       return {
@@ -149,7 +149,7 @@ export function resolveScale(
       if (mode === 'zones' && sportZones?.zones.power) {
         return zonesScale(metric, 'W', sportZones.zones.power.zone_highs)
       }
-      const values = fullStreams.map(s => s.power_w).filter((v): v is number => v != null)
+      const values = fullStreams.map(s => s.power_w).filter((v): v is number => v != null && !Number.isNaN(v))
       if (values.length === 0) return fallbackLinear(metric, 'W', 0, 400, VIRIDIS_9)
       const [min, max] = expandRange(Math.min(...values), Math.max(...values), POWER_FALLBACK_MIN_SPREAD)
       return {
@@ -380,16 +380,34 @@ function readMetricValueForAggregation(s: StreamPoint, metric: Metric): number |
 
 // ─── Segment feature building ─────────────────────────────────────────────────
 
+function haversineMeters(a: [number, number], b: [number, number]): number {
+  const R = 6371e3
+  const [lng1, lat1] = a, [lng2, lat2] = b
+  const φ1 = lat1 * Math.PI / 180
+  const φ2 = lat2 * Math.PI / 180
+  const Δφ = (lat2 - lat1) * Math.PI / 180
+  const Δλ = (lng2 - lng1) * Math.PI / 180
+  const h = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(h))
+}
+
 export function buildSegmentFeatures(
   ds: DownsampleResult,
   metric: Metric,
   scale: ScaleDefinition,
+  gapThresholdM?: number,
 ): GeoJSON.Feature[] {
   const features: GeoJSON.Feature[] = []
   for (let i = 0; i < ds.points.length - 1; i++) {
     const a = ds.points[i]
     const b = ds.points[i + 1]
     if (a.lat == null || a.lng == null || b.lat == null || b.lng == null) continue
+
+    // Skip GPS-teleport gaps
+    if (gapThresholdM != null && gapThresholdM > 0) {
+      const distM = haversineMeters([a.lng, a.lat], [b.lng, b.lat])
+      if (distM > gapThresholdM) continue
+    }
 
     const segStartIdx = ds.streamIndices[i]
     const segEndIdx   = ds.streamIndices[i] + ds.strides[i] - 1

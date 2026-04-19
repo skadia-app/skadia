@@ -184,6 +184,29 @@ describe('buildSegmentFeatures', () => {
     const features = buildSegmentFeatures(ds, 'hr', scale)
     expect(features[0].properties?.has_value).toBe(false)
   })
+
+  it('skips segments exceeding gapThresholdM (GPS teleport filter)', () => {
+    const gapStreams: StreamPoint[] = [
+      { time: 't0', heart_rate: 120, lat: 47.0, lng: 11.0 },
+      { time: 't1', heart_rate: 140, lat: 48.0, lng: 12.0 }, // >100km jump
+      { time: 't2', heart_rate: 160, lat: 48.0, lng: 12.001 },
+    ]
+    const ds = { points: gapStreams, streamIndices: [0, 1, 2], strides: [1, 1], aggregated: [120, 140] }
+    const features = buildSegmentFeatures(ds, 'hr', scale, 2000) // 2 km threshold
+    // Segment 0→1 spans >100km → skipped; segment 1→2 spans ~80m → kept
+    expect(features).toHaveLength(1)
+    expect(features[0].properties?.value).toBe(140)
+  })
+
+  it('keeps all segments when gapThresholdM is undefined', () => {
+    const features = buildSegmentFeatures(downsampled, 'hr', scale)
+    expect(features).toHaveLength(2)
+  })
+
+  it('keeps all segments when gapThresholdM is 0 (disabled)', () => {
+    const features = buildSegmentFeatures(downsampled, 'hr', scale, 0)
+    expect(features).toHaveLength(2)
+  })
 })
 
 describe('applyInsideFlag', () => {
