@@ -130,13 +130,27 @@ export function useRoutePlanner() {
     fetchProfileDefaults('hiking')
       .then(resp => {
         cacheServerDefaults('hiking', resp)
+        let didPopulate = false
         setState(s => {
           // Race-guard: another flow (e.g. loadRoute for deeplink) may have
           // populated profileConfig between this useEffect firing and the
           // fetch resolving. Don't overwrite.
           if (s.profileConfig !== null) return s
-          return { ...s, profileConfig: getProfileDefaults('hiking') }
+          const fresh = getProfileDefaults('hiking')
+          if (!fresh) return s
+          didPopulate = true
+          return { ...s, profileConfig: fresh }
         })
+        // Finding #10: if waypoints were added before profileConfig was ready,
+        // they have no segments yet — recalculate now that we have a profile.
+        // Use a microtask so setState above has committed before we read state.
+        if (didPopulate) {
+          void Promise.resolve().then(() => {
+            // recalculateAll reads state via its own setState-updater, so it
+            // always sees the freshly committed profileConfig.
+            recalculateAll()
+          })
+        }
       })
       .catch(() => {
         addToast({
@@ -531,10 +545,14 @@ export function useRoutePlanner() {
       fetchProfileDefaults(route.profile)
         .then(resp => {
           cacheServerDefaults(route.profile, resp)
-          const fresh = getProfileDefaults(route.profile)
-          if (fresh) {
-            setState(s => ({ ...s, profileConfig: fresh }))
-          }
+          setState(s => {
+            // Race-guard: another loadRoute may have been called while this
+            // fetch was in-flight. Only apply if we're still editing THIS route.
+            if (s.editingRouteId !== route.id) return s
+            const fresh = getProfileDefaults(route.profile)
+            if (!fresh) return s
+            return { ...s, profileConfig: fresh }
+          })
         })
         .catch(() => {
           addToast({
