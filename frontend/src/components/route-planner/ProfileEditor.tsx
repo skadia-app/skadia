@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  PROFILES,
   FIELD_METADATA,
   SECTION_LABELS,
   getProfileDefaults,
@@ -8,6 +7,7 @@ import {
   type ProfileConfig,
   type FieldSection,
 } from '@/lib/routingProfiles'
+import { PROFILE_ORDER, PROFILE_LABELS } from '@/lib/profileLabels'
 import {
   getProfileDefaults as fetchProfileDefaults,
   type ProfileDefaultsResponse,
@@ -388,7 +388,7 @@ export interface ProfileEditorProps {
 
 export default function ProfileEditor({ config, onChange }: ProfileEditorProps) {
   const currentProfile = config.profile ?? 'hiking'
-  // getProfileDefaults now prefers cached server defaults over TS PROFILES
+  // getProfileDefaults returns null when server cache is not yet populated
   const defaults = getProfileDefaults(currentProfile)
 
   // Inline editing state
@@ -440,7 +440,7 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
   }
 
   function resetSection(section: FieldSection) {
-    // defaults already prefers server cache → single source of truth
+    if (!defaults) return
     const sectionFields = FIELD_METADATA.filter(f => f.section === section)
     const patch: Partial<ProfileConfig> = {}
     for (const f of sectionFields) {
@@ -466,8 +466,9 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
     // Mark this as the most recent switch target (stale-fetch guard)
     switchTargetRef.current = profileName
 
-    // Immediate: apply best-known defaults (server cache if available, else TS fallback)
-    onChange(getProfileDefaults(profileName))
+    // Immediate: apply cached server defaults if available
+    const cached = getProfileDefaults(profileName)
+    if (cached) onChange(cached)
 
     // Async: fetch authoritative server defaults and update if they differ
     fetchProfileDefaults(profileName)
@@ -477,11 +478,12 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
 
         // Only apply if user hasn't switched to a different profile in the meantime
         if (switchTargetRef.current === profileName) {
-          onChange(getProfileDefaults(profileName))
+          const fresh = getProfileDefaults(profileName)
+          if (fresh) onChange(fresh)
         }
       })
       .catch(() => {
-        // Server unreachable — keep the TS defaults already applied
+        // Server unreachable — keep whatever was applied above
         setServerDefaults(null)
       })
   }
@@ -510,20 +512,23 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
           Profil
         </div>
         <div className="flex gap-1 flex-wrap">
-          {PROFILES.map(p => (
-            <button
-              key={p.name}
-              onClick={() => handleProfileSwitch(p.name)}
-              title={p.description}
-              className={`px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-                currentProfile === p.name
-                  ? 'bg-[var(--color-accent-DEFAULT,#F97316)] text-white'
-                  : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+          {PROFILE_ORDER.map(name => {
+            const { label, description } = PROFILE_LABELS[name]
+            return (
+              <button
+                key={name}
+                onClick={() => handleProfileSwitch(name)}
+                title={description}
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+                  currentProfile === name
+                    ? 'bg-[var(--color-accent-DEFAULT,#F97316)] text-white'
+                    : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                }`}
+              >
+                {label}
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -543,7 +548,7 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
               const rawValue = config[field.key]
 
               if (field.type === 'boolean') {
-                const boolVal = rawValue !== undefined ? Boolean(rawValue) : (defaults[field.key] as boolean | undefined) ?? false
+                const boolVal = rawValue !== undefined ? Boolean(rawValue) : (defaults?.[field.key] as boolean | undefined) ?? false
                 return (
                   <SwitchField
                     key={field.key}
@@ -558,7 +563,7 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
               const numVal =
                 rawValue !== undefined
                   ? Number(rawValue)
-                  : Number(defaults[field.key] ?? field.min ?? 0)
+                  : Number(defaults?.[field.key] ?? field.min ?? 0)
 
               if (field.type === 'int') {
                 return (

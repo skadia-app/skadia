@@ -17,9 +17,11 @@ import {
   computeRoute,
   getElevationProfile,
   type ElevationPoint,
+  getProfileDefaults as fetchProfileDefaults,
 } from '@/api/routes'
 import type { ProfileConfig } from '@/lib/routingProfiles'
-import { getProfileDefaults } from '@/lib/routingProfiles'
+import { getProfileDefaults, cacheServerDefaults } from '@/lib/routingProfiles'
+import { useToast } from '@/lib/toast'
 import { catmullRom, polylineDistanceM } from '@/lib/catmull-rom'
 
 // ─── Exported types ──────────────────────────────────────────────────────────
@@ -34,7 +36,7 @@ type RoutingEngine = 'badrouter' | 'brouter'
 interface RoutePlannerState {
   waypoints: RouteWaypoint[]
   segments: RouteSegment[]
-  profileConfig: ProfileConfig
+  profileConfig: ProfileConfig | null
   sportType: string
   isCalculating: boolean
   calculationError: string | null
@@ -46,7 +48,7 @@ interface RoutePlannerState {
 const INITIAL_STATE: RoutePlannerState = {
   waypoints: [],
   segments: [],
-  profileConfig: getProfileDefaults('hiking'),
+  profileConfig: null,
   sportType: 'hiking',
   isCalculating: false,
   calculationError: null,
@@ -119,6 +121,27 @@ function rebuildOffroadGeometry(seg: RouteSegment): RouteSegment {
 export function useRoutePlanner() {
   const [state, setState] = useState<RoutePlannerState>(INITIAL_STATE)
   const queryClient = useQueryClient()
+  const { addToast } = useToast()
+
+  // ── Mount-fetch: hydrate hiking defaults from server ─────────────────────────
+
+  useEffect(() => {
+    if (state.profileConfig !== null) return
+    fetchProfileDefaults('hiking')
+      .then(resp => {
+        cacheServerDefaults('hiking', resp)
+        setState(s => ({ ...s, profileConfig: getProfileDefaults('hiking') }))
+      })
+      .catch(() => {
+        addToast({
+          type: 'error',
+          title: 'Profil-Defaults konnten nicht geladen werden',
+          message: 'Bitte Seite neu laden.',
+          duration: 0,
+        })
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── Capabilities ────────────────────────────────────────────────────────────
 
@@ -316,6 +339,7 @@ export function useRoutePlanner() {
 
   const calculateSegment = useCallback(
     (from: RouteWaypoint, to: RouteWaypoint) => {
+      if (!state.profileConfig) return Promise.resolve()
       return _calculateSegment(from, to, state.profileConfig, state.routingEngine, state.brouterProfile)
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -324,7 +348,7 @@ export function useRoutePlanner() {
 
   const recalculateAll = useCallback(async () => {
     let currentWaypoints: RouteWaypoint[] = []
-    let currentProfileConfig: ProfileConfig = getProfileDefaults('hiking')
+    let currentProfileConfig: ProfileConfig | null = null
     let currentEngine: RoutingEngine = 'badrouter'
     let currentBrouterProfile = 'hiking-mountain'
     setState(s => {
@@ -334,6 +358,10 @@ export function useRoutePlanner() {
       currentBrouterProfile = s.brouterProfile
       return { ...s, segments: [], isCalculating: true, calculationError: null }
     })
+    if (!currentProfileConfig) {
+      setState(s => ({ ...s, isCalculating: false }))
+      return
+    }
     for (let i = 0; i < currentWaypoints.length - 1; i++) {
       await _calculateSegment(currentWaypoints[i], currentWaypoints[i + 1], currentProfileConfig, currentEngine, currentBrouterProfile)
     }
@@ -466,18 +494,48 @@ export function useRoutePlanner() {
   // ── Load route into planner ─────────────────────────────────────────────────
 
   const loadRoute = useCallback((route: PlannedRoute) => {
-    // route.profile is a string (BRouter legacy) — derive ProfileConfig from it
-    const profileConfig = getProfileDefaults(route.profile)
-    setState(s => ({
-      ...s,
-      waypoints: route.waypoints,
-      segments: route.segments,
-      profileConfig,
-      sportType: route.sport_type,
-      isCalculating: false,
-      calculationError: null,
-      editingRouteId: route.id,
-    }))
+    // route.profile is a string — try cache first, then fetch async
+    const cached = getProfileDefaults(route.profile)
+    if (cached) {
+      setState(s => ({
+        ...s,
+        waypoints: route.waypoints,
+        segments: route.segments,
+        profileConfig: cached,
+        sportType: route.sport_type,
+        isCalculating: false,
+        calculationError: null,
+        editingRouteId: route.id,
+      }))
+    } else {
+      // Load waypoints/segments immediately, fetch profile in background
+      setState(s => ({
+        ...s,
+        waypoints: route.waypoints,
+        segments: route.segments,
+        sportType: route.sport_type,
+        isCalculating: false,
+        calculationError: null,
+        editingRouteId: route.id,
+      }))
+      fetchProfileDefaults(route.profile)
+        .then(resp => {
+          cacheServerDefaults(route.profile, resp)
+          const fresh = getProfileDefaults(route.profile)
+          if (fresh) {
+            setState(s => ({ ...s, profileConfig: fresh }))
+          }
+        })
+        .catch(() => {
+          addToast({
+            type: 'error',
+            title: 'Profil-Defaults konnten nicht geladen werden',
+            message: `Profil "${route.profile}" konnte nicht geladen werden.`,
+            duration: 0,
+          })
+        })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Load waypoints into the planner without creating/linking a saved route.
@@ -513,7 +571,7 @@ export function useRoutePlanner() {
   const setRoutingEngine = useCallback(async (engine: RoutingEngine) => {
     let currentWaypoints: RouteWaypoint[] = []
     let currentBrouterProfile = 'hiking-mountain'
-    let currentProfileConfig: ProfileConfig = getProfileDefaults('hiking')
+    let currentProfileConfig: ProfileConfig | null = null
     setState(s => {
       if (s.routingEngine === engine) return s
       currentWaypoints = s.waypoints
@@ -521,6 +579,10 @@ export function useRoutePlanner() {
       currentProfileConfig = s.profileConfig
       return { ...s, routingEngine: engine, segments: [], isCalculating: true, calculationError: null }
     })
+    if (!currentProfileConfig) {
+      setState(s => ({ ...s, isCalculating: false }))
+      return
+    }
     // Pass the new engine value explicitly — do NOT read from state here,
     // as React batches setState updates and s.routingEngine would still be stale.
     for (let i = 0; i < currentWaypoints.length - 1; i++) {
@@ -537,6 +599,15 @@ export function useRoutePlanner() {
 
   const saveRouteMutation = useMutation({
     mutationFn: (overrides: Partial<PlannedRoute>) => {
+      if (!state.profileConfig) {
+        addToast({
+          type: 'error',
+          title: 'Route kann noch nicht gespeichert werden',
+          message: 'Profil-Defaults sind noch nicht geladen.',
+          duration: 0,
+        })
+        return Promise.reject(new Error('profileConfig not loaded'))
+      }
       const payload: Partial<PlannedRoute> = {
         waypoints: state.waypoints,
         segments: state.segments,
@@ -657,7 +728,7 @@ export function useRoutePlanner() {
     waypoints: state.waypoints,
     segments: state.segments,
     profileConfig: state.profileConfig,
-    profile: state.profileConfig.profile,   // convenience string alias
+    profile: state.profileConfig?.profile ?? 'hiking',   // convenience string alias
     sportType: state.sportType,
     isCalculating: state.isCalculating,
     calculationError: state.calculationError,
