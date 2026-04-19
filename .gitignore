@@ -38,6 +38,9 @@ services/api/restore
 services/api/cmd/*/main
 *.exe
 
+# Go test binaries (from `go test -c` / `-coverprofile`-Runs)
+*.test
+
 # IDE
 .idea/
 .vscode/
