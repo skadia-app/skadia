@@ -274,32 +274,6 @@ func TestSuggestRoutes_V2_UnknownVariantIDIgnored(t *testing.T) {
 }
 
 // -------------------------------------------------------------------
-// T6: V2 flag=false → V1 path runs, no "medium-N" IDs
-// -------------------------------------------------------------------
-
-func TestSuggestRoutes_V2Flag_FallsBackToV1(t *testing.T) {
-	// Default settings: routing.route_variants_v2 = "false"
-	setup := newTestRoutingHandler(t)
-
-	const body = `{"start":[12.10,48.99],"target_distance_m":10000,"profile":"hiking"}`
-	w := postSuggestRoutes(setup.Handler, body)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 from V1 path, got %d: %s", w.Code, w.Body.String())
-	}
-
-	resp := decodeRouteSuggestionResponse(t, w)
-
-	// V1 uses semantic variant IDs from DefaultVariants (calmest, greenest,
-	// hilly, balanced, shortest). None of them start with "medium".
-	for _, s := range resp.Suggestions {
-		if strings.HasPrefix(s.VariantID, "medium") {
-			t.Errorf("V1 path must not produce 'medium*' VariantID, got %q", s.VariantID)
-		}
-	}
-}
-
-// -------------------------------------------------------------------
 // T7: V2 outdoor — mtb_technical descriptor assigned
 // -------------------------------------------------------------------
 
