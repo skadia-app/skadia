@@ -67,9 +67,12 @@ func TestBuildCandidatePool_SingleNode(t *testing.T) {
 	}
 }
 
-// TestBuildCandidatePool_Deterministic: identical inputs produce identical
-// outputs across two independent calls.
-func TestBuildCandidatePool_Deterministic(t *testing.T) {
+// TestBuildCandidatePool_StableOrdering: minimal 4-node smoke-test verifying
+// that identical inputs produce identical outputs across two independent calls.
+// Unlike TestBuildCandidatePool_Determinism (8 nodes, exercises the full
+// max-angular-spread selection path), this test focuses on a simple
+// cardinal-direction fixture to catch obvious ordering regressions quickly.
+func TestBuildCandidatePool_StableOrdering(t *testing.T) {
 	// Four nodes spread in cardinal directions around startLat/startLon.
 	nodes := []ReachableNode{
 		makeNode(1, 49.04, 12.10, 4900), // north

@@ -307,7 +307,10 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	// Hard limit to prevent O(n²) in BuildCandidatePool with huge pools.
 	const maxVariantPool = 10000
 	if len(filtered) > maxVariantPool {
+		originalSize := len(filtered)
 		filtered = filtered[:maxVariantPool]
+		routingMetricCandidatePoolTruncated.Inc()
+		slog.Warn("candidate pool truncated", "limit", maxVariantPool, "original_size", originalSize)
 	}
 
 	opts := DefaultRoundTripOptions()
