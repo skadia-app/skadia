@@ -3431,3 +3431,78 @@ func TestFusionMerge_ElevationPerformance11kSamples(t *testing.T) {
 		t.Errorf("computeElevationFromStreams with 11k samples took %v, want < 2000ms", elapsed)
 	}
 }
+
+// TestFusionMerge_RecomputesSegmentEffortsAfterFusion covers the
+// postCommitFusionCleanup call to RecomputeEffortsForActivity.
+//
+// Two sub-cases:
+//  1. Zero-overlap: activity has a bbox but no segment track intersects it.
+//     RecomputeEffortsForActivity must return nil (no crash, no error).
+//  2. Overlap: a segment_versions track is inserted inside the bbox.
+//     RecomputeEffortsForActivity must return nil — the segment matching
+//     loop runs without error (even if no effort is produced, because the
+//     activity has no GPS stream for geometric matching).
+func TestFusionMerge_RecomputesSegmentEffortsAfterFusion(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+	h := &Handler{DB: db}
+	userID := insertTestUser(t, pool)
+
+	// Insert a minimal activity.
+	actID := insertMinimalActivity(t, db, userID)
+
+	// Insert an activity_tracks row with a small bbox in Vienna (approx).
+	// bbox is a Polygon(4326) covering roughly 48.20–48.21 N, 16.36–16.37 E.
+	_, err := pool.Exec(ctx, `
+		INSERT INTO activity_tracks (activity_id, bbox)
+		VALUES ($1, ST_MakeEnvelope(16.36, 48.20, 16.37, 48.21, 4326))
+	`, actID)
+	if err != nil {
+		t.Fatalf("insert activity_tracks: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), "DELETE FROM activity_tracks WHERE activity_id = $1", actID) //nolint:errcheck
+	})
+
+	t.Run("zero_overlap", func(t *testing.T) {
+		// No segment_versions exist that intersect the bbox.
+		// RecomputeEffortsForActivity must complete without error.
+		if err := h.RecomputeEffortsForActivity(ctx, actID, userID); err != nil {
+			t.Fatalf("RecomputeEffortsForActivity (zero overlap): %v", err)
+		}
+	})
+
+	t.Run("overlap_no_crash", func(t *testing.T) {
+		// Insert a segment + segment_version whose track lies inside the bbox.
+		segID := uuid.New().String()
+		_, err := pool.Exec(ctx, `
+			INSERT INTO segments (id, created_by, name, sport_group, segment_type)
+			VALUES ($1, $2, 'test-seg-fusion', 'cycling', 'standard')
+		`, segID, userID)
+		if err != nil {
+			t.Fatalf("insert segment: %v", err)
+		}
+		t.Cleanup(func() {
+			pool.Exec(context.Background(), "DELETE FROM segments WHERE id = $1", segID) //nolint:errcheck
+		})
+
+		// segment_version with a short LineString inside the Vienna bbox.
+		_, err = pool.Exec(ctx, `
+			INSERT INTO segment_versions (segment_id, version_number, track, valid_from)
+			VALUES ($1, 1,
+				ST_GeomFromText('LINESTRING(16.361 48.201, 16.362 48.202, 16.363 48.203)', 4326),
+				'2000-01-01')
+		`, segID)
+		if err != nil {
+			t.Fatalf("insert segment_version: %v", err)
+		}
+
+		// RecomputeEffortsForActivity must return nil even though the activity
+		// has no GPS stream (MatchActivitySegments will find no GPS points and
+		// exit early — no effort inserted, no error).
+		if err := h.RecomputeEffortsForActivity(ctx, actID, userID); err != nil {
+			t.Fatalf("RecomputeEffortsForActivity (overlap): %v", err)
+		}
+	})
+}
