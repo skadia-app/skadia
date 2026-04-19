@@ -19,37 +19,8 @@ export interface FusionCandidate {
   original_file_format?: string | null
 }
 
-export interface GPSFusionConfig {
-  primary_source: string
-  extend_track: boolean
-}
-
-export interface FusionMergeRequest {
-  sources: string[]
-  field_map: Record<string, string>  // field → source UUID or "fuse"
-  gps_fusion_config?: GPSFusionConfig
-  title_source?: string
-  tags_merge: boolean
-  tags_source?: string  // if set and !tags_merge: take tags from this source only
-  gear_source?: string
-}
-
 export async function fetchFusionCandidates(activityId: string): Promise<FusionCandidate[]> {
   return apiClient<FusionCandidate[]>(`/activities/${activityId}/fusion-candidates`)
-}
-
-export interface FusionMergeResponse {
-  id: string  // ID der neuen merged Aktivität
-}
-
-export async function executeFusionMerge(
-  targetId: string,
-  req: FusionMergeRequest,
-): Promise<FusionMergeResponse> {
-  return apiClient<FusionMergeResponse>(`/activities/${targetId}/fusion-merge`, {
-    method: 'POST',
-    body: req,
-  })
 }
 
 export async function revertFusion(activityId: string): Promise<void> {
