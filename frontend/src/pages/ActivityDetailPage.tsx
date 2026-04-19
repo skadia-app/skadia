@@ -770,6 +770,8 @@ export default function ActivityDetailPage() {
             streams={streams ?? []}
             hoverIndex={hoverIndex}
             sportColor={sportColor(activity.sport_type)}
+            sportType={activity.sport_type}
+            fitSportId={activity.fit_sport_id}
             hasGps={activity.has_gps}
             zoomRange={zoomRange}
             onMaximize={() => setMapFullscreen(true)}
