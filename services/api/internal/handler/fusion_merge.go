@@ -35,6 +35,15 @@ import (
 // case, which protects against concurrent merges of the same [A, B] set.
 var ErrAlreadyFused = errors.New("one or more sources already belong to a fusion")
 
+// fusionMergeResponse is the JSON body returned by FusionMerge on success.
+// Warnings carries non-fatal issues (gear copy failed, title-source nil, etc.)
+// that the frontend should surface to the user via toast. The field is omitted
+// when empty so clients that only read "id" continue to work unchanged.
+type fusionMergeResponse struct {
+	ID       string   `json:"id"`
+	Warnings []string `json:"warnings,omitempty"`
+}
+
 // validStreamFields mappt logische Feld-Namen auf activity_streams-Spaltennamen.
 var validStreamFields = map[string]string{
 	// Kern
@@ -146,9 +155,12 @@ type fusionFinalizeParams struct {
 // RebuildActivityTrack + RebuildHeatmapData + InvalidateTerraIncognitaCache (pre-commit rebuilds),
 // and audit log insert.
 // Must be called before tx.Commit. Does not commit.
-// Returns an error if any fatal step fails (e.g. related-tables union-copy). The caller
-// must roll back the transaction on non-nil return.
-func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, p fusionFinalizeParams) error {
+// Returns (warnings, nil) on success; warnings is non-nil when non-fatal steps failed.
+// Returns (nil, err) if any fatal step fails (e.g. related-tables union-copy). The caller
+// must roll back the transaction on non-nil error return.
+func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, p fusionFinalizeParams) ([]string, error) {
+	var warnings []string
+
 	// Step 4: Title from designated source.
 	// "Source not found in activities map" is fatal — titleSource must be one of
 	// the merge sources (bug in caller if missing). "Source found but title is nil"
@@ -156,16 +168,17 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 	// without a title; we warn and leave the title from the metadata source.
 	if p.titleSource != nil {
 		if src, ok := p.activities[*p.titleSource]; !ok {
-			return fmt.Errorf("title-source %s not found in activities map", *p.titleSource)
+			return nil, fmt.Errorf("title-source %s not found in activities map", *p.titleSource)
 		} else if src.Title == nil {
 			slog.Warn("fusion-merge: title-source has no title, merged activity retains metadata-source title",
 				"title_source", *p.titleSource)
+			warnings = append(warnings, "title-source has no title — merged activity retains its default title")
 		} else {
 			if _, err := tx.Exec(ctx,
 				`UPDATE activities SET title = $2, has_edits = true WHERE id = $1`,
 				p.merged.ID, *src.Title,
 			); err != nil {
-				return fmt.Errorf("title-source copy failed: %w", err)
+				return nil, fmt.Errorf("title-source copy failed: %w", err)
 			}
 		}
 	}
@@ -175,7 +188,9 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 	if p.gearSource != nil {
 		if src, ok := p.activities[*p.gearSource]; ok {
 			if src.GearID != nil {
-				h.copyGearIfPresent(ctx, tx, p.merged.ID, src.ID, src.GearID)
+				if w := h.copyGearIfPresent(ctx, tx, p.merged.ID, src.ID, src.GearID); w != "" {
+					warnings = append(warnings, w)
+				}
 			} else {
 				slog.Info("fusion-merge: gearSource has no gear_id set, merged activity retains metadata-source gear",
 					"gear_source", *p.gearSource)
@@ -193,6 +208,7 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 				slog.Warn("fusion-merge: merge tags failed",
 					"action", "fusion_merge_tags_union_nonfatal",
 					"source", srcID, "error", err)
+				warnings = append(warnings, fmt.Sprintf("tags merge from source %s failed — tags may be incomplete", srcID))
 			}
 		}
 		// Recompute tags.activity_count for all tags now linked to the merged activity.
@@ -221,6 +237,7 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 			slog.Warn("fusion-merge: set tags TEXT[] from source failed",
 				"action", "fusion_merge_tags_text_array_nonfatal",
 				"source", *p.tagsSource, "error", err)
+			warnings = append(warnings, "tags could not be copied from the selected source")
 		} else {
 			// Populate junction: copy all activity_tags rows from source to merged.
 			// ON CONFLICT DO NOTHING because createMergedActivity's INSERT-SELECT
@@ -235,6 +252,7 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 				slog.Warn("fusion-merge: copy activity_tags junction from source failed",
 					"action", "fusion_merge_tags_junction_nonfatal",
 					"source", *p.tagsSource, "error", err)
+				warnings = append(warnings, "tags junction copy failed — tag filters may not include this activity")
 			}
 			// Increment tags.activity_count for each tag now linked to the merged activity.
 			if _, err := tx.Exec(ctx,
@@ -369,6 +387,7 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 			slog.Warn("fusion-merge: elevation compute failed",
 				"action", "fusion_merge_elevation_compute_nonfatal",
 				"merged_id", p.merged.ID, "error", elevErr)
+			warnings = append(warnings, "elevation could not be computed from streams — values may be approximate")
 		} else if hasElevData {
 			if _, err := tx.Exec(ctx,
 				`UPDATE activities SET elevation_gain_m = $2, elevation_loss_m = $3 WHERE id = $1`,
@@ -377,6 +396,7 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 				slog.Warn("fusion-merge: elevation update failed",
 					"action", "fusion_merge_elevation_update_nonfatal",
 					"merged_id", p.merged.ID, "error", err)
+				warnings = append(warnings, "elevation update failed — values may be from the metadata source")
 			} else {
 				slog.Debug("fusion-merge: elevation computed from streams",
 					"activity_id", p.merged.ID, "gain_m", elevGain, "loss_m", elevLoss)
@@ -391,7 +411,7 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 	// FATAL: if any sub-operation fails (e.g. photos reassigned but geo_tags failed), the
 	// TX must be rolled back — partial related-table state is worse than none at all.
 	if err := copyRelatedTablesUnion(ctx, tx, p.merged.ID, p.allSourceIDs, p.metadataSourceID, p.userID); err != nil {
-		return fmt.Errorf("related-tables union-copy: %w", err)
+		return nil, fmt.Errorf("related-tables union-copy: %w", err)
 	}
 
 	// Audit log (inside transaction).
@@ -404,10 +424,10 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 		 VALUES ($1, $2, 'fusion_merge', $3)`,
 		p.merged.ID, p.userID, p.auditData,
 	); err != nil {
-		return fmt.Errorf("audit record insert: %w", err)
+		return nil, fmt.Errorf("audit record insert: %w", err)
 	}
 
-	return nil
+	return warnings, nil
 }
 
 // postCommitFusionCleanup runs the shared post-commit steps:
@@ -761,9 +781,10 @@ func fusionMergeActivityTags(ctx context.Context, q database.Querier, targetID, 
 // copyGearIfPresent copies the gear from a source activity to the merged activity.
 // Non-fatal: gear is user-visible but can be reassigned manually after merge.
 // The guard on gearID prevents an unnecessary UPDATE when the source has no gear set.
-func (h *Handler) copyGearIfPresent(ctx context.Context, tx database.Querier, mergedID, srcID string, gearID *string) {
+// Returns a non-empty warning string if the copy failed; returns "" on success.
+func (h *Handler) copyGearIfPresent(ctx context.Context, tx database.Querier, mergedID, srcID string, gearID *string) string {
 	if gearID == nil || *gearID == "" {
-		return
+		return ""
 	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE activities SET gear_id = $2, has_edits = true WHERE id = $1`,
@@ -774,7 +795,9 @@ func (h *Handler) copyGearIfPresent(ctx context.Context, tx database.Querier, me
 			"merged_id", mergedID,
 			"src", srcID,
 			"error", err)
+		return "gear could not be copied — please reassign it manually after merge"
 	}
+	return ""
 }
 
 // ─── Phase 4b: Related-Tables Union-Copy ──────────────────────────────────────
@@ -1804,7 +1827,8 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		fitLevelSourceIDs: fitLevelSourceIDs,
 		auditData:         auditData,
 	}
-	if err := h.applyFusionTxExtras(ctx, tx, fp); err != nil {
+	mergeWarnings, err := h.applyFusionTxExtras(ctx, tx, fp)
+	if err != nil {
 		slog.Error("fusion-merge-v2: applyFusionTxExtras failed, rolling back", "merged_id", merged.ID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "merge finalization failed: "+err.Error(), r.URL.Path)
 		return
@@ -1875,7 +1899,10 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	h.postCommitFusionCleanup(ctx, fp)
 
 	slog.Info("fusion-merge-v2: completed", "new_id", merged.ID, "sources", req.Sources)
-	httputil.WriteJSON(w, http.StatusCreated, map[string]string{"id": merged.ID})
+	httputil.WriteJSON(w, http.StatusCreated, fusionMergeResponse{
+		ID:       merged.ID,
+		Warnings: mergeWarnings,
+	})
 }
 
 // createTempMergedStreams erstellt eine TEMP TABLE mit identischer Struktur zu
