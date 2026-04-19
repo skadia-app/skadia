@@ -78,6 +78,27 @@ podman compose up api
 
 Weitere Doku: `docs/` (Architektur, Migrations, Routing-Engine, Sport-Taxonomie).
 
+### Down-Migrations
+
+Das Migrate-Framework in Skadia führt ausschließlich `*.up.sql` automatisch
+aus (siehe `services/api/internal/migrate/migrate.go`, `//go:embed migrations/*.up.sql`).
+`*.down.sql`-Dateien sind reine **Operator-Dokumentation** — sie werden nie automatisch
+angewandt.
+
+Bei einem manuellen Rollback (z.B. via `psql -f 000NNN_xxx.down.sql`):
+
+- **No-Op-Rollbacks** (z.B. `SELECT 1;`): die Up-Migration hat keine inhaltliche
+  Reversion. Typisch für cosmetic DELETEs, Feature-Flag-Cleanups, etc.
+- **Destruktive Rollbacks** (z.B. `RAISE EXCEPTION '...'` in `DO $$ BEGIN ... END $$;`):
+  die Up-Migration ist nicht ohne Code-Revert oder Datenverlust rückgängig zu machen.
+  Operator muss die Migration-spezifische Doku konsultieren (siehe Kommentare
+  in der Down-Migration selbst).
+
+Sichere Kombination bei Deployment-Rollbacks:
+1. Code-Revert durch den Deploy-Runner (Binary-Revert).
+2. Falls schema-backwards-kompatibel: Down-Migration via `psql` manuell anwenden.
+3. Falls irreversibel: Backup-Restore + Re-Play ausgewählter Up-Migrations.
+
 ## Lizenz
 
 TBD
