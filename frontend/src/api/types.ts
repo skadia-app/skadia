@@ -70,6 +70,9 @@ export interface Activity {
   description?: string | null
   sport_type: string
   sub_type: string | null
+  // FIT SDK sport ID — used for training-zones lookup (see training_zones.SportZones.sport).
+  // Optional because older activities imported before FIT SDK Phase 3 may not have it.
+  fit_sport_id?: number
   is_electric: boolean
   is_virtual: boolean
   exclude_from_heatmap: boolean
