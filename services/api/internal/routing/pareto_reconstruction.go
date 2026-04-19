@@ -112,9 +112,10 @@ func reconstructPathWithNodes(
 // Source-node coordinates are emitted before each edge's intermediate geometry
 // so the output matches the retrack format used by unified.go.
 //
-// Note: Segments are NOT populated here (that requires EdgeTags which
-// is not yet on GraphReader). Segment population happens when the
-// handler merges leg1+leg2 via the normal routing path.
+// Segments are populated by calling buildSegmentsUnified after the geometry
+// loop, mirroring the pattern in retrackUnified. EdgeTags1/EdgeTags2 are read
+// via the GraphReader (both available since Phase 1). This ensures mergeLegs
+// in result.go can include leg1 edges in the final user-facing segments array.
 func BuildRouteResultFromEdges(
 	edges []EdgeHandle,
 	nodeIDs []uint64,
@@ -123,8 +124,13 @@ func BuildRouteResultFromEdges(
 ) *RouteResult {
 	// Convert EdgeHandle slice to uint64 slice for RouteResult.EdgeHandles.
 	edgeHandles := make([]uint64, len(edges))
+	edgeCoordStart := make([]int, len(edges))
+	edgeTags1 := make([]uint64, len(edges))
+	edgeTags2 := make([]uint64, len(edges))
 	for i, e := range edges {
 		edgeHandles[i] = uint64(e)
+		edgeTags1[i] = reader.EdgeTags1(uint64(e))
+		edgeTags2[i] = reader.EdgeTags2(uint64(e))
 	}
 
 	result := &RouteResult{
@@ -142,6 +148,9 @@ func BuildRouteResultFromEdges(
 
 	// Walk edges to build geometry: emit source node coord, then intermediate points.
 	for i, handle := range edges {
+		// Record the coordinate index where this edge begins (the network node).
+		edgeCoordStart[i] = len(result.Coordinates)
+
 		// Emit source node coordinate.
 		if i < len(nodeIDs) {
 			lat, lon, ele := reader.NodeCoord(nodeIDs[i])
@@ -177,6 +186,13 @@ func BuildRouteResultFromEdges(
 			Lon: float64(lon) / 1e7,
 			Ele: float64(ele) / 10.0,
 		})
+	}
+
+	// Build Segments so mergeLegs in result.go can include leg1 outdoor tags in
+	// the user-facing segments array. Mirrors retrackUnified's pattern exactly.
+	if len(edges) > 0 {
+		result.Segments = buildSegmentsUnified(len(edges),
+			edgeCoordStart, edgeTags1, edgeTags2, len(result.Coordinates)-1)
 	}
 
 	return result
