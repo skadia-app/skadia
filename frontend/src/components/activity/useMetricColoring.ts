@@ -29,10 +29,6 @@ const VIEWPORT_RESAMPLE_DEBOUNCE_MS = 250
 const VIEWPORT_BOUNDS_DECIMALS = 4
 const VIEWPORT_MIN_RATIO_FOR_RESAMPLE = 0.8
 
-function maxSegmentsForViewport(): number {
-  return Math.min(MAX_MAP_SEGMENTS, Math.round(window.innerWidth * MAX_MAP_SEGMENTS_MOBILE_FACTOR))
-}
-
 export interface UseMetricColoringArgs {
   streams: StreamPoint[]
   activity: Pick<Activity, 'sport_type' | 'fit_sport_id'>
@@ -58,6 +54,27 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
 
   const [metric, setMetric] = useState<Metric>('sport')
   const [modeByMetric, setModeByMetric] = useState<Partial<Record<Metric, Mode>>>({})
+
+  // Track window width for viewport-adaptive segment budget. Debounced to avoid thrashing on resize.
+  const [windowWidth, setWindowWidth] = useState(() => typeof window !== 'undefined' ? window.innerWidth : 1920)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    let timer: number | null = null
+    const onResize = () => {
+      if (timer != null) window.clearTimeout(timer)
+      timer = window.setTimeout(() => setWindowWidth(window.innerWidth), 200)
+    }
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      if (timer != null) window.clearTimeout(timer)
+    }
+  }, [])
+
+  const maxSegments = useMemo(() =>
+    Math.min(MAX_MAP_SEGMENTS, Math.round(windowWidth * MAX_MAP_SEGMENTS_MOBILE_FACTOR)),
+    [windowWidth],
+  )
 
   // Ref to read current metric inside the auto-reset effect without stale closure.
   const metricRef = useRef(metric)
@@ -206,10 +223,15 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
     }
     if (!Number.isFinite(minLat)) return undefined
 
-    const fullRange = (maxLat - minLat) * (maxLng - minLng)
-    const viewRange = (viewportBounds.north - viewportBounds.south) *
-                      (viewportBounds.east - viewportBounds.west)
-    if (viewRange / fullRange >= VIEWPORT_MIN_RATIO_FOR_RESAMPLE) return undefined
+    // Approximate area with cos(lat) correction for Mercator distortion.
+    // Small-area approximation: area ∝ ΔLat × ΔLng × cos(lat_center).
+    const fullLatC = (minLat + maxLat) / 2
+    const viewLatC = (viewportBounds.north + viewportBounds.south) / 2
+    const fullArea = (maxLat - minLat) * (maxLng - minLng) * Math.cos(fullLatC * Math.PI / 180)
+    const viewArea = (viewportBounds.north - viewportBounds.south) *
+                     (viewportBounds.east - viewportBounds.west) *
+                     Math.cos(viewLatC * Math.PI / 180)
+    if (fullArea <= 0 || viewArea / fullArea >= VIEWPORT_MIN_RATIO_FOR_RESAMPLE) return undefined
     return viewportBounds
   }, [viewportBounds, streams])
 
@@ -217,8 +239,8 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
   const downsampled = useMemo(() => {
     const zoneHighs = scale && scale.type === 'zones' ? scale.zoneHighs : undefined
     const aggMode: Mode = scale && scale.type === 'zones' ? 'zones' : 'linear'
-    return downsampleUniform(streams, metric, maxSegmentsForViewport(), effectiveBounds, aggMode, zoneHighs)
-  }, [streams, metric, effectiveBounds, scale])
+    return downsampleUniform(streams, metric, maxSegments, effectiveBounds, aggMode, zoneHighs)
+  }, [streams, metric, maxSegments, effectiveBounds, scale])
 
   const features = useMemo(() => {
     if (!scale) return []
