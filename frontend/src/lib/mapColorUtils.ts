@@ -99,7 +99,17 @@ export function resolveScale(
 
     case 'speed': {
       if (mode === 'zones' && sportZones?.zones.speed) {
-        return zonesScale(metric, 'km/h', sportZones.zones.speed.zone_highs.map(v => v * 3.6 /* mps→kmh */))
+        const rawZones = sportZones.zones.speed.zone_highs
+        // Backend-contract: training_zones.SportZones.zones.speed.zone_highs is stored in m/s.
+        // The sibling field `threshold_speed_mps` confirms the unit convention used throughout
+        // the backend (see services/api/internal/handler/training_zones.go:43 and
+        // services/api/internal/database/training_zones.go). Frontend charts and legends use km/h
+        // per Skadia UX convention — we convert once here, never at the call site.
+        if (import.meta.env.DEV && rawZones.some(v => v > 100)) {
+          // eslint-disable-next-line no-console
+          console.warn('[mapColorUtils] Speed zone_highs contain values >100, expected m/s units. Double-check backend contract.', rawZones)
+        }
+        return zonesScale(metric, 'km/h', rawZones.map(v => v * 3.6))
       }
       const p = SPEED_PROFILES[motionProfile.speed]
       return {
