@@ -50,8 +50,12 @@ export default function FusionGroupContextDialog({
 
   // For single-group case: which group is it, and which activity is external?
   const groupId = isCrossGroup ? null : (groupIdA ?? groupIdB)
-  const inGroupActivityTitle = groupIdA ? titleA : titleB
-  const externalActivityId = groupIdA ? activityIdB : activityIdA
+  // Guard with isCrossGroup so these variables are only used in the single-group
+  // rendering branch. Without the guard, when both groupIdA and groupIdB are
+  // non-null the ternary silently picks "A is in group, B is external" —
+  // semantically wrong even though the cross-group branch doesn't render them.
+  const inGroupActivityTitle = !isCrossGroup ? (groupIdA ? titleA : titleB) : null
+  const externalActivityId = !isCrossGroup ? (groupIdA ? activityIdB : activityIdA) : null
 
   // Fetch group member count (only in single-group case)
   const { data: groupData } = useQuery({
@@ -69,7 +73,7 @@ export default function FusionGroupContextDialog({
 
   // "Ganze Gruppe + {other}" → add external to group, then navigate to group-mode fusion
   async function handleGroupMode() {
-    if (!groupId) return
+    if (!groupId || !externalActivityId) return
     setIsAdding(true)
     try {
       await addGroupMember(groupId, externalActivityId)
