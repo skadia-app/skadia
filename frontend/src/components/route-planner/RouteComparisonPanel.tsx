@@ -116,7 +116,7 @@ export default function RouteComparisonPanel({
               role="button"
               tabIndex={0}
               aria-label={ariaLabel}
-              className={`flex items-center gap-3 px-2.5 py-2 rounded-lg transition-colors cursor-pointer ${
+              className={`flex flex-col gap-1 px-2.5 py-2 rounded-lg transition-colors cursor-pointer ${
                 isHovered
                   ? 'bg-neutral-100 dark:bg-neutral-800'
                   : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/50'
@@ -133,112 +133,116 @@ export default function RouteComparisonPanel({
                 }
               }}
             >
-              {/* Color dot */}
-              <span
-                className="w-3 h-3 rounded-full shrink-0 self-start mt-0.5"
-                style={{ backgroundColor: SUGGESTION_COLORS[i % SUGGESTION_COLORS.length] }}
-              />
+              {/* Row 1: Numeric line — Color dot + Label + Distance + Ascent + Descent + Loop badge + Button */}
+              <div className="flex items-center gap-3">
+                {/* Color dot */}
+                <span
+                  className="w-3 h-3 rounded-full shrink-0"
+                  style={{ backgroundColor: SUGGESTION_COLORS[i % SUGGESTION_COLORS.length] }}
+                />
 
-              {/* Variant label + optional descriptor chips */}
-              <div className="flex flex-col gap-0.5 w-20 shrink-0">
-                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 truncate">
+                {/* Variant label (no chips here) */}
+                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 w-20 shrink-0 truncate">
                   {variantLabel(s.variant_id || '')}
                 </span>
-                {s.variant_descriptors && s.variant_descriptors.length > 0 && (() => {
-                  const sorted = [...s.variant_descriptors].sort((a, b) => b.magnitude - a.magnitude)
-                  const isExpanded = expandedRoutes.has(i)
-                  const visible = isExpanded ? sorted : sorted.slice(0, 3)
-                  const remaining = sorted.length - 3
+
+                {/* Distance */}
+                <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 w-16 text-right tabular-nums">
+                  {formatDistance(s.distance_m)}
+                </span>
+
+                {/* Ascent */}
+                <span className="text-xs text-neutral-600 dark:text-neutral-300 w-16 text-right tabular-nums">
+                  <span className="text-green-600 dark:text-green-400">&#8593;</span> {formatElevation(s.ascent_m)}
+                </span>
+
+                {/* Descent */}
+                <span className="text-xs text-neutral-600 dark:text-neutral-300 w-16 text-right tabular-nums">
+                  <span className="text-red-500 dark:text-red-400">&#8595;</span> {formatElevation(s.descent_m)}
+                </span>
+
+                {/* Loop quality badge */}
+                {s.loop_quality && (() => {
+                  const quality = loopQualityDisplay(s.loop_quality)
                   return (
-                    <div className="flex flex-wrap gap-0.5">
-                      {visible.map((d: VariantDescriptor, idx: number) => {
-                        const label = descriptorLabel(d.key, d.display_value)
-                        const interactive = F26_KEYS.has(d.key)
-                        if (interactive) {
-                          return (
-                            <button
-                              key={idx}
-                              type="button"
-                              className="descriptor-chip text-[9px] leading-tight px-1 py-px rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 whitespace-nowrap hover:bg-neutral-200 dark:hover:bg-neutral-700"
-                              title={label}
-                              onMouseEnter={() => onHoverDescriptor?.(d.key)}
-                              onMouseLeave={(e) => {
-                                // Race-fix: if pointer moves directly to another descriptor chip,
-                                // that chip's onMouseEnter has not yet fired; naive null-clear here
-                                // would overwrite the incoming chip's hover. Skip clear if
-                                // relatedTarget is any other .descriptor-chip in this panel.
-                                const rt = e.relatedTarget as HTMLElement | null
-                                if (rt && rt.closest?.('.descriptor-chip')) return
-                                onHoverDescriptor?.(null)
-                              }}
-                              onClick={(e) => { e.stopPropagation(); onClickDescriptor?.(d.key) }}
-                            >
-                              {label}
-                            </button>
-                          )
-                        }
-                        return (
-                          <span
-                            key={idx}
-                            className="text-[9px] leading-tight px-1 py-px rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 whitespace-nowrap"
-                            title={label}
-                          >
-                            {label}
-                          </span>
-                        )
-                      })}
-                      {!isExpanded && remaining > 0 && (
-                        <button
-                          type="button"
-                          className="text-[9px] leading-tight px-1 py-px rounded bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300"
-                          onClick={(e) => { e.stopPropagation(); toggleExpand(i) }}
-                        >
-                          +{remaining} weitere
-                        </button>
-                      )}
-                    </div>
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300"
+                      title={quality.label}
+                    >
+                      {quality.icon}
+                    </span>
                   )
                 })()}
+
+                {/* Select button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onSelect(i)
+                  }}
+                  className="ml-auto px-2.5 py-1 text-[11px] font-medium rounded-md bg-accent-DEFAULT text-white hover:bg-accent-600 transition-colors cursor-pointer shrink-0"
+                >
+                  Übernehmen
+                </button>
               </div>
 
-              {/* Distance */}
-              <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 w-16 text-right tabular-nums">
-                {formatDistance(s.distance_m)}
-              </span>
-
-              {/* Ascent */}
-              <span className="text-xs text-neutral-600 dark:text-neutral-300 w-16 text-right tabular-nums">
-                <span className="text-green-600 dark:text-green-400">&#8593;</span> {formatElevation(s.ascent_m)}
-              </span>
-
-              {/* Descent */}
-              <span className="text-xs text-neutral-600 dark:text-neutral-300 w-16 text-right tabular-nums">
-                <span className="text-red-500 dark:text-red-400">&#8595;</span> {formatElevation(s.descent_m)}
-              </span>
-
-              {/* Loop quality badge */}
-              {s.loop_quality && (() => {
-                const quality = loopQualityDisplay(s.loop_quality)
+              {/* Row 2: Descriptor chips — only rendered when descriptors are present */}
+              {s.variant_descriptors && s.variant_descriptors.length > 0 && (() => {
+                const sorted = [...s.variant_descriptors].sort((a, b) => b.magnitude - a.magnitude)
+                const isExpanded = expandedRoutes.has(i)
+                const visible = isExpanded ? sorted : sorted.slice(0, 3)
+                const remaining = sorted.length - 3
                 return (
-                  <span
-                    className="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300"
-                    title={quality.label}
-                  >
-                    {quality.icon}
-                  </span>
+                  <div className="flex flex-wrap gap-0.5 pl-6">
+                    {/* pl-6 (24px) aligns under the variant label, past the color dot (w-3) + gap-3 (12px) */}
+                    {visible.map((d: VariantDescriptor, idx: number) => {
+                      const label = descriptorLabel(d.key, d.display_value)
+                      const interactive = F26_KEYS.has(d.key)
+                      if (interactive) {
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            className="descriptor-chip text-[9px] leading-tight px-1 py-px rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 whitespace-nowrap hover:bg-neutral-200 dark:hover:bg-neutral-700"
+                            title={label}
+                            onMouseEnter={() => onHoverDescriptor?.(d.key)}
+                            onMouseLeave={(e) => {
+                              // Race-fix: if pointer moves directly to another descriptor chip,
+                              // that chip's onMouseEnter has not yet fired; naive null-clear here
+                              // would overwrite the incoming chip's hover. Skip clear if
+                              // relatedTarget is any other .descriptor-chip in this panel.
+                              const rt = e.relatedTarget as HTMLElement | null
+                              if (rt && rt.closest?.('.descriptor-chip')) return
+                              onHoverDescriptor?.(null)
+                            }}
+                            onClick={(e) => { e.stopPropagation(); onClickDescriptor?.(d.key) }}
+                          >
+                            {label}
+                          </button>
+                        )
+                      }
+                      return (
+                        <span
+                          key={idx}
+                          className="text-[9px] leading-tight px-1 py-px rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 whitespace-nowrap"
+                          title={label}
+                        >
+                          {label}
+                        </span>
+                      )
+                    })}
+                    {!isExpanded && remaining > 0 && (
+                      <button
+                        type="button"
+                        className="text-[9px] leading-tight px-1 py-px rounded bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300"
+                        onClick={(e) => { e.stopPropagation(); toggleExpand(i) }}
+                      >
+                        +{remaining} weitere
+                      </button>
+                    )}
+                  </div>
                 )
               })()}
-
-              {/* Select button */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onSelect(i)
-                }}
-                className="ml-auto px-2.5 py-1 text-[11px] font-medium rounded-md bg-accent-DEFAULT text-white hover:bg-accent-600 transition-colors cursor-pointer shrink-0"
-              >
-                Übernehmen
-              </button>
             </div>
           )
         })}
