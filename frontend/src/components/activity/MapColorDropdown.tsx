@@ -2,7 +2,7 @@
 import { useMemo, useRef, useState, useEffect } from 'react'
 import type { StreamPoint } from '@/api/types'
 import type { Metric, Mode } from '@/lib/mapColorUtils'
-import { METRIC_LABELS, MODE_LABELS } from '@/lib/colorMetricLabels'
+import { DROPDOWN_LABELS, METRIC_LABELS, MODE_LABELS } from '@/lib/colorMetricLabels'
 import { MOTION_PROFILE_BY_SPORT_TYPE, METRIC_AVAILABILITY_THRESHOLDS } from '@/lib/colorScaleRanges'
 import { useClickOutside } from '@/hooks/useClickOutside'
 
@@ -102,6 +102,9 @@ export default function MapColorDropdown({ streams, sportType, metric, onChange,
       e.preventDefault()
       onChange(availableOptions[focusedIdx].key)
       setOpen(false)
+    } else if (e.key === 'Tab') {
+      // Let focus move naturally; close dropdown without preventing default
+      setOpen(false)
     }
   }
 
@@ -112,7 +115,7 @@ export default function MapColorDropdown({ streams, sportType, metric, onChange,
         onClick={() => setOpen(o => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Einfärbung wählen"
+        aria-label={DROPDOWN_LABELS.chooseColoring}
         className="flex items-center gap-1.5 px-2.5 h-8 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md text-xs font-medium text-neutral-700 dark:text-neutral-300 cursor-pointer hover:bg-white dark:hover:bg-neutral-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
       >
         <span>{current.label}</span>
@@ -134,20 +137,21 @@ export default function MapColorDropdown({ streams, sportType, metric, onChange,
             const currentMode = modeByMetric[opt.key] ?? (zonesAvail ? 'zones' : 'linear')
 
             return (
+              // role="presentation" — semantic radio role moves to the primary button below (#14)
               <li
                 key={opt.key}
-                role="menuitemradio"
-                aria-checked={opt.key === metric}
-                aria-label={opt.label}
-                tabIndex={i === focusedIdx ? 0 : -1}
+                role="presentation"
                 onMouseEnter={() => setFocusedIdx(i)}
                 className={`flex items-center justify-between pr-2 py-1.5 text-xs cursor-pointer ${
                   i === focusedIdx ? 'bg-neutral-100 dark:bg-neutral-700' : ''
                 }`}
               >
-                {/* Metric select button — fills left side, handles metric change + close */}
+                {/* Primary metric button — carries menuitemradio semantics (#14) */}
                 <button
                   type="button"
+                  role="menuitemradio"
+                  aria-checked={opt.key === metric}
+                  tabIndex={i === focusedIdx ? 0 : -1}
                   onClick={() => { onChange(opt.key); setOpen(false) }}
                   className={`flex-1 text-left pl-3 ${
                     opt.key === metric
@@ -158,28 +162,32 @@ export default function MapColorDropdown({ streams, sportType, metric, onChange,
                   {opt.label}
                 </button>
 
-                {/* Mode toggle — only for HR/Power/Speed */}
+                {/* Mode toggle — secondary modifiers, no explicit aria role (#14) */}
                 {isZonable && (
-                  <div className="ml-2 flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
+                  <div
+                    className="ml-2 flex items-center gap-0.5"
+                    onClick={e => e.stopPropagation()}
+                    onMouseDown={e => e.stopPropagation()}
+                  >
                     <button
                       type="button"
                       disabled={!zonesAvail}
                       onClick={() => setMode(opt.key, 'zones')}
-                      className={`text-[10px] px-1.5 py-0.5 rounded ${
+                      className={`text-[10px] px-2 py-1 min-h-[24px] min-w-[44px] rounded ${
                         currentMode === 'zones' && zonesAvail
                           ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
                           : zonesAvail
                             ? 'text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-600'
                             : 'text-neutral-400 cursor-not-allowed opacity-50'
                       }`}
-                      title={zonesAvail ? 'Zonen-basierte Einfärbung' : 'Keine Zonen konfiguriert'}
+                      title={zonesAvail ? DROPDOWN_LABELS.zonesBasedTooltip : DROPDOWN_LABELS.zonesNotConfigured}
                     >
                       {MODE_LABELS.zones}
                     </button>
                     <button
                       type="button"
                       onClick={() => setMode(opt.key, 'linear')}
-                      className={`text-[10px] px-1.5 py-0.5 rounded ${
+                      className={`text-[10px] px-2 py-1 min-h-[24px] min-w-[44px] rounded ${
                         currentMode === 'linear'
                           ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
                           : 'text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-600'
