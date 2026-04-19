@@ -268,7 +268,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// --- Step 1: Pareto findReachable ---
+	// Step 1: Pareto findReachable
 	reachable, rs, truncated, err := router.FindReachableWithCoords(
 		r.Context(), startLat, startLon, cfg, halfBudgetCost, visitedWayIDs)
 	if err != nil {
@@ -286,53 +286,20 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- Step 2: Filter by distance band ---
-	targetHalfDistM := req.TargetDistanceM / 2.0
-	filtered := filterByDistanceBand(reachable, targetHalfDistM, 0.5, 1.5)
-	if len(filtered) == 0 {
-		filtered = reachable
-	}
-
-	// Sort filtered nodes by NodeID for deterministic variant selection across calls.
-	slices.SortFunc(filtered, func(a, b routing.ReachableNode) int {
-		if a.NodeID < b.NodeID {
-			return -1
-		}
-		if a.NodeID > b.NodeID {
-			return 1
-		}
-		return 0
-	})
-
-	// Hard limit to prevent O(n²) in BuildCandidatePool with huge pools.
-	const maxVariantPool = 10000
-	if len(filtered) > maxVariantPool {
-		originalSize := len(filtered)
-		filtered = filtered[:maxVariantPool]
-		routingMetricCandidatePoolTruncated.Inc()
-		slog.Warn("candidate pool truncated", "limit", maxVariantPool, "original_size", originalSize)
-	}
-
+	// Step 2: Load routing state (opts + ctx are request-scoped, not part of pool helper)
 	opts := DefaultRoundTripOptions()
 	ctx := r.Context()
-
-	// 1. Pool size: maxVariants + 2, capped at 7.
 	maxVariants := *req.MaxVariants
-	poolSize := maxVariants + 2
-	if poolSize > 7 {
-		poolSize = 7
-	}
 
-	// 2. Build candidate pool.
-	minDist := routing.MinVariantDistanceM(req.TargetDistanceM)
-	pool := routing.BuildCandidatePool(filtered, startLat, startLon, req.TargetDistanceM, poolSize, minDist)
+	// Step 3: Build candidate pool (filter + sort + truncate + diversify)
+	filtered, pool := buildCandidatePool(reachable, startLat, startLon, req.TargetDistanceM, maxVariants)
 	routingMetricDiversityPoolSize.Observe(float64(len(pool)))
 	if len(pool) == 0 {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "no candidate pool built", r.URL.Path)
 		return
 	}
 
-	// 3. Build all candidates in parallel via errgroup.
+	// Step 4: Build all candidates in parallel via errgroup.
 	ctx60, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
@@ -356,7 +323,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = eg.Wait()
 
-	// 4. Collect successful candidates.
+	// Step 5: Collect successful candidates.
 	built := make([]RouteCandidate, 0, len(candidates))
 	for _, c := range candidates {
 		if c != nil {
@@ -369,40 +336,13 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5. Build CandidateMetrics with nullable GreenScore / CalmScore.
-	metrics := make([]routing.CandidateMetrics, len(built))
-	for i, c := range built {
-		m := routing.CandidateMetrics{
-			DistanceM: c.DistanceM,
-			AscentM:   c.AscentM,
-			AvgFlat:   c.AvgFlat,
-			NodeID:    c.NodeID,
-		}
-		if c.HasCoverage && (c.MergedForestPct > 0 || c.MergedRiverProximity > 0 || c.MergedProtectedArea > 0) {
-			green := (c.MergedForestPct + c.MergedRiverProximity + c.MergedProtectedArea) / 3.0
-			m.GreenScore = &green
-		}
-		if c.HasCoverage && (c.MergedTrafficClass > 0 || c.MergedNoiseScore > 0) {
-			trafficClamped := c.MergedTrafficClass
-			if trafficClamped > 1.0 {
-				trafficClamped = 1.0
-			}
-			calm := 1.0 - (trafficClamped+c.MergedNoiseScore)/2.0
-			if calm < 0 {
-				calm = 0
-			}
-			if calm > 1 {
-				calm = 1
-			}
-			m.CalmScore = &calm
-		}
-		metrics[i] = m
-	}
+	// Step 6: Derive candidate metrics (nullable GreenScore / CalmScore).
+	metrics := deriveCandidateMetrics(built)
 
-	// 6. Diversity selection.
+	// Step 7: Pick diverse indices.
 	selectedIdx := routing.PickDiverseIndices(metrics, req.TargetDistanceM, req.TargetAscentM, maxVariants)
 
-	// 7. Assign labels and descriptors.
+	// Step 8: Assign labels and descriptors.
 	labeled := assignLabels(built, selectedIdx, req.TargetDistanceM, coverageAvailable, mappedProfile)
 	if coverageAvailable {
 		routingMetricCoverageAvailable.WithLabelValues("true").Inc()
@@ -410,14 +350,13 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		routingMetricCoverageAvailable.WithLabelValues("false").Inc()
 	}
 
-	// 8. Descriptor metrics.
 	for _, lr := range labeled {
 		for _, d := range lr.Descriptors {
 			routingMetricDescriptorAssigned.WithLabelValues(d.Key).Inc()
 		}
 	}
 
-	// 8b. F26 outdoor coverage availability — once per response.
+	// Step 9: Outdoor coverage gate (metric emit — once per response).
 	// Thresholds are centralised in route_labels.go — do not hardcode here.
 	outdoorGate := defaultOutdoorThresholds.CoverageGatePct
 	exposedGate := exposedCoverageFloor
@@ -438,7 +377,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 	routingMetricOutdoorCoverageAvailable.WithLabelValues(label).Inc()
 
-	// 9. Build response suggestions.
+	// Step 10: Build and write response.
 	suggestions := make([]RouteSuggestion, 0, len(labeled))
 	for i, lr := range labeled {
 		c := lr.Candidate
@@ -601,5 +540,92 @@ func filterByDistanceBand(reachable []routing.ReachableNode, target, lowPct, hig
 		}
 	}
 	return out
+}
+
+// buildCandidatePool applies distance-band filtering, deterministic sorting,
+// hard-size truncation (O(n²) guard in BuildCandidatePool), and delegates to
+// routing.BuildCandidatePool. Returns the filtered reachable-set and the
+// selected candidate pool.
+//
+// Pure computation — emits only prometheus metrics (truncation counter) and
+// slog warnings on truncation. No HTTP writes.
+func buildCandidatePool(
+	reachable []routing.ReachableNode,
+	startLat, startLon float64,
+	targetDistanceM float64,
+	maxVariants int,
+) (filtered []routing.ReachableNode, pool []routing.CandidateSelection) {
+	targetHalfDistM := targetDistanceM / 2.0
+	filtered = filterByDistanceBand(reachable, targetHalfDistM, 0.5, 1.5)
+	if len(filtered) == 0 {
+		filtered = reachable
+	}
+
+	// Sort filtered nodes by NodeID for deterministic variant selection across calls.
+	slices.SortFunc(filtered, func(a, b routing.ReachableNode) int {
+		if a.NodeID < b.NodeID {
+			return -1
+		}
+		if a.NodeID > b.NodeID {
+			return 1
+		}
+		return 0
+	})
+
+	// Hard limit to prevent O(n²) in BuildCandidatePool with huge pools.
+	const maxVariantPool = 10000
+	if len(filtered) > maxVariantPool {
+		originalSize := len(filtered)
+		filtered = filtered[:maxVariantPool]
+		routingMetricCandidatePoolTruncated.Inc()
+		slog.Warn("candidate pool truncated", "limit", maxVariantPool, "original_size", originalSize)
+	}
+
+	poolSize := maxVariants + 2
+	if poolSize > 7 {
+		poolSize = 7
+	}
+
+	minDist := routing.MinVariantDistanceM(targetDistanceM)
+	pool = routing.BuildCandidatePool(filtered, startLat, startLon, targetDistanceM, poolSize, minDist)
+	return filtered, pool
+}
+
+// deriveCandidateMetrics converts built RouteCandidates into CandidateMetrics,
+// deriving nullable GreenScore (avg of forest/river/protected-area fractions)
+// and CalmScore (1 - avg of clamped traffic + noise). Coverage-less candidates
+// produce nil scores.
+//
+// Pure computation. No external effects.
+func deriveCandidateMetrics(built []RouteCandidate) []routing.CandidateMetrics {
+	metrics := make([]routing.CandidateMetrics, len(built))
+	for i, c := range built {
+		m := routing.CandidateMetrics{
+			DistanceM: c.DistanceM,
+			AscentM:   c.AscentM,
+			AvgFlat:   c.AvgFlat,
+			NodeID:    c.NodeID,
+		}
+		if c.HasCoverage && (c.MergedForestPct > 0 || c.MergedRiverProximity > 0 || c.MergedProtectedArea > 0) {
+			green := (c.MergedForestPct + c.MergedRiverProximity + c.MergedProtectedArea) / 3.0
+			m.GreenScore = &green
+		}
+		if c.HasCoverage && (c.MergedTrafficClass > 0 || c.MergedNoiseScore > 0) {
+			trafficClamped := c.MergedTrafficClass
+			if trafficClamped > 1.0 {
+				trafficClamped = 1.0
+			}
+			calm := 1.0 - (trafficClamped+c.MergedNoiseScore)/2.0
+			if calm < 0 {
+				calm = 0
+			}
+			if calm > 1 {
+				calm = 1
+			}
+			m.CalmScore = &calm
+		}
+		metrics[i] = m
+	}
+	return metrics
 }
 
