@@ -175,10 +175,16 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		clamp(&lp.LowTraffic)
 	}
 
-	// --- MaxVariants default ---
+	// --- MaxVariants default + clamp ---
 	if req.MaxVariants == nil {
 		v := 3
 		req.MaxVariants = &v
+	}
+	if *req.MaxVariants < 1 {
+		*req.MaxVariants = 1
+	}
+	if *req.MaxVariants > 5 {
+		*req.MaxVariants = 5
 	}
 
 	// --- Get UnifiedRouter ---
@@ -401,14 +407,14 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		routingMetricCoverageAvailable.WithLabelValues("false").Inc()
 	}
 
-	// 9. Descriptor metrics.
+	// 8. Descriptor metrics.
 	for _, lr := range labeled {
 		for _, d := range lr.Descriptors {
 			routingMetricDescriptorAssigned.WithLabelValues(d.Key).Inc()
 		}
 	}
 
-	// 9b. F26 outdoor coverage availability — once per response.
+	// 8b. F26 outdoor coverage availability — once per response.
 	// Thresholds are centralised in route_labels.go — do not hardcode here.
 	outdoorGate := defaultOutdoorThresholds.CoverageGatePct
 	exposedGate := exposedCoverageFloor
@@ -429,7 +435,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 	routingMetricOutdoorCoverageAvailable.WithLabelValues(label).Inc()
 
-	// 10. Build response suggestions.
+	// 9. Build response suggestions.
 	suggestions := make([]RouteSuggestion, 0, len(labeled))
 	for i, lr := range labeled {
 		c := lr.Candidate

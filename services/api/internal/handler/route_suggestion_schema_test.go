@@ -29,10 +29,10 @@ func TestSuggestRoutes_Schema_DescriptorsAlwaysArray(t *testing.T) {
 		t.Fatalf("unmarshal suggestions: %v", err)
 	}
 
-	// Skip trivial-pass when the fixture produces no suggestions —
-	// we need at least one to prove the [] vs null invariant.
+	// Fatal when the fixture produces no suggestions — an empty result
+	// is itself a bug: the test fixture is expected to produce ≥ 1 suggestion.
 	if len(suggestions) == 0 {
-		t.Skip("test grid returned no suggestions; descriptor invariant not exercisable")
+		t.Fatalf("test fixture produced no suggestions — cannot verify descriptor invariant")
 	}
 
 	for i, s := range suggestions {
@@ -69,5 +69,13 @@ func TestSuggestRoutes_NoVariantIDsField(t *testing.T) {
 	}
 	if _, present := raw["used_fallback"]; present {
 		t.Errorf("used_fallback key must not be present in response after contract shrink")
+	}
+
+	// Legacy-client compat: a request body that still contains variant_ids (old client)
+	// must be accepted without error — the backend ignores unknown JSON fields.
+	const legacyBody = `{"start":[12.10,48.99],"target_distance_m":10000,"profile":"hiking","variant_ids":["medium"]}`
+	wLegacy := postSuggestRoutes(setup.Handler, legacyBody)
+	if wLegacy.Code != http.StatusOK {
+		t.Fatalf("legacy request with variant_ids should be ignored, got %d: %s", wLegacy.Code, wLegacy.Body.String())
 	}
 }
