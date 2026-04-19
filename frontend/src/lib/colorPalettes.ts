@@ -1,6 +1,6 @@
 // frontend/src/lib/colorPalettes.ts
 /** Missing / undefined metric value segments. */
-export const MISSING_COLOR = '#cccccc'
+export const MISSING_COLOR = '#6b7280'  // Tailwind slate-500; AA 4.5:1 on white, visible on dark
 
 /** Viridis perceptually-uniform sequential palette (9 stops).
  *  Used for: Speed, Pace, Cadence, Altitude, Power-fallback. */
