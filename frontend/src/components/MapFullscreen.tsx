@@ -30,6 +30,7 @@ import { apiClient } from '@/api/client'
 import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl, loadHeatmapColor, saveHeatmapColor } from '@/lib/mapHeatmap'
 import { type FieldKey } from '@/lib/sportFieldLabels'
 import { findClosestIdx } from '@/lib/utils'
+import { MOTION_PROFILE_BY_SPORT_TYPE, type MotionProfile } from '@/lib/colorScaleRanges'
 
 echarts.use([
   LineChart,
@@ -80,14 +81,25 @@ interface Props {
 
 // ── Stream definitions ────────────────────────────────────────────────────────
 
-const ALL_STREAMS: StreamDef[] = [
-  { key: 'altitude', label: 'Höhe', unit: 'm', color: '#22c55e', yAxisIndex: 0 },
-  { key: 'heartRate', label: 'HF', unit: 'bpm', color: '#ef4444', yAxisIndex: 1 },
-  { key: 'power', label: 'Leistung', unit: 'W', color: '#a855f7', yAxisIndex: 2 },
-  { key: 'cadence', label: 'Kadenz', unit: 'rpm', color: '#f97316', yAxisIndex: 3 },
-  { key: 'speed', label: 'Geschw.', unit: 'km/h', color: '#3b82f6', yAxisIndex: 4 },
-  { key: 'temperature', label: 'Temp.', unit: '\u00b0C', color: '#06b6d4', yAxisIndex: 5 },
-]
+function buildAllStreams(motionProfile: MotionProfile): StreamDef[] {
+  const cadenceLabel =
+    motionProfile.cadence.startsWith('foot_') ? 'Schrittfrequenz' :
+    motionProfile.cadence === 'paddle' ? 'Paddelschläge' :
+    'Kadenz'
+  const cadenceUnit =
+    motionProfile.cadence.startsWith('foot_') ? 'spm' :
+    motionProfile.cadence === 'paddle' ? 'spm' :
+    'rpm'
+
+  return [
+    { key: 'altitude', label: 'Höhe', unit: 'm', color: '#22c55e', yAxisIndex: 0 },
+    { key: 'heartRate', label: 'HF', unit: 'bpm', color: '#ef4444', yAxisIndex: 1 },
+    { key: 'power', label: 'Leistung', unit: 'W', color: '#a855f7', yAxisIndex: 2 },
+    { key: 'cadence', label: cadenceLabel, unit: cadenceUnit, color: '#f97316', yAxisIndex: 3 },
+    { key: 'speed', label: 'Geschw.', unit: 'km/h', color: '#3b82f6', yAxisIndex: 4 },
+    { key: 'temperature', label: 'Temp.', unit: '\u00b0C', color: '#06b6d4', yAxisIndex: 5 },
+  ]
+}
 
 // ── Data processing (mirrors ActivityCharts) ──────────────────────────────────
 
@@ -194,10 +206,11 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
   const data = useMemo(() => buildChartData(streams), [streams])
 
   // Filter to only streams with actual data
-  const availableStreams = useMemo(
-    () => ALL_STREAMS.filter(s => hasValidData(data[s.key])),
-    [data],
-  )
+  const availableStreams = useMemo(() => {
+    const motionProfile = MOTION_PROFILE_BY_SPORT_TYPE[sportType] ?? MOTION_PROFILE_BY_SPORT_TYPE['generic']
+    const all = buildAllStreams(motionProfile ?? { speed: 'generic', cadence: 'generic' })
+    return all.filter(s => hasValidData(data[s.key]))
+  }, [data, sportType])
 
   // Build coordinates for map
   const coordinates = useMemo(
@@ -837,11 +850,9 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
               <ColorPicker value={heatmapColor} onChange={handleHeatmapColorChange} />
             )}
           </div>
-        </div>
 
-        {/* Metric color dropdown */}
-        {hasGps && (
-          <div className="absolute top-14 left-3 z-10">
+          {/* Metric color dropdown — sits right of the Heatmap control */}
+          {hasGps && (
             <MapColorDropdown
               streams={streams}
               sportType={sportType}
@@ -852,8 +863,8 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
               zonesAvailable={metricColoring.zonesAvailable}
               effectiveMode={metricColoring.effectiveMode}
             />
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Metric color legend */}
         {hasGps && metricColoring.scale && (
