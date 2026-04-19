@@ -109,6 +109,10 @@ export interface FusionQueueEntry {
   source_device_b: string
   source_b: string
   original_file_format_b: string
+  /** Non-null if activity A is already member of a recording group */
+  group_id_a?: string | null
+  /** Non-null if activity B is already member of a recording group */
+  group_id_b?: string | null
 }
 
 export interface FusionQueueResponse {

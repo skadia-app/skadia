@@ -35,3 +35,15 @@ export async function setGroupSportType(groupId: string, sportType: string): Pro
   })
 }
 
+/**
+ * Add an activity to an existing recording group.
+ * Idempotent: 200 if already a member.
+ * Throws ApiError with status 409 if the activity belongs to a different group.
+ */
+export async function addGroupMember(groupId: string, activityId: string): Promise<void> {
+  return apiClient<void>(`/recording-groups/${groupId}/members`, {
+    method: 'POST',
+    body: { activity_id: activityId },
+  })
+}
+
