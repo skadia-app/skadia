@@ -84,6 +84,67 @@ func TestPickDiverseIndices_AllSame(t *testing.T) {
 	}
 }
 
+// TestPickDiverseIndices_Anchor2Accepted verifies that when both targetDistanceM
+// and targetAscentM produce sufficiently distant anchors (euclideanZDist >= 0.5
+// in Z-score space), both are included in the selected indices. The test also
+// exercises the CalmScore dimension of the Z-score space, which was uncovered by
+// other tests.
+//
+// Fixture rationale (why Z-dist >= 0.5 is guaranteed):
+//
+//	Anchor1 = metrics[2] (DistanceM=10000, delta=0 from targetDistanceM=10000)
+//	Anchor2 = metrics[1] (AscentM=500,    delta=0 from targetAscentM=500)
+//
+//	AscentM values span [100,300,500,700] → std≈224m, so anchor1 (300m) and
+//	anchor2 (500m) differ by ~0.89 Z-units in the ascent dimension alone.
+//	DistanceM values span [9500,10000,10500,11000] → std≈559m, so anchor1
+//	(10000) and anchor2 (10500) differ by ~0.45 Z-units in the distance dim.
+//	Combined euclideanZDist >> 0.5 even before the AvgFlat, GreenScore, and
+//	CalmScore dimensions contribute. The Anchor2-accept-path (line ~69 of
+//	diversity_select.go) is therefore exercised.
+func TestPickDiverseIndices_Anchor2Accepted(t *testing.T) {
+	gs0 := float32(0.4)
+	gs1 := float32(0.5)
+	gs2 := float32(0.6)
+	gs3 := float32(0.7)
+	cs0 := float32(0.2)
+	cs1 := float32(0.5)
+	cs2 := float32(0.7)
+	cs3 := float32(0.9)
+
+	metrics := []CandidateMetrics{
+		{DistanceM: 9500, AscentM: 100, AvgFlat: 0.8, NodeID: 1, GreenScore: &gs0, CalmScore: &cs0},  // anchor1 candidate
+		{DistanceM: 10500, AscentM: 500, AvgFlat: 0.7, NodeID: 2, GreenScore: &gs1, CalmScore: &cs1}, // anchor2 candidate (nearest to targetAscentM)
+		{DistanceM: 10000, AscentM: 300, AvgFlat: 0.75, NodeID: 3, GreenScore: &gs2, CalmScore: &cs2}, // anchor1 (nearest to targetDistanceM, delta=0)
+		{DistanceM: 11000, AscentM: 700, AvgFlat: 0.9, NodeID: 4, GreenScore: &gs3, CalmScore: &cs3},
+	}
+
+	targetDistanceM := 10000.0
+	targetAscentM := 500.0
+	k := 3
+
+	got := PickDiverseIndices(metrics, targetDistanceM, &targetAscentM, k)
+
+	if len(got) != k {
+		t.Fatalf("got len %d, want %d", len(got), k)
+	}
+
+	seen := make(map[int]bool, len(got))
+	for _, idx := range got {
+		seen[idx] = true
+	}
+
+	// Anchor1: nearest to targetDistanceM=10000 → metrics[2] (delta=0)
+	if !seen[2] {
+		t.Errorf("distance-anchor (metrics[2], DistanceM=10000) not in result: %v", got)
+	}
+	// Anchor2: nearest to targetAscentM=500 → metrics[1] (delta=0).
+	// Must be accepted because euclideanZDist(anchor1, anchor2) >> 0.5.
+	if !seen[1] {
+		t.Errorf("ascent-anchor (metrics[1], AscentM=500) not in result — Anchor2-accept-path may not have been exercised: %v", got)
+	}
+}
+
 func TestPickDiverseIndices_MixedCoverage(t *testing.T) {
 	// 4 candidates, 2 with GreenScore, 2 nil → median imputation activates Green dim.
 	gs1 := float32(0.8)
