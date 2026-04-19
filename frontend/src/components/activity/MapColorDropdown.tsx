@@ -1,8 +1,8 @@
 // frontend/src/components/activity/MapColorDropdown.tsx
 import { useMemo, useRef, useState, useEffect } from 'react'
 import type { StreamPoint } from '@/api/types'
-import type { Metric } from '@/lib/mapColorUtils'
-import { METRIC_LABELS } from '@/lib/colorMetricLabels'
+import type { Metric, Mode } from '@/lib/mapColorUtils'
+import { METRIC_LABELS, MODE_LABELS } from '@/lib/colorMetricLabels'
 import { MOTION_PROFILE_BY_SPORT_TYPE } from '@/lib/colorScaleRanges'
 import { useClickOutside } from '@/hooks/useClickOutside'
 
@@ -27,9 +27,13 @@ interface Props {
   sportType: string
   metric: Metric
   onChange: (m: Metric) => void
+  // Phase B:
+  modeByMetric: Partial<Record<Metric, Mode>>
+  setMode: (metric: Metric, mode: Mode) => void
+  zonesAvailable: (metric: Metric) => boolean
 }
 
-export default function MapColorDropdown({ streams, sportType, metric, onChange }: Props) {
+export default function MapColorDropdown({ streams, sportType, metric, onChange, modeByMetric, setMode, zonesAvailable }: Props) {
   const [open, setOpen] = useState(false)
   const [focusedIdx, setFocusedIdx] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -133,26 +137,70 @@ export default function MapColorDropdown({ streams, sportType, metric, onChange 
           autoFocus
           className="absolute top-full left-0 mt-1 min-w-[160px] rounded-lg bg-white dark:bg-neutral-800 shadow-lg border border-neutral-200 dark:border-neutral-700 py-1 z-20 focus:outline-none"
         >
-          {availableOptions.map((opt, i) => (
-            <li
-              key={opt.key}
-              role="menuitemradio"
-              aria-checked={opt.key === metric}
-              aria-label={opt.label}
-              tabIndex={i === focusedIdx ? 0 : -1}
-              onClick={() => { onChange(opt.key); setOpen(false) }}
-              onMouseEnter={() => setFocusedIdx(i)}
-              className={`block px-3 py-1.5 text-xs cursor-pointer ${
-                i === focusedIdx ? 'bg-neutral-100 dark:bg-neutral-700' : ''
-              } ${
-                opt.key === metric
-                  ? 'font-semibold text-blue-600 dark:text-blue-400'
-                  : 'text-neutral-700 dark:text-neutral-300'
-              }`}
-            >
-              {opt.label}
-            </li>
-          ))}
+          {availableOptions.map((opt, i) => {
+            const isZonable = opt.key === 'hr' || opt.key === 'power' || opt.key === 'speed'
+            const zonesAvail = isZonable && zonesAvailable(opt.key)
+            const currentMode = modeByMetric[opt.key] ?? (zonesAvail ? 'zones' : 'linear')
+
+            return (
+              <li
+                key={opt.key}
+                role="menuitemradio"
+                aria-checked={opt.key === metric}
+                aria-label={opt.label}
+                tabIndex={i === focusedIdx ? 0 : -1}
+                onMouseEnter={() => setFocusedIdx(i)}
+                className={`flex items-center justify-between pr-2 py-1.5 text-xs cursor-pointer ${
+                  i === focusedIdx ? 'bg-neutral-100 dark:bg-neutral-700' : ''
+                }`}
+              >
+                {/* Metric select button — fills left side, handles metric change + close */}
+                <button
+                  type="button"
+                  onClick={() => { onChange(opt.key); setOpen(false) }}
+                  className={`flex-1 text-left pl-3 ${
+                    opt.key === metric
+                      ? 'font-semibold text-blue-600 dark:text-blue-400'
+                      : 'text-neutral-700 dark:text-neutral-300'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+
+                {/* Mode toggle — only for HR/Power/Speed */}
+                {isZonable && (
+                  <div className="ml-2 flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      disabled={!zonesAvail}
+                      onClick={() => setMode(opt.key, 'zones')}
+                      className={`text-[10px] px-1.5 py-0.5 rounded ${
+                        currentMode === 'zones' && zonesAvail
+                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+                          : zonesAvail
+                            ? 'text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-600'
+                            : 'text-neutral-400 cursor-not-allowed opacity-50'
+                      }`}
+                      title={zonesAvail ? 'Zonen-basierte Einfärbung' : 'Keine Zonen konfiguriert'}
+                    >
+                      {MODE_LABELS.zones}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMode(opt.key, 'linear')}
+                      className={`text-[10px] px-1.5 py-0.5 rounded ${
+                        currentMode === 'linear'
+                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+                          : 'text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-600'
+                      }`}
+                    >
+                      {MODE_LABELS.linear}
+                    </button>
+                  </div>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
     </div>
