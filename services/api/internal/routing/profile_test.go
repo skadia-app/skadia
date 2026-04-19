@@ -777,3 +777,103 @@ func TestOnewayReverseEdgeCostClosure(t *testing.T) {
 		t.Errorf("trekking profile blocked on reverse residential with oneway_bicycle=false, want allowed (penalized)")
 	}
 }
+
+// tv2tags packs trail_visibility (0-6) into Tags2 bits 36-38.
+func tv2tags(tv uint8) uint64 { return uint64(tv&0x7) << 36 }
+
+// buildWorstCaseTags2 — spec §3.2.6 worst case: noise_score=100, traffic_class=6,
+// trail_visibility=5 (horrible). Bit positions verified graph/tags.go:213-224.
+func buildWorstCaseTags2() uint64 {
+	var t uint64
+	t |= uint64(100)     // bits 0-6: noise_score (7-bit, OSM clamp 100)
+	t |= uint64(6) << 14 // bits 14-16: traffic_class (max 6)
+	t |= uint64(5) << 36 // bits 36-38: trail_visibility=horrible
+	return t
+}
+
+// mergeWithDefaults builds a merged config using BuiltinProfile. Fatals if builtins unloaded.
+func mergeWithDefaults(t *testing.T, p ProfileConfig) ProfileConfig {
+	t.Helper()
+	base, err := BuiltinProfile(p.Profile)
+	if err != nil {
+		t.Fatalf("BuiltinProfile(%q): %v", p.Profile, err)
+	}
+	return MergeProfile(base, p)
+}
+
+func TestBuildEdgeCostClosure_TrailVisibilityBlock(t *testing.T) {
+	p := mergeWithDefaults(t, ProfileConfig{Profile: "hiking", MaxTrailVisibility: intPtr(3)})
+	closure := buildEdgeCostClosure(p)
+	tags1 := uint64(16) // highway=path
+	if closure(tags1, tv2tags(2)).Flat >= costBlocked {
+		t.Errorf("tv=2 ≤ maxTv=3 must not block")
+	}
+	if closure(tags1, tv2tags(5)).Flat < costBlocked {
+		t.Errorf("tv=5 > maxTv=3 must block")
+	}
+}
+
+func TestBuildEdgeCostClosure_TrailVisibilityPenaltyAdditive(t *testing.T) {
+	p := mergeWithDefaults(t, ProfileConfig{Profile: "hiking", TrailVisibilityPenalty: float32Ptr(0.5)})
+	closure := buildEdgeCostClosure(p)
+	tags1 := uint64(16)
+	baseCf := closure(tags1, 0).Flat
+	tv3Cf := closure(tags1, tv2tags(3)).Flat
+	delta := tv3Cf - baseCf
+	if delta < 0.49 || delta > 0.51 {
+		t.Errorf("tv=3 expected delta≈0.5; got %f", delta)
+	}
+}
+
+func TestBuildEdgeCostClosure_TrailVisibilitySeverityScale(t *testing.T) {
+	p := mergeWithDefaults(t, ProfileConfig{Profile: "hiking", TrailVisibilityPenalty: float32Ptr(0.5)})
+	closure := buildEdgeCostClosure(p)
+	tags1 := uint64(16)
+	baseCf := closure(tags1, 0).Flat
+	tv4Cf := closure(tags1, tv2tags(4)).Flat
+	if delta := tv4Cf - baseCf; delta < 0.99 || delta > 1.01 {
+		t.Errorf("tv=4 expected delta≈1.0; got %f", delta)
+	}
+}
+
+func TestBuildEdgeCostClosure_TrailVisibilityUnknownNoChange(t *testing.T) {
+	p := mergeWithDefaults(t, ProfileConfig{Profile: "hiking", TrailVisibilityPenalty: float32Ptr(0.5), MaxTrailVisibility: intPtr(3)})
+	closure := buildEdgeCostClosure(p)
+	tags1 := uint64(16)
+	tv0Cf := closure(tags1, tv2tags(0)).Flat
+	untagged := closure(tags1, 0).Flat
+	if tv0Cf != untagged {
+		t.Errorf("tv=0 must equal untagged; %f vs %f", tv0Cf, untagged)
+	}
+}
+
+func TestBuildEdgeCostClosure_TrailVisibilityFastPathDisabled(t *testing.T) {
+	// Both nil → cost identical regardless of Tags2 trail_visibility bits.
+	p := mergeWithDefaults(t, ProfileConfig{Profile: "hiking"})
+	closure := buildEdgeCostClosure(p)
+	tags1 := uint64(16)
+	if closure(tags1, tv2tags(4)).Flat != closure(tags1, 0).Flat {
+		t.Errorf("TV disabled: cost must not change with tv bits")
+	}
+}
+
+func TestEdgeCostInteractionCombinatorics(t *testing.T) {
+	// Spec §3.2.6: worst-case finalCF ≤ 4× baseCF.
+	// Seeds halved vs rev2 (0.4/0.4/0.25) so worst-case stays under the cap:
+	//   noiseAdd ≤ 2×0.4=0.8, trafficAdd ≤ 1×0.4=0.4, tvAdd ≤ 3×0.25=0.75 → +1.95
+	//   vs baseCF=1.2 (hiking, highway=path, surface=unknown): finalCF=3.15, ratio 2.63 ≤ 4.0.
+	p := mergeWithDefaults(t, ProfileConfig{
+		Profile:                "hiking",
+		NoisePenalty:           float32Ptr(0.4),
+		TrafficPenalty:         float32Ptr(0.4),
+		TrailVisibilityPenalty: float32Ptr(0.25),
+		MaxTrailVisibility:     intPtr(6),
+	})
+	closure := buildEdgeCostClosure(p)
+	tags1 := uint64(16)
+	baseCf := closure(tags1, 0).Flat
+	worstCf := closure(tags1, buildWorstCaseTags2()).Flat
+	if worstCf > 4.0*baseCf {
+		t.Errorf("combinatorics: worst=%f > 4×base=%f — seeds or cap revision needed", worstCf, baseCf)
+	}
+}

@@ -6,6 +6,11 @@ import (
 
 const costBlocked float32 = 10_000 // effectively impassable
 
+// tvSeverity maps trail_visibility enum (0..6) to additive penalty multipliers.
+// 0=unknown, 1=excellent, 2=good → 0.
+// 3=intermediate→1, 4=bad→2, 5=horrible→3, 6=no→4.
+var tvSeverity = [7]float32{0, 0, 0, 1, 2, 3, 4}
+
 // Type aliases for graph package landmark types (avoids import cycle).
 type LandmarkSetID = graph.LandmarkSetID
 
