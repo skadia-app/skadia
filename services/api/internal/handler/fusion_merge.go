@@ -204,12 +204,14 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 	//   3. default                            → Junction-Rows aus metadata-Source kopieren
 	if p.tagsMerge {
 		for _, srcID := range p.allSourceIDs {
-			if err := fusionMergeActivityTags(ctx, tx, p.merged.ID, srcID); err != nil {
+			tagWarns, err := fusionMergeActivityTags(ctx, tx, p.merged.ID, srcID)
+			if err != nil {
 				slog.Warn("fusion-merge: merge tags failed",
 					"action", "fusion_merge_tags_union_nonfatal",
 					"source", srcID, "error", err)
 				warnings = append(warnings, fmt.Sprintf("tags merge from source %s failed — tags may be incomplete", srcID))
 			}
+			warnings = append(warnings, tagWarns...)
 		}
 		// Recompute tags.activity_count for all tags now linked to the merged activity.
 		// fusionMergeActivityTags updates per-tag counts individually but does not handle
@@ -720,13 +722,15 @@ func fusionMergeGPSFromSource(ctx context.Context, q database.Querier, tempName,
 
 // fusionMergeActivityTags copies all tag associations from sourceID to targetID
 // using the provided Querier (pool or transaction).
-func fusionMergeActivityTags(ctx context.Context, q database.Querier, targetID, sourceID string) error {
+// Returns (warnings, nil) on partial failure (inner-loop INSERT or TEXT[] sync errors).
+// Returns (nil, err) only on fatal query errors (SELECT or row-scan).
+func fusionMergeActivityTags(ctx context.Context, q database.Querier, targetID, sourceID string) ([]string, error) {
 	// Get all tag IDs from source.
 	rows, err := q.Query(ctx,
 		`SELECT tag_id FROM activity_tags WHERE activity_id = $1`, sourceID,
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -734,15 +738,17 @@ func fusionMergeActivityTags(ctx context.Context, q database.Querier, targetID, 
 	for rows.Next() {
 		var tagID string
 		if err := rows.Scan(&tagID); err != nil {
-			return err
+			return nil, err
 		}
 		tagIDs = append(tagIDs, tagID)
 	}
 	rows.Close()
 
 	if len(tagIDs) == 0 {
-		return nil
+		return nil, nil
 	}
+
+	var warnings []string
 
 	// Link each tag to target (ON CONFLICT DO NOTHING to skip existing links).
 	for _, tagID := range tagIDs {
@@ -752,6 +758,7 @@ func fusionMergeActivityTags(ctx context.Context, q database.Querier, targetID, 
 			targetID, tagID,
 		); err != nil {
 			slog.Warn("fusion-merge: link tag failed", "tag_id", tagID, "error", err)
+			warnings = append(warnings, fmt.Sprintf("tag %s could not be linked — may be missing from merged activity", tagID))
 		}
 		// Update denormalized activity_count.
 		q.Exec(ctx, //nolint:errcheck
@@ -763,7 +770,7 @@ func fusionMergeActivityTags(ctx context.Context, q database.Querier, targetID, 
 	}
 
 	// Sync the denormalized tags TEXT[] cache on the target.
-	_, _ = q.Exec(ctx, `
+	if _, err := q.Exec(ctx, `
 		UPDATE activities a
 		SET tags = COALESCE(
 			ARRAY(
@@ -774,8 +781,11 @@ func fusionMergeActivityTags(ctx context.Context, q database.Querier, targetID, 
 			), '{}'::TEXT[]
 		)
 		WHERE a.id = $1`, targetID,
-	)
-	return nil
+	); err != nil {
+		slog.Warn("fusion-merge: sync tags TEXT[] cache failed", "target_id", targetID, "error", err)
+		warnings = append(warnings, "tags text-array cache could not be synced — tag display may be stale")
+	}
+	return warnings, nil
 }
 
 // copyGearIfPresent copies the gear from a source activity to the merged activity.
@@ -1473,6 +1483,8 @@ var sessionOnlyCOALESCECols = []string{
 //  3. COALESCE session-only fields from non-richest sources
 //
 // allSourceIDs is derived from the keys of allActivities; callers no longer pass it separately.
+// Returns (warnings, nil) when non-fatal steps fail (aggregate/COALESCE overrides).
+// Returns (nil, err) only for the fatal Step 1 (NULL external IDs).
 func applyFusionMetadataOverrides(
 	ctx context.Context,
 	q database.Querier,
@@ -1480,7 +1492,7 @@ func applyFusionMetadataOverrides(
 	richestSourceID string,
 	fieldMap map[string]string,
 	allActivities map[string]*model.Activity,
-) error {
+) ([]string, error) {
 	// Derive allSourceIDs from the map so callers don't duplicate this.
 	allSourceIDs := make([]string, 0, len(allActivities))
 	for id := range allActivities {
@@ -1501,8 +1513,10 @@ func applyFusionMetadataOverrides(
 		original_filename = NULL,
 		original_file_format = NULL
 	WHERE id = $1`, mergedID); err != nil {
-		return fmt.Errorf("null external IDs: %w", err)
+		return nil, fmt.Errorf("null external IDs: %w", err)
 	}
+
+	var warnings []string
 
 	// Step 2: FieldMap-correlated aggregates.
 	// For each FieldMap entry where the designated source differs from the richest
@@ -1527,6 +1541,7 @@ func applyFusionMetadataOverrides(
 		if _, err := q.Exec(ctx, query, mergedID, sourceID); err != nil {
 			slog.Warn("fusion metadata: fieldmap aggregate override failed",
 				"field", field, "source", sourceID, "error", err)
+			warnings = append(warnings, fmt.Sprintf("aggregate override for field %q failed — values may be from the metadata source", field))
 		}
 	}
 
@@ -1563,11 +1578,12 @@ func applyFusionMetadataOverrides(
 			if _, err := q.Exec(ctx, coalQuery, mergedID, src.id); err != nil {
 				slog.Warn("fusion metadata: COALESCE session fields failed",
 					"source", src.id, "error", err)
+				warnings = append(warnings, fmt.Sprintf("session fields COALESCE from source %s failed — some session data may be missing", src.id))
 			}
 		}
 	}
 
-	return nil
+	return warnings, nil
 }
 
 // FusionMergeRequest describes the body for POST /api/v1/fusion-merge (no target).
@@ -1714,7 +1730,9 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 1b. FieldMap-aware metadata overrides.
-	if err := applyFusionMetadataOverrides(ctx, tx, merged.ID, metadataSource.ID, req.FieldMap, activities); err != nil {
+	// earlyWarnings is appended to mergeWarnings after applyFusionTxExtras runs.
+	earlyWarnings, err := applyFusionMetadataOverrides(ctx, tx, merged.ID, metadataSource.ID, req.FieldMap, activities)
+	if err != nil {
 		slog.Error("fusion-merge: metadata overrides failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to apply metadata overrides", r.URL.Path)
 		return
@@ -1833,6 +1851,8 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "merge finalization failed: "+err.Error(), r.URL.Path)
 		return
 	}
+	// Prepend any warnings from the metadata-override step (runs before applyFusionTxExtras).
+	mergeWarnings = append(earlyWarnings, mergeWarnings...)
 
 	// 8. In legacy mode, hide sources via parent_id — single atomic UPDATE.
 	// Membership rows (step 9b) are the sole source-of-truth for fusion state.
