@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { useToast } from '@/lib/toast'
 import { fetchRecordingGroup, addGroupMember } from '@/api/recordingGroups'
@@ -42,6 +42,7 @@ export default function FusionGroupContextDialog({
   onClose,
 }: FusionGroupContextDialogProps) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { addToast } = useToast()
   const [isAdding, setIsAdding] = useState(false)
 
@@ -77,6 +78,11 @@ export default function FusionGroupContextDialog({
     setIsAdding(true)
     try {
       await addGroupMember(groupId, externalActivityId)
+      // Invalidate before navigating so that if navigation fails (back-button,
+      // route guard) the stale pair entry is already gone from the queue and
+      // the new group membership is visible without a manual F5.
+      await queryClient.invalidateQueries({ queryKey: ['recording-groups'] })
+      await queryClient.invalidateQueries({ queryKey: ['fusion-queue'] })
       navigate(`/fusion?group=${groupId}`)
     } catch (err) {
       const status = err instanceof ApiError ? err.status : 0
