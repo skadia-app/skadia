@@ -103,7 +103,7 @@ function buildAllStreams(motionProfile: MotionProfile): StreamDef[] {
 
 // ── Data processing (mirrors ActivityCharts) ──────────────────────────────────
 
-function buildChartData(streams: StreamPoint[]): ChartData {
+export function buildChartData(streams: StreamPoint[]): ChartData {
   const distanceKm: number[] = []
   const elapsedMin: number[] = []
   const altitude: number[] = []
@@ -115,12 +115,22 @@ function buildChartData(streams: StreamPoint[]): ChartData {
 
   const t0 = streams.length > 0 ? new Date(streams[0].time).getTime() : 0
 
+  // Dedup: consecutive samples with identical distance_m collapse. Last-non-NaN
+  // wins per metric; all-NaN stays NaN so connectNulls:false keeps gaps.
+  let lastDist: number | null = null
   for (const s of streams) {
-    distanceKm.push(
-      s.distance_m != null
-        ? s.distance_m / 1000
-        : distanceKm.length > 0 ? distanceKm[distanceKm.length - 1] : 0,
-    )
+    const dist: number = s.distance_m != null ? s.distance_m / 1000 : (lastDist ?? 0)
+    if (lastDist !== null && dist === lastDist) {
+      const idx = distanceKm.length - 1
+      if (s.altitude_m != null) altitude[idx] = s.altitude_m
+      if (s.heart_rate != null) heartRate[idx] = s.heart_rate
+      if (s.power_w != null) power[idx] = s.power_w
+      if (s.cadence != null) cadence[idx] = s.cadence
+      if (s.speed_ms != null) speed[idx] = s.speed_ms * 3.6
+      if (s.temperature_c != null) temperature[idx] = s.temperature_c
+      continue
+    }
+    distanceKm.push(dist)
     elapsedMin.push((new Date(s.time).getTime() - t0) / 60000)
     altitude.push(s.altitude_m ?? NaN)
     heartRate.push(s.heart_rate ?? NaN)
@@ -128,6 +138,7 @@ function buildChartData(streams: StreamPoint[]): ChartData {
     cadence.push(s.cadence ?? NaN)
     speed.push(s.speed_ms != null ? s.speed_ms * 3.6 : NaN)
     temperature.push(s.temperature_c ?? NaN)
+    lastDist = dist
   }
 
   const validDist = distanceKm.filter(v => !isNaN(v) && isFinite(v))
