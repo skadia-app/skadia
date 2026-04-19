@@ -61,6 +61,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -3086,22 +3087,230 @@ func TestTransitiveFusionPhotoRestore(t *testing.T) {
 // TestCopyRelatedTablesUnionPartialFailureRollsBack covers Round-2 critic Finding #21:
 // the Batch-1 fix made copyRelatedTablesUnion errors fatal (return err instead of
 // slog.Warn), so the caller (applyFusionTxExtras) rolls back the TX on failure.
-// No test currently verifies this rollback path.
 //
-// Inducing a mid-union DB failure without a mock pgx.Tx is not straightforward:
-//   - pgx provides no "fail next Exec" hook.
-//   - Constraint violations require pre-seeding that is invalid only mid-TX.
-//   - Wrapping pgx.Tx with an interceptor needs a mock-Querier infrastructure
-//     that does not yet exist in this test suite.
+// Strategy: inject a TxFactory that wraps the real pgx.Tx with a mockTx that
+// returns an error when the SQL touches "activity_photos" — the first Exec inside
+// copyRelatedTablesUnion (UPDATE activity_photos …).  This simulates a partial
+// failure mid-union and verifies the TX is fully rolled back.
 //
-// For now this test is skipped with a TODO.  The guard (return err path in
-// copyRelatedTablesUnion) is exercised only at the compile-time level today.
-// A follow-up ticket is created at docs/internal/2026-04-16-fusion-partial-failure-test.md.
-//
-// See also: the TODO block at the end of this file for related skipped tests.
+// Three assertions:
+//  1. No merged activity row exists after the failed merge (TX rolled back).
+//  2. Source photos and geo_tags are intact — sources not partially modified.
+//  3. A clean retry without the injected error succeeds (201).
 func TestCopyRelatedTablesUnionPartialFailureRollsBack(t *testing.T) {
-	t.Skip("TODO: induce mid-union failure — requires mock Querier infrastructure. " +
-		"See Finding #21 from Round-2 critic and docs/internal/2026-04-16-fusion-partial-failure-test.md")
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+
+	base := time.Date(2024, 11, 1, 9, 0, 0, 0, time.UTC)
+	lat, lng := fusionPtrF64(47.5), fusionPtrF64(11.0)
+	insertStreams(t, db, actA, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(130)},
+		{Time: base.Add(time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(132)},
+	})
+	insertStreams(t, db, actB, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, PowerW: fusionPtrI16(200)},
+		{Time: base.Add(time.Second), Lat: lat, Lng: lng, PowerW: fusionPtrI16(205)},
+	})
+
+	// Insert 1 photo per source.
+	insertP := func(activityID, hash string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO activity_photos
+			  (user_id, activity_id, original_filename, content_type, file_size_bytes, file_hash)
+			 VALUES ($1, $2, 'pf-test.jpg', 'image/jpeg', 512, $3)`,
+			userID, activityID, hash,
+		); err != nil {
+			t.Fatalf("insertP %s: %v", hash, err)
+		}
+	}
+	insertP(actA, "pf-hash-a")
+	insertP(actB, "pf-hash-b")
+
+	// Insert 1 geo_tag per source.
+	insertG := func(activityID string, osmID int64) {
+		t.Helper()
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO activity_geo_tags (activity_id, category, name, osm_id)
+			 VALUES ($1, 'peak', 'PF Test Peak', $2)`,
+			activityID, osmID,
+		); err != nil {
+			t.Fatalf("insertG osm=%d: %v", osmID, err)
+		}
+	}
+	insertG(actA, 9901)
+	insertG(actB, 9902)
+
+	countPhotos := func(activityID string) int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM activity_photos WHERE activity_id = $1`, activityID,
+		).Scan(&n); err != nil {
+			t.Fatalf("countPhotos %s: %v", activityID, err)
+		}
+		return n
+	}
+	countGeoTags := func(activityID string) int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM activity_geo_tags WHERE activity_id = $1`, activityID,
+		).Scan(&n); err != nil {
+			t.Fatalf("countGeoTags %s: %v", activityID, err)
+		}
+		return n
+	}
+	activityExists := func(id string) bool {
+		t.Helper()
+		var exists bool
+		if err := pool.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM activities WHERE id = $1)`, id,
+		).Scan(&exists); err != nil {
+			t.Fatalf("activityExists %s: %v", id, err)
+		}
+		return exists
+	}
+
+	// Pre-condition checks.
+	if n := countPhotos(actA); n != 1 {
+		t.Fatalf("pre: actA photos want 1 got %d", n)
+	}
+	if n := countPhotos(actB); n != 1 {
+		t.Fatalf("pre: actB photos want 1 got %d", n)
+	}
+	if n := countGeoTags(actA); n != 1 {
+		t.Fatalf("pre: actA geo_tags want 1 got %d", n)
+	}
+	if n := countGeoTags(actB); n != 1 {
+		t.Fatalf("pre: actB geo_tags want 1 got %d", n)
+	}
+
+	// Build the request body used for both the failing and the clean attempt.
+	reqBodyStr := fmt.Sprintf(
+		`{"sources":[%q,%q],"field_map":{"hr":%q,"power":%q},"tags_merge":false}`,
+		actA, actB, actA, actB,
+	)
+	doFusion := func(h *Handler) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
+			strings.NewReader(reqBodyStr))
+		r.Header.Set("Content-Type", "application/json")
+		r = r.WithContext(context.WithValue(r.Context(), middleware.UserIDKey, userID))
+		rr := httptest.NewRecorder()
+		h.FusionMerge(rr, r)
+		return rr
+	}
+
+	// ── Attempt 1: injection enabled ─────────────────────────────────────────
+
+	// TxFactory injects a mockTx that fails when SQL touches "activity_photos".
+	// This is the first Exec inside copyRelatedTablesUnion (UPDATE activity_photos …).
+	injectedErr := fmt.Errorf("injected: activity_photos update failure")
+	hFailing := &Handler{
+		DB: db,
+		TxFactory: func(txCtx context.Context) (pgx.Tx, error) {
+			realTx, err := db.Pool.Begin(txCtx)
+			if err != nil {
+				return nil, err
+			}
+			return &mockTx{
+				Tx:          realTx,
+				shouldFail:  sqlContains("activity_photos"),
+				injectedErr: injectedErr,
+			}, nil
+		},
+	}
+
+	rr1 := doFusion(hFailing)
+
+	// The merge must have failed (500 — injection hit before any commit).
+	if rr1.Code == http.StatusCreated {
+		t.Fatalf("attempt-1: expected failure (5xx), got 201 — injection did not fire")
+	}
+	if rr1.Code < 500 {
+		t.Fatalf("attempt-1: expected 5xx status, got %d — body: %s", rr1.Code, rr1.Body.String())
+	}
+
+	// ── Assertion 1: no merged activity row ───────────────────────────────────
+	// Extract the merged ID from the body if it was accidentally written, or scan
+	// for any activity created after the test started that is not actA or actB.
+	var unexpectedMergedID string
+	rows, err := pool.Query(ctx,
+		`SELECT id FROM activities WHERE user_id = $1 AND id NOT IN ($2, $3)`,
+		userID, actA, actB,
+	)
+	if err != nil {
+		t.Fatalf("query for unexpected merged activities: %v", err)
+	}
+	for rows.Next() {
+		if err := rows.Scan(&unexpectedMergedID); err != nil {
+			t.Fatalf("scan merged id: %v", err)
+		}
+		t.Errorf("assertion 1 FAILED: unexpected activity %s exists after failed merge", unexpectedMergedID)
+	}
+	rows.Close()
+	if unexpectedMergedID != "" {
+		t.FailNow()
+	}
+
+	// ── Assertion 2: source photo + geo_tag references intact ─────────────────
+	if n := countPhotos(actA); n != 1 {
+		t.Errorf("assertion 2 FAILED: actA photos: want 1 got %d (TX rollback missing)", n)
+	}
+	if n := countPhotos(actB); n != 1 {
+		t.Errorf("assertion 2 FAILED: actB photos: want 1 got %d (TX rollback missing)", n)
+	}
+	if n := countGeoTags(actA); n != 1 {
+		t.Errorf("assertion 2 FAILED: actA geo_tags: want 1 got %d", n)
+	}
+	if n := countGeoTags(actB); n != 1 {
+		t.Errorf("assertion 2 FAILED: actB geo_tags: want 1 got %d", n)
+	}
+	// Verify photos still point to their original activities (not reassigned to any merged ID).
+	var photoActA, photoActB string
+	if err := pool.QueryRow(ctx,
+		`SELECT activity_id FROM activity_photos WHERE file_hash = 'pf-hash-a'`,
+	).Scan(&photoActA); err != nil {
+		t.Fatalf("read photo activity_id for actA: %v", err)
+	}
+	if photoActA != actA {
+		t.Errorf("assertion 2 FAILED: actA photo reassigned to %s (expected %s)", photoActA, actA)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT activity_id FROM activity_photos WHERE file_hash = 'pf-hash-b'`,
+	).Scan(&photoActB); err != nil {
+		t.Fatalf("read photo activity_id for actB: %v", err)
+	}
+	if photoActB != actB {
+		t.Errorf("assertion 2 FAILED: actB photo reassigned to %s (expected %s)", photoActB, actB)
+	}
+
+	// ── Assertion 3: clean retry succeeds ─────────────────────────────────────
+	hClean := &Handler{DB: db} // no TxFactory — uses real Pool.Begin
+	rr2 := doFusion(hClean)
+	if rr2.Code != http.StatusCreated {
+		t.Fatalf("assertion 3 FAILED: clean retry got %d — body: %s", rr2.Code, rr2.Body.String())
+	}
+
+	var mergeResp struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(rr2.Body).Decode(&mergeResp); err != nil {
+		t.Fatalf("decode clean merge response: %v", err)
+	}
+	if !activityExists(mergeResp.ID) {
+		t.Errorf("assertion 3 FAILED: merged activity %s not found after clean retry", mergeResp.ID)
+	}
+
+	t.Logf("TestCopyRelatedTablesUnionPartialFailureRollsBack: "+
+		"injection fired (5xx=%d), rollback verified (no leaked activity), "+
+		"clean retry succeeded (201, merged=%s)", rr1.Code, mergeResp.ID)
 }
 
 // ─── Phase 3b: Elevation from Streams ─────────────────────────────────────────
