@@ -265,11 +265,12 @@ export function useRoutePlanner() {
       // the latest state, even with React 19 concurrent batching).
       setState(s => {
         const updated = assignWaypointTypes([...s.waypoints, newWp])
-        if (updated.length >= 2) {
+        if (updated.length >= 2 && s.profileConfig) {
           const prevWp = updated[updated.length - 2]
+          const config = s.profileConfig
           // Fire segment calculation outside the render cycle via microtask
           void Promise.resolve().then(() =>
-            _calculateSegment(prevWp, newWp, s.profileConfig, s.routingEngine, s.brouterProfile),
+            _calculateSegment(prevWp, newWp, config, s.routingEngine, s.brouterProfile),
           )
         }
         return { ...s, waypoints: updated }
@@ -305,11 +306,14 @@ export function useRoutePlanner() {
           if (idx > 0) pairs.push([newWaypoints[idx - 1], newWaypoints[idx]])
           if (idx < newWaypoints.length - 1) pairs.push([newWaypoints[idx], newWaypoints[idx + 1]])
           // Fire calculation as microtask (React 19 safe)
-          void Promise.resolve().then(async () => {
-            for (const [from, to] of pairs) {
-              await _calculateSegment(from, to, s.profileConfig, s.routingEngine, s.brouterProfile)
-            }
-          })
+          if (s.profileConfig) {
+            const config = s.profileConfig
+            void Promise.resolve().then(async () => {
+              for (const [from, to] of pairs) {
+                await _calculateSegment(from, to, config, s.routingEngine, s.brouterProfile)
+              }
+            })
+          }
         }
         return { ...s, waypoints: newWaypoints }
       })
@@ -402,7 +406,7 @@ export function useRoutePlanner() {
         // Capture values for side effect outside setState
         const fromWp = s.waypoints.find(w => w.id === seg.from_waypoint)
         const toWp = s.waypoints.find(w => w.id === seg.to_waypoint)
-        if (fromWp && toWp) {
+        if (fromWp && toWp && s.profileConfig) {
           needsRecalc = { from: fromWp, to: toWp, config: s.profileConfig, engine: s.routingEngine, profile: s.brouterProfile }
         }
       }

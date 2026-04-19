@@ -112,6 +112,31 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
     expect(result.current.profileConfig).toBeNull()
   })
 
+  it('addWaypoint before mount-fetch resolves does not crash (profileConfig still null)', async () => {
+    // Use a controlled promise to keep mount-fetch unresolved
+    let resolveMount: (v: any) => void
+    const mountPromise = new Promise<any>(r => { resolveMount = r })
+    const { getProfileDefaults: fetchProfileDefaults } = await import('@/api/routes')
+    vi.mocked(fetchProfileDefaults).mockImplementationOnce(() => mountPromise)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    expect(result.current.profileConfig).toBeNull()
+
+    // addWaypoint while profileConfig is null — must not throw
+    await act(async () => {
+      result.current.addWaypoint([47.0, 11.0])
+    })
+
+    // Waypoint state should still update (user expects it)
+    expect(result.current.waypoints.length).toBeGreaterThan(0)
+
+    // Resolve mount-fetch so cleanup is clean
+    await act(async () => {
+      resolveMount({ profile: 'hiking', uphill_cost: 7 })
+      await new Promise(r => setTimeout(r, 0))
+    })
+  })
+
   it('mount-fetch does not overwrite profileConfig set by loadRoute', async () => {
     // Control the mount-fetch: it will not resolve until we say so
     let resolveMountFetch!: (v: any) => void
