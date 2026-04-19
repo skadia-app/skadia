@@ -321,3 +321,72 @@ func TestAddGroupMember_RejectsFusionSource(t *testing.T) {
 
 	t.Logf("R3-3: AddGroupMember correctly rejected fusion-source actA with 400 — OK")
 }
+
+// ─── 409 Conflict: activity already in a different group ─────────────────────
+
+// TestAddGroupMember_Conflict409 verifies that adding an activity that already
+// belongs to a *different* recording group returns 409 Conflict.
+//
+// Setup:
+//   - actX is created and added to group G2.
+//   - POST /recording-groups/G1/members {activity_id: actX} → 409.
+//   - Response body must contain "already" (substring, wording-change safe).
+func TestAddGroupMember_Conflict409(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+
+	// G1: two members, actX will NOT be added here in the setup.
+	act1 := insertMinimalActivity(t, db, userID)
+	act2 := insertMinimalActivity(t, db, userID)
+	g1, err := db.CreateRecordingGroup(ctx, userID, []string{act1, act2}, act1, "")
+	if err != nil {
+		t.Fatalf("CreateRecordingGroup G1: %v", err)
+	}
+
+	// G2: actX is a member here.
+	actX := insertMinimalActivity(t, db, userID)
+	act3 := insertMinimalActivity(t, db, userID)
+	_, err = db.CreateRecordingGroup(ctx, userID, []string{actX, act3}, actX, "")
+	if err != nil {
+		t.Fatalf("CreateRecordingGroup G2: %v", err)
+	}
+
+	// Attempt to add actX (already in G2) to G1 — must return 409 Conflict.
+	h := &Handler{DB: db}
+
+	body, _ := json.Marshal(map[string]string{"activity_id": actX})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/recording-groups/"+g1.ID+"/members", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", g1.ID)
+	req = req.WithContext(context.WithValue(
+		context.WithValue(req.Context(), middleware.UserIDKey, userID),
+		chi.RouteCtxKey, rctx,
+	))
+
+	rr := httptest.NewRecorder()
+	h.AddGroupMember(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict, got %d — body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Response body must mention "already" (wording-stable substring).
+	if !strings.Contains(rr.Body.String(), "already") {
+		t.Errorf("expected 'already' in conflict response body, got: %s", rr.Body.String())
+	}
+
+	// actX must remain only in G2, not added to G1.
+	g1Members, err := db.GetRecordingGroupMembers(ctx, g1.ID)
+	if err != nil {
+		t.Fatalf("GetRecordingGroupMembers G1: %v", err)
+	}
+	for _, m := range g1Members {
+		if m.ActivityID == actX {
+			t.Errorf("actX was added to G1 despite 409 response")
+		}
+	}
+}
+
