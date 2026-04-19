@@ -3,6 +3,8 @@ package handler
 import (
 	"fmt"
 	"slices"
+
+	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
 // outdoorThresholds bundles fire-trigger + coverage parameters for F26 descriptors.
@@ -70,6 +72,7 @@ func assignLabels(
 	selectedIdx []int,
 	targetDistanceM float64,
 	coverageAvailable bool,
+	profile string, // NEW
 ) []LabeledRoute {
 	if len(selectedIdx) == 0 {
 		return nil
@@ -119,6 +122,8 @@ func assignLabels(
 		}
 	}
 
+	thresholds := thresholdsFor(profile)
+
 	// Build candidate slices for descriptor comparison (all candidates in pool
 	// that were selected, excluding the one being described).
 	result := make([]LabeledRoute, k)
@@ -138,7 +143,7 @@ func assignLabels(
 			VariantID:       labelKeys[i],
 			VariantLabelKey: labelKeys[i],
 			Descriptors: computeDescriptorsFor(
-				me, others, targetDistanceM, coverageAvailable,
+				me, others, targetDistanceM, coverageAvailable, thresholds,
 			),
 		}
 	}
@@ -160,6 +165,7 @@ func computeDescriptorsFor(
 	others []RouteCandidate,
 	targetDistanceM float64,
 	coverageAvailable bool,
+	thresholds outdoorThresholds,
 ) []VariantDescriptor {
 	if len(others) == 0 {
 		return nil
@@ -285,6 +291,110 @@ func computeDescriptorsFor(
 				Magnitude:    float64(comboDeficit),
 				DisplayValue: fmt.Sprintf("%.0f%%", myCombo*100),
 			})
+		}
+	}
+
+	// --- F26 outdoor descriptors ---
+
+	// mtb_technical
+	if me.TaggedPctMtb >= thresholds.CoverageGatePct && me.MaxMtbScale >= thresholds.MtbTechnicalMin {
+		var maxOther uint8
+		for _, o := range others {
+			if o.MaxMtbScale > maxOther {
+				maxOther = o.MaxMtbScale
+			}
+		}
+		if me.MaxMtbScale > maxOther {
+			out = append(out, VariantDescriptor{
+				Key:          "mtb_technical",
+				Magnitude:    float64(me.MaxMtbScale),
+				DisplayValue: "bis " + graph.MtbScaleShort(me.MaxMtbScale),
+			})
+		}
+	} else if me.MaxMtbScale >= thresholds.MtbTechnicalMin {
+		routingMetricDescriptorCoverageGated.WithLabelValues("mtb_technical").Inc()
+	}
+
+	// alpine_hiking
+	if me.TaggedPctSac >= thresholds.CoverageGatePct && me.MaxSacScale >= thresholds.AlpineHikingMin {
+		var maxOther uint8
+		for _, o := range others {
+			if o.MaxSacScale > maxOther {
+				maxOther = o.MaxSacScale
+			}
+		}
+		if me.MaxSacScale > maxOther {
+			out = append(out, VariantDescriptor{
+				Key:          "alpine_hiking",
+				Magnitude:    float64(me.MaxSacScale),
+				DisplayValue: "bis " + graph.SacScaleShort(me.MaxSacScale),
+			})
+		}
+	} else if me.MaxSacScale >= thresholds.AlpineHikingMin {
+		routingMetricDescriptorCoverageGated.WithLabelValues("alpine_hiking").Inc()
+	}
+
+	// exposed — binary, 1% coverage floor
+	const exposedCoverageFloor float32 = 0.01
+	hasMeVia := me.HasViaFerrataHighway || me.MaxViaFerrataScale > 0
+	if hasMeVia && me.TaggedPctVia >= exposedCoverageFloor {
+		hasOther := false
+		for _, o := range others {
+			if o.HasViaFerrataHighway || o.MaxViaFerrataScale > 0 {
+				hasOther = true
+				break
+			}
+		}
+		if !hasOther {
+			var display string
+			if me.MaxViaFerrataScale > 0 {
+				display = "bis " + graph.ViaFerrataScaleShort(me.MaxViaFerrataScale)
+			} else {
+				display = "Klettersteig-Abschnitt"
+			}
+			out = append(out, VariantDescriptor{
+				Key:          "exposed",
+				Magnitude:    float64(me.MaxViaFerrataScale),
+				DisplayValue: display,
+			})
+		}
+	} else if hasMeVia {
+		routingMetricDescriptorCoverageGated.WithLabelValues("exposed").Inc()
+	}
+
+	// low_visibility — two-stage trigger
+	if me.TaggedPctTv >= thresholds.CoverageGatePct {
+		maxTrigger := me.MaxTrailVisibility >= thresholds.LowVisMaxTrigger
+		intTrigger := false
+		if !maxTrigger && me.IntermediatePctTv >= thresholds.LowVisIntPct {
+			var maxOtherInt float32
+			for _, o := range others {
+				if o.IntermediatePctTv > maxOtherInt {
+					maxOtherInt = o.IntermediatePctTv
+				}
+			}
+			if me.IntermediatePctTv-maxOtherInt >= thresholds.LowVisIntDelta {
+				intTrigger = true
+			}
+		}
+		if maxTrigger || intTrigger {
+			var display string
+			if me.MaxTrailVisibility >= 4 {
+				display = "bis " + tvDisplayName(me.MaxTrailVisibility)
+			} else {
+				display = fmt.Sprintf("%.0f%% mäßig sichtbar", me.IntermediatePctTv*100)
+			}
+			out = append(out, VariantDescriptor{
+				Key:          "low_visibility",
+				Magnitude:    float64(me.MaxTrailVisibility),
+				DisplayValue: display,
+			})
+		}
+	} else {
+		wouldFireMax := me.MaxTrailVisibility >= thresholds.LowVisMaxTrigger
+		wouldFireInt := me.IntermediatePctTv >= thresholds.LowVisIntPct
+		if wouldFireMax || wouldFireInt {
+			routingMetricDescriptorCoverageGated.WithLabelValues("low_visibility").Inc()
 		}
 	}
 

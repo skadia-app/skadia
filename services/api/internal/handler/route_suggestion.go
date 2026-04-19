@@ -553,7 +553,7 @@ func (h *Handler) suggestRoutesV2Tail(
 	selectedIdx := routing.PickDiverseIndices(metrics, req.TargetDistanceM, req.TargetAscentM, maxVariants)
 
 	// 7. Assign labels and descriptors.
-	labeled := assignLabels(built, selectedIdx, req.TargetDistanceM, coverageAvailable)
+	labeled := assignLabels(built, selectedIdx, req.TargetDistanceM, coverageAvailable, mappedProfile)
 	if coverageAvailable {
 		routingMetricCoverageAvailable.WithLabelValues("true").Inc()
 	} else {
@@ -606,6 +606,26 @@ func (h *Handler) suggestRoutesV2Tail(
 			routingMetricDescriptorAssigned.WithLabelValues(d.Key).Inc()
 		}
 	}
+
+	// 9b. F26 outdoor coverage availability — once per response.
+	const outdoorGate = 0.20
+	const exposedGate = 0.01
+	anyOutdoor := false
+	for _, lr := range labeled {
+		c := lr.Candidate
+		if c.TaggedPctMtb >= outdoorGate ||
+			c.TaggedPctSac >= outdoorGate ||
+			c.TaggedPctTv >= outdoorGate ||
+			c.TaggedPctVia >= exposedGate {
+			anyOutdoor = true
+			break
+		}
+	}
+	label := "false"
+	if anyOutdoor {
+		label = "true"
+	}
+	routingMetricOutdoorCoverageAvailable.WithLabelValues(label).Inc()
 
 	// 10. Build response suggestions.
 	suggestions := make([]RouteSuggestion, 0, len(labeled))
