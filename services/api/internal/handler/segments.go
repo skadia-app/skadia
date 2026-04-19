@@ -505,23 +505,54 @@ func (h *Handler) recomputeSegmentEffortsForActivity(ctx context.Context, segmen
 	return nil
 }
 
-// RecomputeEffortsForActivity iterates all segments whose track overlaps
-// with the activity's bbox (from activity_tracks) and recomputes their
-// efforts via recomputeSegmentEffortsForActivity. Used by postCommitFusionCleanup
+// RecomputeEffortsForActivity re-matches a single activity against all
+// spatially overlapping segments in one pass. Used by postCommitFusionCleanup
 // after a fusion-merge.
+//
+// Complexity:
+//
+//	Previously O(N²): collectSegmentEfforts was called once per overlapping
+//	segment (N calls, each loading the full GPS stream and running the spatial
+//	pre-filter).
+//
+//	Now O(N): collectSegmentEfforts is called exactly once for the activity.
+//	The returned efforts are grouped by segment_id in-memory, then each
+//	segment gets a dedicated transactional DELETE + batch-INSERT of only its
+//	slice of efforts.
 //
 // Table: activity_tracks.bbox (GEOMETRY Polygon 4326, Mig 000004).
 // segment_versions.track (GEOMETRY LineString 4326, Mig 000032 GIST-indexed).
 //
-// Unlike the general recomputeSegmentEfforts (which DELETEs all user efforts
-// for a segment and re-matches every activity), this path targets only the
-// single (segment_id, activity_id) tuple — O(N) per fusion where N is the
-// number of overlapping segments, not O(N×M).
-//
 // Per-segment failures are logged as warnings and do not abort the loop —
 // partial coverage is acceptable since the user can trigger a manual recompute.
 func (h *Handler) RecomputeEffortsForActivity(ctx context.Context, activityID, userID string) error {
-	rows, err := h.DB.Pool.Query(ctx, `
+	// 1. Load activity metadata required by collectSegmentEfforts.
+	act, err := h.DB.GetActivity(ctx, activityID)
+	if err != nil {
+		return fmt.Errorf("load activity for segment rematch: %w", err)
+	}
+	if act == nil {
+		return fmt.Errorf("activity %s not found for segment rematch", activityID)
+	}
+	subType := ""
+	if act.SubType != nil {
+		subType = *act.SubType
+	}
+
+	// 2. Collect all efforts for this activity in one pass (GPS stream loaded once).
+	allEfforts, _, _, err := collectSegmentEfforts(ctx, h.DB, activityID, userID, act.SportType, subType, act.GearID, act.StartedAt)
+	if err != nil {
+		return fmt.Errorf("collect efforts for activity rematch: %w", err)
+	}
+
+	// 3. Group efforts by segment_id for O(1) lookup per segment below.
+	effortsBySegment := make(map[string][]*model.SegmentEffort, len(allEfforts))
+	for _, e := range allEfforts {
+		effortsBySegment[e.SegmentID] = append(effortsBySegment[e.SegmentID], e)
+	}
+
+	// 4. Collect all overlapping segment IDs upfront (rows closed before TX loop).
+	queryRows, err := h.DB.Pool.Query(ctx, `
 		SELECT DISTINCT sv.segment_id
 		FROM segment_versions sv
 		JOIN activity_tracks t ON t.activity_id = $1
@@ -531,21 +562,72 @@ func (h *Handler) RecomputeEffortsForActivity(ctx context.Context, activityID, u
 	if err != nil {
 		return fmt.Errorf("query overlapping segments: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
+	var segmentIDs []string
+	for queryRows.Next() {
 		var segID string
-		if err := rows.Scan(&segID); err != nil {
+		if err := queryRows.Scan(&segID); err != nil {
+			queryRows.Close()
 			return fmt.Errorf("scan segment_id: %w", err)
 		}
-		if err := h.recomputeSegmentEffortsForActivity(ctx, segID, activityID, userID); err != nil {
-			slog.Warn("post-fusion segment recompute failed",
+		segmentIDs = append(segmentIDs, segID)
+	}
+	if err := queryRows.Err(); err != nil {
+		queryRows.Close()
+		return fmt.Errorf("iterate overlapping segments: %w", err)
+	}
+	queryRows.Close()
+
+	// 5. Per segment: transactional DELETE + batch-INSERT of only that segment's efforts.
+	// Rank updates happen outside the transaction (non-critical, idempotent).
+	for _, segID := range segmentIDs {
+		efforts := effortsBySegment[segID] // nil/empty when no GPS match for this segment
+
+		tx, err := h.beginTx(ctx)
+		if err != nil {
+			slog.Warn("post-fusion segment recompute: begin tx failed",
+				"activity_id", activityID,
+				"segment_id", segID,
+				"err", err)
+			continue
+		}
+
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM segment_efforts WHERE segment_id = $1 AND activity_id = $2`,
+			segID, activityID,
+		); err != nil {
+			tx.Rollback(ctx) //nolint:errcheck
+			slog.Warn("post-fusion segment recompute: delete failed",
+				"activity_id", activityID,
+				"segment_id", segID,
+				"err", err)
+			continue
+		}
+
+		if err := database.InsertSegmentEffortsBatchTx(ctx, tx, efforts); err != nil {
+			tx.Rollback(ctx) //nolint:errcheck
+			slog.Warn("post-fusion segment recompute: insert failed",
+				"activity_id", activityID,
+				"segment_id", segID,
+				"err", err)
+			continue
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			slog.Warn("post-fusion segment recompute: commit failed",
+				"activity_id", activityID,
+				"segment_id", segID,
+				"err", err)
+			continue
+		}
+
+		if err := h.DB.UpdateSegmentEffortRanks(ctx, segID); err != nil {
+			slog.Warn("post-fusion segment recompute: update ranks failed",
 				"activity_id", activityID,
 				"segment_id", segID,
 				"err", err)
 		}
 	}
-	return rows.Err()
+	return nil
 }
 
 // RecomputeSegment re-matches all of the user's GPS activities against a single segment.
