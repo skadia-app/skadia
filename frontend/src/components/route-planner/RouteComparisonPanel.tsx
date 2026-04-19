@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { RouteSuggestion } from '@/api/routes'
 import { variantLabel, loopQualityDisplay, descriptorLabel, suggestRoutesStrings } from '@/lib/strings/suggest-routes'
 import type { VariantDescriptor } from '@/api/routes'
 import { useToast } from '@/lib/toast'
+import { F26_KEYS } from '@/lib/descriptorFilter'
 
 export const SUGGESTION_COLORS = ['#F97316', '#3B82F6', '#22C55E', '#A855F7', '#EF4444']
 // Orange, Blue, Green, Purple, Red — 5 distinct colors for up to 5 variants
@@ -14,6 +15,9 @@ interface RouteComparisonPanelProps {
   onHover: (index: number | null) => void
   onSelect: (index: number) => void
   onCancel: () => void
+  // NEW (F26)
+  onHoverDescriptor?: (key: string | null) => void
+  onClickDescriptor?: (key: string) => void
 }
 
 function formatDistance(meters: number): string {
@@ -34,9 +38,21 @@ export default function RouteComparisonPanel({
   onHover,
   onSelect,
   onCancel,
+  onHoverDescriptor,
+  onClickDescriptor,
 }: RouteComparisonPanelProps) {
   const { addToast } = useToast()
   const toastShown = useRef(false)
+
+  const [expandedRoutes, setExpandedRoutes] = useState<Set<number>>(new Set())
+  function toggleExpand(routeIdx: number) {
+    setExpandedRoutes(prev => {
+      const next = new Set(prev)
+      if (next.has(routeIdx)) next.delete(routeIdx)
+      else next.add(routeIdx)
+      return next
+    })
+  }
 
   useEffect(() => {
     if (toastShown.current || !suggestions || suggestions.length === 0) return
@@ -110,19 +126,61 @@ export default function RouteComparisonPanel({
                 <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 truncate">
                   {variantLabel(s.variant_id || '')}
                 </span>
-                {s.variant_descriptors && s.variant_descriptors.length > 0 && (
-                  <div className="flex flex-wrap gap-0.5">
-                    {s.variant_descriptors.map((d: VariantDescriptor, idx: number) => (
-                      <span
-                        key={idx}
-                        className="text-[9px] leading-tight px-1 py-px rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 whitespace-nowrap"
-                        title={descriptorLabel(d.key, d.display_value)}
-                      >
-                        {descriptorLabel(d.key, d.display_value)}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                {s.variant_descriptors && s.variant_descriptors.length > 0 && (() => {
+                  const sorted = [...s.variant_descriptors].sort((a, b) => b.magnitude - a.magnitude)
+                  const isExpanded = expandedRoutes.has(i)
+                  const visible = isExpanded ? sorted : sorted.slice(0, 3)
+                  const remaining = sorted.length - 3
+                  return (
+                    <div className="flex flex-wrap gap-0.5">
+                      {visible.map((d: VariantDescriptor, idx: number) => {
+                        const label = descriptorLabel(d.key, d.display_value)
+                        const interactive = F26_KEYS.has(d.key)
+                        if (interactive) {
+                          return (
+                            <button
+                              key={idx}
+                              type="button"
+                              className="descriptor-chip text-[9px] leading-tight px-1 py-px rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 whitespace-nowrap hover:bg-neutral-200 dark:hover:bg-neutral-700"
+                              title={label}
+                              onMouseEnter={() => onHoverDescriptor?.(d.key)}
+                              onMouseLeave={(e) => {
+                                // Race-fix: if pointer moves directly to another descriptor chip,
+                                // that chip's onMouseEnter has not yet fired; naive null-clear here
+                                // would overwrite the incoming chip's hover. Skip clear if
+                                // relatedTarget is any other .descriptor-chip in this panel.
+                                const rt = e.relatedTarget as HTMLElement | null
+                                if (rt && rt.closest?.('.descriptor-chip')) return
+                                onHoverDescriptor?.(null)
+                              }}
+                              onClick={(e) => { e.stopPropagation(); onClickDescriptor?.(d.key) }}
+                            >
+                              {label}
+                            </button>
+                          )
+                        }
+                        return (
+                          <span
+                            key={idx}
+                            className="text-[9px] leading-tight px-1 py-px rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 whitespace-nowrap"
+                            title={label}
+                          >
+                            {label}
+                          </span>
+                        )
+                      })}
+                      {!isExpanded && remaining > 0 && (
+                        <button
+                          type="button"
+                          className="text-[9px] leading-tight px-1 py-px rounded bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300"
+                          onClick={(e) => { e.stopPropagation(); toggleExpand(i) }}
+                        >
+                          +{remaining} weitere
+                        </button>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
 
               {/* Distance */}
