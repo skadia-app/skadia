@@ -253,7 +253,11 @@ func (db *DB) GetCachedFusionCandidates(ctx context.Context, userID string, limi
 		LEFT JOIN recording_group_members rgm_a ON rgm_a.activity_id = fc.activity_id_a
 		LEFT JOIN recording_group_members rgm_b ON rgm_b.activity_id = fc.activity_id_b
 		WHERE fc.user_id = $1 AND fc.dismissed_at IS NULL
-		AND NOT (rgm_a.group_id IS NOT NULL AND rgm_b.group_id IS NOT NULL AND rgm_a.group_id = rgm_b.group_id)
+		-- Exclude candidates where both activities are already in the *same* group.
+		-- If rgm_a.group_id IS NOT NULL and equals rgm_b.group_id, the SQL = operator
+		-- already implies rgm_b is also non-null, so the redundant rgm_b IS NOT NULL
+		-- guard is dropped. NULL cases (either activity not in any group) pass through.
+		AND NOT (rgm_a.group_id IS NOT NULL AND rgm_a.group_id = rgm_b.group_id)
 		ORDER BY fc.overlap_percent DESC
 		LIMIT $2`,
 		userID, limit,

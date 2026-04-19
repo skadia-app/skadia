@@ -282,24 +282,29 @@ func (h *Handler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
 	err = h.DB.AddRecordingGroupMember(r.Context(), groupID, body.ActivityID)
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
-			switch pgErr.Code {
-			case "23505": // unique_violation: activity already in a group
-				// Check if it is already a member of *this* group — idempotent case.
-				members, listErr := h.DB.GetRecordingGroupMembers(r.Context(), groupID)
-				if listErr == nil {
-					for _, m := range members {
-						if m.ActivityID == body.ActivityID {
-							// Already a member of this group — idempotent success.
-							httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-							return
-						}
-					}
-				}
-				// Activity belongs to a different group.
-				httputil.WriteError(w, http.StatusConflict, "Conflict", "activity already belongs to another recording group", r.URL.Path)
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			// unique_violation: the activity is already a member of some group.
+			// Use a targeted EXISTS query instead of fetching all members to
+			// determine whether it is *this* group (idempotent) or a different
+			// group (conflict). GetRecordingGroupMembers fetches 24-column JOINs
+			// for every member, which is wasteful for a simple membership check.
+			var alreadyInThisGroup bool
+			if qErr := h.DB.Pool.QueryRow(r.Context(),
+				`SELECT EXISTS(SELECT 1 FROM recording_group_members WHERE group_id = $1 AND activity_id = $2)`,
+				groupID, body.ActivityID,
+			).Scan(&alreadyInThisGroup); qErr != nil {
+				slog.Error("add group member: check existing membership", "error", qErr)
+				httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to check group membership", r.URL.Path)
 				return
 			}
+			if alreadyInThisGroup {
+				// Already a member of this group — idempotent success.
+				httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+				return
+			}
+			// Activity belongs to a different group.
+			httputil.WriteError(w, http.StatusConflict, "Conflict", "activity already belongs to another recording group", r.URL.Path)
+			return
 		}
 		slog.Error("add group member", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to add group member", r.URL.Path)
