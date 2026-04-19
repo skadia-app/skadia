@@ -56,6 +56,10 @@ type RouteSegment struct {
 	MtbScale  string `json:"mtb_scale,omitempty"`
 	Tracktype string `json:"tracktype,omitempty"`
 	OsmWayID  int64  `json:"osm_way_id"`
+	// F26 additions
+	MtbScaleUphill  string `json:"mtb_scale_uphill,omitempty"`
+	ViaFerrataScale string `json:"via_ferrata_scale,omitempty"`
+	TrailVisibility string `json:"trail_visibility,omitempty"`
 }
 
 // PassStats contains timing/expansion metrics for debugging.

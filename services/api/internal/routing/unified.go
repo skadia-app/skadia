@@ -64,6 +64,11 @@ const (
 	unifiedCheckCancel   = 4096
 )
 
+// outdoorTags2Mask isolates F26-relevant Tags2 bits:
+//
+//	30-32 mtb:scale:uphill, 33-35 via_ferrata_scale, 36-38 trail_visibility.
+const outdoorTags2Mask uint64 = (0x7 << 30) | (0x7 << 33) | (0x7 << 36)
+
 // findRouteUnified — unified A* for pass0 and pass1.
 //
 // passCoeff > 1.0 for pass0 (inadmissible A*), 0 for pass1 (Dijkstra).
@@ -519,6 +524,7 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 	edgeCoordStart := make([]int, nEdges)
 	// edgeTags1[i] = Tags1 for edge i (used for segment metadata)
 	edgeTags1 := make([]uint64, nEdges)
+	edgeTags2 := make([]uint64, nEdges)  // NEW — built via reader, not PathNode
 	// edgeHandles collects raw handles for WayID-based overlap detection.
 	edgeHandles := make([]uint64, 0, nEdges)
 
@@ -562,6 +568,7 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 
 		// A09: Tags1 for segment metadata — stored in nodeState during A*, O(1) lookup.
 		edgeTags1[i] = state.nodes[chain[i+1].nodeID].EdgeTags1
+		edgeTags2[i] = reader.EdgeTags2(edgeHandle) // NEW — local var, not slice lookup
 
 		// Phase 1b.6: populate DistSum/QualitySum/AscentSum/DescentSum accumulators.
 		// Use EdgeCostRaw (unpenalized) so QualitySum reflects true path quality.
@@ -597,7 +604,7 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 
 	// Build RouteSegments: group contiguous edges with same Tags1
 	segments := buildSegmentsUnified(nEdges, edgeCoordStart,
-		edgeTags1, len(coords)-1)
+		edgeTags1, edgeTags2, len(coords)-1)
 
 	// Source-side: insert partial edge geometry from projection point to seed node.
 	// Without this, there's a straight line (Luftlinie) from the projection to the
@@ -641,12 +648,12 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 	}
 }
 
-// buildSegmentsUnified groups edges into RouteSegments by Tags1 identity.
-// Tags1 encodes highway, surface, tracktype, sac_scale, mtb_scale — changes in
-// any of these start a new segment. This mirrors the old makeSegment/OSMIdx logic
-// but without requiring EdgeOSMIdx (which is graph-local, not available via GraphReader).
+// buildSegmentsUnified groups edges into RouteSegments by Tags1 identity and
+// outdoor-relevant Tags2 bits (outdoorTags2Mask). Changes in Tags1 or in any of
+// mtb:scale:uphill / via_ferrata_scale / trail_visibility start a new segment.
+// Forest/noise bits in Tags2 do NOT split segments.
 func buildSegmentsUnified(nEdges int,
-	edgeCoordStart []int, edgeTags1 []uint64,
+	edgeCoordStart []int, edgeTags1, edgeTags2 []uint64,
 	lastCoordIdx int) []RouteSegment {
 
 	if nEdges == 0 {
@@ -654,19 +661,20 @@ func buildSegmentsUnified(nEdges int,
 	}
 
 	var segments []RouteSegment
-	curTags := edgeTags1[0]
+	curTags1 := edgeTags1[0]
+	curTags2 := edgeTags2[0]
 	segFromCoord := edgeCoordStart[0]
 
 	for i := 1; i < nEdges; i++ {
-		if edgeTags1[i] != curTags {
-			segments = append(segments, makeSegmentFromTags(segFromCoord, edgeCoordStart[i], curTags))
+		if edgeTags1[i] != curTags1 ||
+			(edgeTags2[i]&outdoorTags2Mask) != (curTags2&outdoorTags2Mask) {
+			segments = append(segments, makeSegmentFromTags(segFromCoord, edgeCoordStart[i], curTags1, curTags2))
 			segFromCoord = edgeCoordStart[i]
-			curTags = edgeTags1[i]
+			curTags1 = edgeTags1[i]
+			curTags2 = edgeTags2[i]
 		}
 	}
-	// Final segment
-	segments = append(segments, makeSegmentFromTags(segFromCoord, lastCoordIdx, curTags))
-
+	segments = append(segments, makeSegmentFromTags(segFromCoord, lastCoordIdx, curTags1, curTags2))
 	return segments
 }
 
@@ -782,15 +790,31 @@ func extractPartialEdgeGeometry(reader GraphReader, ve *VirtualEndpoint,
 }
 
 // makeSegmentFromTags creates a RouteSegment from tag-encoded metadata.
-func makeSegmentFromTags(fromIdx, toIdx int, tags uint64) RouteSegment {
-	return RouteSegment{
+func makeSegmentFromTags(fromIdx, toIdx int, tags1, tags2 uint64) RouteSegment {
+	seg := RouteSegment{
 		FromIdx:   fromIdx,
 		ToIdx:     toIdx,
-		Highway:   graph.HighwayName(graph.DecodeHighway(tags)),
-		Surface:   graph.SurfaceName(graph.DecodeSurface(tags)),
-		SacScale:  graph.SacScaleName(uint8(graph.DecodeField(tags, 14, 3))),
-		MtbScale:  graph.MtbScaleName(uint8(graph.DecodeField(tags, 17, 3))),
-		Tracktype: graph.TrackTypeName(uint8(graph.DecodeField(tags, 11, 3))),
-		OsmWayID:  0, // Not available via GraphReader — filled by TiledGraphReader if needed
+		Highway:   graph.HighwayName(graph.DecodeHighway(tags1)),
+		Surface:   graph.SurfaceName(graph.DecodeSurface(tags1)),
+		Tracktype: graph.TrackTypeName(uint8(graph.DecodeField(tags1, 11, 3))),
+		OsmWayID:  0,
 	}
+	// Existing SacScale/MtbScale: switch raw→display-short (rev5 — no FE consumer of raw).
+	if sac := uint8(graph.DecodeField(tags1, 14, 3)); sac > 0 {
+		seg.SacScale = graph.SacScaleShort(sac)
+	}
+	if mtb := uint8(graph.DecodeField(tags1, 17, 3)); mtb > 0 {
+		seg.MtbScale = graph.MtbScaleShort(mtb)
+	}
+	// New F26 fields
+	if mtbUp := graph.DecodeMtbScaleUphill(tags2); mtbUp > 0 {
+		seg.MtbScaleUphill = graph.MtbScaleShort(mtbUp)
+	}
+	if vfs := graph.DecodeViaFerrataScale(tags2); vfs > 0 {
+		seg.ViaFerrataScale = graph.ViaFerrataScaleShort(vfs)
+	}
+	if tv := graph.DecodeTrailVisibility(tags2); tv > 0 {
+		seg.TrailVisibility = graph.TrailVisibilityName(tv) // raw OSM (rev5)
+	}
+	return seg
 }

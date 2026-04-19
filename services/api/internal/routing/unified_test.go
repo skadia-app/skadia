@@ -462,3 +462,23 @@ func TestFindRouteUnified_BasicRoute(t *testing.T) {
 		t.Error("distance should be > 0")
 	}
 }
+
+// tvBits encodes a trail_visibility value (0-7) into Tags2 bits 36-38.
+func tvBits(v uint8) uint64 { return uint64(v&0x7) << 36 }
+
+func TestBuildSegmentsUnified_Tags2OutdoorSplit(t *testing.T) {
+	segs := buildSegmentsUnified(2,
+		[]int{0, 2}, []uint64{16, 16}, []uint64{tvBits(2), tvBits(5)}, 4)
+	if len(segs) != 2 {
+		t.Errorf("expected 2 segments on tv-split; got %d", len(segs))
+	}
+}
+
+func TestBuildSegmentsUnified_Tags2NonOutdoorNoSplit(t *testing.T) {
+	// forest_pct (bits 0-6) is outside outdoorTags2Mask (bits 30-38).
+	segs := buildSegmentsUnified(2,
+		[]int{0, 2}, []uint64{16, 16}, []uint64{uint64(50), uint64(70)}, 4)
+	if len(segs) != 1 {
+		t.Errorf("expected 1 segment on non-outdoor diff; got %d", len(segs))
+	}
+}
