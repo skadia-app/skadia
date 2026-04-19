@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from 'react'
+import { useMemo, useState, useCallback, useEffect } from 'react'
 import StackedBar from '@/components/shared/StackedBar'
 import {
   SURFACE_GROUPS,
@@ -88,13 +88,23 @@ export default function RouteSurfacesBar({ segments, onHighlight, pinnedType = n
     }
   }, [segments])
 
+  // Belt-and-suspenders: clear stale hoveredType when pin is released without a
+  // subsequent mouse-move (covers the descriptor-click-unpin race condition).
+  useEffect(() => {
+    if (pinnedType === null) {
+      setHoveredType(null)
+    }
+  }, [pinnedType])
+
   const activeType = pinnedType ?? hoveredType
 
   const handleHwHover = useCallback((key: string | null) => {
     const next = key ? { kind: 'highway' as const, key } : null
     setHoveredType(next)
-    if (!pinnedType) onHighlight?.(next)
-  }, [pinnedType, onHighlight])
+    // Gate removed: useStickyHighlight's effective=hover??sticky already gives
+    // hover precedence over sticky, so unconditional emission is correct.
+    onHighlight?.(next)
+  }, [onHighlight])
 
   const handleHwPin = useCallback((key: string) => {
     const next = pinnedType?.key === key && pinnedType.kind === 'highway'
@@ -106,8 +116,9 @@ export default function RouteSurfacesBar({ segments, onHighlight, pinnedType = n
   const handleSfHover = useCallback((key: string | null) => {
     const next = key ? { kind: 'surface' as const, key } : null
     setHoveredType(next)
-    if (!pinnedType) onHighlight?.(next)
-  }, [pinnedType, onHighlight])
+    // Gate removed: see handleHwHover comment above.
+    onHighlight?.(next)
+  }, [onHighlight])
 
   const handleSfPin = useCallback((key: string) => {
     const next = pinnedType?.key === key && pinnedType.kind === 'surface'
