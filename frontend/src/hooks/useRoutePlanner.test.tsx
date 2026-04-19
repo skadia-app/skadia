@@ -13,7 +13,7 @@ vi.mock('@/api/routes', async () => {
   const actual = await vi.importActual<typeof import('@/api/routes')>('@/api/routes')
   return {
     ...actual,
-    getCapabilities: vi.fn().mockResolvedValue({ has_badrouter: true }),
+    getCapabilities: vi.fn().mockResolvedValue({ routing: true, offline_map: false, surface_enrichment: false, dem_correction: false, isochrone: false, route_suggestion: false, ml_service: false, import_path_enabled: false }),
     getProfileDefaults: vi.fn().mockResolvedValue({
       profile: 'hiking',
       uphill_cost: 7,
@@ -124,7 +124,7 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
 
     // addWaypoint while profileConfig is null — must not throw
     await act(async () => {
-      result.current.addWaypoint([47.0, 11.0])
+      await result.current.addWaypoint([47.0, 11.0])
     })
 
     // Waypoint state should still update (user expects it)
