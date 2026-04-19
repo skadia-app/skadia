@@ -68,6 +68,10 @@ type GraphReader interface {
 	// Returns 0 if handle is invalid.
 	EdgeTags2(handle uint64) uint64
 
+	// EdgeTags1 returns the primary OSM tag uint64 for an edge handle.
+	// Returns 0 if handle is invalid.
+	EdgeTags1(handle uint64) uint64
+
 	// EdgeDistanceCm returns the edge length in centimeters for a handle.
 	// Returns 0 if handle is invalid.
 	// Note: graph.Graph.EdgeDist stores centimeters (uint32); this method
@@ -240,6 +244,15 @@ func (r *SingleGraphReader) EdgeTags2(handle uint64) uint64 {
 		return 0
 	}
 	return g.EdgeTags2[edgeIdx]
+}
+
+func (r *SingleGraphReader) EdgeTags1(handle uint64) uint64 {
+	_, edgeIdx := SplitGlobalNodeID(handle)
+	g := r.G
+	if int(edgeIdx) >= len(g.EdgeTags1) {
+		return 0
+	}
+	return g.EdgeTags1[edgeIdx]
 }
 
 func (r *SingleGraphReader) EdgeDistanceCm(handle uint64) uint32 {

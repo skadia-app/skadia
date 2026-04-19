@@ -381,6 +381,15 @@ func (r *TiledGraphReader) EdgeTags2(handle uint64) uint64 {
 	return g.EdgeTags2[edgeIdx]
 }
 
+func (r *TiledGraphReader) EdgeTags1(handle uint64) uint64 {
+	tileID, edgeIdx := SplitGlobalNodeID(handle)
+	g := r.tile(tileID)
+	if g == nil || int(edgeIdx) >= len(g.EdgeTags1) {
+		return 0
+	}
+	return g.EdgeTags1[edgeIdx]
+}
+
 func (r *TiledGraphReader) EdgeDistanceCm(handle uint64) uint32 {
 	tileID, edgeIdx := SplitGlobalNodeID(handle)
 	g := r.tile(tileID)

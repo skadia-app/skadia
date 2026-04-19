@@ -10,12 +10,19 @@ import (
 // --- mockGraphReader ---
 
 type mockGraphReader struct {
-	tags2  map[uint64]uint64
-	distCm map[uint64]uint32
+	tags2        map[uint64]uint64
+	distCm       map[uint64]uint32
+	tags1ByHandle map[uint64]uint64
 }
 
 func (m *mockGraphReader) EdgeTags2(h uint64) uint64 {
 	return m.tags2[h]
+}
+func (m *mockGraphReader) EdgeTags1(h uint64) uint64 {
+	if m.tags1ByHandle != nil {
+		return m.tags1ByHandle[h]
+	}
+	return 0
 }
 func (m *mockGraphReader) EdgeDistanceCm(h uint64) uint32 {
 	return m.distCm[h]
