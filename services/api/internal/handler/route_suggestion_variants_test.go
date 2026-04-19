@@ -394,23 +394,12 @@ func TestSuggestRoutes_V2_Outdoor_SubSegmentsAnnotated(t *testing.T) {
 	if !foundMtb {
 		t.Errorf("mtb_scale=S2 segment missing")
 	}
-	// SAC: fixture encodes sac_scale=3 (T3, mountain_hiking) on (0,1)↔(1,1), a
-	// start-vertical edge that Route 0 (col-1 down-and-back) traverses on both
-	// legs. hiking max_sac_scale=3 keeps encoded=3 traversable (not costBlocked).
-	// sacPenalty[3] ≈ 3.1 is additive but does not alter route geometry: direct
-	// cost stays cheaper than any detour.
-	//
-	// Despite geometric traversal, the assertion remains soft because the V2-
-	// pipeline's GeoJSON "segments" array only emits a subset of the merged
-	// route's edges (e.g. Route 0 returns via 3 edges (3,1)→(2,1)→(1,1)→(0,1)
-	// but segments cover only coord-range [4,6] = 2 edges — the final edge
-	// (1,1)→(0,1) containing the SAC tag is absent from segments). Same pattern
-	// on Route 1 and Route 2's outbound legs. This is a pipeline-level issue in
-	// buildSegmentsUnified or in how merged-variant legs are joined — NOT a
-	// fixture problem. Hard-assert is blocked until the pipeline emits full-
-	// route segments. Unit coverage: TestComputeDescriptors_AlpineHiking.
+	// SAC edge on (0,1)↔(1,1) is traversed by Route 0 (col-1 down-and-back);
+	// hard-assertion valid after Leg1-segments pipeline fix (Opus R2-#6):
+	// BuildRouteResultFromEdges now populates Segments so mergeLegs includes
+	// all leg1 edges in the user-facing segments array.
 	if !foundSac {
-		t.Logf("info: sac_scale=T3 segment not seen — V2 pipeline segments array incomplete (pipeline-level fix needed; fixture edge IS traversed by Route 0)")
+		t.Errorf("sac_scale=T3 segment missing — Route 0 traverses (0,1)↔(1,1) with SAC=T3; check BuildRouteResultFromEdges + mergeLegs pipeline")
 	}
 	// TV + VF may only appear on specific node-pair-traversing routes — log as soft fails if not found.
 	if !foundTv {
