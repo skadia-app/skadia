@@ -3500,11 +3500,12 @@ func TestFusionMerge_ElevationSparseAltitude(t *testing.T) {
 	}
 }
 
-// TestFusionMerge_ElevationAllNullGapsIgnored verifies that NULL gaps in the
-// altitude stream are handled correctly: only real deltas across non-NULL values
-// contribute. Profile [0, NULL, 100, NULL, 50]: deltas are +100 and -50.
-// After 3m dead-band: both deltas exceed 3m, so gain≈100 loss≈50.
-func TestFusionMerge_ElevationAllNullGapsIgnored(t *testing.T) {
+// TestFusionMerge_ElevationSkipsNullGapsAndComputesOverNonNull verifies that NULL
+// gaps in the altitude stream are skipped before the LAG window: only non-NULL
+// samples participate. Profile [0, NULL, 100, NULL, 50]: non-null values are
+// [0, 100, 50], so deltas are +100 and -50. After 3m dead-band: both exceed 3m,
+// giving gain≈100, loss≈50.
+func TestFusionMerge_ElevationSkipsNullGapsAndComputesOverNonNull(t *testing.T) {
 	pool := fusionTestPool(t)
 	ctx := context.Background()
 	db := &database.DB{Pool: pool}
@@ -3558,34 +3559,15 @@ func TestFusionMerge_ElevationAllNullGapsIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read merged activity: %v", err)
 	}
-	// LAG over NULLs: delta(NULL-0)=NULL, delta(100-NULL)=NULL → filtered out.
-	// Only delta(100-0-via-lag-skipping-null) is NOT how SQL LAG works:
-	// LAG sees the immediately prior row regardless of NULL, so delta at index 2
-	// = 100 - NULL = NULL (filtered).  Delta at index 4 = 50 - NULL = NULL (filtered).
-	// The only non-NULL deltas are: index 2 sees NULL (delta=NULL), index 4 sees NULL.
-	// Actually: LAG(altitude_m) at NULL-rows produces the previous altitude_m value.
-	// Row 0: alt=0, LAG=NULL → delta NULL (first row).
-	// Row 1: alt=NULL, LAG=0 → delta NULL (alt is NULL, NULL-0=NULL).
-	// Row 2: alt=100, LAG=NULL → delta NULL (LAG sees row 1's alt=NULL).
-	// Row 3: alt=NULL, LAG=100 → delta NULL.
-	// Row 4: alt=50, LAG=NULL → delta NULL (LAG sees row 3's alt=NULL).
-	// All deltas NULL → hasData=false → elevation unchanged from aggregate-recompute.
-	// aggregate-recompute: MIN/MAX of [0, 100, 50] works; but gain/loss not set there.
-	// So gain=0, loss=0 after COALESCE.
-	//
-	// NOTE: This test documents the actual LAG-over-NULL behavior as implemented.
-	// The plan describes a different mental model ("only 2 non-NULL-Deltas"),
-	// but SQL LAG does not skip NULLs — it produces NULL when either operand is NULL.
-	if gain < 0 {
-		t.Errorf("gain_m = %f, want >= 0", gain)
+	// non_null CTE pre-filters NULL rows, so LAG operates only on [0, 100, 50].
+	// Deltas: first row → NULL (no prior), 100-0=+100, 50-100=-50.
+	// After 3m dead-band: both ±100 and ±50 exceed 3m → gain≈100, loss≈50.
+	const tolerance = 5.0
+	if math.Abs(gain-100.0) > tolerance {
+		t.Errorf("gain_m = %f, want 100 ±%v", gain, tolerance)
 	}
-	if loss < 0 {
-		t.Errorf("loss_m = %f, want >= 0", loss)
-	}
-	// With the LAG-over-NULL behavior: all deltas are NULL, so hasData=false,
-	// and elevation remains at the aggregate-recompute fallback (NULL → COALESCE 0).
-	if gain != 0 || loss != 0 {
-		t.Logf("gain=%f loss=%f — note: LAG-over-NULL means all deltas are NULL, hasData=false, fallback to 0", gain, loss)
+	if math.Abs(loss-50.0) > tolerance {
+		t.Errorf("loss_m = %f, want 50 ±%v", loss, tolerance)
 	}
 }
 
