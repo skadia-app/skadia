@@ -260,6 +260,8 @@ github.com/nats-io/nuid
 # github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
 ## explicit
 github.com/nfnt/resize
+# github.com/pashagolub/pgxmock/v4 v4.9.0
+## explicit; go 1.23.0
 # github.com/paulmach/orb v0.12.0
 ## explicit; go 1.15
 github.com/paulmach/orb
