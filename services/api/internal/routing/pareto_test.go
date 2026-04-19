@@ -224,7 +224,8 @@ func (r *tinyTestReader) EdgeOSMID(_ uint64) int64 {
 	panic("tinyTestReader: EdgeOSMID not implemented")
 }
 
-func (r *tinyTestReader) EdgeTags2(_ uint64) uint64    { return 0 }
+func (r *tinyTestReader) EdgeTags2(_ uint64) uint64      { return 0 }
+func (r *tinyTestReader) EdgeTags1(_ uint64) uint64      { return 0 }
 func (r *tinyTestReader) EdgeDistanceCm(_ uint64) uint32 { return 0 }
 
 func (r *tinyTestReader) LandmarkDists(_ LandmarkSetID, _ uint64) []float32 {
