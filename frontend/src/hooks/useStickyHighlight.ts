@@ -6,7 +6,7 @@ export type HighlightKind =
   | { kind: 'descriptor'; descriptorKey: 'mtb_technical' | 'alpine_hiking' | 'exposed' | 'low_visibility' }
   | null
 
-export function sameHighlight(a: HighlightKind, b: HighlightKind): boolean {
+function sameHighlight(a: HighlightKind, b: HighlightKind): boolean {
   if (!a || !b) return false
   if (a.kind !== b.kind) return false
   if (a.kind === 'descriptor' && b.kind === 'descriptor') return a.descriptorKey === b.descriptorKey
