@@ -558,6 +558,9 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
             sportType={sportType}
             metric={metricColoring.metric}
             onChange={metricColoring.setMetric}
+            modeByMetric={metricColoring.modeByMetric}
+            setMode={metricColoring.setMode}
+            zonesAvailable={metricColoring.zonesAvailable}
           />
         )}
       </div>
