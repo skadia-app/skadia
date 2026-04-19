@@ -8,7 +8,6 @@ import (
 	"math"
 	"net/http"
 	"slices"
-	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -68,8 +67,7 @@ type RouteSuggestionRequest struct {
 	TargetAscentM      *float64 `json:"target_ascent_m,omitempty"`
 	AscentTolerancePct *float64 `json:"ascent_tolerance_pct,omitempty"`
 	// Variant control
-	MaxVariants *int     `json:"max_variants,omitempty"`
-	VariantIDs  []string `json:"variant_ids,omitempty"`
+	MaxVariants *int `json:"max_variants,omitempty"`
 }
 
 // RouteSuggestion is a single suggested route variant returned by SuggestRoutes.
@@ -95,10 +93,9 @@ type RouteSuggestion struct {
 	GeoJSON    json.RawMessage `json:"geojson"`
 	IsFallback bool            `json:"is_fallback"`
 
-	// Descriptors are dynamic variant labels (e.g. "more forest", "less ascent")
-	// populated only when the routing.route_variants_v2 feature flag is enabled.
-	// Empty/nil for v1 responses; clients should tolerate its absence.
-	Descriptors []VariantDescriptor `json:"variant_descriptors,omitempty"`
+	// Descriptors are dynamic variant labels (e.g. "more forest", "less ascent").
+	// Always present as an array (may be empty); never null.
+	Descriptors []VariantDescriptor `json:"variant_descriptors"`
 }
 
 // RouteSuggestionResponse is the JSON response for POST /api/v1/routes/suggest.
@@ -106,7 +103,6 @@ type RouteSuggestionResponse struct {
 	Suggestions       []RouteSuggestion `json:"suggestions"`
 	CoverageAvailable bool              `json:"coverage_available"`
 	PartialSearch     bool              `json:"partial_search"`
-	UsedFallback      bool              `json:"used_fallback,omitempty"`
 }
 
 // SuggestRoutes generates round-trip route suggestions starting from the given
@@ -405,46 +401,6 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		routingMetricCoverageAvailable.WithLabelValues("false").Inc()
 	}
 
-	// 8. Optional VariantIDs filter (deprecated-ID-safe).
-	var usedFallback bool
-	if len(req.VariantIDs) > 0 {
-		validIDs := map[string]bool{"shortest": true, "medium": true, "longest": true, "only": true}
-		var keep, deprecated, unknown []string
-		for _, id := range req.VariantIDs {
-			if validIDs[id] {
-				keep = append(keep, id)
-			} else if isDeprecatedVariantID(id) {
-				deprecated = append(deprecated, id)
-			} else {
-				unknown = append(unknown, id)
-			}
-		}
-		if len(deprecated) > 0 {
-			slog.Warn("v2: deprecated variant_id in request", "ids", deprecated)
-		}
-		if len(unknown) > 0 {
-			slog.Warn("v2: unknown variant_id in request", "ids", unknown)
-		}
-		if len(keep) == 0 {
-			// All requested IDs were deprecated or unknown — return all variants.
-			usedFallback = true
-		} else {
-			keepSet := make(map[string]bool, len(keep))
-			for _, k := range keep {
-				keepSet[k] = true
-			}
-			filteredLabeled := make([]LabeledRoute, 0, len(labeled))
-			for _, lr := range labeled {
-				if keepSet[lr.VariantID] {
-					filteredLabeled = append(filteredLabeled, lr)
-				} else if keepSet["medium"] && strings.HasPrefix(lr.VariantID, "medium") {
-					filteredLabeled = append(filteredLabeled, lr)
-				}
-			}
-			labeled = filteredLabeled
-		}
-	}
-
 	// 9. Descriptor metrics.
 	for _, lr := range labeled {
 		for _, d := range lr.Descriptors {
@@ -489,6 +445,11 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 			ascentAchieved = math.Abs(c.AscentM-*req.TargetAscentM) <= tolerance**req.TargetAscentM
 		}
 
+		descriptors := lr.Descriptors
+		if descriptors == nil {
+			descriptors = []VariantDescriptor{}
+		}
+
 		suggestions = append(suggestions, RouteSuggestion{
 			Variant:                i + 1,
 			Profile:                mappedProfile,
@@ -505,7 +466,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 			AscentTargetAchieved:   ascentAchieved,
 			GeoJSON:                json.RawMessage(merged.ToGeoJSON()),
 			IsFallback:             c.LoopQuality == LoopQualityOutAndBack,
-			Descriptors:            lr.Descriptors,
+			Descriptors:            descriptors,
 		})
 	}
 
@@ -515,7 +476,6 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		Suggestions:       suggestions,
 		CoverageAvailable: coverageAvailable,
 		PartialSearch:     truncated,
-		UsedFallback:      usedFallback,
 	})
 }
 
@@ -634,13 +594,3 @@ func filterByDistanceBand(reachable []routing.ReachableNode, target, lowPct, hig
 	return out
 }
 
-// isDeprecatedVariantID reports whether id is a v1-era variant identifier that
-// is no longer valid in the v2 pipeline. These are recognised and logged
-// separately from genuinely unknown IDs.
-func isDeprecatedVariantID(id string) bool {
-	switch id {
-	case "calmest", "greenest", "hilly", "balanced", "geometric":
-		return true
-	}
-	return false
-}

@@ -40,18 +40,18 @@ func decodeRouteSuggestionResponse(t *testing.T, w *httptest.ResponseRecorder) R
 	return resp
 }
 
-// validV2IDs are the VariantIDs the v2 pipeline may produce (assignLabels).
-var validV2IDs = map[string]bool{
+// validVariantIDs are the VariantIDs the pipeline may produce (assignLabels).
+var validVariantIDs = map[string]bool{
 	"shortest": true,
 	"medium":   true,
 	"longest":  true,
 	"only":     true,
 }
 
-// isValidV2ID returns true when id is a canonical v2 VariantID, including
+// isValidVariantID returns true when id is a canonical VariantID, including
 // numbered medium variants ("medium-2", "medium-3" …).
-func isValidV2ID(id string) bool {
-	if validV2IDs[id] {
+func isValidVariantID(id string) bool {
+	if validVariantIDs[id] {
 		return true
 	}
 	return strings.HasPrefix(id, "medium-")
@@ -95,8 +95,8 @@ func TestSuggestRoutes_V2_WithoutCoverage_OnlyRankLabels(t *testing.T) {
 	}
 
 	for _, s := range resp.Suggestions {
-		if !isValidV2ID(s.VariantID) {
-			t.Errorf("unexpected v2 VariantID %q (expected shortest/medium*/longest/only)", s.VariantID)
+		if !isValidVariantID(s.VariantID) {
+			t.Errorf("unexpected VariantID %q (expected shortest/medium*/longest/only)", s.VariantID)
 		}
 
 		// No coverage-based descriptors expected (CoverageReader=nil).
@@ -173,103 +173,6 @@ func TestSuggestRoutes_V2_WithCoverage_ForestDescriptorAssigned(t *testing.T) {
 				}
 				return out
 			}())
-	}
-}
-
-// -------------------------------------------------------------------
-// T3: V2 — deprecated variant_id in request → 200 OK, all variants returned
-// -------------------------------------------------------------------
-
-func TestSuggestRoutes_V2_DeprecatedVariantIDIgnored(t *testing.T) {
-	setup := newTestRoutingHandler(t)
-	setup.Handler.Settings = settings.NewStoreForTest(map[string]string{
-		"routing.route_variants_v2": "true",
-	})
-
-	const body = `{"start":[12.10,48.99],"target_distance_m":10000,"profile":"hiking","variant_ids":["calmest"]}`
-	w := postSuggestRoutes(setup.Handler, body)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for deprecated variant_id, got %d: %s", w.Code, w.Body.String())
-	}
-
-	// The response must be parseable — deprecated IDs must not cause a 400.
-	resp := decodeRouteSuggestionResponse(t, w)
-
-	// All non-deprecated IDs were absent from the keep-set, so the filter
-	// does nothing and all suggestions should be returned (fallback).
-	// We only have a 5-node graph so suggestions may be 0; the key invariant
-	// is that no 4xx / 5xx was returned.
-	if !resp.UsedFallback {
-		t.Errorf("expected UsedFallback=true when all variant_ids are deprecated, got false")
-	}
-}
-
-// -------------------------------------------------------------------
-// T4: V2 — mixed variant_ids: deprecated "calmest" + valid "shortest"
-// -------------------------------------------------------------------
-
-func TestSuggestRoutes_V2_MixedVariantIDFilter(t *testing.T) {
-	setup := newTestRoutingHandler(t)
-	setup.Handler.Settings = settings.NewStoreForTest(map[string]string{
-		"routing.route_variants_v2": "true",
-	})
-
-	const body = `{"start":[12.10,48.99],"target_distance_m":10000,"profile":"hiking","variant_ids":["calmest","shortest"]}`
-	w := postSuggestRoutes(setup.Handler, body)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	resp := decodeRouteSuggestionResponse(t, w)
-
-	// Every returned suggestion must have VariantID="shortest" because
-	// "calmest" is deprecated and must be ignored, leaving only "shortest"
-	// in the keep-set.
-	for _, s := range resp.Suggestions {
-		if !strings.HasPrefix(s.VariantID, "shortest") {
-			t.Errorf("expected only 'shortest' suggestions, got VariantID=%q", s.VariantID)
-		}
-	}
-
-	// Verify no deprecated IDs leaked into the response.
-	deprecatedIDs := map[string]bool{
-		"calmest": true, "greenest": true, "hilly": true, "balanced": true,
-	}
-	for _, s := range resp.Suggestions {
-		if deprecatedIDs[s.VariantID] {
-			t.Errorf("deprecated VariantID %q must not appear in v2 response", s.VariantID)
-		}
-	}
-}
-
-// -------------------------------------------------------------------
-// T5: V2 — unknown variant_id → fallback (all variants returned), no 400
-// -------------------------------------------------------------------
-
-func TestSuggestRoutes_V2_UnknownVariantIDIgnored(t *testing.T) {
-	setup := newTestRoutingHandler(t)
-	setup.Handler.Settings = settings.NewStoreForTest(map[string]string{
-		"routing.route_variants_v2": "true",
-	})
-
-	const body = `{"start":[12.10,48.99],"target_distance_m":10000,"profile":"hiking","variant_ids":["unknown-id"]}`
-	w := postSuggestRoutes(setup.Handler, body)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for unknown variant_id, got %d: %s", w.Code, w.Body.String())
-	}
-
-	resp := decodeRouteSuggestionResponse(t, w)
-
-	// "unknown-id" is neither valid nor deprecated (not in the validIDs map),
-	// so the filter keep-set is empty → all suggestions returned unchanged.
-	// Verify the unknown ID did not leak into the response.
-	for _, s := range resp.Suggestions {
-		if s.VariantID == "unknown-id" {
-			t.Errorf("VariantID 'unknown-id' must not appear in response")
-		}
 	}
 }
 
