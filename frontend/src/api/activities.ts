@@ -299,6 +299,6 @@ export async function setActivityVirtual(
 ): Promise<{ is_virtual: boolean }> {
   return apiClient<{ is_virtual: boolean }>(`/activities/${id}/set-virtual`, {
     method: 'POST',
-    body: { value },
+    body: { is_virtual: value },
   })
 }
