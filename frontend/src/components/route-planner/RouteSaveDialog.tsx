@@ -60,6 +60,18 @@ export default function RouteSaveDialog({
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      // Build combined LineString geometry from all segments. Backend requires
+      // geometry_geojson (non-empty GeoJSON) — without it, ST_GeomFromGeoJSON('')
+      // fails with SQLSTATE XX000 "unexpected end of data".
+      const combinedCoords = segments.flatMap((seg) => seg.geometry?.coordinates ?? [])
+      if (combinedCoords.length < 2) {
+        throw new Error('Die Route hat keine Geometrie. Bitte zuerst Wegpunkte setzen und eine Strecke berechnen lassen.')
+      }
+      const geometry_geojson = JSON.stringify({
+        type: 'LineString',
+        coordinates: combinedCoords,
+      })
+
       const payload: Partial<PlannedRoute> = {
         name: metadata.name.trim(),
         description: metadata.description.trim() || undefined,
@@ -69,6 +81,7 @@ export default function RouteSaveDialog({
         profile: metadata.profile_override,
         waypoints,
         segments,
+        geometry_geojson,
       }
 
       let saved: PlannedRoute
