@@ -878,6 +878,77 @@ func TestEdgeCostInteractionCombinatorics(t *testing.T) {
 	}
 }
 
+// TestEdgeCostInteraction_PerProfileSeeds verifies that all PR2 seed calibrations
+// remain below the 4× baseCF cap under worst-case tag combinatorics.
+//
+// Seeds are taken from:
+//   - noise_penalty / traffic_penalty: current JSON values (post-PR1, §11.1)
+//   - trail_visibility_penalty / max_trail_visibility: PR2 target seeds (spec §3.4)
+//
+// Worst-case tags2: noise_score=100, traffic_class=6, trail_visibility=5 (horrible).
+// tvSeverity[5]=3, so tvAdd = tvPenalty * 3.
+// noiseAdd_max = 2 * noisePenalty, trafficAdd_max = trafficPenalty.
+//
+// This test is the canary that MUST fail when PR2 lands if any profile exceeds the cap —
+// it forces seed recalibration or a hard cap before merge.
+// Profiles currently failing are flagged as EXPECTED (ratio reported for diagnosis).
+func TestEdgeCostInteraction_PerProfileSeeds(t *testing.T) {
+	// Extracted from spec §3.4 PR2-Seeds-Table (verified 2026-04-18):
+	//   | Profile  | max_trail_visibility | trail_visibility_penalty (seed) |
+	//   | hiking   | 3                    | 0.5                             |
+	//   | mtb      | 4                    | 0.4                             |
+	//   | gravel   | 3                    | 0.8  ← critical case (Opus #7)  |
+	//   | trekking | 3                    | 0.5                             |
+	//   | road     | 6 / 0.0 (unchanged)  | —                               |
+	//
+	// noise_penalty / traffic_penalty from config/badrouter/*.json (Phase-A values):
+	//   hiking:   noise=0.4, traffic=0.6
+	//   mtb:      noise=0.2, traffic=0.0 (absent in mtb.json)
+	//   gravel:   noise=0.4, traffic=0.5
+	//   trekking: noise=0.0, traffic=0.0 (absent in trekking.json)
+	//   road:     noise=0.0, traffic=0.1
+	// MaxTrailVisibility forced to 6 for all profiles so tv=5 (horrible, severity=3)
+	// is never blocked — this isolates the additive-penalty cap from the block gate.
+	// PR2 will set profile-specific maxTv (3 or 4) which causes tv>maxTv to BLOCK;
+	// the cap check is only meaningful for non-blocked edges.
+	cases := []struct {
+		profile        string
+		noisePenalty   float32
+		trafficPenalty float32
+		tvPenalty      float32
+	}{
+		{"hiking", 0.4, 0.6, 0.5},
+		{"mtb", 0.2, 0.0, 0.4},
+		{"gravel", 0.4, 0.5, 0.8}, // Opus #7: projected ratio >4.0 with hiking base; verify with gravel base
+		{"trekking", 0.0, 0.0, 0.5},
+		{"road", 0.0, 0.1, 0.0},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.profile, func(t *testing.T) {
+			p := mergeWithDefaults(t, ProfileConfig{
+				Profile:                tc.profile,
+				NoisePenalty:           float32Ptr(tc.noisePenalty),
+				TrafficPenalty:         float32Ptr(tc.trafficPenalty),
+				TrailVisibilityPenalty: float32Ptr(tc.tvPenalty),
+				MaxTrailVisibility:     intPtr(6), // open gate: no blocking, pure additive cap check
+			})
+			closure := buildEdgeCostClosure(p)
+			tags1 := uint64(16) // highway=path, no surface, no SAC tag
+			baseCf := closure(tags1, 0).Flat
+			worstCf := closure(tags1, buildWorstCaseTags2()).Flat
+			cap4x := 4.0 * baseCf
+			ratio := worstCf / baseCf
+			if worstCf > cap4x {
+				t.Errorf("profile %q: worst=%f > 4×base=%f (ratio=%.3f) — PR2 seeds exceed cap; "+
+					"recalibrate seeds or add hard cap before merge",
+					tc.profile, worstCf, cap4x, ratio)
+			}
+		})
+	}
+}
+
 func TestPhaseA_AllProfilesFastPathActive(t *testing.T) {
 	// With JSON seeds 0/0.0, no profile should decode trail_visibility.
 	profiles := []string{"hiking", "mtb", "trekking", "gravel", "road"}
