@@ -336,7 +336,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 			c, err := h.buildRouteCandidate(ctx60, router, rs, filtered, sel,
 				startLat, startLon, cfg, opts, baselineAvgFlat)
 			if err != nil {
-				slog.Warn("v2: route candidate failed", "nodeIdx", sel.NodeIdx, "err", err)
+				slog.Warn("route candidate failed", "nodeIdx", sel.NodeIdx, "err", err)
 				routingMetricCandidatesBuiltTotal.WithLabelValues("error").Inc()
 				return nil // soft failure — skip this candidate
 			}
@@ -356,7 +356,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(built) == 0 {
 		httputil.WriteError(w, http.StatusInternalServerError, "Routing Error",
-			"no routes built in v2 pipeline", r.URL.Path)
+			"no routes built", r.URL.Path)
 		return
 	}
 
