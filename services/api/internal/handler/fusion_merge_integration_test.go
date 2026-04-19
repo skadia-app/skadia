@@ -158,7 +158,7 @@ func nearlyEqual(a, b float64) bool {
 //
 // Bug state:  merged streams have NULL for those 5 columns.
 // Fixed state: merged streams preserve the target values for those 5 columns.
-func TestFusionMerge_V1_FullColumnCopy(t *testing.T) {
+func TestFusionMerge_FullColumnCopy(t *testing.T) {
 	pool := fusionTestPool(t)
 	ctx := context.Background()
 	db := &database.DB{Pool: pool}
@@ -477,7 +477,7 @@ func TestFusionMerge_GPSOverlayCOALESCEAltitude(t *testing.T) {
 //             because the stitcher uses ON CONFLICT (time) but the TEMP TABLE
 //             unique index is (activity_id, time).
 // Fixed state: fuseGPSTracks succeeds and GPS rows from targetID appear in TEMP.
-func TestFusionMerge_V1_FuseGPSIncludesTarget(t *testing.T) {
+func TestFusionMerge_FuseGPSIncludesTarget(t *testing.T) {
 	pool := fusionTestPool(t)
 	ctx := context.Background()
 	db := &database.DB{Pool: pool}
@@ -1494,39 +1494,38 @@ func TestFusionMergeConcurrentSameUser(t *testing.T) {
 	t.Logf("Concurrent FusionMerge: 1×201, 1×409, 1 merged activity — OK")
 }
 
-// TestFusionMergeV1ConcurrentSameUser covers the same concurrency guarantees as
-// TestFusionMergeConcurrentSameUser but for the V1 path (URL-target + extras body).
-// This closes Rev-2 R6 (V1 preflight uses allIDs = [targetID, ...req.Sources], but no
-// V1-specific concurrency test existed in Phase 1 Task 7b).
-func TestFusionMergeV1ConcurrentSameUser(t *testing.T) {
+// TestFusionMergeConcurrentSameUser_ThreeSources covers concurrency guarantees for
+// a 3-source FusionMerge (ported from V1 test; V2 2-source variant is
+// TestFusionMergeConcurrentSameUser above).
+func TestFusionMergeConcurrentSameUser_ThreeSources(t *testing.T) {
 	pool := fusionTestPool(t)
 	ctx := context.Background()
 	db := &database.DB{Pool: pool}
 
 	userID := insertTestUser(t, pool)
-	actTarget := insertMinimalActivity(t, db, userID)
-	actExtraA := insertMinimalActivity(t, db, userID)
-	actExtraB := insertMinimalActivity(t, db, userID)
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+	actC := insertMinimalActivity(t, db, userID)
 
 	base := time.Date(2024, 7, 1, 9, 0, 0, 0, time.UTC)
 	lat, lng := fusionPtrF64(47.5), fusionPtrF64(11.5)
-	insertStreams(t, db, actTarget, []model.StreamPoint{
+	insertStreams(t, db, actA, []model.StreamPoint{
 		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(130)},
 		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(132)},
 	})
-	insertStreams(t, db, actExtraA, []model.StreamPoint{
+	insertStreams(t, db, actB, []model.StreamPoint{
 		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(135)},
 		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(137)},
 	})
-	insertStreams(t, db, actExtraB, []model.StreamPoint{
+	insertStreams(t, db, actC, []model.StreamPoint{
 		{Time: base, Lat: lat, Lng: lng, PowerW: fusionPtrI16(210)},
 		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, PowerW: fusionPtrI16(215)},
 	})
 
-	// V1 request body: Sources are the *extras* (target comes from URL).
+	// V2 request body: all sources are equal (no target URL param).
 	reqBodyStr := fmt.Sprintf(
-		`{"sources":[%q,%q],"field_map":{"hr":%q,"power":%q},"tags_merge":false}`,
-		actExtraA, actExtraB, actExtraA, actExtraB,
+		`{"sources":[%q,%q,%q],"field_map":{"hr":%q,"power":%q},"tags_merge":false}`,
+		actA, actB, actC, actA, actC,
 	)
 
 	type result struct {
@@ -1545,16 +1544,12 @@ func TestFusionMergeV1ConcurrentSameUser(t *testing.T) {
 			defer wg.Done()
 
 			httpReq := httptest.NewRequest(http.MethodPost,
-				"/activities/"+actTarget+"/fusion-merge",
+				"/api/v1/fusion-merge",
 				strings.NewReader(reqBodyStr))
 			httpReq.Header.Set("Content-Type", "application/json")
 			httpReq = httpReq.WithContext(
 				context.WithValue(httpReq.Context(), middleware.UserIDKey, userID),
 			)
-			// V1 reads the target from chi URL param "id".
-			rctx := chi.NewRouteContext()
-			rctx.URLParams.Add("id", actTarget)
-			httpReq = httpReq.WithContext(context.WithValue(httpReq.Context(), chi.RouteCtxKey, rctx))
 			rr := httptest.NewRecorder()
 
 			<-start
@@ -1571,7 +1566,7 @@ func TestFusionMergeV1ConcurrentSameUser(t *testing.T) {
 	for r := range results {
 		codes = append(codes, r.code)
 		if r.code == http.StatusInternalServerError {
-			t.Errorf("unexpected 500 from FusionMerge V1: body=%s", r.body)
+			t.Errorf("unexpected 500 from FusionMerge: body=%s", r.body)
 		}
 	}
 	if len(codes) != 2 {
@@ -1596,12 +1591,12 @@ func TestFusionMergeV1ConcurrentSameUser(t *testing.T) {
 		t.Errorf("expected exactly 1 conflict (409), got %d (codes: %v)", conflictCount, codes)
 	}
 
-	// DB invariant: exactly one merged activity created for the [target, extraA, extraB] set.
+	// DB invariant: exactly one merged activity created for the [A, B, C] set.
 	var mergedCount int
 	if err := pool.QueryRow(ctx,
 		`SELECT COUNT(DISTINCT merged_id) FROM activity_fusion_memberships
 		 WHERE source_id IN ($1, $2, $3)`,
-		actTarget, actExtraA, actExtraB,
+		actA, actB, actC,
 	).Scan(&mergedCount); err != nil {
 		t.Fatalf("count distinct merged_id: %v", err)
 	}
@@ -1609,7 +1604,7 @@ func TestFusionMergeV1ConcurrentSameUser(t *testing.T) {
 		t.Errorf("expected exactly 1 merged activity in memberships, got %d", mergedCount)
 	}
 
-	t.Logf("Concurrent FusionMerge V1: 1×201, 1×409, 1 merged activity — OK")
+	t.Logf("Concurrent FusionMerge: 1×201, 1×409, 1 merged activity — OK")
 }
 
 // ─── Test: Fusion-of-Fusion lifecycle ─────────────────────────────────────────
@@ -3084,206 +3079,6 @@ func TestTransitiveFusionPhotoRestore(t *testing.T) {
 
 	t.Logf("Transitive fusion photo restore: A=%d photos, B=%d photos, C=%d photos — OK",
 		countPhotosOf(t, actA), countPhotosOf(t, actB), countPhotosOf(t, actC))
-}
-
-// ─── Finding #15: V1 edge case — empty Sources slice ─────────────────────────
-
-// TestFusionMergeV1_NoSources_EdgeCase covers Round-2 critic Finding #15:
-// POST /activities/{id}/fusion-merge with an empty "sources" array.
-//
-// The V1 handler constructs allIDs = [targetID] + req.Sources.  With req.Sources=[],
-// allIDs has only 1 element.  The sourcesToHide slice computed at line ~315 would then
-// be empty (since the only ID is merged.ID itself, which is excluded from hiding).
-// The UPDATE is skipped — no panic, but the merged activity is created with zero
-// fusion sources listed (only the target itself).
-//
-// Current validation: the field_map must not be empty (checked at top of handler),
-// but no check requires Sources to be non-empty for V1.  The only field_map value
-// that can reference the zero-sources list is the targetID itself.
-//
-// This test documents:
-//   (a) Whether V1 rejects {"sources":[], "field_map":{"hr":"<targetID>"}} with 400,
-//   (b) If accepted — the resulting state is sane (no hidden sources, memberships
-//       correctly reflect target-only, targetID NOT set as parent_id-hidden).
-//
-// Also tests the V2 analogue: V2 rejects with 400 "at least 2 sources required".
-func TestFusionMergeV1_NoSources_EdgeCase(t *testing.T) {
-	pool := fusionTestPool(t)
-	ctx := context.Background()
-	db := &database.DB{Pool: pool}
-
-	userID := insertTestUser(t, pool)
-	targetID := insertMinimalActivity(t, db, userID)
-
-	base := time.Date(2025, 4, 1, 8, 0, 0, 0, time.UTC)
-	lat, lng := fusionPtrF64(47.2), fusionPtrF64(11.2)
-	insertStreams(t, db, targetID, []model.StreamPoint{
-		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(140)},
-		{Time: base.Add(1 * time.Second), Lat: lat, Lng: lng, HeartRate: fusionPtrI16(142)},
-	})
-
-	h := &Handler{DB: db}
-
-	// ── V1: empty sources, field_map points to targetID ───────────────────────
-	// field_map: {"hr": targetID} — targetID is in allIDs so the validation passes.
-	reqBody := fmt.Sprintf(`{"sources":[],"field_map":{"hr":%q},"tags_merge":false}`, targetID)
-	httpReq := httptest.NewRequest(
-		http.MethodPost, "/activities/"+targetID+"/fusion-merge",
-		strings.NewReader(reqBody),
-	)
-	httpReq.Header.Set("Content-Type", "application/json")
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("id", targetID)
-	httpReq = httpReq.WithContext(
-		context.WithValue(
-			context.WithValue(httpReq.Context(), chi.RouteCtxKey, rctx),
-			middleware.UserIDKey, userID,
-		),
-	)
-	rr := httptest.NewRecorder()
-	h.FusionMerge(rr, httpReq)
-
-	t.Logf("V1 empty-sources response: %d — %s", rr.Code, rr.Body.String())
-
-	switch rr.Code {
-	case http.StatusBadRequest:
-		// Preferred outcome: handler validates and rejects before any DB work.
-		t.Logf("V1 empty-sources: correctly rejected with 400 — no state change expected")
-
-		// Confirm the target activity is untouched (no phantom merged activity created).
-		var parentID *string
-		if err := pool.QueryRow(ctx,
-			`SELECT parent_id FROM activities WHERE id = $1`, targetID,
-		).Scan(&parentID); err != nil {
-			t.Fatalf("check targetID parent_id: %v", err)
-		}
-		if parentID != nil {
-			t.Errorf("V1 empty-sources 400: targetID parent_id should be NULL but got %s — "+
-				"target was unexpectedly hidden despite rejection", *parentID)
-		}
-		// No memberships should reference targetID as a source of a newly created merged activity
-		// (we can't know the merged ID since it was rejected, but we can check there's no
-		// recently created membership that would point back to target as source).
-		var memberCount int
-		if err := pool.QueryRow(ctx,
-			`SELECT COUNT(*) FROM activity_fusion_memberships WHERE source_id = $1`, targetID,
-		).Scan(&memberCount); err != nil {
-			t.Fatalf("count memberships for targetID as source: %v", err)
-		}
-		if memberCount != 0 {
-			t.Errorf("V1 empty-sources 400: found %d fusion memberships for targetID as source — "+
-				"unexpected state after rejection", memberCount)
-		}
-
-	case http.StatusCreated:
-		// V1 accepted the empty-sources request.  Document and verify the resulting state
-		// is sane — this path should be rare (V1 has no guard) but must not crash or
-		// leave the DB in an inconsistent state.
-		t.Logf("V1 empty-sources: accepted — verifying state sanity (finding #15 path)")
-
-		var resp struct {
-			ID string `json:"id"`
-		}
-		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-			t.Fatalf("decode 201 response: %v", err)
-		}
-		mergedID := resp.ID
-		t.Cleanup(func() {
-			// Best-effort cleanup: delete created merged activity so it doesn't pollute
-			// other tests (normal tests clean up via insertTestUser's cleanup).
-			pool.Exec(context.Background(), //nolint:errcheck
-				`DELETE FROM activities WHERE id = $1`, mergedID)
-		})
-
-		// Sanity: merged activity exists.
-		var mergedExists bool
-		if err := pool.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM activities WHERE id = $1)`, mergedID,
-		).Scan(&mergedExists); err != nil {
-			t.Fatalf("check merged activity exists: %v", err)
-		}
-		if !mergedExists {
-			t.Fatalf("V1 empty-sources 201: merged activity %s not found in DB", mergedID)
-		}
-
-		// targetID was in allIDs (len=1); sourcesToHide excludes merged.ID so the
-		// list would be [targetID].  Verify targetID is hidden under mergedID.
-		var targetParentID *string
-		if err := pool.QueryRow(ctx,
-			`SELECT parent_id FROM activities WHERE id = $1`, targetID,
-		).Scan(&targetParentID); err != nil {
-			t.Fatalf("check targetID parent_id: %v", err)
-		}
-		if targetParentID == nil || *targetParentID != mergedID {
-			t.Logf("V1 empty-sources 201: targetID parent_id = %v (not hidden under merged) — "+
-				"sourcesToHide was empty, target was not hidden", targetParentID)
-		} else {
-			t.Logf("V1 empty-sources 201: targetID parent_id = %s (hidden under merged)", mergedID)
-		}
-
-		// Memberships should exist (at minimum one row for the field_map entry).
-		var memberCount int
-		if err := pool.QueryRow(ctx,
-			`SELECT COUNT(*) FROM activity_fusion_memberships WHERE merged_id = $1`, mergedID,
-		).Scan(&memberCount); err != nil {
-			t.Fatalf("count memberships for merged: %v", err)
-		}
-		t.Logf("V1 empty-sources 201: memberships=%d for merged=%s", memberCount, mergedID)
-
-		// activity_edits row should be present (audit log in applyFusionTxExtras).
-		var editCount int
-		if err := pool.QueryRow(ctx,
-			`SELECT COUNT(*) FROM activity_edits WHERE activity_id = $1 AND edit_type = 'fusion_merge'`,
-			mergedID,
-		).Scan(&editCount); err != nil {
-			t.Fatalf("count activity_edits for merged: %v", err)
-		}
-		if editCount == 0 {
-			t.Errorf("V1 empty-sources 201: no fusion_merge audit record — applyFusionTxExtras may not have run")
-		}
-
-	default:
-		t.Errorf("V1 empty-sources: unexpected status %d — want 400 (validation reject) or 201 (accepted)",
-			rr.Code)
-	}
-
-	// ── V2 analogue: always rejects with 400 ─────────────────────────────────
-	// FusionMergeV2 has explicit validation: len(req.Sources) < 2 → 400.
-	v2ReqBody := fmt.Sprintf(`{"sources":[],"field_map":{"hr":%q},"tags_merge":false}`, targetID)
-	v2Req := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
-		strings.NewReader(v2ReqBody))
-	v2Req.Header.Set("Content-Type", "application/json")
-	v2Req = v2Req.WithContext(
-		context.WithValue(v2Req.Context(), middleware.UserIDKey, userID),
-	)
-	v2RR := httptest.NewRecorder()
-	h.FusionMerge(v2RR, v2Req)
-
-	if v2RR.Code != http.StatusBadRequest {
-		t.Errorf("V2 empty-sources: want 400 (at least 2 sources required), got %d — body: %s",
-			v2RR.Code, v2RR.Body.String())
-	} else {
-		t.Logf("V2 empty-sources: correctly rejected with 400 — OK")
-	}
-
-	// V2 with exactly 1 source (also below minimum).
-	v2Single := fmt.Sprintf(`{"sources":[%q],"field_map":{"hr":%q},"tags_merge":false}`,
-		targetID, targetID)
-	v2SingleReq := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
-		strings.NewReader(v2Single))
-	v2SingleReq.Header.Set("Content-Type", "application/json")
-	v2SingleReq = v2SingleReq.WithContext(
-		context.WithValue(v2SingleReq.Context(), middleware.UserIDKey, userID),
-	)
-	v2SingleRR := httptest.NewRecorder()
-	h.FusionMerge(v2SingleRR, v2SingleReq)
-
-	if v2SingleRR.Code != http.StatusBadRequest {
-		t.Errorf("V2 single-source: want 400 (at least 2 sources required), got %d — body: %s",
-			v2SingleRR.Code, v2SingleRR.Body.String())
-	} else {
-		t.Logf("V2 single-source: correctly rejected with 400 — OK")
-	}
 }
 
 // ─── Finding #21: copyRelatedTablesUnion partial-failure rollback ─────────────
