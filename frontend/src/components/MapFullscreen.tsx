@@ -401,7 +401,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
       photoMarkersRef.current.push(marker)
 
       // Load thumbnail async
-      const thumbUrl = photo.thumbnail_url ?? photo.preview_url
+      const thumbUrl = photo.thumb_url
       if (thumbUrl) {
         apiDownload(thumbUrl).then(({ blob }) => {
           const blobUrl = URL.createObjectURL(blob)
