@@ -877,3 +877,22 @@ func TestEdgeCostInteractionCombinatorics(t *testing.T) {
 		t.Errorf("combinatorics: worst=%f > 4×base=%f — seeds or cap revision needed", worstCf, baseCf)
 	}
 }
+
+func TestPhaseA_AllProfilesFastPathActive(t *testing.T) {
+	// With JSON seeds 0/0.0, no profile should decode trail_visibility.
+	profiles := []string{"hiking", "mtb", "trekking", "gravel", "road"}
+	tags1Path := uint64(16)
+	for _, name := range profiles {
+		base, err := BuiltinProfile(name)
+		if err != nil {
+			t.Fatalf("BuiltinProfile(%q): %v", name, err)
+		}
+		closure := buildEdgeCostClosure(base)
+		cfNoTv := closure(tags1Path, 0).Flat
+		cfWithTv := closure(tags1Path, uint64(5)<<36).Flat // tv=horrible in tags2
+		if cfNoTv != cfWithTv {
+			t.Errorf("profile %q: Phase-A must ignore trail_visibility — %f vs %f",
+				name, cfNoTv, cfWithTv)
+		}
+	}
+}
