@@ -3,6 +3,16 @@
 -- user-toggleable. Any remaining is_virtual audit rows are test artifacts
 -- from pre-revert smoke-tests.
 
+DO $$
+DECLARE
+    n INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO n FROM activity_edits WHERE edit_type = 'is_virtual';
+    IF n > 0 THEN
+        RAISE NOTICE 'Migration 000312: removing % activity_edits rows with edit_type = is_virtual', n;
+    END IF;
+END $$;
+
 DELETE FROM activity_edits WHERE edit_type = 'is_virtual';
 
 ALTER TABLE activity_edits DROP CONSTRAINT IF EXISTS activity_edits_edit_type_check;
