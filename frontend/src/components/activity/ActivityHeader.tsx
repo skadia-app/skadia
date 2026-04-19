@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useToast } from '@/lib/toast'
-import { updateActivity, reprocessActivity, reprocessAllActivities, ungroupActivity, setActivityVirtual, type SetVirtualResponse, type ExportFormat } from '@/api/activities'
+import { updateActivity, reprocessActivity, reprocessAllActivities, ungroupActivity, type ExportFormat } from '@/api/activities'
 import { revertFusion } from '@/api/fusion'
 import { invalidateAfterFusion } from '@/lib/fusionCacheInvalidation'
 import { getCapabilities, getWaypointsFromActivity } from '@/api/routes'
@@ -176,45 +176,6 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
     },
   })
 
-  const setVirtualMutation = useMutation({
-    mutationFn: (value: boolean) => setActivityVirtual(activity.id, value),
-    onMutate: async (value: boolean) => {
-      // Cancel any in-flight refetch so it doesn't overwrite our optimistic state.
-      await queryClient.cancelQueries({ queryKey: ['activity', activity.id] })
-      // Snapshot for rollback on error.
-      const previous = queryClient.getQueryData<Activity>(['activity', activity.id])
-      // Optimistic update — UI reflects new state immediately, no flicker.
-      queryClient.setQueryData(['activity', activity.id], (old: Activity | undefined) =>
-        old ? { ...old, is_virtual: value } : old,
-      )
-      return { previous }
-    },
-    onSuccess: (result: SetVirtualResponse) => {
-      // Atomic state update from the extended response — sets both is_virtual AND
-      // exclude_from_heatmap in one write.  No second GET needed (R2-9).
-      queryClient.setQueryData(['activity', activity.id], (old: Activity | undefined) =>
-        old
-          ? { ...old, is_virtual: result.is_virtual, exclude_from_heatmap: result.exclude_from_heatmap }
-          : old,
-      )
-      addToast({
-        type: 'success',
-        title: result.is_virtual ? 'Aktivität als virtuell markiert' : 'Virtuell-Markierung entfernt',
-      })
-    },
-    onError: (_err, _value, context) => {
-      // Roll back to the snapshot taken in onMutate.
-      if (context?.previous !== undefined) {
-        queryClient.setQueryData(['activity', activity.id], context.previous)
-      }
-      addToast({ type: 'error', title: 'Virtuell-Status konnte nicht geändert werden', duration: 0 })
-    },
-    // onSettled invalidate removed — onSuccess already sets both fields atomically,
-    // so the background refetch was only causing a visible flicker on slow backends.
-    // The activities list is not invalidated here to avoid list reordering during
-    // the current page view; a navigation will trigger a fresh fetch automatically.
-  })
-
   useEffect(() => {
     if (editing) inputRef.current?.focus()
   }, [editing])
@@ -331,27 +292,8 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
             )}
           </div>
         )}
-        {(activity.is_virtual || (activity.fusion_memberships?.length ?? 0) > 0 || !!activity.recording_group_id || (activity.fusion_source_count ?? 0) > 0) && (
+        {((activity.fusion_memberships?.length ?? 0) > 0 || !!activity.recording_group_id || (activity.fusion_source_count ?? 0) > 0) && (
           <div className="flex items-center gap-2 mt-1 flex-wrap">
-            {activity.is_virtual && (
-              <button
-                onClick={() => setVirtualMutation.mutate(false)}
-                disabled={setVirtualMutation.isPending}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-sky-100 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 hover:bg-sky-200 dark:hover:bg-sky-900/60 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Virtuell-Markierung entfernen"
-              >
-                {setVirtualMutation.isPending ? (
-                  <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" strokeDasharray="50 20" />
-                  </svg>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
-                    <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v8.5A2.25 2.25 0 0 1 15.75 15h-3.105a3.501 3.501 0 0 0 1.1 1.677A.75.75 0 0 1 13.26 18H6.74a.75.75 0 0 1-.484-1.323A3.501 3.501 0 0 0 7.355 15H4.25A2.25 2.25 0 0 1 2 12.75v-8.5Zm1.5 0a.75.75 0 0 1 .75-.75h11.5a.75.75 0 0 1 .75.75v7.5a.75.75 0 0 1-.75.75H4.25a.75.75 0 0 1-.75-.75v-7.5Z" clipRule="evenodd" />
-                  </svg>
-                )}
-                Virtuell — entfernen
-              </button>
-            )}
             {(activity.fusion_memberships?.length ?? 0) > 0 && (
               <>
                 <span
@@ -430,14 +372,10 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
           <input
             type="checkbox"
             checked={activity.exclude_from_heatmap ?? false}
-            disabled={activity.is_virtual}
             onChange={e => handleExcludeChange('exclude_from_heatmap', e.target.checked)}
-            className="rounded border-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded border-neutral-300"
           />
-          <span className={activity.is_virtual ? 'text-neutral-400' : ''}>
-            Von Heatmap ausschließen
-          </span>
-          {activity.is_virtual && <span className="text-xs text-neutral-400">(virtuell)</span>}
+          <span>Von Heatmap ausschließen</span>
         </label>
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -449,27 +387,6 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
           Von Statistik ausschließen
         </label>
       </div>
-
-      {/* Virtual toggle — mark/unmark as virtual activity */}
-      {!activity.is_virtual && (
-        <button
-          onClick={() => setVirtualMutation.mutate(true)}
-          disabled={setVirtualMutation.isPending}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-          title="Als virtuell markieren (z. B. Zwift, Trainer)"
-        >
-          {setVirtualMutation.isPending ? (
-            <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" strokeDasharray="50 20" />
-            </svg>
-          ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-              <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v8.5A2.25 2.25 0 0 1 15.75 15h-3.105a3.501 3.501 0 0 0 1.1 1.677A.75.75 0 0 1 13.26 18H6.74a.75.75 0 0 1-.484-1.323A3.501 3.501 0 0 0 7.355 15H4.25A2.25 2.25 0 0 1 2 12.75v-8.5Zm1.5 0a.75.75 0 0 1 .75-.75h11.5a.75.75 0 0 1 .75.75v7.5a.75.75 0 0 1-.75.75H4.25a.75.75 0 0 1-.75-.75v-7.5Z" clipRule="evenodd" />
-            </svg>
-          )}
-          Virtuell markieren
-        </button>
-      )}
 
       {/* Speed smoothing + reset — opt-in correction for GPS speed noise */}
       {activity.has_gps && activity.sport_type !== 'multisport' && (

@@ -1306,12 +1306,11 @@ func main() {
 			r.Post("/activities/{id}/edits/detect-gps-outliers", h.DetectGPSOutliersHandler)
 			r.Post("/activities/{id}/edits/apply", h.ApplyActivityEdits)
 
-			// Non-destructive edit operations (Trim / Split / Merge / Virtual toggle)
+			// Non-destructive edit operations (Trim / Split / Merge)
 			r.Post("/activities/{id}/trim", h.TrimActivity)
 			r.Post("/activities/{id}/split", h.SplitActivity)
 			r.Post("/fusion-merge", h.FusionMerge) // unified timeline, no target
 			r.Post("/activities/{id}/revert-fusion", h.RevertFusion)
-			r.Post("/activities/{id}/set-virtual", h.SetActivityVirtual)
 
 			// Media Upload (multi-file, EXIF auto-assignment)
 			r.Post("/upload/media", h.UploadMedia)
