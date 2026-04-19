@@ -87,6 +87,39 @@ const INITIAL_STATE: RoutePlannerState = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// localStorage key for the last selected routing profile. Read on mount to
+// hydrate defaults, written whenever the user switches profiles. Convention
+// matches `skadia-map-viewport` / `skadia-map-defaults` (see lib/mapStyles.ts,
+// pages/MapPage.tsx).
+const ROUTING_PROFILE_STORAGE_KEY = 'skadia-routing-profile'
+const DEFAULT_ROUTING_PROFILE = 'hiking'
+
+function readStoredProfile(): string {
+  try {
+    const stored = localStorage.getItem(ROUTING_PROFILE_STORAGE_KEY)
+    if (stored && stored.length > 0) return stored
+  } catch {
+    // localStorage unavailable (SSR / private mode / quota) — fall through.
+  }
+  return DEFAULT_ROUTING_PROFILE
+}
+
+function writeStoredProfile(name: string): void {
+  try {
+    localStorage.setItem(ROUTING_PROFILE_STORAGE_KEY, name)
+  } catch {
+    // Ignore — persistence is a UX polish, not critical.
+  }
+}
+
+function clearStoredProfile(): void {
+  try {
+    localStorage.removeItem(ROUTING_PROFILE_STORAGE_KEY)
+  } catch {
+    // Ignore.
+  }
+}
+
 function assignWaypointTypes(waypoints: RouteWaypoint[]): RouteWaypoint[] {
   if (waypoints.length === 0) return waypoints
   return waypoints.map((w, i) => ({
@@ -155,16 +188,19 @@ export function useRoutePlanner() {
 
   useEffect(() => {
     if (state.profileConfig !== null) return
-    fetchProfileDefaults('hiking')
-      .then(resp => {
-        cacheServerDefaults('hiking', resp)
+
+    const storedProfile = readStoredProfile()
+
+    const hydrate = (profileName: string): Promise<void> =>
+      fetchProfileDefaults(profileName).then(resp => {
+        cacheServerDefaults(profileName, resp)
         let didPopulate = false
         setState(s => {
           // Race-guard: another flow (e.g. loadRoute for deeplink) may have
           // populated profileConfig between this useEffect firing and the
           // fetch resolving. Don't overwrite.
           if (s.profileConfig !== null) return s
-          const fresh = getProfileDefaults('hiking')
+          const fresh = getProfileDefaults(profileName)
           if (!fresh) return s
           didPopulate = true
           return { ...s, profileConfig: fresh }
@@ -179,6 +215,17 @@ export function useRoutePlanner() {
             recalculateAll()
           })
         }
+      })
+
+    hydrate(storedProfile)
+      .catch(() => {
+        // Stored profile missing/renamed server-side — clear the stale entry
+        // and retry with the hardcoded default. Only then surface a toast.
+        if (storedProfile === DEFAULT_ROUTING_PROFILE) {
+          throw new Error('default profile fetch failed')
+        }
+        clearStoredProfile()
+        return hydrate(DEFAULT_ROUTING_PROFILE)
       })
       .catch(() => {
         addToast({
@@ -522,6 +569,7 @@ export function useRoutePlanner() {
 
   const setProfile = useCallback((profileConfig: ProfileConfig) => {
     setState(s => ({ ...s, profileConfig }))
+    writeStoredProfile(profileConfig.profile)
   }, [])
 
   const setProfileAndRecalculate = useCallback(
@@ -535,6 +583,7 @@ export function useRoutePlanner() {
         currentBrouterProfile = s.brouterProfile
         return { ...s, profileConfig, segments: [], isCalculating: true, calculationError: null }
       })
+      writeStoredProfile(profileConfig.profile)
       for (let i = 0; i < currentWaypoints.length - 1; i++) {
         await _calculateSegment(currentWaypoints[i], currentWaypoints[i + 1], profileConfig, currentEngine, currentBrouterProfile)
       }
