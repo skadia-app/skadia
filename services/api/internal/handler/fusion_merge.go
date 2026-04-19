@@ -1810,8 +1810,11 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4-7 + rebuild + audit log: shared finalization within transaction.
+	// "type" normalized to "fusion_merge" (was "fusion_merge_v2" in historical rows).
+	// Historical rows retain the v2 suffix — GDPR export and UI handle both by
+	// reading the raw JSONB, not matching on this string.
 	auditData, _ := json.Marshal(map[string]any{
-		"type":      "fusion_merge_v2",
+		"type":      "fusion_merge",
 		"sources":   req.Sources,
 		"field_map": req.FieldMap,
 		"group_id":  req.GroupID,
