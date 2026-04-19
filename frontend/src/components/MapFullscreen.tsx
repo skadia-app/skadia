@@ -28,8 +28,8 @@ import ColorPicker from '@/components/ColorPicker'
 import { BASE_STYLES, buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
 import { apiClient } from '@/api/client'
 import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl, loadHeatmapColor, saveHeatmapColor } from '@/lib/mapHeatmap'
-import { type FieldKey } from '@/lib/sportFieldLabels'
 import { findClosestIdx } from '@/lib/utils'
+import type { ZoomRange } from '@/components/ActivityCharts'
 import { MOTION_PROFILE_BY_SPORT_TYPE, type MotionProfile } from '@/lib/colorScaleRanges'
 
 echarts.use([
@@ -48,21 +48,21 @@ echarts.use([
 
 type XMode = 'distance' | 'time'
 
-interface ChartData {
+type MetricFieldKey = 'altitude' | 'heartRate' | 'power' | 'cadence' | 'speed' | 'temperature'
+
+type ChartMetrics = Record<MetricFieldKey, number[]>
+
+interface ChartXAxis {
   distanceKm: number[]
   elapsedMin: number[]
-  altitude: number[]
-  heartRate: number[]
-  power: number[]
-  cadence: number[]
-  speed: number[]
-  temperature: number[]
   maxDist: number
   maxElapsed: number
 }
 
+type ChartData = ChartMetrics & ChartXAxis
+
 interface StreamDef {
-  key: FieldKey
+  key: MetricFieldKey
   label: string
   unit: string
   color: string
@@ -161,6 +161,47 @@ function formatElapsed(minutes: number, maxMinutes: number): string {
   return `${h}h${m.toString().padStart(2, '0')}`
 }
 
+// ── GPS gap filter for base-layer track ──────────────────────────────────────
+
+const BASE_LAYER_GAP_THRESHOLD_M = 100
+
+/**
+ * Split a sequence of [lng, lat] points into segments at GPS teleport gaps.
+ * A gap is detected when the distance_m delta between consecutive points
+ * exceeds `threshold`. Returns an array of coordinate segments suitable for
+ * a GeoJSON MultiLineString geometry.
+ */
+function splitTrackAtGaps(
+  points: [number, number][],
+  distancesM: number[],
+  threshold = BASE_LAYER_GAP_THRESHOLD_M,
+): [number, number][][] {
+  const segments: [number, number][][] = []
+  let current: [number, number][] = []
+  for (let i = 0; i < points.length; i++) {
+    if (i > 0 && Math.abs((distancesM[i] ?? 0) - (distancesM[i - 1] ?? 0)) > threshold) {
+      if (current.length > 0) segments.push(current)
+      current = []
+    }
+    current.push(points[i])
+  }
+  if (current.length > 0) segments.push(current)
+  return segments
+}
+
+/**
+ * Binary-search the nearest index in a sorted numeric array.
+ * Used to map chart coordRange values back to stream indices for useMetricColoring.
+ */
+function findNearestIdx(arr: number[], value: number): number {
+  let lo = 0, hi = arr.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (arr[mid] < value) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -174,9 +215,10 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
 
   const [xMode, setXMode] = useState<XMode>('distance')
   const [isZoomed, setIsZoomed] = useState(false)
-  const [enabledStreams, setEnabledStreams] = useState<Set<FieldKey>>(() => {
-    // Alle möglichen FieldKeys vorausgewählt — ECharts blendet Serien ohne Daten automatisch aus
-    return new Set<FieldKey>(['altitude', 'heartRate', 'power', 'cadence', 'speed', 'temperature'])
+  const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null)
+  const [enabledStreams, setEnabledStreams] = useState<Set<MetricFieldKey>>(() => {
+    // Alle möglichen MetricFieldKeys vorausgewählt — ECharts blendet Serien ohne Daten automatisch aus
+    return new Set<MetricFieldKey>(['altitude', 'heartRate', 'power', 'cadence', 'speed', 'temperature'])
   })
 
   const [showPhotos, setShowPhotos] = useState(true)
@@ -235,7 +277,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
     streams,
     activity: { sport_type: sportType, fit_sport_id: fitSportId },
     hasGps,
-    zoomRange: null,
+    zoomRange,
     map: mapInstance,
     styleVersion,
   })
@@ -264,9 +306,26 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
     const addTrackLayers = (m: maplibregl.Map) => {
       if (m.getSource('track')) return // guard: don't double-add
 
+      // Build initial base-layer track with GPS-gap filter (teleport lines suppressed).
+      // useMetricColoring will replace this data once the metric/scale is resolved.
+      const gpsStreams = streams.filter(
+        (s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null,
+      )
+      const gpsPoints = gpsStreams.map(s => [s.lng, s.lat] as [number, number])
+      const gpsDistancesM = gpsStreams.map(s => s.distance_m ?? 0)
+      const segments = splitTrackAtGaps(gpsPoints, gpsDistancesM)
+      const initialData: GeoJSON.FeatureCollection = {
+        type: 'FeatureCollection',
+        features: segments.map(seg => ({
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: seg },
+          properties: { inside: true, has_value: false },
+        })),
+      }
+
       m.addSource('track', {
         type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
+        data: initialData,
       })
       m.addLayer({
         id: 'track-line',
@@ -697,7 +756,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
       // Legend toggle -> update enabledStreams
       chart.on('legendselectchanged', (params: unknown) => {
         const typed = params as { selected: Record<string, boolean> }
-        const next = new Set<FieldKey>()
+        const next = new Set<MetricFieldKey>()
         availableStreams.forEach(s => {
           if (typed.selected[s.label]) next.add(s.key)
         })
@@ -759,7 +818,13 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
         setIsZoomed(true)
 
         const xArr = xMode === 'distance' ? data.distanceKm : data.elapsedMin
-        highlightMapSegment(findClosestIdx(xArr, sv), findClosestIdx(xArr, ev))
+        const startIdx = findNearestIdx(xArr, sv)
+        const endIdx = findNearestIdx(xArr, ev)
+        highlightMapSegment(startIdx, endIdx)
+
+        const startKm = xMode === 'distance' ? sv : (data.distanceKm[startIdx] ?? 0)
+        const endKm = xMode === 'distance' ? ev : (data.distanceKm[endIdx] ?? data.maxDist)
+        setZoomRange({ startKm, endKm, startPct, endPct, startIdx, endIdx })
 
         requestAnimationFrame(() => { brushZoomLock = false })
       })
@@ -780,9 +845,15 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
         if (zoomed) {
           const startVal = (z.start / 100) * xMax
           const endVal = (z.end / 100) * xMax
-          highlightMapSegment(findClosestIdx(xData, startVal), findClosestIdx(xData, endVal))
+          const startIdx = findNearestIdx(xData, startVal)
+          const endIdx = findNearestIdx(xData, endVal)
+          highlightMapSegment(startIdx, endIdx)
+          const startKm = xMode === 'distance' ? startVal : (data.distanceKm[startIdx] ?? 0)
+          const endKm = xMode === 'distance' ? endVal : (data.distanceKm[endIdx] ?? data.maxDist)
+          setZoomRange({ startKm, endKm, startPct: z.start, endPct: z.end, startIdx, endIdx })
         } else {
           clearMapHighlight()
+          setZoomRange(null)
         }
       })
 
@@ -807,6 +878,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
     })
 
     setIsZoomed(false)
+    setZoomRange(null)
     clearMapHighlight()
   }, [clearMapHighlight])
 
