@@ -45,6 +45,8 @@ import { useToast } from '@/lib/toast'
 import { haversineM, findNearbyLocationTag } from '@/lib/geoUtils'
 import { removeTerraIncognitaLayers, addTerraIncognitaLayers } from '@/lib/mapTerraIncognita'
 import GeoSearch from '@/components/map/GeoSearch'
+import { useStickyHighlight } from '@/hooks/useStickyHighlight'
+import { isF26Key } from '@/lib/descriptorFilter'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
 export type { SportOption } from '@/lib/sportOptions'
@@ -376,7 +378,7 @@ export default function MapPage() {
   const [hoveredSuggestion, setHoveredSuggestion] = useState<number | null>(null)
   const [showProfileChart, setShowProfileChart] = useState(false)
   const [bottomBarCollapsed, setBottomBarCollapsed] = useState(false)
-  const [highlightedType, setHighlightedType] = useState<{ kind: 'highway' | 'surface'; key: string } | null>(null)
+  const highlight = useStickyHighlight()
   const [filterPanelVisible, setFilterPanelVisible] = useState(() => {
     try {
       const saved = localStorage.getItem('skadia-filter-panel-visible')
@@ -564,9 +566,9 @@ export default function MapPage() {
     updateControlPoint: planner.updateControlPoint,
     insertControlPoint: planner.insertControlPoint,
     removeControlPoint: planner.removeControlPoint,
-    highlightedType,
+    highlightedType: highlight.effective,
     isCalculating: planner.isCalculating,
-  }), [planner, highlightedType])
+  }), [planner, highlight.effective])
 
   // Register MapLibre click handlers for route editing
   useRouteEditor(mapRef, routeEditorState, plannerActive)
@@ -2363,6 +2365,15 @@ export default function MapPage() {
               setRouteSuggestions(null)
             }}
             onCancel={() => setRouteSuggestions(null)}
+            onHoverDescriptor={(key) => {
+              if (key == null) { highlight.setHover(null); return }
+              if (!isF26Key(key)) return // unknown key — no-op (defensive)
+              highlight.setHover({ kind: 'descriptor', descriptorKey: key })
+            }}
+            onClickDescriptor={(key) => {
+              if (!isF26Key(key)) return
+              highlight.handleClick({ kind: 'descriptor', descriptorKey: key })
+            }}
           />
         )}
 
@@ -2794,7 +2805,7 @@ export default function MapPage() {
                   segments={planner.segments}
                   height={140}
                 />
-                <RouteSurfacesBar segments={planner.segments} onHighlight={setHighlightedType} />
+                <RouteSurfacesBar segments={planner.segments} onHighlight={highlight.setHover} />
               </div>
             )}
           </div>

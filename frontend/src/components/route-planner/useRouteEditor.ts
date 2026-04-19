@@ -51,7 +51,11 @@ export interface RoutePlannerState {
   waypoints: RouteWaypoint[]
   segments: RouteSegment[]
   isCalculating?: boolean
-  highlightedType?: { kind: 'highway' | 'surface'; key: string } | null
+  highlightedType?:
+    | { kind: 'highway'; key: string }
+    | { kind: 'surface'; key: string }
+    | { kind: 'descriptor'; descriptorKey: 'mtb_technical' | 'alpine_hiking' | 'exposed' | 'low_visibility' }
+    | null
   addWaypoint: (latlng: [number, number]) => void
   moveWaypoint: (id: string, latlng: [number, number]) => void
   removeWaypoint: (id: string) => void
