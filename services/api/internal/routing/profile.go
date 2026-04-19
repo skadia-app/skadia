@@ -247,6 +247,8 @@ func buildEdgeCostClosure(p ProfileConfig) func(tags1, tags2 uint64) EdgeCostFac
 	trafficWeight := deref32(p.TrafficPenalty)
 	protectedWeight := deref32(p.ProtectedBonus)
 
+	maxTv := derefInt(p.MaxTrailVisibility)
+	tvPenalty := deref32(p.TrailVisibilityPenalty)
 
 	cyclerouteBoost := deref32(p.CyclerouteBoost)
 	hikerouteBoost := deref32(p.HikerouteBoost)
@@ -390,6 +392,15 @@ func buildEdgeCostClosure(p ProfileConfig) func(tags1, tags2 uint64) EdgeCostFac
 			return EdgeCostFactors{Flat: costBlocked}
 		}
 
+		// --- Trail-Visibility (spec §3.2) — single decode, Fast-Path when both disabled ---
+		var tv uint8
+		if maxTv > 0 || tvPenalty > 0 {
+			tv = graph.DecodeTrailVisibility(tags2)
+		}
+		if maxTv > 0 && tv > 0 && int(tv) > maxTv {
+			return EdgeCostFactors{Flat: costBlocked}
+		}
+
 		// --- Tracktype ---
 		tracktype := uint8(graph.DecodeField(tags1, 11, 3)) // bits 11-13
 
@@ -516,7 +527,12 @@ func buildEdgeCostClosure(p ProfileConfig) func(tags1, tags2 uint64) EdgeCostFac
 			baseCF = baseCF*(1.0-hikerouteBoost) + 1.0*hikerouteBoost
 		}
 
-		finalCF := baseCF + forestAdd + noiseAdd + trafficAdd - protectedSub
+		var tvAdd float32
+		if tvPenalty > 0 && tv >= 3 {
+			tvAdd = tvPenalty * tvSeverity[tv]
+		}
+
+		finalCF := baseCF + forestAdd + noiseAdd + trafficAdd + tvAdd - protectedSub
 
 		// --- 3 Costfactors for hiking/mtb ---
 		if profile == "hiking" || profile == "mtb" {
