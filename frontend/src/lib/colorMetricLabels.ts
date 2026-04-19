@@ -23,20 +23,10 @@ export const MODE_LABELS = {
   linear: 'Linear',
 } as const
 
-export const LEGEND_UNITS = {
-  kmh:         'km/h',
-  min_per_km:  'min/km',
-  bpm:         'bpm',
-  w:           'W',
-  spm:         'spm',
-  rpm:         'rpm',
-  m:           'm',
-  celsius:     '°C',
-} as const
-
-export const LEGEND_NOTES = {
-  outOfRangeLow:  '< Min',
-  outOfRangeHigh: '> Max',
+export const DROPDOWN_LABELS = {
+  chooseColoring:     'Einfärbung wählen',
+  zonesBasedTooltip:  'Zonen-basierte Einfärbung',
+  zonesNotConfigured: 'Keine Zonen konfiguriert',
 } as const
 
 export type MetricKey = keyof typeof METRIC_LABELS
