@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -384,6 +385,39 @@ func (h *Handler) GetActivitySegmentEfforts(w http.ResponseWriter, r *http.Reque
 
 // RecomputeSegment re-matches all of the user's GPS activities against a single segment.
 // Useful after editing a segment or when matching failed due to a bug.
+// recomputeSegmentEfforts deletes all existing segment_efforts for the given
+// segment/user pair and re-matches every eligible activity against it.
+// It is the library-level core used by both RecomputeSegment (HTTP-triggered,
+// with job tracking) and RecomputeEffortsForActivity (post-fusion, non-fatal).
+//
+// The caller is responsible for running this inside a shutdown.Go goroutine
+// or other long-running context when appropriate.
+func (h *Handler) recomputeSegmentEfforts(ctx context.Context, segmentID, userID string) error {
+	if err := h.DB.DeleteSegmentEffortsBySegment(ctx, segmentID, userID); err != nil {
+		return fmt.Errorf("delete existing efforts: %w", err)
+	}
+
+	ids, err := h.DB.ListActivityIDsForSegmentBackfill(ctx, userID, segmentID)
+	if err != nil {
+		return fmt.Errorf("list activities for backfill: %w", err)
+	}
+
+	slog.Info("segment recompute: starting", "segment_id", segmentID, "activity_count", len(ids))
+	for _, actID := range ids {
+		act, err := h.DB.GetActivity(ctx, actID)
+		if err != nil || act == nil {
+			continue
+		}
+		subType := ""
+		if act.SubType != nil {
+			subType = *act.SubType
+		}
+		MatchActivitySegments(ctx, h.DB, actID, userID, act.SportType, subType, act.GearID, act.StartedAt)
+	}
+	slog.Info("segment recompute: done", "segment_id", segmentID)
+	return nil
+}
+
 func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
