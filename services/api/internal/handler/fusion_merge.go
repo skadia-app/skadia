@@ -381,10 +381,6 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 		return fmt.Errorf("related-tables union-copy: %w", err)
 	}
 
-	// TODO(phase-5): extract a per-activity segment_efforts recomputer and call it
-	// here. See docs/internal/2026-04-16-fusion-segment-efforts-recompute.md.
-	// Currently segment-matches land on next user-triggered segment recompute.
-
 	// Audit log (inside transaction).
 	// FATAL: the audit record is required for GDPR accountability. A failed INSERT
 	// here would commit the merge without any audit trail, breaking the export/import
@@ -512,6 +508,21 @@ func (h *Handler) postCommitFusionCleanup(ctx context.Context, p fusionFinalizeP
 			}
 			if _, err := svc.ComputeForActivity(ctx, *info, stream); err != nil {
 				slog.Warn("fusion-merge: compute best efforts failed", "id", mergedID, "error", err)
+			}
+		})
+	}
+
+	// Recompute segment efforts for all segments whose track overlaps the new
+	// activity's bbox. Non-fatal: a full-segment failure is logged as a warning;
+	// the user can trigger a manual recompute from the segment detail page.
+	// Runs in background so it does not block the HTTP response.
+	{
+		mergedID := p.merged.ID
+		userID := p.userID
+		shutdown.Go("segment-efforts-fusion-merge:"+mergedID, func(ctx context.Context) {
+			if err := h.RecomputeEffortsForActivity(ctx, mergedID, userID); err != nil {
+				slog.Warn("fusion-merge: segment effort recompute failed",
+					"activity_id", mergedID, "err", err)
 			}
 		})
 	}
