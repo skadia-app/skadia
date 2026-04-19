@@ -5,6 +5,7 @@ import type { SportZones } from '@/api/trainingZones'
 import {
   SPEED_PROFILES, PACE_PROFILES, CADENCE_PROFILES,
   TEMPERATURE_RANGE, ALTITUDE_MIN_SPREAD,
+  CADENCE_MIN_SPREAD,
   HR_FALLBACK_MIN_SPREAD, POWER_FALLBACK_MIN_SPREAD,
   expandRange,
   type MotionProfile,
@@ -130,15 +131,27 @@ export function resolveScale(
     }
 
     case 'cadence': {
-      const p = CADENCE_PROFILES[motionProfile.cadence]
       const unit = motionProfile.cadence.startsWith('foot_') ? 'spm'
         : motionProfile.cadence === 'bike' ? 'rpm'
         : motionProfile.cadence === 'paddle' ? 'spm'
         : 'spm'
+      const values = fullStreams.map(s => s.cadence).filter((v): v is number => v != null && !Number.isNaN(v))
+      if (values.length === 0) {
+        // Fallback: use profile as default scale
+        const p = CADENCE_PROFILES[motionProfile.cadence]
+        return {
+          type: 'linear',
+          stops: uniformStops(p.min, p.max, VIRIDIS_9),
+          clamped: true, metric, unit,
+        }
+      }
+      const [min, max] = expandRange(Math.min(...values), Math.max(...values), CADENCE_MIN_SPREAD)
       return {
         type: 'linear',
-        stops: uniformStops(p.min, p.max, VIRIDIS_9),
-        clamped: true, metric, unit,
+        stops: uniformStops(min, max, VIRIDIS_9),
+        clamped: false,   // activity-relative — don't clamp out-of-range samples
+        metric,
+        unit,
       }
     }
 

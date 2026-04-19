@@ -380,6 +380,37 @@ describe('zoneColors', () => {
   })
 })
 
+// ─── Cadence activity-relative scale ─────────────────────────────────────────
+
+describe('resolveScale — cadence (activity-relative)', () => {
+  it('cadence uses activity min/max with CADENCE_MIN_SPREAD', () => {
+    // Stream with 165-175 spm (10 spread, under 20) → should expand to 20 spread
+    const streams: StreamPoint[] = [
+      { time: 't0', cadence: 165 },
+      { time: 't1', cadence: 170 },
+      { time: 't2', cadence: 175 },
+    ] as StreamPoint[]
+    const scale = resolveScale('cadence', { speed: 'running', pace: 'running', cadence: 'foot_running' }, streams, null, 'linear')
+    expect(scale.type).toBe('linear')
+    if (scale.type === 'linear') {
+      // (165+175)/2 = 170, spread 20 → 160..180
+      expect(scale.stops[0].value).toBe(160)
+      expect(scale.stops[scale.stops.length - 1].value).toBe(180)
+      expect(scale.unit).toBe('spm')
+    }
+  })
+
+  it('cadence falls back to profile when stream has no cadence data', () => {
+    const streams: StreamPoint[] = [{ time: 't0' }] as StreamPoint[]
+    const scale = resolveScale('cadence', { speed: 'roadCycling', cadence: 'bike' }, streams, null, 'linear')
+    if (scale.type === 'linear') {
+      expect(scale.unit).toBe('rpm')
+      expect(scale.stops[0].value).toBe(0)     // bike profile min=0
+      expect(scale.stops[scale.stops.length - 1].value).toBe(120)  // bike profile max=120
+    }
+  })
+})
+
 // ─── Finding #29c: resolveScale zones+speed with m/s → km/h conversion ───────
 
 describe('resolveScale — zones speed (m/s → km/h)', () => {
