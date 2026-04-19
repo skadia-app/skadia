@@ -57,10 +57,10 @@ func isValidVariantID(id string) bool {
 }
 
 // -------------------------------------------------------------------
-// T1: V2 without coverage → only rank-based labels, no coverage descriptors
+// T1: without coverage → only rank-based labels, no coverage descriptors
 // -------------------------------------------------------------------
 
-func TestSuggestRoutes_V2_WithoutCoverage_OnlyRankLabels(t *testing.T) {
+func TestSuggestRoutes_WithoutCoverage_OnlyRankLabels(t *testing.T) {
 	setup := newTestRoutingHandler(t)
 
 	// CoverageReader is already nil in the test harness.
@@ -108,12 +108,12 @@ func TestSuggestRoutes_V2_WithoutCoverage_OnlyRankLabels(t *testing.T) {
 }
 
 // -------------------------------------------------------------------
-// T2: V2 with CoverageReader present → coverage_available=true AND
+// T2: with CoverageReader present → coverage_available=true AND
 // the route that traverses the high-forest quadrant gets a high_forest
 // descriptor (ForestPct=70 encoded in EdgeTags2 for those edges).
 // -------------------------------------------------------------------
 
-func TestSuggestRoutes_V2_WithCoverage_ForestDescriptorAssigned(t *testing.T) {
+func TestSuggestRoutes_WithCoverage_ForestDescriptorAssigned(t *testing.T) {
 	// newTestRoutingHandlerWithCoverage sets CoverageReader to a non-nil stub
 	// (empty dir) so coverageAvailable=true. Actual forest values come from
 	// EdgeTags2 bits pre-encoded in the bottom-right quadrant of the grid.
@@ -169,10 +169,10 @@ func TestSuggestRoutes_V2_WithCoverage_ForestDescriptorAssigned(t *testing.T) {
 }
 
 // -------------------------------------------------------------------
-// T7: V2 outdoor — mtb_technical descriptor assigned
+// T7: outdoor — mtb_technical descriptor assigned
 // -------------------------------------------------------------------
 
-func TestSuggestRoutes_V2_Outdoor_MtbTechnicalAssigned(t *testing.T) {
+func TestSuggestRoutes_Outdoor_MtbTechnicalAssigned(t *testing.T) {
 	setup := newTestRoutingHandlerWithOutdoor(t)
 
 	const body = `{"start":[12.10,48.99],"target_distance_m":10000,"profile":"hiking"}`
@@ -203,10 +203,10 @@ func TestSuggestRoutes_V2_Outdoor_MtbTechnicalAssigned(t *testing.T) {
 }
 
 // -------------------------------------------------------------------
-// T8: V2 outdoor — sub-segments annotated with sac/mtb/tv/vf tags
+// T8: outdoor — sub-segments annotated with sac/mtb/tv/vf tags
 // -------------------------------------------------------------------
 
-func TestSuggestRoutes_V2_Outdoor_SubSegmentsAnnotated(t *testing.T) {
+func TestSuggestRoutes_Outdoor_SubSegmentsAnnotated(t *testing.T) {
 	setup := newTestRoutingHandlerWithOutdoor(t)
 
 	const body = `{"start":[12.10,48.99],"target_distance_m":10000,"profile":"hiking"}`

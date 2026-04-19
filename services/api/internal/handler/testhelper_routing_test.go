@@ -241,7 +241,7 @@ func newTestRoutingHandlerOpts(t *testing.T, withCoverage, withOutdoorTags bool)
 		if withOutdoorTags {
 			// Inject outdoor tags per spec §8.2 rev5 — encoded values.
 			//
-			// Tag placement is calibrated against the three routes the V2 pipeline
+			// Tag placement is calibrated against the three routes the routing pipeline
 			// produces from this fixture (baseline = no outdoor tags):
 			//   Route 0 (shortest ≈6km):  col-1 vertical: (0,1)→(1,1)→(2,1)→(3,1)
 			//   Route 1 (medium   ≈9km):  NE diagonal:    (0,1)→(0,2)→(1,3)→(2,4)
@@ -270,7 +270,7 @@ func newTestRoutingHandlerOpts(t *testing.T, withCoverage, withOutdoorTags bool)
 			//                       cheaper than any detour via (0,0); via-point
 			//                       selection is DistanceM-based (unaffected by cost).
 			//                       Geometrically traversed by Route 0, but integration
-			//                       test cannot hard-assert until V2 pipeline emits
+			//                       test cannot hard-assert until the routing pipeline emits
 			//                       full-route segments (currently missing final-edge
 			//                       per return leg — see variants_test SAC comment).
 			// VF   → (3,3)↔(4,4): Route 2 diagonal (r+c=6, exists); hw stays path=16.
