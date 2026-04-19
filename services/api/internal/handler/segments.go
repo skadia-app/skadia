@@ -455,6 +455,23 @@ func (h *Handler) recomputeSegmentEffortsForActivity(ctx context.Context, segmen
 		return fmt.Errorf("collect new efforts for segment rematch: %w", err)
 	}
 
+	// Filter to only the target segmentID.
+	//
+	// collectSegmentEfforts may return efforts for all segments that spatially
+	// overlap the activity's bbox, not just the requested one.  When the caller
+	// loops over N overlapping segments and calls this function for each, the
+	// DELETE targets only (segment_id, activity_id) — but inserting the full
+	// allEfforts slice would re-insert efforts for segments that were not DELETEd,
+	// silently duplicating them.  Primary key uuid-default does not catch this.
+	// Filter here to make the function semantics honest: recompute exactly the
+	// (segmentID, activityID) tuple.  (R3-1)
+	efforts := make([]*model.SegmentEffort, 0, len(allEfforts))
+	for _, e := range allEfforts {
+		if e.SegmentID == segmentID {
+			efforts = append(efforts, e)
+		}
+	}
+
 	// Transactional DELETE + INSERT: if the INSERT fails the DELETE is rolled back,
 	// preserving the pre-recompute state (fixes R2-10 non-atomic delete+match).
 	tx, err := h.beginTx(ctx)
@@ -470,7 +487,7 @@ func (h *Handler) recomputeSegmentEffortsForActivity(ctx context.Context, segmen
 		return fmt.Errorf("delete efforts for segment+activity: %w", err)
 	}
 
-	if err := database.InsertSegmentEffortsBatchTx(ctx, tx, allEfforts); err != nil {
+	if err := database.InsertSegmentEffortsBatchTx(ctx, tx, efforts); err != nil {
 		return fmt.Errorf("insert new efforts for segment+activity: %w", err)
 	}
 
