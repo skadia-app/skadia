@@ -54,7 +54,7 @@ func TestPOC_DescriptorCalibration(t *testing.T) {
 		for _, targetM := range targetDistances {
 			for _, cov := range coverageSituations {
 				// Generate 3 synthetic RouteCandidates per combo.
-				pool := generateSyntheticPoolFull(region, targetM, cov == "full_coverage")
+				pool := generateSyntheticPoolFull(region, targetM, cov == "full_coverage", false)
 				coverageAvailable := cov == "full_coverage"
 
 				labeled := assignLabels(pool, []int{0, 1, 2}, targetM, coverageAvailable, "hiking")
@@ -123,55 +123,15 @@ func TestPOC_DescriptorCalibration(t *testing.T) {
 // generateSyntheticPool creates 3 RouteCandidates for a region archetype using
 // fixed defaults (targetM=10000, hasCoverage=true) and outdoor tag population.
 func generateSyntheticPool(region string) []RouteCandidate {
-	pool := generateSyntheticPoolFull(region, 10000.0, true)
-	switch region {
-	case "alpine":
-		for i := range pool {
-			pool[i].MaxSacScale = uint8(3 + i%3)
-			pool[i].MaxMtbScale = uint8(2 + i%2)
-			pool[i].MaxTrailVisibility = uint8(2 + i%3)
-			pool[i].TaggedPctSac = 0.40 + float32(i)*0.05
-			pool[i].TaggedPctTv = 0.30 + float32(i)*0.05
-			pool[i].TaggedPctMtb = 0.25
-			if i == 2 {
-				pool[i].HasViaFerrataHighway = true
-				pool[i].MaxViaFerrataScale = 2
-				pool[i].TaggedPctVia = 0.02
-			}
-		}
-	case "hills":
-		for i := range pool {
-			pool[i].MaxSacScale = uint8(1 + i%2)
-			pool[i].MaxMtbScale = uint8(1 + i)
-			pool[i].MaxTrailVisibility = uint8(1 + i%3)
-			pool[i].TaggedPctSac = 0.15 + float32(i)*0.05
-			pool[i].TaggedPctTv = 0.15 + float32(i)*0.05
-			pool[i].TaggedPctMtb = 0.10 + float32(i)*0.05
-		}
-	case "urban", "flatland":
-		for i := range pool {
-			pool[i].TaggedPctSac = 0.05
-			pool[i].TaggedPctTv = 0.05
-			pool[i].TaggedPctMtb = 0.05
-		}
-	case "coastal":
-		for i := range pool {
-			pool[i].MaxSacScale = uint8(i % 2)
-			pool[i].MaxTrailVisibility = uint8(1 + i%2)
-			pool[i].TaggedPctSac = 0.20
-			pool[i].TaggedPctTv = 0.25
-			if i == 1 {
-				pool[i].HasViaFerrataHighway = true
-				pool[i].TaggedPctVia = 0.03
-			}
-		}
-	}
-	return pool
+	return generateSyntheticPoolFull(region, 10000.0, true, true)
 }
 
 // generateSyntheticPoolFull creates 3 RouteCandidates for a region archetype.
 // Route variance: [short, medium, long] relative to target distance.
-func generateSyntheticPoolFull(region string, targetM float64, hasCoverage bool) []RouteCandidate {
+// withOutdoor populates region-specific outdoor tags (SAC scale, MTB scale,
+// trail visibility, via ferrata) in the same pass — avoiding a second switch
+// on the caller side (Opus Finding #19).
+func generateSyntheticPoolFull(region string, targetM float64, hasCoverage bool, withOutdoor bool) []RouteCandidate {
 	// Region-specific base profile
 	var baseAscent float64
 	var forestBase, noiseBase, trafficBase, protectedBase, riverBase float32
@@ -214,6 +174,52 @@ func generateSyntheticPoolFull(region string, targetM float64, hasCoverage bool)
 		}
 		// else: all Merged* remain 0 (= semantic "no coverage data")
 	}
+
+	if withOutdoor {
+		switch region {
+		case "alpine":
+			for i := range pool {
+				pool[i].MaxSacScale = uint8(3 + i%3)
+				pool[i].MaxMtbScale = uint8(2 + i%2)
+				pool[i].MaxTrailVisibility = uint8(2 + i%3)
+				pool[i].TaggedPctSac = 0.40 + float32(i)*0.05
+				pool[i].TaggedPctTv = 0.30 + float32(i)*0.05
+				pool[i].TaggedPctMtb = 0.25
+				if i == 2 {
+					pool[i].HasViaFerrataHighway = true
+					pool[i].MaxViaFerrataScale = 2
+					pool[i].TaggedPctVia = 0.02
+				}
+			}
+		case "hills":
+			for i := range pool {
+				pool[i].MaxSacScale = uint8(1 + i%2)
+				pool[i].MaxMtbScale = uint8(1 + i)
+				pool[i].MaxTrailVisibility = uint8(1 + i%3)
+				pool[i].TaggedPctSac = 0.15 + float32(i)*0.05
+				pool[i].TaggedPctTv = 0.15 + float32(i)*0.05
+				pool[i].TaggedPctMtb = 0.10 + float32(i)*0.05
+			}
+		case "urban", "flatland":
+			for i := range pool {
+				pool[i].TaggedPctSac = 0.05
+				pool[i].TaggedPctTv = 0.05
+				pool[i].TaggedPctMtb = 0.05
+			}
+		case "coastal":
+			for i := range pool {
+				pool[i].MaxSacScale = uint8(i % 2)
+				pool[i].MaxTrailVisibility = uint8(1 + i%2)
+				pool[i].TaggedPctSac = 0.20
+				pool[i].TaggedPctTv = 0.25
+				if i == 1 {
+					pool[i].HasViaFerrataHighway = true
+					pool[i].TaggedPctVia = 0.03
+				}
+			}
+		}
+	}
+
 	return pool
 }
 
