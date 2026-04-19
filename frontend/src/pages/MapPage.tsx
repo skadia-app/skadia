@@ -2362,21 +2362,7 @@ export default function MapPage() {
             hoveredIndex={hoveredSuggestion}
             onHover={setHoveredSuggestion}
             onSelect={(index) => {
-              const s = routeSuggestions[index]
-              planner.clear()
-              // Start point
-              const coords = s.geojson?.features?.[0]?.geometry?.coordinates
-              if (coords?.length >= 2) {
-                void planner.addWaypoint([coords[0][1], coords[0][0]])
-              }
-              // Via point from suggestion
-              if (s.via_point) {
-                void planner.addWaypoint([s.via_point[1], s.via_point[0]])
-              }
-              // End point
-              if (coords?.length >= 2) {
-                void planner.addWaypoint([coords[coords.length - 1][1], coords[coords.length - 1][0]])
-              }
+              planner.loadSuggestion(routeSuggestions[index])
               setRouteSuggestions(null)
             }}
             onCancel={() => setRouteSuggestions(null)}

@@ -139,6 +139,71 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
     })
   })
 
+  it('loadSuggestion setzt 2 Waypoints + 1 Segment mit voller Geometrie', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    const hikingProfile = { profile: 'hiking', uphill_cost: 7 } as any
+    vi.mocked(getProfileDefaults).mockReturnValue(hikingProfile)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    await waitFor(() => {
+      expect(result.current.profile.status).toBe('ready')
+    })
+
+    const fakeSuggestion = {
+      variant: 0,
+      profile: 'hiking',
+      via_point: [12.0, 49.0] as [number, number],
+      variant_id: 'shortest',
+      variant_label_key: 'shortest',
+      distance_m: 11700,
+      ascent_m: 208,
+      descent_m: 208,
+      avg_flat: 0.5,
+      loop_quality: 'loop' as const,
+      overlap_pct: 0.1,
+      distance_target_achieved: true,
+      ascent_target_achieved: true,
+      is_fallback: false,
+      geojson: {
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [12.0, 49.0, 500],
+              [12.01, 49.01, 510],
+              [12.02, 49.0, 505],
+              [12.0, 49.0, 500],
+            ],
+          },
+          properties: {},
+        }],
+      },
+    }
+
+    act(() => {
+      result.current.loadSuggestion(fakeSuggestion)
+    })
+
+    // 2 Waypoints (Start + End — bei Loop auf derselben Position)
+    // latlng is [lat, lon] — coords in GeoJSON are [lon, lat], so:
+    // latlng[0] = lat = 49.0, latlng[1] = lon = 12.0
+    expect(result.current.waypoints).toHaveLength(2)
+    expect(result.current.waypoints[0].latlng[0]).toBeCloseTo(49.0) // lat
+    expect(result.current.waypoints[0].latlng[1]).toBeCloseTo(12.0) // lon
+    expect(result.current.waypoints[1].latlng[0]).toBeCloseTo(49.0) // lat
+    expect(result.current.waypoints[1].latlng[1]).toBeCloseTo(12.0) // lon
+
+    // 1 Segment mit voller Geometrie + Backend-Werten
+    expect(result.current.segments).toHaveLength(1)
+    expect(result.current.segments[0].distance_m).toBe(11700)
+    expect(result.current.segments[0].elevation_gain).toBe(208)
+    expect(result.current.segments[0].elevation_loss).toBe(208)
+    expect(result.current.segments[0].geometry?.coordinates).toHaveLength(4)
+  })
+
   it('mount-fetch does not overwrite profileConfig set by loadRoute', async () => {
     // Control the mount-fetch: it will not resolve until we say so
     let resolveMountFetch!: (v: any) => void

@@ -6,6 +6,7 @@ import type {
   RouteSubSegment,
   PlannedRoute,
   ListRoutesParams,
+  RouteSuggestion,
 } from '@/api/routes'
 import {
   getCapabilities,
@@ -609,6 +610,57 @@ export function useRoutePlanner() {
     }))
   }, [])
 
+  // Load a route suggestion directly as a segment — no re-routing.
+  // Takes the full geojson LineString geometry from the backend suggestion and
+  // stores it as a single 'routed' segment with backend-provided metrics.
+  // This prevents the previous bug where only 3 waypoints were extracted and
+  // the segment router re-calculated a completely different route.
+  const loadSuggestion = useCallback((s: RouteSuggestion) => {
+    const coords = s.geojson?.features?.[0]?.geometry?.coordinates as number[][] | undefined
+    if (!coords || coords.length < 2) {
+      setState(st => ({
+        ...st,
+        calculationError: 'Suggestion-Geometrie fehlt oder ungültig',
+      }))
+      return
+    }
+
+    const startWp: RouteWaypoint = {
+      id: crypto.randomUUID(),
+      latlng: [coords[0][1], coords[0][0]],
+      type: 'start',
+    }
+    const endWp: RouteWaypoint = {
+      id: crypto.randomUUID(),
+      latlng: [coords[coords.length - 1][1], coords[coords.length - 1][0]],
+      type: 'end',
+    }
+
+    const segment: RouteSegment = {
+      from_waypoint: startWp.id,
+      to_waypoint: endWp.id,
+      mode: 'routed',
+      geometry: {
+        type: 'LineString',
+        coordinates: coords,
+      },
+      control_points: [],
+      smooth: false,
+      distance_m: s.distance_m,
+      elevation_gain: s.ascent_m,
+      elevation_loss: s.descent_m,
+    }
+
+    setState(st => ({
+      ...st,
+      waypoints: [startWp, endWp],
+      segments: [segment],
+      editingRouteId: null,
+      calculationError: null,
+      isCalculating: false,
+    }))
+  }, [])
+
   // ── Clear ───────────────────────────────────────────────────────────────────
 
   const clear = useCallback(() => {
@@ -835,6 +887,7 @@ export function useRoutePlanner() {
     // ── Route lifecycle ───────────────────────────────────────────────────
     loadRoute,
     loadWaypoints,
+    loadSuggestion,
     clear,
     clearError,
 
