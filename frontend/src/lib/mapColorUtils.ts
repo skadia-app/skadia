@@ -1,5 +1,5 @@
 // frontend/src/lib/mapColorUtils.ts
-import type maplibregl from 'maplibre-gl'
+import type { ExpressionSpecification } from '@maplibre/maplibre-gl-style-spec'
 import type { StreamPoint } from '@/api/types'
 import type { SportZones } from '@/api/trainingZones'
 import {
@@ -472,7 +472,7 @@ export function applyInsideFlag(
 
 export type LineColorExpression =
   | string
-  | maplibregl.ExpressionSpecification
+  | ExpressionSpecification
 
 export function buildLineColorExpression(scale: ScaleDefinition): LineColorExpression {
   if (scale.type === 'constant') return scale.color
@@ -485,7 +485,7 @@ export function buildLineColorExpression(scale: ScaleDefinition): LineColorExpre
     return ['case',
       ['!', ['get', 'has_value']], MISSING_COLOR,
       interp,
-    ] as const
+    ] as unknown as LineColorExpression
   }
 
   // zones
@@ -497,7 +497,7 @@ export function buildLineColorExpression(scale: ScaleDefinition): LineColorExpre
   return ['case',
     ['!', ['get', 'has_value']], MISSING_COLOR,
     match,
-  ] as const
+  ] as unknown as LineColorExpression
 }
 
 /**
