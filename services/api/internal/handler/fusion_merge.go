@@ -2150,29 +2150,42 @@ func activityFieldRichness(a *model.Activity) int {
 // Returns (gain, loss, hasData). hasData=false wenn keine altitude_m-Samples existieren.
 // NULL-altitude-Rows werden VOR dem LAG-Window herausgefiltert (non_null CTE), damit
 // Multi-Device-Fusion mit lückenhafter Altitude nicht alle Deltas auf NULL reduziert.
+//
+// Time-gap guard: deltas spanning > maxGapSec seconds between consecutive
+// altitude samples are excluded. In Multi-Device-Fusion two devices may cover
+// non-overlapping time ranges (e.g. Device A: 09–12 GPS-only, Device B: 12–15
+// altitude-only). Without this guard, LAG() would bridge the gap and interpret
+// the altitude difference across unrelated segments as gain/loss.
 func (h *Handler) computeElevationFromStreams(ctx context.Context, tx database.Querier, activityID string) (gain, loss float64, hasData bool, err error) {
-	const deadBandM = 3.0
+	const (
+		deadBandM  = 3.0
+		maxGapSec  = 30.0 // gaps > 30 s between altitude samples are excluded
+	)
 	err = tx.QueryRow(ctx, `
 		WITH non_null AS (
 			SELECT altitude_m, time
 			FROM activity_streams
 			WHERE activity_id = $1 AND altitude_m IS NOT NULL
+			ORDER BY time
 		),
 		diffs AS (
-			SELECT altitude_m - LAG(altitude_m) OVER (ORDER BY time) AS delta
+			SELECT
+				altitude_m - LAG(altitude_m) OVER (ORDER BY time) AS delta,
+				EXTRACT(EPOCH FROM (time - LAG(time) OVER (ORDER BY time))) AS time_delta_s
 			FROM non_null
 		),
 		filtered AS (
 			SELECT delta
 			FROM diffs
 			WHERE delta IS NOT NULL AND ABS(delta) > $2
+			  AND time_delta_s IS NOT NULL AND time_delta_s <= $3
 		)
 		SELECT
 			COALESCE(SUM(delta) FILTER (WHERE delta > 0), 0)::double precision,
 			COALESCE(-SUM(delta) FILTER (WHERE delta < 0), 0)::double precision,
 			COUNT(*) > 0
 		FROM filtered
-	`, activityID, deadBandM).Scan(&gain, &loss, &hasData)
+	`, activityID, deadBandM, maxGapSec).Scan(&gain, &loss, &hasData)
 	return
 }
 
