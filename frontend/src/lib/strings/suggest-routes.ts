@@ -23,6 +23,10 @@ export const suggestRoutesStrings = {
     high_protected:   'Mehr Schutzgebiet',
     low_traffic_noise:'Weniger Verkehr',
     target_distance:  'Passt zur Wunschdistanz',
+    mtb_technical:    'Schwere MTB-Passagen',
+    alpine_hiking:    'Alpine Passagen',
+    exposed:          'Klettersteig-Abschnitt',
+    low_visibility:   'Pfad schwer findbar',
   } as Record<string, string>,
   loopQuality: {
     loop:         { label: 'Rundtour', icon: '⟲' },
