@@ -18,6 +18,7 @@ function sameHighlight(a: HighlightKind, b: HighlightKind): boolean {
 
 export interface StickyHighlightApi {
   effective: HighlightKind
+  sticky: HighlightKind
   setHover: (h: HighlightKind) => void
   handleClick: (h: HighlightKind) => void
   clearSticky: () => void
@@ -44,5 +45,5 @@ export function useStickyHighlight(): StickyHighlightApi {
   }, [])
 
   const effective = hover ?? sticky
-  return { effective, setHover, handleClick, clearSticky }
+  return { effective, sticky, setHover, handleClick, clearSticky }
 }
