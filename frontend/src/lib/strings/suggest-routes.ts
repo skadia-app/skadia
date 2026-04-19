@@ -3,17 +3,10 @@
 
 export const suggestRoutesStrings = {
   variants: {
-    // v2 keys
     shortest:  { label: 'Die kürzeste' },
     medium:    { label: 'Die mittlere' },
     longest:   { label: 'Die längste' },
     only:      { label: 'Die einzige' },
-    // legacy keys — kept for client-cache resilience
-    calmest:   { label: 'Die gemütlichste' },
-    greenest:  { label: 'Die grünste' },
-    hilly:     { label: 'Die anspruchsvolle' },
-    balanced:  { label: 'Die ausgewogene' },
-    geometric: { label: 'Alternative Richtung' },
   },
   descriptors: {
     high_ascent:      'Mehr Anstieg',
