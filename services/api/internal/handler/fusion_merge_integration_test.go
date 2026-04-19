@@ -3791,3 +3791,105 @@ func TestFusionMerge_TitleSourceFailureRollsBackTX(t *testing.T) {
 		}
 	})
 }
+
+// ─── Finding #9: applyFusionTxExtras coherent failure semantic ────────────────
+
+// TestFusionMerge_AggregateFailureSkipsElevation verifies that when the aggregate
+// recompute fails (injected DB error), elevation is NOT computed or written —
+// the merge still succeeds (non-fatal) but the pre-fusion elevation values are
+// preserved rather than getting an inconsistent partial update.
+//
+// Strategy: inject a TxFactory that wraps the real pgx.Tx with a mockTx that
+// returns an error when the SQL touches the aggregate UPDATE (COALESCE sub-query
+// pattern).  The elevation UPDATE must NOT run after that.
+func TestFusionMerge_AggregateFailureSkipsElevation(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+
+	// Give actA an altitude profile so elevation would be non-zero if computed.
+	now := time.Now().UTC().Truncate(time.Second)
+	alt0, alt100 := 0.0, 100.0
+	insertStreams(t, db, actA, []model.StreamPoint{
+		{Time: now, AltitudeM: &alt0},
+		{Time: now.Add(time.Second), AltitudeM: &alt100},
+	})
+	insertStreams(t, db, actB, []model.StreamPoint{
+		{Time: now, HeartRate: fusionPtrI16(130)},
+	})
+
+	// Set a known pre-fusion elevation on actA so we can verify it was not changed.
+	if _, err := pool.Exec(ctx,
+		`UPDATE activities SET elevation_gain_m = 999, elevation_loss_m = 888 WHERE id = $1`,
+		actA,
+	); err != nil {
+		t.Fatalf("set pre-fusion elevation: %v", err)
+	}
+
+	injectedErr := fmt.Errorf("injected: aggregate update failure")
+	h := &Handler{
+		DB: db,
+		TxFactory: func(txCtx context.Context) (pgx.Tx, error) {
+			realTx, err := db.Pool.Begin(txCtx)
+			if err != nil {
+				return nil, err
+			}
+			// Fail the aggregate recompute UPDATE (it touches "avg_speed_ms" or
+			// "distance_m" — match on "coalesce" which is distinctive to that block).
+			return &mockTx{
+				Tx:          realTx,
+				shouldFail:  sqlContains("avg_speed_ms", "max_dist"),
+				injectedErr: injectedErr,
+			}, nil
+		},
+	}
+
+	reqBody := mustJSON(FusionMergeRequest{
+		Sources:  []string{actA, actB},
+		FieldMap: map[string]string{"altitude": actA, "hr": actB},
+	})
+	r := httptest.NewRequest(http.MethodPost, "/fusion-merge", strings.NewReader(reqBody))
+	r.Header.Set("Content-Type", "application/json")
+	r = r.WithContext(context.WithValue(r.Context(), middleware.UserIDKey, userID))
+	rr := httptest.NewRecorder()
+	h.FusionMerge(rr, r)
+
+	// Merge must succeed (aggregate failure is non-fatal).
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	// The merged activity was created via INSERT-SELECT from the metadata source (actA),
+	// which has elevation_gain_m=999, elevation_loss_m=888. Because aggregate failed,
+	// the elevation recompute from streams was skipped — these metadata-source values
+	// must remain unchanged (NOT overwritten with the stream-computed ~100/0 values).
+	// If elevation had been computed, gain_m would be ≈100 (the altitude profile delta).
+	var gain, loss float64
+	if err := pool.QueryRow(ctx,
+		`SELECT COALESCE(elevation_gain_m, -1), COALESCE(elevation_loss_m, -1) FROM activities WHERE id = $1`,
+		resp.ID,
+	).Scan(&gain, &loss); err != nil {
+		t.Fatalf("read merged elevation: %v", err)
+	}
+	// The metadata-source copy (INSERT-SELECT from actA) gives 999/888.
+	// If elevation had been stream-recomputed, gain would be ≈100 (the +100m profile).
+	// The stream value (~100) is distinct from the metadata copy (999), so exact
+	// equality is the right assertion here.
+	if math.Abs(gain-999.0) > 1.0 {
+		t.Errorf("elevation_gain_m = %v, want 999 (metadata-source copy); if ≈100 then elevation was incorrectly stream-recomputed after aggregate failure", gain)
+	}
+	if math.Abs(loss-888.0) > 1.0 {
+		t.Errorf("elevation_loss_m = %v, want 888 (metadata-source copy); if ≈0 then elevation was incorrectly stream-recomputed after aggregate failure", loss)
+	}
+}
