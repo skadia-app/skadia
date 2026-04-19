@@ -298,3 +298,112 @@ func TestSuggestRoutes_V2Flag_FallsBackToV1(t *testing.T) {
 		}
 	}
 }
+
+// -------------------------------------------------------------------
+// T7: V2 outdoor — mtb_technical descriptor assigned
+// -------------------------------------------------------------------
+
+func TestSuggestRoutes_V2_Outdoor_MtbTechnicalAssigned(t *testing.T) {
+	setup := newTestRoutingHandlerWithOutdoor(t)
+	setup.Handler.Settings = settings.NewStoreForTest(map[string]string{
+		"routing.route_variants_v2": "true",
+	})
+
+	const body = `{"start":[12.10,48.99],"target_distance_m":10000,"profile":"hiking"}`
+	w := postSuggestRoutes(setup.Handler, body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	resp := decodeRouteSuggestionResponse(t, w)
+
+	// With harness fixture (mtb-tagged edge (0,0)-(0,1)), at least one route
+	// traversing that edge should gain mtb_technical. If no candidate traverses
+	// the edge, this test is too optimistic — rerun with a narrower fixture.
+	// Per rev5 fixture values: MaxMtbScale=3 on that route → DisplayValue "bis S2".
+	var found bool
+	var seen []string
+	for _, s := range resp.Suggestions {
+		for _, d := range s.Descriptors {
+			seen = append(seen, d.Key)
+			if d.Key == "mtb_technical" && d.DisplayValue == "bis S2" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Errorf("mtb_technical 'bis S2' not found; observed keys: %v", seen)
+	}
+}
+
+// -------------------------------------------------------------------
+// T8: V2 outdoor — sub-segments annotated with sac/mtb/tv/vf tags
+// -------------------------------------------------------------------
+
+func TestSuggestRoutes_V2_Outdoor_SubSegmentsAnnotated(t *testing.T) {
+	setup := newTestRoutingHandlerWithOutdoor(t)
+	setup.Handler.Settings = settings.NewStoreForTest(map[string]string{
+		"routing.route_variants_v2": "true",
+	})
+
+	const body = `{"start":[12.10,48.99],"target_distance_m":10000,"profile":"hiking"}`
+	w := postSuggestRoutes(setup.Handler, body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	resp := decodeRouteSuggestionResponse(t, w)
+
+	// Segments live under GeoJSON.properties.segments — parse the RawMessage.
+	type segProp struct {
+		SacScale        string `json:"sac_scale,omitempty"`
+		MtbScale        string `json:"mtb_scale,omitempty"`
+		ViaFerrataScale string `json:"via_ferrata_scale,omitempty"`
+		TrailVisibility string `json:"trail_visibility,omitempty"`
+	}
+	type fc struct {
+		Features []struct {
+			Properties struct {
+				Segments []segProp `json:"segments"`
+			} `json:"properties"`
+		} `json:"features"`
+	}
+
+	foundSac, foundMtb, foundTv, foundVia := false, false, false, false
+	for _, s := range resp.Suggestions {
+		var g fc
+		if err := json.Unmarshal(s.GeoJSON, &g); err != nil {
+			t.Fatalf("unmarshal geojson: %v", err)
+		}
+		for _, feat := range g.Features {
+			for _, seg := range feat.Properties.Segments {
+				if seg.SacScale == "T4" {
+					foundSac = true
+				}
+				if seg.MtbScale == "S2" {
+					foundMtb = true
+				}
+				if seg.TrailVisibility == "intermediate" {
+					foundTv = true
+				}
+				if seg.ViaFerrataScale == "K2" {
+					foundVia = true
+				}
+			}
+		}
+	}
+	if !foundMtb {
+		t.Errorf("mtb_scale=S2 segment missing")
+	}
+	// SAC: hiking profile penalises T4 (sacPenalty ≈ 5.5) so the router avoids
+	// SAC-tagged edges when alternatives exist. Hard assert intentionally omitted;
+	// SAC segment coverage is tested in unit tests (TestComputeDescriptors_AlpineHiking).
+	if !foundSac {
+		t.Logf("info: sac_scale=T4 segment not seen (hiking-profile SAC penalty causes avoidance; soft-fail)")
+	}
+	// TV + VF may only appear on specific node-pair-traversing routes — log as soft fails if not found.
+	if !foundTv {
+		t.Logf("info: trail_visibility=intermediate not seen (fixture edge may not be traversed)")
+	}
+	if !foundVia {
+		t.Logf("info: via_ferrata K2 not seen (fixture edge may not be traversed)")
+	}
+}

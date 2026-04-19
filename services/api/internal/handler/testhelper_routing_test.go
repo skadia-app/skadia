@@ -60,7 +60,7 @@ type testRoutingSetup struct {
 // For coverage-enabled tests use newTestRoutingHandlerWithCoverage.
 func newTestRoutingHandler(t *testing.T) *testRoutingSetup {
 	t.Helper()
-	return newTestRoutingHandlerOpts(t, false)
+	return newTestRoutingHandlerOpts(t, false, false)
 }
 
 // newTestRoutingHandlerWithCoverage is like newTestRoutingHandler but sets
@@ -74,11 +74,20 @@ func newTestRoutingHandler(t *testing.T) *testRoutingSetup {
 // to set the coverageAvailable flag.
 func newTestRoutingHandlerWithCoverage(t *testing.T) *testRoutingSetup {
 	t.Helper()
-	return newTestRoutingHandlerOpts(t, true)
+	return newTestRoutingHandlerOpts(t, true, false)
+}
+
+// newTestRoutingHandlerWithOutdoor is like newTestRoutingHandler but injects
+// outdoor tags (mtb/sac/via_ferrata/trail_visibility) into specific edges of
+// the grid fixture so that outdoor descriptors and segment annotations are
+// exercised in integration tests.
+func newTestRoutingHandlerWithOutdoor(t *testing.T) *testRoutingSetup {
+	t.Helper()
+	return newTestRoutingHandlerOpts(t, false, true)
 }
 
 // newTestRoutingHandlerOpts is the shared implementation.
-func newTestRoutingHandlerOpts(t *testing.T, withCoverage bool) *testRoutingSetup {
+func newTestRoutingHandlerOpts(t *testing.T, withCoverage, withOutdoorTags bool) *testRoutingSetup {
 	t.Helper()
 
 	tileDir := t.TempDir()
@@ -228,6 +237,55 @@ func newTestRoutingHandlerOpts(t *testing.T, withCoverage bool) *testRoutingSetu
 		edgeTags1[pos] = 16 // highway=path enum
 		// Encode ForestPct into EdgeTags2 bits 0-6.
 		edgeTags2[pos] = uint64(e.forestPct) & 0x7F
+
+		if withOutdoorTags {
+			// Inject outdoor tags per spec §8.2 rev5 — encoded values.
+			//
+			// Tag placement is calibrated against the three routes the V2 pipeline
+			// produces from this fixture (baseline = no outdoor tags):
+			//   Route 0 (shortest ≈6km):  col-1 vertical: (0,1)→(1,1)→(2,1)→(3,1)
+			//   Route 1 (medium   ≈9km):  NE diagonal:    (0,1)→(0,2)→(1,3)→(2,4)
+			//   Route 2 (longest  ≈11km): long loop:      (0,1)→(1,1)→(2,2)→(3,3)→…
+			//
+			// MTB and TV are cost-neutral for the hiking profile (no additive penalty),
+			// so placing them does not alter route geometry. SAC adds ≈5.5 penalty for
+			// T4 (hiking sacPref=0), making routed edges avoid the tagged edges; SAC is
+			// therefore placed on a peripheral edge and observed only as a soft-fail.
+			// VF with hw=22 would be blocked (maxVF=0 default); we keep hw=path and only
+			// set vfScale in Tags2 — also soft-fail.
+			//
+			// MTB  → (0,2)↔(1,3): Route 1 exclusive diagonal (r+c=2, exists).
+			//                       TaggedPct ≈ 2×1646m/9224m ≈ 35% > 20% gate.
+			//                       MaxMtbScale Routes 0,2 = 0 → mtb_technical fires.
+			// TV   → (1,3)↔(2,4): Route 1 exclusive diagonal (r+c=4, exists).
+			//                       IntermediatePct ≈ 35%; intTrigger fires (Δ > 10%).
+			// SAC  → (3,4)↔(4,4): Peripheral vertical, not in any route baseline path.
+			//                       High SAC penalty → router avoids. Soft-fail.
+			// VF   → (3,3)↔(4,4): Route 2 diagonal (r+c=6, exists); hw stays path=16.
+			//                       Appears in seg if Route 2 traverses (3,3)→(4,4).
+			//                       Soft-fail.
+			switch {
+			case (e.from == nodeIdx(0, 2) && e.to == nodeIdx(1, 3)) ||
+				(e.from == nodeIdx(1, 3) && e.to == nodeIdx(0, 2)):
+				// mtb_scale encoded=3 (OSM raw "2" → Display S2), mtb:scale:uphill same
+				edgeTags1[pos] = 16 | (uint64(3) << 17)
+				edgeTags2[pos] = (uint64(e.forestPct) & 0x7F) | (uint64(3) << 30)
+			case (e.from == nodeIdx(1, 3) && e.to == nodeIdx(2, 4)) ||
+				(e.from == nodeIdx(2, 4) && e.to == nodeIdx(1, 3)):
+				// trail_visibility encoded=3 (intermediate) — cost-neutral for hiking
+				edgeTags2[pos] = (uint64(e.forestPct) & 0x7F) | (uint64(3) << 36)
+			case (e.from == nodeIdx(3, 4) && e.to == nodeIdx(4, 4)) ||
+				(e.from == nodeIdx(4, 4) && e.to == nodeIdx(3, 4)):
+				// sac_scale encoded=4 (alpine_hiking = Display T4) — peripheral edge,
+				// SAC penalty ≈5.5 causes router avoidance. Soft-fail in test.
+				edgeTags1[pos] = 16 | (uint64(4) << 14)
+			case (e.from == nodeIdx(3, 3) && e.to == nodeIdx(4, 4)) ||
+				(e.from == nodeIdx(4, 4) && e.to == nodeIdx(3, 3)):
+				// via_ferrata_scale encoded=2 (K2) — hw stays path (16) to avoid
+				// hiking-profile block (maxVF=0). Soft-fail in test.
+				edgeTags2[pos] = (uint64(e.forestPct) & 0x7F) | (uint64(2) << 33)
+			}
+		}
 	}
 
 	// One OSM-ID entry per node (fake, unique to avoid ID collisions).
