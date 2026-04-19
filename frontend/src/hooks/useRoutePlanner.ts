@@ -719,9 +719,28 @@ export function useRoutePlanner() {
         })
         return Promise.reject(new Error('profileConfig not loaded'))
       }
+      // Build combined LineString geometry from all segments. Backend requires
+      // geometry_geojson (non-empty GeoJSON) — without it, ST_GeomFromGeoJSON('')
+      // fails with SQLSTATE XX000 "unexpected end of data".
+      const combinedCoords = state.segments.flatMap(seg => seg.geometry?.coordinates ?? [])
+      if (combinedCoords.length < 2) {
+        addToast({
+          type: 'error',
+          title: 'Route kann nicht gespeichert werden',
+          message: 'Die Route hat keine Geometrie. Bitte zuerst Wegpunkte und eine Strecke erzeugen.',
+          duration: 0,
+        })
+        return Promise.reject(new Error('route has no geometry'))
+      }
+      const geometryGeoJSON = JSON.stringify({
+        type: 'LineString',
+        coordinates: combinedCoords,
+      })
+
       const payload: Partial<PlannedRoute> = {
         waypoints: state.waypoints,
         segments: state.segments,
+        geometry_geojson: geometryGeoJSON,
         profile: state.profileConfig.profile,
         sport_type: state.sportType,
         total_distance_m: totals.distance_m,
