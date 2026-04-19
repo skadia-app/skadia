@@ -36,7 +36,7 @@ function LinearLegend({ scale }: { scale: Extract<ScaleDefinition, { type: 'line
       const sec = Math.round((v - mins) * 60)
       return `${mins}:${String(sec).padStart(2, '0')}`
     }
-    return Number.isInteger(v) ? String(v) : v.toFixed(1)
+    return String(Math.round(v))
   }
 
   return (
