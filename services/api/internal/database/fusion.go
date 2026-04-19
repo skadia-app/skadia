@@ -254,10 +254,15 @@ func (db *DB) GetCachedFusionCandidates(ctx context.Context, userID string, limi
 		LEFT JOIN recording_group_members rgm_b ON rgm_b.activity_id = fc.activity_id_b
 		WHERE fc.user_id = $1 AND fc.dismissed_at IS NULL
 		-- Exclude candidates where both activities are already in the *same* group.
-		-- If rgm_a.group_id IS NOT NULL and equals rgm_b.group_id, the SQL = operator
-		-- already implies rgm_b is also non-null, so the redundant rgm_b IS NOT NULL
-		-- guard is dropped. NULL cases (either activity not in any group) pass through.
-		AND NOT (rgm_a.group_id IS NOT NULL AND rgm_a.group_id = rgm_b.group_id)
+		-- NOTE: All three NOT-NULL checks are required — not redundant.
+		-- SQL NULL semantics: (X = NULL) evaluates to NULL, not FALSE.
+		-- Without the rgm_b.group_id IS NOT NULL guard, the case
+		-- (rgm_a.group_id = X, rgm_b.group_id = NULL) would yield
+		-- (true AND NULL) = NULL, NOT NULL = NULL, and WHERE treats
+		-- NULL as FALSE — silently filtering out pairs where one side
+		-- is in a group and the other isn't, which is the legitimate
+		-- Tier-2 edge case we want to show.
+		AND NOT (rgm_a.group_id IS NOT NULL AND rgm_b.group_id IS NOT NULL AND rgm_a.group_id = rgm_b.group_id)
 		ORDER BY fc.overlap_percent DESC
 		LIMIT $2`,
 		userID, limit,
