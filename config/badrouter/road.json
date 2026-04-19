@@ -9,6 +9,8 @@
   "elev_penalty_buffer_m": 5,
   "elev_max_buffer_m": 10,
   "elev_buffer_reduce": 0,
+  "max_trail_visibility": 0,
+  "trail_visibility_penalty": 0.0,
   "allow_steps": false,
   "traffic_penalty": 0.1,
   "turn_cost": 90,

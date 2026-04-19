@@ -11,6 +11,8 @@
   "elev_buffer_reduce": 0.01,
   "max_sac_scale": 3,
   "sac_preferred": 1,
+  "max_trail_visibility": 0,
+  "trail_visibility_penalty": 0.0,
   "allow_steps": true,
   "forest_bonus": 0.5,
   "noise_penalty": 0.4,
