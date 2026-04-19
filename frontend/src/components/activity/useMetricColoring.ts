@@ -47,6 +47,7 @@ export interface UseMetricColoringResult {
   modeByMetric: Partial<Record<Metric, Mode>>
   setMode: (metric: Metric, mode: Mode) => void
   zonesAvailable: (metric: Metric) => boolean
+  effectiveMode: Mode  // resolved mode after zones-availability fallback (N9)
 }
 
 export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColoringResult {
@@ -179,11 +180,14 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
 
   // Viewport bounds tracking
   const [viewportBoundsKey, setViewportBoundsKey] = useState<string | null>(null)
-  const programmaticFitCountRef = useRef(0)
+  // R4: ID-based tracking Set replaces a plain counter — parallel fits no longer multiplex
+  // a single moveend into all decrement closures; each fit resolves independently.
+  const pendingFitIdsRef = useRef<Set<number>>(new Set())
+  const nextFitIdRef = useRef(0)
 
   const handleMoveEndRaw = useCallback(() => {
     if (!map) return
-    if (programmaticFitCountRef.current > 0) return
+    if (pendingFitIdsRef.current.size > 0) return
     const b = map.getBounds()
     const key = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
       .map(v => v.toFixed(VIEWPORT_BOUNDS_DECIMALS)).join(',')
@@ -192,15 +196,16 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
 
   const debouncedBoundsKey = useDebounce(viewportBoundsKey, VIEWPORT_RESAMPLE_DEBOUNCE_MS)
 
-  // Register moveend listener with proper cleanup; reset counter on map identity change
+  // Register moveend listener with proper cleanup; reset tracking set on map identity change
   useEffect(() => {
     if (!map) return
     map.on('moveend', handleMoveEndRaw)
     return () => {
       map.off('moveend', handleMoveEndRaw)
       // If the map identity changes (re-mount, style switch), pending programmaticFit
-      // callbacks would be lost — reset counter to avoid permanent skip-state.
-      programmaticFitCountRef.current = 0
+      // callbacks would be lost — clear set to avoid permanent skip-state.
+      pendingFitIdsRef.current.clear()
+      nextFitIdRef.current = 0
     }
   }, [map, handleMoveEndRaw])
 
@@ -225,14 +230,13 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
     }
     if (!Number.isFinite(minLat)) return undefined
 
-    // Approximate area with cos(lat) correction for Mercator distortion.
-    // Small-area approximation: area ∝ ΔLat × ΔLng × cos(lat_center).
-    const fullLatC = (minLat + maxLat) / 2
-    const viewLatC = (viewportBounds.north + viewportBounds.south) / 2
-    const fullArea = (maxLat - minLat) * (maxLng - minLng) * Math.cos(fullLatC * Math.PI / 180)
+    // Simplified: since we only use the ratio, cos(lat) cancels between full and viewport
+    // (both measured in the same local tangent plane approximately at the track center).
+    // Using two different centers (fullLatC vs viewLatC) caused bias when the viewport
+    // was panned away from the track (e.g. track in Alps, view over Northern Germany).
+    const fullArea = (maxLat - minLat) * (maxLng - minLng)
     const viewArea = (viewportBounds.north - viewportBounds.south) *
-                     (viewportBounds.east - viewportBounds.west) *
-                     Math.cos(viewLatC * Math.PI / 180)
+                     (viewportBounds.east - viewportBounds.west)
     if (fullArea <= 0 || viewArea / fullArea >= VIEWPORT_MIN_RATIO_FOR_RESAMPLE) return undefined
     return viewportBounds
   }, [viewportBounds, streams])
@@ -289,13 +293,14 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
     }
   }, [map, hasGps, featuresWithInside, colorExpression])
 
-  // Heading arrows visibility toggle — also handles late layer registration
+  // Heading arrows visibility toggle — also handles late layer registration.
+  // R3: cancel flag + explicit off() prevent listener accumulation on metric-change spam.
   useEffect(() => {
     if (!map) return
+    let cancelled = false
     const apply = () => {
-      if (map.getLayer('heading-arrows')) {
-        map.setLayoutProperty('heading-arrows', 'visibility', metric === 'sport' ? 'visible' : 'none')
-      }
+      if (cancelled || !map.getLayer('heading-arrows')) return
+      map.setLayoutProperty('heading-arrows', 'visibility', metric === 'sport' ? 'visible' : 'none')
     }
     if (map.isStyleLoaded()) {
       apply()
@@ -304,21 +309,34 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
     }
     // Also re-apply if layer is added late
     map.once('idle', apply)
+    return () => {
+      cancelled = true
+      map.off('load', apply)
+      map.off('idle', apply)
+    }
   }, [map, metric])
 
-  // programmaticFit helper — increments counter before fitBounds
+  // programmaticFit helper — R4: ID-based tracking so parallel fits each resolve independently.
+  // The old counter approach had a multiplexing bug: parallel fitBounds calls shared a single
+  // once('moveend') decrement, so the first moveend would fire all closures at once.
   const programmaticFit = useCallback((bounds: maplibregl.LngLatBounds) => {
     if (!map) return
-    programmaticFitCountRef.current += 1
-    const decrement = () => {
-      programmaticFitCountRef.current = Math.max(0, programmaticFitCountRef.current - 1)
+    const id = ++nextFitIdRef.current
+    pendingFitIdsRef.current.add(id)
+    let resolved = false
+    const resolve = () => {
+      if (resolved) return
+      resolved = true
+      pendingFitIdsRef.current.delete(id)
+      map.off('moveend', onMoveEnd)
+      window.clearTimeout(fallback)
     }
-    map.once('moveend', decrement)
-    // Fallback in case fitBounds emits no moveend (duration=0 or bounds match):
-    const fallback = window.setTimeout(decrement, 900) // duration 600 + 300 margin
-    map.once('moveend', () => window.clearTimeout(fallback))
+    const onMoveEnd = resolve
+    // Fallback in case fitBounds emits no moveend (duration=0 or bounds already match):
+    const fallback = window.setTimeout(resolve, 900) // duration 600 + 300 margin
+    map.once('moveend', onMoveEnd)
     map.fitBounds(bounds, { padding: 50, maxZoom: 18, duration: 600 })
   }, [map])
 
-  return { metric, setMetric, scale, programmaticFit, modeByMetric, setMode, zonesAvailable }
+  return { metric, setMetric, scale, programmaticFit, modeByMetric, setMode, zonesAvailable, effectiveMode }
 }

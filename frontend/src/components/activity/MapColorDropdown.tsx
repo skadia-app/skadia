@@ -22,9 +22,11 @@ interface Props {
   modeByMetric: Partial<Record<Metric, Mode>>
   setMode: (metric: Metric, mode: Mode) => void
   zonesAvailable: (metric: Metric) => boolean
+  // N9: resolved mode after zones-availability fallback — authoritative for the active metric
+  effectiveMode: Mode
 }
 
-export default function MapColorDropdown({ streams, sportType, metric, onChange, modeByMetric, setMode, zonesAvailable }: Props) {
+export default function MapColorDropdown({ streams, sportType, metric, onChange, modeByMetric, setMode, zonesAvailable, effectiveMode }: Props) {
   const [open, setOpen] = useState(false)
   const [focusedIdx, setFocusedIdx] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -144,7 +146,11 @@ export default function MapColorDropdown({ streams, sportType, metric, onChange,
           {availableOptions.map((opt, i) => {
             const isZonable = opt.key === 'hr' || opt.key === 'power' || opt.key === 'speed'
             const zonesAvail = isZonable && zonesAvailable(opt.key)
-            const currentMode = modeByMetric[opt.key] ?? (zonesAvail ? 'zones' : 'linear')
+            // N9: for the currently active metric use effectiveMode (hook-authoritative, reflects
+            // zones-unavailability fallback); for other metrics use stored or default.
+            const currentMode = opt.key === metric
+              ? effectiveMode
+              : (modeByMetric[opt.key] ?? (zonesAvail ? 'zones' : 'linear'))
 
             return (
               // role="presentation" — semantic radio role moves to the primary button below (#14)
