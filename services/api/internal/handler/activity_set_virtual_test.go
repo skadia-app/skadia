@@ -159,3 +159,197 @@ func TestSetActivityVirtual_InvalidBody(t *testing.T) {
 		t.Fatalf("invalid body: expected 400, got %d — body: %s", rr.Code, rr.Body.String())
 	}
 }
+
+// TestSetActivityVirtual_FrontendContractFormat verifies that the exact JSON format
+// sent by the frontend apiClient ({is_virtual: true}) is accepted and processed.
+// This test pins the frontend↔backend contract and will fail if either side drifts.
+func TestSetActivityVirtual_FrontendContractFormat(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	actID := insertMinimalActivity(t, db, userID)
+	h := &Handler{DB: db}
+
+	// Exact body format as sent by frontend/src/api/activities.ts setActivityVirtual().
+	body := []byte(`{"is_virtual":true}`)
+	rr := setVirtualRequest(t, h, userID, actID, body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("frontend contract (on): expected 200, got %d — body: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("frontend contract (on): decode response: %v", err)
+	}
+	if isVirtual, ok := resp["is_virtual"].(bool); !ok || !isVirtual {
+		t.Errorf("frontend contract (on): expected {\"is_virtual\":true}, got %v", resp)
+	}
+
+	// Verify DB state.
+	var dbIsVirtual bool
+	if err := pool.QueryRow(ctx, `SELECT is_virtual FROM activities WHERE id = $1`, actID).Scan(&dbIsVirtual); err != nil {
+		t.Fatalf("frontend contract (on): query DB: %v", err)
+	}
+	if !dbIsVirtual {
+		t.Error("frontend contract (on): is_virtual not set in DB")
+	}
+
+	// Also verify the audit row was written with the correct value key.
+	var auditCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activity_edits
+		  WHERE activity_id = $1 AND edit_type = 'is_virtual'
+		    AND (edit_data->>'value')::boolean = true`,
+		actID,
+	).Scan(&auditCount); err != nil {
+		t.Fatalf("frontend contract (on): query audit: %v", err)
+	}
+	if auditCount != 1 {
+		t.Errorf("frontend contract (on): expected 1 audit row, got %d", auditCount)
+	}
+}
+
+// TestSetActivityVirtual_DisallowUnknownFields verifies that a request with an
+// unknown field (e.g. the old {value: true} format) returns 400.
+// This test guards against the frontend sending a stale / wrong field name.
+func TestSetActivityVirtual_DisallowUnknownFields(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	actID := insertMinimalActivity(t, db, userID)
+	h := &Handler{DB: db}
+
+	// Old (now-incorrect) frontend format — should be rejected with 400.
+	body := []byte(`{"value":true}`)
+	rr := setVirtualRequest(t, h, userID, actID, body)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("unknown field: expected 400, got %d — body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestSetActivityVirtual_ExcludeFromHeatmapRestore verifies that:
+//  1. on-toggle saves prev exclude_from_heatmap in audit data.
+//  2. off-toggle restores the saved value correctly.
+//  3. With no prior audit row, off-toggle falls back to exclude_from_heatmap=false.
+func TestSetActivityVirtual_ExcludeFromHeatmapRestore(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	h := &Handler{DB: db}
+
+	t.Run("RestoreTrue", func(t *testing.T) {
+		// Arrange: activity with exclude_from_heatmap=true before virtual toggle.
+		userID := insertTestUser(t, pool)
+		actID := insertMinimalActivity(t, db, userID)
+		// Set exclude_from_heatmap=true as the pre-virtual state.
+		if _, err := pool.Exec(ctx,
+			`UPDATE activities SET exclude_from_heatmap = true WHERE id = $1`, actID,
+		); err != nil {
+			t.Fatalf("setup: set exclude_from_heatmap: %v", err)
+		}
+
+		// on-toggle: should set is_virtual=true, exclude_from_heatmap=true (already true).
+		body, _ := json.Marshal(map[string]any{"is_virtual": true})
+		rr := setVirtualRequest(t, h, userID, actID, body)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("RestoreTrue on: expected 200, got %d — body: %s", rr.Code, rr.Body.String())
+		}
+
+		// Verify prev_exclude_from_heatmap=true stored in audit row.
+		var auditData []byte
+		if err := pool.QueryRow(ctx,
+			`SELECT edit_data FROM activity_edits
+			  WHERE activity_id = $1 AND edit_type = 'is_virtual'
+			    AND (edit_data->>'value')::boolean = true
+			  ORDER BY created_at DESC LIMIT 1`,
+			actID,
+		).Scan(&auditData); err != nil {
+			t.Fatalf("RestoreTrue on: query audit: %v", err)
+		}
+		var ad setVirtualAuditData
+		if err := json.Unmarshal(auditData, &ad); err != nil {
+			t.Fatalf("RestoreTrue on: decode audit: %v", err)
+		}
+		if ad.PrevExcludeFromHeatmap == nil || !*ad.PrevExcludeFromHeatmap {
+			t.Errorf("RestoreTrue on: expected prev_exclude_from_heatmap=true in audit, got %v", ad)
+		}
+
+		// off-toggle: should restore exclude_from_heatmap=true.
+		body, _ = json.Marshal(map[string]any{"is_virtual": false})
+		rr = setVirtualRequest(t, h, userID, actID, body)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("RestoreTrue off: expected 200, got %d — body: %s", rr.Code, rr.Body.String())
+		}
+
+		var gotExclude bool
+		if err := pool.QueryRow(ctx,
+			`SELECT exclude_from_heatmap FROM activities WHERE id = $1`, actID,
+		).Scan(&gotExclude); err != nil {
+			t.Fatalf("RestoreTrue off: query DB: %v", err)
+		}
+		if !gotExclude {
+			t.Errorf("RestoreTrue off: expected exclude_from_heatmap restored to true, got false")
+		}
+	})
+
+	t.Run("RestoreFalse", func(t *testing.T) {
+		// Arrange: activity with exclude_from_heatmap=false (default).
+		userID := insertTestUser(t, pool)
+		actID := insertMinimalActivity(t, db, userID)
+
+		// on-toggle.
+		body, _ := json.Marshal(map[string]any{"is_virtual": true})
+		rr := setVirtualRequest(t, h, userID, actID, body)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("RestoreFalse on: expected 200, got %d — body: %s", rr.Code, rr.Body.String())
+		}
+
+		// off-toggle: should restore exclude_from_heatmap=false.
+		body, _ = json.Marshal(map[string]any{"is_virtual": false})
+		rr = setVirtualRequest(t, h, userID, actID, body)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("RestoreFalse off: expected 200, got %d — body: %s", rr.Code, rr.Body.String())
+		}
+
+		var gotExclude bool
+		if err := pool.QueryRow(ctx,
+			`SELECT exclude_from_heatmap FROM activities WHERE id = $1`, actID,
+		).Scan(&gotExclude); err != nil {
+			t.Fatalf("RestoreFalse off: query DB: %v", err)
+		}
+		if gotExclude {
+			t.Errorf("RestoreFalse off: expected exclude_from_heatmap restored to false, got true")
+		}
+	})
+
+	t.Run("NoAuditFallback", func(t *testing.T) {
+		// Arrange: activity that is already virtual (e.g. imported as virtual).
+		// No prior is_virtual audit row exists — off-toggle should fall back to false.
+		userID := insertTestUser(t, pool)
+		actID := insertMinimalActivity(t, db, userID)
+		if _, err := pool.Exec(ctx,
+			`UPDATE activities SET is_virtual = true, exclude_from_heatmap = true WHERE id = $1`, actID,
+		); err != nil {
+			t.Fatalf("NoAuditFallback setup: %v", err)
+		}
+
+		body, _ := json.Marshal(map[string]any{"is_virtual": false})
+		rr := setVirtualRequest(t, h, userID, actID, body)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("NoAuditFallback off: expected 200, got %d — body: %s", rr.Code, rr.Body.String())
+		}
+
+		var gotExclude bool
+		if err := pool.QueryRow(ctx,
+			`SELECT exclude_from_heatmap FROM activities WHERE id = $1`, actID,
+		).Scan(&gotExclude); err != nil {
+			t.Fatalf("NoAuditFallback off: query DB: %v", err)
+		}
+		if gotExclude {
+			t.Errorf("NoAuditFallback off: expected fallback exclude_from_heatmap=false, got true")
+		}
+	})
+}
