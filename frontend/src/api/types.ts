@@ -1131,8 +1131,8 @@ export interface RecordingGroupMember {
   elevation_loss_m: number | null
 }
 
-// ── Fusion Merge V2 ──
-export interface FusionMergeRequestV2 {
+// ── Fusion Merge ──
+export interface FusionMergeRequest {
   sources: string[]
   field_map: Record<string, string>
   gps_fusion_config?: { primary_source: string; extend_track: boolean }

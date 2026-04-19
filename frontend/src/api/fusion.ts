@@ -1,4 +1,5 @@
 import { apiClient } from './client'
+import type { FusionMergeRequest } from './types'
 
 export interface FusionCandidate {
   id: string
@@ -25,4 +26,11 @@ export async function fetchFusionCandidates(activityId: string): Promise<FusionC
 
 export async function revertFusion(activityId: string): Promise<void> {
   return apiClient<void>(`/activities/${activityId}/revert-fusion`, { method: 'POST' })
+}
+
+export async function executeFusionMerge(req: FusionMergeRequest): Promise<{ id: string }> {
+  return apiClient<{ id: string }>('/fusion-merge', {
+    method: 'POST',
+    body: req,
+  })
 }
