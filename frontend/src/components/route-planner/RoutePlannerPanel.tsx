@@ -74,7 +74,6 @@ interface WaypointItemProps {
   isDragging: boolean
   isDragOver: boolean
   onRemove: (id: string) => void
-  onToggleMode: (id: string) => void
   onDragStart: (e: React.DragEvent) => void
   onDragOver: (e: React.DragEvent) => void
   onDragLeave: () => void
@@ -762,7 +761,6 @@ export default function RoutePlannerPanel({
                       isDragging={draggingIndex === i}
                       isDragOver={dragOverIndex === i}
                       onRemove={onRemoveWaypoint}
-                      onToggleMode={onToggleSegmentMode}
                       onDragStart={(e) => handleDragStart(e, i)}
                       onDragOver={(e) => handleDragOver(e, i)}
                       onDragLeave={handleDragLeave}
