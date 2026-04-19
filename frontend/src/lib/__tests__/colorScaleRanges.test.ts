@@ -1,7 +1,7 @@
 // frontend/src/lib/__tests__/colorScaleRanges.test.ts
 import { describe, it, expect } from 'vitest'
 import {
-  SPEED_PROFILES, PACE_PROFILES, CADENCE_PROFILES,
+  SPEED_PROFILES, PACE_PROFILES,
   MOTION_PROFILE_BY_SPORT_TYPE, GENERIC_ALLOWLIST,
   expandRange, TEMPERATURE_RANGE, ALTITUDE_MIN_SPREAD,
   HR_FALLBACK_MIN_SPREAD, POWER_FALLBACK_MIN_SPREAD,
