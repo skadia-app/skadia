@@ -1634,7 +1634,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	metadataSource := pickRichestSource(activities, req.Sources)
 
 	// Begin transaction.
-	tx, err := h.DB.Pool.Begin(ctx)
+	tx, err := h.beginTx(ctx)
 	if err != nil {
 		slog.Error("fusion-merge-v2: begin transaction failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to begin transaction", r.URL.Path)
@@ -2116,7 +2116,7 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 	//   memberships, both enter the flip, and the second hits a 500 on DeleteActivity
 	//   (already deleted by the first). With the lock-before-reread, the second request
 	//   reads empty memberships under the lock and returns 409 Conflict (idempotent).
-	flipTx, err := h.DB.Pool.Begin(ctx)
+	flipTx, err := h.beginTx(ctx)
 	if err != nil {
 		slog.Error("revert-fusion: begin tx failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to begin revert tx", r.URL.Path)

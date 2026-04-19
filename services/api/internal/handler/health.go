@@ -37,6 +37,10 @@ type Handler struct {
 
 	Settings *settings.SettingsStore // server settings store (DB-backed, cached)
 	Mailer   *auth.Mailer            // for admin test-email endpoint
+
+	// TxFactory is optional. If non-nil, beginTx uses it instead of h.DB.Pool.Begin.
+	// Tests inject mock TxFactories to simulate partial failures without a real TX.
+	TxFactory TxFactory
 }
 
 type HandlerConfig struct {
