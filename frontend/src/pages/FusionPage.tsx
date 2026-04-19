@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchActivity, fetchActivityStreams } from '@/api/activities'
 import {
   fetchRecordingGroup,
@@ -16,6 +16,7 @@ import MultiTrackMap from '@/components/comparison/MultiTrackMap'
 import StreamChartContainer from '@/components/comparison/StreamChartContainer'
 import FusionFieldTable, { FUSION_FIELDS } from '@/components/fusion/FusionFieldTable'
 import { useToast } from '@/lib/toast'
+import { invalidateAfterFusion } from '@/lib/fusionCacheInvalidation'
 
 // ── Source letter labels ───────────────────────────────────────────────────────
 
@@ -49,6 +50,7 @@ export default function FusionPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { addToast } = useToast()
+  const queryClient = useQueryClient()
 
   const groupId = searchParams.get('group') ?? null
   const idsParam = searchParams.get('ids') ?? null
@@ -280,6 +282,11 @@ export default function FusionPage() {
         tags_source: tagsSelection && tagsSelection !== 'fuse' ? tagsSelection : undefined,
         fit_level: false,
         group_id: groupId ?? undefined,
+      })
+
+      invalidateAfterFusion(queryClient, {
+        recordingGroupId: groupId,
+        activityIds: [...selectedSources, result.id],
       })
 
       if (groupId) {
