@@ -4,7 +4,8 @@ import type { RouteWaypoint, RouteSegment, PlannedRoute } from '@/api/routes'
 import { useToast } from '@/lib/toast'
 import { useModal } from '@/lib/modal'
 import type { ProfileConfig } from '@/lib/routingProfiles'
-import { getProfileDefaults } from '@/lib/routingProfiles'
+import { getProfileDefaults, cacheServerDefaults } from '@/lib/routingProfiles'
+import { getProfileDefaults as fetchProfileDefaults } from '@/api/routes'
 import { fmtDist, fmtDurationMin } from '@/lib/format'
 import ProfileEditor from './ProfileEditor'
 import {
@@ -190,7 +191,7 @@ export interface RoutePlannerPanelProps {
   // Current planning state (controlled from parent / MapPage)
   waypoints: RouteWaypoint[]
   segments: RouteSegment[]
-  profileConfig: ProfileConfig
+  profileConfig: ProfileConfig | null
   showHeatmap: boolean
   // Routing engine
   routingEngine: 'badrouter' | 'brouter'
@@ -279,7 +280,7 @@ export default function RoutePlannerPanel({
     : BROUTER_PROFILES_FALLBACK
 
   // Current BadRouter profile entry from API (for defaults reset and delete)
-  const currentBadRouterEntry = badRouterProfiles.find(p => p.name === profileConfig.profile)
+  const currentBadRouterEntry = badRouterProfiles.find(p => p.name === profileConfig?.profile)
 
   // Mutations
   const createMutation = useMutation({
@@ -308,7 +309,7 @@ export default function RoutePlannerPanel({
 
   function handleSaveProfile() {
     const name = saveProfileName.trim()
-    if (!name) return
+    if (!name || !profileConfig) return
     const config = { ...profileConfig } as Record<string, unknown>
     const baseProfile = (profileConfig.profile ?? 'hiking') as string
     createMutation.mutate({
@@ -319,15 +320,52 @@ export default function RoutePlannerPanel({
     })
   }
 
-  function handleResetToDefault() {
+  async function handleResetToDefault() {
+    if (!profileConfig) return
     const profileName = profileConfig.profile ?? 'hiking'
-    // Use API config if available, else fall back to TS defaults
     const entry = badRouterProfiles.find(p => p.name === profileName && p.source === 'system')
     if (entry?.config) {
       const apiConfig = entry.config as Partial<ProfileConfig>
       onProfileChange({ profile: profileName, ...apiConfig } as ProfileConfig)
-    } else {
-      onProfileChange(getProfileDefaults(profileName))
+      return
+    }
+    try {
+      const resp = await fetchProfileDefaults(profileName)
+      cacheServerDefaults(profileName, resp)
+      const fresh = getProfileDefaults(profileName)
+      if (fresh) onProfileChange(fresh)
+    } catch {
+      addToast({
+        type: 'error',
+        title: 'Reset fehlgeschlagen',
+        message: `Profil "${profileName}" konnte nicht geladen werden.`,
+        duration: 0,
+      })
+    }
+  }
+
+  async function handleSelectProfile(p: { base_profile: string; config?: Record<string, unknown> | null }) {
+    if (p.config) {
+      onProfileChange({ profile: p.base_profile, ...p.config } as ProfileConfig)
+      return
+    }
+    const cached = getProfileDefaults(p.base_profile)
+    if (cached) {
+      onProfileChange(cached)
+      return
+    }
+    try {
+      const resp = await fetchProfileDefaults(p.base_profile)
+      cacheServerDefaults(p.base_profile, resp)
+      const fresh = getProfileDefaults(p.base_profile)
+      if (fresh) onProfileChange(fresh)
+    } catch {
+      addToast({
+        type: 'error',
+        title: 'Profil laden fehlgeschlagen',
+        message: `Profil "${p.base_profile}" konnte nicht geladen werden.`,
+        duration: 0,
+      })
     }
   }
 
@@ -564,12 +602,9 @@ export default function RoutePlannerPanel({
                         .map(p => (
                           <div key={p.id} className="flex items-center gap-1.5">
                             <button
-                              onClick={() => {
-                                const cfg = p.config ? { profile: p.base_profile, ...p.config } as ProfileConfig : getProfileDefaults(p.base_profile)
-                                onProfileChange(cfg)
-                              }}
+                              onClick={() => { void handleSelectProfile(p) }}
                               className={`flex-1 text-left px-2 py-1 rounded text-xs transition-colors cursor-pointer truncate ${
-                                profileConfig.profile === p.base_profile && !badRouterProfiles.find(s => s.source === 'system' && s.name === profileConfig.profile)
+                                profileConfig?.profile === p.base_profile && !badRouterProfiles.find(s => s.source === 'system' && s.name === profileConfig?.profile)
                                   ? 'bg-accent-DEFAULT/10 text-accent-DEFAULT font-medium'
                                   : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                               }`}
@@ -617,10 +652,20 @@ export default function RoutePlannerPanel({
                   </div>
                 )}
 
-                <ProfileEditor
-                  config={profileConfig}
-                  onChange={onProfileChange}
-                />
+                {profileConfig === null ? (
+                  <div className="px-3 py-6 text-center text-xs text-neutral-400">
+                    <svg className="w-4 h-4 animate-spin mx-auto mb-2" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                    Lade Profil-Defaults...
+                  </div>
+                ) : (
+                  <ProfileEditor
+                    config={profileConfig}
+                    onChange={onProfileChange}
+                  />
+                )}
 
                 {/* Save-as dialog (inline, below profile tabs) */}
                 {showSaveDialog && (
@@ -658,28 +703,30 @@ export default function RoutePlannerPanel({
                   </div>
                 )}
                 {/* Offroad snap threshold (BadRouter only) */}
-                <div className="px-3 py-2 border-t border-neutral-100 dark:border-neutral-800">
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-neutral-700 dark:text-neutral-300">Offroad-Schwelle</span>
-                      <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400 tabular-nums">
-                        {profileConfig.snap_threshold_m ?? 100} m
-                      </span>
+                {profileConfig && (
+                  <div className="px-3 py-2 border-t border-neutral-100 dark:border-neutral-800">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-neutral-700 dark:text-neutral-300">Offroad-Schwelle</span>
+                        <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400 tabular-nums">
+                          {profileConfig.snap_threshold_m ?? 100} m
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={10}
+                        max={500}
+                        step={10}
+                        value={profileConfig.snap_threshold_m ?? 100}
+                        onChange={e => onProfileChange({ ...profileConfig, snap_threshold_m: parseInt(e.target.value, 10) })}
+                        className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-[var(--color-accent-DEFAULT,#F97316)] bg-neutral-200 dark:bg-neutral-700"
+                      />
+                      <p className="text-[10px] text-neutral-400 dark:text-neutral-500 leading-snug">
+                        Maximale Distanz zum nächsten Weg beim Snap
+                      </p>
                     </div>
-                    <input
-                      type="range"
-                      min={10}
-                      max={500}
-                      step={10}
-                      value={profileConfig.snap_threshold_m ?? 100}
-                      onChange={e => onProfileChange({ ...profileConfig, snap_threshold_m: parseInt(e.target.value, 10) })}
-                      className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-[var(--color-accent-DEFAULT,#F97316)] bg-neutral-200 dark:bg-neutral-700"
-                    />
-                    <p className="text-[10px] text-neutral-400 dark:text-neutral-500 leading-snug">
-                      Maximale Distanz zum nächsten Weg beim Snap
-                    </p>
                   </div>
-                </div>
+                )}
               </>
             ) : (
               <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800">

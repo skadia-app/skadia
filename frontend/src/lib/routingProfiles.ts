@@ -331,129 +331,6 @@ export const FIELD_METADATA: FieldMeta[] = [
   },
 ]
 
-// ─── Profile Metadata ──────────────────────────────────────────────────────
-
-export interface ProfileMeta {
-  name: string
-  label: string
-  description: string
-  defaults: ProfileConfig
-}
-
-export const PROFILES: ProfileMeta[] = [
-  {
-    name: 'hiking',
-    label: 'Wandern',
-    description: 'Alpines Wandern, SAC T1–T4',
-    defaults: {
-      profile: 'hiking',
-      uphill_cost: 7,
-      downhill_cost: 7,
-      uphill_cutoff_pct: 3,
-      downhill_cutoff_pct: 3,
-      elev_penalty_buffer_m: 5,
-      elev_max_buffer_m: 10,
-      elev_buffer_reduce: 0.01,
-      max_sac_scale: 3,
-      sac_preferred: 1,
-      allow_steps: true,
-      forest_bonus: 0.5,
-      noise_penalty: 0.4,
-      traffic_penalty: 0.6,
-      protected_bonus: 0.3,
-      hikeroute_boost: 0.2,
-      turn_cost: 0,
-      // pass0_coefficient intentionally omitted — backend profile default is authoritative
-    },
-  },
-  {
-    name: 'mtb',
-    label: 'MTB',
-    description: 'Mountainbike, technische Trails',
-    defaults: {
-      profile: 'mtb',
-      uphill_cost: 0,
-      downhill_cost: 0,
-      uphill_cutoff_pct: 1.5,
-      downhill_cutoff_pct: 1.5,
-      elev_penalty_buffer_m: 5,
-      elev_max_buffer_m: 10,
-      elev_buffer_reduce: 0,
-      max_mtb_scale: 2,
-      allow_steps: false,
-      path_preference: 20,
-      forest_bonus: 0.3,
-      noise_penalty: 0.2,
-      cycleroute_boost: 0.2,
-      turn_cost: 30,
-      // pass0_coefficient intentionally omitted — backend profile default is authoritative
-    },
-  },
-  {
-    name: 'gravel',
-    label: 'Gravel',
-    description: 'Gravel-Bike, Schotter & Forstwege',
-    defaults: {
-      profile: 'gravel',
-      uphill_cost: 80,
-      downhill_cost: 40,
-      uphill_cutoff_pct: 1.5,
-      downhill_cutoff_pct: 1.5,
-      elev_penalty_buffer_m: 5,
-      elev_max_buffer_m: 10,
-      elev_buffer_reduce: 0,
-      max_sac_scale: 1,
-      max_mtb_scale: 0,
-      allow_steps: false,
-      forest_bonus: 0.3,
-      noise_penalty: 0.4,
-      traffic_penalty: 0.5,
-      cycleroute_boost: 0.3,
-      turn_cost: 65,
-      // pass0_coefficient intentionally omitted — backend profile default is authoritative
-    },
-  },
-  {
-    name: 'trekking',
-    label: 'Trekking',
-    description: 'Trekking-Rad, gemischte Untergründe',
-    defaults: {
-      profile: 'trekking',
-      uphill_cost: 0,
-      downhill_cost: 60,
-      uphill_cutoff_pct: 1.5,
-      downhill_cutoff_pct: 1.5,
-      elev_penalty_buffer_m: 5,
-      elev_max_buffer_m: 10,
-      elev_buffer_reduce: 0,
-      allow_steps: true,
-      allow_ferries: true,
-      cycleroute_boost: 0.6,
-      turn_cost: 90,
-      // pass0_coefficient intentionally omitted — backend profile default is authoritative
-    },
-  },
-  {
-    name: 'road',
-    label: 'Rennrad',
-    description: 'Rennrad, asphaltierte Strassen',
-    defaults: {
-      profile: 'road',
-      uphill_cost: 0,
-      downhill_cost: 60,
-      uphill_cutoff_pct: 1.5,
-      downhill_cutoff_pct: 1.5,
-      elev_penalty_buffer_m: 5,
-      elev_max_buffer_m: 10,
-      elev_buffer_reduce: 0,
-      allow_steps: false,
-      traffic_penalty: 0.1,
-      turn_cost: 90,
-      // pass0_coefficient intentionally omitted — backend profile default is authoritative
-    },
-  },
-]
-
 // ─── Server Defaults Cache ────────────────────────────────────────────────
 
 /**
@@ -514,17 +391,13 @@ export function getCachedServerDefaults(name: string): ProfileConfig | undefined
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 /**
- * Get profile defaults: server cache (single source of truth) with TS PROFILES fallback.
- * When server defaults are cached, they take priority over hardcoded TS values.
+ * Get cached server defaults for a profile. Returns null when not yet fetched.
+ * Server cache is the single source of truth — no hardcoded TS fallback.
  */
-export function getProfileDefaults(name: string): ProfileConfig {
-  // Prefer server defaults if cached
+export function getProfileDefaults(name: string): ProfileConfig | null {
   const cached = serverDefaultsCache.get(name)
   if (cached) return { ...cached }
-
-  // Fallback to hardcoded TS defaults
-  const meta = PROFILES.find(p => p.name === name)
-  return meta ? { ...meta.defaults } : { profile: name }
+  return null
 }
 
 export function mergeProfile(base: ProfileConfig, overrides: Partial<ProfileConfig>): ProfileConfig {
