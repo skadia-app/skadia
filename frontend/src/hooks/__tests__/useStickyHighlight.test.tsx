@@ -76,6 +76,13 @@ describe('useStickyHighlight — real React hook via renderHook', () => {
     expect(result.current.effective).toMatchObject({ kind: 'surface', key: 'asphalt' })
   })
 
+  it('exposes sticky separate from effective (hover doesnt leak into sticky)', () => {
+    const { result } = renderHook(() => useStickyHighlight())
+    act(() => result.current.setHover({ kind: 'highway', key: 'path' }))
+    expect(result.current.effective).toMatchObject({ kind: 'highway', key: 'path' })
+    expect(result.current.sticky).toBeNull()  // hover darf NICHT in sticky leaken
+  })
+
   it('hover→click-same toggle: hover sets effective, click makes it sticky, click-again clears', () => {
     const { result } = renderHook(() => useStickyHighlight())
     // Hover shows MTB (no sticky)

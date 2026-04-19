@@ -2809,8 +2809,8 @@ export default function MapPage() {
                   segments={planner.segments}
                   onHighlight={highlight.setHover}
                   pinnedType={
-                    highlight.effective?.kind === 'highway' || highlight.effective?.kind === 'surface'
-                      ? highlight.effective
+                    highlight.sticky?.kind === 'highway' || highlight.sticky?.kind === 'surface'
+                      ? highlight.sticky
                       : null
                   }
                   onPin={(t) => highlight.handleClick(t)}
