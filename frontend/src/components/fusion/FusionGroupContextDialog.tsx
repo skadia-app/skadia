@@ -46,17 +46,24 @@ export default function FusionGroupContextDialog({
   const { addToast } = useToast()
   const [isAdding, setIsAdding] = useState(false)
 
+  // Normalize API strings: treat empty string as null (defense against
+  // backend JSON-serialization drift where pgx *string may produce "").
+  // All logic below uses these normalized values. (R4-11)
+  const groupIdANormalized = groupIdA || null
+  const groupIdBNormalized = groupIdB || null
+
   // Determine case
-  const isCrossGroup = groupIdA !== null && groupIdB !== null && groupIdA !== groupIdB
+  const isCrossGroup = groupIdANormalized !== null && groupIdBNormalized !== null && groupIdANormalized !== groupIdBNormalized
 
   // For single-group case: which group is it, and which activity is external?
-  const groupId = isCrossGroup ? null : (groupIdA ?? groupIdB)
+  const groupId = isCrossGroup ? null : (groupIdANormalized ?? groupIdBNormalized)
   // Guard with isCrossGroup so these variables are only used in the single-group
-  // rendering branch. Without the guard, when both groupIdA and groupIdB are
-  // non-null the ternary silently picks "A is in group, B is external" —
-  // semantically wrong even though the cross-group branch doesn't render them.
-  const inGroupActivityTitle = !isCrossGroup ? (groupIdA ? titleA : titleB) : null
-  const externalActivityId = !isCrossGroup ? (groupIdA ? activityIdB : activityIdA) : null
+  // rendering branch. Without the guard, when both groupIdANormalized and
+  // groupIdBNormalized are non-null the ternary silently picks "A is in group,
+  // B is external" — semantically wrong even though the cross-group branch
+  // doesn't render them.
+  const inGroupActivityTitle = !isCrossGroup ? (groupIdANormalized ? titleA : titleB) : null
+  const externalActivityId = !isCrossGroup ? (groupIdANormalized ? activityIdB : activityIdA) : null
 
   // Fetch group member count (only in single-group case)
   const { data: groupData } = useQuery({
@@ -183,7 +190,7 @@ export default function FusionGroupContextDialog({
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                 </svg>
               )}
-              Ganze Gruppe + {(groupIdA ? titleB : titleA) || 'andere Aktivität'}
+              Ganze Gruppe + {(groupIdANormalized ? titleB : titleA) || 'andere Aktivität'}
             </button>
           )}
         </div>
