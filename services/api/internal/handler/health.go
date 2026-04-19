@@ -38,8 +38,14 @@ type Handler struct {
 	Settings *settings.SettingsStore // server settings store (DB-backed, cached)
 	Mailer   *auth.Mailer            // for admin test-email endpoint
 
-	// TxFactory is optional. If non-nil, beginTx uses it instead of h.DB.Pool.Begin.
-	// Tests inject mock TxFactories to simulate partial failures without a real TX.
+	// TxFactory is an optional override for transaction creation. When nil,
+	// beginTx falls through to DB.Pool.Begin().
+	//
+	// Thread-safety: this field is NOT thread-safe. Production code never
+	// writes it after Handler construction. Tests that set TxFactory must
+	// use a dedicated Handler instance (not a shared one) to avoid races
+	// with parallel goroutines. See activity_set_virtual_test.go for the
+	// expected pattern.
 	TxFactory TxFactory
 }
 
