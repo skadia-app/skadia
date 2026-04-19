@@ -2321,9 +2321,20 @@ export default function MapPage() {
         {showSuggestionDialog && (() => {
           const map = mapRef.current
           const center = map ? map.getCenter() : { lat: 47.5, lng: 11.0 }
+          const firstWaypoint = planner.waypoints[0]
+          // Prefer user-placed start waypoint over map center. latlng is [lat, lng],
+          // but the API / dialog expect [lng, lat].
+          const start: [number, number] = firstWaypoint
+            ? [firstWaypoint.latlng[1], firstWaypoint.latlng[0]]
+            : [center.lng, center.lat]
+          const startLabel = firstWaypoint
+            ? firstWaypoint.poi_name
+              ?? `${firstWaypoint.latlng[0].toFixed(4)}, ${firstWaypoint.latlng[1].toFixed(4)}`
+            : undefined
           return (
             <RouteSuggestionDialog
-              start={[center.lng, center.lat]}
+              start={start}
+              startLabel={startLabel}
               onClose={() => setShowSuggestionDialog(false)}
               onResult={(response) => {
                 if (response.suggestions.length === 0) {
