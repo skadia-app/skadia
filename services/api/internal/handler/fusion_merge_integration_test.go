@@ -3785,7 +3785,7 @@ func TestFusionMerge_TitleSourceFailureRollsBackTX(t *testing.T) {
 			titleSource:      &missingID,
 			auditData:        []byte(`{}`),
 		}
-		applyErr := h.applyFusionTxExtras(ctx, tx, p)
+		_, applyErr := h.applyFusionTxExtras(ctx, tx, p)
 		if applyErr == nil {
 			t.Error("missing TitleSource in activities map: expected fatal error, got nil")
 		}
@@ -3891,5 +3891,93 @@ func TestFusionMerge_AggregateFailureSkipsElevation(t *testing.T) {
 	}
 	if math.Abs(loss-888.0) > 1.0 {
 		t.Errorf("elevation_loss_m = %v, want 888 (metadata-source copy); if ≈0 then elevation was incorrectly stream-recomputed after aggregate failure", loss)
+	}
+}
+
+// TestFusionMerge_GearCopyFailureReturnsWarning verifies that a non-fatal gear
+// copy failure produces a warning string in fusionMergeResponse.Warnings.
+// It calls applyFusionTxExtras directly via a mockTx that injects a failure on
+// the gear UPDATE, avoiding the complexity of the full HTTP handler path.
+func TestFusionMerge_GearCopyFailureReturnsWarning(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+
+	// actA = merged target (metadata source), actB = gear source.
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+
+	// Give actB a gear_id so copyGearIfPresent will attempt the UPDATE.
+	gearID := uuid.New().String()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO gear (id, user_id, name, type) VALUES ($1, $2, 'test-gear', 'bike')`,
+		gearID, userID,
+	); err != nil {
+		t.Fatalf("insert gear: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), "DELETE FROM gear WHERE id = $1", gearID) //nolint:errcheck
+	})
+	if _, err := pool.Exec(ctx,
+		`UPDATE activities SET gear_id = $1 WHERE id = $2`,
+		gearID, actB,
+	); err != nil {
+		t.Fatalf("set gear on actB: %v", err)
+	}
+
+	// Load activities to populate the map (mirrors what loadAndVerifyActivities does).
+	mergedAct, err := db.GetActivity(ctx, actA)
+	if err != nil || mergedAct == nil {
+		t.Fatalf("get actA: %v", err)
+	}
+	srcAct, err := db.GetActivity(ctx, actB)
+	if err != nil || srcAct == nil {
+		t.Fatalf("get actB: %v", err)
+	}
+
+	h := &Handler{DB: db}
+
+	// Wrap in a transaction; inject a mockTx that fails on the gear UPDATE.
+	injectedErr := fmt.Errorf("injected: gear update failure")
+	realTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer realTx.Rollback(ctx) //nolint:errcheck
+
+	mt := &mockTx{
+		Tx:          realTx,
+		shouldFail:  sqlContains("gear_id = $2"),
+		injectedErr: injectedErr,
+	}
+
+	gearSrc := actB
+	p := fusionFinalizeParams{
+		merged:           mergedAct,
+		allSourceIDs:     []string{actA, actB},
+		activities:       map[string]*model.Activity{actA: mergedAct, actB: srcAct},
+		userID:           userID,
+		metadataSourceID: actA,
+		gearSource:       &gearSrc,
+		auditData:        []byte(`{}`),
+	}
+
+	warnings, applyErr := h.applyFusionTxExtras(ctx, mt, p)
+	if applyErr != nil {
+		t.Fatalf("applyFusionTxExtras returned fatal error: %v", applyErr)
+	}
+	if len(warnings) == 0 {
+		t.Error("expected warnings to be non-empty after gear copy failure, got none")
+	}
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(strings.ToLower(w), "gear") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected a gear-related warning, got: %v", warnings)
 	}
 }
