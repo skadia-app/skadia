@@ -129,8 +129,12 @@ export default function MapColorDropdown({ streams, sportType, metric, onChange,
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={DROPDOWN_LABELS.chooseColoring}
+        title={`Einfärbung: ${current.label}`}
         className="flex items-center gap-1.5 px-2.5 h-8 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md text-xs font-medium text-neutral-700 dark:text-neutral-300 cursor-pointer hover:bg-white dark:hover:bg-neutral-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
       >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400" aria-hidden="true">
+          <path fillRule="evenodd" d="M4 2a2 2 0 00-2 2v11a3 3 0 106 0V4a2 2 0 00-2-2H4zm1 14a1 1 0 100-2 1 1 0 000 2zm5-1.757l4.9-4.9a2 2 0 000-2.828L13.485 5.1a2 2 0 00-2.828 0L10 5.757v8.486zM16 18H9.071l6-6H16a2 2 0 012 2v2a2 2 0 01-2 2z" clipRule="evenodd" />
+        </svg>
         <span>{current.label}</span>
         <svg viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3" aria-hidden="true"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.4a.75.75 0 01-1.08 0l-4.25-4.4a.75.75 0 01.02-1.06z" clipRule="evenodd" /></svg>
       </button>
