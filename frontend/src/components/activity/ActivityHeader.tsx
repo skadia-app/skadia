@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useToast } from '@/lib/toast'
-import { updateActivity, reprocessActivity, reprocessAllActivities, ungroupActivity, setActivityVirtual, type ExportFormat } from '@/api/activities'
+import { updateActivity, reprocessActivity, reprocessAllActivities, ungroupActivity, setActivityVirtual, type SetVirtualResponse, type ExportFormat } from '@/api/activities'
 import { revertFusion } from '@/api/fusion'
 import { invalidateAfterFusion } from '@/lib/fusionCacheInvalidation'
 import { getCapabilities, getWaypointsFromActivity } from '@/api/routes'
@@ -189,10 +189,13 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
       )
       return { previous }
     },
-    onSuccess: (result) => {
-      // Reconcile with server-confirmed value (handles exclude_from_heatmap side-effect too).
+    onSuccess: (result: SetVirtualResponse) => {
+      // Atomic state update from the extended response — sets both is_virtual AND
+      // exclude_from_heatmap in one write.  No second GET needed (R2-9).
       queryClient.setQueryData(['activity', activity.id], (old: Activity | undefined) =>
-        old ? { ...old, is_virtual: result.is_virtual } : old,
+        old
+          ? { ...old, is_virtual: result.is_virtual, exclude_from_heatmap: result.exclude_from_heatmap }
+          : old,
       )
       addToast({
         type: 'success',
@@ -206,11 +209,10 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
       }
       addToast({ type: 'error', title: 'Virtuell-Status konnte nicht geändert werden', duration: 0 })
     },
-    onSettled: () => {
-      // Soft background refetch to stay in sync; also invalidate the list.
-      void queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
-      void queryClient.invalidateQueries({ queryKey: ['activities'] })
-    },
+    // onSettled invalidate removed — onSuccess already sets both fields atomically,
+    // so the background refetch was only causing a visible flicker on slow backends.
+    // The activities list is not invalidated here to avoid list reordering during
+    // the current page view; a navigation will trigger a fresh fetch automatically.
   })
 
   useEffect(() => {
