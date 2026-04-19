@@ -2,6 +2,9 @@
 .env
 .superpowers/
 
+# Obsidian workspace state (personal, not tracked)
+.obsidian/
+
 # Compose dev overrides (personal, not tracked)
 docker-compose.override.yml
 
