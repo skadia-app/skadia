@@ -394,15 +394,23 @@ func TestSuggestRoutes_V2_Outdoor_SubSegmentsAnnotated(t *testing.T) {
 	if !foundMtb {
 		t.Errorf("mtb_scale=S2 segment missing")
 	}
-	// SAC: fixture encodes sac_scale=3 (T3, mountain_hiking) on (3,4)↔(4,4).
-	// hiking max_sac_scale=3 → encoded=3 is traversable (not costBlocked), fixing
-	// the Opus #3 finding (encoded=4 was costBlocked, making the t.Logf branch
-	// permanently soft for the wrong reason). sacPenalty[3] ≈ 3.1 (1.6^3-1) is
-	// additive but (3,4)↔(4,4) is peripheral to all 3 baseline routes, so the
-	// segment still rarely appears. Hard assert requires Option B (placing SAC on
-	// a traversed edge) — deferred. Unit coverage: TestComputeDescriptors_AlpineHiking.
+	// SAC: fixture encodes sac_scale=3 (T3, mountain_hiking) on (0,1)↔(1,1), a
+	// start-vertical edge that Route 0 (col-1 down-and-back) traverses on both
+	// legs. hiking max_sac_scale=3 keeps encoded=3 traversable (not costBlocked).
+	// sacPenalty[3] ≈ 3.1 is additive but does not alter route geometry: direct
+	// cost stays cheaper than any detour.
+	//
+	// Despite geometric traversal, the assertion remains soft because the V2-
+	// pipeline's GeoJSON "segments" array only emits a subset of the merged
+	// route's edges (e.g. Route 0 returns via 3 edges (3,1)→(2,1)→(1,1)→(0,1)
+	// but segments cover only coord-range [4,6] = 2 edges — the final edge
+	// (1,1)→(0,1) containing the SAC tag is absent from segments). Same pattern
+	// on Route 1 and Route 2's outbound legs. This is a pipeline-level issue in
+	// buildSegmentsUnified or in how merged-variant legs are joined — NOT a
+	// fixture problem. Hard-assert is blocked until the pipeline emits full-
+	// route segments. Unit coverage: TestComputeDescriptors_AlpineHiking.
 	if !foundSac {
-		t.Logf("info: sac_scale=T3 segment not seen (peripheral edge not traversed; soft-fail — Opus #3 Option B needed for hard assert)")
+		t.Logf("info: sac_scale=T3 segment not seen — V2 pipeline segments array incomplete (pipeline-level fix needed; fixture edge IS traversed by Route 0)")
 	}
 	// TV + VF may only appear on specific node-pair-traversing routes — log as soft fails if not found.
 	if !foundTv {
