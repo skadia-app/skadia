@@ -309,6 +309,8 @@ export interface ProfileDefaultsResponse {
   sac_preferred: number | null
   max_mtb_scale: number | null
   max_via_ferrata: number | null
+  max_trail_visibility: number | null          // NEW
+  trail_visibility_penalty: number | null      // NEW
   allow_steps: boolean | null
   allow_ferries: boolean | null
   // Enrichment weights
