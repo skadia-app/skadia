@@ -292,15 +292,17 @@ export default function FusionPage() {
       // Surface non-fatal backend warnings (gear copy failed, title nil, etc.)
       // defensively — absent field means no warnings (backward-compatible with
       // older server versions that don't send the field).
+      // Aggregate into a single toast to avoid stacking multiple duration:0 blockers
+      // when the backend emits several warnings at once (R2-8).
       if (result.warnings && result.warnings.length > 0) {
-        for (const warning of result.warnings) {
-          addToast({
-            type: 'warning',
-            title: 'Hinweis zur Fusion',
-            message: warning,
-            duration: 0,
-          })
-        }
+        addToast({
+          type: 'warning',
+          title: result.warnings.length === 1
+            ? 'Hinweis zur Fusion'
+            : `${result.warnings.length} Hinweise zur Fusion`,
+          message: result.warnings.join(' · '),
+          duration: 8000,
+        })
       }
 
       if (groupId) {
