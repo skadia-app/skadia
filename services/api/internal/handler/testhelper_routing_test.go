@@ -248,9 +248,11 @@ func newTestRoutingHandlerOpts(t *testing.T, withCoverage, withOutdoorTags bool)
 			//   Route 2 (longest  ≈11km): long loop:      (0,1)→(1,1)→(2,2)→(3,3)→…
 			//
 			// MTB and TV are cost-neutral for the hiking profile (no additive penalty),
-			// so placing them does not alter route geometry. SAC adds ≈5.5 penalty for
-			// T4 (hiking sacPref=0), making routed edges avoid the tagged edges; SAC is
-			// therefore placed on a peripheral edge and observed only as a soft-fail.
+			// so placing them does not alter route geometry. SAC uses sacPenalty[3] ≈ 3.1
+			// (1.6^3 − 1, additive to CF); via-point selection is DistanceM-based (not
+			// cost), so penalty does not change which via-points are chosen. The SAC
+			// edge is placed where the penalised direct path is still cheaper than any
+			// detour, so route geometry is preserved.
 			// VF with hw=22 would be blocked (maxVF=0 default); we keep hw=path and only
 			// set vfScale in Tags2 — also soft-fail.
 			//
@@ -259,11 +261,18 @@ func newTestRoutingHandlerOpts(t *testing.T, withCoverage, withOutdoorTags bool)
 			//                       MaxMtbScale Routes 0,2 = 0 → mtb_technical fires.
 			// TV   → (1,3)↔(2,4): Route 1 exclusive diagonal (r+c=4, exists).
 			//                       IntermediatePct ≈ 35%; intTrigger fires (Δ > 10%).
-			// SAC  → (3,4)↔(4,4): Peripheral vertical, not in any route baseline path.
-			//                       encoded=3 (T3) — within hiking max_sac_scale=3, so
-			//                       traversable (not costBlocked). sacPenalty[3]≈5.5
-			//                       causes router preference for alternatives; hard-assert
-			//                       valid only when route is forced through this edge.
+			// SAC  → (0,1)↔(1,1): Start-vertical edge (start=(0,1)). Route 0 (col-1
+			//                       down-and-back) traverses this edge on both its
+			//                       outbound and return legs. Route 1 goes LEFT to
+			//                       col-0 first, Route 2 goes RIGHT to col-2/col-3 —
+			//                       neither uses this edge, so SAC-penalty does not
+			//                       deflect their paths. Penalised direct cost stays
+			//                       cheaper than any detour via (0,0); via-point
+			//                       selection is DistanceM-based (unaffected by cost).
+			//                       Geometrically traversed by Route 0, but integration
+			//                       test cannot hard-assert until V2 pipeline emits
+			//                       full-route segments (currently missing final-edge
+			//                       per return leg — see variants_test SAC comment).
 			// VF   → (3,3)↔(4,4): Route 2 diagonal (r+c=6, exists); hw stays path=16.
 			//                       Appears in seg if Route 2 traverses (3,3)→(4,4).
 			//                       Soft-fail.
@@ -277,12 +286,12 @@ func newTestRoutingHandlerOpts(t *testing.T, withCoverage, withOutdoorTags bool)
 				(e.from == nodeIdx(2, 4) && e.to == nodeIdx(1, 3)):
 				// trail_visibility encoded=3 (intermediate) — cost-neutral for hiking
 				edgeTags2[pos] = (uint64(e.forestPct) & 0x7F) | (uint64(3) << 36)
-			case (e.from == nodeIdx(3, 4) && e.to == nodeIdx(4, 4)) ||
-				(e.from == nodeIdx(4, 4) && e.to == nodeIdx(3, 4)):
-				// sac_scale encoded=3 (mountain_hiking = Display T3) — peripheral edge.
-				// hiking max_sac_scale=3, so encoded=3 stays traversable (not costBlocked).
-				// sacPenalty[3] ≈ 5.5 makes the router prefer alternatives, but the edge
-				// can still appear in sub-segments when the router is forced through it.
+			case (e.from == nodeIdx(0, 1) && e.to == nodeIdx(1, 1)) ||
+				(e.from == nodeIdx(1, 1) && e.to == nodeIdx(0, 1)):
+				// sac_scale encoded=3 (mountain_hiking = Display T3) on start-vertical.
+				// Routes 0+2 traverse (0,1)↔(1,1) on both legs. Route 1 uses (0,1)→(0,2)
+				// instead (NE diagonal path) — zero impact on Route 1 geometry.
+				// Penalised direct cost (2613m units) < detour via (0,0) (5906m units).
 				edgeTags1[pos] = 16 | (uint64(3) << 14)
 			case (e.from == nodeIdx(3, 3) && e.to == nodeIdx(4, 4)) ||
 				(e.from == nodeIdx(4, 4) && e.to == nodeIdx(3, 3)):
