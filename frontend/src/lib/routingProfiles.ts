@@ -193,7 +193,7 @@ export const FIELD_METADATA: FieldMeta[] = [
     max: 6,
     step: 1,
     section: 'difficulty',
-    hint: '0=deaktiviert, 1=sehr gut, 2=gut, 3=mäßig, 4=schlecht, 5=kaum, 6=unsichtbar',
+    hint: '0=deaktiviert, 1=sehr gut sichtbar, 2=gut, 3=mäßig, 4=schlecht, 5=kaum, 6=nicht sichtbar',
   },
   {
     key: 'trail_visibility_penalty',

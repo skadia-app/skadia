@@ -288,7 +288,7 @@ func newTestRoutingHandlerOpts(t *testing.T, withCoverage, withOutdoorTags bool)
 				edgeTags2[pos] = (uint64(e.forestPct) & 0x7F) | (uint64(3) << 36)
 			case (e.from == nodeIdx(0, 1) && e.to == nodeIdx(1, 1)) ||
 				(e.from == nodeIdx(1, 1) && e.to == nodeIdx(0, 1)):
-				// sac_scale encoded=3 (mountain_hiking = Display T3) on start-vertical.
+				// sac_scale encoded=3 (demanding_mountain_hiking = Display T3) on start-vertical.
 				// Routes 0+2 traverse (0,1)↔(1,1) on both legs. Route 1 uses (0,1)→(0,2)
 				// instead (NE diagonal path) — zero impact on Route 1 geometry.
 				// Penalised direct cost (2613m units) < detour via (0,0) (5906m units).
