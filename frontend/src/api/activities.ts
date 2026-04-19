@@ -292,3 +292,13 @@ export async function fetchHealthContext(activityId: string): Promise<HealthCont
 export async function fetchDeveloperFields(activityId: string): Promise<DeveloperFieldInfo[]> {
   return apiClient<DeveloperFieldInfo[]>(`/activities/${activityId}/developer-fields`)
 }
+
+export async function setActivityVirtual(
+  id: string,
+  value: boolean,
+): Promise<{ is_virtual: boolean }> {
+  return apiClient<{ is_virtual: boolean }>(`/activities/${id}/set-virtual`, {
+    method: 'POST',
+    body: { value },
+  })
+}
