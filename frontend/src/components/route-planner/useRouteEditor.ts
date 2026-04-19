@@ -17,6 +17,8 @@ import type { RouteWaypoint, RouteSegment } from '@/api/routes'
 import type { SegmentKey } from '@/hooks/useRoutePlanner'
 import { nearestPointOnPolyline } from '@/lib/catmull-rom'
 import { SURFACE_GROUPS } from '@/lib/surfaceConstants'
+import { filterSubSegmentsByDescriptor } from '@/lib/descriptorFilter'
+import type { RouteSubSegment } from '@/lib/routeSurfaceAggregation'
 
 // ── Layer / Source IDs ──────────────────────────────────────────────────────
 const SOURCE_ROUTE       = 'route-planner-source'
@@ -571,12 +573,19 @@ export function useRouteEditor(
     for (const seg of planner.segments) {
       if (!seg.sub_segments?.length || !seg.geometry?.coordinates?.length) continue
       const coords = seg.geometry.coordinates
-      for (const ss of seg.sub_segments) {
-        const sub = ss as { from_idx: number; to_idx: number; highway: string; surface: string }
-        const match = ht.kind === 'highway'
-          ? sub.highway === ht.key
-          : (SURFACE_GROUPS[sub.surface] ?? sub.surface) === ht.key
-        if (!match) continue
+      const subs = seg.sub_segments as RouteSubSegment[]
+
+      let matching: RouteSubSegment[]
+      if (ht.kind === 'descriptor') {
+        matching = filterSubSegmentsByDescriptor(subs, ht.descriptorKey)
+      } else {
+        matching = subs.filter(ss => ht.kind === 'highway'
+          ? ss.highway === ht.key
+          : (SURFACE_GROUPS[ss.surface] ?? ss.surface) === ht.key
+        )
+      }
+
+      for (const sub of matching) {
         const start = Math.max(0, sub.from_idx)
         const end = Math.min(coords.length - 1, sub.to_idx)
         if (end - start < 1) continue
@@ -587,6 +596,25 @@ export function useRouteEditor(
         })
       }
     }
+
+    const hlMap = mapRef.current
+    if (hlMap && hlMap.getLayer(LAYER_HIGHLIGHT)) {
+      const DEFAULT_HL_COLOR = '#FACC15'
+      let color = DEFAULT_HL_COLOR
+      let dash: number[] | null = null
+      if (ht.kind === 'descriptor') {
+        switch (ht.descriptorKey) {
+          case 'mtb_technical':  color = '#F59E0B'; break
+          case 'alpine_hiking':  color = '#DC2626'; break
+          case 'exposed':        color = '#9333EA'; break
+          case 'low_visibility': color = '#6B7280'; dash = [2, 2]; break
+        }
+      }
+      hlMap.setPaintProperty(LAYER_HIGHLIGHT, 'line-color', color)
+      // null → unsets property, MapLibre falls back to solid line (NOT [1] which = dotted)
+      hlMap.setPaintProperty(LAYER_HIGHLIGHT, 'line-dasharray', dash)
+    }
+
     src.setData({ type: 'FeatureCollection', features })
   }, [active, planner.highlightedType, planner.segments])
 
