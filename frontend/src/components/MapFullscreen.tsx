@@ -226,6 +226,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
     hasGps,
     zoomRange: null,
     map: mapInstance,
+    styleVersion,
   })
 
   useEscapeKey(onClose)

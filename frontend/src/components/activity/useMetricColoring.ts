@@ -35,6 +35,14 @@ export interface UseMetricColoringArgs {
   hasGps: boolean
   zoomRange: ZoomRange | null
   map: maplibregl.Map | null
+  /**
+   * Optional token that changes whenever the map's style is reloaded
+   * (e.g. user switches base style tabs). When this value changes the
+   * hook re-applies its FeatureCollection and paint expressions, since
+   * `map.setStyle()` wipes all user-added sources/layers.
+   * Callers that never change style can omit this.
+   */
+  styleVersion?: number
 }
 
 export interface UseMetricColoringResult {
@@ -51,7 +59,7 @@ export interface UseMetricColoringResult {
 }
 
 export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColoringResult {
-  const { streams, activity, hasGps, zoomRange, map } = args
+  const { streams, activity, hasGps, zoomRange, map, styleVersion } = args
 
   const [metric, setMetric] = useState<Metric>('sport')
   const [modeByMetric, setModeByMetric] = useState<Partial<Record<Metric, Mode>>>({})
@@ -291,7 +299,7 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
         map.setPaintProperty('track-line', 'line-opacity', LINE_OPACITY_EXPRESSION as unknown as maplibregl.DataDrivenPropertyValueSpecification<number>)
       }
     }
-  }, [map, hasGps, featuresWithInside, colorExpression])
+  }, [map, hasGps, featuresWithInside, colorExpression, styleVersion])
 
   // Heading arrows visibility toggle — also handles late layer registration.
   // R3: cancel flag + explicit off() prevent listener accumulation on metric-change spam.
