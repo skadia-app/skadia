@@ -222,6 +222,7 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 			SELECT
 				lg.id, lg.user_id, lg.primary_activity_id, lg.sport_type, lg.created_at, lg.confirmed,
 				rgm.activity_id, rgm.is_fused,
+				(SELECT COUNT(DISTINCT merged_id) FROM activity_fusion_memberships WHERE source_id = a.id) AS fusion_source_count,
 				(lg.primary_activity_id = rgm.activity_id) AS is_primary,
 				a.title, a.title_auto, a.started_at, a.sport_type,
 				a.source_device, a.source, `+deviceNameSelect+`,
