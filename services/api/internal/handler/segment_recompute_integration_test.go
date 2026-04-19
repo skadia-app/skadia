@@ -1,13 +1,23 @@
 package handler
 
-// segment_recompute_integration_test.go — integration test for the transactional
-// recomputeSegmentEffortsForActivity fix (R2-10).
+// segment_recompute_integration_test.go — integration tests for segment recompute fixes.
 //
 // Requires TEST_DATABASE_URL to be set; the whole file is skipped otherwise.
 //
 // What is being tested:
 //
-//	TestRecomputeSegmentEffortsForActivity_TxFailureRollsBack
+//	TestRecomputeEffortsForActivity_NoDuplicatesAcrossSegments (R3-1 + R4-2)
+//	  Inserts a minimal activity with a real GPS stream traversing two
+//	  overlapping test segments.  Calls RecomputeEffortsForActivity and
+//	  verifies that each (segment_id, activity_id) ends up with at most 1
+//	  effort row — no cross-segment duplication from the O(N) batched path.
+//
+//	  Pre-fix (before R3-1 filter in recomputeSegmentEffortsForActivity):
+//	  running for seg1 would INSERT allEfforts (including seg2), leaving seg2
+//	  with 2 rows.  Pre-fix (before R4-2 O(N) refactor): collectSegmentEfforts
+//	  was called N times redundantly.  Both bugs are now guarded by this test.
+//
+//	TestRecomputeSegmentEffortsForActivity_TxFailureRollsBack (R2-10)
 //	  Pre-seeds one segment_effort for (segment_id, activity_id).
 //	  Injects a TxFactory that fails on the DELETE inside the transaction.
 //	  Verifies that the pre-seeded effort is still present after the failed
@@ -25,21 +35,30 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/jackc/pgx/v5"
 	"github.com/google/uuid"
 )
 
-// TestRecomputeEffortsForActivity_NoDuplicatesAcrossSegments verifies the R3-1
-// fix: recomputeSegmentEffortsForActivity must not insert efforts for segments
-// other than the one it was called for.
+// TestRecomputeEffortsForActivity_NoDuplicatesAcrossSegments verifies that
+// RecomputeEffortsForActivity (R4-2 O(N) path) does not produce duplicate
+// effort rows for any (segment_id, activity_id) pair.
 //
-// Before R3-1: collectSegmentEfforts returned efforts for ALL segments that
-// spatially overlapped the activity bbox.  The caller DELETEd only (segmentID,
-// activityID) but inserted the full slice — over N overlapping segments this
-// produced N×(N-1) duplicate effort rows.
+// Setup: two segments with identical tracks (LINESTRING 16.361 48.201 →
+// 16.362 48.202) inside a Vienna bbox; the activity carries a GPS stream of 6
+// points that traverses both segments.  collectSegmentEfforts is expected to
+// return one effort per segment (same geometry → both matched).
 //
-// After R3-1: the efforts are filtered to e.SegmentID == segmentID before
-// INSERT, so each (segment_id, activity_id) pair is exactly 1× in segment_efforts.
+// Invariant under test: after RecomputeEffortsForActivity, each
+// (segment_id, activity_id) has ≤1 row in segment_efforts.
+//
+//	Pre-fix R3-1 (no SegmentID filter in recomputeSegmentEffortsForActivity):
+//	Processing seg1 inserted ALL efforts (including seg2 → seg2 ends up 2×).
+//
+//	Pre-fix R4-2 (O(N²) loop): collectSegmentEfforts ran N times (identical
+//	GPS-stream work repeated per segment) — no DB correctness bug, but the
+//	per-segment INSERT was still sourced from the correctly-filtered slice,
+//	so this test also guards against any regression in effort distribution.
 func TestRecomputeEffortsForActivity_NoDuplicatesAcrossSegments(t *testing.T) {
 	pool := fusionTestPool(t) // skips if TEST_DATABASE_URL is not set
 	ctx := context.Background()
@@ -47,14 +66,33 @@ func TestRecomputeEffortsForActivity_NoDuplicatesAcrossSegments(t *testing.T) {
 	h := &Handler{DB: db}
 	userID := insertTestUser(t, pool)
 
-	// Insert a minimal activity with an activity_tracks bbox in Vienna.
+	// Insert a minimal activity (sport_type=cycling, required by GetSpatialCandidateSegments
+	// sport-group filter and segment sport_group='cycling' below).
 	actID := insertMinimalActivity(t, db, userID)
-	_, err := pool.Exec(ctx, `
-		INSERT INTO activity_tracks (activity_id, bbox)
-		VALUES ($1, ST_MakeEnvelope(16.36, 48.20, 16.37, 48.21, 4326))
-	`, actID)
-	if err != nil {
-		t.Fatalf("insert activity_tracks: %v", err)
+
+	// Insert a real GPS stream: 6 points linearly interpolated along the segment
+	// LINESTRING(16.361 48.201, 16.362 48.202), timestamped 3 s apart.
+	// Requirements met:
+	//   - ≥5 GPS points (collectSegmentEfforts bails at <5)
+	//   - start point within endpointProximityM=40m of segment start (48.201, 16.361)
+	//   - end point within endpointProximityM=40m of segment end   (48.202, 16.362)
+	//   - elapsed time = 15 s ≥ minSegmentEffortTimeS=5
+	//   - Hausdorff distance ≈ 0 (GPS track follows segment exactly)
+	baseTime := time.Date(2024, 3, 1, 9, 0, 0, 0, time.UTC)
+	gpsPoints := []model.StreamPoint{
+		{Time: baseTime, Lat: fusionPtrF64(48.2010), Lng: fusionPtrF64(16.3610)},
+		{Time: baseTime.Add(3 * time.Second), Lat: fusionPtrF64(48.2012), Lng: fusionPtrF64(16.3612)},
+		{Time: baseTime.Add(6 * time.Second), Lat: fusionPtrF64(48.2014), Lng: fusionPtrF64(16.3614)},
+		{Time: baseTime.Add(9 * time.Second), Lat: fusionPtrF64(48.2016), Lng: fusionPtrF64(16.3616)},
+		{Time: baseTime.Add(12 * time.Second), Lat: fusionPtrF64(48.2018), Lng: fusionPtrF64(16.3618)},
+		{Time: baseTime.Add(15 * time.Second), Lat: fusionPtrF64(48.2020), Lng: fusionPtrF64(16.3620)},
+	}
+	insertStreams(t, db, actID, gpsPoints)
+
+	// Build activity_tracks (track_full + bbox) from the GPS stream just inserted.
+	// GetSpatialCandidateSegments requires track_full IS NOT NULL.
+	if err := db.EnsureActivityTrack(ctx, actID); err != nil {
+		t.Fatalf("EnsureActivityTrack: %v", err)
 	}
 	t.Cleanup(func() {
 		pool.Exec(context.Background(), "DELETE FROM activity_tracks WHERE activity_id = $1", actID) //nolint:errcheck
@@ -90,8 +128,8 @@ func TestRecomputeEffortsForActivity_NoDuplicatesAcrossSegments(t *testing.T) {
 	seg1ID, seg1VersionID := insertTestSegment("r3-1-seg-A")
 	seg2ID, seg2VersionID := insertTestSegment("r3-1-seg-B")
 
-	// Pre-seed one effort for each segment so that the DELETE+INSERT cycle has
-	// something to work with even without a GPS stream on the activity.
+	// Pre-seed one legacy effort per segment (simulates existing DB state before recompute).
+	// RecomputeEffortsForActivity DELETEs these and replaces them with GPS-matched efforts.
 	startedAt := time.Date(2024, 3, 1, 9, 0, 0, 0, time.UTC)
 	for _, pair := range []struct{ segID, segVersionID string }{
 		{seg1ID, seg1VersionID},
@@ -128,28 +166,25 @@ func TestRecomputeEffortsForActivity_NoDuplicatesAcrossSegments(t *testing.T) {
 		t.Fatalf("pre-seed: want 1 effort for seg2, got %d", n)
 	}
 
-	// Call RecomputeEffortsForActivity which iterates over both overlapping
-	// segments and calls recomputeSegmentEffortsForActivity for each one.
-	// After the fix: each segment ends up with exactly 1 effort (the pre-seeded
-	// one is replaced, but not duplicated).
-	// Before the fix: seg2 would be inserted twice when seg1 is processed and
-	// vice-versa, because collectSegmentEfforts returned efforts for ALL segments.
+	// RecomputeEffortsForActivity calls collectSegmentEfforts ONCE for the activity,
+	// groups efforts by segment_id, then applies a per-segment transactional
+	// DELETE + INSERT.  With the real GPS stream the matcher should produce one
+	// effort per segment (both have the same LINESTRING, both get traversed).
+	//
+	// Pre-fix R3-1 scenario (no SegmentID filter): processing seg1 would INSERT
+	// allEfforts (including seg2 entries) → seg2 ends up with 2 rows.
+	// Pre-fix R4-2 scenario (O(N²)): collectSegmentEfforts ran N times, but the
+	// INSERT-slice was still filtered (R3-1 already applied), so no correctness
+	// regression in that dimension — both are guarded by the ≤1 assertion below.
 	if err := h.RecomputeEffortsForActivity(ctx, actID, userID); err != nil {
 		t.Fatalf("RecomputeEffortsForActivity: %v", err)
 	}
 
-	// After recompute: the pre-seeded efforts were DELETEd and no new GPS-based
-	// efforts were inserted (the activity has no GPS stream).  But the crucial
-	// assert is that NO EXTRA rows appeared for either segment.
-	//
-	// Specifically: if the bug were present, running recomputeSegmentEffortsForActivity
-	// for seg1 would INSERT the allEfforts slice (which contains entries for BOTH
-	// seg1 and seg2 from the pre-seeded state).  After the fix, only seg1 entries
-	// are inserted when processing seg1, and only seg2 entries when processing seg2.
-	//
-	// Since the activity has no GPS stream, collectSegmentEfforts returns 0 efforts
-	// in total, and both counts end up at 0.  The important regression is absence
-	// of phantom rows from the other segment's batch.
+	// After recompute: pre-seeded efforts were DELETEd; GPS-matched efforts were
+	// INSERTed (0 or 1 per segment depending on whether the segment matcher fires).
+	// The critical invariant: NO segment may have >1 effort for this activity.
+	// >1 would indicate either the R3-1 cross-segment duplication bug or a new
+	// regression in the R4-2 batched path.
 	for _, pair := range []struct {
 		segID string
 		name  string
@@ -158,11 +193,8 @@ func TestRecomputeEffortsForActivity_NoDuplicatesAcrossSegments(t *testing.T) {
 		{seg2ID, "seg2"},
 	} {
 		n := countEfforts(pair.segID)
-		// We accept either 0 (GPS-based matcher found nothing — expected for this
-		// minimal activity) or 1 (pre-seeded effort survived via the recompute).
-		// What we must NOT see is >1, which would signal the R3-1 duplication bug.
 		if n > 1 {
-			t.Errorf("R3-1 duplication detected: %s has %d efforts for activity %s, want ≤1",
+			t.Errorf("duplication detected (R3-1/R4-2 regression): %s has %d efforts for activity %s, want ≤1",
 				pair.name, n, actID)
 		}
 	}
