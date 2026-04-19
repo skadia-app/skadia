@@ -1504,9 +1504,9 @@ func applyFusionMetadataOverrides(
 	return nil
 }
 
-// FusionMergeRequestV2 describes the body for POST /api/v1/fusion-merge (no target).
+// FusionMergeRequest describes the body for POST /api/v1/fusion-merge (no target).
 // All sources are equal — the unified timeline is built from ALL timestamps.
-type FusionMergeRequestV2 struct {
+type FusionMergeRequest struct {
 	Sources         []string          `json:"sources"`   // all equal, min 2, max 6
 	FieldMap        map[string]string `json:"field_map"` // "hr" → "uuid-B", "gps" → "fuse"
 	GPSFusionConfig *GPSFusionConfig  `json:"gps_fusion_config,omitempty"`
@@ -1518,15 +1518,15 @@ type FusionMergeRequestV2 struct {
 	GroupID         *string           `json:"group_id,omitempty"` // if fusing from a recording group
 }
 
-// FusionMergeV2 implements the unified-timeline merge without a target activity.
+// FusionMerge implements the unified-timeline merge without a target activity.
 // POST /api/v1/fusion-merge
-func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
 	}
 
-	req, ok := httputil.DecodeJSON[FusionMergeRequestV2](w, r)
+	req, ok := httputil.DecodeJSON[FusionMergeRequest](w, r)
 	if !ok {
 		return
 	}
@@ -1614,8 +1614,8 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 
 	// Serialise concurrent Merge/Revert for the same user via an advisory lock
 	// that is scoped to the transaction (released automatically on Commit/Rollback).
-	lockKeyV2 := dbutil.AdvisoryLockKey("fusion:" + userID)
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, lockKeyV2); err != nil {
+	lockKey := dbutil.AdvisoryLockKey("fusion:" + userID)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, lockKey); err != nil {
 		slog.Error("fusion-merge-v2: advisory lock failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "fusion advisory lock: "+err.Error(), r.URL.Path)
 		return
@@ -1625,16 +1625,16 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 	// This closes the race window between two parallel FusionMerge calls for the same
 	// user: the first commits its memberships, the second (after lock-release wait)
 	// sees them and returns 409 Conflict.
-	var alreadyFusedV2 bool
+	var alreadyFused bool
 	if err := tx.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM activity_fusion_memberships WHERE source_id = ANY($1))`,
 		req.Sources,
-	).Scan(&alreadyFusedV2); err != nil {
+	).Scan(&alreadyFused); err != nil {
 		slog.Error("fusion-merge-v2: preflight query failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "preflight failed", r.URL.Path)
 		return
 	}
-	if alreadyFusedV2 {
+	if alreadyFused {
 		httputil.WriteError(w, http.StatusConflict, "Conflict", ErrAlreadyFused.Error(), r.URL.Path)
 		return
 	}
@@ -1733,17 +1733,17 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 	// Skip redundant title/tags/gear UPDATEs when the user-designated source equals the
 	// metadata source — the INSERT-SELECT in createMergedActivity already copied
 	// those fields from there. Same pattern as V1's targetID guard.
-	titleSourceV2 := req.TitleSource
-	if titleSourceV2 != nil && *titleSourceV2 == metadataSource.ID {
-		titleSourceV2 = nil
+	titleSource := req.TitleSource
+	if titleSource != nil && *titleSource == metadataSource.ID {
+		titleSource = nil
 	}
-	tagsSourceV2 := req.TagsSource
-	if tagsSourceV2 != nil && *tagsSourceV2 == metadataSource.ID {
-		tagsSourceV2 = nil
+	tagsSource := req.TagsSource
+	if tagsSource != nil && *tagsSource == metadataSource.ID {
+		tagsSource = nil
 	}
-	gearSourceV2 := req.GearSource
-	if gearSourceV2 != nil && *gearSourceV2 == metadataSource.ID {
-		gearSourceV2 = nil
+	gearSource := req.GearSource
+	if gearSource != nil && *gearSource == metadataSource.ID {
+		gearSource = nil
 	}
 	fp := fusionFinalizeParams{
 		userID:            userID,
@@ -1751,10 +1751,10 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 		allSourceIDs:      req.Sources,
 		activities:        activities,
 		fieldMap:          req.FieldMap,
-		titleSource:       titleSourceV2,
+		titleSource:       titleSource,
 		tagsMerge:         req.TagsMerge,
-		tagsSource:        tagsSourceV2,
-		gearSource:        gearSourceV2,
+		tagsSource:        tagsSource,
+		gearSource:        gearSource,
 		metadataSourceID:  metadataSource.ID,
 		fitLevel:          req.FitLevel,
 		fitLevelTargetID:  fitLevelTargetID,
@@ -1771,16 +1771,16 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 	// Membership rows (step 9b) are the sole source-of-truth for fusion state.
 	legacyMode := req.GroupID == nil || *req.GroupID == ""
 	if legacyMode {
-		sourcesToHideV2 := make([]string, 0, len(req.Sources))
+		sourcesToHide := make([]string, 0, len(req.Sources))
 		for _, id := range req.Sources {
 			if id != merged.ID {
-				sourcesToHideV2 = append(sourcesToHideV2, id)
+				sourcesToHide = append(sourcesToHide, id)
 			}
 		}
-		if len(sourcesToHideV2) > 0 {
+		if len(sourcesToHide) > 0 {
 			if _, err := tx.Exec(ctx,
 				`UPDATE activities SET parent_id = $1 WHERE id = ANY($2) AND user_id = $3`,
-				merged.ID, sourcesToHideV2, userID,
+				merged.ID, sourcesToHide, userID,
 			); err != nil {
 				slog.Error("fusion-merge-v2: hide sources failed", "error", err)
 				httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "hide sources (v2) failed: "+err.Error(), r.URL.Path)
@@ -1800,8 +1800,8 @@ func (h *Handler) FusionMergeV2(w http.ResponseWriter, r *http.Request) {
 
 	// 9b. Insert into activity_fusion_memberships — the sole source-of-truth for fusion state
 	// since Phase 3. parent_id (step 8) is a UI-visibility hint only; memberships own the data.
-	membershipsV2 := deriveFusionMemberships(merged.ID, userID, req.FieldMap, req.Sources)
-	if err := database.InsertFusionMemberships(ctx, tx, membershipsV2); err != nil {
+	memberships := deriveFusionMemberships(merged.ID, userID, req.FieldMap, req.Sources)
+	if err := database.InsertFusionMemberships(ctx, tx, memberships); err != nil {
 		slog.Error("fusion-merge-v2: insert memberships failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "insert memberships (v2): "+err.Error(), r.URL.Path)
 		return

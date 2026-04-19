@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { RecordingGroup, RecordingGroupMember, FusionMergeRequestV2 } from './types'
+import type { RecordingGroup, RecordingGroupMember } from './types'
 
 export async function fetchRecordingGroups(limit?: number, offset?: number): Promise<RecordingGroup[]> {
   const params = new URLSearchParams()
@@ -35,9 +35,3 @@ export async function setGroupSportType(groupId: string, sportType: string): Pro
   })
 }
 
-export async function executeFusionMergeV2(req: FusionMergeRequestV2): Promise<{ id: string }> {
-  return apiClient<{ id: string }>('/fusion-merge', {
-    method: 'POST',
-    body: req,
-  })
-}

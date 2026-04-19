@@ -1231,10 +1231,10 @@ func TestFusionMembershipsAfterFuse(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	h := &Handler{DB: db}
-	h.FusionMergeV2(rr, httpReq)
+	h.FusionMerge(rr, httpReq)
 
 	if rr.Code != http.StatusCreated {
-		t.Fatalf("FusionMergeV2: expected 201, got %d — body: %s", rr.Code, rr.Body.String())
+		t.Fatalf("FusionMerge: expected 201, got %d — body: %s", rr.Code, rr.Body.String())
 	}
 
 	// Decode merged ID from response.
@@ -1248,7 +1248,7 @@ func TestFusionMembershipsAfterFuse(t *testing.T) {
 	if mergedID == "" {
 		t.Fatal("response did not include an id")
 	}
-	t.Logf("FusionMergeV2: merged activity id = %s", mergedID)
+	t.Logf("FusionMerge: merged activity id = %s", mergedID)
 
 	// ── Memberships world: activity_fusion_memberships ────────────────────────
 
@@ -1422,7 +1422,7 @@ func TestFusionMergeConcurrentSameUser(t *testing.T) {
 			// Wait until both goroutines are ready to maximise concurrency.
 			<-start
 
-			h.FusionMergeV2(rr, httpReq)
+			h.FusionMerge(rr, httpReq)
 			results <- result{code: rr.Code, body: rr.Body.String()}
 		}()
 	}
@@ -1436,7 +1436,7 @@ func TestFusionMergeConcurrentSameUser(t *testing.T) {
 	for r := range results {
 		codes = append(codes, r.code)
 		if r.code == http.StatusInternalServerError {
-			t.Errorf("unexpected 500 from FusionMergeV2: body=%s", r.body)
+			t.Errorf("unexpected 500 from FusionMerge: body=%s", r.body)
 		}
 	}
 
@@ -1491,7 +1491,7 @@ func TestFusionMergeConcurrentSameUser(t *testing.T) {
 		t.Errorf("expected exactly 1 merged activity row in activities, got %d", activityCount)
 	}
 
-	t.Logf("Concurrent FusionMergeV2: 1×201, 1×409, 1 merged activity — OK")
+	t.Logf("Concurrent FusionMerge: 1×201, 1×409, 1 merged activity — OK")
 }
 
 // TestFusionMergeV1ConcurrentSameUser covers the same concurrency guarantees as
@@ -1668,9 +1668,9 @@ func TestFusionOfFusionLifecycle(t *testing.T) {
 		context.WithValue(httpReqM1.Context(), middleware.UserIDKey, userID),
 	)
 	rrM1 := httptest.NewRecorder()
-	h.FusionMergeV2(rrM1, httpReqM1)
+	h.FusionMerge(rrM1, httpReqM1)
 	if rrM1.Code != http.StatusCreated {
-		t.Fatalf("FusionMergeV2 (A+B→M1): expected 201, got %d — body: %s",
+		t.Fatalf("FusionMerge (A+B→M1): expected 201, got %d — body: %s",
 			rrM1.Code, rrM1.Body.String())
 	}
 	var respM1 struct {
@@ -1725,9 +1725,9 @@ func TestFusionOfFusionLifecycle(t *testing.T) {
 		context.WithValue(httpReqM2.Context(), middleware.UserIDKey, userID),
 	)
 	rrM2 := httptest.NewRecorder()
-	h.FusionMergeV2(rrM2, httpReqM2)
+	h.FusionMerge(rrM2, httpReqM2)
 	if rrM2.Code != http.StatusCreated {
-		t.Fatalf("FusionMergeV2 (M1+C→M2): expected 201, got %d — body: %s",
+		t.Fatalf("FusionMerge (M1+C→M2): expected 201, got %d — body: %s",
 			rrM2.Code, rrM2.Body.String())
 	}
 	var respM2 struct {
@@ -2271,9 +2271,9 @@ func TestRevertFusionRestoresPhotos(t *testing.T) {
 		context.WithValue(httpReq.Context(), middleware.UserIDKey, userID),
 	)
 	rr := httptest.NewRecorder()
-	h.FusionMergeV2(rr, httpReq)
+	h.FusionMerge(rr, httpReq)
 	if rr.Code != http.StatusCreated {
-		t.Fatalf("FusionMergeV2: expected 201, got %d — body: %s", rr.Code, rr.Body.String())
+		t.Fatalf("FusionMerge: expected 201, got %d — body: %s", rr.Code, rr.Body.String())
 	}
 	var mergeResp struct {
 		ID string `json:"id"`
@@ -2433,9 +2433,9 @@ func TestRevertFusionConcurrentSameUser(t *testing.T) {
 		context.WithValue(mergeReq.Context(), middleware.UserIDKey, userID),
 	)
 	mergeRR := httptest.NewRecorder()
-	h.FusionMergeV2(mergeRR, mergeReq)
+	h.FusionMerge(mergeRR, mergeReq)
 	if mergeRR.Code != http.StatusCreated {
-		t.Fatalf("FusionMergeV2: expected 201, got %d — body: %s", mergeRR.Code, mergeRR.Body.String())
+		t.Fatalf("FusionMerge: expected 201, got %d — body: %s", mergeRR.Code, mergeRR.Body.String())
 	}
 	var mergeResp struct {
 		ID string `json:"id"`
@@ -2595,9 +2595,9 @@ func TestRevertFusionWrongUser(t *testing.T) {
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq = httpReq.WithContext(context.WithValue(httpReq.Context(), middleware.UserIDKey, userA))
 	rr := httptest.NewRecorder()
-	h.FusionMergeV2(rr, httpReq)
+	h.FusionMerge(rr, httpReq)
 	if rr.Code != http.StatusCreated {
-		t.Fatalf("FusionMergeV2 as userA: expected 201, got %d — body: %s", rr.Code, rr.Body.String())
+		t.Fatalf("FusionMerge as userA: expected 201, got %d — body: %s", rr.Code, rr.Body.String())
 	}
 	var mergeResp struct {
 		ID string `json:"id"`
@@ -2817,9 +2817,9 @@ func TestTransitiveFusionPhotoRestore(t *testing.T) {
 			context.WithValue(httpReq.Context(), middleware.UserIDKey, userID),
 		)
 		rr := httptest.NewRecorder()
-		h.FusionMergeV2(rr, httpReq)
+		h.FusionMerge(rr, httpReq)
 		if rr.Code != http.StatusCreated {
-			t.Fatalf("FusionMergeV2: expected 201, got %d — body: %s", rr.Code, rr.Body.String())
+			t.Fatalf("FusionMerge: expected 201, got %d — body: %s", rr.Code, rr.Body.String())
 		}
 		var resp struct {
 			ID string `json:"id"`
@@ -3257,7 +3257,7 @@ func TestFusionMergeV1_NoSources_EdgeCase(t *testing.T) {
 		context.WithValue(v2Req.Context(), middleware.UserIDKey, userID),
 	)
 	v2RR := httptest.NewRecorder()
-	h.FusionMergeV2(v2RR, v2Req)
+	h.FusionMerge(v2RR, v2Req)
 
 	if v2RR.Code != http.StatusBadRequest {
 		t.Errorf("V2 empty-sources: want 400 (at least 2 sources required), got %d — body: %s",
@@ -3276,7 +3276,7 @@ func TestFusionMergeV1_NoSources_EdgeCase(t *testing.T) {
 		context.WithValue(v2SingleReq.Context(), middleware.UserIDKey, userID),
 	)
 	v2SingleRR := httptest.NewRecorder()
-	h.FusionMergeV2(v2SingleRR, v2SingleReq)
+	h.FusionMerge(v2SingleRR, v2SingleReq)
 
 	if v2SingleRR.Code != http.StatusBadRequest {
 		t.Errorf("V2 single-source: want 400 (at least 2 sources required), got %d — body: %s",

@@ -1310,7 +1310,7 @@ func main() {
 			r.Post("/activities/{id}/trim", h.TrimActivity)
 			r.Post("/activities/{id}/split", h.SplitActivity)
 			r.Post("/activities/{id}/copy-fields", h.CopyFields)
-			r.Post("/fusion-merge", h.FusionMergeV2) // unified timeline, no target
+			r.Post("/fusion-merge", h.FusionMerge) // unified timeline, no target
 			r.Post("/activities/{id}/revert-fusion", h.RevertFusion)
 
 			// Media Upload (multi-file, EXIF auto-assignment)

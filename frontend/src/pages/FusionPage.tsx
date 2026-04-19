@@ -5,9 +5,9 @@ import { fetchActivity, fetchActivityStreams } from '@/api/activities'
 import {
   fetchRecordingGroup,
   fetchRecordingGroupMembers,
-  executeFusionMergeV2,
   setGroupPrimary,
 } from '@/api/recordingGroups'
+import { executeFusionMerge } from '@/api/fusion'
 import { fmtDateCompact } from '@/lib/format'
 import { deviceLabel } from '@/lib/deviceUtils'
 import { getSourceColor } from '@/lib/comparisonColors'
@@ -270,7 +270,7 @@ export default function FusionPage() {
     if (selectedSources.length < 2 || Object.keys(fieldMap).length === 0) return
     setIsMerging(true)
     try {
-      const result = await executeFusionMergeV2({
+      const result = await executeFusionMerge({
         sources: selectedSources,
         field_map: fieldMap,
         gps_fusion_config:
