@@ -3,7 +3,6 @@
 -- of mig 000307. If invalidate_fusion_cache has since drifted, this rollback will no
 -- longer perfectly reverse the consolidation — intentional, documented in ADR.
 -- See ADR: docs/internal/2026-04-16-adr-fusion-cache-trigger-consolidation.md
-BEGIN;
 
 CREATE OR REPLACE FUNCTION fn_bump_fusion_cache_seq() RETURNS trigger AS $$
 DECLARE
@@ -25,5 +24,3 @@ CREATE TRIGGER trg_fusion_cache_memberships
     AFTER INSERT OR DELETE OR UPDATE ON activity_fusion_memberships
     FOR EACH ROW
     EXECUTE FUNCTION fn_bump_fusion_cache_seq();
-
-COMMIT;

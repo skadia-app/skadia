@@ -20,8 +20,6 @@
 -- Production runbook: spec §8 Phase 3 — if table size > 200 MB × col size,
 -- prefer two-step drop (NULL → rewrite on off-hour → drop).
 
-BEGIN;
-
 -- 1. V1-parent_id hiding cleanup. V1 FusionMerge set sources' parent_id to
 --    the merged_id to hide them from the activity list. Multisport parents
 --    have sport_type='multisport' and must keep their parent links.
@@ -53,5 +51,3 @@ CREATE TRIGGER trg_fusion_cache_upd
 -- 4. Safe to drop the columns now.
 ALTER TABLE activities DROP COLUMN IF EXISTS is_fusion_source;
 ALTER TABLE activities DROP COLUMN IF EXISTS fusion_sources;
-
-COMMIT;
