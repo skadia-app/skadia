@@ -149,18 +149,24 @@ type fusionFinalizeParams struct {
 // Returns an error if any fatal step fails (e.g. related-tables union-copy). The caller
 // must roll back the transaction on non-nil return.
 func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, p fusionFinalizeParams) error {
-	// Step 4: Title from designated source. Post-V1-sunset: title_source is the
-	// primary write path — failures propagate as TX-rollback errors.
+	// Step 4: Title from designated source.
+	// "Source not found in activities map" is fatal — titleSource must be one of
+	// the merge sources (bug in caller if missing). "Source found but title is nil"
+	// is non-fatal — the user legitimately selected an auto-imported activity
+	// without a title; we warn and leave the title from the metadata source.
 	if p.titleSource != nil {
-		if src, ok := p.activities[*p.titleSource]; ok && src.Title != nil {
+		if src, ok := p.activities[*p.titleSource]; !ok {
+			return fmt.Errorf("title-source %s not found in activities map", *p.titleSource)
+		} else if src.Title == nil {
+			slog.Warn("fusion-merge: title-source has no title, merged activity retains metadata-source title",
+				"title_source", *p.titleSource)
+		} else {
 			if _, err := tx.Exec(ctx,
 				`UPDATE activities SET title = $2, has_edits = true WHERE id = $1`,
 				p.merged.ID, *src.Title,
 			); err != nil {
 				return fmt.Errorf("title-source copy failed: %w", err)
 			}
-		} else {
-			return fmt.Errorf("title-source %s has no title to copy", *p.titleSource)
 		}
 	}
 

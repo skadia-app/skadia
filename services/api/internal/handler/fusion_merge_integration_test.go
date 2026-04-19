@@ -3698,48 +3698,96 @@ func TestFusionMerge_RecomputesSegmentEffortsAfterFusion(t *testing.T) {
 	})
 }
 
-// TestFusionMerge_TitleSourceFailureRollsBackTX verifies that specifying a
-// TitleSource that has no title (NULL) causes FusionMerge to return a 5xx and
-// roll back the transaction — i.e. no merged activity membership is persisted.
+// TestFusionMerge_TitleSourceFailureRollsBackTX covers two sub-cases for
+// TitleSource failure semantics:
+//
+//  1. missing_source_errors_out: TitleSource ID is not in the Sources list
+//     → applyFusionTxExtras returns a fatal error → 5xx + TX rollback.
+//     (In practice the handler validates Sources before reaching applyFusionTxExtras;
+//     this exercises the guard inside applyFusionTxExtras itself via a crafted
+//     activities map that omits the TitleSource.)
+//
+//  2. nil_title_warns_continues: TitleSource is in Sources but its title is NULL
+//     → non-fatal warn → 201 + merged activity exists, no rollback.
 func TestFusionMerge_TitleSourceFailureRollsBackTX(t *testing.T) {
 	pool := fusionTestPool(t)
 	ctx := context.Background()
 	db := &database.DB{Pool: pool}
-	userID := insertTestUser(t, pool)
 
-	// Both activities have NULL title (insertMinimalActivity default).
-	// actA = Sources[0] = metadata source (tie-break: first wins in pickRichestSource).
-	// actB = TitleSource — not nil-guarded by the metadataSource optimisation,
-	//        so applyFusionTxExtras reaches the fatal path with a nil-title source.
-	actA := insertMinimalActivity(t, db, userID)
-	actB := insertMinimalActivity(t, db, userID)
+	t.Run("nil_title_warns_continues", func(t *testing.T) {
+		userID := insertTestUser(t, pool)
 
-	h := &Handler{DB: db}
-	// actB is the non-metadata source (actA wins the tie-break as Sources[0] =
-	// richest-source pick). Use actB as TitleSource so the guard at
-	// "titleSource == metadataSource.ID" does NOT null it out, and the
-	// applyFusionTxExtras path actually runs with a nil-title source.
-	titleSrc := actB
-	reqBody := mustJSON(FusionMergeRequest{
-		Sources:     []string{actA, actB},
-		FieldMap:    map[string]string{"hr": actA},
-		TitleSource: &titleSrc,
+		// Both activities have NULL title (insertMinimalActivity default).
+		// actA = metadata source (Sources[0], wins tie-break in pickRichestSource).
+		// actB = TitleSource — has NULL title.
+		// The metadataSource optimisation skips TitleSource when it equals the
+		// metadata source, so we use actB (non-metadata) as TitleSource.
+		actA := insertMinimalActivity(t, db, userID)
+		actB := insertMinimalActivity(t, db, userID)
+
+		h := &Handler{DB: db}
+		titleSrc := actB
+		reqBody := mustJSON(FusionMergeRequest{
+			Sources:     []string{actA, actB},
+			FieldMap:    map[string]string{"hr": actA},
+			TitleSource: &titleSrc,
+		})
+		r := httptest.NewRequest(http.MethodPost, "/fusion-merge", strings.NewReader(reqBody))
+		r = r.WithContext(context.WithValue(r.Context(), middleware.UserIDKey, userID))
+		rr := httptest.NewRecorder()
+		h.FusionMerge(rr, r)
+
+		if rr.Code != http.StatusCreated {
+			t.Errorf("nil-title TitleSource: expected 201, got %d: %s", rr.Code, rr.Body.String())
+		}
+
+		// Verify merged activity membership was persisted (no rollback).
+		var newCount int
+		_ = pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM activity_fusion_memberships WHERE merged_id IN (SELECT id FROM activities WHERE user_id = $1 AND id NOT IN ($2, $3))`,
+			userID, actA, actB,
+		).Scan(&newCount)
+		if newCount == 0 {
+			t.Error("nil-title TitleSource: expected merged activity memberships, found none")
+		}
 	})
-	r := httptest.NewRequest(http.MethodPost, "/fusion-merge", strings.NewReader(reqBody))
-	r = r.WithContext(context.WithValue(r.Context(), middleware.UserIDKey, userID))
-	rr := httptest.NewRecorder()
-	h.FusionMerge(rr, r)
 
-	if rr.Code < 500 {
-		t.Errorf("expected 5xx error due to nil title, got %d", rr.Code)
-	}
+	t.Run("missing_source_errors_out", func(t *testing.T) {
+		// Directly invoke applyFusionTxExtras with a TitleSource that is not
+		// present in the activities map — this is the fatal path.
+		userID := insertTestUser(t, pool)
+		actA := insertMinimalActivity(t, db, userID)
+		actB := insertMinimalActivity(t, db, userID)
 
-	var newCount int
-	_ = pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM activity_fusion_memberships WHERE merged_id IN (SELECT id FROM activities WHERE user_id = $1 AND id NOT IN ($2, $3))`,
-		userID, actA, actB,
-	).Scan(&newCount)
-	if newCount != 0 {
-		t.Error("expected TX rollback, but memberships were inserted")
-	}
+		// Build a minimal activities map that intentionally omits actB.
+		titleStr := "from-actB"
+		_ = titleStr // actB's title is irrelevant — we won't put actB in the map
+		missingID := actB
+		activities := map[string]*model.Activity{
+			actA: {ID: actA},
+			// actB intentionally absent
+		}
+
+		h := &Handler{DB: db}
+
+		tx, err := db.Pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin tx: %v", err)
+		}
+		defer tx.Rollback(ctx) //nolint:errcheck
+
+		p := fusionFinalizeParams{
+			merged:           &model.Activity{ID: actA},
+			metadataSourceID: actA,
+			userID:           userID,
+			allSourceIDs:     []string{actA, actB},
+			activities:       activities,
+			titleSource:      &missingID,
+			auditData:        []byte(`{}`),
+		}
+		applyErr := h.applyFusionTxExtras(ctx, tx, p)
+		if applyErr == nil {
+			t.Error("missing TitleSource in activities map: expected fatal error, got nil")
+		}
+	})
 }
