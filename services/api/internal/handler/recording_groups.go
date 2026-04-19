@@ -258,6 +258,27 @@ func (h *Handler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject fusion-source activities: once an activity is a merge-source it is
+	// hidden from the activities list (source_id IS NOT NULL in
+	// activity_fusion_memberships).  Adding it back to a recording group would
+	// regenerate the zombie state that trigger 000313 prevents on the merge path.
+	// The trigger is defence-in-depth; this check produces a clear 400 for callers
+	// instead of a silent FK anomaly.  (R3-3)
+	var isFusionSource bool
+	if err := h.DB.Pool.QueryRow(r.Context(),
+		`SELECT EXISTS(SELECT 1 FROM activity_fusion_memberships WHERE source_id = $1)`,
+		body.ActivityID,
+	).Scan(&isFusionSource); err != nil {
+		slog.Error("add group member: check fusion-source", "activity_id", body.ActivityID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to check fusion source state", r.URL.Path)
+		return
+	}
+	if isFusionSource {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
+			"cannot add a fusion-source activity to a recording group", r.URL.Path)
+		return
+	}
+
 	err = h.DB.AddRecordingGroupMember(r.Context(), groupID, body.ActivityID)
 	if err != nil {
 		var pgErr *pgconn.PgError
