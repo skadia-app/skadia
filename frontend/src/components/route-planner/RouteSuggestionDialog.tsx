@@ -84,8 +84,10 @@ function PreferenceSlider({ label, value, onChange, accentColor }: PreferenceSli
 }
 
 export interface RouteSuggestionDialogProps {
-  /** Current map center — used as start point */
+  /** Start coordinate as [lng, lat] — either first planner waypoint or current map center */
   start: [number, number]
+  /** Optional label shown in header when start is a user-placed waypoint (falls back to map-position wording otherwise) */
+  startLabel?: string
   onClose: () => void
   /** Called with the returned route suggestion response */
   onResult: (response: RouteSuggestionResponse) => void
@@ -93,6 +95,7 @@ export interface RouteSuggestionDialogProps {
 
 export default function RouteSuggestionDialog({
   start,
+  startLabel,
   onClose,
   onResult,
 }: RouteSuggestionDialogProps) {
@@ -222,7 +225,9 @@ export default function RouteSuggestionDialog({
             Route vorschlagen
           </h2>
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-            Routen werden ab deinem aktuellen Standort berechnet
+            {startLabel
+              ? `Start: ${startLabel}`
+              : 'Routen werden ab der aktuellen Kartenposition berechnet'}
           </p>
         </div>
         <button
