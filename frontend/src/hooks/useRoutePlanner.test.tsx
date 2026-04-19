@@ -69,12 +69,12 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
     </ToastProvider>
   )
 
-  it('starts with profileConfig === null before server fetch', () => {
+  it('starts with profile.status === loading before server fetch', () => {
     const { result } = renderHook(() => useRoutePlanner(), { wrapper })
-    expect(result.current.profileConfig).toBeNull()
+    expect(result.current.profile.status).toBe('loading')
   })
 
-  it('populates profileConfig after server fetch resolves', async () => {
+  it('populates profile to ready after server fetch resolves', async () => {
     // The mount-fetch resolves → cacheServerDefaults is called → then the
     // setState updater calls getProfileDefaults('hiking') from routingProfiles.
     // Make it return the hiking profile so profileConfig gets populated.
@@ -88,12 +88,14 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
 
     const { result } = renderHook(() => useRoutePlanner(), { wrapper })
     await waitFor(() => {
-      expect(result.current.profileConfig).not.toBeNull()
+      expect(result.current.profile.status).toBe('ready')
     })
-    expect(result.current.profileConfig?.profile).toBe('hiking')
+    if (result.current.profile.status === 'ready') {
+      expect(result.current.profile.name).toBe('hiking')
+    }
   })
 
-  it('shows error toast when mount-fetch fails; profileConfig stays null', async () => {
+  it('shows error toast when mount-fetch fails; profile.status stays loading', async () => {
     // Override the API mock to reject
     const { getProfileDefaults: fetchProfileDefaults } = await import('@/api/routes')
     vi.mocked(fetchProfileDefaults).mockRejectedValueOnce(new Error('network'))
@@ -109,10 +111,10 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
         })
       )
     })
-    expect(result.current.profileConfig).toBeNull()
+    expect(result.current.profile.status).toBe('loading')
   })
 
-  it('addWaypoint before mount-fetch resolves does not crash (profileConfig still null)', async () => {
+  it('addWaypoint before mount-fetch resolves does not crash (profile still loading)', async () => {
     // Use a controlled promise to keep mount-fetch unresolved
     let resolveMount: (v: any) => void
     const mountPromise = new Promise<any>(r => { resolveMount = r })
@@ -120,9 +122,9 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
     vi.mocked(fetchProfileDefaults).mockImplementationOnce(() => mountPromise)
 
     const { result } = renderHook(() => useRoutePlanner(), { wrapper })
-    expect(result.current.profileConfig).toBeNull()
+    expect(result.current.profile.status).toBe('loading')
 
-    // addWaypoint while profileConfig is null — must not throw
+    // addWaypoint while profile is loading — must not throw
     await act(async () => {
       await result.current.addWaypoint([47.0, 11.0])
     })
@@ -156,8 +158,8 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
 
     const { result } = renderHook(() => useRoutePlanner(), { wrapper })
 
-    // At this point profileConfig is null (mount-fetch pending, no loadRoute yet)
-    expect(result.current.profileConfig).toBeNull()
+    // At this point profile is loading (mount-fetch pending, no loadRoute yet)
+    expect(result.current.profile.status).toBe('loading')
 
     // Simulate loadRoute setting profileConfig synchronously (cache-hit path)
     act(() => {
@@ -176,8 +178,11 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
       } as any)
     })
 
-    // loadRoute should have set profileConfig to MTB synchronously
-    expect(result.current.profileConfig?.profile).toBe('mtb')
+    // loadRoute should have set profile to ready with MTB synchronously
+    expect(result.current.profile.status).toBe('ready')
+    if (result.current.profile.status === 'ready') {
+      expect(result.current.profile.name).toBe('mtb')
+    }
 
     // Now resolve the mount-fetch with hiking data
     await act(async () => {
@@ -186,7 +191,10 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
       await new Promise(r => setTimeout(r, 0))
     })
 
-    // profileConfig must still be 'mtb' — the mount-fetch race-guard prevented overwrite
-    expect(result.current.profileConfig?.profile).toBe('mtb')
+    // profile must still be 'mtb' — the mount-fetch race-guard prevented overwrite
+    expect(result.current.profile.status).toBe('ready')
+    if (result.current.profile.status === 'ready') {
+      expect(result.current.profile.name).toBe('mtb')
+    }
   })
 })

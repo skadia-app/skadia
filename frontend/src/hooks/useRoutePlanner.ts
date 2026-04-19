@@ -29,6 +29,33 @@ import { catmullRom, polylineDistanceM } from '@/lib/catmull-rom'
 /** Identifies a segment by its from/to waypoint IDs. */
 export type SegmentKey = { from: string; to: string }
 
+/**
+ * Profile-gated namespace returned by useRoutePlanner.
+ *
+ * - `{ status: 'loading' }` while the server default-fetch (or loadRoute async
+ *   profile fetch) is still in-flight.
+ * - `{ status: 'ready', ... }` once profileConfig is populated.
+ *
+ * TypeScript narrows automatically via the discriminant `status`, so consumers
+ * can't accidentally access `.config` / `.setConfig` / `.recalculate` /
+ * `.saveRoute` before the profile is hydrated.
+ */
+export type RoutePlannerProfileState =
+  | { status: 'loading' }
+  | {
+      status: 'ready'
+      config: ProfileConfig
+      /** Convenience: `config.profile` string (e.g. "hiking") */
+      name: string
+      setConfig: (cfg: ProfileConfig) => void
+      setAndRecalculate: (cfg: ProfileConfig) => Promise<void>
+      recalculate: () => Promise<void>
+      saveRoute: (overrides?: Partial<PlannedRoute>) => void
+      saveRouteAsync: (overrides: Partial<PlannedRoute>) => Promise<PlannedRoute>
+      isSaving: boolean
+      saveError: Error | null
+    }
+
 // ─── Internal state ───────────────────────────────────────────────────────────
 
 type RoutingEngine = 'badrouter' | 'brouter'
@@ -755,12 +782,27 @@ export function useRoutePlanner() {
   const isDirty =
     state.waypoints.length > 0
 
+  // ── Profile-gated namespace ──────────────────────────────────────────────────
+
+  const profileState: RoutePlannerProfileState = state.profileConfig === null
+    ? { status: 'loading' as const }
+    : {
+        status: 'ready' as const,
+        config: state.profileConfig,
+        name: state.profileConfig.profile,
+        setConfig: setProfile,
+        setAndRecalculate: setProfileAndRecalculate,
+        recalculate: recalculateAll,
+        saveRoute: (overrides?: Partial<PlannedRoute>) => saveRouteMutation.mutate(overrides ?? {}),
+        saveRouteAsync: saveRouteMutation.mutateAsync,
+        isSaving: saveRouteMutation.isPending,
+        saveError: saveRouteMutation.error,
+      }
+
   return {
-    // State
+    // ── Always-available state ─────────────────────────────────────────────
     waypoints: state.waypoints,
     segments: state.segments,
-    profileConfig: state.profileConfig,
-    profile: state.profileConfig?.profile ?? 'hiking',   // convenience string alias
     sportType: state.sportType,
     isCalculating: state.isCalculating,
     calculationError: state.calculationError,
@@ -771,52 +813,44 @@ export function useRoutePlanner() {
     canSave,
     isDirty,
 
-    // Waypoint actions
+    // ── Waypoint-Management (null-tolerant) ───────────────────────────────
     addWaypoint,
     removeWaypoint,
     moveWaypoint,
     reorderWaypoints,
     insertViaWaypoint,
 
-    // Segment actions
-    calculateSegment,
-    recalculateAll,
+    // ── Segment actions (null-tolerant) ───────────────────────────────────
+    calculateSegment,          // no-op when profileConfig null
     toggleOffroad,
     updateControlPoint,
     insertControlPoint,
     removeControlPoint,
 
-    // Profile/sport
-    setProfile,
-    setProfileAndRecalculate,
+    // ── Sport / Engine ────────────────────────────────────────────────────
     setSportType,
-
-    // Routing engine
     setRoutingEngine,
     setBrouterProfile,
 
-    // Route lifecycle
+    // ── Route lifecycle ───────────────────────────────────────────────────
     loadRoute,
     loadWaypoints,
     clear,
     clearError,
 
-    // React Query: save
-    saveRoute: saveRouteMutation.mutate,
-    saveRouteAsync: saveRouteMutation.mutateAsync,
-    isSaving: saveRouteMutation.isPending,
-    saveError: saveRouteMutation.error,
-
-    // React Query: capabilities
+    // ── React Query: capabilities ─────────────────────────────────────────
     capabilities: capabilitiesQuery.data ?? null,
     capabilitiesLoading: capabilitiesQuery.isLoading,
 
-    // React Query: elevation profile
+    // ── React Query: elevation profile ────────────────────────────────────
     // Prefer geometry-embedded elevation (BadRouter), fall back to API query (BRouter)
     elevationProfile: profileFromGeometry ?? elevationProfileQuery.data?.profile ?? null,
     elevationProfileLoading: !profileFromGeometry && elevationProfileQuery.isLoading,
 
-    // Factory queries (call in component)
+    // ── Profile-gated namespace ───────────────────────────────────────────
+    profile: profileState,
+
+    // ── Factory queries (call in component) ───────────────────────────────
     useRouteList,
     useRouteDetail,
   }

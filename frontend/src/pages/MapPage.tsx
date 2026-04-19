@@ -2003,7 +2003,7 @@ export default function MapPage() {
           <RoutePlannerPanel
             waypoints={planner.waypoints}
             segments={planner.segments}
-            profileConfig={planner.profileConfig}
+            profileConfig={planner.profile.status === 'ready' ? planner.profile.config : null}
             showHeatmap={viewMode === 'heatmap'}
             routingEngine={planner.routingEngine}
             brouterProfile={planner.brouterProfile}
@@ -2014,10 +2014,14 @@ export default function MapPage() {
             totalElevationGain={planner.totals.elevation_gain}
             totalElevationLoss={planner.totals.elevation_loss}
             estimatedTimeMin={undefined}
-            onProfileChange={planner.setProfileAndRecalculate}
+            onProfileChange={(cfg) => {
+              if (planner.profile.status === 'ready') void planner.profile.setAndRecalculate(cfg)
+            }}
             onRemoveWaypoint={planner.removeWaypoint}
             onReorderWaypoints={planner.reorderWaypoints}
-            onRecalculateAll={planner.recalculateAll}
+            onRecalculateAll={() => {
+              if (planner.profile.status === 'ready') void planner.profile.recalculate()
+            }}
             onToggleSegmentMode={(waypointId) => {
               const seg = planner.segments.find(s => s.from_waypoint === waypointId)
               if (seg) planner.toggleOffroad({ from: seg.from_waypoint, to: seg.to_waypoint })
@@ -2043,7 +2047,7 @@ export default function MapPage() {
             calculationError={planner.calculationError}
             onClearError={planner.clearError}
             editingRoute={null}
-            isSaving={planner.isSaving}
+            isSaving={planner.profile.status === 'ready' && planner.profile.isSaving}
           />
         )}
 
@@ -2393,7 +2397,7 @@ export default function MapPage() {
           <RouteSaveDialog
             waypoints={planner.waypoints}
             segments={planner.segments}
-            currentProfile={planner.profile}
+            currentProfile={planner.profile.status === 'ready' ? planner.profile.name : 'hiking'}
             editingRouteId={planner.editingRouteId}
             onClose={() => setShowSaveDialog(false)}
             onSaved={(saved) => {
