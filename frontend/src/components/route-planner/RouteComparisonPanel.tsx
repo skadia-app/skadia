@@ -54,6 +54,24 @@ export default function RouteComparisonPanel({
     })
   }
 
+  // Reset expanded state when suggestions list changes (stale indices after re-suggest)
+  useEffect(() => {
+    setExpandedRoutes(new Set())
+  }, [suggestions])
+
+  // Outside-click collapse (Spec §6.2)
+  const panelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (expandedRoutes.size === 0) return
+    function onDocDown(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setExpandedRoutes(new Set())
+      }
+    }
+    document.addEventListener('mousedown', onDocDown)
+    return () => document.removeEventListener('mousedown', onDocDown)
+  }, [expandedRoutes.size])
+
   useEffect(() => {
     if (toastShown.current || !suggestions || suggestions.length === 0) return
     toastShown.current = true
@@ -81,7 +99,7 @@ export default function RouteComparisonPanel({
   }, [suggestions, partialSearch])
 
   return (
-    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 w-auto max-w-[min(36rem,calc(100vw-2rem))] rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-xl p-3 space-y-2">
+    <div ref={panelRef} className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 w-auto max-w-[min(36rem,calc(100vw-2rem))] rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-xl p-3 space-y-2">
       <div className="flex items-center justify-between px-1">
         <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
           Routenvorschlag ({suggestions.length === 1 ? '1 Variante' : `${suggestions.length} Varianten`})
