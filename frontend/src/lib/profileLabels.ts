@@ -10,7 +10,9 @@ export interface ProfileLabel {
 // and makes intent explicit.
 export const PROFILE_ORDER = ['hiking', 'mtb', 'gravel', 'trekking', 'road'] as const
 
-export const PROFILE_LABELS: Record<string, ProfileLabel> = {
+export type ProfileKey = typeof PROFILE_ORDER[number]
+
+export const PROFILE_LABELS: Record<ProfileKey, ProfileLabel> = {
   hiking:   { label: 'Wandern',  description: 'Alpines Wandern, SAC T1–T4' },
   mtb:      { label: 'MTB',      description: 'Mountainbike, technische Trails' },
   gravel:   { label: 'Gravel',   description: 'Gravel-Bike, Schotter & Forstwege' },
