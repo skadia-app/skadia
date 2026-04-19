@@ -881,9 +881,21 @@ func TestEdgeCostInteractionCombinatorics(t *testing.T) {
 // TestEdgeCostInteraction_PerProfileSeeds verifies that all PR2 seed calibrations
 // remain below the 4× baseCF cap under worst-case tag combinatorics.
 //
-// Seeds are taken from:
-//   - noise_penalty / traffic_penalty: current JSON values (post-PR1, §11.1)
-//   - trail_visibility_penalty / max_trail_visibility: PR2 target seeds (spec §3.4)
+// noise_penalty / traffic_penalty are loaded LIVE from BuiltinProfile (config/badrouter/*.json)
+// so any JSON change is automatically reflected — no silent drift.
+//
+// trail_visibility_penalty seeds are intentional literals from spec §3.4 PR2-Seeds-Table:
+//   | Profile  | max_trail_visibility | trail_visibility_penalty (seed) |
+//   | hiking   | 3                    | 0.5                             |
+//   | mtb      | 4                    | 0.4                             |
+//   | gravel   | 3                    | 0.8  ← critical case (Opus #7)  |
+//   | trekking | 3                    | 0.5                             |
+//   | road     | 6 / 0.0 (unchanged)  | —                               |
+//
+// MaxTrailVisibility is forced to 6 for ALL profiles so tv=5 (horrible, severity=3)
+// is never blocked — this isolates the additive-penalty cap from the block gate.
+// The block-gate path (tv > maxTv → costBlocked) is tested separately in
+// TestEdgeCostInteraction_BlockGate_PerProfile.
 //
 // Worst-case tags2: noise_score=100, traffic_class=6, trail_visibility=5 (horrible).
 // tvSeverity[5]=3, so tvAdd = tvPenalty * 3.
@@ -891,47 +903,35 @@ func TestEdgeCostInteractionCombinatorics(t *testing.T) {
 //
 // This test is the canary that MUST fail when PR2 lands if any profile exceeds the cap —
 // it forces seed recalibration or a hard cap before merge.
-// Profiles currently failing are flagged as EXPECTED (ratio reported for diagnosis).
 func TestEdgeCostInteraction_PerProfileSeeds(t *testing.T) {
-	// Extracted from spec §3.4 PR2-Seeds-Table (verified 2026-04-18):
-	//   | Profile  | max_trail_visibility | trail_visibility_penalty (seed) |
-	//   | hiking   | 3                    | 0.5                             |
-	//   | mtb      | 4                    | 0.4                             |
-	//   | gravel   | 3                    | 0.8  ← critical case (Opus #7)  |
-	//   | trekking | 3                    | 0.5                             |
-	//   | road     | 6 / 0.0 (unchanged)  | —                               |
-	//
-	// noise_penalty / traffic_penalty from config/badrouter/*.json (Phase-A values):
-	//   hiking:   noise=0.4, traffic=0.6
-	//   mtb:      noise=0.2, traffic=0.0 (absent in mtb.json)
-	//   gravel:   noise=0.4, traffic=0.5
-	//   trekking: noise=0.0, traffic=0.0 (absent in trekking.json)
-	//   road:     noise=0.0, traffic=0.1
-	// MaxTrailVisibility forced to 6 for all profiles so tv=5 (horrible, severity=3)
-	// is never blocked — this isolates the additive-penalty cap from the block gate.
-	// PR2 will set profile-specific maxTv (3 or 4) which causes tv>maxTv to BLOCK;
-	// the cap check is only meaningful for non-blocked edges.
-	cases := []struct {
-		profile        string
-		noisePenalty   float32
-		trafficPenalty float32
-		tvPenalty      float32
-	}{
-		{"hiking", 0.4, 0.6, 0.5},
-		{"mtb", 0.2, 0.0, 0.4},
-		{"gravel", 0.4, 0.5, 0.8}, // Opus #7: projected ratio >4.0 with hiking base; verify with gravel base
-		{"trekking", 0.0, 0.0, 0.5},
-		{"road", 0.0, 0.1, 0.0},
+	// PR2 target trail_visibility seeds (spec §3.4 — intentional literals, not from JSON yet).
+	// noise_penalty / traffic_penalty are loaded live from BuiltinProfile below.
+	pr2TvSeeds := map[string]float32{
+		"hiking":   0.5,
+		"mtb":      0.4,
+		"gravel":   0.8, // Opus #7: critical case — verify gravel base avoids cap breach
+		"trekking": 0.5,
+		"road":     0.0,
 	}
 
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.profile, func(t *testing.T) {
+	for _, profileName := range []string{"hiking", "mtb", "gravel", "trekking", "road"} {
+		profileName := profileName
+		t.Run(profileName, func(t *testing.T) {
+			// Load noise_penalty / traffic_penalty live from JSON — no silent drift.
+			base, err := BuiltinProfile(profileName)
+			if err != nil {
+				t.Fatalf("BuiltinProfile(%q): %v", profileName, err)
+			}
+
+			tvPenalty := pr2TvSeeds[profileName]
+
 			p := mergeWithDefaults(t, ProfileConfig{
-				Profile:                tc.profile,
-				NoisePenalty:           float32Ptr(tc.noisePenalty),
-				TrafficPenalty:         float32Ptr(tc.trafficPenalty),
-				TrailVisibilityPenalty: float32Ptr(tc.tvPenalty),
+				Profile: profileName,
+				// Live seeds from JSON (Phase-A values; auto-updated when JSONs change):
+				NoisePenalty:   base.NoisePenalty,
+				TrafficPenalty: base.TrafficPenalty,
+				// PR2 target seeds (intentional literals — block-gate tested separately):
+				TrailVisibilityPenalty: float32Ptr(tvPenalty),
 				MaxTrailVisibility:     intPtr(6), // open gate: no blocking, pure additive cap check
 			})
 			closure := buildEdgeCostClosure(p)
@@ -943,7 +943,48 @@ func TestEdgeCostInteraction_PerProfileSeeds(t *testing.T) {
 			if worstCf > cap4x {
 				t.Errorf("profile %q: worst=%f > 4×base=%f (ratio=%.3f) — PR2 seeds exceed cap; "+
 					"recalibrate seeds or add hard cap before merge",
-					tc.profile, worstCf, cap4x, ratio)
+					profileName, worstCf, cap4x, ratio)
+			}
+		})
+	}
+}
+
+// TestEdgeCostInteraction_BlockGate_PerProfile verifies that the max_trail_visibility gate
+// returns costBlocked when tv > maxTv for every profile that has max_trail_visibility > 0.
+//
+// TODAY (Phase-A): all 5 profiles have max_trail_visibility=0 in config/badrouter/*.json,
+// so all sub-tests SKIP — this is expected and correct (null-wirkung, spec §Phase-A).
+//
+// WHEN PR2 LANDS: profiles get max_trail_visibility=3 (hiking/gravel/trekking) or
+// max_trail_visibility=4 (mtb). Those sub-tests will activate automatically and catch
+// any regression where tv > maxTv fails to return costBlocked.
+func TestEdgeCostInteraction_BlockGate_PerProfile(t *testing.T) {
+	for _, profileName := range []string{"hiking", "mtb", "gravel", "trekking", "road"} {
+		profileName := profileName
+		t.Run(profileName, func(t *testing.T) {
+			p, err := BuiltinProfile(profileName)
+			if err != nil {
+				t.Fatalf("BuiltinProfile(%q): %v", profileName, err)
+			}
+
+			maxTv := derefInt(p.MaxTrailVisibility)
+			if maxTv == 0 {
+				t.Skipf("profile %q has max_trail_visibility=0 (Phase-A null-wirkung); block-gate n/a", profileName)
+			}
+
+			// Use the raw builtin profile so the gate is live from JSON.
+			closure := buildEdgeCostClosure(p)
+			tags1 := uint64(16) // highway=path
+
+			overTv := uint8(maxTv + 1)
+			if overTv > 6 {
+				t.Skipf("profile %q maxTv=%d already at cap (6); cannot encode tv > maxTv", profileName, maxTv)
+			}
+
+			result := closure(tags1, tv2tags(overTv)).Flat
+			if result < costBlocked {
+				t.Errorf("profile %q: tv=%d > maxTv=%d must return costBlocked (≥%.0f), got %f",
+					profileName, overTv, maxTv, float32(costBlocked), result)
 			}
 		})
 	}
