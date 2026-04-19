@@ -28,7 +28,6 @@ function LinearLegend({ scale }: { scale: Extract<ScaleDefinition, { type: 'line
     .join(', ')
   const min = scale.stops[0].value
   const max = scale.stops[scale.stops.length - 1].value
-  const mid = (min + max) / 2
 
   const fmt = (v: number) => {
     if (scale.metric === 'pace') {
@@ -40,18 +39,16 @@ function LinearLegend({ scale }: { scale: Extract<ScaleDefinition, { type: 'line
   }
 
   return (
-    <div>
+    <div className="min-w-[140px]">
       <div className="font-medium mb-1">{metricName(scale.metric)}</div>
       <div
         className="h-2 rounded-full mb-1"
         style={{ background: `linear-gradient(to right, ${gradient})` }}
       />
-      <div className="flex justify-between text-[10px] tabular-nums">
-        <span>{fmt(min)}</span>
-        <span>{fmt(mid)}</span>
-        <span>{fmt(max)}</span>
+      <div className="flex justify-between items-baseline gap-3 text-[10px] tabular-nums">
+        <span>{fmt(min)} {scale.unit}</span>
+        <span>{fmt(max)} {scale.unit}</span>
       </div>
-      <div className="text-[10px] text-neutral-500 mt-0.5">{scale.unit}</div>
     </div>
   )
 }
