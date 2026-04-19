@@ -712,6 +712,17 @@ func (h *Handler) buildRouteCandidate(
 		state.ProtectedArea > 0 ||
 		state.RiverProximity > 0
 
+	// F26: outdoor-tag aggregation.
+	outdoor := aggregateLegOutdoor(merged.EdgeHandles, router.Reader())
+	var taggedPctMtb, taggedPctSac, taggedPctVia, taggedPctTv, intermediatePctTv float32
+	if outdoor.DistM > 0 {
+		taggedPctMtb = outdoor.TaggedDistMtb / outdoor.DistM
+		taggedPctSac = outdoor.TaggedDistSac / outdoor.DistM
+		taggedPctVia = outdoor.TaggedDistVia / outdoor.DistM
+		taggedPctTv = outdoor.TaggedDistTv / outdoor.DistM
+		intermediatePctTv = outdoor.IntermediateDistTv / outdoor.DistM
+	}
+
 	return &RouteCandidate{
 		NodeID:               reachable[sel.NodeIdx].NodeID,
 		ViaLat:               reachable[sel.NodeIdx].Lat,
@@ -731,6 +742,18 @@ func (h *Handler) buildRouteCandidate(
 		HasCoverage:          hasCov,
 		LoopQuality:          res.LoopQuality,
 		OverlapPct:           res.OverlapPct,
+
+		// F26 outdoor
+		MaxMtbScale:          outdoor.MaxMtbScale,
+		MaxSacScale:          outdoor.MaxSacScale,
+		MaxViaFerrataScale:   outdoor.MaxViaFerrataScale,
+		HasViaFerrataHighway: outdoor.HasViaFerrataHighway,
+		MaxTrailVisibility:   outdoor.MaxTrailVisibility,
+		IntermediatePctTv:    intermediatePctTv,
+		TaggedPctMtb:         taggedPctMtb,
+		TaggedPctSac:         taggedPctSac,
+		TaggedPctVia:         taggedPctVia,
+		TaggedPctTv:          taggedPctTv,
 	}, nil
 }
 
