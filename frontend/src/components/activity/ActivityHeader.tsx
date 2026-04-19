@@ -178,18 +178,38 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
 
   const setVirtualMutation = useMutation({
     mutationFn: (value: boolean) => setActivityVirtual(activity.id, value),
+    onMutate: async (value: boolean) => {
+      // Cancel any in-flight refetch so it doesn't overwrite our optimistic state.
+      await queryClient.cancelQueries({ queryKey: ['activity', activity.id] })
+      // Snapshot for rollback on error.
+      const previous = queryClient.getQueryData<Activity>(['activity', activity.id])
+      // Optimistic update — UI reflects new state immediately, no flicker.
+      queryClient.setQueryData(['activity', activity.id], (old: Activity | undefined) =>
+        old ? { ...old, is_virtual: value } : old,
+      )
+      return { previous }
+    },
     onSuccess: (result) => {
+      // Reconcile with server-confirmed value (handles exclude_from_heatmap side-effect too).
       queryClient.setQueryData(['activity', activity.id], (old: Activity | undefined) =>
         old ? { ...old, is_virtual: result.is_virtual } : old,
       )
-      queryClient.invalidateQueries({ queryKey: ['activities'] })
       addToast({
         type: 'success',
         title: result.is_virtual ? 'Aktivität als virtuell markiert' : 'Virtuell-Markierung entfernt',
       })
     },
-    onError: () => {
+    onError: (_err, _value, context) => {
+      // Roll back to the snapshot taken in onMutate.
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(['activity', activity.id], context.previous)
+      }
       addToast({ type: 'error', title: 'Virtuell-Status konnte nicht geändert werden', duration: 0 })
+    },
+    onSettled: () => {
+      // Soft background refetch to stay in sync; also invalidate the list.
+      void queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
+      void queryClient.invalidateQueries({ queryKey: ['activities'] })
     },
   })
 
