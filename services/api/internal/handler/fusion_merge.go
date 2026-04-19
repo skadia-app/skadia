@@ -1924,7 +1924,14 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Post-commit: FIT-level merge, sidecar write, candidate cache cleanup.
-	h.postCommitFusionCleanup(ctx, fp)
+	// Runs in shutdown.Go so that a user cancel or client disconnect after commit
+	// does not abort track-rebuild, heatmap, or sidecar writes mid-flight.
+	// The cleanup function receives a background context managed by the shutdown
+	// supervisor, independent of the request lifetime.
+	cleanupFP := fp // copy to avoid fp escaping into request scope after return
+	shutdown.Go("post-commit-fusion-cleanup:"+merged.ID, func(bgCtx context.Context) {
+		h.postCommitFusionCleanup(bgCtx, cleanupFP)
+	})
 
 	slog.Info("fusion-merge: completed", "new_id", merged.ID, "sources", req.Sources)
 	httputil.WriteJSON(w, http.StatusCreated, fusionMergeResponse{
