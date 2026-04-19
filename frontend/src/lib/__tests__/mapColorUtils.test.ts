@@ -281,3 +281,42 @@ describe('matchSportZones', () => {
     expect(matchSportZones({ fit_sport_id: 99 }, zones)).toBeNull()
   })
 })
+
+// ─── Task 16 tests ────────────────────────────────────────────────────────────
+
+import { zoneColors } from '../mapColorUtils'
+import { HR_ZONE_BASE, POWER_ZONE_BASE } from '../colorPalettes'
+
+describe('zoneColors', () => {
+  it('3 zones: first 3 stops of base', () => {
+    const r = zoneColors(3, HR_ZONE_BASE)
+    expect(r).toHaveLength(3)
+    expect(r).toEqual([HR_ZONE_BASE[0], HR_ZONE_BASE[1], HR_ZONE_BASE[2]])
+  })
+
+  it('6 zones: exact base palette', () => {
+    const r = zoneColors(6, HR_ZONE_BASE)
+    expect(r).toHaveLength(6)
+  })
+
+  it('8 power zones: uses full POWER_ZONE_BASE (8 stops)', () => {
+    const r = zoneColors(8, POWER_ZONE_BASE)
+    expect(r).toHaveLength(8)
+  })
+
+  it('10 zones with 6-stop base: interpolated', () => {
+    const r = zoneColors(10, HR_ZONE_BASE)
+    expect(r).toHaveLength(10)
+    // All valid hex
+    r.forEach(c => expect(c).toMatch(/^#[0-9a-f]{6}$/i))
+  })
+
+  it('1 zone: middle stop', () => {
+    const r = zoneColors(1, HR_ZONE_BASE)
+    expect(r).toHaveLength(1)
+  })
+
+  it('0 zones throws', () => {
+    expect(() => zoneColors(0, HR_ZONE_BASE)).toThrow()
+  })
+})
