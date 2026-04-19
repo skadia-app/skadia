@@ -293,19 +293,3 @@ export async function fetchDeveloperFields(activityId: string): Promise<Develope
   return apiClient<DeveloperFieldInfo[]>(`/activities/${activityId}/developer-fields`)
 }
 
-export interface SetVirtualResponse {
-  is_virtual: boolean
-  /** Returned by the backend so the frontend can atomically update both fields
-   *  without issuing a second GET.  Always present as of backend R2-9 fix. */
-  exclude_from_heatmap: boolean
-}
-
-export async function setActivityVirtual(
-  id: string,
-  value: boolean,
-): Promise<SetVirtualResponse> {
-  return apiClient<SetVirtualResponse>(`/activities/${id}/set-virtual`, {
-    method: 'POST',
-    body: { is_virtual: value },
-  })
-}
