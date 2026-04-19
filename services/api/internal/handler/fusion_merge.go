@@ -121,7 +121,7 @@ type fusionFinalizeParams struct {
 	userID string
 	// merged is the newly created merged activity (result of createMergedActivity).
 	merged *model.Activity
-	// allSourceIDs is the list of all source activity IDs (target + extras in V1; req.Sources in V2).
+	// allSourceIDs is the list of all source activity IDs from req.Sources.
 	allSourceIDs []string
 	// activities is the full activity map for title/gear lookups.
 	activities map[string]*model.Activity
@@ -138,13 +138,13 @@ type fusionFinalizeParams struct {
 	// gearSource, if non-nil, designates the source for gear.
 	gearSource *string
 	// metadataSourceID is the source whose metadata createMergedActivity copied
-	// (targetID in V1, richest source ID in V2). Used as default tag source.
+	// (richest source ID). Used as default tag source.
 	metadataSourceID string
 	// fitLevel, if true, triggers a FIT-protocol-level merge post-commit.
 	fitLevel bool
-	// fitLevelTargetID is the "target" activity for fitLevelMerge (targetID in V1, Sources[0] in V2).
+	// fitLevelTargetID is the "target" activity for fitLevelMerge (Sources[0]).
 	fitLevelTargetID string
-	// fitLevelSourceIDs are the extra sources for fitLevelMerge (req.Sources in V1, req.Sources[1:] in V2).
+	// fitLevelSourceIDs are the extra sources for fitLevelMerge (Sources[1:]).
 	fitLevelSourceIDs []string
 	// auditData is marshalled JSON for the activity_edits record.
 	auditData []byte
@@ -320,7 +320,7 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 	// metadata-Source kopierte Wert erhalten statt auf NULL überschrieben zu werden.
 	// elapsed_time_s wird NICHT neu berechnet: MAX(time)-MIN(time) ergibt die
 	// Gesamtzeitspanne, nicht die moving_time. Der Wert wurde korrekt aus der
-	// metadata-Source kopiert; Step 9 (V2) korrigiert started_at/ended_at separat.
+	// metadata-Source kopiert; Step 9 korrigiert started_at/ended_at separat.
 	// elevation_gain_m/elevation_loss_m werden NICHT hier gesetzt — sie erfordern
 	// kumulative Differenzberechnung; das übernimmt Step 7b.1 via computeElevationFromStreams.
 	aggOk := true
@@ -1672,7 +1672,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	// Begin transaction.
 	tx, err := h.beginTx(ctx)
 	if err != nil {
-		slog.Error("fusion-merge-v2: begin transaction failed", "error", err)
+		slog.Error("fusion-merge: begin transaction failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to begin transaction", r.URL.Path)
 		return
 	}
@@ -1682,7 +1682,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	// that is scoped to the transaction (released automatically on Commit/Rollback).
 	lockKey := dbutil.AdvisoryLockKey("fusion:" + userID)
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, lockKey); err != nil {
-		slog.Error("fusion-merge-v2: advisory lock failed", "error", err)
+		slog.Error("fusion-merge: advisory lock failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "fusion advisory lock: "+err.Error(), r.URL.Path)
 		return
 	}
@@ -1696,7 +1696,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		`SELECT EXISTS(SELECT 1 FROM activity_fusion_memberships WHERE source_id = ANY($1))`,
 		req.Sources,
 	).Scan(&alreadyFused); err != nil {
-		slog.Error("fusion-merge-v2: preflight query failed", "error", err)
+		slog.Error("fusion-merge: preflight query failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "preflight failed", r.URL.Path)
 		return
 	}
@@ -1708,14 +1708,14 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	// 1. Create new activity from the richest source's metadata.
 	merged, err := createMergedActivity(ctx, tx, metadataSource)
 	if err != nil {
-		slog.Error("fusion-merge-v2: create merged activity failed", "error", err)
+		slog.Error("fusion-merge: create merged activity failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to create merged activity", r.URL.Path)
 		return
 	}
 
 	// 1b. FieldMap-aware metadata overrides.
 	if err := applyFusionMetadataOverrides(ctx, tx, merged.ID, metadataSource.ID, req.FieldMap, activities); err != nil {
-		slog.Error("fusion-merge-v2: metadata overrides failed", "error", err)
+		slog.Error("fusion-merge: metadata overrides failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to apply metadata overrides", r.URL.Path)
 		return
 	}
@@ -1739,13 +1739,13 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	// finalizeStreamsMerge schreibt danach in activity_streams.
 	tempName, err := createTempMergedStreams(ctx, tx)
 	if err != nil {
-		slog.Error("fusion-merge-v2: create temp table failed", "error", err)
+		slog.Error("fusion-merge: create temp table failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to create temp table", r.URL.Path)
 		return
 	}
 
 	if err := insertUnifiedTimelineInto(ctx, tx, tempName, merged.ID, uniqueSources); err != nil {
-		slog.Error("fusion-merge-v2: build unified timeline failed", "error", err)
+		slog.Error("fusion-merge: build unified timeline failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to build unified timeline", r.URL.Path)
 		return
 	}
@@ -1760,7 +1760,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 				}
 			} else {
 				if err := fusionMergeGPSFromSource(ctx, tx, tempName, sourceID); err != nil {
-					slog.Error("fusion-merge-v2: GPS merge failed", "error", err)
+					slog.Error("fusion-merge: GPS merge failed", "error", err)
 					httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "GPS merge failed", r.URL.Path)
 					return
 				}
@@ -1770,7 +1770,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 
 		col := validStreamFields[field]
 		if err := fusionMergeStreamColumn(ctx, tx, tempName, sourceID, col); err != nil {
-			slog.Error("fusion-merge-v2: stream column merge failed", "field", field, "col", col, "error", err)
+			slog.Error("fusion-merge: stream column merge failed", "field", field, "col", col, "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", fmt.Sprintf("merge field %s failed", field), r.URL.Path)
 			return
 		}
@@ -1778,7 +1778,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 
 	// 3b. TEMP TABLE → activity_streams finalisieren.
 	if err := finalizeStreamsMerge(ctx, tx, tempName); err != nil {
-		slog.Error("fusion-merge-v2: finalize streams merge failed", "error", err)
+		slog.Error("fusion-merge: finalize streams merge failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to finalize streams", r.URL.Path)
 		return
 	}
@@ -1798,7 +1798,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	}
 	// Skip redundant title/tags/gear UPDATEs when the user-designated source equals the
 	// metadata source — the INSERT-SELECT in createMergedActivity already copied
-	// those fields from there. Same pattern as V1's targetID guard.
+	// those fields from there.
 	titleSource := req.TitleSource
 	if titleSource != nil && *titleSource == metadataSource.ID {
 		titleSource = nil
@@ -1829,7 +1829,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	}
 	mergeWarnings, err := h.applyFusionTxExtras(ctx, tx, fp)
 	if err != nil {
-		slog.Error("fusion-merge-v2: applyFusionTxExtras failed, rolling back", "merged_id", merged.ID, "error", err)
+		slog.Error("fusion-merge: applyFusionTxExtras failed, rolling back", "merged_id", merged.ID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "merge finalization failed: "+err.Error(), r.URL.Path)
 		return
 	}
@@ -1849,8 +1849,8 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 				`UPDATE activities SET parent_id = $1 WHERE id = ANY($2) AND user_id = $3`,
 				merged.ID, sourcesToHide, userID,
 			); err != nil {
-				slog.Error("fusion-merge-v2: hide sources failed", "error", err)
-				httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "hide sources (v2) failed: "+err.Error(), r.URL.Path)
+				slog.Error("fusion-merge: hide sources failed", "error", err)
+				httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "hide sources failed: "+err.Error(), r.URL.Path)
 				return
 			}
 		}
@@ -1862,21 +1862,21 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 			started_at = COALESCE((SELECT MIN(time) FROM activity_streams WHERE activity_id = $1), started_at),
 			ended_at   = COALESCE((SELECT MAX(time) FROM activity_streams WHERE activity_id = $1), ended_at)
 		WHERE id = $1`, merged.ID); err != nil {
-		slog.Warn("fusion-merge-v2: update time bounds failed", "error", err)
+		slog.Warn("fusion-merge: update time bounds failed", "error", err)
 	}
 
 	// 9b. Insert into activity_fusion_memberships — the sole source-of-truth for fusion state
 	// since Phase 3. parent_id (step 8) is a UI-visibility hint only; memberships own the data.
 	memberships := deriveFusionMemberships(merged.ID, userID, req.FieldMap, req.Sources)
 	if err := database.InsertFusionMemberships(ctx, tx, memberships); err != nil {
-		slog.Error("fusion-merge-v2: insert memberships failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "insert memberships (v2): "+err.Error(), r.URL.Path)
+		slog.Error("fusion-merge: insert memberships failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "insert memberships: "+err.Error(), r.URL.Path)
 		return
 	}
 
 	// Commit transaction.
 	if err := tx.Commit(ctx); err != nil {
-		slog.Error("fusion-merge-v2: commit transaction failed", "error", err)
+		slog.Error("fusion-merge: commit transaction failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to commit transaction", r.URL.Path)
 		return
 	}
@@ -1884,13 +1884,13 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	// Post-commit: group integration.
 	if req.GroupID != nil && *req.GroupID != "" {
 		if err := h.DB.AddRecordingGroupMemberFused(ctx, *req.GroupID, merged.ID); err != nil {
-			slog.Error("fusion-merge-v2: add fused member to group failed", "group", *req.GroupID, "error", err)
+			slog.Error("fusion-merge: add fused member to group failed", "group", *req.GroupID, "error", err)
 			// Non-fatal: the merge itself succeeded.
 		} else {
 			// Merged activity als Primary der Gruppe setzen; der Trigger
 			// trg_group_primary_sync setzt is_group_secondary für die anderen Members.
 			if err := h.DB.SetRecordingGroupPrimary(ctx, *req.GroupID, merged.ID); err != nil {
-				slog.Warn("fusion-merge-v2: set group primary failed", "group", *req.GroupID, "error", err)
+				slog.Warn("fusion-merge: set group primary failed", "group", *req.GroupID, "error", err)
 			}
 		}
 	}
@@ -1898,7 +1898,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 	// Post-commit: FIT-level merge, sidecar write, candidate cache cleanup.
 	h.postCommitFusionCleanup(ctx, fp)
 
-	slog.Info("fusion-merge-v2: completed", "new_id", merged.ID, "sources", req.Sources)
+	slog.Info("fusion-merge: completed", "new_id", merged.ID, "sources", req.Sources)
 	httputil.WriteJSON(w, http.StatusCreated, fusionMergeResponse{
 		ID:       merged.ID,
 		Warnings: mergeWarnings,
@@ -1964,7 +1964,7 @@ func insertUnifiedTimelineInto(ctx context.Context, q database.Querier, tempName
 }
 
 // copyTargetStreamsInto kopiert alle Felder der Ziel-Aktivität in die TEMP TABLE.
-// Wird für V1 (FusionMerge) als initialer Copy verwendet, bevor Overlays angewendet werden.
+// Wird als initialer Copy verwendet, bevor Overlays angewendet werden.
 //
 // Implementiert als zwei Statements ohne Spaltenliste, damit zukünftige
 // activity_streams-Erweiterungen (ADD COLUMN) automatisch mitgehen — TEMP wurde
