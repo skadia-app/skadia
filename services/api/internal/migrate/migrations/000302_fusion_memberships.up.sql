@@ -2,8 +2,6 @@
 -- Introduces activity_fusion_memberships as the new Source-of-Truth for fusions.
 -- Runs in parallel to existing is_fusion_source / fusion_sources during Phase 1 (Dual-Write).
 
-BEGIN;
-
 -- 1. Table.
 -- user_id is denormalised (same as activities.user_id for both merged and source — they are always same-user).
 -- Rationale: AFTER DELETE trigger during CASCADE cannot resolve activities.user_id because the parent
@@ -91,5 +89,3 @@ JOIN activities child ON child.parent_id = merged.id
 WHERE merged.fusion_sources IS NOT NULL
   AND (merged.fusion_sources->>'gps') = 'fuse'
 ON CONFLICT DO NOTHING;
-
-COMMIT;

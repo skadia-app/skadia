@@ -4,8 +4,6 @@
 -- twice (memberships INSERT + activities UPDATE). This change makes the membership
 -- trigger delegate to the canonical invalidate_fusion_cache function. Single source
 -- of truth for the bump semantics.
-BEGIN;
-
 -- Drop the memberships trigger so we can change its function reference.
 DROP TRIGGER IF EXISTS trg_fusion_cache_memberships ON activity_fusion_memberships;
 
@@ -18,5 +16,3 @@ CREATE TRIGGER trg_fusion_cache_memberships
 
 -- Drop the duplicate function.
 DROP FUNCTION IF EXISTS fn_bump_fusion_cache_seq();
-
-COMMIT;

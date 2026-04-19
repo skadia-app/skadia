@@ -11,8 +11,6 @@
 -- so operators can migrate/delete them before re-running. See 000308 for the
 -- same pattern applied to the legacy 'merge' edit_type.
 
-BEGIN;
-
 -- Safety-net: abort if any field_copy rows still exist (e.g. on selfhosted
 -- instances that ran CopyFields before the UI was removed). Operator action:
 -- DELETE FROM activity_edits WHERE edit_type = 'field_copy'; then re-run.
@@ -32,5 +30,3 @@ END $$;
 ALTER TABLE activity_edits DROP CONSTRAINT IF EXISTS activity_edits_edit_type_check;
 ALTER TABLE activity_edits ADD CONSTRAINT activity_edits_edit_type_check
   CHECK (edit_type IN ('trim', 'split', 'fusion_merge'));
-
-COMMIT;

@@ -24,8 +24,6 @@
 -- (memberships) is to roll back, always roll 000304 down FIRST. Otherwise
 -- the UPDATE trigger would reference a dropped function.
 
-BEGIN;
-
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS is_fusion_source BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS fusion_sources JSONB;
 
@@ -58,5 +56,3 @@ WHERE a.id = sub.merged_id;
 
 UPDATE activities a SET is_fusion_source = TRUE
 WHERE EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id);
-
-COMMIT;
