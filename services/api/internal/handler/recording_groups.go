@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // requireGroupOwner loads the recording group identified by the "id" URL param,
@@ -204,6 +206,82 @@ func (h *Handler) SetRecordingGroupSportType(w http.ResponseWriter, r *http.Requ
 	if err := h.DB.SetRecordingGroupSportType(r.Context(), groupID, body.SportType); err != nil {
 		slog.Error("set recording group sport type", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to set sport type", r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+type addGroupMemberRequest struct {
+	ActivityID string `json:"activity_id"`
+}
+
+// AddGroupMember godoc
+// POST /api/v1/recording-groups/{id}/members
+// Body: {"activity_id": "uuid"}
+// Idempotent: returns 200 OK if the activity is already a member of this group.
+// Returns 409 Conflict if the activity already belongs to a different group.
+func (h *Handler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	groupID := chi.URLParam(r, "id")
+
+	body, ok := httputil.DecodeJSON[addGroupMemberRequest](w, r)
+	if !ok {
+		return
+	}
+	if body.ActivityID == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "activity_id is required", r.URL.Path)
+		return
+	}
+
+	// Verify the group exists and belongs to this user.
+	if _, ok := h.requireGroupOwner(w, r, userID, groupID); !ok {
+		return
+	}
+
+	// Verify the activity exists and belongs to this user.
+	activity, err := h.DB.GetActivity(r.Context(), body.ActivityID)
+	if err != nil {
+		slog.Error("add group member: get activity", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get activity", r.URL.Path)
+		return
+	}
+	if activity == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+	if activity.UserID != userID {
+		httputil.WriteError(w, http.StatusForbidden, "Forbidden", "access denied", r.URL.Path)
+		return
+	}
+
+	err = h.DB.AddRecordingGroupMember(r.Context(), groupID, body.ActivityID)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23505": // unique_violation: activity already in a group
+				// Check if it is already a member of *this* group — idempotent case.
+				members, listErr := h.DB.GetRecordingGroupMembers(r.Context(), groupID)
+				if listErr == nil {
+					for _, m := range members {
+						if m.ActivityID == body.ActivityID {
+							// Already a member of this group — idempotent success.
+							httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+							return
+						}
+					}
+				}
+				// Activity belongs to a different group.
+				httputil.WriteError(w, http.StatusConflict, "Conflict", "activity already belongs to another recording group", r.URL.Path)
+				return
+			}
+		}
+		slog.Error("add group member", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to add group member", r.URL.Path)
 		return
 	}
 

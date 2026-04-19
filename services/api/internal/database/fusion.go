@@ -138,6 +138,8 @@ type FusionCandidateRow struct {
 	SourceDeviceB      *string
 	SourceB            *string
 	OriginalFileFormatB *string
+	GroupIDA           *string
+	GroupIDB           *string
 }
 
 // FusionCandidateInsert beschreibt einen einzelnen Eintrag für ReplaceFusionCandidates.
@@ -243,11 +245,15 @@ func (db *DB) GetCachedFusionCandidates(ctx context.Context, userID string, limi
 			a1.title, a1.title_auto, a1.started_at, a1.sport_type, a1.sub_type, a1.is_electric, a1.distance_m,
 			a1.source_device, a1.source, a1.original_file_format,
 			a2.title, a2.title_auto, a2.started_at, a2.sport_type, a2.sub_type, a2.is_electric, a2.distance_m,
-			a2.source_device, a2.source, a2.original_file_format
+			a2.source_device, a2.source, a2.original_file_format,
+			rgm_a.group_id AS group_id_a, rgm_b.group_id AS group_id_b
 		FROM fusion_candidates fc
 		JOIN activities a1 ON a1.id = fc.activity_id_a
 		JOIN activities a2 ON a2.id = fc.activity_id_b
+		LEFT JOIN recording_group_members rgm_a ON rgm_a.activity_id = fc.activity_id_a
+		LEFT JOIN recording_group_members rgm_b ON rgm_b.activity_id = fc.activity_id_b
 		WHERE fc.user_id = $1 AND fc.dismissed_at IS NULL
+		AND NOT (rgm_a.group_id IS NOT NULL AND rgm_b.group_id IS NOT NULL AND rgm_a.group_id = rgm_b.group_id)
 		ORDER BY fc.overlap_percent DESC
 		LIMIT $2`,
 		userID, limit,
@@ -266,6 +272,7 @@ func (db *DB) GetCachedFusionCandidates(ctx context.Context, userID string, limi
 			&r.SourceDeviceA, &r.SourceA, &r.OriginalFileFormatA,
 			&r.TitleB, &r.TitleAutoB, &r.StartedAtB, &r.SportTypeB, &r.SubTypeB, &r.IsElectricB, &r.DistanceMB,
 			&r.SourceDeviceB, &r.SourceB, &r.OriginalFileFormatB,
+			&r.GroupIDA, &r.GroupIDB,
 		); err != nil {
 			return nil, fmt.Errorf("scan fusion candidate row: %w", err)
 		}
