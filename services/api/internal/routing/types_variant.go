@@ -1,5 +1,7 @@
 package routing
 
+import "math"
+
 // CandidateSelection identifies a reachable node + which of its Pareto states
 // to use for variant construction.
 //
@@ -22,4 +24,11 @@ type CandidateMetrics struct {
 	GreenScore *float32 // nil = no coverage data for this route
 	CalmScore  *float32 // nil = no coverage data for this route
 	NodeID     uint64   // deterministic tiebreaker
+}
+
+// MinVariantDistanceM returns the minimum spatial separation (in metres)
+// that two selected variant nodes must have. The floor of 300 m prevents
+// trivial near-duplicate variants on short target distances.
+func MinVariantDistanceM(targetDistanceM float64) float64 {
+	return math.Max(300.0, 0.05*targetDistanceM)
 }
