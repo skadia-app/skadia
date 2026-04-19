@@ -1174,6 +1174,20 @@ func (db *DB) DeleteAllSegmentEffortsBySegment(ctx context.Context, segmentID st
 
 // InsertSegmentEffortsBatch inserts multiple segment efforts in a single multi-row INSERT.
 func (db *DB) InsertSegmentEffortsBatch(ctx context.Context, efforts []*model.SegmentEffort) error {
+	return insertSegmentEffortsBatch(ctx, db.Pool, efforts)
+}
+
+// InsertSegmentEffortsBatchTx inserts segment efforts inside an existing transaction.
+// The caller is responsible for committing or rolling back the transaction.
+// This is the transactional counterpart of InsertSegmentEffortsBatch, used by
+// recomputeSegmentEffortsForActivity to atomically DELETE + re-INSERT efforts.
+func InsertSegmentEffortsBatchTx(ctx context.Context, tx pgx.Tx, efforts []*model.SegmentEffort) error {
+	return insertSegmentEffortsBatch(ctx, tx, efforts)
+}
+
+// insertSegmentEffortsBatch is the shared implementation for InsertSegmentEffortsBatch
+// and InsertSegmentEffortsBatchTx. It accepts any Querier (pool or transaction).
+func insertSegmentEffortsBatch(ctx context.Context, conn Querier, efforts []*model.SegmentEffort) error {
 	if len(efforts) == 0 {
 		return nil
 	}
@@ -1207,7 +1221,7 @@ func (db *DB) InsertSegmentEffortsBatch(ctx context.Context, efforts []*model.Se
 		VALUES ` + strings.Join(valueParts, ", ") + `
 		ON CONFLICT DO NOTHING`
 
-	_, err := db.Pool.Exec(ctx, query, args...)
+	_, err := conn.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("batch insert segment efforts: %w", err)
 	}

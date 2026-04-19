@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -29,26 +30,59 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 	matchCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
-	// 1. Spatial pre-filter: only segments within 50m of activity track
-	candidates, err := db.GetSpatialCandidateSegments(matchCtx, activityID, userID, sportType, activityDate)
+	allEfforts, matchedSegmentIDs, matchCount, err := collectSegmentEfforts(matchCtx, db, activityID, userID, sportType, subType, gearID, activityDate)
 	if err != nil {
-		slog.Error("segment matching: spatial pre-filter failed", "error", err)
-		return
-	}
-	if len(candidates) == 0 {
-		slog.Debug("segment matching: no spatial candidates", "activity_id", activityID)
+		slog.Error("segment matching: collect efforts failed", "error", err)
 		return
 	}
 
-	// 2. Load GPS stream once (shared with lap detection later)
-	gpsStream, err := db.GetActivityGPSStream(matchCtx, activityID)
+	// Batch-insert all collected efforts
+	if len(allEfforts) > 0 {
+		if err := db.InsertSegmentEffortsBatch(matchCtx, allEfforts); err != nil {
+			slog.Error("segment matching: batch insert failed", "error", err)
+			return
+		}
+	}
+
+	// Update ranks once per matched segment (not per effort)
+	for segID := range matchedSegmentIDs {
+		if err := db.UpdateSegmentEffortRanks(matchCtx, segID); err != nil {
+			slog.Warn("segment matching: update ranks failed",
+				"segment_id", segID, "error", err)
+		}
+	}
+
+	slog.Info("segment matching complete",
+		"activity_id", activityID,
+		"matched", matchCount)
+}
+
+// collectSegmentEfforts performs the read-only and in-memory phases of segment matching:
+// spatial pre-filter, GPS stream load, endpoint batch-load, and traversal detection.
+// It returns the computed efforts and matched segment IDs without writing to the database.
+// This separation allows callers such as recomputeSegmentEffortsForActivity to wrap
+// the subsequent INSERT inside an existing transaction.
+func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, userID, sportType, subType string, gearID *string, activityDate time.Time) (allEfforts []*model.SegmentEffort, matchedSegmentIDs map[string]struct{}, matchCount int, err error) {
+	matchedSegmentIDs = make(map[string]struct{})
+
+	// 1. Spatial pre-filter: only segments within 50m of activity track
+	candidates, err := db.GetSpatialCandidateSegments(ctx, activityID, userID, sportType, activityDate)
 	if err != nil {
-		slog.Error("segment matching: get GPS stream failed", "error", err)
-		return
+		return nil, nil, 0, fmt.Errorf("spatial pre-filter: %w", err)
+	}
+	if len(candidates) == 0 {
+		slog.Debug("segment matching: no spatial candidates", "activity_id", activityID)
+		return nil, matchedSegmentIDs, 0, nil
+	}
+
+	// 2. Load GPS stream once (shared with lap detection later)
+	gpsStream, err := db.GetActivityGPSStream(ctx, activityID)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("get GPS stream: %w", err)
 	}
 	if len(gpsStream) < 5 {
 		slog.Debug("segment matching: GPS stream too short", "activity_id", activityID, "points", len(gpsStream))
-		return
+		return nil, matchedSegmentIDs, 0, nil
 	}
 
 	// 3. Batch-load endpoints for all non-lap candidates
@@ -58,15 +92,11 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 			nonLapVersionIDs = append(nonLapVersionIDs, cand.VersionID)
 		}
 	}
-	endpointMap, err := db.GetSegmentEndpointsBatch(matchCtx, nonLapVersionIDs)
+	endpointMap, err := db.GetSegmentEndpointsBatch(ctx, nonLapVersionIDs)
 	if err != nil {
-		slog.Error("segment matching: batch endpoint load failed", "error", err)
-		return
+		return nil, nil, 0, fmt.Errorf("batch endpoint load: %w", err)
 	}
 
-	matchCount := 0
-	matchedSegmentIDs := make(map[string]struct{})
-	var allEfforts []*model.SegmentEffort
 	for _, cand := range candidates {
 		// Lap segments: use crossing detection instead of sub-track matching
 		if cand.SegmentType == "lap" {
@@ -173,26 +203,7 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 		}
 	}
 
-	// Batch-insert all collected efforts
-	if len(allEfforts) > 0 {
-		if err := db.InsertSegmentEffortsBatch(matchCtx, allEfforts); err != nil {
-			slog.Error("segment matching: batch insert failed", "error", err)
-			return
-		}
-	}
-
-	// Update ranks once per matched segment (not per effort)
-	for segID := range matchedSegmentIDs {
-		if err := db.UpdateSegmentEffortRanks(matchCtx, segID); err != nil {
-			slog.Warn("segment matching: update ranks failed",
-				"segment_id", segID, "error", err)
-		}
-	}
-
-	slog.Info("segment matching complete",
-		"activity_id", activityID,
-		"candidates", len(candidates),
-		"matched", matchCount)
+	return allEfforts, matchedSegmentIDs, matchCount, nil
 }
 
 // traversal represents a detected pass through a segment.
