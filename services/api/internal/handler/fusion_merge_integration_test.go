@@ -3894,6 +3894,213 @@ func TestFusionMerge_AggregateFailureSkipsElevation(t *testing.T) {
 	}
 }
 
+// ─── Finding R2-2: fusionMergeActivityTags inner-loop warnings ────────────────
+
+// TestFusionMergeActivityTags_InsertFailureReturnsWarning verifies that when the
+// inner-loop tag-INSERT inside fusionMergeActivityTags fails, the function returns
+// a non-empty warnings slice (not just slog-only) and no fatal error.
+func TestFusionMergeActivityTags_InsertFailureReturnsWarning(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+
+	// Create activities and a tag on the source.
+	sourceAct := insertMinimalActivity(t, db, userID)
+	targetAct := insertMinimalActivity(t, db, userID)
+
+	tagID := uuid.New().String()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO tags (id, user_id, name, color, activity_count) VALUES ($1, $2, 'test-warn-tag', '#ffffff', 0)`,
+		tagID, userID,
+	); err != nil {
+		t.Fatalf("insert tag: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), "DELETE FROM tags WHERE id = $1", tagID) //nolint:errcheck
+	})
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES ($1, $2, 'test')`,
+		sourceAct, tagID,
+	); err != nil {
+		t.Fatalf("assign tag to source: %v", err)
+	}
+
+	// Wrap in a real tx and inject a mockTx that fails on the activity_tags INSERT.
+	realTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer realTx.Rollback(ctx) //nolint:errcheck
+
+	injectedErr := fmt.Errorf("injected: activity_tags insert failure")
+	mt := &mockTx{
+		Tx:          realTx,
+		shouldFail:  sqlContains("insert into activity_tags"),
+		injectedErr: injectedErr,
+	}
+
+	warns, err := fusionMergeActivityTags(ctx, mt, targetAct, sourceAct)
+	if err != nil {
+		t.Fatalf("fusionMergeActivityTags returned fatal error: %v", err)
+	}
+	if len(warns) == 0 {
+		t.Error("expected non-empty warnings after tag INSERT failure, got none")
+	}
+	found := false
+	for _, w := range warns {
+		if strings.Contains(strings.ToLower(w), "tag") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected tag-related warning, got: %v", warns)
+	}
+}
+
+// ─── Finding R2-3: applyFusionMetadataOverrides warnings pipeline ─────────────
+
+// TestFusionMetadataOverrides_AggregateFailureReturnsWarning verifies that when
+// the FieldMap-aggregate override UPDATE fails, applyFusionMetadataOverrides
+// returns a non-empty warnings slice (not just slog-only) and no fatal error.
+func TestFusionMetadataOverrides_AggregateFailureReturnsWarning(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+
+	actAObj, err := db.GetActivity(ctx, actA)
+	if err != nil || actAObj == nil {
+		t.Fatalf("get actA: %v", err)
+	}
+	actBObj, err := db.GetActivity(ctx, actB)
+	if err != nil || actBObj == nil {
+		t.Fatalf("get actB: %v", err)
+	}
+
+	// Wrap in a tx that fails on the aggregate override UPDATE (the dynamic SET query
+	// for fieldMapAggregates contains "FROM activities s WHERE t.id = $1").
+	// We need to allow the initial NULL-external-IDs UPDATE to pass (Step 1) and
+	// only fail on the FieldMap aggregate UPDATE (Step 2).
+	stepsPassed := 0
+	realTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer realTx.Rollback(ctx) //nolint:errcheck
+
+	injectedErr := fmt.Errorf("injected: fieldmap aggregate override failure")
+	// The aggregate override query is a dynamic fmt.Sprintf containing "FROM activities s".
+	// The NULL-external-IDs query also touches activities but does not use "s." alias.
+	mt := &mockTx{
+		Tx: realTx,
+		shouldFail: func(sql string) bool {
+			lower := strings.ToLower(sql)
+			// Fail only the dynamic FieldMap SET query which contains "from activities s"
+			// (the null-external-IDs query uses no alias).
+			if strings.Contains(lower, "from activities s") && stepsPassed == 0 {
+				stepsPassed++
+				return true
+			}
+			return false
+		},
+		injectedErr: injectedErr,
+	}
+
+	allActivities := map[string]*model.Activity{actA: actAObj, actB: actBObj}
+	// Use actA as richestSource, actB as the fieldMap source → triggers Step 2 update.
+	fieldMap := map[string]string{"hr": actB}
+
+	warns, metaErr := applyFusionMetadataOverrides(ctx, mt, actA, actA, fieldMap, allActivities)
+	if metaErr != nil {
+		t.Fatalf("applyFusionMetadataOverrides returned fatal error: %v", metaErr)
+	}
+	if len(warns) == 0 {
+		t.Error("expected non-empty warnings after fieldmap aggregate override failure, got none")
+	}
+	found := false
+	for _, w := range warns {
+		if strings.Contains(strings.ToLower(w), "aggregate") || strings.Contains(strings.ToLower(w), "override") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected aggregate-related warning, got: %v", warns)
+	}
+}
+
+// TestFusionMerge_MetadataOverrideWarnings_SurfaceInResponse verifies that
+// warnings from applyFusionMetadataOverrides (earlyWarnings) are included in
+// the HTTP response Warnings slice — i.e., they are correctly prepended to
+// mergeWarnings before writing the response.
+func TestFusionMerge_MetadataOverrideWarnings_SurfaceInResponse(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+
+	base := time.Date(2024, 7, 1, 9, 0, 0, 0, time.UTC)
+	lat, lng := fusionPtrF64(47.5), fusionPtrF64(11.5)
+	insertStreams(t, db, actA, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, HeartRate: fusionPtrI16(130)},
+	})
+	insertStreams(t, db, actB, []model.StreamPoint{
+		{Time: base, Lat: lat, Lng: lng, PowerW: fusionPtrI16(210)},
+	})
+
+	// Inject a TxFactory that wraps the real tx in a mockTx failing on the
+	// fieldmap aggregate override UPDATE ("from activities s" pattern, skip first
+	// hit which is the null-external-IDs step — that query doesn't have "s.").
+	injectedErr := fmt.Errorf("injected: fieldmap agg failure for warning test")
+	h := &Handler{
+		DB: db,
+		TxFactory: func(txCtx context.Context) (pgx.Tx, error) {
+			realTx, err := db.Pool.Begin(txCtx)
+			if err != nil {
+				return nil, err
+			}
+			return &mockTx{
+				Tx:          realTx,
+				shouldFail:  sqlContains("from activities s"),
+				injectedErr: injectedErr,
+			}, nil
+		},
+	}
+
+	reqBody := mustJSON(FusionMergeRequest{
+		Sources:  []string{actA, actB},
+		FieldMap: map[string]string{"hr": actA, "power": actB},
+	})
+	r := httptest.NewRequest(http.MethodPost, "/fusion-merge", strings.NewReader(reqBody))
+	r.Header.Set("Content-Type", "application/json")
+	r = r.WithContext(context.WithValue(r.Context(), middleware.UserIDKey, userID))
+	rr := httptest.NewRecorder()
+	h.FusionMerge(rr, r)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		ID       string   `json:"id"`
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Warnings) == 0 {
+		t.Error("expected at least one warning in response after metadata-override failure, got none")
+	}
+	t.Logf("MetadataOverride warnings surfaced in response: %v", resp.Warnings)
+}
+
 // TestFusionMerge_GearCopyFailureReturnsWarning verifies that a non-fatal gear
 // copy failure produces a warning string in fusionMergeResponse.Warnings.
 // It calls applyFusionTxExtras directly via a mockTx that injects a failure on
