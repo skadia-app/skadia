@@ -66,6 +66,34 @@ func TestComputeDescriptors_MtbTechnical(t *testing.T) {
 	}
 }
 
+func TestComputeDescriptors_MtbTechnical_AllTie_NoFire(t *testing.T) {
+	th := defaultOutdoorThresholds
+	// Alle 3 candidates haben MaxMtbScale=3 (≥ trigger=3) + Coverage.
+	// Strict > maxOther → niemand feuert.
+	target := mkCand(withMtb(3, 0.25))
+	others := []RouteCandidate{
+		mkCand(withMtb(3, 0.25)),
+		mkCand(withMtb(3, 0.25)),
+	}
+	ds := computeDescriptorsFor(target, others, 0, false, th)
+	if hasDescriptor(ds, "mtb_technical") {
+		t.Errorf("all-tie must not fire mtb_technical")
+	}
+}
+
+func TestComputeDescriptors_AlpineHiking_AllTie_NoFire(t *testing.T) {
+	th := defaultOutdoorThresholds
+	target := mkCand(withSac(4, 0.25))
+	others := []RouteCandidate{
+		mkCand(withSac(4, 0.25)),
+		mkCand(withSac(4, 0.25)),
+	}
+	ds := computeDescriptorsFor(target, others, 0, false, th)
+	if hasDescriptor(ds, "alpine_hiking") {
+		t.Errorf("all-tie must not fire alpine_hiking")
+	}
+}
+
 func TestComputeDescriptors_AlpineHiking(t *testing.T) {
 	th := defaultOutdoorThresholds
 	target := mkCand(withSac(4, 0.25))
