@@ -6,6 +6,7 @@ import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useToast } from '@/lib/toast'
 import { updateActivity, reprocessActivity, reprocessAllActivities, ungroupActivity, type ExportFormat } from '@/api/activities'
 import { revertFusion } from '@/api/fusion'
+import { invalidateAfterFusion } from '@/lib/fusionCacheInvalidation'
 import { getCapabilities, getWaypointsFromActivity } from '@/api/routes'
 import { apiDownload } from '@/api/client'
 import type { Activity } from '@/api/types'
@@ -160,7 +161,10 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
   const revertFusionMutation = useMutation({
     mutationFn: () => revertFusion(activity.id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['activities'] })
+      invalidateAfterFusion(queryClient, {
+        recordingGroupId: activity.recording_group_id,
+        activityIds: [activity.id, ...sourceIds],
+      })
       if (sourceIds.length > 0) {
         navigate(`/activities/${sourceIds[0]}`)
       } else {
