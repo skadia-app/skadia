@@ -383,8 +383,6 @@ func (h *Handler) GetActivitySegmentEfforts(w http.ResponseWriter, r *http.Reque
 	httputil.WriteJSON(w, http.StatusOK, efforts)
 }
 
-// RecomputeSegment re-matches all of the user's GPS activities against a single segment.
-// Useful after editing a segment or when matching failed due to a bug.
 // recomputeSegmentEfforts deletes all existing segment_efforts for the given
 // segment/user pair and re-matches every eligible activity against it.
 // It is the library-level core used by both RecomputeSegment (HTTP-triggered,
@@ -418,6 +416,46 @@ func (h *Handler) recomputeSegmentEfforts(ctx context.Context, segmentID, userID
 	return nil
 }
 
+// RecomputeEffortsForActivity iterates all segments whose track overlaps
+// with the activity's bbox (from activity_tracks) and recomputes their
+// efforts via recomputeSegmentEfforts. Used by postCommitFusionCleanup
+// after a fusion-merge.
+//
+// Table: activity_tracks.bbox (GEOMETRY Polygon 4326, Mig 000004).
+// segment_versions.track (GEOMETRY LineString 4326, Mig 000032 GIST-indexed).
+//
+// Per-segment failures are logged as warnings and do not abort the loop —
+// partial coverage is acceptable since the user can trigger a manual recompute.
+func (h *Handler) RecomputeEffortsForActivity(ctx context.Context, activityID, userID string) error {
+	rows, err := h.DB.Pool.Query(ctx, `
+		SELECT DISTINCT sv.segment_id
+		FROM segment_versions sv
+		JOIN activity_tracks t ON t.activity_id = $1
+		WHERE t.bbox IS NOT NULL
+		  AND ST_Intersects(sv.track, t.bbox)
+	`, activityID)
+	if err != nil {
+		return fmt.Errorf("query overlapping segments: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var segID string
+		if err := rows.Scan(&segID); err != nil {
+			return fmt.Errorf("scan segment_id: %w", err)
+		}
+		if err := h.recomputeSegmentEfforts(ctx, segID, userID); err != nil {
+			slog.Warn("post-fusion segment recompute failed",
+				"activity_id", activityID,
+				"segment_id", segID,
+				"err", err)
+		}
+	}
+	return rows.Err()
+}
+
+// RecomputeSegment re-matches all of the user's GPS activities against a single segment.
+// Useful after editing a segment or when matching failed due to a bug.
 func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
