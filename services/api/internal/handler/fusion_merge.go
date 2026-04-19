@@ -1696,10 +1696,18 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 
 	// Serialise concurrent Merge/Revert for the same user via an advisory lock
 	// that is scoped to the transaction (released automatically on Commit/Rollback).
+	// pg_try_advisory_xact_lock returns immediately: true = lock acquired, false = contention.
+	// On contention we return 409 immediately instead of blocking the connection indefinitely.
 	lockKey := dbutil.AdvisoryLockKey("fusion:" + userID)
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, lockKey); err != nil {
-		slog.Error("fusion-merge: advisory lock failed", "error", err)
+	var lockAcquired bool
+	if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, lockKey).Scan(&lockAcquired); err != nil {
+		slog.Error("fusion-merge: advisory lock query failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "fusion advisory lock: "+err.Error(), r.URL.Path)
+		return
+	}
+	if !lockAcquired {
+		slog.Warn("fusion-merge: advisory lock contention — another merge in progress for this user", "user_id", userID)
+		httputil.WriteError(w, http.StatusConflict, "Conflict", "another fusion operation is already in progress for this user", r.URL.Path)
 		return
 	}
 
@@ -2188,10 +2196,18 @@ func (h *Handler) RevertFusion(w http.ResponseWriter, r *http.Request) {
 	}
 	defer flipTx.Rollback(ctx) //nolint:errcheck — no-op if committed
 
+	// pg_try_advisory_xact_lock returns immediately: true = lock acquired, false = contention.
+	// On contention we return 409 immediately instead of blocking the connection indefinitely.
 	lockKey := dbutil.AdvisoryLockKey("fusion:" + userID)
-	if _, err := flipTx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, lockKey); err != nil {
-		slog.Error("revert-fusion: advisory lock failed", "error", err)
+	var revertLockAcquired bool
+	if err := flipTx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, lockKey).Scan(&revertLockAcquired); err != nil {
+		slog.Error("revert-fusion: advisory lock query failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "lock failed", r.URL.Path)
+		return
+	}
+	if !revertLockAcquired {
+		slog.Warn("revert-fusion: advisory lock contention — another fusion operation in progress for this user", "user_id", userID)
+		httputil.WriteError(w, http.StatusConflict, "Conflict", "another fusion operation is already in progress for this user", r.URL.Path)
 		return
 	}
 
