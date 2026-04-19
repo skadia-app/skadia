@@ -1,4 +1,7 @@
 import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
+import { useMetricColoring } from './activity/useMetricColoring'
+import MapColorDropdown from './activity/MapColorDropdown'
+import MapColorLegend from './activity/MapColorLegend'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import maplibregl, { type RequestParameters } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -27,6 +30,7 @@ import { apiClient } from '@/api/client'
 import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl, loadHeatmapColor, saveHeatmapColor } from '@/lib/mapHeatmap'
 import { type FieldKey } from '@/lib/sportFieldLabels'
 import { findClosestIdx } from '@/lib/utils'
+import { MOTION_PROFILE_BY_SPORT_TYPE, type MotionProfile } from '@/lib/colorScaleRanges'
 
 echarts.use([
   LineChart,
@@ -68,20 +72,34 @@ interface StreamDef {
 interface Props {
   streams: StreamPoint[]
   sportColor: string
+  sportType: string
+  fitSportId?: number
+  hasGps: boolean
   onClose: () => void
   activityId?: string
 }
 
 // ── Stream definitions ────────────────────────────────────────────────────────
 
-const ALL_STREAMS: StreamDef[] = [
-  { key: 'altitude', label: 'Höhe', unit: 'm', color: '#22c55e', yAxisIndex: 0 },
-  { key: 'heartRate', label: 'HF', unit: 'bpm', color: '#ef4444', yAxisIndex: 1 },
-  { key: 'power', label: 'Leistung', unit: 'W', color: '#a855f7', yAxisIndex: 2 },
-  { key: 'cadence', label: 'Kadenz', unit: 'rpm', color: '#f97316', yAxisIndex: 3 },
-  { key: 'speed', label: 'Geschw.', unit: 'km/h', color: '#3b82f6', yAxisIndex: 4 },
-  { key: 'temperature', label: 'Temp.', unit: '\u00b0C', color: '#06b6d4', yAxisIndex: 5 },
-]
+function buildAllStreams(motionProfile: MotionProfile): StreamDef[] {
+  const cadenceLabel =
+    motionProfile.cadence.startsWith('foot_') ? 'Schrittfrequenz' :
+    motionProfile.cadence === 'paddle' ? 'Paddelschläge' :
+    'Kadenz'
+  const cadenceUnit =
+    motionProfile.cadence.startsWith('foot_') ? 'spm' :
+    motionProfile.cadence === 'paddle' ? 'spm' :
+    'rpm'
+
+  return [
+    { key: 'altitude', label: 'Höhe', unit: 'm', color: '#22c55e', yAxisIndex: 0 },
+    { key: 'heartRate', label: 'HF', unit: 'bpm', color: '#ef4444', yAxisIndex: 1 },
+    { key: 'power', label: 'Leistung', unit: 'W', color: '#a855f7', yAxisIndex: 2 },
+    { key: 'cadence', label: cadenceLabel, unit: cadenceUnit, color: '#f97316', yAxisIndex: 3 },
+    { key: 'speed', label: 'Geschw.', unit: 'km/h', color: '#3b82f6', yAxisIndex: 4 },
+    { key: 'temperature', label: 'Temp.', unit: '\u00b0C', color: '#06b6d4', yAxisIndex: 5 },
+  ]
+}
 
 // ── Data processing (mirrors ActivityCharts) ──────────────────────────────────
 
@@ -135,7 +153,7 @@ function formatElapsed(minutes: number, maxMinutes: number): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function MapFullscreen({ streams, sportColor, onClose, activityId }: Props) {
+export default function MapFullscreen({ streams, sportColor, sportType, fitSportId, hasGps, onClose, activityId }: Props) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -152,6 +170,7 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
 
   const [showPhotos, setShowPhotos] = useState(true)
   const [mapLoaded, setMapLoaded] = useState(false)
+  const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null)
 
   const [baseStyle, setBaseStyle] = useState<BaseStyle>(() => {
     try {
@@ -187,10 +206,11 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
   const data = useMemo(() => buildChartData(streams), [streams])
 
   // Filter to only streams with actual data
-  const availableStreams = useMemo(
-    () => ALL_STREAMS.filter(s => hasValidData(data[s.key])),
-    [data],
-  )
+  const availableStreams = useMemo(() => {
+    const motionProfile = MOTION_PROFILE_BY_SPORT_TYPE[sportType] ?? MOTION_PROFILE_BY_SPORT_TYPE['generic']
+    const all = buildAllStreams(motionProfile ?? { speed: 'generic', cadence: 'generic' })
+    return all.filter(s => hasValidData(data[s.key]))
+  }, [data, sportType])
 
   // Build coordinates for map
   const coordinates = useMemo(
@@ -199,6 +219,15 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
       .map(s => [s.lng, s.lat] as [number, number]),
     [streams],
   )
+
+  const metricColoring = useMetricColoring({
+    streams,
+    activity: { sport_type: sportType, fit_sport_id: fitSportId },
+    hasGps,
+    zoomRange: null,
+    map: mapInstance,
+    styleVersion,
+  })
 
   useEscapeKey(onClose)
 
@@ -226,7 +255,7 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
 
       m.addSource('track', {
         type: 'geojson',
-        data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } },
+        data: { type: 'FeatureCollection', features: [] },
       })
       m.addLayer({
         id: 'track-line',
@@ -234,17 +263,6 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
         source: 'track',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: { 'line-color': sportColor, 'line-width': 3, 'line-opacity': 0.85 },
-      })
-      m.addSource('highlight', {
-        type: 'geojson',
-        data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } },
-      })
-      m.addLayer({
-        id: 'highlight-line',
-        type: 'line',
-        source: 'highlight',
-        layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' },
-        paint: { 'line-color': sportColor, 'line-width': 4, 'line-opacity': 1 },
       })
 
       if (!initialFitDoneRef.current) {
@@ -290,6 +308,7 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
       })
 
       mapRef.current = map
+      setMapInstance(map)
     }
 
     // Observe container: init when sized, resize when dimensions change
@@ -314,6 +333,7 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
       photoBlobUrlsRef.current = []
       map?.remove()
       mapRef.current = null
+      setMapInstance(null)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -420,6 +440,8 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
   }, [coordinates, streams])
 
   // ── Highlight map segment on zoom ─────────────────────────────────────────
+  // Note: line-color/opacity overrides removed — useMetricColoring is authoritative for track-line
+  // paint properties. Brush only does fitBounds zoom to the selected segment.
   const highlightMapSegment = useCallback((startIdx: number, endIdx: number) => {
     const map = mapRef.current
     if (!map) return
@@ -431,47 +453,33 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
           s.lat != null && s.lng != null)
         .map(s => [s.lng, s.lat] as [number, number])
 
-      map.setPaintProperty('track-line', 'line-color', '#999999')
-      map.setPaintProperty('track-line', 'line-opacity', 0.3)
-
-      ;(map.getSource('highlight') as maplibregl.GeoJSONSource | undefined)?.setData({
-        type: 'Feature',
-        properties: {},
-        geometry: { type: 'LineString', coordinates: segCoords },
-      })
-      map.setLayoutProperty('highlight-line', 'visibility', 'visible')
-
       if (segCoords.length >= 2) {
         const bounds = new maplibregl.LngLatBounds()
         for (const c of segCoords) bounds.extend(c)
-        map.fitBounds(bounds, { padding: 80, maxZoom: 18, duration: 600 })
+        metricColoring.programmaticFit(bounds)
       }
     }
 
     if (map.isStyleLoaded()) applyHighlight()
     else map.once('load', applyHighlight)
-  }, [streams])
+  }, [streams, metricColoring])
 
   const clearMapHighlight = useCallback(() => {
     const map = mapRef.current
     if (!map) return
 
+    // Note: line-color/opacity overrides removed — useMetricColoring is authoritative.
     const apply = () => {
-      map.setPaintProperty('track-line', 'line-color', sportColor)
-      map.setPaintProperty('track-line', 'line-opacity', 0.85)
-      map.setLayoutProperty('highlight-line', 'visibility', 'none')
-      ;(map.getSource('highlight') as maplibregl.GeoJSONSource | undefined)?.setData({
-        type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] },
-      })
-
-      const bounds = new maplibregl.LngLatBounds()
-      for (const c of coordinates) bounds.extend(c)
-      map.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: 600 })
+      if (coordinates.length >= 2) {
+        const bounds = new maplibregl.LngLatBounds()
+        for (const c of coordinates) bounds.extend(c)
+        map.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: 600 })
+      }
     }
 
     if (map.isStyleLoaded()) apply()
     else map.once('load', apply)
-  }, [coordinates, sportColor])
+  }, [coordinates])
 
   // ── Initialize + update ECharts ───────────────────────────────────────────
   const chartContainerRef = useECharts(
@@ -843,7 +851,28 @@ export default function MapFullscreen({ streams, sportColor, onClose, activityId
               <ColorPicker value={heatmapColor} onChange={handleHeatmapColorChange} />
             )}
           </div>
+
+          {/* Metric color dropdown — sits right of the Heatmap control */}
+          {hasGps && (
+            <MapColorDropdown
+              streams={streams}
+              sportType={sportType}
+              metric={metricColoring.metric}
+              onChange={metricColoring.setMetric}
+              modeByMetric={metricColoring.modeByMetric}
+              setMode={metricColoring.setMode}
+              zonesAvailable={metricColoring.zonesAvailable}
+              effectiveMode={metricColoring.effectiveMode}
+            />
+          )}
         </div>
+
+        {/* Metric color legend */}
+        {hasGps && metricColoring.scale && (
+          <div className="absolute bottom-3 left-3 z-10">
+            <MapColorLegend scale={metricColoring.scale} />
+          </div>
+        )}
 
         {/* Photo toggle button (only if activity has positioned photos) */}
         {positionedPhotos.length > 0 && (
