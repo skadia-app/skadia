@@ -608,8 +608,9 @@ func (h *Handler) suggestRoutesV2Tail(
 	}
 
 	// 9b. F26 outdoor coverage availability — once per response.
-	const outdoorGate = 0.20
-	const exposedGate = 0.01
+	// Thresholds are centralised in route_labels.go — do not hardcode here.
+	outdoorGate := defaultOutdoorThresholds.CoverageGatePct
+	exposedGate := exposedCoverageFloor
 	anyOutdoor := false
 	for _, lr := range labeled {
 		c := lr.Candidate

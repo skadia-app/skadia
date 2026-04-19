@@ -54,6 +54,12 @@ const (
 	protectedPpDelta = 0.33
 	trafficNoiseDelta = 0.15
 
+	// exposedCoverageFloor is the minimum TaggedPctVia required to emit an
+	// "exposed" descriptor or count a route as outdoor for metric purposes.
+	// Kept at package level so route_suggestion.go can reference it without
+	// duplicating the magic number.
+	exposedCoverageFloor float32 = 0.01
+
 	// Target-distance descriptor
 	targetDistanceWithinFraction = 0.05 // |me - target| ≤ this × target
 	targetDistanceBestRatio      = 2.0  // min_other_delta must be > this × me_delta
@@ -334,8 +340,7 @@ func computeDescriptorsFor(
 		routingMetricDescriptorCoverageGated.WithLabelValues("alpine_hiking").Inc()
 	}
 
-	// exposed — binary, 1% coverage floor
-	const exposedCoverageFloor float32 = 0.01
+	// exposed — binary, 1% coverage floor (threshold: exposedCoverageFloor)
 	hasMeVia := me.HasViaFerrataHighway || me.MaxViaFerrataScale > 0
 	if hasMeVia && me.TaggedPctVia >= exposedCoverageFloor {
 		hasOther := false
