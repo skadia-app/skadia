@@ -8,7 +8,7 @@ import {
   expandRange,
   type MotionProfile,
 } from './colorScaleRanges'
-import { VIRIDIS_9, DIVERGING_TEMP_STOPS, MISSING_COLOR } from './colorPalettes'
+import { VIRIDIS_9, DIVERGING_TEMP_STOPS, MISSING_COLOR, HR_ZONE_BASE, POWER_ZONE_BASE, SPEED_ZONE_BASE, interpolateHex } from './colorPalettes'
 import type { ZoomRange } from '@/components/ActivityCharts'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -165,11 +165,30 @@ function fallbackLinear(metric: Metric, unit: string, min: number, max: number, 
   return { type: 'linear', stops: uniformStops(min, max, palette), clamped: true, metric, unit }
 }
 
-// Placeholder — full zone-palette logic comes in Task 17 (Phase B)
+export function zoneColors(count: number, base: readonly string[]): string[] {
+  if (count < 1) throw new Error(`zoneColors: invalid count=${count}`)
+  if (count === 1) return [base[Math.floor(base.length / 2)]]
+  if (count <= base.length) return base.slice(0, count)
+  return Array.from({ length: count }, (_, i) => {
+    const t = i / (count - 1)
+    const fIdx = t * (base.length - 1)
+    const lo = Math.floor(fIdx), hi = Math.ceil(fIdx)
+    return lo === hi ? base[lo] : interpolateHex(base[lo], base[hi], fIdx - lo)
+  })
+}
+
 function zonesScale(metric: Metric, unit: string, zoneHighs: number[]): ScaleDefinition {
-  // In Phase A this branch is never reached (mode always = 'linear').
-  // Phase B will plug in the actual palette. For now, throw as defensive coding.
-  throw new Error(`zonesScale not yet implemented (Phase B) for metric=${metric}, unit=${unit}, zones=${zoneHighs.length}`)
+  const base =
+    metric === 'hr'    ? HR_ZONE_BASE
+    : metric === 'power' ? POWER_ZONE_BASE
+    : SPEED_ZONE_BASE
+  return {
+    type: 'zones',
+    zoneHighs: [...zoneHighs],
+    zoneColors: zoneColors(zoneHighs.length, base),
+    metric,
+    unit,
+  }
 }
 
 export { TEMPERATURE_RANGE } // re-export for component usage
