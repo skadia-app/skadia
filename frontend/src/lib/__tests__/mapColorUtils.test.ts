@@ -226,7 +226,7 @@ import { buildLineColorExpression, LINE_OPACITY_EXPRESSION } from '../mapColorUt
 describe('buildLineColorExpression', () => {
   it('linear: builds case-wrapped interpolate', () => {
     const scale = { type: 'linear' as const, stops: [{ value: 0, color: '#000' }, { value: 100, color: '#fff' }], clamped: true, metric: 'hr' as const, unit: 'bpm' }
-    const expr = buildLineColorExpression(scale) as unknown[]
+    const expr = buildLineColorExpression(scale) as unknown as unknown[]
     expect(expr[0]).toBe('case')
     // index 1 is the missing-value guard
     expect(expr[1]).toEqual(['!', ['get', 'has_value']])
@@ -234,7 +234,7 @@ describe('buildLineColorExpression', () => {
 
   it('zones: builds case-wrapped match', () => {
     const scale = { type: 'zones' as const, zoneHighs: [150, 160], zoneColors: ['#111', '#222'], metric: 'hr' as const, unit: 'bpm' }
-    const expr = buildLineColorExpression(scale) as unknown[]
+    const expr = buildLineColorExpression(scale) as unknown as unknown[]
     expect(expr[0]).toBe('case')
     // The inner match expression:
     const matchExpr = expr[expr.length - 1] as unknown[]
@@ -250,7 +250,7 @@ describe('buildLineColorExpression', () => {
 
 describe('LINE_OPACITY_EXPRESSION', () => {
   it('is well-formed', () => {
-    const expr = LINE_OPACITY_EXPRESSION as unknown[]
+    const expr = LINE_OPACITY_EXPRESSION as unknown as unknown[]
     expect(expr[0]).toBe('case')
     // [case, [==, [get, inside], true], 0.85, 0.2]
     expect(expr[2]).toBe(0.85)
