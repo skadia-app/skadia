@@ -296,12 +296,15 @@ export default function FusionPage() {
       // when the backend emits several warnings at once (R2-8).
       if (result.warnings && result.warnings.length > 0) {
         const warningMessage = result.warnings.join(' · ')
-        // Scale duration to message length so 5+ concatenated warnings remain
-        // readable. 80ms/char approximates skimming speed; 8 000ms minimum for
-        // short messages. Formula: ~200–300 WPM skimming, avg word ≈ 5 chars
-        // → ~1 000ms/word → ~200ms/char, halved for toast context = ~100ms/char;
-        // 80ms chosen to keep short warnings snappy while long ones stay visible.
-        const warningDuration = Math.max(8000, warningMessage.length * 80)
+        // Long warning lists switch to sticky-mode (duration:0) per
+        // frontend/CLAUDE.md — user must dismiss explicitly to ensure they've
+        // read the context. Threshold: ≥3 warnings or >200 chars. Below the
+        // threshold the linear formula is bounded to 8–15 s so short messages
+        // don't linger unnecessarily. (R4-9)
+        const isLongOrMany = result.warnings.length >= 3 || warningMessage.length > 200
+        const warningDuration = isLongOrMany
+          ? 0
+          : Math.max(8000, Math.min(15000, warningMessage.length * 80))
         addToast({
           type: 'warning',
           title: result.warnings.length === 1
