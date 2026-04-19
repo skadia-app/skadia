@@ -18,7 +18,6 @@ require (
 	github.com/lestrrat-go/jwx/v2 v2.1.6
 	github.com/muktihari/fit v0.27.2
 	github.com/nats-io/nats.go v1.49.0
-	github.com/pashagolub/pgxmock/v4 v4.9.0
 	github.com/paulmach/orb v0.12.0
 	github.com/pdfcpu/pdfcpu v0.11.1
 	github.com/prometheus/client_golang v1.23.2
