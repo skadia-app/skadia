@@ -6,7 +6,7 @@
  */
 
 export const METRIC_LABELS = {
-  sport:          'Sportart',
+  sport:          'Standard',
   hr:             'Herzfrequenz',
   speed:          'Geschwindigkeit',
   pace:           'Tempo',
@@ -25,6 +25,7 @@ export const MODE_LABELS = {
 
 export const DROPDOWN_LABELS = {
   chooseColoring:     'Einfärbung wählen',
+  triggerDefault:     'Einfärbung',
   zonesBasedTooltip:  'Zonen-basierte Einfärbung',
   zonesNotConfigured: 'Keine Zonen konfiguriert',
 } as const
