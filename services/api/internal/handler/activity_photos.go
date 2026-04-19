@@ -905,7 +905,6 @@ func extractExifData(data []byte, contentType string) (takenAt *time.Time, lat *
 }
 
 // interpolateFromTrack sucht den GPS-Punkt der Aktivitaet zum Zeitpunkt takenAt.
-// TODO: Query activity_streams fuer naechsten Zeitpunkt zu takenAt
 func (h *Handler) interpolateFromTrack(ctx context.Context, activityID, userID string, takenAt time.Time) (lat *float64, lng *float64) {
 	sp, err := h.DB.GetStreamPointNearTime(ctx, activityID, takenAt)
 	if err != nil || sp == nil {
