@@ -270,22 +270,20 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
   // Apply to map
   useEffect(() => {
     if (!map || !hasGps) return
-    // Fresh retry budget for each new trigger (featuresWithInside / colorExpression change).
+    // Fresh retry budget for each new trigger (featuresWithInside / colorExpression / styleVersion).
     // Without this reset a previously exhausted counter would block legitimate future updates.
     retriesRef.current = 0
-    if (!map.isStyleLoaded()) {
-      map.once('load', () => applyPaintAndData())
-      return
-    }
     applyPaintAndData()
 
     function applyPaintAndData() {
       if (!map) return
       const src = map.getSource('track') as maplibregl.GeoJSONSource | undefined
       if (!src) {
-        // Source/Layer not yet registered by TrackMap — retry on next idle, bounded.
-        // Typical: source appears on the first idle after TrackMap's load handler.
-        // If not: activity has no track (hasGps=true but <2 valid GPS points) — give up silently.
+        // Source/Layer not yet registered by the parent map component — retry on idle, bounded.
+        // Typical: after setStyle() the source is re-added in 'style.load'; our effect fires via
+        // styleVersion before the source is present; next idle catches it.
+        // NOTE: do not gate on map.isStyleLoaded() here — 'load' only fires ONCE per map instance,
+        // so a once('load') fallback would silently stop working after the first style switch.
         if (retriesRef.current >= 3) return
         retriesRef.current += 1
         map.once('idle', applyPaintAndData)
