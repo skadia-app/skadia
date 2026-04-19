@@ -149,21 +149,18 @@ type fusionFinalizeParams struct {
 // Returns an error if any fatal step fails (e.g. related-tables union-copy). The caller
 // must roll back the transaction on non-nil return.
 func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, p fusionFinalizeParams) error {
-	// Step 4: Title from designated source.
-	// Non-fatal: fusion field_map populates the title AFTER merge in many flows,
-	// so a failed title-copy is recoverable (the merged activity gets a fallback title).
-	// TODO: reconsider if/when the title-source path becomes the primary write path.
+	// Step 4: Title from designated source. Post-V1-sunset: title_source is the
+	// primary write path — failures propagate as TX-rollback errors.
 	if p.titleSource != nil {
 		if src, ok := p.activities[*p.titleSource]; ok && src.Title != nil {
 			if _, err := tx.Exec(ctx,
 				`UPDATE activities SET title = $2, has_edits = true WHERE id = $1`,
 				p.merged.ID, *src.Title,
 			); err != nil {
-				slog.Warn("fusion-merge: update title failed",
-					"action", "fusion_merge_title_copy_nonfatal",
-					"merged_id", p.merged.ID,
-					"error", err)
+				return fmt.Errorf("title-source copy failed: %w", err)
 			}
+		} else {
+			return fmt.Errorf("title-source %s has no title to copy", *p.titleSource)
 		}
 	}
 

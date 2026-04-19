@@ -3715,3 +3715,49 @@ func TestFusionMerge_RecomputesSegmentEffortsAfterFusion(t *testing.T) {
 		}
 	})
 }
+
+// TestFusionMerge_TitleSourceFailureRollsBackTX verifies that specifying a
+// TitleSource that has no title (NULL) causes FusionMerge to return a 5xx and
+// roll back the transaction — i.e. no merged activity membership is persisted.
+func TestFusionMerge_TitleSourceFailureRollsBackTX(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+
+	// Both activities have NULL title (insertMinimalActivity default).
+	// actA = Sources[0] = metadata source (tie-break: first wins in pickRichestSource).
+	// actB = TitleSource — not nil-guarded by the metadataSource optimisation,
+	//        so applyFusionTxExtras reaches the fatal path with a nil-title source.
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+
+	h := &Handler{DB: db}
+	// actB is the non-metadata source (actA wins the tie-break as Sources[0] =
+	// richest-source pick). Use actB as TitleSource so the guard at
+	// "titleSource == metadataSource.ID" does NOT null it out, and the
+	// applyFusionTxExtras path actually runs with a nil-title source.
+	titleSrc := actB
+	reqBody := mustJSON(FusionMergeRequest{
+		Sources:     []string{actA, actB},
+		FieldMap:    map[string]string{"hr": actA},
+		TitleSource: &titleSrc,
+	})
+	r := httptest.NewRequest(http.MethodPost, "/fusion-merge", strings.NewReader(reqBody))
+	r = r.WithContext(context.WithValue(r.Context(), middleware.UserIDKey, userID))
+	rr := httptest.NewRecorder()
+	h.FusionMerge(rr, r)
+
+	if rr.Code < 500 {
+		t.Errorf("expected 5xx error due to nil title, got %d", rr.Code)
+	}
+
+	var newCount int
+	_ = pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activity_fusion_memberships WHERE merged_id IN (SELECT id FROM activities WHERE user_id = $1 AND id NOT IN ($2, $3))`,
+		userID, actA, actB,
+	).Scan(&newCount)
+	if newCount != 0 {
+		t.Error("expected TX rollback, but memberships were inserted")
+	}
+}
