@@ -206,15 +206,19 @@ export const POWER_FALLBACK_MIN_SPREAD = 50 // W
 /**
  * Minimum data coverage (as fraction of total stream points) required for a metric
  * to be offered in the dropdown AND retained by the hook auto-reset.
- * Must stay in sync between Dropdown availability and Hook reset logic.
+ *
+ * 0.3 is a pragmatic trade-off: high enough to filter out streams where a metric
+ * is present only as stray artifacts (e.g. strength training with occasional HR pings),
+ * low enough to accept sensor warm-up periods on short activities (~16min) without
+ * hiding HR/Power/etc.
  */
 export const METRIC_AVAILABILITY_THRESHOLDS = {
-  hr:          0.5,
-  speed:       0.5,
-  altitude:    0.5,
-  cadence:     0.4,
+  hr:          0.3,
+  speed:       0.3,
+  altitude:    0.3,
+  cadence:     0.3,
   power:       0.3,
-  temperature: 0.4,
+  temperature: 0.3,
 } as const
 
 export type ThresholdMetric = keyof typeof METRIC_AVAILABILITY_THRESHOLDS
