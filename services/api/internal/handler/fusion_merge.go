@@ -178,7 +178,12 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 				`UPDATE activities SET title = $2, has_edits = true WHERE id = $1`,
 				p.merged.ID, *src.Title,
 			); err != nil {
-				return nil, fmt.Errorf("title-source copy failed: %w", err)
+				// Non-fatal: title is user-reassignable after merge; consistent with
+				// gear/tags/elevation error handling.
+				slog.Warn("fusion-merge: title-source copy failed",
+					"action", "fusion_merge_title_copy_nonfatal",
+					"title_source", *p.titleSource, "error", err)
+				warnings = append(warnings, "title copy failed — merged activity retains metadata-source title")
 			}
 		}
 	}
@@ -203,6 +208,7 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 	//   2. tagsSource!=nil && !tagsMerge      → overwrite with tags from the designated source
 	//   3. default                            → Junction-Rows aus metadata-Source kopieren
 	if p.tagsMerge {
+		seenTagWarns := make(map[string]bool)
 		for _, srcID := range p.allSourceIDs {
 			tagWarns, err := fusionMergeActivityTags(ctx, tx, p.merged.ID, srcID)
 			if err != nil {
@@ -211,7 +217,12 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 					"source", srcID, "error", err)
 				warnings = append(warnings, fmt.Sprintf("tags merge from source %s failed — tags may be incomplete", srcID))
 			}
-			warnings = append(warnings, tagWarns...)
+			for _, w := range tagWarns {
+				if !seenTagWarns[w] {
+					seenTagWarns[w] = true
+					warnings = append(warnings, w)
+				}
+			}
 		}
 		// Recompute tags.activity_count for all tags now linked to the merged activity.
 		// fusionMergeActivityTags updates per-tag counts individually but does not handle
@@ -374,6 +385,7 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 		slog.Warn("fusion-merge: aggregate recompute from streams failed",
 			"action", "fusion_merge_aggregate_recompute_nonfatal",
 			"merged_id", p.merged.ID, "error", err)
+		warnings = append(warnings, "aggregate recompute failed — merged activity retains metadata-source stats")
 		aggOk = false
 	}
 
