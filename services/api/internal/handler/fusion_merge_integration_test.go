@@ -3750,6 +3750,26 @@ func TestFusionMerge_TitleSourceFailureRollsBackTX(t *testing.T) {
 		if newCount == 0 {
 			t.Error("nil-title TitleSource: expected merged activity memberships, found none")
 		}
+
+		// R2-21 regression: nil-title path must surface a title-related warning so
+		// the caller knows the merged activity retained the metadata-source title.
+		var resp struct {
+			ID       string   `json:"id"`
+			Warnings []string `json:"warnings"`
+		}
+		if err := json.NewDecoder(strings.NewReader(rr.Body.String())).Decode(&resp); err != nil {
+			t.Fatalf("nil-title TitleSource: decode response: %v", err)
+		}
+		titleWarnFound := false
+		for _, w := range resp.Warnings {
+			if strings.Contains(w, "title") {
+				titleWarnFound = true
+				break
+			}
+		}
+		if !titleWarnFound {
+			t.Errorf("nil-title TitleSource: expected title-related warning in response, got warnings: %v", resp.Warnings)
+		}
 	})
 
 	t.Run("missing_source_errors_out", func(t *testing.T) {
