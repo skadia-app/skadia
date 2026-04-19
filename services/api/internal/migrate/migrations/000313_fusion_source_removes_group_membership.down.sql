@@ -1,0 +1,2 @@
+DROP TRIGGER IF EXISTS trg_fusion_source_removes_group_member ON activity_fusion_memberships;
+DROP FUNCTION IF EXISTS fn_fusion_source_removes_group_member();
