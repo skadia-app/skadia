@@ -9,6 +9,10 @@ export interface RouteSubSegment {
   mtb_scale?: string
   tracktype?: string
   osm_way_id?: number
+  // F26
+  mtb_scale_uphill?: string
+  via_ferrata_scale?: string
+  trail_visibility?: string
 }
 
 export interface RouteSurfaceData {

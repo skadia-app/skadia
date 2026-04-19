@@ -15,6 +15,8 @@ export interface ProfileConfig {
   sac_preferred?: number
   max_mtb_scale?: number
   max_via_ferrata?: number
+  max_trail_visibility?: number         // NEW
+  trail_visibility_penalty?: number     // NEW
   allow_steps?: boolean
   allow_ferries?: boolean
   forest_bonus?: number
@@ -182,6 +184,26 @@ export const FIELD_METADATA: FieldMeta[] = [
     step: 1,
     section: 'difficulty',
     hint: '0=kein, 1=A, 2=B, 3=C, 4=D, 5=E, 6=F',
+  },
+  {
+    key: 'max_trail_visibility',
+    label: 'Max. Sichtbarkeit',
+    type: 'int',
+    min: 0,
+    max: 6,
+    step: 1,
+    section: 'difficulty',
+    hint: '0=deaktiviert, 2=good, 3=intermediate, 4=bad, 5=horrible, 6=no',
+  },
+  {
+    key: 'trail_visibility_penalty',
+    label: 'Pfad-Unsichtbarkeit-Bestrafung',
+    type: 'number',
+    min: 0,
+    max: 2,
+    step: 0.1,
+    section: 'difficulty',
+    hint: 'Kosten-Aufschlag pro Stufe (0.0=aus, 0.5=moderat, 1.0=stark)',
   },
   {
     key: 'allow_steps',
@@ -449,6 +471,7 @@ export function serverResponseToConfig(resp: ProfileDefaultsResponse): ProfileCo
     'uphill_cost', 'downhill_cost', 'uphill_cutoff_pct', 'downhill_cutoff_pct',
     'elev_penalty_buffer_m', 'elev_max_buffer_m', 'elev_buffer_reduce',
     'max_sac_scale', 'sac_preferred', 'max_mtb_scale', 'max_via_ferrata',
+    'max_trail_visibility', 'trail_visibility_penalty',
     'forest_bonus', 'noise_penalty', 'traffic_penalty', 'protected_bonus',
     'cycleroute_boost', 'hikeroute_boost',
     'path_preference', 'turn_cost', 'initial_cost_road', 'pass0_coefficient',

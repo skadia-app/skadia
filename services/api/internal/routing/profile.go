@@ -1044,8 +1044,10 @@ type ProfileDefaultsResponse struct {
 	MaxSacScale   *int  `json:"max_sac_scale"`
 	SacPreferred  *int  `json:"sac_preferred"`
 	MaxMtbScale   *int  `json:"max_mtb_scale"`
-	MaxViaFerrata *int  `json:"max_via_ferrata"`
-	AllowSteps    *bool `json:"allow_steps"`
+	MaxViaFerrata          *int     `json:"max_via_ferrata"`
+	MaxTrailVisibility     *int     `json:"max_trail_visibility"`
+	TrailVisibilityPenalty *float32 `json:"trail_visibility_penalty"`
+	AllowSteps             *bool    `json:"allow_steps"`
 	AllowFerries  *bool `json:"allow_ferries"`
 	// Enrichment weights
 	ForestBonus    *float32 `json:"forest_bonus"`
@@ -1104,8 +1106,10 @@ func ProfileDefaults(name string) (*ProfileDefaultsResponse, error) {
 		MaxSacScale:   base.MaxSacScale,
 		SacPreferred:  base.SacPreferred,
 		MaxMtbScale:   base.MaxMtbScale,
-		MaxViaFerrata: base.MaxViaFerrata,
-		AllowSteps:    base.AllowSteps,
+		MaxViaFerrata:          base.MaxViaFerrata,
+		MaxTrailVisibility:     base.MaxTrailVisibility,
+		TrailVisibilityPenalty: base.TrailVisibilityPenalty,
+		AllowSteps:             base.AllowSteps,
 		AllowFerries:  base.AllowFerries,
 		// Enrichment
 		ForestBonus:    base.ForestBonus,
