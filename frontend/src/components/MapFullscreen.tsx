@@ -122,6 +122,9 @@ export function buildChartData(streams: StreamPoint[]): ChartData {
     const dist: number = s.distance_m != null ? s.distance_m / 1000 : (lastDist ?? 0)
     if (lastDist !== null && dist === lastDist) {
       const idx = distanceKm.length - 1
+      // Also advance elapsedMin so maxElapsed reflects the full recording duration
+      // even for stationary recordings where all distance_m=0.
+      elapsedMin[idx] = (new Date(s.time).getTime() - t0) / 60000
       if (s.altitude_m != null) altitude[idx] = s.altitude_m
       if (s.heart_rate != null) heartRate[idx] = s.heart_rate
       if (s.power_w != null) power[idx] = s.power_w
@@ -257,6 +260,15 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
   )
 
   const data = useMemo(() => buildChartData(streams), [streams])
+
+  // Auto-switch to time axis for stationary recordings (all distance_m=0):
+  // buildChartData dedup collapses all zero-distance samples into a single bucket,
+  // leaving distanceKm=[0] and maxDist=0 — a distance axis would show only 1 point.
+  useEffect(() => {
+    if (data.maxDist === 0) {
+      setXMode('time')
+    }
+  }, [data.maxDist])
 
   // Filter to only streams with actual data
   const availableStreams = useMemo(() => {

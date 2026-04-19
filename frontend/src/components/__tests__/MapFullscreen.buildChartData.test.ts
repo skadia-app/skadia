@@ -58,4 +58,35 @@ describe('buildChartData — dedup and maxDist semantics', () => {
     const result = buildChartData(streams)
     expect(result.maxDist).toBeCloseTo(0.5) // 500m = 0.5km; ceil(0.5 * 10)/10 = 0.5
   })
+
+  it('collapses single-distance recording to a single-bucket result without NaN spread', () => {
+    // Stationary / indoor recording: all distance_m=0, various altitudes
+    const streams: StreamPoint[] = [
+      sp('2026-02-17T15:00:00Z', 0, 520, 120),
+      sp('2026-02-17T15:00:30Z', 0, 525, 125),
+      sp('2026-02-17T15:01:00Z', 0, 530, 130),
+      sp('2026-02-17T15:01:30Z', 0, 535, 135),
+    ]
+    const result = buildChartData(streams)
+    // All samples dedup into idx=0; last-non-NaN wins
+    expect(result.distanceKm).toHaveLength(1)
+    expect(result.distanceKm[0]).toBe(0)
+    expect(result.altitude[0]).toBe(535)    // last non-NaN altitude wins
+    expect(result.heartRate[0]).toBe(135)   // last non-NaN heartRate wins
+    // elapsedMin[0] is updated by dedup to reflect the last sample's time,
+    // so maxElapsed correctly reflects the full recording duration.
+    // 4 samples at 30s intervals: last sample at 90s = 1.5 min
+    expect(result.elapsedMin[0]).toBeCloseTo(1.5)
+  })
+
+  it('when all distances are 0, returns maxDist=0', () => {
+    // Documents the edge-case: maxDist=0 signals to the UI to auto-switch to time axis
+    const streams: StreamPoint[] = [
+      sp('2026-02-17T15:00:00Z', 0, 300),
+      sp('2026-02-17T15:01:00Z', 0, 310),
+    ]
+    const result = buildChartData(streams)
+    expect(result.maxDist).toBe(0)
+    expect(result.maxElapsed).toBeGreaterThan(0) // time axis is valid
+  })
 })
