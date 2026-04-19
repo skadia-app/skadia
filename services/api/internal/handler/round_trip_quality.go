@@ -85,7 +85,8 @@ func suggestRoundTripVariant(
 	router *routing.UnifiedRouter,
 	rs *routing.ReachableState,
 	srcLat, srcLon float64,
-	selected routing.SelectedVariant,
+	node *routing.ReachableNode,
+	stateIdx int,
 	cfg *routing.CostConfig,
 	opts RoundTripOptions,
 	baselineAvgFlat float32,
@@ -95,8 +96,8 @@ func suggestRoundTripVariant(
 	}
 
 	// --- Leg 1: reconstruct from Pareto state ---
-	paretoNode := selected.Node
-	stateSlabID := paretoNode.StateSlabIDs[selected.StateIdx]
+	paretoNode := node
+	stateSlabID := paretoNode.StateSlabIDs[stateIdx]
 	leg1, leg1Edges, err := routing.ReconstructAndBuildRoute(rs, stateSlabID, router.Reader())
 	if err != nil {
 		return nil, fmt.Errorf("leg1 reconstruction: %w", err)

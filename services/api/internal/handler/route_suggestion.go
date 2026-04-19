@@ -115,7 +115,7 @@ type RouteSuggestionResponse struct {
 //  1. Build a CostConfig for the requested BadRouter profile.
 //  2. Run Pareto FindReachableWithCoords to discover nodes reachable within
 //     half the target distance budget (outward leg).
-//  3. Filter by distance band and select semantic variants via SelectVariants.
+//  3. Filter by distance band and select candidates via BuildCandidatePool + PickDiverseIndices (V2).
 //  4. For each variant, build a round-trip with quality gate in parallel.
 //  5. Classify loop quality, compute overlap, and return enriched suggestions.
 //
@@ -302,7 +302,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		return 0
 	})
 
-	// Hard limit to prevent O(n²) in SelectVariants with huge pools.
+	// Hard limit to prevent O(n²) in BuildCandidatePool with huge pools.
 	const maxVariantPool = 10000
 	if len(filtered) > maxVariantPool {
 		filtered = filtered[:maxVariantPool]
@@ -542,13 +542,7 @@ func (h *Handler) buildRouteCandidate(
 			sel.StateIdx, sel.NodeIdx, len(reachable[sel.NodeIdx].States))
 	}
 
-	svCompat := routing.SelectedVariant{
-		Variant:  routing.SemanticVariant{ID: "pool"},
-		Node:     &reachable[sel.NodeIdx],
-		StateIdx: sel.StateIdx,
-	}
-
-	res, err := suggestRoundTripVariant(ctx, router, rs, startLat, startLon, svCompat, cfg, opts, baselineAvgFlat)
+	res, err := suggestRoundTripVariant(ctx, router, rs, startLat, startLon, &reachable[sel.NodeIdx], sel.StateIdx, cfg, opts, baselineAvgFlat)
 	if err != nil {
 		return nil, err
 	}
