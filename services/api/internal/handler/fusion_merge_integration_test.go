@@ -3760,8 +3760,6 @@ func TestFusionMerge_TitleSourceFailureRollsBackTX(t *testing.T) {
 		actB := insertMinimalActivity(t, db, userID)
 
 		// Build a minimal activities map that intentionally omits actB.
-		titleStr := "from-actB"
-		_ = titleStr // actB's title is irrelevant — we won't put actB in the map
 		missingID := actB
 		activities := map[string]*model.Activity{
 			actA: {ID: actA},
