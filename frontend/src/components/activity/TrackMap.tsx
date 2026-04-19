@@ -2,18 +2,21 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useRef, useState, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getHeatmapSettings } from '@/api/settings'
 import { listActivityPhotos, type ActivityPhoto } from '@/api/activityPhotos'
 import { apiDownload } from '@/api/client'
-import { haversineM } from '@/lib/geoUtils'
 import type { StreamPoint, GeoTag, ActivityStop } from '@/api/types'
 import type { ZoomRange } from '@/components/ActivityCharts'
+import { useMetricColoring } from './useMetricColoring'
+import MapColorDropdown from './MapColorDropdown'
+import MapColorLegend from './MapColorLegend'
 
 interface TrackMapProps {
   activityId?: string
   streams: StreamPoint[]
   hoverIndex: number | null
   sportColor: string
+  sportType: string
+  fitSportId?: number
   hasGps: boolean
   zoomRange: ZoomRange | null
   onMaximize: () => void
@@ -28,24 +31,7 @@ const SUMMIT_ICON_SVG = `data:image/svg+xml,${encodeURIComponent(
   '</svg>'
 )}`
 
-/** Teilt Koordinaten bei Sprüngen > thresholdM in separate Segmente auf */
-function splitAtGaps(coords: [number, number][], thresholdM: number): [number, number][][] {
-  if (coords.length < 2 || thresholdM <= 0) return [coords]
-  const segments: [number, number][][] = []
-  let current: [number, number][] = [coords[0]]
-  for (let i = 1; i < coords.length; i++) {
-    if (haversineM(coords[i-1][1], coords[i-1][0], coords[i][1], coords[i][0]) > thresholdM) {
-      if (current.length >= 2) segments.push(current)
-      current = [coords[i]]
-    } else {
-      current.push(coords[i])
-    }
-  }
-  if (current.length >= 2) segments.push(current)
-  return segments.length > 0 ? segments : [coords]
-}
-
-export default function TrackMap({ activityId, streams, hoverIndex, sportColor, hasGps, zoomRange, onMaximize, geoTags, stops, locationPin }: TrackMapProps) {
+export default function TrackMap({ activityId, streams, hoverIndex, sportColor, sportType, fitSportId, hasGps, zoomRange, onMaximize, geoTags, stops, locationPin }: TrackMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -56,6 +42,7 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
 
   const [showPhotos, setShowPhotos] = useState(true)
   const [mapLoaded, setMapLoaded] = useState(false)
+  const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null)
 
   const { data: allPhotos = [] } = useQuery({
     queryKey: ['activity-photos', activityId],
@@ -69,27 +56,22 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
     [allPhotos],
   )
 
-  const { data: heatmapSettings } = useQuery({
-    queryKey: ['heatmap-settings'],
-    queryFn: getHeatmapSettings,
-    staleTime: Infinity,
-  })
-
-  // Build GeoJSON from stream lat/lng — memoized to avoid recomputation on every hover render
-  const { coordinates, trackSegments, trackGeometry, hasTrack } = useMemo(() => {
+  // Build coordinate list for bounds computation — memoized to avoid recomputation on every hover render
+  const { coordinates, hasTrack } = useMemo(() => {
     const coordinates = streams
       .filter((s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null)
       .map(s => [s.lng, s.lat] as [number, number])
     const hasTrack = coordinates.length >= 2
-    const teleportThresholdM = heatmapSettings?.teleport_filter_activity
-      ? (heatmapSettings.teleport_threshold_m ?? 2000)
-      : 0
-    const trackSegments = splitAtGaps(coordinates, teleportThresholdM)
-    const trackGeometry = trackSegments.length === 1
-      ? { type: 'LineString' as const, coordinates: trackSegments[0] }
-      : { type: 'MultiLineString' as const, coordinates: trackSegments }
-    return { coordinates, trackSegments, trackGeometry, hasTrack }
-  }, [streams, heatmapSettings])
+    return { coordinates, hasTrack }
+  }, [streams])
+
+  const metricColoring = useMetricColoring({
+    streams,
+    activity: { sport_type: sportType, fit_sport_id: fitSportId },
+    hasGps,
+    zoomRange,
+    map: mapInstance,
+  })
 
   // Initialize map
   useEffect(() => {
@@ -150,34 +132,21 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
         }
       }
 
-      // Full track — greyed out when a segment is highlighted
+      // Full track — populated by useMetricColoring hook (FeatureCollection with per-segment features)
       map.addSource('track', {
         type: 'geojson',
-        data: {
-          type: 'Feature',
-          properties: {},
-          geometry: trackGeometry,
-        },
+        data: { type: 'FeatureCollection', features: [] },
       })
       map.addLayer({
         id: 'track-line',
         type: 'line',
         source: 'track',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': sportColor, 'line-width': 3, 'line-opacity': 0.85 },
-      })
-
-      // Highlight segment — shown on top in sport color when a zoom range is active
-      map.addSource('highlight', {
-        type: 'geojson',
-        data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } },
-      })
-      map.addLayer({
-        id: 'highlight-line',
-        type: 'line',
-        source: 'highlight',
-        layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' },
-        paint: { 'line-color': sportColor, 'line-width': 4, 'line-opacity': 1 },
+        paint: {
+          'line-color': sportColor,   // overridden by hook immediately
+          'line-width': 3,
+          'line-opacity': 0.85,       // overridden by hook
+        },
       })
 
       // Heading arrows: sample every ~50 points with valid heading
@@ -355,6 +324,7 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
     })
 
     mapRef.current = map
+    setMapInstance(map)
     return () => {
       photoMarkersRef.current.forEach(m => m.remove())
       photoMarkersRef.current = []
@@ -362,6 +332,7 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
       photoBlobUrlsRef.current = []
       if (map.getLayer('heading-arrows')) map.removeLayer('heading-arrows')
       if (map.getSource('heading-arrows')) map.removeSource('heading-arrows')
+      setMapInstance(null)
       map.remove()
       mapRef.current = null
     }
@@ -475,59 +446,38 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
     }
   }, [positionedPhotos, mapLoaded, showPhotos]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Chart brush selection → grey out full track, highlight selected segment, fit bounds
+  // Chart brush → highlight via fitBounds (programmaticFit) — line-opacity modulation is handled by useMetricColoring
   useEffect(() => {
     const map = mapRef.current
     if (!map || !hasTrack) return
 
-    const applyZoom = () => {
+    const apply = () => {
       if (zoomRange) {
-        // Use exact stream indices from the chart's X-axis lookup.
-        // This is accurate regardless of GPS point density distribution.
         const segCoords = streams
           .slice(zoomRange.startIdx, zoomRange.endIdx + 1)
-          .filter((s): s is StreamPoint & { lat: number; lng: number } =>
-            s.lat != null && s.lng != null)
+          .filter((s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null)
           .map(s => [s.lng, s.lat] as [number, number])
 
-        // Grey out the full track
-        map.setPaintProperty('track-line', 'line-color', '#999999')
-        map.setPaintProperty('track-line', 'line-opacity', 0.3)
-
-        // Update and show the highlight segment
-        ;(map.getSource('highlight') as maplibregl.GeoJSONSource | undefined)?.setData({
-          type: 'Feature',
-          properties: {},
-          geometry: { type: 'LineString', coordinates: segCoords },
-        })
-        map.setLayoutProperty('highlight-line', 'visibility', 'visible')
-
-        // Fit the map to the highlighted segment
         if (segCoords.length >= 2) {
           const bounds = new maplibregl.LngLatBounds()
           for (const c of segCoords) bounds.extend(c)
-          map.fitBounds(bounds, { padding: 50, maxZoom: 18, duration: 600 })
+          metricColoring.programmaticFit(bounds)
         }
       } else {
-        // Restore full track
-        map.setPaintProperty('track-line', 'line-color', sportColor)
-        map.setPaintProperty('track-line', 'line-opacity', 0.85)
-        map.setLayoutProperty('highlight-line', 'visibility', 'none')
-        ;(map.getSource('highlight') as maplibregl.GeoJSONSource | undefined)?.setData({
-          type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] },
-        })
-
         const bounds = new maplibregl.LngLatBounds()
         for (const c of coordinates) bounds.extend(c)
-        map.fitBounds(bounds, { padding: 40, maxZoom: 15, duration: 600 })
+        if (coordinates.length >= 2) {
+          metricColoring.programmaticFit(bounds)
+        }
       }
     }
 
     if (map.isStyleLoaded()) {
-      applyZoom()
+      apply()
     } else {
-      map.once('load', applyZoom)
+      map.once('load', apply)
     }
+    // NOTE: line-color and line-opacity are handled by useMetricColoring via the `inside` feature property.
   }, [zoomRange]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!hasGps) {
@@ -574,6 +524,8 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
   return (
     <div className="relative rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
       <div ref={mapContainerRef} className="h-[400px] w-full" />
+
+      {/* Toolbar top-left */}
       <div className="absolute top-3 left-3 z-10 flex gap-2">
         {/* Maximize */}
         <button
@@ -585,6 +537,7 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
             <path d="M13.28 7.78l3.22-3.22v2.69a.75.75 0 001.5 0v-4.5a.75.75 0 00-.75-.75h-4.5a.75.75 0 000 1.5h2.69l-3.22 3.22a.75.75 0 001.06 1.06zM2 17.25v-4.5a.75.75 0 011.5 0v2.69l3.22-3.22a.75.75 0 011.06 1.06L4.56 16.5h2.69a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75z" />
           </svg>
         </button>
+
         {/* Photo toggle — only shown when activity has positioned photos */}
         {positionedPhotos.length > 0 && (
           <button
@@ -597,7 +550,20 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
             </svg>
           </button>
         )}
+
+        {/* Metric colorization dropdown */}
+        {hasGps && (
+          <MapColorDropdown
+            streams={streams}
+            sportType={sportType}
+            metric={metricColoring.metric}
+            onChange={metricColoring.setMetric}
+          />
+        )}
       </div>
+
+      {/* Legend top-right (below NavigationControl) */}
+      {hasGps && <MapColorLegend scale={metricColoring.scale} />}
     </div>
   )
 }
