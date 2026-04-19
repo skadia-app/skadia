@@ -2040,15 +2040,19 @@ func activityFieldRichness(a *model.Activity) int {
 // computeElevationFromStreams berechnet kumulativen elevation_gain_m / _loss_m
 // mit 3-m Dead-Band-Smoothing (Garmin/Strava-Konvention) aus activity_streams.
 // Returns (gain, loss, hasData). hasData=false wenn keine altitude_m-Samples existieren.
-// NaN-Lücken werden im Window bewahrt; LAG über NULL-Rows produziert NULL-Deltas,
-// die im filtered-CTE herausgefiltert werden.
+// NULL-altitude-Rows werden VOR dem LAG-Window herausgefiltert (non_null CTE), damit
+// Multi-Device-Fusion mit lückenhafter Altitude nicht alle Deltas auf NULL reduziert.
 func (h *Handler) computeElevationFromStreams(ctx context.Context, tx database.Querier, activityID string) (gain, loss float64, hasData bool, err error) {
 	const deadBandM = 3.0
 	err = tx.QueryRow(ctx, `
-		WITH diffs AS (
-			SELECT altitude_m - LAG(altitude_m) OVER (ORDER BY time) AS delta
+		WITH non_null AS (
+			SELECT altitude_m, time
 			FROM activity_streams
-			WHERE activity_id = $1
+			WHERE activity_id = $1 AND altitude_m IS NOT NULL
+		),
+		diffs AS (
+			SELECT altitude_m - LAG(altitude_m) OVER (ORDER BY time) AS delta
+			FROM non_null
 		),
 		filtered AS (
 			SELECT delta
