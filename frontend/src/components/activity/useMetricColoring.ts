@@ -1,6 +1,7 @@
 // frontend/src/components/activity/useMetricColoring.ts
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
+import { useQuery } from '@tanstack/react-query'
 import { useDebounce } from '@/lib/useDebounce'
 import type { Activity, StreamPoint } from '@/api/types'
 import type { ZoomRange } from '@/components/ActivityCharts'
@@ -11,11 +12,13 @@ import {
   applyInsideFlag,
   buildLineColorExpression,
   LINE_OPACITY_EXPRESSION,
+  matchSportZones,
   type Metric,
   type Mode,
   type LngLatBoundsLike,
   type ScaleDefinition,
 } from '@/lib/mapColorUtils'
+import { fetchTrainingZones } from '@/api/trainingZones'
 import { MOTION_PROFILE_BY_SPORT_TYPE } from '@/lib/colorScaleRanges'
 import { sportChartColor } from '@/lib/sportColors'
 
@@ -42,14 +45,18 @@ export interface UseMetricColoringResult {
   setMetric: (m: Metric) => void
   scale: ScaleDefinition | null
   programmaticFit: (bounds: maplibregl.LngLatBounds) => void
+
+  // Phase B additions:
+  modeByMetric: Partial<Record<Metric, Mode>>
+  setMode: (metric: Metric, mode: Mode) => void
+  zonesAvailable: (metric: Metric) => boolean
 }
 
 export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColoringResult {
   const { streams, activity, hasGps, zoomRange, map } = args
 
   const [metric, setMetric] = useState<Metric>('sport')
-  // Phase A: mode is always 'linear'. Phase B will wire this to UI.
-  const mode: Mode = 'linear'
+  const [modeByMetric, setModeByMetric] = useState<Partial<Record<Metric, Mode>>>({})
 
   /**
    * Auto-reset metric to 'sport' when:
@@ -73,6 +80,46 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streams, activity.sport_type, activity.fit_sport_id])
 
+  // Reset mode overrides when activity changes — prevents 'linear' from a
+  // previous activity bleeding into an activity with configured zones.
+  useEffect(() => {
+    setModeByMetric({})
+  }, [activity.sport_type, activity.fit_sport_id])
+
+  const { data: zonesData } = useQuery({
+    queryKey: ['training-zones'],
+    queryFn: fetchTrainingZones,
+    staleTime: 1000 * 60 * 10,
+  })
+
+  // IMPORTANT: depend on scalar activity fields, not the activity object itself.
+  // TrackMap builds { sport_type, fit_sport_id } as a fresh object on every render.
+  const sportZones = useMemo(() => {
+    if (!zonesData) return null
+    return matchSportZones(activity, zonesData.sports)
+  }, [zonesData, activity.sport_type, activity.fit_sport_id])
+
+  const zonesAvailable = useCallback((m: Metric): boolean => {
+    if (!sportZones) return false
+    if (m === 'hr')    return sportZones.zones.hr    != null && (sportZones.zones.hr.zone_highs?.length ?? 0) > 0
+    if (m === 'power') return sportZones.zones.power != null && (sportZones.zones.power.zone_highs?.length ?? 0) > 0
+    if (m === 'speed') return sportZones.zones.speed != null && (sportZones.zones.speed.zone_highs?.length ?? 0) > 0
+    return false
+  }, [sportZones])
+
+  const setMode = useCallback((m: Metric, mode: Mode) => {
+    setModeByMetric(prev => ({ ...prev, [m]: mode }))
+  }, [])
+
+  const effectiveMode: Mode = useMemo(() => {
+    if (metric === 'hr' || metric === 'power' || metric === 'speed') {
+      const explicit = modeByMetric[metric]
+      if (explicit) return explicit
+      return zonesAvailable(metric) ? 'zones' : 'linear'
+    }
+    return 'linear'
+  }, [metric, modeByMetric, zonesAvailable])
+
   const motionProfile = useMemo(() => {
     return MOTION_PROFILE_BY_SPORT_TYPE[activity.sport_type]
       ?? MOTION_PROFILE_BY_SPORT_TYPE.generic
@@ -81,10 +128,10 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
   // Scale computed on FULL streams (not visible subset) — see spec §Scale-auf-Full-Streams
   const scale = useMemo<ScaleDefinition | null>(() => {
     if (!hasGps) return null
-    return resolveScale(metric, motionProfile, streams, null /* no zones in Phase A */, mode, {
+    return resolveScale(metric, motionProfile, streams, sportZones, effectiveMode, {
       sportColor: sportChartColor(activity.sport_type),
     })
-  }, [metric, motionProfile, streams, mode, activity.sport_type, hasGps])
+  }, [metric, motionProfile, streams, sportZones, effectiveMode, activity.sport_type, hasGps])
 
   // Viewport bounds tracking
   const [viewportBoundsKey, setViewportBoundsKey] = useState<string | null>(null)
@@ -197,5 +244,5 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
     map.fitBounds(bounds, { padding: 50, maxZoom: 18, duration: 600 })
   }, [map])
 
-  return { metric, setMetric, scale, programmaticFit }
+  return { metric, setMetric, scale, programmaticFit, modeByMetric, setMode, zonesAvailable }
 }
