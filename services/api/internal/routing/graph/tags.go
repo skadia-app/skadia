@@ -529,3 +529,37 @@ func NegateInclineStr(s string) string {
 	}
 	return "-" + s
 }
+
+// --- Display short codes (F26) ---
+
+// MtbScaleShort maps encoded mtb_scale (1..6) to user-facing "S0".."S5".
+// Empty string for unknown/out-of-range.
+func MtbScaleShort(v uint8) string {
+	if v < 1 || v > 6 {
+		return ""
+	}
+	// encoded 1→S0, 2→S1, …
+	s := []byte("S0")
+	s[1] = byte('0' + v - 1)
+	return string(s)
+}
+
+// SacScaleShort maps encoded sac_scale (1..6) to "T1".."T6".
+func SacScaleShort(v uint8) string {
+	if v < 1 || v > 6 {
+		return ""
+	}
+	s := []byte("T0")
+	s[1] = byte('0' + v)
+	return string(s)
+}
+
+// ViaFerrataScaleShort maps encoded via_ferrata_scale (1..6) to "K1".."K6".
+func ViaFerrataScaleShort(v uint8) string {
+	if v < 1 || v > 6 {
+		return ""
+	}
+	s := []byte("K0")
+	s[1] = byte('0' + v)
+	return string(s)
+}

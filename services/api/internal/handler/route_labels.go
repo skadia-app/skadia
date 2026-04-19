@@ -5,6 +5,37 @@ import (
 	"slices"
 )
 
+// outdoorThresholds bundles fire-trigger + coverage parameters for F26 descriptors.
+// Defaults at defaultOutdoorThresholds. profileOutdoorThresholds reserved for future eMTB.
+type outdoorThresholds struct {
+	MtbTechnicalMin  uint8
+	AlpineHikingMin  uint8
+	LowVisMaxTrigger uint8
+	LowVisIntPct     float32
+	LowVisIntDelta   float32
+	CoverageGatePct  float32
+}
+
+var defaultOutdoorThresholds = outdoorThresholds{
+	MtbTechnicalMin:  3,    // S2+ encoded
+	AlpineHikingMin:  4,    // T4+ encoded
+	LowVisMaxTrigger: 4,    // bad+
+	LowVisIntPct:     0.20,
+	LowVisIntDelta:   0.10,
+	CoverageGatePct:  0.20,
+}
+
+var profileOutdoorThresholds = map[string]outdoorThresholds{
+	// empty — reserved for future eMTB etc.
+}
+
+func thresholdsFor(profile string) outdoorThresholds {
+	if t, ok := profileOutdoorThresholds[profile]; ok {
+		return t
+	}
+	return defaultOutdoorThresholds
+}
+
 // Threshold seeds for variant descriptors.
 // These were validated via POC (Phase 0) and may be re-tuned once
 // real coverage data from the next tile rebuild is available.
@@ -283,4 +314,23 @@ func absDeltaFloat64(a, b float64) float64 {
 		return -d
 	}
 	return d
+}
+
+// --- F26 German labels for trail_visibility display (user-facing) ---
+
+var tvDisplayNames = [7]string{
+	"",
+	"sehr gut sichtbar",
+	"gut sichtbar",
+	"mäßig sichtbar",
+	"schlecht sichtbar",
+	"kaum sichtbar",
+	"nicht sichtbar",
+}
+
+func tvDisplayName(v uint8) string {
+	if int(v) >= len(tvDisplayNames) {
+		return ""
+	}
+	return tvDisplayNames[v]
 }
