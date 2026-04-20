@@ -10,17 +10,23 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
+// errLapSegmentCannotBeReversed is returned when an attempt is made to reverse
+// a lap-type segment. Lap segments are closed loops with no direction concept;
+// reversing them would corrupt leaderboard is_reverse-partitioned rankings.
+var errLapSegmentCannotBeReversed = errors.New("lap segments cannot be reversed")
+
 // ReverseSegment flips a segment's active version geometry and all effort
 // is_reverse flags atomically (including leaderboard rank-recompute inside
 // the same tx). Owner OR admin may reverse.
 //
-// POST /api/v1/segments/{id}/reverse → 200 {"efforts_updated": N} | 403 | 404 | 500
+// POST /api/v1/segments/{id}/reverse → 200 {"efforts_updated": N} | 400 | 403 | 404 | 500
 func (h *Handler) ReverseSegment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	segID := chi.URLParam(r, "id")
@@ -41,7 +47,23 @@ func (h *Handler) ReverseSegment(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "segment not found", r.URL.Path)
 		case errors.Is(err, database.ErrSegmentNotAuthorized):
 			httputil.WriteError(w, http.StatusForbidden, "Forbidden", "not owner", r.URL.Path)
+		case errors.Is(err, errLapSegmentCannotBeReversed):
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "lap segments cannot be reversed", r.URL.Path)
 		default:
+			// Distinguish advisory-lock timeout / serialization failures from generic
+			// errors so the client knows a retry is safe.
+			//   55P03 = lock_not_available (pg_advisory_xact_lock with lock_timeout set,
+			//           or explicit pg_try_advisory_xact_lock returning false)
+			//   40001 = serialization_failure (snapshot conflict under REPEATABLE READ /
+			//           SERIALIZABLE isolation)
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) {
+				switch pgErr.Code {
+				case "55P03", "40001":
+					httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "lock conflict, please try again", r.URL.Path)
+					return
+				}
+			}
 			slog.Error("reverseSegmentTx failed", "segment_id", segID, "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "reverse failed", r.URL.Path)
 		}
@@ -93,10 +115,10 @@ func reverseSegmentTx(ctx context.Context, db *database.DB, segID, userID string
 	// TOCTOU-safe owner-or-admin check in the same tx: SELECT created_by FOR
 	// UPDATE holds a row-lock through the subsequent INSERT/UPDATEs, so a
 	// concurrent DeleteSegment / UpdateSegment cannot win the race.
-	var ownerID string
+	var ownerID, segmentType string
 	if err := tx.QueryRow(ctx,
-		`SELECT created_by FROM segments WHERE id = $1 FOR UPDATE`, segID,
-	).Scan(&ownerID); err != nil {
+		`SELECT created_by, segment_type FROM segments WHERE id = $1 FOR UPDATE`, segID,
+	).Scan(&ownerID, &segmentType); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, database.ErrSegmentNotFound
 		}
@@ -104,6 +126,11 @@ func reverseSegmentTx(ctx context.Context, db *database.DB, segID, userID string
 	}
 	if !isAdmin && ownerID != userID {
 		return 0, database.ErrSegmentNotAuthorized
+	}
+	// Lap segments are closed loops with no meaningful direction concept.
+	// Reversing them would corrupt leaderboard direction-partitioning.
+	if segmentType == "lap" {
+		return 0, errLapSegmentCannotBeReversed
 	}
 
 	// Insert a new segment_versions row with ST_Reverse(track) and swapped

@@ -17,9 +17,11 @@ ALTER TABLE segments ADD COLUMN IF NOT EXISTS bidirectional BOOLEAN NOT NULL DEF
 -- silently no-op. Existing DEFAULT '{}' was set at table-create; for rows written
 -- before that default existed the column may still be NULL. We first backfill,
 -- then re-assert the default so step 3/4 below can rely on non-NULL.
+-- NOTE: We intentionally do NOT add a NOT NULL constraint here (Batch-6B finding #4):
+-- the column was created without NOT NULL and adding it is out-of-scope per Spec §4.9.
+-- SET DEFAULT '{}' + the UPDATE backfill is sufficient for spec compliance.
 UPDATE segments SET segment_type_meta = '{}'::jsonb WHERE segment_type_meta IS NULL;
 ALTER TABLE segments ALTER COLUMN segment_type_meta SET DEFAULT '{}'::jsonb;
-ALTER TABLE segments ALTER COLUMN segment_type_meta SET NOT NULL;
 
 -- Step 3 — Surface-label normalization.
 -- Maps old German editor strings from SegmentEditorModal.tsx
