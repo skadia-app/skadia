@@ -124,26 +124,21 @@ type RouteSuggestion struct {
 // ResponsePassedSummit is a handler-internal DTO for database.PassedSummit.
 // It avoids serialising DB types directly (DTO-layer isolation).
 type ResponsePassedSummit struct {
-	OsmID    int64   `json:"osm_id"`
-	Name     string  `json:"name"`
-	EleM     *int    `json:"ele_m,omitempty"`
-	Category string  `json:"category,omitempty"`
-	DistM    float64 `json:"dist_m"`
-	Lat      float64 `json:"lat"`
-	Lng      float64 `json:"lng"`
+	OsmID    int64    `json:"osm_id"`
+	Name     string   `json:"name"`
+	EleM     *float64 `json:"ele_m,omitempty"`
+	Category string   `json:"category,omitempty"`
+	DistM    float64  `json:"dist_m"`
+	Lat      float64  `json:"lat"`
+	Lng      float64  `json:"lng"`
 }
 
 // toResponseSummit maps a database.PassedSummit to a ResponsePassedSummit DTO.
 func toResponseSummit(s database.PassedSummit) ResponsePassedSummit {
-	var eleM *int
-	if s.EleM != nil {
-		v := int(*s.EleM)
-		eleM = &v
-	}
 	return ResponsePassedSummit{
 		OsmID:    s.OsmID,
 		Name:     s.Name,
-		EleM:     eleM,
+		EleM:     s.EleM, // *float64 pointer copy — no precision loss
 		Category: s.Category,
 		DistM:    float64(s.DistM),
 		Lat:      s.Lat,
