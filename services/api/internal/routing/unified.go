@@ -617,6 +617,10 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 				segments[i].FromIdx += len(partialCoords)
 				segments[i].ToIdx += len(partialCoords)
 			}
+			// Shift edgeCoordStart so indices still match the updated coords slice.
+			for i := range edgeCoordStart {
+				edgeCoordStart[i] += len(partialCoords)
+			}
 		}
 	}
 
@@ -634,17 +638,20 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 	}
 
 	return &RouteResult{
-		Coordinates: coords,
-		DistanceM:   totalDist,
-		AscentM:     totalAscent,
-		DescentM:    totalDescent,
-		Cost:        float64(state.nodes[bestDstNode].BestCost),
-		Segments:    segments,
-		DistSum:     distSum,
-		QualitySum:  qualitySum,
-		AscentSum:   ascentSum,
-		DescentSum:  descentSum,
-		EdgeHandles: edgeHandles,
+		Coordinates:    coords,
+		DistanceM:      totalDist,
+		AscentM:        totalAscent,
+		DescentM:       totalDescent,
+		Cost:           float64(state.nodes[bestDstNode].BestCost),
+		Segments:       segments,
+		DistSum:        distSum,
+		QualitySum:     qualitySum,
+		AscentSum:      ascentSum,
+		DescentSum:     descentSum,
+		EdgeHandles:    edgeHandles,
+		EdgeCoordStart: edgeCoordStart,
+		EdgeTags1:      edgeTags1,
+		EdgeTags2:      edgeTags2,
 	}
 }
 
