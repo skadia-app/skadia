@@ -1,10 +1,22 @@
 // frontend/src/components/SegmentEditorModal.tsx
-// Task 8.4a: Modal Shell + Portal + Escape/Dirty-Close + Focus-Trap + beforeunload
+// Task 8.4b: Map-Init + Layer-Setup + Heatmap + Style-Toggles
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import maplibregl, { type RequestParameters } from 'maplibre-gl'
+import 'maplibre-gl/dist/maplibre-gl.css'
 import type { SegmentMetadata } from './segment-editor/SegmentSidebar'
 import type { TrackPoint } from './segment-editor/TrackModeBottomBar'
 import { BIDIRECTIONAL_DEFAULT, deriveTrailDifficultyColor, type SegType } from './segment-editor/constants'
+import {
+  addHeatmapLayers,
+  removeHeatmapLayers,
+  buildHeatmapTileUrl,
+  loadHeatmapColor,
+} from '@/lib/mapHeatmap'
+import { buildRasterStyle, RASTER_STYLES, type BaseStyle } from '@/lib/mapStyles'
+import { apiClient } from '@/api/client'
+import { getToken } from '@/lib/auth'
 
 export interface SegmentEditorModalProps {
   mode: 'track' | 'draw' | 'lap'
@@ -18,6 +30,7 @@ export interface SegmentEditorModalProps {
 export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   const { mode, trackPoints = [], onClose } = props
 
+  // ── Metadata state ────────────────────────────────────────────────────────
   const [meta, setMeta] = useState<SegmentMetadata>(() => ({
     name: '',
     segType: (mode === 'lap' ? 'lap' : 'standard') as SegType,
@@ -41,6 +54,100 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     })
   }, [])
 
+  // ── User-ID (for heatmap tile auth) ──────────────────────────────────────
+  const { data: meData } = useQuery({
+    queryKey: ['me'],
+    queryFn: () => apiClient<{ user_id: string }>('/me'),
+    staleTime: Infinity,
+  })
+  const currentUserId = meData?.user_id ?? ''
+
+  // ── Map state ─────────────────────────────────────────────────────────────
+  const mapContainerRef = useRef<HTMLDivElement | null>(null)
+  const mapRef = useRef<maplibregl.Map | null>(null)
+  const trackPointsRef = useRef(trackPoints)
+  useEffect(() => { trackPointsRef.current = trackPoints }, [trackPoints])
+
+  const [mapStyle, setMapStyle] = useState<BaseStyle>('osm')
+  const [heatmapOn, setHeatmapOn] = useState(false)
+
+  // ── Map Init useEffect ────────────────────────────────────────────────────
+  // Re-runs when mapStyle changes (style-switch destroys + recreates the map).
+  useEffect(() => {
+    const container = mapContainerRef.current
+    if (!container) return
+
+    const pts = trackPointsRef.current
+    const initialCenter: [number, number] =
+      pts && pts.length > 0 ? [pts[0].lng, pts[0].lat] : [11.0, 48.0]
+
+    const map = new maplibregl.Map({
+      container,
+      style: buildRasterStyle(mapStyle),
+      center: initialCenter,
+      zoom: 12,
+      transformRequest: (url: string): RequestParameters => {
+        if (url.includes('/api/v1/tiles/')) {
+          const token = getToken()
+          if (token) return { url, headers: { Authorization: `Bearer ${token}` } }
+        }
+        return { url }
+      },
+    })
+    mapRef.current = map
+
+    map.on('load', () => {
+      map.getCanvas().style.cursor = 'crosshair'
+
+      // Fit bounds to track
+      const current = trackPointsRef.current
+      if (current && current.length > 1) {
+        const lngs = current.map(p => p.lng)
+        const lats = current.map(p => p.lat)
+        map.fitBounds(
+          [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+          { padding: 40 },
+        )
+      }
+
+      // Track-mode: draw activity line
+      if (mode === 'track' && current && current.length >= 2) {
+        map.addSource('activity-track', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: current.map(p => [p.lng, p.lat]) },
+            properties: {},
+          },
+        })
+        map.addLayer({
+          id: 'activity-track-line',
+          type: 'line',
+          source: 'activity-track',
+          paint: { 'line-color': '#6b7280', 'line-width': 2, 'line-opacity': 0.7 },
+        })
+      }
+    })
+
+    return () => {
+      map.remove()
+      mapRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapStyle])
+
+  // ── Heatmap toggle useEffect ──────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    if (heatmapOn && currentUserId) {
+      addHeatmapLayers(map, buildHeatmapTileUrl(currentUserId), loadHeatmapColor())
+    } else {
+      removeHeatmapLayers(map)
+    }
+  }, [heatmapOn, currentUserId])
+
+  // ── Dirty state + close logic ─────────────────────────────────────────────
   const isDirty = meta.name.length > 0
 
   const handleClose = useCallback(() => {
@@ -48,27 +155,23 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     onClose()
   }, [isDirty, onClose])
 
-  // Escape-Handler
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose() }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
   }, [handleClose])
 
-  // beforeunload: schütze dirty state auch bei Tab-Close / Browser-Back-Button
-  // Browser ignoriert den Custom-String und zeigt seinen eigenen Dialog;
-  // e.preventDefault() reicht.
   useEffect(() => {
     if (!isDirty) return
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault()
-      e.returnValue = '' // legacy-required by some browsers
+      e.returnValue = ''
     }
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [isDirty])
 
-  // Focus-Trap: clamp Tab-navigation to elements within the modal root.
+  // Focus-Trap
   const modalRootRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     const trap = (e: KeyboardEvent) => {
@@ -89,18 +192,50 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     return () => window.removeEventListener('keydown', trap)
   }, [])
 
-  // Silence unused-var warnings until later sub-tasks wire them.
-  void patchMeta; void trackPoints
+  // Silence unused warnings until later sub-tasks wire them
+  void patchMeta
 
   const content = (
     <div ref={modalRootRef} className="fixed inset-0 z-[200] flex flex-col bg-neutral-950 text-white">
       {/* Top-Bar */}
-      <div className="flex items-center gap-2 border-b border-neutral-800 bg-neutral-900 px-4 py-2 text-sm">
+      <div className="flex items-center gap-2 border-b border-neutral-800 bg-neutral-900 px-3 py-2 text-sm">
         <h2 className="font-semibold">
           {mode === 'track' ? 'Segment aus Track' : mode === 'draw' ? 'Segment zeichnen' : 'Rundkurs definieren'}
         </h2>
         <div className="flex-1" />
-        {/* Map-Style + Heatmap toggles → filled in Task 8.4b */}
+
+        {/* Map-Style toggles */}
+        <div className="flex overflow-hidden rounded border border-neutral-700">
+          {RASTER_STYLES.map(([key, def]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setMapStyle(key)}
+              className={`px-2 py-1 text-xs font-medium transition-colors ${
+                mapStyle === key
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-100'
+              }`}
+            >
+              {def.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Heatmap toggle */}
+        <button
+          type="button"
+          onClick={() => setHeatmapOn(v => !v)}
+          aria-pressed={heatmapOn}
+          className={`rounded border px-2 py-1 text-xs transition-colors ${
+            heatmapOn
+              ? 'border-orange-500/50 bg-orange-600/20 text-orange-400'
+              : 'border-neutral-700 bg-neutral-800 text-neutral-400 hover:text-neutral-200'
+          }`}
+        >
+          Heatmap
+        </button>
+
         <button
           type="button"
           onClick={handleClose}
@@ -111,14 +246,15 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         </button>
       </div>
 
-      {/* Middle (sidebar+map) — filled in Task 8.4b */}
+      {/* Middle (sidebar+map) */}
       <div className="flex min-h-0 flex-1">
         <div className="w-80 shrink-0 border-r border-neutral-800 bg-neutral-900 p-3">
           {/* SegmentSidebar placeholder — wired in 8.4e */}
           <p className="text-xs text-neutral-400">Sidebar (TODO 8.4e)</p>
         </div>
-        <div className="relative flex-1 bg-neutral-800">
-          <p className="p-4 text-xs text-neutral-400">Map (TODO 8.4b)</p>
+        {/* Map container — must be a raw div with absolute inset; MapLibre owns it */}
+        <div className="relative flex-1">
+          <div ref={mapContainerRef} className="absolute inset-0" />
         </div>
       </div>
 
