@@ -80,12 +80,34 @@ func SuggestSegmentEnrichment(
 	}
 
 	// Fallback: PostGIS nearest-way.
+	// graphAvailable tracks whether a graph reader existed and returned at least
+	// one tile hit across the coords — used below to distinguish "OSM not
+	// installed / no tiles loaded" from "route is genuinely off-road".
+	var graphAvailable bool
+	if graphReader != nil {
+		// graphReader is non-nil; re-run a lightweight availability check by
+		// testing the first coordinate so we can set the flag without re-running
+		// the full Viterbi. Any successful tile-load means the graph is present.
+		for _, c := range coords {
+			if graphReader.GraphAt(c[1], c[0]) != nil {
+				graphAvailable = true
+				break
+			}
+		}
+	}
+
 	edges, coverage, err = matchEdgesViaPostGIS(ctx, db, coords)
 	if err != nil {
 		return nil, fmt.Errorf("both graph and postgis match failed: %w", err)
 	}
 	resp := aggregateEdgesToSegmentEnrichment(edges, coverage)
-	if resp.Reason == "" && len(edges) == 0 {
+	// Override low_coverage with no_graph when both PostGIS AND the graph
+	// returned zero matched edges. This is the "OSM not installed" signal:
+	// a pure off-road route would have PostGIS ways nearby even if Viterbi
+	// couldn't match them. Only apply when the graph had no tiles at all
+	// (graphAvailable == false); if tiles exist but coverage is low the
+	// low_coverage reason is correct.
+	if len(edges) == 0 && !graphAvailable {
 		resp.Reason = "no_graph"
 	}
 	return resp, nil
@@ -181,8 +203,10 @@ func matchEdgesViaPostGIS(
 		return nil, 0, fmt.Errorf("need at least 2 coordinates")
 	}
 
-	const maxDistM = 20.0
-	const bboxExpand = 0.0002 // ~22 m at mid-latitudes — consistent with surfaceBBoxExpand
+	// bboxExpand ~22 m at mid-latitudes — matches surfaceBBoxExpand.
+	// Distance filtering is done implicitly via bbox expand + KNN ordering;
+	// no explicit maxDistM guard is needed here.
+	const bboxExpand = 0.0002
 
 	var samples []edgeSample
 	var matchedCount int
@@ -225,7 +249,6 @@ func matchEdgesViaPostGIS(
 			mtbID:     graph.DecodeMtbScale(tags1),
 			lengthM:   lengthM,
 		})
-		_ = maxDistM // distance filtering is done implicitly via bbox expand + KNN ordering
 	}
 
 	coverage := float64(matchedCount) / float64(len(coords))
