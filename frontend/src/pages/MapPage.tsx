@@ -47,7 +47,7 @@ import { removeTerraIncognitaLayers, addTerraIncognitaLayers } from '@/lib/mapTe
 import GeoSearch from '@/components/map/GeoSearch'
 import { useStickyHighlight } from '@/hooks/useStickyHighlight'
 import { isInteractiveDescriptorKey } from '@/lib/descriptorFilter'
-import { SAC_COLORS, MTB_COLORS, HIGHLIGHT_COLORS } from '@/lib/scaleColors'
+import { SAC_COLORS, MTB_COLORS, HIGHLIGHT_COLORS, VF_COLORS, VF_UNKNOWN_COLOR } from '@/lib/scaleColors'
 import type { CoordRange } from '@/api/routes'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
@@ -56,8 +56,9 @@ export { SPORT_OPTIONS, getAllSportKeys } from '@/lib/sportOptions'
 
 // ── Descriptor overlay layer / source IDs ────────────────────────────────────
 // Z-order (bottom→top):
-//   LAYER_ROUTED < LAYER_VF_UNKNOWN* < LAYER_SCALE_BASE < LAYER_RANGE_HIGHLIGHT < LAYER_HIGHLIGHT
-// (* LAYER_VF_UNKNOWN declared in Task 22a alongside its addLayer call)
+//   LAYER_ROUTED < LAYER_VF_UNKNOWN < LAYER_SCALE_BASE < LAYER_RANGE_HIGHLIGHT < LAYER_HIGHLIGHT
+const LAYER_VF_UNKNOWN      = 'route-vf-unknown-layer'
+const SOURCE_VF_UNKNOWN     = 'route-vf-unknown-source'
 const LAYER_SCALE_BASE      = 'route-scale-base-layer'
 const SOURCE_SCALE_BASE     = 'route-scale-base-source'
 const LAYER_RANGE_HIGHLIGHT = 'route-highlight-layer'
@@ -630,7 +631,34 @@ export default function MapPage() {
         }, before)
       }
 
-      // 2. Scale-Base (SAC/MTB coloured segments when a scale-pin is active).
+      // 2. VF K?-layer (Invariant I9 — dauerhaft aktiv, nicht pin-abhängig).
+      //    Rendert highway=via_ferrata-Segmente ohne bestätigte Schwierigkeit als
+      //    gestrichelten Warn-Streifen, unabhängig davon ob scalePin === 'vf'.
+      if (!map.getSource(SOURCE_VF_UNKNOWN)) {
+        map.addSource(SOURCE_VF_UNKNOWN, {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] },
+        })
+      }
+      if (!map.getLayer(LAYER_VF_UNKNOWN)) {
+        const before = map.getLayer(LAYER_SCALE_BASE) ? LAYER_SCALE_BASE : undefined
+        map.addLayer({
+          id: LAYER_VF_UNKNOWN,
+          type: 'line',
+          source: SOURCE_VF_UNKNOWN,
+          paint: {
+            'line-color': VF_UNKNOWN_COLOR,
+            'line-width': 6,
+            'line-dasharray': [2, 2],
+          },
+          layout: {
+            'line-cap': 'butt',
+            'line-join': 'round',
+          },
+        }, before)
+      }
+
+      // 3. Scale-Base (SAC/MTB/VF coloured segments when a scale-pin is active).
       if (!map.getSource(SOURCE_SCALE_BASE)) {
         map.addSource(SOURCE_SCALE_BASE, {
           type: 'geojson',
@@ -650,6 +678,8 @@ export default function MapPage() {
               'T4', SAC_COLORS.T4, 'T5', SAC_COLORS.T5, 'T6', SAC_COLORS.T6,
               'S0', MTB_COLORS.S0, 'S1', MTB_COLORS.S1, 'S2', MTB_COLORS.S2,
               'S3', MTB_COLORS.S3, 'S4', MTB_COLORS.S4, 'S5', MTB_COLORS.S5,
+              'K1', VF_COLORS.K1, 'K2', VF_COLORS.K2, 'K3', VF_COLORS.K3,
+              'K4', VF_COLORS.K4, 'K5', VF_COLORS.K5, 'K6', VF_COLORS.K6,
               '#71717a',
             ],
             'line-width': 6,
@@ -681,12 +711,14 @@ export default function MapPage() {
     [activeSuggestion?.geojson],
   )
 
-  // ── Scale-Base source content (SAC/MTB coloured ranges) ──────────────────
+  // ── Scale-Base source content (SAC/MTB/VF coloured ranges) ─────────────────
   const scaleBaseFeatures = useMemo(() => {
     if (!planner.scalePin || !activeSuggestion || parsedCoords.length < 2) return []
-    const ranges = planner.scalePin === 'sac'
-      ? activeSuggestion.sac_ranges
-      : activeSuggestion.mtb_ranges
+    const ranges =
+      planner.scalePin === 'sac' ? activeSuggestion.sac_ranges :
+      planner.scalePin === 'mtb' ? activeSuggestion.mtb_ranges :
+      planner.scalePin === 'vf'  ? activeSuggestion.vf_ranges :
+      undefined
     if (!ranges) return []
     const features: GeoJSON.Feature[] = []
     for (const [level, levelRanges] of Object.entries(ranges)) {
@@ -711,6 +743,34 @@ export default function MapPage() {
     const src = map.getSource(SOURCE_SCALE_BASE) as maplibregl.GeoJSONSource | undefined
     src?.setData({ type: 'FeatureCollection', features: scaleBaseFeatures })
   }, [scaleBaseFeatures, layersReady])
+
+  // ── VF K?-source content (Invariant I9 — dauerhaft aktiv, nicht pin-abhängig) ──
+  // Dieser Effect hat KEINE Abhängigkeit auf scalePin.  Er feuert sobald
+  // vf_unknown_ranges nicht-leer ist, egal ob der User den VF-Pin aktiviert hat.
+  // Begründung: K?-Ranges sind ein Safety-Warning (Klettersteig ohne bestätigte
+  // Schwierigkeit) — der User muss sie IMMER sehen, nicht nur wenn er zufällig
+  // auf den VF-Pin geklickt hat.
+  useEffect(() => {
+    if (!layersReady) return
+    const map = mapRef.current
+    if (!map) return
+    const src = map.getSource(SOURCE_VF_UNKNOWN) as maplibregl.GeoJSONSource | undefined
+    if (!src) return
+    const unknown = activeSuggestion?.vf_unknown_ranges ?? []
+    if (unknown.length === 0 || parsedCoords.length < 2) {
+      src.setData({ type: 'FeatureCollection', features: [] })
+      return
+    }
+    const features = unknown.map((r) => ({
+      type: 'Feature' as const,
+      properties: {},
+      geometry: {
+        type: 'LineString' as const,
+        coordinates: parsedCoords.slice(r.from, Math.min(r.to + 1, parsedCoords.length)),
+      },
+    }))
+    src.setData({ type: 'FeatureCollection', features })
+  }, [activeSuggestion?.vf_unknown_ranges, parsedCoords, layersReady])
 
   // ── Highlight-Overlay source content (forest/protected descriptor-hover) ──
   const highlightFeatures = useMemo(() => {
