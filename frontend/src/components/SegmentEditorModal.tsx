@@ -291,6 +291,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           difficulty_color: savePayload.difficultyColor,
         },
         visibility: savePayload.isPublic ? 'public' : 'private',
+        climb_type: savePayload.climbType ?? 'standard',
         geojson_track,
         source_activity_id: sourceActivityId,
       })
