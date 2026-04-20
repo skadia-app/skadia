@@ -525,6 +525,7 @@ export interface EnrichmentSettings {
   geocode_fallback_provider?: 'off' | 'nominatim' | 'photon'
   geocode_fallback_url?: string | null
   geocode_fallback_timeout_s?: number
+  summit_detection_radius_m: number
 }
 
 export interface Climb {
