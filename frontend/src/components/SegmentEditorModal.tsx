@@ -15,6 +15,7 @@ import { DrawModeBottomBar } from './segment-editor/DrawModeBottomBar'
 import { LapModeBottomBar } from './segment-editor/LapModeBottomBar'
 import { BIDIRECTIONAL_DEFAULT, deriveTrailDifficultyColor, type SegType } from './segment-editor/constants'
 import { cn } from '@/lib/utils'
+import { haversineM } from '@/lib/geoUtils'
 import { detectLapCrossings } from './segment-editor/TrackMode'
 import {
   addHeatmapLayers,
@@ -36,17 +37,6 @@ export interface SegmentEditorModalProps {
   defaultSportGroup?: string
   onSuccess: () => void
   onClose: () => void
-}
-
-// ── Inline haversine helper (km) ─────────────────────────────────────────────
-function haversine(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371
-  const dLat = (lat2 - lat1) * Math.PI / 180
-  const dLng = (lng2 - lng1) * Math.PI / 180
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)))
 }
 
 // ── Arrow+Track layer helper (A2) ─────────────────────────────────────────────
@@ -568,6 +558,11 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         const d = dLat * dLat + coslat * dLng * dLng
         if (d < bestDist) { bestDist = d; bestIdx = i }
       }
+      // Guard: don't hijack clicks that are far from the track (e.g. map panning).
+      // Compute true metric distance to the best candidate point.
+      const MAX_CLICK_DISTANCE_M = 200
+      const bestPointDistM = haversineM(editedTrackPoints[bestIdx].lat, editedTrackPoints[bestIdx].lng, lat, lng)
+      if (bestPointDistM > MAX_CLICK_DISTANCE_M) return
       setHasUserSelection(true)
       setRange(prev => {
         const distStart = Math.abs(bestIdx - prev[0])
@@ -592,7 +587,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       let bestIdx = 0
       let bestDist = Infinity
       for (let i = 0; i < trackPoints.length; i++) {
-        const d = haversine(trackPoints[i].lat, trackPoints[i].lng, lat, lng)
+        const d = haversineM(trackPoints[i].lat, trackPoints[i].lng, lat, lng)
         if (d < bestDist) { bestDist = d; bestIdx = i }
       }
       const crossings = detectLapCrossings(trackPoints, bestIdx)
@@ -653,7 +648,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       let dist = 0, gain = 0, loss = 0
       for (let i = 1; i < subset.length; i++) {
         const a = subset[i - 1]; const b = subset[i]
-        dist += haversine(a.lat, a.lng, b.lat, b.lng)
+        dist += haversineM(a.lat, a.lng, b.lat, b.lng) / 1000
         if (a.elevation != null && b.elevation != null) {
           const dh = b.elevation - a.elevation
           if (dh > 0) gain += dh; else loss += -dh
@@ -666,7 +661,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       for (let i = 1; i < drawnCoords.length; i++) {
         const [lng1, lat1] = drawnCoords[i - 1]
         const [lng2, lat2] = drawnCoords[i]
-        dist += haversine(lat1, lng1, lat2, lng2)
+        dist += haversineM(lat1, lng1, lat2, lng2) / 1000
       }
       return { distanceKm: dist, gainM: 0, lossM: 0 }
     }
