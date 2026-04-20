@@ -153,11 +153,14 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
   }
 
   const showScaleFields = meta.segType !== 'wintersport'
-  const difficultyColorReadonly = meta.segType === 'trail'
+  // For segType ∈ {standard, trail, lap}: difficultyColor is auto-derived from
+  // max(SAC, MTB) — handleSacChange/handleMtbChange keep meta.difficultyColor
+  // in sync. displayedColor falls back to live derivation for existing segments
+  // loaded without a pre-computed difficultyColor.
   // Bei Single-Scale-Delete (nur SAC oder nur MTB gelöscht) asymmetrisch,
   // aber okay in normalem UX-Flow — bleibt das Maximum der gesetzten Skala.
-  const displayedColor = difficultyColorReadonly
-    ? deriveTrailDifficultyColor(meta.sacScale, meta.mtbScale)
+  const displayedColor = meta.segType !== 'wintersport'
+    ? (meta.difficultyColor ?? deriveTrailDifficultyColor(meta.sacScale, meta.mtbScale))
     : meta.difficultyColor
 
   const availableSportTypes = useMemo(() => {
@@ -166,6 +169,28 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     }
     return allSportTypes
   }, [meta.segType, allSportTypes])
+
+  // Option B (§4.2 Punkt 9): for segType ∈ {standard, trail, lap}, auto-derive
+  // difficultyColor from max(SAC-Farbe, MTB-Farbe) whenever either scale changes,
+  // so DifficultyBadge and SegmentsOverlay always have a value to render.
+  // Wintersport retains the manual picker (FIS colors, no SAC/MTB).
+  const handleSacChange = (v: string) => {
+    const newSac = v || null
+    const patch: Partial<SegmentMetadata> = { sacScale: newSac }
+    if (meta.segType !== 'wintersport') {
+      patch.difficultyColor = deriveTrailDifficultyColor(newSac, meta.mtbScale)
+    }
+    onMetaChange(patch)
+  }
+
+  const handleMtbChange = (v: string) => {
+    const newMtb = v || null
+    const patch: Partial<SegmentMetadata> = { mtbScale: newMtb }
+    if (meta.segType !== 'wintersport') {
+      patch.difficultyColor = deriveTrailDifficultyColor(meta.sacScale, newMtb)
+    }
+    onMetaChange(patch)
+  }
 
   const handleSegTypeChange = (newType: SegType) => {
     const patch: Partial<SegmentMetadata> = { segType: newType }
@@ -178,11 +203,17 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
       patch.sportTypes = meta.sportTypes.filter(s => WINTER_SPORT_WHITELIST.includes(s))
       if (patch.sportTypes.length === 0) patch.sportTypes = null
     }
-    // Scale fields cleared when entering wintersport.
+    // Scale fields cleared when entering wintersport; difficultyColor stays
+    // as the last manual value (user can change it in the wintersport picker).
     if (newType === 'wintersport') {
       patch.sacScale = null
       patch.mtbScale = null
       patch.surface = null
+    }
+    // Option B: when switching to standard/trail/lap, re-derive difficultyColor
+    // from current SAC/MTB values so DifficultyBadge doesn't go blank.
+    if (newType !== 'wintersport') {
+      patch.difficultyColor = deriveTrailDifficultyColor(meta.sacScale, meta.mtbScale)
     }
     // Part C: when switching to standard/trail/lap, remove any sport types that
     // belong to the now-hidden categories (winter, water) to keep selections clean.
@@ -462,7 +493,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
                       value={meta.sacScale ?? ''}
                       placeholder="—"
                       options={SAC_SCALE_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
-                      onChange={v => onMetaChange({ sacScale: v || null })}
+                      onChange={handleSacChange}
                     />
                     <ColorSwatch color={meta.sacScale ? SAC_COLOR_MAP[meta.sacScale] : null} />
                     <EnrichmentBadge
@@ -489,7 +520,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
                       value={meta.mtbScale ?? ''}
                       placeholder="—"
                       options={MTB_SCALE_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
-                      onChange={v => onMetaChange({ mtbScale: v || null })}
+                      onChange={handleMtbChange}
                     />
                     <ColorSwatch color={meta.mtbScale ? MTB_COLOR_MAP[meta.mtbScale] : null} />
                     <EnrichmentBadge
