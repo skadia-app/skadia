@@ -466,6 +466,61 @@ func TestDecodeSidewalk(t *testing.T) {
 	}
 }
 
+func TestDecodeSacScale(t *testing.T) {
+	cases := []struct {
+		name  string
+		input *RawTags
+		want  uint8
+	}{
+		{"unset", &RawTags{}, 0},
+		{"T1", &RawTags{SacScale: "hiking"}, 1},
+		{"T3", &RawTags{SacScale: "demanding_mountain_hiking"}, 3},
+		{"T6", &RawTags{SacScale: "difficult_alpine_hiking"}, 6},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			v := EncodeOSMTags(c.input)
+			got := DecodeSacScale(v)
+			if got != c.want {
+				t.Fatalf("DecodeSacScale(%v) = %d, want %d", v, got, c.want)
+			}
+		})
+	}
+}
+
+func TestDecodeMtbScale(t *testing.T) {
+	cases := []struct {
+		name  string
+		input *RawTags
+		want  uint8
+	}{
+		{"unset", &RawTags{}, 0},
+		{"S0", &RawTags{MtbScale: "0"}, 1},
+		{"S2", &RawTags{MtbScale: "2"}, 3},
+		{"S5", &RawTags{MtbScale: "5"}, 6},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			v := EncodeOSMTags(c.input)
+			got := DecodeMtbScale(v)
+			if got != c.want {
+				t.Fatalf("DecodeMtbScale(%v) = %d, want %d", v, got, c.want)
+			}
+		})
+	}
+}
+
+func TestDecodeSacMtbNoOverlap(t *testing.T) {
+	// Ensure SAC and MTB decoders do not pick up each other's bits.
+	v := EncodeOSMTags(&RawTags{SacScale: "hiking", MtbScale: "5"})
+	if DecodeSacScale(v) != 1 {
+		t.Fatalf("DecodeSacScale expected 1, got %d", DecodeSacScale(v))
+	}
+	if DecodeMtbScale(v) != 6 {
+		t.Fatalf("DecodeMtbScale expected 6, got %d", DecodeMtbScale(v))
+	}
+}
+
 func TestDecodeAllEdgeTags2Combined(t *testing.T) {
 	// All fields set simultaneously — no field should corrupt another.
 	tags := &RawTags{
