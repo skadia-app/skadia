@@ -144,8 +144,9 @@ function AutomatischeAnalysenSection() {
             min={10}
             max={150}
             step={5}
-            value={settings.summit_detection_radius_m}
-            onChange={(e) => mut.mutate({ summit_detection_radius_m: Number(e.target.value) })}
+            defaultValue={settings.summit_detection_radius_m}
+            onMouseUp={e => mut.mutate({ summit_detection_radius_m: Number((e.target as HTMLInputElement).value) })}
+            onKeyUp={e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') mut.mutate({ summit_detection_radius_m: Number((e.target as HTMLInputElement).value) }) }}
             className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isLoading || mut.isPending}
           />
