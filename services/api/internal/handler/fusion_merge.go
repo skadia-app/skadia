@@ -71,8 +71,14 @@ var validStreamFields = map[string]string{
 // "fuse"-literal (GPS stitching) expands to one row per source in allSources.
 // Concrete source-ids produce exactly one row each.
 // userID is the owner — same for merged + all sources (fusion across users is rejected upstream).
+//
+// Every source in allSources is guaranteed to appear in the output at least once.
+// Sources that contribute no specific field receive a sentinel row with field_key="_".
+// This ensures the AFTER INSERT trigger on activity_fusion_memberships fires for every
+// source, which is required for recording_group_members cleanup (trigger 000313/000314).
 func deriveFusionMemberships(mergedID, userID string, fieldMap map[string]string, allSources []string) []database.FusionMembership {
 	out := make([]database.FusionMembership, 0, len(fieldMap)+len(allSources))
+	covered := make(map[string]bool, len(allSources))
 	for fieldKey, srcID := range fieldMap {
 		if srcID == "fuse" {
 			for _, s := range allSources {
@@ -82,6 +88,7 @@ func deriveFusionMemberships(mergedID, userID string, fieldMap map[string]string
 					FieldKey: fieldKey,
 					UserID:   userID,
 				})
+				covered[s] = true
 			}
 			continue
 		}
@@ -91,6 +98,17 @@ func deriveFusionMemberships(mergedID, userID string, fieldMap map[string]string
 			FieldKey: fieldKey,
 			UserID:   userID,
 		})
+		covered[srcID] = true
+	}
+	for _, s := range allSources {
+		if !covered[s] {
+			out = append(out, database.FusionMembership{
+				MergedID: mergedID,
+				SourceID: s,
+				FieldKey: "_",
+				UserID:   userID,
+			})
+		}
 	}
 	return out
 }
