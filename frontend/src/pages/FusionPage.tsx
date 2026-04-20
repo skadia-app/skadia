@@ -403,7 +403,7 @@ export default function FusionPage() {
           <div className="flex items-center gap-2 mb-1">
             {groupId ? (
               <Link
-                to={`/recording-groups/${groupId}`}
+                to={`/activities/group/${groupId}`}
                 className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
               >
                 ← Zur Gruppe{group && groupLabel(group) ? ` „${groupLabel(group)}“` : 'nansicht'}
@@ -574,7 +574,7 @@ export default function FusionPage() {
           <div className="flex items-center gap-3">
             {groupId && (
               <Link
-                to={`/recording-groups/${groupId}`}
+                to={`/activities/group/${groupId}`}
                 className="px-4 py-2.5 border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 rounded-lg text-sm font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
               >
                 Abbrechen

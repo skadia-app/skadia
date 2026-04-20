@@ -134,7 +134,8 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard
           label="Besuchte Gipfel"
-          value={isFiltered ? `${summits.length} von ${allSummits.length}` : summits.length.toString()}
+          value={summits.length.toString()}
+          sub={isFiltered ? `von ${allSummits.length} gesamt` : undefined}
         />
         <StatCard
           label="Höchster Gipfel"

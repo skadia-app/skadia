@@ -39,13 +39,13 @@ interface TrimSplitControlsProps {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Format seconds as MM:SS or H:MM:SS */
-function formatMMSS(totalSeconds: number): string {
+/** Format seconds as MM:SS or H:MM:SS. Pass showHours=true to force H:MM:SS even when h=0. */
+function formatMMSS(totalSeconds: number, showHours = false): string {
   if (totalSeconds < 0) totalSeconds = 0
   const h = Math.floor(totalSeconds / 3600)
   const m = Math.floor((totalSeconds % 3600) / 60)
   const s = Math.floor(totalSeconds % 60)
-  if (h > 0) {
+  if (h > 0 || showHours) {
     return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
   }
   return `${m}:${s.toString().padStart(2, '0')}`
@@ -98,23 +98,25 @@ interface TimestampInputProps {
   seconds: number
   minSeconds?: number
   maxSeconds: number
+  totalDuration: number
   onChange: (indexValue: number) => void
   gpsStreams: StreamPoint[]
   startTime: number
   ariaLabel: string
 }
 
-function TimestampInput({ seconds, minSeconds = 0, maxSeconds, onChange, gpsStreams, startTime, ariaLabel }: TimestampInputProps) {
-  const [text, setText] = useState(formatMMSS(seconds))
+function TimestampInput({ seconds, minSeconds = 0, maxSeconds, totalDuration, onChange, gpsStreams, startTime, ariaLabel }: TimestampInputProps) {
+  const showHours = totalDuration >= 3600
+  const [text, setText] = useState(formatMMSS(seconds, showHours))
   const [invalid, setInvalid] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (document.activeElement !== inputRef.current) {
-      setText(formatMMSS(seconds))
+      setText(formatMMSS(seconds, showHours))
       setInvalid(false)
     }
-  }, [seconds])
+  }, [seconds, showHours])
 
   const commit = (raw: string) => {
     const parsed = parseTimestamp(raw)
@@ -331,6 +333,7 @@ export function TrimSplitControls({
                 <TimestampInput
                   seconds={trimStartSeconds}
                   maxSeconds={trimEndSeconds}
+                  totalDuration={totalElapsed}
                   onChange={onTrimStartChange}
                   gpsStreams={gpsStreams}
                   startTime={startTime}
@@ -382,6 +385,7 @@ export function TrimSplitControls({
                   seconds={trimEndSeconds}
                   minSeconds={trimStartSeconds}
                   maxSeconds={totalElapsed}
+                  totalDuration={totalElapsed}
                   onChange={onTrimEndChange}
                   gpsStreams={gpsStreams}
                   startTime={startTime}
@@ -484,6 +488,7 @@ export function TrimSplitControls({
                   seconds={splitSeconds}
                   minSeconds={0}
                   maxSeconds={totalElapsed - 30}
+                  totalDuration={totalElapsed}
                   onChange={onSplitIndexChange}
                   gpsStreams={gpsStreams}
                   startTime={startTime}
