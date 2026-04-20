@@ -131,6 +131,30 @@ function AutomatischeAnalysenSection() {
         })}
       </div>
 
+      {/* Summit detection radius slider */}
+      {settings && (
+        <div className="flex flex-col gap-2 py-2">
+          <div className="flex items-center justify-between">
+            <label htmlFor="summit-radius" className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Gipfel-Erkennungs-Radius</label>
+            <span className="tabular-nums text-sm text-neutral-600 dark:text-neutral-400">{settings.summit_detection_radius_m} m</span>
+          </div>
+          <input
+            id="summit-radius"
+            type="range"
+            min={10}
+            max={150}
+            step={5}
+            value={settings.summit_detection_radius_m}
+            onChange={(e) => mut.mutate({ summit_detection_radius_m: Number(e.target.value) })}
+            className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={isLoading || mut.isPending}
+          />
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            Maximaler Abstand von der Route für Gipfel-/Pass-Erkennung (Enrichment + Route-Planer).
+          </p>
+        </div>
+      )}
+
       {/* Thresholds */}
       <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800/60 space-y-4">
         <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Schwellenwerte</h3>
