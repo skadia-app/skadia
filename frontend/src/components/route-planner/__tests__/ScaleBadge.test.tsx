@@ -156,7 +156,28 @@ describe('ScaleBadge — kind=vf (LF-#7 a11y-Parität)', () => {
     expect(label).toContain('K3')
   })
 
-  it('fires onTogglePin on Space key (vf)', () => {
+  it('fires onTogglePin via native click activation (Space/Enter on button triggers onClick)', () => {
+    // Native <button> activates onClick on Space keyup and Enter keydown —
+    // no custom onKeyDown handler needed. Verify the click path works.
+    const onTogglePin = vi.fn()
+    render(
+      <ScaleBadge
+        kind="vf"
+        breakdown={vfBreakdown}
+        maxLevel="K3"
+        isPinned={false}
+        onTogglePin={onTogglePin}
+        onHover={() => {}}
+      />
+    )
+    fireEvent.click(screen.getByRole('button'))
+    expect(onTogglePin).toHaveBeenCalledTimes(1)
+  })
+
+  it('keyDown alone does NOT trigger onTogglePin (no custom handler — native fires on keyup)', () => {
+    // The old custom onKeyDown handler called onTogglePin on keydown,
+    // which combined with the native browser keyup→click caused double-toggle.
+    // After removing the handler, keyDown alone must not call onTogglePin.
     const onTogglePin = vi.fn()
     render(
       <ScaleBadge
@@ -169,7 +190,7 @@ describe('ScaleBadge — kind=vf (LF-#7 a11y-Parität)', () => {
       />
     )
     fireEvent.keyDown(screen.getByRole('button'), { key: ' ' })
-    expect(onTogglePin).toHaveBeenCalledTimes(1)
+    expect(onTogglePin).not.toHaveBeenCalled()
   })
 
   it('calls onHover(true) on focus and onHover(false) on blur (vf)', () => {

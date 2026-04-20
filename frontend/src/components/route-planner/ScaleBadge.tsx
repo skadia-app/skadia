@@ -50,12 +50,6 @@ export function ScaleBadge({ kind, breakdown, maxLevel, isPinned, onTogglePin, o
         onFocus={openNow}
         onBlur={(e) => closeWithGuard(e.relatedTarget)}
         onClick={onTogglePin}
-        onKeyDown={(e) => {
-          if (e.key === ' ') {
-            e.preventDefault()
-            onTogglePin()
-          }
-        }}
       >
         <span
           className="inline-block w-2 h-2 rounded-full"
