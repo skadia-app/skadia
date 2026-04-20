@@ -15,19 +15,8 @@ interface Props {
   activitySportType?: string
 }
 
-/** Map a Garmin sport_type to the nearest segment sport_group. */
-function sportTypeToGroup(sportType?: string): string {
-  if (!sportType) return 'generic'
-  const t = sportType.toLowerCase()
-  if (t.includes('cycling') || t.includes('bike') || t.includes('ride') || t === 'gravel_cycling') return 'bike'
-  if (t.includes('run') || t.includes('walk') || t.includes('hike') || t.includes('trail')) return 'foot'
-  if (t.includes('swim')) return 'swim'
-  if (t.includes('ski') || t.includes('snowboard') || t.includes('snow')) return 'ski'
-  if (t.includes('kayak') || t.includes('row') || t.includes('paddle') || t.includes('canoe') || t.includes('stand_up_paddleboarding')) return 'paddle'
-  return 'generic'
-}
 
-export default function ActivitySegments({ activityId, streams, activitySportType }: Props) {
+export default function ActivitySegments({ activityId, streams }: Props) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [collapsed, setCollapsed] = useState(false)
@@ -95,7 +84,6 @@ export default function ActivitySegments({ activityId, streams, activitySportTyp
               time: p.time,
             }))}
           sourceActivityId={activityId}
-          defaultSportGroup={sportTypeToGroup(activitySportType)}
           onSuccess={() => {
             setShowEditor(false)
             queryClient.invalidateQueries({ queryKey: ['activity-segments', activityId] })

@@ -34,7 +34,6 @@ export interface SegmentEditorModalProps {
   mode: 'track' | 'draw' | 'lap'
   trackPoints?: TrackPoint[]
   sourceActivityId?: string
-  defaultSportGroup?: string
   onSuccess: () => void
   onClose: () => void
 }
@@ -68,7 +67,7 @@ function addArrowLayer(m: maplibregl.Map) {
 }
 
 export default function SegmentEditorModal(props: SegmentEditorModalProps) {
-  const { mode, trackPoints = [], sourceActivityId, defaultSportGroup, onSuccess, onClose } = props
+  const { mode, trackPoints = [], sourceActivityId, onSuccess, onClose } = props
   const { addToast } = useToast()
 
   // ── All sport types for the sidebar selector ──────────────────────────────
@@ -870,7 +869,6 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
             onMetaChange={patchMeta}
             info={info}
             allSportTypes={allSportTypes}
-            defaultSportGroup={defaultSportGroup}
             onEnrichmentRequest={handleEnrichment}
             enrichmentState={{ loading: enrichmentMutation.isPending }}
             enrichmentSources={enrichmentSources}
@@ -887,7 +885,11 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
             <div ref={mapContainerRef} className="h-full w-full" />
             {/* Lap-mode instruction overlay */}
             {mode === 'lap' && lapCrossings.length === 0 && (
-              <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-black/70 px-4 py-2 text-sm text-neutral-200">
+              <div
+                role="status"
+                aria-live="polite"
+                className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-black/70 px-4 py-2 text-sm text-neutral-200"
+              >
                 Klicke auf den Track um den Start/Ziel-Punkt zu setzen
               </div>
             )}
