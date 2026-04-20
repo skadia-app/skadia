@@ -1,6 +1,12 @@
 // frontend/src/components/segment-editor/SegmentSidebar.tsx
 import { useMemo, type ReactNode } from 'react'
-import { Check, HelpCircle, Link2, Loader2, RefreshCw } from 'lucide-react'
+import { Check, ChevronDown, HelpCircle, Link2, Loader2, RefreshCw } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   SURFACE_DROPDOWN_OPTIONS,
   SAC_SCALE_OPTIONS,
@@ -44,6 +50,7 @@ export interface SegmentSidebarProps {
   enrichmentSources: Partial<Record<'surface' | 'sac' | 'mtb', { coverage: number } | null>>
   onClearEnrichmentSource: (field: 'surface' | 'sac' | 'mtb') => void
   enrichmentDisabledReason?: string  // tooltip when button disabled
+  enrichmentStatus?: string           // screen-reader status text (loading / success / low-coverage / no-graph)
 }
 
 export function SegmentSidebar(props: SegmentSidebarProps) {
@@ -58,6 +65,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     enrichmentSources,
     onClearEnrichmentSource,
     enrichmentDisabledReason,
+    enrichmentStatus,
   } = props
 
   const showScaleFields = meta.segType !== 'wintersport'
@@ -198,16 +206,12 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
       {showScaleFields && (
         <Field label="SAC-Skala" tooltip="SAC-Wanderskala — offizielle Schweizer Bergweg-Klassifikation (T1–T6). Skadia nutzt die DAV-Bayern-Auslegung: Ski-Piste-Konvention (blau=einfach, rot=mittel, schwarz=schwer).">
           <div className="flex items-center gap-2">
-            <select
+            <StyledSelect
               value={meta.sacScale ?? ''}
-              onChange={e => onMetaChange({ sacScale: e.target.value || null })}
-              className="flex-1 rounded bg-neutral-800 px-2 py-1 text-sm text-white"
-            >
-              <option value="">—</option>
-              {SAC_SCALE_OPTIONS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+              placeholder="—"
+              options={SAC_SCALE_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
+              onChange={v => onMetaChange({ sacScale: v || null })}
+            />
             <ColorSwatch color={meta.sacScale ? SAC_COLOR_MAP[meta.sacScale] : null} />
             <EnrichmentBadge
               source={enrichmentSources.sac}
@@ -221,16 +225,12 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
       {showScaleFields && (
         <Field label="MTB-Skala" tooltip="Singletrail-Skala — offizielle MTB-Technikstufen nach singletrail-skala.de (S0–S5).">
           <div className="flex items-center gap-2">
-            <select
+            <StyledSelect
               value={meta.mtbScale ?? ''}
-              onChange={e => onMetaChange({ mtbScale: e.target.value || null })}
-              className="flex-1 rounded bg-neutral-800 px-2 py-1 text-sm text-white"
-            >
-              <option value="">—</option>
-              {MTB_SCALE_OPTIONS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+              placeholder="—"
+              options={MTB_SCALE_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
+              onChange={v => onMetaChange({ mtbScale: v || null })}
+            />
             <ColorSwatch color={meta.mtbScale ? MTB_COLOR_MAP[meta.mtbScale] : null} />
             <EnrichmentBadge
               source={enrichmentSources.mtb}
@@ -244,16 +244,12 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
       {showScaleFields && (
         <Field label="Oberfläche">
           <div className="flex items-center gap-2">
-            <select
+            <StyledSelect
               value={meta.surface ?? ''}
-              onChange={e => onMetaChange({ surface: e.target.value || null })}
-              className="flex-1 rounded bg-neutral-800 px-2 py-1 text-sm text-white"
-            >
-              <option value="">—</option>
-              {SURFACE_DROPDOWN_OPTIONS.map(s => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
+              placeholder="—"
+              options={SURFACE_DROPDOWN_OPTIONS.map(s => ({ value: s, label: s }))}
+              onChange={v => onMetaChange({ surface: v || null })}
+            />
             <EnrichmentBadge
               source={enrichmentSources.surface}
               onClear={() => onClearEnrichmentSource('surface')}
@@ -315,9 +311,9 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
         </label>
       </Field>
 
-      {/* Live-region for screen-reader enrichment announcements */}
+      {/* Live-region for screen-reader enrichment announcements (§4.14) */}
       <div aria-live="polite" aria-atomic="true" className="sr-only">
-        {enrichmentState.loading ? 'Lade OSM-Daten...' : ''}
+        {enrichmentStatus ?? (enrichmentState.loading ? 'Lade OSM-Daten...' : '')}
       </div>
     </aside>
   )
@@ -378,6 +374,53 @@ function ColorSwatch({ color }: { color: 'blue' | 'red' | 'black' | null | undef
       className="inline-block h-4 w-4 rounded"
       style={{ background: bg, border: color === 'black' ? '1px solid #374151' : undefined }}
     />
+  )
+}
+
+/**
+ * Dropdown-based styled select using shadcn DropdownMenu.
+ * Replaces native <select> elements for consistent dark-mode styling.
+ * Note: shadcn <Select> (Radix Select primitive) is not installed in this project,
+ * so we use the available DropdownMenu primitive instead.
+ */
+function StyledSelect({
+  value,
+  placeholder,
+  options,
+  onChange,
+}: {
+  value: string
+  placeholder: string
+  options: ReadonlyArray<{ value: string; label: string }>
+  onChange: (v: string) => void
+}) {
+  const selectedLabel = options.find(o => o.value === value)?.label ?? placeholder
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex flex-1 min-w-0 items-center justify-between gap-1 rounded bg-neutral-800 px-2 py-1 text-sm text-white hover:bg-neutral-700 focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-500 truncate"
+        >
+          <span className="truncate">{selectedLabel}</span>
+          <ChevronDown className="h-3 w-3 shrink-0 text-neutral-400" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-60 overflow-y-auto">
+        <DropdownMenuItem onClick={() => onChange('')}>
+          {placeholder}
+        </DropdownMenuItem>
+        {options.map(o => (
+          <DropdownMenuItem
+            key={o.value}
+            onClick={() => onChange(o.value)}
+            className={o.value === value ? 'font-medium text-blue-400 dark:text-blue-400' : ''}
+          >
+            {o.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
