@@ -1,4 +1,4 @@
--- 000316_vf_intent_preservation.up.sql
+-- 000319_vf_intent_preservation.up.sql
 --
 -- Migrate user-customized routing_profiles that had max_via_ferrata >= 5 before
 -- the AllowUnscaledViaFerrata safety-gate was introduced (Task 16a). Only users
@@ -11,4 +11,5 @@ UPDATE routing_profiles
 SET config = jsonb_set(config, '{allow_unscaled_via_ferrata}', 'true'::jsonb, true),
     updated_at = now()
 WHERE user_id IS NOT NULL
+  AND jsonb_typeof(config->'max_via_ferrata') = 'number'
   AND (config->>'max_via_ferrata')::int >= 5;
