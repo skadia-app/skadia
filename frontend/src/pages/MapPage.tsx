@@ -47,10 +47,23 @@ import { removeTerraIncognitaLayers, addTerraIncognitaLayers } from '@/lib/mapTe
 import GeoSearch from '@/components/map/GeoSearch'
 import { useStickyHighlight } from '@/hooks/useStickyHighlight'
 import { isInteractiveDescriptorKey } from '@/lib/descriptorFilter'
+import { SAC_COLORS, MTB_COLORS, HIGHLIGHT_COLORS } from '@/lib/scaleColors'
+import type { CoordRange } from '@/api/routes'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
 export type { SportOption } from '@/lib/sportOptions'
 export { SPORT_OPTIONS, getAllSportKeys } from '@/lib/sportOptions'
+
+// ── Descriptor overlay layer / source IDs ────────────────────────────────────
+// Z-order (bottom→top):
+//   LAYER_ROUTED < LAYER_VF_UNKNOWN* < LAYER_SCALE_BASE < LAYER_RANGE_HIGHLIGHT < LAYER_HIGHLIGHT
+// (* LAYER_VF_UNKNOWN declared in Task 22a alongside its addLayer call)
+const LAYER_SCALE_BASE      = 'route-scale-base-layer'
+const SOURCE_SCALE_BASE     = 'route-scale-base-source'
+const LAYER_RANGE_HIGHLIGHT = 'route-highlight-layer'
+const SOURCE_RANGE_HIGHLIGHT = 'route-highlight-source'
+// String constant matching useRouteEditor.ts LAYER_HIGHLIGHT (not exported from there).
+const LAYER_ROUTE_HIGHLIGHT = 'route-planner-highlight'
 
 type ViewMode = 'off' | 'tracks' | 'heatmap' | 'terra_incognita'
 const VALID_VIEW_MODES: readonly ViewMode[] = ['off', 'tracks', 'heatmap', 'terra_incognita']
@@ -572,6 +585,164 @@ export default function MapPage() {
 
   // Register MapLibre click handlers for route editing
   useRouteEditor(mapRef, routeEditorState, plannerActive)
+
+  // ── Descriptor overlay MapLibre layer init ────────────────────────────────
+  // Initialise LAYER_RANGE_HIGHLIGHT + LAYER_SCALE_BASE sources/layers once the
+  // MapLibre style is ready.  `layersReady` flips true after the first setup so
+  // the setData-effects below re-run after sources exist.
+  //
+  // Add-order is intentionally inverted vs. Z-order (bindend, Critic-R3 #16):
+  //   1. LAYER_RANGE_HIGHLIGHT first → guaranteed present as `beforeId` for step 2.
+  //   2. LAYER_SCALE_BASE second, beforeId = LAYER_RANGE_HIGHLIGHT.
+  const [layersReady, setLayersReady] = useState(false)
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    const setupLayers = () => {
+      // 1. Range-Highlight (forest/protected descriptor-hover overlay).
+      if (!map.getSource(SOURCE_RANGE_HIGHLIGHT)) {
+        map.addSource(SOURCE_RANGE_HIGHLIGHT, {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] },
+        })
+      }
+      if (!map.getLayer(LAYER_RANGE_HIGHLIGHT)) {
+        const before = map.getLayer(LAYER_ROUTE_HIGHLIGHT) ? LAYER_ROUTE_HIGHLIGHT : undefined
+        map.addLayer({
+          id: LAYER_RANGE_HIGHLIGHT,
+          type: 'line',
+          source: SOURCE_RANGE_HIGHLIGHT,
+          paint: {
+            'line-color': ['match',
+              ['get', 'category'],
+              'forest',    HIGHLIGHT_COLORS.forest,
+              'protected', HIGHLIGHT_COLORS.protected,
+              '#f59e0b',
+            ],
+            'line-width': 8,
+          },
+          layout: {
+            'line-cap': 'round',
+            'line-join': 'round',
+          },
+        }, before)
+      }
+
+      // 2. Scale-Base (SAC/MTB coloured segments when a scale-pin is active).
+      if (!map.getSource(SOURCE_SCALE_BASE)) {
+        map.addSource(SOURCE_SCALE_BASE, {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] },
+        })
+      }
+      if (!map.getLayer(LAYER_SCALE_BASE)) {
+        const before = map.getLayer(LAYER_RANGE_HIGHLIGHT) ? LAYER_RANGE_HIGHLIGHT : undefined
+        map.addLayer({
+          id: LAYER_SCALE_BASE,
+          type: 'line',
+          source: SOURCE_SCALE_BASE,
+          paint: {
+            'line-color': ['match',
+              ['get', 'level'],
+              'T1', SAC_COLORS.T1, 'T2', SAC_COLORS.T2, 'T3', SAC_COLORS.T3,
+              'T4', SAC_COLORS.T4, 'T5', SAC_COLORS.T5, 'T6', SAC_COLORS.T6,
+              'S0', MTB_COLORS.S0, 'S1', MTB_COLORS.S1, 'S2', MTB_COLORS.S2,
+              'S3', MTB_COLORS.S3, 'S4', MTB_COLORS.S4, 'S5', MTB_COLORS.S5,
+              '#71717a',
+            ],
+            'line-width': 6,
+          },
+          layout: {
+            'line-cap': 'round',
+            'line-join': 'round',
+          },
+        }, before)
+      }
+
+      setLayersReady(true)
+    }
+
+    if (map.isStyleLoaded()) {
+      setupLayers()
+    } else {
+      map.once('style.load', setupLayers)
+    }
+
+    // Cleanup not needed: layers persist for MapPage lifetime; MapLibre cleans up on map removal.
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── parsedCoords: shared coordinate array for both overlay useMemos ───────
+  const activeIdx = hoveredSuggestion ?? 0
+  const activeSuggestion = routeSuggestions?.[activeIdx]
+  const parsedCoords = useMemo<number[][]>(
+    () => ((activeSuggestion?.geojson?.features?.[0]?.geometry?.coordinates) ?? []) as number[][],
+    [activeSuggestion?.geojson],
+  )
+
+  // ── Scale-Base source content (SAC/MTB coloured ranges) ──────────────────
+  const scaleBaseFeatures = useMemo(() => {
+    if (!planner.scalePin || !activeSuggestion || parsedCoords.length < 2) return []
+    const ranges = planner.scalePin === 'sac'
+      ? activeSuggestion.sac_ranges
+      : activeSuggestion.mtb_ranges
+    if (!ranges) return []
+    const features: GeoJSON.Feature[] = []
+    for (const [level, levelRanges] of Object.entries(ranges)) {
+      for (const r of (levelRanges as CoordRange[])) {
+        const slice = parsedCoords.slice(r.from, Math.min(r.to, parsedCoords.length))
+        if (slice.length >= 2) {
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: slice },
+            properties: { level, category: planner.scalePin },
+          })
+        }
+      }
+    }
+    return features
+  }, [planner.scalePin, activeSuggestion, parsedCoords])
+
+  useEffect(() => {
+    if (!layersReady) return
+    const map = mapRef.current
+    if (!map) return
+    const src = map.getSource(SOURCE_SCALE_BASE) as maplibregl.GeoJSONSource | undefined
+    src?.setData({ type: 'FeatureCollection', features: scaleBaseFeatures })
+  }, [scaleBaseFeatures, layersReady])
+
+  // ── Highlight-Overlay source content (forest/protected descriptor-hover) ──
+  const highlightFeatures = useMemo(() => {
+    if (!activeSuggestion) return []
+    const hk = highlight.effective
+    if (!hk || hk.kind !== 'descriptor') return []
+    let ranges: CoordRange[] | undefined
+    let category: string | undefined
+    if (hk.descriptorKey === 'high_forest')    { ranges = activeSuggestion.forest_ranges;    category = 'forest'    }
+    if (hk.descriptorKey === 'high_protected') { ranges = activeSuggestion.protected_ranges; category = 'protected' }
+    if (!ranges || !category) return []
+    const features: GeoJSON.Feature[] = []
+    for (const r of ranges) {
+      const slice = parsedCoords.slice(r.from, Math.min(r.to, parsedCoords.length))
+      if (slice.length >= 2) {
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: slice },
+          properties: { category },
+        })
+      }
+    }
+    return features
+  }, [activeSuggestion, highlight.effective, parsedCoords])
+
+  useEffect(() => {
+    if (!layersReady) return
+    const map = mapRef.current
+    if (!map) return
+    const src = map.getSource(SOURCE_RANGE_HIGHLIGHT) as maplibregl.GeoJSONSource | undefined
+    src?.setData({ type: 'FeatureCollection', features: highlightFeatures })
+  }, [highlightFeatures, layersReady])
 
   // Drag-to-merge: dialog state
   const [tagMergeDialog, setTagMergeDialog] = useState<{
@@ -2805,6 +2976,9 @@ export default function MapPage() {
                   totalDistanceM={planner.totals.distance_m}
                   segments={planner.segments}
                   height={140}
+                  suggestion={activeSuggestion}
+                  scalePin={planner.scalePin}
+                  onTogglePin={planner.togglePin}
                 />
                 <RouteSurfacesBar
                   segments={planner.segments}
