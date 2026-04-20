@@ -166,8 +166,8 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   // hasUserSelection: false = no orange sub-segment layer rendered (e.g. after Reset).
   // Becomes true on first map click-to-place or drag/brush interaction.
   const [hasUserSelection, setHasUserSelection] = useState(false)
-  type TrackPhase = 'edit' | 'preview'
-  const [trackPhase, setTrackPhase] = useState<TrackPhase>('edit')
+  // (Vorschau-Phase entfernt — user-feedback: "macht nichts außer zu locken".
+  // Save-Button saved direkt. Kein Intermediate-State mehr.)
 
   // ── Lap-mode state ────────────────────────────────────────────────────────
   const [lapCrossings, setLapCrossings] = useState<number[]>([])
@@ -622,6 +622,21 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       // trackPointsRef.current) sees the updated order before the next render.
       trackPointsRef.current = reversed
       setRange(r => [N - 1 - r[1], N - 1 - r[0]])
+      // Push reversed coords to the activity-track MapLibre source so the
+      // direction chevrons (symbol-placement: line, icon-rotation-alignment:
+      // auto) re-orient. Without this the line-geometry stays in original
+      // order and arrows keep pointing the wrong way.
+      const map = mapRef.current
+      if (map) {
+        const src = map.getSource('activity-track') as maplibregl.GeoJSONSource | undefined
+        if (src) {
+          src.setData({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: reversed.map(p => [p.lng, p.lat]) },
+            properties: {},
+          })
+        }
+      }
       return reversed
     })
   }, [])
@@ -818,17 +833,10 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
 
       {/* Middle — Sidebar (full-height) + right column (Map + BottomBar) */}
       <div className="flex min-h-0 flex-1">
-        {/* Sidebar — locked (fieldset disabled) while in preview phase (Spec §4.3) */}
-        {/* min-h-0 is required so that fieldset participates in flex shrinking and
-            allows the child SegmentSidebar's overflow-y-auto to actually scroll.
-            Without min-h-0 the fieldset grows to content height and never scrolls. */}
-        <fieldset
-          disabled={trackPhase === 'preview'}
-          className={cn(
-            'flex min-h-0 w-72 shrink-0',
-            trackPhase === 'preview' ? 'opacity-50 pointer-events-none' : undefined,
-          )}
-        >
+        {/* Sidebar — always editable (Vorschau-Phase-Lock entfernt). */}
+        {/* min-h-0 is required so that div participates in flex shrinking and
+            allows the child SegmentSidebar's overflow-y-auto to actually scroll. */}
+        <div className="flex min-h-0 w-72 shrink-0">
           <SegmentSidebar
             mode={mode}
             meta={meta}
@@ -842,7 +850,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
             onClearEnrichmentSource={(f) => setEnrichmentSources(s => ({ ...s, [f]: null }))}
             enrichmentDisabledReason={enrichmentDisabledReason}
           />
-        </fieldset>
+        </div>
 
         {/* Right column: Map (flex-1) + BottomBar (intrinsic height) */}
         <div className="flex min-h-0 flex-1 flex-col">
@@ -866,16 +874,8 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
               onCommitRange={commitRangeToMap}
               onReverse={handleTrackReverse}
               onReset={handleRangeReset}
-              onPreviewOrSave={() => {
-                if (trackPhase === 'edit') {
-                  setTrackPhase('preview')
-                  // Spec §4.3: auto-zoom to selection bounds on Edit → Preview transition.
-                  commitRangeToMap(range)
-                } else {
-                  saveMutation.mutate()
-                }
-              }}
-              isPreview={trackPhase === 'preview'}
+              onPreviewOrSave={() => saveMutation.mutate()}
+              isPreview={false}
             />
           )}
           {mode === 'draw' && (

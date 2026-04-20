@@ -337,7 +337,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1',
           )}
         >
-          {isPreview ? 'Speichern' : 'Vorschau →'}
+          Speichern
         </button>
       </div>
     </div>
