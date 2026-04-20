@@ -209,13 +209,18 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 	//   3. default                            → Junction-Rows aus metadata-Source kopieren
 	if p.tagsMerge {
 		seenTagWarns := make(map[string]bool)
+		tagFailCount := 0
 		for _, srcID := range p.allSourceIDs {
 			tagWarns, err := fusionMergeActivityTags(ctx, tx, p.merged.ID, srcID)
 			if err != nil {
+				// Accumulate failures instead of emitting a separate warning per source.
+				// N transient DB failures for the same root cause would otherwise produce
+				// N nearly-identical entries in the response. A single summary is emitted
+				// after the loop. (R4-12)
 				slog.Warn("fusion-merge: merge tags failed",
 					"action", "fusion_merge_tags_union_nonfatal",
 					"source", srcID, "error", err)
-				warnings = append(warnings, fmt.Sprintf("tags merge from source %s failed — tags may be incomplete", srcID))
+				tagFailCount++
 			}
 			for _, w := range tagWarns {
 				if !seenTagWarns[w] {
@@ -223,6 +228,9 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 					warnings = append(warnings, w)
 				}
 			}
+		}
+		if tagFailCount > 0 {
+			warnings = append(warnings, fmt.Sprintf("tags merge failed for %d source(s) — tags may be incomplete", tagFailCount))
 		}
 		// Recompute tags.activity_count for all tags now linked to the merged activity.
 		// fusionMergeActivityTags updates per-tag counts individually but does not handle
