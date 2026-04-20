@@ -271,7 +271,7 @@ func aggregateEdgesToSegmentEnrichment(edges []edgeSample, coverage float64) *Se
 	mtbTotals := map[string]float64{}
 	var surfaceLen, sacLen, mtbLen float64
 	for _, e := range edges {
-		if group := surfaceIDToGroup(e.surfaceID); group != "" {
+		if group := surfaceIDToGroupForSegment(e.surfaceID); group != "" {
 			surfaceTotals[group] += e.lengthM
 			surfaceLen += e.lengthM
 		}

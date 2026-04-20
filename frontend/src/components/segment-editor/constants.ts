@@ -49,9 +49,11 @@ export function deriveTrailDifficultyColor(
 }
 
 // Labels that the editor offers in the Surface dropdown. §4.8 (v2 — post-user-feedback):
-// - Beton merged into Asphalt (OSM concrete* tags → 'Asphalt' in SURFACE_GROUPS)
-// - Metall removed (not practically relevant for segments)
+// - Beton merged into Asphalt (segment-enrichment backend maps concrete* → Asphalt)
+// - Metall removed (metal bridges/grids rarely characterize a user-authored segment)
+// - Holz removed (boardwalks/chips are incidental, not defining)
 // - Naturweg collapsed to one entry (fest/weich sub-types removed — OSM tagging inconsistent)
+// Backend surfaceIDToGroupForSegment enforces the same set on enrichment responses.
 export const SURFACE_DROPDOWN_OPTIONS: readonly string[] = [
   'Asphalt',
   'Pflaster',
@@ -61,7 +63,6 @@ export const SURFACE_DROPDOWN_OPTIONS: readonly string[] = [
   'Sand',
   'Gras',
   'Fels',
-  'Holz',
   'Schnee',
   'Sportbelag',
   'Wechselnd',          // editor-only, auto-set on mixed=true from enrichment
