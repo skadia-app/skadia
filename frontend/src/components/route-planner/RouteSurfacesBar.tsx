@@ -15,13 +15,14 @@ import {
   type RouteSubSegment,
 } from '@/lib/routeSurfaceAggregation'
 import type { RouteSegment } from '@/api/routes'
+import type { DescriptorKey } from '@/lib/descriptorFilter'
 
 interface Props {
   segments: RouteSegment[]
   onHighlight?: (type:
     | { kind: 'highway'; key: string }
     | { kind: 'surface'; key: string }
-    | { kind: 'descriptor'; descriptorKey: 'mtb_technical' | 'alpine_hiking' | 'exposed' | 'low_visibility' }
+    | { kind: 'descriptor'; descriptorKey: DescriptorKey }
     | null) => void
   /** Controlled pin state — managed by parent (e.g. useStickyHighlight). */
   pinnedType?: { kind: 'highway' | 'surface'; key: string } | null

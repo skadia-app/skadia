@@ -185,6 +185,7 @@ export interface AdminUser {
   created_at: string
   deleted_at: string | null
   hotfolder_enabled: boolean
+  pending_approval: boolean
 }
 
 export interface AdminUsersResponse {

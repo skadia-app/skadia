@@ -31,6 +31,7 @@ type adminUserEntry struct {
 	CreatedAt          time.Time  `json:"created_at"`
 	DeletedAt          *time.Time `json:"deleted_at,omitempty"`
 	HotfolderEnabled   bool       `json:"hotfolder_enabled"`
+	PendingApproval    bool       `json:"pending_approval"`
 }
 
 // AdminListUsers handles GET /admin/users — list all users with auth status.
@@ -63,6 +64,7 @@ func (h *Handler) AdminListUsers(w http.ResponseWriter, r *http.Request) {
   AND (CASE $2
        WHEN 'active'   THEN is_active = true  AND deleted_at IS NULL
        WHEN 'inactive' THEN is_active = false AND deleted_at IS NULL
+       WHEN 'pending'  THEN is_active = false AND pending_approval = true AND deleted_at IS NULL
        WHEN 'deleted'  THEN deleted_at IS NOT NULL
        WHEN 'all'      THEN true
        ELSE is_active = true AND deleted_at IS NULL END)`
@@ -77,7 +79,7 @@ func (h *Handler) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := `SELECT id, username, display_name, email, is_admin, is_active, email_verified,
-    registration_source, last_login_at, created_at, deleted_at, hotfolder_enabled
+    registration_source, last_login_at, created_at, deleted_at, hotfolder_enabled, pending_approval
 FROM users
 WHERE ` + whereClause + `
 ORDER BY created_at DESC
@@ -95,7 +97,7 @@ LIMIT $3 OFFSET $4`
 	for rows.Next() {
 		var u adminUserEntry
 		if err := rows.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.IsAdmin, &u.IsActive,
-			&u.EmailVerified, &u.RegistrationSource, &u.LastLoginAt, &u.CreatedAt, &u.DeletedAt, &u.HotfolderEnabled); err != nil {
+			&u.EmailVerified, &u.RegistrationSource, &u.LastLoginAt, &u.CreatedAt, &u.DeletedAt, &u.HotfolderEnabled, &u.PendingApproval); err != nil {
 			slog.Error("admin list users scan failed", "error", err)
 			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return

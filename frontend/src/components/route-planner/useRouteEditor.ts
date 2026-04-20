@@ -17,7 +17,7 @@ import type { RouteWaypoint, RouteSegment } from '@/api/routes'
 import type { SegmentKey } from '@/hooks/useRoutePlanner'
 import { nearestPointOnPolyline } from '@/lib/catmull-rom'
 import { SURFACE_GROUPS } from '@/lib/surfaceConstants'
-import { filterSubSegmentsByDescriptor } from '@/lib/descriptorFilter'
+import { filterSubSegmentsByDescriptor, type DescriptorKey } from '@/lib/descriptorFilter'
 import type { RouteSubSegment } from '@/lib/routeSurfaceAggregation'
 
 // ── Layer / Source IDs ──────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ export interface RoutePlannerState {
   highlightedType?:
     | { kind: 'highway'; key: string }
     | { kind: 'surface'; key: string }
-    | { kind: 'descriptor'; descriptorKey: 'mtb_technical' | 'alpine_hiking' | 'exposed' | 'low_visibility' }
+    | { kind: 'descriptor'; descriptorKey: DescriptorKey }
     | null
   addWaypoint: (latlng: [number, number]) => void
   moveWaypoint: (id: string, latlng: [number, number]) => void

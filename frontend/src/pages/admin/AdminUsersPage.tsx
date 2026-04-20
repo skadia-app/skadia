@@ -53,6 +53,7 @@ import {
 const STATUS_LABELS: Record<string, string> = {
   active: 'Aktiv',
   inactive: 'Inaktiv',
+  pending: 'Ausstehend',
   deleted: 'Gelöscht',
   all: 'Alle',
 }
@@ -95,6 +96,13 @@ function StatusBadge({ user }: { user: AdminUser }) {
     return (
       <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-red-500/10 text-red-600 dark:text-red-400">
         {STATUS_LABELS.deleted}
+      </span>
+    )
+  }
+  if (!user.is_active && user.pending_approval) {
+    return (
+      <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400">
+        {STATUS_LABELS.pending}
       </span>
     )
   }
@@ -957,6 +965,7 @@ export default function AdminUsersPage() {
           >
             <option value="active">{STATUS_LABELS.active}</option>
             <option value="inactive">{STATUS_LABELS.inactive}</option>
+            <option value="pending">{STATUS_LABELS.pending}</option>
             <option value="deleted">{STATUS_LABELS.deleted}</option>
             <option value="all">{STATUS_LABELS.all}</option>
           </select>
