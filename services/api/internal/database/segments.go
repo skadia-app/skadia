@@ -353,7 +353,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
 		       ) AS is_favorite,
 		       s.visibility, s.route_hash, s.created_at,
 		       ST_AsGeoJSON(sv.track) AS track_geojson,
-		       s.terrain_type, s.climb_type
+		       s.terrain_type, s.climb_type, s.bidirectional
 		FROM segments s
 		LEFT JOIN LATERAL (
 			SELECT track FROM segment_versions
@@ -373,7 +373,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
 		&s.RiddenCount, &s.IsFavorite,
 		&s.Visibility, &s.RouteHash, &s.CreatedAt,
 		&s.TrackGeoJSON,
-		&s.TerrainType, &s.ClimbType,
+		&s.TerrainType, &s.ClimbType, &s.Bidirectional,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -426,6 +426,22 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, updat
 	if update.Visibility != nil {
 		setClauses = append(setClauses, fmt.Sprintf("visibility = $%d", argIdx))
 		args = append(args, *update.Visibility)
+		argIdx++
+	}
+	// nil slice = unchanged (omitempty on wire), empty slice = clear filter (allow all),
+	// non-empty slice = restrict to listed sport types.
+	if update.AllowedSportTypes != nil {
+		setClauses = append(setClauses, fmt.Sprintf("allowed_sport_types = $%d", argIdx))
+		if len(update.AllowedSportTypes) == 0 {
+			args = append(args, nil) // NULL = all sport types allowed
+		} else {
+			args = append(args, update.AllowedSportTypes)
+		}
+		argIdx++
+	}
+	if update.Bidirectional != nil {
+		setClauses = append(setClauses, fmt.Sprintf("bidirectional = $%d", argIdx))
+		args = append(args, *update.Bidirectional)
 		argIdx++
 	}
 

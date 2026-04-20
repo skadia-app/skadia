@@ -28,6 +28,7 @@ type Segment struct {
 	CreatedAt         time.Time       `json:"created_at" db:"created_at"`
 	TerrainType       *string         `json:"terrain_type,omitempty" db:"terrain_type"`
 	ClimbType         *string         `json:"climb_type,omitempty" db:"climb_type"`
+	Bidirectional     bool            `json:"bidirectional" db:"bidirectional"`
 	// Joined field: latest version track as GeoJSON
 	TrackGeoJSON *string `json:"track_geojson,omitempty" db:"track_geojson"`
 }
@@ -48,13 +49,15 @@ type SegmentCreate struct {
 }
 
 type SegmentUpdate struct {
-	Name            *string          `json:"name,omitempty"`
-	Description     *string          `json:"description,omitempty"`
-	SegmentTypeMeta *json.RawMessage `json:"segment_type_meta,omitempty"`
-	NewVersion      bool             `json:"new_version,omitempty"`
-	TerrainType     *string          `json:"terrain_type,omitempty"`
-	ClimbType       *string          `json:"climb_type,omitempty"`
-	Visibility      *string          `json:"visibility,omitempty"` // "public" | "private"
+	Name              *string          `json:"name,omitempty"`
+	Description       *string          `json:"description,omitempty"`
+	SegmentTypeMeta   *json.RawMessage `json:"segment_type_meta,omitempty"`
+	NewVersion        bool             `json:"new_version,omitempty"`
+	TerrainType       *string          `json:"terrain_type,omitempty"`
+	ClimbType         *string          `json:"climb_type,omitempty"`
+	Visibility        *string          `json:"visibility,omitempty"`        // "public" | "private"
+	AllowedSportTypes []string         `json:"allowed_sport_types,omitempty"` // nil = unchanged; [] = clear filter; [...] = restrict
+	Bidirectional     *bool            `json:"bidirectional,omitempty"`      // nil = unchanged
 }
 
 type SegmentVersion struct {

@@ -20,6 +20,10 @@ export interface Segment {
   track_geojson?: string
   terrain_type?: string
   climb_type?: string
+  /** null/absent = all sport types allowed; [] = none; [...] = specific list */
+  allowed_sport_types?: string[] | null
+  /** true = segment can be ridden in both directions */
+  bidirectional: boolean
 }
 
 export interface SegmentEffort {
@@ -110,6 +114,10 @@ export interface UpdateSegmentPayload {
   terrain_type?: string
   climb_type?: string
   visibility?: 'public' | 'private'
+  /** absent = unchanged; [] = clear filter (all allowed); [...] = restrict to list */
+  allowed_sport_types?: string[]
+  /** absent = unchanged */
+  bidirectional?: boolean
 }
 
 export async function fetchSegmentLeaderboard(
