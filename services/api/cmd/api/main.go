@@ -1286,6 +1286,11 @@ func main() {
 			r.Get("/segments/{id}/leaderboard", h.GetSegmentLeaderboard)
 			r.Post("/segments/{id}/recompute", h.RecomputeSegment)
 			r.Post("/segments/{id}/publish", h.PublishSegment)
+			// Rate-limit: ~10/min per user, burst 3. Reverse runs a tx with inline
+			// rank-recompute (~10-100ms DB time) — without a cap this is a DoS vector
+			// against the DB in multi-user self-hosted deployments.
+			r.With(middleware.RateLimitPerUser(authRL, "segment-reverse:", 10.0/60, 3)).
+				Post("/segments/{id}/reverse", h.ReverseSegment)
 			r.Get("/segments/{id}/favorite", h.GetSegmentFavoriteStatus)
 			r.Post("/segments/{id}/favorite", h.AddSegmentFavorite)
 			r.Delete("/segments/{id}/favorite", h.RemoveSegmentFavorite)
