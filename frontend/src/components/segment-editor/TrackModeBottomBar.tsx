@@ -88,9 +88,15 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
   }, [trackPoints, hasElevation, elevationSeries, bindEcharts])
 
   // Reflect external range changes back to the brush visual.
+  // lastDispatchedRangeRef prevents a dispatch loop when the brush change itself
+  // triggers an onRangeChange callback that sets the same range value. (#9)
+  const lastDispatchedRangeRef = useRef<[number, number] | null>(null)
   useEffect(() => {
     const ec = echartsInstanceRef.current
     if (!ec) return
+    const last = lastDispatchedRangeRef.current
+    if (last && last[0] === range[0] && last[1] === range[1]) return
+    lastDispatchedRangeRef.current = [range[0], range[1]]
     ec.dispatchAction({
       type: 'brush',
       areas: [{ brushType: 'lineX', coordRange: [range[0], range[1]], xAxisIndex: 0 }],
