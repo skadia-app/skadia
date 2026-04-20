@@ -209,56 +209,7 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       layout: { 'line-cap': 'round', 'line-join': 'round' },
     })
 
-    // Trail-Layer: gestrichelte Linien
-    map.addLayer({
-      id: trailLayerId,
-      type: 'line',
-      source: sourceId,
-      filter: ['all',
-        ['==', ['geometry-type'], 'LineString'],
-        ['==', ['get', 'segment_type'], 'trail'],
-      ],
-      paint: {
-        'line-color': ['get', 'color'],
-        'line-width': [
-          'case',
-          ['>', ['get', 'ridden_count'], 0], 3,
-          2,
-        ],
-        'line-opacity': [
-          'case',
-          ['>', ['get', 'ridden_count'], 0], 0.9,
-          0.6,
-        ],
-        'line-dasharray': [4, 2],
-      },
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-    })
-
-    // Wintersport-Layer: gestrichelte sky-300-Linien mit Schwierigkeitsfarbe
-    map.addLayer({
-      id: wintersportLayerId,
-      type: 'line',
-      source: sourceId,
-      filter: ['all',
-        ['==', ['geometry-type'], 'LineString'],
-        ['==', ['get', 'segment_type'], 'wintersport'],
-      ],
-      paint: {
-        'line-color': [
-          'case',
-          ['==', ['get', 'difficulty_color'], 'blue'], '#148cf0',
-          ['==', ['get', 'difficulty_color'], 'red'], '#dc2626',
-          ['==', ['get', 'difficulty_color'], 'black'], '#111827',
-          '#7dd3fc',
-        ],
-        'line-width': 3,
-        'line-dasharray': [2, 3],
-      },
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-    })
-
-    // Standard-Linie-Layer (alle außer Trails und Wintersport)
+    // Standard-Linie-Layer (alle außer Trails und Wintersport) — unter den spezialisierten Typen
     map.addLayer({
       id: lineLayerId,
       type: 'line',
@@ -284,6 +235,60 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
         'line-cap': 'round',
         'line-join': 'round',
       },
+    })
+
+    // Trail-Layer: gestrichelte Linien — über Standard-Linien
+    map.addLayer({
+      id: trailLayerId,
+      type: 'line',
+      source: sourceId,
+      filter: ['all',
+        ['==', ['geometry-type'], 'LineString'],
+        ['==', ['get', 'segment_type'], 'trail'],
+      ],
+      paint: {
+        'line-color': ['get', 'color'],
+        'line-width': [
+          'case',
+          ['>', ['get', 'ridden_count'], 0], 3,
+          2,
+        ],
+        'line-opacity': [
+          'case',
+          ['>', ['get', 'ridden_count'], 0], 0.9,
+          0.6,
+        ],
+        'line-dasharray': [4, 2],
+      },
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+    })
+
+    // Wintersport-Layer: gestrichelte Linien mit Schwierigkeitsfarbe — über Trail-Linien
+    map.addLayer({
+      id: wintersportLayerId,
+      type: 'line',
+      source: sourceId,
+      filter: ['all',
+        ['==', ['geometry-type'], 'LineString'],
+        ['==', ['get', 'segment_type'], 'wintersport'],
+      ],
+      paint: {
+        'line-color': [
+          'case',
+          ['==', ['get', 'difficulty_color'], 'blue'], '#148cf0',
+          ['==', ['get', 'difficulty_color'], 'red'], '#dc2626',
+          ['==', ['get', 'difficulty_color'], 'black'], '#111827',
+          '#7dd3fc',
+        ],
+        'line-width': 3,
+        'line-opacity': [
+          'case',
+          ['>', ['get', 'ridden_count'], 0], 0.9,
+          0.7,
+        ],
+        'line-dasharray': [2, 3],
+      },
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
     })
 
     // Punkt-Layer für Segmente ohne Track
