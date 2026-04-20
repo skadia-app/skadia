@@ -324,6 +324,186 @@ func TestAddGroupMember_RejectsFusionSource(t *testing.T) {
 
 // ─── 409 Conflict: activity already in a different group ─────────────────────
 
+// ─── R4-6: 3-member-group coverage ──────────────────────────────────────────
+
+// TestFusionMerge_GroupMode_Preserves3MemberGroup_MergeSubset verifies that
+// group-mode fusion with a 3-member group {A, B, C} and a subset merge {A, B}
+// correctly extends the group rather than dissolving it.
+//
+//   - Group G = {A (primary), B, C}
+//   - FusionMerge sources=[A, B], group_id=G → creates D
+//   - After commit: G = {A, B, C, D(is_fused=true)}, primary=D
+//   - A, B, C must have is_group_secondary=TRUE (set by trg_group_primary_sync)
+func TestFusionMerge_GroupMode_Preserves3MemberGroup_MergeSubset(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+	actC := insertMinimalActivity(t, db, userID)
+
+	group, err := db.CreateRecordingGroup(ctx, userID, []string{actA, actB, actC}, actA, "")
+	if err != nil {
+		t.Fatalf("CreateRecordingGroup: %v", err)
+	}
+	groupID := group.ID
+
+	// Fuse subset {A, B} with group_id = G.
+	reqBody := fmt.Sprintf(
+		`{"sources":[%q,%q],"field_map":{"gps":%q},"tags_merge":false,"group_id":%q}`,
+		actA, actB, actA, groupID,
+	)
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
+		strings.NewReader(reqBody))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq = httpReq.WithContext(
+		context.WithValue(httpReq.Context(), middleware.UserIDKey, userID),
+	)
+	rr := httptest.NewRecorder()
+	h := &Handler{DB: db}
+	h.FusionMerge(rr, httpReq)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("FusionMerge: expected 201, got %d — body: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode FusionMerge response: %v", err)
+	}
+	mergedID := resp.ID
+
+	// Group must still exist.
+	reloadedGroup, err := db.GetRecordingGroup(ctx, groupID)
+	if err != nil {
+		t.Fatalf("GetRecordingGroup after fusion: %v", err)
+	}
+	if reloadedGroup == nil {
+		t.Fatal("R4-6: 3-member group was dissolved by group-mode fusion — expected it to survive")
+	}
+
+	// primary_activity_id must be the merged activity D.
+	if reloadedGroup.PrimaryActivityID == nil || *reloadedGroup.PrimaryActivityID != mergedID {
+		primaryStr := "<nil>"
+		if reloadedGroup.PrimaryActivityID != nil {
+			primaryStr = *reloadedGroup.PrimaryActivityID
+		}
+		t.Errorf("R4-6: primary_activity_id = %s, want %s (merged)", primaryStr, mergedID)
+	}
+
+	members, err := db.GetRecordingGroupMembers(ctx, groupID)
+	if err != nil {
+		t.Fatalf("GetRecordingGroupMembers after fusion: %v", err)
+	}
+
+	byID := make(map[string]database.RecordingGroupMemberDetail, len(members))
+	for _, m := range members {
+		byID[m.ActivityID] = m
+	}
+
+	// Group must contain A, B, C (sources + non-merged member) and D (merged).
+	for _, id := range []string{actA, actB, actC} {
+		if _, ok := byID[id]; !ok {
+			t.Errorf("R4-6: activity %s missing from group after subset merge", id)
+		}
+	}
+	if m, ok := byID[mergedID]; !ok {
+		t.Errorf("R4-6: merged activity D (%s) missing from group members", mergedID)
+	} else if !m.IsFused {
+		t.Errorf("R4-6: merged activity D (%s) must have is_fused=true", mergedID)
+	}
+
+	// A, B, C must be is_group_secondary=TRUE (trg_group_primary_sync fired).
+	for _, id := range []string{actA, actB, actC} {
+		var isSecondary bool
+		if err := pool.QueryRow(ctx,
+			`SELECT is_group_secondary FROM activities WHERE id = $1`, id,
+		).Scan(&isSecondary); err != nil {
+			t.Fatalf("R4-6: scan is_group_secondary for %s: %v", id, err)
+		}
+		if !isSecondary {
+			t.Errorf("R4-6: activity %s should have is_group_secondary=TRUE after group-mode merge", id)
+		}
+	}
+
+	t.Logf("R4-6: 3-member group %s preserved, primary=%s, members=%d — OK", groupID, mergedID, len(members))
+}
+
+// TestFusionMerge_AdHocMode_RemovesSourcesFromGroup verifies that ad-hoc fusion
+// (no group_id) removes merged sources from their recording group via trigger
+// 000313, and that a group dissolves when too few members remain.
+//
+//   - Group G = {A (primary), B, C}
+//   - FusionMerge sources=[A, B], NO group_id → creates D (ad-hoc)
+//   - Trigger 000313 removes A and B from recording_group_members
+//   - Only C remains → group dissolves (trg_group_members_sync, <2 members)
+func TestFusionMerge_AdHocMode_RemovesSourcesFromGroup(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+	actC := insertMinimalActivity(t, db, userID)
+
+	group, err := db.CreateRecordingGroup(ctx, userID, []string{actA, actB, actC}, actA, "")
+	if err != nil {
+		t.Fatalf("CreateRecordingGroup: %v", err)
+	}
+	groupID := group.ID
+
+	// Fuse {A, B} ad-hoc (no group_id).
+	reqBody := fmt.Sprintf(
+		`{"sources":[%q,%q],"field_map":{"gps":%q},"tags_merge":false}`,
+		actA, actB, actA,
+	)
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/fusion-merge",
+		strings.NewReader(reqBody))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq = httpReq.WithContext(
+		context.WithValue(httpReq.Context(), middleware.UserIDKey, userID),
+	)
+	rr := httptest.NewRecorder()
+	h := &Handler{DB: db}
+	h.FusionMerge(rr, httpReq)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("FusionMerge ad-hoc: expected 201, got %d — body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Group must be dissolved: trigger 000313 removes A+B (2 sources),
+	// leaving only C (1 member) → trg_group_members_sync dissolves the group.
+	dissolvedGroup, err := db.GetRecordingGroup(ctx, groupID)
+	if err != nil {
+		t.Fatalf("GetRecordingGroup after ad-hoc fusion: %v", err)
+	}
+	if dissolvedGroup != nil {
+		t.Errorf("R4-6: ad-hoc merge of {A,B} from 3-member group should dissolve the group (only C remains), but it still exists")
+	}
+
+	// A and B must no longer be in recording_group_members (trigger removed them).
+	for _, id := range []string{actA, actB} {
+		var cnt int
+		if err := pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM recording_group_members WHERE activity_id = $1`, id,
+		).Scan(&cnt); err != nil {
+			t.Fatalf("R4-6: count recording_group_members for %s: %v", id, err)
+		}
+		if cnt != 0 {
+			t.Errorf("R4-6: fusion-source %s should have been removed from recording_group_members by trigger 000313, but still has %d row(s)", id, cnt)
+		}
+	}
+
+	t.Logf("R4-6: ad-hoc fusion of {A,B} correctly dissolved 3-member group G after sources removed — OK")
+}
+
+// ─── 409 Conflict: activity already in a different group ─────────────────────
+
 // TestAddGroupMember_Conflict409 verifies that adding an activity that already
 // belongs to a *different* recording group returns 409 Conflict.
 //
