@@ -40,6 +40,20 @@ describe('WINTER_SPORT_WHITELIST', () => {
   })
 })
 
-// Suppress unused-import warnings — these are structural exports verified here
-void SAC_COLOR_MAP
-void MTB_COLOR_MAP
+describe('SAC_COLOR_MAP', () => {
+  it('T1 maps to blue', () => {
+    expect(SAC_COLOR_MAP.T1).toBe('blue')
+  })
+  it('T6 maps to black', () => {
+    expect(SAC_COLOR_MAP.T6).toBe('black')
+  })
+})
+
+describe('MTB_COLOR_MAP', () => {
+  it('S0 maps to blue', () => {
+    expect(MTB_COLOR_MAP.S0).toBe('blue')
+  })
+  it('S5 maps to black', () => {
+    expect(MTB_COLOR_MAP.S5).toBe('black')
+  })
+})
