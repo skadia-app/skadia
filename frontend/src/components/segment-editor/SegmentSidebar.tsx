@@ -18,6 +18,7 @@ import {
   deriveTrailDifficultyColor,
   type SegType,
 } from './constants'
+import { Pill } from './Pill'
 import { sportsInCategory } from '@/lib/sportTaxonomy'
 import { cn } from '@/lib/utils'
 
@@ -73,9 +74,10 @@ const DIFF_COLOR_LABELS: Record<'blue' | 'red' | 'black', string> = {
   black: 'Schwarz — schwer',
 }
 
-// ── UI-level sport categories (5 chips shown to user) ─────────────────────────
+// ── UI-level sport categories (full master list) ───────────────────────────────
 // Maps user-visible chips to the underlying taxonomy category keys.
 // "Sonstige" covers fitness/game/climb/outdoor/multi/other from the taxonomy.
+// Visibility is segType-dependent — see getVisibleCategories() below.
 const UI_SPORT_CATEGORIES: Array<{ key: string; label: string; taxonomyKeys: string[] }> = [
   { key: 'run',      label: 'Laufen & Wandern', taxonomyKeys: ['run'] },
   { key: 'bike',     label: 'Rad',              taxonomyKeys: ['bike'] },
@@ -83,6 +85,21 @@ const UI_SPORT_CATEGORIES: Array<{ key: string; label: string; taxonomyKeys: str
   { key: 'water',    label: 'Wassersport',       taxonomyKeys: ['water'] },
   { key: 'sonstige', label: 'Sonstige',          taxonomyKeys: ['fitness', 'game', 'climb', 'outdoor', 'multi', 'other'] },
 ]
+
+/**
+ * Returns the sport-category chips that should be shown for the current segType.
+ *
+ * - wintersport → only the Wintersport chip (existing behaviour)
+ * - standard / trail / lap → run + bike + sonstige
+ *   (winter and water hidden: winter has its own segType; water gets one in a
+ *   future phase — hiding now avoids user confusion and orphaned sport selections)
+ */
+function getVisibleCategories(segType: SegType): typeof UI_SPORT_CATEGORIES {
+  if (segType === 'wintersport') {
+    return UI_SPORT_CATEGORIES.filter(c => c.key === 'winter')
+  }
+  return UI_SPORT_CATEGORIES.filter(c => c.key !== 'winter' && c.key !== 'water')
+}
 
 /** Expand a UI category key to all individual sport-type strings from the taxonomy. */
 function expandCategoryToSportTypes(uiKey: string, whitelist?: readonly string[]): string[] {
@@ -164,6 +181,16 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
       patch.sacScale = null
       patch.mtbScale = null
       patch.surface = null
+    }
+    // Part C: when switching to standard/trail/lap, remove any sport types that
+    // belong to the now-hidden categories (winter, water) to keep selections clean.
+    if (newType !== 'wintersport' && meta.sportTypes) {
+      const visibleCats = getVisibleCategories(newType)
+      const allowedTypes = visibleCats.flatMap(cat =>
+        cat.taxonomyKeys.flatMap(tk => sportsInCategory(tk).map(s => s.sportType))
+      )
+      const filtered = meta.sportTypes.filter(s => allowedTypes.includes(s))
+      patch.sportTypes = filtered.length === 0 ? null : filtered
     }
     onMetaChange(patch)
   }
@@ -248,89 +275,63 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
 
         {/* ── Segment-Typ ──────────────────────────────────────────────────── */}
         <Field label="Typ">
-          <div className="grid grid-cols-4 gap-1">
+          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Segment-Typ">
             {(['standard', 'trail', 'lap', 'wintersport'] as SegType[]).map(t => (
-              <button
+              <Pill
                 key={t}
-                type="button"
                 role="radio"
-                aria-checked={meta.segType === t}
+                ariaChecked={meta.segType === t}
+                active={meta.segType === t}
                 onClick={() => handleSegTypeChange(t)}
-                className={cn(
-                  'rounded-md px-1.5 py-1.5 text-xs font-medium text-center',
-                  'transition-colors duration-150',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900',
-                  meta.segType === t
-                    ? 'bg-accent-DEFAULT text-white shadow-sm'
-                    : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100',
-                )}
               >
                 {SEG_TYPE_LABELS[t]}
-              </button>
+              </Pill>
             ))}
           </div>
         </Field>
 
         {/* ── Sportarten ───────────────────────────────────────────────────── */}
         <Field label="Sportarten">
-          {/* Category chips row */}
+          {/* Category chips row — Part C: visible categories depend on segType */}
           <div className="flex flex-wrap gap-1.5" role="group" aria-label="Sportarten-Filter">
             {/* "Alle" chip */}
-            <button
-              type="button"
+            <Pill
               role="checkbox"
-              aria-checked={meta.sportTypes === null}
+              ariaChecked={meta.sportTypes === null}
+              active={meta.sportTypes === null}
               onClick={setAll}
-              className={cn(
-                'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium',
-                'transition-colors duration-150',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900',
-                meta.sportTypes === null
-                  ? 'bg-accent-DEFAULT text-white shadow-sm'
-                  : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100',
-              )}
+              leftSlot={meta.sportTypes === null ? <Check className="h-3.5 w-3.5 shrink-0" /> : undefined}
             >
-              {meta.sportTypes === null && <Check className="h-3 w-3 shrink-0" />}
               Alle
-            </button>
+            </Pill>
 
-            {/* Category chips — filter to only wintersport chip if segType=wintersport */}
-            {UI_SPORT_CATEGORIES
-              .filter(cat => meta.segType !== 'wintersport' || cat.key === 'winter')
-              .map(cat => {
-                const whitelist = meta.segType === 'wintersport' ? WINTER_SPORT_WHITELIST : undefined
-                const isActive = isCategoryFullyActive(cat.key, meta.sportTypes, whitelist)
-                const isPartial = isCategoryPartiallyActive(cat.key, meta.sportTypes, whitelist)
-                return (
-                  <button
-                    key={cat.key}
-                    type="button"
-                    role="checkbox"
-                    aria-checked={isActive ? true : isPartial ? 'mixed' : false}
-                    onClick={() => toggleUiCategory(cat.key)}
-                    className={cn(
-                      'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium',
-                      'transition-colors duration-150',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900',
-                      isActive
-                        ? 'bg-accent-DEFAULT text-white shadow-sm'
-                        : isPartial
-                          ? 'bg-accent-DEFAULT/20 text-accent-DEFAULT dark:text-accent-400 shadow-sm'
-                          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100',
-                    )}
-                  >
-                    {isActive && <Check className="h-3 w-3 shrink-0" />}
-                    {cat.label}
-                  </button>
-                )
-              })
-            }
+            {/* Category chips — getVisibleCategories filters by segType (Part C) */}
+            {getVisibleCategories(meta.segType).map(cat => {
+              const whitelist = meta.segType === 'wintersport' ? WINTER_SPORT_WHITELIST : undefined
+              const isActive = isCategoryFullyActive(cat.key, meta.sportTypes, whitelist)
+              const isPartial = isCategoryPartiallyActive(cat.key, meta.sportTypes, whitelist)
+              return (
+                <Pill
+                  key={cat.key}
+                  role="checkbox"
+                  ariaChecked={isActive ? true : isPartial ? 'mixed' : false}
+                  active={isActive}
+                  onClick={() => toggleUiCategory(cat.key)}
+                  leftSlot={isActive ? <Check className="h-3.5 w-3.5 shrink-0" /> : undefined}
+                  className={isPartial && !isActive
+                    ? 'border-accent-DEFAULT/40 bg-accent-DEFAULT/10 text-accent-700 dark:text-accent-300'
+                    : undefined}
+                >
+                  {cat.label}
+                </Pill>
+              )
+            })}
           </div>
 
           {/* Feinwahl: per active non-Alle category, show individual sport chips on expand */}
           {meta.sportTypes !== null && meta.segType !== 'wintersport' && (
             <div className="mt-2 flex flex-col gap-1.5">
-              {UI_SPORT_CATEGORIES
+              {getVisibleCategories(meta.segType)
                 .filter(cat => {
                   const types = expandCategoryToSportTypes(cat.key)
                   return types.some(t => meta.sportTypes!.includes(t)) ||
@@ -422,7 +423,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
               {enrichmentState.loading
                 ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 : <RefreshCw className="h-3.5 w-3.5" />}
-              <span>OSM-Vorschlag</span>
+              <span className="sr-only">OSM-Vorschlag</span>
             </button>
           </div>
 
@@ -516,15 +517,20 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
                     </span>
                   )}
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Schwierigkeit">
                   {(['blue', 'red', 'black'] as const).map(c => (
-                    <DifficultyButton
+                    <Pill
                       key={c}
-                      color={c}
+                      role="radio"
+                      ariaChecked={displayedColor === c}
+                      ariaLabel={DIFF_COLOR_LABELS[c]}
                       active={displayedColor === c}
                       disabled={difficultyColorReadonly}
                       onClick={() => onMetaChange({ difficultyColor: displayedColor === c ? null : c })}
-                    />
+                      leftSlot={<DifficultyDot color={c} />}
+                    >
+                      {DIFF_COLOR_SHORT[c]}
+                    </Pill>
                   ))}
                 </div>
               </div>
@@ -533,15 +539,20 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
             /* wintersport: no scale fields, just difficulty */
             <div className="flex flex-col gap-1">
               <span className="text-[10px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">Schwierigkeit</span>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Schwierigkeit">
                 {(['blue', 'red', 'black'] as const).map(c => (
-                  <DifficultyButton
+                  <Pill
                     key={c}
-                    color={c}
+                    role="radio"
+                    ariaChecked={displayedColor === c}
+                    ariaLabel={DIFF_COLOR_LABELS[c]}
                     active={displayedColor === c}
                     disabled={false}
                     onClick={() => onMetaChange({ difficultyColor: displayedColor === c ? null : c })}
-                  />
+                    leftSlot={<DifficultyDot color={c} />}
+                  >
+                    {DIFF_COLOR_SHORT[c]}
+                  </Pill>
                 ))}
               </div>
             </div>
@@ -655,52 +666,19 @@ const DIFF_COLOR_SHORT: Record<'blue' | 'red' | 'black', string> = {
   black: 'Schwarz',
 }
 
-// Active-state styles per difficulty color — border + tinted bg + text color.
-const DIFF_ACTIVE_CLASS: Record<'blue' | 'red' | 'black', string> = {
-  blue:  'border-2 border-blue-500 bg-blue-500/10 text-blue-700 dark:text-blue-300 font-semibold shadow-sm',
-  red:   'border-2 border-red-600 bg-red-600/10 text-red-700 dark:text-red-300 font-semibold shadow-sm',
-  black: 'border-2 border-neutral-800 dark:border-neutral-300 bg-neutral-800/10 dark:bg-neutral-300/10 text-neutral-900 dark:text-neutral-100 font-semibold shadow-sm',
-}
-
-function DifficultyButton({
-  color,
-  active,
-  disabled,
-  onClick,
-}: {
-  color: 'blue' | 'red' | 'black'
-  active: boolean
-  disabled: boolean
-  onClick: () => void
-}) {
-  const dotClass = color === 'blue'
+/**
+ * Coloured dot used as the leftSlot in difficulty Pill buttons.
+ * The dot communicates which difficulty colour is which; the Pill's own
+ * active state always uses the canonical orange accent (not blue/red/black)
+ * so all three pill types look visually cohesive.
+ */
+function DifficultyDot({ color }: { color: 'blue' | 'red' | 'black' }) {
+  const cls = color === 'blue'
     ? 'bg-blue-500'
     : color === 'red'
       ? 'bg-red-600'
       : 'bg-neutral-900 dark:bg-neutral-100 border border-neutral-500 dark:border-neutral-400'
-
-  return (
-    <button
-      type="button"
-      aria-label={DIFF_COLOR_LABELS[color]}
-      aria-pressed={active}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium',
-        'transition-all duration-150',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900',
-        active
-          ? DIFF_ACTIVE_CLASS[color]
-          : 'border border-neutral-300 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400 dark:hover:border-neutral-600 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100',
-        disabled && 'cursor-not-allowed opacity-60',
-      )}
-    >
-      {/* Colored dot indicating the difficulty color */}
-      <span className={cn('inline-block h-3.5 w-3.5 shrink-0 rounded-full', dotClass)} aria-hidden="true" />
-      {DIFF_COLOR_SHORT[color]}
-    </button>
-  )
+  return <span className={cn('inline-block h-3 w-3 rounded-full', cls)} aria-hidden="true" />
 }
 
 function ToggleRow({
