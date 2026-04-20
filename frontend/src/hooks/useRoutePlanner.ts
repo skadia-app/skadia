@@ -461,7 +461,7 @@ export function useRoutePlanner() {
   )
 
   const recalculateAll = useCallback(async () => {
-    setScalePin(null)
+    resetScalePin()
     let currentWaypoints: RouteWaypoint[] = []
     let currentProfileConfig: ProfileConfig | null = null
     let currentEngine: RoutingEngine = 'badrouter'
@@ -614,7 +614,7 @@ export function useRoutePlanner() {
     // route.profile is a string — try cache first, then fetch async
     const cached = getProfileDefaults(route.profile)
     if (cached) {
-      setScalePin(null)
+      resetScalePin()
       setState(s => ({
         ...s,
         waypoints: route.waypoints,
@@ -626,7 +626,7 @@ export function useRoutePlanner() {
         editingRouteId: route.id,
       }))
     } else {
-      setScalePin(null)
+      resetScalePin()
       // Load waypoints/segments immediately, fetch profile in background
       setState(s => ({
         ...s,
@@ -681,7 +681,7 @@ export function useRoutePlanner() {
   const loadSuggestion = useCallback((s: RouteSuggestion) => {
     // I3-Invariant: MUSS als erste Anweisung bleiben — "Übernehmen"-Flow
     // im Comparison-Panel (onSelect-Handler des RouteComparisonPanel) ist von diesem Reset abhängig.
-    setScalePin(null)
+    resetScalePin()
     const coords = s.geojson?.features?.[0]?.geometry?.coordinates as number[][] | undefined
     if (!coords || coords.length < 2) {
       setState(st => ({
