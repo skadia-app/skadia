@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -430,6 +431,19 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	routingMetricOutdoorCoverageAvailable.WithLabelValues(label).Inc()
 
 	// Step 10: Build and write response.
+	// Load per-user summit detection radius once, before the variant loop.
+	// userID already obtained from httputil.RequireUserID above.
+	// h.DB may be nil in unit tests — guard to avoid nil-pointer panic.
+	radiusM := 80.0 // Default fallback (matches Migration 000315 DEFAULT)
+	if h.DB != nil && userID != "" {
+		if settings, err := h.DB.GetEnrichmentSettings(r.Context(), userID); err == nil && settings != nil {
+			radiusM = settings.SummitDetectionRadiusM
+		} else if err != nil {
+			slog.Warn("get enrichment settings failed; falling back to default radius",
+				"user_id", userID, "error", err)
+		}
+	}
+
 	suggestions := make([]RouteSuggestion, 0, len(labeled))
 	for i, lr := range labeled {
 		c := lr.Candidate
@@ -448,6 +462,67 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		descriptors := lr.Descriptors
 		if descriptors == nil {
 			descriptors = []VariantDescriptor{}
+		}
+
+		// Range computation per variant.
+		lastCoordIdx := len(merged.Coordinates) - 1
+
+		forestRanges := computeForestRanges(merged.EdgeCoordStart, merged.EdgeTags2, lastCoordIdx)
+		protectedRanges := computeProtectedRanges(merged.EdgeCoordStart, merged.EdgeTags2, lastCoordIdx)
+
+		sacRanges := make(map[string][]CoordRange)
+		for _, level := range []string{"T1", "T2", "T3", "T4", "T5", "T6"} {
+			if r := computeScaleRanges(merged.EdgeCoordStart, merged.EdgeTags1, lastCoordIdx, "sac", level); len(r) > 0 {
+				sacRanges[level] = r
+			}
+		}
+		mtbRanges := make(map[string][]CoordRange)
+		for _, level := range []string{"S0", "S1", "S2", "S3", "S4", "S5"} {
+			if r := computeScaleRanges(merged.EdgeCoordStart, merged.EdgeTags1, lastCoordIdx, "mtb", level); len(r) > 0 {
+				mtbRanges[level] = r
+			}
+		}
+		if len(sacRanges) == 0 {
+			sacRanges = nil
+		}
+		if len(mtbRanges) == 0 {
+			mtbRanges = nil
+		}
+
+		vfRanges := make(map[string][]CoordRange)
+		for _, level := range []string{"K1", "K2", "K3", "K4", "K5", "K6"} {
+			if r := computeVfRanges(merged.EdgeCoordStart, merged.EdgeTags2, lastCoordIdx, level); len(r) > 0 {
+				vfRanges[level] = r
+			}
+		}
+		if len(vfRanges) == 0 {
+			vfRanges = nil
+		}
+		vfUnknownRanges := computeVfUnknownRanges(merged.EdgeCoordStart, merged.EdgeTags1, merged.EdgeTags2, lastCoordIdx)
+
+		// Summit detection per variant.
+		// h.DB / h.DB.Pool may be nil in unit tests — guard to avoid nil-pointer panic.
+		var summitsPassed []database.PassedSummit
+		if h.DB != nil && h.DB.Pool != nil && radiusM > 0 && len(merged.Coordinates) >= 2 {
+			wkbBytes, wkbErr := coordsToLineStringWKB(merged.Coordinates)
+			if wkbErr != nil {
+				if errors.Is(wkbErr, errTooFewCoords) {
+					// Approach-only route: normal corner-case, silent skip.
+				} else {
+					slog.Warn("summit-along-geom: WKB failed", "err", wkbErr, "variant", lr.VariantID)
+				}
+			} else {
+				var err error
+				summitsPassed, err = database.FindSummitsAlongGeom(r.Context(), h.DB.Pool, wkbBytes, radiusM)
+				if err != nil {
+					slog.Warn("summits along route failed", "variant", lr.VariantID, "error", err)
+					summitsPassed = nil // per-variant isolation (Spec §4.1.5)
+				}
+			}
+		}
+		responseSummits := make([]ResponsePassedSummit, 0, len(summitsPassed))
+		for _, s := range summitsPassed {
+			responseSummits = append(responseSummits, toResponseSummit(s))
 		}
 
 		suggestions = append(suggestions, RouteSuggestion{
@@ -469,6 +544,13 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 			Descriptors:            descriptors,
 			ForestPct:              float32(c.MergedForestPct),
 			ProtectedPct:           float32(c.MergedProtectedArea),
+			ForestRanges:           forestRanges,
+			ProtectedRanges:        protectedRanges,
+			SacRanges:              sacRanges,
+			MtbRanges:              mtbRanges,
+			VfRanges:               vfRanges,
+			VfUnknownRanges:        vfUnknownRanges,
+			SummitsPassed:          responseSummits,
 		})
 	}
 
