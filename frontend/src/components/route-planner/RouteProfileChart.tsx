@@ -337,8 +337,7 @@ export default function RouteProfileChart({
       if (delta > 0) gain += delta
       else loss += Math.abs(delta)
     }
-    const maxGrade = Math.max(...points.map(p => p.grade))
-    return { gain: Math.round(gain), loss: Math.round(loss), maxGrade }
+    return { gain: Math.round(gain), loss: Math.round(loss) }
   }, [points])
 
   // ── Legend items ──────────────────────────────────────────────────────────
