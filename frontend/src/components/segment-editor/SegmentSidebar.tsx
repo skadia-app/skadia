@@ -740,7 +740,21 @@ function StyledSelect({
   options: ReadonlyArray<{ value: string; label: string }>
   onChange: (v: string) => void
 }) {
-  const selectedLabel = options.find(o => o.value === value)?.label ?? placeholder
+  // If the stored value is non-empty but not in the current option list
+  // (e.g. legacy surface values like 'Beton', 'Naturweg (fest)', 'Holz', 'Metall'
+  // that were removed in §4.8 v2), show it as "(veraltet) <value>" so users
+  // can see what they have and pick a replacement — no silent data loss.
+  const isLegacy = value !== '' && !options.some(o => o.value === value)
+  const selectedLabel = isLegacy
+    ? `(veraltet) ${value}`
+    : (options.find(o => o.value === value)?.label ?? placeholder)
+
+  // Build effective options: for legacy values prepend a "(veraltet)" entry so
+  // the dropdown trigger text and the rendered list are consistent.
+  const effectiveOptions: ReadonlyArray<{ value: string; label: string }> = isLegacy
+    ? [{ value, label: `(veraltet) ${value}` }, ...options]
+    : options
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -754,6 +768,7 @@ function StyledSelect({
             'transition-colors duration-150',
             'hover:border-neutral-400 dark:hover:border-neutral-600 hover:bg-neutral-50 dark:hover:bg-neutral-700',
             'focus:outline-none focus-visible:border-accent-DEFAULT focus-visible:ring-1 focus-visible:ring-accent-DEFAULT',
+            isLegacy && 'border-amber-400 dark:border-amber-600 text-amber-700 dark:text-amber-400',
           )}
         >
           <span className="truncate">{selectedLabel}</span>
@@ -764,10 +779,10 @@ function StyledSelect({
         <DropdownMenuItem onClick={() => onChange('')}>
           {placeholder}
         </DropdownMenuItem>
-        {options.map(o => (
+        {effectiveOptions.map(o => (
           <DropdownMenuItem
             key={o.value}
-            onClick={() => onChange(o.value)}
+            onClick={() => onChange(o.value === value && isLegacy ? value : o.value)}
             className={o.value === value ? 'font-medium text-accent-DEFAULT dark:text-accent-400' : ''}
           >
             {o.label}
