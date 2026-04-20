@@ -37,14 +37,12 @@ func FindSummitsAlongGeom(
 	geomWKB []byte,
 	radiusM float64,
 ) ([]PassedSummit, error) {
+	// Early-return for empty geometry or non-positive radius (defensive — e.g.
+	// approach-only routes, or mis-configured test fixtures). Handler layer
+	// already clamps user input to [10, 150] via clampSummitDetectionRadius;
+	// this check protects against internal mis-uses (e.g. direct Go tests).
 	if len(geomWKB) == 0 || radiusM <= 0 {
 		return nil, nil
-	}
-	// Safety-net clamp: handler-layer enforces 10–150 m range before reaching
-	// this function; the secondary guard here protects direct-Go-test callers
-	// that bypass the handler.
-	if radiusM <= 0 {
-		radiusM = 80
 	}
 	expandDeg := expandDegForRadius(radiusM)
 
@@ -52,6 +50,12 @@ func FindSummitsAlongGeom(
 		WITH route AS (
 			SELECT ST_GeomFromWKB($1, 4326) AS geom
 		)
+		-- DISTINCT ON (p.osm_id): each summit is listed exactly once per route —
+		-- with the minimum distance to the geometry. Loop routes that pass the
+		-- same summit twice produce only ONE entry (per-route semantics, not
+		-- per-passage). The ORDER BY p.osm_id, dist_m drives the DISTINCT ON
+		-- selection: among all candidate rows for a given osm_id, Postgres keeps
+		-- the first row after sorting, i.e. the closest passage.
 		SELECT DISTINCT ON (p.osm_id)
 		       p.osm_id, p.name, p.ele, p.category,
 		       ROUND(ST_Distance(route.geom::geography, p.geom::geography))::int AS dist_m,
@@ -95,6 +99,8 @@ func FindSummitsAlongActivityTrack(
 	activityID string,
 	radiusM float64,
 ) ([]PassedSummit, error) {
+	// Early-return for non-positive radius (defensive — same rationale as
+	// FindSummitsAlongGeom; handler layer already clamps to [10, 150]).
 	if radiusM <= 0 {
 		return nil, nil
 	}
@@ -106,6 +112,12 @@ func FindSummitsAlongActivityTrack(
 			FROM activity_tracks
 			WHERE activity_id = $1
 		)
+		-- DISTINCT ON (p.osm_id): each summit is listed exactly once per track —
+		-- with the minimum distance to the geometry. Loop routes that pass the
+		-- same summit twice produce only ONE entry (per-route semantics, not
+		-- per-passage). The ORDER BY p.osm_id, dist_m drives the DISTINCT ON
+		-- selection: among all candidate rows for a given osm_id, Postgres keeps
+		-- the first row after sorting, i.e. the closest passage.
 		SELECT DISTINCT ON (p.osm_id)
 		       p.osm_id, p.name, p.ele, p.category,
 		       ROUND(ST_Distance(route.geom::geography, p.geom::geography))::int AS dist_m,
