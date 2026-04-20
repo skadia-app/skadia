@@ -54,7 +54,7 @@ export function LapModeBottomBar({ detectedLaps, onBack, onPreviewOrSave, isPrev
           'disabled:pointer-events-none disabled:opacity-40',
         )}
       >
-        {isPreview ? 'Speichern' : 'Weiter →'}
+        Speichern
       </button>
     </div>
   )
