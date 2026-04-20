@@ -197,7 +197,8 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 			photo_preview_size, terra_incognita_radius_m,
 			route_duplicate_hausdorff_m, route_duplicate_length_diff_km,
 			video_clip_frames, phash_threshold_bits,
-			geocode_fallback_provider, geocode_fallback_url, geocode_fallback_timeout_s`,
+			geocode_fallback_provider, geocode_fallback_url, geocode_fallback_timeout_s,
+			summit_detection_radius_m`,
 		userID,
 	).Scan(
 		&s.UserID, &s.EnableSummitDetection, &s.EnableWeatherEnrichment,
@@ -211,6 +212,7 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 		&s.RouteDuplicateHausdorffM, &s.RouteDuplicateLengthDiffKm,
 		&s.VideoClipFrames, &s.PhashThresholdBits,
 		&s.GeocodeFallbackProvider, &s.GeocodeFallbackURL, &s.GeocodeFallbackTimeoutS,
+		&s.SummitDetectionRadiusM,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get enrichment settings: %w", err)
@@ -233,12 +235,13 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			photo_preview_size, terra_incognita_radius_m,
 			route_duplicate_hausdorff_m, route_duplicate_length_diff_km,
 			video_clip_frames, phash_threshold_bits,
-			geocode_fallback_provider, geocode_fallback_url, geocode_fallback_timeout_s
+			geocode_fallback_provider, geocode_fallback_url, geocode_fallback_timeout_s,
+			summit_detection_radius_m
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
 			$13, $14, $15, $16, $17, $18, $19, $20,
 			$21, $22, $23, $24, $25, $26,
-			$27, $28, $29
+			$27, $28, $29, $30
 		)
 		ON CONFLICT (user_id) DO UPDATE SET
 			enable_summit_detection = $2,
@@ -268,7 +271,8 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			phash_threshold_bits = $26,
 			geocode_fallback_provider = $27,
 			geocode_fallback_url = $28,
-			geocode_fallback_timeout_s = $29`,
+			geocode_fallback_timeout_s = $29,
+			summit_detection_radius_m = $30`,
 		userID, s.EnableSummitDetection, s.EnableWeatherEnrichment,
 		s.EnableStopDetection, s.EnableAscentDetection,
 		s.EnableAutoNaming, s.EnableLapDetection, s.ClimbMinGradientPct, s.ClimbMinElevationM,
@@ -280,6 +284,7 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 		s.RouteDuplicateHausdorffM, s.RouteDuplicateLengthDiffKm,
 		s.VideoClipFrames, s.PhashThresholdBits,
 		s.GeocodeFallbackProvider, s.GeocodeFallbackURL, s.GeocodeFallbackTimeoutS,
+		s.SummitDetectionRadiusM,
 	)
 	if err != nil {
 		return fmt.Errorf("update enrichment settings: %w", err)

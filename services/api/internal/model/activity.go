@@ -570,6 +570,9 @@ type EnrichmentSettings struct {
 	GeocodeFallbackProvider string  `json:"geocode_fallback_provider"`
 	GeocodeFallbackURL      *string `json:"geocode_fallback_url,omitempty"` // optional custom URL (self-hosted proxy)
 	GeocodeFallbackTimeoutS int     `json:"geocode_fallback_timeout_s"`
+
+	// Summit detection snap radius in meters (10–150, default 80, Migration 000315).
+	SummitDetectionRadiusM float64 `json:"summit_detection_radius_m"`
 }
 
 // EnabledModules returns the list of enrichment module names that are currently
