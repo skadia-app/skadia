@@ -138,3 +138,52 @@ func TestMergeLegs_EmptyFollowLegSkipsCoordStartShift(t *testing.T) {
 		t.Fatalf("EdgeCoordStart[0] = %d, want 0", merged.EdgeCoordStart[0])
 	}
 }
+
+// TestMergeLegs_EmptyCoordsWithTags_InvariantSafe prüft den pathologischen Fall:
+// ein Folge-Leg hat keine Coordinates aber nicht-leere EdgeTags1/EdgeTags2.
+// Invariant: len(EdgeTags1) == len(EdgeTags2) == len(EdgeCoordStart) nach dem Merge.
+// Vor dem Fix führte das unconditional append von Tags zu einem out-of-range Panic
+// in computeScaleRanges / contiguousRangesFromMatch (Iteration über edgeTags1 mit
+// edgeCoordStart[i] ohne length-guard).
+func TestMergeLegs_EmptyCoordsWithTags_InvariantSafe(t *testing.T) {
+	legA := &RouteResult{
+		Coordinates:    []LatLonEle{{Lat: 1}, {Lat: 2}},
+		EdgeHandles:    []uint64{100},
+		EdgeCoordStart: []int{0},
+		EdgeTags1:      []uint64{0xAA},
+		EdgeTags2:      []uint64{0x11},
+	}
+	// Pathological leg: no coords but has tags — should NOT append tags
+	// (empty leg = no edges to merge; tags without a CoordStart anchor are bogus).
+	legB := &RouteResult{
+		Coordinates:    []LatLonEle{},
+		EdgeHandles:    []uint64{200},
+		EdgeCoordStart: []int{},
+		EdgeTags1:      []uint64{0xCC},
+		EdgeTags2:      []uint64{0x33},
+	}
+	merged := mergeLegs([]*RouteResult{legA, legB})
+
+	// Invariant: all three per-edge slices must have the same length.
+	nCoordStart := len(merged.EdgeCoordStart)
+	if got := len(merged.EdgeTags1); got != nCoordStart {
+		t.Fatalf("invariant broken: len(EdgeTags1)=%d != len(EdgeCoordStart)=%d", got, nCoordStart)
+	}
+	if got := len(merged.EdgeTags2); got != nCoordStart {
+		t.Fatalf("invariant broken: len(EdgeTags2)=%d != len(EdgeCoordStart)=%d", got, nCoordStart)
+	}
+	// legA contributes exactly 1 edge; legB (empty coords) contributes nothing.
+	if nCoordStart != 1 {
+		t.Fatalf("EdgeCoordStart len = %d, want 1 (legA only)", nCoordStart)
+	}
+	// legA's tags must be intact.
+	if merged.EdgeTags1[0] != 0xAA {
+		t.Fatalf("EdgeTags1[0] = %x, want 0xAA", merged.EdgeTags1[0])
+	}
+	if merged.EdgeTags2[0] != 0x11 {
+		t.Fatalf("EdgeTags2[0] = %x, want 0x11", merged.EdgeTags2[0])
+	}
+	// EdgeHandles is NOT length-synchronized with EdgeCoordStart (used by
+	// aggregateLegOutdoor/aggregateLeg2Coverage which iterate handles independently
+	// via reader.EdgeTags*(h)). So we accept EdgeHandles may have len=2 here.
+}
