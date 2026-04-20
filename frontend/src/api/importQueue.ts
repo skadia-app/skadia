@@ -19,6 +19,8 @@ export interface ImportQueueItem {
     activity_id?: string
     platform_sport?: string
     file_sport?: string
+    platform_source?: string
+    file_source?: string
   }
 }
 

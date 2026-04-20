@@ -6,7 +6,27 @@ export interface ActiveJob {
   entity_id?: string
   entity_name?: string
   status: 'running' | 'completed' | 'failed'
-  phase?: 'download' | 'import' | 'index' | 'optimize' | 'topology' | 'enrichment' | 'splitting'
+  phase?:
+    // OSM pipeline phases (source: osm/pipeline.go, osm/osmium.go)
+    | 'download' | 'filter' | 'import' | 'merge' | 'index' | 'optimize' | 'analyze' | 'enrichment'
+    // OSM enrichment sub-phase (source: database/jobs.go comment, ActiveJobsIndicator.tsx)
+    | 'splitting'
+    // OSM import orchestration phases (source: handler/osm_import.go)
+    | 'brouter_segments' | 'dem_download' | 'coverage' | 'tiles'
+    // OSM admin/patch pipeline (source: handler/osm_admin.go)
+    | 'patch'
+    // DEM import phases (source: handler/elevation.go)
+    | 'overview' | 'vacuum'
+    // TimescaleDB compression phases (source: handler/admin_settings.go)
+    | 'enabling compression' | 'removing compression policy' | 'decompressing chunks'
+    // Multisport recompute phases — German free-text (source: handler/recompute.go)
+    | 'Zusammenfassen'
+    // Dynamic: BRouter preprocessing steps e.g. brouter_OsmFastCutter (source: osm/brouter.go)
+    | `brouter_${string}`
+    // Dynamic: per-region import progress e.g. region_1_europe (source: handler/osm_import.go)
+    | `region_${string}`
+    // Dynamic: multisport child label e.g. "Disziplin 1/3" (source: handler/recompute.go)
+    | `Disziplin ${string}`
   progress_current: number
   progress_total: number
   started_at: string

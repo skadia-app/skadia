@@ -9,7 +9,6 @@ import {
   addExclusion,
   removeExclusion,
   recalcBestEfforts,
-  type BestEffortRanked,
   type BestEffortExclusion,
 } from '@/api/bestEfforts'
 import {

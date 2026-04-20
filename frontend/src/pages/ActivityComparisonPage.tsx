@@ -80,12 +80,6 @@ function hasValidData(arr: number[]): boolean {
   return arr.some(v => !isNaN(v))
 }
 
-function downsample<T>(data: T[], maxPoints: number): T[] {
-  if (data.length <= maxPoints) return data
-  const step = data.length / maxPoints
-  return Array.from({ length: maxPoints }, (_, i) => data[Math.floor(i * step)])
-}
-
 function downsamplePairs(xs: number[], ys: number[], maxPoints: number): [number, number][] {
   const n = Math.min(xs.length, ys.length)
   if (n <= maxPoints) {

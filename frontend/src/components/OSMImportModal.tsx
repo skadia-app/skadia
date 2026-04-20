@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X } from 'lucide-react'
-import { fetchOSMRegions, startOSMImport, getDEMRegionStatus, type OSMRegion, type DEMStatusResponse } from '@/api/osm'
+import { fetchOSMRegions, startOSMImport, getDEMRegionStatus, type OSMRegion } from '@/api/osm'
 import { useToast } from '@/lib/toast'
 import { fmtBytes } from '@/lib/format'
 import { ModalShell } from '@/components/ui/ModalShell'

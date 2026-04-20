@@ -12,7 +12,6 @@ import { TrimSplitControls } from '@/components/editor/TrimSplitControls'
 echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 import { apiClient } from '@/api/client'
 import type { StreamPoint } from '@/api/types'
-import { useToast } from '@/lib/toast'
 import Toggle from '@/components/Toggle'
 
 // ── Types ─────────────────────────────────────────────────────────────────────

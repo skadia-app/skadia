@@ -257,7 +257,9 @@ export default function FusionPage() {
     const member = groupMembers.find(m => m.activity_id === id)
     if (member) {
       const dl = deviceLabel(member.recording_device_name ?? member.source_device, member.source, member.original_file_format) ?? ''
-      const dist = `${Math.round((member.distance_m / 1000) * 10) / 10} km`
+      const dist = member.distance_m != null
+        ? `${Math.round((member.distance_m / 1000) * 10) / 10} km`
+        : '—'
       const date = fmtDateCompact(member.started_at, null)
       return [member.title || 'Ohne Titel', date, dist, dl].filter(Boolean).join(' — ')
     }

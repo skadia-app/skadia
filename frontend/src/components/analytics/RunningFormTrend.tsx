@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
+import type { YAXisOption, LineSeriesOption } from 'echarts/types/dist/shared'
 import { LineChart, ScatterChart } from 'echarts/charts'
 import {
   GridComponent,
@@ -89,7 +90,7 @@ export default function RunningFormTrend() {
       const dfBaseline = baseline?.duty_factor_median ?? null
       const vrBaseline = baseline?.vertical_ratio_median ?? null
 
-      const yAxes: echarts.EChartsCoreOption['yAxis'] = [
+      const yAxes: YAXisOption[] = [
         {
           type: 'value',
           name: 'Duty Factor',
@@ -112,10 +113,10 @@ export default function RunningFormTrend() {
           splitLine: { show: false },
           min: 'dataMin',
           max: 'dataMax',
-        } as echarts.EChartsCoreOption['yAxis'] extends any[] ? echarts.EChartsCoreOption['yAxis'][number] : never)
+        })
       }
 
-      const series: echarts.EChartsCoreOption['series'] = [
+      const series: LineSeriesOption[] = [
         {
           name: 'Duty Factor',
           type: 'line',

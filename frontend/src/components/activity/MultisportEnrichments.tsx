@@ -383,7 +383,7 @@ export default function MultisportEnrichments({ childActivities, timezone }: Pro
       {/* Stopps */}
       {allStops.length > 0 && (
         <CollapsibleSection title="Stopps" count={allStops.length}>
-          <StopsDisplay stops={allStops} />
+          <StopsDisplay stops={allStops} timezone={timezone} />
         </CollapsibleSection>
       )}
 
@@ -476,7 +476,7 @@ function GeoTagsDisplay({ tags }: { tags: GeoTag[] }) {
   )
 }
 
-function StopsDisplay({ stops }: { stops: ActivityStop[] }) {
+function StopsDisplay({ stops, timezone }: { stops: ActivityStop[]; timezone?: string | null }) {
   return (
     <div className="space-y-1.5">
       {stops.map(stop => {

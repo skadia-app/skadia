@@ -15,7 +15,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import pencilCursorSvg from '@/assets/pencil-cursor.svg'
 import { circlePolygon, formatRadius, clampToCircle, pointInPolygon, centroid } from '@/lib/geoUtils'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -47,10 +46,6 @@ export interface ZoneEditorProps {
   /** MapLibre style URL or style object; defaults to OSM raster */
   mapStyle?: string
 }
-
-// The pencil SVG encoded as a data-URI so we can use it as a CSS cursor.
-// Vite gives us the file URL; we convert it to a data-URI at runtime once.
-let _pencilCursorCSS = `url("${pencilCursorSvg}") 1 15, crosshair`
 
 // ── Cursor helpers ─────────────────────────────────────────────────────────────
 // MapLibre setzt canvas.style.cursor intern bei jedem mousemove auf 'grab'.
