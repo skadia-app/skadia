@@ -446,7 +446,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
               {/* Schwierigkeitsfarbe full-width */}
               <div className="flex flex-col gap-1">
                 <span className="text-[10px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">Schwierigkeit</span>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
                   {(['blue', 'red', 'black'] as const).map(c => (
                     <DifficultyButton
                       key={c}
@@ -487,7 +487,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
             /* wintersport: no scale fields, just difficulty */
             <div className="flex flex-col gap-1">
               <span className="text-[10px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">Schwierigkeit</span>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 {(['blue', 'red', 'black'] as const).map(c => (
                   <DifficultyButton
                     key={c}
@@ -617,6 +617,13 @@ function Chip({
   )
 }
 
+// Short display labels for difficulty color pill buttons.
+const DIFF_COLOR_SHORT: Record<'blue' | 'red' | 'black', string> = {
+  blue:  'Blau',
+  red:   'Rot',
+  black: 'Schwarz',
+}
+
 function DifficultyButton({
   color,
   active,
@@ -628,11 +635,11 @@ function DifficultyButton({
   disabled: boolean
   onClick: () => void
 }) {
-  const bgClass = color === 'blue'
+  const dotClass = color === 'blue'
     ? 'bg-blue-500'
     : color === 'red'
       ? 'bg-red-600'
-      : 'bg-neutral-800 border border-neutral-600'
+      : 'bg-neutral-900 dark:bg-neutral-950 border border-neutral-500 dark:border-neutral-400'
 
   return (
     <button
@@ -642,14 +649,19 @@ function DifficultyButton({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        'relative h-6 w-6 rounded transition-all duration-150',
-        bgClass,
-        active && 'ring-2 ring-accent-DEFAULT ring-offset-1 ring-offset-white dark:ring-offset-neutral-900',
-        !disabled && !active && 'hover:opacity-80 hover:scale-105',
-        disabled && 'cursor-not-allowed opacity-60',
+        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium',
+        'transition-all duration-150',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900',
+        active
+          ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-sm ring-1 ring-neutral-300 dark:ring-neutral-600'
+          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100',
+        disabled && 'cursor-not-allowed opacity-60',
       )}
-    />
+    >
+      {/* Colored dot indicating the difficulty color */}
+      <span className={cn('inline-block h-2.5 w-2.5 shrink-0 rounded-full', dotClass)} aria-hidden="true" />
+      {DIFF_COLOR_SHORT[color]}
+    </button>
   )
 }
 
