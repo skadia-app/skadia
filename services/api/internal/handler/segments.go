@@ -109,7 +109,7 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Normalize historic German surface labels in segment_type_meta before DB write.
+	// Normalize historic German labels in segment_type_meta before DB write.
 	if len(create.SegmentTypeMeta) > 0 {
 		var m map[string]any
 		if err := json.Unmarshal(create.SegmentTypeMeta, &m); err != nil {
@@ -118,6 +118,9 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 		}
 		if sv, ok := m["surface"].(string); ok {
 			m["surface"] = normalizeSurfaceLabel(sv)
+		}
+		if dv, ok := m["difficulty_color"].(string); ok {
+			m["difficulty_color"] = normalizeDifficultyColor(dv)
 		}
 		buf, err := json.Marshal(m)
 		if err != nil {
@@ -229,7 +232,7 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Normalize historic German surface labels in segment_type_meta before DB write.
+	// Normalize historic German labels in segment_type_meta before DB write.
 	if update.SegmentTypeMeta != nil && len(*update.SegmentTypeMeta) > 0 {
 		var m map[string]any
 		if err := json.Unmarshal(*update.SegmentTypeMeta, &m); err != nil {
@@ -238,6 +241,9 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 		}
 		if sv, ok := m["surface"].(string); ok {
 			m["surface"] = normalizeSurfaceLabel(sv)
+		}
+		if dv, ok := m["difficulty_color"].(string); ok {
+			m["difficulty_color"] = normalizeDifficultyColor(dv)
 		}
 		buf, err := json.Marshal(m)
 		if err != nil {
@@ -1071,6 +1077,25 @@ func normalizeSurfaceLabel(s string) string {
 		return "Schotter (grob)"
 	case "Erde":
 		return "Naturweg"
+	default:
+		return s
+	}
+}
+
+// normalizeDifficultyColor maps historic German difficulty-color strings to the
+// canonical English keys used by DifficultyBadge and the segment leaderboard UI.
+// Modern English keys and empty strings pass through unchanged. Whitespace is trimmed.
+//
+// This helper is permanent (no sunset) — mirrors normalizeSurfaceLabel in purpose.
+func normalizeDifficultyColor(s string) string {
+	s = strings.TrimSpace(s)
+	switch s {
+	case "blau":
+		return "blue"
+	case "rot":
+		return "red"
+	case "schwarz":
+		return "black"
 	default:
 		return s
 	}
