@@ -8,8 +8,11 @@ import {
   AxisPointerComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import type { ElevationPoint, RouteSegment } from '@/api/routes'
+import type { ElevationPoint, RouteSegment, RouteSuggestion } from '@/api/routes'
 import { useECharts } from '@/hooks/useECharts'
+import { aggregateScaleLevels } from '@/lib/scaleAggregation'
+import { ScaleBadge } from './ScaleBadge'
+import { suggestRoutesStrings } from '@/lib/strings/suggest-routes'
 
 echarts.use([
   LineChart,
@@ -39,6 +42,15 @@ interface Props {
   onHoverFraction?: (fraction: number | null) => void
   /** Height of the chart container */
   height?: number
+  /** Aktive RouteSuggestion. Wenn gesetzt → Stats-Zeile zeigt Forest/Protected/Summits/Scale-Badges.
+   *  undefined (nach loadSuggestion → routeSuggestions=null) → Pre-v4 Zustand (gain/loss/max). */
+  suggestion?: RouteSuggestion
+  /** Scale-pin state, hoisted in useRoutePlanner. null = no pin.
+   *  Union inkl. 'vf' konsistent mit useRoutePlanner (Task 27 VF-im-Union-Decision).
+   *  VF-Rendering selbst kommt in Task 22a.4 — hier nur Type-Durchreiche-Kompatibilität. */
+  scalePin?: 'sac' | 'mtb' | 'vf' | null
+  /** Toggle handler for the scale-pin (mutually exclusive radio). */
+  onTogglePin?: (kind: 'sac' | 'mtb' | 'vf') => void
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -129,6 +141,9 @@ export default function RouteProfileChart({
   segments = [],
   onHoverFraction,
   height = 180,
+  suggestion,
+  scalePin,
+  onTogglePin,
 }: Props) {
   // Build processed data
   const points = useMemo(
@@ -290,6 +305,22 @@ export default function RouteProfileChart({
     },
   )
 
+  // ── Scale aggregation (LF-#6: ONE parsedCoords memo shared by SAC + MTB) ──
+  const parsedCoords = useMemo<number[][]>(
+    () => ((suggestion?.geojson?.features?.[0]?.geometry?.coordinates) ?? []) as number[][],
+    [suggestion?.geojson],
+  )
+
+  const sacAggregate = useMemo(
+    () => aggregateScaleLevels(suggestion?.sac_ranges, parsedCoords, 'sac'),
+    [suggestion?.sac_ranges, parsedCoords],
+  )
+
+  const mtbAggregate = useMemo(
+    () => aggregateScaleLevels(suggestion?.mtb_ranges, parsedCoords, 'mtb'),
+    [suggestion?.mtb_ranges, parsedCoords],
+  )
+
   // ── Elevation statistics ───────────────────────────────────────────────────
   const stats = useMemo(() => {
     if (points.length < 2) return null
@@ -337,7 +368,7 @@ export default function RouteProfileChart({
       <div className="flex items-center justify-between flex-wrap gap-x-4 gap-y-1 px-1">
         {/* Stats */}
         {stats && (
-          <div className="flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+          <div className="flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400 flex-wrap">
             <span>
               <span className="text-green-500">↑</span>{' '}
               <strong className="text-neutral-700 dark:text-neutral-200">{stats.gain} m</strong>
@@ -346,12 +377,45 @@ export default function RouteProfileChart({
               <span className="text-blue-400">↓</span>{' '}
               <strong className="text-neutral-700 dark:text-neutral-200">{stats.loss} m</strong>
             </span>
-            <span>
+            <span title={suggestRoutesStrings.maxGrade.unavailableTooltip}>
               Max:{' '}
               <strong className="text-neutral-700 dark:text-neutral-200">
-                {formatGrade(stats.maxGrade)}
+                {suggestRoutesStrings.maxGrade.unavailableLabel}
               </strong>
             </span>
+            {suggestion && (
+              <>
+                {suggestion.forest_pct > 0 && (
+                  <span>🌲 {Math.round(suggestion.forest_pct * 100)} %</span>
+                )}
+                {suggestion.protected_pct > 0.05 && (
+                  <span>🛡️ {Math.round(suggestion.protected_pct * 100)} %</span>
+                )}
+                {suggestion.summits_passed && suggestion.summits_passed.length > 0 && (
+                  <span>⛰ {suggestion.summits_passed.length} Gipfel</span>
+                )}
+                {sacAggregate.breakdown.length > 0 && sacAggregate.maxLevel && (
+                  <ScaleBadge
+                    kind="sac"
+                    breakdown={sacAggregate.breakdown}
+                    maxLevel={sacAggregate.maxLevel}
+                    isPinned={scalePin === 'sac'}
+                    onTogglePin={() => onTogglePin?.('sac')}
+                    onHover={() => {}}
+                  />
+                )}
+                {mtbAggregate.breakdown.length > 0 && mtbAggregate.maxLevel && (
+                  <ScaleBadge
+                    kind="mtb"
+                    breakdown={mtbAggregate.breakdown}
+                    maxLevel={mtbAggregate.maxLevel}
+                    isPinned={scalePin === 'mtb'}
+                    onTogglePin={() => onTogglePin?.('mtb')}
+                    onHover={() => {}}
+                  />
+                )}
+              </>
+            )}
           </div>
         )}
 
