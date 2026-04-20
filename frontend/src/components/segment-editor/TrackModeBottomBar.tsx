@@ -200,6 +200,15 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
   const startPct = (range[0] / total) * 100
   const endPct = (range[1] / total) * 100
 
+  // Z-index strategy for dual-range thumb interaction:
+  // When start is in the left half (pct ≤ 50) we lift the start input on top
+  // so its thumb can be grabbed from the left side without the end input
+  // blocking pointer events. When start is in the right half, end goes on top
+  // so the end thumb at the right edge stays interactive.
+  // Additionally, when handles are very close (within 5% of each other),
+  // keep start on top so the user can pull it leftward.
+  const startOnTop = startPct <= 50 || (endPct - startPct) < 5
+
   return (
     <div className="border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-3 pt-2 pb-2">
       {/* Row 1 — Elevation brush chart */}
@@ -223,7 +232,8 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
             className="absolute top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-accent-DEFAULT"
             style={{ left: `${startPct}%`, right: `${100 - endPct}%` }}
           />
-          {/* Start handle */}
+          {/* Start handle — z-index flips based on startOnTop so this thumb
+              is always reachable even when range[0] is at the left edge */}
           <input
             type="range"
             min={0} max={trackPoints.length - 1}
@@ -231,7 +241,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
             onChange={e => setStart(Number(e.target.value))}
             onMouseUp={() => onCommitRange(range)}
             onKeyUp={() => onCommitRange(range)}
-            style={{ '--thumb-color': '#F97316' } as React.CSSProperties}
+            style={{ zIndex: startOnTop ? 21 : 20 }}
             className="absolute inset-0 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent-DEFAULT [&::-webkit-slider-thumb]:shadow-sm [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent-DEFAULT [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer [&::-webkit-slider-runnable-track]:appearance-none [&::-webkit-slider-runnable-track]:bg-transparent [&::-moz-range-track]:bg-transparent"
             aria-label="Start-Punkt"
             aria-valuemin={0} aria-valuemax={trackPoints.length - 1} aria-valuenow={range[0]}
@@ -244,6 +254,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
             onChange={e => setEnd(Number(e.target.value))}
             onMouseUp={() => onCommitRange(range)}
             onKeyUp={() => onCommitRange(range)}
+            style={{ zIndex: startOnTop ? 20 : 21 }}
             className="absolute inset-0 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent-DEFAULT [&::-webkit-slider-thumb]:shadow-sm [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent-DEFAULT [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer [&::-webkit-slider-runnable-track]:appearance-none [&::-webkit-slider-runnable-track]:bg-transparent [&::-moz-range-track]:bg-transparent"
             aria-label="Ende-Punkt"
             aria-valuemin={0} aria-valuemax={trackPoints.length - 1} aria-valuenow={range[1]}
