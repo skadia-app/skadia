@@ -96,6 +96,8 @@ var mtbScaleUphillEnum = map[string]uint8{
 	"0": 1, "1": 2, "2": 3, "3": 4, "4": 5, "5": 6,
 }
 
+// viaFerrataScaleEnum: Reverse-Lookup-Basis für ViaFerrataScaleName (Display).
+// Encoding läuft via ParseViaFerrataScale (toleranter Parser, Spec v5 §4.1.1).
 var viaFerrataScaleEnum = map[string]uint8{
 	"K1": 1, "K2": 2, "K3": 3, "K4": 4, "K5": 5, "K6": 6,
 	"k1": 1, "k2": 2, "k3": 3, "k4": 4, "k5": 5, "k6": 6,
@@ -245,7 +247,7 @@ func EncodeEdgeTags2(t *RawTags, e *RawEnrichment) uint64 {
 	v |= uint64(clamp(e.LanduseClass, 0, 7)) << 27
 	// OSM extended (bits 30-57)
 	v |= uint64(mtbScaleUphillEnum[t.MtbScaleUphill]) << 30
-	v |= uint64(viaFerrataScaleEnum[t.ViaFerrataScale]) << 33
+	v |= uint64(ParseViaFerrataScale(t.ViaFerrataScale)) << 33
 	v |= uint64(trailVisibilityEnum[t.TrailVisibility]) << 36
 	v |= uint64(ParseWidth(t.Width)) << 39
 	v |= uint64(ParseIncline(t.Incline)) << 47
@@ -507,6 +509,111 @@ func ParseIncline(s string) uint8 {
 	}
 	v := min(max(int(math.Round(f))+128, 0), 255)
 	return uint8(v)
+}
+
+// vfScaleDirectMap — alle direkten Mappings (UPPERCASE-Keys).
+// Grundlage für ParseViaFerrataScale + viaFerrataScaleEnum (Reverse-Lookup
+// für ViaFerrataScaleName weiterhin via viaFerrataScaleNames).
+var vfScaleDirectMap = map[string]uint8{
+	"0": 1, // Outdoor-Safety: "0" explizit getaggt → K1, nicht unbekannt
+	"1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6,
+	"K1": 1, "K2": 2, "K3": 3, "K4": 4, "K5": 5, "K6": 6,
+	"F":  1,
+	"PD": 1,
+	"B":  2,
+	"AD": 2,
+	"C":  3,
+	"D":  3,
+	"MD": 4,
+	"TD": 4,
+	"ED": 5,
+}
+
+// vfScaleRangeMap — explizite Alpin-Skala-Range-Mappings (round-UP + Safety).
+// Grund: "C/D" mappt NICHT auf direct["D"]=3, sondern explizit auf 4 (eine
+// Stufe über dem rechten Wert, weil Range-Mitte zwischen C und D oft K4-Passagen
+// enthält). Numerische Ranges ("1-2", "2-3") bleiben beim Right-Side-Lookup.
+var vfScaleRangeMap = map[string]uint8{
+	"A/B": 2, "B/C": 3, "C/D": 4, "D/E": 5,
+}
+
+// ParseViaFerrataScale konvertiert einen OSM via_ferrata_scale-String in uint8 (0..6).
+//
+// Mapping-Tabelle (Spec v5 §4.1.1, DB-Analyse 2026-04-20):
+//
+//	""              → 0  (kein Tag, unbekannt)
+//	"1".."6"        → 1..6 (häufigster DB-Wert, ~90 % der VF-Ways)
+//	"K1".."K6"      → 1..6 (Legacy; case-insensitive)
+//	"1+", "3-"      → 1, 3 (Modifier werden gedroppt — I8)
+//	"1.5", "2.5"    → 2, 3 (Dezimal → round UP; Outdoor-Safety)
+//	"1-2", "2-3"    → 2, 3 (Range → obere Grenze; Outdoor-Safety)
+//	"F"             → 1  (Hüsler-Äquivalent, facile ≈ K1)
+//	"PD"            → 1  (peu difficile)
+//	"B", "AD"       → 2  (assez difficile)
+//	"B/C", "C", "D" → 3  (difficile-Range, round UP)
+//	"MD", "TD"      → 4  (moyennement / très difficile)
+//	"ED"            → 5  (extrêmement difficile)
+//	"0"             → 1  (K1-Fallback: explizit gescalede 0 ist mindestens K1)
+//	alles andere    → 0
+//
+// Whitespace-tolerant. Unbekannte Werte → 0 (verhalten sich wie fehlender Tag,
+// d.h. Router behandelt sie via AllowUnscaledViaFerrata-Opt-In in Task 16a).
+func ParseViaFerrataScale(s string) uint8 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	// Whitespace innerhalb von Ranges ("1 - 2") entfernen — OSM-Mapper schreiben uneinheitlich.
+	s = strings.ReplaceAll(s, " ", "")
+	// Direkte Map (schnellster Pfad): deckt K1..K6 + Alpin-Skala ab.
+	if v, ok := vfScaleDirectMap[strings.ToUpper(s)]; ok {
+		return v
+	}
+	// Modifier droppen: "1+", "3-", "K2+", "k4-".
+	if n := len(s); n >= 2 {
+		last := s[n-1]
+		if last == '+' || last == '-' {
+			if v, ok := vfScaleDirectMap[strings.ToUpper(s[:n-1])]; ok {
+				return v
+			}
+		}
+	}
+	// Range "a-b" → obere Grenze (round UP).
+	if i := strings.IndexByte(s, '-'); i > 0 && i < len(s)-1 {
+		if v, ok := vfScaleDirectMap[strings.ToUpper(s[i+1:])]; ok {
+			return v
+		}
+	}
+	// Range "a/b" (z.B. "B/C") → explizite Alpin-Safety-Map (siehe vfScaleRangeMap).
+	// Fallback: Right-Side-Lookup für nicht-alpine Ranges.
+	if strings.IndexByte(s, '/') > 0 {
+		up := strings.ToUpper(s)
+		if v, ok := vfScaleRangeMap[up]; ok {
+			return v
+		}
+		if i := strings.IndexByte(up, '/'); i > 0 && i < len(up)-1 {
+			if v, ok := vfScaleDirectMap[up[i+1:]]; ok {
+				return v
+			}
+		}
+	}
+	// Dezimal → round UP, clamp 0..6.
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		// Negativ → Garbage, nicht K1. Wichtige Reihenfolge: negativ-Check vor 0-Check.
+		if f < 0 {
+			return 0
+		}
+		// "0" → K1 (Outdoor-Safety-Fallback: explizit-getaggte 0 ist mindestens K1).
+		if f == 0 {
+			return 1
+		}
+		n := uint8(math.Ceil(f))
+		if n > 6 {
+			return 0
+		}
+		return n
+	}
+	return 0
 }
 
 // NegateInclineStr reverses the sign of an OSM incline string.

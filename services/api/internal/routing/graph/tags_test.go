@@ -579,6 +579,79 @@ func TestNegateInclineStr(t *testing.T) {
 	}
 }
 
+func TestParseViaFerrataScale(t *testing.T) {
+	cases := []struct {
+		in   string
+		want uint8
+	}{
+		// Leer / unbekannt / Garbage
+		{"", 0},
+		{"?", 0},
+		{"foo", 0},
+		{"UIAA A", 0}, // unknown prefix
+
+		// Out-of-range / Invalid numeric
+		{"7", 0},
+		{"999", 0},
+		{"K7", 0},   // legacy out-of-range
+		{"K0", 0},   // legacy zero (nicht auf K1 — "0" ist K1-Safety-Fallback, "K0" ist Garbage)
+		{"-3.5", 0}, // negative float → garbage, NICHT K1
+		{"-1", 0},
+
+		// Römisch (UIAA Kletter-Skala, kein Ferrata-Tag) → 0 = unknown
+		{"II", 0},
+		{"III", 0},
+		{"IV", 0},
+
+		// Numerisch bare (häufigster DB-Wert)
+		{"1", 1}, {"2", 2}, {"3", 3}, {"4", 4}, {"5", 5}, {"6", 6},
+
+		// K-Prefix (Legacy) — lower+upper
+		{"K1", 1}, {"K2", 2}, {"K3", 3}, {"K4", 4}, {"K5", 5}, {"K6", 6},
+		{"k1", 1}, {"k3", 3}, {"k6", 6},
+
+		// Modifier (drop)
+		{"1+", 1}, {"3-", 3}, {"K2+", 2}, {"k4-", 4},
+		{"TD+", 4}, {"ED-", 5}, // Alpin-Skala mit Modifier
+
+		// Dezimal — round UP (I8 Spec §5)
+		{"1.5", 2}, {"2.5", 3}, {"4.5", 5}, {"1.0", 1}, {"3.9", 4},
+		{"0.0001", 1}, // ceil positive nahe 0 → K1
+
+		// Range "a-b" → obere Grenze (round UP)
+		{"1-2", 2}, {"2-3", 3}, {"K1-K2", 2},
+
+		// Range "a/b" → obere Grenze (explicit statt Right-Side-Lookup-Glück)
+		{"A/B", 2}, {"B/C", 3}, {"C/D", 4}, {"D/E", 5},
+		{"b/c", 3}, // lowercase-Range
+
+		// Hüsler-Äquivalenzen (französisch / alpin, CAPS)
+		{"B", 2}, {"C", 3}, {"D", 3},
+		{"F", 1}, {"PD", 1}, {"AD", 2}, {"MD", 4}, {"TD", 4}, {"ED", 5},
+
+		// Whitespace-Toleranz (outer — TrimSpace)
+		{"  1  ", 1}, {"\tK2\n", 2}, {" 0 ", 1}, {"  K3  ", 3},
+
+		// Whitespace-Toleranz (inner — OSM-Mapper schreiben Ranges uneinheitlich)
+		{"1 - 2", 2},   // Range mit inner spaces
+		{"K 3", 3},     // K-Prefix mit Leerzeichen
+		{" A / B ", 2}, // Alpin-Range mit inner + outer spaces
+
+		// K-Fallback (Outdoor-Safety I8): "0" → 1 nicht 0,
+		// weil eine explizit mit 0 getaggte Ferrata sicher mindestens K1 ist.
+		// "0+" / "0-" → Modifier-Strip → "0" → direct-map → 1.
+		{"0", 1},
+		{"0+", 1},
+		{"0-", 1},
+	}
+	for _, c := range cases {
+		got := ParseViaFerrataScale(c.in)
+		if got != c.want {
+			t.Errorf("ParseViaFerrataScale(%q) = %d, want %d", c.in, got, c.want)
+		}
+	}
+}
+
 func TestIsReverseDoesNotAffectOSMTags(t *testing.T) {
 	// Bit 61 is reserve in EdgeTags1 — setting it must not corrupt other fields.
 	tags := &RawTags{
