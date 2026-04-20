@@ -1,4 +1,4 @@
--- 000316_vf_intent_preservation.down.sql
+-- 000319_vf_intent_preservation.down.sql
 --
 -- Remove the preserved-intent flag from custom profiles. Reverses the up
 -- migration. Note: This loses information — users who manually set the flag
