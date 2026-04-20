@@ -188,3 +188,52 @@ export interface GlobalTopSegmentEffortsResponse {
 export async function fetchGlobalTopSegmentPRs(): Promise<GlobalTopSegmentEffortsResponse> {
   return apiClient<GlobalTopSegmentEffortsResponse>('/segment-prs/global-top')
 }
+
+// ---- Enrichment (spec §4.7) --------------------------------------------------
+
+export interface SegmentEnrichmentRequest {
+  coordinates: Array<[number, number]>  // [lng, lat]
+  seg_type: 'standard' | 'trail' | 'lap' | 'wintersport'
+  dominant_sport?: string
+}
+
+export interface SurfaceSuggestion {
+  dominant: string
+  distribution: Record<string, number>
+  mixed: boolean
+}
+
+export interface ScaleSuggestion {
+  dominant: string                      // e.g. "T3" or "S2"
+  max: string                           // highest scale present
+  distribution: Record<string, number>
+}
+
+export interface SegmentEnrichmentResponse {
+  surface:   SurfaceSuggestion | null
+  sac_scale: ScaleSuggestion   | null
+  mtb_scale: ScaleSuggestion   | null
+  coverage_pct: number                  // 0..1
+  reason?: 'wintersport' | 'low_coverage' | 'no_graph' | 'no_data'
+}
+
+export async function suggestSegmentEnrichment(
+  req: SegmentEnrichmentRequest,
+): Promise<SegmentEnrichmentResponse> {
+  return apiClient<SegmentEnrichmentResponse>('/segments/enrichment-suggest', {
+    method: 'POST',
+    body: req,
+  })
+}
+
+// ---- Reverse (spec §4.11) ----------------------------------------------------
+
+export interface ReverseSegmentResponse {
+  efforts_updated: number
+}
+
+export async function reverseSegment(segmentID: string): Promise<ReverseSegmentResponse> {
+  return apiClient<ReverseSegmentResponse>(`/segments/${encodeURIComponent(segmentID)}/reverse`, {
+    method: 'POST',
+  })
+}
