@@ -172,7 +172,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
   }
 
   return (
-    <aside className="w-72 shrink-0 flex flex-col border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-y-auto">
+    <aside className="flex h-full w-72 flex-col overflow-y-auto border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
       {/* ── Live-Info-Card ──────────────────────────────────────────────────── */}
       {info && (mode === 'track' || (mode === 'draw' && info.distanceKm > 0)) && (
         <div className="mx-3 mt-3 rounded-lg border border-neutral-200 dark:border-neutral-700/60 bg-neutral-50 dark:bg-neutral-800 p-3">

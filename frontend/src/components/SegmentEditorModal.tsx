@@ -12,6 +12,7 @@ import { TrackModeBottomBar, type TrackPoint } from './segment-editor/TrackModeB
 import { DrawModeBottomBar } from './segment-editor/DrawModeBottomBar'
 import { LapModeBottomBar } from './segment-editor/LapModeBottomBar'
 import { BIDIRECTIONAL_DEFAULT, deriveTrailDifficultyColor, type SegType } from './segment-editor/constants'
+import { cn } from '@/lib/utils'
 import { detectLapCrossings } from './segment-editor/TrackMode'
 import {
   addHeatmapLayers,
@@ -694,9 +695,15 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       {/* Middle (sidebar+map) */}
       <div className="flex min-h-0 flex-1">
         {/* Sidebar — locked (fieldset disabled) while in preview phase (Spec §4.3) */}
+        {/* min-h-0 is required so that fieldset participates in flex shrinking and
+            allows the child SegmentSidebar's overflow-y-auto to actually scroll.
+            Without min-h-0 the fieldset grows to content height and never scrolls. */}
         <fieldset
           disabled={trackPhase === 'preview'}
-          className={trackPhase === 'preview' ? 'opacity-50 pointer-events-none' : undefined}
+          className={cn(
+            'flex min-h-0 w-72 shrink-0',
+            trackPhase === 'preview' ? 'opacity-50 pointer-events-none' : undefined,
+          )}
         >
           <SegmentSidebar
             mode={mode}
