@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
+import type { ECElementEvent } from 'echarts/core'
 import { ScatterChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -132,8 +133,9 @@ export function PRProgressionChart({
     }),
     [scatterData, category],
     (chart) => {
-      const handler = (params: { data: [number, number, PRHistoryEntry] }) => {
-        const activityId = params.data?.[2]?.activity_id
+      const handler = (params: ECElementEvent) => {
+        const data = (params.data as [number, number, PRHistoryEntry] | undefined)
+        const activityId = data?.[2]?.activity_id
         if (activityId) navigate(`/activities/${activityId}`)
       }
       chart.on('click', handler)

@@ -415,16 +415,19 @@ function ImportErrorItem({ item, onRefresh }: ItemProps) {
 function SportConflictItem({ item, onRefresh }: ItemProps) {
   const { addToast } = useToast()
   const activityId = item.metadata?.activity_id
-  const platformSport = item.metadata?.platform_sport as string | undefined
-  const fileSport = item.metadata?.file_sport as string | undefined
-  const platformSource = item.metadata?.platform_source as string | undefined
-  const fileSource = item.metadata?.file_source as string | undefined
+  const platformSport = item.metadata?.platform_sport
+  const fileSport = item.metadata?.file_sport
+  const platformSource = item.metadata?.platform_source
+  const fileSource = item.metadata?.file_source
 
   const resolveMutation = useMutation({
-    mutationFn: (sportType?: string) =>
-      activityId
-        ? resolveSportConflict(activityId, sportType)
-        : deleteQueueItem(item.id),
+    mutationFn: async (sportType?: string) => {
+      if (activityId) {
+        await resolveSportConflict(activityId, sportType)
+      } else {
+        await deleteQueueItem(item.id)
+      }
+    },
     onSuccess: onRefresh,
     onError: (err) => addToast({ type: 'error', title: 'Konflikt konnte nicht aufgelöst werden', message: err instanceof Error ? err.message : 'Unbekannter Fehler', duration: 0 }),
   })

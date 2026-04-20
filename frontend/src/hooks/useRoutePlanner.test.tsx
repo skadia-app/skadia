@@ -13,7 +13,7 @@ vi.mock('@/api/routes', async () => {
   const actual = await vi.importActual<typeof import('@/api/routes')>('@/api/routes')
   return {
     ...actual,
-    getCapabilities: vi.fn().mockResolvedValue({ routing: true, offline_map: false, surface_enrichment: false, dem_correction: false, isochrone: false, route_suggestion: false, ml_service: false, import_path_enabled: false }),
+    getCapabilities: vi.fn().mockResolvedValue({ routing: true, brouter: false, badrouter: false, offline_map: false, surface_enrichment: false, dem_correction: false, isochrone: false, route_suggestion: false, ml_service: false, import_path_enabled: false }),
     getProfileDefaults: vi.fn().mockResolvedValue({
       profile: 'hiking',
       uphill_cost: 7,

@@ -136,7 +136,6 @@ export default function MultiTrackMap({
       const idx = visibleSources.indexOf(src)
       const coords = buildCoords(src)
       const sourceId = `track-${src.id}`
-      const layerId = `track-line-${src.id}`
       const existing = map.getSource(sourceId) as maplibregl.GeoJSONSource | undefined
 
       if (coords.length < 2) return

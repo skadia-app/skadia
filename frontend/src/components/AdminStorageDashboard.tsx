@@ -28,7 +28,7 @@ const LABELS = {
     '-1': 'Alle behalten',
     '0': 'Löschen',
     '1': 'Letzte behalten',
-  } satisfies Record<string, string>,
+  } as Record<string, string>,
   syncEnabled: 'Sync aktiv',
   yes: 'Ja',
   no: 'Nein',

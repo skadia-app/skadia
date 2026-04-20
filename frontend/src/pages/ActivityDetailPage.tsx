@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, getZoneDistribution, correctActivityElevation, resetActivityElevation, correctActivityDistance, resetActivityDistance, fetchActivitySets, fetchActivityJumps, fetchActivityEvents, fetchDiveInfo } from '@/api/activities'
+import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, getZoneDistribution, fetchActivitySets, fetchActivityJumps, fetchActivityEvents, fetchDiveInfo } from '@/api/activities'
 import { fetchWorkout } from '@/api/workouts'
 import { fetchRecordingGroup } from '@/api/recordingGroups'
 import { getSourceColor } from '@/lib/comparisonColors'
@@ -9,11 +9,11 @@ import { deviceLabel } from '@/lib/deviceUtils'
 import { getWeatherSettings } from '@/api/settings'
 import { fetchTags } from '@/api/tags'
 import ActivityLocationTagSection from '@/components/ActivityLocationTagSection'
-import type { Activity, StreamPoint, Sensor, ActivitySet, ActivityJump, ActivityEvent, Workout } from '@/api/types'
+import type { Activity, StreamPoint, ActivitySet, ActivityJump, ActivityEvent, Workout } from '@/api/types'
 import ActivityCharts, { type ZoomRange, type SplitMarker } from '@/components/ActivityCharts'
 import MapFullscreen from '@/components/MapFullscreen'
 import {
-  formatDuration, formatDistance, formatElevationGain, formatElevationLoss,
+  formatDuration, formatDistance,
   sportColor,
 } from '@/lib/utils'
 import { getSegmentGroup, categoryForSport } from '@/lib/sportTaxonomy'

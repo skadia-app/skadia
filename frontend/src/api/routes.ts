@@ -62,6 +62,8 @@ export interface PlannedRoute {
 
 export interface Capabilities {
   routing: boolean
+  brouter: boolean
+  badrouter: boolean
   offline_map: boolean
   surface_enrichment: boolean
   dem_correction: boolean

@@ -13,12 +13,6 @@ function parseOptionalFloat(s: string): number | null {
   return isNaN(v) ? null : v
 }
 
-function parseOptionalInt(s: string): number | null {
-  if (s.trim() === '') return null
-  const v = parseInt(s, 10)
-  return isNaN(v) ? null : v
-}
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface Props {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import type { CoverageOverlayState, CoverageCompositeState } from '@/hooks/useCoverageOverlays'
 import { useNavigate } from 'react-router-dom'
@@ -121,7 +121,7 @@ interface Props {
   filters: MapFilterState
   onChange: (filters: MapFilterState) => void
   forceDark?: boolean
-  viewMode?: 'tracks' | 'heatmap' | 'terra_incognita'
+  viewMode?: 'off' | 'tracks' | 'heatmap' | 'terra_incognita'
   overlayState?: MapOverlayState
   onOverlayChange?: (key: keyof MapOverlayState, value: boolean) => void
   segmentFilters?: SegmentsOverlayFilters

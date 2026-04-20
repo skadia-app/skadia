@@ -39,10 +39,10 @@ import AuthenticatedImage from '@/components/AuthenticatedImage'
 import { fetchSegments, type Segment } from '@/api/segments'
 import { fetchTags, updateTag, mergeTags, fetchTagActivities, syncTagLocation, clearTagCoverImage, assignActivitiesToTag, type Tag, type TagActivity } from '@/api/tags'
 import { fetchActivity, updateActivity } from '@/api/activities'
-import { SegmentsOverlay, DEFAULT_SEGMENT_COLORS, DEFAULT_SEGMENT_FILTERS, type SegmentColorConfig, type SegmentsOverlayFilters } from '@/components/Map/SegmentsOverlay'
+import { SegmentsOverlay, DEFAULT_SEGMENT_FILTERS, type SegmentColorConfig, type SegmentsOverlayFilters } from '@/components/Map/SegmentsOverlay'
 import { fetchTerraIncognita, type TerraIncognitaCoverage } from '@/api/terraIncognita'
 import { useToast } from '@/lib/toast'
-import { haversineM, findNearbyLocationTag } from '@/lib/geoUtils'
+import { findNearbyLocationTag } from '@/lib/geoUtils'
 import { removeTerraIncognitaLayers, addTerraIncognitaLayers } from '@/lib/mapTerraIncognita'
 import GeoSearch from '@/components/map/GeoSearch'
 import { useStickyHighlight } from '@/hooks/useStickyHighlight'
@@ -1266,7 +1266,7 @@ export default function MapPage() {
           snapMarkerRef.current = { marker, el }
         }
       })
-      el.addEventListener('dragleave', (e) => {
+      el.addEventListener('dragleave', (_e) => {
         // Nur debounced clearen — canvas-dragover könnte gleich folgen
         if (snapClearTimerRef.current) clearTimeout(snapClearTimerRef.current)
         snapClearTimerRef.current = setTimeout(() => {

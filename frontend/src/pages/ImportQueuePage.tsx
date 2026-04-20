@@ -149,6 +149,7 @@ function QueueCard({ item, onAssign, onDismiss, isAssigning, isDismissing }: Que
     pdf_untyped: 'PDF',
     duplicate: 'Duplikat',
     import_error: 'Fehler',
+    sport_conflict: 'Sport-Typ-Konflikt',
   }
 
   return (

@@ -6,7 +6,6 @@ import ActiveJobsIndicator from '@/components/ActiveJobsIndicator'
 import NotificationCenter from '@/components/NotificationCenter'
 import { EmailVerifiedBanner } from '@/components/EmailVerifiedBanner'
 import UserMenu from '@/components/UserMenu'
-import { useUser } from '@/providers/UserProvider'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -27,7 +26,6 @@ const navItems = [
 
 export default function Layout() {
   const { theme, toggle } = useTheme()
-  const { isAdmin } = useUser()
 
   return (
     <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 flex flex-col">
