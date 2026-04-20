@@ -7,15 +7,13 @@ export interface DrawModeBottomBarProps {
   pointCount: number
   onUndo: () => void
   onClear: () => void
-  onFinish: () => void
   onReverse: () => void
   onReset: () => void
   onPreviewOrSave: () => void
-  isPreview: boolean
 }
 
 export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
-  const { pointCount, onUndo, onClear, onFinish, onReverse, onReset, onPreviewOrSave, isPreview } = props
+  const { pointCount, onUndo, onClear, onReverse, onReset, onPreviewOrSave } = props
   const [confirmClear, setConfirmClear] = useState(false)
 
   function handleClearClick() {
@@ -91,22 +89,10 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
         </button>
       )}
 
-      {/* Finish */}
-      <button
-        type="button"
-        onClick={onFinish}
-        disabled={pointCount < 2}
-        title="Zeichnen abschließen"
-        className={cn(
-          'rounded-md px-2 py-1 text-xs',
-          'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300',
-          'border border-neutral-200 dark:border-neutral-700',
-          'transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white',
-          'disabled:pointer-events-none disabled:opacity-40',
-        )}
-      >
-        Abschließen
-      </button>
+      {/* Draw-close hint — replaces the removed "Abschließen" button (double-click is the native gesture) */}
+      <span className="text-xs text-neutral-500 dark:text-neutral-400 italic shrink-0">
+        Doppelklick schließt Linie ab
+      </span>
 
       {/* Reverse */}
       <button
