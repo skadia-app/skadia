@@ -47,6 +47,9 @@ export interface SegmentSidebarProps {
   onMetaChange: (patch: Partial<SegmentMetadata>) => void
   info: LiveInfo | null
   allSportTypes: Array<{ key: string; label: string; category: string }>
+  /** Segment group of the source activity (bike/foot/ski/paddle/swim/generic).
+   *  Used to auto-expand the matching sport category on mount. */
+  defaultSportGroup?: string
   onEnrichmentRequest: () => void
   enrichmentState: { loading: boolean; coverage?: number; lastRequestedAt?: number }
   enrichmentSources: Partial<Record<'surface' | 'sac' | 'mtb', { coverage: number } | null>>
@@ -75,6 +78,17 @@ const DIFF_COLOR_LABELS: Record<'blue' | 'red' | 'black', string> = {
 // Winter-only mode uses WINTER_SPORT_WHITELIST instead of categories.
 const SPORT_CATEGORY_KEYS = ['run', 'bike', 'water', 'winter', 'outdoor', 'fitness', 'climb', 'other'] as const
 
+/** Maps a segment group (from ActivitySegments) to the taxonomy category key that
+ *  should be auto-expanded when the editor opens for that activity type. */
+const SEGMENT_GROUP_TO_CATEGORY: Record<string, string> = {
+  foot:    'run',
+  bike:    'bike',
+  ski:     'winter',
+  paddle:  'water',
+  swim:    'water',
+  // 'generic' → no expansion
+}
+
 export function SegmentSidebar(props: SegmentSidebarProps) {
   const {
     meta,
@@ -82,6 +96,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     info,
     mode,
     allSportTypes,
+    defaultSportGroup,
     onEnrichmentRequest,
     enrichmentState,
     enrichmentSources,
@@ -90,10 +105,29 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     enrichmentStatus,
   } = props
 
-  // Collapsible category state
-  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
-    () => new Set(['fitness', 'climb', 'other'])
-  )
+  // Collapsible category state — all collapsed by default.
+  // Exceptions: (1) the category matching the activity's sport group, (2) any
+  // category that already has selected sport types in meta.sportTypes.
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(() => {
+    // Start with ALL categories collapsed.
+    const allCollapsed = new Set(SPORT_CATEGORY_KEYS as ReadonlyArray<string>)
+
+    // Auto-expand the category matching the activity's segment group.
+    const autoExpand = defaultSportGroup ? SEGMENT_GROUP_TO_CATEGORY[defaultSportGroup] : undefined
+    if (autoExpand) allCollapsed.delete(autoExpand)
+
+    // Auto-expand any category that already has selected sport types.
+    if (meta.sportTypes && meta.sportTypes.length > 0) {
+      for (const catKey of SPORT_CATEGORY_KEYS) {
+        const catSports = sportsInCategory(catKey)
+        if (catSports.some(s => meta.sportTypes!.includes(s.sportType))) {
+          allCollapsed.delete(catKey)
+        }
+      }
+    }
+
+    return allCollapsed
+  })
 
   const showScaleFields = meta.segType !== 'wintersport'
   const difficultyColorReadonly = meta.segType === 'trail'
