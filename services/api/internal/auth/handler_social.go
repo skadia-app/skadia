@@ -169,10 +169,11 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get or create user (handles email collision internally).
-	user, _, err := h.DB.GetOrCreateUserByOAuth(r.Context(),
+	isActive := h.Settings.Get("registration.mode").Value != "approval"
+	user, isNewUser, err := h.DB.GetOrCreateUserByOAuth(r.Context(),
 		provider, providerID, providerEmail, username,
 		[]byte(token.AccessToken), []byte(token.RefreshToken),
-		&token.Expiry, h.Config.OAuthEncryptionKey)
+		&token.Expiry, h.Config.OAuthEncryptionKey, isActive, !isActive)
 	if err != nil {
 		if errors.Is(err, database.ErrEmailCollision) {
 			// TODO: Account linking endpoint — currently users are told to "link in settings"
@@ -187,11 +188,13 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Check is_active (C6).
 	if !user.IsActive {
-		errCode := "account_inactive"
-		if user.PendingApproval {
-			errCode = "account_pending_approval"
+		// New users in approval-mode: reveal pending state — they know they just registered.
+		// Existing inactive users: generic code to avoid leaking status via URL/logs.
+		if isNewUser && user.PendingApproval {
+			h.socialError(w, r, "account_pending_approval")
+		} else {
+			h.socialError(w, r, "account_inactive")
 		}
-		h.socialError(w, r, errCode)
 		return
 	}
 	// Update last login timestamp.
