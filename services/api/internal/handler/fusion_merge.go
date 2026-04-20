@@ -1932,25 +1932,30 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Group integration — must run inside the merge TX so that a DB failure
+	// rolls back the entire merge rather than leaving a partially-committed
+	// state (sources in group with skip-flag, merged activity absent, stale
+	// primary_activity_id). R4-5.
+	if req.GroupID != nil && *req.GroupID != "" {
+		if err := h.DB.AddRecordingGroupMemberFusedTx(ctx, tx, *req.GroupID, merged.ID); err != nil {
+			slog.Error("fusion-merge: add fused member to group (in tx) failed", "group", *req.GroupID, "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "add fused group member: "+err.Error(), r.URL.Path)
+			return
+		}
+		// Merged activity als Primary der Gruppe setzen; der Trigger
+		// trg_group_primary_sync setzt is_group_secondary für die anderen Members.
+		if err := h.DB.SetRecordingGroupPrimaryTx(ctx, tx, *req.GroupID, merged.ID); err != nil {
+			slog.Error("fusion-merge: set group primary (in tx) failed", "group", *req.GroupID, "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "set group primary: "+err.Error(), r.URL.Path)
+			return
+		}
+	}
+
 	// Commit transaction.
 	if err := tx.Commit(ctx); err != nil {
 		slog.Error("fusion-merge: commit transaction failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to commit transaction", r.URL.Path)
 		return
-	}
-
-	// Post-commit: group integration.
-	if req.GroupID != nil && *req.GroupID != "" {
-		if err := h.DB.AddRecordingGroupMemberFused(ctx, *req.GroupID, merged.ID); err != nil {
-			slog.Error("fusion-merge: add fused member to group failed", "group", *req.GroupID, "error", err)
-			// Non-fatal: the merge itself succeeded.
-		} else {
-			// Merged activity als Primary der Gruppe setzen; der Trigger
-			// trg_group_primary_sync setzt is_group_secondary für die anderen Members.
-			if err := h.DB.SetRecordingGroupPrimary(ctx, *req.GroupID, merged.ID); err != nil {
-				slog.Warn("fusion-merge: set group primary failed", "group", *req.GroupID, "error", err)
-			}
-		}
 	}
 
 	// Post-commit: FIT-level merge, sidecar write, candidate cache cleanup.
