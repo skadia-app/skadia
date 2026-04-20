@@ -441,6 +441,40 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Step 10a: Pre-compute summit queries in parallel (Finding #20).
+	// All variants' WKB encoding + PostGIS queries run concurrently before the
+	// build loop so that 3×~40ms PostGIS RTTs overlap instead of stacking.
+	// Per-variant isolation: errors are logged and produce nil (no bubble-up).
+	summitsPerVariant := make([][]database.PassedSummit, len(labeled))
+	if h.DB != nil && h.DB.Pool != nil && radiusM > 0 {
+		var sgSummits errgroup.Group
+		sgSummits.SetLimit(4) // cap at 4 concurrent PostGIS queries
+		for i, lr := range labeled {
+			merged := lr.Candidate.Merged
+			if len(merged.Coordinates) < 2 {
+				continue // approach-only or empty: skip, leave slot nil
+			}
+			i, lr, merged := i, lr, merged
+			sgSummits.Go(func() error {
+				wkbBytes, wkbErr := coordsToLineStringWKB(merged.Coordinates)
+				if wkbErr != nil {
+					if !errors.Is(wkbErr, errTooFewCoords) {
+						slog.Warn("summit-along-geom: WKB failed", "err", wkbErr, "variant", lr.VariantID)
+					}
+					return nil // per-variant isolation
+				}
+				summits, err := database.FindSummitsAlongGeom(r.Context(), h.DB.Pool, wkbBytes, radiusM)
+				if err != nil {
+					slog.Warn("summits along route failed", "variant", lr.VariantID, "error", err)
+					return nil // per-variant isolation (Spec §4.1.5)
+				}
+				summitsPerVariant[i] = summits
+				return nil
+			})
+		}
+		_ = sgSummits.Wait() // errors impossible — all goroutines return nil
+	}
+
 	suggestions := make([]RouteSuggestion, 0, len(labeled))
 	for i, lr := range labeled {
 		c := lr.Candidate
@@ -461,63 +495,18 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 			descriptors = []VariantDescriptor{}
 		}
 
-		// Range computation per variant.
+		// Range computation per variant — single fused pass over edge tags (Finding #15).
 		lastCoordIdx := len(merged.Coordinates) - 1
+		allRanges := computeAllRanges(merged.EdgeCoordStart, merged.EdgeTags1, merged.EdgeTags2, lastCoordIdx)
+		forestRanges := allRanges.Forest
+		protectedRanges := allRanges.Protected
+		sacRanges := allRanges.Sac
+		mtbRanges := allRanges.Mtb
+		vfRanges := allRanges.Vf
+		vfUnknownRanges := allRanges.VfUnknown
 
-		forestRanges := computeForestRanges(merged.EdgeCoordStart, merged.EdgeTags2, lastCoordIdx)
-		protectedRanges := computeProtectedRanges(merged.EdgeCoordStart, merged.EdgeTags2, lastCoordIdx)
-
-		sacRanges := make(map[string][]CoordRange)
-		for _, level := range []string{"T1", "T2", "T3", "T4", "T5", "T6"} {
-			if r := computeScaleRanges(merged.EdgeCoordStart, merged.EdgeTags1, lastCoordIdx, "sac", level); len(r) > 0 {
-				sacRanges[level] = r
-			}
-		}
-		mtbRanges := make(map[string][]CoordRange)
-		for _, level := range []string{"S0", "S1", "S2", "S3", "S4", "S5"} {
-			if r := computeScaleRanges(merged.EdgeCoordStart, merged.EdgeTags1, lastCoordIdx, "mtb", level); len(r) > 0 {
-				mtbRanges[level] = r
-			}
-		}
-		if len(sacRanges) == 0 {
-			sacRanges = nil
-		}
-		if len(mtbRanges) == 0 {
-			mtbRanges = nil
-		}
-
-		vfRanges := make(map[string][]CoordRange)
-		for _, level := range []string{"K1", "K2", "K3", "K4", "K5", "K6"} {
-			if r := computeVfRanges(merged.EdgeCoordStart, merged.EdgeTags2, lastCoordIdx, level); len(r) > 0 {
-				vfRanges[level] = r
-			}
-		}
-		if len(vfRanges) == 0 {
-			vfRanges = nil
-		}
-		vfUnknownRanges := computeVfUnknownRanges(merged.EdgeCoordStart, merged.EdgeTags1, merged.EdgeTags2, lastCoordIdx)
-
-		// Summit detection per variant.
-		// Requires a live DB connection (h.DB non-nil, h.DB.Pool non-nil).
-		// Skipped gracefully for offline/test deployments where DB is unavailable.
-		var summitsPassed []database.PassedSummit
-		if h.DB != nil && h.DB.Pool != nil && radiusM > 0 && len(merged.Coordinates) >= 2 {
-			wkbBytes, wkbErr := coordsToLineStringWKB(merged.Coordinates)
-			if wkbErr != nil {
-				if errors.Is(wkbErr, errTooFewCoords) {
-					// Approach-only route: normal corner-case, silent skip.
-				} else {
-					slog.Warn("summit-along-geom: WKB failed", "err", wkbErr, "variant", lr.VariantID)
-				}
-			} else {
-				var err error
-				summitsPassed, err = database.FindSummitsAlongGeom(r.Context(), h.DB.Pool, wkbBytes, radiusM)
-				if err != nil {
-					slog.Warn("summits along route failed", "variant", lr.VariantID, "error", err)
-					summitsPassed = nil // per-variant isolation (Spec §4.1.5)
-				}
-			}
-		}
+		// Consume pre-computed summit results (Finding #20: parallel pre-fetch above).
+		summitsPassed := summitsPerVariant[i]
 		responseSummits := make([]ResponsePassedSummit, 0, len(summitsPassed))
 		for _, s := range summitsPassed {
 			responseSummits = append(responseSummits, toResponseSummit(s))
