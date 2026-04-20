@@ -201,19 +201,29 @@ func mergeLegs(legs []*RouteResult) *RouteResult {
 		result.PassStats.TotalDurationMs += leg.PassStats.TotalDurationMs
 		result.EdgeHandles = append(result.EdgeHandles, leg.EdgeHandles...)
 
-		// EdgeCoordStart: coord-index slice, needs same shift as Segments (segOffset = coordsBefore-1).
-		// Empty-Leg-Guard analog zum bestehenden `else if len(leg.Coordinates) > 0`:
-		// ein Folge-Leg ohne Coordinates hat auch keine sinnvoll zu shiftenden CoordStart-Indizes.
+		// EdgeCoordStart, EdgeTags1, EdgeTags2 are per-edge slices that MUST stay
+		// length-synchronous (invariant: len(EdgeTags1) == len(EdgeTags2) == len(EdgeCoordStart)).
+		// contiguousRangesFromMatch / computeScaleRanges iterate over edgeTags* and
+		// index edgeCoordStart[i] directly — a length mismatch causes an out-of-range panic.
+		//
+		// Guard: a follow-leg with no Coordinates has no real edges to contribute.
+		// Appending its tags (or CoordStart entries) without a corresponding coord anchor
+		// would break the invariant and produce bogus map-range data.
+		// EdgeHandles is intentionally NOT guarded here: its consumers (aggregateLegOutdoor,
+		// aggregateLeg2Coverage, ExtractWayIDsFromHandles) iterate handles independently
+		// via reader.EdgeTags*(handle) and do not correlate with EdgeCoordStart by index.
 		if i == 0 {
 			result.EdgeCoordStart = append(result.EdgeCoordStart, leg.EdgeCoordStart...)
+			result.EdgeTags1 = append(result.EdgeTags1, leg.EdgeTags1...)
+			result.EdgeTags2 = append(result.EdgeTags2, leg.EdgeTags2...)
 		} else if len(leg.Coordinates) > 0 {
 			for _, idx := range leg.EdgeCoordStart {
 				result.EdgeCoordStart = append(result.EdgeCoordStart, idx+segOffset)
 			}
+			result.EdgeTags1 = append(result.EdgeTags1, leg.EdgeTags1...)
+			result.EdgeTags2 = append(result.EdgeTags2, leg.EdgeTags2...)
 		}
-		// EdgeTags1 / EdgeTags2: per-edge indexed, no coord shift needed.
-		result.EdgeTags1 = append(result.EdgeTags1, leg.EdgeTags1...)
-		result.EdgeTags2 = append(result.EdgeTags2, leg.EdgeTags2...)
+		// Empty follow-leg (len(Coordinates)==0): EdgeCoordStart/Tags1/Tags2 skipped above.
 	}
 	return result
 }
