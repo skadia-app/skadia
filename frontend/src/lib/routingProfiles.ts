@@ -15,6 +15,7 @@ export interface ProfileConfig {
   sac_preferred?: number
   max_mtb_scale?: number
   max_via_ferrata?: number
+  allow_unscaled_via_ferrata?: boolean
   max_trail_visibility?: number         // NEW
   trail_visibility_penalty?: number     // NEW
   allow_steps?: boolean
@@ -366,7 +367,7 @@ export function serverResponseToConfig(resp: ProfileDefaultsResponse): ProfileCo
   }
 
   const boolKeys: (keyof ProfileDefaultsResponse & keyof ProfileConfig)[] = [
-    'allow_steps', 'allow_ferries', 'wet_weather',
+    'allow_steps', 'allow_ferries', 'wet_weather', 'allow_unscaled_via_ferrata',
   ]
   for (const k of boolKeys) {
     const val = resp[k]

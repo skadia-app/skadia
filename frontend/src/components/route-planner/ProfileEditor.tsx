@@ -566,6 +566,48 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
                   : Number(defaults?.[field.key] ?? field.min ?? 0)
 
               if (field.type === 'int') {
+                if (field.key === 'max_via_ferrata') {
+                  const vfVal = Math.round(numVal)
+                  return (
+                    <div key={field.key} className="space-y-1">
+                      <IntSegmented
+                        label={field.label}
+                        value={vfVal}
+                        min={field.min ?? 0}
+                        max={field.max ?? 6}
+                        hint={field.hint}
+                        onChange={v => updateField(field.key, v as ProfileConfig[typeof field.key])}
+                      />
+                      {vfVal > 0 && (
+                        <>
+                          <p className="text-[10px] text-neutral-400 dark:text-neutral-500 leading-snug">
+                            Nur bestätigt gescalede Klettersteige (K1–K{vfVal}) werden erlaubt.
+                            Für Klettersteige ohne OSM-Schwierigkeitsangabe siehe Opt-In unten.
+                          </p>
+                          <label className="flex items-start gap-2 py-1 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={config.allow_unscaled_via_ferrata ?? false}
+                              onChange={e => updateField('allow_unscaled_via_ferrata', e.target.checked)}
+                              className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 accent-[var(--color-accent-DEFAULT,#F97316)] cursor-pointer"
+                            />
+                            <div>
+                              <span className="text-xs text-neutral-700 dark:text-neutral-300">
+                                Unscaled Klettersteige erlauben
+                              </span>
+                              <p className="text-[10px] text-red-600 dark:text-red-400 leading-snug">
+                                Achtung: Aktiviert Routing über Klettersteig-Ways ohne bestätigte
+                                Schwierigkeitsangabe in OSM. Tatsächliche Schwierigkeit kann K1 bis K6
+                                sein. Nur mit Ortskenntnis aktivieren.
+                              </p>
+                            </div>
+                          </label>
+                        </>
+                      )}
+                    </div>
+                  )
+                }
+
                 return (
                   <IntSegmented
                     key={field.key}
