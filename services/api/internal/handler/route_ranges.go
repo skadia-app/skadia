@@ -90,3 +90,40 @@ func computeProtectedRanges(
 	}
 	return contiguousRangesFromMatch(matches, edgeCoordStart, lastCoordIdx)
 }
+
+// computeScaleRanges builds CoordRanges for edges matching a specific SAC or
+// MTB scale level. kind is "sac" or "mtb"; level is "T1".."T6" or "S0".."S5".
+//
+// Bit layout (both from Tags1, per EncodeOSMTags in graph/tags.go):
+//   - SAC scale: bits 14-16 (shift 14), mapped via graph.SacScaleShort (direct: raw=3 → "T3")
+//   - MTB scale: bits 17-19 (shift 17), mapped via graph.MtbScaleShort (offset: raw=3 → "S2", NOT "S3")
+//
+// Unknown kind or level returns nil without panicking.
+func computeScaleRanges(
+	edgeCoordStart []int,
+	edgeTags1 []uint64,
+	lastCoordIdx int,
+	kind string,
+	level string,
+) []CoordRange {
+	matches := make([]bool, len(edgeTags1))
+	switch kind {
+	case "sac":
+		for i, t1 := range edgeTags1 {
+			raw := uint8((t1 >> 14) & 0x07)
+			if graph.SacScaleShort(raw) == level {
+				matches[i] = true
+			}
+		}
+	case "mtb":
+		for i, t1 := range edgeTags1 {
+			raw := uint8((t1 >> 17) & 0x07)
+			if graph.MtbScaleShort(raw) == level {
+				matches[i] = true
+			}
+		}
+	default:
+		return nil
+	}
+	return contiguousRangesFromMatch(matches, edgeCoordStart, lastCoordIdx)
+}
