@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { filterSubSegmentsByDescriptor } from '../descriptorFilter'
+import {
+  filterSubSegmentsByDescriptor,
+  INTERACTIVE_DESCRIPTOR_KEYS,
+  isInteractiveDescriptorKey,
+} from '../descriptorFilter'
 import type { RouteSubSegment } from '../routeSurfaceAggregation'
 
 function seg(x: Partial<RouteSubSegment>): RouteSubSegment {
@@ -99,5 +103,52 @@ describe('filterSubSegmentsByDescriptor', () => {
       'low_visibility',
     )
     expect(out).toEqual([])
+  })
+
+  it('high_forest returns empty array (no SubSegment path, ranges from backend)', () => {
+    const segs = [seg({ highway: 'path' }), seg({ highway: 'track' })]
+    expect(filterSubSegmentsByDescriptor(segs, 'high_forest')).toEqual([])
+  })
+
+  it('high_protected returns empty array (no SubSegment path, ranges from backend)', () => {
+    const segs = [seg({ highway: 'path' }), seg({ highway: 'track' })]
+    expect(filterSubSegmentsByDescriptor(segs, 'high_protected')).toEqual([])
+  })
+})
+
+describe('INTERACTIVE_DESCRIPTOR_KEYS', () => {
+  it('contains all 6 expected keys', () => {
+    expect(INTERACTIVE_DESCRIPTOR_KEYS.has('mtb_technical')).toBe(true)
+    expect(INTERACTIVE_DESCRIPTOR_KEYS.has('alpine_hiking')).toBe(true)
+    expect(INTERACTIVE_DESCRIPTOR_KEYS.has('exposed')).toBe(true)
+    expect(INTERACTIVE_DESCRIPTOR_KEYS.has('low_visibility')).toBe(true)
+    expect(INTERACTIVE_DESCRIPTOR_KEYS.has('high_forest')).toBe(true)
+    expect(INTERACTIVE_DESCRIPTOR_KEYS.has('high_protected')).toBe(true)
+  })
+
+  it('has exactly 6 entries', () => {
+    expect(INTERACTIVE_DESCRIPTOR_KEYS.size).toBe(6)
+  })
+
+  it('does not contain unknown keys', () => {
+    expect(INTERACTIVE_DESCRIPTOR_KEYS.has('unknown_key')).toBe(false)
+    expect(INTERACTIVE_DESCRIPTOR_KEYS.has('F26')).toBe(false)
+  })
+})
+
+describe('isInteractiveDescriptorKey', () => {
+  it('returns true for all valid descriptor keys', () => {
+    expect(isInteractiveDescriptorKey('mtb_technical')).toBe(true)
+    expect(isInteractiveDescriptorKey('alpine_hiking')).toBe(true)
+    expect(isInteractiveDescriptorKey('exposed')).toBe(true)
+    expect(isInteractiveDescriptorKey('low_visibility')).toBe(true)
+    expect(isInteractiveDescriptorKey('high_forest')).toBe(true)
+    expect(isInteractiveDescriptorKey('high_protected')).toBe(true)
+  })
+
+  it('returns false for unknown strings', () => {
+    expect(isInteractiveDescriptorKey('unknown')).toBe(false)
+    expect(isInteractiveDescriptorKey('')).toBe(false)
+    expect(isInteractiveDescriptorKey('F26')).toBe(false)
   })
 })

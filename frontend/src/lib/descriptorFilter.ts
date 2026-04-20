@@ -1,16 +1,18 @@
 import type { RouteSubSegment } from './routeSurfaceAggregation'
 
-export type DescriptorKey = 'mtb_technical' | 'alpine_hiking' | 'exposed' | 'low_visibility'
+export type DescriptorKey =
+  | 'mtb_technical' | 'alpine_hiking' | 'exposed' | 'low_visibility'
+  | 'high_forest' | 'high_protected'
 
 // Single source of truth — all consumers (RouteComparisonPanel, useStickyHighlight
-// bridge in MapPage) import F26_KEYS from here. Adding a 5th key updates all
-// three consumers in one place.
-export const F26_KEYS: ReadonlySet<string> = new Set<DescriptorKey>([
+// bridge in MapPage) import INTERACTIVE_DESCRIPTOR_KEYS from here.
+export const INTERACTIVE_DESCRIPTOR_KEYS: ReadonlySet<string> = new Set<DescriptorKey>([
   'mtb_technical', 'alpine_hiking', 'exposed', 'low_visibility',
+  'high_forest', 'high_protected',
 ])
 
-export function isF26Key(key: string): key is DescriptorKey {
-  return F26_KEYS.has(key)
+export function isInteractiveDescriptorKey(key: string): key is DescriptorKey {
+  return INTERACTIVE_DESCRIPTOR_KEYS.has(key)
 }
 
 export function filterSubSegmentsByDescriptor(
@@ -31,5 +33,8 @@ export function filterSubSegmentsByDescriptor(
       return segments.filter(s =>
         ['intermediate', 'bad', 'horrible', 'no'].includes(s.trail_visibility ?? '')
       )
+    case 'high_forest':
+    case 'high_protected':
+      return []  // No SubSegment-Pfad — Ranges kommen aus dem Backend
   }
 }
