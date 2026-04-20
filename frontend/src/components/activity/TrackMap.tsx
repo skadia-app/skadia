@@ -13,6 +13,7 @@ import MapColorLegend from './MapColorLegend'
 interface TrackMapProps {
   activityId?: string
   streams: StreamPoint[]
+  streamsLoading?: boolean
   hoverIndex: number | null
   sportColor: string
   sportType: string
@@ -31,7 +32,7 @@ const SUMMIT_ICON_SVG = `data:image/svg+xml,${encodeURIComponent(
   '</svg>'
 )}`
 
-export default function TrackMap({ activityId, streams, hoverIndex, sportColor, sportType, fitSportId, hasGps, zoomRange, onMaximize, geoTags, stops, locationPin }: TrackMapProps) {
+export default function TrackMap({ activityId, streams, streamsLoading, hoverIndex, sportColor, sportType, fitSportId, hasGps, zoomRange, onMaximize, geoTags, stops, locationPin }: TrackMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -501,15 +502,14 @@ export default function TrackMap({ activityId, streams, hoverIndex, sportColor, 
     )
   }
 
-  if (!hasTrack && streams.length === 0) {
-    return (
-      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 flex items-center justify-center h-48">
-        <span className="text-sm text-neutral-400">Lade Kartendaten...</span>
-      </div>
-    )
-  }
-
   if (!hasTrack) {
+    if (streamsLoading !== false) {
+      return (
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 flex items-center justify-center h-48">
+          <span className="text-sm text-neutral-400">Lade Kartendaten...</span>
+        </div>
+      )
+    }
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 flex items-center justify-center h-48">
         <span className="text-sm text-neutral-400">Keine GPS-Daten</span>
