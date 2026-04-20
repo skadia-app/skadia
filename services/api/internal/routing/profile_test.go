@@ -1008,3 +1008,118 @@ func TestPhaseA_AllProfilesFastPathActive(t *testing.T) {
 		}
 	}
 }
+
+// --- Via Ferrata + AllowUnscaledViaFerrata tests (Task 16a) ---
+
+// vfProfile constructs a hiking-based ProfileConfig with maxVF and allowUnscaled set.
+// Uses mergeWithDefaults so builtin hiking defaults fill all other fields.
+func vfProfile(t *testing.T, maxVF int, allowUnscaled *bool) ProfileConfig {
+	t.Helper()
+	p := mergeWithDefaults(t, ProfileConfig{
+		Profile:                 "hiking",
+		MaxViaFerrata:           intPtr(maxVF),
+		AllowUnscaledViaFerrata: allowUnscaled,
+	})
+	return p
+}
+
+func TestRoutingCost_BlocksUnscaledViaFerrata(t *testing.T) {
+	// Edge: highway=22 (via_ferrata), vfScale=0 (unscaled, bits 33-35 = 0).
+	tags1 := uint64(22) // hw=22 in bits 0-4
+	tags2 := uint64(0)  // vfScale=0 (bits 33-35 unset)
+
+	// Case 1: MaxViaFerrata=3, AllowUnscaledViaFerrata=false → BLOCKED
+	c1 := buildEdgeCostClosure(vfProfile(t, 3, boolPtr(false)))
+	if got := c1(tags1, tags2); got.Flat < costBlocked {
+		t.Fatalf("unscaled VF with AllowUnscaled=false MUST be blocked; got Flat=%v", got.Flat)
+	}
+
+	// Case 2: MaxViaFerrata=3, AllowUnscaledViaFerrata=nil (default) → BLOCKED (same as false)
+	c2 := buildEdgeCostClosure(vfProfile(t, 3, nil))
+	if got := c2(tags1, tags2); got.Flat < costBlocked {
+		t.Fatalf("unscaled VF with AllowUnscaled=nil MUST be blocked; got Flat=%v", got.Flat)
+	}
+
+	// Case 3: MaxViaFerrata=3, AllowUnscaledViaFerrata=true → NOT BLOCKED
+	c3 := buildEdgeCostClosure(vfProfile(t, 3, boolPtr(true)))
+	if got := c3(tags1, tags2); got.Flat >= costBlocked {
+		t.Fatalf("unscaled VF with AllowUnscaled=true MUST pass; got Flat=%v", got.Flat)
+	}
+
+	// Case 4: MaxViaFerrata=0 → BLOCKED regardless of AllowUnscaled
+	c4 := buildEdgeCostClosure(vfProfile(t, 0, boolPtr(true)))
+	if got := c4(tags1, tags2); got.Flat < costBlocked {
+		t.Fatalf("MaxViaFerrata=0 MUST block even with AllowUnscaled=true; got Flat=%v", got.Flat)
+	}
+}
+
+func TestRoutingCost_AllowsScaledViaFerrata(t *testing.T) {
+	// Edge: highway=22, vfScale=2 (K2) — bits 33-35 = 2.
+	tags1 := uint64(22)
+	tags2 := uint64(2) << 33
+
+	// MaxViaFerrata=3, AllowUnscaled=false → PASS (K2 ≤ K3, scaled so no unscaled-check)
+	c1 := buildEdgeCostClosure(vfProfile(t, 3, boolPtr(false)))
+	if got := c1(tags1, tags2); got.Flat >= costBlocked {
+		t.Fatalf("K2 with Max=3 MUST pass; got Flat=%v", got.Flat)
+	}
+
+	// MaxViaFerrata=1, AllowUnscaled=false → BLOCKED (K2 > K1)
+	c2 := buildEdgeCostClosure(vfProfile(t, 1, boolPtr(false)))
+	if got := c2(tags1, tags2); got.Flat < costBlocked {
+		t.Fatalf("K2 with Max=1 MUST block; got Flat=%v", got.Flat)
+	}
+
+	// MaxViaFerrata=0 → BLOCKED even for K2 (all VF disabled)
+	c3 := buildEdgeCostClosure(vfProfile(t, 0, boolPtr(true)))
+	if got := c3(tags1, tags2); got.Flat < costBlocked {
+		t.Fatalf("MaxViaFerrata=0 MUST block K2; got Flat=%v", got.Flat)
+	}
+}
+
+// boolPtr returns a pointer to b. Complements intPtr / float32Ptr.
+func boolPtr(b bool) *bool { return &b }
+
+// --- Landmark closure admissibility tests ---
+
+func TestLandmarkClosure_PermissiveFlags(t *testing.T) {
+	cfg := landmarkClosureProfile()
+
+	// All 5 permissive flags MUST be set for A*-admissibility.
+	if cfg.MaxSacScale == nil || *cfg.MaxSacScale < 6 {
+		t.Errorf("MaxSacScale MUST be >= 6 for admissibility; got %v", cfg.MaxSacScale)
+	}
+	if cfg.MaxMtbScale == nil || *cfg.MaxMtbScale < 5 {
+		t.Errorf("MaxMtbScale MUST be >= 5 for admissibility; got %v", cfg.MaxMtbScale)
+	}
+	if cfg.AllowSteps == nil || !*cfg.AllowSteps {
+		t.Errorf("AllowSteps MUST be true for admissibility; got %v", cfg.AllowSteps)
+	}
+	if cfg.MaxViaFerrata == nil || *cfg.MaxViaFerrata < 6 {
+		t.Errorf("MaxViaFerrata MUST be >= 6 for admissibility; got %v", cfg.MaxViaFerrata)
+	}
+	if cfg.AllowUnscaledViaFerrata == nil || !*cfg.AllowUnscaledViaFerrata {
+		t.Errorf("AllowUnscaledViaFerrata MUST be true for admissibility; got %v", cfg.AllowUnscaledViaFerrata)
+	}
+}
+
+func TestLandmarkClosure_PermissiveVfSettings(t *testing.T) {
+	closure := BuildLandmarkEdgeCostClosure()
+
+	// Edge: highway=22 (via_ferrata), vfScale=0 (unscaled).
+	// Landmark must treat unscaled VF as traversable (admissibility).
+	tags1 := uint64(22)
+	tags2 := uint64(0) // vfScale=0
+
+	got := closure(tags1, tags2)
+	if got.Flat >= costBlocked {
+		t.Fatalf("landmark closure MUST treat unscaled VF as traversable (admissibility); got Flat=%v (costBlocked=%v)", got.Flat, costBlocked)
+	}
+
+	// Also verify scaled VF K6 is traversable (MaxViaFerrata=6).
+	tags2K6 := uint64(6) << 33
+	gotK6 := closure(tags1, tags2K6)
+	if gotK6.Flat >= costBlocked {
+		t.Fatalf("landmark closure MUST traverse K6 VF (MaxViaFerrata=6); got Flat=%v", gotK6.Flat)
+	}
+}

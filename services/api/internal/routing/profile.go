@@ -27,7 +27,8 @@ type ProfileConfig struct {
 	MaxSacScale   *int  `json:"max_sac_scale,omitempty"`   // 0-6
 	SacPreferred  *int  `json:"sac_preferred,omitempty"`   // 0-6
 	MaxMtbScale   *int  `json:"max_mtb_scale,omitempty"`   // 0-5
-	MaxViaFerrata          *int     `json:"max_via_ferrata,omitempty"` // 0-6
+	MaxViaFerrata           *int  `json:"max_via_ferrata,omitempty"`            // 0-6
+	AllowUnscaledViaFerrata *bool `json:"allow_unscaled_via_ferrata,omitempty"` // default nil = false (sicher)
 	MaxTrailVisibility     *int     `json:"max_trail_visibility,omitempty"`     // 0-6 (0 or unset = no limit)
 	TrailVisibilityPenalty *float32 `json:"trail_visibility_penalty,omitempty"` // 0.0-2.0
 	AllowSteps    *bool `json:"allow_steps,omitempty"`
@@ -152,6 +153,7 @@ func MergeProfile(base, override ProfileConfig) ProfileConfig {
 	mergePtrInt(&m.SacPreferred, override.SacPreferred)
 	mergePtrInt(&m.MaxMtbScale, override.MaxMtbScale)
 	mergePtrInt(&m.MaxViaFerrata, override.MaxViaFerrata)
+	mergePtrBool(&m.AllowUnscaledViaFerrata, override.AllowUnscaledViaFerrata)
 	mergePtrInt(&m.MaxTrailVisibility, override.MaxTrailVisibility)
 	mergePtr(&m.TrailVisibilityPenalty, override.TrailVisibilityPenalty)
 	mergePtrBool(&m.AllowSteps, override.AllowSteps)
@@ -238,6 +240,7 @@ func buildEdgeCostClosure(p ProfileConfig) func(tags1, tags2 uint64) EdgeCostFac
 	sacPref := derefInt(p.SacPreferred)
 	maxMtb := derefInt(p.MaxMtbScale)
 	maxVF := derefInt(p.MaxViaFerrata)
+	allowUnscaledVF := derefBool(p.AllowUnscaledViaFerrata)
 	allowSteps := derefBool(p.AllowSteps)
 	allowFerries := derefBool(p.AllowFerries)
 	_ = allowFerries // reserved for future use
@@ -372,10 +375,19 @@ func buildEdgeCostClosure(p ProfileConfig) func(tags1, tags2 uint64) EdgeCostFac
 		// Via ferrata
 		if hw == 22 { // via_ferrata
 			vfScale := graph.DecodeViaFerrataScale(tags2)
-			if maxVF == 0 && vfScale > 0 {
+			if maxVF == 0 {
+				// Profile disallows all via ferrata.
 				return EdgeCostFactors{Flat: costBlocked}
 			}
-			if vfScale > 0 && int(vfScale) > maxVF {
+			if vfScale == 0 {
+				// Unscaled via_ferrata (OSM tag present but no numeric grade).
+				// Default = block (safety): unscaled ferrata may be K5/K6.
+				// Only pass through if user opted in explicitly.
+				if !allowUnscaledVF {
+					return EdgeCostFactors{Flat: costBlocked}
+				}
+				// Opt-in active: treat as traversable (cost like regular VF).
+			} else if int(vfScale) > maxVF {
 				return EdgeCostFactors{Flat: costBlocked}
 			}
 		}
@@ -971,13 +983,21 @@ func surfaceDownhillMod(sf uint8, wet bool) float32 {
 	return base
 }
 
-// BuildLandmarkEdgeCostClosure returns an edge-cost closure suitable for landmark
-// preprocessing. It uses the hiking profile as base (most universal for outdoor
-// routing) with ALL enrichment/preference weights zeroed out so that landmark
-// distances represent pure infrastructure + elevation cost — a guaranteed lower
-// bound for any real profile that adds enrichment penalties on top.
-func BuildLandmarkEdgeCostClosure() func(tags1, tags2 uint64) EdgeCostFactors {
-	p := ProfileConfig{
+// landmarkClosureProfile returns the ProfileConfig used by BuildLandmarkEdgeCostClosure.
+// Exported as a private helper so tests can inspect individual permissive flags.
+//
+// Admissibility contract: every flag here MUST be the most permissive value across
+// ALL possible user profiles so that landmark distances are a guaranteed lower bound
+// for A*. If you add a new blocking cost-path, add the permissive flag here AND
+// extend TestLandmarkClosure_PermissiveFlags.
+//
+// Current permissive flags (5):
+//
+//	MaxSacScale=6, MaxMtbScale=5, AllowSteps=true,
+//	MaxViaFerrata=6, AllowUnscaledViaFerrata=true.
+func landmarkClosureProfile() ProfileConfig {
+	allowUnscaled := true
+	return ProfileConfig{
 		Profile:           "hiking",
 		UphillCost:        new(float32(0)), // overridden per LandmarkCostConfig
 		DownhillCost:      new(float32(0)), // overridden per LandmarkCostConfig
@@ -986,12 +1006,13 @@ func BuildLandmarkEdgeCostClosure() func(tags1, tags2 uint64) EdgeCostFactors {
 		ElevPenaltyBuffer: new(float32(5)),
 		ElevMaxBuffer:     new(float32(10)),
 		ElevBufferReduce:  new(float32(0.01)),
-		MaxSacScale:       new(6), // allow everything
-		SacPreferred:      new(0), // no preference penalty
-		MaxMtbScale:       new(5), // allow everything
-		MaxViaFerrata:     new(6), // allow everything
-		AllowSteps:        new(true),
-		AllowFerries:      new(true),
+		MaxSacScale:             new(6),           // allow everything
+		SacPreferred:            new(0),           // no preference penalty
+		MaxMtbScale:             new(5),           // allow everything
+		MaxViaFerrata:           new(6),           // allow everything
+		AllowUnscaledViaFerrata: &allowUnscaled,  // allow unscaled VF (admissibility)
+		AllowSteps:              new(true),
+		AllowFerries:            new(true),
 		// ALL enrichment weights = 0 (lower bound guarantee)
 		ForestBonus:     new(float32(0)),
 		NoisePenalty:    new(float32(0)),
@@ -1004,7 +1025,17 @@ func BuildLandmarkEdgeCostClosure() func(tags1, tags2 uint64) EdgeCostFactors {
 		TurnCost:        new(float32(0)),
 		InitialCostRoad: new(float32(0)),
 	}
-	return buildEdgeCostClosure(p)
+}
+
+// BuildLandmarkEdgeCostClosure returns an edge-cost closure suitable for landmark
+// preprocessing. It uses the hiking profile as base (most universal for outdoor
+// routing) with ALL enrichment/preference weights zeroed out so that landmark
+// distances represent pure infrastructure + elevation cost — a guaranteed lower
+// bound for any real profile that adds enrichment penalties on top.
+//
+// See landmarkClosureProfile for the admissibility contract and permissive-flag list.
+func BuildLandmarkEdgeCostClosure() func(tags1, tags2 uint64) EdgeCostFactors {
+	return buildEdgeCostClosure(landmarkClosureProfile())
 }
 
 // setAvgCostPerKm sets the calibrated average cost per km for isochrone budget calculation.
@@ -1044,7 +1075,10 @@ type ProfileDefaultsResponse struct {
 	MaxSacScale   *int  `json:"max_sac_scale"`
 	SacPreferred  *int  `json:"sac_preferred"`
 	MaxMtbScale   *int  `json:"max_mtb_scale"`
-	MaxViaFerrata          *int     `json:"max_via_ferrata"`
+	MaxViaFerrata           *int  `json:"max_via_ferrata"`
+	// AllowUnscaledViaFerrata WITHOUT omitempty: explicit null = "not set" / false (safe default).
+	// Intentional asymmetry with ProfileConfig (which has omitempty for sparse patch semantics).
+	AllowUnscaledViaFerrata *bool `json:"allow_unscaled_via_ferrata"`
 	MaxTrailVisibility     *int     `json:"max_trail_visibility"`
 	TrailVisibilityPenalty *float32 `json:"trail_visibility_penalty"`
 	AllowSteps             *bool    `json:"allow_steps"`
@@ -1106,7 +1140,8 @@ func ProfileDefaults(name string) (*ProfileDefaultsResponse, error) {
 		MaxSacScale:   base.MaxSacScale,
 		SacPreferred:  base.SacPreferred,
 		MaxMtbScale:   base.MaxMtbScale,
-		MaxViaFerrata:          base.MaxViaFerrata,
+		MaxViaFerrata:           base.MaxViaFerrata,
+		AllowUnscaledViaFerrata: base.AllowUnscaledViaFerrata,
 		MaxTrailVisibility:     base.MaxTrailVisibility,
 		TrailVisibilityPenalty: base.TrailVisibilityPenalty,
 		AllowSteps:             base.AllowSteps,
