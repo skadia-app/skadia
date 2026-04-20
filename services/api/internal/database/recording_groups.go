@@ -332,8 +332,66 @@ func (db *DB) AddRecordingGroupMember(ctx context.Context, groupID, activityID s
 
 // AddRecordingGroupMemberFused adds an activity to an existing recording group with is_fused = TRUE.
 // Used when a unified-timeline fusion result is added to its source group.
+// Delegates to addMemberTx after opening its own transaction (preserves behaviour
+// for callers that do not already hold a TX).
 func (db *DB) AddRecordingGroupMemberFused(ctx context.Context, groupID, activityID string) error {
-	return db.addMember(ctx, groupID, activityID, true)
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := db.addMemberTx(ctx, tx, groupID, activityID, true); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// addMemberTx is the transaction-accepting variant of addMember.
+// The caller owns the TX and is responsible for Commit/Rollback.
+func (db *DB) addMemberTx(ctx context.Context, tx pgx.Tx, groupID, activityID string, isFused bool) error {
+	query := `INSERT INTO recording_group_members (group_id, activity_id, is_fused) VALUES ($1, $2, $3)`
+	tag, err := tx.Exec(ctx, query, groupID, activityID, isFused)
+	if err != nil {
+		return fmt.Errorf("add recording group member (tx): %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("add recording group member (tx): no rows affected")
+	}
+	return nil
+}
+
+// AddRecordingGroupMemberFusedTx inserts a fused member inside an existing TX.
+// The caller owns the TX and is responsible for Commit/Rollback.
+func (db *DB) AddRecordingGroupMemberFusedTx(ctx context.Context, tx pgx.Tx, groupID, activityID string) error {
+	return db.addMemberTx(ctx, tx, groupID, activityID, true)
+}
+
+// SetRecordingGroupPrimaryTx validates membership and updates primary_activity_id
+// inside an existing TX. The caller owns the TX and is responsible for Commit/Rollback.
+func (db *DB) SetRecordingGroupPrimaryTx(ctx context.Context, tx pgx.Tx, groupID, activityID string) error {
+	var exists bool
+	err := tx.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM recording_group_members WHERE group_id = $1 AND activity_id = $2)`,
+		groupID, activityID,
+	).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("check group membership (tx): %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("activity %s is not a member of group %s", activityID, groupID)
+	}
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE recording_groups SET primary_activity_id = $2 WHERE id = $1`,
+		groupID, activityID,
+	)
+	if err != nil {
+		return fmt.Errorf("set recording group primary (tx): %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("set recording group primary (tx): group %s not found", groupID)
+	}
+	return nil
 }
 
 // RemoveRecordingGroupMember removes an activity from a recording group.
