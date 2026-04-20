@@ -46,7 +46,7 @@ import { findNearbyLocationTag } from '@/lib/geoUtils'
 import { removeTerraIncognitaLayers, addTerraIncognitaLayers } from '@/lib/mapTerraIncognita'
 import GeoSearch from '@/components/map/GeoSearch'
 import { useStickyHighlight } from '@/hooks/useStickyHighlight'
-import { isF26Key } from '@/lib/descriptorFilter'
+import { isInteractiveDescriptorKey } from '@/lib/descriptorFilter'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
 export type { SportOption } from '@/lib/sportOptions'
@@ -2368,11 +2368,11 @@ export default function MapPage() {
             onCancel={() => setRouteSuggestions(null)}
             onHoverDescriptor={(key) => {
               if (key == null) { highlight.setHover(null); return }
-              if (!isF26Key(key)) return // unknown key — no-op (defensive)
+              if (!isInteractiveDescriptorKey(key)) return // unknown key — no-op (defensive)
               highlight.setHover({ kind: 'descriptor', descriptorKey: key })
             }}
             onClickDescriptor={(key) => {
-              if (!isF26Key(key)) return
+              if (!isInteractiveDescriptorKey(key)) return
               highlight.handleClick({ kind: 'descriptor', descriptorKey: key })
             }}
           />

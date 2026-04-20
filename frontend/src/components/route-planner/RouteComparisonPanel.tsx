@@ -3,7 +3,7 @@ import type { RouteSuggestion } from '@/api/routes'
 import { variantLabel, loopQualityDisplay, descriptorLabel, suggestRoutesStrings } from '@/lib/strings/suggest-routes'
 import type { VariantDescriptor } from '@/api/routes'
 import { useToast } from '@/lib/toast'
-import { F26_KEYS } from '@/lib/descriptorFilter'
+import { INTERACTIVE_DESCRIPTOR_KEYS } from '@/lib/descriptorFilter'
 
 export const SUGGESTION_COLORS = ['#F97316', '#3B82F6', '#22C55E', '#A855F7', '#EF4444']
 // Orange, Blue, Green, Purple, Red — 5 distinct colors for up to 5 variants
@@ -15,7 +15,6 @@ interface RouteComparisonPanelProps {
   onHover: (index: number | null) => void
   onSelect: (index: number) => void
   onCancel: () => void
-  // NEW (F26)
   onHoverDescriptor?: (key: string | null) => void
   onClickDescriptor?: (key: string) => void
 }
@@ -197,7 +196,7 @@ export default function RouteComparisonPanel({
                     {/* pl-6 (24px) aligns under the variant label, past the color dot (w-3) + gap-3 (12px) */}
                     {visible.map((d: VariantDescriptor, idx: number) => {
                       const label = descriptorLabel(d.key, d.display_value)
-                      const interactive = F26_KEYS.has(d.key)
+                      const interactive = INTERACTIVE_DESCRIPTOR_KEYS.has(d.key)
                       if (interactive) {
                         return (
                           <button
