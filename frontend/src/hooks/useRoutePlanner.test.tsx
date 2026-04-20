@@ -291,4 +291,90 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
     act(() => { result.current.loadSuggestion(makeFakeSuggestion()) })
     expect(result.current.scalePin).toBeNull()
   })
+
+  it('recalculateAll setzt scalePin auf null zurück', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => { expect(result.current.profile.status).toBe('ready') })
+
+    // Pin auf MTB setzen
+    act(() => { result.current.togglePin('mtb') })
+    expect(result.current.scalePin).toBe('mtb')
+
+    // recalculateAll (keine Waypoints → kein Segment-Fetch) → Pin MUSS null sein
+    await act(async () => {
+      if (result.current.profile.status === 'ready') {
+        await result.current.profile.recalculate()
+      }
+    })
+    expect(result.current.scalePin).toBeNull()
+  })
+
+  it('loadRoute (cache-hit) setzt scalePin auf null zurück', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    const hikingProfile = { profile: 'hiking', uphill_cost: 7 } as any
+    vi.mocked(getProfileDefaults).mockReturnValue(hikingProfile)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => { expect(result.current.profile.status).toBe('ready') })
+
+    // Via Ferrata Pin setzen
+    act(() => { result.current.togglePin('vf') })
+    expect(result.current.scalePin).toBe('vf')
+
+    // loadRoute cache-hit Pfad (getProfileDefaults gibt Profil zurück)
+    act(() => {
+      result.current.loadRoute({
+        id: 'route-cache-hit',
+        profile: 'hiking',
+        sport_type: 'hiking',
+        waypoints: [],
+        segments: [],
+        total_distance_m: 0,
+        total_elevation_gain: 0,
+        total_elevation_loss: 0,
+        name: 'Cache-Hit Route',
+        created_at: '',
+        updated_at: '',
+      } as any)
+    })
+    expect(result.current.scalePin).toBeNull()
+  })
+
+  it('loadRoute (cache-miss) setzt scalePin auf null zurück', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    // cache-miss: gibt null zurück, damit loadRoute den else-Pfad (async fetch) nimmt
+    vi.mocked(getProfileDefaults).mockReturnValue(null)
+
+    // Aber mount-fetch soll sofort resolven damit der hook stable ist
+    const { getProfileDefaults: fetchProfileDefaults } = await import('@/api/routes')
+    vi.mocked(fetchProfileDefaults).mockResolvedValue({ profile: 'hiking', uphill_cost: 7 } as any)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    // SAC Pin setzen (noch im loading-Zustand — togglePin ist immer verfügbar)
+    act(() => { result.current.togglePin('sac') })
+    expect(result.current.scalePin).toBe('sac')
+
+    // loadRoute cache-miss Pfad: getProfileDefaults gibt null → async fetch
+    act(() => {
+      result.current.loadRoute({
+        id: 'route-cache-miss',
+        profile: 'hiking',
+        sport_type: 'hiking',
+        waypoints: [],
+        segments: [],
+        total_distance_m: 0,
+        total_elevation_gain: 0,
+        total_elevation_loss: 0,
+        name: 'Cache-Miss Route',
+        created_at: '',
+        updated_at: '',
+      } as any)
+    })
+    // resetScalePin() wird synchron im else-Zweig aufgerufen — sofort prüfbar
+    expect(result.current.scalePin).toBeNull()
+  })
 })
