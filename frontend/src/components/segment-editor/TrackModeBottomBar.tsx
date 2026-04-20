@@ -278,6 +278,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
         <PillGroup
           label="Start"
           value={range[0]}
+          totalPoints={trackPoints.length}
           onPrev={() => setStart(range[0] - 1)}
           onNext={() => setStart(range[0] + 1)}
           handleRef={startRef}
@@ -286,6 +287,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
         <PillGroup
           label="Ende"
           value={range[1]}
+          totalPoints={trackPoints.length}
           onPrev={() => setEnd(range[1] - 1)}
           onNext={() => setEnd(range[1] + 1)}
           handleRef={endRef}
@@ -343,9 +345,10 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
   )
 }
 
-function PillGroup({ label, value, onPrev, onNext, handleRef, onKeyDown }: {
+function PillGroup({ label, value, totalPoints, onPrev, onNext, handleRef, onKeyDown }: {
   label: string
   value: number
+  totalPoints: number
   onPrev: () => void
   onNext: () => void
   handleRef: React.RefObject<HTMLButtonElement>
@@ -358,7 +361,7 @@ function PillGroup({ label, value, onPrev, onNext, handleRef, onKeyDown }: {
         type="button"
         onClick={onPrev}
         aria-label={`${label} minus 1`}
-        className="flex size-5 items-center justify-center rounded text-neutral-500 dark:text-neutral-400 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white"
+        className="flex size-5 items-center justify-center rounded text-neutral-500 dark:text-neutral-400 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white focus-visible:ring-1 focus-visible:ring-accent-DEFAULT focus-visible:outline-none"
       >
         ‹
       </button>
@@ -369,12 +372,13 @@ function PillGroup({ label, value, onPrev, onNext, handleRef, onKeyDown }: {
         className="min-w-[3.5ch] px-0.5 text-center font-mono text-xs text-neutral-700 dark:text-neutral-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-accent-DEFAULT"
       >
         {value}
+        <span className="text-neutral-400 dark:text-neutral-600"> / {totalPoints}</span>
       </button>
       <button
         type="button"
         onClick={onNext}
         aria-label={`${label} plus 1`}
-        className="flex size-5 items-center justify-center rounded text-neutral-500 dark:text-neutral-400 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white"
+        className="flex size-5 items-center justify-center rounded text-neutral-500 dark:text-neutral-400 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white focus-visible:ring-1 focus-visible:ring-accent-DEFAULT focus-visible:outline-none"
       >
         ›
       </button>
