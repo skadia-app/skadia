@@ -44,7 +44,9 @@ const SPORT_GROUP_COLORS: Record<string, string> = {
 const SEGMENT_TYPE_LABELS: Record<string, string> = {
   standard: 'Standard',
   trail: 'Trail',
+  lap: 'Lap',
   lift: 'Lift',
+  wintersport: 'Wintersport',
 }
 
 
@@ -57,7 +59,7 @@ export default function SegmentsPage() {
   const { hideUnused } = useGlobalSportSettings()
   const [localPendingIds, setLocalPendingIds] = useState<Set<string>>(new Set())
   const [sportGroup, setSportGroup] = useState('')
-  const [terrainFilter, setTerrainFilter] = useState<string[]>([])
+  const [terrainFilter, setTerrainFilter] = useState<string[]>(['standard', 'trail', 'wintersport'])
   const [showAllLifts, setShowAllLifts] = useState(false)
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
@@ -77,7 +79,7 @@ export default function SegmentsPage() {
   // Fetch all sport groups that have at least one segment (for hideUnused filtering)
   const { data: allGroupsData } = useQuery({
     queryKey: ['segments-all-groups'],
-    queryFn: () => fetchSegments({ segment_types: 'standard,trail,lift', search: undefined }),
+    queryFn: () => fetchSegments({ segment_types: 'standard,trail,lift,wintersport', search: undefined }),
     enabled: hideUnused,
     staleTime: 60_000,
   })
@@ -102,7 +104,7 @@ export default function SegmentsPage() {
     sport_group: sportGroup || undefined,
     search: search || undefined,
     segment_types: terrainFilter.length === 0
-      ? 'standard,trail'
+      ? 'standard,trail,wintersport'
       : terrainFilter.join(','),
     only_ridden: terrainFilter.includes('lift') && !showAllLifts ? true : undefined,
   }), [sportGroup, search, terrainFilter, showAllLifts])
@@ -457,7 +459,7 @@ export default function SegmentsPage() {
                   {segment.visibility === 'private' && (
                     <Lock className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
                   )}
-                  {segment.segment_type === 'trail' && (
+                  {['trail', 'wintersport'].includes(segment.segment_type) && (
                     <DifficultyBadge meta={segment.segment_type_meta ?? {}} />
                   )}
                 </div>
