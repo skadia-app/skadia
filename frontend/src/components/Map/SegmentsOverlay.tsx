@@ -78,6 +78,7 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
     const sourceId = 'segments-overlay-source'
     const favoriteLayerId = 'segments-overlay-favorites'
     const trailLayerId = 'segments-overlay-trails'
+    const wintersportLayerId = 'segments-wintersport'
     const lineLayerId = 'segments-overlay-lines'
     const dotLayerId = 'segments-overlay-dots'
 
@@ -89,6 +90,7 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       try {
         if (map.getLayer(dotLayerId)) map.removeLayer(dotLayerId)
         if (map.getLayer(lineLayerId)) map.removeLayer(lineLayerId)
+        if (map.getLayer(wintersportLayerId)) map.removeLayer(wintersportLayerId)
         if (map.getLayer(trailLayerId)) map.removeLayer(trailLayerId)
         if (map.getLayer(favoriteLayerId)) map.removeLayer(favoriteLayerId)
         if (map.getSource(sourceId)) map.removeSource(sourceId)
@@ -146,6 +148,7 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
           distance_m: seg.distance_m ?? 0,
           is_favorite: seg.is_favorite ?? false,
           color: resolveColor(seg),
+          difficulty_color: (seg.segment_type_meta?.difficulty_color as string) ?? null,
         },
       })
       return acc
@@ -232,14 +235,37 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       layout: { 'line-cap': 'round', 'line-join': 'round' },
     })
 
-    // Standard-Linie-Layer (alle außer Trails)
+    // Wintersport-Layer: gestrichelte sky-300-Linien mit Schwierigkeitsfarbe
+    map.addLayer({
+      id: wintersportLayerId,
+      type: 'line',
+      source: sourceId,
+      filter: ['all',
+        ['==', ['geometry-type'], 'LineString'],
+        ['==', ['get', 'segment_type'], 'wintersport'],
+      ],
+      paint: {
+        'line-color': [
+          'case',
+          ['==', ['get', 'difficulty_color'], 'blue'], '#148cf0',
+          ['==', ['get', 'difficulty_color'], 'red'], '#dc2626',
+          ['==', ['get', 'difficulty_color'], 'black'], '#111827',
+          '#7dd3fc',
+        ],
+        'line-width': 3,
+        'line-dasharray': [2, 3],
+      },
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+    })
+
+    // Standard-Linie-Layer (alle außer Trails und Wintersport)
     map.addLayer({
       id: lineLayerId,
       type: 'line',
       source: sourceId,
       filter: ['all',
         ['==', ['geometry-type'], 'LineString'],
-        ['!=', ['get', 'segment_type'], 'trail'],
+        ['!', ['in', ['get', 'segment_type'], ['literal', ['trail', 'wintersport']]]],
       ],
       paint: {
         'line-color': ['get', 'color'],
@@ -291,7 +317,12 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       const name = feature.properties?.name ?? ''
       const effortCount = feature.properties?.effort_count ?? 0
       const segType = feature.properties?.segment_type ?? 'standard'
-      const typeLabel = segType === 'lift' ? 'Lift' : segType === 'trail' ? 'Trail' : 'Standard'
+      const typeLabel =
+        segType === 'trail' ? 'Trail' :
+        segType === 'lap' ? 'Lap' :
+        segType === 'lift' ? 'Lift' :
+        segType === 'wintersport' ? 'Wintersport' :
+        'Standard'
       const effortLabel = effortCount > 0 ? ` · ${effortCount}× gefahren` : ''
       const favLabel = feature.properties?.is_favorite ? ' \u2605' : ''
       const coords = e.lngLat
@@ -334,6 +365,9 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
     map.on('mouseenter', trailLayerId, onMouseEnterLine)
     map.on('mouseleave', trailLayerId, onMouseLeave)
     map.on('click', trailLayerId, onClickLine)
+    map.on('mouseenter', wintersportLayerId, onMouseEnterLine)
+    map.on('mouseleave', wintersportLayerId, onMouseLeave)
+    map.on('click', wintersportLayerId, onClickLine)
     map.on('mouseenter', favoriteLayerId, onMouseEnterLine)
     map.on('mouseleave', favoriteLayerId, onMouseLeave)
     map.on('click', favoriteLayerId, onClickLine)
@@ -348,6 +382,9 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       map.off('mouseenter', trailLayerId, onMouseEnterLine)
       map.off('mouseleave', trailLayerId, onMouseLeave)
       map.off('click', trailLayerId, onClickLine)
+      map.off('mouseenter', wintersportLayerId, onMouseEnterLine)
+      map.off('mouseleave', wintersportLayerId, onMouseLeave)
+      map.off('click', wintersportLayerId, onClickLine)
       map.off('mouseenter', favoriteLayerId, onMouseEnterLine)
       map.off('mouseleave', favoriteLayerId, onMouseLeave)
       map.off('click', favoriteLayerId, onClickLine)
