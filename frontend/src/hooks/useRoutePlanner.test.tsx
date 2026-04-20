@@ -3,6 +3,50 @@ import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ToastProvider } from '@/lib/toast'
 import { useRoutePlanner } from './useRoutePlanner'
+import type { RouteSuggestion } from '@/api/routes'
+
+/**
+ * Factory für Test-RouteSuggestion-Fixtures.
+ * Alle Felder neutral defaulted — erweiterbar via overrides-Spread.
+ * Zentralisierte Stelle wenn RouteSuggestion künftig weitere required Felder bekommt.
+ */
+function makeFakeSuggestion(overrides: Partial<RouteSuggestion> = {}): RouteSuggestion {
+  return {
+    variant: 0,
+    profile: 'hiking',
+    via_point: [12.0, 49.0],
+    variant_id: 'shortest',
+    variant_label_key: 'shortest',
+    distance_m: 11700,
+    ascent_m: 208,
+    descent_m: 208,
+    avg_flat: 0.5,
+    loop_quality: 'loop',
+    overlap_pct: 0.1,
+    distance_target_achieved: true,
+    ascent_target_achieved: true,
+    is_fallback: false,
+    forest_pct: 0,
+    protected_pct: 0,
+    geojson: {
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: [
+            [12.0, 49.0, 500],
+            [12.01, 49.01, 510],
+            [12.02, 49.0, 505],
+            [12.0, 49.0, 500],
+          ],
+        },
+        properties: {},
+      }],
+    },
+    ...overrides,
+  }
+}
 
 // addToastMock must be hoisted so vi.mock factory can reference it
 // (vi.mock calls are hoisted above imports by Vitest).
@@ -150,40 +194,7 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
       expect(result.current.profile.status).toBe('ready')
     })
 
-    const fakeSuggestion = {
-      variant: 0,
-      profile: 'hiking',
-      via_point: [12.0, 49.0] as [number, number],
-      variant_id: 'shortest',
-      variant_label_key: 'shortest',
-      distance_m: 11700,
-      ascent_m: 208,
-      descent_m: 208,
-      avg_flat: 0.5,
-      loop_quality: 'loop' as const,
-      overlap_pct: 0.1,
-      distance_target_achieved: true,
-      ascent_target_achieved: true,
-      is_fallback: false,
-      forest_pct: 0,
-      protected_pct: 0,
-      geojson: {
-        type: 'FeatureCollection',
-        features: [{
-          type: 'Feature',
-          geometry: {
-            type: 'LineString',
-            coordinates: [
-              [12.0, 49.0, 500],
-              [12.01, 49.01, 510],
-              [12.02, 49.0, 505],
-              [12.0, 49.0, 500],
-            ],
-          },
-          properties: {},
-        }],
-      },
-    }
+    const fakeSuggestion = makeFakeSuggestion()
 
     act(() => {
       result.current.loadSuggestion(fakeSuggestion)
@@ -263,5 +274,21 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
     if (result.current.profile.status === 'ready') {
       expect(result.current.profile.name).toBe('mtb')
     }
+  })
+
+  it('loadSuggestion setzt scalePin auf null zurück (I3-Invariant)', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => { expect(result.current.profile.status).toBe('ready') })
+
+    // Zuerst Scale-Pin setzen (simuliert User-Klick auf SAC-Badge)
+    act(() => { result.current.togglePin('sac') })
+    expect(result.current.scalePin).toBe('sac')
+
+    // loadSuggestion MUSS Pin zurücksetzen (I3-Invariant: Übernehmen-Flow)
+    act(() => { result.current.loadSuggestion(makeFakeSuggestion()) })
+    expect(result.current.scalePin).toBeNull()
   })
 })
