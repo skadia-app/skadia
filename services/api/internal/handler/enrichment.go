@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"net/http"
 	"time"
 
@@ -794,6 +795,15 @@ func (h *Handler) UpdateEnrichmentSettings(w http.ResponseWriter, r *http.Reques
 	}
 	if settings.PhashThresholdBits < 1 || settings.PhashThresholdBits > 10 {
 		settings.PhashThresholdBits = 3
+	}
+	if math.IsNaN(settings.SummitDetectionRadiusM) || math.IsInf(settings.SummitDetectionRadiusM, 0) {
+		settings.SummitDetectionRadiusM = 80
+	}
+	if settings.SummitDetectionRadiusM < 10 {
+		settings.SummitDetectionRadiusM = 10
+	}
+	if settings.SummitDetectionRadiusM > 150 {
+		settings.SummitDetectionRadiusM = 150
 	}
 
 	if err := h.DB.UpdateEnrichmentSettings(r.Context(), userID, &settings); err != nil {
