@@ -2,11 +2,18 @@
 import { useEffect, useMemo, useRef } from 'react'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
-import { GridComponent, BrushComponent, ToolboxComponent } from 'echarts/components'
+import {
+  GridComponent,
+  BrushComponent,
+  ToolboxComponent,
+  TooltipComponent,
+} from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { ArrowLeftRight } from 'lucide-react'
 import { useRangeBrush } from '@/hooks/useRangeBrush'
+import { cn } from '@/lib/utils'
 
-echarts.use([LineChart, GridComponent, BrushComponent, ToolboxComponent, CanvasRenderer])
+echarts.use([LineChart, GridComponent, BrushComponent, ToolboxComponent, TooltipComponent, CanvasRenderer])
 
 export interface TrackPoint {
   lat: number
@@ -56,27 +63,67 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
     const ec = echarts.init(chartRef.current, undefined, { renderer: 'canvas' })
     echartsInstanceRef.current = ec
     ec.setOption({
-      grid: { top: 4, right: 8, bottom: 4, left: 8, containLabel: false },
+      backgroundColor: 'transparent',
+      grid: { top: 6, right: 10, bottom: 6, left: 10, containLabel: false },
       xAxis: {
         type: 'value',
-        min: 0, max: trackPoints.length - 1,
+        min: 0,
+        max: trackPoints.length - 1,
         show: false,
       },
-      yAxis: { type: 'value', show: false, min: hasElevation ? 'dataMin' : 0, max: hasElevation ? 'dataMax' : 1 },
+      yAxis: {
+        type: 'value',
+        show: false,
+        min: hasElevation ? 'dataMin' : 0,
+        max: hasElevation ? 'dataMax' : 1,
+      },
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'line', lineStyle: { color: '#525252', width: 1 } },
+        backgroundColor: '#171717',
+        borderColor: '#404040',
+        borderWidth: 1,
+        textStyle: { color: '#d4d4d4', fontSize: 11 },
+        formatter: (params: unknown) => {
+          const p = params as Array<{ dataIndex: number; value: [number, number] }>
+          if (!p || !p[0]) return ''
+          const idx = p[0].dataIndex
+          const elevVal = elevationSeries[idx]
+          const kmVal = cumulativeKm[idx]
+          const kmStr = kmVal != null ? kmVal.toFixed(2) : '—'
+          const elevStr = elevVal != null ? `${Math.round(elevVal)} m` : '—'
+          return `<span style="font-size:11px;line-height:1.6">${kmStr} km<br/>${elevStr}</span>`
+        },
+      },
       brush: {
         xAxisIndex: 0,
-        throttleType: 'debounce', throttleDelay: 30,
+        throttleType: 'debounce',
+        throttleDelay: 30,
         transformable: true,
         brushType: 'lineX',
         brushMode: 'single',
+        inBrush: { colorAlpha: 1 },
+        outOfBrush: { colorAlpha: 0.3 },
+        brushStyle: {
+          borderWidth: 1,
+          borderColor: 'rgba(59,130,246,0.6)',
+          color: 'rgba(59,130,246,0.12)',
+        },
       },
       toolbox: { show: false },
       series: [{
         type: 'line',
         data: elevationSeries.map((y, i) => [i, y ?? 0]),
         showSymbol: false,
+        smooth: 0.3,
         lineStyle: { color: '#3b82f6', width: 1.5 },
-        areaStyle: { color: 'rgba(59,130,246,0.15)' },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(59,130,246,0.30)' },
+            { offset: 1, color: 'rgba(59,130,246,0.03)' },
+          ]),
+        },
+        emphasis: { disabled: true },
       }],
     })
     bindEcharts({
@@ -85,7 +132,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
       dispatchAction: ec.dispatchAction.bind(ec),
     })
     return () => { ec.dispose(); echartsInstanceRef.current = null }
-  }, [trackPoints, hasElevation, elevationSeries, bindEcharts])
+  }, [trackPoints, hasElevation, elevationSeries, cumulativeKm, bindEcharts])
 
   // Reflect external range changes back to the brush visual.
   // lastDispatchedRangeRef prevents a dispatch loop when the brush change itself
@@ -120,19 +167,21 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
   }
 
   return (
-    <div className="border-t border-neutral-800 bg-neutral-900 p-3">
+    <div className="border-t border-neutral-800 bg-neutral-900 px-3 pt-2 pb-2">
       {/* Row 1 — Elevation brush */}
-      <div className="mb-2">
-        <div ref={chartRef} className="h-[50px] w-full" />
+      <div className="mb-1.5 relative">
+        <div ref={chartRef} className="h-[48px] w-full" />
         {!hasElevation && (
-          <div className="-mt-6 text-center text-xs text-neutral-500">Keine Höhendaten</div>
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="text-xs text-neutral-600">Keine Höhendaten</span>
+          </div>
         )}
       </div>
 
-      {/* Row 2 — Range slider. Use a dual-handle input via two native inputs. */}
-      <div className="mb-2 flex items-center gap-2 text-xs text-neutral-400">
-        <span className="w-16">km {startKm}</span>
-        <div className="relative flex-1 h-6">
+      {/* Row 2 — Range slider */}
+      <div className="mb-2 flex items-center gap-2">
+        <span className="w-14 shrink-0 font-mono text-xs text-neutral-500">{startKm} km</span>
+        <div className="relative flex-1 h-5">
           <input
             type="range"
             min={0} max={trackPoints.length - 1}
@@ -140,7 +189,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
             onChange={e => setStart(Number(e.target.value))}
             onMouseUp={() => onCommitRange(range)}
             onKeyUp={() => onCommitRange(range)}
-            className="absolute inset-0 w-full"
+            className="absolute inset-0 w-full cursor-pointer accent-blue-500"
             aria-label="Start-Punkt"
             aria-valuemin={0} aria-valuemax={trackPoints.length - 1} aria-valuenow={range[0]}
           />
@@ -151,23 +200,72 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
             onChange={e => setEnd(Number(e.target.value))}
             onMouseUp={() => onCommitRange(range)}
             onKeyUp={() => onCommitRange(range)}
-            className="absolute inset-0 w-full"
+            className="absolute inset-0 w-full cursor-pointer accent-blue-500"
             aria-label="Ende-Punkt"
             aria-valuemin={0} aria-valuemax={trackPoints.length - 1} aria-valuenow={range[1]}
           />
         </div>
-        <span className="w-16 text-right">km {endKm}</span>
+        <span className="w-14 shrink-0 text-right font-mono text-xs text-neutral-500">{endKm} km</span>
       </div>
 
-      {/* Row 3 — Pfeil-Bar + Aktionen */}
-      <div className="flex items-center gap-2 text-sm">
-        <PillGroup label="Start" value={range[0]} onPrev={() => setStart(range[0] - 1)} onNext={() => setStart(range[0] + 1)} handleRef={startRef} onKeyDown={handleKeyDown('start')} />
-        <PillGroup label="Ende"  value={range[1]} onPrev={() => setEnd(range[1] - 1)}  onNext={() => setEnd(range[1] + 1)}   handleRef={endRef}   onKeyDown={handleKeyDown('end')} />
-        <span className="text-xs text-neutral-500 ml-2">← → fein · ⇧+← ⇧+→ ×10</span>
+      {/* Row 3 — Stepper controls + action buttons */}
+      <div className="flex items-center gap-2">
+        <PillGroup
+          label="Start"
+          value={range[0]}
+          onPrev={() => setStart(range[0] - 1)}
+          onNext={() => setStart(range[0] + 1)}
+          handleRef={startRef}
+          onKeyDown={handleKeyDown('start')}
+        />
+        <PillGroup
+          label="Ende"
+          value={range[1]}
+          onPrev={() => setEnd(range[1] - 1)}
+          onNext={() => setEnd(range[1] + 1)}
+          handleRef={endRef}
+          onKeyDown={handleKeyDown('end')}
+        />
+        <span className="ml-1 text-xs text-neutral-600">← → fein · ⇧ ×10</span>
+
         <div className="flex-1" />
-        <button type="button" onClick={onReverse} className="rounded bg-neutral-800 px-2 py-1 text-xs">⇄ Umkehren</button>
-        <button type="button" onClick={onReset} className="rounded bg-neutral-800 px-2 py-1 text-xs">Reset</button>
-        <button type="button" onClick={onPreviewOrSave} className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500">
+
+        {/* Reverse */}
+        <button
+          type="button"
+          onClick={onReverse}
+          title="Richtung umkehren"
+          className={cn(
+            'flex items-center gap-1.5 rounded px-2 py-1 text-xs text-neutral-300 transition-colors',
+            'bg-neutral-800 hover:bg-neutral-700 hover:text-white',
+          )}
+        >
+          <ArrowLeftRight className="size-3.5" />
+          <span>Umkehren</span>
+        </button>
+
+        {/* Reset */}
+        <button
+          type="button"
+          onClick={onReset}
+          title="Auf gespeicherten Stand zurücksetzen"
+          className={cn(
+            'rounded px-2 py-1 text-xs text-neutral-400 transition-colors',
+            'bg-neutral-800 hover:bg-neutral-700 hover:text-neutral-300',
+          )}
+        >
+          Reset
+        </button>
+
+        {/* Primary CTA */}
+        <button
+          type="button"
+          onClick={onPreviewOrSave}
+          className={cn(
+            'rounded px-3 py-1 text-xs font-medium text-white transition-colors',
+            'bg-blue-600 hover:bg-blue-500',
+          )}
+        >
           {isPreview ? 'Speichern' : 'Vorschau'}
         </button>
       </div>
@@ -176,15 +274,40 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
 }
 
 function PillGroup({ label, value, onPrev, onNext, handleRef, onKeyDown }: {
-  label: string; value: number; onPrev: () => void; onNext: () => void;
-  handleRef: React.RefObject<HTMLButtonElement>; onKeyDown: (e: React.KeyboardEvent) => void
+  label: string
+  value: number
+  onPrev: () => void
+  onNext: () => void
+  handleRef: React.RefObject<HTMLButtonElement>
+  onKeyDown: (e: React.KeyboardEvent) => void
 }) {
   return (
-    <div className="flex items-center gap-1 rounded bg-neutral-800 px-2 py-1">
-      <span className="text-xs text-neutral-400">{label}</span>
-      <button type="button" onClick={onPrev} aria-label={`${label} minus 1`}>◄</button>
-      <button ref={handleRef} type="button" onKeyDown={onKeyDown} className="min-w-[3ch] text-center font-mono">{value}</button>
-      <button type="button" onClick={onNext} aria-label={`${label} plus 1`}>►</button>
+    <div className="flex items-center gap-0.5 rounded bg-neutral-800 px-1.5 py-1">
+      <span className="mr-1 text-xs text-neutral-500">{label}</span>
+      <button
+        type="button"
+        onClick={onPrev}
+        aria-label={`${label} minus 1`}
+        className="flex size-5 items-center justify-center rounded text-neutral-400 transition-colors hover:bg-neutral-700 hover:text-white"
+      >
+        ‹
+      </button>
+      <button
+        ref={handleRef}
+        type="button"
+        onKeyDown={onKeyDown}
+        className="min-w-[3.5ch] px-0.5 text-center font-mono text-xs text-neutral-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+      >
+        {value}
+      </button>
+      <button
+        type="button"
+        onClick={onNext}
+        aria-label={`${label} plus 1`}
+        className="flex size-5 items-center justify-center rounded text-neutral-400 transition-colors hover:bg-neutral-700 hover:text-white"
+      >
+        ›
+      </button>
     </div>
   )
 }
