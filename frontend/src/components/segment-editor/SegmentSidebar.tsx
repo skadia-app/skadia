@@ -504,17 +504,8 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
 
               {/* Schwierigkeitsfarbe full-width */}
               <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">Schwierigkeit</span>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {(['blue', 'red', 'black'] as const).map(c => (
-                    <DifficultyButton
-                      key={c}
-                      color={c}
-                      active={displayedColor === c}
-                      disabled={difficultyColorReadonly}
-                      onClick={() => onMetaChange({ difficultyColor: c })}
-                    />
-                  ))}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">Schwierigkeit</span>
                   {difficultyColorReadonly && (
                     <span
                       title="Farbe wird aus SAC/MTB-Skala abgeleitet"
@@ -524,21 +515,17 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
                       <span className="sr-only">Farbe wird aus SAC/MTB-Skala abgeleitet</span>
                     </span>
                   )}
-                  {!difficultyColorReadonly && displayedColor && (
-                    <button
-                      type="button"
-                      onClick={() => onMetaChange({ difficultyColor: null })}
-                      aria-label="Farbe zurücksetzen"
-                      className={cn(
-                        'flex h-5 w-5 items-center justify-center rounded',
-                        'text-neutral-400 dark:text-neutral-500 transition-colors duration-150',
-                        'hover:bg-neutral-100 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-200',
-                        'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-DEFAULT',
-                      )}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {(['blue', 'red', 'black'] as const).map(c => (
+                    <DifficultyButton
+                      key={c}
+                      color={c}
+                      active={displayedColor === c}
+                      disabled={difficultyColorReadonly}
+                      onClick={() => onMetaChange({ difficultyColor: displayedColor === c ? null : c })}
+                    />
+                  ))}
                 </div>
               </div>
             </div>
@@ -546,31 +533,16 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
             /* wintersport: no scale fields, just difficulty */
             <div className="flex flex-col gap-1">
               <span className="text-[10px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">Schwierigkeit</span>
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-2">
                 {(['blue', 'red', 'black'] as const).map(c => (
                   <DifficultyButton
                     key={c}
                     color={c}
                     active={displayedColor === c}
                     disabled={false}
-                    onClick={() => onMetaChange({ difficultyColor: c })}
+                    onClick={() => onMetaChange({ difficultyColor: displayedColor === c ? null : c })}
                   />
                 ))}
-                {displayedColor && (
-                  <button
-                    type="button"
-                    onClick={() => onMetaChange({ difficultyColor: null })}
-                    aria-label="Farbe zurücksetzen"
-                    className={cn(
-                      'flex h-5 w-5 items-center justify-center rounded',
-                      'text-neutral-400 dark:text-neutral-500 transition-colors duration-150',
-                      'hover:bg-neutral-100 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-200',
-                      'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-DEFAULT',
-                    )}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
               </div>
             </div>
           )}
@@ -683,6 +655,13 @@ const DIFF_COLOR_SHORT: Record<'blue' | 'red' | 'black', string> = {
   black: 'Schwarz',
 }
 
+// Active-state styles per difficulty color — border + tinted bg + text color.
+const DIFF_ACTIVE_CLASS: Record<'blue' | 'red' | 'black', string> = {
+  blue:  'border-2 border-blue-500 bg-blue-500/10 text-blue-700 dark:text-blue-300 font-semibold shadow-sm',
+  red:   'border-2 border-red-600 bg-red-600/10 text-red-700 dark:text-red-300 font-semibold shadow-sm',
+  black: 'border-2 border-neutral-800 dark:border-neutral-300 bg-neutral-800/10 dark:bg-neutral-300/10 text-neutral-900 dark:text-neutral-100 font-semibold shadow-sm',
+}
+
 function DifficultyButton({
   color,
   active,
@@ -698,7 +677,7 @@ function DifficultyButton({
     ? 'bg-blue-500'
     : color === 'red'
       ? 'bg-red-600'
-      : 'bg-neutral-900 dark:bg-neutral-950 border border-neutral-500 dark:border-neutral-400'
+      : 'bg-neutral-900 dark:bg-neutral-100 border border-neutral-500 dark:border-neutral-400'
 
   return (
     <button
@@ -708,17 +687,17 @@ function DifficultyButton({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium',
+        'inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium',
         'transition-all duration-150',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900',
         active
-          ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-sm ring-1 ring-neutral-300 dark:ring-neutral-600'
-          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100',
+          ? DIFF_ACTIVE_CLASS[color]
+          : 'border border-neutral-300 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400 dark:hover:border-neutral-600 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100',
         disabled && 'cursor-not-allowed opacity-60',
       )}
     >
       {/* Colored dot indicating the difficulty color */}
-      <span className={cn('inline-block h-2.5 w-2.5 shrink-0 rounded-full', dotClass)} aria-hidden="true" />
+      <span className={cn('inline-block h-3.5 w-3.5 shrink-0 rounded-full', dotClass)} aria-hidden="true" />
       {DIFF_COLOR_SHORT[color]}
     </button>
   )
