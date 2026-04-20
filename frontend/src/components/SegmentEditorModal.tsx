@@ -1,5 +1,6 @@
 // frontend/src/components/SegmentEditorModal.tsx
 // Task 8.4e: Save-Mutation + Lap-Mode + Enrichment-Wiring (complete)
+// Polish batch: A1-A4 (map/track), B1-B4 (top-bar), D1-D2 (bottom-bar chart)
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
@@ -7,6 +8,7 @@ import maplibregl, { type RequestParameters } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 // @ts-ignore — maplibre-gl-draw has no bundled TS types for default import
 import MapboxDraw from 'maplibre-gl-draw'
+import { X } from 'lucide-react'
 import { SegmentSidebar, type SegmentMetadata } from './segment-editor/SegmentSidebar'
 import { TrackModeBottomBar, type TrackPoint } from './segment-editor/TrackModeBottomBar'
 import { DrawModeBottomBar } from './segment-editor/DrawModeBottomBar'
@@ -45,6 +47,34 @@ function haversine(lat1: number, lng1: number, lat2: number, lng2: number): numb
     Math.sin(dLat / 2) ** 2 +
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)))
+}
+
+// ── Arrow+Track layer helper (A2) ─────────────────────────────────────────────
+// Adds direction-chevron symbols on the activity-track source.
+// Called after the source is added (track-mode init) and after style restores.
+function addArrowLayer(m: maplibregl.Map) {
+  if (m.getLayer('activity-track-arrows')) return
+  const arrowSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path d="M8 0 L16 8 L8 16 L8 10 L0 10 L0 6 L8 6 Z" fill="#fff" stroke="#333" stroke-width="1"/></svg>`
+  const img = new Image(16, 16)
+  img.onload = () => {
+    if (!m.hasImage('arrow')) m.addImage('arrow', img)
+    if (m.getLayer('activity-track-arrows')) return
+    m.addLayer({
+      id: 'activity-track-arrows',
+      type: 'symbol',
+      source: 'activity-track',
+      layout: {
+        'symbol-placement': 'line',
+        'symbol-spacing': 100,
+        'icon-image': 'arrow',
+        'icon-size': 0.7,
+        'icon-rotation-alignment': 'auto',
+        'icon-allow-overlap': true,
+      },
+    })
+  }
+  img.onerror = () => { /* fallback: skip arrow layer */ }
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(arrowSvg)
 }
 
 export default function SegmentEditorModal(props: SegmentEditorModalProps) {
@@ -108,6 +138,15 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
 
   const [mapStyle, setMapStyle] = useState<BaseStyle>('osm')
   const [heatmapOn, setHeatmapOn] = useState(false)
+
+  // ── styleVersion: bumped by persistent style.load handler (A4) ───────────
+  // Downstream effects that add custom layers depend on this so they re-run
+  // after every setStyle() wipes the custom layer slate clean.
+  const [styleVersion, setStyleVersion] = useState(0)
+
+  // ── Camera-restore ref (A4) ────────────────────────────────────────────────
+  // Populated just before setStyle(); the style.load handler reads + clears it.
+  const pendingCameraRestoreRef = useRef<{ center: maplibregl.LngLat; zoom: number } | null>(null)
 
   // ── Draw-mode state ───────────────────────────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -249,6 +288,9 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   })
 
   // ── Map Init useEffect ────────────────────────────────────────────────────
+  // Fires ONCE. Map style changes are handled by a separate effect (mapStyle dep)
+  // via setStyle(). A persistent style.load handler restores camera + bumps
+  // styleVersion so custom layers are rebuilt without full map recreation.
   useEffect(() => {
     const container = mapContainerRef.current
     if (!container) return
@@ -259,7 +301,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
 
     const map = new maplibregl.Map({
       container,
-      style: buildRasterStyle(mapStyle),
+      style: buildRasterStyle('osm'),
       center: initialCenter,
       zoom: 12,
       transformRequest: (url: string): RequestParameters => {
@@ -271,6 +313,18 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       },
     })
     mapRef.current = map
+
+    // Persistent style.load handler (A4): fires on every setStyle() call.
+    // Restores camera position saved before the style switch, then bumps
+    // styleVersion so downstream effects rebuild the custom overlay layers.
+    map.on('style.load', () => {
+      if (pendingCameraRestoreRef.current) {
+        map.jumpTo(pendingCameraRestoreRef.current)
+        pendingCameraRestoreRef.current = null
+      }
+      map.resize()
+      setStyleVersion(v => v + 1)
+    })
 
     map.on('load', () => {
       map.getCanvas().style.cursor = 'crosshair'
@@ -286,7 +340,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         )
       }
 
-      // Track-mode: draw activity line
+      // Track-mode: draw activity line (A1: grey #6b7280, width 4)
       if (mode === 'track' && current && current.length >= 2) {
         map.addSource('activity-track', {
           type: 'geojson',
@@ -301,8 +355,10 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           type: 'line',
           source: 'activity-track',
           layout: { 'line-join': 'round', 'line-cap': 'round' },
-          paint: { 'line-color': '#FACC15', 'line-width': 4, 'line-opacity': 0.9 },
+          paint: { 'line-color': '#6b7280', 'line-width': 4, 'line-opacity': 0.9 },
         })
+        // A2: direction chevrons on track line (track-mode only)
+        addArrowLayer(map)
       }
 
       // Draw-mode: attach MapboxDraw
@@ -341,7 +397,61 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       mapRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // ← intentionally empty: map is created once; style changes via setStyle()
+
+  // ── Map style switch (A4) ──────────────────────────────────────────────────
+  // When mapStyle changes, save camera position then call setStyle().
+  // The persistent style.load handler (registered in map init) restores camera
+  // and bumps styleVersion, which triggers the layer-rebuild effect below.
+  const prevMapStyleRef = useRef<BaseStyle>('osm')
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || prevMapStyleRef.current === mapStyle) return
+    prevMapStyleRef.current = mapStyle
+    pendingCameraRestoreRef.current = { center: map.getCenter(), zoom: map.getZoom() }
+    map.setStyle(buildRasterStyle(mapStyle))
   }, [mapStyle])
+
+  // ── Layer rebuild after style switch (A4) ─────────────────────────────────
+  // setStyle() wipes all custom sources + layers. styleVersion bumps whenever
+  // style.load fires (initial load + every setStyle()), causing this effect to
+  // re-add every custom layer that should be present.
+  // styleVersion === 0 means the initial load has not yet fired — skip to avoid
+  // the race where map.isStyleLoaded() returns false.
+  useEffect(() => {
+    if (styleVersion === 0) return
+    const map = mapRef.current
+    if (!map) return
+
+    // Re-add activity-track source+layer (track-mode only; A1 + A2)
+    if (mode === 'track') {
+      const current = trackPointsRef.current
+      if (current && current.length >= 2 && !map.getSource('activity-track')) {
+        map.addSource('activity-track', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: current.map(p => [p.lng, p.lat]) },
+            properties: {},
+          },
+        })
+        map.addLayer({
+          id: 'activity-track-line',
+          type: 'line',
+          source: 'activity-track',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#6b7280', 'line-width': 4, 'line-opacity': 0.9 },
+        })
+        addArrowLayer(map)
+      }
+    }
+
+    // Re-add heatmap layers if active
+    if (heatmapOn && currentUserId) {
+      addHeatmapLayers(map, buildHeatmapTileUrl(currentUserId), loadHeatmapColor())
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [styleVersion]) // only styleVersion — other state is read via refs / stable closures
 
   // ── Heatmap toggle useEffect ──────────────────────────────────────────────
   useEffect(() => {
@@ -385,10 +495,11 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         type: 'line',
         source: 'segment-preview',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': '#F97316', 'line-width': 5, 'line-opacity': 1.0 },
+        // A3: reduced sub-segment line-width from 5 → 4; preserve orange + opacity
+        paint: { 'line-color': '#F97316', 'line-width': 4, 'line-opacity': 1.0 },
       })
     }
-  }, [mode, range, editedTrackPoints])
+  }, [mode, range, editedTrackPoints, hasUserSelection, styleVersion])
 
   // ── Lap-mode: visualize detected crossings ────────────────────────────────
   useEffect(() => {
@@ -641,54 +752,57 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   // ── Render ────────────────────────────────────────────────────────────────
   const content = (
     <div ref={modalRootRef} className="fixed inset-0 z-[200] flex flex-col bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100">
-      {/* Top-Bar */}
-      <div className="flex items-center gap-2 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-3 py-2 text-sm">
+      {/* Top-Bar (B1-B4) */}
+      <div className="flex items-center gap-2 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-4 py-2.5 text-sm">
         <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">
           {mode === 'track' ? 'Segment aus Track' : mode === 'draw' ? 'Segment zeichnen' : 'Rundkurs definieren'}
         </h2>
         <div className="flex-1" />
 
-        {/* Map-Style toggles — compact segmented control */}
-        <div className="flex items-center gap-0.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-0.5">
+        {/* B1 — Map-Style toggles: genuine segmented control */}
+        <div className="flex items-center gap-0.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 p-1">
           {RASTER_STYLES.map(([key, def]) => (
             <button
               key={key}
               type="button"
               onClick={() => setMapStyle(key)}
-              className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
+              className={cn(
+                'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
                 mapStyle === key
-                  ? 'bg-accent-DEFAULT text-white shadow-sm'
-                  : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100'
-              }`}
+                  ? 'bg-white dark:bg-neutral-700 shadow-sm text-neutral-900 dark:text-neutral-100'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100',
+              )}
             >
               {def.label}
             </button>
           ))}
         </div>
 
-        {/* Heatmap toggle */}
-        <button
-          type="button"
-          onClick={() => setHeatmapOn(v => !v)}
-          aria-pressed={heatmapOn}
-          className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
-            heatmapOn
-              ? 'border-accent-DEFAULT/50 bg-accent-DEFAULT/10 text-accent-DEFAULT dark:border-accent-DEFAULT/60 dark:bg-accent-DEFAULT/20 dark:text-accent-400'
-              : 'border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'
-          }`}
-        >
-          Heatmap
-        </button>
+        {/* B3 — Heatmap toggle: visually separated from basemap group */}
+        <div className="ml-3 border-l border-neutral-200 dark:border-neutral-700 pl-3">
+          <button
+            type="button"
+            onClick={() => setHeatmapOn(v => !v)}
+            aria-pressed={heatmapOn}
+            className={cn(
+              'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+              heatmapOn
+                ? 'bg-accent-DEFAULT/10 text-accent-DEFAULT dark:text-accent-400 ring-1 ring-accent-DEFAULT/30'
+                : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800',
+            )}
+          >
+            Heatmap
+          </button>
+        </div>
 
+        {/* B2 — Close-X: plain icon-button, separated from toggles */}
         <button
           type="button"
           onClick={handleClose}
           aria-label="Schließen"
-          className="flex h-7 w-7 items-center justify-center rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white transition-colors"
+          className="ml-2 flex items-center justify-center rounded-md p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white transition-colors"
         >
-          <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" aria-hidden="true">
-            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
+          <X className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
 
