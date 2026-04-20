@@ -194,6 +194,36 @@ func TestBuildRouteResultFromEdges_PopulatesSegments(t *testing.T) {
 	}
 }
 
+// TestBuildRouteResultFromEdges_PopulatesEdgeSlices verifies that
+// BuildRouteResultFromEdges populates result.EdgeCoordStart, EdgeTags1, EdgeTags2
+// with length == len(EdgeHandles).
+func TestBuildRouteResultFromEdges_PopulatesEdgeSlices(t *testing.T) {
+	handles := []EdgeHandle{101, 102, 103}
+	nodeIDs := []uint64{0, 1, 2, 3}
+	reader := &buildRouteReaderMock{
+		tags1: map[uint64]uint64{101: 11, 102: 22, 103: 33},
+		tags2: map[uint64]uint64{101: 1, 102: 2, 103: 3},
+		coords: map[uint64][3]int32{
+			0: {470000000, 110000000, 1000},
+			1: {470100000, 110100000, 1010},
+			2: {470200000, 110200000, 1020},
+			3: {470300000, 110300000, 1030},
+		},
+	}
+	target := &paretoState{dist: 300, ascent: 30, descent: 10, cost: 5}
+	result := BuildRouteResultFromEdges(handles, nodeIDs, target, reader)
+
+	if got, want := len(result.EdgeCoordStart), len(result.EdgeHandles); got != want {
+		t.Fatalf("EdgeCoordStart len = %d, want %d", got, want)
+	}
+	if got, want := len(result.EdgeTags1), len(result.EdgeHandles); got != want {
+		t.Fatalf("EdgeTags1 len = %d, want %d", got, want)
+	}
+	if got, want := len(result.EdgeTags2), len(result.EdgeHandles); got != want {
+		t.Fatalf("EdgeTags2 len = %d, want %d", got, want)
+	}
+}
+
 // TestBuildRouteResultFromEdges_EmptyEdges_NoSegments verifies that an
 // empty edge list produces no Segments (not a nil-dereference).
 func TestBuildRouteResultFromEdges_EmptyEdges_NoSegments(t *testing.T) {
