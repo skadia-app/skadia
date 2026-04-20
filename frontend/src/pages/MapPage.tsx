@@ -766,7 +766,7 @@ export default function MapPage() {
       properties: {},
       geometry: {
         type: 'LineString' as const,
-        coordinates: parsedCoords.slice(r.from, Math.min(r.to + 1, parsedCoords.length)),
+        coordinates: parsedCoords.slice(r.from, Math.min(r.to, parsedCoords.length)),
       },
     }))
     src.setData({ type: 'FeatureCollection', features })
