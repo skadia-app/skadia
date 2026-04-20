@@ -209,7 +209,7 @@ var ErrEmailCollision = fmt.Errorf("email already registered")
 const allUserColumns = `id, username, display_name, email, is_admin, is_active,
 	created_at, updated_at, password_hash, email_verified, registration_source,
 	password_changed_at, last_login_at, failed_login_count, login_delay_until,
-	deleted_at, must_change_password, pending_email, COALESCE(timezone, '')`
+	deleted_at, must_change_password, pending_email, COALESCE(timezone, ''), pending_approval`
 
 // scanUser scans a row into a model.User using the allUserColumns column order.
 func scanUser(row pgx.Row) (*model.User, error) {
@@ -220,6 +220,7 @@ func scanUser(row pgx.Row) (*model.User, error) {
 		&u.PasswordHash, &u.EmailVerified, &u.RegistrationSrc,
 		&u.PasswordChangedAt, &u.LastLoginAt, &u.FailedLoginCount, &u.LoginDelayUntil,
 		&u.DeletedAt, &u.MustChangePassword, &u.PendingEmail, &u.Timezone,
+		&u.PendingApproval,
 	)
 	return &u, err
 }
@@ -251,12 +252,12 @@ func (db *DB) GetUserByEmail(ctx context.Context, email string) (*model.User, er
 }
 
 // CreateUserWithPassword creates a new user with email/password credentials.
-func (db *DB) CreateUserWithPassword(ctx context.Context, email, username, passwordHash, registrationSrc string, ipAddress net.IP, isActive bool) (*model.User, error) {
+func (db *DB) CreateUserWithPassword(ctx context.Context, email, username, passwordHash, registrationSrc string, ipAddress net.IP, isActive bool, pendingApproval bool) (*model.User, error) {
 	u, err := scanUser(db.Pool.QueryRow(ctx,
-		`INSERT INTO users (username, email, password_hash, registration_source, email_verified, is_active, created_by_ip)
-		 VALUES ($1, $2, $3, $4, false, $5, $6)
+		`INSERT INTO users (username, email, password_hash, registration_source, email_verified, is_active, pending_approval, created_by_ip)
+		 VALUES ($1, $2, $3, $4, false, $5, $6, $7)
 		 RETURNING `+allUserColumns,
-		username, email, passwordHash, registrationSrc, isActive, ipAddress))
+		username, email, passwordHash, registrationSrc, isActive, pendingApproval, ipAddress))
 	if err != nil {
 		return nil, fmt.Errorf("create user with password: %w", err)
 	}
@@ -364,6 +365,7 @@ func (db *DB) GetOrCreateUserByOAuth(ctx context.Context, provider, providerID, 
 
 	// 3. Create the user.
 	newID := uuid.New().String()
+	// OAuth users bypass registration.mode approval — always created active (is_active DEFAULT true).
 	u, err := scanUser(tx.QueryRow(ctx,
 		`INSERT INTO users (id, username, email, email_verified, registration_source)
 		 VALUES ($1, $2, $3, true, $4)
@@ -501,8 +503,13 @@ func (db *DB) ClearLoginDelays(ctx context.Context, userID string) error {
 
 // SetUserActive sets the is_active flag for a user.
 func (db *DB) SetUserActive(ctx context.Context, userID string, active bool) error {
+	if active {
+		_, err := db.Pool.Exec(ctx,
+			"UPDATE users SET is_active = true, pending_approval = false, updated_at = NOW() WHERE id = $1", userID)
+		return err
+	}
 	_, err := db.Pool.Exec(ctx,
-		"UPDATE users SET is_active = $2, updated_at = NOW() WHERE id = $1", userID, active)
+		"UPDATE users SET is_active = false, updated_at = NOW() WHERE id = $1", userID)
 	return err
 }
 

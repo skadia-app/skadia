@@ -187,7 +187,11 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Check is_active (C6).
 	if !user.IsActive {
-		h.socialError(w, r, "account_inactive")
+		errCode := "account_inactive"
+		if user.PendingApproval {
+			errCode = "account_pending_approval"
+		}
+		h.socialError(w, r, errCode)
 		return
 	}
 	// Update last login timestamp.

@@ -36,7 +36,7 @@ func (h *Handler) AdminRestoreUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = h.DB.Pool.Exec(r.Context(),
-		`UPDATE users SET deleted_at = NULL, is_active = true WHERE id = $1`, targetID)
+		`UPDATE users SET deleted_at = NULL, is_active = true, pending_approval = false WHERE id = $1`, targetID)
 	if err != nil {
 		slog.Error("admin restore user failed", "error", err, "target_user_id", targetID)
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})

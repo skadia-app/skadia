@@ -152,7 +152,7 @@ func (h *Handler) CancelDeletion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := h.DB.Pool.Exec(r.Context(),
-		`UPDATE users SET deleted_at = NULL, is_active = true WHERE id = $1`, userID); err != nil {
+		`UPDATE users SET deleted_at = NULL, is_active = true, pending_approval = false WHERE id = $1`, userID); err != nil {
 		slog.Error("cancel deletion: restore user failed", "error", err, "user_id", userID)
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return

@@ -116,8 +116,16 @@ func (h *Handler) MobileRefresh(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure user is still active (deactivated users must not keep refreshing).
 	user, err := h.DB.GetUserByID(r.Context(), userID.String())
-	if err != nil || !user.IsActive {
+	if err != nil {
 		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "account_inactive"})
+		return
+	}
+	if !user.IsActive {
+		errCode := "account_inactive"
+		if user.PendingApproval {
+			errCode = "account_pending_approval"
+		}
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": errCode})
 		return
 	}
 
@@ -194,8 +202,16 @@ func (h *Handler) MobileExchange(w http.ResponseWriter, r *http.Request) {
 
 	// Check is_active after code consumption (C6).
 	user, err := h.DB.GetUserByID(r.Context(), userID.String())
-	if err != nil || !user.IsActive {
+	if err != nil {
 		httputil.WriteJSONNoCache(w, http.StatusForbidden, map[string]string{"error": "account_inactive"})
+		return
+	}
+	if !user.IsActive {
+		errCode := "account_inactive"
+		if user.PendingApproval {
+			errCode = "account_pending_approval"
+		}
+		httputil.WriteJSONNoCache(w, http.StatusForbidden, map[string]string{"error": errCode})
 		return
 	}
 	h.issueMobileTokens(w, r, user)
