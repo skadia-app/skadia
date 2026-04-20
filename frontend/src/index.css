@@ -61,6 +61,30 @@ body {
   animation: slide-in-right 0.2s ease-out;
 }
 
+/* Dual-range slider: thumb + track pseudo-element overrides.
+   Apply alongside Tailwind layout utilities on <input type="range">. */
+@layer components {
+  .range-thumb {
+    @apply
+      [&::-webkit-slider-thumb]:appearance-none
+      [&::-webkit-slider-thumb]:h-4
+      [&::-webkit-slider-thumb]:w-4
+      [&::-webkit-slider-thumb]:rounded-full
+      [&::-webkit-slider-thumb]:bg-accent-DEFAULT
+      [&::-webkit-slider-thumb]:shadow-sm
+      [&::-webkit-slider-thumb]:cursor-pointer
+      [&::-moz-range-thumb]:h-4
+      [&::-moz-range-thumb]:w-4
+      [&::-moz-range-thumb]:rounded-full
+      [&::-moz-range-thumb]:bg-accent-DEFAULT
+      [&::-moz-range-thumb]:border-0
+      [&::-moz-range-thumb]:cursor-pointer
+      [&::-webkit-slider-runnable-track]:appearance-none
+      [&::-webkit-slider-runnable-track]:bg-transparent
+      [&::-moz-range-track]:bg-transparent;
+  }
+}
+
 /* react-day-picker dark mode support */
 .rdp-root {
   --rdp-accent-color: var(--color-accent-DEFAULT, #F97316);
