@@ -1,5 +1,7 @@
 package handler
 
+import "github.com/skadia-app/skadia/services/api/internal/routing/graph"
+
 // CoordRange represents a contiguous index range into a route's coordinate list.
 // Used by the frontend to render map highlights for sub-route sections.
 type CoordRange struct {
@@ -58,4 +60,33 @@ func contiguousRangesFromMatch(
 		out = append(out, *current)
 	}
 	return out
+}
+
+// computeForestRanges builds contiguous CoordRanges for edges whose forest pct
+// (decoded from Tags2) is ≥ forestHighlightMin. Pure in-memory — no DB / reader.
+func computeForestRanges(
+	edgeCoordStart []int,
+	edgeTags2 []uint64,
+	lastCoordIdx int,
+) []CoordRange {
+	matches := make([]bool, len(edgeTags2))
+	for i, t2 := range edgeTags2 {
+		matches[i] = graph.DecodeForestPct(t2) >= forestHighlightMin
+	}
+	return contiguousRangesFromMatch(matches, edgeCoordStart, lastCoordIdx)
+}
+
+// computeProtectedRanges builds contiguous CoordRanges for edges whose
+// protected_area level (decoded from Tags2 bits 17-18) is ≥ protectedHighlightMin.
+// Pure in-memory — no DB / reader.
+func computeProtectedRanges(
+	edgeCoordStart []int,
+	edgeTags2 []uint64,
+	lastCoordIdx int,
+) []CoordRange {
+	matches := make([]bool, len(edgeTags2))
+	for i, t2 := range edgeTags2 {
+		matches[i] = graph.DecodeProtectedArea(t2) >= protectedHighlightMin
+	}
+	return contiguousRangesFromMatch(matches, edgeCoordStart, lastCoordIdx)
 }
