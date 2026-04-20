@@ -132,7 +132,10 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <StatCard label="Besuchte Gipfel" value={summits.length.toString()} />
+        <StatCard
+          label="Besuchte Gipfel"
+          value={isFiltered ? `${summits.length} von ${allSummits.length}` : summits.length.toString()}
+        />
         <StatCard
           label="Höchster Gipfel"
           value={highestSummit ? `${Math.round(highestSummit.elevation_m ?? 0)} m` : '-'}
@@ -149,7 +152,7 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
       </div>
 
       {/* Badges — always based on all summits (unfiltered) */}
-      {allSummits && allSummits.length > 0 && (
+      {allSummits.length > 0 && (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
           <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">Errungenschaften</h2>
           <SummitBadges summits={allSummits} />
@@ -215,6 +218,25 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
                      px-2 py-1.5 text-sm text-neutral-700 dark:text-neutral-300
                      focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-600"
         />
+
+        {(isFiltered || !!nameFilter.trim()) && (
+          <button
+            onClick={() => {
+              setSearchParams(prev => {
+                const next = new URLSearchParams(prev)
+                next.delete('country')
+                next.delete('year')
+                next.delete('elev')
+                return next
+              }, { replace: true })
+              setNameFilter('')
+            }}
+            className="text-xs px-2.5 py-1.5 rounded-lg border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+            aria-label="Alle Filter zurücksetzen"
+          >
+            ✕ Filter zurücksetzen
+          </button>
+        )}
 
         {/* View toggle */}
         <div className="ml-auto flex rounded-lg border border-neutral-300 dark:border-neutral-700 overflow-hidden">
