@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 )
@@ -96,6 +97,57 @@ type RouteSuggestion struct {
 	// Descriptors are dynamic variant labels (e.g. "more forest", "less ascent").
 	// Always present as an array (may be empty); never null.
 	Descriptors []VariantDescriptor `json:"variant_descriptors"`
+
+	// Route aggregates (0.0–1.0). Propagated from RouteCandidate.MergedForestPct
+	// and MergedProtectedArea (computed during coverage scoring).
+	ForestPct    float32 `json:"forest_pct"`
+	ProtectedPct float32 `json:"protected_pct"`
+
+	// Range-based highlights per variant. omitempty because data may be absent
+	// for e.g. approach-only routes. Coord indices reference GeoJSON.features[0]
+	// .geometry.coordinates within the same suggestion.
+	ForestRanges    []CoordRange            `json:"forest_ranges,omitempty"`
+	ProtectedRanges []CoordRange            `json:"protected_ranges,omitempty"`
+	SacRanges       map[string][]CoordRange `json:"sac_ranges,omitempty"`
+	MtbRanges       map[string][]CoordRange `json:"mtb_ranges,omitempty"`
+	// Via-Ferrata — keys "K1".."K6".
+	// VfUnknownRanges: K?-Ranges (highway=via_ferrata AND scale=NULL), Invariant I9.
+	VfRanges        map[string][]CoordRange `json:"vf_ranges,omitempty"`
+	VfUnknownRanges []CoordRange            `json:"vf_unknown_ranges,omitempty"`
+
+	// Summits and passes passed within the user-configured radius.
+	// Uses handler-internal DTO (ResponsePassedSummit) to avoid leaking DB types.
+	SummitsPassed []ResponsePassedSummit `json:"summits_passed,omitempty"`
+}
+
+// ResponsePassedSummit is a handler-internal DTO for database.PassedSummit.
+// It avoids serialising DB types directly (DTO-layer isolation).
+type ResponsePassedSummit struct {
+	OsmID    int64   `json:"osm_id"`
+	Name     string  `json:"name"`
+	EleM     *int    `json:"ele_m,omitempty"`
+	Category string  `json:"category,omitempty"`
+	DistM    float64 `json:"dist_m"`
+	Lat      float64 `json:"lat"`
+	Lng      float64 `json:"lng"`
+}
+
+// toResponseSummit maps a database.PassedSummit to a ResponsePassedSummit DTO.
+func toResponseSummit(s database.PassedSummit) ResponsePassedSummit {
+	var eleM *int
+	if s.EleM != nil {
+		v := int(*s.EleM)
+		eleM = &v
+	}
+	return ResponsePassedSummit{
+		OsmID:    s.OsmID,
+		Name:     s.Name,
+		EleM:     eleM,
+		Category: s.Category,
+		DistM:    float64(s.DistM),
+		Lat:      s.Lat,
+		Lng:      s.Lng,
+	}
 }
 
 // RouteSuggestionResponse is the JSON response for POST /api/v1/routes/suggest.
@@ -415,6 +467,8 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 			GeoJSON:                json.RawMessage(merged.ToGeoJSON()),
 			IsFallback:             c.LoopQuality == LoopQualityOutAndBack,
 			Descriptors:            descriptors,
+			ForestPct:              float32(c.MergedForestPct),
+			ProtectedPct:           float32(c.MergedProtectedArea),
 		})
 	}
 
