@@ -23,6 +23,7 @@ type GeoEnrichmentSettings struct {
 	EnableWaterDetection      bool
 	EnableBorderDetection     bool
 	EnableSurfaceDetection    bool
+	SummitDetectionRadiusM    float64 // [10, 150], default 80
 }
 
 // geoSettingsFromModel converts a model.EnrichmentSettings into the smaller
@@ -35,6 +36,7 @@ func geoSettingsFromModel(s *model.EnrichmentSettings) GeoEnrichmentSettings {
 		EnableWaterDetection:      s.EnableWaterDetection,
 		EnableBorderDetection:     s.EnableBorderDetection,
 		EnableSurfaceDetection:    s.EnableSurfaceDetection,
+		SummitDetectionRadiusM:    s.SummitDetectionRadiusM,
 	}
 }
 
@@ -48,6 +50,7 @@ func allGeoEnabled() GeoEnrichmentSettings {
 		EnableWaterDetection:      true,
 		EnableBorderDetection:     true,
 		EnableSurfaceDetection:    true,
+		SummitDetectionRadiusM:    80.0,
 	}
 }
 
@@ -90,8 +93,17 @@ func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, s
 		enabled bool
 		fn      func(context.Context, *database.DB, string) error
 	}
+	// summitsFn captures settings.SummitDetectionRadiusM so that Task 14 only
+	// needs to update enrichGeoTagsSummits' signature to accept the radius
+	// parameter; this call site already forwards it.
+	// TODO: Task 14 will add radiusM float64 parameter to enrichGeoTagsSummits
+	// and update this closure to: enrichGeoTagsSummits(ctx, db, activityID, settings.SummitDetectionRadiusM)
+	summitsFn := func(ctx context.Context, db *database.DB, activityID string) error {
+		_ = settings.SummitDetectionRadiusM // forwarded in Task 14
+		return enrichGeoTagsSummits(ctx, db, activityID)
+	}
 	modules := []module{
-		{"summits", settings.EnableSummitDetection, enrichGeoTagsSummits},
+		{"summits", settings.EnableSummitDetection, summitsFn},
 		{"settlements", settings.EnableSettlementDetection, enrichGeoTagsSettlements},
 		{"forests", settings.EnableForestDetection, enrichGeoTagsForests},
 		{"water", settings.EnableWaterDetection, enrichGeoTagsWater},
