@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { updateSegment, publishSegment, type Segment, type UpdateSegmentPayload } from '@/api/segments'
+import { updateSegment, publishSegment, reverseSegment, type Segment, type UpdateSegmentPayload } from '@/api/segments'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 import { useModal } from '@/lib/modal'
@@ -93,6 +93,39 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
       addToast({ type: 'error', title: 'Veröffentlichung fehlgeschlagen', duration: 0 })
     },
   })
+
+  const reverseMutation = useMutation({
+    mutationFn: () => reverseSegment(segment.id),
+    onSuccess: (resp) => {
+      addToast({
+        type: 'success',
+        title: 'Segment umgekehrt',
+        message: resp.efforts_updated === 1
+          ? '1 Effort aktualisiert'
+          : `${resp.efforts_updated} Efforts aktualisiert`,
+      })
+      qc.invalidateQueries({ queryKey: ['segment', segment.id] })
+      qc.invalidateQueries({ queryKey: ['segments'] })
+      onClose()
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Richtung umkehren fehlgeschlagen', duration: 0 })
+    },
+  })
+
+  function handleReverse() {
+    const effortMsg = segment.effort_count > 0
+      ? `${segment.effort_count} öffentliche Efforts + eigene private Efforts werden mit invertiertem is_reverse-Flag aktualisiert und die Segment-Ranks neu berechnet. Diese Aktion kann nicht rückgängig gemacht werden.`
+      : 'Keine öffentlichen Efforts betroffen. Richtung des Segments umkehren?'
+    openModal({
+      title: 'Richtung umkehren?',
+      message: effortMsg,
+      buttons: [
+        { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+        { label: 'Umkehren', variant: 'destructive', onClick: () => reverseMutation.mutate() },
+      ],
+    })
+  }
 
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-md" className="bg-neutral-900 rounded-xl border border-neutral-800 space-y-4">
@@ -239,33 +272,44 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
           <p className="text-sm text-red-400">Fehler beim Speichern.</p>
         )}
 
-        <div className="flex gap-2 justify-end">
+        <div className="flex gap-2 items-center justify-between">
           <button
-            onClick={onClose}
-            className="cursor-pointer px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800"
+            type="button"
+            onClick={handleReverse}
+            disabled={mutation.isPending || publishMut.isPending || reverseMutation.isPending}
+            className="cursor-pointer rounded-lg border border-amber-800/60 bg-amber-950/30 px-3 py-1.5 text-sm text-amber-400 hover:bg-amber-900/40 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Abbrechen
+            ⇄ Richtung umkehren
           </button>
-          <button
-            onClick={() => {
-              if (segment.visibility === 'private' && visibility === 'public') {
-                openModal({
-                  title: 'Segment veröffentlichen?',
-                  message: 'Alle Nutzer können das Segment danach sehen. Ein Recompute-Job wird gestartet.',
-                  buttons: [
-                    { label: 'Abbrechen', variant: 'default', onClick: () => {} },
-                    { label: 'Veröffentlichen', variant: 'destructive', onClick: () => publishMut.mutate() },
-                  ],
-                })
-              } else {
-                mutation.mutate()
-              }
-            }}
-            disabled={!name.trim() || mutation.isPending || publishMut.isPending}
-            className="cursor-pointer px-4 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {mutation.isPending || publishMut.isPending ? 'Speichern...' : 'Speichern'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              disabled={reverseMutation.isPending}
+              className="cursor-pointer px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Abbrechen
+            </button>
+            <button
+              onClick={() => {
+                if (segment.visibility === 'private' && visibility === 'public') {
+                  openModal({
+                    title: 'Segment veröffentlichen?',
+                    message: 'Alle Nutzer können das Segment danach sehen. Ein Recompute-Job wird gestartet.',
+                    buttons: [
+                      { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+                      { label: 'Veröffentlichen', variant: 'destructive', onClick: () => publishMut.mutate() },
+                    ],
+                  })
+                } else {
+                  mutation.mutate()
+                }
+              }}
+              disabled={!name.trim() || mutation.isPending || publishMut.isPending || reverseMutation.isPending}
+              className="cursor-pointer px-4 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {mutation.isPending || publishMut.isPending ? 'Speichern...' : 'Speichern'}
+            </button>
+          </div>
         </div>
     </ModalShell>
   )
