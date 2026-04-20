@@ -744,7 +744,7 @@ function StyledSelect({
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-60 overflow-y-auto">
+      <DropdownMenuContent align="start" className="z-[300] max-h-60 overflow-y-auto">
         <DropdownMenuItem onClick={() => onChange('')}>
           {placeholder}
         </DropdownMenuItem>
