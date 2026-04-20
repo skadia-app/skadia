@@ -226,11 +226,18 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 		segmentTypeMeta = json.RawMessage("{}")
 	}
 
+	// Resolve bidirectional: if caller passes nil, use sport-group default (true for most).
+	// We store it explicitly so later edits can override without knowing the original default.
+	bidirectional := true
+	if create.Bidirectional != nil {
+		bidirectional = *create.Bidirectional
+	}
+
 	// Insert segment
 	var s model.Segment
 	err = tx.QueryRow(ctx, `
-		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id, terrain_type, climb_type, visibility)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id, terrain_type, climb_type, visibility, allowed_sport_types, bidirectional)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_by, name, description, sport_group,
 		          allowed_sport_types, allowed_sub_types,
 		          segment_type, segment_type_meta,
@@ -242,6 +249,7 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 		userID, create.Name, create.Description, create.SportGroup,
 		create.SegmentType, segmentTypeMeta, create.SourceActivityID,
 		create.TerrainType, create.ClimbType, create.Visibility,
+		create.AllowedSportTypes, bidirectional,
 	).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&s.AllowedSportTypes, &s.AllowedSubTypes,
@@ -759,6 +767,9 @@ type CandidateSegment struct {
 func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userID, sportType string, activityDate time.Time) ([]CandidateSegment, error) {
 	sportGroup := sportGroupFromSportType(sportType)
 
+	// $5 = sportType (exact string) for allowed_sport_types filter.
+	// allowed_sport_types NULL means "all sport types allowed".
+	// allowed_sport_types = '{}' (empty array) means "none" — matched never.
 	rows, err := db.Pool.Query(ctx, `
 		SELECT s.id, sv.id, s.sport_group, COALESCE(s.distance_m, 0),
 		       s.segment_type, COALESCE(sv.segment_type_meta, '{}'),
@@ -778,10 +789,11 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 		JOIN activity_tracks at ON at.activity_id = $1
 		WHERE (s.visibility = 'public' OR s.created_by = $2)
 		  AND (s.sport_group = $3 OR s.sport_group = 'generic')
+		  AND (s.allowed_sport_types IS NULL OR $5 = ANY(s.allowed_sport_types))
 		  AND at.track_full IS NOT NULL
 		  AND sv.track IS NOT NULL
 		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`,
-		activityID, userID, sportGroup, activityDate)
+		activityID, userID, sportGroup, activityDate, sportType)
 	if err != nil {
 		return nil, fmt.Errorf("get spatial candidate segments: %w", err)
 	}
