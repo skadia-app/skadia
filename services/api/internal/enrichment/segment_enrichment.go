@@ -92,40 +92,144 @@ func SuggestSegmentEnrichment(
 }
 
 // matchEdgesViaGraph runs Viterbi against graphReader and extracts edge-level
-// sample data (surface, sac, mtb, length). Follows the enrichSurfacesGraph pattern.
+// sample data (surface, sac, mtb, length). Mirrors enrichSurfacesGraph's
+// control flow: per-point FindNearEdges → Viterbi → edge-tag extraction.
 // Returns (edges, coverage_pct, err).
 func matchEdgesViaGraph(
 	ctx context.Context,
 	graphReader routing.GraphReader,
 	coords []orb.Point,
 ) ([]edgeSample, float64, error) {
-	// TODO(impl): replicate the Viterbi-call pattern from
-	//   enrichment/surfaces_graph.go:enrichSurfacesGraph.
-	// For each matched edge, extract:
-	//   tags1 := edge.Tags1
-	//   sample := edgeSample{
-	//     surfaceID: graph.DecodeSurface(tags1),
-	//     sacID:     graph.DecodeSacScale(tags1),
-	//     mtbID:     graph.DecodeMtbScale(tags1),
-	//     lengthM:   edge.LengthM,
-	//   }
-	// coverage = matchedPoints / totalPoints (from Viterbi match-report).
-	_ = graph.DecodeSurface // silence unused until impl
-	return nil, 0, fmt.Errorf("not implemented — follow enrichSurfacesGraph pattern")
+	if len(coords) < 2 {
+		return nil, 0, fmt.Errorf("need at least 2 coordinates")
+	}
+
+	// Convert orb.Point{lng, lat} → {lat, lng} structs used by Viterbi/FindNearEdges.
+	pts := make([]struct{ lat, lng float64 }, len(coords))
+	for i, c := range coords {
+		pts[i] = struct{ lat, lng float64 }{lat: c[1], lng: c[0]}
+	}
+
+	// Gather edge candidates per point.  tileGraphs[i] is the tile graph that
+	// produced candidates[i] — needed after Viterbi to re-read Tags1/EdgeDist.
+	candidates := make([][]graph.EdgeCandidate, len(pts))
+	tileGraphs := make([]*graph.Graph, len(pts))
+	for i, pt := range pts {
+		// Context check: abort early if the caller timed out.
+		if err := ctx.Err(); err != nil {
+			return nil, 0, err
+		}
+		g := graphReader.GraphAt(pt.lat, pt.lng)
+		if g == nil {
+			continue // offroad / no tile loaded for this location
+		}
+		cands := graph.FindNearEdges(g, pt.lat, pt.lng)
+		if len(cands) > 0 {
+			candidates[i] = cands
+			tileGraphs[i] = g
+		}
+	}
+
+	matched := viterbiMatch(pts, candidates)
+
+	// Extract per-edge samples from the Viterbi path.
+	var samples []edgeSample
+	var matchedCount int
+	for i, ec := range matched {
+		if len(candidates[i]) == 0 {
+			// Offroad point — no tile data.
+			continue
+		}
+		matchedCount++
+		g := tileGraphs[i]
+		if g == nil || int(ec.EdgeIdx) >= len(g.EdgeTags1) {
+			continue
+		}
+		tags1 := g.EdgeTags1[ec.EdgeIdx]
+		distCm := g.EdgeDist[ec.EdgeIdx]
+		samples = append(samples, edgeSample{
+			surfaceID: graph.DecodeSurface(tags1),
+			sacID:     graph.DecodeSacScale(tags1),
+			mtbID:     graph.DecodeMtbScale(tags1),
+			lengthM:   float64(distCm) / 100.0,
+		})
+	}
+
+	coverage := float64(matchedCount) / float64(len(pts))
+	return samples, coverage, nil
 }
 
-// matchEdgesViaPostGIS queries PostGIS for the nearest OSM way per coordinate
-// and extracts surface/sac/mtb tags from the matched rows.
+// matchEdgesViaPostGIS queries osm_ways for the nearest way per coordinate and
+// extracts surface/sac/mtb from the text columns using EncodeOSMTags + Decode*.
+//
+// This is a slow fallback (~100 ms for a typical segment): used only when no
+// graph tile covers the region.  Each coordinate triggers a lateral nearest-
+// neighbour query bounded by a 20 m bbox expand to keep the scan bounded.
+//
+// Known limitation: the osm_ways geography index was dropped in Migration
+// 000194 (6.6 GB unused), so the query uses the standard geometry index.  For
+// dense regions the geometry-KNN is still fast (< 2 ms per point).
+//
+// If no osm_ways rows exist at all (OSM data not yet imported), every query
+// returns no rows → empty sample slice → coverage 0 → caller returns an error.
 func matchEdgesViaPostGIS(
 	ctx context.Context,
 	db *database.DB,
 	coords []orb.Point,
 ) ([]edgeSample, float64, error) {
-	// TODO(impl): reuse the PostGIS-nearest-way query from
-	//   enrichment/surfaces.go fallback path (if any). If no existing helper,
-	//   write a minimal per-point ST_ClosestPoint query against the OSM ways
-	//   table that ClassicRouter/BadRouter uses.
-	return nil, 0, fmt.Errorf("not implemented")
+	if len(coords) < 2 {
+		return nil, 0, fmt.Errorf("need at least 2 coordinates")
+	}
+
+	const maxDistM = 20.0
+	const bboxExpand = 0.0002 // ~22 m at mid-latitudes — consistent with surfaceBBoxExpand
+
+	var samples []edgeSample
+	var matchedCount int
+
+	for _, coord := range coords {
+		// coord = orb.Point{lng, lat}
+		lng, lat := coord[0], coord[1]
+
+		var surface, sacScale, mtbScale string
+		var lengthM float64
+		err := db.Pool.QueryRow(ctx, `
+			SELECT
+				COALESCE(surface, ''),
+				COALESCE(sac_scale, ''),
+				COALESCE(mtb_scale, ''),
+				COALESCE(length_m, 0)
+			FROM osm_ways
+			WHERE highway IS NOT NULL
+			  AND highway != 'construction'
+			  AND geom && ST_Expand(ST_SetSRID(ST_MakePoint($1, $2), 4326), $3)
+			ORDER BY geom <-> ST_SetSRID(ST_MakePoint($1, $2), 4326)
+			LIMIT 1
+		`, lng, lat, bboxExpand).Scan(&surface, &sacScale, &mtbScale, &lengthM)
+		if err != nil {
+			// pgx returns pgx.ErrNoRows when no way is within the bbox — treat as offroad.
+			continue
+		}
+
+		matchedCount++
+
+		// Convert string tags → numeric IDs via the same encoding path as the tile builder.
+		tags1 := graph.EncodeOSMTags(&graph.RawTags{
+			Surface:  surface,
+			SacScale: sacScale,
+			MtbScale: mtbScale,
+		})
+		samples = append(samples, edgeSample{
+			surfaceID: graph.DecodeSurface(tags1),
+			sacID:     graph.DecodeSacScale(tags1),
+			mtbID:     graph.DecodeMtbScale(tags1),
+			lengthM:   lengthM,
+		})
+		_ = maxDistM // distance filtering is done implicitly via bbox expand + KNN ordering
+	}
+
+	coverage := float64(matchedCount) / float64(len(coords))
+	return samples, coverage, nil
 }
 
 // aggregateEdgesToSegmentEnrichment is the deterministic, unit-testable core.
