@@ -601,6 +601,26 @@ export default function MapPage() {
     const map = mapRef.current
     if (!map) return
 
+    // Z-Order enforcement — run at the end of every setupLayers call (idempotent).
+    // Desired order bottom→top: LAYER_VF_UNKNOWN < LAYER_SCALE_BASE < LAYER_RANGE_HIGHLIGHT
+    // LAYER_ROUTE_HIGHLIGHT (from useRouteEditor) sits above all three.
+    // If LAYER_ROUTE_HIGHLIGHT is not yet mounted (race on first load), we move
+    // LAYER_SCALE_BASE and LAYER_RANGE_HIGHLIGHT below it via `undefined` (i.e. top of
+    // stack) and rely on relative ordering between those two to stay correct.
+    const enforceZOrder = () => {
+      const anchor = map.getLayer(LAYER_ROUTE_HIGHLIGHT) ? LAYER_ROUTE_HIGHLIGHT : undefined
+      // Move from bottom to top so each subsequent moveLayer ends up below the next.
+      for (const id of [LAYER_VF_UNKNOWN, LAYER_SCALE_BASE, LAYER_RANGE_HIGHLIGHT] as const) {
+        if (map.getLayer(id)) {
+          try {
+            map.moveLayer(id, anchor)
+          } catch {
+            // Best-effort — tolerate if layer was removed between check and move.
+          }
+        }
+      }
+    }
+
     const setupLayers = () => {
       // 1. Range-Highlight (forest/protected descriptor-hover overlay).
       if (!map.getSource(SOURCE_RANGE_HIGHLIGHT)) {
@@ -691,6 +711,9 @@ export default function MapPage() {
         }, before)
       }
 
+      // Enforce Z-order explicitly after all addLayer calls (fixes race with useRouteEditor).
+      enforceZOrder()
+
       setLayersReady(true)
     }
 
@@ -700,7 +723,15 @@ export default function MapPage() {
       map.once('style.load', setupLayers)
     }
 
-    // Cleanup not needed: layers persist for MapPage lifetime; MapLibre cleans up on map removal.
+    // Re-run setupLayers after every base-map style change (style reload wipes all custom layers).
+    const handleStyleData = () => {
+      if (map.isStyleLoaded()) setupLayers()
+    }
+    map.on('styledata', handleStyleData)
+
+    return () => {
+      map.off('styledata', handleStyleData)
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── parsedCoords: shared coordinate array for both overlay useMemos ───────
