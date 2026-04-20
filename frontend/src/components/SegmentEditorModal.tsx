@@ -1,15 +1,18 @@
 // frontend/src/components/SegmentEditorModal.tsx
-// Task 8.4d: Track-Mode-Integration + Click-to-Place + Range
+// Task 8.4e: Save-Mutation + Lap-Mode + Enrichment-Wiring (complete)
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import maplibregl, { type RequestParameters } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 // @ts-ignore — maplibre-gl-draw has no bundled TS types for default import
 import MapboxDraw from 'maplibre-gl-draw'
-import type { SegmentMetadata } from './segment-editor/SegmentSidebar'
+import { SegmentSidebar, type SegmentMetadata } from './segment-editor/SegmentSidebar'
 import { TrackModeBottomBar, type TrackPoint } from './segment-editor/TrackModeBottomBar'
+import { DrawModeBottomBar } from './segment-editor/DrawModeBottomBar'
+import { LapModeBottomBar } from './segment-editor/LapModeBottomBar'
 import { BIDIRECTIONAL_DEFAULT, deriveTrailDifficultyColor, type SegType } from './segment-editor/constants'
+import { detectLapCrossings } from './segment-editor/TrackMode'
 import {
   addHeatmapLayers,
   removeHeatmapLayers,
@@ -19,6 +22,9 @@ import {
 import { buildRasterStyle, RASTER_STYLES, type BaseStyle } from '@/lib/mapStyles'
 import { apiClient } from '@/api/client'
 import { getToken } from '@/lib/auth'
+import { createSegment, suggestSegmentEnrichment } from '@/api/segments'
+import { useToast } from '@/lib/toast'
+import { SPORT_DEFS } from '@/lib/sportTaxonomy'
 
 export interface SegmentEditorModalProps {
   mode: 'track' | 'draw' | 'lap'
@@ -29,7 +35,7 @@ export interface SegmentEditorModalProps {
   onClose: () => void
 }
 
-// ── Inline haversine helper ───────────────────────────────────────────────────
+// ── Inline haversine helper (km) ─────────────────────────────────────────────
 function haversine(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371
   const dLat = (lat2 - lat1) * Math.PI / 180
@@ -41,7 +47,14 @@ function haversine(lat1: number, lng1: number, lat2: number, lng2: number): numb
 }
 
 export default function SegmentEditorModal(props: SegmentEditorModalProps) {
-  const { mode, trackPoints = [], onClose } = props
+  const { mode, trackPoints = [], sourceActivityId, onSuccess, onClose } = props
+  const { addToast } = useToast()
+
+  // ── All sport types for the sidebar selector ──────────────────────────────
+  const allSportTypes = useMemo(
+    () => SPORT_DEFS.map(s => ({ key: s.sportType, label: s.label, category: s.categoryKey })),
+    [],
+  )
 
   // ── Metadata state ────────────────────────────────────────────────────────
   const [meta, setMeta] = useState<SegmentMetadata>(() => ({
@@ -90,13 +103,11 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   const [drawnCoords, setDrawnCoords] = useState<Array<[number, number]>>([])
 
   // ── Track-mode state ──────────────────────────────────────────────────────
-  // Local editable copy — Reverse flips in-place without mutating the prop.
   const [editedTrackPoints, setEditedTrackPoints] = useState(trackPoints)
   useEffect(() => { setEditedTrackPoints(trackPoints) }, [trackPoints])
 
   const initialRange = useMemo<[number, number]>(
-    () => [0, Math.max(0, editedTrackPoints.length - 1)],
-    // We want a stable initialRange based on the prop, not the edited copy.
+    () => [0, Math.max(0, trackPoints.length - 1)],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [trackPoints.length],
   )
@@ -104,15 +115,123 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   type TrackPhase = 'edit' | 'preview'
   const [trackPhase, setTrackPhase] = useState<TrackPhase>('edit')
 
-  // ── Enrichment-sources state (declared here, used in 8.4d + 8.4e) ────────
+  // ── Lap-mode state ────────────────────────────────────────────────────────
+  const [lapCrossings, setLapCrossings] = useState<number[]>([])
+  const detectedLaps = Math.max(0, lapCrossings.length - 1)
+
+  // Lap detection: runs when map loads in lap mode (click-to-place finish line)
+  // is handled via the map click handler below.
+
+  // ── Enrichment state ─────────────────────────────────────────────────────
   const [enrichmentSources, setEnrichmentSources] = useState<
     Partial<Record<'surface' | 'sac' | 'mtb', { coverage: number } | null>>
   >({})
 
-  // Enrichment-Reset on range change
-  useEffect(() => {
-    setEnrichmentSources({})
-  }, [range])
+  // Reset enrichment badges on range change
+  useEffect(() => { setEnrichmentSources({}) }, [range])
+
+  // ── Enrichment mutation ───────────────────────────────────────────────────
+  const enrichmentMutation = useMutation({
+    mutationFn: suggestSegmentEnrichment,
+    onSuccess: (resp) => {
+      if (resp.reason === 'wintersport') return
+      if (resp.reason === 'low_coverage') {
+        addToast({ type: 'warning', title: 'Keine OSM-Daten für diesen Abschnitt' })
+        return
+      }
+      const patch: Partial<SegmentMetadata> = {}
+      const src: typeof enrichmentSources = {}
+      if (resp.surface) {
+        patch.surface = resp.surface.mixed ? 'Wechselnd' : (resp.surface.dominant ?? null)
+        src.surface = { coverage: resp.coverage_pct }
+      }
+      if (resp.sac_scale) {
+        patch.sacScale = resp.sac_scale.dominant ?? null
+        src.sac = { coverage: resp.coverage_pct }
+      }
+      if (resp.mtb_scale) {
+        patch.mtbScale = resp.mtb_scale.dominant ?? null
+        src.mtb = { coverage: resp.coverage_pct }
+      }
+      patchMeta(patch)
+      setEnrichmentSources(src)
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Fehler beim Abrufen der OSM-Daten', message: 'Erneut versuchen' })
+    },
+  })
+
+  const handleEnrichment = useCallback(() => {
+    const coords: Array<[number, number]> =
+      mode === 'track'
+        ? editedTrackPoints.slice(range[0], range[1] + 1).map(p => [p.lng, p.lat])
+        : mode === 'draw'
+          ? drawnCoords
+          : [] // lap-mode: enrichment disabled
+    if (coords.length < 2) return
+    enrichmentMutation.mutate({ coordinates: coords, seg_type: meta.segType })
+  }, [mode, editedTrackPoints, range, drawnCoords, meta.segType, enrichmentMutation])
+
+  const enrichmentDisabledReason = useMemo(() => {
+    if (meta.segType === 'wintersport') return 'Nicht verfügbar — Oberfläche implizit Schnee/Eis'
+    if (mode === 'track' && range[0] === range[1]) return 'Keine Auswahl'
+    if (mode === 'draw' && drawnCoords.length < 2) return 'Weniger als 2 Punkte'
+    if (mode === 'lap') return 'Im Rundkurs-Modus nicht verfügbar'
+    return undefined
+  }, [meta.segType, mode, range, drawnCoords.length])
+
+  // ── Save mutation ─────────────────────────────────────────────────────────
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      // Build coordinates array (note: editedTrackPoints includes reverse)
+      const coords =
+        mode === 'track'
+          ? editedTrackPoints.slice(range[0], range[1] + 1).map(p => [p.lng, p.lat])
+          : mode === 'draw'
+            ? drawnCoords
+            : trackPoints.map(p => [p.lng, p.lat]) // lap-mode uses full track
+
+      const geojson_track = JSON.stringify({
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'LineString', coordinates: coords },
+      })
+
+      // Strip pure-UI flag before send
+      const { userEditedBidirectional, ...savePayload } = meta
+      void userEditedBidirectional
+
+      return createSegment({
+        name: savePayload.name,
+        sport_group: 'generic', // sport_group is legacy — segment matching now uses allowed_sport_types
+        segment_type: savePayload.segType,
+        // allowed_sport_types-Semantik (verifiziert in Step 8.4e.0):
+        //   null  → "Alle Sportarten" (kein Filter, matcher matched immer)
+        //   []    → "keine" (Edge-Case; matcher matched nie)
+        //   [...] → konkrete Liste
+        // WICHTIG: kein `?? []`-Fallback — würde null→[] umbiegen und damit
+        // "alle" auf "keine" invertieren.
+        allowed_sport_types: savePayload.sportTypes,
+        bidirectional: savePayload.bidirectional,
+        segment_type_meta: {
+          surface: savePayload.surface,
+          sac_scale: savePayload.sacScale,
+          mtb_scale: savePayload.mtbScale,
+          difficulty_color: savePayload.difficultyColor,
+        },
+        visibility: savePayload.isPublic ? 'public' : 'private',
+        geojson_track,
+        source_activity_id: sourceActivityId,
+      })
+    },
+    onSuccess: () => {
+      addToast({ type: 'success', title: 'Segment gespeichert' })
+      onSuccess()
+    },
+    onError: (err) => {
+      addToast({ type: 'error', title: 'Speichern fehlgeschlagen', message: String(err) })
+    },
+  })
 
   // ── Map Init useEffect ────────────────────────────────────────────────────
   useEffect(() => {
@@ -220,7 +339,6 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   }, [heatmapOn, currentUserId])
 
   // ── Track-mode: segment preview layer ────────────────────────────────────
-  // Update the selection highlight whenever range or editedTrackPoints change.
   useEffect(() => {
     const map = mapRef.current
     if (!map || mode !== 'track') return
@@ -247,9 +365,50 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     }
   }, [mode, range, editedTrackPoints])
 
-  // ── Click-to-place: lat-corrected nearest-point ──────────────────────────
-  // At 47°N, 1° lng ≈ 0.68 × 1° lat — cos²-correction avoids skewing the
-  // nearest-point selection toward along-track shifts over across-track shifts.
+  // ── Lap-mode: visualize detected crossings ────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || mode !== 'lap' || lapCrossings.length < 2) return
+    if (!map.isStyleLoaded()) return
+
+    // Remove old lap layers
+    const existingLayers = map.getStyle()?.layers ?? []
+    existingLayers.forEach(l => {
+      if (l.id.startsWith('lap-segment-')) map.removeLayer(l.id)
+    })
+    for (let i = 0; i < 20; i++) {
+      if (map.getSource(`lap-seg-${i}`)) map.removeSource(`lap-seg-${i}`)
+    }
+
+    // Add colored lap segments
+    const colors = ['#f97316', '#f59e0b']
+    for (let i = 1; i < lapCrossings.length; i++) {
+      const start = lapCrossings[i - 1]
+      const end = lapCrossings[i]
+      const coords = trackPoints.slice(start, end + 1).map(p => [p.lng, p.lat])
+      const srcId = `lap-seg-${i}`
+      map.addSource(srcId, {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'LineString', coordinates: coords },
+        } as GeoJSON.Feature,
+      })
+      map.addLayer({
+        id: `lap-segment-${i}`,
+        type: 'line',
+        source: srcId,
+        paint: {
+          'line-color': colors[(i - 1) % colors.length],
+          'line-width': 4,
+          'line-opacity': 0.9,
+        },
+      })
+    }
+  }, [mode, lapCrossings, trackPoints])
+
+  // ── Click-to-place: lat-corrected nearest-point (track) ──────────────────
   useEffect(() => {
     if (mode !== 'track') return
     const map = mapRef.current
@@ -277,6 +436,27 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     return () => { map.off('click', handler) }
   }, [mode, editedTrackPoints])
 
+  // ── Lap-mode: click to place finish line ─────────────────────────────────
+  useEffect(() => {
+    if (mode !== 'lap' || lapCrossings.length > 0) return
+    const map = mapRef.current
+    if (!map) return
+    const handler = (e: maplibregl.MapMouseEvent) => {
+      // Find nearest track point to click
+      const { lng, lat } = e.lngLat
+      let bestIdx = 0
+      let bestDist = Infinity
+      for (let i = 0; i < trackPoints.length; i++) {
+        const d = haversine(trackPoints[i].lat, trackPoints[i].lng, lat, lng)
+        if (d < bestDist) { bestDist = d; bestIdx = i }
+      }
+      const crossings = detectLapCrossings(trackPoints, bestIdx)
+      setLapCrossings(crossings)
+    }
+    map.on('click', handler)
+    return () => { map.off('click', handler) }
+  }, [mode, lapCrossings.length, trackPoints])
+
   // ── Track-mode: commit range → fitBounds ─────────────────────────────────
   const commitRangeToMap = useCallback((r: [number, number]) => {
     const map = mapRef.current
@@ -288,14 +468,10 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     map.fitBounds(bounds, { padding: 40, duration: 300 })
   }, [mode, editedTrackPoints])
 
-  // ── Track-mode: reset ─────────────────────────────────────────────────────
   const handleRangeReset = useCallback(() => {
     setRange(initialRange)
   }, [initialRange])
 
-  // ── Track-mode: reverse ───────────────────────────────────────────────────
-  // Reverses the ENTIRE track. Range is inverted so the same geographic
-  // points stay selected: newRange = [N-1 - oldEnd, N-1 - oldStart].
   const handleTrackReverse = useCallback(() => {
     setEditedTrackPoints(prev => {
       const N = prev.length
@@ -306,7 +482,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     })
   }, [])
 
-  // ── Live-Info (distance/gain/loss) for sub-range ─────────────────────────
+  // ── Live-Info for sub-range ───────────────────────────────────────────────
   const info = useMemo(() => {
     if (mode === 'track') {
       const subset = editedTrackPoints.slice(range[0], range[1] + 1)
@@ -422,10 +598,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     return () => window.removeEventListener('keydown', trap)
   }, [])
 
-  // Silence unused warnings until later sub-tasks wire them
-  void patchMeta; void enrichmentSources; void setEnrichmentSources; void info
-  void drawUndoLast; void drawReverse; void drawClear
-
+  // ── Render ────────────────────────────────────────────────────────────────
   const content = (
     <div ref={modalRootRef} className="fixed inset-0 z-[200] flex flex-col bg-neutral-950 text-white">
       {/* Top-Bar */}
@@ -479,17 +652,33 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
 
       {/* Middle (sidebar+map) */}
       <div className="flex min-h-0 flex-1">
-        <div className="w-80 shrink-0 border-r border-neutral-800 bg-neutral-900 p-3">
-          {/* SegmentSidebar placeholder — wired in 8.4e */}
-          <p className="text-xs text-neutral-400">Sidebar (TODO 8.4e)</p>
-        </div>
+        {/* Sidebar */}
+        <SegmentSidebar
+          mode={mode}
+          meta={meta}
+          onMetaChange={patchMeta}
+          info={info}
+          allSportTypes={allSportTypes}
+          onEnrichmentRequest={handleEnrichment}
+          enrichmentState={{ loading: enrichmentMutation.isPending }}
+          enrichmentSources={enrichmentSources}
+          onClearEnrichmentSource={(f) => setEnrichmentSources(s => ({ ...s, [f]: null }))}
+          enrichmentDisabledReason={enrichmentDisabledReason}
+        />
+
         {/* Map container */}
         <div className="relative flex-1">
           <div ref={mapContainerRef} className="absolute inset-0" />
+          {/* Lap-mode instruction overlay */}
+          {mode === 'lap' && lapCrossings.length === 0 && (
+            <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-black/70 px-4 py-2 text-sm text-neutral-200">
+              Klicke auf den Track um den Start/Ziel-Punkt zu setzen
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Bottom — mode-specific bottom bar */}
+      {/* Bottom — mode-specific bar */}
       {mode === 'track' && (
         <TrackModeBottomBar
           trackPoints={editedTrackPoints}
@@ -498,14 +687,35 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           onCommitRange={commitRangeToMap}
           onReverse={handleTrackReverse}
           onReset={handleRangeReset}
-          onPreviewOrSave={() => { setTrackPhase(p => p === 'edit' ? 'preview' : 'edit') /* save wired in 8.4e */ }}
+          onPreviewOrSave={() => {
+            if (trackPhase === 'edit') setTrackPhase('preview')
+            else saveMutation.mutate()
+          }}
           isPreview={trackPhase === 'preview'}
         />
       )}
-      {mode !== 'track' && (
-        <div className="border-t border-neutral-800 bg-neutral-900 p-2 text-xs text-neutral-400">
-          Bottom-Bar (TODO 8.4e)
-        </div>
+      {mode === 'draw' && (
+        <DrawModeBottomBar
+          pointCount={drawnCoords.length}
+          onUndo={drawUndoLast}
+          onClear={drawClear}
+          onFinish={() => { /* double-click in MapboxDraw already closes the line */ }}
+          onReverse={drawReverse}
+          onReset={drawClear}
+          onPreviewOrSave={() => saveMutation.mutate()}
+          isPreview={false}
+        />
+      )}
+      {mode === 'lap' && (
+        <LapModeBottomBar
+          detectedLaps={detectedLaps}
+          onBack={() => {
+            // Reset lap state so user can reclick the finish line
+            setLapCrossings([])
+          }}
+          onPreviewOrSave={() => saveMutation.mutate()}
+          isPreview={false}
+        />
       )}
     </div>
   )

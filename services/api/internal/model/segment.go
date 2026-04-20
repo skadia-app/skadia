@@ -33,16 +33,18 @@ type Segment struct {
 }
 
 type SegmentCreate struct {
-	Name             string          `json:"name"`
-	SportGroup       string          `json:"sport_group"`
-	SegmentType      string          `json:"segment_type"`
-	SegmentTypeMeta  json.RawMessage `json:"segment_type_meta,omitempty"`
-	GeoJSONTrack     string          `json:"geojson_track"`
-	SourceActivityID *string         `json:"source_activity_id,omitempty"`
-	Description      *string         `json:"description,omitempty"`
-	TerrainType      string          `json:"terrain_type"`
-	ClimbType        string          `json:"climb_type"`
-	Visibility       string          `json:"visibility,omitempty"` // "public" | "private"; default "public"
+	Name              string          `json:"name"`
+	SportGroup        string          `json:"sport_group"`
+	SegmentType       string          `json:"segment_type"`
+	SegmentTypeMeta   json.RawMessage `json:"segment_type_meta,omitempty"`
+	GeoJSONTrack      string          `json:"geojson_track"`
+	SourceActivityID  *string         `json:"source_activity_id,omitempty"`
+	Description       *string         `json:"description,omitempty"`
+	TerrainType       string          `json:"terrain_type"`
+	ClimbType         string          `json:"climb_type"`
+	Visibility        string          `json:"visibility,omitempty"`        // "public" | "private"; default "public"
+	AllowedSportTypes []string        `json:"allowed_sport_types,omitempty"` // nil = all sport types allowed
+	Bidirectional     *bool           `json:"bidirectional,omitempty"`      // nil = use sport-group default
 }
 
 type SegmentUpdate struct {

@@ -65,6 +65,10 @@ export interface CreateSegmentPayload {
   terrain_type?: string
   climb_type?: string
   visibility?: 'public' | 'private'
+  /** null = all sport types allowed; [] = none; [...] = specific list */
+  allowed_sport_types?: string[] | null
+  /** nil on wire = use sport-group default (true for most groups) */
+  bidirectional?: boolean
 }
 
 export interface SegmentsResponse {
