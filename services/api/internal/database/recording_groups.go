@@ -346,6 +346,12 @@ func (db *DB) AddRecordingGroupMemberFused(ctx context.Context, groupID, activit
 	return tx.Commit(ctx)
 }
 
+// AddRecordingGroupMemberTx inserts a non-fused member inside an existing TX.
+// The caller owns the TX and is responsible for Commit/Rollback.
+func (db *DB) AddRecordingGroupMemberTx(ctx context.Context, tx pgx.Tx, groupID, activityID string) error {
+	return db.addMemberTx(ctx, tx, groupID, activityID, false)
+}
+
 // addMemberTx is the transaction-accepting variant of addMember.
 // The caller owns the TX and is responsible for Commit/Rollback.
 func (db *DB) addMemberTx(ctx context.Context, tx pgx.Tx, groupID, activityID string, isFused bool) error {

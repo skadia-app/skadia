@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/dbutil"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -258,14 +259,46 @@ func (h *Handler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Acquire the same advisory lock that FusionMerge holds for this user.
+	// This closes the TOCTOU window between the fusion-source EXISTS check below
+	// and the INSERT: without this lock, a concurrent /fusion-merge could mark
+	// the activity as a source between the check and the insert, producing a
+	// zombie (activity simultaneously in recording_group_members and
+	// activity_fusion_memberships.source_id).  R4-4.
+	//
+	// Using the same "fusion:"+userID key as FusionMerge means the two handlers
+	// are mutually exclusive per user — they will never overlap.
+	lockKey := dbutil.AdvisoryLockKey("fusion:" + userID)
+	tx, err := h.DB.Pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("add group member: begin tx", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to begin transaction", r.URL.Path)
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+
+	var lockAcquired bool
+	if err := tx.QueryRow(r.Context(), `SELECT pg_try_advisory_xact_lock($1)`, lockKey).Scan(&lockAcquired); err != nil {
+		slog.Error("add group member: advisory lock query", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "advisory lock: "+err.Error(), r.URL.Path)
+		return
+	}
+	if !lockAcquired {
+		slog.Warn("add group member: advisory lock contention — fusion operation in progress for this user", "user_id", userID)
+		httputil.WriteError(w, http.StatusConflict, "Conflict", "another fusion operation is in progress for this user", r.URL.Path)
+		return
+	}
+
 	// Reject fusion-source activities: once an activity is a merge-source it is
 	// hidden from the activities list (source_id IS NOT NULL in
 	// activity_fusion_memberships).  Adding it back to a recording group would
 	// regenerate the zombie state that trigger 000313 prevents on the merge path.
 	// The trigger is defence-in-depth; this check produces a clear 400 for callers
 	// instead of a silent FK anomaly.  (R3-3)
+	// Runs INSIDE the advisory lock so FusionMerge cannot insert a membership row
+	// between this check and the INSERT below.
 	var isFusionSource bool
-	if err := h.DB.Pool.QueryRow(r.Context(),
+	if err := tx.QueryRow(r.Context(),
 		`SELECT EXISTS(SELECT 1 FROM activity_fusion_memberships WHERE source_id = $1)`,
 		body.ActivityID,
 	).Scan(&isFusionSource); err != nil {
@@ -279,17 +312,14 @@ func (h *Handler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.DB.AddRecordingGroupMember(r.Context(), groupID, body.ActivityID)
-	if err != nil {
+	if err := h.DB.AddRecordingGroupMemberTx(r.Context(), tx, groupID, body.ActivityID); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			// unique_violation: the activity is already a member of some group.
-			// Use a targeted EXISTS query instead of fetching all members to
-			// determine whether it is *this* group (idempotent) or a different
-			// group (conflict). GetRecordingGroupMembers fetches 24-column JOINs
-			// for every member, which is wasteful for a simple membership check.
+			// Use a targeted EXISTS query to determine whether it is *this* group
+			// (idempotent) or a different group (conflict).
 			var alreadyInThisGroup bool
-			if qErr := h.DB.Pool.QueryRow(r.Context(),
+			if qErr := tx.QueryRow(r.Context(),
 				`SELECT EXISTS(SELECT 1 FROM recording_group_members WHERE group_id = $1 AND activity_id = $2)`,
 				groupID, body.ActivityID,
 			).Scan(&alreadyInThisGroup); qErr != nil {
@@ -308,6 +338,12 @@ func (h *Handler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
 		}
 		slog.Error("add group member", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to add group member", r.URL.Path)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("add group member: commit tx", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to commit transaction", r.URL.Path)
 		return
 	}
 
