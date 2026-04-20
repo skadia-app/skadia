@@ -218,6 +218,35 @@ func TestComputeVfRanges_K3(t *testing.T) {
 	}
 }
 
+// TestComputeRanges_LenMismatch_ReturnsNil verifies that all compute*Ranges
+// functions return nil (no panic) when edgeCoordStart and the tag slice(s) have
+// mismatched lengths.  This guards against programmer errors in the route-build
+// pipeline — mismatches are never expected in production after the Phase-1
+// Batch-1-#3-Fix invariant holds, but the guard provides a safety net.
+func TestComputeRanges_LenMismatch_ReturnsNil(t *testing.T) {
+	edgeCoordStart := []int{0, 5} // len 2
+	tags3 := []uint64{0, 0, 0}   // len 3 — mismatch
+
+	if r := computeForestRanges(edgeCoordStart, tags3, 10); r != nil {
+		t.Fatal("computeForestRanges: len-mismatch must return nil")
+	}
+	if r := computeProtectedRanges(edgeCoordStart, tags3, 10); r != nil {
+		t.Fatal("computeProtectedRanges: len-mismatch must return nil")
+	}
+	if r := computeScaleRanges(edgeCoordStart, tags3, 10, "sac", "T1"); r != nil {
+		t.Fatal("computeScaleRanges sac: len-mismatch must return nil")
+	}
+	if r := computeScaleRanges(edgeCoordStart, tags3, 10, "mtb", "S0"); r != nil {
+		t.Fatal("computeScaleRanges mtb: len-mismatch must return nil")
+	}
+	if r := computeVfRanges(edgeCoordStart, tags3, 10, "K1"); r != nil {
+		t.Fatal("computeVfRanges: len-mismatch must return nil")
+	}
+	if r := computeVfUnknownRanges(edgeCoordStart, tags3, tags3, 10); r != nil {
+		t.Fatal("computeVfUnknownRanges: len-mismatch must return nil")
+	}
+}
+
 func TestComputeVfUnknownRanges_Matches(t *testing.T) {
 	// highway == 22 UND vfScale == 0 = K?-Range.
 	edgeTags1 := []uint64{
@@ -238,4 +267,135 @@ func TestComputeVfUnknownRanges_Matches(t *testing.T) {
 	if got[0].From != 0 || got[0].To != 5 {
 		t.Fatalf("VF unknown range = %+v, want [0,5]", got[0])
 	}
+}
+
+// TestComputeAllRanges_MatchesIndividualCalls is a regression guard that verifies
+// computeAllRanges produces identical output to the 15 individual compute* calls
+// on the same synthetic edge arrays. Any divergence between the fused path and
+// the individual paths would be caught here.
+func TestComputeAllRanges_MatchesIndividualCalls(t *testing.T) {
+	// Synthetic 5-edge route exercising every category:
+	//   edge 0: forest(70), protected(1), SAC T3 (raw=3), MTB S2 (raw=3), VF K3 (raw=3)
+	//   edge 1: forest(30 — below threshold), protected(0), SAC T1 (raw=1), MTB S0 (raw=1), VF K1 (raw=1)
+	//   edge 2: forest(80), protected(2), SAC T3 (raw=3), MTB S2 (raw=3), VF K3 (raw=3)
+	//   edge 3: highway=22, VF unknown (vfScale=0) — K?
+	//   edge 4: forest(90), protected(3), SAC T6 (raw=6), MTB S5 (raw=6), VF K6 (raw=6)
+	edgeCoordStart := []int{0, 5, 10, 15, 20}
+	lastCoordIdx := 24
+
+	edgeTags1 := []uint64{
+		encodeSacScale(3) | encodeMtbScale(3),              // edge 0: T3, S2
+		encodeSacScale(1) | encodeMtbScale(1),              // edge 1: T1, S0
+		encodeSacScale(3) | encodeMtbScale(3),              // edge 2: T3, S2
+		uint64(22) | encodeSacScale(0) | encodeMtbScale(0), // edge 3: via_ferrata hw, no SAC/MTB
+		encodeSacScale(6) | encodeMtbScale(6),              // edge 4: T6, S5
+	}
+	edgeTags2 := []uint64{
+		encodeForestPct(70) | encodeProtectedArea(1) | encodeVfScale(3), // edge 0
+		encodeForestPct(30) | encodeProtectedArea(0) | encodeVfScale(1), // edge 1
+		encodeForestPct(80) | encodeProtectedArea(2) | encodeVfScale(3), // edge 2
+		encodeForestPct(0) | encodeProtectedArea(0) | encodeVfScale(0),  // edge 3: K?
+		encodeForestPct(90) | encodeProtectedArea(3) | encodeVfScale(6), // edge 4
+	}
+
+	got := computeAllRanges(edgeCoordStart, edgeTags1, edgeTags2, lastCoordIdx)
+
+	// --- Forest ---
+	wantForest := computeForestRanges(edgeCoordStart, edgeTags2, lastCoordIdx)
+	if !reflect.DeepEqual(got.Forest, wantForest) {
+		t.Errorf("Forest: fused=%v individual=%v", got.Forest, wantForest)
+	}
+
+	// --- Protected ---
+	wantProtected := computeProtectedRanges(edgeCoordStart, edgeTags2, lastCoordIdx)
+	if !reflect.DeepEqual(got.Protected, wantProtected) {
+		t.Errorf("Protected: fused=%v individual=%v", got.Protected, wantProtected)
+	}
+
+	// --- VfUnknown ---
+	wantVfUnknown := computeVfUnknownRanges(edgeCoordStart, edgeTags1, edgeTags2, lastCoordIdx)
+	if !reflect.DeepEqual(got.VfUnknown, wantVfUnknown) {
+		t.Errorf("VfUnknown: fused=%v individual=%v", got.VfUnknown, wantVfUnknown)
+	}
+
+	// --- SAC levels ---
+	for _, level := range sacLevels {
+		wantSac := computeScaleRanges(edgeCoordStart, edgeTags1, lastCoordIdx, "sac", level)
+		gotSac := got.Sac[level]
+		if !reflect.DeepEqual(normaliseRanges(gotSac), normaliseRanges(wantSac)) {
+			t.Errorf("SAC %s: fused=%v individual=%v", level, gotSac, wantSac)
+		}
+	}
+
+	// --- MTB levels ---
+	for _, level := range mtbLevels {
+		wantMtb := computeScaleRanges(edgeCoordStart, edgeTags1, lastCoordIdx, "mtb", level)
+		gotMtb := got.Mtb[level]
+		if !reflect.DeepEqual(normaliseRanges(gotMtb), normaliseRanges(wantMtb)) {
+			t.Errorf("MTB %s: fused=%v individual=%v", level, gotMtb, wantMtb)
+		}
+	}
+
+	// --- VF levels ---
+	for _, level := range vfLevels {
+		wantVf := computeVfRanges(edgeCoordStart, edgeTags2, lastCoordIdx, level)
+		gotVf := got.Vf[level]
+		if !reflect.DeepEqual(normaliseRanges(gotVf), normaliseRanges(wantVf)) {
+			t.Errorf("VF %s: fused=%v individual=%v", level, gotVf, wantVf)
+		}
+	}
+}
+
+// normaliseRanges converts nil to an empty slice so reflect.DeepEqual treats
+// nil and []CoordRange{} as equal (both mean "no ranges for this level").
+func normaliseRanges(r []CoordRange) []CoordRange {
+	if r == nil {
+		return []CoordRange{}
+	}
+	return r
+}
+
+// BenchmarkComputeRanges_Fused_vs_Single compares the fused single-pass
+// computeAllRanges against 15 individual compute* calls on a synthetic
+// 1000-edge route.
+// Run with: go test -bench=BenchmarkComputeRanges -benchmem ./internal/handler/
+func BenchmarkComputeRanges_Fused_vs_Single(b *testing.B) {
+	const n = 1000
+	edgeCoordStart := make([]int, n)
+	edgeTags1 := make([]uint64, n)
+	edgeTags2 := make([]uint64, n)
+	for i := 0; i < n; i++ {
+		edgeCoordStart[i] = i * 5
+		sacRaw := uint8((i%6) + 1) // cycles 1..6
+		mtbRaw := uint8((i%6) + 1)
+		vfRaw := uint8((i%6) + 1)
+		edgeTags1[i] = encodeSacScale(sacRaw) | encodeMtbScale(mtbRaw)
+		edgeTags2[i] = encodeForestPct(uint8((i%100)+1)) |
+			encodeProtectedArea(uint8(i%4)) |
+			encodeVfScale(vfRaw)
+	}
+	lastCoordIdx := n*5 - 1
+
+	b.Run("Fused", func(b *testing.B) {
+		for b.Loop() {
+			_ = computeAllRanges(edgeCoordStart, edgeTags1, edgeTags2, lastCoordIdx)
+		}
+	})
+
+	b.Run("Individual15", func(b *testing.B) {
+		for b.Loop() {
+			_ = computeForestRanges(edgeCoordStart, edgeTags2, lastCoordIdx)
+			_ = computeProtectedRanges(edgeCoordStart, edgeTags2, lastCoordIdx)
+			_ = computeVfUnknownRanges(edgeCoordStart, edgeTags1, edgeTags2, lastCoordIdx)
+			for _, level := range sacLevels {
+				_ = computeScaleRanges(edgeCoordStart, edgeTags1, lastCoordIdx, "sac", level)
+			}
+			for _, level := range mtbLevels {
+				_ = computeScaleRanges(edgeCoordStart, edgeTags1, lastCoordIdx, "mtb", level)
+			}
+			for _, level := range vfLevels {
+				_ = computeVfRanges(edgeCoordStart, edgeTags2, lastCoordIdx, level)
+			}
+		}
+	})
 }

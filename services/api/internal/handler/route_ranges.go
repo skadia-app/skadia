@@ -2,6 +2,128 @@ package handler
 
 import "github.com/skadia-app/skadia/services/api/internal/routing/graph"
 
+// AllRanges holds all per-category CoordRange slices computed in a single pass
+// over the edge-tag arrays. Populated by computeAllRanges.
+//
+// Nil maps/slices mean no edges matched that category (same semantics as empty).
+type AllRanges struct {
+	Forest    []CoordRange
+	Protected []CoordRange
+	// Sac, Mtb, Vf are keyed by level string (e.g. "T1".."T6", "S0".."S5", "K1".."K6").
+	// nil means no edges matched any level.
+	Sac       map[string][]CoordRange
+	Mtb       map[string][]CoordRange
+	Vf        map[string][]CoordRange
+	VfUnknown []CoordRange
+}
+
+// sacLevels and mtbLevels are the canonical level keys; order is stable.
+var sacLevels = [6]string{"T1", "T2", "T3", "T4", "T5", "T6"}
+var mtbLevels = [6]string{"S0", "S1", "S2", "S3", "S4", "S5"}
+var vfLevels = [6]string{"K1", "K2", "K3", "K4", "K5", "K6"}
+
+// computeAllRanges scans edgeTags1 / edgeTags2 exactly once and produces all
+// Range categories in one pass instead of 15 separate scan loops.
+//
+// Returns an empty AllRanges (all nil) if the three slice lengths are not equal
+// or if n == 0.  Callers MUST pass matching-length slices — mismatched lengths
+// indicate a programmer error in the route-build pipeline and are guarded here.
+func computeAllRanges(
+	edgeCoordStart []int,
+	edgeTags1 []uint64,
+	edgeTags2 []uint64,
+	lastCoordIdx int,
+) AllRanges {
+	n := len(edgeTags1)
+	if n == 0 || len(edgeTags2) != n || len(edgeCoordStart) != n {
+		return AllRanges{}
+	}
+
+	// Pre-allocate per-edge match arrays for every category.
+	forestM := make([]bool, n)
+	protectedM := make([]bool, n)
+	vfUnknownM := make([]bool, n)
+
+	// Six bool-arrays each for SAC / MTB / VF.
+	var sacM, mtbM, vfM [6][]bool
+	for k := range sacM {
+		sacM[k] = make([]bool, n)
+		mtbM[k] = make([]bool, n)
+		vfM[k] = make([]bool, n)
+	}
+
+	// Single pass over all edges.
+	for i := 0; i < n; i++ {
+		t1 := edgeTags1[i]
+		t2 := edgeTags2[i]
+
+		// Forest / Protected (Tags2).
+		if graph.DecodeForestPct(t2) >= forestHighlightMin {
+			forestM[i] = true
+		}
+		if graph.DecodeProtectedArea(t2) >= protectedHighlightMin {
+			protectedM[i] = true
+		}
+
+		// SAC scale (Tags1 bits 14-16).
+		sacRaw := uint8((t1 >> 14) & 0x07)
+		if sacRaw >= 1 && sacRaw <= 6 {
+			sacM[sacRaw-1][i] = true // T1=idx0, T6=idx5
+		}
+
+		// MTB scale (Tags1 bits 17-19).
+		mtbRaw := uint8((t1 >> 17) & 0x07)
+		if mtbRaw >= 1 && mtbRaw <= 6 {
+			mtbM[mtbRaw-1][i] = true // raw=1→S0(idx0), raw=6→S5(idx5)
+		}
+
+		// VF scale (Tags2 bits 33-35).
+		vfRaw := graph.DecodeViaFerrataScale(t2)
+		hw := graph.DecodeHighway(t1)
+		if vfRaw >= 1 && vfRaw <= 6 {
+			vfM[vfRaw-1][i] = true // K1=idx0, K6=idx5
+		}
+		// VF unknown: highway==22 AND vfScale==0 (Spec Invariant I9).
+		if hw == 22 && vfRaw == 0 {
+			vfUnknownM[i] = true
+		}
+	}
+
+	// Build CoordRanges from match arrays.
+	result := AllRanges{
+		Forest:    contiguousRangesFromMatch(forestM, edgeCoordStart, lastCoordIdx),
+		Protected: contiguousRangesFromMatch(protectedM, edgeCoordStart, lastCoordIdx),
+		VfUnknown: contiguousRangesFromMatch(vfUnknownM, edgeCoordStart, lastCoordIdx),
+	}
+
+	for k, level := range sacLevels {
+		if r := contiguousRangesFromMatch(sacM[k], edgeCoordStart, lastCoordIdx); len(r) > 0 {
+			if result.Sac == nil {
+				result.Sac = make(map[string][]CoordRange, 6)
+			}
+			result.Sac[level] = r
+		}
+	}
+	for k, level := range mtbLevels {
+		if r := contiguousRangesFromMatch(mtbM[k], edgeCoordStart, lastCoordIdx); len(r) > 0 {
+			if result.Mtb == nil {
+				result.Mtb = make(map[string][]CoordRange, 6)
+			}
+			result.Mtb[level] = r
+		}
+	}
+	for k, level := range vfLevels {
+		if r := contiguousRangesFromMatch(vfM[k], edgeCoordStart, lastCoordIdx); len(r) > 0 {
+			if result.Vf == nil {
+				result.Vf = make(map[string][]CoordRange, 6)
+			}
+			result.Vf[level] = r
+		}
+	}
+
+	return result
+}
+
 // CoordRange represents a contiguous index range into a route's coordinate list.
 // Used by the frontend to render map highlights for sub-route sections.
 type CoordRange struct {
@@ -69,6 +191,9 @@ func computeForestRanges(
 	edgeTags2 []uint64,
 	lastCoordIdx int,
 ) []CoordRange {
+	if len(edgeTags2) != len(edgeCoordStart) {
+		return nil // defensive — slices MUST be synchronised (Phase 1 Invariant)
+	}
 	matches := make([]bool, len(edgeTags2))
 	for i, t2 := range edgeTags2 {
 		matches[i] = graph.DecodeForestPct(t2) >= forestHighlightMin
@@ -84,6 +209,9 @@ func computeProtectedRanges(
 	edgeTags2 []uint64,
 	lastCoordIdx int,
 ) []CoordRange {
+	if len(edgeTags2) != len(edgeCoordStart) {
+		return nil // defensive — slices MUST be synchronised (Phase 1 Invariant)
+	}
 	matches := make([]bool, len(edgeTags2))
 	for i, t2 := range edgeTags2 {
 		matches[i] = graph.DecodeProtectedArea(t2) >= protectedHighlightMin
@@ -100,6 +228,9 @@ func computeVfRanges(
 	lastCoordIdx int,
 	level string,
 ) []CoordRange {
+	if len(edgeTags2) != len(edgeCoordStart) {
+		return nil // defensive — slices MUST be synchronised (Phase 1 Invariant)
+	}
 	matches := make([]bool, len(edgeTags2))
 	for i, t2 := range edgeTags2 {
 		raw := graph.DecodeViaFerrataScale(t2)
@@ -120,8 +251,8 @@ func computeVfUnknownRanges(
 	lastCoordIdx int,
 ) []CoordRange {
 	n := len(edgeTags1)
-	if len(edgeTags2) != n {
-		return nil // defensive — beide Slices MUSS synchron sein (Phase 1 Invariant)
+	if len(edgeTags2) != n || len(edgeCoordStart) != n {
+		return nil // defensive — alle drei Slices MÜSSEN synchron sein (Phase 1 Invariant)
 	}
 	matches := make([]bool, n)
 	for i := range edgeTags1 {
@@ -149,6 +280,9 @@ func computeScaleRanges(
 	kind string,
 	level string,
 ) []CoordRange {
+	if len(edgeTags1) != len(edgeCoordStart) {
+		return nil // defensive — Slices MÜSSEN synchron sein (Phase 1 Invariant)
+	}
 	matches := make([]bool, len(edgeTags1))
 	switch kind {
 	case "sac":
