@@ -97,4 +97,11 @@ describe('useStickyHighlight — real React hook via renderHook', () => {
     act(() => result.current.handleClick(MTB))
     expect(result.current.effective).toBeNull()
   })
+
+  it('compile-check: high_forest is a valid DescriptorKey in HighlightKind', () => {
+    // This test is a TypeScript compile-check — if DescriptorKey does not include
+    // 'high_forest', the assignment below would produce a TS error.
+    const hf: HighlightKind = { kind: 'descriptor', descriptorKey: 'high_forest' }
+    expect(hf).toMatchObject({ kind: 'descriptor', descriptorKey: 'high_forest' })
+  })
 })
