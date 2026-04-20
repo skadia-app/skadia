@@ -321,6 +321,12 @@ export default function RouteProfileChart({
     [suggestion?.mtb_ranges, parsedCoords],
   )
 
+  // LF-#6: vfAggregate uses the SAME parsedCoords memo as sac/mtb.
+  const vfAggregate = useMemo(
+    () => aggregateScaleLevels(suggestion?.vf_ranges, parsedCoords, 'vf'),
+    [suggestion?.vf_ranges, parsedCoords],
+  )
+
   // ── Elevation statistics ───────────────────────────────────────────────────
   const stats = useMemo(() => {
     if (points.length < 2) return null
@@ -413,6 +419,32 @@ export default function RouteProfileChart({
                     onTogglePin={() => onTogglePin?.('mtb')}
                     onHover={() => {}}
                   />
+                )}
+                {vfAggregate.breakdown.length > 0 && vfAggregate.maxLevel && (
+                  <ScaleBadge
+                    kind="vf"
+                    breakdown={vfAggregate.breakdown}
+                    maxLevel={vfAggregate.maxLevel}
+                    isPinned={scalePin === 'vf'}
+                    onTogglePin={() => onTogglePin?.('vf')}
+                    onHover={() => {}}
+                  />
+                )}
+                {/*
+                 * I9: vf_unknown_ranges rendert IMMER wenn nicht-leer, unabhängig von scalePin.
+                 * Begründung: K?-Ranges sind ein Safety-Warning — der User darf sie nicht
+                 * nur sehen, wenn er zufällig den VF-Pin aktiviert hat. MapPage-Layer
+                 * LAYER_VF_UNKNOWN ist analog dauerhaft aktiv (Task 22a.6).
+                 */}
+                {suggestion.vf_unknown_ranges && suggestion.vf_unknown_ranges.length > 0 && (
+                  <span
+                    role="status"
+                    aria-label="Klettersteig ohne bestätigte Schwierigkeit auf der Route"
+                    className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200"
+                    title="Klettersteig auf der Route, Schwierigkeit nicht in OSM bestätigt — Vorsicht beim Begehen"
+                  >
+                    ⚠️ Klettersteig K?
+                  </span>
                 )}
               </>
             )}
