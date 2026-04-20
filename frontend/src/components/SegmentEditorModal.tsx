@@ -123,6 +123,9 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     [trackPoints.length],
   )
   const [range, setRange] = useState<[number, number]>(initialRange)
+  // hasUserSelection: false = no orange sub-segment layer rendered (e.g. after Reset).
+  // Becomes true on first map click-to-place or drag/brush interaction.
+  const [hasUserSelection, setHasUserSelection] = useState(false)
   type TrackPhase = 'edit' | 'preview'
   const [trackPhase, setTrackPhase] = useState<TrackPhase>('edit')
 
@@ -296,7 +299,8 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           id: 'activity-track-line',
           type: 'line',
           source: 'activity-track',
-          paint: { 'line-color': '#6b7280', 'line-width': 2, 'line-opacity': 0.7 },
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#FACC15', 'line-width': 4, 'line-opacity': 0.9 },
         })
       }
 
@@ -354,6 +358,14 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     const map = mapRef.current
     if (!map || mode !== 'track') return
     if (!map.isStyleLoaded()) return
+    // No orange sub-segment when hasUserSelection is false (e.g. after Reset).
+    if (!hasUserSelection) {
+      const src = map.getSource('segment-preview') as maplibregl.GeoJSONSource | undefined
+      if (src) {
+        src.setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } })
+      }
+      return
+    }
     const subset = editedTrackPoints.slice(range[0], range[1] + 1)
     if (subset.length < 2) return
     const coords = subset.map(p => [p.lng, p.lat])
@@ -371,7 +383,8 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         id: 'segment-preview-line',
         type: 'line',
         source: 'segment-preview',
-        paint: { 'line-color': '#f97316', 'line-width': 4, 'line-opacity': 0.9 },
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#F97316', 'line-width': 5, 'line-opacity': 1.0 },
       })
     }
   }, [mode, range, editedTrackPoints])
@@ -435,6 +448,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         const d = dLat * dLat + coslat * dLng * dLng
         if (d < bestDist) { bestDist = d; bestIdx = i }
       }
+      setHasUserSelection(true)
       setRange(prev => {
         const distStart = Math.abs(bestIdx - prev[0])
         const distEnd = Math.abs(bestIdx - prev[1])
@@ -481,6 +495,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
 
   const handleRangeReset = useCallback(() => {
     setRange(initialRange)
+    setHasUserSelection(false)
   }, [initialRange])
 
   const handleTrackReverse = useCallback(() => {
@@ -624,25 +639,25 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
 
   // ── Render ────────────────────────────────────────────────────────────────
   const content = (
-    <div ref={modalRootRef} className="fixed inset-0 z-[200] flex flex-col bg-neutral-950 text-white">
+    <div ref={modalRootRef} className="fixed inset-0 z-[200] flex flex-col bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100">
       {/* Top-Bar */}
-      <div className="flex items-center gap-2 border-b border-neutral-800 bg-neutral-900 px-3 py-2 text-sm">
-        <h2 className="font-semibold">
+      <div className="flex items-center gap-2 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-3 py-2 text-sm">
+        <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">
           {mode === 'track' ? 'Segment aus Track' : mode === 'draw' ? 'Segment zeichnen' : 'Rundkurs definieren'}
         </h2>
         <div className="flex-1" />
 
-        {/* Map-Style toggles */}
-        <div className="flex overflow-hidden rounded border border-neutral-700">
+        {/* Map-Style toggles — compact segmented control */}
+        <div className="flex items-center gap-0.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-0.5">
           {RASTER_STYLES.map(([key, def]) => (
             <button
               key={key}
               type="button"
               onClick={() => setMapStyle(key)}
-              className={`px-2 py-1 text-xs font-medium transition-colors ${
+              className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
                 mapStyle === key
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-100'
+                  ? 'bg-accent-DEFAULT text-white shadow-sm'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100'
               }`}
             >
               {def.label}
@@ -655,10 +670,10 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           type="button"
           onClick={() => setHeatmapOn(v => !v)}
           aria-pressed={heatmapOn}
-          className={`rounded border px-2 py-1 text-xs transition-colors ${
+          className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
             heatmapOn
-              ? 'border-orange-500/50 bg-orange-600/20 text-orange-400'
-              : 'border-neutral-700 bg-neutral-800 text-neutral-400 hover:text-neutral-200'
+              ? 'border-accent-DEFAULT/50 bg-accent-DEFAULT/10 text-accent-DEFAULT dark:border-accent-DEFAULT/60 dark:bg-accent-DEFAULT/20 dark:text-accent-400'
+              : 'border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'
           }`}
         >
           Heatmap
@@ -668,9 +683,11 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           type="button"
           onClick={handleClose}
           aria-label="Schließen"
-          className="rounded bg-neutral-800 px-2 py-1 text-neutral-300 hover:bg-neutral-700 hover:text-white"
+          className="flex h-7 w-7 items-center justify-center rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white transition-colors"
         >
-          ✕
+          <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" aria-hidden="true">
+            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
         </button>
       </div>
 
@@ -712,7 +729,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         <TrackModeBottomBar
           trackPoints={editedTrackPoints}
           range={range}
-          onRangeChange={setRange}
+          onRangeChange={(r) => { setHasUserSelection(true); setRange(r) }}
           onCommitRange={commitRangeToMap}
           onReverse={handleTrackReverse}
           onReset={handleRangeReset}
