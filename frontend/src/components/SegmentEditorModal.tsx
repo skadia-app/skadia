@@ -329,6 +329,9 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     map.on('load', () => {
       map.getCanvas().style.cursor = 'crosshair'
 
+      // B3: resize first so fitBounds works correctly after layout is settled
+      map.resize()
+
       // Fit bounds to track
       const current = trackPointsRef.current
       if (current && current.length > 1) {
@@ -728,6 +731,13 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [isDirty])
 
+  // ── Body-scroll-lock (B2) ────────────────────────────────────────────────
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
   // Focus-Trap
   const modalRootRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -806,7 +816,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         </button>
       </div>
 
-      {/* Middle (sidebar+map) */}
+      {/* Middle — Sidebar (full-height) + right column (Map + BottomBar) */}
       <div className="flex min-h-0 flex-1">
         {/* Sidebar — locked (fieldset disabled) while in preview phase (Spec §4.3) */}
         {/* min-h-0 is required so that fieldset participates in flex shrinking and
@@ -834,62 +844,65 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           />
         </fieldset>
 
-        {/* Map container */}
-        <div className="relative flex-1">
-          <div ref={mapContainerRef} className="h-full w-full" />
-          {/* Lap-mode instruction overlay */}
-          {mode === 'lap' && lapCrossings.length === 0 && (
-            <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-black/70 px-4 py-2 text-sm text-neutral-200">
-              Klicke auf den Track um den Start/Ziel-Punkt zu setzen
-            </div>
+        {/* Right column: Map (flex-1) + BottomBar (intrinsic height) */}
+        <div className="flex min-h-0 flex-1 flex-col">
+          {/* Map container — fills remaining vertical space */}
+          <div className="relative min-h-0 flex-1">
+            <div ref={mapContainerRef} className="h-full w-full" />
+            {/* Lap-mode instruction overlay */}
+            {mode === 'lap' && lapCrossings.length === 0 && (
+              <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-black/70 px-4 py-2 text-sm text-neutral-200">
+                Klicke auf den Track um den Start/Ziel-Punkt zu setzen
+              </div>
+            )}
+          </div>
+
+          {/* BottomBar — docked below the map, only as wide as the right column */}
+          {mode === 'track' && (
+            <TrackModeBottomBar
+              trackPoints={editedTrackPoints}
+              range={range}
+              onRangeChange={(r) => { setHasUserSelection(true); setRange(r) }}
+              onCommitRange={commitRangeToMap}
+              onReverse={handleTrackReverse}
+              onReset={handleRangeReset}
+              onPreviewOrSave={() => {
+                if (trackPhase === 'edit') {
+                  setTrackPhase('preview')
+                  // Spec §4.3: auto-zoom to selection bounds on Edit → Preview transition.
+                  commitRangeToMap(range)
+                } else {
+                  saveMutation.mutate()
+                }
+              }}
+              isPreview={trackPhase === 'preview'}
+            />
+          )}
+          {mode === 'draw' && (
+            <DrawModeBottomBar
+              pointCount={drawnCoords.length}
+              onUndo={drawUndoLast}
+              onClear={drawClear}
+              onFinish={() => { /* double-click in MapboxDraw already closes the line */ }}
+              onReverse={drawReverse}
+              onReset={drawClear}
+              onPreviewOrSave={() => saveMutation.mutate()}
+              isPreview={false}
+            />
+          )}
+          {mode === 'lap' && (
+            <LapModeBottomBar
+              detectedLaps={detectedLaps}
+              onBack={() => {
+                // Reset lap state so user can reclick the finish line
+                setLapCrossings([])
+              }}
+              onPreviewOrSave={() => saveMutation.mutate()}
+              isPreview={false}
+            />
           )}
         </div>
       </div>
-
-      {/* Bottom — mode-specific bar */}
-      {mode === 'track' && (
-        <TrackModeBottomBar
-          trackPoints={editedTrackPoints}
-          range={range}
-          onRangeChange={(r) => { setHasUserSelection(true); setRange(r) }}
-          onCommitRange={commitRangeToMap}
-          onReverse={handleTrackReverse}
-          onReset={handleRangeReset}
-          onPreviewOrSave={() => {
-            if (trackPhase === 'edit') {
-              setTrackPhase('preview')
-              // Spec §4.3: auto-zoom to selection bounds on Edit → Preview transition.
-              commitRangeToMap(range)
-            } else {
-              saveMutation.mutate()
-            }
-          }}
-          isPreview={trackPhase === 'preview'}
-        />
-      )}
-      {mode === 'draw' && (
-        <DrawModeBottomBar
-          pointCount={drawnCoords.length}
-          onUndo={drawUndoLast}
-          onClear={drawClear}
-          onFinish={() => { /* double-click in MapboxDraw already closes the line */ }}
-          onReverse={drawReverse}
-          onReset={drawClear}
-          onPreviewOrSave={() => saveMutation.mutate()}
-          isPreview={false}
-        />
-      )}
-      {mode === 'lap' && (
-        <LapModeBottomBar
-          detectedLaps={detectedLaps}
-          onBack={() => {
-            // Reset lap state so user can reclick the finish line
-            setLapCrossings([])
-          }}
-          onPreviewOrSave={() => saveMutation.mutate()}
-          isPreview={false}
-        />
-      )}
     </div>
   )
 
