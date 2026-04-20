@@ -12,7 +12,12 @@ import type { ElevationPoint, RouteSegment, RouteSuggestion } from '@/api/routes
 import { useECharts } from '@/hooks/useECharts'
 import { aggregateScaleLevels } from '@/lib/scaleAggregation'
 import { ScaleBadge } from './ScaleBadge'
-import { suggestRoutesStrings } from '@/lib/strings/suggest-routes'
+import {
+  suggestRoutesStrings,
+  statsForestLabel,
+  statsProtectedLabel,
+  statsSummitsLabel,
+} from '@/lib/strings/suggest-routes'
 
 echarts.use([
   LineChart,
@@ -391,13 +396,13 @@ export default function RouteProfileChart({
             {suggestion && (
               <>
                 {suggestion.forest_pct > 0 && (
-                  <span>🌲 {Math.round(suggestion.forest_pct * 100)} %</span>
+                  <span>{statsForestLabel(Math.round(suggestion.forest_pct * 100))}</span>
                 )}
                 {suggestion.protected_pct > 0.05 && (
-                  <span>🛡️ {Math.round(suggestion.protected_pct * 100)} %</span>
+                  <span>{statsProtectedLabel(Math.round(suggestion.protected_pct * 100))}</span>
                 )}
                 {suggestion.summits_passed && suggestion.summits_passed.length > 0 && (
-                  <span>⛰ {suggestion.summits_passed.length} Gipfel</span>
+                  <span>{statsSummitsLabel(suggestion.summits_passed.length)}</span>
                 )}
                 {sacAggregate.breakdown.length > 0 && sacAggregate.maxLevel && (
                   <ScaleBadge
@@ -438,11 +443,11 @@ export default function RouteProfileChart({
                 {suggestion.vf_unknown_ranges && suggestion.vf_unknown_ranges.length > 0 && (
                   <span
                     role="status"
-                    aria-label="Klettersteig ohne bestätigte Schwierigkeit auf der Route"
+                    aria-label={suggestRoutesStrings.stats.vfUnknownAriaLabel}
                     className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200"
-                    title="Klettersteig auf der Route, Schwierigkeit nicht in OSM bestätigt — Vorsicht beim Begehen"
+                    title={suggestRoutesStrings.stats.vfUnknownTitle}
                   >
-                    ⚠️ Klettersteig K?
+                    {suggestRoutesStrings.stats.vfUnknownLabel}
                   </span>
                 )}
               </>

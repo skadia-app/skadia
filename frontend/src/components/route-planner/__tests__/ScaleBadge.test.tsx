@@ -138,7 +138,7 @@ describe('ScaleBadge — kind=vf (LF-#7 a11y-Parität)', () => {
     expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'true')
   })
 
-  it('has aria-label containing kind and maxLevel (vf)', () => {
+  it('has aria-label containing expanded kind name and maxLevel (vf)', () => {
     render(
       <ScaleBadge
         kind="vf"
@@ -152,7 +152,8 @@ describe('ScaleBadge — kind=vf (LF-#7 a11y-Parität)', () => {
     const btn = screen.getByRole('button')
     expect(btn).toHaveAttribute('aria-label')
     const label = btn.getAttribute('aria-label') ?? ''
-    expect(label.toLowerCase()).toContain('vf')
+    // aria-label now expands abbreviations: "vf" → "Klettersteig-Skala"
+    expect(label).toContain('Klettersteig-Skala')
     expect(label).toContain('K3')
   })
 

@@ -44,11 +44,25 @@ export const suggestRoutesStrings = {
     unavailableLabel: '?',
     unavailableTooltip: 'Max-Steigung aktuell nicht zuverlässig (DEM/Glättungs-Bug, separater Fix in Arbeit).',
   },
+  stats: {
+    vfUnknownLabel: '⚠️ Klettersteig K?',
+    vfUnknownTitle: 'Klettersteig auf der Route, Schwierigkeit nicht in OSM bestätigt — Vorsicht beim Begehen',
+    vfUnknownAriaLabel: 'Klettersteig ohne bestätigte Schwierigkeit auf der Route',
+  },
+  scale: {
+    kindLabel: {
+      sac: 'Schweizer Alpen-Club-Skala',
+      mtb: 'Mountainbike-Skala',
+      vf: 'Klettersteig-Skala',
+    } as Record<'sac' | 'mtb' | 'vf', string>,
+    breakdownOpenHint: 'Breakdown öffnen',
+  },
 } as const
 
 export type VariantID = keyof typeof suggestRoutesStrings.variants
 export type DescriptorID = keyof typeof suggestRoutesStrings.descriptors
 export type LoopQualityID = keyof typeof suggestRoutesStrings.loopQuality
+export type ScaleKind = 'sac' | 'mtb' | 'vf'
 
 export function variantLabel(id: string): string {
   // Strip numeric suffix for medium-2, medium-3 etc. → use base key
@@ -68,4 +82,34 @@ export function descriptorLabel(key: string, displayValue?: string): string {
 export function loopQualityDisplay(id: string): { label: string; icon: string } {
   const q = suggestRoutesStrings.loopQuality[id as LoopQualityID]
   return q ?? { label: id, icon: '' }
+}
+
+// ── Stats helpers ─────────────────────────────────────────────────────────────
+
+/** "🌲 42 %" */
+export function statsForestLabel(pct: number): string {
+  return `🌲 ${pct} %`
+}
+
+/** "🛡️ 42 %" */
+export function statsProtectedLabel(pct: number): string {
+  return `🛡️ ${pct} %`
+}
+
+/** "⛰ 3 Gipfel" — TODO i18n: Pluralisierung bei echtem i18n-Sprint */
+export function statsSummitsLabel(n: number): string {
+  return `⛰ ${n} Gipfel`
+}
+
+// ── Scale helpers ─────────────────────────────────────────────────────────────
+
+/** "bis T3" */
+export function scaleMaxLabel(level: string): string {
+  return `bis ${level}`
+}
+
+/** Expanded aria-label: "Schweizer Alpen-Club-Skala, bis T3, Breakdown öffnen" */
+export function scaleAriaLabel(kind: ScaleKind, maxLevel: string): string {
+  const kindName = suggestRoutesStrings.scale.kindLabel[kind]
+  return `${kindName}, bis ${maxLevel}, ${suggestRoutesStrings.scale.breakdownOpenHint}`
 }

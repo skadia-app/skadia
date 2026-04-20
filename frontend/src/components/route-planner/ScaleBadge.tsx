@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { SAC_COLORS, MTB_COLORS, VF_COLORS } from '@/lib/scaleColors'
 import type { ScaleBadgeLevel } from '@/lib/scaleAggregation'
+import { scaleMaxLabel, scaleAriaLabel } from '@/lib/strings/suggest-routes'
 
 interface Props {
   kind: 'sac' | 'mtb' | 'vf'
@@ -35,8 +36,8 @@ export function ScaleBadge({ kind, breakdown, maxLevel, isPinned, onTogglePin, o
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
 
-  const label = `bis ${maxLevel}`
-  const ariaLabel = `${kind.toUpperCase()}, ${label}, Breakdown öffnen`
+  const label = scaleMaxLabel(maxLevel)
+  const ariaLabel = scaleAriaLabel(kind, maxLevel)
 
   return (
     <div className="relative inline-block">
