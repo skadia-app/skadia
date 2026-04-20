@@ -312,12 +312,24 @@ func (h *Handler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, err := tx.Exec(r.Context(), "SAVEPOINT sp_add_member"); err != nil {
+		slog.Error("add group member: savepoint", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to add group member", r.URL.Path)
+		return
+	}
 	if err := h.DB.AddRecordingGroupMemberTx(r.Context(), tx, groupID, body.ActivityID); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			// unique_violation: the activity is already a member of some group.
-			// Use a targeted EXISTS query to determine whether it is *this* group
-			// (idempotent) or a different group (conflict).
+			// unique_violation: activity is already a member of some group.
+			// Roll back to the SAVEPOINT to un-abort the transaction, then check
+			// whether it is *this* group (idempotent 200) or a different group (409).
+			// Without the ROLLBACK TO SAVEPOINT the TX stays in aborted state and
+			// the follow-up SELECT would fail with "transaction aborted".
+			if _, rollErr := tx.Exec(r.Context(), "ROLLBACK TO SAVEPOINT sp_add_member"); rollErr != nil {
+				slog.Error("add group member: rollback savepoint", "error", rollErr)
+				httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to add group member", r.URL.Path)
+				return
+			}
 			var alreadyInThisGroup bool
 			if qErr := tx.QueryRow(r.Context(),
 				`SELECT EXISTS(SELECT 1 FROM recording_group_members WHERE group_id = $1 AND activity_id = $2)`,
