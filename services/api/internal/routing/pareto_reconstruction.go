@@ -188,6 +188,12 @@ func BuildRouteResultFromEdges(
 		})
 	}
 
+	// After the geometry loop, attach per-edge slices to the result so handlers
+	// can build CoordRanges against result.Coordinates.
+	result.EdgeCoordStart = edgeCoordStart
+	result.EdgeTags1 = edgeTags1
+	result.EdgeTags2 = edgeTags2
+
 	// Build Segments so mergeLegs in result.go can include leg1 outdoor tags in
 	// the user-facing segments array. Mirrors retrackUnified's pattern exactly.
 	if len(edges) > 0 {
