@@ -5,6 +5,7 @@ import { ModalShell } from '@/components/ui/ModalShell'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
+import { SPORT_DEFS } from '@/lib/sportTaxonomy'
 
 interface Props {
   segment: Segment
@@ -44,8 +45,17 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
   const [visibility, setVisibility] = useState<'public' | 'private'>(
     (segment.visibility as 'public' | 'private') ?? 'public'
   )
+  // allowedSportTypes: null = all sport types allowed (no restriction)
+  // [] = none; [...] = specific list. Initialized from segment.allowed_sport_types.
+  const [allowedSportTypes, setAllowedSportTypes] = useState<string[] | null>(
+    segment.allowed_sport_types ?? null
+  )
+  const [bidirectional, setBidirectional] = useState<boolean>(segment.bidirectional ?? true)
   const { openModal } = useModal()
   const { addToast } = useToast()
+
+  // Sport types that belong to this segment's sport_group, for allowed_sport_types filter.
+  const groupSportDefs = SPORT_DEFS.filter(d => d.segmentGroup === segment.sport_group)
 
   function getClimbType(): string {
     if (segment.segment_type === 'lap') return 'standard'
@@ -67,6 +77,11 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
         segment_type_meta: Object.keys(meta).length > 0 ? meta : undefined,
         new_version: newVersion || undefined,
         climb_type: getClimbType(),
+        bidirectional,
+        // Pass allowed_sport_types only when it differs from the segment's current value.
+        // null means "all allowed" → send [] on wire when clearing (backend: [] → NULL in DB).
+        // We always pass it so the user's explicit choice is preserved.
+        allowed_sport_types: allowedSportTypes ?? [],
       }
       // Only pass visibility for public→private (private→public uses the publish endpoint).
       if (segment.visibility === 'public' && visibility === 'private') {
@@ -217,6 +232,50 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
           </div>
         )}
 
+        {/* Bidirectional toggle — only shown when sport group has direction-aware sports */}
+        {segment.segment_type !== 'lap' && (
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={bidirectional}
+              onChange={e => setBidirectional(e.target.checked)}
+              className="rounded border-neutral-600"
+            />
+            <span className="text-sm text-neutral-300">Segment ist bidirektional</span>
+          </label>
+        )}
+
+        {/* Allowed sport types — shown only when the segment group has multiple sports */}
+        {groupSportDefs.length > 1 && (
+          <div className="space-y-1">
+            <p className="text-xs text-neutral-400">
+              Erlaubte Sportarten
+              <span className="ml-1 text-neutral-500">(leer = alle)</span>
+            </p>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {groupSportDefs.map(d => (
+                <label key={d.sportType} className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={allowedSportTypes === null ? false : allowedSportTypes.includes(d.sportType)}
+                    onChange={e => {
+                      const current = allowedSportTypes ?? []
+                      if (e.target.checked) {
+                        setAllowedSportTypes([...current, d.sportType])
+                      } else {
+                        const next = current.filter(s => s !== d.sportType)
+                        setAllowedSportTypes(next.length > 0 ? next : null)
+                      }
+                    }}
+                    className="rounded border-neutral-600"
+                  />
+                  <span className="text-sm text-neutral-300">{d.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Visibility toggle — not for lift segments */}
         {segment.segment_type !== 'lift' && (
           <div className="space-y-2">
@@ -273,14 +332,17 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
         )}
 
         <div className="flex gap-2 items-center justify-between">
-          <button
-            type="button"
-            onClick={handleReverse}
-            disabled={mutation.isPending || publishMut.isPending || reverseMutation.isPending}
-            className="cursor-pointer rounded-lg border border-amber-800/60 bg-amber-950/30 px-3 py-1.5 text-sm text-amber-400 hover:bg-amber-900/40 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            ⇄ Richtung umkehren
-          </button>
+          {/* Lap segments are closed loops — reversing has no meaning and would break leaderboards */}
+          {segment.segment_type !== 'lap' && (
+            <button
+              type="button"
+              onClick={handleReverse}
+              disabled={mutation.isPending || publishMut.isPending || reverseMutation.isPending}
+              className="cursor-pointer rounded-lg border border-amber-800/60 bg-amber-950/30 px-3 py-1.5 text-sm text-amber-400 hover:bg-amber-900/40 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              ⇄ Richtung umkehren
+            </button>
+          )}
           <div className="flex gap-2">
             <button
               onClick={onClose}
