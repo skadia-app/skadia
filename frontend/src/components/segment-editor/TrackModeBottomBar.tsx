@@ -63,10 +63,15 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
     const ec = echarts.init(chartRef.current, undefined, { renderer: 'canvas' })
     echartsInstanceRef.current = ec
 
-    // Y-axis range with padding (same approach as RouteProfileChart)
+    // Y-axis range: tight auto-scale so small elevation changes are visible.
+    // Padding = 5 % of the actual elevation range (min 2 m) so even flat tracks
+    // get a sensible band instead of a 40-m fixed window.
     const validElev = elevationSeries.filter((e): e is number => e != null)
-    const yMin = validElev.length > 0 ? Math.floor(Math.min(...validElev) - 20) : 0
-    const yMax = validElev.length > 0 ? Math.ceil(Math.max(...validElev) + 20) : 1
+    const rawMin = validElev.length > 0 ? Math.min(...validElev) : 0
+    const rawMax = validElev.length > 0 ? Math.max(...validElev) : 10
+    const rangePad = Math.max(2, (rawMax - rawMin) * 0.05)
+    const yMin = validElev.length > 0 ? Math.floor(rawMin - rangePad) : 0
+    const yMax = validElev.length > 0 ? Math.ceil(rawMax + rangePad) : 10
 
     ec.setOption({
       backgroundColor: 'transparent',
