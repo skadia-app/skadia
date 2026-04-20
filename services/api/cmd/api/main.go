@@ -1000,6 +1000,7 @@ func main() {
 
 				// Routing infrastructure
 				r.Post("/routing/rebuild-tiles", h.RebuildRoutingTiles)
+				r.Get("/routing/vf-encoding-coverage", h.GetVfEncodingCoverage)
 				r.Post("/routing/rebuild-landmarks", h.RebuildLandmarks)
 				r.Post("/routing/build-brouter-segments", h.BuildBRouterSegments)
 				r.Post("/routing/download-brouter-segments", h.DownloadBRouterSegments)
