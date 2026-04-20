@@ -371,6 +371,21 @@ export async function computeInternalRoute(
 
 // === Route Suggestion ===
 
+export interface CoordRange {
+  from: number  // inclusive, index in GeoJSON.features[0].geometry.coordinates
+  to: number    // exclusive
+}
+
+export interface PassedSummit {
+  osm_id: number
+  name: string
+  ele_m: number | null
+  category: 'summit' | 'pass'
+  lat: number
+  lng: number
+  dist_m: number
+}
+
 export interface VariantDescriptor {
   key: string
   magnitude: number
@@ -401,6 +416,19 @@ export interface RouteSuggestion {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   geojson: any  // Backend sends json.RawMessage — access as geojson.features directly
   is_fallback: boolean
+
+  forest_pct: number              // 0.0–1.0
+  protected_pct: number           // 0.0–1.0
+  forest_ranges?: CoordRange[]
+  protected_ranges?: CoordRange[]
+  sac_ranges?: Record<string, CoordRange[]>   // keys 'T1'..'T6'
+  mtb_ranges?: Record<string, CoordRange[]>   // keys 'S0'..'S5'
+  summits_passed?: PassedSummit[]
+
+  // Via-Ferrata (Spec v5 §4.1.5a, Invariant I9).
+  // Keys = 'K1'..'K6'. vf_unknown_ranges deckt highway=via_ferrata ohne Scale ab.
+  vf_ranges?: Record<string, CoordRange[]>
+  vf_unknown_ranges?: CoordRange[]
 }
 
 export async function suggestRoute(
