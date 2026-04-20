@@ -243,7 +243,12 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           ? editedTrackPoints.slice(range[0], range[1] + 1).map(p => [p.lng, p.lat])
           : mode === 'draw'
             ? drawnCoords
-            : trackPoints.map(p => [p.lng, p.lat]) // lap-mode uses full track
+            // Lap-mode: only the single lap between the first two crossings.
+            // lapCrossings[0..1] are point-indices into trackPoints; save is
+            // disabled (LapModeBottomBar) when lapCrossings.length < 2.
+            : (mode === 'lap' && lapCrossings.length >= 2
+                ? trackPoints.slice(lapCrossings[0], lapCrossings[1] + 1).map(p => [p.lng, p.lat])
+                : trackPoints.map(p => [p.lng, p.lat])) // fallback: full track (should not reach)
 
       const geojson_track = JSON.stringify({
         type: 'Feature',
