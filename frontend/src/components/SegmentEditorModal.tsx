@@ -48,7 +48,7 @@ function haversine(lat1: number, lng1: number, lat2: number, lng2: number): numb
 }
 
 export default function SegmentEditorModal(props: SegmentEditorModalProps) {
-  const { mode, trackPoints = [], sourceActivityId, onSuccess, onClose } = props
+  const { mode, trackPoints = [], sourceActivityId, defaultSportGroup, onSuccess, onClose } = props
   const { addToast } = useToast()
 
   // ── All sport types for the sidebar selector ──────────────────────────────
@@ -711,6 +711,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
             onMetaChange={patchMeta}
             info={info}
             allSportTypes={allSportTypes}
+            defaultSportGroup={defaultSportGroup}
             onEnrichmentRequest={handleEnrichment}
             enrichmentState={{ loading: enrichmentMutation.isPending }}
             enrichmentSources={enrichmentSources}
