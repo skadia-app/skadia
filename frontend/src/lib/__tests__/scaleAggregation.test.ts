@@ -41,3 +41,20 @@ describe('aggregateScaleLevels', () => {
     expect(maxLevel).toBe('T6')
   })
 })
+
+describe('aggregateScaleLevels (vf)', () => {
+  it('returns K3 as maxLevel for K1+K3 route', () => {
+    const ranges = {
+      K1: [{ from: 0, to: 5 }],
+      K3: [{ from: 5, to: 10 }],
+    }
+    const coords = Array.from({ length: 10 }, (_, i) => [i * 0.001, 0]) as [number, number][]
+    const got = aggregateScaleLevels(ranges, coords, 'vf')
+    expect(got.maxLevel).toBe('K3')
+    expect(got.breakdown.map((b) => b.level)).toEqual(['K1', 'K3'])
+  })
+
+  it('returns null maxLevel for empty VF ranges', () => {
+    expect(aggregateScaleLevels(undefined, null, 'vf').maxLevel).toBeNull()
+  })
+})

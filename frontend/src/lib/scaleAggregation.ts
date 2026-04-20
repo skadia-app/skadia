@@ -2,6 +2,7 @@ import type { CoordRange } from '@/api/routes'
 
 const SAC_ORDER = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6'] as const
 const MTB_ORDER = ['S0', 'S1', 'S2', 'S3', 'S4', 'S5'] as const
+const VF_ORDER = ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'] as const
 
 export interface ScaleBadgeLevel {
   level: string   // "T1".."T6" für SAC, "S0".."S5" für MTB
@@ -40,13 +41,13 @@ function rangeLengthM(coords: number[][], range: CoordRange): number {
  */
 export function aggregateScaleLevels(
   ranges: Record<string, CoordRange[]> | undefined,
-  coordinates: number[][],
-  kind: 'sac' | 'mtb',
+  coordinates: number[][] | null,
+  kind: 'sac' | 'mtb' | 'vf',
 ): { maxLevel: string | null; breakdown: ScaleBadgeLevel[] } {
-  if (!ranges || coordinates.length < 2) {
+  if (!ranges || !coordinates || coordinates.length < 2) {
     return { maxLevel: null, breakdown: [] }
   }
-  const order = kind === 'sac' ? SAC_ORDER : MTB_ORDER
+  const order = kind === 'sac' ? SAC_ORDER : kind === 'mtb' ? MTB_ORDER : VF_ORDER
   const perLevelM: Record<string, number> = {}
   let totalM = 0
 
