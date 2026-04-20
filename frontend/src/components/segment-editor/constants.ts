@@ -2,6 +2,20 @@
 
 export type SegType = 'standard' | 'trail' | 'lap' | 'wintersport'
 
+/**
+ * ClimbType maps to the segments.climb_type DB enum.
+ * Affects leaderboard partitioning — bergauf/bergab segments get
+ * separate leaderboard slots from standard (flat/mixed) segments.
+ * Visible for segType ∈ {standard, trail}; hidden for lap/wintersport.
+ */
+export type ClimbType = 'standard' | 'bergauf' | 'bergab'
+
+export const CLIMB_TYPE_LABELS: Record<ClimbType, string> = {
+  standard: 'Eben/Gemischt',
+  bergauf:  'Bergauf',
+  bergab:   'Bergab',
+}
+
 export const BIDIRECTIONAL_DEFAULT: Record<SegType, boolean> = {
   standard: true,
   trail: false,
