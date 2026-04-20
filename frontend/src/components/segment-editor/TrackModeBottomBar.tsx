@@ -252,7 +252,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
             onMouseUp={() => onCommitRange(range)}
             onKeyUp={() => onCommitRange(range)}
             style={{ zIndex: startOnTop ? 21 : 20 }}
-            className="absolute inset-0 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent-DEFAULT [&::-webkit-slider-thumb]:shadow-sm [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent-DEFAULT [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer [&::-webkit-slider-runnable-track]:appearance-none [&::-webkit-slider-runnable-track]:bg-transparent [&::-moz-range-track]:bg-transparent"
+            className="range-thumb absolute inset-0 w-full cursor-pointer appearance-none bg-transparent"
             aria-label="Start-Punkt"
             aria-valuemin={0} aria-valuemax={trackPoints.length - 1} aria-valuenow={range[0]}
           />
@@ -265,7 +265,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
             onMouseUp={() => onCommitRange(range)}
             onKeyUp={() => onCommitRange(range)}
             style={{ zIndex: startOnTop ? 20 : 21 }}
-            className="absolute inset-0 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent-DEFAULT [&::-webkit-slider-thumb]:shadow-sm [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent-DEFAULT [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer [&::-webkit-slider-runnable-track]:appearance-none [&::-webkit-slider-runnable-track]:bg-transparent [&::-moz-range-track]:bg-transparent"
+            className="range-thumb absolute inset-0 w-full cursor-pointer appearance-none bg-transparent"
             aria-label="Ende-Punkt"
             aria-valuemin={0} aria-valuemax={trackPoints.length - 1} aria-valuenow={range[1]}
           />
