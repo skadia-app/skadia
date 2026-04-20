@@ -233,7 +233,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
   }
 
   return (
-    <aside className="flex h-full w-72 flex-col overflow-y-auto border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+    <aside className="flex h-full w-full flex-col overflow-y-auto border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
       {/* ── Live-Info-Card ──────────────────────────────────────────────────── */}
       {info && (mode === 'track' || (mode === 'draw' && info.distanceKm > 0)) && (
         <div className="mx-3 mt-3 rounded-lg border border-neutral-200 dark:border-neutral-700/60 bg-neutral-50 dark:bg-neutral-800 p-3">
@@ -251,7 +251,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
       )}
 
       {/* ── Scrollable form area ───────────────────────────────────────────── */}
-      <div className="flex flex-col gap-4 p-3">
+      <div className="flex flex-col gap-4 mx-3 py-3">
 
         {/* ── Name ─────────────────────────────────────────────────────────── */}
         <Field label="Name" required>
@@ -710,15 +710,15 @@ function ToggleRow({
 
 function ColorSwatch({ color }: { color: 'blue' | 'red' | 'black' | null | undefined }) {
   if (!color) {
-    return <span className="inline-block h-4 w-4 flex-shrink-0 rounded border border-neutral-300 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800" />
+    return <span className="inline-block h-6 w-6 flex-shrink-0 rounded border border-neutral-300 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800" />
   }
   return (
     <span
       aria-hidden="true"
       className={cn(
-        'inline-block h-4 w-4 flex-shrink-0 rounded',
-        color === 'blue'  && 'bg-blue-500',
-        color === 'red'   && 'bg-red-600',
+        'inline-block h-6 w-6 flex-shrink-0 rounded',
+        color === 'blue'  && 'bg-blue-500 border border-blue-600 dark:border-blue-400',
+        color === 'red'   && 'bg-red-600 border border-red-700 dark:border-red-400',
         color === 'black' && 'bg-neutral-900 dark:bg-neutral-950 border border-neutral-400 dark:border-neutral-600',
       )}
     />
