@@ -115,6 +115,8 @@ export default function SegmentsPage() {
     hasNextPage,
     isFetchingNextPage,
     isLoading,
+    isError,
+    refetch,
   } = useInfiniteQuery({
     queryKey: ['segments', filterParams],
     queryFn: ({ pageParam }) => fetchSegments({ ...filterParams, cursor: pageParam }),
@@ -231,7 +233,29 @@ export default function SegmentsPage() {
   }
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Segmente...</div>
+    return (
+      <div className="flex items-center justify-center h-64 text-neutral-400">
+        Lade Segmente...
+      </div>
+    )
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-3 text-neutral-400">
+        <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 15.75h.007v.008H12v-.008z" />
+        </svg>
+        <p className="text-sm">Segmente konnten nicht geladen werden.</p>
+        <button
+          onClick={() => refetch()}
+          className="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+        >
+          Erneut versuchen
+        </button>
+      </div>
+    )
   }
 
   return (
@@ -343,6 +367,16 @@ export default function SegmentsPage() {
                        placeholder:text-neutral-400 dark:placeholder:text-neutral-600
                        focus:outline-none focus:ring-1 focus:ring-neutral-400"
           />
+          {searchInput && (
+            <button
+              onClick={() => { handleSearchChange('') }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
@@ -421,7 +455,11 @@ export default function SegmentsPage() {
           <svg className="w-12 h-12 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
           </svg>
-          <p className="text-sm">Noch keine Segmente vorhanden</p>
+          {(search || sportGroup) ? (
+            <p className="text-sm">Keine Segmente für diese Filter</p>
+          ) : (
+            <p className="text-sm">Noch keine Segmente vorhanden</p>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -528,11 +566,9 @@ export default function SegmentsPage() {
 
       {/* Infinite Scroll Sentinel */}
       {hasNextPage && (
-        <div className="h-8 flex items-center justify-center mt-4">
-          {isFetchingNextPage ? (
+        <div ref={sentinelRef} className="h-8 flex items-center justify-center mt-4">
+          {isFetchingNextPage && (
             <span className="text-sm text-neutral-400">Weitere laden...</span>
-          ) : (
-            <div ref={sentinelRef} />
           )}
         </div>
       )}
