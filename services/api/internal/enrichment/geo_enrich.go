@@ -93,14 +93,10 @@ func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, s
 		enabled bool
 		fn      func(context.Context, *database.DB, string) error
 	}
-	// summitsFn captures settings.SummitDetectionRadiusM so that Task 14 only
-	// needs to update enrichGeoTagsSummits' signature to accept the radius
-	// parameter; this call site already forwards it.
-	// TODO: Task 14 will add radiusM float64 parameter to enrichGeoTagsSummits
-	// and update this closure to: enrichGeoTagsSummits(ctx, db, activityID, settings.SummitDetectionRadiusM)
+	// summitsFn captures settings.SummitDetectionRadiusM and forwards it to
+	// enrichGeoTagsSummits, which uses FindSummitsAlongActivityTrack internally.
 	summitsFn := func(ctx context.Context, db *database.DB, activityID string) error {
-		_ = settings.SummitDetectionRadiusM // forwarded in Task 14
-		return enrichGeoTagsSummits(ctx, db, activityID)
+		return enrichGeoTagsSummits(ctx, db, activityID, settings.SummitDetectionRadiusM)
 	}
 	modules := []module{
 		{"summits", settings.EnableSummitDetection, summitsFn},
@@ -138,11 +134,11 @@ func RunGeoEnrichment(ctx context.Context, db *database.DB, activityID string, s
 	return g.Wait()
 }
 
-// enrichGeoTagsSummits finds summits and passes within 100 m of the track.
-// Categories: 'summit' or 'pass' (based on osm_pois.type within category 'summit'/'pass').
-// Mirrors peaks.py.
-func enrichGeoTagsSummits(ctx context.Context, db *database.DB, activityID string) error {
-	// Delete existing summit/pass tags to allow re-enrichment.
+// enrichGeoTagsSummits finds summits and passes within radiusM of the track
+// using FindSummitsAlongActivityTrack. The radius is user-configurable
+// (GeoEnrichmentSettings.SummitDetectionRadiusM, range [10, 150], default 80 m).
+// Categories: 'summit' or 'pass'.
+func enrichGeoTagsSummits(ctx context.Context, db *database.DB, activityID string, radiusM float64) error {
 	if _, err := db.Pool.Exec(ctx,
 		"DELETE FROM activity_geo_tags WHERE activity_id = $1 AND category IN ('summit', 'pass')",
 		activityID,
@@ -150,52 +146,23 @@ func enrichGeoTagsSummits(ctx context.Context, db *database.DB, activityID strin
 		return fmt.Errorf("summits: delete existing tags: %w", err)
 	}
 
-	rows, err := db.Pool.Query(ctx, `
-		WITH route AS (
-			SELECT ST_Simplify(track_full, 0.00005) AS geom
-			FROM activity_tracks WHERE activity_id = $1
-		)
-		SELECT DISTINCT ON (p.osm_id) p.osm_id, p.name, p.ele, p.category,
-		       ROUND(ST_Distance(route.geom::geography, p.geom::geography))::int AS dist_m,
-		       ST_Y(ST_Centroid(p.geom)) AS lat, ST_X(ST_Centroid(p.geom)) AS lon
-		FROM osm_pois p, route
-		WHERE p.geom && ST_Expand(route.geom, 0.002)
-		  AND ST_DWithin(route.geom::geography, p.geom::geography, 100)
-		  AND p.category IN ('summit', 'pass')
-		  AND p.name IS NOT NULL
-		ORDER BY p.osm_id, dist_m
-	`, activityID)
+	summits, err := database.FindSummitsAlongActivityTrack(ctx, db.Pool, activityID, radiusM)
 	if err != nil {
 		return fmt.Errorf("summits: query: %w", err)
 	}
-	defer rows.Close()
 
 	batch := &pgx.Batch{}
-	for rows.Next() {
-		var osmID int64
-		var name, poiCategory string
-		var ele *float64
-		var distM int
-		var lat, lon float64
-
-		if err := rows.Scan(&osmID, &name, &ele, &poiCategory, &distM, &lat, &lon); err != nil {
-			return fmt.Errorf("summits: scan: %w", err)
-		}
-
+	for _, s := range summits {
 		category := "summit"
-		if poiCategory == "pass" {
+		if s.Category == "pass" {
 			category = "pass"
 		}
-
 		batch.Queue(`
 			INSERT INTO activity_geo_tags
 			    (activity_id, category, name, osm_id, map_type,
 			     map_point_lat, map_point_lon, ele_m, dist_m)
 			VALUES ($1, $2, $3, $4, 'point', $5, $6, $7, $8)
-		`, activityID, category, name, osmID, lat, lon, ele, distM)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("summits: rows iteration: %w", err)
+		`, activityID, category, s.Name, s.OsmID, s.Lat, s.Lng, s.EleM, s.DistM)
 	}
 
 	if batch.Len() > 0 {
