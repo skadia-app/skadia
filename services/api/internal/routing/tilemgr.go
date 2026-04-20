@@ -112,6 +112,10 @@ func (m *TileManager) TileCount() int { return m.index.Load().Count() }
 // CachedCount returns the number of tiles currently held in the LRU cache.
 func (m *TileManager) CachedCount() int { return m.cache.Len() }
 
+// AllTileIDs returns all tile IDs known to the current index snapshot.
+// The returned slice is a fresh copy; callers may modify it freely.
+func (m *TileManager) AllTileIDs() []uint32 { return m.index.Load().AllTileIDs() }
+
 // Rescan re-reads the tile directory, atomically replaces the index,
 // and invalidates all cached tiles (they may have been rebuilt on disk).
 func (m *TileManager) Rescan() error {
