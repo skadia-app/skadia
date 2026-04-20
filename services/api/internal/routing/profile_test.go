@@ -1077,6 +1077,41 @@ func TestRoutingCost_AllowsScaledViaFerrata(t *testing.T) {
 	}
 }
 
+// TestRoutingCost_Roadcycling_IgnoresAllVf (LF-#18):
+// Rennrad-Profil has MaxViaFerrata=0 → ALL via_ferrata edges MUST be blocked,
+// regardless of scale (unscaled K?, K1-K6) and regardless of AllowUnscaledViaFerrata.
+// Regression gate: if a future refactor loosens the maxVF==0 gate, road-cycling
+// routes would silently be sent through via ferrata terrain.
+func TestRoutingCost_Roadcycling_IgnoresAllVf(t *testing.T) {
+	tags1 := uint64(22) // hw=22 (via_ferrata) in bits 0-4
+
+	testCases := []struct {
+		name  string
+		tags2 uint64
+	}{
+		{"unscaled (K?)", uint64(0) << 33},
+		{"K1", uint64(1) << 33},
+		{"K3", uint64(3) << 33},
+		{"K6", uint64(6) << 33},
+	}
+
+	allowUnscaledVariants := []*bool{nil, boolPtr(false), boolPtr(true)}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, allowUnscaled := range allowUnscaledVariants {
+				p := vfProfile(t, 0, allowUnscaled)
+				c := buildEdgeCostClosure(p)
+				got := c(tags1, tc.tags2)
+				if got.Flat < costBlocked {
+					t.Fatalf("maxVF=0 MUST block %s (allowUnscaled=%v); got Flat=%v (costBlocked=%v)",
+						tc.name, allowUnscaled, got.Flat, costBlocked)
+				}
+			}
+		})
+	}
+}
+
 // boolPtr returns a pointer to b. Complements intPtr / float32Ptr.
 func boolPtr(b bool) *bool { return &b }
 
