@@ -40,6 +40,10 @@ export const suggestRoutesStrings = {
       message: 'Möglicherweise gibt es bessere Routen außerhalb des aktuellen Suchbereichs.',
     },
   },
+  maxGrade: {
+    unavailableLabel: '?',
+    unavailableTooltip: 'Max-Steigung aktuell nicht zuverlässig (DEM/Glättungs-Bug, separater Fix in Arbeit).',
+  },
 } as const
 
 export type VariantID = keyof typeof suggestRoutesStrings.variants
