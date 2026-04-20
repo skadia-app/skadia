@@ -17,6 +17,12 @@ export interface PillProps {
    */
   leftSlot?: ReactNode
   className?: string
+  /**
+   * Size variant.
+   * - 'default' (default): standard pill — px-3 py-1.5 text-sm, rounded-lg
+   * - 'sm': compact pill for Feinwahl grids — px-2 py-0.5 text-xs, rounded-full
+   */
+  size?: 'default' | 'sm'
   // A11y — pass role="radio" for mutually-exclusive groups (SegType, Difficulty)
   // or role="checkbox" for multi-select groups (Sport categories).
   role?: 'radio' | 'checkbox'
@@ -41,6 +47,7 @@ export function Pill({
   children,
   leftSlot,
   className,
+  size = 'default',
   role,
   ariaChecked,
   ariaLabel,
@@ -54,14 +61,15 @@ export function Pill({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        // Shape
-        'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium',
-        // Border
-        'border',
-        // Transitions
+        // Shape — size-dependent padding, font and radius
+        'inline-flex items-center border font-medium',
         'transition-colors duration-150',
         // Focus ring
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900',
+        // Size variants
+        size === 'sm'
+          ? 'gap-1 rounded-full px-2 py-0.5 text-xs'
+          : 'gap-1.5 rounded-lg px-3 py-1.5 text-sm',
         // Active state — orange accent (same for ALL pill types)
         active
           ? 'border-accent-DEFAULT bg-accent-DEFAULT/10 text-accent-700 dark:text-accent-300'

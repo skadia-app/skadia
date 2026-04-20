@@ -357,16 +357,22 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
                       </button>
                       {isOpen && (
                         <div className="flex flex-wrap gap-1 pl-3">
-                          {catSports.map(s => (
-                            <Chip
-                              key={s.sportType}
-                              active={meta.sportTypes?.includes(s.sportType) ?? false}
-                              onClick={() => toggleSportType(s.sportType)}
-                            >
-                              {meta.sportTypes?.includes(s.sportType) && <Check className="h-3 w-3 shrink-0" />}
-                              {s.label}
-                            </Chip>
-                          ))}
+                          {catSports.map(s => {
+                            const isActive = meta.sportTypes?.includes(s.sportType) ?? false
+                            return (
+                              <Pill
+                                key={s.sportType}
+                                size="sm"
+                                role="checkbox"
+                                ariaChecked={isActive}
+                                active={isActive}
+                                onClick={() => toggleSportType(s.sportType)}
+                                leftSlot={isActive ? <Check className="h-3 w-3 shrink-0" /> : undefined}
+                              >
+                                {s.label}
+                              </Pill>
+                            )
+                          })}
                         </div>
                       )}
                     </div>
@@ -379,16 +385,22 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
           {/* wintersport: individual chips for the whitelisted winter sports */}
           {meta.segType === 'wintersport' && meta.sportTypes !== null && (
             <div className="mt-2 flex flex-wrap gap-1">
-              {availableSportTypes.map(s => (
-                <Chip
-                  key={s.key}
-                  active={meta.sportTypes?.includes(s.key) ?? false}
-                  onClick={() => toggleSportType(s.key)}
-                >
-                  {meta.sportTypes?.includes(s.key) && <Check className="h-3 w-3 shrink-0" />}
-                  {s.label}
-                </Chip>
-              ))}
+              {availableSportTypes.map(s => {
+                const isActive = meta.sportTypes?.includes(s.key) ?? false
+                return (
+                  <Pill
+                    key={s.key}
+                    size="sm"
+                    role="checkbox"
+                    ariaChecked={isActive}
+                    active={isActive}
+                    onClick={() => toggleSportType(s.key)}
+                    leftSlot={isActive ? <Check className="h-3 w-3 shrink-0" /> : undefined}
+                  >
+                    {s.label}
+                  </Pill>
+                )
+              })}
             </div>
           )}
         </Field>
@@ -641,33 +653,6 @@ function Field({
       </div>
       {children}
     </div>
-  )
-}
-
-function Chip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  children: ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium',
-        'transition-colors duration-150',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900',
-        active
-          ? 'bg-accent-DEFAULT text-white shadow-sm'
-          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100',
-      )}
-    >
-      {children}
-    </button>
   )
 }
 
