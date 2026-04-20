@@ -77,7 +77,7 @@ export function defaultSpeedMode(sportType: string): 'speed' | 'pace' {
 }
 
 /** Format a speed value according to sport type and mode override. */
-export function formatSpeedValue(speedMs: number, sportType: string, mode?: 'speed' | 'pace'): string {
+export function formatSpeedValue(speedMs: number | null | undefined, sportType: string, mode?: 'speed' | 'pace'): string {
   if (!speedMs || speedMs <= 0 || !isFinite(speedMs)) return '—'
   const fmt = speedFormat(sportType)
   const effectiveMode = mode ?? (fmt === 'decimal' ? 'speed' : 'pace')

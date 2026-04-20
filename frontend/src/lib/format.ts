@@ -1,7 +1,7 @@
 export type DurationStyle = 'clock' | 'human' | 'compact' | 'short' | 'lifetime' | 'abbr' | 'decimal'
 
 /** Format seconds in various styles. Default 'clock' = h:mm:ss / m:ss */
-export function fmtDuration(s: number, style: DurationStyle = 'clock'): string {
+export function fmtDuration(s: number | null | undefined, style: DurationStyle = 'clock'): string {
   if (s == null || isNaN(s)) return '—'
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
