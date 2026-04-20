@@ -503,37 +503,37 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
                 </div>
               </div>
 
-              {/* Schwierigkeitsfarbe full-width */}
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">Schwierigkeit</span>
-                  {difficultyColorReadonly && (
+              {/* Schwierigkeitsfarbe — nur bei Trail als read-only-Display
+                  (abgeleitet aus max(SAC, MTB); Spec §4.6).
+                  Für Standard/Lap entfernt — user-feedback: "macht keinen sinn
+                  für segmente für alle sportarten", SAC + MTB haben eigene Farben.
+                  Wintersport nutzt separaten Zweig unten (FIS manuell). */}
+              {meta.segType === 'trail' && (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">
+                      Schwierigkeit
+                    </span>
                     <span
-                      title="Farbe wird aus SAC/MTB-Skala abgeleitet"
-                      className="text-neutral-400 dark:text-neutral-500 transition-colors hover:text-neutral-600 dark:hover:text-neutral-300"
+                      title="Abgeleitet aus max(SAC, MTB)"
+                      className="text-neutral-400 dark:text-neutral-500"
                     >
                       <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
-                      <span className="sr-only">Farbe wird aus SAC/MTB-Skala abgeleitet</span>
+                      <span className="sr-only">Abgeleitet aus SAC/MTB</span>
+                    </span>
+                  </div>
+                  {displayedColor ? (
+                    <div className="inline-flex items-center gap-2 self-start rounded-lg border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm">
+                      <DifficultyDot color={displayedColor} />
+                      <span>{DIFF_COLOR_LABELS[displayedColor]}</span>
+                    </div>
+                  ) : (
+                    <span className="text-xs italic text-neutral-400 dark:text-neutral-500">
+                      Wähle SAC- oder MTB-Skala
                     </span>
                   )}
                 </div>
-                <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Schwierigkeit">
-                  {(['blue', 'red', 'black'] as const).map(c => (
-                    <Pill
-                      key={c}
-                      role="radio"
-                      ariaChecked={displayedColor === c}
-                      ariaLabel={DIFF_COLOR_LABELS[c]}
-                      active={displayedColor === c}
-                      disabled={difficultyColorReadonly}
-                      onClick={() => onMetaChange({ difficultyColor: displayedColor === c ? null : c })}
-                      leftSlot={<DifficultyDot color={c} />}
-                    >
-                      {DIFF_COLOR_SHORT[c]}
-                    </Pill>
-                  ))}
-                </div>
-              </div>
+              )}
             </div>
           ) : (
             /* wintersport: no scale fields, just difficulty */

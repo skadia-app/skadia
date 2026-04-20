@@ -155,7 +155,7 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
           'disabled:pointer-events-none disabled:opacity-40',
         )}
       >
-        {isPreview ? 'Speichern' : 'Vorschau →'}
+        Speichern
       </button>
     </div>
   )
