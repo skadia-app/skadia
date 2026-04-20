@@ -48,22 +48,20 @@ export function deriveTrailDifficultyColor(
   return colors.reduce((max, c) => (COLOR_ORDER[c] > COLOR_ORDER[max] ? c : max))
 }
 
-// Labels that the editor offers in the Surface dropdown. §4.8.
-// Ordered for display. User-only sub-types are at natural positions (after their parent).
+// Labels that the editor offers in the Surface dropdown. §4.8 (v2 — post-user-feedback):
+// - Beton merged into Asphalt (OSM concrete* tags → 'Asphalt' in SURFACE_GROUPS)
+// - Metall removed (not practically relevant for segments)
+// - Naturweg collapsed to one entry (fest/weich sub-types removed — OSM tagging inconsistent)
 export const SURFACE_DROPDOWN_OPTIONS: readonly string[] = [
   'Asphalt',
-  'Beton',
   'Pflaster',
   'Schotter (fein)',
   'Schotter (grob)',
   'Naturweg',
-  'Naturweg (fest)',    // user-only sub-type
-  'Naturweg (weich)',   // user-only sub-type
   'Sand',
   'Gras',
   'Fels',
   'Holz',
-  'Metall',
   'Schnee',
   'Sportbelag',
   'Wechselnd',          // editor-only, auto-set on mixed=true from enrichment
