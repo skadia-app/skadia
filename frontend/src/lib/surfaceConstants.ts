@@ -1,41 +1,53 @@
 // Surface grouping: merge similar OSM surface types into display groups
 export const SURFACE_GROUPS: Record<string, string> = {
   asphalt: 'Asphalt',
+  chipseal: 'Asphalt',
   concrete: 'Beton', concrete_lanes: 'Beton', concrete_plates: 'Beton',
   paved: 'Befestigt',
   paving_stones: 'Pflaster', sett: 'Pflaster', cobblestone: 'Pflaster',
-  unhewn_cobblestone: 'Pflaster', bricks: 'Pflaster',
-  compacted: 'Schotter', fine_gravel: 'Schotter', gravel: 'Schotter', pebblestone: 'Schotter',
-  ground: 'Naturweg', earth: 'Naturweg', dirt: 'Naturweg', mud: 'Naturweg', clay: 'Naturweg',
+  unhewn_cobblestone: 'Pflaster', bricks: 'Pflaster', brick: 'Pflaster',
+  compacted: 'Schotter (fein)',
+  fine_gravel: 'Schotter (grob)',
+  gravel: 'Schotter (grob)',
+  pebblestone: 'Schotter (grob)',
+  ground: 'Naturweg', earth: 'Naturweg', dirt: 'Naturweg',
+  mud: 'Naturweg', clay: 'Naturweg',
+  stepping_stones: 'Naturweg',
   sand: 'Sand', shells: 'Sand',
   grass: 'Gras', grass_paver: 'Gras',
   wood: 'Holz', woodchips: 'Holz',
-  rock: 'Fels',
+  rock: 'Fels', stone: 'Fels',
   metal: 'Metall', metal_grid: 'Metall',
   snow: 'Schnee', ice: 'Schnee',
   tartan: 'Sportbelag', artificial_turf: 'Sportbelag', rubber: 'Sportbelag',
+  decoturf: 'Sportbelag', carpet: 'Sportbelag', acrylic: 'Sportbelag',
   unpaved: 'Unbefestigt',
   unknown: 'Unbekannt',
   offroad: 'Offroad',
 }
 
 export const SURFACE_COLORS: Record<string, string> = {
-  'Asphalt': '#374151',      // dunkelgrau
-  'Beton': '#9ca3af',        // hellgrau
-  'Befestigt': '#6b7280',    // mittelgrau
-  'Pflaster': '#78716c',     // warmgrau/stein
-  'Schotter': '#94a3b8',     // blaugrau (Kalkstein/Schiefer)
-  'Naturweg': '#8b6c42',     // erdig-braun
-  'Sand': '#dbb778',         // sandgelb
-  'Gras': '#4d7c0f',         // natürliches grün
-  'Holz': '#92400e',         // holzbraun
-  'Fels': '#6b7280',         // felsgrau
-  'Metall': '#71717a',       // zinkgrau
-  'Schnee': '#e2e8f0',       // fast weiß
-  'Sportbelag': '#dc2626',   // rot
-  'Unbefestigt': '#a8885a',  // unspezifisch braun
-  'Unbekannt': '#d1d5db',    // neutralgrau
-  'Offroad': '#b91c1c',      // rot
+  'Asphalt': '#5b5b5b',
+  'Beton': '#7a7a7a',
+  'Befestigt': '#8b8680',
+  'Pflaster': '#6b6558',
+  'Schotter': '#998b6a',           // legacy fallback — keep during migration window
+  'Schotter (fein)': '#a8a07e',
+  'Schotter (grob)': '#8e8670',
+  'Naturweg': '#8a6b3e',
+  'Naturweg (fest)': '#a0784a',
+  'Naturweg (weich)': '#6b5430',
+  'Sand': '#d4b886',
+  'Gras': '#6b8b3e',
+  'Holz': '#8b6b3e',
+  'Fels': '#6b6b6b',
+  'Metall': '#9ba0a8',
+  'Schnee': '#d8e8f0',
+  'Sportbelag': '#c44532',
+  'Unbefestigt': '#8b7a5a',
+  'Unbekannt': '#888888',
+  'Offroad': '#6b5a3e',
+  'Wechselnd': '#b59b5c',
 }
 
 export const HIGHWAY_COLORS: Record<string, string> = {
