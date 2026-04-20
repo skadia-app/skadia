@@ -750,7 +750,8 @@ type CandidateSegment struct {
 	DistanceM   float64
 	SegmentType string
 	TypeMeta    map[string]any
-	TrackWKB    []byte // NEW: Segment track as WKB for in-memory Hausdorff
+	TrackWKB      []byte // Segment track as WKB for in-memory Hausdorff
+	Bidirectional bool
 }
 
 // GetSpatialCandidateSegments returns segments within 50m of the activity track,
@@ -761,7 +762,7 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 	rows, err := db.Pool.Query(ctx, `
 		SELECT s.id, sv.id, s.sport_group, COALESCE(s.distance_m, 0),
 		       s.segment_type, COALESCE(sv.segment_type_meta, '{}'),
-		       ST_AsBinary(sv.track)
+		       ST_AsBinary(sv.track), s.bidirectional
 		FROM segments s
 		JOIN LATERAL (
 			SELECT id, track, segment_type_meta FROM (
@@ -791,7 +792,7 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 		var c CandidateSegment
 		var rawMeta json.RawMessage
 		if err := rows.Scan(&c.SegmentID, &c.VersionID, &c.SportGroup, &c.DistanceM,
-			&c.SegmentType, &rawMeta, &c.TrackWKB); err != nil {
+			&c.SegmentType, &rawMeta, &c.TrackWKB, &c.Bidirectional); err != nil {
 			return nil, fmt.Errorf("scan candidate segment: %w", err)
 		}
 		if len(rawMeta) > 0 && string(rawMeta) != "{}" {
