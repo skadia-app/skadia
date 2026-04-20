@@ -139,3 +139,58 @@ func TestComputeProtectedRanges_BelowThreshold(t *testing.T) {
 		t.Fatalf("got %v, want empty (all below threshold)", got)
 	}
 }
+
+// encodeSacScale packs a SAC raw value (1..6 → T1..T6, per SacScaleShort) into
+// Tags1 bits 14-16.
+func encodeSacScale(raw uint8) uint64 {
+	return uint64(raw&0x07) << 14
+}
+
+// encodeMtbScale packs an MTB raw value (1..6 → S0..S5, per MtbScaleShort) into
+// Tags1 bits 17-19.
+func encodeMtbScale(raw uint8) uint64 {
+	return uint64(raw&0x07) << 17
+}
+
+func TestComputeScaleRanges_SAC_T3(t *testing.T) {
+	// Build Tags1 words where bits 14-16 encode the SAC-scale enum value for T3.
+	// SacScaleShort(3) == "T3" (direct mapping, no offset).
+	tagsT3 := encodeSacScale(3) // raw=3 → "T3"
+	tagsT1 := encodeSacScale(1) // raw=1 → "T1"
+	edgeTags1 := []uint64{tagsT3, tagsT1, tagsT3}
+	edgeCoordStart := []int{0, 5, 10}
+
+	got := computeScaleRanges(edgeCoordStart, edgeTags1, 14, "sac", "T3")
+	if len(got) != 2 {
+		t.Fatalf("SAC T3 → got %d ranges, want 2", len(got))
+	}
+	// T1 ranges for the same input must be exactly one range (middle edge only).
+	if got := computeScaleRanges(edgeCoordStart, edgeTags1, 14, "sac", "T1"); len(got) != 1 {
+		t.Fatalf("SAC T1 → got %d ranges, want 1", len(got))
+	}
+}
+
+func TestComputeScaleRanges_UnknownLevel(t *testing.T) {
+	// Levels outside the defined set must yield empty ranges (never panic).
+	got := computeScaleRanges([]int{0}, []uint64{0}, 0, "sac", "T99")
+	if len(got) != 0 {
+		t.Fatalf("unknown level → got %v, want empty", got)
+	}
+}
+
+func TestComputeScaleRanges_MTB_OffByOneGuard(t *testing.T) {
+	// raw=3 maps to "S2" (MtbScaleShort uses -1 offset), NOT "S3".
+	// This test documents the invariant to catch copy-paste errors.
+	tagsS2 := encodeMtbScale(3) // raw=3 → "S2"
+	edgeTags1 := []uint64{tagsS2}
+	edgeCoordStart := []int{0}
+
+	// Must match "S2"
+	if got := computeScaleRanges(edgeCoordStart, edgeTags1, 4, "mtb", "S2"); len(got) != 1 {
+		t.Fatalf("MTB raw=3 must match S2, got %v ranges", len(got))
+	}
+	// Must NOT match "S3"
+	if got := computeScaleRanges(edgeCoordStart, edgeTags1, 4, "mtb", "S3"); len(got) != 0 {
+		t.Fatalf("MTB raw=3 must NOT match S3 (off-by-one guard), got %v ranges", len(got))
+	}
+}
