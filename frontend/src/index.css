@@ -17,8 +17,24 @@
   box-sizing: border-box;
 }
 
-button {
+button,
+[role="button"],
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"],
+input[type="color"],
+label:has(> input[type="checkbox"]),
+label:has(> input[type="radio"]),
+summary,
+select {
   cursor: pointer;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"],
+input:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
 }
 
 body {
