@@ -433,7 +433,9 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	// Step 10: Build and write response.
 	// Load per-user summit detection radius once, before the variant loop.
 	// userID already obtained from httputil.RequireUserID above.
-	// h.DB may be nil in unit tests — guard to avoid nil-pointer panic.
+	// h.DB is nil when the handler is constructed without a database (e.g. offline
+	// routing-only deployments or unit-test harnesses that do not provision DB).
+	// In that case summit detection is skipped and the default radius is used.
 	radiusM := 80.0 // Default fallback (matches Migration 000315 DEFAULT)
 	if h.DB != nil && userID != "" {
 		if settings, err := h.DB.GetEnrichmentSettings(r.Context(), userID); err == nil && settings != nil {
@@ -501,7 +503,8 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		vfUnknownRanges := computeVfUnknownRanges(merged.EdgeCoordStart, merged.EdgeTags1, merged.EdgeTags2, lastCoordIdx)
 
 		// Summit detection per variant.
-		// h.DB / h.DB.Pool may be nil in unit tests — guard to avoid nil-pointer panic.
+		// Requires a live DB connection (h.DB non-nil, h.DB.Pool non-nil).
+		// Skipped gracefully for offline/test deployments where DB is unavailable.
 		var summitsPassed []database.PassedSummit
 		if h.DB != nil && h.DB.Pool != nil && radiusM > 0 && len(merged.Coordinates) >= 2 {
 			wkbBytes, wkbErr := coordsToLineStringWKB(merged.Coordinates)
