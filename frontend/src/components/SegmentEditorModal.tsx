@@ -477,6 +477,9 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       const N = prev.length
       if (N === 0) return prev
       const reversed = [...prev].reverse()
+      // Sync ref immediately so detectLapCrossings (and any other consumer of
+      // trackPointsRef.current) sees the updated order before the next render.
+      trackPointsRef.current = reversed
       setRange(r => [N - 1 - r[1], N - 1 - r[0]])
       return reversed
     })
