@@ -27,13 +27,13 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
   }
 
   return (
-    <div className="flex h-[52px] items-center gap-2 border-t border-neutral-800 bg-neutral-900 px-3">
+    <div className="flex h-[52px] items-center gap-2 border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-3">
       {/* Point counter badge */}
-      <span className="shrink-0 rounded bg-neutral-800 px-2 py-1 font-mono text-xs text-neutral-300">
+      <span className="shrink-0 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-2 py-1 font-mono text-xs text-neutral-600 dark:text-neutral-300">
         {pointCount} {pointCount === 1 ? 'Punkt' : 'Punkte'}
       </span>
 
-      <div className="h-4 w-px bg-neutral-700 shrink-0" />
+      <div className="h-4 w-px bg-neutral-200 dark:bg-neutral-700 shrink-0" />
 
       {/* Undo */}
       <button
@@ -42,8 +42,10 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
         disabled={pointCount === 0}
         title="Letzten Punkt rückgängig"
         className={cn(
-          'flex items-center gap-1.5 rounded px-2 py-1 text-xs text-neutral-300 transition-colors',
-          'bg-neutral-800 hover:bg-neutral-700 hover:text-white',
+          'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs',
+          'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300',
+          'border border-neutral-200 dark:border-neutral-700',
+          'transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white',
           'disabled:pointer-events-none disabled:opacity-40',
         )}
       >
@@ -54,18 +56,18 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
       {/* Clear / Confirm clear */}
       {confirmClear ? (
         <span className="flex items-center gap-1 text-xs">
-          <span className="shrink-0 text-neutral-300">Alle Punkte löschen?</span>
+          <span className="shrink-0 text-neutral-600 dark:text-neutral-300">Alle Punkte löschen?</span>
           <button
             type="button"
             onClick={() => { setConfirmClear(false); onClear() }}
-            className="rounded bg-red-700 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-red-600"
+            className="rounded-md border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/40 px-2 py-1 text-xs font-medium text-red-700 dark:text-red-300 transition-colors hover:bg-red-100 dark:hover:bg-red-900/60"
           >
             Ja
           </button>
           <button
             type="button"
             onClick={() => setConfirmClear(false)}
-            className="rounded bg-neutral-700 px-2 py-1 text-xs text-neutral-300 transition-colors hover:bg-neutral-600"
+            className="rounded-md border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs text-neutral-600 dark:text-neutral-300 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700"
           >
             Nein
           </button>
@@ -77,8 +79,10 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
           disabled={pointCount === 0}
           title="Alle Punkte löschen"
           className={cn(
-            'flex items-center gap-1.5 rounded px-2 py-1 text-xs text-red-400 transition-colors',
-            'bg-neutral-800 hover:bg-red-900/60 hover:text-red-300',
+            'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs',
+            'bg-neutral-100 dark:bg-neutral-800 text-red-500 dark:text-red-400',
+            'border border-neutral-200 dark:border-neutral-700',
+            'transition-colors hover:bg-red-50 dark:hover:bg-red-900/40 hover:text-red-700 dark:hover:text-red-300 hover:border-red-200 dark:hover:border-red-800',
             'disabled:pointer-events-none disabled:opacity-40',
           )}
         >
@@ -94,8 +98,10 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
         disabled={pointCount < 2}
         title="Zeichnen abschließen"
         className={cn(
-          'rounded px-2 py-1 text-xs text-neutral-300 transition-colors',
-          'bg-neutral-800 hover:bg-neutral-700 hover:text-white',
+          'rounded-md px-2 py-1 text-xs',
+          'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300',
+          'border border-neutral-200 dark:border-neutral-700',
+          'transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white',
           'disabled:pointer-events-none disabled:opacity-40',
         )}
       >
@@ -109,8 +115,10 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
         disabled={pointCount < 2}
         title="Richtung umkehren"
         className={cn(
-          'flex items-center gap-1.5 rounded px-2 py-1 text-xs text-neutral-300 transition-colors',
-          'bg-neutral-800 hover:bg-neutral-700 hover:text-white',
+          'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs',
+          'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300',
+          'border border-neutral-200 dark:border-neutral-700',
+          'transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white',
           'disabled:pointer-events-none disabled:opacity-40',
         )}
       >
@@ -126,25 +134,28 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
         onClick={onReset}
         title="Auf gespeicherten Stand zurücksetzen"
         className={cn(
-          'rounded px-2 py-1 text-xs text-neutral-400 transition-colors',
-          'bg-neutral-800 hover:bg-neutral-700 hover:text-neutral-300',
+          'rounded-md px-2 py-1 text-xs',
+          'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400',
+          'border border-neutral-200 dark:border-neutral-700',
+          'transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300',
         )}
       >
         Reset
       </button>
 
-      {/* Primary CTA */}
+      {/* Primary CTA — orange accent */}
       <button
         type="button"
         onClick={onPreviewOrSave}
         disabled={pointCount < 2}
         className={cn(
-          'rounded px-3 py-1 text-xs font-medium text-white transition-colors',
-          'bg-blue-600 hover:bg-blue-500',
+          'rounded-md px-3 py-1 text-xs font-medium text-white transition-colors shadow-sm',
+          'bg-accent-DEFAULT hover:bg-accent-600',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1',
           'disabled:pointer-events-none disabled:opacity-40',
         )}
       >
-        {isPreview ? 'Speichern' : 'Vorschau'}
+        {isPreview ? 'Speichern' : 'Vorschau →'}
       </button>
     </div>
   )
