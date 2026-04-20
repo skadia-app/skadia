@@ -77,3 +77,64 @@ func TestRetrackUnified_PopulatesEdgeSlices(t *testing.T) {
 		t.Fatalf("last EdgeCoordStart %d >= len(Coordinates) %d", last, len(result.Coordinates))
 	}
 }
+
+func TestMergeLegs_ShiftsEdgeCoordStartAndAppendsTags(t *testing.T) {
+	legA := &RouteResult{
+		Coordinates:    []LatLonEle{{Lat: 1, Lon: 1}, {Lat: 2, Lon: 2}, {Lat: 3, Lon: 3}},
+		EdgeHandles:    []uint64{100, 101},
+		EdgeCoordStart: []int{0, 1},
+		EdgeTags1:      []uint64{0xAA, 0xBB},
+		EdgeTags2:      []uint64{0x11, 0x22},
+	}
+	legB := &RouteResult{
+		Coordinates:    []LatLonEle{{Lat: 3, Lon: 3}, {Lat: 4, Lon: 4}}, // dup first
+		EdgeHandles:    []uint64{200},
+		EdgeCoordStart: []int{0},
+		EdgeTags1:      []uint64{0xCC},
+		EdgeTags2:      []uint64{0x33},
+	}
+	merged := mergeLegs([]*RouteResult{legA, legB})
+
+	// Coordinates: legA(3) + legB[1:](1) == 4
+	if got, want := len(merged.Coordinates), 4; got != want {
+		t.Fatalf("Coordinates len = %d, want %d", got, want)
+	}
+	// EdgeHandles: 2 + 1 == 3
+	if got, want := len(merged.EdgeHandles), 3; got != want {
+		t.Fatalf("EdgeHandles len = %d, want %d", got, want)
+	}
+	// EdgeCoordStart: [0, 1, 2]  (legB's 0 shifted by coordsBefore-1 == 3-1 == 2)
+	want := []int{0, 1, 2}
+	for i, v := range want {
+		if merged.EdgeCoordStart[i] != v {
+			t.Fatalf("EdgeCoordStart[%d] = %d, want %d", i, merged.EdgeCoordStart[i], v)
+		}
+	}
+	// Tags appended 1:1
+	if merged.EdgeTags1[2] != 0xCC {
+		t.Fatalf("EdgeTags1[2] = %x, want 0xCC", merged.EdgeTags1[2])
+	}
+	if merged.EdgeTags2[2] != 0x33 {
+		t.Fatalf("EdgeTags2[2] = %x, want 0x33", merged.EdgeTags2[2])
+	}
+}
+
+func TestMergeLegs_EmptyFollowLegSkipsCoordStartShift(t *testing.T) {
+	legA := &RouteResult{
+		Coordinates:    []LatLonEle{{Lat: 1}, {Lat: 2}},
+		EdgeHandles:    []uint64{100},
+		EdgeCoordStart: []int{0},
+		EdgeTags1:      []uint64{0xAA},
+		EdgeTags2:      []uint64{0x11},
+	}
+	legB := &RouteResult{} // empty coords, empty slices
+
+	merged := mergeLegs([]*RouteResult{legA, legB})
+	// len(EdgeCoordStart) stays 1; no stray shifted zero was appended
+	if got, want := len(merged.EdgeCoordStart), 1; got != want {
+		t.Fatalf("EdgeCoordStart len = %d, want %d", got, want)
+	}
+	if merged.EdgeCoordStart[0] != 0 {
+		t.Fatalf("EdgeCoordStart[0] = %d, want 0", merged.EdgeCoordStart[0])
+	}
+}

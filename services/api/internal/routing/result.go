@@ -200,6 +200,20 @@ func mergeLegs(legs []*RouteResult) *RouteResult {
 		result.PassStats.Pass1DurationMs += leg.PassStats.Pass1DurationMs
 		result.PassStats.TotalDurationMs += leg.PassStats.TotalDurationMs
 		result.EdgeHandles = append(result.EdgeHandles, leg.EdgeHandles...)
+
+		// EdgeCoordStart: coord-index slice, needs same shift as Segments (segOffset = coordsBefore-1).
+		// Empty-Leg-Guard analog zum bestehenden `else if len(leg.Coordinates) > 0`:
+		// ein Folge-Leg ohne Coordinates hat auch keine sinnvoll zu shiftenden CoordStart-Indizes.
+		if i == 0 {
+			result.EdgeCoordStart = append(result.EdgeCoordStart, leg.EdgeCoordStart...)
+		} else if len(leg.Coordinates) > 0 {
+			for _, idx := range leg.EdgeCoordStart {
+				result.EdgeCoordStart = append(result.EdgeCoordStart, idx+segOffset)
+			}
+		}
+		// EdgeTags1 / EdgeTags2: per-edge indexed, no coord shift needed.
+		result.EdgeTags1 = append(result.EdgeTags1, leg.EdgeTags1...)
+		result.EdgeTags2 = append(result.EdgeTags2, leg.EdgeTags2...)
 	}
 	return result
 }
