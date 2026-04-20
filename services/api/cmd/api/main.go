@@ -1280,6 +1280,12 @@ func main() {
 			r.Delete("/segments", h.DeleteSegments)
 			r.Post("/segments/export", h.ExportSegments)
 			r.Post("/segments/import-lifts", h.ImportLiftsFromOSM)
+			// Rate-Limit: ~30/min per user, burst 5. Enrichment makes a Viterbi-match
+			// (~10ms, 1s graph timeout) + optional PostGIS fallback — without a cap
+			// this is a DoS vector against the graph + DB in multi-user self-hosted
+			// setups. Burst 5 covers normal editor usage (open, adjust range, reopen).
+			r.With(middleware.RateLimitPerUser(authRL, "segment-enrichment:", 30.0/60, 5)).
+				Post("/segments/enrichment-suggest", h.EnrichmentSuggest)
 			r.Get("/segments/{id}", h.GetSegment)
 			r.Put("/segments/{id}", h.UpdateSegment)
 			r.Delete("/segments/{id}", h.DeleteSegment)
