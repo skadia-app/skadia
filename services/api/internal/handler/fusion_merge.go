@@ -2156,15 +2156,21 @@ func activityFieldRichness(a *model.Activity) int {
 // NULL-altitude-Rows werden VOR dem LAG-Window herausgefiltert (non_null CTE), damit
 // Multi-Device-Fusion mit lückenhafter Altitude nicht alle Deltas auf NULL reduziert.
 //
-// Time-gap guard: deltas spanning > maxGapSec seconds between consecutive
-// altitude samples are excluded. In Multi-Device-Fusion two devices may cover
-// non-overlapping time ranges (e.g. Device A: 09–12 GPS-only, Device B: 12–15
-// altitude-only). Without this guard, LAG() would bridge the gap and interpret
-// the altitude difference across unrelated segments as gain/loss.
+// Time-gap guard: deltas spanning > maxElevationGapSec seconds between
+// consecutive altitude samples are excluded. In Multi-Device-Fusion two devices
+// may cover non-overlapping time ranges (e.g. Device A: 09–12 GPS-only, Device
+// B: 12–15 altitude-only). Without this guard, LAG() would bridge the gap and
+// interpret the altitude difference across unrelated segments as gain/loss.
+//
+// maxElevationGapSec = 120 s: covers normal tunnel/cable-car gaps and
+// Smart-Recording 10 s samples with occasional 40–60 s dropouts, while still
+// rejecting cross-device temporal splits where the gap is tens of minutes.
+// The previous value of 30 s was too aggressive — it wrongly excluded 40–60 s
+// tunnel gaps that are common in alpine terrain. (R4-9)
 func (h *Handler) computeElevationFromStreams(ctx context.Context, tx database.Querier, activityID string) (gain, loss float64, hasData bool, err error) {
 	const (
-		deadBandM  = 3.0
-		maxGapSec  = 30.0 // gaps > 30 s between altitude samples are excluded
+		deadBandM         = 3.0
+		maxElevationGapSec = 120.0 // gaps > 120 s between altitude samples are excluded (R4-9)
 	)
 	err = tx.QueryRow(ctx, `
 		WITH non_null AS (
@@ -2190,7 +2196,7 @@ func (h *Handler) computeElevationFromStreams(ctx context.Context, tx database.Q
 			COALESCE(-SUM(delta) FILTER (WHERE delta < 0), 0)::double precision,
 			COUNT(*) > 0
 		FROM filtered
-	`, activityID, deadBandM, maxGapSec).Scan(&gain, &loss, &hasData)
+	`, activityID, deadBandM, maxElevationGapSec).Scan(&gain, &loss, &hasData)
 	return
 }
 
