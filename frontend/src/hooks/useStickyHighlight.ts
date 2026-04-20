@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
+import type { DescriptorKey } from '@/lib/descriptorFilter'
 
 export type HighlightKind =
   | { kind: 'highway'; key: string }
   | { kind: 'surface'; key: string }
-  | { kind: 'descriptor'; descriptorKey: 'mtb_technical' | 'alpine_hiking' | 'exposed' | 'low_visibility' }
+  | { kind: 'descriptor'; descriptorKey: DescriptorKey }
   | null
 
 function sameHighlight(a: HighlightKind, b: HighlightKind): boolean {
