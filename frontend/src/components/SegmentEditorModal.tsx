@@ -913,11 +913,9 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
               pointCount={drawnCoords.length}
               onUndo={drawUndoLast}
               onClear={drawClear}
-              onFinish={() => { /* double-click in MapboxDraw already closes the line */ }}
               onReverse={drawReverse}
               onReset={drawClear}
               onPreviewOrSave={() => saveMutation.mutate()}
-              isPreview={false}
             />
           )}
           {mode === 'lap' && (
