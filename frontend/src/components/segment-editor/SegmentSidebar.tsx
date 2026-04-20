@@ -328,15 +328,12 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
             })}
           </div>
 
-          {/* Feinwahl: per active non-Alle category, show individual sport chips on expand */}
+          {/* Feinwahl: per category, show individual sport chips on expand.
+              Chevron is always clickable — user can add fine-grained picks
+              without first activating the entire category (issue #19). */}
           {meta.sportTypes !== null && meta.segType !== 'wintersport' && (
             <div className="mt-2 flex flex-col gap-1.5">
               {getVisibleCategories(meta.segType)
-                .filter(cat => {
-                  const types = expandCategoryToSportTypes(cat.key)
-                  return types.some(t => meta.sportTypes!.includes(t)) ||
-                         isCategoryFullyActive(cat.key, meta.sportTypes)
-                })
                 .map(cat => {
                   const isOpen = detailOpenCategories.has(cat.key)
                   const catSports = cat.taxonomyKeys
@@ -537,9 +534,24 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
             </div>
           ) : (
             /* wintersport: no scale fields, just difficulty */
+            // ARIA note: using role="radiogroup" + role="radio" with a "—" (keine)
+            // pill so exactly one option is always selected (proper radio semantics).
+            // Previously 3 pills toggled off on re-click (checkbox semantics) which
+            // is ARIA-misuse for role="radio". The 4th "—" pill acts as the "none"
+            // option, keeping the group mutually exclusive.
             <div className="flex flex-col gap-1">
               <span className="text-[10px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">Schwierigkeit</span>
               <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Schwierigkeit">
+                {/* "—" = keine Schwierigkeit (radio-group braucht immer eine gewählte Option) */}
+                <Pill
+                  role="radio"
+                  ariaChecked={displayedColor === null}
+                  ariaLabel="Keine Schwierigkeit"
+                  active={displayedColor === null}
+                  onClick={() => onMetaChange({ difficultyColor: null })}
+                >
+                  —
+                </Pill>
                 {(['blue', 'red', 'black'] as const).map(c => (
                   <Pill
                     key={c}
@@ -548,7 +560,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
                     ariaLabel={DIFF_COLOR_LABELS[c]}
                     active={displayedColor === c}
                     disabled={false}
-                    onClick={() => onMetaChange({ difficultyColor: displayedColor === c ? null : c })}
+                    onClick={() => onMetaChange({ difficultyColor: c })}
                     leftSlot={<DifficultyDot color={c} />}
                   >
                     {DIFF_COLOR_SHORT[c]}
