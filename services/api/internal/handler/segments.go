@@ -11,11 +11,14 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/paulmach/orb"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
@@ -1071,4 +1074,102 @@ func normalizeSurfaceLabel(s string) string {
 	default:
 		return s
 	}
+}
+
+// SegmentEnrichmentRequest is the POST body for POST /segments/enrichment-suggest.
+type SegmentEnrichmentRequest struct {
+	Coordinates   [][]float64 `json:"coordinates"`
+	SegType       string      `json:"seg_type"`
+	DominantSport string      `json:"dominant_sport,omitempty"`
+}
+
+// maxCoordinates is the hard cap on the number of coordinate pairs accepted by
+// enrichmentSuggest. Two-layer DoS hardening (see handler comment below):
+// Layer 1 — http.MaxBytesReader (1 MB body cap).
+// Layer 2 — maxCoordinates (protects against [[0,0]]-repetition attacks that
+// fit within the 1 MB body cap but would make Viterbi O(n·|candidates|) too
+// expensive at n > 5000).
+//
+// Rationale for 5000: typical GPS segment sub-tracks are < 500 points; draw-mode
+// strokes even smaller.  5000 gives headroom for edge cases without opening a
+// DoS window on the graph path.
+const maxCoordinates = 5000
+
+// EnrichmentSuggest returns aggregated OSM surface/sac/mtb suggestions for a
+// segment LineString.
+//
+// POST /api/v1/segments/enrichment-suggest
+// Body: SegmentEnrichmentRequest
+// Response: enrichment.SegmentEnrichmentResponse
+//
+// DoS-Hardening: two layers of defense before any Viterbi/PostGIS call:
+//  1. http.MaxBytesReader → 1 MB body cap.
+//  2. maxCoordinates check after decode → protects against [[0,0]]-repetition.
+func (h *Handler) EnrichmentSuggest(w http.ResponseWriter, r *http.Request) {
+	// Require auth — prevents anonymous DoS on the graph path.
+	if _, ok := httputil.RequireUserID(w, r); !ok {
+		return
+	}
+
+	// Layer 1: hard cap on raw request-body size.
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB
+
+	var req SegmentEnrichmentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid json (or payload too large)", r.URL.Path)
+		return
+	}
+
+	// Layer 2: coord-count cap.
+	if len(req.Coordinates) > maxCoordinates {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
+			fmt.Sprintf("too many coordinates: %d (max %d)", len(req.Coordinates), maxCoordinates), r.URL.Path)
+		return
+	}
+	if len(req.Coordinates) < 2 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "coordinates: need at least 2 points", r.URL.Path)
+		return
+	}
+
+	validTypes := map[string]bool{"standard": true, "trail": true, "lap": true, "wintersport": true}
+	if !validTypes[req.SegType] {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "seg_type must be one of standard|trail|lap|wintersport", r.URL.Path)
+		return
+	}
+
+	// Wintersport short-circuit — no graph/postgis call needed.
+	if req.SegType == "wintersport" {
+		httputil.WriteJSON(w, http.StatusOK, enrichment.SegmentEnrichmentResponse{
+			CoveragePct: 0,
+			Reason:      "wintersport",
+		})
+		return
+	}
+
+	// Build orb.Point slice (GeoJSON convention: [lng, lat]).
+	coords := make([]orb.Point, 0, len(req.Coordinates))
+	for _, c := range req.Coordinates {
+		if len(c) < 2 {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "coordinate pair malformed", r.URL.Path)
+			return
+		}
+		coords = append(coords, orb.Point{c[0], c[1]})
+	}
+
+	// Acquire graph reader — matches the pattern used by re_enrich.go, recompute.go,
+	// enrichment.go, fusion_merge.go.  When GraphManager is nil (e.g. in unit tests
+	// or when the graph is not yet built), gr stays nil and SuggestSegmentEnrichment
+	// falls through to the PostGIS fallback.
+	var gr routing.GraphReader
+	if h.GraphManager != nil {
+		gr = h.GraphManager.Reader()
+	}
+
+	resp, err := enrichment.SuggestSegmentEnrichment(r.Context(), h.DB, coords, gr)
+	if err != nil {
+		slog.Warn("segment enrichment suggest failed", "error", err)
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "keine OSM-Daten installiert", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
