@@ -88,6 +88,17 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   })
   const currentUserId = meData?.user_id ?? ''
 
+  // ── Initial-meta snapshot (for dirty-tracking of all meta fields) ─────────
+  // Captured once when the component mounts (meta starts as all-empty defaults).
+  // Any subsequent user change produces JSON inequality → isDirty fires.
+  const initialMetaRef = useRef<SegmentMetadata | null>(null)
+  useEffect(() => {
+    if (initialMetaRef.current === null) {
+      initialMetaRef.current = meta
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // ── Map state ─────────────────────────────────────────────────────────────
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -554,10 +565,20 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   }, [])
 
   // ── Dirty state + close logic ─────────────────────────────────────────────
-  const isDirty =
-    meta.name.length > 0 ||
-    (mode === 'track' && (range[0] !== initialRange[0] || range[1] !== initialRange[1])) ||
-    (mode === 'draw' && drawnCoords.length > 0)
+  // Checks all meta fields (name, sacScale, mtbScale, surface, difficultyColor,
+  // sportTypes, segType, bidirectional, isPublic) via JSON deep-compare, plus
+  // mode-specific coordinate/range changes.
+  const isDirty = (() => {
+    const initialMeta = initialMetaRef.current
+    const metaChanged = initialMeta !== null
+      ? JSON.stringify(meta) !== JSON.stringify(initialMeta)
+      : meta.name.length > 0 // fallback before first effect fires (rare, same tick)
+    return (
+      metaChanged ||
+      (mode === 'track' && (range[0] !== initialRange[0] || range[1] !== initialRange[1])) ||
+      (mode === 'draw' && drawnCoords.length > 0)
+    )
+  })()
 
   const handleClose = useCallback(() => {
     if (isDirty && !window.confirm('Ungespeicherte Änderungen verwerfen?')) return
