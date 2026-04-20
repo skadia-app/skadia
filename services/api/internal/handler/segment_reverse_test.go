@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"errors"
+	"fmt"
 	"hash/fnv"
 	"testing"
 )
@@ -28,6 +30,28 @@ func TestAdvisoryLockKeyForSegmentReverse(t *testing.T) {
 	rawOnly := int64(h.Sum64())
 	if rawOnly == k1 {
 		t.Fatal("lock-key must be namespaced (prefix folded into hash), not raw FNV(segID)")
+	}
+}
+
+// TestErrLapSegmentCannotBeReversed is a regression-guard for the Lap-Guard
+// introduced in reverseSegmentTx. It verifies:
+//  1. The sentinel error is exported-equivalent (errors.Is comparison works).
+//  2. The error message is stable — callers that log or surface the string
+//     must not silently break when the error is refactored.
+func TestErrLapSegmentCannotBeReversed(t *testing.T) {
+	err := errLapSegmentCannotBeReversed
+	if err == nil {
+		t.Fatal("errLapSegmentCannotBeReversed must not be nil")
+	}
+	const want = "lap segments cannot be reversed"
+	if err.Error() != want {
+		t.Fatalf("error message = %q, want %q", err.Error(), want)
+	}
+	// errors.Is must work when the sentinel is wrapped, as reverseSegmentTx
+	// returns it unwrapped, but defensive callers may wrap it.
+	wrapped := fmt.Errorf("reverseSegmentTx: %w", err)
+	if !errors.Is(wrapped, errLapSegmentCannotBeReversed) {
+		t.Fatal("errors.Is must return true for wrapped errLapSegmentCannotBeReversed")
 	}
 }
 
