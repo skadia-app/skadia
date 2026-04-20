@@ -1,62 +1,44 @@
 package handler
 
-// enrichment_clamp_test.go — Unit tests for the PATCH-clamp guards on
-// model.EnrichmentSettings.SummitDetectionRadiusM.
+// enrichment_clamp_test.go — Unit tests for clampSummitDetectionRadius,
+// the package-level helper called by UpdateEnrichmentSettings after the
+// JSON-merge step, before the DB write.
 //
-// The clamp is applied in UpdateEnrichmentSettings (enrichment.go) after the
-// JSON-merge step, before the DB write.  These tests replicate the clamp
-// logic locally (same copy-pattern as enrichment_merge_test.go) so they run
-// without any DB or HTTP infrastructure.
+// These tests exercise the exact same function the handler calls — no
+// replica, no divergence risk.
 
 import (
 	"math"
 	"testing"
-
-	"github.com/skadia-app/skadia/services/api/internal/model"
 )
-
-// clampEnrichmentSettingsForTest replicates the clamp guards from
-// Handler.UpdateEnrichmentSettings.  Any change to those guards must be
-// mirrored here (the tests below will then catch regressions).
-func clampEnrichmentSettingsForTest(s *model.EnrichmentSettings) {
-	if math.IsNaN(s.SummitDetectionRadiusM) || math.IsInf(s.SummitDetectionRadiusM, 0) {
-		s.SummitDetectionRadiusM = 80
-	}
-	if s.SummitDetectionRadiusM < 10 {
-		s.SummitDetectionRadiusM = 10
-	}
-	if s.SummitDetectionRadiusM > 150 {
-		s.SummitDetectionRadiusM = 150
-	}
-}
 
 // TestEnrichmentSettingsPATCH_SummitRadius_ClampLow verifies that a value
 // below the minimum (10 m) is clamped up to 10.
+// Testet den Helper, der vom Handler aufgerufen wird — identische Logik.
 func TestEnrichmentSettingsPATCH_SummitRadius_ClampLow(t *testing.T) {
-	s := &model.EnrichmentSettings{SummitDetectionRadiusM: 5}
-	clampEnrichmentSettingsForTest(s)
-	if s.SummitDetectionRadiusM != 10 {
-		t.Errorf("SummitDetectionRadiusM = %v, want 10 (clamped from 5)", s.SummitDetectionRadiusM)
+	got := clampSummitDetectionRadius(5)
+	if got != 10 {
+		t.Errorf("clampSummitDetectionRadius(5) = %v, want 10", got)
 	}
 }
 
 // TestEnrichmentSettingsPATCH_SummitRadius_ClampHigh verifies that a value
 // above the maximum (150 m) is clamped down to 150.
+// Testet den Helper, der vom Handler aufgerufen wird — identische Logik.
 func TestEnrichmentSettingsPATCH_SummitRadius_ClampHigh(t *testing.T) {
-	s := &model.EnrichmentSettings{SummitDetectionRadiusM: 200}
-	clampEnrichmentSettingsForTest(s)
-	if s.SummitDetectionRadiusM != 150 {
-		t.Errorf("SummitDetectionRadiusM = %v, want 150 (clamped from 200)", s.SummitDetectionRadiusM)
+	got := clampSummitDetectionRadius(200)
+	if got != 150 {
+		t.Errorf("clampSummitDetectionRadius(200) = %v, want 150", got)
 	}
 }
 
 // TestEnrichmentSettingsPATCH_SummitRadius_NaN verifies that a NaN value
 // (which can arrive from JSON "NaN" strings or floating-point edge cases)
 // is replaced with the default of 80.
+// Testet den Helper, der vom Handler aufgerufen wird — identische Logik.
 func TestEnrichmentSettingsPATCH_SummitRadius_NaN(t *testing.T) {
-	s := &model.EnrichmentSettings{SummitDetectionRadiusM: math.NaN()}
-	clampEnrichmentSettingsForTest(s)
-	if s.SummitDetectionRadiusM != 80 {
-		t.Errorf("SummitDetectionRadiusM = %v, want 80 (default for NaN)", s.SummitDetectionRadiusM)
+	got := clampSummitDetectionRadius(math.NaN())
+	if got != 80 {
+		t.Errorf("clampSummitDetectionRadius(NaN) = %v, want 80", got)
 	}
 }

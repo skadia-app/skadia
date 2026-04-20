@@ -796,15 +796,7 @@ func (h *Handler) UpdateEnrichmentSettings(w http.ResponseWriter, r *http.Reques
 	if settings.PhashThresholdBits < 1 || settings.PhashThresholdBits > 10 {
 		settings.PhashThresholdBits = 3
 	}
-	if math.IsNaN(settings.SummitDetectionRadiusM) || math.IsInf(settings.SummitDetectionRadiusM, 0) {
-		settings.SummitDetectionRadiusM = 80
-	}
-	if settings.SummitDetectionRadiusM < 10 {
-		settings.SummitDetectionRadiusM = 10
-	}
-	if settings.SummitDetectionRadiusM > 150 {
-		settings.SummitDetectionRadiusM = 150
-	}
+	settings.SummitDetectionRadiusM = clampSummitDetectionRadius(settings.SummitDetectionRadiusM)
 
 	if err := h.DB.UpdateEnrichmentSettings(r.Context(), userID, &settings); err != nil {
 		slog.Error("update enrichment settings failed", "error", err)
@@ -813,4 +805,20 @@ func (h *Handler) UpdateEnrichmentSettings(w http.ResponseWriter, r *http.Reques
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, settings)
+}
+
+// clampSummitDetectionRadius enforces the DB CHECK constraint bounds [10, 150]
+// and normalizes NaN/Inf to the default (80). Exposed at package level so tests
+// can exercise the exact same clamp path the handler uses.
+func clampSummitDetectionRadius(val float64) float64 {
+	if math.IsNaN(val) || math.IsInf(val, 0) {
+		return 80
+	}
+	if val < 10 {
+		return 10
+	}
+	if val > 150 {
+		return 150
+	}
+	return val
 }
