@@ -69,32 +69,23 @@ func SuggestSegmentEnrichment(
 	// (e.g. tests, graph not initialized) — fall straight through to PostGIS.
 	var edges []edgeSample
 	var coverage float64
+	var graphAvailable bool
 	var err error
 	if graphReader != nil {
 		graphCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
-		edges, coverage, err = matchEdgesViaGraph(graphCtx, graphReader, coords)
+		edges, graphAvailable, coverage, err = matchEdgesViaGraph(graphCtx, graphReader, coords)
 		if err == nil && coverage >= coverageThreshold {
 			return aggregateEdgesToSegmentEnrichment(edges, coverage), nil
 		}
 	}
 
 	// Fallback: PostGIS nearest-way.
-	// graphAvailable tracks whether a graph reader existed and returned at least
-	// one tile hit across the coords — used below to distinguish "OSM not
-	// installed / no tiles loaded" from "route is genuinely off-road".
-	var graphAvailable bool
-	if graphReader != nil {
-		// graphReader is non-nil; re-run a lightweight availability check by
-		// testing the first coordinate so we can set the flag without re-running
-		// the full Viterbi. Any successful tile-load means the graph is present.
-		for _, c := range coords {
-			if graphReader.GraphAt(c[1], c[0]) != nil {
-				graphAvailable = true
-				break
-			}
-		}
-	}
+	// graphAvailable (set by matchEdgesViaGraph above) tracks whether at least
+	// one tile was successfully loaded during matching — used below to distinguish
+	// "OSM not installed / no tiles loaded" from "route is genuinely off-road".
+	// No second iteration over coords is needed: matchEdgesViaGraph already
+	// made GraphAt calls per-point and reported whether any tile responded.
 
 	edges, coverage, err = matchEdgesViaPostGIS(ctx, db, coords)
 	if err != nil {
@@ -116,14 +107,20 @@ func SuggestSegmentEnrichment(
 // matchEdgesViaGraph runs Viterbi against graphReader and extracts edge-level
 // sample data (surface, sac, mtb, length). Mirrors enrichSurfacesGraph's
 // control flow: per-point FindNearEdges → Viterbi → edge-tag extraction.
-// Returns (edges, coverage_pct, err).
+// Returns (edges, graphAvailable, coverage_pct, err).
+//
+// graphAvailable is true if at least one tile was successfully loaded during
+// matching, regardless of how many edges were ultimately matched. The caller
+// uses this to distinguish "OSM graph not installed" (graphAvailable=false)
+// from "route genuinely off-road or coverage too low" (graphAvailable=true).
+// This avoids a second iteration over coords just to query GraphAt again.
 func matchEdgesViaGraph(
 	ctx context.Context,
 	graphReader routing.GraphReader,
 	coords []orb.Point,
-) ([]edgeSample, float64, error) {
+) ([]edgeSample, bool, float64, error) {
 	if len(coords) < 2 {
-		return nil, 0, fmt.Errorf("need at least 2 coordinates")
+		return nil, false, 0, fmt.Errorf("need at least 2 coordinates")
 	}
 
 	// Convert orb.Point{lng, lat} → {lat, lng} structs used by Viterbi/FindNearEdges.
@@ -136,15 +133,17 @@ func matchEdgesViaGraph(
 	// produced candidates[i] — needed after Viterbi to re-read Tags1/EdgeDist.
 	candidates := make([][]graph.EdgeCandidate, len(pts))
 	tileGraphs := make([]*graph.Graph, len(pts))
+	var graphAvailable bool
 	for i, pt := range pts {
 		// Context check: abort early if the caller timed out.
 		if err := ctx.Err(); err != nil {
-			return nil, 0, err
+			return nil, graphAvailable, 0, err
 		}
 		g := graphReader.GraphAt(pt.lat, pt.lng)
 		if g == nil {
 			continue // offroad / no tile loaded for this location
 		}
+		graphAvailable = true // at least one tile responded
 		cands := graph.FindNearEdges(g, pt.lat, pt.lng)
 		if len(cands) > 0 {
 			candidates[i] = cands
@@ -178,7 +177,7 @@ func matchEdgesViaGraph(
 	}
 
 	coverage := float64(matchedCount) / float64(len(pts))
-	return samples, coverage, nil
+	return samples, graphAvailable, coverage, nil
 }
 
 // matchEdgesViaPostGIS queries osm_ways for the nearest way per coordinate and
