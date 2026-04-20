@@ -194,3 +194,48 @@ func TestComputeScaleRanges_MTB_OffByOneGuard(t *testing.T) {
 		t.Fatalf("MTB raw=3 must NOT match S3 (off-by-one guard), got %v ranges", len(got))
 	}
 }
+
+// encodeVfScale packt einen VF raw-Wert (0..6) in Tags2 Bits 33-35.
+// Spiegelt EncodeOSMTags in graph/tags.go (bits 33-35 = via_ferrata_scale).
+func encodeVfScale(raw uint8) uint64 {
+	return uint64(raw&0x07) << 33
+}
+
+func TestComputeVfRanges_K3(t *testing.T) {
+	// Bits 33-35 kodieren via_ferrata_scale; K3 = raw 3.
+	edgeTags2 := []uint64{
+		encodeVfScale(3), // K3
+		encodeVfScale(1), // K1
+		encodeVfScale(3), // K3
+	}
+	edgeCoordStart := []int{0, 5, 10}
+	got := computeVfRanges(edgeCoordStart, edgeTags2, 14, "K3")
+	if len(got) != 2 {
+		t.Fatalf("VF K3 → got %d ranges, want 2", len(got))
+	}
+	if got := computeVfRanges(edgeCoordStart, edgeTags2, 14, "K1"); len(got) != 1 {
+		t.Fatalf("VF K1 → got %d ranges, want 1", len(got))
+	}
+}
+
+func TestComputeVfUnknownRanges_Matches(t *testing.T) {
+	// highway == 22 UND vfScale == 0 = K?-Range.
+	edgeTags1 := []uint64{
+		22, // via_ferrata (Bits 0-4)
+		22, // via_ferrata
+		1,  // path (nicht VF)
+	}
+	edgeTags2 := []uint64{
+		encodeVfScale(0), // unscaled
+		encodeVfScale(3), // K3 — KEIN K?
+		encodeVfScale(0), // unscaled — aber kein VF-Highway
+	}
+	edgeCoordStart := []int{0, 5, 10}
+	got := computeVfUnknownRanges(edgeCoordStart, edgeTags1, edgeTags2, 14)
+	if len(got) != 1 {
+		t.Fatalf("VF unknown → got %d ranges, want 1 (edge 0 only)", len(got))
+	}
+	if got[0].From != 0 || got[0].To != 5 {
+		t.Fatalf("VF unknown range = %+v, want [0,5]", got[0])
+	}
+}
