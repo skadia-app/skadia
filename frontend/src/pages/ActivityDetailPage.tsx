@@ -106,7 +106,7 @@ export default function ActivityDetailPage() {
   })
   const weatherDisplayFields = weatherPrefs?.display_fields
 
-  const { data: streams } = useQuery({
+  const { data: streams, isLoading: streamsLoading } = useQuery({
     queryKey: ['activity-streams', activeActivityId],
     queryFn: () => fetchActivityStreams(activeActivityId!),
     enabled: !!activeActivityId,
@@ -768,6 +768,7 @@ export default function ActivityDetailPage() {
           <TrackMap
             activityId={activity.id}
             streams={streams ?? []}
+            streamsLoading={streamsLoading}
             hoverIndex={hoverIndex}
             sportColor={sportColor(activity.sport_type)}
             sportType={activity.sport_type}
