@@ -57,33 +57,61 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
     return { elevationSeries: elev, hasElevation: has, cumulativeKm: km }
   }, [trackPoints])
 
-  // Init ECharts.
+  // Init ECharts — polished per RouteProfileChart reference.
   useEffect(() => {
     if (!chartRef.current) return
     const ec = echarts.init(chartRef.current, undefined, { renderer: 'canvas' })
     echartsInstanceRef.current = ec
+
+    // Y-axis range with padding (same approach as RouteProfileChart)
+    const validElev = elevationSeries.filter((e): e is number => e != null)
+    const yMin = validElev.length > 0 ? Math.floor(Math.min(...validElev) - 20) : 0
+    const yMax = validElev.length > 0 ? Math.ceil(Math.max(...validElev) + 20) : 1
+
     ec.setOption({
       backgroundColor: 'transparent',
-      grid: { top: 6, right: 10, bottom: 6, left: 10, containLabel: false },
+      animation: false,
+      grid: { top: 8, right: 12, bottom: 22, left: 44, containLabel: false },
       xAxis: {
         type: 'value',
         min: 0,
-        max: trackPoints.length - 1,
-        show: false,
+        max: trackPoints.length > 0 ? cumulativeKm[trackPoints.length - 1] : 1,
+        axisLabel: {
+          fontSize: 10,
+          color: '#6b7280',
+          formatter: (v: number) => `${v.toFixed(1)} km`,
+          showMinLabel: true,
+          showMaxLabel: true,
+        },
+        axisLine: { lineStyle: { color: '#374151' } },
+        splitLine: { show: false },
+        axisTick: { show: false },
       },
       yAxis: {
         type: 'value',
-        show: false,
-        min: hasElevation ? 'dataMin' : 0,
-        max: hasElevation ? 'dataMax' : 1,
+        show: hasElevation,
+        min: yMin,
+        max: yMax,
+        axisLabel: {
+          fontSize: 10,
+          color: '#6b7280',
+          formatter: (v: number) => `${v} m`,
+          showMinLabel: false,
+          showMaxLabel: true,
+        },
+        splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
+        axisTick: { show: false },
       },
       tooltip: {
         trigger: 'axis',
-        axisPointer: { type: 'line', lineStyle: { color: '#525252', width: 1 } },
-        backgroundColor: '#171717',
-        borderColor: '#404040',
+        axisPointer: {
+          type: 'line',
+          lineStyle: { color: '#6b7280', width: 1, type: 'dashed' },
+        },
+        backgroundColor: 'rgba(17,24,39,0.92)',
+        borderColor: '#374151',
         borderWidth: 1,
-        textStyle: { color: '#d4d4d4', fontSize: 11 },
+        textStyle: { color: '#f3f4f6', fontSize: 11 },
         formatter: (params: unknown) => {
           const p = params as Array<{ dataIndex: number; value: [number, number] }>
           if (!p || !p[0]) return ''
@@ -92,7 +120,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
           const kmVal = cumulativeKm[idx]
           const kmStr = kmVal != null ? kmVal.toFixed(2) : '—'
           const elevStr = elevVal != null ? `${Math.round(elevVal)} m` : '—'
-          return `<span style="font-size:11px;line-height:1.6">${kmStr} km<br/>${elevStr}</span>`
+          return `<div style="font-size:11px;line-height:1.7"><div style="color:#9ca3af">${kmStr} km</div><div><strong style="color:#f9fafb">${elevStr}</strong></div></div>`
         },
       },
       brush: {
@@ -106,21 +134,22 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
         outOfBrush: { colorAlpha: 0.3 },
         brushStyle: {
           borderWidth: 1,
-          borderColor: 'rgba(59,130,246,0.6)',
-          color: 'rgba(59,130,246,0.12)',
+          borderColor: 'rgba(249,115,22,0.6)',
+          color: 'rgba(249,115,22,0.12)',
         },
       },
       toolbox: { show: false },
       series: [{
         type: 'line',
-        data: elevationSeries.map((y, i) => [i, y ?? 0]),
+        data: elevationSeries.map((y, i) => [cumulativeKm[i] ?? i, y ?? 0]),
         showSymbol: false,
-        smooth: 0.3,
-        lineStyle: { color: '#3b82f6', width: 1.5 },
+        smooth: 0.2,
+        lineStyle: { color: '#22c55e', width: 1.5 },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(59,130,246,0.30)' },
-            { offset: 1, color: 'rgba(59,130,246,0.03)' },
+            { offset: 0, color: 'rgba(34,197,94,0.35)' },
+            { offset: 0.6, color: 'rgba(34,197,94,0.12)' },
+            { offset: 1, color: 'rgba(34,197,94,0.02)' },
           ]),
         },
         emphasis: { disabled: true },
@@ -146,9 +175,9 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
     lastDispatchedRangeRef.current = [range[0], range[1]]
     ec.dispatchAction({
       type: 'brush',
-      areas: [{ brushType: 'lineX', coordRange: [range[0], range[1]], xAxisIndex: 0 }],
+      areas: [{ brushType: 'lineX', coordRange: [cumulativeKm[range[0]] ?? range[0], cumulativeKm[range[1]] ?? range[1]], xAxisIndex: 0 }],
     })
-  }, [range])
+  }, [range, cumulativeKm])
 
   const startKm = cumulativeKm[range[0]]?.toFixed(1) ?? '0.0'
   const endKm = cumulativeKm[range[1]]?.toFixed(1) ?? '0.0'
@@ -166,22 +195,35 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
     if (e.key === 'End') { e.preventDefault(); setter(trackPoints.length - 1) }
   }
 
+  // Dual-range slider fill positioning (start% → end%)
+  const total = Math.max(1, trackPoints.length - 1)
+  const startPct = (range[0] / total) * 100
+  const endPct = (range[1] / total) * 100
+
   return (
-    <div className="border-t border-neutral-800 bg-neutral-900 px-3 pt-2 pb-2">
-      {/* Row 1 — Elevation brush */}
+    <div className="border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-3 pt-2 pb-2">
+      {/* Row 1 — Elevation brush chart */}
       <div className="mb-1.5 relative">
-        <div ref={chartRef} className="h-[48px] w-full" />
+        <div ref={chartRef} className="h-[72px] w-full" />
         {!hasElevation && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <span className="text-xs text-neutral-600">Keine Höhendaten</span>
+            <span className="text-xs text-neutral-400 dark:text-neutral-600">Keine Höhendaten</span>
           </div>
         )}
       </div>
 
-      {/* Row 2 — Range slider */}
+      {/* Row 2 — Range slider with correct fill positioning */}
       <div className="mb-2 flex items-center gap-2">
-        <span className="w-14 shrink-0 font-mono text-xs text-neutral-500">{startKm} km</span>
+        <span className="w-14 shrink-0 font-mono text-xs text-neutral-500 dark:text-neutral-500">{startKm} km</span>
         <div className="relative flex-1 h-5">
+          {/* Track background */}
+          <div className="absolute top-1/2 left-0 right-0 -translate-y-1/2 h-1.5 rounded-full bg-neutral-200 dark:bg-neutral-700" />
+          {/* Selected fill — positioned from startPct% to endPct% */}
+          <div
+            className="absolute top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-accent-DEFAULT"
+            style={{ left: `${startPct}%`, right: `${100 - endPct}%` }}
+          />
+          {/* Start handle */}
           <input
             type="range"
             min={0} max={trackPoints.length - 1}
@@ -189,10 +231,12 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
             onChange={e => setStart(Number(e.target.value))}
             onMouseUp={() => onCommitRange(range)}
             onKeyUp={() => onCommitRange(range)}
-            className="absolute inset-0 w-full cursor-pointer accent-blue-500"
+            style={{ '--thumb-color': '#F97316' } as React.CSSProperties}
+            className="absolute inset-0 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent-DEFAULT [&::-webkit-slider-thumb]:shadow-sm [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent-DEFAULT [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer [&::-webkit-slider-runnable-track]:appearance-none [&::-webkit-slider-runnable-track]:bg-transparent [&::-moz-range-track]:bg-transparent"
             aria-label="Start-Punkt"
             aria-valuemin={0} aria-valuemax={trackPoints.length - 1} aria-valuenow={range[0]}
           />
+          {/* End handle */}
           <input
             type="range"
             min={0} max={trackPoints.length - 1}
@@ -200,12 +244,12 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
             onChange={e => setEnd(Number(e.target.value))}
             onMouseUp={() => onCommitRange(range)}
             onKeyUp={() => onCommitRange(range)}
-            className="absolute inset-0 w-full cursor-pointer accent-blue-500"
+            className="absolute inset-0 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent-DEFAULT [&::-webkit-slider-thumb]:shadow-sm [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent-DEFAULT [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer [&::-webkit-slider-runnable-track]:appearance-none [&::-webkit-slider-runnable-track]:bg-transparent [&::-moz-range-track]:bg-transparent"
             aria-label="Ende-Punkt"
             aria-valuemin={0} aria-valuemax={trackPoints.length - 1} aria-valuenow={range[1]}
           />
         </div>
-        <span className="w-14 shrink-0 text-right font-mono text-xs text-neutral-500">{endKm} km</span>
+        <span className="w-14 shrink-0 text-right font-mono text-xs text-neutral-500 dark:text-neutral-500">{endKm} km</span>
       </div>
 
       {/* Row 3 — Stepper controls + action buttons */}
@@ -226,7 +270,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
           handleRef={endRef}
           onKeyDown={handleKeyDown('end')}
         />
-        <span className="ml-1 text-xs text-neutral-600">← → fein · ⇧ ×10</span>
+        <span className="ml-1 text-xs text-neutral-400 dark:text-neutral-600">← → fein · ⇧ ×10</span>
 
         <div className="flex-1" />
 
@@ -236,8 +280,10 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
           onClick={onReverse}
           title="Richtung umkehren"
           className={cn(
-            'flex items-center gap-1.5 rounded px-2 py-1 text-xs text-neutral-300 transition-colors',
-            'bg-neutral-800 hover:bg-neutral-700 hover:text-white',
+            'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs',
+            'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300',
+            'border border-neutral-200 dark:border-neutral-700',
+            'transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white',
           )}
         >
           <ArrowLeftRight className="size-3.5" />
@@ -250,23 +296,26 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
           onClick={onReset}
           title="Auf gespeicherten Stand zurücksetzen"
           className={cn(
-            'rounded px-2 py-1 text-xs text-neutral-400 transition-colors',
-            'bg-neutral-800 hover:bg-neutral-700 hover:text-neutral-300',
+            'rounded-md px-2 py-1 text-xs',
+            'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400',
+            'border border-neutral-200 dark:border-neutral-700',
+            'transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300',
           )}
         >
           Reset
         </button>
 
-        {/* Primary CTA */}
+        {/* Primary CTA — orange accent */}
         <button
           type="button"
           onClick={onPreviewOrSave}
           className={cn(
-            'rounded px-3 py-1 text-xs font-medium text-white transition-colors',
-            'bg-blue-600 hover:bg-blue-500',
+            'rounded-md px-3 py-1 text-xs font-medium text-white transition-colors shadow-sm',
+            'bg-accent-DEFAULT hover:bg-accent-600',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1',
           )}
         >
-          {isPreview ? 'Speichern' : 'Vorschau'}
+          {isPreview ? 'Speichern' : 'Vorschau →'}
         </button>
       </div>
     </div>
@@ -282,13 +331,13 @@ function PillGroup({ label, value, onPrev, onNext, handleRef, onKeyDown }: {
   onKeyDown: (e: React.KeyboardEvent) => void
 }) {
   return (
-    <div className="flex items-center gap-0.5 rounded bg-neutral-800 px-1.5 py-1">
-      <span className="mr-1 text-xs text-neutral-500">{label}</span>
+    <div className="flex items-center gap-0.5 rounded-md border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-1.5 py-1">
+      <span className="mr-1 text-xs text-neutral-500 dark:text-neutral-500">{label}</span>
       <button
         type="button"
         onClick={onPrev}
         aria-label={`${label} minus 1`}
-        className="flex size-5 items-center justify-center rounded text-neutral-400 transition-colors hover:bg-neutral-700 hover:text-white"
+        className="flex size-5 items-center justify-center rounded text-neutral-500 dark:text-neutral-400 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white"
       >
         ‹
       </button>
@@ -296,7 +345,7 @@ function PillGroup({ label, value, onPrev, onNext, handleRef, onKeyDown }: {
         ref={handleRef}
         type="button"
         onKeyDown={onKeyDown}
-        className="min-w-[3.5ch] px-0.5 text-center font-mono text-xs text-neutral-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+        className="min-w-[3.5ch] px-0.5 text-center font-mono text-xs text-neutral-700 dark:text-neutral-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-accent-DEFAULT"
       >
         {value}
       </button>
@@ -304,7 +353,7 @@ function PillGroup({ label, value, onPrev, onNext, handleRef, onKeyDown }: {
         type="button"
         onClick={onNext}
         aria-label={`${label} plus 1`}
-        className="flex size-5 items-center justify-center rounded text-neutral-400 transition-colors hover:bg-neutral-700 hover:text-white"
+        className="flex size-5 items-center justify-center rounded text-neutral-500 dark:text-neutral-400 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white"
       >
         ›
       </button>
