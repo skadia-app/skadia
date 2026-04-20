@@ -227,6 +227,26 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     return undefined
   }, [meta.segType, mode, range, drawnCoords.length])
 
+  // ── Enrichment status text (screen-reader aria-live) ─────────────────────
+  // Derived from enrichmentMutation state so SegmentSidebar's sr-only live
+  // region announces both loading state AND the result (success / errors).
+  const enrichmentStatus = useMemo(() => {
+    if (enrichmentMutation.isPending) return 'Lade OSM-Daten...'
+    if (enrichmentMutation.isError) return 'Fehler beim Abrufen der OSM-Daten'
+    const data = enrichmentMutation.data
+    if (!data) return ''
+    if (data.reason === 'low_coverage') return 'Keine OSM-Daten für diesen Abschnitt'
+    if (data.reason === 'no_graph') return 'OSM-Graph nicht verfügbar'
+    if (data.reason === 'no_data') return 'Keine OSM-Daten gefunden'
+    if (data.reason === 'wintersport') return '' // intentional no-op for winter
+    const parts: string[] = []
+    if (data.surface?.dominant) parts.push(`Oberfläche ${data.surface.dominant}`)
+    if (data.sac_scale?.dominant) parts.push(`SAC ${data.sac_scale.dominant}`)
+    if (data.mtb_scale?.dominant) parts.push(`MTB ${data.mtb_scale.dominant}`)
+    const pct = Math.round((data.coverage_pct ?? 0) * 100)
+    return `OSM-Daten geladen: ${parts.join(', ')}${parts.length > 0 ? ', ' : ''}${pct}% Coverage`
+  }, [enrichmentMutation.isPending, enrichmentMutation.isError, enrichmentMutation.data])
+
   // ── Save mutation ─────────────────────────────────────────────────────────
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -856,6 +876,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
             enrichmentSources={enrichmentSources}
             onClearEnrichmentSource={(f) => setEnrichmentSources(s => ({ ...s, [f]: null }))}
             enrichmentDisabledReason={enrichmentDisabledReason}
+            enrichmentStatus={enrichmentStatus}
           />
         </div>
 
