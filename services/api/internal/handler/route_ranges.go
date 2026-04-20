@@ -91,6 +91,49 @@ func computeProtectedRanges(
 	return contiguousRangesFromMatch(matches, edgeCoordStart, lastCoordIdx)
 }
 
+// computeVfRanges baut CoordRanges für Edges mit einem spezifischen Via-Ferrata-
+// Level ("K1".."K6"). Liest Bits 33-35 aus Tags2 via graph.DecodeViaFerrataScale.
+// Unbekannte Level oder leere Strings → nil.
+func computeVfRanges(
+	edgeCoordStart []int,
+	edgeTags2 []uint64,
+	lastCoordIdx int,
+	level string,
+) []CoordRange {
+	matches := make([]bool, len(edgeTags2))
+	for i, t2 := range edgeTags2 {
+		raw := graph.DecodeViaFerrataScale(t2)
+		if graph.ViaFerrataScaleShort(raw) == level {
+			matches[i] = true
+		}
+	}
+	return contiguousRangesFromMatch(matches, edgeCoordStart, lastCoordIdx)
+}
+
+// computeVfUnknownRanges baut CoordRanges für Edges wo highway == via_ferrata (22)
+// UND vfScale == 0. Das sind die K?-Ranges (Spec-Invariant I9: IMMER auf der
+// Karte sichtbar, unabhängig vom Scale-Pin).
+func computeVfUnknownRanges(
+	edgeCoordStart []int,
+	edgeTags1 []uint64,
+	edgeTags2 []uint64,
+	lastCoordIdx int,
+) []CoordRange {
+	n := len(edgeTags1)
+	if len(edgeTags2) != n {
+		return nil // defensive — beide Slices MUSS synchron sein (Phase 1 Invariant)
+	}
+	matches := make([]bool, n)
+	for i := range edgeTags1 {
+		hw := graph.DecodeHighway(edgeTags1[i])
+		vf := graph.DecodeViaFerrataScale(edgeTags2[i])
+		if hw == 22 && vf == 0 {
+			matches[i] = true
+		}
+	}
+	return contiguousRangesFromMatch(matches, edgeCoordStart, lastCoordIdx)
+}
+
 // computeScaleRanges builds CoordRanges for edges matching a specific SAC or
 // MTB scale level. kind is "sac" or "mtb"; level is "T1".."T6" or "S0".."S5".
 //
