@@ -165,6 +165,8 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
       distance_target_achieved: true,
       ascent_target_achieved: true,
       is_fallback: false,
+      forest_pct: 0,
+      protected_pct: 0,
       geojson: {
         type: 'FeatureCollection',
         features: [{
