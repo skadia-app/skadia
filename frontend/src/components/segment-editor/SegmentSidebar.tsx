@@ -16,7 +16,9 @@ import {
   SAC_COLOR_MAP,
   MTB_COLOR_MAP,
   deriveTrailDifficultyColor,
+  CLIMB_TYPE_LABELS,
   type SegType,
+  type ClimbType,
 } from './constants'
 import { Pill } from './Pill'
 import { sportsInCategory } from '@/lib/sportTaxonomy'
@@ -33,6 +35,16 @@ export interface SegmentMetadata {
   bidirectional: boolean
   userEditedBidirectional: boolean
   isPublic: boolean
+  /**
+   * Höhenprofil-Charakter des Segments — affects leaderboard partitioning.
+   * Visible for segType ∈ {standard, trail}; hidden for lap/wintersport.
+   * Optional in the interface — defaults to 'standard' when not provided.
+   * TODO: Modal's saveMutation must pass meta.climbType as CreateSegmentPayload.climb_type.
+   *       CreateSegmentPayload.climb_type already exists in api/segments.ts —
+   *       coordinate in next commit or parallel agent (climbType is already
+   *       in the payload type; the Modal just needs to read meta.climbType ?? 'standard').
+   */
+  climbType?: ClimbType
 }
 
 export interface LiveInfo {
@@ -618,6 +630,31 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
             </div>
           )}
         </div>
+
+        {/* ── Höhenprofil (climbType) ──────────────────────────────────────── */}
+        {/* Visible for segType ∈ {standard, trail} — affects leaderboard
+            partitioning (bergauf/bergab get separate slots). Hidden for
+            lap/wintersport (circular route / snow activity semantics). */}
+        {(meta.segType === 'standard' || meta.segType === 'trail') && (
+          <Field label="Höhenprofil">
+            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Höhenprofil">
+              {(['standard', 'bergauf', 'bergab'] as ClimbType[]).map(ct => {
+                const currentClimbType = meta.climbType ?? 'standard'
+                return (
+                  <Pill
+                    key={ct}
+                    role="radio"
+                    ariaChecked={currentClimbType === ct}
+                    active={currentClimbType === ct}
+                    onClick={() => onMetaChange({ climbType: ct })}
+                  >
+                    {CLIMB_TYPE_LABELS[ct]}
+                  </Pill>
+                )
+              })}
+            </div>
+          </Field>
+        )}
 
         {/* ── Bidirektional ────────────────────────────────────────────────── */}
         <Field label="Richtung">
