@@ -6,10 +6,9 @@ export interface LapModeBottomBarProps {
   detectedLaps: number
   onBack: () => void
   onPreviewOrSave: () => void
-  isPreview: boolean
 }
 
-export function LapModeBottomBar({ detectedLaps, onBack, onPreviewOrSave, isPreview }: LapModeBottomBarProps) {
+export function LapModeBottomBar({ detectedLaps, onBack, onPreviewOrSave }: LapModeBottomBarProps) {
   const hasLaps = detectedLaps >= 1
 
   return (
