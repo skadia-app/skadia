@@ -88,7 +88,12 @@ export default function ActivitySegments({ activityId, streams, activitySportTyp
           mode="track"
           trackPoints={streams
             ?.filter(p => p.lat != null && p.lng != null)
-            .map(p => ({ lat: p.lat!, lng: p.lng! }))}
+            .map(p => ({
+              lat: p.lat!,
+              lng: p.lng!,
+              elevation: p.altitude_m ?? null,  // StreamPoint.altitude_m → internal trackPoint.elevation
+              time: p.time,
+            }))}
           sourceActivityId={activityId}
           defaultSportGroup={sportTypeToGroup(activitySportType)}
           onSuccess={() => {

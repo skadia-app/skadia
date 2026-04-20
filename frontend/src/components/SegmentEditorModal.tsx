@@ -16,7 +16,7 @@ type EditorPhase = 'edit' | 'form'
 
 interface Props {
   mode: EditorMode
-  trackPoints?: Array<{ lat: number; lng: number; time?: string }>
+  trackPoints?: Array<{ lat: number; lng: number; elevation?: number | null; time?: string }>
   sourceActivityId?: string
   defaultSportGroup?: string
   onSuccess: () => void
