@@ -511,8 +511,9 @@ export default function TrackMap({ activityId, streams, streamsLoading, hoverInd
       )
     }
     return (
-      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 flex items-center justify-center h-48">
-        <span className="text-sm text-neutral-400">Keine GPS-Daten</span>
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 flex flex-col items-center justify-center h-48 gap-1">
+        <span className="text-sm text-neutral-400">GPS-Daten nicht verfügbar</span>
+        <span className="text-xs text-neutral-400">„Neu berechnen" kann helfen</span>
       </div>
     )
   }
