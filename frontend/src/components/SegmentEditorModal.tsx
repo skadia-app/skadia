@@ -697,7 +697,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
 
         {/* Map container */}
         <div className="relative flex-1">
-          <div ref={mapContainerRef} className="absolute inset-0" />
+          <div ref={mapContainerRef} className="h-full w-full" />
           {/* Lap-mode instruction overlay */}
           {mode === 'lap' && lapCrossings.length === 0 && (
             <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-black/70 px-4 py-2 text-sm text-neutral-200">
