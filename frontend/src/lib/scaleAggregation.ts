@@ -25,10 +25,10 @@ function haversineM(a: number[], b: number[]): number {
 
 function rangeLengthM(coords: number[][], range: CoordRange): number {
   let sum = 0
-  // range.to is inclusive: sum haversine distances from coords[from] to coords[to],
-  // clamped to coords.length-1 to guard against out-of-bounds on the last edge.
-  const to = Math.min(range.to, coords.length - 1)
-  for (let i = range.from + 1; i <= to; i++) {
+  // range.to is EXCLUSIVE (API convention, matches backend route_ranges.go).
+  // Iterate segments from coords[from] up to (but not including) coords[to].
+  const to = Math.min(range.to, coords.length)
+  for (let i = range.from + 1; i < to; i++) {
     sum += haversineM(coords[i - 1], coords[i])
   }
   return sum
