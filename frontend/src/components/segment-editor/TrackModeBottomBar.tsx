@@ -149,12 +149,13 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
         data: elevationSeries.map((y, i) => [cumulativeKm[i] ?? i, y ?? 0]),
         showSymbol: false,
         smooth: 0.2,
-        lineStyle: { color: '#22c55e', width: 1.5 },
+        // D2: orange accent line to match sub-segment color on map
+        lineStyle: { color: '#F97316', width: 1.5 },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(34,197,94,0.35)' },
-            { offset: 0.6, color: 'rgba(34,197,94,0.12)' },
-            { offset: 1, color: 'rgba(34,197,94,0.02)' },
+            { offset: 0, color: 'rgba(249,115,22,0.35)' },
+            { offset: 0.6, color: 'rgba(249,115,22,0.12)' },
+            { offset: 1, color: 'rgba(249,115,22,0.02)' },
           ]),
         },
         emphasis: { disabled: true },
@@ -216,14 +217,19 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
 
   return (
     <div className="border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-3 pt-2 pb-2">
-      {/* Row 1 — Elevation brush chart */}
-      <div className="mb-1.5 relative">
-        <div ref={chartRef} className="h-[72px] w-full" />
-        {!hasElevation && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <span className="text-xs text-neutral-400 dark:text-neutral-600">Keine Höhendaten</span>
-          </div>
-        )}
+      {/* Row 1 — Elevation brush chart (D1: height 116px, section heading) */}
+      <div className="mb-1.5">
+        <div className="px-0 pb-1 text-[10px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">
+          Höhenprofil
+        </div>
+        <div className="relative">
+          <div ref={chartRef} className="h-[116px] w-full" />
+          {!hasElevation && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <span className="text-xs text-neutral-400 dark:text-neutral-600">Keine Höhendaten</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Row 2 — Range slider with correct fill positioning */}
