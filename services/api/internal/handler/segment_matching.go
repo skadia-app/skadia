@@ -117,6 +117,17 @@ func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, use
 
 		// 4. Find traversals (forward and reverse)
 		traversals := findTraversals(gpsStream, endpoints)
+		if shouldSkipReverseTraversal(cand) {
+			// Segment is not bidirectional: filter out reverse traversals.
+			// Forward traversals remain eligible. §4.2 Item 10.
+			filtered := traversals[:0]
+			for _, t := range traversals {
+				if !t.isReverse {
+					filtered = append(filtered, t)
+				}
+			}
+			traversals = filtered
+		}
 		if len(traversals) == 0 {
 			continue
 		}
@@ -265,6 +276,14 @@ func findTraversals(stream []database.GPSStreamPoint, ep *database.SegmentEndpoi
 	}
 
 	return result
+}
+
+// shouldSkipReverseTraversal is a pure-function gate used by
+// collectSegmentEfforts. Returns true when the segment is not bidirectional and
+// reverse-traversal efforts must be discarded. Extracted for testability — see
+// TestShouldSkipReverseTraversal. Spec §4.2 Item 10.
+func shouldSkipReverseTraversal(seg database.CandidateSegment) bool {
+	return !seg.Bidirectional
 }
 
 // nearestInCluster returns the stream index within cluster that is closest to (lat, lng).
