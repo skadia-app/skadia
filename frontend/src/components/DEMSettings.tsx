@@ -31,7 +31,6 @@ export function DEMSettings() {
   const hasImportedRegions = regions.length > 0
   const hgtPresent = regions.reduce((s, r) => s + r.tiles_present, 0)
   const allComplete = regions.every(r => r.complete)
-  const incompleteRegions = regions.filter(r => !r.complete)
 
   return (
     <div className="space-y-3">
