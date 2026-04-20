@@ -29,6 +29,15 @@ type RouteResult struct {
 	// Used for WayID-based overlap detection in round-trip quality gate.
 	// Populated by retrackUnified; empty for approach segments.
 	EdgeHandles []uint64 `json:"-"`
+
+	// EdgeCoordStart[i] = index in Coordinates[] where edge i begins (the network
+	// node of that edge). len(EdgeCoordStart) == len(EdgeHandles). The last edge's
+	// coord-range ends at len(Coordinates)-1 (destination coord).
+	// Populated analog zu EdgeHandles in retrackUnified und BuildRouteResultFromEdges.
+	// json:"-" — intern für Handler-seitige Range-Berechnung, nicht im API-Response.
+	EdgeCoordStart []int    `json:"-"`
+	EdgeTags1      []uint64 `json:"-"` // Tags1 pro Edge — SAC/MTB-Stufen-Ranges
+	EdgeTags2      []uint64 `json:"-"` // Tags2 pro Edge — Forest/Protected/Traffic-Ranges
 }
 
 // AvgFlat returns the distance-weighted average flat cost factor of this route.
