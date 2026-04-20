@@ -38,9 +38,18 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure user is still active (deactivated users must not keep refreshing).
 	user, err := h.DB.GetUserByID(r.Context(), userID.String())
-	if err != nil || !user.IsActive {
+	if err != nil {
 		h.clearRefreshCookie(w)
 		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "account_inactive"})
+		return
+	}
+	if !user.IsActive {
+		h.clearRefreshCookie(w)
+		errCode := "account_inactive"
+		if user.PendingApproval {
+			errCode = "account_pending_approval"
+		}
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": errCode})
 		return
 	}
 

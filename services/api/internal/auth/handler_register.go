@@ -150,7 +150,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		isActive := h.Settings.Get("registration.mode").Value != "approval"
-		user, err = h.DB.CreateUserWithPassword(r.Context(), req.Email, req.Username, hash, "email", ip, isActive)
+		user, err = h.DB.CreateUserWithPassword(r.Context(), req.Email, req.Username, hash, "email", ip, isActive, !isActive)
 	}
 	if err != nil {
 		slog.Error("create user failed", "error", err)

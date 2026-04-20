@@ -95,7 +95,7 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 		}
 
 		user, createErr := h.DB.CreateUserWithPassword(r.Context(),
-			req.Email, req.Username, hash, "admin", net.ParseIP(ip), true)
+			req.Email, req.Username, hash, "admin", net.ParseIP(ip), true, false)
 		if createErr != nil {
 			slog.Error("admin create user: create with password failed", "error", createErr)
 			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "admin_create_failed"})

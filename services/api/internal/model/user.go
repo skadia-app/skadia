@@ -57,6 +57,7 @@ type User struct {
 	MustChangePassword bool       `json:"-"`
 	PendingEmail       *string    `json:"-"`
 	Timezone           string     `json:"timezone"`
+	PendingApproval    bool       `json:"-"`
 }
 
 // MeResponse is the JSON shape returned by GET /auth/me.

@@ -137,8 +137,20 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	user, err := h.DB.GetUserByID(ctx, userID)
-	if err != nil || !user.IsActive || user.DeletedAt != nil {
+	if err != nil {
 		httputil.WriteJSONNoCache(w, http.StatusForbidden, map[string]string{"error": "account_inactive"})
+		return
+	}
+	if user.DeletedAt != nil {
+		httputil.WriteJSONNoCache(w, http.StatusForbidden, map[string]string{"error": "account_inactive"})
+		return
+	}
+	if !user.IsActive {
+		errCode := "account_inactive"
+		if user.PendingApproval {
+			errCode = "account_pending_approval"
+		}
+		httputil.WriteJSONNoCache(w, http.StatusForbidden, map[string]string{"error": errCode})
 		return
 	}
 

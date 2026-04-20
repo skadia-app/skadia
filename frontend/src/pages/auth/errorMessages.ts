@@ -9,7 +9,6 @@ export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   invalid_credentials: 'E-Mail oder Passwort ungültig.', // context: login form, wrong email/password
   account_delayed: 'Zu viele Fehlversuche. Bitte versuche es später erneut.', // context: progressive delay after failed logins
   email_not_verified: 'Bitte verifiziere zuerst deine E-Mail-Adresse.', // context: login blocked until email verified
-  account_inactive: 'Dein Konto ist noch nicht freigeschaltet.', // context: approval-mode account pending admin activation
 
   // Registration errors
   password_too_short: 'Passwort muss mindestens 10 Zeichen lang sein.', // context: registration/reset password form
@@ -63,6 +62,7 @@ export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   deletion_cancelled: 'Deine Account-Löschung wurde abgebrochen.', // context: GDPR cancel deletion
   account_already_deleted: 'Dieser Account ist bereits zur Löschung markiert.', // context: duplicate deletion request
   account_inactive: 'Dein Account ist deaktiviert.', // context: deactivated account login attempt
+  account_pending_approval: 'Dein Konto wartet auf Freischaltung durch einen Administrator.', // context: approval-mode registration, pending admin activation
   export_already_running: 'Ein Datenexport läuft bereits.', // context: concurrent export request
   server_busy: 'Server ist ausgelastet. Bitte versuche es später erneut.', // context: server overloaded
   already_verified: 'Deine E-Mail-Adresse ist bereits bestätigt.', // context: re-verification attempt
