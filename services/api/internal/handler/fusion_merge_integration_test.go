@@ -3624,14 +3624,14 @@ func TestFusionMerge_ElevationPerformance11kSamples(t *testing.T) {
 }
 
 // TestFusionMerge_ElevationTimeGapExcluded verifies the time-gap guard in
-// computeElevationFromStreams: altitude samples separated by > 30 s must NOT
+// computeElevationFromStreams: altitude samples separated by > 120 s must NOT
 // contribute a delta, because in Multi-Device-Fusion the two devices may cover
 // non-overlapping time ranges and the altitude difference across the gap is not
 // real terrain gain/loss.
 //
-// Profile: alt=0 at t=0, alt=500 at t=5min (gap=300s >> 30s limit), alt=450 at t=5min+5s.
+// Profile: alt=0 at t=0, alt=500 at t=5min (gap=300s >> 120s limit), alt=450 at t=5min+5s.
 // Without the gap guard the delta +500 would be counted as gain.
-// With the guard, the gap delta is excluded; only the -50 delta (within 30s) contributes.
+// With the guard, the gap delta is excluded; only the -50 delta (within 120s) contributes.
 // Expected: gain=0, loss=50 (±5m).
 func TestFusionMerge_ElevationTimeGapExcluded(t *testing.T) {
 	pool := fusionTestPool(t)
@@ -3645,8 +3645,8 @@ func TestFusionMerge_ElevationTimeGapExcluded(t *testing.T) {
 	alt0 := 0.0
 	alt500 := 500.0
 	alt450 := 450.0
-	// alt500 is 5 minutes after alt0 — gap > 30 s, must be excluded.
-	// alt450 is 5 s after alt500 — within 30 s, delta=-50 must be counted.
+	// alt500 is 5 minutes after alt0 — gap > 120 s, must be excluded.
+	// alt450 is 5 s after alt500 — within 120 s, delta=-50 must be counted.
 	streamsA := []model.StreamPoint{
 		{Time: now, AltitudeM: &alt0},
 		{Time: now.Add(5 * time.Minute), AltitudeM: &alt500},
@@ -3685,7 +3685,7 @@ func TestFusionMerge_ElevationTimeGapExcluded(t *testing.T) {
 	).Scan(&gain, &loss); err != nil {
 		t.Fatalf("read merged activity: %v", err)
 	}
-	// The +500 gap delta (300 s) must be excluded by the 30-s time guard.
+	// The +500 gap delta (300 s) must be excluded by the 120-s time guard.
 	// Only the -50 delta (5 s apart, > 3 m dead-band) must be counted.
 	const tol = 5.0
 	if gain > tol {
@@ -3693,6 +3693,75 @@ func TestFusionMerge_ElevationTimeGapExcluded(t *testing.T) {
 	}
 	if math.Abs(loss-50.0) > tol {
 		t.Errorf("loss_m = %f, want ~50 (±%v)", loss, tol)
+	}
+}
+
+// TestFusionMerge_ElevationTimeGap60sIncluded verifies that a 60 s gap between
+// altitude samples is NOT filtered by the 120 s time-gap guard (R4-9).
+//
+// Before R4-9 the threshold was 30 s, which wrongly excluded 40–60 s tunnel/cable-car
+// gaps common in alpine terrain. With 120 s, 60 s gaps pass through.
+//
+// Profile: alt=0 at t=0, alt=100 at t=60s (gap=60s, within 120s limit), alt=80 at t=65s.
+// Expected: gain=100 (0→100 counted), loss=20 (100→80 counted, both > 3 m dead-band).
+func TestFusionMerge_ElevationTimeGap60sIncluded(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+
+	actA := insertMinimalActivity(t, db, userID)
+	now := time.Now().UTC().Truncate(time.Second)
+
+	alt0 := 0.0
+	alt100 := 100.0
+	alt80 := 80.0
+	// 60 s gap — was previously excluded by the 30 s guard; must now pass through.
+	streamsA := []model.StreamPoint{
+		{Time: now, AltitudeM: &alt0},
+		{Time: now.Add(60 * time.Second), AltitudeM: &alt100},
+		{Time: now.Add(65 * time.Second), AltitudeM: &alt80},
+	}
+	insertStreams(t, db, actA, streamsA)
+
+	actB := insertMinimalActivity(t, db, userID)
+	insertStreams(t, db, actB, []model.StreamPoint{
+		{Time: now, AltitudeM: fusionPtrF64(0)},
+	})
+
+	h := &Handler{DB: db}
+	reqBody := mustJSON(FusionMergeRequest{
+		Sources:  []string{actA, actB},
+		FieldMap: map[string]string{"altitude": actA},
+	})
+	r := httptest.NewRequest(http.MethodPost, "/fusion-merge", strings.NewReader(reqBody))
+	r.Header.Set("Content-Type", "application/json")
+	r = r.WithContext(context.WithValue(r.Context(), middleware.UserIDKey, userID))
+	rr := httptest.NewRecorder()
+	h.FusionMerge(rr, r)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		ID string `json:"id"`
+	}
+	_ = json.NewDecoder(rr.Body).Decode(&resp)
+
+	var gain, loss float64
+	if err := pool.QueryRow(ctx,
+		`SELECT COALESCE(elevation_gain_m, 0), COALESCE(elevation_loss_m, 0) FROM activities WHERE id = $1`,
+		resp.ID,
+	).Scan(&gain, &loss); err != nil {
+		t.Fatalf("read merged activity: %v", err)
+	}
+	// 60 s gap is within the 120 s guard — both deltas must be counted.
+	const tol = 5.0
+	if math.Abs(gain-100.0) > tol {
+		t.Errorf("R4-9: gain_m = %f, want ~100 (60s gap must NOT be filtered with 120s threshold)", gain)
+	}
+	if math.Abs(loss-20.0) > tol {
+		t.Errorf("R4-9: loss_m = %f, want ~20 (100→80 delta must be counted)", loss)
 	}
 }
 
