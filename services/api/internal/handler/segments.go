@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -105,6 +106,24 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Normalize historic German surface labels in segment_type_meta before DB write.
+	if len(create.SegmentTypeMeta) > 0 {
+		var m map[string]any
+		if err := json.Unmarshal(create.SegmentTypeMeta, &m); err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "segment_type_meta: invalid JSON", r.URL.Path)
+			return
+		}
+		if sv, ok := m["surface"].(string); ok {
+			m["surface"] = normalizeSurfaceLabel(sv)
+		}
+		buf, err := json.Marshal(m)
+		if err != nil {
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "re-marshal meta", r.URL.Path)
+			return
+		}
+		create.SegmentTypeMeta = buf
+	}
+
 	segment, err := h.DB.CreateSegment(r.Context(), userID, &create)
 	if err != nil {
 		if strings.Contains(err.Error(), "lap segment must be a closed loop") {
@@ -205,6 +224,24 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 	if update.Visibility != nil && *update.Visibility == "public" && existing.Visibility == "private" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "use POST /segments/{id}/publish to publish a private segment", r.URL.Path)
 		return
+	}
+
+	// Normalize historic German surface labels in segment_type_meta before DB write.
+	if update.SegmentTypeMeta != nil && len(*update.SegmentTypeMeta) > 0 {
+		var m map[string]any
+		if err := json.Unmarshal(*update.SegmentTypeMeta, &m); err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "segment_type_meta: invalid JSON", r.URL.Path)
+			return
+		}
+		if sv, ok := m["surface"].(string); ok {
+			m["surface"] = normalizeSurfaceLabel(sv)
+		}
+		buf, err := json.Marshal(m)
+		if err != nil {
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "re-marshal meta", r.URL.Path)
+			return
+		}
+		*update.SegmentTypeMeta = buf
 	}
 
 	segment, err := h.DB.UpdateSegment(r.Context(), id, userID, &update)
@@ -1015,4 +1052,23 @@ func (h *Handler) GetGlobalTopSegmentEfforts(w http.ResponseWriter, r *http.Requ
 		"efforts": efforts,
 		"count":   len(efforts),
 	})
+}
+
+// normalizeSurfaceLabel maps historic German editor strings onto the new
+// parent-group labels used by the Surface-taxonomy overhaul (Migration 000316).
+// Modern keys and user-only sub-types pass through unchanged. Whitespace is trimmed.
+//
+// This helper is permanent (no sunset). Redundant normalize-cost is O(1); eliminates
+// risk that third-party API clients or stale imports still write old keys and would
+// otherwise hit DifficultyBadge/SurfacesBar silent-no-render paths.
+func normalizeSurfaceLabel(s string) string {
+	s = strings.TrimSpace(s)
+	switch s {
+	case "Schotter":
+		return "Schotter (grob)"
+	case "Erde":
+		return "Naturweg"
+	default:
+		return s
+	}
 }
