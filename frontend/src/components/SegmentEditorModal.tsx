@@ -162,6 +162,9 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   // ── Lap-mode state ────────────────────────────────────────────────────────
   const [lapCrossings, setLapCrossings] = useState<number[]>([])
   const detectedLaps = Math.max(0, lapCrossings.length - 1)
+  // Tracks how many lap-seg-{i} sources were added in the previous render so
+  // cleanup iterates exactly that many (avoids the magic-number-20 upper bound).
+  const prevLapSegCountRef = useRef(0)
 
   // Lap detection: runs when map loads in lap mode (click-to-place finish line)
   // is handled via the map click handler below.
@@ -505,12 +508,14 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     if (!map || mode !== 'lap' || lapCrossings.length < 2) return
     if (!map.isStyleLoaded()) return
 
-    // Remove old lap layers
+    // Remove old lap layers (only up to the count added in the previous render).
     const existingLayers = map.getStyle()?.layers ?? []
     existingLayers.forEach(l => {
       if (l.id.startsWith('lap-segment-')) map.removeLayer(l.id)
     })
-    for (let i = 0; i < 20; i++) {
+    // prevLapSegCountRef tracks how many lap-seg-{i} sources were registered
+    // previously (indices 1..prevCount), avoiding an arbitrary upper-bound magic number.
+    for (let i = 1; i <= prevLapSegCountRef.current; i++) {
       if (map.getSource(`lap-seg-${i}`)) map.removeSource(`lap-seg-${i}`)
     }
 
@@ -540,6 +545,8 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         },
       })
     }
+    // Record how many sources were added so cleanup is exact on the next render.
+    prevLapSegCountRef.current = lapCrossings.length - 1
   }, [mode, lapCrossings, trackPoints])
 
   // ── Click-to-place: lat-corrected nearest-point (track) ──────────────────
