@@ -18,7 +18,7 @@ import {
   deriveTrailDifficultyColor,
   type SegType,
 } from './constants'
-import { CATEGORIES, sportsInCategory } from '@/lib/sportTaxonomy'
+import { sportsInCategory } from '@/lib/sportTaxonomy'
 import { cn } from '@/lib/utils'
 
 export interface SegmentMetadata {
@@ -73,20 +73,38 @@ const DIFF_COLOR_LABELS: Record<'blue' | 'red' | 'black', string> = {
   black: 'Schwarz — schwer',
 }
 
-// ── Categories to display in the sports section ───────────────────────────────
-// The full taxonomy has 10 categories; we show the most relevant.
-// Winter-only mode uses WINTER_SPORT_WHITELIST instead of categories.
-const SPORT_CATEGORY_KEYS = ['run', 'bike', 'water', 'winter', 'outdoor', 'fitness', 'climb', 'other'] as const
+// ── UI-level sport categories (5 chips shown to user) ─────────────────────────
+// Maps user-visible chips to the underlying taxonomy category keys.
+// "Sonstige" covers fitness/game/climb/outdoor/multi/other from the taxonomy.
+const UI_SPORT_CATEGORIES: Array<{ key: string; label: string; taxonomyKeys: string[] }> = [
+  { key: 'run',      label: 'Laufen & Wandern', taxonomyKeys: ['run'] },
+  { key: 'bike',     label: 'Rad',              taxonomyKeys: ['bike'] },
+  { key: 'winter',   label: 'Wintersport',      taxonomyKeys: ['winter'] },
+  { key: 'water',    label: 'Wassersport',       taxonomyKeys: ['water'] },
+  { key: 'sonstige', label: 'Sonstige',          taxonomyKeys: ['fitness', 'game', 'climb', 'outdoor', 'multi', 'other'] },
+]
 
-/** Maps a segment group (from ActivitySegments) to the taxonomy category key that
- *  should be auto-expanded when the editor opens for that activity type. */
-const SEGMENT_GROUP_TO_CATEGORY: Record<string, string> = {
-  foot:    'run',
-  bike:    'bike',
-  ski:     'winter',
-  paddle:  'water',
-  swim:    'water',
-  // 'generic' → no expansion
+/** Expand a UI category key to all individual sport-type strings from the taxonomy. */
+function expandCategoryToSportTypes(uiKey: string, whitelist?: readonly string[]): string[] {
+  const cat = UI_SPORT_CATEGORIES.find(c => c.key === uiKey)
+  if (!cat) return []
+  const types = cat.taxonomyKeys.flatMap(tk => sportsInCategory(tk).map(s => s.sportType))
+  if (whitelist) return types.filter(t => whitelist.includes(t))
+  return types
+}
+
+/** True if ALL sport-types for the given UI category are in `active`. */
+function isCategoryFullyActive(uiKey: string, active: string[] | null, whitelist?: readonly string[]): boolean {
+  if (active === null) return false // "Alle" mode
+  const types = expandCategoryToSportTypes(uiKey, whitelist)
+  return types.length > 0 && types.every(t => active.includes(t))
+}
+
+/** True if SOME (but not all) sport-types for the given UI category are in `active`. */
+function isCategoryPartiallyActive(uiKey: string, active: string[] | null, whitelist?: readonly string[]): boolean {
+  if (active === null) return false
+  const types = expandCategoryToSportTypes(uiKey, whitelist)
+  return types.some(t => active.includes(t)) && !types.every(t => active.includes(t))
 }
 
 export function SegmentSidebar(props: SegmentSidebarProps) {
@@ -96,7 +114,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     info,
     mode,
     allSportTypes,
-    defaultSportGroup,
+    // defaultSportGroup: no longer used (category chips don't auto-expand)
     onEnrichmentRequest,
     enrichmentState,
     enrichmentSources,
@@ -105,29 +123,17 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     enrichmentStatus,
   } = props
 
-  // Collapsible category state — all collapsed by default.
-  // Exceptions: (1) the category matching the activity's sport group, (2) any
-  // category that already has selected sport types in meta.sportTypes.
-  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(() => {
-    // Start with ALL categories collapsed.
-    const allCollapsed = new Set(SPORT_CATEGORY_KEYS as ReadonlyArray<string>)
+  // Advanced "Feinwahl" expansion — which UI categories have detail chips shown.
+  const [detailOpenCategories, setDetailOpenCategories] = useState<Set<string>>(new Set())
 
-    // Auto-expand the category matching the activity's segment group.
-    const autoExpand = defaultSportGroup ? SEGMENT_GROUP_TO_CATEGORY[defaultSportGroup] : undefined
-    if (autoExpand) allCollapsed.delete(autoExpand)
-
-    // Auto-expand any category that already has selected sport types.
-    if (meta.sportTypes && meta.sportTypes.length > 0) {
-      for (const catKey of SPORT_CATEGORY_KEYS) {
-        const catSports = sportsInCategory(catKey)
-        if (catSports.some(s => meta.sportTypes!.includes(s.sportType))) {
-          allCollapsed.delete(catKey)
-        }
-      }
-    }
-
-    return allCollapsed
-  })
+  const toggleDetailOpen = (uiKey: string) => {
+    setDetailOpenCategories(prev => {
+      const next = new Set(prev)
+      if (next.has(uiKey)) next.delete(uiKey)
+      else next.add(uiKey)
+      return next
+    })
+  }
 
   const showScaleFields = meta.segType !== 'wintersport'
   const difficultyColorReadonly = meta.segType === 'trail'
@@ -141,20 +147,6 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     }
     return allSportTypes
   }, [meta.segType, allSportTypes])
-
-  // Build grouped sports — each category only if it has matching entries
-  const groupedSports = useMemo(() => {
-    if (meta.segType === 'wintersport') return null // handled separately
-    return SPORT_CATEGORY_KEYS
-      .map(catKey => {
-        const catSports = sportsInCategory(catKey).filter(s =>
-          availableSportTypes.some(a => a.key === s.sportType)
-        )
-        const cat = CATEGORIES.find(c => c.key === catKey)
-        return { key: catKey, label: cat?.label ?? catKey, sports: catSports }
-      })
-      .filter(g => g.sports.length > 0)
-  }, [availableSportTypes, meta.segType])
 
   const handleSegTypeChange = (newType: SegType) => {
     const patch: Partial<SegmentMetadata> = { segType: newType }
@@ -196,13 +188,21 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
 
   const setAll = () => onMetaChange({ sportTypes: null })
 
-  const toggleCategory = (catKey: string) => {
-    setCollapsedCategories(prev => {
-      const next = new Set(prev)
-      if (next.has(catKey)) next.delete(catKey)
-      else next.add(catKey)
-      return next
-    })
+  const toggleUiCategory = (uiKey: string) => {
+    const whitelist = meta.segType === 'wintersport' ? WINTER_SPORT_WHITELIST : undefined
+    const categoryTypes = expandCategoryToSportTypes(uiKey, whitelist)
+    const current = meta.sportTypes
+
+    if (isCategoryFullyActive(uiKey, current, whitelist)) {
+      // Deselect all types in this category.
+      const next = current!.filter(t => !categoryTypes.includes(t))
+      onMetaChange({ sportTypes: next.length === 0 ? null : next })
+    } else {
+      // Select all types in this category (merge with existing selections).
+      const base = current ?? []
+      const next = Array.from(new Set([...base, ...categoryTypes]))
+      onMetaChange({ sportTypes: next })
+    }
   }
 
   return (
@@ -273,17 +273,114 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
 
         {/* ── Sportarten ───────────────────────────────────────────────────── */}
         <Field label="Sportarten">
-          {/* "Alle" lead chip */}
-          <div className="mb-1.5">
-            <Chip active={meta.sportTypes === null} onClick={setAll}>
+          {/* Category chips row */}
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Sportarten-Filter">
+            {/* "Alle" chip */}
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={meta.sportTypes === null}
+              onClick={setAll}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium',
+                'transition-colors duration-150',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900',
+                meta.sportTypes === null
+                  ? 'bg-accent-DEFAULT text-white shadow-sm'
+                  : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100',
+              )}
+            >
               {meta.sportTypes === null && <Check className="h-3 w-3 shrink-0" />}
-              Alle ✓
-            </Chip>
+              Alle
+            </button>
+
+            {/* Category chips — filter to only wintersport chip if segType=wintersport */}
+            {UI_SPORT_CATEGORIES
+              .filter(cat => meta.segType !== 'wintersport' || cat.key === 'winter')
+              .map(cat => {
+                const whitelist = meta.segType === 'wintersport' ? WINTER_SPORT_WHITELIST : undefined
+                const isActive = isCategoryFullyActive(cat.key, meta.sportTypes, whitelist)
+                const isPartial = isCategoryPartiallyActive(cat.key, meta.sportTypes, whitelist)
+                return (
+                  <button
+                    key={cat.key}
+                    type="button"
+                    role="checkbox"
+                    aria-checked={isActive ? true : isPartial ? 'mixed' : false}
+                    onClick={() => toggleUiCategory(cat.key)}
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium',
+                      'transition-colors duration-150',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900',
+                      isActive
+                        ? 'bg-accent-DEFAULT text-white shadow-sm'
+                        : isPartial
+                          ? 'bg-accent-DEFAULT/20 text-accent-DEFAULT dark:text-accent-400 shadow-sm'
+                          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100',
+                    )}
+                  >
+                    {isActive && <Check className="h-3 w-3 shrink-0" />}
+                    {cat.label}
+                  </button>
+                )
+              })
+            }
           </div>
 
-          {meta.segType === 'wintersport' ? (
-            /* Winter-only flat list */
-            <div className="flex flex-wrap gap-1">
+          {/* Feinwahl: per active non-Alle category, show individual sport chips on expand */}
+          {meta.sportTypes !== null && meta.segType !== 'wintersport' && (
+            <div className="mt-2 flex flex-col gap-1.5">
+              {UI_SPORT_CATEGORIES
+                .filter(cat => {
+                  const types = expandCategoryToSportTypes(cat.key)
+                  return types.some(t => meta.sportTypes!.includes(t)) ||
+                         isCategoryFullyActive(cat.key, meta.sportTypes)
+                })
+                .map(cat => {
+                  const isOpen = detailOpenCategories.has(cat.key)
+                  const catSports = cat.taxonomyKeys
+                    .flatMap(tk => sportsInCategory(tk))
+                    .filter(s => availableSportTypes.some(a => a.key === s.sportType))
+                  if (catSports.length === 0) return null
+                  return (
+                    <div key={cat.key}>
+                      <button
+                        type="button"
+                        onClick={() => toggleDetailOpen(cat.key)}
+                        className="flex items-center gap-1 mb-1 group"
+                      >
+                        {isOpen
+                          ? <ChevronDown className="h-3 w-3 text-neutral-400 dark:text-neutral-500 group-hover:text-neutral-600 dark:group-hover:text-neutral-300" />
+                          : <ChevronRight className="h-3 w-3 text-neutral-400 dark:text-neutral-500 group-hover:text-neutral-600 dark:group-hover:text-neutral-300" />
+                        }
+                        <span className="text-[10px] font-semibold tracking-wider uppercase text-neutral-400 dark:text-neutral-500 group-hover:text-neutral-600 dark:group-hover:text-neutral-300">
+                          {cat.label} — Feinwahl
+                        </span>
+                      </button>
+                      {isOpen && (
+                        <div className="flex flex-wrap gap-1 pl-3">
+                          {catSports.map(s => (
+                            <Chip
+                              key={s.sportType}
+                              active={meta.sportTypes?.includes(s.sportType) ?? false}
+                              onClick={() => toggleSportType(s.sportType)}
+                            >
+                              {meta.sportTypes?.includes(s.sportType) && <Check className="h-3 w-3 shrink-0" />}
+                              {s.label}
+                            </Chip>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              }
+            </div>
+          )}
+
+          {/* wintersport: individual chips for the whitelisted winter sports */}
+          {meta.segType === 'wintersport' && meta.sportTypes !== null && (
+            <div className="mt-2 flex flex-wrap gap-1">
               {availableSportTypes.map(s => (
                 <Chip
                   key={s.key}
@@ -294,44 +391,6 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
                   {s.label}
                 </Chip>
               ))}
-            </div>
-          ) : (
-            /* Grouped by category */
-            <div className="flex flex-col gap-1.5">
-              {groupedSports?.map(({ key: catKey, label: catLabel, sports }) => {
-                const isCollapsed = collapsedCategories.has(catKey)
-                return (
-                  <div key={catKey}>
-                    <button
-                      type="button"
-                      onClick={() => toggleCategory(catKey)}
-                      className="flex items-center gap-1 mb-1 group"
-                    >
-                      {isCollapsed
-                        ? <ChevronRight className="h-3 w-3 text-neutral-400 dark:text-neutral-500 group-hover:text-neutral-600 dark:group-hover:text-neutral-300" />
-                        : <ChevronDown className="h-3 w-3 text-neutral-400 dark:text-neutral-500 group-hover:text-neutral-600 dark:group-hover:text-neutral-300" />
-                      }
-                      <span className="text-[10px] font-semibold tracking-wider uppercase text-neutral-400 dark:text-neutral-500 group-hover:text-neutral-600 dark:group-hover:text-neutral-300">
-                        {catLabel}
-                      </span>
-                    </button>
-                    {!isCollapsed && (
-                      <div className="flex flex-wrap gap-1 pl-3">
-                        {sports.map(s => (
-                          <Chip
-                            key={s.sportType}
-                            active={meta.sportTypes?.includes(s.sportType) ?? false}
-                            onClick={() => toggleSportType(s.sportType)}
-                          >
-                            {meta.sportTypes?.includes(s.sportType) && <Check className="h-3 w-3 shrink-0" />}
-                            {s.label}
-                          </Chip>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
             </div>
           )}
         </Field>
