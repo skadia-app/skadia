@@ -8,7 +8,7 @@ import { useSources } from './SourcesContext'
 import { useComparisonStore } from './useComparisonStore'
 import type { Activity, StreamPoint } from '@/api/types'
 import { formatDuration, formatDistance } from '@/lib/utils'
-import { formatSpeedValue, defaultSpeedMode, formatPace } from '@/lib/sportFieldLabels'
+import { formatSpeedValue } from '@/lib/sportFieldLabels'
 import { fmtHr, fmtPower, fmtElevation } from '@/lib/format'
 
 function nanFallback(v: number): number | null {

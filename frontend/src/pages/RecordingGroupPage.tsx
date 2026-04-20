@@ -245,7 +245,6 @@ export default function RecordingGroupPage() {
   }, [group])
 
   const hasSportTypeConflict = uniqueSportTypes.length > 1
-  const effectiveSportType = group?.sport_type ?? uniqueSportTypes[0] ?? 'generic'
 
   // ── Header info ───────────────────────────────────────────────────────────
 

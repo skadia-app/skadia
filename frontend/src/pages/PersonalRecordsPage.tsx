@@ -6,7 +6,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   fetchPersonalRecords,
   fetchExclusions,
-  addExclusion,
   removeExclusion,
   recalcBestEfforts,
   type BestEffortExclusion,
@@ -185,19 +184,6 @@ export default function PersonalRecordsPage() {
   const globalTopEfforts = globalTopData?.efforts ?? []
 
   // ── Mutations ─────────────────────────────────────────────────────────────
-  const excludeMutation = useMutation({
-    mutationFn: ({ activityId, category }: { activityId: string; category: string }) =>
-      addExclusion(activityId, category),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey })
-      queryClient.invalidateQueries({ queryKey: ['best-effort-exclusions'] })
-      addToast({ type: 'success', title: 'Aktivität ausgeschlossen' })
-    },
-    onError: () => {
-      addToast({ type: 'error', title: 'Ausschluss fehlgeschlagen', message: 'Die Aktivität konnte nicht ausgeschlossen werden' })
-    },
-  })
-
   const reincludeMutation = useMutation({
     mutationFn: ({ activityId, category }: { activityId: string; category: string }) =>
       removeExclusion(activityId, category),
@@ -245,10 +231,6 @@ export default function PersonalRecordsPage() {
   const elevRecords = useMemo(() => filteredRecords.filter(r => r.category.startsWith(CATEGORY_PREFIXES.elev)), [filteredRecords])
   const powerRecords = useMemo(() => filteredRecords.filter(r => r.category.startsWith(CATEGORY_PREFIXES.power)), [filteredRecords])
   const supRecords = useMemo(() => filteredRecords.filter(r => r.category.startsWith(CATEGORY_PREFIXES.sup)), [filteredRecords])
-
-  const handleExclude = (activityId: string, category: string) => {
-    excludeMutation.mutate({ activityId, category })
-  }
 
   const handleReinclude = (activityId: string, category: string) => {
     reincludeMutation.mutate({ activityId, category })
