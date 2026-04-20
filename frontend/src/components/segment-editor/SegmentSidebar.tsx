@@ -154,6 +154,8 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
 
   const showScaleFields = meta.segType !== 'wintersport'
   const difficultyColorReadonly = meta.segType === 'trail'
+  // Bei Single-Scale-Delete (nur SAC oder nur MTB gelöscht) asymmetrisch,
+  // aber okay in normalem UX-Flow — bleibt das Maximum der gesetzten Skala.
   const displayedColor = difficultyColorReadonly
     ? deriveTrailDifficultyColor(meta.sacScale, meta.mtbScale)
     : meta.difficultyColor
@@ -196,6 +198,9 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
   }
 
   const handleBidirectionalToggle = () => {
+    // Flag wird bei jedem Toggle-Klick auf true gesetzt — zurückgeklickter
+    // Default bleibt 'manuell'-geflagt. Phase 2: optional auto-reset wenn
+    // exact auf Default zurück (z.B. User klickt wieder auf den segType-Default).
     onMetaChange({
       bidirectional: !meta.bidirectional,
       userEditedBidirectional: true,
