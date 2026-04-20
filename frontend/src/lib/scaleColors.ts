@@ -16,3 +16,16 @@ export const HIGHLIGHT_COLORS = {
   forest:    '#16a34a',  // sattes Grün
   protected: '#8b5cf6',  // Violett
 } as const
+
+// Via-Ferrata: Gelb (K1) → Dunkelrot (K6). Kontrast mit MTB/SAC durch anderen
+// Farbverlauf-Startpunkt (Gelb statt Grün) — Klettersteige sollen visuell
+// als "erhöhtes Risiko" auffallen, auch bei K1.
+export const VF_COLORS = {
+  K1: '#eab308', K2: '#f97316', K3: '#ef4444',
+  K4: '#dc2626', K5: '#991b1b', K6: '#450a0a',
+} as const
+
+// K? (unscaled via_ferrata) — dunkelrot, weil Schwierigkeit unbekannt und
+// im Worst-Case K6 sein kann. Kein Teil von VF_COLORS weil die Range als
+// eigener Layer gerendert wird (dashed line).
+export const VF_UNKNOWN_COLOR: string = '#7f1d1d'
