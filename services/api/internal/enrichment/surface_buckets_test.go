@@ -54,3 +54,39 @@ func TestSurfaceIDToGroup(t *testing.T) {
 		}
 	}
 }
+
+// surfaceIDToGroupForSegment collapses buckets that the segment-editor
+// dropdown does not offer. Diffs vs surfaceIDToGroup:
+//   - concrete (2), concrete_plates (34), concrete_lanes (35) → "Asphalt"
+//   - metal (6), wood (7), woodchips (19), metal_grid (36) → "" (skipped)
+// All other IDs delegate to the canonical mapper unchanged.
+func TestSurfaceIDToGroupForSegment(t *testing.T) {
+	cases := []struct {
+		id   uint8
+		want string
+	}{
+		// Collapsed / excluded for segments:
+		{2, "Asphalt"}, {34, "Asphalt"}, {35, "Asphalt"},
+		{6, ""}, {7, ""}, {19, ""}, {36, ""},
+		// Spot-check unchanged IDs delegate to surfaceIDToGroup:
+		{1, "Asphalt"},
+		{3, "Pflaster"},
+		{8, "Schotter (fein)"},
+		{9, "Schotter (grob)"},
+		{12, "Naturweg"},
+		{14, "Gras"},
+		{18, "Sand"},
+		{20, "Schnee"},
+		{22, "Fels"},
+		{26, "Sportbelag"},
+		{33, "Asphalt"},
+		{37, "Naturweg"},
+		{0, ""}, {99, ""},
+	}
+	for _, c := range cases {
+		got := surfaceIDToGroupForSegment(c.id)
+		if got != c.want {
+			t.Errorf("surfaceIDToGroupForSegment(%d) = %q, want %q", c.id, got, c.want)
+		}
+	}
+}
