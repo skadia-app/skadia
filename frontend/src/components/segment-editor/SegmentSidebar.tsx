@@ -212,8 +212,8 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
         <div className="mx-3 mt-3 rounded-lg border border-neutral-200 dark:border-neutral-700/60 bg-neutral-50 dark:bg-neutral-800 p-3">
           <div className="grid grid-cols-3 gap-x-2 text-center">
             <MetricCell label="Distanz" value={`${info.distanceKm.toFixed(1)} km`} />
-            <MetricCell label="Aufstieg" value={`+${Math.round(info.gainM)} m`} />
-            <MetricCell label="Abstieg"  value={`−${Math.round(info.lossM)} m`} />
+            <MetricCell label="Aufstieg" value={`+${Math.round(info.gainM)} m`} valueClassName="text-red-500" />
+            <MetricCell label="Abstieg"  value={`−${Math.round(info.lossM)} m`} valueClassName="text-green-500" />
           </div>
           {info.elevationMaxM != null && (
             <div className="mt-2 border-t border-neutral-200 dark:border-neutral-700/60 pt-2 text-center">
@@ -546,11 +546,11 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function MetricCell({ label, value }: { label: string; value: string }) {
+function MetricCell({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
   return (
     <div>
       <div className="text-[10px] font-medium tracking-wide text-neutral-500 dark:text-neutral-400 uppercase">{label}</div>
-      <div className="mt-0.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">{value}</div>
+      <div className={cn('mt-0.5 text-sm font-semibold', valueClassName ?? 'text-neutral-900 dark:text-neutral-100')}>{value}</div>
     </div>
   )
 }
