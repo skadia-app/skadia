@@ -184,6 +184,17 @@ export function useRoutePlanner() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
 
+  // ── Scale-Pin state (SAC / MTB / Via Ferrata) ────────────────────────────────
+  // Via-Ferrata-Union: 'vf' wird hier direkt aufgenommen (Task 22a), damit der
+  // Union konsistent bleibt und keine Zwischen-Reparatur nötig ist.
+  const [scalePin, setScalePin] = useState<'sac' | 'mtb' | 'vf' | null>(null)
+
+  const togglePin = useCallback((kind: 'sac' | 'mtb' | 'vf') => {
+    setScalePin(prev => prev === kind ? null : kind)
+  }, [])
+
+  const resetScalePin = useCallback(() => setScalePin(null), [])
+
   // ── Mount-fetch: hydrate hiking defaults from server ─────────────────────────
 
   useEffect(() => {
@@ -450,6 +461,7 @@ export function useRoutePlanner() {
   )
 
   const recalculateAll = useCallback(async () => {
+    setScalePin(null)
     let currentWaypoints: RouteWaypoint[] = []
     let currentProfileConfig: ProfileConfig | null = null
     let currentEngine: RoutingEngine = 'badrouter'
@@ -602,6 +614,7 @@ export function useRoutePlanner() {
     // route.profile is a string — try cache first, then fetch async
     const cached = getProfileDefaults(route.profile)
     if (cached) {
+      setScalePin(null)
       setState(s => ({
         ...s,
         waypoints: route.waypoints,
@@ -613,6 +626,7 @@ export function useRoutePlanner() {
         editingRouteId: route.id,
       }))
     } else {
+      setScalePin(null)
       // Load waypoints/segments immediately, fetch profile in background
       setState(s => ({
         ...s,
@@ -665,6 +679,9 @@ export function useRoutePlanner() {
   // This prevents the previous bug where only 3 waypoints were extracted and
   // the segment router re-calculated a completely different route.
   const loadSuggestion = useCallback((s: RouteSuggestion) => {
+    // I3-Invariant: MUSS als erste Anweisung bleiben — "Übernehmen"-Flow
+    // im Comparison-Panel (onSelect-Handler des RouteComparisonPanel) ist von diesem Reset abhängig.
+    setScalePin(null)
     const coords = s.geojson?.features?.[0]?.geometry?.coordinates as number[][] | undefined
     if (!coords || coords.length < 2) {
       setState(st => ({
@@ -974,5 +991,10 @@ export function useRoutePlanner() {
     // ── Factory queries (call in component) ───────────────────────────────
     useRouteList,
     useRouteDetail,
+
+    // ── Scale-Pin (SAC/MTB/VF) ────────────────────────────────────────────
+    scalePin,
+    togglePin,
+    resetScalePin,
   }
 }
