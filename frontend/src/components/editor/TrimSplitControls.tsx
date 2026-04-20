@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/api/client'
 import type { Activity, StreamPoint } from '@/api/types'
@@ -79,6 +79,71 @@ function secondsToIndex(
     }
   }
   return bestIdx
+}
+
+/** Parse "HH:MM:SS" | "MM:SS" | "SS" into seconds, or null if invalid. */
+function parseTimestamp(str: string): number | null {
+  const trimmed = str.trim()
+  if (!trimmed) return null
+  const parts = trimmed.split(':').map(p => p.trim())
+  if (parts.some(p => !/^\d+$/.test(p))) return null
+  const nums = parts.map(Number)
+  if (nums.length === 1) return nums[0]
+  if (nums.length === 2) return nums[0] * 60 + nums[1]
+  if (nums.length === 3) return nums[0] * 3600 + nums[1] * 60 + nums[2]
+  return null
+}
+
+interface TimestampInputProps {
+  seconds: number
+  minSeconds?: number
+  maxSeconds: number
+  onChange: (indexValue: number) => void
+  gpsStreams: StreamPoint[]
+  startTime: number
+  ariaLabel: string
+}
+
+function TimestampInput({ seconds, minSeconds = 0, maxSeconds, onChange, gpsStreams, startTime, ariaLabel }: TimestampInputProps) {
+  const [text, setText] = useState(formatMMSS(seconds))
+  const [invalid, setInvalid] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) {
+      setText(formatMMSS(seconds))
+      setInvalid(false)
+    }
+  }, [seconds])
+
+  const commit = (raw: string) => {
+    const parsed = parseTimestamp(raw)
+    if (parsed == null || parsed < minSeconds || parsed > maxSeconds) {
+      setInvalid(true)
+      return
+    }
+    setInvalid(false)
+    const idx = secondsToIndex(parsed, gpsStreams, startTime)
+    onChange(idx)
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      type="text"
+      inputMode="numeric"
+      value={text}
+      onChange={e => setText(e.target.value)}
+      onBlur={e => commit(e.target.value)}
+      onKeyDown={e => { if (e.key === 'Enter') commit((e.target as HTMLInputElement).value) }}
+      aria-label={ariaLabel}
+      className={`font-mono text-xs w-20 px-1.5 py-0.5 rounded border bg-white dark:bg-neutral-800 ${
+        invalid
+          ? 'border-red-500 text-red-600 dark:text-red-400'
+          : 'border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300'
+      }`}
+    />
+  )
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -261,8 +326,16 @@ export function TrimSplitControls({
           {/* Start slider */}
           <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <label className="text-xs text-neutral-500 dark:text-neutral-400">
-                Start: <span className="font-mono font-medium text-neutral-700 dark:text-neutral-300">{formatMMSS(trimStartSeconds)}</span>
+              <label className="text-xs text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
+                Start:
+                <TimestampInput
+                  seconds={trimStartSeconds}
+                  maxSeconds={trimEndSeconds}
+                  onChange={onTrimStartChange}
+                  gpsStreams={gpsStreams}
+                  startTime={startTime}
+                  ariaLabel="Start-Zeit"
+                />
               </label>
               <button
                 onClick={() => onSetFromMap('start')}
@@ -303,8 +376,17 @@ export function TrimSplitControls({
           {/* End slider */}
           <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <label className="text-xs text-neutral-500 dark:text-neutral-400">
-                Ende: <span className="font-mono font-medium text-neutral-700 dark:text-neutral-300">{formatMMSS(trimEndSeconds)}</span>
+              <label className="text-xs text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
+                Ende:
+                <TimestampInput
+                  seconds={trimEndSeconds}
+                  minSeconds={trimStartSeconds}
+                  maxSeconds={totalElapsed}
+                  onChange={onTrimEndChange}
+                  gpsStreams={gpsStreams}
+                  startTime={startTime}
+                  ariaLabel="End-Zeit"
+                />
               </label>
               <button
                 onClick={() => onSetFromMap('end')}
@@ -396,8 +478,17 @@ export function TrimSplitControls({
           {/* Split slider */}
           <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <label className="text-xs text-neutral-500 dark:text-neutral-400">
-                Teilungspunkt: <span className="font-mono font-medium text-neutral-700 dark:text-neutral-300">{formatMMSS(splitSeconds)}</span>
+              <label className="text-xs text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
+                Teilungspunkt:
+                <TimestampInput
+                  seconds={splitSeconds}
+                  minSeconds={0}
+                  maxSeconds={totalElapsed - 30}
+                  onChange={onSplitIndexChange}
+                  gpsStreams={gpsStreams}
+                  startTime={startTime}
+                  ariaLabel="Split-Zeit"
+                />
               </label>
               <button
                 onClick={() => onSetFromMap('split')}

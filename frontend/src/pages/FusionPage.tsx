@@ -9,8 +9,10 @@ import {
 } from '@/api/recordingGroups'
 import { executeFusionMerge } from '@/api/fusion'
 import { fmtDateCompact } from '@/lib/format'
+import { sportLabel } from '@/lib/sportTaxonomy'
 import { deviceLabel } from '@/lib/deviceUtils'
 import { getSourceColor } from '@/lib/comparisonColors'
+import type { RecordingGroup } from '@/api/types'
 import { SourcesProvider, type SourceInfo } from '@/components/comparison/SourcesContext'
 import MultiTrackMap from '@/components/comparison/MultiTrackMap'
 import StreamChartContainer from '@/components/comparison/StreamChartContainer'
@@ -42,6 +44,20 @@ export interface FusionActivityInfo {
   has_temperature: boolean
   has_running_dynamics: boolean
   distance_m: number
+}
+
+// ── Group label helper ────────────────────────────────────────────────────────
+
+function groupLabel(group: RecordingGroup | undefined): string {
+  if (!group) return ''
+  // Use primary_activity_id match (single source of truth, consistent with RecordingGroupPage convention).
+  // NOT via m.is_primary field.
+  const primary = group.members.find(m => m.activity_id === group.primary_activity_id) ?? group.members[0]
+  if (!primary) return ''
+  // || not ?? — empty-string title falls through to title_auto
+  const title = primary.title || primary.title_auto
+  if (title) return title
+  return `${sportLabel(primary.sport_type)} · ${fmtDateCompact(primary.started_at)}`
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -199,6 +215,10 @@ export default function FusionPage() {
 
     return { sources: srcs, fusionActivities: fusions }
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Intentional: streamQueries/activityQueries are inline arrays rebuilt every render —
+  // including them would invalidate the memo on every render. The individual .data
+  // refs below are the correct semantic deps; ESLint can't see through the array
+  // index access and incorrectly flags the intermediary arrays as missing.
   }, [selectedSources, groupMembers,
     q0.data, q1.data, q2.data, q3.data, q4.data, q5.data,
     a0.data, a1.data, a2.data, a3.data, a4.data, a5.data,
@@ -386,7 +406,7 @@ export default function FusionPage() {
                 to={`/recording-groups/${groupId}`}
                 className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
               >
-                ← Gruppenansicht
+                ← Zur Gruppe{group && groupLabel(group) ? ` „${groupLabel(group)}“` : 'nansicht'}
               </Link>
             ) : (
               <Link
