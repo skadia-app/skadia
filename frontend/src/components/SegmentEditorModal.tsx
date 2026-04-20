@@ -1,10 +1,12 @@
 // frontend/src/components/SegmentEditorModal.tsx
-// Task 8.4b: Map-Init + Layer-Setup + Heatmap + Style-Toggles
+// Task 8.4c: MapboxDraw + Draw-Mode-Wiring
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import maplibregl, { type RequestParameters } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+// @ts-ignore — maplibre-gl-draw has no bundled TS types for default import
+import MapboxDraw from 'maplibre-gl-draw'
 import type { SegmentMetadata } from './segment-editor/SegmentSidebar'
 import type { TrackPoint } from './segment-editor/TrackModeBottomBar'
 import { BIDIRECTIONAL_DEFAULT, deriveTrailDifficultyColor, type SegType } from './segment-editor/constants'
@@ -71,8 +73,12 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   const [mapStyle, setMapStyle] = useState<BaseStyle>('osm')
   const [heatmapOn, setHeatmapOn] = useState(false)
 
+  // ── Draw-mode state ───────────────────────────────────────────────────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const drawRef = useRef<any>(null)
+  const [drawnCoords, setDrawnCoords] = useState<Array<[number, number]>>([])
+
   // ── Map Init useEffect ────────────────────────────────────────────────────
-  // Re-runs when mapStyle changes (style-switch destroys + recreates the map).
   useEffect(() => {
     const container = mapContainerRef.current
     if (!container) return
@@ -127,9 +133,40 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           paint: { 'line-color': '#6b7280', 'line-width': 2, 'line-opacity': 0.7 },
         })
       }
+
+      // Draw-mode: attach MapboxDraw
+      if (mode === 'draw') {
+        const draw = new MapboxDraw({
+          displayControlsDefault: false,
+          controls: { line_string: false, trash: false },
+          defaultMode: 'draw_line_string',
+        })
+        map.addControl(draw as unknown as maplibregl.IControl)
+        drawRef.current = draw
+
+        const refreshCoords = () => {
+          const all = draw.getAll()
+          const feat = all.features.find(
+            (f: GeoJSON.Feature) => f.geometry.type === 'LineString'
+          )
+          if (feat && feat.geometry.type === 'LineString') {
+            setDrawnCoords(feat.geometry.coordinates as Array<[number, number]>)
+          } else {
+            setDrawnCoords([])
+          }
+        }
+        map.on('draw.create', refreshCoords)
+        map.on('draw.update', refreshCoords)
+        map.on('draw.delete', refreshCoords)
+        // Doppelklick schließt die Linie (MapboxDraw-Default in draw_line_string mode)
+      }
     })
 
     return () => {
+      if (drawRef.current) {
+        try { map.removeControl(drawRef.current as unknown as maplibregl.IControl) } catch { /* ignore */ }
+        drawRef.current = null
+      }
       map.remove()
       mapRef.current = null
     }
@@ -146,6 +183,47 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       removeHeatmapLayers(map)
     }
   }, [heatmapOn, currentUserId])
+
+  // ── Draw-mode actions ─────────────────────────────────────────────────────
+  const drawUndoLast = useCallback(() => {
+    const draw = drawRef.current
+    if (!draw) return
+    const all = draw.getAll()
+    const feat = all.features.find((f: GeoJSON.Feature) => f.geometry.type === 'LineString')
+    if (!feat || feat.geometry.type !== 'LineString') return
+    const coords = feat.geometry.coordinates.slice(0, -1)
+    if (coords.length < 2) {
+      draw.deleteAll()
+      setDrawnCoords([])
+      return
+    }
+    feat.geometry.coordinates = coords
+    draw.set({ type: 'FeatureCollection', features: [feat] })
+    setDrawnCoords(coords as Array<[number, number]>)
+  }, [])
+
+  const drawReverse = useCallback(() => {
+    setDrawnCoords(c => {
+      const rev = [...c].reverse()
+      const draw = drawRef.current
+      if (draw) {
+        draw.set({
+          type: 'FeatureCollection',
+          features: [{
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'LineString', coordinates: rev },
+          }],
+        })
+      }
+      return rev
+    })
+  }, [])
+
+  const drawClear = useCallback(() => {
+    drawRef.current?.deleteAll()
+    setDrawnCoords([])
+  }, [])
 
   // ── Dirty state + close logic ─────────────────────────────────────────────
   const isDirty = meta.name.length > 0
@@ -193,7 +271,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   }, [])
 
   // Silence unused warnings until later sub-tasks wire them
-  void patchMeta
+  void patchMeta; void drawUndoLast; void drawReverse; void drawClear; void drawnCoords
 
   const content = (
     <div ref={modalRootRef} className="fixed inset-0 z-[200] flex flex-col bg-neutral-950 text-white">
@@ -252,15 +330,15 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           {/* SegmentSidebar placeholder — wired in 8.4e */}
           <p className="text-xs text-neutral-400">Sidebar (TODO 8.4e)</p>
         </div>
-        {/* Map container — must be a raw div with absolute inset; MapLibre owns it */}
+        {/* Map container */}
         <div className="relative flex-1">
           <div ref={mapContainerRef} className="absolute inset-0" />
         </div>
       </div>
 
-      {/* Bottom — filled in Tasks 8.4c / 8.4d / 8.4e */}
+      {/* Bottom — filled in Tasks 8.4d / 8.4e */}
       <div className="border-t border-neutral-800 bg-neutral-900 p-2 text-xs text-neutral-400">
-        Bottom-Bar (TODO 8.4c/d/e)
+        Bottom-Bar (TODO 8.4d/e)
       </div>
     </div>
   )
