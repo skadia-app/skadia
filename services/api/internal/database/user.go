@@ -307,7 +307,7 @@ func (db *DB) CreateBootstrapAdmin(ctx context.Context, email, username, passwor
 // GetOrCreateUserByOAuth looks up or creates a user via OAuth provider.
 // Returns (user, isNewUser, error). Returns ErrEmailCollision if the provider
 // email already belongs to an existing user.
-func (db *DB) GetOrCreateUserByOAuth(ctx context.Context, provider, providerID, providerEmail, username string, accessToken, refreshToken []byte, tokenExpiry *time.Time, oauthEncKey string) (*model.User, bool, error) {
+func (db *DB) GetOrCreateUserByOAuth(ctx context.Context, provider, providerID, providerEmail, username string, accessToken, refreshToken []byte, tokenExpiry *time.Time, oauthEncKey string, isActive bool, pendingApproval bool) (*model.User, bool, error) {
 	// 1. Check oauth_connections for existing link.
 	var userID string
 	err := db.Pool.QueryRow(ctx,
@@ -365,12 +365,11 @@ func (db *DB) GetOrCreateUserByOAuth(ctx context.Context, provider, providerID, 
 
 	// 3. Create the user.
 	newID := uuid.New().String()
-	// OAuth users bypass registration.mode approval — always created active (is_active DEFAULT true).
 	u, err := scanUser(tx.QueryRow(ctx,
-		`INSERT INTO users (id, username, email, email_verified, registration_source)
-		 VALUES ($1, $2, $3, true, $4)
+		`INSERT INTO users (id, username, email, email_verified, registration_source, is_active, pending_approval)
+		 VALUES ($1, $2, $3, true, $4, $5, $6)
 		 RETURNING `+allUserColumns,
-		newID, username, emailPtr, provider))
+		newID, username, emailPtr, provider, isActive, pendingApproval))
 	if err != nil {
 		return nil, false, fmt.Errorf("create oauth user: %w", err)
 	}
@@ -509,7 +508,7 @@ func (db *DB) SetUserActive(ctx context.Context, userID string, active bool) err
 		return err
 	}
 	_, err := db.Pool.Exec(ctx,
-		"UPDATE users SET is_active = false, updated_at = NOW() WHERE id = $1", userID)
+		"UPDATE users SET is_active = false, pending_approval = false, updated_at = NOW() WHERE id = $1", userID)
 	return err
 }
 
@@ -529,6 +528,8 @@ func (db *DB) ClearPendingEmail(ctx context.Context, userID string) error {
 
 // CreateUserWithoutPassword creates a new user without a password (for admin invite flow).
 // The user must set a password via the reset-password token flow.
+// Admin-invite path: pending_approval intentionally left DEFAULT=false.
+// The invite e-mail and reset-token serve as the approval mechanism.
 func (db *DB) CreateUserWithoutPassword(ctx context.Context, email, username, registrationSrc string, ipAddress net.IP, isActive bool) (*model.User, error) {
 	u, err := scanUser(db.Pool.QueryRow(ctx,
 		`INSERT INTO users (username, email, registration_source, created_by_ip,

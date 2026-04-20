@@ -122,10 +122,18 @@ func (h *Handler) authenticateUser(w http.ResponseWriter, r *http.Request, email
 
 	// 3. Check is_active BEFORE password verify (I21 fix — no info leak with timing equalization).
 	if !user.IsActive {
-		_, _ = argon2id.ComparePasswordAndHash(password, GetDummyHash())
-		if user.PendingApproval {
+		if user.PendingApproval && user.PasswordHash != nil {
+			// Pending-approval: verify real password before revealing pending state.
+			// Only users who prove they own the account learn it is awaiting approval.
+			match, err := argon2id.ComparePasswordAndHash(password, *user.PasswordHash)
+			if err != nil || !match {
+				_ = h.DB.UpdateLoginFailure(r.Context(), user.ID)
+				httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
+				return nil
+			}
 			httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "account_pending_approval"})
 		} else {
+			_, _ = argon2id.ComparePasswordAndHash(password, GetDummyHash())
 			httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
 		}
 		return nil
