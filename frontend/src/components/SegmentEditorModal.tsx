@@ -905,7 +905,6 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
               onReverse={handleTrackReverse}
               onReset={handleRangeReset}
               onPreviewOrSave={() => saveMutation.mutate()}
-              isPreview={false}
             />
           )}
           {mode === 'draw' && (
@@ -926,7 +925,6 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
                 setLapCrossings([])
               }}
               onPreviewOrSave={() => saveMutation.mutate()}
-              isPreview={false}
             />
           )}
         </div>

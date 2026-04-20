@@ -30,11 +30,10 @@ export interface TrackModeBottomBarProps {
   onReverse: () => void
   onReset: () => void
   onPreviewOrSave: () => void
-  isPreview: boolean
 }
 
 export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
-  const { trackPoints, range, onRangeChange, onCommitRange, onReverse, onReset, onPreviewOrSave, isPreview } = props
+  const { trackPoints, range, onRangeChange, onCommitRange, onReverse, onReset, onPreviewOrSave } = props
   const chartRef = useRef<HTMLDivElement | null>(null)
   const echartsInstanceRef = useRef<echarts.ECharts | null>(null)
 
