@@ -676,19 +676,24 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
 
       {/* Middle (sidebar+map) */}
       <div className="flex min-h-0 flex-1">
-        {/* Sidebar */}
-        <SegmentSidebar
-          mode={mode}
-          meta={meta}
-          onMetaChange={patchMeta}
-          info={info}
-          allSportTypes={allSportTypes}
-          onEnrichmentRequest={handleEnrichment}
-          enrichmentState={{ loading: enrichmentMutation.isPending }}
-          enrichmentSources={enrichmentSources}
-          onClearEnrichmentSource={(f) => setEnrichmentSources(s => ({ ...s, [f]: null }))}
-          enrichmentDisabledReason={enrichmentDisabledReason}
-        />
+        {/* Sidebar — locked (fieldset disabled) while in preview phase (Spec §4.3) */}
+        <fieldset
+          disabled={trackPhase === 'preview'}
+          className={trackPhase === 'preview' ? 'opacity-50 pointer-events-none' : undefined}
+        >
+          <SegmentSidebar
+            mode={mode}
+            meta={meta}
+            onMetaChange={patchMeta}
+            info={info}
+            allSportTypes={allSportTypes}
+            onEnrichmentRequest={handleEnrichment}
+            enrichmentState={{ loading: enrichmentMutation.isPending }}
+            enrichmentSources={enrichmentSources}
+            onClearEnrichmentSource={(f) => setEnrichmentSources(s => ({ ...s, [f]: null }))}
+            enrichmentDisabledReason={enrichmentDisabledReason}
+          />
+        </fieldset>
 
         {/* Map container */}
         <div className="relative flex-1">
@@ -712,8 +717,13 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           onReverse={handleTrackReverse}
           onReset={handleRangeReset}
           onPreviewOrSave={() => {
-            if (trackPhase === 'edit') setTrackPhase('preview')
-            else saveMutation.mutate()
+            if (trackPhase === 'edit') {
+              setTrackPhase('preview')
+              // Spec §4.3: auto-zoom to selection bounds on Edit → Preview transition.
+              commitRangeToMap(range)
+            } else {
+              saveMutation.mutate()
+            }
           }}
           isPreview={trackPhase === 'preview'}
         />
