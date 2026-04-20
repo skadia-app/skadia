@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
-import { SAC_COLORS, MTB_COLORS } from '@/lib/scaleColors'
+import { SAC_COLORS, MTB_COLORS, VF_COLORS } from '@/lib/scaleColors'
 import type { ScaleBadgeLevel } from '@/lib/scaleAggregation'
 
 interface Props {
-  kind: 'sac' | 'mtb'
+  kind: 'sac' | 'mtb' | 'vf'
   breakdown: ScaleBadgeLevel[]   // ascending hardness order
   maxLevel: string               // hardest level present (for badge dot color)
   isPinned: boolean
@@ -11,8 +11,8 @@ interface Props {
   onHover: (active: boolean) => void
 }
 
-function colorFor(kind: 'sac' | 'mtb', level: string): string {
-  const src = kind === 'sac' ? SAC_COLORS : MTB_COLORS
+function colorFor(kind: 'sac' | 'mtb' | 'vf', level: string): string {
+  const src = kind === 'sac' ? SAC_COLORS : kind === 'mtb' ? MTB_COLORS : VF_COLORS
   return (src as Record<string, string>)[level] ?? '#71717a'
 }
 

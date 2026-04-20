@@ -78,3 +78,130 @@ describe('ScaleBadge', () => {
     expect(screen.getByRole('button')).toHaveClass('scale-badge')
   })
 })
+
+describe('ScaleBadge — kind=vf (LF-#7 a11y-Parität)', () => {
+  const vfBreakdown = [
+    { level: 'K1', pct: 0.6, km: 1.4 },
+    { level: 'K3', pct: 0.4, km: 0.9 },
+  ]
+
+  it('renders VF max level label', () => {
+    render(
+      <ScaleBadge
+        kind="vf"
+        breakdown={vfBreakdown}
+        maxLevel="K3"
+        isPinned={false}
+        onTogglePin={() => {}}
+        onHover={() => {}}
+      />
+    )
+    expect(screen.getByRole('button')).toHaveTextContent('bis K3')
+  })
+
+  it('has type=button', () => {
+    render(
+      <ScaleBadge
+        kind="vf"
+        breakdown={vfBreakdown}
+        maxLevel="K3"
+        isPinned={false}
+        onTogglePin={() => {}}
+        onHover={() => {}}
+      />
+    )
+    expect(screen.getByRole('button')).toHaveAttribute('type', 'button')
+  })
+
+  it('has aria-pressed reflecting pin state (vf)', () => {
+    const { rerender } = render(
+      <ScaleBadge
+        kind="vf"
+        breakdown={vfBreakdown}
+        maxLevel="K3"
+        isPinned={false}
+        onTogglePin={() => {}}
+        onHover={() => {}}
+      />
+    )
+    expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'false')
+    rerender(
+      <ScaleBadge
+        kind="vf"
+        breakdown={vfBreakdown}
+        maxLevel="K3"
+        isPinned={true}
+        onTogglePin={() => {}}
+        onHover={() => {}}
+      />
+    )
+    expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('has aria-label containing kind and maxLevel (vf)', () => {
+    render(
+      <ScaleBadge
+        kind="vf"
+        breakdown={vfBreakdown}
+        maxLevel="K3"
+        isPinned={false}
+        onTogglePin={() => {}}
+        onHover={() => {}}
+      />
+    )
+    const btn = screen.getByRole('button')
+    expect(btn).toHaveAttribute('aria-label')
+    const label = btn.getAttribute('aria-label') ?? ''
+    expect(label.toLowerCase()).toContain('vf')
+    expect(label).toContain('K3')
+  })
+
+  it('fires onTogglePin on Space key (vf)', () => {
+    const onTogglePin = vi.fn()
+    render(
+      <ScaleBadge
+        kind="vf"
+        breakdown={vfBreakdown}
+        maxLevel="K3"
+        isPinned={false}
+        onTogglePin={onTogglePin}
+        onHover={() => {}}
+      />
+    )
+    fireEvent.keyDown(screen.getByRole('button'), { key: ' ' })
+    expect(onTogglePin).toHaveBeenCalledTimes(1)
+  })
+
+  it('calls onHover(true) on focus and onHover(false) on blur (vf)', () => {
+    const onHover = vi.fn()
+    render(
+      <ScaleBadge
+        kind="vf"
+        breakdown={vfBreakdown}
+        maxLevel="K3"
+        isPinned={false}
+        onTogglePin={() => {}}
+        onHover={onHover}
+      />
+    )
+    const btn = screen.getByRole('button')
+    fireEvent.focus(btn)
+    expect(onHover).toHaveBeenLastCalledWith(true)
+    fireEvent.blur(btn)
+    expect(onHover).toHaveBeenLastCalledWith(false)
+  })
+
+  it('carries scale-badge class (vf)', () => {
+    render(
+      <ScaleBadge
+        kind="vf"
+        breakdown={vfBreakdown}
+        maxLevel="K3"
+        isPinned={false}
+        onTogglePin={() => {}}
+        onHover={() => {}}
+      />
+    )
+    expect(screen.getByRole('button')).toHaveClass('scale-badge')
+  })
+})
