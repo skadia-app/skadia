@@ -310,6 +310,14 @@ func DecodeHighway(v uint64) uint8 { return uint8(v & 0x1F) }
 // DecodeSurface extracts the surface enum (bits 5-10).
 func DecodeSurface(v uint64) uint8 { return uint8((v >> 5) & 0x3F) }
 
+// DecodeSacScale extracts the sac_scale enum (bits 14-16 of EdgeTags1).
+// Returns 0 if not tagged, 1..6 for T1..T6.
+func DecodeSacScale(v uint64) uint8 { return uint8((v >> 14) & 0x07) }
+
+// DecodeMtbScale extracts the mtb_scale enum (bits 17-19 of EdgeTags1).
+// Returns 0 if not tagged, 1..6 for S0..S5.
+func DecodeMtbScale(v uint64) uint8 { return uint8((v >> 17) & 0x07) }
+
 // DecodeAccess extracts the access enum (bits 24-26).
 func DecodeAccess(v uint64) uint8 { return uint8((v >> 24) & 0x07) }
 
