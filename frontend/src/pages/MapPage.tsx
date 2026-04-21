@@ -66,6 +66,8 @@ const LAYER_RANGE_HIGHLIGHT = 'route-highlight-layer'
 const SOURCE_RANGE_HIGHLIGHT = 'route-highlight-source'
 // String constant matching useRouteEditor.ts LAYER_HIGHLIGHT (not exported from there).
 const LAYER_ROUTE_HIGHLIGHT = 'route-planner-highlight'
+const LAYER_SUMMIT_MARKERS  = 'route-summit-markers-layer'
+const SOURCE_SUMMIT_MARKERS = 'route-summit-markers-source'
 
 type ViewMode = 'off' | 'tracks' | 'heatmap' | 'terra_incognita'
 const VALID_VIEW_MODES: readonly ViewMode[] = ['off', 'tracks', 'heatmap', 'terra_incognita']
@@ -597,6 +599,7 @@ export default function MapPage() {
   //   1. LAYER_RANGE_HIGHLIGHT first → guaranteed present as `beforeId` for step 2.
   //   2. LAYER_SCALE_BASE second, beforeId = LAYER_RANGE_HIGHLIGHT.
   const [layersReady, setLayersReady] = useState(false)
+  const [summitMarkersActive, setSummitMarkersActive] = useState(false)
 
   useEffect(() => {
     const map = mapRef.current
@@ -712,6 +715,27 @@ export default function MapPage() {
         }, before)
       }
 
+      // 4. Summit markers (circle layer — hover on summit badge in stats row).
+      if (!map.getSource(SOURCE_SUMMIT_MARKERS)) {
+        map.addSource(SOURCE_SUMMIT_MARKERS, {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] },
+        })
+      }
+      if (!map.getLayer(LAYER_SUMMIT_MARKERS)) {
+        map.addLayer({
+          id: LAYER_SUMMIT_MARKERS,
+          type: 'circle',
+          source: SOURCE_SUMMIT_MARKERS,
+          paint: {
+            'circle-radius': 8,
+            'circle-color': '#f97316',
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#ffffff',
+          },
+        })
+      }
+
       // Enforce Z-order explicitly after all addLayer calls (fixes race with useRouteEditor).
       enforceZOrder()
 
@@ -790,12 +814,29 @@ export default function MapPage() {
   }, [planner.scaleEffective, planner.routeStats, parsedCoords])
 
   useEffect(() => {
+    // DEBUG — entfernen nach Root-Cause-Analyse
+    console.log('[scale-dbg] effect fired', { layersReady, features: scaleBaseFeatures.length, effective: planner.scaleEffective })
     if (!layersReady) return
     const map = mapRef.current
     if (!map) return
     const src = map.getSource(SOURCE_SCALE_BASE) as maplibregl.GeoJSONSource | undefined
+    console.log('[scale-dbg] src:', !!src, 'route-line:', !!map.getLayer('route-planner-line'))
+    if (map.getStyle) {
+      const ids = map.getStyle()?.layers?.map(l => l.id).filter(id => id.startsWith('route'))
+      console.log('[scale-dbg] route-layers order:', ids)
+    }
     src?.setData({ type: 'FeatureCollection', features: scaleBaseFeatures })
-  }, [scaleBaseFeatures, layersReady])
+    if (scaleBaseFeatures.length > 0) {
+      const routeLine   = 'route-planner-line'
+      const routeCasing = 'route-planner-line-casing'
+      const belowId = map.getLayer(LAYER_VF_UNKNOWN) ? LAYER_VF_UNKNOWN : LAYER_SCALE_BASE
+      for (const id of [routeCasing, routeLine] as const) {
+        if (map.getLayer(id)) {
+          try { map.moveLayer(id, belowId) } catch (_) { /* layer in transition */ }
+        }
+      }
+    }
+  }, [scaleBaseFeatures, layersReady, planner.scaleEffective])
 
   // ── VF K?-source content (Invariant I9 — dauerhaft aktiv, nicht pin-abhängig) ──
   // Dieser Effect hat KEINE Abhängigkeit auf scalePin.  Er feuert sobald
@@ -826,6 +867,23 @@ export default function MapPage() {
     }))
     src.setData({ type: 'FeatureCollection', features })
   }, [planner.routeStats?.vf_unknown_ranges, parsedCoords, layersReady])
+
+  // ── Summit markers source content (hover on summit badge) ─────────────────
+  useEffect(() => {
+    if (!layersReady) return
+    const map = mapRef.current
+    if (!map) return
+    const src = map.getSource(SOURCE_SUMMIT_MARKERS) as maplibregl.GeoJSONSource | undefined
+    const summits = summitMarkersActive ? (planner.routeStats?.summits_passed ?? []) : []
+    src?.setData({
+      type: 'FeatureCollection',
+      features: summits.map(s => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [s.lng, s.lat] },
+        properties: { name: s.name, ele_m: s.ele_m, category: s.category },
+      })),
+    })
+  }, [summitMarkersActive, planner.routeStats?.summits_passed, layersReady])
 
   // ── Highlight-Overlay source content (forest/protected descriptor-hover) ──
   //
@@ -3107,6 +3165,7 @@ export default function MapPage() {
                   scalePin={planner.scalePin}
                   onTogglePin={planner.togglePin}
                   onScaleHover={planner.setScaleHover}
+                  onSummitHover={setSummitMarkersActive}
                 />
                 <RouteSurfacesBar
                   segments={planner.segments}
