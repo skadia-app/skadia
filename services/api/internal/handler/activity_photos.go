@@ -566,7 +566,7 @@ func (h *Handler) RecomputePhotoThumbnails(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "photo_preview_recompute", nil, nil, int64(len(photos)))
+	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "photo_thumb_recompute", nil, nil, int64(len(photos)))
 	if err != nil {
 		slog.Error("recompute thumbs: create job failed", "err", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create job", r.URL.Path)

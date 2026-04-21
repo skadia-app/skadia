@@ -2,7 +2,34 @@ import { apiClient } from './client'
 
 export interface ActiveJob {
   id: string
-  job_type: 'segment_recompute' | 'activity_recompute_all' | 'activity_recompute' | 'osm_import' | 'osm_enrichment' | 'photo_preview_recompute' | 'photo_thumb_recompute' | 'photo_clip_embed' | 'photo_embed_backfill' | 'garmin_import' | 'strava_import' | 'komoot_import' | 'phash_backfill' | 'recompute_multisport' | 'elevation_reset' | 'elevation_correction' | 'distance_correction' | 'distance_reset' | 'dem_import' | 'apply_rules' | string
+  job_type:
+    // Activity recompute
+    | 'segment_recompute' | 'activity_recompute_all' | 'activity_recompute' | 'recompute_multisport'
+    // OSM pipeline
+    | 'osm_import' | 'osm_enrichment' | 'osm_update' | 'osm_update_all'
+    // Routing & coverage
+    | 'routing_graph_build' | 'tile_build' | 'coverage_build'
+    // BRouter
+    | 'brouter_segment_build' | 'brouter_segment_download'
+    // Photos
+    | 'photo_preview_recompute' | 'photo_thumb_recompute' | 'photo_clip_embed' | 'photo_embed_backfill' | 'phash_backfill'
+    // Syncs & imports
+    | 'garmin_import' | 'strava_import' | 'komoot_import'
+    // Corrections & resets
+    | 'elevation_reset' | 'elevation_correction' | 'distance_correction' | 'distance_reset' | 'dem_import' | 'dem_download'
+    // Rules & enrichment
+    | 'apply_rules' | 'rule_apply' | 'activity_re_enrich' | 'weather_backfill' | 'geocoding_backfill'
+    // Storage & files
+    | 'shadowfs_reconcile' | 'shadowfs_rename' | 'thumbnail_backfill' | 'meta_backfill'
+    // Performance & training
+    | 'recalc_best_efforts' | 'recompute_all_tss' | 'fusion_queue_compute'
+    // Admin
+    | 'device_orphan_cleanup' | 'compression_toggle' | 'segment_publish'
+    // GDPR
+    | 'gdpr_purge' | 'gdpr_export' | 'data_import'
+    // Data import sub-jobs
+    | 'data_import_enrichment' | 'heatmap_rebuild' | 'pmc_recalc' | 'best_efforts_recalc' | 'segment_matching'
+    | string
   entity_id?: string
   entity_name?: string
   status: 'running' | 'completed' | 'failed'
