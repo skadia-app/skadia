@@ -7,6 +7,19 @@
  * hinzugefügte Feld braucht einen gezielten Test der es aktiv prüft, sonst
  * "dark code" (siehe Plan LF-#21).
  *
+ * ⚠️ BEIM ERWEITERN VON RouteStats / RouteSuggestion:
+ * 1. Default in der entsprechenden Factory unten ergänzen (neutral).
+ * 2. Mindestens einen gezielten Test schreiben, der das neue Feld aktiv prüft:
+ *    - extractRouteStatsFromFeature liest es aus feature.properties (Hook-Test)
+ *    - mergeSegmentStatsForState merged es korrekt über Segmente (Hook-Test)
+ *    - Konsumenten (RouteProfileChart, MapPage highlightFeatures) rendern es
+ * 3. Compile-grün + Factory-Default-Update ohne neuen Test ist "dark code"
+ *    — der Feld-Fluss durch den Hook ist nicht verifiziert und eine
+ *    stumme Regression (z.B. vertauschte Keys) würde nicht bemerkt.
+ *    Präzedenzfall: V6.1-Drift forest_pct-Skala (0-100 vs 0.0-1.0) wurde
+ *    erst durch Opus-Kritiker-Runde-2 gefunden, weil der Parity-Test nur
+ *    Key-Präsenz prüfte statt Werte.
+ *
  * Verwendung:
  *
  * ```ts
