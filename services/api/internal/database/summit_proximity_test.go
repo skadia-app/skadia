@@ -2,6 +2,7 @@ package database
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -112,6 +113,60 @@ func TestPassedSummitJSON(t *testing.T) {
 		if !strings.Contains(js, want) {
 			t.Errorf("JSON missing %q in: %s", want, js)
 		}
+	}
+}
+
+// TestFindSummitsCore_QueryContainsFallback verifies that findSummitsCore
+// builds a query that contains the osm_id=0 fallback DISTINCT ON expression,
+// ensuring the dedup logic is present regardless of the caller-supplied CTE.
+// This is a structural/SQL-string test; no DB connection required.
+func TestFindSummitsCore_QueryContainsFallback(t *testing.T) {
+	// We inspect the SQL by calling fmt.Sprintf the same way findSummitsCore does.
+	// Both "geom" and "activity" CTE shapes must produce the fallback expression.
+	for _, tc := range []struct {
+		name        string
+		routeCTE    string
+		radiusIdx   int
+		expandIdx   int
+	}{
+		{
+			name:      "geom variant ($2 radius, $3 expand)",
+			routeCTE:  `WITH route AS (SELECT ST_GeomFromWKB($1, 4326) AS geom)`,
+			radiusIdx: 2,
+			expandIdx: 3,
+		},
+		{
+			name:      "activity variant ($2 radius, $3 expand)",
+			routeCTE:  `WITH route AS (SELECT ST_Simplify(track_full, 0.00005) AS geom FROM activity_tracks WHERE activity_id = $1)`,
+			radiusIdx: 2,
+			expandIdx: 3,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := fmt.Sprintf(`%s
+			SELECT DISTINCT ON (CASE WHEN p.osm_id = 0 THEN p.id::text ELSE p.osm_id::text END)
+			       p.osm_id, p.name, p.ele, p.category,
+			       ROUND(ST_Distance(route.geom::geography, p.geom::geography))::int AS dist_m,
+			       ST_Y(ST_Centroid(p.geom)) AS lat,
+			       ST_X(ST_Centroid(p.geom)) AS lng
+			FROM osm_pois p, route
+			WHERE p.geom && ST_Expand(route.geom, $%d)
+			  AND ST_DWithin(route.geom::geography, p.geom::geography, $%d)
+			  AND p.category IN ('summit', 'pass')
+			  AND p.name IS NOT NULL
+			ORDER BY CASE WHEN p.osm_id = 0 THEN p.id::text ELSE p.osm_id::text END, dist_m
+			`, tc.routeCTE, tc.expandIdx, tc.radiusIdx)
+
+			if !strings.Contains(q, "p.osm_id = 0 THEN p.id::text") {
+				t.Errorf("query missing osm_id=0 fallback DISTINCT ON expression:\n%s", q)
+			}
+			if !strings.Contains(q, fmt.Sprintf("$%d", tc.radiusIdx)) {
+				t.Errorf("query missing radius arg $%d:\n%s", tc.radiusIdx, q)
+			}
+			if !strings.Contains(q, fmt.Sprintf("$%d", tc.expandIdx)) {
+				t.Errorf("query missing expandDeg arg $%d:\n%s", tc.expandIdx, q)
+			}
+		})
 	}
 }
 

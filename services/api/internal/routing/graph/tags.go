@@ -571,6 +571,10 @@ func ParseViaFerrataScale(s string) uint8 {
 	if s == "" {
 		return 0
 	}
+	// Europäisches Dezimalkomma → Punkt (AT/DE OSM-Mapper schreiben "1,5" statt "1.5",
+	// ca. 5-10 % der via_ferrata_scale-Werte in der DB). Reihenfolge zum Whitespace-
+	// Strip ist semantisch egal: "1 , 5" -> "1 . 5" -> "1.5" (ReplaceAll nacheinander).
+	s = strings.ReplaceAll(s, ",", ".")
 	// Whitespace innerhalb von Ranges ("1 - 2") entfernen — OSM-Mapper schreiben uneinheitlich.
 	s = strings.ReplaceAll(s, " ", "")
 	// Direkte Map (schnellster Pfad): deckt K1..K6 + Alpin-Skala ab.

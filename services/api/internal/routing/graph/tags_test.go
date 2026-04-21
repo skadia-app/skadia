@@ -698,6 +698,13 @@ func TestParseViaFerrataScale(t *testing.T) {
 		{"0", 1},
 		{"0+", 1},
 		{"0-", 1},
+
+		// Europäisches Dezimalkomma (AT/DE OSM-Mapper schreiben "1,5" statt "1.5").
+		// Komma wird vor dem Dezimal-Parser zu "." normalisiert → round UP gilt weiterhin.
+		{"1,5", 2},  // 1,5 → 1.5 → ceil → 2
+		{"2,5", 3},  // 2,5 → 2.5 → ceil → 3
+		{"3,0", 3},  // 3,0 → 3.0 → ceil → 3
+		{"K1,5", 0}, // "K1,5" → "K1.5" → kein direkter Map-Treffer, kein numerischer Parse → 0
 	}
 	for _, c := range cases {
 		got := ParseViaFerrataScale(c.in)
