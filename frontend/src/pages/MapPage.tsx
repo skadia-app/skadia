@@ -57,7 +57,7 @@ export { SPORT_OPTIONS, getAllSportKeys } from '@/lib/sportOptions'
 
 // ── Descriptor overlay layer / source IDs ────────────────────────────────────
 // Z-order (bottom→top):
-//   LAYER_ROUTED < LAYER_VF_UNKNOWN < LAYER_SCALE_BASE < LAYER_RANGE_HIGHLIGHT < LAYER_HIGHLIGHT
+//   LAYER_ROUTED < LAYER_VF_UNKNOWN < LAYER_SCALE_BASE < LAYER_RANGE_HIGHLIGHT < LAYER_SUMMIT_MARKERS < LAYER_HIGHLIGHT
 const LAYER_VF_UNKNOWN      = 'route-vf-unknown-layer'
 const SOURCE_VF_UNKNOWN     = 'route-vf-unknown-source'
 const LAYER_SCALE_BASE      = 'route-scale-base-layer'
@@ -598,12 +598,16 @@ export default function MapPage() {
   // Add-order is intentionally inverted vs. Z-order (bindend, Critic-R3 #16):
   //   1. LAYER_RANGE_HIGHLIGHT first → guaranteed present as `beforeId` for step 2.
   //   2. LAYER_SCALE_BASE second, beforeId = LAYER_RANGE_HIGHLIGHT.
+  // Style version counter for re-adding layers after style changes
+  const [styleVersion, setStyleVersion] = useState(0)
   const [layersReady, setLayersReady] = useState(false)
   const [summitMarkersActive, setSummitMarkersActive] = useState(false)
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map) return
+    // styleVersion === 0: Map noch nicht initialisiert (entspricht dem Pattern aller
+    // anderen Effects in MapPage). Setup läuft erst nach dem ersten style.load.
+    if (!map || styleVersion === 0) return
 
     // Z-Order enforcement — run at the end of every setupLayers call (idempotent).
     // Desired order bottom→top: LAYER_VF_UNKNOWN < LAYER_SCALE_BASE < LAYER_RANGE_HIGHLIGHT
@@ -614,7 +618,7 @@ export default function MapPage() {
     const enforceZOrder = () => {
       const anchor = map.getLayer(LAYER_ROUTE_HIGHLIGHT) ? LAYER_ROUTE_HIGHLIGHT : undefined
       // Move from bottom to top so each subsequent moveLayer ends up below the next.
-      for (const id of [LAYER_VF_UNKNOWN, LAYER_SCALE_BASE, LAYER_RANGE_HIGHLIGHT] as const) {
+      for (const id of [LAYER_VF_UNKNOWN, LAYER_SCALE_BASE, LAYER_RANGE_HIGHLIGHT, LAYER_SUMMIT_MARKERS] as const) {
         if (map.getLayer(id)) {
           try {
             map.moveLayer(id, anchor)
@@ -715,23 +719,52 @@ export default function MapPage() {
         }, before)
       }
 
-      // 4. Summit markers (circle layer — hover on summit badge in stats row).
+      // 4. Summit markers (symbol layer — hover on summit badge in stats row).
       if (!map.getSource(SOURCE_SUMMIT_MARKERS)) {
         map.addSource(SOURCE_SUMMIT_MARKERS, {
           type: 'geojson',
           data: { type: 'FeatureCollection', features: [] },
         })
       }
+      if (!map.hasImage('summit-icon')) {
+        // Bergsilhouette: Dreieck mit Schneekappe — synchron auf Canvas gezeichnet.
+        const sz = 32
+        const cvs = document.createElement('canvas')
+        cvs.width = sz
+        cvs.height = sz
+        const ctx = cvs.getContext('2d')!
+        // Berg-Körper
+        ctx.beginPath()
+        ctx.moveTo(sz / 2, 2)
+        ctx.lineTo(2, sz - 2)
+        ctx.lineTo(sz - 2, sz - 2)
+        ctx.closePath()
+        ctx.fillStyle = '#475569'
+        ctx.fill()
+        ctx.strokeStyle = '#ffffff'
+        ctx.lineWidth = 2.5
+        ctx.lineJoin = 'round'
+        ctx.stroke()
+        // Schneekappe (deckt den inneren Teil des Strichs ab — bleibt sauber weiß)
+        ctx.beginPath()
+        ctx.moveTo(sz / 2, 2)
+        ctx.lineTo(sz / 2 - 5, 12)
+        ctx.lineTo(sz / 2 + 5, 12)
+        ctx.closePath()
+        ctx.fillStyle = '#f1f5f9'
+        ctx.fill()
+        map.addImage('summit-icon', ctx.getImageData(0, 0, sz, sz))
+      }
       if (!map.getLayer(LAYER_SUMMIT_MARKERS)) {
         map.addLayer({
           id: LAYER_SUMMIT_MARKERS,
-          type: 'circle',
+          type: 'symbol',
           source: SOURCE_SUMMIT_MARKERS,
-          paint: {
-            'circle-radius': 8,
-            'circle-color': '#f97316',
-            'circle-stroke-width': 2,
-            'circle-stroke-color': '#ffffff',
+          layout: {
+            'icon-image': 'summit-icon',
+            'icon-size': 1,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
           },
         })
       }
@@ -742,22 +775,12 @@ export default function MapPage() {
       setLayersReady(true)
     }
 
-    if (map.isStyleLoaded()) {
-      setupLayers()
-    } else {
-      map.once('style.load', setupLayers)
-    }
-
-    // Re-run setupLayers after every base-map style change (style reload wipes all custom layers).
-    const handleStyleData = () => {
-      if (map.isStyleLoaded()) setupLayers()
-    }
-    map.on('styledata', handleStyleData)
-
-    return () => {
-      map.off('styledata', handleStyleData)
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    // isStyleLoaded() wird NICHT geprüft — es gibt false zurück während Tiles noch
+    // von Web-Workern dekodiert werden, obwohl addSource/addLayer problemlos funktionieren.
+    // styleVersion > 0 garantiert bereits dass style.load gefeuert hat.
+    // (Identisches Pattern wie der Overlay-Effect ab Zeile ~1217.)
+    setupLayers()
+  }, [styleVersion])
 
   // ── parsedCoords: shared coordinate array for both overlay useMemos ───────
   //
@@ -814,17 +837,10 @@ export default function MapPage() {
   }, [planner.scaleEffective, planner.routeStats, parsedCoords])
 
   useEffect(() => {
-    // DEBUG — entfernen nach Root-Cause-Analyse
-    console.log('[scale-dbg] effect fired', { layersReady, features: scaleBaseFeatures.length, effective: planner.scaleEffective })
     if (!layersReady) return
     const map = mapRef.current
     if (!map) return
     const src = map.getSource(SOURCE_SCALE_BASE) as maplibregl.GeoJSONSource | undefined
-    console.log('[scale-dbg] src:', !!src, 'route-line:', !!map.getLayer('route-planner-line'))
-    if (map.getStyle) {
-      const ids = map.getStyle()?.layers?.map(l => l.id).filter(id => id.startsWith('route'))
-      console.log('[scale-dbg] route-layers order:', ids)
-    }
     src?.setData({ type: 'FeatureCollection', features: scaleBaseFeatures })
     if (scaleBaseFeatures.length > 0) {
       const routeLine   = 'route-planner-line'
@@ -836,7 +852,7 @@ export default function MapPage() {
         }
       }
     }
-  }, [scaleBaseFeatures, layersReady, planner.scaleEffective])
+  }, [scaleBaseFeatures, layersReady, planner.scaleEffective, styleVersion])
 
   // ── VF K?-source content (Invariant I9 — dauerhaft aktiv, nicht pin-abhängig) ──
   // Dieser Effect hat KEINE Abhängigkeit auf scalePin.  Er feuert sobald
@@ -866,7 +882,7 @@ export default function MapPage() {
       },
     }))
     src.setData({ type: 'FeatureCollection', features })
-  }, [planner.routeStats?.vf_unknown_ranges, parsedCoords, layersReady])
+  }, [planner.routeStats?.vf_unknown_ranges, parsedCoords, layersReady, styleVersion])
 
   // ── Summit markers source content (hover on summit badge) ─────────────────
   useEffect(() => {
@@ -883,7 +899,15 @@ export default function MapPage() {
         properties: { name: s.name, ele_m: s.ele_m, category: s.category },
       })),
     })
-  }, [summitMarkersActive, planner.routeStats?.summits_passed, layersReady])
+    // Z-order: summit markers müssen über der Route-Linie liegen (useRouteEditor fügt
+    // route-planner-line ohne beforeId ein → landet über unseren Layern aus setupLayers).
+    // Bei Aktivierung explizit vor LAYER_ROUTE_HIGHLIGHT verschieben (= über LAYER_ROUTED),
+    // damit Gipfelpunkte sichtbar bleiben egal wann useRouteEditor.addLayers lief.
+    if (summits.length > 0 && map.getLayer(LAYER_SUMMIT_MARKERS)) {
+      const before = map.getLayer(LAYER_ROUTE_HIGHLIGHT) ? LAYER_ROUTE_HIGHLIGHT : undefined
+      try { map.moveLayer(LAYER_SUMMIT_MARKERS, before) } catch { /* layer in transition */ }
+    }
+  }, [summitMarkersActive, planner.routeStats?.summits_passed, layersReady, styleVersion])
 
   // ── Highlight-Overlay source content (forest/protected descriptor-hover) ──
   //
@@ -919,7 +943,7 @@ export default function MapPage() {
     if (!map) return
     const src = map.getSource(SOURCE_RANGE_HIGHLIGHT) as maplibregl.GeoJSONSource | undefined
     src?.setData({ type: 'FeatureCollection', features: highlightFeatures })
-  }, [highlightFeatures, layersReady])
+  }, [highlightFeatures, layersReady, styleVersion])
 
   // Drag-to-merge: dialog state
   const [tagMergeDialog, setTagMergeDialog] = useState<{
@@ -928,9 +952,6 @@ export default function MapPage() {
     marker: maplibregl.Marker
     originalLngLat: { lng: number; lat: number }
   } | null>(null)
-
-  // Style version counter for re-adding layers after style changes
-  const [styleVersion, setStyleVersion] = useState(0)
 
   const { coverageState, updateComposite, toggleLayer: toggleCoverageLayer } = useCoverageOverlays(
     mapRef.current,
