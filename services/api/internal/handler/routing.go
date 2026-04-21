@@ -18,7 +18,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 
@@ -61,6 +60,11 @@ func (h *Handler) RoutingGraphStatus(w http.ResponseWriter, r *http.Request) {
 // RouteCalculate computes a route using the UnifiedRouter (TiledGraphReader).
 // Returns 503 if no routing engine is available.
 func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
 	if h.GraphManager == nil {
 		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "routing not configured",
@@ -152,7 +156,7 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	timeout := 30 * time.Second
-	if h.Config != nil && h.Config.RoutingTimeout > 0 {
+	if h.Config.RoutingTimeout > 0 {
 		timeout = h.Config.RoutingTimeout
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
@@ -245,8 +249,7 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	extras["protected_pct"] = protectedPct
 
 	// Summit-Gate: nur wenn DB + Coordinates vorhanden.
-	// RouteCalculate ist nicht auth-gated — middleware.GetUserID liefert ""
-	// fuer unauthentifizierte Requests, ohne eine 401-Response zu schreiben.
+	// userID ist bereits via httputil.RequireUserID gesetzt (Endpoint ist auth-gated).
 	// Analog zum Muster in route_suggestion.go:434-442.
 	if h.DB != nil && h.DB.Pool != nil && len(result.Coordinates) >= 2 {
 		wkb, wkbErr := coordsToLineStringWKB(result.Coordinates)
@@ -254,14 +257,11 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 			// Radius aus user_enrichment_settings.summit_detection_radius_m
 			// (Default 80, Range 10–150) — Muster aus route_suggestion.go:434-442.
 			radiusM := 80.0 // Default fallback (matches Migration 000318 DEFAULT)
-			userID := middleware.GetUserID(ctx)
-			if userID != "" {
-				if settings, serr := h.DB.GetEnrichmentSettings(ctx, userID); serr == nil && settings != nil {
-					radiusM = settings.SummitDetectionRadiusM
-				} else if serr != nil {
-					slog.Warn("get enrichment settings failed; falling back to default radius",
-						"user_id", userID, "error", serr)
-				}
+			if settings, serr := h.DB.GetEnrichmentSettings(ctx, userID); serr == nil && settings != nil {
+				radiusM = settings.SummitDetectionRadiusM
+			} else if serr != nil {
+				slog.Warn("get enrichment settings failed; falling back to default radius",
+					"user_id", userID, "error", serr)
 			}
 			summits, summitErr := database.FindSummitsAlongGeom(ctx, h.DB.Pool, wkb, radiusM)
 			if summitErr == nil {
@@ -269,7 +269,12 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 				for _, s := range summits {
 					resp = append(resp, toResponseSummit(s))
 				}
-				extras["summits_passed"] = resp
+				// Only emit summits_passed when non-empty — mirrors omitempty on
+				// RouteSuggestion.SummitsPassed to prevent shape-divergence between
+				// /routing/route-internal and /routes/suggest (V6-Retrofit parity).
+				if len(resp) > 0 {
+					extras["summits_passed"] = resp
+				}
 			} else {
 				slog.Warn("summits along route failed", "error", summitErr)
 			}
