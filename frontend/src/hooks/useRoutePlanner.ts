@@ -502,8 +502,12 @@ export function useRoutePlanner() {
 
       // V6-Retrofit Quelle 1: Stats aus Response extrahieren. extractRouteStatsFromFeature
       // hat einen hasAnyKey-Guard und returnt null, wenn die Response keine Enrichment-
-      // Keys enthält (BRouter-Proxy aktuell, Spec §3 Non-Goal + §4.1.5b). Kein Engine-Gate —
-      // so auch robust gegen zukünftige Backend-Änderungen (z.B. BRouter-Fallback-Stats).
+      // Keys enthält (BRouter-Proxy aktuell, Spec §3 Non-Goal + §4.1.5b). Kein Engine-Gate
+      // hier — die Funktion ist self-guarding. Hinweis: der hasAnyKey-Check sucht nach
+      // hart-kodierten snake_case-Keys (forest_pct, sac_ranges etc.); falls BRouter je Stats
+      // emittieren soll, müsste extractRouteStatsFromFeature an das konkrete Key-Schema
+      // angepasst werden — "robust gegen zukünftige Backend-Änderungen" gilt nur solange
+      // die Key-Namen konsistent bleiben.
       const statsForSegment = extractRouteStatsFromFeature(feature)
       const segmentKey = `${from.id}:${to.id}`
 
