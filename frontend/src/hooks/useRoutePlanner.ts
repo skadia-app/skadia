@@ -500,9 +500,11 @@ export function useRoutePlanner() {
 
       const segment = buildSegmentFromFeature(from, to, feature, isFallback)
 
-      // V6-Retrofit Quelle 1: Stats nur bei engine='badrouter' extrahieren.
-      // BRouter-Proxy liefert keine Enrichment-Keys — Spec §3 Non-Goal + §4.1.5b.
-      const statsForSegment = engine === 'badrouter' ? extractRouteStatsFromFeature(feature) : null
+      // V6-Retrofit Quelle 1: Stats aus Response extrahieren. extractRouteStatsFromFeature
+      // hat einen hasAnyKey-Guard und returnt null, wenn die Response keine Enrichment-
+      // Keys enthält (BRouter-Proxy aktuell, Spec §3 Non-Goal + §4.1.5b). Kein Engine-Gate —
+      // so auch robust gegen zukünftige Backend-Änderungen (z.B. BRouter-Fallback-Stats).
+      const statsForSegment = extractRouteStatsFromFeature(feature)
       const segmentKey = `${from.id}:${to.id}`
 
       setState(s => {
