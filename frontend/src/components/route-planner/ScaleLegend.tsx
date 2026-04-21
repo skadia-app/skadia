@@ -34,7 +34,7 @@ export default function ScaleLegend({ kind, hasUnknownVf }: Props) {
 
   return (
     <div
-      className="absolute top-20 right-4 z-10 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md p-2 text-xs text-neutral-700 dark:text-neutral-300 min-w-[140px]"
+      className="absolute bottom-4 right-4 z-10 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md p-2 text-xs text-neutral-700 dark:text-neutral-300 min-w-[140px]"
       role="region"
       aria-label={`Legende für ${TITLES[kind]}`}
     >

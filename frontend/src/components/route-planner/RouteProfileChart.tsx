@@ -13,11 +13,11 @@ import type { RouteStats } from '@/hooks/useRoutePlanner'
 import { useECharts } from '@/hooks/useECharts'
 import { aggregateScaleLevels } from '@/lib/scaleAggregation'
 import { ScaleBadge } from './ScaleBadge'
+import { SummitBadge } from './SummitBadge'
 import {
   suggestRoutesStrings,
   statsForestLabel,
   statsProtectedLabel,
-  statsSummitsLabel,
 } from '@/lib/strings/suggest-routes'
 
 echarts.use([
@@ -58,6 +58,8 @@ interface Props {
   onTogglePin: (kind: 'sac' | 'mtb' | 'vf') => void
   /** Hover handler — transient Map-Preview, clearet bei mouseleave. */
   onScaleHover?: (kind: 'sac' | 'mtb' | 'vf' | null) => void
+  /** Callback wenn Summit-Badge geklickt/geklickt — aktiviert Karten-Marker */
+  onSummitHover?: (active: boolean) => void
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -152,6 +154,7 @@ export default function RouteProfileChart({
   scalePin,
   onTogglePin,
   onScaleHover,
+  onSummitHover,
 }: Props) {
   // Build processed data
   const points = useMemo(
@@ -395,13 +398,16 @@ export default function RouteProfileChart({
             {routeStats && (
               <>
                 {routeStats.forest_pct != null && routeStats.forest_pct > 0 && (
-                  <span>{statsForestLabel(Math.round(routeStats.forest_pct * 100))}</span>
+                  <span title="Waldanteil auf der Route">{statsForestLabel(Math.round(routeStats.forest_pct * 100))}</span>
                 )}
                 {routeStats.protected_pct != null && routeStats.protected_pct > 0.05 && (
-                  <span>{statsProtectedLabel(Math.round(routeStats.protected_pct * 100))}</span>
+                  <span title="Anteil durch Schutzgebiet auf der Route">{statsProtectedLabel(Math.round(routeStats.protected_pct * 100))}</span>
                 )}
                 {routeStats.summits_passed && routeStats.summits_passed.length > 0 && (
-                  <span>{statsSummitsLabel(routeStats.summits_passed.length)}</span>
+                  <SummitBadge
+                    summits={routeStats.summits_passed}
+                    onHover={onSummitHover ?? (() => {})}
+                  />
                 )}
                 {sacAggregate.breakdown.length > 0 && sacAggregate.maxLevel && (
                   <ScaleBadge
