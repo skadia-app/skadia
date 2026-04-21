@@ -44,11 +44,13 @@ func computeAllRanges(
 	}
 
 	// Pre-allocate per-edge match arrays for every category.
-	// INFO (F14): 18 bool-slices × n edges allocate ~18n bytes per request.
-	// At n=1500 edges × 5 variants ≈ 135 kB + GC pressure per SuggestRoutes call.
-	// A sync.Pool<[18][]bool> with b=b[:0] reset could eliminate most of this, but
-	// the sizing complexity (n varies per route) makes it non-trivial; left for a
-	// dedicated allocation-optimisation pass if profiling shows this as hot.
+	// INFO (F14): 21 bool-slices × n edges allocate ~21n bytes per request
+	// (3 scalar: forestM, protectedM, vfUnknownM + 3×6 scale: sac[0..5], mtb[0..5],
+	// vf[0..5]).  At n=1500 edges × 5 variants ≈ 157 kB + GC pressure per
+	// SuggestRoutes call. A sync.Pool<[21][]bool> with b=b[:0] reset could eliminate
+	// most of this, but the sizing complexity (n varies per route) makes it
+	// non-trivial; left for a dedicated allocation-optimisation pass if profiling
+	// shows this as hot.
 	forestM := make([]bool, n)
 	protectedM := make([]bool, n)
 	vfUnknownM := make([]bool, n)
@@ -374,6 +376,15 @@ func aggregateForestProtectedFromResult(r *routing.RouteResult) (forestPct, prot
 			endIdx = r.EdgeCoordStart[i+1]
 		} else {
 			endIdx = lastReal
+		}
+		// Defensive: clamp endIdx to lastReal+1 to prevent dst-VE distance bleed
+		// even for non-last edges (F5 fix 2026-04-21). Currently retrackUnified
+		// does not emit VE-tagged edges, so EdgeCoordStart[i+1] never overshoots
+		// lastReal for non-last edges. The clamp provides parity with
+		// contiguousRangesFromMatch-logic and protects against future code paths
+		// that might emit tag-carrying VE edges.
+		if endIdx > lastReal+1 {
+			endIdx = lastReal + 1
 		}
 		if startIdx < 0 || endIdx >= len(r.Coordinates) || startIdx >= endIdx {
 			continue

@@ -351,23 +351,68 @@ func TestRouteCalculateEnrichmentRangeKeyParity(t *testing.T) {
 	if len(suggestResp.Suggestions) == 0 {
 		t.Fatal("/routes/suggest: expected at least one suggestion")
 	}
-	// Re-encode first suggestion to a map for key inspection.
-	suggJSON, _ := json.Marshal(suggestResp.Suggestions[0])
-	var suggMap map[string]any
-	_ = json.Unmarshal(suggJSON, &suggMap)
-
-	// sac_ranges / mtb_ranges / vf_ranges: no outdoor tags in base fixture → absent.
-	for _, key := range []string{"sac_ranges", "mtb_ranges", "vf_ranges", "vf_unknown_ranges"} {
-		if _, ok := suggMap[key]; ok {
-			t.Errorf("/routes/suggest: %s present but fixture has no outdoor tags", key)
+	// Find the suggestion that traverses the forest quadrant — it may not be
+	// Suggestions[0] (the shortest route stays in the non-forest top quadrant).
+	// The fixture has ForestPct=70 on edges where r≥2,c≥2; the medium/longest
+	// variant typically traverses those edges.  We scan all suggestions and pick
+	// the first one that carries forest_ranges (F2 fix 2026-04-21: symmetric
+	// positive assertion — previously only /routing/route-internal was checked).
+	var forestSuggMap map[string]any
+	for _, sug := range suggestResp.Suggestions {
+		b, _ := json.Marshal(sug)
+		var m map[string]any
+		_ = json.Unmarshal(b, &m)
+		if _, ok := m["forest_ranges"]; ok {
+			forestSuggMap = m
+			break
 		}
 	}
-	// summits_passed: h.DB=nil → absent (omitempty on RouteSuggestion.SummitsPassed).
-	if _, ok := suggMap["summits_passed"]; ok {
-		t.Errorf("/routes/suggest: summits_passed present but h.DB=nil fixture")
+	if forestSuggMap == nil {
+		t.Errorf("/routes/suggest: no suggestion carries forest_ranges " +
+			"(expected at least one forest-quadrant variant from the fixture)")
+	} else {
+		// Positive shape assertion: forest_ranges must be a non-empty array of objects
+		// with "from"/"to" keys (parity with /routing/route-internal assertion above).
+		frRaw := forestSuggMap["forest_ranges"]
+		fr, ok := frRaw.([]any)
+		if !ok || len(fr) == 0 {
+			t.Errorf("/routes/suggest: forest_ranges is not a non-empty array: %T %v", frRaw, frRaw)
+		} else {
+			for j, elem := range fr {
+				obj, ok := elem.(map[string]any)
+				if !ok {
+					t.Errorf("/routes/suggest: forest_ranges[%d] is not an object", j)
+					continue
+				}
+				if _, ok := obj["from"]; !ok {
+					t.Errorf("/routes/suggest: forest_ranges[%d] missing 'from'", j)
+				}
+				if _, ok := obj["to"]; !ok {
+					t.Errorf("/routes/suggest: forest_ranges[%d] missing 'to'", j)
+				}
+			}
+		}
 	}
-	// protected_ranges: absent (protected_area=0).
-	if _, ok := suggMap["protected_ranges"]; ok {
-		t.Errorf("/routes/suggest: protected_ranges present but protected_area=0 in fixture")
+
+	// Negative assertions apply to all suggestions (no outdoor tags in base fixture).
+	for idx, sug := range suggestResp.Suggestions {
+		b, _ := json.Marshal(sug)
+		var m map[string]any
+		_ = json.Unmarshal(b, &m)
+
+		// sac_ranges / mtb_ranges / vf_ranges: no outdoor tags in base fixture → absent.
+		for _, key := range []string{"sac_ranges", "mtb_ranges", "vf_ranges", "vf_unknown_ranges"} {
+			if _, ok := m[key]; ok {
+				t.Errorf("/routes/suggest suggestions[%d]: %s present but fixture has no outdoor tags", idx, key)
+			}
+		}
+		// summits_passed: h.DB=nil → absent (omitempty on RouteSuggestion.SummitsPassed).
+		if _, ok := m["summits_passed"]; ok {
+			t.Errorf("/routes/suggest suggestions[%d]: summits_passed present but h.DB=nil fixture", idx)
+		}
+		// protected_ranges: absent (protected_area=0).
+		if _, ok := m["protected_ranges"]; ok {
+			t.Errorf("/routes/suggest suggestions[%d]: protected_ranges present but protected_area=0 in fixture", idx)
+		}
 	}
 }

@@ -271,12 +271,16 @@ func mergeLegs(legs []*RouteResult) *RouteResult {
 		}
 		// Empty follow-leg (len(Coordinates)==0): EdgeCoordStart/Tags1/Tags2 skipped above.
 
-		// Propagate LastEdgeCoordEnd from the last leg (F2: dst-VE bleed fix).
-		// The merged result inherits the last leg's last-real-edge boundary, adjusted
-		// for the coordinate offset that this leg contributes to the merged slice.
-		// Non-last legs are intermediate — their LastEdgeCoordEnd is irrelevant;
-		// only the final leg determines where the dst-VE tail begins (if any).
-		if leg.LastEdgeCoordEnd > 0 {
+		// Propagate LastEdgeCoordEnd only from the last leg (F3 fix 2026-04-21).
+		// Intermediate legs are internally cut — their LastEdgeCoordEnd is a
+		// mid-route boundary that is irrelevant for the merged route's dst-VE
+		// cutoff. If every leg with LastEdgeCoordEnd > 0 overwrote the result, a
+		// stale value from a penultimate leg would persist when the final leg has
+		// LastEdgeCoordEnd == 0 (e.g. no dst-VE on that leg), producing incorrect
+		// range-highlight truncation for the merged route.
+		// Only the final leg determines where the dst-VE tail begins (if any).
+		isLastLeg := i == len(legs)-1
+		if isLastLeg && leg.LastEdgeCoordEnd > 0 {
 			result.LastEdgeCoordEnd = leg.LastEdgeCoordEnd + segOffset
 		}
 	}
