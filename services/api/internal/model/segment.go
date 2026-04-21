@@ -149,8 +149,13 @@ type ListSegmentsParams struct {
 	Cursor         string // base64(created_at|id)
 	Limit          int    // 0 = kein Limit
 	IsAdmin        bool   // if true: bypass visibility filter
-}
 
+	// NEU (§5 Spec)
+	SacScale         string // komma-separiert, z.B. "T2,T3"
+	MtbScale         string // komma-separiert
+	Surface          string // komma-separiert
+	VisibilityFilter string // "public" | "private" | "" (= Default: beides)
+}
 // ListSegmentsResult enthaelt die paginierte Segment-Liste.
 type ListSegmentsResult struct {
 	Segments   []Segment `json:"segments"`
