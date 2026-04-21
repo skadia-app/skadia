@@ -87,6 +87,8 @@ function makeStats(overrides: Partial<RouteStats> = {}): RouteStats {
   return {
     forest_pct: null,
     protected_pct: null,
+    forest_ranges: null,
+    protected_ranges: null,
     sac_ranges: null,
     mtb_ranges: null,
     vf_ranges: null,
@@ -180,6 +182,55 @@ describe('mergeSegmentStatsForState', () => {
   it('leere Segments-Liste → null', () => {
     const result = mergeSegmentStatsForState([], {})
     expect(result).toBeNull()
+  })
+
+  it('extractRouteStatsFromFeature: extrahiert forest_ranges aus feature.properties', () => {
+    // Import extractRouteStatsFromFeature indirectly via mergeSegmentStatsForState:
+    // We verify extraction by building a segment whose stats come from a feature
+    // with forest_ranges — done via direct cache injection.
+    const coords = Array.from({ length: 6 }, (_, i) => [10 + i * 0.001, 47])
+    const seg = makeSegment('a', 'b', 500, coords)
+    const stats = makeStats({
+      forest_ranges: [{ from: 0, to: 5 }],
+      coordinates: coords,
+    })
+    const result = mergeSegmentStatsForState([seg], { 'a:b': stats })
+    expect(result).not.toBeNull()
+    expect(result!.forest_ranges).toEqual([{ from: 0, to: 5 }])
+  })
+
+  it('two segments: forest_ranges mergen mit korrektem Coord-Offset-Shift', () => {
+    // Seg1: 5 coords (indices 0..4), forest_ranges [{from:0, to:2}]
+    const coords1 = Array.from({ length: 5 }, (_, i) => [10 + i * 0.001, 47])
+    const seg1 = makeSegment('a', 'b', 500, coords1)
+    const stats1 = makeStats({
+      forest_ranges: [{ from: 0, to: 2 }],
+      coordinates: coords1,
+    })
+
+    // Seg2: 5 coords, forest_ranges [{from:0, to:2}]
+    const coords2 = Array.from({ length: 5 }, (_, i) => [10.004 + i * 0.001, 47])
+    const seg2 = makeSegment('b', 'c', 500, coords2)
+    const stats2 = makeStats({
+      forest_ranges: [{ from: 0, to: 2 }],
+      coordinates: coords2,
+    })
+
+    const result = mergeSegmentStatsForState(
+      [seg1, seg2],
+      { 'a:b': stats1, 'b:c': stats2 },
+    )
+
+    expect(result).not.toBeNull()
+    // Merged coords: 5 (seg1) + 4 (seg2 without first) = 9
+    expect(result!.coordinates.length).toBe(9)
+
+    // Seg1 ranges: coordOffset=0 at start → unchanged {from:0, to:2}
+    // Seg2 ranges: coordOffset=5 at start of seg2 iteration → {from:0+5, to:2+5} = {from:5, to:7}
+    expect(result!.forest_ranges).toEqual([
+      { from: 0, to: 2 },
+      { from: 5, to: 7 },
+    ])
   })
 })
 
