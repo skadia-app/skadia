@@ -7,6 +7,8 @@ import type {
   PlannedRoute,
   ListRoutesParams,
   RouteSuggestion,
+  CoordRange,
+  PassedSummit,
 } from '@/api/routes'
 import {
   getCapabilities,
@@ -71,6 +73,13 @@ interface RoutePlannerState {
   editingRouteId: string | null
   routingEngine: RoutingEngine
   brouterProfile: string
+  // V6-Retrofit: aggregierter Stats-Shape über alle Segmente. null = keine Stats
+  // verfügbar (BRouter-Engine, oder Segmente leer).
+  routeStats: RouteStats | null
+  // _statsCache: per-Segment-Cache mit key = `${from_waypoint}:${to_waypoint}`.
+  // NICHT im Return-Object — rein intern. Muss im selben State-Objekt wie
+  // segments[] leben, damit setState atomisch bleibt.
+  _statsCache: Record<string, RouteStats>
 }
 
 const INITIAL_STATE: RoutePlannerState = {
@@ -83,6 +92,8 @@ const INITIAL_STATE: RoutePlannerState = {
   editingRouteId: null,
   routingEngine: 'badrouter',
   brouterProfile: 'hiking-mountain',
+  routeStats: null,
+  _statsCache: {},
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -174,6 +185,142 @@ function rebuildOffroadGeometry(seg: RouteSegment): RouteSegment {
       : undefined,
     distance_m: polylineDistanceM(lineCoords),
     elevation_estimated: true,
+  }
+}
+
+// ─── RouteStats types + helpers ───────────────────────────────────────────────
+
+// Zentraler Stats-Shape — wird aus /routing/route-internal (Quelle 1),
+// loadSuggestion (Quelle 2) und recalculateAll (Quelle 3) befüllt, auf null
+// gesetzt bei Segment-Reset (Quelle 4 — recalculateAll, clear, setRoutingEngine,
+// loadWaypoints). Keys 1:1 identisch zu RouteSuggestion-Enrichment (Spec §4.2.4 E).
+//
+// CoordRange-Shape: {from: number, to: number} (to exclusive) — verifiziert
+// in api/routes.ts:375-378. PassedSummit hat kein coord_index-Feld (Position
+// via lat/lng, verifiziert api/routes.ts:380-388).
+export type RouteStats = {
+  forest_pct: number | null
+  protected_pct: number | null
+  sac_ranges: Record<string, CoordRange[]> | null
+  mtb_ranges: Record<string, CoordRange[]> | null
+  vf_ranges: Record<string, CoordRange[]> | null
+  vf_unknown_ranges: CoordRange[] | null
+  summits_passed: PassedSummit[] | null
+  // coordinates: Referenz-Coord-Array gegen das alle Range-Indizes aufgelöst
+  // werden. Im Multi-Segment-Fall: Concat aller Segment-Coords mit Dedup des
+  // ersten Coords jedes Nachfolger-Segments (Spec §4.2.4 E).
+  coordinates: number[][]
+}
+
+function extractRouteStatsFromFeature(feature: GeoJSON.Feature | undefined): RouteStats | null {
+  const props = feature?.properties
+  if (!props) return null
+  const hasAnyKey =
+    'forest_pct' in props || 'protected_pct' in props || 'sac_ranges' in props ||
+    'mtb_ranges' in props || 'vf_ranges' in props || 'vf_unknown_ranges' in props ||
+    'summits_passed' in props
+  if (!hasAnyKey) return null
+  const coords = ((feature?.geometry as GeoJSON.LineString | undefined)?.coordinates
+    ?? []) as number[][]
+  return {
+    forest_pct: (props.forest_pct as number) ?? null,
+    protected_pct: (props.protected_pct as number) ?? null,
+    sac_ranges: (props.sac_ranges as RouteStats['sac_ranges']) ?? null,
+    mtb_ranges: (props.mtb_ranges as RouteStats['mtb_ranges']) ?? null,
+    vf_ranges: (props.vf_ranges as RouteStats['vf_ranges']) ?? null,
+    vf_unknown_ranges: (props.vf_unknown_ranges as RouteStats['vf_unknown_ranges']) ?? null,
+    summits_passed: (props.summits_passed as RouteStats['summits_passed']) ?? null,
+    coordinates: coords,
+  }
+}
+
+/** Exported for unit tests only — do not use in production code outside this file. */
+export function mergeSegmentStatsForState(
+  segments: RouteSegment[],
+  cache: Record<string, RouteStats>,
+): RouteStats | null {
+  if (segments.length === 0) return null
+
+  // Early-out: kein Segment hat Cache-Eintrag → null (BRouter-Gesamtroute)
+  const anyStats = segments.some(s => cache[`${s.from_waypoint}:${s.to_waypoint}`])
+  if (!anyStats) return null
+
+  // Distance-gewichtete Prozent-Werte (forest_pct, protected_pct).
+  let totalDist = 0
+  let forestWeighted = 0
+  let protectedWeighted = 0
+
+  // Range-Maps mit Coord-Offset-Shift pro Segment.
+  const sacMerged: Record<string, CoordRange[]> = {}
+  const mtbMerged: Record<string, CoordRange[]> = {}
+  const vfMerged: Record<string, CoordRange[]> = {}
+  const vfUnknownMerged: CoordRange[] = []
+  const summitsMerged: PassedSummit[] = []
+  const coordinatesMerged: number[][] = []
+
+  let coordOffset = 0
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i]
+    const stats = cache[`${seg.from_waypoint}:${seg.to_waypoint}`]
+    const segCoords = (seg.geometry?.coordinates ?? []) as number[][]
+    const segLen = segCoords.length
+
+    // Coords mergen mit Dedup: ab Segment 2 ersten Coord überspringen.
+    if (i === 0) {
+      for (const c of segCoords) coordinatesMerged.push(c)
+    } else {
+      for (let j = 1; j < segLen; j++) coordinatesMerged.push(segCoords[j])
+    }
+
+    if (stats) {
+      totalDist += seg.distance_m
+      if (stats.forest_pct != null) forestWeighted += stats.forest_pct * seg.distance_m
+      if (stats.protected_pct != null) protectedWeighted += stats.protected_pct * seg.distance_m
+
+      const shiftRangesInto = (
+        src: Record<string, CoordRange[]> | null,
+        dst: Record<string, CoordRange[]>,
+      ) => {
+        if (!src) return
+        for (const [key, ranges] of Object.entries(src)) {
+          if (!dst[key]) dst[key] = []
+          for (const r of ranges) {
+            dst[key].push({ from: r.from + coordOffset, to: r.to + coordOffset })
+          }
+        }
+      }
+      shiftRangesInto(stats.sac_ranges, sacMerged)
+      shiftRangesInto(stats.mtb_ranges, mtbMerged)
+      shiftRangesInto(stats.vf_ranges, vfMerged)
+      if (stats.vf_unknown_ranges) {
+        for (const r of stats.vf_unknown_ranges) {
+          vfUnknownMerged.push({ from: r.from + coordOffset, to: r.to + coordOffset })
+        }
+      }
+      if (stats.summits_passed) {
+        // Summits per osm_id dedupliziert: kann an Segment-Grenzen doppelt auftreten.
+        for (const sm of stats.summits_passed) {
+          if (!summitsMerged.some(x => x.osm_id === sm.osm_id)) {
+            summitsMerged.push(sm)
+          }
+        }
+      }
+    }
+
+    // Coord-Offset fortschalten. Für i==0: Offset wächst um segLen.
+    // Für i>0: Offset wächst um segLen-1 (erster Coord wurde geskippt).
+    coordOffset += i === 0 ? segLen : Math.max(segLen - 1, 0)
+  }
+
+  return {
+    forest_pct: totalDist > 0 ? forestWeighted / totalDist : null,
+    protected_pct: totalDist > 0 ? protectedWeighted / totalDist : null,
+    sac_ranges: Object.keys(sacMerged).length > 0 ? sacMerged : null,
+    mtb_ranges: Object.keys(mtbMerged).length > 0 ? mtbMerged : null,
+    vf_ranges: Object.keys(vfMerged).length > 0 ? vfMerged : null,
+    vf_unknown_ranges: vfUnknownMerged.length > 0 ? vfUnknownMerged : null,
+    summits_passed: summitsMerged.length > 0 ? summitsMerged : null,
+    coordinates: coordinatesMerged,
   }
 }
 
@@ -324,6 +471,11 @@ export function useRoutePlanner() {
 
       const segment = buildSegmentFromFeature(from, to, feature, isFallback)
 
+      // V6-Retrofit Quelle 1: Stats nur bei engine='badrouter' extrahieren.
+      // BRouter-Proxy liefert keine Enrichment-Keys — Spec §3 Non-Goal + §4.1.5b.
+      const statsForSegment = engine === 'badrouter' ? extractRouteStatsFromFeature(feature) : null
+      const segmentKey = `${from.id}:${to.id}`
+
       setState(s => {
         // Replace existing segment between these two waypoints, or append
         const idx = s.segments.findIndex(
@@ -334,7 +486,22 @@ export function useRoutePlanner() {
           idx >= 0
             ? s.segments.map((seg, i) => (i === idx ? segment : seg))
             : [...s.segments, segment]
-        return { ...s, segments: newSegments, isCalculating: false }
+
+        // _statsCache atomar mit-updaten
+        const newCache = { ...s._statsCache }
+        if (statsForSegment) {
+          newCache[segmentKey] = statsForSegment
+        } else {
+          delete newCache[segmentKey]
+        }
+
+        return {
+          ...s,
+          segments: newSegments,
+          _statsCache: newCache,
+          routeStats: mergeSegmentStatsForState(newSegments, newCache),
+          isCalculating: false,
+        }
       })
     } catch (err) {
       const message =
@@ -471,7 +638,14 @@ export function useRoutePlanner() {
       currentProfileConfig = s.profileConfig
       currentEngine = s.routingEngine
       currentBrouterProfile = s.brouterProfile
-      return { ...s, segments: [], isCalculating: true, calculationError: null }
+      return {
+        ...s,
+        segments: [],
+        isCalculating: true,
+        calculationError: null,
+        routeStats: null,
+        _statsCache: {},
+      }
     })
     if (!currentProfileConfig) {
       setState(s => ({ ...s, isCalculating: false }))
@@ -618,13 +792,21 @@ export function useRoutePlanner() {
       setState(s => ({
         ...s,
         waypoints: route.waypoints,
+        // L-11: DB-Segmente bleiben als Sub-Frame-Zwischenzustand stehen.
+        // recalculateAll() setzt sie auf [] und befüllt routeStats neu via Quelle 1.
+        // Intentional — falls recalculateAll scheitert stehen die DB-Segmente als Fallback.
         segments: route.segments,
         profileConfig: cached,
         sportType: route.sport_type,
         isCalculating: false,
         calculationError: null,
         editingRouteId: route.id,
+        routeStats: null,      // V6-Retrofit: reset vor Re-Routing
+        _statsCache: {},
       }))
+      // V6-Retrofit Quelle 3: Re-Routing triggert _calculateSegment-Schleife,
+      // die via Quelle 1 routeStats befüllt. ~500 ms Latenz, akzeptiert (Spec §3 Non-Goal).
+      void recalculateAll()
     } else {
       resetScalePin()
       // Load waypoints/segments immediately, fetch profile in background
@@ -636,6 +818,8 @@ export function useRoutePlanner() {
         isCalculating: false,
         calculationError: null,
         editingRouteId: route.id,
+        routeStats: null,
+        _statsCache: {},
       }))
       fetchProfileDefaults(route.profile)
         .then(resp => {
@@ -648,6 +832,8 @@ export function useRoutePlanner() {
             if (!fresh) return s
             return { ...s, profileConfig: fresh }
           })
+          // NACH profileConfig-Set: Re-Routing triggern
+          void recalculateAll()
         })
         .catch(() => {
           addToast({
@@ -658,8 +844,7 @@ export function useRoutePlanner() {
           })
         })
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [recalculateAll])
 
   // Load waypoints into the planner without creating/linking a saved route.
   const loadWaypoints = useCallback((waypoints: RouteWaypoint[]) => {
@@ -670,6 +855,8 @@ export function useRoutePlanner() {
       isCalculating: false,
       calculationError: null,
       editingRouteId: null,
+      routeStats: null,
+      _statsCache: {},
     }))
   }, [])
 
@@ -717,10 +904,27 @@ export function useRoutePlanner() {
       elevation_loss: s.descent_m,
     }
 
+    // V6-Retrofit Quelle 2: Stats aus Suggestion direkt übernehmen + synthetisch cachen.
+    const suggestionCoords = (s.geojson?.features?.[0]?.geometry?.coordinates
+      ?? []) as number[][]
+    const statsFromSuggestion: RouteStats = {
+      forest_pct: s.forest_pct ?? null,
+      protected_pct: s.protected_pct ?? null,
+      sac_ranges: s.sac_ranges ?? null,
+      mtb_ranges: s.mtb_ranges ?? null,
+      vf_ranges: s.vf_ranges ?? null,
+      vf_unknown_ranges: s.vf_unknown_ranges ?? null,
+      summits_passed: s.summits_passed ?? null,
+      coordinates: suggestionCoords,
+    }
+    const synthKey = `${startWp.id}:${endWp.id}`
+
     setState(st => ({
       ...st,
       waypoints: [startWp, endWp],
       segments: [segment],
+      _statsCache: { [synthKey]: statsFromSuggestion },
+      routeStats: statsFromSuggestion, // kein Shift nötig — einzelnes Segment, coordOffset=0
       editingRouteId: null,
       calculationError: null,
       isCalculating: false,
@@ -754,7 +958,15 @@ export function useRoutePlanner() {
       currentWaypoints = s.waypoints
       currentBrouterProfile = s.brouterProfile
       currentProfileConfig = s.profileConfig
-      return { ...s, routingEngine: engine, segments: [], isCalculating: true, calculationError: null }
+      return {
+        ...s,
+        routingEngine: engine,
+        segments: [],
+        isCalculating: true,
+        calculationError: null,
+        routeStats: null,
+        _statsCache: {},
+      }
     })
     if (!currentProfileConfig) {
       setState(s => ({ ...s, isCalculating: false }))
@@ -996,5 +1208,9 @@ export function useRoutePlanner() {
     scalePin,
     togglePin,
     resetScalePin,
+
+    // ── V6-Retrofit: aggregierte Route-Stats ──────────────────────────────
+    // null wenn BRouter-Engine, kein Segment, oder noch keine Stats berechnet.
+    routeStats: state.routeStats,
   }
 }
