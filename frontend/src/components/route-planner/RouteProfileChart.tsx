@@ -58,8 +58,12 @@ interface Props {
   onTogglePin: (kind: 'sac' | 'mtb' | 'vf') => void
   /** Hover handler — transient Map-Preview, clearet bei mouseleave. */
   onScaleHover?: (kind: 'sac' | 'mtb' | 'vf' | null) => void
-  /** Callback wenn Summit-Badge geklickt/geklickt — aktiviert Karten-Marker */
+  /** Hover-Callback — transient, aktiviert Karten-Marker während Hover */
   onSummitHover?: (active: boolean) => void
+  /** Pin-Zustand für Summit-Marker (Klick-persistent) */
+  summitPinned?: boolean
+  /** Toggle-Callback für den Summit-Pin */
+  onToggleSummitPin?: () => void
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -155,6 +159,8 @@ export default function RouteProfileChart({
   onTogglePin,
   onScaleHover,
   onSummitHover,
+  summitPinned = false,
+  onToggleSummitPin,
 }: Props) {
   // Build processed data
   const points = useMemo(
@@ -407,6 +413,8 @@ export default function RouteProfileChart({
                   <SummitBadge
                     summits={routeStats.summits_passed}
                     onHover={onSummitHover ?? (() => {})}
+                    isPinned={summitPinned}
+                    onTogglePin={onToggleSummitPin ?? (() => {})}
                   />
                 )}
                 {sacAggregate.breakdown.length > 0 && sacAggregate.maxLevel && (
