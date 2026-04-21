@@ -39,11 +39,14 @@ func expandDegForRadius(radiusM float64) float64 {
 //     simplification is applied (simplifyTolerance == 0 → caller omits it from
 //     the CTE).
 //
-// DISTINCT ON deduplication: uses CASE WHEN p.osm_id = 0 THEN p.id::text ELSE
-// p.osm_id::text END so that multiple POIs with osm_id=0 (OSM import artefacts)
-// are not collapsed to a single result. Real summits are still deduplicated by
-// osm_id (each osm_id appears at most once — closest passage wins). The ORDER BY
-// must match the DISTINCT ON expression exactly.
+// DISTINCT ON deduplication: uses a prefixed CASE expression to namespace
+// osm_id=0 rows ('id:<serial>') separately from real OSM nodes ('osm:<osm_id>').
+// This prevents ID-space collisions between osm_pois.id (BIGSERIAL, starts at 1)
+// and osm_pois.osm_id (OSM node IDs, also start at 1) — without the prefix, a
+// row with osm_id=0,id=5 and a row with osm_id=5,id=99 would deduplicate to one
+// result (F1 fix, 2026-04-21). Real summits are still deduplicated by osm_id
+// (each osm_id appears at most once — closest passage wins). The ORDER BY must
+// match the DISTINCT ON expression exactly (Postgres requirement).
 func findSummitsCore(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -53,7 +56,7 @@ func findSummitsCore(
 	expandArgIdx int, // 1-based index of the expandDeg parameter in args
 ) ([]PassedSummit, error) {
 	q := fmt.Sprintf(`%s
-		SELECT DISTINCT ON (CASE WHEN p.osm_id = 0 THEN p.id::text ELSE p.osm_id::text END)
+		SELECT DISTINCT ON (CASE WHEN p.osm_id = 0 THEN 'id:' || p.id::text ELSE 'osm:' || p.osm_id::text END)
 		       p.osm_id, p.name, p.ele, p.category,
 		       ROUND(ST_Distance(route.geom::geography, p.geom::geography))::int AS dist_m,
 		       ST_Y(ST_Centroid(p.geom)) AS lat,
@@ -63,7 +66,7 @@ func findSummitsCore(
 		  AND ST_DWithin(route.geom::geography, p.geom::geography, $%d)
 		  AND p.category IN ('summit', 'pass')
 		  AND p.name IS NOT NULL
-		ORDER BY CASE WHEN p.osm_id = 0 THEN p.id::text ELSE p.osm_id::text END, dist_m
+		ORDER BY CASE WHEN p.osm_id = 0 THEN 'id:' || p.id::text ELSE 'osm:' || p.osm_id::text END, dist_m
 	`, routeCTE, expandArgIdx, radiusArgIdx)
 
 	rows, err := pool.Query(ctx, q, args...)
