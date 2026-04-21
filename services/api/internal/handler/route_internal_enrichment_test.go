@@ -10,11 +10,13 @@ import (
 )
 
 // postRouteCalculate fires a POST /routing/route-internal request against
-// h.RouteCalculate and returns the recorder. No auth context is injected
-// because RouteCalculate is not auth-gated (L-12).
+// h.RouteCalculate and returns the recorder. A synthetic user-id is injected
+// via context because RouteCalculate is auth-gated (mounted inside the JWT
+// middleware group in main.go).
 func postRouteCalculate(h *Handler, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/routing/route-internal",
 		strings.NewReader(body))
+	req = req.WithContext(contextWithTestUserID(req.Context(), "00000000-0000-0000-0000-000000000001"))
 	w := httptest.NewRecorder()
 	h.RouteCalculate(w, req)
 	return w
@@ -137,11 +139,14 @@ func TestRouteCalculateEnrichmentForestPct(t *testing.T) {
 
 // TestRouteCalculateEnrichmentKeyParity verifies that /routing/route-internal
 // carries the same always-present enrichment keys that /routes/suggest carries
-// per variant (V6-Retrofit parity gate).
+// per variant, and that both endpoints emit values in the [0.0, 1.0] scale
+// (V6-Retrofit parity gate — also guards against scale-mismatch bugs like the
+// 0–100 vs 0.0–1.0 regression in aggregateForestProtectedFromResult).
 //
 // Shape-Asymmetrie (bindend):
-//   /routes/suggest → body.suggestions[0].{forest_pct, …}             (Top-Level struct)
-//   /routing/route-internal → body.features[0].properties.{forest_pct, …}
+//
+//	/routes/suggest → body.suggestions[0].{forest_pct, …}             (Top-Level struct)
+//	/routing/route-internal → body.features[0].properties.{forest_pct, …}
 //
 // Only the unconditionally-present scalar fields are compared here:
 // - forest_pct and protected_pct are always in both responses.
@@ -159,6 +164,7 @@ func TestRouteCalculateEnrichmentKeyParity(t *testing.T) {
 	}
 
 	// --- /routing/route-internal ---
+	// Route into the forest-tagged bottom-right quadrant so forest_pct > 0.
 	calcBody := `{"from":[48.990,12.100],"to":[48.954,12.154]}`
 	calcW := postRouteCalculate(setup.Handler, calcBody)
 	if calcW.Code != http.StatusOK {
@@ -210,5 +216,43 @@ func TestRouteCalculateEnrichmentKeyParity(t *testing.T) {
 				calcKeys, suggestKeys)
 			return
 		}
+	}
+
+	// Value-scale parity: both endpoints must emit forest_pct and protected_pct
+	// in [0.0, 1.0]. This guards against scale-mismatch regressions where
+	// aggregateForestProtectedFromResult returns 0–100 raw values instead of
+	// the 0.0–1.0 scale that RouteSuggestion.forest_pct uses.
+	scalarFields := []string{"forest_pct", "protected_pct"}
+	for _, key := range scalarFields {
+		// /routing/route-internal: value is float64 after JSON decode.
+		if v, ok := calcProps[key]; ok {
+			fv, ok2 := v.(float64)
+			if !ok2 {
+				t.Errorf("/routing/route-internal %s: expected float64, got %T", key, v)
+				continue
+			}
+			if fv < 0 || fv > 1 {
+				t.Errorf("/routing/route-internal %s out of [0,1]: %v (scale bug?)", key, fv)
+			}
+		}
+		// /routes/suggest: value is float64 after re-encode/decode of float32 struct.
+		if v, ok := suggMap[key]; ok {
+			fv, ok2 := v.(float64)
+			if !ok2 {
+				t.Errorf("/routes/suggest %s: expected float64, got %T", key, v)
+				continue
+			}
+			if fv < 0 || fv > 1 {
+				t.Errorf("/routes/suggest %s out of [0,1]: %v (scale bug?)", key, fv)
+			}
+		}
+	}
+
+	// forest_pct must be > 0 for the route-internal call because the fixture's
+	// bottom-right quadrant edges are tagged with ForestPct=70. This ensures the
+	// test exercises a non-trivial code path (not just a zero-value pass-through).
+	calcForestPct, _ := calcProps["forest_pct"].(float64)
+	if calcForestPct <= 0 {
+		t.Errorf("/routing/route-internal forest_pct: expected > 0 for forest-quadrant route, got %v", calcForestPct)
 	}
 }

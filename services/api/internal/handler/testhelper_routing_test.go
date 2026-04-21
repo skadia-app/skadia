@@ -382,6 +382,7 @@ func newTestRoutingHandlerOpts(t *testing.T, withCoverage, withOutdoorTags bool)
 		GraphManager:   mgr,
 		CoverageReader: covReader,
 		Settings:       store,
+		Config:         &HandlerConfig{}, // non-nil so h.Config.X accesses are safe without nil-guards
 	}
 
 	cleanup := func() {}

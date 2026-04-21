@@ -347,16 +347,20 @@ func aggregateForestProtectedFromResult(r *routing.RouteResult) (forestPct, prot
 		}
 		totalDist += edgeDist
 
-		forestPctEdge := float64(graph.DecodeForestPct(r.EdgeTags2[i]))
+		// DecodeForestPct returns 0–127 (7-bit); divide by 100 to get 0.0–1.0.
+		// Clamp to 100 before dividing to match the defensive clamp in
+		// route_candidate.go:102 (parity with RouteSuggestion.forest_pct scale).
+		forestPctEdge := float64(min(int(graph.DecodeForestPct(r.EdgeTags2[i])), 100)) / 100.0
 		protectedRaw := graph.DecodeProtectedArea(r.EdgeTags2[i])
 		forestWeighted += forestPctEdge * edgeDist
 		if protectedRaw > 0 {
-			protectedWeighted += 100.0 * edgeDist // any-protected=1
+			protectedWeighted += 1.0 * edgeDist // any-protected=1 (scale 0.0–1.0)
 		}
 	}
 
 	if totalDist == 0 {
 		return 0, 0
 	}
+	// Returns 0.0–1.0 (parity with RouteSuggestion.forest_pct / protected_pct).
 	return forestWeighted / totalDist, protectedWeighted / totalDist
 }
