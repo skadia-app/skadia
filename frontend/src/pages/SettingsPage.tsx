@@ -247,11 +247,17 @@ function PhotoPreviewSection() {
   }
 
   async function handleRecompute() {
-    try {
-      await Promise.all([recomputePhotoPreviews(), recomputePhotoThumbnails()])
-      addToast({ type: 'info', title: 'Vorschau-Generierung gestartet', message: 'Fortschritt im Header-Indikator sichtbar' })
-    } catch {
-      addToast({ type: 'error', title: 'Neuberechnung konnte nicht gestartet werden', duration: 0 })
+    const [previewResult, thumbResult] = await Promise.allSettled([
+      recomputePhotoPreviews(),
+      recomputePhotoThumbnails(),
+    ])
+    const anyFailed = previewResult.status === 'rejected' || thumbResult.status === 'rejected'
+    const anyStarted = previewResult.status === 'fulfilled' || thumbResult.status === 'fulfilled'
+    if (anyStarted) {
+      addToast({ type: 'info', title: 'Vorschau- und Thumbnail-Generierung gestartet', message: 'Fortschritt im Header-Indikator sichtbar' })
+    }
+    if (anyFailed) {
+      addToast({ type: 'error', title: 'Teilweise konnte die Generierung nicht gestartet werden', duration: 0 })
     }
   }
 
