@@ -44,20 +44,43 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	params := model.ListSegmentsParams{
-		UserID:         userID,
-		IsAdmin:        isAdmin,
-		SportGroup:     r.URL.Query().Get("sport_group"),
-		SegmentType:    r.URL.Query().Get("segment_type"),
-		SegmentTypes:   r.URL.Query().Get("segment_types"),
-		Name:           name,
-		BBox:           r.URL.Query().Get("bbox"),
-		OnlyRidden:     r.URL.Query().Get("only_ridden") == "true",
-		IncludeGeoJSON: r.URL.Query().Get("include_geojson") == "true",
-		Cursor:         r.URL.Query().Get("cursor"),
-		Limit:          limit,
+		UserID:           userID,
+		IsAdmin:          isAdmin,
+		SportGroup:       r.URL.Query().Get("sport_group"),
+		SegmentType:      r.URL.Query().Get("segment_type"),
+		SegmentTypes:     r.URL.Query().Get("segment_types"),
+		Name:             name,
+		BBox:             r.URL.Query().Get("bbox"),
+		OnlyRidden:       r.URL.Query().Get("only_ridden") == "true",
+		IncludeGeoJSON:   r.URL.Query().Get("include_geojson") == "true",
+		Cursor:           r.URL.Query().Get("cursor"),
+		Limit:            limit,
+		SacScale:         r.URL.Query().Get("sac_scale"),
+		MtbScale:         r.URL.Query().Get("mtb_scale"),
+		Surface:          r.URL.Query().Get("surface"),
+		VisibilityFilter: r.URL.Query().Get("visibility"),
+	}
+
+	// Input-Validation (§5.3 Spec N2-6) — verhindert DoS via malformed Query
+	if params.SacScale != "" && !database.IsValidSacList(params.SacScale) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid sac_scale parameter (expect T1-T6)", r.URL.Path)
+		return
+	}
+	if params.MtbScale != "" && !database.IsValidMtbList(params.MtbScale) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid mtb_scale parameter (expect S0-S5)", r.URL.Path)
+		return
+	}
+	if params.Surface != "" && !database.IsValidSurfaceList(params.Surface) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid surface parameter", r.URL.Path)
+		return
+	}
+	if params.VisibilityFilter != "" && params.VisibilityFilter != "public" && params.VisibilityFilter != "private" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid visibility parameter", r.URL.Path)
+		return
 	}
 
 	result, err := h.DB.ListSegments(r.Context(), params)
+
 	if err != nil {
 		slog.Error("list segments failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list segments", r.URL.Path)
