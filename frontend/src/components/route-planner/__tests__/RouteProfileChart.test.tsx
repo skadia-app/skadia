@@ -64,6 +64,8 @@ function makeFakeRouteStats(overrides: Partial<RouteStats> = {}): RouteStats {
   return {
     forest_pct: 0,
     protected_pct: 0,
+    forest_ranges: null,
+    protected_ranges: null,
     sac_ranges: null,
     mtb_ranges: null,
     vf_ranges: null,
