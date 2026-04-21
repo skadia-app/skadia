@@ -92,30 +92,9 @@ func testDatabaseURL(t *testing.T) string {
 
 // insertTestUser inserts a minimal user row and registers a cleanup that removes
 // all activities (cascades streams) and the user row.
-func insertTestUser(t *testing.T, pool *pgxpool.Pool) string {
-	t.Helper()
-	ctx := context.Background()
-	userID := uuid.New().String()
-	_, err := pool.Exec(ctx,
-		`INSERT INTO users (id, username, email, email_verified, registration_source)
-		 VALUES ($1, $2, $3, true, 'test')`,
-		userID,
-		"fusion_test_"+userID[:8],
-		"fusion_test_"+userID[:8]+"@example.com",
-	)
-	if err != nil {
-		t.Fatalf("insertTestUser: %v", err)
-	}
-	t.Cleanup(func() {
-		// Delete activities first (activity_streams cascades via FK).
-		pool.Exec(context.Background(), "DELETE FROM activities WHERE user_id = $1", userID)        //nolint:errcheck
-		pool.Exec(context.Background(), "DELETE FROM users WHERE id = $1", userID)                  //nolint:errcheck
-	})
-	return userID
-}
-
 // insertMinimalActivity inserts a bare-minimum activity and returns its ID.
 func insertMinimalActivity(t *testing.T, db *database.DB, userID string) string {
+
 	t.Helper()
 	now := time.Now().UTC().Truncate(time.Second)
 	act, err := db.InsertActivity(context.Background(), userID, &model.ActivityData{
