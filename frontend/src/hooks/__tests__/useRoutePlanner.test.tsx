@@ -16,6 +16,9 @@ import type { RouteSegment, RouteSuggestion } from '@/api/routes'
 // addToastMock must be hoisted so vi.mock factory can reference it
 const addToastMock = vi.hoisted(() => vi.fn())
 
+// Shared mock for computeInternalRoute — used in Quelle-1 integration test
+const computeInternalRouteMock = vi.hoisted(() => vi.fn())
+
 vi.mock('@/api/routes', async () => {
   const actual = await vi.importActual<typeof import('@/api/routes')>('@/api/routes')
   return {
@@ -36,6 +39,7 @@ vi.mock('@/api/routes', async () => {
       profile: 'hiking',
       uphill_cost: 7,
     }),
+    computeInternalRoute: computeInternalRouteMock,
   }
 })
 
@@ -328,5 +332,94 @@ describe('useRoutePlanner routeStats V6-Retrofit', () => {
       await result.current.setRoutingEngine('brouter')
     })
     expect(result.current.routeStats).toBeNull()
+  })
+})
+
+// ── Hook-Integration: addWaypoint → computeInternalRoute → routeStats (Quelle 1) ─
+
+describe('useRoutePlanner routeStats Quelle 1 — addWaypoint via computeInternalRoute', () => {
+  let qc: QueryClient
+
+  beforeEach(async () => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    addToastMock.mockClear()
+    computeInternalRouteMock.mockClear()
+
+    const { getProfileDefaults, cacheServerDefaults } = await import('@/lib/routingProfiles')
+    // Make profileConfig available immediately so addWaypoint triggers _calculateSegment
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+    vi.mocked(cacheServerDefaults).mockReset()
+
+    const { getProfileDefaults: fetchProfileDefaults } = await import('@/api/routes')
+    vi.mocked(fetchProfileDefaults).mockResolvedValue({
+      profile: 'hiking',
+      uphill_cost: 7,
+    } as any)
+  })
+
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <ToastProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </ToastProvider>
+  )
+
+  it('addWaypoint (2 Waypoints) → computeInternalRoute → routeStats enthält forest_pct + sac_ranges', async () => {
+    // Mock computeInternalRoute to return an enriched FeatureCollection
+    // with enrichment keys (Quelle 1 path).
+    const mockCoords = [
+      [12.0, 49.0, 500],
+      [12.01, 49.01, 510],
+      [12.02, 49.02, 520],
+    ]
+    computeInternalRouteMock.mockResolvedValue({
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: mockCoords,
+        },
+        properties: {
+          distance_m: 3000,
+          ascent_m: 80,
+          descent_m: 20,
+          forest_pct: 0.65,
+          protected_pct: 0.15,
+          sac_ranges: { T2: [{ from: 0, to: 2 }] },
+          summits_passed: null,
+          mtb_ranges: null,
+          vf_ranges: null,
+          vf_unknown_ranges: null,
+        },
+      }],
+    })
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    // Wait for profileConfig to be hydrated (Quelle-1 path requires it)
+    await waitFor(() => { expect(result.current.profile.status).toBe('ready') })
+
+    // Add two waypoints — second addWaypoint triggers _calculateSegment
+    await act(async () => {
+      await result.current.addWaypoint([49.0, 12.0])
+    })
+    await act(async () => {
+      await result.current.addWaypoint([49.02, 12.02])
+    })
+
+    // Wait for segment calculation to complete
+    await waitFor(() => {
+      expect(result.current.isCalculating).toBe(false)
+    })
+
+    // Verify Quelle-1 path: computeInternalRoute was called
+    expect(computeInternalRouteMock).toHaveBeenCalledOnce()
+
+    // Verify routeStats are populated from computeInternalRoute response
+    expect(result.current.routeStats).not.toBeNull()
+    expect(result.current.routeStats!.forest_pct).toBe(0.65)
+    expect(result.current.routeStats!.protected_pct).toBe(0.15)
+    expect(result.current.routeStats!.sac_ranges).not.toBeNull()
+    expect(result.current.routeStats!.sac_ranges!['T2']).toEqual([{ from: 0, to: 2 }])
   })
 })
