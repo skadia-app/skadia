@@ -46,9 +46,13 @@ const DEFAULT_COORDS: number[][] = [
 ]
 
 export function makeFakeRouteStats(overrides: Partial<RouteStats> = {}): RouteStats {
+  // Defaults "unbekannt/nicht berechnet" (null) statt "Route hat 0 %" (0).
+  // Semantik: null = Backend hat nichts emittiert oder Enrichment-Feld fehlt.
+  // Tests, die "Route hat explizit 0 %" asserten wollen, überschreiben gezielt.
+  // (F4-Runde-3: Semantik-Divergenz zu früheren makeStats-Wrappern vermeiden.)
   return {
-    forest_pct: 0,
-    protected_pct: 0,
+    forest_pct: null,
+    protected_pct: null,
     forest_ranges: null,
     protected_ranges: null,
     sac_ranges: null,

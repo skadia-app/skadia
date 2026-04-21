@@ -88,11 +88,11 @@ function makeSegment(
  * Hook-Tests brauchen `coordinates: []` als Default (nicht das 3-Punkt-Array der
  * Chart-Tests), weil mergeSegmentStatsForState den coordinates-Array selbst
  * zusammenstellt und die Fixture nur Input-Stats liefert.
+ *
+ * forest_pct / protected_pct default null — kommt aus Factory (F4-Runde-3).
  */
 function makeStats(overrides: Partial<RouteStats> = {}): RouteStats {
   return makeFakeRouteStats({
-    forest_pct: null,
-    protected_pct: null,
     coordinates: [],
     ...overrides,
   })
