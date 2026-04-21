@@ -588,7 +588,7 @@ export default function MapPage() {
   }), [planner, highlight.effective])
 
   // Register MapLibre click handlers for route editing
-  useRouteEditor(mapRef, routeEditorState, plannerActive)
+  useRouteEditor(mapRef, routeEditorState, plannerActive, styleVersion)
 
   // ── Descriptor overlay MapLibre layer init ────────────────────────────────
   // Initialise LAYER_RANGE_HIGHLIGHT + LAYER_SCALE_BASE sources/layers once the
