@@ -86,7 +86,22 @@ LEFT JOIN LATERAL (
 	// Segments contain only geometry/metadata — no personal health data.
 	// Admin access is covered by the existing audit log.
 	where := `
-WHERE (s.visibility = 'public' OR s.created_by = $1 OR $2 = true)`
+	WHERE (s.visibility = 'public' OR s.created_by = $1 OR $2 = true)`
+
+	// Visibility-Filter: Base-Condition überschreiben wenn gesetzt (§5 Spec)
+	// Admin-Bypass via $2=isAdmin bleibt erhalten.
+	switch p.VisibilityFilter {
+	case "public":
+		where = strings.Replace(where,
+			"(s.visibility = 'public' OR s.created_by = $1 OR $2 = true)",
+			"s.visibility = 'public'",
+			1)
+	case "private":
+		where = strings.Replace(where,
+			"(s.visibility = 'public' OR s.created_by = $1 OR $2 = true)",
+			"s.visibility = 'private' AND (s.created_by = $1 OR $2 = true)",
+			1)
+	}
 
 	if p.SportGroup != "" {
 		where += fmt.Sprintf(" AND s.sport_group = $%d", argIdx)
@@ -123,12 +138,12 @@ WHERE (s.visibility = 'public' OR s.created_by = $1 OR $2 = true)`
 			} else {
 				// Ohne sv brauchen wir einen eigenen LATERAL fuer BBox
 				from += fmt.Sprintf(`
-LEFT JOIN LATERAL (
-    SELECT track FROM segment_versions
-    WHERE segment_id = s.id
-    ORDER BY version_number DESC
-    LIMIT 1
-) sv_bbox ON true`)
+	LEFT JOIN LATERAL (
+	SELECT track FROM segment_versions
+	WHERE segment_id = s.id
+	ORDER BY version_number DESC
+	LIMIT 1
+	) sv_bbox ON true`)
 				where += fmt.Sprintf(
 					` AND sv_bbox.track IS NOT NULL AND ST_Intersects(sv_bbox.track, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326))`,
 					argIdx, argIdx+1, argIdx+2, argIdx+3,
@@ -142,6 +157,22 @@ LEFT JOIN LATERAL (
 		where += " AND COALESCE(ue.ridden_count, 0) > 0"
 	}
 
+	// SAC-Filter (§5 Spec) — COALESCE für NULL-Handling
+	if p.SacScale != "" {
+		where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'sac_scale', '') = ANY(string_to_array($%d, ','))", argIdx)
+		args = append(args, p.SacScale)
+		argIdx++
+	}
+	if p.MtbScale != "" {
+		where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'mtb_scale', '') = ANY(string_to_array($%d, ','))", argIdx)
+		args = append(args, p.MtbScale)
+		argIdx++
+	}
+	if p.Surface != "" {
+		where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'surface', '') = ANY(string_to_array($%d, ','))", argIdx)
+		args = append(args, p.Surface)
+		argIdx++
+	}
 	// --- Cursor ---
 	if p.Cursor != "" {
 		cursorTS, cursorID, err := decodeCursor(p.Cursor)
