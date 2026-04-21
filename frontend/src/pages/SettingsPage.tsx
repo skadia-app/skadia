@@ -17,7 +17,7 @@ import { backfillEnrichment, fetchGeocodingGap, startGeocodingBackfill } from '@
 import { ApiError } from '@/api/client'
 import { fetchActiveJobs } from '@/api/jobs'
 import type { EnrichmentSettings } from '@/api/types'
-import { recomputePhotoPreviews, recomputePhotoEmbeddings, backfillPhash } from '@/api/activityPhotos'
+import { recomputePhotoPreviews, recomputePhotoThumbnails, recomputePhotoEmbeddings, backfillPhash } from '@/api/activityPhotos'
 import { useToast } from '@/lib/toast'
 import FileSchemaSettings from '@/components/FileSchemaSettings'
 import LLMSettingsPage from './LLMSettingsPage'
@@ -248,7 +248,7 @@ function PhotoPreviewSection() {
 
   async function handleRecompute() {
     try {
-      await recomputePhotoPreviews()
+      await Promise.all([recomputePhotoPreviews(), recomputePhotoThumbnails()])
       addToast({ type: 'info', title: 'Vorschau-Generierung gestartet', message: 'Fortschritt im Header-Indikator sichtbar' })
     } catch {
       addToast({ type: 'error', title: 'Neuberechnung konnte nicht gestartet werden', duration: 0 })

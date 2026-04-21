@@ -131,8 +131,8 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 	labels := map[string]string{
 		"osm_import":               "OSM-Import",
 		"osm_enrichment":           "OSM-Anreicherung",
-		"garmin_import":            "Garmin-Synchronisierung",
-		"strava_import":            "Strava-Synchronisierung",
+		"garmin_import":            "Garmin-Import",
+		"strava_import":            "Strava-Import",
 		"komoot_import":            "Komoot-Import",
 		"segment_recompute":        "Segmente neu berechnen",
 		"activity_recompute_all":   "Alle Aktivitäten neu berechnen",
@@ -166,6 +166,13 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 		"recalc_best_efforts":      "Bestleistungen neu berechnen",
 		"recompute_all_tss":        "TSS für alle Aktivitäten neu berechnen",
 		"geocoding_backfill":       "Ortsnamen nachtragen",
+		"osm_update":               "OSM-Region aktualisieren",
+		"osm_update_all":           "Alle OSM-Regionen aktualisieren",
+		"dem_download":             "Höhenmodell herunterladen",
+		"compression_toggle":       "Datenkompression umschalten",
+		"rule_apply":               "Regel anwenden",
+		"segment_publish":          "Segment veröffentlichen",
+		"gdpr_export":              "Datenexport",
 	}
 	label := labels[jobType]
 	if label == "" {
