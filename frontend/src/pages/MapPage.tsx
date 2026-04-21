@@ -13,6 +13,7 @@ import RouteSuggestionDialog from '@/components/route-planner/RouteSuggestionDia
 import RouteSaveDialog from '@/components/route-planner/RouteSaveDialog'
 import RouteProfileChart from '@/components/route-planner/RouteProfileChart'
 import RouteSurfacesBar from '@/components/route-planner/RouteSurfacesBar'
+import ScaleLegend from '@/components/route-planner/ScaleLegend'
 import RouteComparisonPanel, { SUGGESTION_COLORS } from '@/components/route-planner/RouteComparisonPanel'
 import type { RouteSuggestion } from '@/api/routes'
 import { useRoutePlanner } from '@/hooks/useRoutePlanner'
@@ -2347,6 +2348,13 @@ export default function MapPage() {
           className="w-full h-full"
         />
 
+        {/* Scale-Legende: erscheint nur wenn SAC/MTB/VF-Scale-Pin aktiv ist.
+            Erklärt die 6 Rainbow-Farben des Map-Overlays; Badge-Dots nutzen
+            die 3-Farben-DAV-Konvention (siehe ScaleBadge.tsx). */}
+        <ScaleLegend
+          kind={planner.scalePin}
+          hasUnknownVf={(planner.routeStats?.vf_unknown_ranges?.length ?? 0) > 0}
+        />
 
         {/* ── Kartenstil-Buttons — links unten ────────────────────────── */}
         <div className="absolute bottom-4 left-4 z-10 flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md">
