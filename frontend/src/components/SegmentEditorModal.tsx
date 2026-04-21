@@ -180,7 +180,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   const enrichmentMutation = useMutation({
     mutationFn: suggestSegmentEnrichment,
     onSuccess: (resp) => {
-      if (resp.reason === 'wintersport') return
+      if (resp.reason === 'wintersport' || resp.reason === 'wassersport') return
       if (resp.reason === 'low_coverage') {
         addToast({ type: 'warning', title: 'Keine OSM-Daten für diesen Abschnitt' })
         return

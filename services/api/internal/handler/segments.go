@@ -1179,21 +1179,20 @@ func (h *Handler) EnrichmentSuggest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	validTypes := map[string]bool{"standard": true, "trail": true, "lap": true, "wintersport": true}
+	validTypes := map[string]bool{"standard": true, "trail": true, "lap": true, "wintersport": true, "wassersport": true}
 	if !validTypes[req.SegType] {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "seg_type must be one of standard|trail|lap|wintersport", r.URL.Path)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "seg_type must be one of standard|trail|lap|wintersport|wassersport", r.URL.Path)
 		return
 	}
 
-	// Wintersport short-circuit — no graph/postgis call needed.
-	if req.SegType == "wintersport" {
+	// Wintersport / Wassersport short-circuit — no graph/postgis call needed.
+	if req.SegType == "wintersport" || req.SegType == "wassersport" {
 		httputil.WriteJSON(w, http.StatusOK, enrichment.SegmentEnrichmentResponse{
 			CoveragePct: 0,
-			Reason:      "wintersport",
+			Reason:      req.SegType,
 		})
 		return
 	}
-
 	// Build orb.Point slice (GeoJSON convention: [lng, lat]).
 	coords := make([]orb.Point, 0, len(req.Coordinates))
 	for _, c := range req.Coordinates {
