@@ -37,27 +37,25 @@ export const WINTER_SPORT_WHITELIST: readonly string[] = [
 ]
 
 // DAV-Bayern-Auslegung — Ski-Pisten convention blau < rot < schwarz. §4.6.
-export const SAC_COLOR_MAP: Record<string, 'blue' | 'red' | 'black'> = {
-  T1: 'blue',
-  T2: 'red', T3: 'red',
-  T4: 'black', T5: 'black', T6: 'black',
-}
+// Single-Source-of-Truth: @/lib/scaleColors. Re-Export hier aus Abwärts-
+// kompatibilität; Consumer die Hex-Werte brauchen (z.B. Badge-Dots) importieren
+// direkt SAC_BADGE_COLORS/MTB_BADGE_COLORS aus @/lib/scaleColors.
+export {
+  SAC_DAV_COLOR_NAMES as SAC_COLOR_MAP,
+  MTB_DAV_COLOR_NAMES as MTB_COLOR_MAP,
+} from '@/lib/scaleColors'
+import { SAC_DAV_COLOR_NAMES, MTB_DAV_COLOR_NAMES } from '@/lib/scaleColors'
+import type { DavColorName } from '@/lib/scaleColors'
 
-export const MTB_COLOR_MAP: Record<string, 'blue' | 'red' | 'black'> = {
-  S0: 'blue', S1: 'blue',
-  S2: 'red',
-  S3: 'black', S4: 'black', S5: 'black',
-}
-
-const COLOR_ORDER: Record<'blue' | 'red' | 'black', number> = { blue: 0, red: 1, black: 2 }
+const COLOR_ORDER: Record<DavColorName, number> = { blue: 0, red: 1, black: 2 }
 
 export function deriveTrailDifficultyColor(
   sac: string | null | undefined,
   mtb: string | null | undefined,
-): 'blue' | 'red' | 'black' | null {
-  const colors: Array<'blue' | 'red' | 'black'> = []
-  if (sac && SAC_COLOR_MAP[sac]) colors.push(SAC_COLOR_MAP[sac])
-  if (mtb && MTB_COLOR_MAP[mtb]) colors.push(MTB_COLOR_MAP[mtb])
+): DavColorName | null {
+  const colors: DavColorName[] = []
+  if (sac && SAC_DAV_COLOR_NAMES[sac]) colors.push(SAC_DAV_COLOR_NAMES[sac])
+  if (mtb && MTB_DAV_COLOR_NAMES[mtb]) colors.push(MTB_DAV_COLOR_NAMES[mtb])
   if (colors.length === 0) return null
   return colors.reduce((max, c) => (COLOR_ORDER[c] > COLOR_ORDER[max] ? c : max))
 }

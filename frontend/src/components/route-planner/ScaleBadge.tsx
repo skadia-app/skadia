@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { SAC_COLORS, MTB_COLORS, VF_COLORS } from '@/lib/scaleColors'
+import { SAC_BADGE_COLORS, MTB_BADGE_COLORS } from '@/lib/scaleColors'
 import type { ScaleBadgeLevel } from '@/lib/scaleAggregation'
 import { scaleMaxLabel, scaleAriaLabel } from '@/lib/strings/suggest-routes'
 
@@ -12,9 +12,14 @@ interface Props {
   onHover: (active: boolean) => void
 }
 
-function colorFor(kind: 'sac' | 'mtb' | 'vf', level: string): string {
-  const src = kind === 'sac' ? SAC_COLORS : kind === 'mtb' ? MTB_COLORS : VF_COLORS
-  return (src as Record<string, string>)[level] ?? '#71717a'
+// DAV-Bayern-Konvention (blau/rot/schwarz) für SAC + MTB — konsistent mit
+// Segment-Editor (via_ferrata_scale/constants.ts deriveTrailDifficultyColor).
+// Via-Ferrata hat keine etablierte Farb-Konvention auf derselben Skala, deshalb
+// kein Dot (null → Badge rendert ohne Farb-Indikator, nur mit Label).
+function colorFor(kind: 'sac' | 'mtb' | 'vf', level: string): string | null {
+  if (kind === 'vf') return null
+  const src = kind === 'sac' ? SAC_BADGE_COLORS : MTB_BADGE_COLORS
+  return src[level] ?? null
 }
 
 export function ScaleBadge({ kind, breakdown, maxLevel, isPinned, onTogglePin, onHover }: Props) {
@@ -52,11 +57,13 @@ export function ScaleBadge({ kind, breakdown, maxLevel, isPinned, onTogglePin, o
         onBlur={(e) => closeWithGuard(e.relatedTarget)}
         onClick={onTogglePin}
       >
-        <span
-          className="inline-block w-2 h-2 rounded-full"
-          style={{ backgroundColor: colorFor(kind, maxLevel) }}
-          aria-hidden="true"
-        />
+        {colorFor(kind, maxLevel) && (
+          <span
+            className="inline-block w-2 h-2 rounded-full"
+            style={{ backgroundColor: colorFor(kind, maxLevel) as string }}
+            aria-hidden="true"
+          />
+        )}
         {label}
       </button>
       {open && breakdown.length > 0 && (
@@ -64,19 +71,24 @@ export function ScaleBadge({ kind, breakdown, maxLevel, isPinned, onTogglePin, o
           className="absolute z-10 top-full left-0 mt-1 bg-white dark:bg-neutral-900 shadow-lg rounded p-2 text-xs min-w-[10rem]"
           role="tooltip"
         >
-          {breakdown.map(b => (
-            <div key={b.level} className="flex items-center gap-2 py-0.5">
-              <span
-                className="inline-block w-3 h-3 rounded-sm"
-                style={{ backgroundColor: colorFor(kind, b.level) }}
-                aria-hidden="true"
-              />
-              <span className="font-medium">{b.level}</span>
-              <span className="ml-auto tabular-nums text-neutral-600 dark:text-neutral-400">
-                {b.km < 0.1 ? `${Math.round(b.km * 1000)} m` : `${b.km.toFixed(2)} km`}
-              </span>
-            </div>
-          ))}
+          {breakdown.map(b => {
+            const c = colorFor(kind, b.level)
+            return (
+              <div key={b.level} className="flex items-center gap-2 py-0.5">
+                {c && (
+                  <span
+                    className="inline-block w-3 h-3 rounded-sm"
+                    style={{ backgroundColor: c }}
+                    aria-hidden="true"
+                  />
+                )}
+                <span className="font-medium">{b.level}</span>
+                <span className="ml-auto tabular-nums text-neutral-600 dark:text-neutral-400">
+                  {b.km < 0.1 ? `${Math.round(b.km * 1000)} m` : `${b.km.toFixed(2)} km`}
+                </span>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
