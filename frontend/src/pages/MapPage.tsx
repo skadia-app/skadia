@@ -735,20 +735,38 @@ export default function MapPage() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── parsedCoords: shared coordinate array for both overlay useMemos ───────
+  //
+  // V6-Retrofit (Finding #6): Koordinaten kommen jetzt aus planner.routeStats.coordinates
+  // statt aus activeSuggestion.geojson. routeStats wird vom Hook in allen Modi
+  // befüllt (BadRouter Quelle 1, loadSuggestion Quelle 2, recalculateAll Quelle 3),
+  // daher funktioniert das Overlay auch bei manuell geplanten Routen ohne activeSuggestion.
+  //
+  // Fallback auf activeSuggestion-Geojson: wenn routeStats noch null ist aber
+  // eine activeSuggestion existiert (z.B. direkt nach Suggestion-Load, bevor
+  // loadSuggestion routeStats setzt — typischerweise <100ms, aber defensiv absichern).
   const activeIdx = hoveredSuggestion ?? 0
   const activeSuggestion = routeSuggestions?.[activeIdx]
-  const parsedCoords = useMemo<number[][]>(
-    () => ((activeSuggestion?.geojson?.features?.[0]?.geometry?.coordinates) ?? []) as number[][],
-    [activeSuggestion?.geojson],
-  )
+  const parsedCoords = useMemo<number[][]>(() => {
+    if (planner.routeStats && planner.routeStats.coordinates.length >= 2) {
+      return planner.routeStats.coordinates
+    }
+    // Fallback: activeSuggestion.geojson (Suggestion-Flow, bevor routeStats gesetzt)
+    return ((activeSuggestion?.geojson?.features?.[0]?.geometry?.coordinates) ?? []) as number[][]
+  }, [planner.routeStats, activeSuggestion?.geojson])
 
   // ── Scale-Base source content (SAC/MTB/VF coloured ranges) ─────────────────
+  //
+  // V6-Retrofit (Finding #6): Ranges kommen jetzt aus planner.routeStats statt
+  // aus activeSuggestion. Das erlaubt SAC/MTB/VF-Farbgebung auch bei manuell
+  // geplanten Routen (BadRouter Quelle 1) ohne aktive Suggestion.
   const scaleBaseFeatures = useMemo(() => {
-    if (!planner.scalePin || !activeSuggestion || parsedCoords.length < 2) return []
+    if (!planner.scalePin || parsedCoords.length < 2) return []
+    const stats = planner.routeStats
+    if (!stats) return []
     const ranges =
-      planner.scalePin === 'sac' ? activeSuggestion.sac_ranges :
-      planner.scalePin === 'mtb' ? activeSuggestion.mtb_ranges :
-      planner.scalePin === 'vf'  ? activeSuggestion.vf_ranges :
+      planner.scalePin === 'sac' ? stats.sac_ranges :
+      planner.scalePin === 'mtb' ? stats.mtb_ranges :
+      planner.scalePin === 'vf'  ? stats.vf_ranges :
       undefined
     if (!ranges) return []
     const features: GeoJSON.Feature[] = []
@@ -765,7 +783,7 @@ export default function MapPage() {
       }
     }
     return features
-  }, [planner.scalePin, activeSuggestion, parsedCoords])
+  }, [planner.scalePin, planner.routeStats, parsedCoords])
 
   useEffect(() => {
     if (!layersReady) return
@@ -787,7 +805,9 @@ export default function MapPage() {
     if (!map) return
     const src = map.getSource(SOURCE_VF_UNKNOWN) as maplibregl.GeoJSONSource | undefined
     if (!src) return
-    const unknown = activeSuggestion?.vf_unknown_ranges ?? []
+    // V6-Retrofit (Finding #6): vf_unknown_ranges aus planner.routeStats statt
+    // activeSuggestion — zeigt K?-Overlay auch bei manuell geplanten Routen.
+    const unknown = planner.routeStats?.vf_unknown_ranges ?? []
     if (unknown.length === 0 || parsedCoords.length < 2) {
       src.setData({ type: 'FeatureCollection', features: [] })
       return
@@ -801,9 +821,17 @@ export default function MapPage() {
       },
     }))
     src.setData({ type: 'FeatureCollection', features })
-  }, [activeSuggestion?.vf_unknown_ranges, parsedCoords, layersReady])
+  }, [planner.routeStats?.vf_unknown_ranges, parsedCoords, layersReady])
 
   // ── Highlight-Overlay source content (forest/protected descriptor-hover) ──
+  //
+  // SCOPE-GAP (Finding #6, partial): forest_ranges / protected_ranges existieren
+  // NUR in RouteSuggestion (api/routes.ts:423-424), NICHT in RouteStats — RouteStats
+  // liefert nur Scalar-Prozente (forest_pct, protected_pct). Eine vollständige
+  // Migration würde erfordern, forest_ranges/protected_ranges in den RouteStats-Shape
+  // und die Backend-/Hook-Pipeline aufzunehmen (eigene Follow-up-Phase).
+  // Daher bleibt highlightFeatures auf activeSuggestion — Hover-Highlight funktioniert
+  // nur im Suggestions-Flow, nicht bei manuell geplanten Routen. Kein Regression.
   const highlightFeatures = useMemo(() => {
     if (!activeSuggestion) return []
     const hk = highlight.effective
