@@ -8,7 +8,8 @@ import {
   AxisPointerComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import type { ElevationPoint, RouteSegment, RouteSuggestion } from '@/api/routes'
+import type { ElevationPoint, RouteSegment } from '@/api/routes'
+import type { RouteStats } from '@/hooks/useRoutePlanner'
 import { useECharts } from '@/hooks/useECharts'
 import { aggregateScaleLevels } from '@/lib/scaleAggregation'
 import { ScaleBadge } from './ScaleBadge'
@@ -47,15 +48,14 @@ interface Props {
   onHoverFraction?: (fraction: number | null) => void
   /** Height of the chart container */
   height?: number
-  /** Aktive RouteSuggestion. Wenn gesetzt → Stats-Zeile zeigt Forest/Protected/Summits/Scale-Badges.
-   *  undefined (nach loadSuggestion → routeSuggestions=null) → Pre-v4 Zustand (gain/loss/max). */
-  suggestion?: RouteSuggestion
-  /** Scale-pin state, hoisted in useRoutePlanner. null = no pin.
-   *  Union inkl. 'vf' konsistent mit useRoutePlanner (Task 27 VF-im-Union-Decision).
-   *  VF-Rendering selbst kommt in Task 22a.4 — hier nur Type-Durchreiche-Kompatibilität. */
-  scalePin?: 'sac' | 'mtb' | 'vf' | null
+  /** V6-Retrofit: zentraler Stats-Shape aus useRoutePlanner.routeStats.
+   *  null = keine Stats verfügbar (BRouter-Engine, kein Segment, oder noch kein
+   *  Segment fertig berechnet). */
+  routeStats: RouteStats | null
+  /** Scale-pin state, hoisted in useRoutePlanner. null = no pin. */
+  scalePin: 'sac' | 'mtb' | 'vf' | null
   /** Toggle handler for the scale-pin (mutually exclusive radio). */
-  onTogglePin?: (kind: 'sac' | 'mtb' | 'vf') => void
+  onTogglePin: (kind: 'sac' | 'mtb' | 'vf') => void
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -146,7 +146,7 @@ export default function RouteProfileChart({
   segments = [],
   onHoverFraction,
   height = 180,
-  suggestion,
+  routeStats,
   scalePin,
   onTogglePin,
 }: Props) {
@@ -311,25 +311,27 @@ export default function RouteProfileChart({
   )
 
   // ── Scale aggregation (LF-#6: ONE parsedCoords memo shared by SAC + MTB) ──
+  // V6-Retrofit: parsedCoords kommt aus routeStats.coordinates (merged + deduped
+  // über alle Segmente). Bei null → leeres Array → keine Scale-Badges.
   const parsedCoords = useMemo<number[][]>(
-    () => ((suggestion?.geojson?.features?.[0]?.geometry?.coordinates) ?? []) as number[][],
-    [suggestion?.geojson],
+    () => routeStats?.coordinates ?? [],
+    [routeStats?.coordinates],
   )
 
   const sacAggregate = useMemo(
-    () => aggregateScaleLevels(suggestion?.sac_ranges, parsedCoords, 'sac'),
-    [suggestion?.sac_ranges, parsedCoords],
+    () => aggregateScaleLevels(routeStats?.sac_ranges ?? undefined, parsedCoords, 'sac'),
+    [routeStats?.sac_ranges, parsedCoords],
   )
 
   const mtbAggregate = useMemo(
-    () => aggregateScaleLevels(suggestion?.mtb_ranges, parsedCoords, 'mtb'),
-    [suggestion?.mtb_ranges, parsedCoords],
+    () => aggregateScaleLevels(routeStats?.mtb_ranges ?? undefined, parsedCoords, 'mtb'),
+    [routeStats?.mtb_ranges, parsedCoords],
   )
 
   // LF-#6: vfAggregate uses the SAME parsedCoords memo as sac/mtb.
   const vfAggregate = useMemo(
-    () => aggregateScaleLevels(suggestion?.vf_ranges, parsedCoords, 'vf'),
-    [suggestion?.vf_ranges, parsedCoords],
+    () => aggregateScaleLevels(routeStats?.vf_ranges ?? undefined, parsedCoords, 'vf'),
+    [routeStats?.vf_ranges, parsedCoords],
   )
 
   // ── Elevation statistics ───────────────────────────────────────────────────
@@ -387,22 +389,16 @@ export default function RouteProfileChart({
               <span className="text-blue-400">↓</span>{' '}
               <strong className="text-neutral-700 dark:text-neutral-200">{stats.loss} m</strong>
             </span>
-            <span title={suggestRoutesStrings.maxGrade.unavailableTooltip}>
-              Max:{' '}
-              <strong className="text-neutral-700 dark:text-neutral-200">
-                {suggestRoutesStrings.maxGrade.unavailableLabel}
-              </strong>
-            </span>
-            {suggestion && (
+            {routeStats && (
               <>
-                {suggestion.forest_pct > 0 && (
-                  <span>{statsForestLabel(Math.round(suggestion.forest_pct * 100))}</span>
+                {routeStats.forest_pct != null && routeStats.forest_pct > 0 && (
+                  <span>{statsForestLabel(Math.round(routeStats.forest_pct * 100))}</span>
                 )}
-                {suggestion.protected_pct > 0.05 && (
-                  <span>{statsProtectedLabel(Math.round(suggestion.protected_pct * 100))}</span>
+                {routeStats.protected_pct != null && routeStats.protected_pct > 0.05 && (
+                  <span>{statsProtectedLabel(Math.round(routeStats.protected_pct * 100))}</span>
                 )}
-                {suggestion.summits_passed && suggestion.summits_passed.length > 0 && (
-                  <span>{statsSummitsLabel(suggestion.summits_passed.length)}</span>
+                {routeStats.summits_passed && routeStats.summits_passed.length > 0 && (
+                  <span>{statsSummitsLabel(routeStats.summits_passed.length)}</span>
                 )}
                 {sacAggregate.breakdown.length > 0 && sacAggregate.maxLevel && (
                   <ScaleBadge
@@ -410,7 +406,7 @@ export default function RouteProfileChart({
                     breakdown={sacAggregate.breakdown}
                     maxLevel={sacAggregate.maxLevel}
                     isPinned={scalePin === 'sac'}
-                    onTogglePin={() => onTogglePin?.('sac')}
+                    onTogglePin={() => onTogglePin('sac')}
                     onHover={() => {}}
                   />
                 )}
@@ -420,7 +416,7 @@ export default function RouteProfileChart({
                     breakdown={mtbAggregate.breakdown}
                     maxLevel={mtbAggregate.maxLevel}
                     isPinned={scalePin === 'mtb'}
-                    onTogglePin={() => onTogglePin?.('mtb')}
+                    onTogglePin={() => onTogglePin('mtb')}
                     onHover={() => {}}
                   />
                 )}
@@ -430,7 +426,7 @@ export default function RouteProfileChart({
                     breakdown={vfAggregate.breakdown}
                     maxLevel={vfAggregate.maxLevel}
                     isPinned={scalePin === 'vf'}
-                    onTogglePin={() => onTogglePin?.('vf')}
+                    onTogglePin={() => onTogglePin('vf')}
                     onHover={() => {}}
                   />
                 )}
@@ -440,7 +436,7 @@ export default function RouteProfileChart({
                  * nur sehen, wenn er zufällig den VF-Pin aktiviert hat. MapPage-Layer
                  * LAYER_VF_UNKNOWN ist analog dauerhaft aktiv (Task 22a.6).
                  */}
-                {suggestion.vf_unknown_ranges && suggestion.vf_unknown_ranges.length > 0 && (
+                {routeStats.vf_unknown_ranges && routeStats.vf_unknown_ranges.length > 0 && (
                   <span
                     role="status"
                     aria-label={suggestRoutesStrings.stats.vfUnknownAriaLabel}

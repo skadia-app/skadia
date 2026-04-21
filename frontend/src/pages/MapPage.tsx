@@ -3067,7 +3067,7 @@ export default function MapPage() {
                   totalDistanceM={planner.totals.distance_m}
                   segments={planner.segments}
                   height={140}
-                  suggestion={activeSuggestion}
+                  routeStats={planner.routeStats}
                   scalePin={planner.scalePin}
                   onTogglePin={planner.togglePin}
                 />

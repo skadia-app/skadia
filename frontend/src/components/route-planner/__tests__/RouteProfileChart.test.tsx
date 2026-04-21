@@ -50,7 +50,7 @@ vi.mock('@/lib/scaleAggregation', () => ({
 
 // ── Component under test ──────────────────────────────────────────────────────
 import RouteProfileChart from '../RouteProfileChart'
-import type { RouteSuggestion } from '@/api/routes'
+import type { RouteStats } from '@/hooks/useRoutePlanner'
 
 // Minimal ElevationPoint array — enough for buildProfile to produce ≥2 valid pts.
 const FAKE_PROFILE = [
@@ -59,61 +59,38 @@ const FAKE_PROFILE = [
   { fraction: 1.0, elevation: 500 },
 ]
 
-/** Factory for RouteSuggestion test fixtures. */
-function makeFakeSuggestion(overrides: Partial<RouteSuggestion> = {}): RouteSuggestion {
+/** Factory for RouteStats test fixtures (V6-Retrofit shape). */
+function makeFakeRouteStats(overrides: Partial<RouteStats> = {}): RouteStats {
   return {
-    variant: 0,
-    profile: 'hiking',
-    via_point: [12.0, 49.0],
-    variant_id: 'shortest',
-    variant_label_key: 'shortest',
-    distance_m: 11700,
-    ascent_m: 208,
-    descent_m: 208,
-    avg_flat: 0.5,
-    loop_quality: 'loop',
-    overlap_pct: 0.1,
-    distance_target_achieved: true,
-    ascent_target_achieved: true,
-    is_fallback: false,
     forest_pct: 0,
     protected_pct: 0,
-    geojson: {
-      type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: {
-          type: 'LineString',
-          coordinates: [
-            [12.0, 49.0, 500],
-            [12.01, 49.01, 510],
-            [12.0, 49.0, 500],
-          ],
-        },
-        properties: {},
-      }],
-    },
+    sac_ranges: null,
+    mtb_ranges: null,
+    vf_ranges: null,
+    vf_unknown_ranges: null,
+    summits_passed: null,
+    coordinates: [
+      [12.0, 49.0, 500],
+      [12.01, 49.01, 510],
+      [12.0, 49.0, 500],
+    ],
     ...overrides,
   }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('RouteProfileChart — K?-Chip-Reset (LF-#11)', () => {
+describe('RouteProfileChart — K?-Chip-Reset (LF-#11, V6-Retrofit)', () => {
   /**
    * Invariant (I9 / LF-#11):
    * Route A mit vf_unknown_ranges → K?-Chip sichtbar.
    * Route B ohne vf_unknown_ranges → K?-Chip verschwindet.
    *
-   * Der K?-Chip ist eine reine Ableitung aus suggestion.vf_unknown_ranges —
-   * keine manuelle Invalidierung nötig. Das Parent (MapPage) hält das
-   * aktive RouteSuggestion-Objekt und reicht es als `suggestion`-Prop durch.
-   * Ein Wechsel von Suggestion A zu B löst automatisch einen Re-Render aus,
-   * bei dem das neue Objekt (ohne vf_unknown_ranges) die Render-Bedingung
-   * (suggestion.vf_unknown_ranges?.length > 0) auf false setzt.
+   * Nach V6-Retrofit liest der Chart routeStats statt suggestion.
+   * Das Parent (MapPage) hält planner.routeStats und reicht es als Prop durch.
    */
-  it('K?-Chip-Reset (LF-#11): Route B ohne vf_unknown_ranges verliert den K?-Zustand', () => {
-    const routeA = makeFakeSuggestion({
+  it('K?-Chip-Reset (LF-#11): routeStats B ohne vf_unknown_ranges verliert den K?-Zustand', () => {
+    const routeStatsA = makeFakeRouteStats({
       vf_unknown_ranges: [{ from: 0, to: 3 }],
     })
 
@@ -121,7 +98,7 @@ describe('RouteProfileChart — K?-Chip-Reset (LF-#11)', () => {
       <RouteProfileChart
         profile={FAKE_PROFILE}
         totalDistanceM={11700}
-        suggestion={routeA}
+        routeStats={routeStatsA}
         scalePin={null}
         onTogglePin={() => {}}
       />
@@ -133,15 +110,15 @@ describe('RouteProfileChart — K?-Chip-Reset (LF-#11)', () => {
     ).toBeInTheDocument()
 
     // Switch to Route B: no vf_unknown_ranges
-    const routeB = makeFakeSuggestion({
-      vf_unknown_ranges: undefined,
+    const routeStatsB = makeFakeRouteStats({
+      vf_unknown_ranges: null,
     })
 
     rerender(
       <RouteProfileChart
         profile={FAKE_PROFILE}
         totalDistanceM={11700}
-        suggestion={routeB}
+        routeStats={routeStatsB}
         scalePin={null}
         onTogglePin={() => {}}
       />
@@ -154,7 +131,7 @@ describe('RouteProfileChart — K?-Chip-Reset (LF-#11)', () => {
   })
 
   it('K?-Chip absent when vf_unknown_ranges is empty array', () => {
-    const suggestion = makeFakeSuggestion({
+    const routeStats = makeFakeRouteStats({
       vf_unknown_ranges: [],
     })
 
@@ -162,7 +139,7 @@ describe('RouteProfileChart — K?-Chip-Reset (LF-#11)', () => {
       <RouteProfileChart
         profile={FAKE_PROFILE}
         totalDistanceM={11700}
-        suggestion={suggestion}
+        routeStats={routeStats}
         scalePin={null}
         onTogglePin={() => {}}
       />
@@ -173,12 +150,12 @@ describe('RouteProfileChart — K?-Chip-Reset (LF-#11)', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('K?-Chip absent when no suggestion prop passed (pre-v4 state)', () => {
+  it('K?-Chip absent when routeStats is null', () => {
     render(
       <RouteProfileChart
         profile={FAKE_PROFILE}
         totalDistanceM={11700}
-        // suggestion intentionally omitted
+        routeStats={null}
         scalePin={null}
         onTogglePin={() => {}}
       />
@@ -187,5 +164,48 @@ describe('RouteProfileChart — K?-Chip-Reset (LF-#11)', () => {
     expect(
       screen.queryByRole('status', { name: /Klettersteig ohne bestätigte Schwierigkeit/i })
     ).not.toBeInTheDocument()
+  })
+
+  it('Stats-Zeile zeigt Forest/Protected/Summits wenn routeStats nicht null', () => {
+    const routeStats = makeFakeRouteStats({
+      forest_pct: 0.42,
+      protected_pct: 0.15,
+      summits_passed: [
+        { osm_id: 1, name: 'Testgipfel', ele_m: 1200, category: 'summit', lat: 47.5, lng: 11.5, dist_m: 5 },
+      ],
+    })
+
+    render(
+      <RouteProfileChart
+        profile={FAKE_PROFILE}
+        totalDistanceM={11700}
+        routeStats={routeStats}
+        scalePin={null}
+        onTogglePin={() => {}}
+      />
+    )
+
+    // Forest label (42%) should render — use getAllByText to allow multiple matches
+    expect(screen.getByText(/42\s*%/)).toBeInTheDocument()
+    // Protected label (15%)
+    expect(screen.getByText(/15\s*%/)).toBeInTheDocument()
+    // Summit label — check the summits-specific text "1 Gipfel" or similar pattern
+    expect(screen.getByText(/Gipfel/i)).toBeInTheDocument()
+  })
+
+  it('Stats-Zeile zeigt keine Forest/Protected-Chips wenn routeStats null', () => {
+    render(
+      <RouteProfileChart
+        profile={FAKE_PROFILE}
+        totalDistanceM={11700}
+        routeStats={null}
+        scalePin={null}
+        onTogglePin={() => {}}
+      />
+    )
+
+    // No forest/protected/summits chips — the stats section should not render those labels
+    // (the gradient legend also has "%" labels but no forest/summits-specific text)
+    expect(screen.queryByText(/Wald|Forest|Gipfel|Naturschutz|Protected/i)).not.toBeInTheDocument()
   })
 })
