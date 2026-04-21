@@ -50,7 +50,7 @@ vi.mock('@/lib/scaleAggregation', () => ({
 
 // ── Component under test ──────────────────────────────────────────────────────
 import RouteProfileChart from '../RouteProfileChart'
-import { makeFakeRouteStats } from '@/test-utils/routeStats'
+import { makeFakeRouteStats } from '@/test-utils/routeFixtures'
 
 // Minimal ElevationPoint array — enough for buildProfile to produce ≥2 valid pts.
 const FAKE_PROFILE = [

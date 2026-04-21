@@ -12,7 +12,7 @@ import { ToastProvider } from '@/lib/toast'
 import { useRoutePlanner, mergeSegmentStatsForState } from '../useRoutePlanner'
 import type { RouteStats } from '../useRoutePlanner'
 import type { RouteSegment, RouteSuggestion } from '@/api/routes'
-import { makeFakeRouteStats } from '@/test-utils/routeStats'
+import { makeFakeRouteStats, makeFakeSuggestion } from '@/test-utils/routeFixtures'
 
 // addToastMock must be hoisted so vi.mock factory can reference it
 const addToastMock = vi.hoisted(() => vi.fn())
@@ -235,42 +235,7 @@ describe('mergeSegmentStatsForState', () => {
 
 // ── Hook-Integration: loadSuggestion sets routeStats (Quelle 2) ───────────────
 
-function makeFakeSuggestion(overrides: Partial<RouteSuggestion> = {}): RouteSuggestion {
-  return {
-    variant: 0,
-    profile: 'hiking',
-    via_point: [12.0, 49.0],
-    variant_id: 'shortest',
-    variant_label_key: 'shortest',
-    distance_m: 11700,
-    ascent_m: 208,
-    descent_m: 208,
-    avg_flat: 0.5,
-    loop_quality: 'loop',
-    overlap_pct: 0.1,
-    distance_target_achieved: true,
-    ascent_target_achieved: true,
-    is_fallback: false,
-    forest_pct: 0,
-    protected_pct: 0,
-    geojson: {
-      type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: {
-          type: 'LineString',
-          coordinates: [
-            [12.0, 49.0, 500],
-            [12.01, 49.01, 510],
-            [12.0, 49.0, 500],
-          ],
-        },
-        properties: {},
-      }],
-    },
-    ...overrides,
-  }
-}
+// makeFakeSuggestion imported from @/test-utils/routeFixtures (zentrale Factory).
 
 describe('useRoutePlanner routeStats V6-Retrofit', () => {
   let qc: QueryClient
