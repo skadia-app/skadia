@@ -550,6 +550,9 @@ export default function MapPage() {
     }
   }, [hoveredSuggestion, routeSuggestions])
 
+  // Style version counter for re-adding layers after style changes
+  const [styleVersion, setStyleVersion] = useState(0)
+
   // Build RoutePlannerState for useRouteEditor
   const routeEditorState = useMemo(() => ({
     waypoints: planner.waypoints,
@@ -598,8 +601,6 @@ export default function MapPage() {
   // Add-order is intentionally inverted vs. Z-order (bindend, Critic-R3 #16):
   //   1. LAYER_RANGE_HIGHLIGHT first → guaranteed present as `beforeId` for step 2.
   //   2. LAYER_SCALE_BASE second, beforeId = LAYER_RANGE_HIGHLIGHT.
-  // Style version counter for re-adding layers after style changes
-  const [styleVersion, setStyleVersion] = useState(0)
   const [layersReady, setLayersReady] = useState(false)
   const [summitPinned, setSummitPinned] = useState(false)
   const [summitHovered, setSummitHovered] = useState(false)
