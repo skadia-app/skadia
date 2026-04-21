@@ -272,8 +272,12 @@ export function mergeSegmentStatsForState(
       for (let j = 1; j < segLen; j++) coordinatesMerged.push(segCoords[j])
     }
 
+    // Finding #7 fix: always add seg.distance_m to totalDist so that segments
+    // without stats (e.g. BRouter-fallover leg) count as 0 % rather than being
+    // excluded from the denominator. This keeps forest_pct / protected_pct
+    // proportional to the full route distance, not just the BadRouter portion.
+    totalDist += seg.distance_m
     if (stats) {
-      totalDist += seg.distance_m
       if (stats.forest_pct != null) forestWeighted += stats.forest_pct * seg.distance_m
       if (stats.protected_pct != null) protectedWeighted += stats.protected_pct * seg.distance_m
 
@@ -298,9 +302,16 @@ export function mergeSegmentStatsForState(
         }
       }
       if (stats.summits_passed) {
-        // Summits per osm_id dedupliziert: kann an Segment-Grenzen doppelt auftreten.
+        // Summits dedupliziert: kann an Segment-Grenzen doppelt auftreten.
+        // Finding #8 fix: osm_id=0 (DB-Importbug) → Coord-Fallback-Key statt osm_id,
+        // sonst werden alle osm_id=0-Gipfel fälschlich als Duplikate behandelt.
+        const dedupKey = (sm: { osm_id: number; lat: number; lng: number }) =>
+          sm.osm_id > 0 ? String(sm.osm_id) : `${sm.lat.toFixed(5)},${sm.lng.toFixed(5)}`
+        const seenKeys = new Set(summitsMerged.map(dedupKey))
         for (const sm of stats.summits_passed) {
-          if (!summitsMerged.some(x => x.osm_id === sm.osm_id)) {
+          const key = dedupKey(sm)
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key)
             summitsMerged.push(sm)
           }
         }
@@ -559,7 +570,9 @@ export function useRoutePlanner() {
       const newSegments = s.segments.filter(
         seg => seg.from_waypoint !== wpId && seg.to_waypoint !== wpId,
       )
-      return { ...s, waypoints: newWaypoints, segments: newSegments }
+      // V6-Retrofit Quelle 4: invalidate cached stats — stale after waypoint removal.
+      // Next recalculate() will repopulate via Quelle 1.
+      return { ...s, waypoints: newWaypoints, segments: newSegments, routeStats: null, _statsCache: {} }
     })
     // Note: adjacent segment recalculation is triggered by the caller component
     // when it calls recalculateSegmentsAfterRemoval() below.
@@ -595,7 +608,8 @@ export function useRoutePlanner() {
   const reorderWaypoints = useCallback((newOrder: RouteWaypoint[]) => {
     setState(s => {
       const retyped = assignWaypointTypes(newOrder)
-      return { ...s, waypoints: retyped, segments: [] } // segments are invalid after reorder
+      // V6-Retrofit Quelle 4: segments + stats invalid after reorder — full recalc needed.
+      return { ...s, waypoints: retyped, segments: [], routeStats: null, _statsCache: {} }
     })
   }, [])
 
@@ -614,7 +628,11 @@ export function useRoutePlanner() {
       const newSegments = s.segments.filter(
         seg => !(seg.from_waypoint === afterId && seg.to_waypoint === nextWp.id),
       )
-      return { ...s, waypoints: newWaypoints, segments: newSegments }
+      // V6-Retrofit Quelle 4: evict stats cache — affected segment is gone,
+      // two new segments will be calculated and will repopulate via Quelle 1.
+      const newCache = { ...s._statsCache }
+      delete newCache[`${afterId}:${nextWp.id}`]
+      return { ...s, waypoints: newWaypoints, segments: newSegments, routeStats: null, _statsCache: newCache }
     })
   }, [])
 
@@ -638,9 +656,13 @@ export function useRoutePlanner() {
       currentProfileConfig = s.profileConfig
       currentEngine = s.routingEngine
       currentBrouterProfile = s.brouterProfile
+      // Finding #9 fix (Option b): do NOT clear existing segments here.
+      // Keeps DB-loaded segments visible while re-routing is in-flight, preventing
+      // the visible flash (route → blank → route). _calculateSegment replaces each
+      // segment in-place via findIndex+map (Quelle 1 path).
+      // Stats cache IS cleared: will be repopulated per-segment by _calculateSegment.
       return {
         ...s,
-        segments: [],
         isCalculating: true,
         calculationError: null,
         routeStats: null,
