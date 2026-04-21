@@ -825,21 +825,17 @@ export default function MapPage() {
 
   // ── Highlight-Overlay source content (forest/protected descriptor-hover) ──
   //
-  // SCOPE-GAP (Finding #6, partial): forest_ranges / protected_ranges existieren
-  // NUR in RouteSuggestion (api/routes.ts:423-424), NICHT in RouteStats — RouteStats
-  // liefert nur Scalar-Prozente (forest_pct, protected_pct). Eine vollständige
-  // Migration würde erfordern, forest_ranges/protected_ranges in den RouteStats-Shape
-  // und die Backend-/Hook-Pipeline aufzunehmen (eigene Follow-up-Phase).
-  // Daher bleibt highlightFeatures auf activeSuggestion — Hover-Highlight funktioniert
-  // nur im Suggestions-Flow, nicht bei manuell geplanten Routen. Kein Regression.
+  // V6-Retrofit (Finding #6, complete): forest_ranges / protected_ranges kommen
+  // jetzt aus planner.routeStats statt aus activeSuggestion — Highlight-Overlay
+  // funktioniert damit auch bei manuell geplanten Routen. Wave2-FE-Hook stellt
+  // sicher dass statsFromSuggestion die beiden Keys mit einbezieht.
   const highlightFeatures = useMemo(() => {
-    if (!activeSuggestion) return []
     const hk = highlight.effective
     if (!hk || hk.kind !== 'descriptor') return []
-    let ranges: CoordRange[] | undefined
+    let ranges: CoordRange[] | null = null
     let category: string | undefined
-    if (hk.descriptorKey === 'high_forest')    { ranges = activeSuggestion.forest_ranges;    category = 'forest'    }
-    if (hk.descriptorKey === 'high_protected') { ranges = activeSuggestion.protected_ranges; category = 'protected' }
+    if (hk.descriptorKey === 'high_forest')    { ranges = planner.routeStats?.forest_ranges ?? null;    category = 'forest'    }
+    if (hk.descriptorKey === 'high_protected') { ranges = planner.routeStats?.protected_ranges ?? null; category = 'protected' }
     if (!ranges || !category) return []
     const features: GeoJSON.Feature[] = []
     for (const r of ranges) {
@@ -853,7 +849,7 @@ export default function MapPage() {
       }
     }
     return features
-  }, [activeSuggestion, highlight.effective, parsedCoords])
+  }, [planner.routeStats, highlight.effective, parsedCoords])
 
   useEffect(() => {
     if (!layersReady) return
