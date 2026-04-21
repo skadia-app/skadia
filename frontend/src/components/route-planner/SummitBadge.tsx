@@ -5,6 +5,8 @@ import { statsSummitsLabel } from '@/lib/strings/suggest-routes'
 interface Props {
   summits: PassedSummit[]
   onHover: (active: boolean) => void
+  isPinned: boolean
+  onTogglePin: () => void
 }
 
 function summitIcon(category: PassedSummit['category']): string {
@@ -16,7 +18,7 @@ function summitKey(s: PassedSummit): string {
   return s.osm_id > 0 ? String(s.osm_id) : `${s.lat.toFixed(5)},${s.lng.toFixed(5)}`
 }
 
-export function SummitBadge({ summits, onHover }: Props) {
+export function SummitBadge({ summits, onHover, isPinned, onTogglePin }: Props) {
   const [open, setOpen] = useState(false)
 
   const openNow = () => {
@@ -42,15 +44,17 @@ export function SummitBadge({ summits, onHover }: Props) {
     <div className="relative inline-block" data-summit-badge>
       <button
         type="button"
-        className="inline-flex items-center gap-1 text-sm rounded px-1.5 py-0.5 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
+        className={`inline-flex items-center gap-1 text-sm rounded px-1.5 py-0.5 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer transition-colors ${isPinned ? 'ring-2 ring-accent' : ''}`}
         aria-expanded={open}
         aria-haspopup="listbox"
+        aria-pressed={isPinned}
         aria-label={`${statsSummitsLabel(summits.length)}, Details öffnen`}
         onMouseEnter={openNow}
         onMouseLeave={(e) => closeWithGuard(e.relatedTarget)}
         onFocus={openNow}
         onBlur={(e) => closeWithGuard(e.relatedTarget)}
         onKeyDown={handleKeyDown}
+        onClick={onTogglePin}
       >
         {statsSummitsLabel(summits.length)}
       </button>

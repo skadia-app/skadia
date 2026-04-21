@@ -601,7 +601,9 @@ export default function MapPage() {
   // Style version counter for re-adding layers after style changes
   const [styleVersion, setStyleVersion] = useState(0)
   const [layersReady, setLayersReady] = useState(false)
-  const [summitMarkersActive, setSummitMarkersActive] = useState(false)
+  const [summitPinned, setSummitPinned] = useState(false)
+  const [summitHovered, setSummitHovered] = useState(false)
+  const summitMarkersActive = summitPinned || summitHovered
 
   useEffect(() => {
     const map = mapRef.current
@@ -3186,7 +3188,9 @@ export default function MapPage() {
                   scalePin={planner.scalePin}
                   onTogglePin={planner.togglePin}
                   onScaleHover={planner.setScaleHover}
-                  onSummitHover={setSummitMarkersActive}
+                  onSummitHover={setSummitHovered}
+                  summitPinned={summitPinned}
+                  onToggleSummitPin={() => setSummitPinned(p => !p)}
                 />
                 <RouteSurfacesBar
                   segments={planner.segments}
