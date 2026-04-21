@@ -203,7 +203,10 @@ func (h *Handler) GetSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 
-	segment, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin)
+	includeGeoJSON := r.URL.Query().Get("include_geojson") == "true"
+
+	segment, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin, includeGeoJSON)
+
 	if err != nil {
 		slog.Error("get segment failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -226,7 +229,8 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 
 	// Load existing segment: pass userID so own private segments are visible.
 	// (Pre-existing bug fix: was GetSegment(ctx, id, "") which only returns public segments.)
-	existing, err := h.DB.GetSegment(r.Context(), id, userID, false)
+	existing, err := h.DB.GetSegment(r.Context(), id, userID, false, false)
+
 	if err != nil {
 		slog.Error("update segment: get segment failed", "id", id, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load segment", r.URL.Path)
@@ -378,7 +382,7 @@ func (h *Handler) GetSegmentLeaderboard(w http.ResponseWriter, r *http.Request) 
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 
 	// Verify segment is visible to the requesting user (prevents private segment data leak via UUID).
-	seg, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin)
+	seg, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin, false)
 	if err != nil {
 		slog.Error("get segment leaderboard: get segment failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -709,7 +713,7 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 
-	seg, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin)
+	seg, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin, false)
 	if err != nil {
 		slog.Error("segment recompute: get segment failed", "segment_id", id, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -795,7 +799,8 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	// Get segment to verify ownership and retrieve name for job display.
-	seg, err := h.DB.GetSegment(r.Context(), id, userID, false)
+	seg, err := h.DB.GetSegment(r.Context(), id, userID, false, false)
+
 	if err != nil {
 		slog.Error("publish segment: get segment failed", "segment_id", id, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -927,7 +932,7 @@ func (h *Handler) GetSegmentFavoriteStatus(w http.ResponseWriter, r *http.Reques
 	segmentID := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 
-	seg, err := h.DB.GetSegment(r.Context(), segmentID, userID, isAdmin)
+	seg, err := h.DB.GetSegment(r.Context(), segmentID, userID, isAdmin, false)
 	if err != nil {
 		slog.Error("segment access check failed", "handler", "GetSegmentFavoriteStatus", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -957,7 +962,7 @@ func (h *Handler) AddSegmentFavorite(w http.ResponseWriter, r *http.Request) {
 	segmentID := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 
-	seg, err := h.DB.GetSegment(r.Context(), segmentID, userID, isAdmin)
+	seg, err := h.DB.GetSegment(r.Context(), segmentID, userID, isAdmin, false)
 	if err != nil {
 		slog.Error("segment access check failed", "handler", "AddSegmentFavorite", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -986,7 +991,7 @@ func (h *Handler) RemoveSegmentFavorite(w http.ResponseWriter, r *http.Request) 
 	segmentID := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 
-	seg, err := h.DB.GetSegment(r.Context(), segmentID, userID, isAdmin)
+	seg, err := h.DB.GetSegment(r.Context(), segmentID, userID, isAdmin, false)
 	if err != nil {
 		slog.Error("segment access check failed", "handler", "RemoveSegmentFavorite", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -1015,7 +1020,7 @@ func (h *Handler) GetSegmentPerformances(w http.ResponseWriter, r *http.Request)
 	segmentID := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 
-	seg, err := h.DB.GetSegment(r.Context(), segmentID, userID, isAdmin)
+	seg, err := h.DB.GetSegment(r.Context(), segmentID, userID, isAdmin, false)
 	if err != nil {
 		slog.Error("segment access check failed", "handler", "GetSegmentPerformances", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)

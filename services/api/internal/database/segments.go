@@ -360,41 +360,48 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	return &s, nil
 }
 
-func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin bool) (*model.Segment, error) {
+func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin bool, includeGeoJSON bool) (*model.Segment, error) {
 	var s model.Segment
-	err := db.Pool.QueryRow(ctx, `
-		SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
-		       s.allowed_sport_types, s.allowed_sub_types,
-		       s.segment_type, s.segment_type_meta,
-		       s.source_activity_id, s.osm_lift_id,
-		       s.distance_m, s.elevation_gain_m,
-		       s.effort_count + COALESCE((
-		           SELECT COUNT(*)::int FROM segment_efforts se
-		           JOIN activities a ON se.activity_id = a.id
-		           WHERE se.segment_id = s.id AND a.user_id = NULLIF($2::text, '')::uuid AND a.visibility != 'public'
-		       ), 0) AS effort_count, s.athlete_count,
-		       COALESCE((
-		           SELECT COUNT(*)::int FROM segment_efforts se
-		           JOIN activities a ON se.activity_id = a.id
-		           WHERE se.segment_id = s.id AND a.user_id = NULLIF($2::text, '')::uuid
-		       ), 0) AS ridden_count,
-		       EXISTS(
-		           SELECT 1 FROM segment_favorites sf
-		           WHERE sf.segment_id = s.id AND sf.user_id = NULLIF($2::text, '')::uuid
-		       ) AS is_favorite,
-		       s.visibility, s.route_hash, s.created_at,
-		       ST_AsGeoJSON(sv.track) AS track_geojson,
-		       s.terrain_type, s.climb_type, s.bidirectional
-		FROM segments s
-		LEFT JOIN LATERAL (
-			SELECT track FROM segment_versions
-			WHERE segment_id = s.id
-			ORDER BY version_number DESC
-			LIMIT 1
-		) sv ON true
-		WHERE s.id = $1
-		  AND (s.visibility = 'public' OR s.created_by = NULLIF($2::text, '')::uuid OR $3 = true)`, segmentID, userID, isAdmin,
-	).Scan(
+
+	trackSelect := "NULL::text"
+	if includeGeoJSON {
+		trackSelect = "ST_AsGeoJSON(sv.track)"
+	}
+
+	query := fmt.Sprintf(`
+                SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
+                       s.allowed_sport_types, s.allowed_sub_types,
+                       s.segment_type, s.segment_type_meta,
+                       s.source_activity_id, s.osm_lift_id,
+                       s.distance_m, s.elevation_gain_m,
+                       s.effort_count + COALESCE((
+                           SELECT COUNT(*)::int FROM segment_efforts se
+                           JOIN activities a ON se.activity_id = a.id
+                           WHERE se.segment_id = s.id AND a.user_id = NULLIF($2::text, '')::uuid AND a.visibility != 'public'
+                       ), 0) AS effort_count, s.athlete_count,
+                       COALESCE((
+                           SELECT COUNT(*)::int FROM segment_efforts se
+                           JOIN activities a ON se.activity_id = a.id
+                           WHERE se.segment_id = s.id AND a.user_id = NULLIF($2::text, '')::uuid
+                       ), 0) AS ridden_count,
+                       EXISTS(
+                           SELECT 1 FROM segment_favorites sf
+                           WHERE sf.segment_id = s.id AND sf.user_id = NULLIF($2::text, '')::uuid
+                       ) AS is_favorite,
+                       s.visibility, s.route_hash, s.created_at,
+                       %s AS track_geojson,
+                       s.terrain_type, s.climb_type, s.bidirectional
+                FROM segments s
+                LEFT JOIN LATERAL (
+                        SELECT track FROM segment_versions
+                        WHERE segment_id = s.id
+                        ORDER BY version_number DESC
+                        LIMIT 1
+                ) sv ON true
+                WHERE s.id = $1
+                  AND (s.visibility = 'public' OR s.created_by = NULLIF($2::text, '')::uuid OR $3 = true)`, trackSelect)
+
+	err := db.Pool.QueryRow(ctx, query, segmentID, userID, isAdmin).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&s.AllowedSportTypes, &s.AllowedSubTypes,
 		&s.SegmentType, &s.SegmentTypeMeta,
@@ -406,6 +413,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
 		&s.TrackGeoJSON,
 		&s.TerrainType, &s.ClimbType, &s.Bidirectional,
 	)
+
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -477,7 +485,7 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, updat
 	}
 
 	if len(setClauses) == 0 {
-		return db.GetSegment(ctx, segmentID, userID, false)
+		return db.GetSegment(ctx, segmentID, userID, false, false)
 	}
 
 	query := fmt.Sprintf("UPDATE segments SET %s WHERE id = $%d AND created_by = $%d",
@@ -492,7 +500,7 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, updat
 		return nil, nil
 	}
 
-	return db.GetSegment(ctx, segmentID, userID, false)
+	return db.GetSegment(ctx, segmentID, userID, false, false)
 }
 
 // createNewSegmentVersion copies the latest segment_version into a new version row.

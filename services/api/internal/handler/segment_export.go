@@ -26,7 +26,7 @@ func (h *Handler) ExportSegment(w http.ResponseWriter, r *http.Request) {
 		format = "gpx"
 	}
 
-	seg, err := h.DB.GetSegment(r.Context(), segID, userID, false)
+	seg, err := h.DB.GetSegment(r.Context(), segID, userID, false, true)
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch segment", r.URL.Path)
 		return
