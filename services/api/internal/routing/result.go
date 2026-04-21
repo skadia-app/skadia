@@ -113,6 +113,41 @@ func (r *RouteResult) ToGeoJSON() json.RawMessage {
 	return b
 }
 
+// ToGeoJSONWithExtras ist identisch zu ToGeoJSON, merged aber zusaetzlich
+// das extras-Map in die Properties. Wird von RouteCalculate verwendet,
+// um forest_pct / sac_ranges / vf_ranges / summits_passed anzureichern,
+// ohne ToGeoJSON-Consumer (SuggestRoutes via result.go-mergeLegs-Flow) zu
+// brechen. buildProperties bleibt Single-Source-of-Truth fuer Kern-Properties.
+func (r *RouteResult) ToGeoJSONWithExtras(extras map[string]any) json.RawMessage {
+	coords := make([][]float64, len(r.Coordinates))
+	for i, c := range r.Coordinates {
+		coords[i] = []float64{c.Lon, c.Lat, c.Ele} // GeoJSON: [lon, lat, ele]
+	}
+
+	props := r.buildProperties()
+	for k, v := range extras {
+		props[k] = v
+	}
+
+	feature := map[string]any{
+		"type": "FeatureCollection",
+		"features": []map[string]any{{
+			"type": "Feature",
+			"geometry": map[string]any{
+				"type":        "LineString",
+				"coordinates": coords,
+			},
+			"properties": props,
+		}},
+	}
+
+	b, err := json.Marshal(feature)
+	if err != nil {
+		return json.RawMessage(`{"type":"FeatureCollection","features":[]}`)
+	}
+	return b
+}
+
 func (r *RouteResult) buildProperties() map[string]any {
 	props := map[string]any{
 		"distance_m": int(r.DistanceM),

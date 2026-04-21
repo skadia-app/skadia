@@ -1,6 +1,10 @@
 package handler
 
-import "github.com/skadia-app/skadia/services/api/internal/routing/graph"
+import (
+	"github.com/skadia-app/skadia/services/api/internal/geo"
+	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
+)
 
 // AllRanges holds all per-category CoordRange slices computed in a single pass
 // over the edge-tag arrays. Populated by computeAllRanges.
@@ -303,4 +307,56 @@ func computeScaleRanges(
 		return nil
 	}
 	return contiguousRangesFromMatch(matches, edgeCoordStart, lastCoordIdx)
+}
+
+// aggregateForestProtectedFromResult berechnet die distanzgewichteten
+// Prozentwerte Forest / Protected ueber die Route. n==0 oder Mismatch
+// zwischen EdgeCoordStart / EdgeTags2 / Coordinates liefert (0, 0).
+//
+// Muster folgt der Single-Pass-Aggregation in computeAllRanges (siehe
+// :31), ist aber distanzgewichtet (nicht edge-count-gewichtet) weil die
+// UI Prozent "dieser Route" anzeigt, nicht "dieser Edges".
+func aggregateForestProtectedFromResult(r *routing.RouteResult) (forestPct, protectedPct float64) {
+	n := len(r.EdgeTags2)
+	if n == 0 || len(r.EdgeCoordStart) != n || len(r.Coordinates) < 2 {
+		return 0, 0
+	}
+
+	var totalDist, forestWeighted, protectedWeighted float64
+
+	for i := range n {
+		startIdx := r.EdgeCoordStart[i]
+		// Edge-Ende: nachfolgender EdgeCoordStart, oder Ende Coordinates-1
+		var endIdx int
+		if i+1 < n {
+			endIdx = r.EdgeCoordStart[i+1]
+		} else {
+			endIdx = len(r.Coordinates) - 1
+		}
+		if startIdx < 0 || endIdx >= len(r.Coordinates) || startIdx >= endIdx {
+			continue
+		}
+
+		// Edge-Distance via geo.DistanceHaversine (Muster: haversineSum in result.go:144-150)
+		var edgeDist float64
+		for j := startIdx + 1; j <= endIdx; j++ {
+			edgeDist += geo.DistanceHaversine(
+				r.Coordinates[j-1].Lat, r.Coordinates[j-1].Lon,
+				r.Coordinates[j].Lat, r.Coordinates[j].Lon,
+			)
+		}
+		totalDist += edgeDist
+
+		forestPctEdge := float64(graph.DecodeForestPct(r.EdgeTags2[i]))
+		protectedRaw := graph.DecodeProtectedArea(r.EdgeTags2[i])
+		forestWeighted += forestPctEdge * edgeDist
+		if protectedRaw > 0 {
+			protectedWeighted += 100.0 * edgeDist // any-protected=1
+		}
+	}
+
+	if totalDist == 0 {
+		return 0, 0
+	}
+	return forestWeighted / totalDist, protectedWeighted / totalDist
 }

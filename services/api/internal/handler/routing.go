@@ -16,7 +16,9 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 
@@ -150,7 +152,7 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	timeout := 30 * time.Second
-	if h.Config.RoutingTimeout > 0 {
+	if h.Config != nil && h.Config.RoutingTimeout > 0 {
 		timeout = h.Config.RoutingTimeout
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
@@ -206,9 +208,77 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 		"pass0_expansions", result.PassStats.Pass0Expansions,
 		"pass1_expansions", result.PassStats.Pass1Expansions)
 
+	// V6-Retrofit: Enrichment berechnen, in GeoJSON-Properties mergen.
+	// Muster identisch zu route_suggestion.go — nutzt computeAllRanges (ein
+	// Pass), aggregateForestProtectedFromResult (distanzgewichtet) und
+	// FindSummitsAlongGeom (PostGIS ST_DWithin).
+	extras := map[string]any{}
+
+	if len(result.EdgeTags1) > 0 {
+		lastCoord := len(result.Coordinates) - 1
+		ranges := computeAllRanges(result.EdgeCoordStart, result.EdgeTags1, result.EdgeTags2, lastCoord)
+		// Only set non-nil/non-empty values — mirrors omitempty behaviour of
+		// RouteSuggestion JSON fields so that /routing/route-internal and
+		// /routes/suggest have symmetric key presence (V6-Retrofit parity).
+		if ranges.Sac != nil {
+			extras["sac_ranges"] = ranges.Sac
+		}
+		if ranges.Mtb != nil {
+			extras["mtb_ranges"] = ranges.Mtb
+		}
+		if ranges.Vf != nil {
+			extras["vf_ranges"] = ranges.Vf
+		}
+		if len(ranges.VfUnknown) > 0 {
+			extras["vf_unknown_ranges"] = ranges.VfUnknown
+		}
+		if len(ranges.Forest) > 0 {
+			extras["forest_ranges"] = ranges.Forest
+		}
+		if len(ranges.Protected) > 0 {
+			extras["protected_ranges"] = ranges.Protected
+		}
+	}
+
+	forestPct, protectedPct := aggregateForestProtectedFromResult(result)
+	extras["forest_pct"] = forestPct
+	extras["protected_pct"] = protectedPct
+
+	// Summit-Gate: nur wenn DB + Coordinates vorhanden.
+	// RouteCalculate ist nicht auth-gated — middleware.GetUserID liefert ""
+	// fuer unauthentifizierte Requests, ohne eine 401-Response zu schreiben.
+	// Analog zum Muster in route_suggestion.go:434-442.
+	if h.DB != nil && h.DB.Pool != nil && len(result.Coordinates) >= 2 {
+		wkb, wkbErr := coordsToLineStringWKB(result.Coordinates)
+		if wkbErr == nil {
+			// Radius aus user_enrichment_settings.summit_detection_radius_m
+			// (Default 80, Range 10–150) — Muster aus route_suggestion.go:434-442.
+			radiusM := 80.0 // Default fallback (matches Migration 000318 DEFAULT)
+			userID := middleware.GetUserID(ctx)
+			if userID != "" {
+				if settings, serr := h.DB.GetEnrichmentSettings(ctx, userID); serr == nil && settings != nil {
+					radiusM = settings.SummitDetectionRadiusM
+				} else if serr != nil {
+					slog.Warn("get enrichment settings failed; falling back to default radius",
+						"user_id", userID, "error", serr)
+				}
+			}
+			summits, summitErr := database.FindSummitsAlongGeom(ctx, h.DB.Pool, wkb, radiusM)
+			if summitErr == nil {
+				resp := make([]ResponsePassedSummit, 0, len(summits))
+				for _, s := range summits {
+					resp = append(resp, toResponseSummit(s))
+				}
+				extras["summits_passed"] = resp
+			} else {
+				slog.Warn("summits along route failed", "error", summitErr)
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/geo+json")
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(result.ToGeoJSON()); err != nil {
+	if _, err := w.Write(result.ToGeoJSONWithExtras(extras)); err != nil {
 		slog.Warn("route response write failed", "error", err)
 	}
 }
