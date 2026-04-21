@@ -431,7 +431,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	// h.DB is nil when the handler is constructed without a database (e.g. offline
 	// routing-only deployments or unit-test harnesses that do not provision DB).
 	// In that case summit detection is skipped and the default radius is used.
-	radiusM := 80.0 // Default fallback (matches Migration 000315 DEFAULT)
+	radiusM := 80.0 // Default fallback (matches Migration 000318 DEFAULT)
 	if h.DB != nil && userID != "" {
 		if settings, err := h.DB.GetEnrichmentSettings(r.Context(), userID); err == nil && settings != nil {
 			radiusM = settings.SummitDetectionRadiusM
