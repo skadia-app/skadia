@@ -201,6 +201,8 @@ function rebuildOffroadGeometry(seg: RouteSegment): RouteSegment {
 export type RouteStats = {
   forest_pct: number | null
   protected_pct: number | null
+  forest_ranges: CoordRange[] | null
+  protected_ranges: CoordRange[] | null
   sac_ranges: Record<string, CoordRange[]> | null
   mtb_ranges: Record<string, CoordRange[]> | null
   vf_ranges: Record<string, CoordRange[]> | null
@@ -218,13 +220,15 @@ function extractRouteStatsFromFeature(feature: GeoJSON.Feature | undefined): Rou
   const hasAnyKey =
     'forest_pct' in props || 'protected_pct' in props || 'sac_ranges' in props ||
     'mtb_ranges' in props || 'vf_ranges' in props || 'vf_unknown_ranges' in props ||
-    'summits_passed' in props
+    'summits_passed' in props || 'forest_ranges' in props || 'protected_ranges' in props
   if (!hasAnyKey) return null
   const coords = ((feature?.geometry as GeoJSON.LineString | undefined)?.coordinates
     ?? []) as number[][]
   return {
     forest_pct: (props.forest_pct as number) ?? null,
     protected_pct: (props.protected_pct as number) ?? null,
+    forest_ranges: (props.forest_ranges as RouteStats['forest_ranges']) ?? null,
+    protected_ranges: (props.protected_ranges as RouteStats['protected_ranges']) ?? null,
     sac_ranges: (props.sac_ranges as RouteStats['sac_ranges']) ?? null,
     mtb_ranges: (props.mtb_ranges as RouteStats['mtb_ranges']) ?? null,
     vf_ranges: (props.vf_ranges as RouteStats['vf_ranges']) ?? null,
@@ -255,8 +259,18 @@ export function mergeSegmentStatsForState(
   const mtbMerged: Record<string, CoordRange[]> = {}
   const vfMerged: Record<string, CoordRange[]> = {}
   const vfUnknownMerged: CoordRange[] = []
+  const forestRangesMerged: CoordRange[] = []
+  const protectedRangesMerged: CoordRange[] = []
   const summitsMerged: PassedSummit[] = []
   const coordinatesMerged: number[][] = []
+
+  /** Shift flat CoordRange[] by coordOffset and push into dst. */
+  const shiftFlatRanges = (src: CoordRange[] | null, dst: CoordRange[]) => {
+    if (!src) return
+    for (const r of src) {
+      dst.push({ from: r.from + coordOffset, to: r.to + coordOffset })
+    }
+  }
 
   let coordOffset = 0
   for (let i = 0; i < segments.length; i++) {
@@ -301,6 +315,8 @@ export function mergeSegmentStatsForState(
           vfUnknownMerged.push({ from: r.from + coordOffset, to: r.to + coordOffset })
         }
       }
+      shiftFlatRanges(stats.forest_ranges, forestRangesMerged)
+      shiftFlatRanges(stats.protected_ranges, protectedRangesMerged)
       if (stats.summits_passed) {
         // Summits dedupliziert: kann an Segment-Grenzen doppelt auftreten.
         // Finding #8 fix: osm_id=0 (DB-Importbug) → Coord-Fallback-Key statt osm_id,
@@ -326,6 +342,8 @@ export function mergeSegmentStatsForState(
   return {
     forest_pct: totalDist > 0 ? forestWeighted / totalDist : null,
     protected_pct: totalDist > 0 ? protectedWeighted / totalDist : null,
+    forest_ranges: forestRangesMerged.length > 0 ? forestRangesMerged : null,
+    protected_ranges: protectedRangesMerged.length > 0 ? protectedRangesMerged : null,
     sac_ranges: Object.keys(sacMerged).length > 0 ? sacMerged : null,
     mtb_ranges: Object.keys(mtbMerged).length > 0 ? mtbMerged : null,
     vf_ranges: Object.keys(vfMerged).length > 0 ? vfMerged : null,
@@ -932,6 +950,8 @@ export function useRoutePlanner() {
     const statsFromSuggestion: RouteStats = {
       forest_pct: s.forest_pct ?? null,
       protected_pct: s.protected_pct ?? null,
+      forest_ranges: s.forest_ranges ?? null,
+      protected_ranges: s.protected_ranges ?? null,
       sac_ranges: s.sac_ranges ?? null,
       mtb_ranges: s.mtb_ranges ?? null,
       vf_ranges: s.vf_ranges ?? null,
