@@ -56,6 +56,8 @@ interface Props {
   scalePin: 'sac' | 'mtb' | 'vf' | null
   /** Toggle handler for the scale-pin (mutually exclusive radio). */
   onTogglePin: (kind: 'sac' | 'mtb' | 'vf') => void
+  /** Hover handler — transient Map-Preview, clearet bei mouseleave. */
+  onScaleHover?: (kind: 'sac' | 'mtb' | 'vf' | null) => void
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -149,6 +151,7 @@ export default function RouteProfileChart({
   routeStats,
   scalePin,
   onTogglePin,
+  onScaleHover,
 }: Props) {
   // Build processed data
   const points = useMemo(
@@ -407,7 +410,7 @@ export default function RouteProfileChart({
                     maxLevel={sacAggregate.maxLevel}
                     isPinned={scalePin === 'sac'}
                     onTogglePin={() => onTogglePin('sac')}
-                    onHover={() => {}}
+                    onHover={(active) => onScaleHover?.(active ? 'sac' : null)}
                   />
                 )}
                 {mtbAggregate.breakdown.length > 0 && mtbAggregate.maxLevel && (
@@ -417,7 +420,7 @@ export default function RouteProfileChart({
                     maxLevel={mtbAggregate.maxLevel}
                     isPinned={scalePin === 'mtb'}
                     onTogglePin={() => onTogglePin('mtb')}
-                    onHover={() => {}}
+                    onHover={(active) => onScaleHover?.(active ? 'mtb' : null)}
                   />
                 )}
                 {vfAggregate.breakdown.length > 0 && vfAggregate.maxLevel && (
@@ -427,7 +430,7 @@ export default function RouteProfileChart({
                     maxLevel={vfAggregate.maxLevel}
                     isPinned={scalePin === 'vf'}
                     onTogglePin={() => onTogglePin('vf')}
-                    onHover={() => {}}
+                    onHover={(active) => onScaleHover?.(active ? 'vf' : null)}
                   />
                 )}
                 {/*

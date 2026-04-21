@@ -360,16 +360,26 @@ export function useRoutePlanner() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
 
-  // ── Scale-Pin state (SAC / MTB / Via Ferrata) ────────────────────────────────
-  // Via-Ferrata-Union: 'vf' wird hier direkt aufgenommen (Task 22a), damit der
-  // Union konsistent bleibt und keine Zwischen-Reparatur nötig ist.
+  // ── Scale-Pin + Hover state (SAC / MTB / Via Ferrata) ────────────────────────
+  // scalePin: persistente Auswahl (Click auf Badge, bleibt bis erneuter Click
+  // oder Reset). scaleHover: transient (Badge-Hover, clearet bei mouseleave).
+  // scaleEffective = scalePin ?? scaleHover — ein gepinneter Badge gewinnt,
+  // sonst wird der gehoverte Badge als Preview angezeigt. Consumers (MapPage,
+  // ScaleLegend) lesen scaleEffective statt scalePin, damit Hover einen
+  // Map-Preview inkl. Legende liefert ohne dass der User klicken muss.
   const [scalePin, setScalePin] = useState<'sac' | 'mtb' | 'vf' | null>(null)
+  const [scaleHover, setScaleHover] = useState<'sac' | 'mtb' | 'vf' | null>(null)
 
   const togglePin = useCallback((kind: 'sac' | 'mtb' | 'vf') => {
     setScalePin(prev => prev === kind ? null : kind)
   }, [])
 
-  const resetScalePin = useCallback(() => setScalePin(null), [])
+  const resetScalePin = useCallback(() => {
+    setScalePin(null)
+    setScaleHover(null)
+  }, [])
+
+  const scaleEffective = scalePin ?? scaleHover
 
   // ── Mount-fetch: hydrate hiking defaults from server ─────────────────────────
 
@@ -1252,9 +1262,12 @@ export function useRoutePlanner() {
     useRouteList,
     useRouteDetail,
 
-    // ── Scale-Pin (SAC/MTB/VF) ────────────────────────────────────────────
+    // ── Scale-Pin + Hover (SAC/MTB/VF) ────────────────────────────────────
     scalePin,
+    scaleHover,
+    scaleEffective,
     togglePin,
+    setScaleHover,
     resetScalePin,
 
     // ── V6-Retrofit: aggregierte Route-Stats ──────────────────────────────

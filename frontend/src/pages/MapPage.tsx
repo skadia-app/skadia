@@ -760,14 +760,17 @@ export default function MapPage() {
   // V6-Retrofit (Finding #6): Ranges kommen jetzt aus planner.routeStats statt
   // aus activeSuggestion. Das erlaubt SAC/MTB/VF-Farbgebung auch bei manuell
   // geplanten Routen (BadRouter Quelle 1) ohne aktive Suggestion.
+  // scaleEffective = scalePin ?? scaleHover — Hover liefert einen transienten
+  // Map-Preview (inkl. ScaleLegend), Click pinnt persistent. Beide ziehen
+  // dieselbe Range-Auswahl aus routeStats.
   const scaleBaseFeatures = useMemo(() => {
-    if (!planner.scalePin || parsedCoords.length < 2) return []
+    if (!planner.scaleEffective || parsedCoords.length < 2) return []
     const stats = planner.routeStats
     if (!stats) return []
     const ranges =
-      planner.scalePin === 'sac' ? stats.sac_ranges :
-      planner.scalePin === 'mtb' ? stats.mtb_ranges :
-      planner.scalePin === 'vf'  ? stats.vf_ranges :
+      planner.scaleEffective === 'sac' ? stats.sac_ranges :
+      planner.scaleEffective === 'mtb' ? stats.mtb_ranges :
+      planner.scaleEffective === 'vf'  ? stats.vf_ranges :
       undefined
     if (!ranges) return []
     const features: GeoJSON.Feature[] = []
@@ -778,13 +781,13 @@ export default function MapPage() {
           features.push({
             type: 'Feature',
             geometry: { type: 'LineString', coordinates: slice },
-            properties: { level, category: planner.scalePin },
+            properties: { level, category: planner.scaleEffective },
           })
         }
       }
     }
     return features
-  }, [planner.scalePin, planner.routeStats, parsedCoords])
+  }, [planner.scaleEffective, planner.routeStats, parsedCoords])
 
   useEffect(() => {
     if (!layersReady) return
@@ -2348,11 +2351,12 @@ export default function MapPage() {
           className="w-full h-full"
         />
 
-        {/* Scale-Legende: erscheint nur wenn SAC/MTB/VF-Scale-Pin aktiv ist.
-            Erklärt die 6 Rainbow-Farben des Map-Overlays; Badge-Dots nutzen
-            die 3-Farben-DAV-Konvention (siehe ScaleBadge.tsx). */}
+        {/* Scale-Legende: erscheint bei Hover ODER Click auf einen Scale-Badge
+            (scaleEffective = scalePin ?? scaleHover). Erklärt die 6 Rainbow-
+            Farben des Map-Overlays; Badge-Dots nutzen die 3-Farben-DAV-
+            Konvention (siehe ScaleBadge.tsx). */}
         <ScaleLegend
-          kind={planner.scalePin}
+          kind={planner.scaleEffective}
           hasUnknownVf={(planner.routeStats?.vf_unknown_ranges?.length ?? 0) > 0}
         />
 
@@ -3102,6 +3106,7 @@ export default function MapPage() {
                   routeStats={planner.routeStats}
                   scalePin={planner.scalePin}
                   onTogglePin={planner.togglePin}
+                  onScaleHover={planner.setScaleHover}
                 />
                 <RouteSurfacesBar
                   segments={planner.segments}
