@@ -624,6 +624,12 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 		}
 	}
 
+	// Record the coordinate length after the last real network edge (destination
+	// node + any intermediate edge geometry), BEFORE appending the dst-VE air-line
+	// tail. computeAllRanges in the handler uses this as lastCoordIdx to prevent
+	// range-highlights from bleeding into the straight-line projection segment (F2).
+	lastRealEdgeCoordEnd := len(coords)
+
 	// Destination-side: insert partial edge geometry from last node to projection point.
 	if dstVE != nil {
 		partialCoords := extractPartialEdgeGeometry(reader, dstVE, bestDstNode, false)
@@ -638,20 +644,21 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 	}
 
 	return &RouteResult{
-		Coordinates:    coords,
-		DistanceM:      totalDist,
-		AscentM:        totalAscent,
-		DescentM:       totalDescent,
-		Cost:           float64(state.nodes[bestDstNode].BestCost),
-		Segments:       segments,
-		DistSum:        distSum,
-		QualitySum:     qualitySum,
-		AscentSum:      ascentSum,
-		DescentSum:     descentSum,
-		EdgeHandles:    edgeHandles,
-		EdgeCoordStart: edgeCoordStart,
-		EdgeTags1:      edgeTags1,
-		EdgeTags2:      edgeTags2,
+		Coordinates:      coords,
+		DistanceM:        totalDist,
+		AscentM:          totalAscent,
+		DescentM:         totalDescent,
+		Cost:             float64(state.nodes[bestDstNode].BestCost),
+		Segments:         segments,
+		DistSum:          distSum,
+		QualitySum:       qualitySum,
+		AscentSum:        ascentSum,
+		DescentSum:       descentSum,
+		EdgeHandles:      edgeHandles,
+		EdgeCoordStart:   edgeCoordStart,
+		EdgeTags1:        edgeTags1,
+		EdgeTags2:        edgeTags2,
+		LastEdgeCoordEnd: lastRealEdgeCoordEnd, // excludes dst-VE air-line tail (F2)
 	}
 }
 

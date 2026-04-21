@@ -38,6 +38,17 @@ type RouteResult struct {
 	EdgeCoordStart []int    `json:"-"`
 	EdgeTags1      []uint64 `json:"-"` // Tags1 pro Edge — SAC/MTB-Stufen-Ranges
 	EdgeTags2      []uint64 `json:"-"` // Tags2 pro Edge — Forest/Protected/Traffic-Ranges
+
+	// LastEdgeCoordEnd is the coordinate index (exclusive upper bound) of the last
+	// real network edge — i.e. len(Coordinates) at the moment the destination node
+	// was appended, BEFORE any dst virtual-edge (VE) air-line tail is concatenated.
+	//
+	// Use this as the lastCoordIdx argument to computeAllRanges instead of
+	// len(Coordinates)-1 to prevent range-highlights from bleeding into the
+	// straight-line approach segment appended by the dst-VE path (F2 fix).
+	// Zero means no dst-VE was appended (dst-VE is nil); callers should fall back to
+	// len(Coordinates)-1 when this field is zero.
+	LastEdgeCoordEnd int `json:"-"`
 }
 
 // AvgFlat returns the distance-weighted average flat cost factor of this route.
@@ -259,6 +270,15 @@ func mergeLegs(legs []*RouteResult) *RouteResult {
 			result.EdgeTags2 = append(result.EdgeTags2, leg.EdgeTags2...)
 		}
 		// Empty follow-leg (len(Coordinates)==0): EdgeCoordStart/Tags1/Tags2 skipped above.
+
+		// Propagate LastEdgeCoordEnd from the last leg (F2: dst-VE bleed fix).
+		// The merged result inherits the last leg's last-real-edge boundary, adjusted
+		// for the coordinate offset that this leg contributes to the merged slice.
+		// Non-last legs are intermediate — their LastEdgeCoordEnd is irrelevant;
+		// only the final leg determines where the dst-VE tail begins (if any).
+		if leg.LastEdgeCoordEnd > 0 {
+			result.LastEdgeCoordEnd = leg.LastEdgeCoordEnd + segOffset
+		}
 	}
 	return result
 }

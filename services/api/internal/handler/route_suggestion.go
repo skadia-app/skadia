@@ -355,7 +355,6 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	var eg errgroup.Group
 	eg.SetLimit(h.GraphManager.MaxConcurrentRoutes())
 	for i, sel := range pool {
-		i, sel := i, sel
 		eg.Go(func() error {
 			c, err := h.buildRouteCandidate(ctx60, router, rs, filtered, sel,
 				startLat, startLon, cfg, opts, baselineAvgFlat)
@@ -454,7 +453,6 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 			if len(merged.Coordinates) < 2 {
 				continue // approach-only or empty: skip, leave slot nil
 			}
-			i, lr, merged := i, lr, merged
 			sgSummits.Go(func() error {
 				wkbBytes, wkbErr := coordsToLineStringWKB(merged.Coordinates)
 				if wkbErr != nil {
@@ -496,7 +494,9 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Range computation per variant — single fused pass over edge tags (Finding #15).
-		lastCoordIdx := len(merged.Coordinates) - 1
+		// Use LastEdgeCoordEnd-1 when set to exclude the dst-VE air-line tail from
+		// range highlights (F2: dst-VE Range-Bleed fix).
+		lastCoordIdx := lastRealCoordIdx(merged)
 		allRanges := computeAllRanges(merged.EdgeCoordStart, merged.EdgeTags1, merged.EdgeTags2, lastCoordIdx)
 		forestRanges := allRanges.Forest
 		protectedRanges := allRanges.Protected

@@ -219,7 +219,9 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	extras := map[string]any{}
 
 	if len(result.EdgeTags1) > 0 {
-		lastCoord := len(result.Coordinates) - 1
+		// Use LastEdgeCoordEnd-1 when set to exclude the dst-VE air-line tail from
+		// range highlights (F2: dst-VE Range-Bleed fix).
+		lastCoord := lastRealCoordIdx(result)
 		ranges := computeAllRanges(result.EdgeCoordStart, result.EdgeTags1, result.EdgeTags2, lastCoord)
 		// Only set non-nil/non-empty values — mirrors omitempty behaviour of
 		// RouteSuggestion JSON fields so that /routing/route-internal and
