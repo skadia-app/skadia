@@ -132,8 +132,9 @@ export async function fetchSegmentLeaderboard(
   return apiClient<LeaderboardEntry[]>(`/segments/${segmentId}/leaderboard${q ? `?${q}` : ''}`)
 }
 
-export async function fetchSegment(id: string): Promise<Segment> {
-  return apiClient<Segment>(`/segments/${id}`)
+export async function fetchSegment(id: string, opts: { includeGeoJSON?: boolean } = {}): Promise<Segment> {
+  const qs = opts.includeGeoJSON ? '?include_geojson=true' : ''
+  return apiClient<Segment>(`/segments/${id}${qs}`)
 }
 
 export async function updateSegment(id: string, payload: UpdateSegmentPayload): Promise<Segment> {
@@ -205,7 +206,7 @@ export async function fetchGlobalTopSegmentPRs(): Promise<GlobalTopSegmentEffort
 
 export interface SegmentEnrichmentRequest {
   coordinates: Array<[number, number]>  // [lng, lat]
-  seg_type: 'standard' | 'trail' | 'lap' | 'wintersport'
+  seg_type: 'standard' | 'trail' | 'lap' | 'wintersport' | 'wassersport' | 'lift'
   dominant_sport?: string
 }
 
