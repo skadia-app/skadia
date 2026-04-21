@@ -244,6 +244,7 @@ export function useRouteEditor(
   mapRef: React.RefObject<maplibregl.Map | null>,
   planner: RoutePlannerState,
   active: boolean,
+  styleVersion: number,
   options: UseRouteEditorOptions = {},
 ) {
   // Keep a stable ref to planner so event handlers don't need to re-register.
@@ -532,6 +533,17 @@ export function useRouteEditor(
     if (map.getSource(SOURCE_HIGHLIGHT))  map.removeSource(SOURCE_HIGHLIGHT)
     sourcesReadyRef.current = false
   }, [])
+
+  // ── Style-switch recovery: re-add layers after setStyle() wipes everything ──
+  // map.setStyle() removes all custom sources/layers. The style.load handler in
+  // MapPage increments styleVersion, which triggers this effect to call addLayers
+  // again. addLayers is idempotent (guarded by getSource/getLayer checks) and
+  // pushes the current planner data immediately from plannerRef.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !active || styleVersion === 0) return
+    addLayers(map)
+  }, [active, styleVersion, mapRef, addLayers])
 
   // ── Sync GeoJSON data whenever planner state changes ──────────────────────
   // Bug 1 fix: only sync when sources actually exist (sourcesReadyRef guards this).
