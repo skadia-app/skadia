@@ -1,6 +1,6 @@
 // frontend/src/components/segment-editor/constants.ts
 
-export type SegType = 'standard' | 'trail' | 'lap' | 'wintersport'
+export type SegType = 'standard' | 'trail' | 'lap' | 'wintersport' | 'wassersport' | 'lift'
 
 /**
  * ClimbType maps to the segments.climb_type DB enum.
@@ -21,6 +21,8 @@ export const BIDIRECTIONAL_DEFAULT: Record<SegType, boolean> = {
   trail: false,
   lap: true,
   wintersport: false,
+  wassersport: false,
+  lift: true,
 }
 
 // Hardcoded whitelist (NOT derived from taxonomy Category() === 'winter' —
@@ -34,6 +36,19 @@ export const WINTER_SPORT_WHITELIST: readonly string[] = [
   'snowmobiling',
   'sledding',
   'snowshoeing',
+]
+
+// WATER_SPORT_WHITELIST — analog zu WINTER_SPORT_WHITELIST
+// Verhindert dass bei segType='wassersport' Bike/Run-Sportarten angeboten werden
+// Quelle: sportTaxonomy.ts:129-163 categoryKey='water', ohne diving (hasGPS=false)
+export const WATER_SPORT_WHITELIST: readonly string[] = [
+  // swim
+  'swimming', 'lap_swimming', 'open_water_swimming',
+  // paddle
+  'paddling', 'kayaking', 'stand_up_paddleboarding', 'rowing', 'rafting', 'canoeing',
+  // generic water (hasGPS=true only — diving excluded)
+  'surfing', 'kitesurfing', 'windsurfing', 'wakeboarding', 'wakesurfing',
+  'water_skiing', 'water_tubing', 'snorkeling', 'boating', 'sailing', 'fishing',
 ]
 
 // DAV-Bayern-Auslegung — Ski-Pisten convention blau < rot < schwarz. §4.6.
