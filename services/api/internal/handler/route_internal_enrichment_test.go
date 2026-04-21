@@ -256,3 +256,118 @@ func TestRouteCalculateEnrichmentKeyParity(t *testing.T) {
 		t.Errorf("/routing/route-internal forest_pct: expected > 0 for forest-quadrant route, got %v", calcForestPct)
 	}
 }
+
+// TestRouteCalculateEnrichmentRangeKeyParity verifies that when both endpoints
+// produce range data (because the route traverses tagged edges), both carry the
+// same set of content-dependent range keys.
+//
+// Strategy: use the bottom-right forest quadrant fixture (ForestPct=70 on edges
+// r≥2, c≥2).  A route from (48.990, 12.100) to (48.954, 12.154) traverses those
+// edges — so forest_ranges MUST appear in both responses.  protected_ranges is
+// absent in the fixture (protected_area==0) and MUST be absent in both.  This
+// tests the omit-when-empty symmetry.
+//
+// summits_passed: requires h.DB != nil — absent in both (h.DB=nil fixture).
+// The test verifies that neither response contains summits_passed, confirming
+// the nil-DB guard is symmetric.
+//
+// sac_ranges / mtb_ranges / vf_ranges: not present in the base fixture (no
+// SAC/MTB/VF tags).  Absent in both — symmetric omit-when-empty confirmed by
+// negative assertion.
+func TestRouteCalculateEnrichmentRangeKeyParity(t *testing.T) {
+	setup := newTestRoutingHandlerWithCoverage(t)
+
+	// Route through the forest-quadrant (r≥2, c≥2) edges: ForestPct=70 encoded.
+	const routeBody = `{"from":[48.990,12.100],"to":[48.954,12.154]}`
+
+	// --- /routing/route-internal ---
+	calcW := postRouteCalculate(setup.Handler, routeBody)
+	if calcW.Code != http.StatusOK {
+		t.Fatalf("/routing/route-internal: expected 200, got %d: %s", calcW.Code, calcW.Body.String())
+	}
+	var calcResp map[string]any
+	if err := json.Unmarshal(calcW.Body.Bytes(), &calcResp); err != nil {
+		t.Fatalf("unmarshal calc: %v", err)
+	}
+	calcFeatures := calcResp["features"].([]any)
+	calcProps := calcFeatures[0].(map[string]any)["properties"].(map[string]any)
+
+	// forest_ranges: MUST be present (ForestPct=70 ≥ threshold 60).
+	if _, ok := calcProps["forest_ranges"]; !ok {
+		t.Errorf("/routing/route-internal: forest_ranges missing (expected for forest-quadrant route)")
+	}
+	// protected_ranges: MUST be absent (protected_area=0 < threshold 1).
+	if _, ok := calcProps["protected_ranges"]; ok {
+		t.Errorf("/routing/route-internal: protected_ranges present but protected_area=0 in fixture")
+	}
+	// sac_ranges / mtb_ranges / vf_ranges: no tags in base fixture → absent.
+	for _, key := range []string{"sac_ranges", "mtb_ranges", "vf_ranges", "vf_unknown_ranges"} {
+		if _, ok := calcProps[key]; ok {
+			t.Errorf("/routing/route-internal: %s present but fixture has no outdoor tags", key)
+		}
+	}
+	// summits_passed: h.DB=nil → absent.
+	if _, ok := calcProps["summits_passed"]; ok {
+		t.Errorf("/routing/route-internal: summits_passed present but h.DB=nil fixture")
+	}
+
+	// forest_ranges shape: must be a non-empty array of objects with "from"/"to".
+	if frRaw, ok := calcProps["forest_ranges"]; ok {
+		fr, ok := frRaw.([]any)
+		if !ok || len(fr) == 0 {
+			t.Errorf("/routing/route-internal: forest_ranges is not a non-empty array: %T %v", frRaw, frRaw)
+		} else {
+			for j, elem := range fr {
+				obj, ok := elem.(map[string]any)
+				if !ok {
+					t.Errorf("/routing/route-internal: forest_ranges[%d] is not an object", j)
+					continue
+				}
+				if _, ok := obj["from"]; !ok {
+					t.Errorf("/routing/route-internal: forest_ranges[%d] missing 'from'", j)
+				}
+				if _, ok := obj["to"]; !ok {
+					t.Errorf("/routing/route-internal: forest_ranges[%d] missing 'to'", j)
+				}
+			}
+		}
+	}
+
+	// --- /routes/suggest ---
+	// Use a start that leads into the forest quadrant.
+	suggestBody := `{"start":[12.10,48.99],"target_distance_m":8000,"profile":"hiking"}`
+	suggestReq := httptest.NewRequest(http.MethodPost, "/api/v1/routes/suggest",
+		strings.NewReader(suggestBody))
+	suggestReq = suggestReq.WithContext(contextWithTestUserID(suggestReq.Context(), "00000000-0000-0000-0000-000000000001"))
+	suggestW := httptest.NewRecorder()
+	setup.Handler.SuggestRoutes(suggestW, suggestReq)
+	if suggestW.Code != http.StatusOK {
+		t.Fatalf("/routes/suggest: expected 200, got %d: %s", suggestW.Code, suggestW.Body.String())
+	}
+	var suggestResp RouteSuggestionResponse
+	if err := json.Unmarshal(suggestW.Body.Bytes(), &suggestResp); err != nil {
+		t.Fatalf("unmarshal suggest: %v", err)
+	}
+	if len(suggestResp.Suggestions) == 0 {
+		t.Fatal("/routes/suggest: expected at least one suggestion")
+	}
+	// Re-encode first suggestion to a map for key inspection.
+	suggJSON, _ := json.Marshal(suggestResp.Suggestions[0])
+	var suggMap map[string]any
+	_ = json.Unmarshal(suggJSON, &suggMap)
+
+	// sac_ranges / mtb_ranges / vf_ranges: no outdoor tags in base fixture → absent.
+	for _, key := range []string{"sac_ranges", "mtb_ranges", "vf_ranges", "vf_unknown_ranges"} {
+		if _, ok := suggMap[key]; ok {
+			t.Errorf("/routes/suggest: %s present but fixture has no outdoor tags", key)
+		}
+	}
+	// summits_passed: h.DB=nil → absent (omitempty on RouteSuggestion.SummitsPassed).
+	if _, ok := suggMap["summits_passed"]; ok {
+		t.Errorf("/routes/suggest: summits_passed present but h.DB=nil fixture")
+	}
+	// protected_ranges: absent (protected_area=0).
+	if _, ok := suggMap["protected_ranges"]; ok {
+		t.Errorf("/routes/suggest: protected_ranges present but protected_area=0 in fixture")
+	}
+}

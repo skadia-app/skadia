@@ -44,6 +44,11 @@ func computeAllRanges(
 	}
 
 	// Pre-allocate per-edge match arrays for every category.
+	// INFO (F14): 18 bool-slices × n edges allocate ~18n bytes per request.
+	// At n=1500 edges × 5 variants ≈ 135 kB + GC pressure per SuggestRoutes call.
+	// A sync.Pool<[18][]bool> with b=b[:0] reset could eliminate most of this, but
+	// the sizing complexity (n varies per route) makes it non-trivial; left for a
+	// dedicated allocation-optimisation pass if profiling shows this as hot.
 	forestM := make([]bool, n)
 	protectedM := make([]bool, n)
 	vfUnknownM := make([]bool, n)
@@ -83,13 +88,16 @@ func computeAllRanges(
 
 		// VF scale (Tags2 bits 33-35).
 		vfRaw := graph.DecodeViaFerrataScale(t2)
-		hw := graph.DecodeHighway(t1)
 		if vfRaw >= 1 && vfRaw <= 6 {
 			vfM[vfRaw-1][i] = true // K1=idx0, K6=idx5
 		}
 		// VF unknown: highway==22 AND vfScale==0 (Spec Invariant I9).
-		if hw == 22 && vfRaw == 0 {
-			vfUnknownM[i] = true
+		// DecodeHighway only needed here — moved into inner scope to avoid
+		// computing it on every edge (F15).
+		if vfRaw == 0 {
+			if graph.DecodeHighway(t1) == 22 {
+				vfUnknownM[i] = true
+			}
 		}
 	}
 
@@ -126,6 +134,22 @@ func computeAllRanges(
 	}
 
 	return result
+}
+
+// lastRealCoordIdx returns the coordinate index to use as the exclusive upper
+// bound for the last real network edge — i.e. it excludes any dst virtual-edge
+// (VE) air-line tail that was appended after routing finished (F2 fix).
+//
+// When r.LastEdgeCoordEnd > 0 it was set by retrackUnified before the dst-VE
+// append and represents len(Coordinates) at that moment; the inclusive last
+// index is LastEdgeCoordEnd-1.
+// When LastEdgeCoordEnd == 0 no dst-VE was appended (or the result was not
+// produced by retrackUnified), so fall back to len(Coordinates)-1.
+func lastRealCoordIdx(r *routing.RouteResult) int {
+	if r.LastEdgeCoordEnd > 0 {
+		return r.LastEdgeCoordEnd - 1
+	}
+	return len(r.Coordinates) - 1
 }
 
 // CoordRange represents a contiguous index range into a route's coordinate list.
@@ -190,6 +214,9 @@ func contiguousRangesFromMatch(
 
 // computeForestRanges builds contiguous CoordRanges for edges whose forest pct
 // (decoded from Tags2) is ≥ forestHighlightMin. Pure in-memory — no DB / reader.
+//
+// Used only in tests (route_ranges_test.go) to cross-check computeAllRanges.
+// Production callers use computeAllRanges (single-pass fused).
 func computeForestRanges(
 	edgeCoordStart []int,
 	edgeTags2 []uint64,
@@ -208,6 +235,9 @@ func computeForestRanges(
 // computeProtectedRanges builds contiguous CoordRanges for edges whose
 // protected_area level (decoded from Tags2 bits 17-18) is ≥ protectedHighlightMin.
 // Pure in-memory — no DB / reader.
+//
+// Used only in tests (route_ranges_test.go) to cross-check computeAllRanges.
+// Production callers use computeAllRanges (single-pass fused).
 func computeProtectedRanges(
 	edgeCoordStart []int,
 	edgeTags2 []uint64,
@@ -226,6 +256,9 @@ func computeProtectedRanges(
 // computeVfRanges baut CoordRanges für Edges mit einem spezifischen Via-Ferrata-
 // Level ("K1".."K6"). Liest Bits 33-35 aus Tags2 via graph.DecodeViaFerrataScale.
 // Unbekannte Level oder leere Strings → nil.
+//
+// Used only in tests (route_ranges_test.go) to cross-check computeAllRanges.
+// Production callers use computeAllRanges (single-pass fused).
 func computeVfRanges(
 	edgeCoordStart []int,
 	edgeTags2 []uint64,
@@ -248,6 +281,9 @@ func computeVfRanges(
 // computeVfUnknownRanges baut CoordRanges für Edges wo highway == via_ferrata (22)
 // UND vfScale == 0. Das sind die K?-Ranges (Spec-Invariant I9: IMMER auf der
 // Karte sichtbar, unabhängig vom Scale-Pin).
+//
+// Used only in tests (route_ranges_test.go) to cross-check computeAllRanges.
+// Production callers use computeAllRanges (single-pass fused).
 func computeVfUnknownRanges(
 	edgeCoordStart []int,
 	edgeTags1 []uint64,
@@ -277,6 +313,9 @@ func computeVfUnknownRanges(
 //   - MTB scale: bits 17-19 (shift 17), mapped via graph.MtbScaleShort (offset: raw=3 → "S2", NOT "S3")
 //
 // Unknown kind or level returns nil without panicking.
+//
+// Used only in tests (route_ranges_test.go) to cross-check computeAllRanges.
+// Production callers use computeAllRanges (single-pass fused).
 func computeScaleRanges(
 	edgeCoordStart []int,
 	edgeTags1 []uint64,
@@ -324,14 +363,17 @@ func aggregateForestProtectedFromResult(r *routing.RouteResult) (forestPct, prot
 
 	var totalDist, forestWeighted, protectedWeighted float64
 
+	// Use lastRealCoordIdx to exclude the dst-VE air-line tail from distance
+	// weighting (F2: dst-VE Range-Bleed fix — same boundary as computeAllRanges).
+	lastReal := lastRealCoordIdx(r)
 	for i := range n {
 		startIdx := r.EdgeCoordStart[i]
-		// Edge-Ende: nachfolgender EdgeCoordStart, oder Ende Coordinates-1
+		// Edge-Ende: nachfolgender EdgeCoordStart, oder last real coord index.
 		var endIdx int
 		if i+1 < n {
 			endIdx = r.EdgeCoordStart[i+1]
 		} else {
-			endIdx = len(r.Coordinates) - 1
+			endIdx = lastReal
 		}
 		if startIdx < 0 || endIdx >= len(r.Coordinates) || startIdx >= endIdx {
 			continue
@@ -347,9 +389,10 @@ func aggregateForestProtectedFromResult(r *routing.RouteResult) (forestPct, prot
 		}
 		totalDist += edgeDist
 
-		// DecodeForestPct returns 0–127 (7-bit); divide by 100 to get 0.0–1.0.
-		// Clamp to 100 before dividing to match the defensive clamp in
-		// route_candidate.go:102 (parity with RouteSuggestion.forest_pct scale).
+		// DecodeForestPct returns 0–100 (OSM percent, stored in 7-bit field bits 0-6).
+		// Divide by 100 to normalise to 0.0–1.0.
+		// Clamp to 100 before dividing (defensive, in case of over-range encoding)
+		// to match the parity with RouteSuggestion.forest_pct scale.
 		forestPctEdge := float64(min(int(graph.DecodeForestPct(r.EdgeTags2[i])), 100)) / 100.0
 		protectedRaw := graph.DecodeProtectedArea(r.EdgeTags2[i])
 		forestWeighted += forestPctEdge * edgeDist
