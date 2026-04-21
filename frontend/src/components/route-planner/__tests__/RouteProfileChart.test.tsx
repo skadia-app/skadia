@@ -50,7 +50,7 @@ vi.mock('@/lib/scaleAggregation', () => ({
 
 // ── Component under test ──────────────────────────────────────────────────────
 import RouteProfileChart from '../RouteProfileChart'
-import type { RouteStats } from '@/hooks/useRoutePlanner'
+import { makeFakeRouteStats } from '@/test-utils/routeStats'
 
 // Minimal ElevationPoint array — enough for buildProfile to produce ≥2 valid pts.
 const FAKE_PROFILE = [
@@ -58,27 +58,6 @@ const FAKE_PROFILE = [
   { fraction: 0.5, elevation: 510 },
   { fraction: 1.0, elevation: 500 },
 ]
-
-/** Factory for RouteStats test fixtures (V6-Retrofit shape). */
-function makeFakeRouteStats(overrides: Partial<RouteStats> = {}): RouteStats {
-  return {
-    forest_pct: 0,
-    protected_pct: 0,
-    forest_ranges: null,
-    protected_ranges: null,
-    sac_ranges: null,
-    mtb_ranges: null,
-    vf_ranges: null,
-    vf_unknown_ranges: null,
-    summits_passed: null,
-    coordinates: [
-      [12.0, 49.0, 500],
-      [12.01, 49.01, 510],
-      [12.0, 49.0, 500],
-    ],
-    ...overrides,
-  }
-}
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 

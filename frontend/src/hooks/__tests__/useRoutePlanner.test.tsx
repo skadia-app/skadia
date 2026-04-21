@@ -12,6 +12,7 @@ import { ToastProvider } from '@/lib/toast'
 import { useRoutePlanner, mergeSegmentStatsForState } from '../useRoutePlanner'
 import type { RouteStats } from '../useRoutePlanner'
 import type { RouteSegment, RouteSuggestion } from '@/api/routes'
+import { makeFakeRouteStats } from '@/test-utils/routeStats'
 
 // addToastMock must be hoisted so vi.mock factory can reference it
 const addToastMock = vi.hoisted(() => vi.fn())
@@ -82,21 +83,19 @@ function makeSegment(
   }
 }
 
-/** Helper: build minimal RouteStats */
+/**
+ * Helper: build minimal RouteStats — Wrapper um makeFakeRouteStats-Factory.
+ * Hook-Tests brauchen `coordinates: []` als Default (nicht das 3-Punkt-Array der
+ * Chart-Tests), weil mergeSegmentStatsForState den coordinates-Array selbst
+ * zusammenstellt und die Fixture nur Input-Stats liefert.
+ */
 function makeStats(overrides: Partial<RouteStats> = {}): RouteStats {
-  return {
+  return makeFakeRouteStats({
     forest_pct: null,
     protected_pct: null,
-    forest_ranges: null,
-    protected_ranges: null,
-    sac_ranges: null,
-    mtb_ranges: null,
-    vf_ranges: null,
-    vf_unknown_ranges: null,
-    summits_passed: null,
     coordinates: [],
     ...overrides,
-  }
+  })
 }
 
 describe('mergeSegmentStatsForState', () => {
