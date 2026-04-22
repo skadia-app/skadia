@@ -165,10 +165,10 @@ func calculateWeekStreaks(days []time.Time) (currentWeekStreak, maxWeekStreak in
 
 	// Current week streak: check if last week in list is this week or last week.
 	thisYear, thisWeek := time.Now().ISOWeek()
-	lastYear, _ := time.Now().AddDate(0, 0, -7).ISOWeek()
+	lastYear, lastWeekNum2 := time.Now().AddDate(0, 0, -7).ISOWeek()
 	lastWeekNum := weeks[len(weeks)-1]
 	if (lastWeekNum.year == thisYear && lastWeekNum.week == thisWeek) ||
-		(lastWeekNum.year == lastYear) {
+		(lastWeekNum.year == lastYear && lastWeekNum.week == lastWeekNum2) {
 		currentWeekStreak = cur
 	}
 
@@ -232,7 +232,7 @@ func (h *Handler) GetLifetimeStats(w http.ResponseWriter, r *http.Request) {
 		ActiveDays:        stats.ActiveDays,
 		Countries:         stats.Countries,
 		EarthLaps:         stats.TotalDistanceM / 40_075_000,
-		MoonTrips:         stats.TotalDistanceM / 384_400_000,
+		MoonTrips:         stats.TotalDistanceM / 768_800_000,
 		EverestCount:      stats.TotalElevationM / 8849,
 		CurrentDayStreak:  currentStreak,
 		MaxDayStreak:      maxStreak,

@@ -134,33 +134,36 @@ export default function LifetimeStats() {
       </div>
 
       {/* Fun facts */}
-      {(data.earth_laps > 0 || data.moon_trips > 0 || data.everest_count > 0) && (
-        <div>
-          <h3 className="text-sm font-semibold text-neutral-600 dark:text-neutral-400 mb-3 uppercase tracking-wide">
-            Spass-Fakten
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {data.earth_laps > 0 && (
-              <FunFact
-                emoji="🌍"
-                text={`Du hast die Erde ${data.earth_laps.toFixed(2).replace('.', ',')}× umrundet`}
-              />
-            )}
-            {data.moon_trips > 0 && (
-              <FunFact
-                emoji="🌙"
-                text={`${data.moon_trips.toFixed(2).replace('.', ',')}× auf den Mond und zurück`}
-              />
-            )}
-            {data.everest_count > 0 && (
-              <FunFact
-                emoji="⛰️"
-                text={`${fmtNum(data.everest_count)}× den Mount Everest bestiegen`}
-              />
-            )}
+      {(() => {
+        const earthLaps = data.total_distance_m / 40_075_000
+        return (earthLaps >= 0.01 || data.moon_trips > 0 || data.everest_count > 0) && (
+          <div>
+            <h3 className="text-sm font-semibold text-neutral-600 dark:text-neutral-400 mb-3 uppercase tracking-wide">
+              Spass-Fakten
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {earthLaps >= 0.01 && (
+                <FunFact
+                  emoji="🌍"
+                  text={`Du hast die Erde ${earthLaps.toFixed(3).replace('.', ',')}× umrundet`}
+                />
+              )}
+              {data.moon_trips > 0 && (
+                <FunFact
+                  emoji="🌙"
+                  text={`${data.moon_trips.toFixed(2).replace('.', ',')}× auf den Mond und zurück`}
+                />
+              )}
+              {data.everest_count > 0 && (
+                <FunFact
+                  emoji="⛰️"
+                  text={`${fmtNum(data.everest_count)}× den Mount Everest bestiegen`}
+                />
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Streak badges */}
       {(data.current_day_streak > 0 || data.max_day_streak > 0) && (

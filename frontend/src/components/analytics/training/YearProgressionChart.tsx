@@ -76,13 +76,15 @@ export default function YearProgressionChart() {
     retry: 1,
   })
 
+  const yearListKey = useMemo(() => data?.years?.map(y => y.year).join(',') ?? '', [data?.years])
+
   // Initialize selected years when data arrives — default: last 3 years
   useEffect(() => {
     if (!data?.years?.length) return
     const yearNumbers = data.years.map(y => y.year)
     const last3 = yearNumbers.slice(-3)
     setSelectedYears(new Set(last3))
-  }, [data?.years?.map(y => y.year).join(',')])
+  }, [yearListKey])
 
   // Initialize charts when container divs become available (data-driven)
   useEffect(() => {
@@ -225,7 +227,7 @@ export default function YearProgressionChart() {
 
     // Cumulative chart
     const cumulSeries = selectedYearData.map((yearData, idx) => {
-      const cumValues = yearData.cumulative.map(v => (v > 0 ? v : null))
+      const cumValues = yearData.cumulative
       const color = YEAR_COLORS[idx % YEAR_COLORS.length]
       return {
         name: String(yearData.year),
@@ -321,15 +323,18 @@ export default function YearProgressionChart() {
           {yearNumbers.map((year, idx) => {
             const color = YEAR_COLORS[idx % YEAR_COLORS.length]
             const active = selectedYears.has(year)
+            const isLastActive = active && selectedYears.size === 1
             return (
               <button
                 key={year}
                 onClick={() => toggleYear(year)}
+                title={isLastActive ? 'Mindestens ein Jahr muss ausgewählt sein' : undefined}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border cursor-pointer transition-all
                   ${active
                     ? 'border-transparent text-white'
                     : 'border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 bg-transparent'
-                  }`}
+                  }
+                  ${isLastActive ? 'opacity-75' : ''}`}
                 style={active ? { backgroundColor: color } : {}}
               >
                 {!active && (

@@ -257,6 +257,9 @@ func (db *DB) fetchMaxPRInWindow(ctx context.Context, userID, col string, extraW
 }
 
 func trendStr(current, previous float64, higherIsBetter bool) string {
+	if previous == 0 && current > 0 {
+		return "up"
+	}
 	if previous == 0 {
 		return "same"
 	}

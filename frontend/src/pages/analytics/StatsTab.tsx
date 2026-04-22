@@ -33,7 +33,7 @@ export default function StatsTab() {
       {/* Yearly Overview — full width */}
       <section>
         <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mb-4">
-          Jahres-Ubersicht
+          Jahres-Übersicht
         </h2>
         <YearlyOverview />
       </section>

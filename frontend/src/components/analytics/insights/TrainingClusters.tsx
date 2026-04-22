@@ -180,7 +180,7 @@ export default function TrainingClusters() {
                 </div>
                 <div className="flex items-center gap-3 text-neutral-400 mt-0.5 flex-wrap">
                   <span>{cluster.size} Aktivitäten</span>
-                  <span>&#8960; {fmtDist(cluster.avg_distance_m)}</span>
+                  {cluster.avg_distance_m > 0 && <span>&#8960; {fmtDist(cluster.avg_distance_m)}</span>}
                   {cluster.avg_hr && <span>&#8960; {cluster.avg_hr.toFixed(0)} bpm</span>}
                   {cluster.sport_types.length > 0 && (
                     <span className="truncate">{cluster.sport_types.slice(0, 2).join(', ')}</span>

@@ -5,6 +5,7 @@ import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 
 function severityBorderColor(severity: Warning['severity']): string {
   switch (severity) {
+    case 'critical': return 'border-l-4 border-l-rose-500'
     case 'danger': return 'border-l-4 border-l-rose-500'
     case 'warning': return 'border-l-4 border-l-amber-500'
     case 'info': return 'border-l-4 border-l-blue-500'
@@ -13,6 +14,7 @@ function severityBorderColor(severity: Warning['severity']): string {
 
 function severityBg(severity: Warning['severity']): string {
   switch (severity) {
+    case 'critical': return 'bg-rose-50 dark:bg-rose-900/10'
     case 'danger': return 'bg-rose-50 dark:bg-rose-900/10'
     case 'warning': return 'bg-amber-50 dark:bg-amber-900/10'
     case 'info': return 'bg-blue-50 dark:bg-blue-900/10'
@@ -21,6 +23,7 @@ function severityBg(severity: Warning['severity']): string {
 
 function severityIcon(severity: Warning['severity']): string {
   switch (severity) {
+    case 'critical': return '⚠️'
     case 'danger': return '⚠️'
     case 'warning': return '⚡'
     case 'info': return 'ℹ️'
@@ -29,6 +32,7 @@ function severityIcon(severity: Warning['severity']): string {
 
 function severityLabel(severity: Warning['severity']): string {
   switch (severity) {
+    case 'critical': return 'Kritisch'
     case 'danger': return 'Kritisch'
     case 'warning': return 'Warnung'
     case 'info': return 'Info'
@@ -37,6 +41,7 @@ function severityLabel(severity: Warning['severity']): string {
 
 function severityBadge(severity: Warning['severity']): string {
   switch (severity) {
+    case 'critical': return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
     case 'danger': return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
     case 'warning': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
     case 'info': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
@@ -81,7 +86,7 @@ export default function WarningsPanel() {
   }
 
   // Sort: danger → warning → info
-  const severityOrder: Record<Warning['severity'], number> = { danger: 0, warning: 1, info: 2 }
+  const severityOrder: Record<Warning['severity'], number> = { critical: 0, danger: 0, warning: 1, info: 2 }
   const warnings = (Array.isArray(data) ? data : []).slice().sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity])
 
   return (

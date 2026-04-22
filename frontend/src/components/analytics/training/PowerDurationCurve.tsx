@@ -119,7 +119,7 @@ export default function PowerDurationCurve() {
         xAxis: {
           type: 'log',
           min: 1,
-          max: 3600,
+          max: Math.max(3600, ...[query0, query1, query2].flatMap(q => q.data?.points?.map((p: PowerCurvePoint) => p.duration_s) ?? [])),
           name: 'Dauer',
           nameTextStyle: { fontSize: 10, color: '#6b7280' },
           nameLocation: 'end',

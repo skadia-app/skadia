@@ -19,7 +19,7 @@ type MetricKey = 'distance_km' | 'elevation_m'
 
 const METRIC_OPTIONS: { value: MetricKey; label: string; apiValue: string; unit: string }[] = [
   { value: 'distance_km', label: 'Distanz', apiValue: 'distance_km', unit: 'km' },
-  { value: 'elevation_m', label: 'Höhenmeter', apiValue: 'elevation_m', unit: 'm' },
+  { value: 'elevation_m', label: 'Höhenmeter', apiValue: 'elevation', unit: 'm' },
 ]
 
 export default function EddingtonChart() {
@@ -136,7 +136,7 @@ export default function EddingtonChart() {
             Eddington-Zahl: <span className="text-[var(--color-accent-DEFAULT)] text-lg">{data.number}</span>
             <span className="text-neutral-500 dark:text-neutral-400 font-normal ml-1">{metricOption.unit}</span>
           </div>
-          {nextLevel && (
+          {data.number > 0 && data.next_levels && data.next_levels.length > 0 && nextLevel && (
             <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
               Fur E{nextLevel.level}: noch{' '}
               <span className="font-semibold text-neutral-700 dark:text-neutral-300">{nextLevel.remaining}</span>{' '}

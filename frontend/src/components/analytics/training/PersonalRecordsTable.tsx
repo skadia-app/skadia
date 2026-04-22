@@ -58,6 +58,33 @@ function TrendIcon({ trend }: { trend?: 'up' | 'down' | 'same' }) {
   )
 }
 
+function formatRecordCell(type: string, value: number, unit: string): { display: string; displayUnit: string } {
+  if (type === 'fastest_pace') {
+    if (!value || value <= 0) return { display: '—', displayUnit: '—' }
+    const secPerKm = 1000 / value
+    const mins = Math.floor(secPerKm / 60)
+    const secs = Math.round(secPerKm % 60)
+    return { display: `${mins}:${String(secs).padStart(2, '0')}`, displayUnit: 'min/km' }
+  }
+  if (type === 'max_distance' || type === 'longest_distance') {
+    const km = value / 1000
+    return {
+      display: km.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 1 }),
+      displayUnit: 'km',
+    }
+  }
+  if (type === 'max_elevation') {
+    return {
+      display: value.toLocaleString('de-DE', { maximumFractionDigits: 0 }),
+      displayUnit: unit,
+    }
+  }
+  return {
+    display: value.toLocaleString('de-DE', { maximumFractionDigits: 2 }),
+    displayUnit: unit,
+  }
+}
+
 function formatDate(dateStr: string): string {
   try {
     return new Date(dateStr).toLocaleDateString('de-DE', { year: 'numeric', month: 'short', day: 'numeric' })
@@ -127,40 +154,43 @@ export default function PersonalRecordsTable() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-50 dark:divide-neutral-800/50">
-                {records.map((record, idx) => (
-                  <tr
-                    key={`${record.type}-${idx}`}
-                    onClick={() => record.activity_id && navigate(`/activities/${record.activity_id}`)}
-                    className={`transition-colors ${record.activity_id ? 'cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800/60' : ''}`}
-                  >
-                    <td className="px-4 py-3">
-                      <span className="font-medium text-neutral-800 dark:text-neutral-200">
-                        {RECORD_TYPE_LABELS[record.type] ?? record.type}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      <span className="font-semibold text-neutral-900 dark:text-neutral-100">
-                        {record.value.toLocaleString('de-DE', { maximumFractionDigits: 2 })}
-                      </span>
-                      <span className="ml-1 text-xs text-neutral-400">{record.unit}</span>
-                    </td>
-                    <td className="px-4 py-3 hidden sm:table-cell">
-                      {record.activity_name ? (
-                        <span className="text-neutral-600 dark:text-neutral-300 truncate max-w-[200px] block">
-                          {record.activity_name}
+                {records.map((record, idx) => {
+                  const { display, displayUnit } = formatRecordCell(record.type, record.value, record.unit)
+                  return (
+                    <tr
+                      key={`${record.type}-${idx}`}
+                      onClick={() => record.activity_id && navigate(`/activities/${record.activity_id}`)}
+                      className={`transition-colors ${record.activity_id ? 'cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800/60' : ''}`}
+                    >
+                      <td className="px-4 py-3">
+                        <span className="font-medium text-neutral-800 dark:text-neutral-200">
+                          {RECORD_TYPE_LABELS[record.type] ?? record.type}
                         </span>
-                      ) : (
-                        <span className="text-neutral-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
-                      {record.date ? formatDate(record.date) : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <TrendIcon trend={(record as PersonalRecordWithTrend).trend} />
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        <span className="font-semibold text-neutral-900 dark:text-neutral-100">
+                          {display}
+                        </span>
+                        <span className="ml-1 text-xs text-neutral-400">{displayUnit}</span>
+                      </td>
+                      <td className="px-4 py-3 hidden sm:table-cell">
+                        {record.activity_name ? (
+                          <span className="text-neutral-600 dark:text-neutral-300 truncate max-w-[200px] block">
+                            {record.activity_name}
+                          </span>
+                        ) : (
+                          <span className="text-neutral-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
+                        {record.date ? formatDate(record.date) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <TrendIcon trend={(record as PersonalRecordWithTrend).trend} />
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
