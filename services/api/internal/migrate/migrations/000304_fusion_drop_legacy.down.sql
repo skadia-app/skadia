@@ -1,4 +1,4 @@
--- 🛑 DO NOT ROLL BACK WITHOUT REVIEW 🛑
+-- DO NOT ROLL BACK WITHOUT REVIEW
 -- See the up-migration's RUNBOOK NOTICE. This script is lossy for
 -- multi-source-per-field-key memberships created after the up-migration ran.
 -- Before executing:
