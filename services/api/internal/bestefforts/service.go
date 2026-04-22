@@ -63,6 +63,7 @@ type Store interface {
 	UpsertBestEffortRec(ctx context.Context, be BestEffortRecord) error
 	BatchUpsertBestEffortRecs(ctx context.Context, records []BestEffortRecord) error
 	DeleteAllBestEfforts(ctx context.Context, userID string) error
+	DeleteBestEffortsForActivity(ctx context.Context, activityID string) error
 	// DeleteOrphanedBestEfforts removes best_efforts rows whose activity_id is not
 	// in keepActivityIDs. Used by RecalcAll to purge stale rows after a full upsert
 	// pass without ever leaving the table empty.
@@ -152,6 +153,12 @@ func computeForActivityInner[T model.BestEffortPoint](ctx context.Context, store
 			StreamEndIdx:   new(result.StreamEndIdx),
 			Suspicious:     result.Suspicious,
 		})
+	}
+
+	// Delete before upsert so sport_group changes (e.g. running → running_trail after
+	// DetermineSportGroup was updated) don't leave stale rows behind.
+	if err := store.DeleteBestEffortsForActivity(ctx, info.ID); err != nil {
+		return nil, fmt.Errorf("delete stale best efforts for activity %s: %w", info.ID, err)
 	}
 
 	if err := store.BatchUpsertBestEffortRecs(ctx, efforts); err != nil {
