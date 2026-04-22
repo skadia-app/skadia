@@ -10,6 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/sync/errgroup"
 
+	"math"
+
 	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -18,6 +20,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/runningform"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 )
@@ -426,17 +429,41 @@ func (s *Service) PostProcess(
 		}
 	}
 
-	// Best Efforts
-	if s.BestEfforts != nil {
-		info, err := s.DB.GetBestEffortActivityInfo(ctx, activityID)
-		if err != nil {
-			slog.Warn("postprocess: get best effort activity info failed (non-fatal)", "activity_id", activityID, "error", err)
-		} else if info != nil {
-			beStream, err := s.DB.GetStreamPoints(ctx, activityID)
-			if err != nil {
-				slog.Warn("postprocess: get stream points for best efforts failed (non-fatal)", "activity_id", activityID, "error", err)
-			} else if _, err := s.BestEfforts.ComputeForActivity(ctx, *info, beStream); err != nil {
-				slog.Warn("postprocess: compute best efforts failed (non-fatal)", "activity_id", activityID, "error", err)
+	// Best Efforts + Running Form share a single stream load
+	isRunning := data.SportType == "running" || data.SportType == "trail_running"
+	if s.BestEfforts != nil || isRunning {
+		stream, streamErr := s.DB.GetStreamPoints(ctx, activityID)
+
+		if s.BestEfforts != nil {
+			if streamErr != nil {
+				slog.Warn("postprocess: get stream points for best efforts failed (non-fatal)", "activity_id", activityID, "error", streamErr)
+			} else {
+				info, err := s.DB.GetBestEffortActivityInfo(ctx, activityID)
+				if err != nil {
+					slog.Warn("postprocess: get best effort activity info failed (non-fatal)", "activity_id", activityID, "error", err)
+				} else if info != nil {
+					if _, err := s.BestEfforts.ComputeForActivity(ctx, *info, stream); err != nil {
+						slog.Warn("postprocess: compute best efforts failed (non-fatal)", "activity_id", activityID, "error", err)
+					}
+				}
+			}
+		}
+
+		if isRunning {
+			if streamErr != nil {
+				slog.Warn("postprocess: get stream points for running form failed (non-fatal)", "activity_id", activityID, "error", streamErr)
+			} else if rfResult := runningform.Compute(stream); rfResult != nil {
+				tier := rfResult.Tier
+				dutyFactor := nilIfNaN(rfResult.DutyFactor)
+				verticalRatio := nilIfNaN(rfResult.VerticalRatio)
+				gctAsymmetry := nilIfNaN(rfResult.GCTAsymmetry)
+				fatigueDuty := nilIfNaN(rfResult.FatigueDuty)
+				fatigueVR := nilIfNaN(rfResult.FatigueVR)
+				if err := s.DB.UpdateRunningForm(ctx, activityID,
+					dutyFactor, verticalRatio, gctAsymmetry,
+					fatigueDuty, fatigueVR, &tier); err != nil {
+					slog.Warn("postprocess: update running form failed (non-fatal)", "activity_id", activityID, "error", err)
+				}
 			}
 		}
 	}
@@ -692,6 +719,14 @@ func (s *Service) backfillPlatformIDs(ctx context.Context, activityID string, me
 		}
 	}
 	return backfilled, nil
+}
+
+// nilIfNaN returns nil when f is NaN, otherwise a pointer to f.
+func nilIfNaN(f float64) *float64 {
+	if math.IsNaN(f) {
+		return nil
+	}
+	return &f
 }
 
 // compareStreamRichness returns a positive value if newData has more filled

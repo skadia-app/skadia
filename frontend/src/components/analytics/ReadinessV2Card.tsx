@@ -147,10 +147,10 @@ export default function ReadinessV2Card() {
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5">
         <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200 mb-3">
-          Trainingsbereitschaft v2
+          Trainingsbereitschaft
         </h3>
         <p className="text-sm text-neutral-400 text-center py-4">
-          Dein Readiness-Score v2 wird nach der nächsten Analyse berechnet.
+          Dein Readiness-Score wird nach der nächsten Analyse berechnet.
         </p>
       </div>
     )
@@ -170,7 +170,7 @@ export default function ReadinessV2Card() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-          Trainingsbereitschaft v2
+          Trainingsbereitschaft
         </h3>
         {data.confidence && (
           <span className="text-xs text-neutral-500 dark:text-neutral-400">

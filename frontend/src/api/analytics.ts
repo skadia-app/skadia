@@ -263,7 +263,7 @@ export interface ReadinessInsight {
 
 export interface Warning {
   type: string
-  severity: 'info' | 'warning' | 'danger'
+  severity: 'info' | 'warning' | 'danger' | 'critical'
   message: string
   value: number
   threshold: number

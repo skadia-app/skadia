@@ -42,6 +42,7 @@ function activeFilterCount(filters: AnalyticsFilterState): number {
   if (filters.isCommute) count++
   if (filters.isRace) count++
   if (filters.isElectric !== null) count++
+  if (filters.isVirtual !== null) count++
   if (filters.distMin || filters.distMax) count++
   if (filters.elevMin || filters.elevMax) count++
   if (filters.hrMin || filters.hrMax) count++
@@ -692,6 +693,7 @@ export default function AnalyticsPage() {
       includeTags: [], excludeTags: [],
       includeGear: [], excludeGear: [],
       isElectric: null,
+      isVirtual: null,
     })
   }
 

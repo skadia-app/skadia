@@ -30,10 +30,10 @@ type Granularity = 'week' | 'month'
 type VolumeMetric = 'distance' | 'duration' | 'tss'
 type ChartType = 'bar' | 'line'
 
-function getMetricField(metric: VolumeMetric): 'distance_m' | 'duration_s' | 'tss' {
+function getMetricField(metric: VolumeMetric): 'distance_m' | 'moving_time_s' | 'tss' {
   switch (metric) {
     case 'distance': return 'distance_m'
-    case 'duration': return 'duration_s'
+    case 'duration': return 'moving_time_s'
     case 'tss': return 'tss'
   }
 }

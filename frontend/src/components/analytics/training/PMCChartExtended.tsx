@@ -212,10 +212,15 @@ export default function PMCChartExtended() {
   const baseQueryParams = useMemo(() => {
     const base = toQueryString()
     const params = new URLSearchParams(base)
-    params.set('from', from)
-    params.set('to', to)
+    if (!isCustomRange && range === 'all') {
+      params.delete('from')
+      params.delete('to')
+    } else {
+      params.set('from', from)
+      params.set('to', to)
+    }
     return params.toString()
-  }, [toQueryString, from, to])
+  }, [toQueryString, from, to, isCustomRange, range])
 
   // Standard fetch — only loaded when NO sport groups are active.
   // When sport groups are active the split response already contains __combined__

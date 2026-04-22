@@ -22,14 +22,14 @@ type DistType = 'sport' | 'country' | 'gear' | 'distance_bucket'
 const DISTRIBUTION_CARDS: { type: DistType; label: string }[] = [
   { type: 'sport', label: 'Sportart' },
   { type: 'country', label: 'Land' },
-  { type: 'gear', label: 'Ausrustung' },
+  { type: 'gear', label: 'Ausrüstung' },
   { type: 'distance_bucket', label: 'Distanz-Verteilung' },
 ]
 
 const METRIC_OPTIONS: { value: MetricKey; label: string; apiValue: string }[] = [
   { value: 'count', label: 'Anzahl', apiValue: 'count' },
   { value: 'distance', label: 'Distanz', apiValue: 'distance_m' },
-  { value: 'duration', label: 'Zeit', apiValue: 'duration_s' },
+  { value: 'duration', label: 'Zeit', apiValue: 'moving_time_s' },
 ]
 
 const CHART_COLORS = [
@@ -200,6 +200,7 @@ export default function DistributionCharts() {
 
   const handleLabelClick = (label: string, type: DistType) => {
     if (type === 'sport') {
+      if (label.toLowerCase() === 'unknown') return
       setFilters({ sportTypes: [label] })
     } else if (type === 'country') {
       setFilters({ countries: [label] })

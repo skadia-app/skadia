@@ -67,7 +67,7 @@ export default function InsightsTab() {
     },
   })
 
-  const isProbing = readinessLoading && warningsLoading && clustersLoading
+  const isProbing = readinessLoading || warningsLoading || clustersLoading
   const hasNoData = !isProbing && !readiness && (!warnings || warnings.length === 0) && (!clusters || clusters.length === 0)
 
   // Show empty state when all data is absent
@@ -86,7 +86,7 @@ export default function InsightsTab() {
               Insights noch nicht verfügbar
             </h3>
             <p className="text-sm text-neutral-500 dark:text-neutral-400">
-              Insights werden nach der ersten Aktivität automatisch berechnet. Du kannst die Berechnung auch jetzt starten.
+              Insights müssen einmalig berechnet werden. Jederzeit manuell neu berechnen über den ›Insights aktualisieren‹-Button oben rechts.
             </p>
           </div>
           <button
