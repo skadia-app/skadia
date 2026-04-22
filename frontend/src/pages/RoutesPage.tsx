@@ -215,7 +215,7 @@ function RouteCard({
 
   return (
     <div
-      onClick={() => navigate(`/routes/${route.id}`)}
+      onClick={() => navigate('/map', { state: { editRouteId: route.id } })}
       className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden
                  hover:border-neutral-300 dark:hover:border-neutral-700
                  hover:shadow-sm transition-all cursor-pointer group bg-white dark:bg-neutral-900"
@@ -451,7 +451,7 @@ export default function RoutesPage() {
   )
 
   const handleNewRoute = () => {
-    navigate('/map', { state: { activateRoutePlanner: true } })
+    navigate('/map?planner=1')
   }
 
   // ── Render ────────────────────────────────────────────────────────────────

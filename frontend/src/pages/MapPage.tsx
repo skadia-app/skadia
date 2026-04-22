@@ -15,6 +15,7 @@ import RouteProfileChart from '@/components/route-planner/RouteProfileChart'
 import RouteSurfacesBar from '@/components/route-planner/RouteSurfacesBar'
 import ScaleLegend from '@/components/route-planner/ScaleLegend'
 import RouteComparisonPanel, { SUGGESTION_COLORS } from '@/components/route-planner/RouteComparisonPanel'
+import { getRoute } from '@/api/routes'
 import type { RouteSuggestion } from '@/api/routes'
 import { useRoutePlanner } from '@/hooks/useRoutePlanner'
 import { getTagTextColor, getTagBadgeStyle } from '@/lib/tagUtils'
@@ -422,6 +423,17 @@ export default function MapPage() {
       // Clear location state so back-navigation doesn't re-load the waypoints
       navigate('/map', { replace: true })
     }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load saved route into planner from navigation state (e.g. edit button on RoutesPage)
+  useEffect(() => {
+    const state = location.state as { editRouteId?: string } | null
+    if (!state?.editRouteId) return
+    navigate('/map', { replace: true, state: null })
+    setPlannerActive(true)
+    getRoute(state.editRouteId)
+      .then(route => planner.loadRoute(route))
+      .catch(() => addToast({ type: 'error', title: 'Route konnte nicht geladen werden', duration: 0 }))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // When planner is deactivated: clear route state and hide sub-panels
