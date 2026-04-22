@@ -527,10 +527,18 @@ export function useRoutePlanner() {
           seg =>
             seg.from_waypoint === from.id && seg.to_waypoint === to.id,
         )
-        const newSegments =
+        const rawSegments =
           idx >= 0
             ? s.segments.map((seg, i) => (i === idx ? segment : seg))
             : [...s.segments, segment]
+
+        // Sort by waypoint order to guard against concurrent fetch race conditions
+        // (addWaypoint fires multiple _calculateSegment calls in parallel; the
+        // fastest response wins the append race and can land out of order).
+        const wpOrder = new Map(s.waypoints.map((wp, i) => [wp.id, i]))
+        const newSegments = rawSegments
+          .slice()
+          .sort((a, b) => (wpOrder.get(a.from_waypoint) ?? Infinity) - (wpOrder.get(b.from_waypoint) ?? Infinity))
 
         // _statsCache atomar mit-updaten
         const newCache = { ...s._statsCache }
@@ -1058,7 +1066,14 @@ export function useRoutePlanner() {
       // Build combined LineString geometry from all segments. Backend requires
       // geometry_geojson (non-empty GeoJSON) — without it, ST_GeomFromGeoJSON('')
       // fails with SQLSTATE XX000 "unexpected end of data".
-      const combinedCoords = state.segments.flatMap(seg => seg.geometry?.coordinates ?? [])
+      // Sort by waypoint order as a safety net (state.segments is normally kept
+      // sorted by the _calculateSegment sort, but old/corrupted saved routes may
+      // load with a wrong order before recalculation completes).
+      const wpOrder = new Map(state.waypoints.map((wp, i) => [wp.id, i]))
+      const sortedSegments = [...state.segments].sort(
+        (a, b) => (wpOrder.get(a.from_waypoint) ?? Infinity) - (wpOrder.get(b.from_waypoint) ?? Infinity),
+      )
+      const combinedCoords = sortedSegments.flatMap(seg => seg.geometry?.coordinates ?? [])
       if (combinedCoords.length < 2) {
         addToast({
           type: 'error',
@@ -1098,8 +1113,12 @@ export function useRoutePlanner() {
 
   // ── Elevation profile ───────────────────────────────────────────────────────
 
-  // Build combined coordinate list from all segment geometries
-  const combinedCoordinates = state.segments
+  // Build combined coordinate list from all segment geometries, sorted by
+  // waypoint order (state.segments is normally sorted, but defensive sort here
+  // covers the brief window between loadRoute and recalculateAll completing).
+  const _wpOrderForProfile = new Map(state.waypoints.map((wp, i) => [wp.id, i]))
+  const combinedCoordinates = [...state.segments]
+    .sort((a, b) => (_wpOrderForProfile.get(a.from_waypoint) ?? Infinity) - (_wpOrderForProfile.get(b.from_waypoint) ?? Infinity))
     .flatMap(seg => seg.geometry?.coordinates ?? [])
 
   // Check whether the geometry already carries elevation (3rd coordinate).
