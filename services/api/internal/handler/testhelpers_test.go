@@ -63,8 +63,19 @@ func insertTestUser(t *testing.T, pool *pgxpool.Pool, opts ...TestUserOpt) strin
 		t.Fatalf("insertTestUser: %v", err)
 	}
 	t.Cleanup(func() {
-		pool.Exec(context.Background(), "DELETE FROM activities WHERE user_id = $1", userID)
-		pool.Exec(context.Background(), "DELETE FROM users WHERE id = $1", userID)
+		ctx := context.Background()
+		// segments.created_by hat keinen CASCADE auf users → erst segments weg,
+		// sonst scheitert der users-DELETE silent an der FK und Test-Rows leaken.
+		// segment_versions + segment_efforts kommen über ihre CASCADEs mit.
+		if _, err := pool.Exec(ctx, "DELETE FROM segments WHERE created_by = $1", userID); err != nil {
+			t.Logf("cleanup segments: %v", err)
+		}
+		if _, err := pool.Exec(ctx, "DELETE FROM activities WHERE user_id = $1", userID); err != nil {
+			t.Logf("cleanup activities: %v", err)
+		}
+		if _, err := pool.Exec(ctx, "DELETE FROM users WHERE id = $1", userID); err != nil {
+			t.Logf("cleanup user: %v", err)
+		}
 	})
 	return userID
 }
