@@ -68,7 +68,7 @@ export function MapPreview({ geojsonTrack, height = '200px', className }: MapPre
   if (!geojsonTrack) {
     return (
       <div className={`flex items-center justify-center bg-neutral-100 dark:bg-neutral-800 text-neutral-500 text-sm rounded-lg ${className}`} style={{ height }}>
-        Map preview not available
+        Kartenvorschau nicht verfügbar
       </div>
     )
   }
