@@ -238,7 +238,7 @@ export interface SegmentEnrichmentResponse {
   sac_scale: ScaleSuggestion   | null
   mtb_scale: ScaleSuggestion   | null
   coverage_pct: number                  // 0..1
-  reason?: 'wintersport' | 'low_coverage' | 'no_graph' | 'no_data'
+  reason?: 'wintersport' | 'wassersport' | 'low_coverage' | 'no_graph' | 'no_data'
 }
 
 export async function suggestSegmentEnrichment(
