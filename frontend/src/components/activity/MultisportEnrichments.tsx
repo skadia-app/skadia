@@ -216,27 +216,6 @@ function PoiIcon({ poiType }: { poiType?: string }) {
 
 // ── Surfaces helpers ──────────────────────────────────────────────────────────
 
-// Surface grouping: merge similar OSM surface types into display groups
-const SURFACE_GROUPS: Record<string, string> = {
-  asphalt: 'Asphalt',
-  concrete: 'Beton', concrete_lanes: 'Beton', concrete_plates: 'Beton',
-  paved: 'Befestigt',
-  paving_stones: 'Pflaster', sett: 'Pflaster', cobblestone: 'Pflaster',
-  unhewn_cobblestone: 'Pflaster', bricks: 'Pflaster',
-  compacted: 'Schotter', fine_gravel: 'Schotter', gravel: 'Schotter', pebblestone: 'Schotter',
-  ground: 'Naturweg', earth: 'Naturweg', dirt: 'Naturweg', mud: 'Naturweg', clay: 'Naturweg',
-  sand: 'Sand', shells: 'Sand',
-  grass: 'Gras', grass_paver: 'Gras',
-  wood: 'Holz', woodchips: 'Holz',
-  rock: 'Fels',
-  metal: 'Metall', metal_grid: 'Metall',
-  snow: 'Schnee', ice: 'Schnee',
-  tartan: 'Sportbelag', artificial_turf: 'Sportbelag', rubber: 'Sportbelag',
-  unpaved: 'Unbefestigt',
-  unknown: 'Unbekannt',
-  offroad: 'Offroad',
-}
-
 const SURFACE_COLORS: Record<string, string> = {
   'Asphalt': '#374151', 'Beton': '#9ca3af', 'Befestigt': '#6b7280',
   'Pflaster': '#78716c', 'Schotter': '#94a3b8', 'Naturweg': '#8b6c42',

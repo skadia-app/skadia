@@ -11,7 +11,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ToastProvider } from '@/lib/toast'
 import { useRoutePlanner, mergeSegmentStatsForState } from '../useRoutePlanner'
 import type { RouteStats } from '../useRoutePlanner'
-import type { RouteSegment, RouteSuggestion } from '@/api/routes'
+import type { RouteSegment } from '@/api/routes'
 import { makeFakeRouteStats, makeFakeSuggestion } from '@/test-utils/routeFixtures'
 
 // addToastMock must be hoisted so vi.mock factory can reference it

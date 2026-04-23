@@ -1,6 +1,6 @@
 // frontend/src/components/segment-editor/SegmentSidebar.tsx
 import { useMemo, useState, type ReactNode } from 'react'
-import { ChevronDown, ChevronRight, HelpCircle, Loader2, RefreshCw, X, Check } from 'lucide-react'
+import { ChevronDown, ChevronRight, Loader2, RefreshCw, Check } from 'lucide-react'
 import {
   WINTER_SPORT_WHITELIST,
   WATER_SPORT_WHITELIST,
@@ -13,7 +13,7 @@ import { DifficultySelects } from './DifficultySelects'
 import { SurfaceDropdown } from './SurfaceDropdown'
 import { ClimbTypePills } from './ClimbTypePills'
 import { DifficultyColorPicker } from './DifficultyColorPicker'
-import { SportCategoryChips, getVisibleCategories, isCategoryFullyActive, isCategoryPartiallyActive, expandCategoryToSportTypes } from './SportCategoryChips'
+import { SportCategoryChips, getVisibleCategories, isCategoryFullyActive, expandCategoryToSportTypes } from './SportCategoryChips'
 import { sportsInCategory } from '@/lib/sportTaxonomy'
 import { cn } from '@/lib/utils'
 
@@ -70,10 +70,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     allSportTypes,
     onEnrichmentRequest,
     enrichmentState,
-    enrichmentSources,
-    onClearEnrichmentSource,
     enrichmentDisabledReason,
-    enrichmentStatus,
   } = props
 
   const [detailOpenCategories, setDetailOpenCategories] = useState<Set<string>>(new Set())
