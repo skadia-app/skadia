@@ -198,11 +198,11 @@ export default function SegmentDetailPage() {
       <div>
         <div className="flex items-center gap-3 mb-2">
           <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{segment.name}</h1>
-          {segment.segment_type === 'trail' && (
-            <DifficultyBadge 
-              sac={segment.segment_type_meta?.sac_scale as string} 
-              mtb={segment.segment_type_meta?.mtb_scale as string} 
-              color={segment.segment_type_meta?.difficulty_color as string} 
+          {['trail', 'wintersport'].includes(segment.segment_type) && (
+            <DifficultyBadge
+              sac={segment.segment_type_meta?.sac_scale as string}
+              mtb={segment.segment_type_meta?.mtb_scale as string}
+              color={segment.segment_type_meta?.difficulty_color as string}
             />
           )}
         </div>
