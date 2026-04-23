@@ -5,6 +5,11 @@ import { buildRasterStyle } from '@/lib/mapStyles'
 
 interface MapPreviewProps {
   geojsonTrack: string | null | undefined
+  /**
+   * CSS height string for the map container.
+   * Default '200px' suits inline-editor contexts (track/draw mode).
+   * Pass '160px' for compact modal contexts (SegmentEditModal).
+   */
   height?: string
   className?: string
 }
