@@ -133,6 +133,12 @@ func BuildRouteResultFromEdges(
 		edgeTags2[i] = reader.EdgeTags2(uint64(e))
 	}
 
+	// Build the full-resolution elevation profile once for all edges.
+	// edgeStartDistM / edgeEndDistM feed buildSegmentsUnified (FromDistM/ToDistM).
+	// applyProfileToCoords (below) will overwrite all coord[2] placeholders with
+	// consistent interpolated values — no elevsDm[j] DP-index bug possible.
+	profile, edgeStartDistM, edgeEndDistM := buildElevationProfile(reader, edgeHandles)
+
 	result := &RouteResult{
 		DistanceM: float64(targetState.dist),
 		AscentM:   float64(targetState.ascent),
@@ -151,28 +157,27 @@ func BuildRouteResultFromEdges(
 		// Record the coordinate index where this edge begins (the network node).
 		edgeCoordStart[i] = len(result.Coordinates)
 
-		// Emit source node coordinate.
+		// Emit source node coordinate. Ele is a placeholder; applyProfileToCoords
+		// below will overwrite it with the interpolated profile value.
 		if i < len(nodeIDs) {
-			lat, lon, ele := reader.NodeCoord(nodeIDs[i])
+			lat, lon, nodeEleDm := reader.NodeCoord(nodeIDs[i])
 			result.Coordinates = append(result.Coordinates, LatLonEle{
 				Lat: float64(lat) / 1e7,
 				Lon: float64(lon) / 1e7,
-				Ele: float64(ele) / 10.0,
+				Ele: float64(nodeEleDm) / 10.0, // Placeholder; applyProfileToCoords overwrites
 			})
 		}
 
 		// Emit DP-simplified intermediate geometry (does NOT include start/end nodes).
+		// elevsDm is intentionally NOT read here — the profile is built centrally via
+		// buildElevationProfile (above); Ele is set to 0.0 as placeholder and will
+		// be overwritten by applyProfileToCoords below.
 		lats, lons := reader.EdgeGeometry(uint64(handle))
-		elevsDm, _ := reader.EdgeElevProfile(uint64(handle))
 		for j := range lats {
-			ele := 0.0
-			if j < len(elevsDm) {
-				ele = float64(elevsDm[j]) / 10.0
-			}
 			result.Coordinates = append(result.Coordinates, LatLonEle{
 				Lat: float64(lats[j]) / 1e7,
 				Lon: float64(lons[j]) / 1e7,
-				Ele: ele,
+				Ele: 0.0, // Placeholder — overwritten by applyProfileToCoords
 			})
 		}
 	}
@@ -194,11 +199,28 @@ func BuildRouteResultFromEdges(
 	result.EdgeTags1 = edgeTags1
 	result.EdgeTags2 = edgeTags2
 
+	// Attach the full-resolution elevation profile.
+	if len(profile) > 0 {
+		profileCopy := profile
+		result.ElevationProfile = &profileCopy
+	}
+
 	// Build Segments so mergeLegs in result.go can include leg1 outdoor tags in
 	// the user-facing segments array. Mirrors retrackUnified's pattern exactly.
+	// edgeStartDistM / edgeEndDistM now populated from buildElevationProfile.
 	if len(edges) > 0 {
 		result.Segments = buildSegmentsUnified(len(edges),
-			edgeCoordStart, edgeTags1, edgeTags2, nil, nil, len(result.Coordinates)-1)
+			edgeCoordStart, edgeTags1, edgeTags2,
+			edgeStartDistM, edgeEndDistM,
+			len(result.Coordinates)-1)
+	}
+
+	// Overwrite all coord[2] Ele placeholders with values interpolated from the
+	// profile via cumulative-Haversine distance (Spec Rev 2.3 §6.5 / F1).
+	// Both NodeCoord-derived placeholders and DP-geometry 0.0-placeholders are
+	// replaced — this is the single source of truth for coord elevation.
+	if result.ElevationProfile != nil && len(*result.ElevationProfile) > 0 {
+		applyProfileToCoords(result.Coordinates, *result.ElevationProfile)
 	}
 
 	return result
