@@ -191,15 +191,18 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
             />
           </div>
 
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={bidirectional}
-              onChange={e => setBidirectional(e.target.checked)}
-              className="rounded border-neutral-600 accent-accent-DEFAULT"
-            />
-            <span className="text-sm text-neutral-300">Bidirektionales Matching</span>
-          </label>
+          {/* Bidirectional toggle — only shown for non-lap segments (lap = closed loop) */}
+          {segment.segment_type !== 'lap' && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={bidirectional}
+                onChange={e => setBidirectional(e.target.checked)}
+                className="rounded border-neutral-600 accent-accent-DEFAULT"
+              />
+              <span className="text-sm text-neutral-300">Bidirektionales Matching</span>
+            </label>
+          )}
         </div>
 
         <div className="space-y-1.5">
