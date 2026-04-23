@@ -5,7 +5,6 @@ import {
   WINTER_SPORT_WHITELIST,
   WATER_SPORT_WHITELIST,
   BIDIRECTIONAL_DEFAULT,
-  deriveTrailDifficultyColor,
   type SegType,
   type ClimbType,
 } from './constants'
@@ -81,23 +80,17 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     enrichmentStatus,
   } = props
 
-  // Option B (§4.2 Punkt 9): auto-derive difficultyColor from max(SAC-Farbe, MTB-Farbe)
-  // whenever either scale changes, so DifficultyBadge always has a value to render.
-  // Wintersport retains manual picker (FIS colors, no SAC/MTB).
+  // difficultyColor is derived centrally in SegmentEditorModal.patchMeta (for segType=trail).
+  // Sidebar handlers only set the scale value — parent re-derives color automatically.
+  // Previously, sidebar ALSO set difficultyColor, causing a double state-update cycle
+  // that triggered React's "Maximum update depth exceeded" when Radix DropdownMenu opened
+  // (portal mount → state change → re-render → portal re-mount → infinite loop). Fix: #5.
   const handleSacChange = (newSac: string | null) => {
-    const patch: Partial<SegmentMetadata> = { sacScale: newSac }
-    if (meta.segType !== 'wintersport') {
-      patch.difficultyColor = deriveTrailDifficultyColor(newSac, meta.mtbScale)
-    }
-    onMetaChange(patch)
+    onMetaChange({ sacScale: newSac })
   }
 
   const handleMtbChange = (newMtb: string | null) => {
-    const patch: Partial<SegmentMetadata> = { mtbScale: newMtb }
-    if (meta.segType !== 'wintersport') {
-      patch.difficultyColor = deriveTrailDifficultyColor(meta.sacScale, newMtb)
-    }
-    onMetaChange(patch)
+    onMetaChange({ mtbScale: newMtb })
   }
 
   const handleSegTypeChange = (newType: SegType) => {
@@ -301,8 +294,8 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
               value={meta.difficultyColor}
               onChange={(v) => onMetaChange({ difficultyColor: v })}
             />
-            {!['trail', 'wintersport'].includes(meta.segType) && (
-              <div className="text-xs text-neutral-400 italic">Nur für Trail/Wintersport verfügbar</div>
+            {meta.segType !== 'trail' && meta.segType !== 'wintersport' && (
+              <div className="text-xs text-neutral-400 italic">SAC/MTB-Skala nur für Trail-Segmente</div>
             )}
           </div>
         </div>
