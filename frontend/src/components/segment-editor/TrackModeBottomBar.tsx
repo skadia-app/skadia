@@ -149,7 +149,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
         showSymbol: false,
         smooth: 0.2,
         // D2: orange accent line to match sub-segment color on map
-        lineStyle: { color: '#F97316', width: 1.5 },
+        lineStyle: { color: '#F97316', width: 2.0 },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
             { offset: 0, color: 'rgba(249,115,22,0.35)' },
