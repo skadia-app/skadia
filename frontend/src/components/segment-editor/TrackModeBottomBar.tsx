@@ -1,5 +1,5 @@
 // frontend/src/components/segment-editor/TrackModeBottomBar.tsx
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import {
@@ -7,13 +7,14 @@ import {
   BrushComponent,
   ToolboxComponent,
   TooltipComponent,
+  DataZoomComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { ArrowLeftRight } from 'lucide-react'
+import { ArrowLeftRight, ZoomIn } from 'lucide-react'
 import { useRangeBrush } from '@/hooks/useRangeBrush'
 import { cn } from '@/lib/utils'
 
-echarts.use([LineChart, GridComponent, BrushComponent, ToolboxComponent, TooltipComponent, CanvasRenderer])
+echarts.use([LineChart, GridComponent, BrushComponent, ToolboxComponent, TooltipComponent, DataZoomComponent, CanvasRenderer])
 
 export interface TrackPoint {
   lat: number
@@ -41,12 +42,8 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
   const echartsInstanceRef = useRef<echarts.ECharts | null>(null)
   // Inline confirm state for "Alles zurücksetzen" (Fix #12)
   const [confirmResetAll, setConfirmResetAll] = useState(false)
-
-  const { bindEcharts, setStart, setEnd } = useRangeBrush({
-    totalPoints: trackPoints.length,
-    initial: range,
-    onBrushChange: onRangeChange,
-  })
+  // Whether X-axis is currently zoomed (for "Zoom zurücksetzen" button visibility)
+  const [isZoomed, setIsZoomed] = useState(false)
 
   // Compute elevation series and cumulative distance-per-index for km labels.
   const { elevationSeries, hasElevation, cumulativeKm } = useMemo(() => {
@@ -60,6 +57,40 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
     }
     return { elevationSeries: elev, hasElevation: has, cumulativeKm: km }
   }, [trackPoints])
+
+  // Stable ref for onCommitRange so the brushEnd closure inside useEffect doesn't
+  // capture a stale version of the prop. Must be updated every render.
+  const onCommitRangeRefCapture = useRef(onCommitRange)
+  onCommitRangeRefCapture.current = onCommitRange
+
+  // coordToIndex: converts km X-axis value → nearest track-point index.
+  // Binary-search on the cumulativeKm array for O(log n) lookup.
+  const coordToIndex = useCallback((coord: number): number => {
+    const km = cumulativeKm
+    if (km.length === 0) return 0
+    if (coord <= km[0]) return 0
+    if (coord >= km[km.length - 1]) return km.length - 1
+    let lo = 0; let hi = km.length - 1
+    while (lo < hi - 1) {
+      const mid = (lo + hi) >> 1
+      if (km[mid] <= coord) lo = mid; else hi = mid
+    }
+    // Return whichever of lo/hi is closer
+    return (coord - km[lo]) < (km[hi] - coord) ? lo : hi
+  }, [cumulativeKm])
+
+  const { bindEcharts, setStart, setEnd } = useRangeBrush({
+    totalPoints: trackPoints.length,
+    initial: range,
+    onBrushChange: (r) => {
+      onRangeChange(r)
+      // NOTE: map sync (onCommitRange) is triggered separately:
+      //   - brush: called after brushEnd (which is debounced at 30 ms)
+      //   - slider: called on pointerUp via the DualRangeSlider onCommit prop
+      //   - keyboard: called explicitly in handleKeyDown
+    },
+    coordToIndex,
+  })
 
   // Init ECharts — polished per RouteProfileChart reference.
   useEffect(() => {
@@ -76,6 +107,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
     const rangePad = Math.max(2, (rawMax - rawMin) * 0.05)
     const yMin = validElev.length > 0 ? Math.floor(rawMin - rangePad) : 0
     const yMax = validElev.length > 0 ? Math.ceil(rawMax + rangePad) : 10
+    const totalKm = trackPoints.length > 0 ? cumulativeKm[trackPoints.length - 1] : 1
 
     ec.setOption({
       backgroundColor: 'transparent',
@@ -84,7 +116,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
       xAxis: {
         type: 'value',
         min: 0,
-        max: trackPoints.length > 0 ? cumulativeKm[trackPoints.length - 1] : 1,
+        max: totalKm,
         axisLabel: {
           fontSize: 10,
           color: '#6b7280',
@@ -136,6 +168,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
         xAxisIndex: 0,
         throttleType: 'debounce',
         throttleDelay: 30,
+        // transformable: true allows the brush selection to be dragged and resized
         transformable: true,
         brushType: 'lineX',
         brushMode: 'single',
@@ -147,6 +180,18 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
           color: 'rgba(249,115,22,0.12)',
         },
       },
+      // DataZoom component: allows X-axis to zoom into the selected brush region.
+      // The 'inside' type enables mouse-wheel / touchpad zoom on the chart area.
+      dataZoom: [
+        {
+          type: 'inside',
+          xAxisIndex: 0,
+          filterMode: 'none',
+          zoomOnMouseWheel: false,
+          moveOnMouseMove: false,
+          moveOnMouseWheel: false,
+        },
+      ],
       toolbox: { show: false },
       series: [{
         type: 'line',
@@ -165,13 +210,41 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
         emphasis: { disabled: true },
       }],
     })
+
+    // After brush ends: (1) zoom X-axis to selection, (2) sync map via onCommitRange.
+    // Note: brushEnd fires after the debounce delay (30 ms) so this is not called
+    // on every frame during drag — only when the user lifts the pointer.
+    const onCommitRangeRef = onCommitRangeRefCapture
+    ec.on('brushEnd', (p: unknown) => {
+      const params = p as { areas?: Array<{ coordRange?: [number, number] }> }
+      const area = params?.areas?.[0]
+      if (area?.coordRange) {
+        const [startKm, endKm] = area.coordRange
+        // Add a small padding around the selection so the brush border is visible
+        const pad = (endKm - startKm) * 0.08
+        const zStart = ((startKm - pad) / totalKm) * 100
+        const zEnd = ((endKm + pad) / totalKm) * 100
+        ec.dispatchAction({
+          type: 'dataZoom',
+          dataZoomIndex: 0,
+          start: Math.max(0, zStart),
+          end: Math.min(100, zEnd),
+        })
+        setIsZoomed(true)
+        // Sync map: convert km values back to indices and fitBounds
+        const startIdx = coordToIndex(startKm)
+        const endIdx = coordToIndex(endKm)
+        onCommitRangeRef.current?.([startIdx, endIdx])
+      }
+    })
+
     bindEcharts({
       on: ec.on.bind(ec),
       off: ec.off.bind(ec),
       dispatchAction: ec.dispatchAction.bind(ec) as (a: unknown) => void,
     })
     return () => { ec.dispose(); echartsInstanceRef.current = null }
-  }, [trackPoints, hasElevation, elevationSeries, cumulativeKm, bindEcharts])
+  }, [trackPoints, hasElevation, elevationSeries, cumulativeKm, bindEcharts, coordToIndex])
 
   // Reflect external range changes back to the brush visual.
   // lastDispatchedRangeRef prevents a dispatch loop when the brush change itself
@@ -189,6 +262,14 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
     })
   }, [range, cumulativeKm])
 
+  // Reset X-axis zoom back to full view
+  const handleZoomReset = useCallback(() => {
+    const ec = echartsInstanceRef.current
+    if (!ec) return
+    ec.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: 0, end: 100 })
+    setIsZoomed(false)
+  }, [])
+
   const startKm = cumulativeKm[range[0]]?.toFixed(1) ?? '0.0'
   const endKm = cumulativeKm[range[1]]?.toFixed(1) ?? '0.0'
 
@@ -205,31 +286,33 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
     if (e.key === 'End') { e.preventDefault(); setter(trackPoints.length - 1) }
   }
 
-  // Dual-range slider fill positioning (start% → end%)
-  const total = Math.max(1, trackPoints.length - 1)
-  const startPct = (range[0] / total) * 100
-  const endPct = (range[1] / total) * 100
-
-  // Fix #14 — Slider snap bug: when both thumbs are implemented as two stacked
-  // <input type="range"> elements, the browser hits the topmost element. The naive
-  // z-index flip (startOnTop when startPct <= 50) caused the snap-to-B bug:
-  // if start was in the right half and the user tried to grab it, they were actually
-  // grabbing the end input (which was on top), causing end to teleport to start's
-  // visual position. The corrected logic:
-  //   - Prefer END on top when end is clearly ahead of start (gap >= 5%) AND
-  //     end is in the left half — so the user can easily grab end from the left.
-  //   - Otherwise (thumbs close, or start in left half), keep start on top so
-  //     the user can pull start further left without hitting end.
-  // This heuristic eliminates the "A snaps to B" regression while preserving
-  // correct behaviour for the common case (start in left half, end in right half).
-  const startOnTop = startPct <= 50 || (endPct - startPct) < 5
-
   return (
     <div className="border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-3 pt-2 pb-2">
       {/* Row 1 — Elevation brush chart (D1: height 116px, section heading) */}
       <div className="mb-1.5">
-        <div className="px-0 pb-1 text-[10px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">
-          Höhenprofil
+        <div className="flex items-center gap-2 px-0 pb-1">
+          <span className="text-[10px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">
+            Höhenprofil
+          </span>
+          <span className="text-[10px] text-neutral-400 dark:text-neutral-600">
+            · Brush ziehen = Auswahl · Brush verschieben = Position · Scroll = Zoom
+          </span>
+          <div className="flex-1" />
+          {isZoomed && (
+            <button
+              type="button"
+              onClick={handleZoomReset}
+              title="Zoom zurücksetzen"
+              className={cn(
+                'flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]',
+                'bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300',
+                'hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors',
+              )}
+            >
+              <ZoomIn className="size-2.5" />
+              <span>Zoom zurück</span>
+            </button>
+          )}
         </div>
         <div className="relative">
           <div ref={chartRef} className="h-[116px] w-full" />
@@ -241,45 +324,20 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
         </div>
       </div>
 
-      {/* Row 2 — Range slider with correct fill positioning */}
+      {/* Row 2 — Pointer-capture dual-thumb range slider (fix #14: no stacked inputs) */}
+      {/* setStart/setEnd from useRangeBrush fire onBrushChange → onRangeChange (state update).
+          onCommitRange is called on pointerUp via DualRangeSlider.onCommit (fitBounds). */}
       <div className="mb-2 flex items-center gap-2">
         <span className="w-14 shrink-0 font-mono text-xs text-neutral-500 dark:text-neutral-500">{startKm} km</span>
-        <div className="relative flex-1 h-5">
-          {/* Track background */}
-          <div className="absolute top-1/2 left-0 right-0 -translate-y-1/2 h-1.5 rounded-full bg-neutral-200 dark:bg-neutral-700" />
-          {/* Selected fill — positioned from startPct% to endPct% */}
-          <div
-            className="absolute top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-accent-DEFAULT"
-            style={{ left: `${startPct}%`, right: `${100 - endPct}%` }}
-          />
-          {/* Start handle — z-index flips based on startOnTop so this thumb
-              is always reachable even when range[0] is at the left edge */}
-          <input
-            type="range"
-            min={0} max={trackPoints.length - 1}
-            value={range[0]}
-            onChange={e => setStart(Number(e.target.value))}
-            onMouseUp={() => onCommitRange(range)}
-            onKeyUp={() => onCommitRange(range)}
-            style={{ zIndex: startOnTop ? 21 : 20 }}
-            className="range-thumb absolute inset-0 w-full cursor-pointer appearance-none bg-transparent"
-            aria-label="Start-Punkt"
-            aria-valuemin={0} aria-valuemax={trackPoints.length - 1} aria-valuenow={range[0]}
-          />
-          {/* End handle */}
-          <input
-            type="range"
-            min={0} max={trackPoints.length - 1}
-            value={range[1]}
-            onChange={e => setEnd(Number(e.target.value))}
-            onMouseUp={() => onCommitRange(range)}
-            onKeyUp={() => onCommitRange(range)}
-            style={{ zIndex: startOnTop ? 20 : 21 }}
-            className="range-thumb absolute inset-0 w-full cursor-pointer appearance-none bg-transparent"
-            aria-label="Ende-Punkt"
-            aria-valuemin={0} aria-valuemax={trackPoints.length - 1} aria-valuenow={range[1]}
-          />
-        </div>
+        <DualRangeSlider
+          min={0}
+          max={trackPoints.length - 1}
+          start={range[0]}
+          end={range[1]}
+          onStartChange={setStart}
+          onEndChange={setEnd}
+          onCommit={onCommitRange}
+        />
         <span className="w-14 shrink-0 text-right font-mono text-xs text-neutral-500 dark:text-neutral-500">{endKm} km</span>
       </div>
 
@@ -386,6 +444,143 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
           Speichern
         </button>
       </div>
+    </div>
+  )
+}
+
+// ── DualRangeSlider ───────────────────────────────────────────────────────────
+// Pure pointer-capture dual-thumb slider. No stacked <input> elements.
+// Each thumb tracks its own pointer via setPointerCapture so thumbs are
+// independently draggable even when overlapping (#14 root cause fix).
+//
+// Design choices:
+// - onStartChange / onEndChange fire continuously during drag (for live preview)
+// - onCommit fires once on pointerUp with the final [start, end] pair (for map fitBounds)
+// - Both thumbs use setPointerCapture so they stay under the finger even if the
+//   pointer temporarily leaves the thumb element during fast movement.
+interface DualRangeSliderProps {
+  min: number
+  max: number
+  start: number
+  end: number
+  onStartChange: (v: number) => void
+  onEndChange: (v: number) => void
+  /** Called once on pointerUp with the committed [start, end] pair. Used to trigger map fitBounds. */
+  onCommit?: (r: [number, number]) => void
+}
+
+function DualRangeSlider({ min, max, start, end, onStartChange, onEndChange, onCommit }: DualRangeSliderProps) {
+  const trackRef = useRef<HTMLDivElement>(null)
+  // Keep refs to latest start/end so onUp closure can read committed values
+  const startRef = useRef(start)
+  const endRef = useRef(end)
+  startRef.current = start
+  endRef.current = end
+
+  const total = Math.max(1, max - min)
+  const startPct = ((start - min) / total) * 100
+  const endPct = ((end - min) / total) * 100
+
+  // Convert pixel offset within the track to a clamped integer value.
+  const pxToValue = useCallback((clientX: number): number => {
+    const el = trackRef.current
+    if (!el) return min
+    const rect = el.getBoundingClientRect()
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    return Math.round(min + pct * total)
+  }, [min, total])
+
+  // Start thumb pointer handling
+  const handleStartPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const el = e.currentTarget
+    el.setPointerCapture(e.pointerId)
+    const onMove = (ev: PointerEvent) => {
+      const v = pxToValue(ev.clientX)
+      // start must stay < end
+      onStartChange(Math.min(v, endRef.current - 1))
+    }
+    const onUp = () => {
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+      onCommit?.([startRef.current, endRef.current])
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+  }, [onStartChange, onCommit, pxToValue])
+
+  // End thumb pointer handling
+  const handleEndPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const el = e.currentTarget
+    el.setPointerCapture(e.pointerId)
+    const onMove = (ev: PointerEvent) => {
+      const v = pxToValue(ev.clientX)
+      // end must stay > start
+      onEndChange(Math.max(v, startRef.current + 1))
+    }
+    const onUp = () => {
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+      onCommit?.([startRef.current, endRef.current])
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+  }, [onEndChange, onCommit, pxToValue])
+
+  return (
+    <div ref={trackRef} className="relative flex-1 h-5 select-none touch-none">
+      {/* Track background */}
+      <div className="absolute top-1/2 left-0 right-0 -translate-y-1/2 h-1.5 rounded-full bg-neutral-200 dark:bg-neutral-700" />
+      {/* Selected fill */}
+      <div
+        className="absolute top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-accent-DEFAULT"
+        style={{ left: `${startPct}%`, right: `${100 - endPct}%` }}
+      />
+      {/* Start thumb — positioned absolutely, uses pointer capture for independent drag */}
+      <div
+        role="slider"
+        aria-label="Start-Punkt"
+        aria-valuemin={min}
+        aria-valuemax={max}
+        aria-valuenow={start}
+        tabIndex={0}
+        className={cn(
+          'absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4',
+          'rounded-full bg-accent-DEFAULT border-2 border-white dark:border-neutral-900',
+          'shadow-md cursor-grab active:cursor-grabbing',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1',
+          'transition-shadow hover:shadow-lg',
+        )}
+        style={{ left: `${startPct}%`, zIndex: 10 }}
+        onPointerDown={handleStartPointerDown}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft') { e.preventDefault(); const v = Math.max(min, start - (e.shiftKey ? 10 : 1)); onStartChange(v); onCommit?.([v, endRef.current]) }
+          if (e.key === 'ArrowRight') { e.preventDefault(); const v = Math.min(start + (e.shiftKey ? 10 : 1), end - 1); onStartChange(v); onCommit?.([v, endRef.current]) }
+        }}
+      />
+      {/* End thumb */}
+      <div
+        role="slider"
+        aria-label="Ende-Punkt"
+        aria-valuemin={min}
+        aria-valuemax={max}
+        aria-valuenow={end}
+        tabIndex={0}
+        className={cn(
+          'absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4',
+          'rounded-full bg-accent-DEFAULT border-2 border-white dark:border-neutral-900',
+          'shadow-md cursor-grab active:cursor-grabbing',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1',
+          'transition-shadow hover:shadow-lg',
+        )}
+        style={{ left: `${endPct}%`, zIndex: 10 }}
+        onPointerDown={handleEndPointerDown}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft') { e.preventDefault(); const v = Math.max(start + 1, end - (e.shiftKey ? 10 : 1)); onEndChange(v); onCommit?.([startRef.current, v]) }
+          if (e.key === 'ArrowRight') { e.preventDefault(); const v = Math.min(max, end + (e.shiftKey ? 10 : 1)); onEndChange(v); onCommit?.([startRef.current, v]) }
+        }}
+      />
     </div>
   )
 }
