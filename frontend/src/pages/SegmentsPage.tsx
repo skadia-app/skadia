@@ -543,6 +543,10 @@ export default function SegmentsPage() {
                 selectionMode && selectedIds.has(segment.id)
                   ? 'border-accent-DEFAULT bg-accent-50 dark:bg-accent-900/20 shadow-sm'
                   : 'border-neutral-200 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-sm'
+              } ${
+                segment.visibility === 'private' && segment.created_by !== me?.user_id
+                  ? 'opacity-60 ring-1 ring-neutral-600'
+                  : ''
               }`}
             >
               {selectionMode && (
@@ -557,13 +561,15 @@ export default function SegmentsPage() {
               <div className={`flex items-start justify-between mb-2 ${selectionMode ? 'pl-6' : ''}`}>
                 <div className="flex items-center gap-2 min-w-0">
                   <svg className={`w-5 h-5 flex-shrink-0 ${SPORT_GROUP_COLORS[segment.sport_group] ?? 'text-neutral-500'}`} viewBox="0 0 24 24" fill="currentColor"><path d={SPORT_GROUP_ICONS[segment.sport_group] ?? SPORT_GROUP_ICONS.generic} /></svg>
-                  <h3 className="font-medium text-neutral-900 dark:text-neutral-100 truncate">{segment.name}</h3>
+                  <h3 className="font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors truncate">{segment.name}</h3>
                   {segment.visibility === 'private' && <Lock className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />}
-                  <DifficultyBadge 
-                    sac={segment.segment_type_meta?.sac_scale as string} 
-                    mtb={segment.segment_type_meta?.mtb_scale as string} 
-                    color={segment.segment_type_meta?.difficulty_color as string} 
-                  />
+                  {['trail', 'wintersport'].includes(segment.segment_type) && (
+                    <DifficultyBadge
+                      sac={segment.segment_type_meta?.sac_scale as string}
+                      mtb={segment.segment_type_meta?.mtb_scale as string}
+                      color={segment.segment_type_meta?.difficulty_color as string}
+                    />
+                  )}
                 </div>
                 <div className={`flex items-center gap-1 flex-shrink-0 ${selectionMode ? 'hidden' : isSegmentRecomputing(segment.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                   <button onClick={(e) => { e.stopPropagation(); setEditingSegment(segment) }} className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-100/20 cursor-pointer"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
@@ -573,12 +579,33 @@ export default function SegmentsPage() {
                   )}
                 </div>
               </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-500">
-                  {segment.distance_m != null && <span>{fmtDist(segment.distance_m)}</span>}
-                  <span>{segment.effort_count} {segment.effort_count === 1 ? 'Effort' : 'Efforts'}</span>
-                  {!!segment.segment_type_meta?.surface && (
-                    <span className="text-neutral-400 italic">{String(segment.segment_type_meta.surface)}</span>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-500 dark:text-neutral-400">
+                {segment.distance_m != null && (
+                  <span>{fmtDist(segment.distance_m)}</span>
+                )}
+                {segment.elevation_gain_m != null && segment.elevation_gain_m > 0 && (
+                  <span>+{Math.round(segment.elevation_gain_m)} m</span>
+                )}
+                <span>
+                  {segment.effort_count} {segment.effort_count === 1 ? 'Effort' : 'Efforts'}
+                  {segment.ridden_count > 0 && (
+                    <span className="text-neutral-400 ml-1">· {segment.ridden_count} eigene</span>
                   )}
+                </span>
+                {!!segment.segment_type_meta?.surface && (
+                  <span className="text-neutral-400 italic">{String(segment.segment_type_meta.surface)}</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 mt-2">
+                <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
+                  {SPORT_GROUP_LABELS[segment.sport_group] ?? segment.sport_group}
+                </span>
+                {segment.segment_type !== 'standard' && (
+                  <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
+                    {SEGMENT_TYPE_LABELS[segment.segment_type] ?? segment.segment_type}
+                  </span>
+                )}
               </div>
             </div>
           ))}
