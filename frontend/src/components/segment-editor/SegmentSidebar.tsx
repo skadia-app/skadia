@@ -71,8 +71,8 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     info,
     mode,
     allSportTypes,
-    // defaultSportGroup: accepted for API compat — wiring deferred until SportCategoryChips
-    // gets a defaultOpenCategoryKey prop (that file is out of scope for this agent)
+    // defaultSportGroup: akzeptiert für API-Kompat, nicht verwendet (category chips haben
+    // keinen Auto-Expand mehr — siehe main Commit 741fa0ce / #14 "remove dead prop")
     onEnrichmentRequest,
     enrichmentState,
     enrichmentSources,
