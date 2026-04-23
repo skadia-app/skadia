@@ -405,22 +405,16 @@ export default function SegmentsPage() {
             {/* Surface */}
             <div className="space-y-2">
               <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Oberfläche</label>
-              <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+              <select
+                value={surfaceFilter[0] || ''}
+                onChange={e => setFilter('surface', e.target.value || null)}
+                className="w-full border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-xs bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+              >
+                <option value="">Alle Oberflächen</option>
                 {SURFACE_DROPDOWN_OPTIONS.filter(o => o !== 'Wechselnd').map(opt => (
-                  <label key={opt} className="flex items-center gap-1.5 cursor-pointer group">
-                    <input
-                      type="checkbox"
-                      checked={surfaceFilter.includes(opt)}
-                      onChange={e => {
-                        const next = e.target.checked ? [...surfaceFilter, opt] : surfaceFilter.filter(v => v !== opt)
-                        setFilter('surface', next.length > 0 ? next : null)
-                      }}
-                      className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
-                    />
-                    <span className="text-xs text-neutral-600 dark:text-neutral-400 truncate group-hover:text-neutral-900 dark:group-hover:text-neutral-200">{opt}</span>
-                  </label>
+                  <option key={opt} value={opt}>{opt}</option>
                 ))}
-              </div>
+              </select>
             </div>
 
             {/* Visibility */}
