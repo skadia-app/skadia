@@ -67,7 +67,6 @@ import (
 
 // insertStreams inserts the given stream rows for activityID.
 func insertStreams(t *testing.T, db *database.DB, activityID string, streams []model.StreamPoint) {
-
 	t.Helper()
 	if err := db.InsertStreams(context.Background(), activityID, streams); err != nil {
 		t.Fatalf("insertStreams(%s): %v", activityID, err)
