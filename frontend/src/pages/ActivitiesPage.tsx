@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Pill } from '@/components/ui/Pill'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { useQuery, useInfiniteQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
@@ -1043,12 +1044,16 @@ export default function ActivitiesPage() {
             </span>
           )}
           {fusionCount > 0 && (
-            <Link
-              to="/workshop/fusion"
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:hover:bg-orange-900/50 transition-colors"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block" />
-              {fusionCount} Fusionskandidat{fusionCount !== 1 ? 'en' : ''}
+            <Link to="/workshop/fusion">
+              <Pill
+                size="sm"
+                active={true}
+                onClick={() => {}} // Link handles navigation
+                leftSlot={<span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block" />}
+                className="bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:hover:bg-orange-900/50 transition-colors"
+              >
+                {fusionCount} Fusionskandidat{fusionCount !== 1 ? 'en' : ''}
+              </Pill>
             </Link>
           )}
         </div>
