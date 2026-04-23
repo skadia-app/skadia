@@ -311,7 +311,10 @@ export default function SegmentsPage() {
                   onChange={e => {
                     let next: string[]
                     if (e.target.checked) next = [...terrainFilter, id]
-                    else next = terrainFilter.filter(t => t !== id)
+                    else {
+                      next = terrainFilter.filter(t => t !== id)
+                      if (id === 'lift') setFilter('show_lifts', null)
+                    }
                     setFilter('segment_types', next.length > 0 ? next.join(',') : null)
                   }}
                   className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
@@ -319,6 +322,17 @@ export default function SegmentsPage() {
                 <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
               </label>
             ))}
+            {terrainFilter.includes('lift') && (
+              <label className="flex items-center gap-1.5 cursor-pointer select-none border-l border-neutral-200 dark:border-neutral-700 pl-3">
+                <input
+                  type="checkbox"
+                  checked={showAllLifts}
+                  onChange={e => setFilter('show_lifts', e.target.checked ? 'true' : null)}
+                  className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+                />
+                <span className="text-sm text-neutral-500 dark:text-neutral-400">Alle anzeigen</span>
+              </label>
+            )}
           </div>
 
           <div className="flex-1 min-w-[200px] relative">
