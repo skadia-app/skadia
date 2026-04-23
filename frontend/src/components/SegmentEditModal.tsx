@@ -1,150 +1,143 @@
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { updateSegment, publishSegment, reverseSegment, type Segment, type UpdateSegmentPayload } from '@/api/segments'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { fetchSegment, updateSegment, publishSegment, reverseSegment, type Segment, type UpdateSegmentPayload } from '@/api/segments'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
 import { SPORT_DEFS } from '@/lib/sportTaxonomy'
 
+// Shared Components
+import { DifficultySelects } from './segment-editor/DifficultySelects'
+import { SurfaceDropdown } from './segment-editor/SurfaceDropdown'
+import { DifficultyColorPicker } from './segment-editor/DifficultyColorPicker'
+import { ClimbTypePills } from './segment-editor/ClimbTypePills'
+import { MapPreview } from './segment-editor/MapPreview'
+
 interface Props {
   segment: Segment
   onClose: () => void
 }
 
-const SAC_SCALES = [
-  { value: 'T1', label: 'T1 — Wandern' },
-  { value: 'T2', label: 'T2 — Bergwandern' },
-  { value: 'T3', label: 'T3 — Anspruchsvolles Bergwandern' },
-  { value: 'T4', label: 'T4 — Alpinwandern' },
-  { value: 'T5', label: 'T5 — Anspruchsvolles Alpinwandern' },
-  { value: 'T6', label: 'T6 — Schwieriges Alpinwandern' },
-]
-const MTB_SCALES = [
-  { value: 'S0', label: 'S0 — Leicht' },
-  { value: 'S1', label: 'S1 — Leicht technisch' },
-  { value: 'S2', label: 'S2 — Technisch' },
-  { value: 'S3', label: 'S3 — Schwer technisch' },
-  { value: 'S4', label: 'S4 — Sehr schwer' },
-  { value: 'S5', label: 'S5 — Extrem' },
-]
-
-export default function SegmentEditModal({ segment, onClose }: Props) {
+export default function SegmentEditModal({ segment: initialSegment, onClose }: Props) {
   const qc = useQueryClient()
-  const [name, setName] = useState(segment.name)
-  const [description, setDescription] = useState(segment.description ?? '')
-  const [diffColor, setDiffColor] = useState((segment.segment_type_meta?.difficulty_color as string) ?? '')
-  const [sacScale, setSacScale] = useState((segment.segment_type_meta?.sac_scale as string) ?? '')
-  const [mtbScale, setMtbScale] = useState((segment.segment_type_meta?.mtb_scale as string) ?? '')
+  
+  // Load full segment data including GeoJSON if missing
+  const { data: segment = initialSegment, isLoading: isLoadingFull } = useQuery({
+    queryKey: ['segment', initialSegment.id, 'full'],
+    queryFn: () => fetchSegment(initialSegment.id, { includeGeoJSON: true }),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const [name, setName] = useState(initialSegment.name)
+  const [description, setDescription] = useState(initialSegment.description ?? '')
+  const [diffColor, setDiffColor] = useState((initialSegment.segment_type_meta?.difficulty_color as 'blue' | 'red' | 'black' | null) ?? null)
+  const [sacScale, setSacScale] = useState((initialSegment.segment_type_meta?.sac_scale as string | null) ?? null)
+  const [mtbScale, setMtbScale] = useState((initialSegment.segment_type_meta?.mtb_scale as string | null) ?? null)
+  const [surface, setSurface] = useState((initialSegment.segment_type_meta?.surface as string | null) ?? null)
   const [newVersion, setNewVersion] = useState(false)
-  const initialClimbType = segment.climb_type ?? 'standard'
-  const [isMountain, setIsMountain] = useState(initialClimbType === 'bergauf' || initialClimbType === 'bergab')
-  const [climbDirection, setClimbDirection] = useState<'bergauf' | 'bergab'>(
-    initialClimbType === 'bergab' ? 'bergab' : 'bergauf'
-  )
+  
+  const initialClimbType = initialSegment.climb_type ?? 'standard'
+  const [climbType, setClimbType] = useState<any>(initialClimbType)
+  
   const [visibility, setVisibility] = useState<'public' | 'private'>(
-    (segment.visibility as 'public' | 'private') ?? 'public'
+    (initialSegment.visibility as 'public' | 'private') ?? 'public'
   )
-  // allowedSportTypes: null = all sport types allowed (no restriction)
-  // [] = none; [...] = specific list. Initialized from segment.allowed_sport_types.
   const [allowedSportTypes, setAllowedSportTypes] = useState<string[] | null>(
-    segment.allowed_sport_types ?? null
+    initialSegment.allowed_sport_types ?? null
   )
-  const [bidirectional, setBidirectional] = useState<boolean>(segment.bidirectional ?? true)
+  const [bidirectional, setBidirectional] = useState<boolean>(initialSegment.bidirectional ?? true)
+  
   const { openModal } = useModal()
   const { addToast } = useToast()
 
-  // Sport types that belong to this segment's sport_group, for allowed_sport_types filter.
-  const groupSportDefs = SPORT_DEFS.filter(d => d.segmentGroup === segment.sport_group)
-
-  function getClimbType(): string {
-    if (segment.segment_type === 'lap') return 'standard'
-    if (isMountain) return climbDirection
-    return 'standard'
-  }
+  const groupSportDefs = SPORT_DEFS.filter(d => d.segmentGroup === initialSegment.sport_group)
 
   const mutation = useMutation({
     mutationFn: () => {
       const meta: Record<string, unknown> = { ...segment.segment_type_meta }
       if (segment.segment_type === 'trail') {
-        if (diffColor) meta.difficulty_color = diffColor; else delete meta.difficulty_color
         if (sacScale) meta.sac_scale = sacScale; else delete meta.sac_scale
         if (mtbScale) meta.mtb_scale = mtbScale; else delete meta.mtb_scale
+        if (surface) meta.surface = surface; else delete meta.surface
+        // difficultyColor is auto-derived in backend for trails
       }
+      if (segment.segment_type === 'wintersport') {
+        if (diffColor) meta.difficulty_color = diffColor; else delete meta.difficulty_color
+      }
+      
       const payload: UpdateSegmentPayload = {
         name: name.trim(),
         description: description.trim() || undefined,
         segment_type_meta: Object.keys(meta).length > 0 ? meta : undefined,
         new_version: newVersion || undefined,
-        climb_type: getClimbType(),
+        climb_type: segment.segment_type === 'lap' ? 'standard' : climbType,
         bidirectional,
-        // Pass allowed_sport_types only when it differs from the segment's current value.
-        // null means "all allowed" → send [] on wire when clearing (backend: [] → NULL in DB).
-        // We always pass it so the user's explicit choice is preserved.
         allowed_sport_types: allowedSportTypes ?? [],
       }
-      // Only pass visibility for public→private (private→public uses the publish endpoint).
-      if (segment.visibility === 'public' && visibility === 'private') {
+      if (initialSegment.visibility === 'public' && visibility === 'private') {
         payload.visibility = 'private'
       }
-      return updateSegment(segment.id, payload)
+      return updateSegment(initialSegment.id, payload)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['segments'] })
-      qc.invalidateQueries({ queryKey: ['segment', segment.id] })
+      qc.invalidateQueries({ queryKey: ['segment', initialSegment.id] })
       onClose()
     },
   })
 
   const publishMut = useMutation({
-    mutationFn: () => publishSegment(segment.id),
+    mutationFn: () => publishSegment(initialSegment.id),
     onSuccess: () => {
-      addToast({ type: 'success', title: 'Segment veröffentlicht', message: 'Ein Recompute wurde gestartet.' })
+      addToast({ type: 'success', title: 'Segment published', message: 'Recompute started.' })
       qc.invalidateQueries({ queryKey: ['segments'] })
-      qc.invalidateQueries({ queryKey: ['segment', segment.id] })
+      qc.invalidateQueries({ queryKey: ['segment', initialSegment.id] })
       onClose()
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Veröffentlichung fehlgeschlagen', duration: 0 })
+      addToast({ type: 'error', title: 'Publishing failed', duration: 0 })
     },
   })
 
   const reverseMutation = useMutation({
-    mutationFn: () => reverseSegment(segment.id),
+    mutationFn: () => reverseSegment(initialSegment.id),
     onSuccess: (resp) => {
       addToast({
         type: 'success',
-        title: 'Segment umgekehrt',
-        message: resp.efforts_updated === 1
-          ? '1 Effort aktualisiert'
-          : `${resp.efforts_updated} Efforts aktualisiert`,
+        title: 'Segment reversed',
+        message: resp.efforts_updated === 1 ? '1 Effort updated' : `${resp.efforts_updated} Efforts updated`,
       })
-      qc.invalidateQueries({ queryKey: ['segment', segment.id] })
+      qc.invalidateQueries({ queryKey: ['segment', initialSegment.id] })
       qc.invalidateQueries({ queryKey: ['segments'] })
       onClose()
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Richtung umkehren fehlgeschlagen', duration: 0 })
+      addToast({ type: 'error', title: 'Reverse failed', duration: 0 })
     },
   })
 
   function handleReverse() {
-    const effortMsg = segment.effort_count > 0
-      ? `${segment.effort_count} öffentliche Efforts + eigene private Efforts werden mit invertiertem is_reverse-Flag aktualisiert und die Segment-Ranks neu berechnet. Diese Aktion kann nicht rückgängig gemacht werden.`
-      : 'Keine öffentlichen Efforts betroffen. Richtung des Segments umkehren?'
     openModal({
-      title: 'Richtung umkehren?',
-      message: effortMsg,
+      title: 'Reverse segment?',
+      message: 'Reversing this segment cannot be undone.',
       buttons: [
-        { label: 'Abbrechen', variant: 'default', onClick: () => {} },
-        { label: 'Umkehren', variant: 'destructive', onClick: () => reverseMutation.mutate() },
+        { label: 'Cancel', variant: 'default', onClick: () => {} },
+        { label: 'Reverse', variant: 'destructive', onClick: () => reverseMutation.mutate() },
       ],
     })
   }
 
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-md" className="bg-neutral-900 rounded-xl border border-neutral-800 space-y-4">
-        <h2 className="text-lg font-semibold text-neutral-100">Segment bearbeiten</h2>
+        <h2 className="text-lg font-semibold text-neutral-100">Edit Segment</h2>
+
+        {/* Map Preview */}
+        <MapPreview 
+          geojsonTrack={segment.track_geojson} 
+          height="160px" 
+          className="mb-2"
+        />
 
         <input
           value={name}
@@ -156,102 +149,60 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
         <textarea
           value={description}
           onChange={e => setDescription(e.target.value)}
-          placeholder="Beschreibung (optional)"
+          placeholder="Description (optional)"
           rows={2}
           className={`${AUTH_INPUT_CLASS} resize-none`}
         />
 
-        {segment.segment_type === 'trail' && (
-          <div className="space-y-2">
-            <select
-              value={diffColor}
-              onChange={e => setDiffColor(e.target.value)}
-              className={AUTH_INPUT_CLASS}
-            >
-              <option value="">Farbe — keine</option>
-              <option value="blue">Blau (leicht)</option>
-              <option value="red">Rot (mittel)</option>
-              <option value="black">Schwarz (schwer)</option>
-            </select>
-            <select
-              value={sacScale}
-              onChange={e => setSacScale(e.target.value)}
-              className={AUTH_INPUT_CLASS}
-            >
-              <option value="">SAC-Skala — keine</option>
-              {SAC_SCALES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-            <select
-              value={mtbScale}
-              onChange={e => setMtbScale(e.target.value)}
-              className={AUTH_INPUT_CLASS}
-            >
-              <option value="">MTB-Skala — keine</option>
-              {MTB_SCALES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
+        <div className="space-y-4">
+          <DifficultySelects
+            segType={segment.segment_type as any}
+            sacScale={sacScale}
+            mtbScale={mtbScale}
+            onChange={(f, v) => f === 'sac' ? setSacScale(v) : setMtbScale(v)}
+            disabled={isLoadingFull}
+          />
+
+          <SurfaceDropdown
+            segType={segment.segment_type as any}
+            value={surface}
+            onChange={setSurface}
+            disabled={isLoadingFull}
+          />
+
+          <DifficultyColorPicker
+            segType={segment.segment_type as any}
+            value={diffColor}
+            onChange={setDiffColor}
+            disabled={isLoadingFull}
+          />
+        </div>
+
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Climb Profile</label>
+            <ClimbTypePills
+              segType={segment.segment_type as any}
+              value={climbType}
+              onChange={setClimbType}
+              disabled={isLoadingFull}
+            />
           </div>
-        )}
 
-        {/* Berg-Checkbox (nicht bei Lap-Segmenten) */}
-        {segment.segment_type !== 'lap' && (
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={isMountain}
-                onChange={e => setIsMountain(e.target.checked)}
-                className="rounded border-neutral-600"
-              />
-              <span className="text-sm text-neutral-300">Berg (Auf-/Abstieg unterscheiden)</span>
-            </label>
-
-            {isMountain && (
-              <div className="ml-6 flex gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="edit-climb-dir"
-                    checked={climbDirection === 'bergauf'}
-                    onChange={() => setClimbDirection('bergauf')}
-                    className="border-neutral-600"
-                  />
-                  <span className="text-sm text-neutral-300">Bergauf</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="edit-climb-dir"
-                    checked={climbDirection === 'bergab'}
-                    onChange={() => setClimbDirection('bergab')}
-                    className="border-neutral-600"
-                  />
-                  <span className="text-sm text-neutral-300">Bergab</span>
-                </label>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Bidirectional toggle — only shown when sport group has direction-aware sports */}
-        {segment.segment_type !== 'lap' && (
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
               checked={bidirectional}
               onChange={e => setBidirectional(e.target.checked)}
-              className="rounded border-neutral-600"
+              className="rounded border-neutral-600 accent-accent-DEFAULT"
             />
-            <span className="text-sm text-neutral-300">Segment ist bidirektional</span>
+            <span className="text-sm text-neutral-300">Bidirectional matching</span>
           </label>
-        )}
+        </div>
 
-        {/* Allowed sport types — shown only when the segment group has multiple sports */}
         {groupSportDefs.length > 1 && (
           <div className="space-y-1">
-            <p className="text-xs text-neutral-400">
-              Erlaubte Sportarten
-              <span className="ml-1 text-neutral-500">(leer = alle)</span>
-            </p>
+            <p className="text-xs text-neutral-400">Allowed Sports <span className="text-neutral-500">(empty = all)</span></p>
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               {groupSportDefs.map(d => (
                 <label key={d.sportType} className="flex items-center gap-1.5 cursor-pointer">
@@ -260,14 +211,13 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
                     checked={allowedSportTypes === null ? false : allowedSportTypes.includes(d.sportType)}
                     onChange={e => {
                       const current = allowedSportTypes ?? []
-                      if (e.target.checked) {
-                        setAllowedSportTypes([...current, d.sportType])
-                      } else {
+                      if (e.target.checked) setAllowedSportTypes([...current, d.sportType])
+                      else {
                         const next = current.filter(s => s !== d.sportType)
                         setAllowedSportTypes(next.length > 0 ? next : null)
                       }
                     }}
-                    className="rounded border-neutral-600"
+                    className="rounded border-neutral-600 accent-accent-DEFAULT"
                   />
                   <span className="text-sm text-neutral-300">{d.label}</span>
                 </label>
@@ -276,90 +226,70 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
           </div>
         )}
 
-        {/* Visibility toggle — not for lift segments */}
-        {segment.segment_type !== 'lift' && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setVisibility('public')}
-                className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
-                  visibility === 'public'
-                    ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
-                    : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
-                }`}
-              >
-                Öffentlich
-              </button>
-              <button
-                type="button"
-                onClick={() => setVisibility('private')}
-                className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
-                  visibility === 'private'
-                    ? 'bg-neutral-700 text-neutral-100 border-neutral-600'
-                    : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
-                }`}
-              >
-                Privat
-              </button>
-            </div>
-            {segment.visibility === 'private' && visibility === 'public' && (
-              <p className="text-xs text-amber-400">
-                Veröffentlichen: alle User können das Segment sehen. Ein Recompute-Job startet.
-              </p>
-            )}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setVisibility('public')}
+              className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
+                visibility === 'public'
+                  ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
+                  : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
+              }`}
+            >
+              Public
+            </button>
+            <button
+              type="button"
+              onClick={() => setVisibility('private')}
+              className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
+                visibility === 'private'
+                  ? 'bg-neutral-700 text-neutral-100 border-neutral-600'
+                  : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
+              }`}
+            >
+              Private
+            </button>
           </div>
-        )}
+        </div>
 
         <label className="flex items-start gap-3 cursor-pointer">
           <input
             type="checkbox"
             checked={newVersion}
             onChange={e => setNewVersion(e.target.checked)}
-            className="mt-0.5 rounded border-neutral-600"
+            className="mt-0.5 rounded border-neutral-600 accent-accent-DEFAULT"
           />
-          <span className="text-sm text-neutral-300">
-            Neue Version erstellen
-            <span className="block text-xs text-neutral-500 mt-0.5">
-              Nur aktivieren wenn sich die Route grundlegend ändert.
-              Bestehende Bestzeiten bleiben der alten Version zugeordnet.
-            </span>
-          </span>
+          <span className="text-sm text-neutral-300">Create new version</span>
         </label>
 
-        {mutation.isError && (
-          <p className="text-sm text-red-400">Fehler beim Speichern.</p>
-        )}
-
-        <div className="flex gap-2 items-center justify-between">
-          {/* Lap segments are closed loops — reversing has no meaning and would break leaderboards */}
+        <div className="flex gap-2 items-center justify-between pt-2">
           {segment.segment_type !== 'lap' && (
             <button
               type="button"
               onClick={handleReverse}
               disabled={mutation.isPending || publishMut.isPending || reverseMutation.isPending}
-              className="cursor-pointer rounded-lg border border-amber-800/60 bg-amber-950/30 px-3 py-1.5 text-sm text-amber-400 hover:bg-amber-900/40 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 text-sm border border-amber-800/40 rounded-lg text-amber-500 hover:bg-amber-900/20"
             >
-              ⇄ Richtung umkehren
+              Reverse
             </button>
           )}
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              disabled={reverseMutation.isPending}
-              className="cursor-pointer px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800"
             >
-              Abbrechen
+              Cancel
             </button>
             <button
               onClick={() => {
-                if (segment.visibility === 'private' && visibility === 'public') {
+                if (initialSegment.visibility === 'private' && visibility === 'public') {
                   openModal({
-                    title: 'Segment veröffentlichen?',
-                    message: 'Alle Nutzer können das Segment danach sehen. Ein Recompute-Job wird gestartet.',
+                    title: 'Publish segment?',
+                    message: 'Everyone will see this segment. A recompute will start.',
                     buttons: [
-                      { label: 'Abbrechen', variant: 'default', onClick: () => {} },
-                      { label: 'Veröffentlichen', variant: 'destructive', onClick: () => publishMut.mutate() },
+                      { label: 'Cancel', variant: 'default', onClick: () => {} },
+                      { label: 'Publish', variant: 'destructive', onClick: () => publishMut.mutate() },
                     ],
                   })
                 } else {
@@ -367,9 +297,9 @@ export default function SegmentEditModal({ segment, onClose }: Props) {
                 }
               }}
               disabled={!name.trim() || mutation.isPending || publishMut.isPending || reverseMutation.isPending}
-              className="cursor-pointer px-4 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600 disabled:opacity-50"
             >
-              {mutation.isPending || publishMut.isPending ? 'Speichern...' : 'Speichern'}
+              Save
             </button>
           </div>
         </div>
