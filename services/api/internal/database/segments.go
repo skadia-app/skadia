@@ -147,19 +147,19 @@ LEFT JOIN LATERAL (
 		where += " AND COALESCE(ue.ridden_count, 0) > 0"
 	}
 
-	// SAC-Filter (§5 Spec) — Optimiert für B-Tree Index (ohne COALESCE auf linker Seite)
+	// COALESCE for explicit null-safety; plan §2.2 Step 3B.
 	if p.SacScale != "" {
-		where += fmt.Sprintf(" AND (s.segment_type_meta->>'sac_scale') = ANY(string_to_array($%d, ','))", argIdx)
+		where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'sac_scale', '') = ANY(string_to_array($%d, ','))", argIdx)
 		args = append(args, p.SacScale)
 		argIdx++
 	}
 	if p.MtbScale != "" {
-		where += fmt.Sprintf(" AND (s.segment_type_meta->>'mtb_scale') = ANY(string_to_array($%d, ','))", argIdx)
+		where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'mtb_scale', '') = ANY(string_to_array($%d, ','))", argIdx)
 		args = append(args, p.MtbScale)
 		argIdx++
 	}
 	if p.Surface != "" {
-		where += fmt.Sprintf(" AND (s.segment_type_meta->>'surface') = ANY(string_to_array($%d, ','))", argIdx)
+		where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'surface', '') = ANY(string_to_array($%d, ','))", argIdx)
 		args = append(args, p.Surface)
 		argIdx++
 	}
