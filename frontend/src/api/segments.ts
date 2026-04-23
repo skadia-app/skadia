@@ -81,7 +81,7 @@ export interface SegmentsResponse {
   has_more: boolean
 }
 
-export async function fetchSegments(params: {
+export interface FetchSegmentsOpts {
   sport_group?: string
   segment_type?: string
   segment_types?: string
@@ -91,7 +91,13 @@ export async function fetchSegments(params: {
   include_geojson?: boolean
   cursor?: string
   limit?: number
-} = {}): Promise<SegmentsResponse> {
+  sac_scale?: string
+  mtb_scale?: string
+  surface?: string
+  visibility?: 'public' | 'private'
+}
+
+export async function fetchSegments(params: FetchSegmentsOpts = {}): Promise<SegmentsResponse> {
   const qs = new URLSearchParams()
   if (params.sport_group) qs.set('sport_group', params.sport_group)
   if (params.segment_type) qs.set('segment_type', params.segment_type)
@@ -102,6 +108,11 @@ export async function fetchSegments(params: {
   if (params.include_geojson) qs.set('include_geojson', 'true')
   if (params.cursor) qs.set('cursor', params.cursor)
   if (params.limit !== undefined) qs.set('limit', String(params.limit))
+  if (params.sac_scale) qs.set('sac_scale', params.sac_scale)
+  if (params.mtb_scale) qs.set('mtb_scale', params.mtb_scale)
+  if (params.surface) qs.set('surface', params.surface)
+  if (params.visibility) qs.set('visibility', params.visibility)
+  
   const q = qs.toString()
   return apiClient<SegmentsResponse>(`/segments${q ? `?${q}` : ''}`)
 }
