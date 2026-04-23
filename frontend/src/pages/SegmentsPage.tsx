@@ -1,14 +1,12 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchSegments, deleteSegment, deleteSegments, recomputeSegment, exportSegments, type Segment } from '@/api/segments'
+import { fetchSegments, deleteSegment, recomputeSegment, type Segment } from '@/api/segments'
 import { getMe } from '@/api/auth'
 import { useModal } from '@/lib/modal'
-import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 import { fmtDist } from '@/lib/format'
-import { triggerBlobDownload } from '@/lib/utils'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
 import SegmentEditModal from '@/components/SegmentEditModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
@@ -78,7 +76,6 @@ export default function SegmentsPage() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const { openModal } = useModal()
-  const { addToast } = useToast()
   const { isJobActiveForEntity } = useActiveJobs()
   const { hideUnused } = useGlobalSportSettings()
   const [localPendingIds, setLocalPendingIds] = useState<Set<string>>(new Set())
@@ -87,7 +84,6 @@ export default function SegmentsPage() {
   const [editingSegment, setEditingSegment] = useState<Segment | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [selectionMode, setSelectionMode] = useState(false)
-  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
 
   const { data: me } = useQuery({
     queryKey: ['me'],
@@ -195,31 +191,6 @@ export default function SegmentsPage() {
       next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
-  }
-
-  const bulkDeleteMut = useMutation({
-    mutationFn: () => deleteSegments([...selectedIds]),
-    onSuccess: ({ deleted }) => {
-      const msg = deleted === 1 ? '1 Segment gelöscht' : `${deleted} Segmente gelöscht`
-      addToast({ type: 'success', title: msg })
-      setSelectedIds(new Set())
-      setSelectionMode(false)
-      setConfirmBulkDelete(false)
-      queryClient.invalidateQueries({ queryKey: ['segments'] })
-    },
-    onError: () => {
-      addToast({ type: 'error', title: 'Löschen fehlgeschlagen', message: 'Die Segmente konnten nicht gelöscht werden', duration: 0 })
-      setConfirmBulkDelete(false)
-    },
-  })
-
-  const handleBulkExport = async (format: 'gpx' | 'geojson') => {
-    try {
-      const result = await exportSegments([...selectedIds], format)
-      triggerBlobDownload(result.blob, result.filename ?? 'segments.zip')
-    } catch {
-      addToast({ type: 'error', title: 'Export fehlgeschlagen', message: 'Die Segmente konnten nicht exportiert werden', duration: 0 })
-    }
   }
 
   const handleDelete = (e: React.MouseEvent, id: string) => {
@@ -482,8 +453,8 @@ export default function SegmentsPage() {
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-500">
                   {segment.distance_m != null && <span>{fmtDist(segment.distance_m)}</span>}
                   <span>{segment.effort_count} {segment.effort_count === 1 ? 'Effort' : 'Efforts'}</span>
-                  {segment.segment_type_meta?.surface && (
-                    <span className="text-neutral-400 italic">{segment.segment_type_meta.surface as string}</span>
+                  {!!segment.segment_type_meta?.surface && (
+                    <span className="text-neutral-400 italic">{String(segment.segment_type_meta.surface)}</span>
                   )}
               </div>
             </div>
