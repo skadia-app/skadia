@@ -2,7 +2,7 @@
 // Task 8.4e: Save-Mutation + Lap-Mode + Enrichment-Wiring (complete)
 // Polish batch: A1-A4 (map/track), B1-B4 (top-bar), D1-D2 (bottom-bar chart)
 import { createPortal } from 'react-dom'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useId } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import maplibregl, { type RequestParameters } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -157,6 +157,10 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   const [hasUserSelection, setHasUserSelection] = useState(false)
   // (Vorschau-Phase entfernt — user-feedback: "macht nichts außer zu locken".
   // Save-Button saved direkt. Kein Intermediate-State mehr.)
+
+  // ── Discard-confirmation dialog (replaces native window.confirm — Fix #13) ──
+  const [discardDialogOpen, setDiscardDialogOpen] = useState(false)
+  const discardDialogId = useId()
 
   // ── Lap-mode state ────────────────────────────────────────────────────────
   const [lapCrossings, setLapCrossings] = useState<number[]>([])
@@ -640,6 +644,25 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     setHasUserSelection(false)
   }, [initialRange])
 
+  // handleFullReset: resets both geometry selection AND all form fields (Fix #12).
+  // The initial meta shape mirrors the useState initializer at mount.
+  const handleFullReset = useCallback(() => {
+    setRange(initialRange)
+    setHasUserSelection(false)
+    setMeta({
+      name: '',
+      segType: (mode === 'lap' ? 'lap' : 'standard') as SegType,
+      sportTypes: null,
+      sacScale: null,
+      mtbScale: null,
+      surface: null,
+      difficultyColor: null,
+      bidirectional: BIDIRECTIONAL_DEFAULT[(mode === 'lap' ? 'lap' : 'standard') as SegType],
+      userEditedBidirectional: false,
+      isPublic: true,
+    })
+  }, [initialRange, mode])
+
   const handleTrackReverse = useCallback(() => {
     setEditedTrackPoints(prev => {
       const N = prev.length
@@ -736,6 +759,28 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     setDrawnCoords([])
   }, [])
 
+  // ── Save with frontend validation (Fix #11) ───────────────────────────────
+  // Provides immediate user feedback for missing required fields instead of
+  // silently dispatching a request that the backend would reject with 4xx.
+  const handleSave = useCallback(() => {
+    if (!meta.name.trim()) {
+      addToast({ type: 'warning', title: 'Name erforderlich', message: 'Bitte gib dem Segment einen Namen.' })
+      return
+    }
+    if (mode === 'track') {
+      const count = range[1] - range[0] + 1
+      if (count < 2) {
+        addToast({ type: 'warning', title: 'Zu kurze Auswahl', message: 'Wähle mindestens 2 Trackpunkte aus.' })
+        return
+      }
+    }
+    if (mode === 'draw' && drawnCoords.length < 2) {
+      addToast({ type: 'warning', title: 'Segment zu kurz', message: 'Zeichne mindestens 2 Punkte.' })
+      return
+    }
+    saveMutation.mutate()
+  }, [meta.name, mode, range, drawnCoords.length, saveMutation, addToast])
+
   // ── Dirty state + close logic ─────────────────────────────────────────────
   // Checks all meta fields (name, sacScale, mtbScale, surface, difficultyColor,
   // sportTypes, segType, bidirectional, isPublic) via JSON deep-compare, plus
@@ -753,7 +798,11 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   })()
 
   const handleClose = useCallback(() => {
-    if (isDirty && !window.confirm('Ungespeicherte Änderungen verwerfen?')) return
+    if (isDirty) {
+      // Show custom discard dialog instead of native window.confirm (Fix #13)
+      setDiscardDialogOpen(true)
+      return
+    }
     onClose()
   }, [isDirty, onClose])
 
@@ -905,7 +954,8 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
               onCommitRange={commitRangeToMap}
               onReverse={handleTrackReverse}
               onReset={handleRangeReset}
-              onPreviewOrSave={() => saveMutation.mutate()}
+              onResetAll={handleFullReset}
+              onPreviewOrSave={handleSave}
             />
           )}
           {mode === 'draw' && (
@@ -915,7 +965,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
               onClear={drawClear}
               onReverse={drawReverse}
               onReset={drawClear}
-              onPreviewOrSave={() => saveMutation.mutate()}
+              onPreviewOrSave={handleSave}
             />
           )}
           {mode === 'lap' && (
@@ -925,11 +975,47 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
                 // Reset lap state so user can reclick the finish line
                 setLapCrossings([])
               }}
-              onPreviewOrSave={() => saveMutation.mutate()}
+              onPreviewOrSave={handleSave}
             />
           )}
         </div>
       </div>
+
+      {/* Custom discard-confirmation dialog (Fix #13 — replaces window.confirm) */}
+      {discardDialogOpen && (
+        <div
+          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50"
+          aria-modal="true"
+          role="dialog"
+          aria-labelledby={discardDialogId}
+          onClick={(e) => { if (e.target === e.currentTarget) setDiscardDialogOpen(false) }}
+        >
+          <div className="mx-4 w-full max-w-sm rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-6 shadow-2xl">
+            <h3 id={discardDialogId} className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+              Änderungen verwerfen?
+            </h3>
+            <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
+              Du hast ungespeicherte Änderungen. Wenn du jetzt schließt, gehen sie verloren.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDiscardDialogOpen(false)}
+                className="rounded-md border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-3 py-1.5 text-sm text-neutral-700 dark:text-neutral-300 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={() => { setDiscardDialogOpen(false); onClose() }}
+                className="rounded-md bg-accent-DEFAULT px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1"
+              >
+                Änderungen verwerfen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 
