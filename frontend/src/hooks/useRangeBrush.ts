@@ -4,6 +4,14 @@ export interface UseRangeBrushOptions {
   totalPoints: number
   initial?: [number, number]
   onBrushChange?: (range: [number, number]) => void
+  /**
+   * Optional function that converts an ECharts X-axis coordinate value
+   * (e.g. cumulative km) to a track-point index.
+   * When provided, brushEnd coordRange values are converted via this function
+   * instead of being rounded directly (which would be wrong when X = km).
+   * dataZoom startValue/endValue are also converted via this function.
+   */
+  coordToIndex?: (coord: number) => number
 }
 
 export interface UseRangeBrushResult {
@@ -35,13 +43,15 @@ function clampRange(r: [number, number], total: number): [number, number] {
 }
 
 export function useRangeBrush(opts: UseRangeBrushOptions): UseRangeBrushResult {
-  const { totalPoints, initial, onBrushChange } = opts
+  const { totalPoints, initial, onBrushChange, coordToIndex } = opts
   const [range, setRangeState] = useState<[number, number]>(
     clampRange(initial ?? [0, totalPoints - 1], totalPoints),
   )
   const echartsRef = useRef<EchartsLike | null>(null)
   const onBrushChangeRef = useRef(onBrushChange)
   onBrushChangeRef.current = onBrushChange
+  const coordToIndexRef = useRef(coordToIndex)
+  coordToIndexRef.current = coordToIndex
 
   const setRange = useCallback(
     (r: [number, number]) => {
@@ -96,7 +106,14 @@ export function useRangeBrush(opts: UseRangeBrushOptions): UseRangeBrushResult {
         const params = p as { areas?: Array<{ coordRange?: [number, number] }> }
         const area = params?.areas?.[0]
         if (area?.coordRange) {
-          setRange([Math.round(area.coordRange[0]), Math.round(area.coordRange[1])])
+          const toIdx = coordToIndexRef.current
+          if (toIdx) {
+            // X-axis uses a custom coordinate (e.g. km) — convert to index.
+            setRange([toIdx(area.coordRange[0]), toIdx(area.coordRange[1])])
+          } else {
+            // X-axis uses indices directly.
+            setRange([Math.round(area.coordRange[0]), Math.round(area.coordRange[1])])
+          }
         }
       })
 
@@ -104,7 +121,12 @@ export function useRangeBrush(opts: UseRangeBrushOptions): UseRangeBrushResult {
         const params = p as { batch?: Array<{ startValue?: number; endValue?: number }> }
         const first = params?.batch?.[0]
         if (first && first.startValue != null && first.endValue != null) {
-          setRange([Math.round(first.startValue), Math.round(first.endValue)])
+          const toIdx = coordToIndexRef.current
+          if (toIdx) {
+            setRange([toIdx(first.startValue), toIdx(first.endValue)])
+          } else {
+            setRange([Math.round(first.startValue), Math.round(first.endValue)])
+          }
         }
       })
     },
