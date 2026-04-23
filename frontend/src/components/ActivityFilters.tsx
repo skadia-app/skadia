@@ -525,6 +525,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
               size="sm"
               active={true}
               onClick={chip.onRemove}
+              ariaLabel={`Filter entfernen: ${chip.label}`}
             >
               {chip.label}
               <span className="ml-1 opacity-60 text-xs">&times;</span>
