@@ -37,7 +37,6 @@ func TestErrLapSegmentCannotBeReversed(t *testing.T) {
 
 func TestReverseSegmentFlipsGeometryAndEfforts_DB(t *testing.T) {
 	pool := fusionTestPool(t)
-	defer pool.Close()
 
 	userID := insertTestUser(t, pool)
 	segmentID := insertTestSegment(t, pool, userID, TestSegmentOpts{
@@ -93,10 +92,10 @@ func TestReverseSegmentFlipsGeometryAndEfforts_DB(t *testing.T) {
 
 func TestReverseSegmentForbiddenForNonOwner_DB(t *testing.T) {
 	pool := fusionTestPool(t)
-	defer pool.Close()
 
 	ownerID := insertTestUser(t, pool)
 	otherID := insertTestUser(t, pool)
+	// Bidirectional/Track irrelevant für Permission-Test — Default-Segment reicht.
 	segmentID := insertTestSegment(t, pool, ownerID, TestSegmentOpts{})
 
 	h := newTestHandler(t, pool)
@@ -115,10 +114,10 @@ func TestReverseSegmentForbiddenForNonOwner_DB(t *testing.T) {
 
 func TestReverseSegmentAllowsAdminOnForeignSegment_DB(t *testing.T) {
 	pool := fusionTestPool(t)
-	defer pool.Close()
 
 	ownerID := insertTestUser(t, pool)
 	adminID := insertTestUser(t, pool, WithIsAdmin(true))
+	// Bidirectional/Track irrelevant für Permission-Test — Default-Segment reicht.
 	segmentID := insertTestSegment(t, pool, ownerID, TestSegmentOpts{})
 
 	h := newTestHandler(t, pool)
@@ -137,7 +136,6 @@ func TestReverseSegmentAllowsAdminOnForeignSegment_DB(t *testing.T) {
 
 func TestReverseSegmentConcurrentCallsSerialize_DB(t *testing.T) {
 	pool := fusionTestPool(t)
-	defer pool.Close()
 
 	userID := insertTestUser(t, pool)
 	segmentID := insertTestSegment(t, pool, userID, TestSegmentOpts{
