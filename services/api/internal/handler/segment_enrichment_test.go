@@ -17,35 +17,52 @@ import (
 )
 
 // TestEnrichmentHandler_400_TooManyCoordinates verifies that the handler
-// rejects requests with more than maxCoordinates (5000) coordinate pairs.
+// rejects requests with more than maxCoordinates (5000) coordinate pairs
+// regardless of seg_type — including seg_types that would normally short-circuit
+// (wintersport/wassersport). The maxCoordinates check is a Defense-in-Depth
+// guard against DoS payloads and MUST fire before the seg_type short-circuit.
 // No DB required — the check fires before any graph/PostGIS call.
 func TestEnrichmentHandler_400_TooManyCoordinates(t *testing.T) {
+	cases := []struct {
+		name    string
+		segType string
+	}{
+		{"trail", "trail"},
+		{"wintersport", "wintersport"},
+		{"wassersport", "wassersport"},
+	}
+
 	// 5001 coordinates exceed the maxCoordinates = 5000 limit.
 	coords := make([][2]float64, 5001)
 	for i := range coords {
 		coords[i] = [2]float64{float64(i) * 0.0001, 47.0}
 	}
-	body, _ := json.Marshal(map[string]interface{}{
-		"coordinates": coords,
-		"seg_type":    "trail",
-	})
 
 	h := &Handler{DB: &database.DB{Pool: nil}}
 	r := chi.NewRouter()
 	r.Post("/api/v1/segments/enrichment-suggest", h.EnrichmentSuggest)
-
 	userID := "00000000-0000-0000-0000-000000000001"
-	req := httptest.NewRequest("POST", "/api/v1/segments/enrichment-suggest", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", rec.Code)
-	}
-	if body := rec.Body.String(); !strings.Contains(body, "too many coordinates") {
-		t.Errorf("response body %q does not contain 'too many coordinates'", body)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body, _ := json.Marshal(map[string]interface{}{
+				"coordinates": coords,
+				"seg_type":    tc.segType,
+			})
+
+			req := httptest.NewRequest("POST", "/api/v1/segments/enrichment-suggest", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("seg_type=%q: status = %d, want 400 — maxCoordinates check must precede seg_type short-circuit", tc.segType, rec.Code)
+			}
+			if body := rec.Body.String(); !strings.Contains(body, "too many coordinates") {
+				t.Errorf("seg_type=%q: response body %q does not contain 'too many coordinates'", tc.segType, body)
+			}
+		})
 	}
 }
 
