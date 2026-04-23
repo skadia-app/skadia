@@ -19,6 +19,8 @@ const SCALE_COLOR_MAP: Record<string, { bg: string, text: string }> = {
 }
 
 export function DifficultyBadge({ sac, mtb, color }: DifficultyBadgeProps) {
+  if (!color && !sac && !mtb) return null
+
   const style = color ? COLOR_MAP[color as keyof typeof COLOR_MAP] : null
 
   return (
