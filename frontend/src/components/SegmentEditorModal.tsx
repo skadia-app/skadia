@@ -146,6 +146,11 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   const [editedTrackPoints, setEditedTrackPoints] = useState(trackPoints)
   useEffect(() => { setEditedTrackPoints(trackPoints) }, [trackPoints])
 
+  // ── Hover-index: driven by TrackModeBottomBar chart hover (Task 2) ────────
+  // Null = no hover; a number = index into editedTrackPoints.
+  // The MapLibre hover-point layer reads this to place the orange circle marker.
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+
   const initialRange = useMemo<[number, number]>(
     () => [0, Math.max(0, trackPoints.length - 1)],
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -525,6 +530,55 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       })
     }
   }, [mode, range, editedTrackPoints, hasUserSelection, styleVersion])
+
+  // ── Track-mode: hover-point marker (Task 2) ──────────────────────────────
+  // Syncs a MapLibre circle marker with the chart's hover position.
+  // Source id: 'hover-point'  Layer id: 'hover-point-marker'
+  // Only active when mode === 'track'; hidden when hoverIndex is null.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || mode !== 'track') return
+    if (!map.isStyleLoaded()) return
+
+    const emptyGeoJSON: GeoJSON.Feature = {
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'Point', coordinates: [] },
+    }
+
+    const src = map.getSource('hover-point') as maplibregl.GeoJSONSource | undefined
+    if (hoverIndex !== null && hoverIndex >= 0 && hoverIndex < editedTrackPoints.length) {
+      const pt = editedTrackPoints[hoverIndex]
+      const pointFeature: GeoJSON.Feature = {
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Point', coordinates: [pt.lng, pt.lat] },
+      }
+      if (src) {
+        src.setData(pointFeature)
+      } else {
+        map.addSource('hover-point', { type: 'geojson', data: pointFeature })
+        map.addLayer({
+          id: 'hover-point-marker',
+          type: 'circle',
+          source: 'hover-point',
+          paint: {
+            'circle-radius': 8,
+            'circle-color': '#F97316',
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-width': 2,
+            'circle-opacity': 0.95,
+          },
+        })
+      }
+    } else {
+      // No hover: hide the marker by emptying the source data (keeps layer registered)
+      if (src) {
+        src.setData(emptyGeoJSON)
+      }
+      // Source does not exist yet — nothing to do; it will be created on first hover
+    }
+  }, [mode, hoverIndex, editedTrackPoints, styleVersion])
 
   // ── Lap-mode: visualize detected crossings ────────────────────────────────
   useEffect(() => {
@@ -956,6 +1010,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
               onReset={handleRangeReset}
               onResetAll={handleFullReset}
               onPreviewOrSave={handleSave}
+              onHover={setHoverIndex}
             />
           )}
           {mode === 'draw' && (
