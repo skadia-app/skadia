@@ -280,7 +280,13 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
             onChange={e => setNewVersion(e.target.checked)}
             className="mt-0.5 rounded border-neutral-600 accent-accent-DEFAULT"
           />
-          <span className="text-sm text-neutral-300">Neue Version erstellen</span>
+          <span className="text-sm text-neutral-300">
+            Neue Version erstellen
+            <span className="block text-xs text-neutral-500 mt-0.5">
+              Nur aktivieren wenn sich die Route grundlegend ändert.
+              Bestehende Bestzeiten bleiben der alten Version zugeordnet.
+            </span>
+          </span>
         </label>
 
         <div className="flex gap-2 items-center justify-between pt-2">
