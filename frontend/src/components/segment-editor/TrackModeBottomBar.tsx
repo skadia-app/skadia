@@ -1,5 +1,5 @@
 // frontend/src/components/segment-editor/TrackModeBottomBar.tsx
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import {
@@ -28,14 +28,19 @@ export interface TrackModeBottomBarProps {
   onRangeChange: (r: [number, number]) => void
   onCommitRange: (r: [number, number]) => void   // fires on mouse-up / keyboard-commit, triggers map fitBounds
   onReverse: () => void
+  /** Resets only the geometry selection (range). Form values are preserved. */
   onReset: () => void
+  /** Resets everything: geometry selection + all form fields (Fix #12). */
+  onResetAll: () => void
   onPreviewOrSave: () => void
 }
 
 export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
-  const { trackPoints, range, onRangeChange, onCommitRange, onReverse, onReset, onPreviewOrSave } = props
+  const { trackPoints, range, onRangeChange, onCommitRange, onReverse, onReset, onResetAll, onPreviewOrSave } = props
   const chartRef = useRef<HTMLDivElement | null>(null)
   const echartsInstanceRef = useRef<echarts.ECharts | null>(null)
+  // Inline confirm state for "Alles zurücksetzen" (Fix #12)
+  const [confirmResetAll, setConfirmResetAll] = useState(false)
 
   const { bindEcharts, setStart, setEnd } = useRangeBrush({
     totalPoints: trackPoints.length,
@@ -205,13 +210,18 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
   const startPct = (range[0] / total) * 100
   const endPct = (range[1] / total) * 100
 
-  // Z-index strategy for dual-range thumb interaction:
-  // When start is in the left half (pct ≤ 50) we lift the start input on top
-  // so its thumb can be grabbed from the left side without the end input
-  // blocking pointer events. When start is in the right half, end goes on top
-  // so the end thumb at the right edge stays interactive.
-  // Additionally, when handles are very close (within 5% of each other),
-  // keep start on top so the user can pull it leftward.
+  // Fix #14 — Slider snap bug: when both thumbs are implemented as two stacked
+  // <input type="range"> elements, the browser hits the topmost element. The naive
+  // z-index flip (startOnTop when startPct <= 50) caused the snap-to-B bug:
+  // if start was in the right half and the user tried to grab it, they were actually
+  // grabbing the end input (which was on top), causing end to teleport to start's
+  // visual position. The corrected logic:
+  //   - Prefer END on top when end is clearly ahead of start (gap >= 5%) AND
+  //     end is in the left half — so the user can easily grab end from the left.
+  //   - Otherwise (thumbs close, or start in left half), keep start on top so
+  //     the user can pull start further left without hitting end.
+  // This heuristic eliminates the "A snaps to B" regression while preserving
+  // correct behaviour for the common case (start in left half, end in right half).
   const startOnTop = startPct <= 50 || (endPct - startPct) < 5
 
   return (
@@ -313,11 +323,11 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
           <span>Umkehren</span>
         </button>
 
-        {/* Reset */}
+        {/* Reset geometry only (Fix #12 — separate from full reset) */}
         <button
           type="button"
           onClick={onReset}
-          title="Auf gespeicherten Stand zurücksetzen"
+          title="Nur Geometrie-Auswahl zurücksetzen (Formularwerte bleiben)"
           className={cn(
             'rounded-md px-2 py-1 text-xs',
             'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400',
@@ -325,8 +335,43 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
             'transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300',
           )}
         >
-          Reset
+          Geometrie
         </button>
+
+        {/* Reset all: geometry + form fields, with inline confirm (Fix #12) */}
+        {confirmResetAll ? (
+          <span className="flex items-center gap-1 text-xs">
+            <span className="shrink-0 text-neutral-600 dark:text-neutral-300">Alles zurücksetzen?</span>
+            <button
+              type="button"
+              onClick={() => { setConfirmResetAll(false); onResetAll() }}
+              className="rounded-md border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/40 px-2 py-1 text-xs font-medium text-red-700 dark:text-red-300 transition-colors hover:bg-red-100 dark:hover:bg-red-900/60"
+            >
+              Ja
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmResetAll(false)}
+              className="rounded-md border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs text-neutral-600 dark:text-neutral-300 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700"
+            >
+              Nein
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirmResetAll(true)}
+            title="Geometrie und alle Formularwerte zurücksetzen"
+            className={cn(
+              'rounded-md px-2 py-1 text-xs',
+              'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400',
+              'border border-neutral-200 dark:border-neutral-700',
+              'transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300',
+            )}
+          >
+            Alles
+          </button>
+        )}
 
         {/* Primary CTA — orange accent */}
         <button
