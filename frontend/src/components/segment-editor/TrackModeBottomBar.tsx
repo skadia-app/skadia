@@ -12,7 +12,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { ArrowLeftRight, ZoomIn } from 'lucide-react'
 import { useRangeBrush } from '@/hooks/useRangeBrush'
-import { cn } from '@/lib/utils'
+import { cn, findClosestIdx } from '@/lib/utils'
 
 echarts.use([LineChart, GridComponent, BrushComponent, ToolboxComponent, TooltipComponent, DataZoomComponent, CanvasRenderer])
 
@@ -34,10 +34,12 @@ export interface TrackModeBottomBarProps {
   /** Resets everything: geometry selection + all form fields (Fix #12). */
   onResetAll: () => void
   onPreviewOrSave: () => void
+  /** Fired when the hover position on the chart changes. index = track-point index (0-based), null = no hover. */
+  onHover?: (index: number | null) => void
 }
 
 export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
-  const { trackPoints, range, onRangeChange, onCommitRange, onReverse, onReset, onResetAll, onPreviewOrSave } = props
+  const { trackPoints, range, onRangeChange, onCommitRange, onReverse, onReset, onResetAll, onPreviewOrSave, onHover } = props
   const chartRef = useRef<HTMLDivElement | null>(null)
   const echartsInstanceRef = useRef<echarts.ECharts | null>(null)
   // Inline confirm state for "Alles zurücksetzen" (Fix #12)
@@ -62,6 +64,11 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
   // capture a stale version of the prop. Must be updated every render.
   const onCommitRangeRefCapture = useRef(onCommitRange)
   onCommitRangeRefCapture.current = onCommitRange
+
+  // Stable ref for onHover (same pattern) — keeps the ZR listener closure from
+  // going stale when the parent re-renders and passes a new function reference.
+  const onHoverRef = useRef(onHover)
+  onHoverRef.current = onHover
 
   // coordToIndex: converts km X-axis value → nearest track-point index.
   // Binary-search on the cumulativeKm array for O(log n) lookup.
@@ -172,12 +179,17 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
         transformable: true,
         brushType: 'lineX',
         brushMode: 'single',
-        inBrush: { colorAlpha: 1 },
-        outOfBrush: { colorAlpha: 0.3 },
+        // inBrush/outOfBrush: while dragging, the selected area stays fully
+        // opaque (accent orange) and the rest dims to 30 % — gives clear
+        // "dimming" feedback analogous to ActivityCharts brush behaviour.
+        inBrush: { colorAlpha: 1, color: '#F97316' },
+        outOfBrush: { colorAlpha: 0.25 },
         brushStyle: {
-          borderWidth: 1,
-          borderColor: 'rgba(249,115,22,0.6)',
-          color: 'rgba(249,115,22,0.12)',
+          // Raised border contrast (1→2 px, full opacity) so the brush
+          // selection is clearly visible even on very short track segments.
+          borderWidth: 2,
+          borderColor: '#F97316',
+          color: 'rgba(249,115,22,0.18)',
         },
       },
       // DataZoom component: allows X-axis to zoom into the selected brush region.
@@ -243,7 +255,46 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
       off: ec.off.bind(ec),
       dispatchAction: ec.dispatchAction.bind(ec) as (a: unknown) => void,
     })
-    return () => { ec.dispose(); echartsInstanceRef.current = null }
+
+    // ── Hover-point sync (Task 2) ──────────────────────────────────────────
+    // Pattern adapted from ActivityCharts.tsx `setupChartInteractions`:
+    // use the ZRenderer low-level events so we get pixel coords and can map
+    // them to the nearest track-point index via findClosestIdx on cumulativeKm.
+    // onHoverRef keeps the closure stable so we never need to re-register the ZR
+    // listeners when the prop reference changes between renders.
+    const zr = ec.getZr()
+    let lastHoverIdx: number | null = null
+
+    const zrMouseMove = (e: unknown) => {
+      const evt = e as { offsetX?: number; offsetY?: number }
+      if (evt.offsetX == null || evt.offsetY == null) return
+      const inGrid = ec.containPixel({ gridIndex: 0 }, [evt.offsetX, evt.offsetY])
+      if (!inGrid) {
+        if (lastHoverIdx !== null) { lastHoverIdx = null; onHoverRef.current?.(null) }
+        return
+      }
+      const xVal = ec.convertFromPixel({ xAxisIndex: 0 }, evt.offsetX) as number | null
+      if (xVal == null) {
+        if (lastHoverIdx !== null) { lastHoverIdx = null; onHoverRef.current?.(null) }
+        return
+      }
+      const idx = findClosestIdx(cumulativeKm, xVal)
+      if (idx !== lastHoverIdx) { lastHoverIdx = idx; onHoverRef.current?.(idx) }
+    }
+
+    const zrMouseOut = () => {
+      if (lastHoverIdx !== null) { lastHoverIdx = null; onHoverRef.current?.(null) }
+    }
+
+    zr.on('mousemove', zrMouseMove)
+    zr.on('mouseout', zrMouseOut)
+
+    return () => {
+      zr.off('mousemove', zrMouseMove)
+      zr.off('mouseout', zrMouseOut)
+      ec.dispose()
+      echartsInstanceRef.current = null
+    }
   }, [trackPoints, hasElevation, elevationSeries, cumulativeKm, bindEcharts, coordToIndex])
 
   // Reflect external range changes back to the brush visual.
