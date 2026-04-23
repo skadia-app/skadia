@@ -2,42 +2,180 @@ package handler
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"os"
 	"testing"
+	"time"
 
-	"github.com/google/uuid"
+	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// insertTestUser creates a random user for integration tests.
-// cleanup is handled via t.Cleanup.
-func insertTestUser(t *testing.T, pool *pgxpool.Pool, nameEmail ...string) string {
+// fusionTestPool returns a live DB pool or skips the test when TEST_DATABASE_URL
+// is unset. Pattern mirrors auth/gdpr_registry_test.go:testPool.
+func fusionTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	ctx := context.Background()
-	userID := uuid.New().String()
-
-	username := "test_" + userID[:8]
-	email := "test_" + userID[:8] + "@example.com"
-	if len(nameEmail) > 0 {
-		username = nameEmail[0]
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set — skipping DB-integration test")
 	}
-	if len(nameEmail) > 1 {
-		email = nameEmail[1]
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
 	}
+	t.Cleanup(func() { pool.Close() })
+	return pool
+}
 
-	_, err := pool.Exec(ctx,
-		`INSERT INTO users (id, username, email, email_verified, registration_source)
-		 VALUES ($1, $2, $3, true, 'test')`,
-		userID, username, email,
-	)
+// newTestHandler constructs a *Handler with minimal fields.
+func newTestHandler(t *testing.T, pool *pgxpool.Pool) *Handler {
+	t.Helper()
+	return &Handler{
+		DB: &database.DB{Pool: pool},
+	}
+}
+
+// TestUserOpt is functional option for insertTestUser.
+type TestUserOpt func(*testUserOpts)
+type testUserOpts struct {
+	email   string
+	isAdmin bool
+}
+
+func WithEmail(e string) TestUserOpt  { return func(o *testUserOpts) { o.email = e } }
+func WithIsAdmin(b bool) TestUserOpt  { return func(o *testUserOpts) { o.isAdmin = b } }
+
+// insertTestUser creates a random user for integration tests.
+func insertTestUser(t *testing.T, pool *pgxpool.Pool, opts ...TestUserOpt) string {
+	t.Helper()
+	o := testUserOpts{email: "test-" + randomHex(8) + "@example.com"}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	username := "testuser-" + randomHex(4)
+	var userID string
+	err := pool.QueryRow(context.Background(),
+		`INSERT INTO users (id, username, email, email_verified, registration_source, is_admin)
+		 VALUES (gen_random_uuid(), $1, $2, true, 'test', $3) RETURNING id`,
+		username, o.email, o.isAdmin).Scan(&userID)
 	if err != nil {
 		t.Fatalf("insertTestUser: %v", err)
 	}
-
 	t.Cleanup(func() {
 		// Clean up activities (cascades efforts/versions), then the user
 		pool.Exec(context.Background(), "DELETE FROM activities WHERE user_id = $1", userID)
 		pool.Exec(context.Background(), "DELETE FROM users WHERE id = $1", userID)
 	})
-
 	return userID
+}
+
+// TestSegmentOpts configures the test segment.
+type TestSegmentOpts struct {
+	Track         string // WKT, default "LINESTRING(0 0, 1 1)"
+	SegmentType   string // default "standard"
+	Bidirectional bool   // default true
+}
+
+func insertTestSegment(t *testing.T, pool *pgxpool.Pool, userID string, opts TestSegmentOpts) string {
+	t.Helper()
+	if opts.Track == "" {
+		opts.Track = "LINESTRING(0 0, 1 1)"
+	}
+	if opts.SegmentType == "" {
+		opts.SegmentType = "standard"
+	}
+
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var segID string
+	err = tx.QueryRow(ctx, `
+		INSERT INTO segments (id, name, sport_group, segment_type, created_by, visibility, bidirectional)
+		VALUES (gen_random_uuid(), 'test-seg-'||gen_random_uuid(), 'generic', $1, $2, 'public', $3)
+		RETURNING id`,
+		opts.SegmentType, userID, opts.Bidirectional).Scan(&segID)
+	if err != nil {
+		t.Fatalf("insert segment: %v", err)
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO segment_versions (id, segment_id, version_number, track, valid_from, created_by)
+		VALUES (gen_random_uuid(), $1, 1, ST_GeomFromText($2, 4326), CURRENT_DATE, $3)`,
+		segID, opts.Track, userID)
+	if err != nil {
+		t.Fatalf("insert segment_version: %v", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit tx: %v", err)
+	}
+	return segID
+}
+
+func insertTestEffort(t *testing.T, pool *pgxpool.Pool, segmentID, userID string, isReverse bool) string {
+	t.Helper()
+	ctx := context.Background()
+
+	var versionID string
+	err := pool.QueryRow(ctx,
+		`SELECT id FROM segment_versions WHERE segment_id = $1 ORDER BY version_number DESC LIMIT 1`,
+		segmentID).Scan(&versionID)
+	if err != nil {
+		t.Fatalf("lookup version: %v", err)
+	}
+
+	var activityID string
+	err = pool.QueryRow(ctx,
+		`INSERT INTO activities (id, user_id, sport_type, started_at)
+		 VALUES (gen_random_uuid(), $1, 'running', NOW()) RETURNING id`,
+		userID).Scan(&activityID)
+	if err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+
+	var effortID string
+	err = pool.QueryRow(ctx, `
+		INSERT INTO segment_efforts
+		  (id, segment_id, segment_version_id, activity_id, user_id, started_at, elapsed_time_s, is_reverse, sport_type, sub_type)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, NOW(), 100, $5, 'running', 'generic')
+		RETURNING id`,
+		segmentID, versionID, activityID, userID, isReverse).Scan(&effortID)
+	if err != nil {
+		t.Fatalf("insert effort: %v", err)
+	}
+	return effortID
+}
+
+func insertMinimalActivity(t *testing.T, db *database.DB, userID string) string {
+	t.Helper()
+	now := time.Now().UTC().Truncate(time.Second)
+	act, err := db.InsertActivity(context.Background(), userID, &model.ActivityData{
+		SportType: "cycling",
+		StartedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("insertMinimalActivity: %v", err)
+	}
+	return act.ID
+}
+
+func withUserAndAdmin(ctx context.Context, userID string, isAdmin bool) context.Context {
+	ctx = context.WithValue(ctx, middleware.UserIDKey, userID)
+	ctx = context.WithValue(ctx, middleware.IsAdminKey, isAdmin)
+	return ctx
+}
+
+func randomHex(n int) string {
+	buf := make([]byte, n)
+	_, _ = rand.Read(buf)
+	return hex.EncodeToString(buf)
 }

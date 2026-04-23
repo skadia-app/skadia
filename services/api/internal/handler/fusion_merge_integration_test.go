@@ -50,7 +50,6 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -62,55 +61,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-// fusionTestPool returns a live DB pool or skips the test when TEST_DATABASE_URL
-// is unset.  Pattern mirrors auth/gdpr_registry_test.go:testPool.
-func fusionTestPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	dsn := testDatabaseURL(t)
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Fatalf("connect to test DB: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
-}
-
-// testDatabaseURL skips if TEST_DATABASE_URL is not set.
-func testDatabaseURL(t *testing.T) string {
-	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
-	}
-	return dsn
-}
-
-// insertTestUser inserts a minimal user row and registers a cleanup that removes
-// all activities (cascades streams) and the user row.
-// insertMinimalActivity inserts a bare-minimum activity and returns its ID.
-func insertMinimalActivity(t *testing.T, db *database.DB, userID string) string {
-
-	t.Helper()
-	now := time.Now().UTC().Truncate(time.Second)
-	act, err := db.InsertActivity(context.Background(), userID, &model.ActivityData{
-		SportType: "cycling",
-		StartedAt: now,
-		EndedAt:   now.Add(30 * time.Minute),
-		FileHash:  uuid.New().String(),
-	})
-	if err != nil {
-		t.Fatalf("insertMinimalActivity: %v", err)
-	}
-	return act.ID
-}
-
 // insertStreams inserts the given stream rows for activityID.
 func insertStreams(t *testing.T, db *database.DB, activityID string, streams []model.StreamPoint) {
+
 	t.Helper()
 	if err := db.InsertStreams(context.Background(), activityID, streams); err != nil {
 		t.Fatalf("insertStreams(%s): %v", activityID, err)
