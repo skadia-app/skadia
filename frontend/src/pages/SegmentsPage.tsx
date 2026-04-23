@@ -1,12 +1,14 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchSegments, deleteSegment, recomputeSegment, type Segment } from '@/api/segments'
+import { fetchSegments, deleteSegment, deleteSegments, recomputeSegment, exportSegments, type Segment } from '@/api/segments'
 import { getMe } from '@/api/auth'
 import { useModal } from '@/lib/modal'
+import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 import { fmtDist } from '@/lib/format'
+import { triggerBlobDownload } from '@/lib/utils'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
 import SegmentEditModal from '@/components/SegmentEditModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
@@ -76,6 +78,7 @@ export default function SegmentsPage() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const { openModal } = useModal()
+  const { addToast } = useToast()
   const { isJobActiveForEntity } = useActiveJobs()
   const { hideUnused } = useGlobalSportSettings()
   const [localPendingIds, setLocalPendingIds] = useState<Set<string>>(new Set())
@@ -84,6 +87,7 @@ export default function SegmentsPage() {
   const [editingSegment, setEditingSegment] = useState<Segment | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [selectionMode, setSelectionMode] = useState(false)
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
 
   const { data: me } = useQuery({
     queryKey: ['me'],
@@ -191,6 +195,31 @@ export default function SegmentsPage() {
       next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
+  }
+
+  const bulkDeleteMut = useMutation({
+    mutationFn: () => deleteSegments([...selectedIds]),
+    onSuccess: ({ deleted }) => {
+      const msg = deleted === 1 ? '1 Segment gelöscht' : `${deleted} Segmente gelöscht`
+      addToast({ type: 'success', title: msg })
+      setSelectedIds(new Set())
+      setSelectionMode(false)
+      setConfirmBulkDelete(false)
+      queryClient.invalidateQueries({ queryKey: ['segments'] })
+    },
+    onError: () => {
+      addToast({ type: 'error', title: 'Löschen fehlgeschlagen', message: 'Die Segmente konnten nicht gelöscht werden', duration: 0 })
+      setConfirmBulkDelete(false)
+    },
+  })
+
+  const handleBulkExport = async (format: 'gpx' | 'geojson') => {
+    try {
+      const result = await exportSegments([...selectedIds], format)
+      triggerBlobDownload(result.blob, result.filename ?? 'segments.zip')
+    } catch {
+      addToast({ type: 'error', title: 'Export fehlgeschlagen', message: 'Die Segmente konnten nicht exportiert werden', duration: 0 })
+    }
   }
 
   const handleDelete = (e: React.MouseEvent, id: string) => {
@@ -404,6 +433,86 @@ export default function SegmentsPage() {
           </div>
         )}
       </div>
+
+      {/* Bulk Action Toolbar */}
+      {selectedIds.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 p-3 bg-neutral-100 dark:bg-neutral-800 rounded-lg mb-4">
+          <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+            {selectedIds.size === 1 ? '1 ausgewählt' : `${selectedIds.size} ausgewählt`}
+          </span>
+          <button
+            onClick={() => setSelectedIds(new Set(segments.map((s: Segment) => s.id)))}
+            className="px-2.5 py-1 text-xs font-medium rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
+          >
+            Alle auswählen
+          </button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="px-2.5 py-1 text-xs font-medium rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
+          >
+            Auswahl aufheben
+          </button>
+          <button
+            onClick={() => handleBulkExport('gpx')}
+            className="px-2.5 py-1 text-xs font-medium rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
+          >
+            GPX exportieren
+          </button>
+          <button
+            onClick={() => handleBulkExport('geojson')}
+            className="px-2.5 py-1 text-xs font-medium rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
+          >
+            GeoJSON exportieren
+          </button>
+          <button
+            onClick={() => setConfirmBulkDelete(true)}
+            className="px-2.5 py-1 text-xs font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 cursor-pointer transition-colors"
+          >
+            Löschen
+          </button>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Dialog */}
+      {confirmBulkDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setConfirmBulkDelete(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="bulk-delete-title"
+        >
+          <div
+            className="bg-white dark:bg-neutral-900 p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 id="bulk-delete-title" className="text-base font-semibold text-neutral-900 dark:text-neutral-100 mb-2">
+              Segmente löschen?
+            </h3>
+            <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-5">
+              {selectedIds.size === 1
+                ? '1 Segment wird unwiderruflich gelöscht.'
+                : `${selectedIds.size} Segmente werden unwiderruflich gelöscht.`}
+              {' '}OSM-Liftabschnitte werden dabei übersprungen.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setConfirmBulkDelete(false)}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={() => bulkDeleteMut.mutate()}
+                disabled={bulkDeleteMut.isPending}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              >
+                {bulkDeleteMut.isPending ? 'Lösche...' : 'Endgültig löschen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Segment Cards */}
       {segments.length === 0 ? (
