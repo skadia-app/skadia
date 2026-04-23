@@ -1,6 +1,6 @@
 import React from 'react'
 import { Check } from 'lucide-react'
-import { Pill } from './Pill'
+import { Pill } from '../ui/Pill'
 import { sportsInCategory, getSegmentGroup } from '@/lib/sportTaxonomy'
 import { WINTER_SPORT_WHITELIST, WATER_SPORT_WHITELIST, type SegType } from './constants'
 
@@ -65,7 +65,7 @@ export function SportCategoryChips({ segType, activeTypes, onToggleCategory, onS
         onClick={onSetAll}
         leftSlot={activeTypes === null ? <Check className="h-3.5 w-3.5 shrink-0" /> : undefined}
       >
-        All
+        Alle
       </Pill>
 
       {visible.map(cat => {

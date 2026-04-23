@@ -8,7 +8,7 @@ import {
   type SegType,
   type ClimbType,
 } from './constants'
-import { Pill } from './Pill'
+import { Pill } from '../ui/Pill'
 import { DifficultySelects } from './DifficultySelects'
 import { SurfaceDropdown } from './SurfaceDropdown'
 import { ClimbTypePills } from './ClimbTypePills'
@@ -317,7 +317,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
                onChange={(v) => onMetaChange({ difficultyColor: v })}
              />
              {!['trail', 'wintersport'].includes(meta.segType) && (
-               <div className="text-xs text-neutral-400 italic">Only available for Trail/Winter segments</div>
+               <div className="text-xs text-neutral-400 italic">Nur für Trail/Wintersport verfügbar</div>
              )}
           </div>
         </div>
