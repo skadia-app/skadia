@@ -117,9 +117,12 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
   })
 
   function handleReverse() {
+    const effortMsg = segment.effort_count > 0
+      ? `${segment.effort_count} öffentliche Efforts + eigene private Efforts werden mit invertiertem is_reverse-Flag aktualisiert und die Segment-Ranks neu berechnet. Diese Aktion kann nicht rückgängig gemacht werden.`
+      : 'Keine öffentlichen Efforts betroffen. Richtung des Segments umkehren?'
     openModal({
-      title: 'Segment umkehren?',
-      message: 'Das Umkehren der Richtung kann nicht rückgängig gemacht werden.',
+      title: 'Richtung umkehren?',
+      message: effortMsg,
       buttons: [
         { label: 'Abbrechen', variant: 'default', onClick: () => {} },
         { label: 'Umkehren', variant: 'destructive', onClick: () => reverseMutation.mutate() },
