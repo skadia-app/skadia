@@ -611,7 +611,7 @@ export default function RoutesPage() {
             <RouteCard
               key={route.id}
               route={route}
-              onEdit={() => navigate('/map', { state: { activateRoutePlanner: true, editRouteId: route.id } })}
+              onEdit={() => navigate('/map', { state: { editRouteId: route.id } })}
               onDuplicate={() => duplicateMut.mutate(route.id)}
               onDelete={() => handleDelete(route)}
               onExportGPX={() => handleExportGPX(route)}
