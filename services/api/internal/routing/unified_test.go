@@ -468,7 +468,7 @@ func tvBits(v uint8) uint64 { return uint64(v&0x7) << 36 }
 
 func TestBuildSegmentsUnified_Tags2OutdoorSplit(t *testing.T) {
 	segs := buildSegmentsUnified(2,
-		[]int{0, 2}, []uint64{16, 16}, []uint64{tvBits(2), tvBits(5)}, 4)
+		[]int{0, 2}, []uint64{16, 16}, []uint64{tvBits(2), tvBits(5)}, nil, nil, 4)
 	if len(segs) != 2 {
 		t.Errorf("expected 2 segments on tv-split; got %d", len(segs))
 	}
@@ -477,8 +477,317 @@ func TestBuildSegmentsUnified_Tags2OutdoorSplit(t *testing.T) {
 func TestBuildSegmentsUnified_Tags2NonOutdoorNoSplit(t *testing.T) {
 	// forest_pct (bits 0-6) is outside outdoorTags2Mask (bits 30-38).
 	segs := buildSegmentsUnified(2,
-		[]int{0, 2}, []uint64{16, 16}, []uint64{uint64(50), uint64(70)}, 4)
+		[]int{0, 2}, []uint64{16, 16}, []uint64{uint64(50), uint64(70)}, nil, nil, 4)
 	if len(segs) != 1 {
 		t.Errorf("expected 1 segment on non-outdoor diff; got %d", len(segs))
+	}
+}
+
+// makeElevGraph creates a 3-node, 2-edge chain graph with explicit elevation profiles.
+// elevPoints[i] = decimeter elevation values for edge i.
+// segDistsCm[i] = N-1 segment distances in cm for edge i (len = len(elevPoints[i])-1).
+// edgeDistCm[i] = total edge distance in cm.
+// highway=track (enum 15) so all edges are passable.
+func makeElevGraph(elevPoints [][]int32, segDistsCm [][]uint16, edgeDistCm []uint32) *graph.Graph {
+	nNodes := len(elevPoints) + 1
+	nEdges := uint32(len(elevPoints))
+	const trackTags1 uint64 = 15
+
+	offsets := make([]uint32, nNodes+1)
+	targets := make([]uint32, nEdges)
+	dist := make([]uint32, nEdges)
+	tags1 := make([]uint64, nEdges)
+	tags2 := make([]uint64, nEdges)
+	osmIdx := make([]uint32, nEdges)
+
+	for i := range int(nEdges) {
+		offsets[i] = uint32(i)
+		targets[i] = uint32(i + 1)
+		dist[i] = edgeDistCm[i]
+		tags1[i] = trackTags1
+	}
+	offsets[nEdges] = nEdges
+	offsets[nEdges+1] = nEdges // last node has no outgoing edges
+
+	nodeLat := make([]int32, nNodes)
+	nodeLon := make([]int32, nNodes)
+	nodeEle := make([]int32, nNodes)
+	nodeTags := make([]uint8, nNodes)
+	isBorder := make([]bool, nNodes)
+
+	for i := range nNodes {
+		nodeLat[i] = int32(470000000 + i*9000)
+		nodeLon[i] = int32(80000000)
+		if len(elevPoints[0]) > 0 {
+			nodeEle[i] = elevPoints[0][0]
+		}
+	}
+
+	// Build flat elevation profile arrays with ElevOff (N+1 entries for N edges).
+	geomOff := make([]uint32, nEdges+1)
+	elevOff := make([]uint32, nEdges+1)
+	var elevProf []int32
+	var elevSegDist []uint16
+
+	// C05: elevOff[i] = start of edge i's profile in elevProf[]
+	// segDistStart = elevOff[i] - i (junction-dedup offset pattern)
+	// The reader computes segDistStart = elevOff[i] - i to index into EdgeElevSegDist.
+	// We need elevOff[0]=0, elevOff[1]=len(elevPoints[0]), etc.
+	for i, pts := range elevPoints {
+		elevOff[i] = uint32(len(elevProf))
+		elevProf = append(elevProf, pts...)
+		if len(pts) > 1 {
+			elevSegDist = append(elevSegDist, segDistsCm[i]...)
+		}
+	}
+	elevOff[nEdges] = uint32(len(elevProf))
+
+	g := &graph.Graph{
+		NodeCount:       uint32(nNodes),
+		EdgeCount:       nEdges,
+		Offsets:         offsets,
+		Targets:         targets,
+		EdgeDist:        dist,
+		EdgeTags1:       tags1,
+		EdgeTags2:       tags2,
+		EdgeOSMIdx:      osmIdx,
+		OSMIDPool:       []int64{1},
+		EdgeGeomOff:     geomOff,
+		EdgeGeomLat:     []int32{},
+		EdgeGeomLon:     []int32{},
+		EdgeElevOff:     elevOff,
+		EdgeElevProf:    elevProf,
+		EdgeElevSegDist: elevSegDist,
+		NodeLat:         nodeLat,
+		NodeLon:         nodeLon,
+		NodeEle:         nodeEle,
+		NodeTags:        nodeTags,
+		IsBorder:        isBorder,
+	}
+	g.Grid = graph.BuildSpatialIndex(g, 0.01)
+	return g
+}
+
+// retrackViaFullRoute is a test helper that runs pass0+pass1+retrack on the
+// given graph from node 0 to the last node. Returns the RouteResult.
+func retrackViaFullRoute(t *testing.T, g *graph.Graph) *RouteResult {
+	t.Helper()
+	reader := &SingleGraphReader{G: g, TileID: 0}
+	cfg := DefaultCostConfig()
+	src := MakeGlobalNodeID(0, 0)
+	dst := MakeGlobalNodeID(0, g.NodeCount-1)
+
+	pass0, err := findRouteUnified(context.Background(), reader, nil, nil, src, dst, cfg, cfg.Pass0Coefficient, 0, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("pass0 failed: %v", err)
+	}
+	trackIndex := buildTrackIndexUnified(pass0.state, dst, 0)
+
+	pass1, err := findRouteUnified(context.Background(), reader, nil, nil, src, dst, cfg, 0, pass0.totalCost*cfg.Pass0Coefficient*cfg.Pass0Coefficient, trackIndex, nil, nil)
+	if err != nil {
+		t.Fatalf("pass1 failed: %v", err)
+	}
+
+	result := retrackUnified(reader, pass1.state, pass1.bestDstNode, nil, nil, cfg)
+	if result == nil {
+		t.Fatal("retrackUnified returned nil")
+	}
+	return result
+}
+
+// TestRetrackUnified_NoSpike_NonMonotonicEdge verifies that after T1.3 the
+// ElevationProfile contains RAW non-monotone values (not the flat carriedEle).
+// Edge: elevs = [5930, 7000, 9000, 15000, 18000, 17500, 17000, 18910] dm.
+// Before T1.3: coord intermediates all had carriedEle=5930 (flat spike artefact).
+// After T1.3: ElevationProfile[3].EleM ~= 1500.0 (raw profile value emitted).
+func TestRetrackUnified_NoSpike_NonMonotonicEdge(t *testing.T) {
+	elevs := []int32{5930, 7000, 9000, 15000, 18000, 17500, 17000, 18910}
+	// 7 segment distances, each 1000cm = 10m
+	segDists := []uint16{1000, 1000, 1000, 1000, 1000, 1000, 1000}
+	edgeDist := uint32(7000) // 70m total
+
+	g := makeElevGraph(
+		[][]int32{elevs},
+		[][]uint16{segDists},
+		[]uint32{edgeDist},
+	)
+	result := retrackViaFullRoute(t, g)
+
+	if result.ElevationProfile == nil {
+		t.Fatal("expected non-nil ElevationProfile after T1.3")
+	}
+	prof := *result.ElevationProfile
+	if len(prof) != len(elevs) {
+		t.Fatalf("expected %d profile points, got %d", len(elevs), len(prof))
+	}
+	// Point 3 (index 3): should be 1500.0m, not 593.0m (the carriedEle).
+	const wantEle3 = 1500.0
+	if prof[3].EleM != wantEle3 {
+		t.Errorf("profile[3].EleM: want %.1f (raw), got %.1f (carriedEle spike?)", wantEle3, prof[3].EleM)
+	}
+	// Profile should NOT be flat (all equal to elevs[0]).
+	allFlat := true
+	for _, p := range prof {
+		if p.EleM != float64(elevs[0])/10.0 {
+			allFlat = false
+			break
+		}
+	}
+	if allFlat {
+		t.Error("profile is entirely flat — carriedEle spike regression detected")
+	}
+}
+
+// TestRetrackUnified_SegmentDistanceAxis_MatchesProfile asserts that for a
+// 2-edge route the segment FromDistM/ToDistM lie on the profile distance axis
+// (i.e. profile[0].DistM <= seg.FromDistM <= profile[last].DistM).
+func TestRetrackUnified_SegmentDistanceAxis_MatchesProfile(t *testing.T) {
+	// 2-edge route: edge0=50m, edge1=80m
+	g := makeElevGraph(
+		[][]int32{{5000, 5100}, {5100, 5200}},
+		[][]uint16{{5000}, {8000}},
+		[]uint32{5000, 8000},
+	)
+	result := retrackViaFullRoute(t, g)
+
+	if result.ElevationProfile == nil {
+		t.Fatal("expected non-nil ElevationProfile")
+	}
+	prof := *result.ElevationProfile
+	if len(prof) == 0 {
+		t.Fatal("empty profile")
+	}
+	profileEnd := prof[len(prof)-1].DistM
+
+	for _, seg := range result.Segments {
+		if seg.FromDistM < 0 || seg.FromDistM > profileEnd+0.01 {
+			t.Errorf("seg.FromDistM=%.2f out of profile range [0, %.2f]", seg.FromDistM, profileEnd)
+		}
+		if seg.ToDistM < seg.FromDistM || seg.ToDistM > profileEnd+0.01 {
+			t.Errorf("seg.ToDistM=%.2f invalid (from=%.2f, profileEnd=%.2f)", seg.ToDistM, seg.FromDistM, profileEnd)
+		}
+	}
+}
+
+// TestRetrackUnified_SegmentOnlyDegenerateEdges_ZeroWidthOnDistAxis tests a route
+// where all edges have no DEM data (len(elevs)==0). ElevationProfile must be nil
+// (degenerate-only guard), and segments should still be produced.
+func TestRetrackUnified_SegmentOnlyDegenerateEdges_ZeroWidthOnDistAxis(t *testing.T) {
+	// makeChainGraph uses no elevation profiles (EdgeElevProf=[])
+	g := makeChainGraph(3) // 2 edges, no DEM
+	result := retrackViaFullRoute(t, g)
+
+	// No DEM → profile is nil (degenerate-only guard, Spec §6.5)
+	if result.ElevationProfile != nil {
+		t.Errorf("expected nil ElevationProfile for DEM-less route, got non-nil (len=%d)", len(*result.ElevationProfile))
+	}
+	// Segments should still exist (coord-based grouping is DEM-independent)
+	if len(result.Segments) == 0 {
+		t.Error("expected non-empty segments even for DEM-less route")
+	}
+}
+
+// TestRetrackUnified_CoordsConsistentWithProfile verifies that after applyProfileToCoords
+// the first and last coordinate elevation matches the profile endpoints.
+// Uses a simple 2-point edge: elevs=[1000dm, 2000dm] = [100m, 200m].
+func TestRetrackUnified_CoordsConsistentWithProfile(t *testing.T) {
+	g := makeElevGraph(
+		[][]int32{{1000, 2000}},
+		[][]uint16{{10000}}, // 100m segment distance
+		[]uint32{10000},
+	)
+	result := retrackViaFullRoute(t, g)
+
+	if result.ElevationProfile == nil {
+		t.Fatal("expected non-nil ElevationProfile")
+	}
+	prof := *result.ElevationProfile
+	if len(prof) < 2 {
+		t.Fatalf("expected >= 2 profile points, got %d", len(prof))
+	}
+	if len(result.Coordinates) < 2 {
+		t.Fatalf("expected >= 2 coords, got %d", len(result.Coordinates))
+	}
+
+	// First coord Ele == profile[0].EleM (both at dist=0)
+	wantFirst := prof[0].EleM
+	gotFirst := result.Coordinates[0].Ele
+	if gotFirst != wantFirst {
+		t.Errorf("coords[0].Ele=%.2f, want %.2f (profile[0].EleM)", gotFirst, wantFirst)
+	}
+
+	// Last coord Ele == profile[last].EleM (clamp-end of applyProfileToCoords)
+	wantLast := prof[len(prof)-1].EleM
+	gotLast := result.Coordinates[len(result.Coordinates)-1].Ele
+	if gotLast != wantLast {
+		t.Errorf("coords[last].Ele=%.2f, want %.2f (profile[last].EleM)", gotLast, wantLast)
+	}
+}
+
+// TestRetrackUnified_NilProfileLeavesCoordsUntouched verifies that when the
+// ElevationProfile is nil (all-DEM-less route), applyProfileToCoords is NOT called
+// and coord elevations retain their construction-time values.
+func TestRetrackUnified_NilProfileLeavesCoordsUntouched(t *testing.T) {
+	// makeChainGraph: NodeEle[0]=5000dm=500m, NodeEle[n]=5000+n*100dm
+	g := makeChainGraph(3) // nodes 0,1,2 — NodeEle[0]=5000, [1]=5100, [2]=5200
+	result := retrackViaFullRoute(t, g)
+
+	if result.ElevationProfile != nil {
+		t.Skip("graph has DEM data — test only applies to DEM-less routes")
+	}
+	// Coords should not be all-zero (they retain node elevation from construction)
+	allZero := true
+	for _, c := range result.Coordinates {
+		if c.Ele != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		t.Error("all coords have Ele=0 — applyProfileToCoords may have been incorrectly called with an empty profile")
+	}
+}
+
+// TestBuildSegmentsUnified_DistanceAnchors verifies that edgeStartDistM/edgeEndDistM
+// correctly populate FromDistM/ToDistM for single-group and split segments.
+func TestBuildSegmentsUnified_DistanceAnchors(t *testing.T) {
+	// 3 edges, all same Tags1 → 1 segment covering all 3 edges.
+	// edgeStartDistM=[0, 50, 90], edgeEndDistM=[50, 90, 130]
+	segs := buildSegmentsUnified(3,
+		[]int{0, 2, 4},
+		[]uint64{16, 16, 16},
+		[]uint64{0, 0, 0},
+		[]float64{0, 50, 90},
+		[]float64{50, 90, 130},
+		6,
+	)
+	if len(segs) != 1 {
+		t.Fatalf("expected 1 segment (same tags), got %d", len(segs))
+	}
+	if segs[0].FromDistM != 0 {
+		t.Errorf("FromDistM: want 0, got %.2f", segs[0].FromDistM)
+	}
+	if segs[0].ToDistM != 130 {
+		t.Errorf("ToDistM: want 130, got %.2f", segs[0].ToDistM)
+	}
+
+	// 2 edges with different Tags1 → 2 segments.
+	// edgeStartDistM=[0, 50], edgeEndDistM=[50, 90]
+	segs2 := buildSegmentsUnified(2,
+		[]int{0, 3},
+		[]uint64{16, 17}, // different Tags1 → split
+		[]uint64{0, 0},
+		[]float64{0, 50},
+		[]float64{50, 90},
+		5,
+	)
+	if len(segs2) != 2 {
+		t.Fatalf("expected 2 segments (diff Tags1), got %d", len(segs2))
+	}
+	if segs2[0].FromDistM != 0 || segs2[0].ToDistM != 50 {
+		t.Errorf("seg[0] dist: want [0, 50], got [%.2f, %.2f]", segs2[0].FromDistM, segs2[0].ToDistM)
+	}
+	if segs2[1].FromDistM != 50 || segs2[1].ToDistM != 90 {
+		t.Errorf("seg[1] dist: want [50, 90], got [%.2f, %.2f]", segs2[1].FromDistM, segs2[1].ToDistM)
 	}
 }
