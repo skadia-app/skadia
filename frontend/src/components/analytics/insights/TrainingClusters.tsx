@@ -184,7 +184,7 @@ export default function TrainingClusters() {
                   {cluster.avg_distance_m > 0 && <span>&#8960; {fmtDist(cluster.avg_distance_m)}</span>}
                   {cluster.avg_hr && <span>&#8960; {cluster.avg_hr.toFixed(0)} bpm</span>}
                   {cluster.sport_types.length > 0 && (
-                    <span className="truncate">{cluster.sport_types.slice(0, 2).map(sportLabel).join(', ')}</span>
+                    <span className="truncate">{cluster.sport_types.slice(0, 2).map(s => sportLabel(s)).join(', ')}</span>
                   )}
                 </div>
               </div>
