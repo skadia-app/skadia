@@ -10,17 +10,21 @@ interface SurfaceDropdownProps {
   disabled?: boolean
 }
 
+// Surface is relevant for all seg types except wintersport (snow/ice implicit)
+// and lift (trivial infrastructure — no meaningful surface choice). Fix: #6b.
+const SURFACE_HIDDEN_FOR: readonly SegType[] = ['wintersport', 'lift']
+
 export function SurfaceDropdown({ segType, value, onChange, disabled }: SurfaceDropdownProps) {
-  if (segType !== 'trail') return null
-  
+  if (SURFACE_HIDDEN_FOR.includes(segType)) return null
+
   const isLegacy = value !== null && !SURFACE_DROPDOWN_OPTIONS.includes(value)
-  const displayOptions = isLegacy 
-    ? [...SURFACE_DROPDOWN_OPTIONS, value!] 
+  const displayOptions = isLegacy
+    ? [...SURFACE_DROPDOWN_OPTIONS, value!]
     : SURFACE_DROPDOWN_OPTIONS
-  
+
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-medium text-neutral-500 uppercase tracking-wider">Surface</label>
+      <label className="text-xs font-medium text-neutral-500 tracking-wide">Oberfläche</label>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button 
