@@ -94,6 +94,12 @@ type buildRouteReaderMock struct {
 	tags2 map[uint64]uint64
 	// coords[nodeID] = (lat×1e7, lon×1e7, ele×10) — raw int32 values.
 	coords map[uint64][3]int32
+	// elevProfiles[handle] = (elevsDm, segDistsCm) — optional per-edge DEM data.
+	elevProfiles map[uint64][2]interface{} // [0]=[]int32, [1]=[]uint16
+	// edgeDistCm[handle] = edge length in cm — optional, defaults to 0.
+	edgeDistCm map[uint64]uint32
+	// edgeGeom[handle] = (lats×1e7, lons×1e7) — optional intermediate geometry.
+	edgeGeom map[uint64][2][]int32
 }
 
 func (m *buildRouteReaderMock) EdgeTags1(h uint64) uint64 { return m.tags1[h] }
@@ -107,10 +113,35 @@ func (m *buildRouteReaderMock) NodeCoord(nodeID uint64) (lat, lon, ele int32) {
 func (m *buildRouteReaderMock) ForEachEdge(_ uint64, _ func(EdgeView))           {}
 func (m *buildRouteReaderMock) ForEachInEdge(_ uint64, _ func(EdgeView))         {}
 func (m *buildRouteReaderMock) NearestNode(_, _ float64) (uint64, float64, bool) { return 0, 0, false }
-func (m *buildRouteReaderMock) EdgeElevProfile(_ uint64) ([]int32, []uint16)     { return nil, nil }
-func (m *buildRouteReaderMock) EdgeGeometry(_ uint64) ([]int32, []int32)         { return nil, nil }
-func (m *buildRouteReaderMock) EdgeOSMID(_ uint64) int64                         { return 0 }
-func (m *buildRouteReaderMock) EdgeDistanceCm(_ uint64) uint32                   { return 0 }
+func (m *buildRouteReaderMock) EdgeElevProfile(h uint64) ([]int32, []uint16) {
+	if m.elevProfiles == nil {
+		return nil, nil
+	}
+	pair, ok := m.elevProfiles[h]
+	if !ok {
+		return nil, nil
+	}
+	elevs, _ := pair[0].([]int32)
+	segs, _ := pair[1].([]uint16)
+	return elevs, segs
+}
+func (m *buildRouteReaderMock) EdgeGeometry(h uint64) ([]int32, []int32) {
+	if m.edgeGeom == nil {
+		return nil, nil
+	}
+	g, ok := m.edgeGeom[h]
+	if !ok {
+		return nil, nil
+	}
+	return g[0], g[1]
+}
+func (m *buildRouteReaderMock) EdgeOSMID(_ uint64) int64 { return 0 }
+func (m *buildRouteReaderMock) EdgeDistanceCm(h uint64) uint32 {
+	if m.edgeDistCm == nil {
+		return 0
+	}
+	return m.edgeDistCm[h]
+}
 func (m *buildRouteReaderMock) LandmarkDists(_ LandmarkSetID, _ uint64) []float32 {
 	return nil
 }
@@ -238,4 +269,145 @@ func TestBuildRouteResultFromEdges_EmptyEdges_NoSegments(t *testing.T) {
 	if len(result.Segments) != 0 {
 		t.Errorf("expected 0 segments for empty edge list, got %d", len(result.Segments))
 	}
+}
+
+// TestBuildRouteResultFromEdges_NoSpike_NonMonotonicEdge verifies that
+// BuildRouteResultFromEdges emits a non-nil ElevationProfile and that the
+// profile values follow the raw DEM data without a spike. This tests the
+// fix of the elevsDm[j]-as-DP-index bug (was: j iterates DP-simplified coords,
+// elevsDm is raw-resolution → mismatched indexing → arbitrary elevation values).
+//
+// One edge with 4 raw elev points; segDists give cumulative positions.
+// Expected: profile has 4 points; no adjacent pair has |ΔEle/ΔDist| > 5.0 m/m.
+func TestBuildRouteResultFromEdges_NoSpike_NonMonotonicEdge(t *testing.T) {
+	// Edge 201: elevs in dm [1000, 1050, 980, 1020], segDists in cm [5000, 4000, 3000].
+	// Profile should not spike — max gradient across any adjacent pair: ~0.014 m/m.
+	reader := &buildRouteReaderMock{
+		tags1: map[uint64]uint64{201: 0},
+		tags2: map[uint64]uint64{201: 0},
+		coords: map[uint64][3]int32{
+			10: {470000000, 110000000, 500},  // node 10: ele 50m (500 dm)
+			11: {470100000, 110150000, 600},  // node 11: ele 60m (600 dm)
+		},
+		elevProfiles: map[uint64][2]interface{}{
+			201: {[]int32{1000, 1050, 980, 1020}, []uint16{5000, 4000, 3000}},
+		},
+		edgeDistCm: map[uint64]uint32{201: 12000},
+	}
+
+	handles := []EdgeHandle{201}
+	nodeIDs := []uint64{10, 11}
+	target := &paretoState{dist: 120, ascent: 7, descent: 3, cost: 1}
+	result := BuildRouteResultFromEdges(handles, nodeIDs, target, reader)
+
+	// Profile must be non-nil and non-empty.
+	if result.ElevationProfile == nil {
+		t.Fatal("ElevationProfile is nil — buildElevationProfile not called")
+	}
+	prof := *result.ElevationProfile
+	if len(prof) == 0 {
+		t.Fatal("ElevationProfile is empty")
+	}
+
+	// Check that no adjacent pair exceeds 5 m/m gradient — guards against DP-index spike.
+	const maxGradient = 5.0
+	for i := 1; i < len(prof); i++ {
+		distDelta := prof[i].DistM - prof[i-1].DistM
+		if distDelta <= 0 {
+			continue // monotonic guard; skip zero-span
+		}
+		eleDelta := prof[i].EleM - prof[i-1].EleM
+		if eleDelta < 0 {
+			eleDelta = -eleDelta
+		}
+		gradient := eleDelta / distDelta
+		if gradient > maxGradient {
+			t.Errorf("profile[%d→%d]: gradient %.3f m/m exceeds %.1f m/m — likely DP-index bug",
+				i-1, i, gradient, maxGradient)
+		}
+	}
+
+	// Profile values should be close to the raw DEM values (dm→m: 100.0, 105.0, 98.0, 102.0).
+	wantEleM := []float64{100.0, 105.0, 98.0, 102.0}
+	if len(prof) != len(wantEleM) {
+		t.Fatalf("profile len = %d, want %d", len(prof), len(wantEleM))
+	}
+	for i, want := range wantEleM {
+		assertInDelta(t, want, prof[i].EleM, 0.01, "prof["+itoa(i)+"].EleM")
+	}
+}
+
+// TestBuildRouteResultFromEdges_CoordsConsistentWithProfile verifies that
+// coord[i].Ele after BuildRouteResultFromEdges reflects applyProfileToCoords
+// rather than the raw NodeCoord placeholder.
+//
+// Spec Rev 2.3 §6.5 / F1: after applyProfileToCoords, coord[i].Ele must
+// equal InterpolateProfileEleAt(profile, cumDist(i)).
+//
+// Setup: single edge handle 301; node coords have ele=5m (50 dm); edge DEM
+// has [1000dm, 2000dm] = [100m, 200m]; segDist 10000cm = 100m.
+// Expected: first coord Ele ≈ 100.0m; last coord Ele ≈ 200.0m.
+// (Proves NodeCoord-derived 5.0m placeholder was overwritten by profile.)
+func TestBuildRouteResultFromEdges_CoordsConsistentWithProfile(t *testing.T) {
+	// node 20: lat 47.0, lon 11.0, ele 5m (50 dm). Placeholder, not profile.
+	// node 21: lat 47.01, lon 11.015, ele 5m (50 dm). Same placeholder.
+	reader := &buildRouteReaderMock{
+		tags1: map[uint64]uint64{301: 0},
+		tags2: map[uint64]uint64{301: 0},
+		coords: map[uint64][3]int32{
+			20: {470000000, 110000000, 50},
+			21: {470100000, 110150000, 50},
+		},
+		elevProfiles: map[uint64][2]interface{}{
+			301: {[]int32{1000, 2000}, []uint16{10000}},
+		},
+		edgeDistCm: map[uint64]uint32{301: 10000},
+	}
+
+	handles := []EdgeHandle{301}
+	nodeIDs := []uint64{20, 21}
+	target := &paretoState{dist: 100, ascent: 100, descent: 0, cost: 1}
+	result := BuildRouteResultFromEdges(handles, nodeIDs, target, reader)
+
+	// Profile must be present.
+	if result.ElevationProfile == nil || len(*result.ElevationProfile) == 0 {
+		t.Fatal("ElevationProfile is nil or empty")
+	}
+
+	// Must have at least 2 coordinates (one per node).
+	if len(result.Coordinates) < 2 {
+		t.Fatalf("expected at least 2 coordinates, got %d", len(result.Coordinates))
+	}
+
+	// First coord Ele must NOT be the NodeCoord placeholder (5.0m) but ≈100.0m.
+	firstEle := result.Coordinates[0].Ele
+	assertInDelta(t, 100.0, firstEle, 1.0, "Coordinates[0].Ele (should be ~100m from profile, not 5m NodeCoord)")
+	if firstEle < 10.0 {
+		t.Errorf("Coordinates[0].Ele = %v — looks like NodeCoord placeholder was NOT overwritten", firstEle)
+	}
+
+	// Last coord Ele must be ≈200.0m (profile end).
+	lastEle := result.Coordinates[len(result.Coordinates)-1].Ele
+	assertInDelta(t, 200.0, lastEle, 1.0, "Coordinates[last].Ele (should be ~200m from profile)")
+}
+
+// itoa is a minimal int-to-string helper for test messages (avoids fmt import).
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	neg := false
+	if i < 0 {
+		neg = true
+		i = -i
+	}
+	buf := make([]byte, 0, 10)
+	for i > 0 {
+		buf = append([]byte{byte('0' + i%10)}, buf...)
+		i /= 10
+	}
+	if neg {
+		buf = append([]byte{'-'}, buf...)
+	}
+	return string(buf)
 }
