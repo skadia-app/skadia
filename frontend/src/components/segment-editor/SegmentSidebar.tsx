@@ -1,10 +1,11 @@
 // frontend/src/components/segment-editor/SegmentSidebar.tsx
 import { useMemo, type ReactNode } from 'react'
-import { Loader2, RefreshCw } from 'lucide-react'
+import { Check, Loader2, RefreshCw, X } from 'lucide-react'
 import {
   WINTER_SPORT_WHITELIST,
   WATER_SPORT_WHITELIST,
   BIDIRECTIONAL_DEFAULT,
+  deriveTrailDifficultyColor,
   type SegType,
   type ClimbType,
 } from './constants'
@@ -43,6 +44,9 @@ export interface SegmentSidebarProps {
   onMetaChange: (patch: Partial<SegmentMetadata>) => void
   info: LiveInfo | null
   allSportTypes: Array<{ key: string; label: string; category: string }>
+  /** Segment group of the source activity (bike/foot/ski/paddle/swim/generic).
+   *  Used to auto-expand the matching sport category on mount. */
+  defaultSportGroup?: string
   onEnrichmentRequest: () => void
   enrichmentState: { loading: boolean; coverage?: number; lastRequestedAt?: number }
   enrichmentSources: Partial<Record<'surface' | 'sac' | 'mtb', { coverage: number } | null>>
@@ -55,7 +59,7 @@ const SEG_TYPE_LABELS: Record<SegType, string> = {
   standard: 'Standard',
   trail: 'Trail',
   lap: 'Runde',
-  wintersport: 'Wintersport',
+  wintersport: 'Winter',
   wassersport: 'Wassersport',
   lift: 'Lift',
 }
@@ -67,10 +71,34 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     info,
     mode,
     allSportTypes,
+    // defaultSportGroup: accepted for API compat — wiring deferred until SportCategoryChips
+    // gets a defaultOpenCategoryKey prop (that file is out of scope for this agent)
     onEnrichmentRequest,
     enrichmentState,
+    enrichmentSources,
+    onClearEnrichmentSource,
     enrichmentDisabledReason,
+    enrichmentStatus,
   } = props
+
+  // Option B (§4.2 Punkt 9): auto-derive difficultyColor from max(SAC-Farbe, MTB-Farbe)
+  // whenever either scale changes, so DifficultyBadge always has a value to render.
+  // Wintersport retains manual picker (FIS colors, no SAC/MTB).
+  const handleSacChange = (newSac: string | null) => {
+    const patch: Partial<SegmentMetadata> = { sacScale: newSac }
+    if (meta.segType !== 'wintersport') {
+      patch.difficultyColor = deriveTrailDifficultyColor(newSac, meta.mtbScale)
+    }
+    onMetaChange(patch)
+  }
+
+  const handleMtbChange = (newMtb: string | null) => {
+    const patch: Partial<SegmentMetadata> = { mtbScale: newMtb }
+    if (meta.segType !== 'wintersport') {
+      patch.difficultyColor = deriveTrailDifficultyColor(meta.sacScale, newMtb)
+    }
+    onMetaChange(patch)
+  }
 
   const handleSegTypeChange = (newType: SegType) => {
     const patch: Partial<SegmentMetadata> = { segType: newType }
@@ -202,52 +230,94 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
         <div>
           <div className="mb-2 flex items-center justify-between">
             <span className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">
-              Difficulty &amp; Surface
+              Schwierigkeit &amp; Oberfläche
             </span>
             <button
               type="button"
               onClick={onEnrichmentRequest}
               disabled={!!enrichmentDisabledReason || enrichmentState.loading}
+              title={enrichmentDisabledReason ?? 'Surface, SAC- und MTB-Skala aus OSM-Wegedaten vorschlagen'}
+              aria-pressed={!!enrichmentSources.surface || !!enrichmentSources.sac || !!enrichmentSources.mtb}
               className={cn(
                 'flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium',
                 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300',
-                'border border-neutral-200 dark:border-neutral-700 transition-colors hover:text-accent-DEFAULT disabled:opacity-40',
+                'border border-neutral-200 dark:border-neutral-700',
+                'transition-colors duration-150',
+                'hover:bg-accent-DEFAULT/10 hover:text-accent-DEFAULT hover:border-accent-DEFAULT/30',
+                'dark:hover:bg-accent-DEFAULT/10 dark:hover:text-accent-400 dark:hover:border-accent-DEFAULT/30',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900',
+                'disabled:cursor-not-allowed disabled:opacity-40',
               )}
             >
-              {enrichmentState.loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              {enrichmentState.loading
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <RefreshCw className="h-3.5 w-3.5" />}
+              <span className="sr-only">OSM-Vorschlag</span>
             </button>
           </div>
 
           <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 p-3">
-             <DifficultySelects
-               segType={meta.segType}
-               sacScale={meta.sacScale}
-               mtbScale={meta.mtbScale}
-               onChange={(f, v) => onMetaChange(f === 'sac' ? { sacScale: v } : { mtbScale: v })}
-             />
-             <SurfaceDropdown
-               segType={meta.segType}
-               value={meta.surface}
-               onChange={(v) => onMetaChange({ surface: v })}
-             />
-             <DifficultyColorPicker
-               segType={meta.segType}
-               value={meta.difficultyColor}
-               onChange={(v) => onMetaChange({ difficultyColor: v })}
-             />
-             {!['trail', 'wintersport'].includes(meta.segType) && (
-               <div className="text-xs text-neutral-400 italic">Nur für Trail/Wintersport verfügbar</div>
-             )}
+            {/* DifficultySelects + EnrichmentBadges for SAC and MTB */}
+            <DifficultySelects
+              segType={meta.segType}
+              sacScale={meta.sacScale}
+              mtbScale={meta.mtbScale}
+              onChange={(f, v) => f === 'sac' ? handleSacChange(v) : handleMtbChange(v)}
+            />
+            {/* EnrichmentBadges: shown when OSM has suggested a value for SAC or MTB */}
+            {(enrichmentSources.sac || enrichmentSources.mtb) && meta.segType === 'trail' && (
+              <div className="flex gap-2">
+                {enrichmentSources.sac && (
+                  <div className="flex items-center gap-1 text-[10px] text-neutral-500">
+                    <span>SAC:</span>
+                    <EnrichmentBadge source={enrichmentSources.sac} onClear={() => onClearEnrichmentSource('sac')} />
+                  </div>
+                )}
+                {enrichmentSources.mtb && (
+                  <div className="flex items-center gap-1 text-[10px] text-neutral-500">
+                    <span>MTB:</span>
+                    <EnrichmentBadge source={enrichmentSources.mtb} onClear={() => onClearEnrichmentSource('mtb')} />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* SurfaceDropdown + EnrichmentBadge */}
+            <div className="flex items-center gap-1.5">
+              <div className="flex-1">
+                <SurfaceDropdown
+                  segType={meta.segType}
+                  value={meta.surface}
+                  onChange={(v) => onMetaChange({ surface: v })}
+                />
+              </div>
+              {enrichmentSources.surface && (
+                <EnrichmentBadge source={enrichmentSources.surface} onClear={() => onClearEnrichmentSource('surface')} />
+              )}
+            </div>
+
+            <DifficultyColorPicker
+              segType={meta.segType}
+              value={meta.difficultyColor}
+              onChange={(v) => onMetaChange({ difficultyColor: v })}
+            />
+            {!['trail', 'wintersport'].includes(meta.segType) && (
+              <div className="text-xs text-neutral-400 italic">Nur für Trail/Wintersport verfügbar</div>
+            )}
           </div>
         </div>
 
-        <Field label="Höhenprofil">
-          <ClimbTypePills
-            segType={meta.segType}
-            value={meta.climbType ?? 'standard'}
-            onChange={(v) => onMetaChange({ climbType: v })}
-          />
-        </Field>
+        {/* Höhenprofil: only visible for standard/trail — ClimbTypePills returns null for others,
+            but wrapping <Field> would show an empty label row, so we guard here. */}
+        {(meta.segType === 'standard' || meta.segType === 'trail') && (
+          <Field label="Höhenprofil">
+            <ClimbTypePills
+              segType={meta.segType}
+              value={meta.climbType ?? 'standard'}
+              onChange={(v) => onMetaChange({ climbType: v })}
+            />
+          </Field>
+        )}
 
         <Field label="Richtung">
           <ToggleRow
@@ -264,6 +334,11 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
             label="Öffentlich sichtbar"
           />
         </Field>
+      </div>
+
+      {/* Live-region for screen-reader enrichment announcements (§4.14) */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {enrichmentStatus ?? (enrichmentState.loading ? 'Lade OSM-Daten...' : '')}
       </div>
     </aside>
   )
@@ -296,6 +371,36 @@ function ToggleRow({ checked, onChange, label }: { checked: boolean; onChange: R
       <input type="checkbox" checked={checked} onChange={onChange} className="h-4 w-4 rounded border-neutral-400 dark:border-neutral-600 accent-accent-DEFAULT" />
       {label}
     </label>
+  )
+}
+
+function EnrichmentBadge({
+  source,
+  onClear,
+}: {
+  source?: { coverage: number } | null
+  onClear: () => void
+}) {
+  if (!source) return null
+  const pct = Math.round(source.coverage * 100)
+  return (
+    <span className="flex flex-shrink-0 items-center gap-1 rounded-md border border-accent-DEFAULT/30 bg-accent-DEFAULT/10 px-1.5 py-0.5 text-[10px] font-medium text-accent-DEFAULT dark:text-accent-400">
+      <Check className="h-2.5 w-2.5 flex-shrink-0" aria-hidden="true" />
+      {pct === 100 ? '100%' : `${pct}%`}
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label="OSM-Quelle entfernen"
+        className={cn(
+          'flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded',
+          'text-accent-DEFAULT dark:text-accent-400 transition-colors duration-150',
+          'hover:bg-accent-DEFAULT/20 hover:text-accent-600',
+          'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-DEFAULT',
+        )}
+      >
+        <X className="h-2.5 w-2.5" />
+      </button>
+    </span>
   )
 }
 
