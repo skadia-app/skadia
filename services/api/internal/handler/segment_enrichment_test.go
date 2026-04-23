@@ -130,15 +130,18 @@ func TestEnrichmentHandler_NoGraph_Returns200(t *testing.T) {
 	pool := fusionTestPool(t)
 
 	// Handler with no GraphManager — simulates "graph not initialised" state.
+	// newTestHandler does not set GraphManager, so it stays nil by default.
 	h := newTestHandler(t, pool)
 
 	r := chi.NewRouter()
 	r.Post("/api/v1/segments/enrichment-suggest", h.EnrichmentSuggest)
 
 	userID := insertTestUser(t, pool)
-	// Coordinates in a remote area unlikely to have OSM ways in a test DB.
+	// Atlantic mid-ocean coords — osm_ways guaranteed empty here.
+	// Using -40°W / 0°N (South Atlantic) which contains no OSM way data
+	// in any realistic test DB seeded from land-based OSM extracts.
 	body, _ := json.Marshal(map[string]interface{}{
-		"coordinates": [][2]float64{{0.0, 0.0}, {0.001, 0.001}},
+		"coordinates": [][2]float64{{-40.0, 0.0}, {-40.001, 0.001}},
 		"seg_type":    "standard",
 	})
 
@@ -155,8 +158,11 @@ func TestEnrichmentHandler_NoGraph_Returns200(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if resp.Reason == "" {
-		t.Errorf("Reason is empty, want non-empty reason (e.g. 'no_graph') when OSM data absent")
+	// Exact assertion: the no-graph/no-OSM path must return "no_graph", not any
+	// other reason. If a future refactor moves the short-circuit or changes the
+	// reason string, this test will catch it.
+	if resp.Reason != "no_graph" {
+		t.Errorf("Reason = %q, want %q — graph is nil and OSM ways absent at mid-Atlantic coords", resp.Reason, "no_graph")
 	}
 }
 
