@@ -17,6 +17,7 @@ import type { ApplyResult, DryRunAllResult, DryRunSingleResult } from '@/api/rul
 import RuleEditor from '@/components/RuleEditor'
 import Toggle from '@/components/Toggle'
 import { useToast } from '@/lib/toast'
+import { sportLabel } from '@/lib/sportTaxonomy'
 
 interface DryRunMatch {
   activity_id: string
@@ -440,7 +441,7 @@ export default function AutomationRulesPage() {
                         <span className="text-neutral-400 font-normal ml-2">{m.started_at}</span>
                       )}
                       {m.sport_type && (
-                        <span className="text-neutral-400 font-normal ml-2">{m.sport_type}</span>
+                        <span className="text-neutral-400 font-normal ml-2">{sportLabel(m.sport_type)}</span>
                       )}
                       {m.distance_m != null && m.distance_m > 0 && (
                         <span className="text-neutral-400 font-normal ml-2">{(m.distance_m / 1000).toFixed(1)} km</span>

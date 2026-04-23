@@ -5,6 +5,7 @@ import { WorkoutOverview } from '@/components/activity/WorkoutOverview'
 import type { WorkoutStep } from '@/api/types'
 import { fmtDuration, fmtDateCompact } from '@/lib/format'
 import type { WorkoutActivityRef } from '@/api/types'
+import { sportLabel } from '@/lib/sportTaxonomy'
 
 const INTENSITY_LABELS: Record<number, string> = {
   0: 'Intervall',
@@ -180,7 +181,7 @@ export default function WorkoutDetailPage() {
               >
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate text-sm">
-                    {a.title || a.sport_type}
+                    {a.title || sportLabel(a.sport_type)}
                   </div>
                   <div className="text-xs text-neutral-400 mt-0.5">
                     {fmtDateCompact(a.started_at)}
