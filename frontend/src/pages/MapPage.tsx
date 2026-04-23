@@ -412,29 +412,37 @@ export default function MapPage() {
     if (searchParams.get('planner') === '1') {
       navigate('/map', { replace: true })
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: reads initial location.search, then clears it
+  }, [])
 
-  // Load waypoints from navigation state (e.g. "Open in Route Planner" from ActivityDetailPage)
+  // Load route planner state from navigation state (mount-only: reads initial location.state, then clears it)
+  // Handles both editRouteId (from RoutesPage edit button) and plannerWaypoints (from ActivityDetailPage).
+  // Both paths are independent — if somehow both are present, both run before the single navigate clears state.
   useEffect(() => {
-    const waypoints = (location.state as { plannerWaypoints?: import('@/api/routes').RouteWaypoint[] } | null)?.plannerWaypoints
+    const state = location.state as { editRouteId?: string; plannerWaypoints?: import('@/api/routes').RouteWaypoint[] } | null
+    let didActivate = false
+
+    if (state?.editRouteId) {
+      setPlannerActive(true)
+      didActivate = true
+      getRoute(state.editRouteId)
+        .then(route => planner.loadRoute(route))
+        .catch(() => addToast({ type: 'error', title: 'Route konnte nicht geladen werden', duration: 0 }))
+    }
+
+    const waypoints = state?.plannerWaypoints
     if (waypoints && waypoints.length >= 2) {
       setPlannerActive(true)
+      didActivate = true
       planner.loadWaypoints(waypoints)
-      // Clear location state so back-navigation doesn't re-load the waypoints
-      navigate('/map', { replace: true })
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load saved route into planner from navigation state (e.g. edit button on RoutesPage)
-  useEffect(() => {
-    const state = location.state as { editRouteId?: string } | null
-    if (!state?.editRouteId) return
-    navigate('/map', { replace: true, state: null })
-    setPlannerActive(true)
-    getRoute(state.editRouteId)
-      .then(route => planner.loadRoute(route))
-      .catch(() => addToast({ type: 'error', title: 'Route konnte nicht geladen werden', duration: 0 }))
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    if (didActivate) {
+      // Clear location state so back-navigation doesn't re-trigger loading
+      navigate('/map', { replace: true, state: null })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: reads initial location.state, then clears it
+  }, [])
 
   // When planner is deactivated: clear route state and hide sub-panels
   const handlePlannerClose = useCallback(() => {
