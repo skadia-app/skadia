@@ -1,4 +1,3 @@
-import React from 'react'
 import { SAC_COLOR_MAP, MTB_COLOR_MAP } from './segment-editor/constants'
 
 interface DifficultyBadgeProps {
@@ -53,3 +52,5 @@ export function DifficultyBadge({ sac, mtb, color }: DifficultyBadgeProps) {
     </span>
   )
 }
+
+export default DifficultyBadge
