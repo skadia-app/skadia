@@ -40,25 +40,24 @@ func newTestHandler(t *testing.T, pool *pgxpool.Pool) *Handler {
 
 type TestUserOpt func(*testUserOpts)
 type testUserOpts struct {
-	email   string
 	isAdmin bool
 }
 
-func WithEmail(e string) TestUserOpt  { return func(o *testUserOpts) { o.email = e } }
-func WithIsAdmin(b bool) TestUserOpt  { return func(o *testUserOpts) { o.isAdmin = b } }
+func WithIsAdmin(b bool) TestUserOpt { return func(o *testUserOpts) { o.isAdmin = b } }
 
 func insertTestUser(t *testing.T, pool *pgxpool.Pool, opts ...TestUserOpt) string {
 	t.Helper()
-	o := testUserOpts{email: "test-" + randomHex(8) + "@example.com"}
+	o := testUserOpts{}
 	for _, opt := range opts {
 		opt(&o)
 	}
+	email := "test-" + randomHex(8) + "@example.com"
 	username := "testuser-" + randomHex(4)
 	var userID string
 	err := pool.QueryRow(context.Background(),
 		`INSERT INTO users (id, username, email, email_verified, registration_source, is_admin)
 		 VALUES (gen_random_uuid(), $1, $2, true, 'test', $3) RETURNING id`,
-		username, o.email, o.isAdmin).Scan(&userID)
+		username, email, o.isAdmin).Scan(&userID)
 	if err != nil {
 		t.Fatalf("insertTestUser: %v", err)
 	}
@@ -83,8 +82,13 @@ func insertTestUser(t *testing.T, pool *pgxpool.Pool, opts ...TestUserOpt) strin
 type TestSegmentOpts struct {
 	Track         string // WKT
 	SegmentType   string
-	Bidirectional bool
+	Bidirectional *bool  // nil = default true; use boolPtr(false) to explicitly disable
 }
+
+// boolPtr returns a pointer to the given bool value.
+// Use with TestSegmentOpts.Bidirectional to explicitly set false (the zero value
+// of *bool is nil, which insertTestSegment treats as the default true).
+func boolPtr(b bool) *bool { return &b }
 
 func insertTestSegment(t *testing.T, pool *pgxpool.Pool, userID string, opts TestSegmentOpts) string {
 	t.Helper()
@@ -93,6 +97,10 @@ func insertTestSegment(t *testing.T, pool *pgxpool.Pool, userID string, opts Tes
 	}
 	if opts.SegmentType == "" {
 		opts.SegmentType = "standard"
+	}
+	bidi := true
+	if opts.Bidirectional != nil {
+		bidi = *opts.Bidirectional
 	}
 
 	ctx := context.Background()
@@ -107,7 +115,7 @@ func insertTestSegment(t *testing.T, pool *pgxpool.Pool, userID string, opts Tes
 		INSERT INTO segments (id, name, sport_group, segment_type, created_by, visibility, bidirectional)
 		VALUES (gen_random_uuid(), 'test-seg-'||gen_random_uuid(), 'generic', $1, $2, 'public', $3)
 		RETURNING id`,
-		opts.SegmentType, userID, opts.Bidirectional).Scan(&segID)
+		opts.SegmentType, userID, bidi).Scan(&segID)
 	if err != nil {
 		t.Fatalf("insert segment: %v", err)
 	}

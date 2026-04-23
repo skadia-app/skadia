@@ -76,7 +76,7 @@ func TestMatcherSkipsReverseTraversal(t *testing.T) {
 	userID := insertTestUser(t, pool)
 	segmentID := insertTestSegment(t, pool, userID, TestSegmentOpts{
 		Track:         "LINESTRING(0 0, 1 0)",
-		Bidirectional: false,
+		Bidirectional: boolPtr(false),
 		SegmentType:   "standard",
 	})
 
