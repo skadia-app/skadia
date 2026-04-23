@@ -55,9 +55,9 @@ export interface SegmentSidebarProps {
 const SEG_TYPE_LABELS: Record<SegType, string> = {
   standard: 'Standard',
   trail: 'Trail',
-  lap: 'Lap',
-  wintersport: 'Winter',
-  wassersport: 'Water',
+  lap: 'Runde',
+  wintersport: 'Wintersport',
+  wassersport: 'Wassersport',
   lift: 'Lift',
 }
 
