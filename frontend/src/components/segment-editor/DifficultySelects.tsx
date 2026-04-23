@@ -23,7 +23,7 @@ export function DifficultySelects({ segType, sacScale, mtbScale, onChange, disab
     <div className="grid grid-cols-1 gap-4">
       {/* SAC */}
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-neutral-500 uppercase tracking-wider">SAC-Skala (Wandern/Bergsteigen)</label>
+        <label className="text-xs font-medium text-neutral-500 tracking-wide">SAC-Skala</label>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button 
@@ -54,7 +54,7 @@ export function DifficultySelects({ segType, sacScale, mtbScale, onChange, disab
       
       {/* MTB */}
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-neutral-500 uppercase tracking-wider">MTB-Skala (Singletrail-Skala)</label>
+        <label className="text-xs font-medium text-neutral-500 tracking-wide">MTB-Skala</label>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button 
