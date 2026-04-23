@@ -270,6 +270,11 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
                 Privat
               </button>
             </div>
+            {initialSegment.visibility === 'private' && visibility === 'public' && (
+              <p className="text-xs text-amber-400">
+                Veröffentlichen: alle User können das Segment sehen. Ein Recompute-Job startet.
+              </p>
+            )}
           </div>
         )}
 
