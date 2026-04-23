@@ -60,7 +60,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         if (mtbScale) meta.mtb_scale = mtbScale; else delete meta.mtb_scale
         if (surface) meta.surface = surface; else delete meta.surface
       }
-      if (segment.segment_type === 'wintersport') {
+      if (segment.segment_type === 'trail' || segment.segment_type === 'wintersport') {
         if (diffColor) meta.difficulty_color = diffColor; else delete meta.difficulty_color
       }
       
