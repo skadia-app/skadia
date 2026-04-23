@@ -238,32 +238,35 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
           />
         </div>
 
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setVisibility('public')}
-              className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
-                visibility === 'public'
-                  ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
-                  : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
-              }`}
-            >
-              Öffentlich
-            </button>
-            <button
-              type="button"
-              onClick={() => setVisibility('private')}
-              className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
-                visibility === 'private'
-                  ? 'bg-neutral-700 text-neutral-100 border-neutral-600'
-                  : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
-              }`}
-            >
-              Privat
-            </button>
+        {/* Visibility toggle — not for lift segments */}
+        {segment.segment_type !== 'lift' && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setVisibility('public')}
+                className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
+                  visibility === 'public'
+                    ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
+                    : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
+                }`}
+              >
+                Öffentlich
+              </button>
+              <button
+                type="button"
+                onClick={() => setVisibility('private')}
+                className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
+                  visibility === 'private'
+                    ? 'bg-neutral-700 text-neutral-100 border-neutral-600'
+                    : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
+                }`}
+              >
+                Privat
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         <label className="flex items-start gap-3 cursor-pointer">
           <input
