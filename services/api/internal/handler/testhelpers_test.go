@@ -11,6 +11,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -154,6 +155,8 @@ func insertMinimalActivity(t *testing.T, db *database.DB, userID string) string 
 	act, err := db.InsertActivity(context.Background(), userID, &model.ActivityData{
 		SportType: "cycling",
 		StartedAt: now,
+		EndedAt:   now.Add(30 * time.Minute),
+		FileHash:  uuid.New().String(),
 	})
 	if err != nil {
 		t.Fatalf("insertMinimalActivity: %v", err)
