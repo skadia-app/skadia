@@ -317,9 +317,9 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
                 }
               }}
               disabled={!name.trim() || mutation.isPending || publishMut.isPending || reverseMutation.isPending}
-              className="px-4 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600 disabled:opacity-50"
+              className="cursor-pointer px-4 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Speichern
+              {mutation.isPending || publishMut.isPending ? 'Speichern...' : 'Speichern'}
             </button>
           </div>
         </div>
