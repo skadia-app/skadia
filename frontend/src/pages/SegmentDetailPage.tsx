@@ -15,8 +15,8 @@ import { SegmentPerformanceChart } from '@/components/SegmentDetail/SegmentPerfo
 import { FavoriteButton } from '@/components/SegmentDetail/FavoriteButton'
 import SegmentEditModal from '@/components/SegmentEditModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
-import ActivityFilters, { EMPTY_FILTERS, type ActivityFilterState } from '@/components/ActivityFilters'
 import DateRangePicker from '@/components/DateRangePicker'
+import { EMPTY_FILTERS, type ActivityFilterState } from '@/components/ActivityFilters'
 
 const SPORT_GROUP_LABELS: Record<string, string> = {
   bike: 'Radfahren', foot: 'Laufsport', swim: 'Schwimmen',
@@ -32,7 +32,8 @@ export default function SegmentDetailPage() {
   const navigate = useNavigate()
   const [showEdit, setShowEdit] = useState(false)
   const [localPending, setLocalPending] = useState(false)
-  const [filters, setFilters] = useState<ActivityFilterState>(EMPTY_FILTERS)
+  const [dateFrom, setDateFrom] = useState<string | undefined>(undefined)
+  const [dateTo, setDateTo] = useState<string | undefined>(undefined)
 
   const queryClient = useQueryClient()
   const { isJobActiveForEntity } = useActiveJobs()
@@ -94,14 +95,21 @@ export default function SegmentDetailPage() {
     }
   }
 
+  // #1a fix: include_geojson=true so SegmentMinimap receives track_geojson
   const { data: segment, isLoading } = useQuery({
-    queryKey: ['segment', id],
-    queryFn: () => fetchSegment(id!),
+    queryKey: ['segment', id, 'geojson'],
+    queryFn: () => fetchSegment(id!, { includeGeoJSON: true }),
     enabled: !!id,
   })
 
   if (isLoading) return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Segment...</div>
   if (!segment) return <div className="p-6 text-neutral-400">Segment nicht gefunden</div>
+
+  // Build a minimal activity filter from the date range for SegmentActivityList
+  const dateFilter: ActivityFilterState | undefined =
+    dateFrom || dateTo
+      ? { ...EMPTY_FILTERS, dateFrom: dateFrom ?? '', dateTo: dateTo ?? '' }
+      : undefined
 
   return (
     <div className="flex flex-col gap-6">
@@ -111,12 +119,12 @@ export default function SegmentDetailPage() {
           <ArrowLeft size={16} /> Segmente
         </Link>
         <div className="flex items-center gap-2">
+          {/* #2 fix: only DateRangePicker here — ActivityFilters removed */}
           <DateRangePicker
-            dateFrom={filters.dateFrom}
-            dateTo={filters.dateTo}
-            onChange={(from, to) => setFilters(f => ({ ...f, dateFrom: from, dateTo: to }))}
+            dateFrom={dateFrom ?? ''}
+            dateTo={dateTo ?? ''}
+            onChange={(from, to) => { setDateFrom(from || undefined); setDateTo(to || undefined) }}
           />
-          <ActivityFilters filters={filters} onChange={setFilters} />
           {segment.segment_type !== 'lift' && (
           <button
             onClick={() => setShowEdit(true)}
@@ -249,11 +257,11 @@ export default function SegmentDetailPage() {
       {/* Minimap + Activity List */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <SegmentMinimap segment={segment} />
-        <SegmentActivityList segmentId={id!} segment={segment} filters={filters} />
+        <SegmentActivityList segmentId={id!} segment={segment} filters={dateFilter} />
       </div>
 
       {/* Performance Chart */}
-      <SegmentPerformanceChart segmentId={id!} dateFrom={filters.dateFrom} dateTo={filters.dateTo} />
+      <SegmentPerformanceChart segmentId={id!} dateFrom={dateFrom} dateTo={dateTo} />
 
       {/* Edit Modal */}
       {showEdit && (
