@@ -299,15 +299,16 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
               type="button"
               onClick={handleReverse}
               disabled={mutation.isPending || publishMut.isPending || reverseMutation.isPending}
-              className="px-3 py-1.5 text-sm border border-amber-800/40 rounded-lg text-amber-500 hover:bg-amber-900/20"
+              className="cursor-pointer rounded-lg border border-amber-800/60 bg-amber-950/30 px-3 py-1.5 text-sm text-amber-400 hover:bg-amber-900/40 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Umkehren
+              ⇄ Richtung umkehren
             </button>
           )}
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800"
+              disabled={reverseMutation.isPending}
+              className="cursor-pointer px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Abbrechen
             </button>
