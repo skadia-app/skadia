@@ -199,47 +199,72 @@ export function SportCategoryChips({
   const toggleDetail = (key: string) =>
     setOpenCategoryKey(prev => (prev === key ? null : key))
 
+  // #MINOR-9: Hide "Alle" when only 1 category is visible (e.g. Wintersport = 1 category).
+  // A single visible category makes "Alle" semantically identical to that category chip.
+  const showAllChip = visible.length > 1
+
   return (
     <div className="flex flex-col gap-2">
       {/* ── Category chip row ── */}
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="Sportarten-Filter">
-        <Pill
-          role="checkbox"
-          ariaChecked={activeTypes === null}
-          active={activeTypes === null}
-          onClick={onSetAll}
-          leftSlot={activeTypes === null ? <Check className="h-3.5 w-3.5 shrink-0" /> : undefined}
-        >
-          Alle
-        </Pill>
+        {showAllChip && (
+          <Pill
+            role="checkbox"
+            ariaChecked={activeTypes === null}
+            active={activeTypes === null}
+            onClick={onSetAll}
+            leftSlot={activeTypes === null ? <Check className="h-3.5 w-3.5 shrink-0" /> : undefined}
+          >
+            Alle
+          </Pill>
+        )}
 
         {visible.map(cat => {
           const isActive = isCategoryFullyActive(cat.key, activeTypes, whitelist)
           const isPartial = isCategoryPartiallyActive(cat.key, activeTypes, whitelist)
 
           if (showDetailPicker) {
-            // In detail-picker mode: chip click = open/close detail panel
-            // The chip itself still shows active/partial state visually.
+            // #8a + #8b: Split the chip into two separate interaction zones:
+            //   - Pill body click → toggle category on/off (calls onToggleCategory).
+            //     Enables true multi-select: "Rad + Laufen" both active simultaneously.
+            //   - Chevron button (nested, stopPropagation) → open/close detail panel.
+            //     Lets users drill into per-sport fine-tuning independently of toggling.
             const isOpen = openCategoryKey === cat.key
             return (
-              <Pill
-                key={cat.key}
-                role="checkbox"
-                ariaChecked={isActive ? true : (isPartial ? 'mixed' : false)}
-                active={isActive || isOpen}
-                onClick={() => toggleDetail(cat.key)}
-                leftSlot={isActive ? <Check className="h-3.5 w-3.5 shrink-0" /> : undefined}
-                className={cn(
-                  isPartial && !isActive ? 'border-accent-DEFAULT/40 bg-accent-DEFAULT/10' : undefined,
-                  isOpen && !isActive ? 'border-neutral-400 dark:border-neutral-500' : undefined,
-                )}
-              >
-                {cat.label}
-                {isOpen
-                  ? <ChevronDown className="ml-0.5 h-3.5 w-3.5 shrink-0 opacity-60" />
-                  : <ChevronRight className="ml-0.5 h-3.5 w-3.5 shrink-0 opacity-40" />
-                }
-              </Pill>
+              <div key={cat.key} className="relative inline-flex">
+                <Pill
+                  role="checkbox"
+                  ariaChecked={isActive ? true : (isPartial ? 'mixed' : false)}
+                  active={isActive || isOpen}
+                  onClick={() => onToggleCategory(cat.key)}
+                  leftSlot={isActive ? <Check className="h-3.5 w-3.5 shrink-0" /> : undefined}
+                  className={cn(
+                    // Reserve right-side space so the label never overlaps the chevron button
+                    'pr-7',
+                    isPartial && !isActive ? 'border-accent-DEFAULT/40 bg-accent-DEFAULT/10' : undefined,
+                    isOpen && !isActive ? 'border-neutral-400 dark:border-neutral-500' : undefined,
+                  )}
+                >
+                  {cat.label}
+                </Pill>
+                {/* Chevron as its own focusable button — stopPropagation keeps it independent */}
+                <button
+                  type="button"
+                  aria-label={isOpen ? `${cat.label} zuklappen` : `${cat.label} aufklappen`}
+                  onClick={e => { e.stopPropagation(); toggleDetail(cat.key) }}
+                  className={cn(
+                    'absolute inset-y-0 right-0 flex items-center justify-center w-7 rounded-r-lg',
+                    'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200',
+                    'transition-colors duration-150',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1',
+                  )}
+                >
+                  {isOpen
+                    ? <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                    : <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                  }
+                </button>
+              </div>
             )
           }
 
@@ -261,7 +286,7 @@ export function SportCategoryChips({
       </div>
 
       {/* ── Detail panels (showDetailPicker mode, standard segTypes) ── */}
-      {showDetailPicker && activeTypes !== null && segType !== 'wintersport' && segType !== 'wassersport' && openCategoryKey && (
+      {showDetailPicker && segType !== 'wintersport' && segType !== 'wassersport' && openCategoryKey && (
         <div className="mt-1 flex flex-col gap-1.5">
           {visible
             .filter(cat => cat.key === openCategoryKey)
