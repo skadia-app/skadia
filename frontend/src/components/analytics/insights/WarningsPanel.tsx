@@ -9,6 +9,12 @@ function severityBorderColor(severity: Warning['severity']): string {
     case 'danger': return 'border-l-4 border-l-rose-500'
     case 'warning': return 'border-l-4 border-l-amber-500'
     case 'info': return 'border-l-4 border-l-blue-500'
+    default: {
+      // compile-time exhaustiveness: TSC errors if union is extended without updating this
+      const _: never = severity
+      void _
+      return 'border-l-4 border-l-neutral-400'
+    }
   }
 }
 
@@ -18,6 +24,11 @@ function severityBg(severity: Warning['severity']): string {
     case 'danger': return 'bg-rose-50 dark:bg-rose-900/10'
     case 'warning': return 'bg-amber-50 dark:bg-amber-900/10'
     case 'info': return 'bg-blue-50 dark:bg-blue-900/10'
+    default: {
+      const _: never = severity
+      void _
+      return 'bg-neutral-50 dark:bg-neutral-900/10'
+    }
   }
 }
 
@@ -27,6 +38,11 @@ function severityIcon(severity: Warning['severity']): string {
     case 'danger': return '⚠️'
     case 'warning': return '⚡'
     case 'info': return 'ℹ️'
+    default: {
+      const _: never = severity
+      void _
+      return '❓'
+    }
   }
 }
 
@@ -36,6 +52,11 @@ function severityLabel(severity: Warning['severity']): string {
     case 'danger': return 'Kritisch'
     case 'warning': return 'Warnung'
     case 'info': return 'Info'
+    default: {
+      const _: never = severity
+      void _
+      return 'Unbekannt'
+    }
   }
 }
 
@@ -45,6 +66,11 @@ function severityBadge(severity: Warning['severity']): string {
     case 'danger': return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
     case 'warning': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
     case 'info': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+    default: {
+      const _: never = severity
+      void _
+      return 'bg-neutral-100 text-neutral-700 dark:bg-neutral-900/30 dark:text-neutral-300'
+    }
   }
 }
 
