@@ -109,12 +109,14 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
   }
 
   const handleBidirectionalToggle = () => {
-    onMetaChange({
-      bidirectional: !meta.bidirectional,
-      userEditedBidirectional: true,
-    })
+   const newValue = !meta.bidirectional
+   const defaultValue = BIDIRECTIONAL_DEFAULT[meta.segType] ?? true
+   const isDefault = newValue === defaultValue
+   onMetaChange({
+     bidirectional: newValue,
+     userEditedBidirectional: !isDefault,
+   })
   }
-
   const toggleSportType = (key: string) => {
     const current = meta.sportTypes
     if (current === null) {

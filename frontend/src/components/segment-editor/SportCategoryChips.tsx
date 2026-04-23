@@ -11,7 +11,7 @@ interface SportCategoryChipsProps {
   onSetAll: () => void
 }
 
-const UI_SPORT_CATEGORIES = [
+export const UI_SPORT_CATEGORIES = [
   { key: 'run',          label: 'Laufen & Wandern', taxonomyKeys: ['run'] },
   { key: 'bike',         label: 'Rad',              taxonomyKeys: ['bike'] },
   { key: 'winter',       label: 'Wintersport',      taxonomyKeys: ['winter'] },

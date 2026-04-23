@@ -272,7 +272,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
                   />
                   <div className="min-w-0 flex-1">
                     <div className="text-xs font-medium text-neutral-800 dark:text-neutral-200 truncate">
-                      {act.title || act.sport_type}
+                      {act.title || sportLabel(act.sport_type)}
                     </div>
                     <div className="text-xs text-neutral-400 flex items-center gap-1.5 mt-0.5 flex-wrap">
                       <span>{sportLabel(act.sport_type)}</span>

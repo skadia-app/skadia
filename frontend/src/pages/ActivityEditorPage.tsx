@@ -13,6 +13,7 @@ echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 import { apiClient } from '@/api/client'
 import type { StreamPoint } from '@/api/types'
 import Toggle from '@/components/Toggle'
+import { sportLabel } from '@/lib/sportTaxonomy'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -441,7 +442,7 @@ export default function ActivityEditorPage() {
       setDetectedGPSOutliers(result.timestamps)
       showStatus(
         result.count > 0
-          ? `${result.count} GPS-Ausreißer erkannt (Max. ${result.max_speed_ms.toFixed(1)} m/s für ${result.sport_type})`
+          ? `${result.count} GPS-Ausreißer erkannt (Max. ${result.max_speed_ms.toFixed(1)} m/s für ${sportLabel(result.sport_type)})`
           : 'Keine GPS-Ausreißer erkannt.',
       )
     } catch {

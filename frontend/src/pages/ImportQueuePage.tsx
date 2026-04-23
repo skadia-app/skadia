@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import AuthenticatedImage from '@/components/AuthenticatedImage'
 import { useToast } from '@/lib/toast'
+import { sportLabel } from '@/lib/sportTaxonomy'
 import {
   fetchImportQueue,
   assignQueueItem,
@@ -87,7 +88,7 @@ function ActivitySearchModal({ onSelect, onClose }: ActivitySearchModalProps) {
                       {activity.title ?? '(Ohne Titel)'}
                     </p>
                     <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                      {activity.sport_type}
+                      {sportLabel(activity.sport_type)}
                       {activity.started_at
                         ? ` · ${new Date(activity.started_at).toLocaleDateString('de-DE')}`
                         : ''}

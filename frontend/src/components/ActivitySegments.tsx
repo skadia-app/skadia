@@ -124,7 +124,11 @@ export default function ActivitySegments({ activityId, streams }: Props) {
                         {effort.segment_name ?? 'Unbenannt'}
                       </button>
                       {effort.segment_type_meta && (
-                        <DifficultyBadge meta={effort.segment_type_meta} />
+                        <DifficultyBadge 
+                          sac={effort.segment_type_meta?.sac_scale as string} 
+                          mtb={effort.segment_type_meta?.mtb_scale as string} 
+                          color={effort.segment_type_meta?.difficulty_color as string} 
+                        />
                       )}
                     </div>
                   </td>

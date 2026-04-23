@@ -198,7 +198,13 @@ export default function SegmentDetailPage() {
       <div>
         <div className="flex items-center gap-3 mb-2">
           <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{segment.name}</h1>
-          {segment.segment_type === 'trail' && <DifficultyBadge meta={segment.segment_type_meta ?? {}} />}
+          {segment.segment_type === 'trail' && (
+            <DifficultyBadge 
+              sac={segment.segment_type_meta?.sac_scale as string} 
+              mtb={segment.segment_type_meta?.mtb_scale as string} 
+              color={segment.segment_type_meta?.difficulty_color as string} 
+            />
+          )}
         </div>
         <div className="flex flex-wrap gap-3 text-sm text-neutral-500 dark:text-neutral-400">
           <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">

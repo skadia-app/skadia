@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { apiClient } from '@/api/client'
 import { useNavigate } from 'react-router-dom'
 import { MapPin } from 'lucide-react'
+import { sportLabel } from '@/lib/sportTaxonomy'
 
 interface SimilarRoute {
   id: string
@@ -43,7 +44,7 @@ export default function RouteSimilarityCard({ activityId }: { activityId: string
             <div>
               <p className="font-medium truncate max-w-[200px]">{r.title}</p>
               <p className="text-xs text-neutral-500">
-                {new Date(r.started_at).toLocaleDateString('de-DE')} · {r.sport_type}
+                {new Date(r.started_at).toLocaleDateString('de-DE')} · {sportLabel(r.sport_type)}
               </p>
             </div>
             <span className="text-xs text-neutral-400 ml-2 flex-shrink-0">

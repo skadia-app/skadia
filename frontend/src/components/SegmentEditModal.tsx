@@ -12,7 +12,8 @@ import { SurfaceDropdown } from './segment-editor/SurfaceDropdown'
 import { DifficultyColorPicker } from './segment-editor/DifficultyColorPicker'
 import { ClimbTypePills } from './segment-editor/ClimbTypePills'
 import { MapPreview } from './segment-editor/MapPreview'
-import { SportCategoryChips } from './segment-editor/SportCategoryChips'
+import { SportCategoryChips, UI_SPORT_CATEGORIES, expandCategoryToSportTypes, isCategoryFullyActive } from './segment-editor/SportCategoryChips'
+import { WINTER_SPORT_WHITELIST, WATER_SPORT_WHITELIST } from './segment-editor/constants'
 
 interface Props {
   segment: Segment
@@ -204,27 +205,22 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
             segType={segment.segment_type as any}
             activeTypes={allowedSportTypes}
             onToggleCategory={(catKey) => {
-              // Import/Helper-Logik direkt im Handler (da die Helper oft nicht exportiert sind)
-              // Wir holen uns die Typen für diese Kategorie
-              const UI_SPORT_CATEGORIES = [
-                { key: 'run', taxonomyKeys: ['run'] },
-                { key: 'bike', taxonomyKeys: ['bike'] },
-                { key: 'winter', taxonomyKeys: ['winter'] },
-                { key: 'water_swim', taxonomyKeys: ['water'], segmentGroups: ['swim'] },
-                { key: 'water_paddle', taxonomyKeys: ['water'], segmentGroups: ['paddle'] },
-                { key: 'water_surf', taxonomyKeys: ['water'], segmentGroups: ['generic'] },
-                { key: 'sonstige', taxonomyKeys: ['fitness', 'game', 'climb', 'outdoor', 'multi', 'other'] },
-              ]
-              const cat = UI_SPORT_CATEGORIES.find(c => c.key === catKey)
-              if (!cat) return
+              const whitelist = segment.segment_type === 'wintersport' ? WINTER_SPORT_WHITELIST : (segment.segment_type === 'wassersport' ? WATER_SPORT_WHITELIST : undefined)
+              const types = expandCategoryToSportTypes(catKey, whitelist)
+              if (types.length === 0) return
               
+              const isFull = isCategoryFullyActive(catKey, allowedSportTypes, whitelist)
               setAllowedSportTypes(prev => {
                 const current = prev ?? []
-                // Vereinfachte Logik: Wenn Kategorie-Trigger -> alle Typen der Kategorie togglen
-                // (In der Praxis würden wir hier sportsInCategory() etc. nutzen, 
-                // aber wir emulieren hier die Sidebar-Logik)
-                // Für den Moment: Wir lassen es bei der Anzeige oder implementieren ein einfaches Toggle
-                return current.includes(catKey) ? current.filter(t => t !== catKey) : [...current, catKey]
+                if (isFull) {
+                  // Alle Typen dieser Kategorie entfernen
+                  return current.filter(t => !types.includes(t))
+                } else {
+                  // Alle Typen dieser Kategorie hinzufügen (Duplikate vermeiden)
+                  const next = [...current]
+                  types.forEach(t => { if (!next.includes(t)) next.push(t) })
+                  return next
+                }
               })
             }}
             onSetAll={() => setAllowedSportTypes(null)}
