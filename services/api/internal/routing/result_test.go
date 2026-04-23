@@ -2,8 +2,51 @@ package routing
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 )
+
+func TestRouteResult_BuildProperties_ElevationProfileNullVsSlice(t *testing.T) {
+	rNil := &RouteResult{ElevationProfile: nil}
+	propsNil := rNil.buildProperties()
+	raw, err := json.Marshal(propsNil["elevation_profile"])
+	if err != nil {
+		t.Fatalf("json.Marshal nil elevation_profile: %v", err)
+	}
+	if string(raw) != "null" {
+		t.Fatalf("nil ElevationProfile: got %s, want null", string(raw))
+	}
+
+	profile := []ElevationPoint{{DistM: 0, EleM: 593}, {DistM: 100, EleM: 610}}
+	rSet := &RouteResult{ElevationProfile: &profile}
+	propsSet := rSet.buildProperties()
+	raw2, err := json.Marshal(propsSet["elevation_profile"])
+	if err != nil {
+		t.Fatalf("json.Marshal set elevation_profile: %v", err)
+	}
+	// Unmarshal both and compare structurally (JSONEq equivalent)
+	var got, want []map[string]any
+	if err := json.Unmarshal(raw2, &got); err != nil {
+		t.Fatalf("unmarshal got: %v", err)
+	}
+	if err := json.Unmarshal([]byte(`[{"dist_m":0,"ele_m":593},{"dist_m":100,"ele_m":610}]`), &want); err != nil {
+		t.Fatalf("unmarshal want: %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("elevation_profile len = %d, want %d", len(got), len(want))
+	}
+	for i, wEntry := range want {
+		for k, wv := range wEntry {
+			gv, ok := got[i][k]
+			if !ok {
+				t.Fatalf("elevation_profile[%d] missing key %q", i, k)
+			}
+			if gv != wv {
+				t.Fatalf("elevation_profile[%d][%q] = %v, want %v", i, k, gv, wv)
+			}
+		}
+	}
+}
 
 func TestRouteResultAvgFlat(t *testing.T) {
 	r := &RouteResult{DistSum: 1000, QualitySum: 1200}

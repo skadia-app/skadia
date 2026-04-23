@@ -6,6 +6,13 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 )
 
+// ElevationPoint is a single point in the full-resolution elevation profile,
+// anchored to cumulative route distance (approach-exclusive — see spec §5.5).
+type ElevationPoint struct {
+	DistM float64 `json:"dist_m"`
+	EleM  float64 `json:"ele_m"`
+}
+
 // RouteResult holds the complete routing result.
 type RouteResult struct {
 	Coordinates  []LatLonEle    `json:"-"`
@@ -49,6 +56,15 @@ type RouteResult struct {
 	// Zero means no dst-VE was appended (dst-VE is nil); callers should fall back to
 	// len(Coordinates)-1 when this field is zero.
 	LastEdgeCoordEnd int `json:"-"`
+
+	// ElevationProfile holds the full-resolution elevation profile for this route.
+	// Pointer-to-slice so nil is distinguishable from empty slice in JSON:
+	//   nil  → JSON null  (profile not yet computed)
+	//   &[]  → JSON []    (computed, but empty — should not occur in practice)
+	// Populated by the DEM enrichment step in Phase 2+.
+	// JSON serialisation happens via buildProperties (key "elevation_profile");
+	// this field itself is excluded from direct struct marshalling (json:"-").
+	ElevationProfile *[]ElevationPoint `json:"-"` // nil → JSON null via buildProperties
 }
 
 // AvgFlat returns the distance-weighted average flat cost factor of this route.
@@ -63,6 +79,14 @@ func (r *RouteResult) AvgFlat() float32 {
 type LatLonEle struct {
 	Lat float64 `json:"lat"`
 	Lon float64 `json:"lon"`
+	// Ele is the elevation in meters at this coordinate.
+	//
+	// DEPRECATED as of 2026-04-22. Use the route's `elevation_profile` property
+	// for accurate per-point elevations at full DEM resolution. This field
+	// retains the start-node carriedEle value for backward compatibility only
+	// and will be removed in Phase 5.
+	//
+	// See docs/internal/specs/2026-04-22-route-elevation-profile-separation-design.md
 	Ele float64 `json:"ele"`
 }
 
@@ -70,6 +94,8 @@ type LatLonEle struct {
 type RouteSegment struct {
 	FromIdx   int    `json:"from_idx"`
 	ToIdx     int    `json:"to_idx"`
+	FromDistM float64 `json:"from_dist_m"` // cumulative distance (m) at segment start; 0 for first segment
+	ToDistM   float64 `json:"to_dist_m"`   // cumulative distance (m) at segment end; enables elevation-chart hover
 	Highway   string `json:"highway"`
 	Surface   string `json:"surface"`
 	SacScale  string `json:"sac_scale,omitempty"`
@@ -161,12 +187,13 @@ func (r *RouteResult) ToGeoJSONWithExtras(extras map[string]any) json.RawMessage
 
 func (r *RouteResult) buildProperties() map[string]any {
 	props := map[string]any{
-		"distance_m": int(r.DistanceM),
-		"ascent_m":   int(r.AscentM),
-		"descent_m":  int(r.DescentM),
-		"cost":       int(r.Cost),
-		"segments":   r.Segments,
-		"stats":      r.PassStats,
+		"distance_m":        int(r.DistanceM),
+		"ascent_m":          int(r.AscentM),
+		"descent_m":         int(r.DescentM),
+		"cost":              int(r.Cost),
+		"segments":          r.Segments,
+		"stats":             r.PassStats,
+		"elevation_profile": r.ElevationProfile, // nil pointer → JSON null; set → dereferenced array
 	}
 	if len(r.ApproachFrom) > 0 {
 		ac := make([][]float64, len(r.ApproachFrom))
