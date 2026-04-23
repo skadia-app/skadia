@@ -1,13 +1,13 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchSegments, deleteSegment, deleteSegments, recomputeSegment, exportSegments, type Segment } from '@/api/segments'
+import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, deleteSegments, recomputeSegment, exportSegments, type Segment } from '@/api/segments'
 import { getMe } from '@/api/auth'
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
-import { fmtDist } from '@/lib/format'
+import { fmtDist, fmtDuration } from '@/lib/format'
 import { triggerBlobDownload } from '@/lib/utils'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
 import SegmentEditModal from '@/components/SegmentEditModal'
@@ -88,6 +88,7 @@ export default function SegmentsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [selectionMode, setSelectionMode] = useState(false)
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
 
   const { data: me } = useQuery({
     queryKey: ['me'],
@@ -151,6 +152,17 @@ export default function SegmentsPage() {
     () => data?.pages.flatMap(p => p.segments) ?? [],
     [data]
   )
+
+  // B10: Clear stale show_lifts URL param when lift is not in terrainFilter.
+  // This handles the edge case where user manually edits the URL to set segment_types
+  // without lift, but show_lifts=true remains in the URL from a previous state.
+  useEffect(() => {
+    if (showAllLifts && !terrainFilter.includes('lift')) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('show_lifts')
+      setSearchParams(next, { replace: true })
+    }
+  }, [terrainFilter, showAllLifts])
 
   const sentinelRef = useRef<HTMLDivElement>(null)
 
@@ -572,6 +584,15 @@ export default function SegmentsPage() {
                   )}
                 </div>
                 <div className={`flex items-center gap-1 flex-shrink-0 ${selectionMode ? 'hidden' : isSegmentRecomputing(segment.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setSelectedSegmentId(segment.id) }}
+                    className="p-1 rounded text-neutral-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 cursor-pointer transition-colors"
+                    title="Bestenliste"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                    </svg>
+                  </button>
                   <button onClick={(e) => { e.stopPropagation(); setEditingSegment(segment) }} className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-100/20 cursor-pointer"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
                   <button onClick={(e) => handleRecompute(e, segment.id)} disabled={isSegmentRecomputing(segment.id)} className={`p-1 rounded cursor-pointer ${isSegmentRecomputing(segment.id) ? 'text-accent-DEFAULT' : 'text-neutral-400 hover:text-blue-500'}`}><svg className={`w-4 h-4 ${isSegmentRecomputing(segment.id) ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
                   {segment.segment_type !== 'lift' && (segment.created_by === me?.user_id || me?.is_admin) && (
@@ -613,7 +634,129 @@ export default function SegmentsPage() {
       )}
 
       {hasNextPage && <div ref={sentinelRef} className="h-8 flex items-center justify-center mt-4">{isFetchingNextPage && <span className="text-sm text-neutral-400">Lädt...</span>}</div>}
+
+      {/* Leaderboard Modal */}
+      {selectedSegmentId && (
+        <LeaderboardModal
+          segmentId={selectedSegmentId}
+          segmentName={segments.find(s => s.id === selectedSegmentId)?.name ?? 'Segment'}
+          onClose={() => setSelectedSegmentId(null)}
+        />
+      )}
+
       {editingSegment && <SegmentEditModal segment={editingSegment} onClose={() => setEditingSegment(null)} />}
+    </div>
+  )
+}
+
+function LeaderboardModal({ segmentId, segmentName, onClose }: { segmentId: string; segmentName: string; onClose: () => void }) {
+  const [direction, setDirection] = useState<'all' | 'forward' | 'reverse'>('all')
+  const [scope, setScope] = useState<'all' | 'mine'>('all')
+
+  const isReverse = direction === 'all' ? undefined : direction === 'forward' ? false : true
+
+  const { data: entries = [], isLoading } = useQuery({
+    queryKey: ['segment-leaderboard', segmentId, direction, scope],
+    queryFn: () => fetchSegmentLeaderboard(segmentId, isReverse, scope === 'mine'),
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div
+        className="bg-white dark:bg-neutral-900 rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-neutral-200 dark:border-neutral-800">
+          <div>
+            <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Bestenliste</h2>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">{segmentName}</p>
+          </div>
+          <div className="flex items-center gap-3">
+            {/* Scope: Alle / Nur ich */}
+            <div className="flex gap-1">
+              {(['all', 'mine'] as const).map(s => (
+                <button key={s}
+                  onClick={() => setScope(s)}
+                  className={`px-2 py-1 text-xs rounded cursor-pointer ${scope === s ? 'bg-neutral-700 text-white dark:bg-neutral-200 dark:text-neutral-900' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
+                >
+                  {s === 'all' ? 'Alle' : 'Nur ich'}
+                </button>
+              ))}
+            </div>
+            {/* Direction */}
+            <div className="flex gap-1">
+              {(['all', 'forward', 'reverse'] as const).map(dir => (
+                <button key={dir}
+                  onClick={() => setDirection(dir)}
+                  className={`px-2 py-1 text-xs rounded cursor-pointer ${direction === dir ? 'bg-accent-DEFAULT text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
+                >
+                  {dir === 'all' ? 'Alle' : dir === 'forward' ? '→' : '←'}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={onClose}
+              className="cursor-pointer p-2 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-4">
+          {isLoading ? (
+            <div className="flex items-center justify-center h-32 text-neutral-400">Lade Bestenliste...</div>
+          ) : entries.length === 0 ? (
+            <div className="flex items-center justify-center h-32 text-neutral-400">Noch keine Einträge</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-neutral-200 dark:border-neutral-700">
+                  <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Rang</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Athlet</th>
+                  <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Zeit</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Datum</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Ausrüstung</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((entry, i) => (
+                  <tr
+                    key={`${entry.activity_id}-${i}`}
+                    className={`border-b border-neutral-100 dark:border-neutral-800 ${i % 2 !== 0 ? 'bg-neutral-50/50 dark:bg-neutral-800/20' : ''}`}
+                  >
+                    <td className="px-3 py-2 text-neutral-900 dark:text-neutral-100">
+                      {entry.rank_overall != null ? (
+                        entry.rank_overall === 1 ? (
+                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-bold text-xs">
+                            1
+                          </span>
+                        ) : (
+                          <span className="text-neutral-600 dark:text-neutral-400">#{entry.rank_overall}</span>
+                        )
+                      ) : (
+                        <span className="text-neutral-600 dark:text-neutral-400">–</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-neutral-900 dark:text-neutral-100">{entry.display_name}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-neutral-900 dark:text-neutral-100">
+                      {fmtDuration(entry.elapsed_time_s)}
+                    </td>
+                    <td className="px-3 py-2 text-neutral-500 dark:text-neutral-400">
+                      {new Date(entry.started_at).toLocaleDateString('de-DE')}
+                    </td>
+                    <td className="px-3 py-2 text-neutral-500 dark:text-neutral-400">
+                      {entry.gear_name ?? '--'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
