@@ -12,13 +12,13 @@ interface SportCategoryChipsProps {
 }
 
 const UI_SPORT_CATEGORIES = [
-  { key: 'run',          label: 'Run & Hike',       taxonomyKeys: ['run'] },
-  { key: 'bike',         label: 'Bike',             taxonomyKeys: ['bike'] },
-  { key: 'winter',       label: 'Winter Sports',    taxonomyKeys: ['winter'] },
-  { key: 'water_swim',   label: 'Swimming',         taxonomyKeys: ['water'], segmentGroups: ['swim'] },
-  { key: 'water_paddle', label: 'Paddling',         taxonomyKeys: ['water'], segmentGroups: ['paddle'] },
-  { key: 'water_surf',   label: 'Surfing & Sailing', taxonomyKeys: ['water'], segmentGroups: ['generic'] },
-  { key: 'sonstige',     label: 'Other',            taxonomyKeys: ['fitness', 'game', 'climb', 'outdoor', 'multi', 'other'] },
+  { key: 'run',          label: 'Laufen & Wandern', taxonomyKeys: ['run'] },
+  { key: 'bike',         label: 'Rad',              taxonomyKeys: ['bike'] },
+  { key: 'winter',       label: 'Wintersport',      taxonomyKeys: ['winter'] },
+  { key: 'water_swim',   label: 'Schwimmen',        taxonomyKeys: ['water'], segmentGroups: ['swim'] },
+  { key: 'water_paddle', label: 'Paddeln',          taxonomyKeys: ['water'], segmentGroups: ['paddle'] },
+  { key: 'water_surf',   label: 'Surfen & Segeln',  taxonomyKeys: ['water'], segmentGroups: ['generic'] },
+  { key: 'sonstige',     label: 'Sonstige',         taxonomyKeys: ['fitness', 'game', 'climb', 'outdoor', 'multi', 'other'] },
 ]
 
 export function getVisibleCategories(segType: SegType) {

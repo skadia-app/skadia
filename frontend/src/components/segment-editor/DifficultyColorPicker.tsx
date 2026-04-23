@@ -13,14 +13,14 @@ export function DifficultyColorPicker({ segType, value, onChange, disabled }: Pr
   if (segType !== 'wintersport') return null
   
   const colors: Array<{ key: 'blue' | 'red' | 'black'; label: string }> = [
-    { key: 'blue', label: 'Blue (easy)' },
-    { key: 'red', label: 'Red (medium)' },
-    { key: 'black', label: 'Black (hard)' },
+    { key: 'blue', label: 'Blau (einfach)' },
+    { key: 'red', label: 'Rot (mittel)' },
+    { key: 'black', label: 'Schwarz (schwer)' },
   ]
   
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-medium text-neutral-500 uppercase tracking-wider">Piste Color</label>
+      <label className="text-xs font-medium text-neutral-500 uppercase tracking-wider">Schwierigkeit</label>
       <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Pistenfarbe">
         <Pill active={value === null} onClick={() => onChange(null)} disabled={disabled}>—</Pill>
         {colors.map(c => (
