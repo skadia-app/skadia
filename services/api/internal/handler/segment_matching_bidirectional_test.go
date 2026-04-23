@@ -2,60 +2,127 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
+	"time"
 
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/go-chi/chi/v5"
-	"github.com/stretchr/testify/require"
+	"github.com/skadia-app/skadia/services/api/internal/database"
 )
 
+// insertActivityWithTrack inserts a minimal activity row, an activity_tracks
+// entry (track_full from WKT), and 5 activity_streams rows evenly spaced along
+// the given coordinate slice.  Each stream row is 10 s apart so elapsed_time
+// passes the minSegmentEffortTimeS = 5 s threshold.
+//
+// pts is a slice of [lat, lng] pairs ordered along the route.
+// The caller must pass at least 5 pairs to satisfy the GPS-stream length guard
+// in collectSegmentEfforts.
+func insertActivityWithTrack(t *testing.T, pool *database.DB, userID, sportType, trackWKT string, pts [][2]float64) string {
+	t.Helper()
+	ctx := context.Background()
+
+	var activityID string
+	err := pool.Pool.QueryRow(ctx,
+		`INSERT INTO activities (id, user_id, sport_type, started_at)
+		 VALUES (gen_random_uuid(), $1, $2, NOW())
+		 RETURNING id`,
+		userID, sportType).Scan(&activityID)
+	if err != nil {
+		t.Fatalf("insertActivityWithTrack: insert activity: %v", err)
+	}
+
+	// Insert the track geometry (used by the spatial pre-filter JOIN).
+	_, err = pool.Pool.Exec(ctx,
+		`INSERT INTO activity_tracks (activity_id, track_full, track_simplified, bbox, point_count)
+		 VALUES ($1,
+		         ST_GeomFromText($2, 4326),
+		         ST_GeomFromText($2, 4326),
+		         ST_Envelope(ST_GeomFromText($2, 4326)),
+		         $3)`,
+		activityID, trackWKT, len(pts))
+	if err != nil {
+		t.Fatalf("insertActivityWithTrack: insert track: %v", err)
+	}
+
+	// Insert GPS stream rows (needed by GetActivityGPSStream → ≥5 points required).
+	base := time.Now().UTC().Truncate(time.Second)
+	for i, p := range pts {
+		ts := base.Add(time.Duration(i*10) * time.Second)
+		_, err = pool.Pool.Exec(ctx,
+			`INSERT INTO activity_streams (time, activity_id, lat, lng)
+			 VALUES ($1, $2, $3, $4)`,
+			ts, activityID, p[0], p[1])
+		if err != nil {
+			t.Fatalf("insertActivityWithTrack: insert stream point %d: %v", i, err)
+		}
+	}
+
+	t.Cleanup(func() {
+		pool.Pool.Exec(context.Background(), "DELETE FROM activities WHERE id = $1", activityID)
+	})
+	return activityID
+}
+
+// TestMatcherSkipsReverseTraversal verifies that a non-bidirectional segment is
+// not matched when an activity traverses it in the reverse direction, but IS
+// matched in the forward direction.
+//
+// Segment: LINESTRING(0 0, 1 0) — West→East, Bidirectional=false.
+// Forward activity:  GPS goes lng 0→1 (West→East) — should produce 1 effort.
+// Reverse activity:  GPS goes lng 1→0 (East→West) — should produce 0 efforts.
 func TestMatcherSkipsReverseTraversal(t *testing.T) {
-	pool := testPool(t)
-	defer pool.Close()
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
 
 	userID := insertTestUser(t, pool)
-	// Segment von West nach Ost (0 0 -> 1 0), NICHT bidirektional
 	segmentID := insertTestSegment(t, pool, userID, TestSegmentOpts{
 		Track:         "LINESTRING(0 0, 1 0)",
 		Bidirectional: false,
 		SegmentType:   "standard",
 	})
 
-	h := newTestHandler(t, pool)
-	r := chi.NewRouter()
-	
-	// Wir testen hier die interne Matcher-Logik indirekt über den Recompute-Pfad
-	// oder direkt via Handler, falls verfügbar.
-	// Da der Matcher oft asynchron läuft, prüfen wir hier die DB-Reaktion.
-	
-	// 1. Activity in RICHTIGER Richtung (0 0 -> 1 0)
-	act1ID := insertTestActivity(t, pool, userID, "LINESTRING(0 0, 0.5 0, 1 0)")
-	h.RecomputeEffortsForActivity(act1ID) // Synchroner Aufruf für Test
-	
-	var count1 int
-	pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM segment_efforts WHERE activity_id = $1 AND segment_id = $2", act1ID, segmentID).Scan(&count1)
-	require.Equal(t, 1, count1, "Should match in forward direction")
+	ctx := context.Background()
+	now := time.Now().UTC()
 
-	// 2. Activity in FALSCHER Richtung (1 0 -> 0 0)
-	act2ID := insertTestActivity(t, pool, userID, "LINESTRING(1 0, 0.5 0, 0 0)")
-	h.RecomputeEffortsForActivity(act2ID)
-	
-	var count2 int
-	pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM segment_efforts WHERE activity_id = $1 AND segment_id = $2", act2ID, segmentID).Scan(&count2)
-	require.Equal(t, 0, count2, "Should NOT match in reverse direction for non-bidirectional segment")
-}
-
-func insertTestActivity(t *testing.T, pool *pgxpool.Pool, userID string, wkt string) string {
-	t.Helper()
-	var id string
-	err := pool.QueryRow(context.Background(), 
-		"INSERT INTO activities (id, user_id, sport_type, track, started_at) VALUES (gen_random_uuid(), $1, 'cycling', ST_GeomFromText($2, 4326), NOW()) RETURNING id",
-		userID, wkt).Scan(&id)
-	if err != nil {
-		t.Fatalf("insert activity: %v", err)
+	// Forward activity: GPS stream West→East, matches segment forward direction.
+	// Points at lat=0, lng=0..1 in 5 steps of 0.25.
+	fwdPts := [][2]float64{
+		{0, 0.00}, // lat=0, lng=0.00
+		{0, 0.25},
+		{0, 0.50},
+		{0, 0.75},
+		{0, 1.00},
 	}
-	return id
+	fwdTrack := "LINESTRING(0 0, 0.25 0, 0.5 0, 0.75 0, 1 0)"
+	fwdActID := insertActivityWithTrack(t, db, userID, "cycling", fwdTrack, fwdPts)
+
+	MatchActivitySegments(ctx, db, fwdActID, userID, "cycling", "generic", nil, now)
+
+	var fwdCount int
+	pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM segment_efforts WHERE activity_id = $1 AND segment_id = $2`,
+		fwdActID, segmentID).Scan(&fwdCount)
+	if fwdCount != 1 {
+		t.Errorf("forward direction: segment_efforts count = %d, want 1", fwdCount)
+	}
+
+	// Reverse activity: GPS stream East→West, should NOT match non-bidirectional segment.
+	revPts := [][2]float64{
+		{0, 1.00}, // lat=0, lng=1.00
+		{0, 0.75},
+		{0, 0.50},
+		{0, 0.25},
+		{0, 0.00},
+	}
+	revTrack := "LINESTRING(1 0, 0.75 0, 0.5 0, 0.25 0, 0 0)"
+	revActID := insertActivityWithTrack(t, db, userID, "cycling", revTrack, revPts)
+
+	MatchActivitySegments(ctx, db, revActID, userID, "cycling", "generic", nil, now)
+
+	var revCount int
+	pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM segment_efforts WHERE activity_id = $1 AND segment_id = $2`,
+		revActID, segmentID).Scan(&revCount)
+	if revCount != 0 {
+		t.Errorf("reverse direction: segment_efforts count = %d, want 0 (non-bidirectional)", revCount)
+	}
 }
