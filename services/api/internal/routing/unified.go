@@ -602,9 +602,13 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 		Ele: float64(dstEle) / 10.0,
 	})
 
+	// Build full-resolution elevation profile from edge handles (Spec Rev 2.3 §6.5, T1.3).
+	// edgeStartDistM[i]/edgeEndDistM[i] feed buildSegmentsUnified for FromDistM/ToDistM.
+	profile, edgeStartDistM, edgeEndDistM := buildElevationProfile(reader, edgeHandles)
+
 	// Build RouteSegments: group contiguous edges with same Tags1
 	segments := buildSegmentsUnified(nEdges, edgeCoordStart,
-		edgeTags1, edgeTags2, len(coords)-1)
+		edgeTags1, edgeTags2, edgeStartDistM, edgeEndDistM, len(coords)-1)
 
 	// Source-side: insert partial edge geometry from projection point to seed node.
 	// Without this, there's a straight line (Luftlinie) from the projection to the
@@ -643,6 +647,22 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 		totalDist += geo.DistanceHaversine(coords[i-1].Lat, coords[i-1].Lon, coords[i].Lat, coords[i].Lon)
 	}
 
+	// Spec Rev 2.3 §6.5: nil vs empty — degenerate-only routes (all edges DEM-less)
+	// produce an empty profile slice. Store nil so JSON output is `null` and
+	// mergeLegs/frontend code can distinguish "not computed" from "computed+empty".
+	var elevProfile *[]ElevationPoint
+	if len(profile) > 0 {
+		elevProfile = &profile
+	}
+
+	// Spec Rev 2.3 §6.5 / F1: overwrite coord[2] (Ele) from the profile so that
+	// DP-intermediate points no longer carry the stale carriedEle value.
+	// MUST run after all coord mutations (srcVE prepend, dstVE append) to avoid
+	// subsequent writes re-introducing the spike.
+	if elevProfile != nil {
+		applyProfileToCoords(coords, *elevProfile)
+	}
+
 	return &RouteResult{
 		Coordinates:      coords,
 		DistanceM:        totalDist,
@@ -659,6 +679,7 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 		EdgeTags1:        edgeTags1,
 		EdgeTags2:        edgeTags2,
 		LastEdgeCoordEnd: lastRealEdgeCoordEnd, // excludes dst-VE air-line tail (F2)
+		ElevationProfile: elevProfile,          // Spec Rev 2.3 §6.5, T1.3
 	}
 }
 
@@ -666,8 +687,14 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 // outdoor-relevant Tags2 bits (outdoorTags2Mask). Changes in Tags1 or in any of
 // mtb:scale:uphill / via_ferrata_scale / trail_visibility start a new segment.
 // Forest/noise bits in Tags2 do NOT split segments.
+//
+// edgeStartDistM[i] and edgeEndDistM[i] are the cumulative-distance anchors
+// produced by buildElevationProfile for edge i. They populate FromDistM/ToDistM
+// on each resulting RouteSegment (Spec Rev 2.3 §6.5). Pass nil for both to keep
+// the fields at zero (used by callers that have not yet been migrated to T1.3/T1.4).
 func buildSegmentsUnified(nEdges int,
 	edgeCoordStart []int, edgeTags1, edgeTags2 []uint64,
+	edgeStartDistM, edgeEndDistM []float64, // NEW: per-edge distance anchors; nil = not available
 	lastCoordIdx int) []RouteSegment {
 
 	if nEdges == 0 {
@@ -678,17 +705,31 @@ func buildSegmentsUnified(nEdges int,
 	curTags1 := edgeTags1[0]
 	curTags2 := edgeTags2[0]
 	segFromCoord := edgeCoordStart[0]
+	segFirstEdgeIdx := 0 // index of the first edge in the current segment group
 
 	for i := 1; i < nEdges; i++ {
 		if edgeTags1[i] != curTags1 ||
 			(edgeTags2[i]&outdoorTags2Mask) != (curTags2&outdoorTags2Mask) {
-			segments = append(segments, makeSegmentFromTags(segFromCoord, edgeCoordStart[i], curTags1, curTags2))
+			seg := makeSegmentFromTags(segFromCoord, edgeCoordStart[i], curTags1, curTags2)
+			// Populate distance anchors when available (Spec Rev 2.3 §6.5).
+			if edgeStartDistM != nil && edgeEndDistM != nil {
+				seg.FromDistM = edgeStartDistM[segFirstEdgeIdx]
+				seg.ToDistM = edgeEndDistM[i-1]
+			}
+			segments = append(segments, seg)
 			segFromCoord = edgeCoordStart[i]
+			segFirstEdgeIdx = i
 			curTags1 = edgeTags1[i]
 			curTags2 = edgeTags2[i]
 		}
 	}
-	segments = append(segments, makeSegmentFromTags(segFromCoord, lastCoordIdx, curTags1, curTags2))
+	seg := makeSegmentFromTags(segFromCoord, lastCoordIdx, curTags1, curTags2)
+	// Populate distance anchors for the last segment group.
+	if edgeStartDistM != nil && edgeEndDistM != nil {
+		seg.FromDistM = edgeStartDistM[segFirstEdgeIdx]
+		seg.ToDistM = edgeEndDistM[nEdges-1]
+	}
+	segments = append(segments, seg)
 	return segments
 }
 

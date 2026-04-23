@@ -639,3 +639,56 @@ func TestComputeTurnCost_Basic(t *testing.T) {
 		t.Errorf("base=0: expected turnCost=0, got %f", tc4)
 	}
 }
+
+// TestRouteSameEdge_ProfileTwoPoints verifies that the same-edge special case
+// (routeSameEdge) emits a non-nil 2-point ElevationProfile (Spec §5.8, T1.3).
+// The profile distance axis must span [0, result.DistanceM] and the elevation
+// values must match the src/dst projection elevation from the route coordinates.
+func TestRouteSameEdge_ProfileTwoPoints(t *testing.T) {
+	// Two nodes on an edge; route from very close src to very close dst so
+	// same-edge shortcut triggers. Use identical lat/lon nodes on the same edge
+	// with a meaningful elevation difference.
+	nodes := [][3]float64{
+		{47.0, 11.0, 5000}, // 500m
+		{47.01, 11.0, 6000}, // 600m
+	}
+	edges := [][4]int{
+		{0, 1, 100000, 16}, // 1000m
+		{1, 0, 100000, 16},
+	}
+	g := makeTestGraph(nodes, edges)
+	r := newTestRouter(g)
+	cfg := simpleCostConfig()
+
+	ctx := context.Background()
+	// Route from src (very close to node 0) to dst (very close to node 1).
+	// Both project onto the same edge → routeSameEdge triggered.
+	result, err := r.Route(ctx, RouteRequest{
+		FromLat: 47.0, FromLon: 11.0,
+		ToLat:   47.01, ToLon: 11.0,
+	}, cfg)
+	if err != nil {
+		t.Fatalf("Route failed: %v", err)
+	}
+
+	if result.ElevationProfile == nil {
+		t.Fatal("ElevationProfile must not be nil for same-edge route (Spec §5.8)")
+	}
+	prof := *result.ElevationProfile
+	if len(prof) != 2 {
+		t.Fatalf("expected exactly 2 profile points for same-edge route, got %d", len(prof))
+	}
+
+	// profile[0].DistM must be 0
+	if prof[0].DistM != 0 {
+		t.Errorf("profile[0].DistM: want 0, got %.4f", prof[0].DistM)
+	}
+	// profile[1].DistM must equal result.DistanceM
+	if math.Abs(prof[1].DistM-result.DistanceM) > 0.01 {
+		t.Errorf("profile[1].DistM=%.4f, want %.4f (result.DistanceM)", prof[1].DistM, result.DistanceM)
+	}
+	// Both elevation values must be non-negative (sanity)
+	if prof[0].EleM < 0 || prof[1].EleM < 0 {
+		t.Errorf("negative elevation in same-edge profile: [%.1f, %.1f]", prof[0].EleM, prof[1].EleM)
+	}
+}

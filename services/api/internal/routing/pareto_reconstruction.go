@@ -198,7 +198,7 @@ func BuildRouteResultFromEdges(
 	// the user-facing segments array. Mirrors retrackUnified's pattern exactly.
 	if len(edges) > 0 {
 		result.Segments = buildSegmentsUnified(len(edges),
-			edgeCoordStart, edgeTags1, edgeTags2, len(result.Coordinates)-1)
+			edgeCoordStart, edgeTags1, edgeTags2, nil, nil, len(result.Coordinates)-1)
 	}
 
 	return result

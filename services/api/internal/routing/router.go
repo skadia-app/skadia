@@ -199,12 +199,22 @@ func (r *UnifiedRouter) routeSameEdge(srcVE, dstVE *VirtualEndpoint, cfg *CostCo
 		{Lat: dstVE.Proj.ProjLat, Lon: dstVE.Proj.ProjLon, Ele: float64(dstVE.Proj.ProjEleDm) / 10.0},
 	}
 
+	// Spec §5.8: minimal 2-point elevation profile for same-edge special case.
+	// Distance axis: 0 at src projection, directDist at dst projection.
+	// The two coord entries already carry the correct Ele values (ProjEleDm / 10.0),
+	// so applyProfileToCoords is not needed — coords and profile are consistent by construction.
+	sameEdgeProfile := []ElevationPoint{
+		{DistM: 0, EleM: float64(srcVE.Proj.ProjEleDm) / 10.0},
+		{DistM: directDist, EleM: float64(dstVE.Proj.ProjEleDm) / 10.0},
+	}
+
 	return &RouteResult{
-		Coordinates: coords,
-		DistanceM:   directDist,
-		AscentM:     ascent,
-		DescentM:    descent,
-		Cost:        cost,
+		Coordinates:      coords,
+		DistanceM:        directDist,
+		AscentM:          ascent,
+		DescentM:         descent,
+		Cost:             cost,
+		ElevationProfile: &sameEdgeProfile, // Spec §5.8, T1.3
 	}
 }
 
