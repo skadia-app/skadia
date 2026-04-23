@@ -181,15 +181,17 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         </div>
 
         <div className="space-y-3">
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Höhenprofil</label>
-            <ClimbTypePills
-              segType={segment.segment_type as any}
-              value={climbType}
-              onChange={setClimbType}
-              disabled={isLoadingFull}
-            />
-          </div>
+          {(segment.segment_type === 'standard' || segment.segment_type === 'trail') && (
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Höhenprofil</label>
+              <ClimbTypePills
+                segType={segment.segment_type as any}
+                value={climbType}
+                onChange={setClimbType}
+                disabled={isLoadingFull}
+              />
+            </div>
+          )}
 
           {/* Bidirectional toggle — only shown for non-lap segments (lap = closed loop) */}
           {segment.segment_type !== 'lap' && (
