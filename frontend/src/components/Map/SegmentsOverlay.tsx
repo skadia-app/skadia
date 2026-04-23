@@ -346,7 +346,7 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       const segType = feature.properties?.segment_type ?? 'standard'
       const typeLabel =
         segType === 'trail' ? 'Trail' :
-        segType === 'lap' ? 'Lap' :
+        segType === 'lap' ? 'Runde' :
         segType === 'lift' ? 'Lift' :
         segType === 'wintersport' ? 'Wintersport' :
         segType === 'wassersport' ? 'Wassersport' :

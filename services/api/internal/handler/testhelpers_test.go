@@ -14,8 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// fusionTestPool returns a live DB pool or skips the test when TEST_DATABASE_URL
-// is unset. Pattern mirrors auth/gdpr_registry_test.go:testPool.
 func fusionTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
@@ -32,7 +30,6 @@ func fusionTestPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// newTestHandler constructs a *Handler with minimal fields.
 func newTestHandler(t *testing.T, pool *pgxpool.Pool) *Handler {
 	t.Helper()
 	return &Handler{
@@ -40,7 +37,6 @@ func newTestHandler(t *testing.T, pool *pgxpool.Pool) *Handler {
 	}
 }
 
-// TestUserOpt is functional option for insertTestUser.
 type TestUserOpt func(*testUserOpts)
 type testUserOpts struct {
 	email   string
@@ -50,7 +46,6 @@ type testUserOpts struct {
 func WithEmail(e string) TestUserOpt  { return func(o *testUserOpts) { o.email = e } }
 func WithIsAdmin(b bool) TestUserOpt  { return func(o *testUserOpts) { o.isAdmin = b } }
 
-// insertTestUser creates a random user for integration tests.
 func insertTestUser(t *testing.T, pool *pgxpool.Pool, opts ...TestUserOpt) string {
 	t.Helper()
 	o := testUserOpts{email: "test-" + randomHex(8) + "@example.com"}
@@ -67,18 +62,16 @@ func insertTestUser(t *testing.T, pool *pgxpool.Pool, opts ...TestUserOpt) strin
 		t.Fatalf("insertTestUser: %v", err)
 	}
 	t.Cleanup(func() {
-		// Clean up activities (cascades efforts/versions), then the user
 		pool.Exec(context.Background(), "DELETE FROM activities WHERE user_id = $1", userID)
 		pool.Exec(context.Background(), "DELETE FROM users WHERE id = $1", userID)
 	})
 	return userID
 }
 
-// TestSegmentOpts configures the test segment.
 type TestSegmentOpts struct {
-	Track         string // WKT, default "LINESTRING(0 0, 1 1)"
-	SegmentType   string // default "standard"
-	Bidirectional bool   // default true
+	Track         string // WKT
+	SegmentType   string
+	Bidirectional bool
 }
 
 func insertTestSegment(t *testing.T, pool *pgxpool.Pool, userID string, opts TestSegmentOpts) string {
@@ -179,3 +172,6 @@ func randomHex(n int) string {
 	_, _ = rand.Read(buf)
 	return hex.EncodeToString(buf)
 }
+
+func fusionPtrF64(v float64) *float64 { return &v }
+func fusionPtrI16(v int16) *int16     { return &v }

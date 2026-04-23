@@ -76,8 +76,6 @@ func insertStreams(t *testing.T, db *database.DB, activityID string, streams []m
 
 // ptr* helpers — redeclaring locally so this file compiles independently of
 // streams_copyfrom_test.go which lives in the database package, not handler.
-func fusionPtrF64(v float64) *float64 { return &v }
-func fusionPtrI16(v int16) *int16     { return &v }
 
 // nearlyEqual compares two float64 values with a tolerance of 1e-4.
 // Used for DB round-trip comparisons where PostgreSQL REAL (float32) columns

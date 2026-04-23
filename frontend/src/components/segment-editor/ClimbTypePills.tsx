@@ -1,4 +1,4 @@
-import { Pill } from './Pill'
+import { Pill } from '../ui/Pill'
 import { CLIMB_TYPE_LABELS, type ClimbType, type SegType } from './constants'
 
 interface ClimbTypePillsProps {

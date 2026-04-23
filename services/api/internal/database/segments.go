@@ -85,23 +85,16 @@ LEFT JOIN LATERAL (
 	// Admin sees all segments (public + private from all users).
 	// Segments contain only geometry/metadata — no personal health data.
 	// Admin access is covered by the existing audit log.
-	where := `
-	WHERE (s.visibility = 'public' OR s.created_by = $1 OR $2 = true)`
-
-	// Visibility-Filter: Base-Condition überschreiben wenn gesetzt (§5 Spec)
-	// Admin-Bypass via $2=isAdmin bleibt erhalten.
+	var visibilityClause string
 	switch p.VisibilityFilter {
 	case "public":
-		where = strings.Replace(where,
-			"(s.visibility = 'public' OR s.created_by = $1 OR $2 = true)",
-			"s.visibility = 'public'",
-			1)
+		visibilityClause = "s.visibility = 'public'"
 	case "private":
-		where = strings.Replace(where,
-			"(s.visibility = 'public' OR s.created_by = $1 OR $2 = true)",
-			"s.visibility = 'private' AND (s.created_by = $1 OR $2 = true)",
-			1)
+		visibilityClause = "s.visibility = 'private' AND (s.created_by = $1 OR $2 = true)"
+	default:
+		visibilityClause = "(s.visibility = 'public' OR s.created_by = $1 OR $2 = true)"
 	}
+	where := fmt.Sprintf(" WHERE %s", visibilityClause)
 
 	if p.SportGroup != "" {
 		where += fmt.Sprintf(" AND s.sport_group = $%d", argIdx)
@@ -130,25 +123,22 @@ LEFT JOIN LATERAL (
 	if p.BBox != "" {
 		parts := strings.Split(p.BBox, ",")
 		if len(parts) == 4 {
-			if p.IncludeGeoJSON {
-				where += fmt.Sprintf(
-					` AND sv.track IS NOT NULL AND ST_Intersects(sv.track, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326))`,
-					argIdx, argIdx+1, argIdx+2, argIdx+3,
-				)
-			} else {
-				// Ohne sv brauchen wir einen eigenen LATERAL fuer BBox
-				from += fmt.Sprintf(`
+			// Wir nutzen sv wenn vorhanden, sonst sv_bbox (redundant aber funktional korrekt getrennt)
+			bboxTable := "sv"
+			if !p.IncludeGeoJSON {
+				bboxTable = "sv_bbox"
+				from += `
 	LEFT JOIN LATERAL (
-	SELECT track FROM segment_versions
-	WHERE segment_id = s.id
-	ORDER BY version_number DESC
-	LIMIT 1
-	) sv_bbox ON true`)
-				where += fmt.Sprintf(
-					` AND sv_bbox.track IS NOT NULL AND ST_Intersects(sv_bbox.track, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326))`,
-					argIdx, argIdx+1, argIdx+2, argIdx+3,
-				)
+		SELECT track FROM segment_versions
+		WHERE segment_id = s.id
+		ORDER BY version_number DESC
+		LIMIT 1
+	) sv_bbox ON true`
 			}
+			where += fmt.Sprintf(
+				` AND %s.track IS NOT NULL AND ST_Intersects(%s.track, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326))`,
+				bboxTable, bboxTable, argIdx, argIdx+1, argIdx+2, argIdx+3,
+			)
 			args = append(args, parts[0], parts[1], parts[2], parts[3])
 			argIdx += 4
 		}
@@ -157,22 +147,23 @@ LEFT JOIN LATERAL (
 		where += " AND COALESCE(ue.ridden_count, 0) > 0"
 	}
 
-	// SAC-Filter (§5 Spec) — COALESCE für NULL-Handling
+	// SAC-Filter (§5 Spec) — Optimiert für B-Tree Index (ohne COALESCE auf linker Seite)
 	if p.SacScale != "" {
-		where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'sac_scale', '') = ANY(string_to_array($%d, ','))", argIdx)
+		where += fmt.Sprintf(" AND (s.segment_type_meta->>'sac_scale') = ANY(string_to_array($%d, ','))", argIdx)
 		args = append(args, p.SacScale)
 		argIdx++
 	}
 	if p.MtbScale != "" {
-		where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'mtb_scale', '') = ANY(string_to_array($%d, ','))", argIdx)
+		where += fmt.Sprintf(" AND (s.segment_type_meta->>'mtb_scale') = ANY(string_to_array($%d, ','))", argIdx)
 		args = append(args, p.MtbScale)
 		argIdx++
 	}
 	if p.Surface != "" {
-		where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'surface', '') = ANY(string_to_array($%d, ','))", argIdx)
+		where += fmt.Sprintf(" AND (s.segment_type_meta->>'surface') = ANY(string_to_array($%d, ','))", argIdx)
 		args = append(args, p.Surface)
 		argIdx++
 	}
+
 	// --- Cursor ---
 	if p.Cursor != "" {
 		cursorTS, cursorID, err := decodeCursor(p.Cursor)

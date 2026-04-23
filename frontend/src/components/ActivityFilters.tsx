@@ -6,6 +6,7 @@ import { generateActivityFilterOptions, getOptionKey, getAllSportKeys, filterToE
 import { fetchSportTypeStats } from '@/api/stats'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
+import { Pill } from '@/components/ui/Pill'
 import TagFilterInput from '@/components/TagFilterInput'
 import GearFilterInput, { gearTypeIcon } from '@/components/GearFilterInput'
 import type { TagFilter, TagFilterState } from '@/components/TagFilterInput'
@@ -519,18 +520,15 @@ export default function ActivityFilters({ filters, onChange }: Props) {
       {(chips.length > 0 || filters.tagFilters.length > 0 || filters.gearFilters.length > 0 || filters.deviceFilters.length > 0) && (
         <div className="flex flex-wrap gap-1.5 mt-2">
           {chips.map(chip => (
-            <span
+            <Pill
               key={chip.label}
-              className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-full bg-accent-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800"
+              size="sm"
+              active={true}
+              onClick={chip.onRemove}
             >
               {chip.label}
-              <button
-                onClick={chip.onRemove}
-                className="hover:text-orange-900 dark:hover:text-orange-100 cursor-pointer"
-              >
-                &times;
-              </button>
-            </span>
+              <span className="ml-1 opacity-60 text-xs">&times;</span>
+            </Pill>
           ))}
           {filters.tagFilters.map(tf => (
             <button

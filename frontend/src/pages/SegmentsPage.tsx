@@ -1,18 +1,19 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, deleteSegments, recomputeSegment, exportSegments, type Segment } from '@/api/segments'
+import { fetchSegments, deleteSegment, deleteSegments, recomputeSegment, exportSegments, type Segment } from '@/api/segments'
 import { getMe } from '@/api/auth'
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
-import { fmtDuration, fmtDist } from '@/lib/format'
+import { fmtDist } from '@/lib/format'
 import { triggerBlobDownload } from '@/lib/utils'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
 import SegmentEditModal from '@/components/SegmentEditModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
-import { Lock, Trash2, FilterX } from 'lucide-react'
+import { Lock, Trash2, FilterX, ChevronDown, ChevronUp } from 'lucide-react'
+import { SAC_SCALE_OPTIONS, MTB_SCALE_OPTIONS, SURFACE_DROPDOWN_OPTIONS } from '@/components/segment-editor/constants'
 
 const SPORT_GROUP_LABELS: Record<string, string> = {
   bike: 'Radfahren',
@@ -50,7 +51,6 @@ const SEGMENT_TYPE_LABELS: Record<string, string> = {
   wassersport: 'Wassersport',
 }
 
-
 export default function SegmentsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   
@@ -58,13 +58,19 @@ export default function SegmentsPage() {
   const terrainFilter = searchParams.get('segment_types')?.split(',') ?? ['standard', 'trail', 'wintersport', 'wassersport']
   const showAllLifts = searchParams.get('show_lifts') === 'true'
   const search = searchParams.get('search') ?? ''
-  const sacScale = searchParams.get('sac_scale') ?? ''
-  const mtbScale = searchParams.get('mtb_scale') ?? ''
+  const sacFilter = searchParams.get('sac_scale')?.split(',').filter(Boolean) ?? []
+  const mtbFilter = searchParams.get('mtb_scale')?.split(',').filter(Boolean) ?? []
+  const surfaceFilter = searchParams.get('surface')?.split(',').filter(Boolean) ?? []
   const visibility = searchParams.get('visibility') ?? ''
+
+  const [showAdvanced, setShowAdvanced] = useState(() => 
+    sacFilter.length > 0 || mtbFilter.length > 0 || surfaceFilter.length > 0 || !!visibility
+  )
   
-  const setFilter = (key: string, value: string | null) => {
+  const setFilter = (key: string, value: string | string[] | null) => {
     const next = new URLSearchParams(searchParams)
-    if (value) next.set(key, value)
+    const strValue = Array.isArray(value) ? value.join(',') : value
+    if (strValue) next.set(key, strValue)
     else next.delete(key)
     setSearchParams(next, { replace: true })
   }
@@ -77,7 +83,6 @@ export default function SegmentsPage() {
   const { hideUnused } = useGlobalSportSettings()
   const [localPendingIds, setLocalPendingIds] = useState<Set<string>>(new Set())
   const [searchInput, setSearchInput] = useState(search)
-  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
   const [editorMode, setEditorMode] = useState<'draw' | null>(null)
   const [editingSegment, setEditingSegment] = useState<Segment | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -121,10 +126,11 @@ export default function SegmentsPage() {
       ? 'standard,trail,wintersport,wassersport'
       : terrainFilter.join(','),
     only_ridden: terrainFilter.includes('lift') && !showAllLifts ? true : undefined,
-    sac_scale: sacScale || undefined,
-    mtb_scale: mtbScale || undefined,
+    sac_scale: sacFilter.length > 0 ? sacFilter.join(',') : undefined,
+    mtb_scale: mtbFilter.length > 0 ? mtbFilter.join(',') : undefined,
+    surface: surfaceFilter.length > 0 ? surfaceFilter.join(',') : undefined,
     visibility: (visibility as any) || undefined,
-  }), [sportGroup, search, terrainFilter, showAllLifts, sacScale, mtbScale, visibility])
+  }), [sportGroup, search, terrainFilter, showAllLifts, sacFilter, mtbFilter, surfaceFilter, visibility])
 
   const {
     data,
@@ -252,17 +258,17 @@ export default function SegmentsPage() {
     )
   }
 
+  const activeFilterCount = (sacFilter.length + mtbFilter.length + surfaceFilter.length + (visibility ? 1 : 0))
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Segmente</h1>
         <div className="flex items-center gap-2">
           <Link to="/map" state={{ activateSegmentsOverlay: true }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>
             Auf Karte
           </Link>
           <button onClick={() => setEditorMode('draw')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-accent-100 dark:hover:bg-accent-100/20 hover:text-accent-600 dark:hover:text-accent-400 cursor-pointer transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
             Segment zeichnen
           </button>
           <button
@@ -283,84 +289,154 @@ export default function SegmentsPage() {
       )}
 
       {/* Filter Bar */}
-      <div className="flex flex-wrap items-center gap-3 mb-6 bg-neutral-50 dark:bg-neutral-800/40 p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
-        <select
-          value={sportGroup}
-          onChange={e => setFilter('sport_group', e.target.value || null)}
-          className="border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-400"
-        >
-          <option value="">Alle Sportarten</option>
-          {visibleSportGroups.map(([key, label]) => (
-            <option key={key} value={key}>{label}</option>
-          ))}
-        </select>
-
-        <select
-          value={visibility}
-          onChange={e => setFilter('visibility', e.target.value || null)}
-          className="border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-400"
-        >
-          <option value="">Alle Sichtbarkeiten</option>
-          <option value="public">Öffentlich</option>
-          <option value="private">Privat</option>
-        </select>
-
-        <div className="flex items-center gap-2">
-          <input
-            placeholder="SAC"
-            value={sacScale}
-            onChange={e => setFilter('sac_scale', e.target.value || null)}
-            className="w-16 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-sm bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-400"
-          />
-          <input
-            placeholder="MTB"
-            value={mtbScale}
-            onChange={e => setFilter('mtb_scale', e.target.value || null)}
-            className="w-16 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-sm bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-400"
-          />
-        </div>
-
-        <div className="flex items-center gap-3 flex-wrap border-l border-neutral-200 dark:border-neutral-700 pl-3">
-          {(Object.entries(SEGMENT_TYPE_LABELS) as [string, string][]).map(([id, label]) => (
-            <label key={id} className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={terrainFilter.includes(id)}
-                onChange={e => {
-                  let next: string[]
-                  if (e.target.checked) next = [...terrainFilter, id]
-                  else next = terrainFilter.filter(t => t !== id)
-                  setFilter('segment_types', next.length > 0 ? next.join(',') : null)
-                }}
-                className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
-              />
-              <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
-            </label>
-          ))}
-        </div>
-
-        <div className="flex-1 min-w-[200px] relative">
-          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" /></svg>
-          <input
-            type="text"
-            value={searchInput}
-            onChange={e => handleSearchChange(e.target.value)}
-            placeholder="Segment suchen..."
-            className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm pl-8 pr-3 py-1.5 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-400"
-          />
-        </div>
-
-        {(sportGroup || sacScale || mtbScale || visibility || search) && (
-          <button
-            onClick={() => {
-              setSearchParams(new URLSearchParams(), { replace: true })
-              setSearchInput('')
-            }}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-            title="Filter zurücksetzen"
+      <div className="space-y-3 mb-6">
+        <div className="flex flex-wrap items-center gap-3 bg-neutral-50 dark:bg-neutral-800/40 p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
+          <select
+            value={sportGroup}
+            onChange={e => setFilter('sport_group', e.target.value || null)}
+            className="border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-400"
           >
-            <FilterX className="w-4 h-4" />
+            <option value="">Alle Sportarten</option>
+            {visibleSportGroups.map(([key, label]) => (
+              <option key={key} value={key}>{label}</option>
+            ))}
+          </select>
+
+          <div className="flex items-center gap-3 flex-wrap border-l border-neutral-200 dark:border-neutral-700 pl-3">
+            {(Object.entries(SEGMENT_TYPE_LABELS) as [string, string][]).map(([id, label]) => (
+              <label key={id} className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={terrainFilter.includes(id)}
+                  onChange={e => {
+                    let next: string[]
+                    if (e.target.checked) next = [...terrainFilter, id]
+                    else next = terrainFilter.filter(t => t !== id)
+                    setFilter('segment_types', next.length > 0 ? next.join(',') : null)
+                  }}
+                  className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+                />
+                <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
+              </label>
+            ))}
+          </div>
+
+          <div className="flex-1 min-w-[200px] relative">
+            <input
+              type="text"
+              value={searchInput}
+              onChange={e => handleSearchChange(e.target.value)}
+              placeholder="Segment suchen..."
+              className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm pl-8 pr-3 py-1.5 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+            />
+          </div>
+
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-neutral-600 dark:text-neutral-400 hover:text-accent-DEFAULT transition-colors cursor-pointer"
+          >
+            {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            Erweiterte Filter
+            {activeFilterCount > 0 && (
+              <span className="ml-1 rounded-full bg-accent-DEFAULT/20 px-2 text-[10px] text-accent-DEFAULT">
+                {activeFilterCount}
+              </span>
+            )}
           </button>
+
+          {(sportGroup || activeFilterCount > 0 || search) && (
+            <button
+              onClick={() => {
+                setSearchParams(new URLSearchParams(), { replace: true })
+                setSearchInput('')
+              }}
+              className="p-1.5 rounded-lg text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors cursor-pointer"
+              title="Filter zurücksetzen"
+            >
+              <FilterX className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {showAdvanced && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 p-4 bg-neutral-50/50 dark:bg-neutral-800/20 rounded-xl border border-neutral-200 dark:border-neutral-800 animate-in fade-in slide-in-from-top-2 duration-200">
+            {/* SAC Scale */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">SAC-Skala</label>
+              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                {SAC_SCALE_OPTIONS.map(opt => (
+                  <label key={opt.value} className="flex items-center gap-1.5 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={sacFilter.includes(opt.value)}
+                      onChange={e => {
+                        const next = e.target.checked ? [...sacFilter, opt.value] : sacFilter.filter(v => v !== opt.value)
+                        setFilter('sac_scale', next.length > 0 ? next : null)
+                      }}
+                      className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+                    />
+                    <span className="text-xs text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-200">{opt.value}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* MTB Scale */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">MTB-Skala</label>
+              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                {MTB_SCALE_OPTIONS.map(opt => (
+                  <label key={opt.value} className="flex items-center gap-1.5 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={mtbFilter.includes(opt.value)}
+                      onChange={e => {
+                        const next = e.target.checked ? [...mtbFilter, opt.value] : mtbFilter.filter(v => v !== opt.value)
+                        setFilter('mtb_scale', next.length > 0 ? next : null)
+                      }}
+                      className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+                    />
+                    <span className="text-xs text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-200">{opt.value}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Surface */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Oberfläche</label>
+              <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+                {SURFACE_DROPDOWN_OPTIONS.filter(o => o !== 'Wechselnd').map(opt => (
+                  <label key={opt} className="flex items-center gap-1.5 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={surfaceFilter.includes(opt)}
+                      onChange={e => {
+                        const next = e.target.checked ? [...surfaceFilter, opt] : surfaceFilter.filter(v => v !== opt)
+                        setFilter('surface', next.length > 0 ? next : null)
+                      }}
+                      className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+                    />
+                    <span className="text-xs text-neutral-600 dark:text-neutral-400 truncate group-hover:text-neutral-900 dark:group-hover:text-neutral-200">{opt}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Visibility */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Sichtbarkeit</label>
+              <select
+                value={visibility}
+                onChange={e => setFilter('visibility', e.target.value || null)}
+                className="w-full border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-xs bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+              >
+                <option value="">Alle Sichtbarkeiten</option>
+                <option value="public">Öffentlich</option>
+                <option value="private">Nur meine privaten</option>
+              </select>
+            </div>
+          </div>
         )}
       </div>
 
@@ -395,7 +471,11 @@ export default function SegmentsPage() {
                   <svg className={`w-5 h-5 flex-shrink-0 ${SPORT_GROUP_COLORS[segment.sport_group] ?? 'text-neutral-500'}`} viewBox="0 0 24 24" fill="currentColor"><path d={SPORT_GROUP_ICONS[segment.sport_group] ?? SPORT_GROUP_ICONS.generic} /></svg>
                   <h3 className="font-medium text-neutral-900 dark:text-neutral-100 truncate">{segment.name}</h3>
                   {segment.visibility === 'private' && <Lock className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />}
-                  {['trail', 'wintersport'].includes(segment.segment_type) && <DifficultyBadge sac={segment.segment_type_meta?.sac_scale as string} mtb={segment.segment_type_meta?.mtb_scale as string} color={segment.segment_type_meta?.difficulty_color as string} />}
+                  <DifficultyBadge 
+                    sac={segment.segment_type_meta?.sac_scale as string} 
+                    mtb={segment.segment_type_meta?.mtb_scale as string} 
+                    color={segment.segment_type_meta?.difficulty_color as string} 
+                  />
                 </div>
                 <div className={`flex items-center gap-1 flex-shrink-0 ${selectionMode ? 'hidden' : isSegmentRecomputing(segment.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                   <button onClick={(e) => { e.stopPropagation(); setEditingSegment(segment) }} className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-100/20 cursor-pointer"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
@@ -405,9 +485,12 @@ export default function SegmentsPage() {
                   )}
                 </div>
               </div>
-              <div className="text-xs text-neutral-400">
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-500">
                   {segment.distance_m != null && <span>{fmtDist(segment.distance_m)}</span>}
-                  <span className="ml-2">{segment.effort_count} {segment.effort_count === 1 ? 'Effort' : 'Efforts'}</span>
+                  <span>{segment.effort_count} {segment.effort_count === 1 ? 'Effort' : 'Efforts'}</span>
+                  {segment.segment_type_meta?.surface && (
+                    <span className="text-neutral-400 italic">{segment.segment_type_meta.surface as string}</span>
+                  )}
               </div>
             </div>
           ))}

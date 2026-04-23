@@ -1,4 +1,4 @@
-import { Pill } from './Pill'
+import { Pill } from '../ui/Pill'
 import { ColorSwatch } from './ColorSwatch'
 import type { SegType } from './constants'
 
