@@ -182,6 +182,124 @@ func TestMergeLegs_EmptyFollowLegSkipsCoordStartShift(t *testing.T) {
 	}
 }
 
+// makeTestLeg builds a minimal *RouteResult with the given DistanceM and optional profile.
+func makeTestLeg(distM float64, profile []ElevationPoint) *RouteResult {
+	r := &RouteResult{DistanceM: distM}
+	if profile != nil {
+		cp := make([]ElevationPoint, len(profile))
+		copy(cp, profile)
+		r.ElevationProfile = &cp
+	}
+	return r
+}
+
+func TestMergeLegs_DistanceAxisContinuity(t *testing.T) {
+	leg1 := makeTestLeg(50.0, []ElevationPoint{{0, 100}, {25, 105}, {50, 110}})
+	leg2 := makeTestLeg(40.0, []ElevationPoint{{0, 110}, {20, 120}, {40, 130}})
+	leg3 := makeTestLeg(60.0, []ElevationPoint{{0, 130}, {30, 140}, {60, 150}})
+	merged := mergeLegs([]*RouteResult{leg1, leg2, leg3})
+	if merged.ElevationProfile == nil {
+		t.Fatal("merged.ElevationProfile is nil, want non-nil")
+	}
+	p := *merged.ElevationProfile
+	// Junction-dedup: leg2[0]=110@dist50 dropped (== leg1[last]); leg3[0]=130@dist90 dropped
+	// Expected: 3 + 2 + 2 = 7 points
+	if got, want := len(p), 7; got != want {
+		t.Fatalf("len(profile) = %d, want %d", got, want)
+	}
+	// Strict monotonic
+	for i := 1; i < len(p); i++ {
+		if !(p[i].DistM > p[i-1].DistM) {
+			t.Fatalf("non-monotonic at %d: %v <= %v", i, p[i].DistM, p[i-1].DistM)
+		}
+	}
+	assertInDelta(t, 150.0, p[len(p)-1].DistM, 0.01, "last DistM")
+}
+
+func TestMergeLegs_LegProfileDoesntStartAtZero_DistanceShiftPreservesContinuity(t *testing.T) {
+	// Critic-Finding #21: wenn ein Leg-Profile nicht bei DistM=0 beginnt
+	// (z.B. wegen vorgelagerter degenerate-Edges innerhalb des Legs),
+	// bleibt der Distanz-Shift mathematisch konsistent — der erste
+	// emittierte Punkt landet bei mergedDistM + legProfile[startIdx].DistM,
+	// also nicht zwingend bei mergedDistM.
+	leg1 := makeTestLeg(50.0, []ElevationPoint{{0, 100}, {50, 110}})
+	// leg2 startet im internen Profile bei 5m (degenerate erste Edge):
+	leg2 := makeTestLeg(40.0, []ElevationPoint{{5, 110}, {40, 130}})
+	merged := mergeLegs([]*RouteResult{leg1, leg2})
+	p := *merged.ElevationProfile
+	// leg1 emits 2 points (indices 0,1). leg2 has 2 input points but dedup
+	// startIdx=1 drops the first → emits 1 point (index 2). Total = 3.
+	// (Plan §5.5 had a stale `Len(p, 4)` assertion that contradicted the
+	// emitted-points enumeration in the same test; the index-level assertions
+	// p[0..2] are authoritative.)
+	if got, want := len(p), 3; got != want {
+		t.Fatalf("len(profile) = %d, want %d", got, want)
+	}
+	// leg1: [0, 50] → emitted as-is
+	assertInDelta(t, 0.0, p[0].DistM, 0.01, "p[0].DistM")
+	assertInDelta(t, 50.0, p[1].DistM, 0.01, "p[1].DistM")
+	// leg2: dedup startIdx=1 (len(mergedProfile)>0); aber leg2.legProfile[0]
+	// hat DistM=5, nicht 0 → der gedroppte erste Punkt LIEGT NICHT auf
+	// mergedDistM=50, sondern hätte 55 ergeben.
+	// Emittiert: legProfile[1] = {40, 130} → DistM = 50 + 40 = 90.
+	assertInDelta(t, 90.0, p[2].DistM, 0.01, "p[2].DistM")
+	assertInDelta(t, 130.0, p[2].EleM, 0.01, "p[2].EleM")
+	// Strikt monoton trotz potenziellem Distanz-Sprung
+	for i := 1; i < len(p); i++ {
+		if !(p[i].DistM > p[i-1].DistM) {
+			t.Fatalf("non-monotonic at %d: %v <= %v", i, p[i].DistM, p[i-1].DistM)
+		}
+	}
+}
+
+func TestMergeLegs_FirstLegNilProfile_NoDedupOnFollowLegStart(t *testing.T) {
+	leg1 := makeTestLeg(50.0, nil) // no profile
+	leg2 := makeTestLeg(40.0, []ElevationPoint{{0, 110}, {40, 130}})
+	merged := mergeLegs([]*RouteResult{leg1, leg2})
+	if merged.ElevationProfile == nil {
+		t.Fatal("merged.ElevationProfile is nil, want non-nil")
+	}
+	p := *merged.ElevationProfile
+	// First profile point of leg2 must be emitted (no previous to dedup against)
+	if got, want := len(p), 2; got != want {
+		t.Fatalf("len(profile) = %d, want %d", got, want)
+	}
+	// distance shift by leg1.DistanceM = 50
+	assertInDelta(t, 50.0, p[0].DistM, 0.01, "p[0].DistM")
+	assertInDelta(t, 110.0, p[0].EleM, 0.01, "p[0].EleM")
+	assertInDelta(t, 90.0, p[1].DistM, 0.01, "p[1].DistM")
+}
+
+func TestMergeLegs_MiddleLegNilProfile_DistanceGap(t *testing.T) {
+	leg1 := makeTestLeg(50.0, []ElevationPoint{{0, 100}, {50, 110}})
+	leg2 := makeTestLeg(40.0, nil)
+	leg3 := makeTestLeg(60.0, []ElevationPoint{{0, 110}, {60, 150}})
+	merged := mergeLegs([]*RouteResult{leg1, leg2, leg3})
+	p := *merged.ElevationProfile
+	// Per §5.4: dedup gate is len(mergedProfile) > 0.
+	// Leg1 → emit 2 points at dist {0, 50}
+	// Leg2 (nil profile) → mergedDistM advances by 40 to 90, no point emitted
+	// Leg3 → len(mergedProfile) > 0, so dedup startIdx=1, emit only second point at dist 90+60=150
+	// Expected: exactly 3 points total.
+	if got, want := len(p), 3; got != want {
+		t.Fatalf("len(profile) = %d, want %d", got, want)
+	}
+	assertInDelta(t, 0.0, p[0].DistM, 0.01, "p[0].DistM")
+	assertInDelta(t, 100.0, p[0].EleM, 0.01, "p[0].EleM")
+	assertInDelta(t, 50.0, p[1].DistM, 0.01, "p[1].DistM")
+	assertInDelta(t, 110.0, p[1].EleM, 0.01, "p[1].EleM")
+	assertInDelta(t, 150.0, p[2].DistM, 0.01, "p[2].DistM")
+	assertInDelta(t, 150.0, p[2].EleM, 0.01, "p[2].EleM")
+	// Strikt monoton (inkl. des 100m-Gaps zwischen p[1] und p[2]):
+	for i := 1; i < len(p); i++ {
+		if !(p[i].DistM > p[i-1].DistM) {
+			t.Fatalf("non-monotonic at %d: %v <= %v", i, p[i].DistM, p[i-1].DistM)
+		}
+	}
+	// Der Gap ist die volle leg2-Distanz PLUS der leg3-dedup-geskippten intra-Distanz (0m):
+	assertInDelta(t, 100.0, p[2].DistM-p[1].DistM, 0.01, "gap p[2]-p[1]")
+}
+
 // TestMergeLegs_EmptyCoordsWithTags_InvariantSafe prüft den pathologischen Fall:
 // ein Folge-Leg hat keine Coordinates aber nicht-leere EdgeTags1/EdgeTags2.
 // Invariant: len(EdgeTags1) == len(EdgeTags2) == len(EdgeCoordStart) nach dem Merge.

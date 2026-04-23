@@ -238,6 +238,9 @@ func mergeLegs(legs []*RouteResult) *RouteResult {
 	}
 
 	result := &RouteResult{}
+	var mergedProfile []ElevationPoint
+	var mergedDistM float64
+
 	for i, leg := range legs {
 		coordsBefore := len(result.Coordinates)
 
@@ -256,6 +259,24 @@ func mergeLegs(legs []*RouteResult) *RouteResult {
 		result.AscentSum += leg.AscentSum
 		result.DescentSum += leg.DescentSum
 
+		// ElevationProfile junction-dedup + distance-shift (Spec §5.4).
+		// Dedup-Bedingung: len(mergedProfile) > 0 (NICHT i > 0) — wenn vorige
+		// Legs kein Profil hatten, ist der erste Punkt des aktuellen Legs der
+		// echte Start und muss emittiert werden.
+		if leg.ElevationProfile != nil && len(*leg.ElevationProfile) > 0 {
+			legProfile := *leg.ElevationProfile
+			startIdx := 0
+			if len(mergedProfile) > 0 {
+				startIdx = 1
+			}
+			for j := startIdx; j < len(legProfile); j++ {
+				mergedProfile = append(mergedProfile, ElevationPoint{
+					DistM: mergedDistM + legProfile[j].DistM,
+					EleM:  legProfile[j].EleM,
+				})
+			}
+		}
+
 		segOffset := 0
 		if i > 0 {
 			segOffset = coordsBefore - 1
@@ -264,6 +285,8 @@ func mergeLegs(legs []*RouteResult) *RouteResult {
 			adjusted := seg
 			adjusted.FromIdx += segOffset
 			adjusted.ToIdx += segOffset
+			adjusted.FromDistM += mergedDistM
+			adjusted.ToDistM += mergedDistM
 			result.Segments = append(result.Segments, adjusted)
 		}
 
@@ -310,6 +333,14 @@ func mergeLegs(legs []*RouteResult) *RouteResult {
 		if isLastLeg && leg.LastEdgeCoordEnd > 0 {
 			result.LastEdgeCoordEnd = leg.LastEdgeCoordEnd + segOffset
 		}
+
+		// Advance distance accumulator at the END of leg processing so that the
+		// current leg's profile/segment shifts use the pre-leg cumulative offset.
+		mergedDistM += leg.DistanceM
+	}
+
+	if len(mergedProfile) > 0 {
+		result.ElevationProfile = &mergedProfile
 	}
 	return result
 }
