@@ -12,7 +12,7 @@ import { SurfaceDropdown } from './segment-editor/SurfaceDropdown'
 import { DifficultyColorPicker } from './segment-editor/DifficultyColorPicker'
 import { ClimbTypePills } from './segment-editor/ClimbTypePills'
 import { MapPreview } from './segment-editor/MapPreview'
-import { SportCategoryChips, UI_SPORT_CATEGORIES, expandCategoryToSportTypes, isCategoryFullyActive } from './segment-editor/SportCategoryChips'
+import { SportCategoryChips, expandCategoryToSportTypes, isCategoryFullyActive } from './segment-editor/SportCategoryChips'
 import { WINTER_SPORT_WHITELIST, WATER_SPORT_WHITELIST } from './segment-editor/constants'
 
 interface Props {

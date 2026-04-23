@@ -1,4 +1,3 @@
-import React from 'react'
 import { Check } from 'lucide-react'
 import { Pill } from '../ui/Pill'
 import { sportsInCategory, getSegmentGroup } from '@/lib/sportTaxonomy'
