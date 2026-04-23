@@ -208,15 +208,13 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
               const whitelist = segment.segment_type === 'wintersport' ? WINTER_SPORT_WHITELIST : (segment.segment_type === 'wassersport' ? WATER_SPORT_WHITELIST : undefined)
               const types = expandCategoryToSportTypes(catKey, whitelist)
               if (types.length === 0) return
-              
+
               const isFull = isCategoryFullyActive(catKey, allowedSportTypes, whitelist)
               setAllowedSportTypes(prev => {
                 const current = prev ?? []
                 if (isFull) {
-                  // Alle Typen dieser Kategorie entfernen
                   return current.filter(t => !types.includes(t))
                 } else {
-                  // Alle Typen dieser Kategorie hinzufügen (Duplikate vermeiden)
                   const next = [...current]
                   types.forEach(t => { if (!next.includes(t)) next.push(t) })
                   return next
@@ -224,6 +222,16 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
               })
             }}
             onSetAll={() => setAllowedSportTypes(null)}
+            showDetailPicker
+            onToggleSportType={(sportType) => {
+              setAllowedSportTypes(prev => {
+                if (prev === null) return [sportType]
+                const next = prev.includes(sportType)
+                  ? prev.filter(t => t !== sportType)
+                  : [...prev, sportType]
+                return next.length === 0 ? null : next
+              })
+            }}
           />
         </div>
 

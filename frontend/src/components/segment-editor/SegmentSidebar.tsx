@@ -1,6 +1,6 @@
 // frontend/src/components/segment-editor/SegmentSidebar.tsx
-import { useMemo, useState, type ReactNode } from 'react'
-import { ChevronDown, ChevronRight, Loader2, RefreshCw, Check } from 'lucide-react'
+import { useMemo, type ReactNode } from 'react'
+import { Loader2, RefreshCw } from 'lucide-react'
 import {
   WINTER_SPORT_WHITELIST,
   WATER_SPORT_WHITELIST,
@@ -14,7 +14,6 @@ import { SurfaceDropdown } from './SurfaceDropdown'
 import { ClimbTypePills } from './ClimbTypePills'
 import { DifficultyColorPicker } from './DifficultyColorPicker'
 import { SportCategoryChips, getVisibleCategories, isCategoryFullyActive, expandCategoryToSportTypes } from './SportCategoryChips'
-import { sportsInCategory } from '@/lib/sportTaxonomy'
 import { cn } from '@/lib/utils'
 
 export interface SegmentMetadata {
@@ -70,25 +69,8 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     allSportTypes,
     onEnrichmentRequest,
     enrichmentState,
-    enrichmentSources,
-    onClearEnrichmentSource,
     enrichmentDisabledReason,
-    enrichmentStatus,
   } = props
-
-  // Reserved for SportCategoryChips detail-picker refactor (Wave 3, Finding #18)
-  void enrichmentSources; void onClearEnrichmentSource; void enrichmentStatus;
-
-  const [detailOpenCategories, setDetailOpenCategories] = useState<Set<string>>(new Set())
-
-  const toggleDetailOpen = (uiKey: string) => {
-    setDetailOpenCategories(prev => {
-      const next = new Set(prev)
-      if (next.has(uiKey)) next.delete(uiKey)
-      else next.add(uiKey)
-      return next
-    })
-  }
 
   const handleSegTypeChange = (newType: SegType) => {
     const patch: Partial<SegmentMetadata> = { segType: newType }
@@ -120,6 +102,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
      userEditedBidirectional: !isDefault,
    })
   }
+
   const toggleSportType = (key: string) => {
     const current = meta.sportTypes
     if (current === null) {
@@ -210,79 +193,10 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
             activeTypes={meta.sportTypes}
             onToggleCategory={toggleUiCategory}
             onSetAll={setAll}
+            availableSportTypes={availableSportTypes}
+            showDetailPicker
+            onToggleSportType={toggleSportType}
           />
-
-          {meta.sportTypes !== null && meta.segType !== 'wintersport' && meta.segType !== 'wassersport' && (
-            <div className="mt-2 flex flex-col gap-1.5">
-              {getVisibleCategories(meta.segType)
-                .map(cat => {
-                  const isOpen = detailOpenCategories.has(cat.key)
-                  const catSports = cat.taxonomyKeys
-                    .flatMap(tk => sportsInCategory(tk))
-                    .filter(s => availableSportTypes.some(a => a.key === s.sportType))
-                  if (catSports.length === 0) return null
-                  return (
-                    <div key={cat.key}>
-                      <button
-                        type="button"
-                        onClick={() => toggleDetailOpen(cat.key)}
-                        className="flex items-center gap-1 mb-1 group"
-                      >
-                        {isOpen
-                          ? <ChevronDown className="h-3 w-3 text-neutral-400 dark:text-neutral-500 group-hover:text-neutral-600 dark:group-hover:text-neutral-300" />
-                          : <ChevronRight className="h-3 w-3 text-neutral-400 dark:text-neutral-500 group-hover:text-neutral-600 dark:group-hover:text-neutral-300" />
-                        }
-                        <span className="text-[10px] font-semibold tracking-wider uppercase text-neutral-400 dark:text-neutral-500 group-hover:text-neutral-600 dark:group-hover:text-neutral-300">
-                          {cat.label} — Feinwahl
-                        </span>
-                      </button>
-                      {isOpen && (
-                        <div className="flex flex-wrap gap-1 pl-3">
-                          {catSports.map(s => {
-                            const isActive = meta.sportTypes?.includes(s.sportType) ?? false
-                            return (
-                              <Pill
-                                key={s.sportType}
-                                size="sm"
-                                role="checkbox"
-                                ariaChecked={isActive}
-                                active={isActive}
-                                onClick={() => toggleSportType(s.sportType)}
-                                leftSlot={isActive ? <Check className="h-3 w-3 shrink-0" /> : undefined}
-                              >
-                                {s.label}
-                              </Pill>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })
-              }
-            </div>
-          )}
-          
-          {(meta.segType === 'wintersport' || meta.segType === 'wassersport') && meta.sportTypes !== null && (
-             <div className="mt-2 flex flex-wrap gap-1">
-               {availableSportTypes.map(s => {
-                 const isActive = meta.sportTypes?.includes(s.key) ?? false
-                 return (
-                   <Pill
-                     key={s.key}
-                     size="sm"
-                     role="checkbox"
-                     ariaChecked={isActive}
-                     active={isActive}
-                     onClick={() => toggleSportType(s.key)}
-                     leftSlot={isActive ? <Check className="h-3 w-3 shrink-0" /> : undefined}
-                   >
-                     {s.label}
-                   </Pill>
-                 )
-               })}
-             </div>
-          )}
         </Field>
 
         <div>
@@ -303,12 +217,12 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
               {enrichmentState.loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             </button>
           </div>
-          
+
           <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 p-3">
-             <DifficultySelects 
-               segType={meta.segType} 
-               sacScale={meta.sacScale} 
-               mtbScale={meta.mtbScale} 
+             <DifficultySelects
+               segType={meta.segType}
+               sacScale={meta.sacScale}
+               mtbScale={meta.mtbScale}
                onChange={(f, v) => onMetaChange(f === 'sac' ? { sacScale: v } : { mtbScale: v })}
              />
              <SurfaceDropdown
@@ -384,3 +298,6 @@ function ToggleRow({ checked, onChange, label }: { checked: boolean; onChange: R
     </label>
   )
 }
+
+// Re-export for backwards compat with any callers that import these from SegmentSidebar
+export { getVisibleCategories, isCategoryFullyActive, expandCategoryToSportTypes }
