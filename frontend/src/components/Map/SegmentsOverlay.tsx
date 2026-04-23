@@ -214,7 +214,12 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       layout: { 'line-cap': 'round', 'line-join': 'round' },
     })
 
-    // Standard-Linie-Layer (alle außer Trails und Wintersport) — unter den spezialisierten Typen
+    // Standard-Linie-Layer (alle außer Trails, Wintersport und Wassersport) — unter den spezialisierten Typen.
+    // 'lift' ist hier BEWUSST nicht ausgeschlossen: es gibt keinen eigenen Lift-Layer.
+    // resolveColor() gibt colors.lift (#6366F1 Indigo) zurück — der generic-Layer rendert
+    // Lifte also einmal mit der korrekten Farbe. Kein Double-Render, nur Architektur-Asymmetrie
+    // gegenüber trail/wintersport/wassersport. Einen eigenen lift-Layer anlegen ist
+    // möglich aber derzeit unnötig (keine lift-spezifischen paint-Eigenschaften benötigt).
     map.addLayer({
       id: lineLayerId,
       type: 'line',
