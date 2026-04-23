@@ -163,7 +163,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
     bindEcharts({
       on: ec.on.bind(ec),
       off: ec.off.bind(ec),
-      dispatchAction: ec.dispatchAction.bind(ec),
+      dispatchAction: ec.dispatchAction.bind(ec) as (a: unknown) => void,
     })
     return () => { ec.dispose(); echartsInstanceRef.current = null }
   }, [trackPoints, hasElevation, elevationSeries, cumulativeKm, bindEcharts])
@@ -351,7 +351,7 @@ function PillGroup({ label, value, totalPoints, onPrev, onNext, handleRef, onKey
   totalPoints: number
   onPrev: () => void
   onNext: () => void
-  handleRef: React.RefObject<HTMLButtonElement>
+  handleRef: React.RefObject<HTMLButtonElement | null>
   onKeyDown: (e: React.KeyboardEvent) => void
 }) {
   return (
