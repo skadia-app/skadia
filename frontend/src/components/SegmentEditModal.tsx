@@ -289,6 +289,10 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
           </span>
         </label>
 
+        {mutation.isError && (
+          <p className="text-sm text-red-400">Fehler beim Speichern.</p>
+        )}
+
         <div className="flex gap-2 items-center justify-between pt-2">
           {segment.segment_type !== 'lap' && (
             <button
