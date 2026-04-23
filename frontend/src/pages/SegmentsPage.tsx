@@ -53,7 +53,7 @@ const SEGMENT_TYPE_LABELS: Record<string, string> = {
 
 export default function SegmentsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  
+
   const sportGroup = searchParams.get('sport_group') ?? ''
   const terrainFilter = searchParams.get('segment_types')?.split(',') ?? ['standard', 'trail', 'wintersport', 'wassersport']
   const showAllLifts = searchParams.get('show_lifts') === 'true'
@@ -63,10 +63,10 @@ export default function SegmentsPage() {
   const surfaceFilter = searchParams.get('surface')?.split(',').filter(Boolean) ?? []
   const visibility = searchParams.get('visibility') ?? ''
 
-  const [showAdvanced, setShowAdvanced] = useState(() => 
+  const [showAdvanced, setShowAdvanced] = useState(() =>
     sacFilter.length > 0 || mtbFilter.length > 0 || surfaceFilter.length > 0 || !!visibility
   )
-  
+
   const setFilter = (key: string, value: string | string[] | null) => {
     const next = new URLSearchParams(searchParams)
     const strValue = Array.isArray(value) ? value.join(',') : value
@@ -261,11 +261,25 @@ export default function SegmentsPage() {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Segmente...</div>
   }
 
+  // #4 fix: error state includes "Filter zurücksetzen" button for back-navigation
   if (isError) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-3 text-neutral-400">
         <p className="text-sm">Segmente konnten nicht geladen werden.</p>
-        <button onClick={() => refetch()} className="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors">Erneut versuchen</button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => refetch()}
+            className="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+          >
+            Erneut versuchen
+          </button>
+          <button
+            onClick={() => { setSearchParams(new URLSearchParams(), { replace: true }); setSearchInput('') }}
+            className="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+          >
+            Filter zurücksetzen
+          </button>
+        </div>
       </div>
     )
   }
@@ -277,15 +291,16 @@ export default function SegmentsPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Segmente</h1>
         <div className="flex items-center gap-2">
+          {/* #6a fix: "Auf Karte" = sekundär (border), "Segment zeichnen" = primär (accent), "Auswählen" = toggle */}
           <Link to="/map" state={{ activateSegmentsOverlay: true }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
             Auf Karte
           </Link>
-          <button onClick={() => setEditorMode('draw')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-accent-100 dark:hover:bg-accent-100/20 hover:text-accent-600 dark:hover:text-accent-400 cursor-pointer transition-colors">
+          <button onClick={() => setEditorMode('draw')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 cursor-pointer transition-colors">
             Segment zeichnen
           </button>
           <button
             onClick={() => { setSelectionMode(m => !m); setSelectedIds(new Set()) }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border cursor-pointer transition-colors ${selectionMode ? 'border-neutral-400 dark:border-neutral-500 bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200' : 'border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'}`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border cursor-pointer transition-colors ${selectionMode ? 'border-accent-DEFAULT bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-400' : 'border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'}`}
           >
             {selectionMode ? 'Fertig' : 'Auswählen'}
           </button>
@@ -428,19 +443,25 @@ export default function SegmentsPage() {
               </div>
             </div>
 
-            {/* Surface */}
+            {/* Surface — #3 fix: multi-select checkboxes analog SAC/MTB (was single-select dropdown) */}
             <div className="space-y-2">
               <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Oberfläche</label>
-              <select
-                value={surfaceFilter[0] || ''}
-                onChange={e => setFilter('surface', e.target.value || null)}
-                className="w-full border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-xs bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-400"
-              >
-                <option value="">Alle Oberflächen</option>
+              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
                 {SURFACE_DROPDOWN_OPTIONS.filter(o => o !== 'Wechselnd').map(opt => (
-                  <option key={opt} value={opt}>{opt}</option>
+                  <label key={opt} className="flex items-center gap-1.5 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={surfaceFilter.includes(opt)}
+                      onChange={e => {
+                        const next = e.target.checked ? [...surfaceFilter, opt] : surfaceFilter.filter(v => v !== opt)
+                        setFilter('surface', next.length > 0 ? next : null)
+                      }}
+                      className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+                    />
+                    <span className="text-xs text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-200">{opt}</span>
+                  </label>
                 ))}
-              </select>
+              </div>
             </div>
 
             {/* Visibility */}
