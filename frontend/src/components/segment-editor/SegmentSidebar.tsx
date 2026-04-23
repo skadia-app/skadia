@@ -70,8 +70,14 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     allSportTypes,
     onEnrichmentRequest,
     enrichmentState,
+    enrichmentSources,
+    onClearEnrichmentSource,
     enrichmentDisabledReason,
+    enrichmentStatus,
   } = props
+
+  // Reserved for SportCategoryChips detail-picker refactor (Wave 3, Finding #18)
+  void enrichmentSources; void onClearEnrichmentSource; void enrichmentStatus;
 
   const [detailOpenCategories, setDetailOpenCategories] = useState<Set<string>>(new Set())
 
