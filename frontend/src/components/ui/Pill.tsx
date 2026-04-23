@@ -1,4 +1,4 @@
-// frontend/src/components/segment-editor/Pill.tsx
+// frontend/src/components/ui/Pill.tsx
 // Unified selectable pill used for SegType radio, sport category chips,
 // and difficulty buttons — canonical styling so all three look cohesive.
 import type { ReactNode } from 'react'
