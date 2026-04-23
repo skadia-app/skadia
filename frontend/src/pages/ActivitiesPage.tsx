@@ -1046,9 +1046,9 @@ export default function ActivitiesPage() {
           {fusionCount > 0 && (
             <Link to="/workshop/fusion">
               <Pill
+                as="span"
                 size="sm"
                 active={true}
-                onClick={() => {}} // Link handles navigation
                 leftSlot={<span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block" />}
                 className="bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:hover:bg-orange-900/50 transition-colors"
               >
