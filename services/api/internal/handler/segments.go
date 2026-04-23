@@ -62,6 +62,16 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Input-Validation (§5.3 Spec N2-6) — verhindert DoS via malformed Query
+	if params.SegmentTypes != "" {
+		valid := map[string]bool{"standard": true, "trail": true, "lap": true, "wintersport": true, "wassersport": true, "lift": true}
+		for _, t := range strings.Split(params.SegmentTypes, ",") {
+			if !valid[strings.TrimSpace(t)] {
+				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid segment_types parameter", r.URL.Path)
+				return
+			}
+		}
+	}
+
 	if params.SacScale != "" && !database.IsValidSacList(params.SacScale) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid sac_scale parameter (expect T1-T6)", r.URL.Path)
 		return
