@@ -64,6 +64,14 @@ export function ToastItem({ toast }: ToastItemProps) {
             {toast.message}
           </div>
         )}
+        {toast.action && (
+          <button
+            onClick={() => { toast.action!.onClick(); removeToast(toast.id) }}
+            className={`${styles.text} text-xs font-semibold mt-2 underline underline-offset-2 hover:opacity-70 cursor-pointer`}
+          >
+            {toast.action.label} →
+          </button>
+        )}
       </div>
       <button
         onClick={() => removeToast(toast.id)}

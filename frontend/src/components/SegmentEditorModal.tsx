@@ -4,6 +4,7 @@
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState, useId } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import maplibregl, { type RequestParameters } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 // @ts-ignore — maplibre-gl-draw has no bundled TS types for default import
@@ -34,7 +35,7 @@ export interface SegmentEditorModalProps {
   mode: 'track' | 'draw' | 'lap'
   trackPoints?: TrackPoint[]
   sourceActivityId?: string
-  onSuccess: () => void
+  onSuccess: (segmentId?: string) => void
   onClose: () => void
 }
 
@@ -68,6 +69,7 @@ function addArrowLayer(m: maplibregl.Map) {
 
 export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   const { mode, trackPoints = [], sourceActivityId, onSuccess, onClose } = props
+  const navigate = useNavigate()
   const { addToast } = useToast()
 
   // ── All sport types for the sidebar selector ──────────────────────────────
@@ -304,9 +306,18 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         source_activity_id: sourceActivityId,
       })
     },
-    onSuccess: () => {
-      addToast({ type: 'success', title: 'Segment gespeichert' })
-      onSuccess()
+    onSuccess: (created) => {
+      addToast({
+        type: 'success',
+        title: 'Segment gespeichert',
+        message: created.name,
+        duration: 8000,
+        action: {
+          label: 'Anzeigen',
+          onClick: () => navigate(`/segments/${created.id}`),
+        },
+      })
+      onSuccess(created.id)
     },
     onError: (err) => {
       addToast({ type: 'error', title: 'Speichern fehlgeschlagen', message: String(err) })
