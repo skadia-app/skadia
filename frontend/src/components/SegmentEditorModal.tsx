@@ -272,9 +272,8 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
                 : trackPoints.map(p => [p.lng, p.lat])) // fallback: full track (should not reach)
 
       const geojson_track = JSON.stringify({
-        type: 'Feature',
-        properties: {},
-        geometry: { type: 'LineString', coordinates: coords },
+        type: 'LineString',
+        coordinates: coords,
       })
 
       // Strip pure-UI flag before send
