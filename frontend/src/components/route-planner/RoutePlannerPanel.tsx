@@ -220,6 +220,7 @@ export interface RoutePlannerPanelProps {
   // Optional: existing route being edited
   editingRoute?: PlannedRoute | null
   isSaving?: boolean
+  lazyFillPendingSave?: boolean
 }
 
 export default function RoutePlannerPanel({
@@ -250,6 +251,7 @@ export default function RoutePlannerPanel({
   onClearError,
   editingRoute,
   isSaving = false,
+  lazyFillPendingSave = false,
 }: RoutePlannerPanelProps) {
   const { addToast } = useToast()
   const { openModal } = useModal()
@@ -880,7 +882,11 @@ export default function RoutePlannerPanel({
                 <button
                   onClick={onSave}
                   disabled={!hasRoute || isSaving}
-                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors cursor-pointer"
+                  className={[
+                    'flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors cursor-pointer',
+                    lazyFillPendingSave && !isSaving ? 'ring-2 ring-amber-400 animate-pulse' : '',
+                  ].join(' ')}
+                  title={lazyFillPendingSave ? 'Höhenprofil wurde automatisch ergänzt — bitte speichern' : undefined}
                 >
                   {isSaving ? (
                     <>
@@ -896,6 +902,9 @@ export default function RoutePlannerPanel({
                         <path d="M3.75 3A1.75 1.75 0 002 4.75v10.5c0 .966.784 1.75 1.75 1.75h12.5A1.75 1.75 0 0018 15.25v-8.5A1.75 1.75 0 0016.25 5H15V3.75A1.75 1.75 0 0013.25 2h-3.5A1.75 1.75 0 008 3.75V5H4.75A1.75 1.75 0 003.75 3H3.75zm4.75.75A.25.25 0 018.75 4h2.5a.25.25 0 01.25.25V5h-3.5V3.75zm3.25 7.5a.75.75 0 01-.75.75H9.75a.75.75 0 010-1.5H11v-1.25a.75.75 0 011.5 0v1.5z" />
                       </svg>
                       {editingRoute ? 'Aktualisieren' : 'Speichern'}
+                      {lazyFillPendingSave && (
+                        <span className="ml-0.5 w-1.5 h-1.5 rounded-full bg-amber-300 shrink-0" aria-hidden="true" />
+                      )}
                     </>
                   )}
                 </button>

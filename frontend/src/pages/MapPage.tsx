@@ -2440,6 +2440,7 @@ export default function MapPage() {
             onClearError={planner.clearError}
             editingRoute={null}
             isSaving={planner.profile.status === 'ready' && planner.profile.isSaving}
+            lazyFillPendingSave={planner.lazyFillPendingSave}
           />
         )}
 
