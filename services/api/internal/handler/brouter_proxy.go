@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -139,10 +141,183 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Proxy the GeoJSON response from BRouter directly to the client.
+	// Buffer the upstream body (BRouter responses are 200-500 kB; no streaming
+	// needed). Try to JSON-decode and inject elevation_profile; on any decode
+	// failure or unexpected shape we fall back to a verbatim passthrough of
+	// the buffered body (Spec §R4) so the frontend keeps the legacy 3D-coords
+	// pipeline rather than seeing a 5xx.
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		slog.Warn("BRouter proxy: failed to read upstream body", "error", err)
+		http.Error(w, "BRouter Upstream nicht erreichbar", http.StatusBadGateway)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	if _, err := io.Copy(w, resp.Body); err != nil {
-		slog.Warn("BRouter proxy: failed to copy response body", "error", err)
+
+	var gj map[string]any
+	if err := json.Unmarshal(bodyBytes, &gj); err != nil {
+		slog.Warn("BRouter proxy: JSON decode failed, falling back to passthrough", "error", err)
+		if _, werr := w.Write(bodyBytes); werr != nil {
+			slog.Warn("BRouter proxy: passthrough write failed", "error", werr)
+		}
+		return
+	}
+
+	injectElevationProfileFromInlineZ(gj)
+
+	if err := json.NewEncoder(w).Encode(gj); err != nil {
+		slog.Warn("BRouter proxy: failed to encode modified response", "error", err)
+	}
+}
+
+// brouterCoord captures one BRouter coordinate with explicit per-point
+// Z-availability. Used by extractCoordinates so that a single null/missing
+// Z-value does NOT discard the whole coord-list.
+type brouterCoord struct {
+	Lon, Lat float64
+	Ele      float64 // valid only when EleOK == true
+	EleOK    bool
+}
+
+// extractCoordinates parses feat.geometry.coordinates into []brouterCoord with
+// per-point Z-availability flag. Returns nil only if the geometry is structurally
+// missing (no `coordinates` array) — individual point-level issues (null Z,
+// wrong-length point) are recorded as EleOK=false rather than discarding everything.
+func extractCoordinates(feat map[string]any) []brouterCoord {
+	geomRaw, ok := feat["geometry"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	coordsRaw, ok := geomRaw["coordinates"].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]brouterCoord, 0, len(coordsRaw))
+	for _, c := range coordsRaw {
+		arr, ok := c.([]any)
+		if !ok || len(arr) < 2 {
+			continue
+		}
+		lon, lonOK := arr[0].(float64)
+		lat, latOK := arr[1].(float64)
+		if !lonOK || !latOK {
+			continue
+		}
+		bc := brouterCoord{Lon: lon, Lat: lat}
+		if len(arr) >= 3 {
+			if z, ok := arr[2].(float64); ok {
+				bc.Ele = z
+				bc.EleOK = true
+			}
+		}
+		out = append(out, bc)
+	}
+	return out
+}
+
+// isPlausibleSrtmEle filters obvious sentinel/garbage values:
+//   - BRouter sentinel: ±9999 / ±99999 ("unknown" markers)
+//   - SRTM-realistic range: -500 m to +9000 m
+//   - Exactly 0.0 is treated as unreliable (BRouter "no DEM available")
+func isPlausibleSrtmEle(ele float64) bool {
+	if ele == 0 {
+		return false
+	}
+	abs := ele
+	if abs < 0 {
+		abs = -abs
+	}
+	if abs >= 9999 {
+		return false
+	}
+	return ele > -500 && ele < 9000
+}
+
+// buildProfileFromInlineZ constructs an elevation_profile from per-point
+// brouterCoords. Returns nil only if NO coordinate has a plausible Z-value
+// (Plain-Wrapper-BRouter without SRTM bundle, or all values implausible).
+//
+// Distance axis: cumulative Haversine over (lat, lon) using
+// geo.DistanceHaversine. Per-point with EleOK=false or implausible Ele:
+// the profile omits this point, but the cumulative distance keeps advancing
+// over ALL coords (Spec §P5).
+func buildProfileFromInlineZ(coords []brouterCoord) []map[string]any {
+	if len(coords) < 2 {
+		return nil
+	}
+	hasUsableZ := false
+	for _, c := range coords {
+		if c.EleOK && isPlausibleSrtmEle(c.Ele) {
+			hasUsableZ = true
+			break
+		}
+	}
+	if !hasUsableZ {
+		return nil
+	}
+
+	profile := make([]map[string]any, 0, len(coords))
+	var distAccum float64
+	for i, c := range coords {
+		if i > 0 {
+			distAccum += geo.DistanceHaversine(coords[i-1].Lat, coords[i-1].Lon, c.Lat, c.Lon)
+		}
+		if !c.EleOK || !isPlausibleSrtmEle(c.Ele) {
+			continue
+		}
+		profile = append(profile, map[string]any{
+			"dist_m": distAccum,
+			"ele_m":  c.Ele,
+		})
+	}
+	if len(profile) < 2 {
+		return nil
+	}
+	return profile
+}
+
+// injectElevationProfileFromInlineZ walks gj.features[].properties and sets
+// "elevation_profile" derived from each feature's inline 3D coordinates. If a
+// feature has no usable Z, the value is nil (frontend triggers fallback per
+// Spec §6.2 Entscheidungstabelle).
+//
+// Robustness (Spec §R4 — Fallback-Strategie ist Caller-Side):
+//   - Missing/non-array features → no-op
+//   - Feature without (or null) properties → fresh map with elevation_profile
+//   - Feature with non-map properties → preserve unchanged (no data loss)
+func injectElevationProfileFromInlineZ(gj map[string]any) {
+	features, ok := gj["features"].([]any)
+	if !ok {
+		return
+	}
+	for _, f := range features {
+		feat, ok := f.(map[string]any)
+		if !ok {
+			continue
+		}
+		coords := extractCoordinates(feat)
+		profile := buildProfileFromInlineZ(coords)
+		// Store as a nil-interface rather than a typed-nil slice so that
+		// downstream `val == nil` checks (and the encoded JSON `null`) behave
+		// as callers expect. A typed-nil `[]map[string]any` wrapped in
+		// `interface{}` would compare != nil even though it JSON-encodes as
+		// null — avoid that foot-gun at the boundary.
+		var profileVal any
+		if profile != nil {
+			profileVal = profile
+		}
+
+		rawProps, hasProps := feat["properties"]
+		if !hasProps || rawProps == nil {
+			feat["properties"] = map[string]any{"elevation_profile": profileVal}
+			continue
+		}
+		props, ok := rawProps.(map[string]any)
+		if !ok {
+			continue
+		}
+		props["elevation_profile"] = profileVal
 	}
 }
 
