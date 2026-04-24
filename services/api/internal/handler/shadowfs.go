@@ -28,6 +28,11 @@ type ShadowFSSettingsRequest struct {
 //
 // Deprecated: use GET /settings/file-schemas instead.
 func (h *Handler) GetShadowFSSettingsCompat(w http.ResponseWriter, r *http.Request) {
+	// Warn on every direct compat call (R2 MED #8). The stub in GetShadowFSSettings
+	// also warns, but direct compat calls bypass the stub (e.g. internal wiring).
+	slog.Warn("deprecated endpoint called via compat handler",
+		"endpoint", "GET /settings/shadow-fs",
+		"replacement", "GET /settings/file-schemas")
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
@@ -70,6 +75,11 @@ func (h *Handler) GetShadowFSSettingsCompat(w http.ResponseWriter, r *http.Reque
 //
 // Deprecated: use PUT /settings/file-schemas/activity instead.
 func (h *Handler) UpdateShadowFSSettingsCompat(w http.ResponseWriter, r *http.Request) {
+	// Warn on every direct compat call (R2 MED #8). The stub in UpdateShadowFSSettings
+	// also warns, but direct compat calls bypass the stub (e.g. internal wiring).
+	slog.Warn("deprecated endpoint called via compat handler",
+		"endpoint", "PUT /settings/shadow-fs",
+		"replacement", "PUT /settings/file-schemas/activity")
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
