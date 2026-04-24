@@ -9,18 +9,12 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
-
-// bulkRenameAdvisoryLockKey is the pg_advisory_lock key used to serialize
-// admin bulk-rename operations across the cluster. Arbitrary fixed int64
-// (disjoint from the fnv64a-derived per-user keys used by ExecuteFileRename).
-const bulkRenameAdvisoryLockKey int64 = 0x1E_BB6A_CA0FE_BA5E1
 
 // PostAdminRenameUser triggers a per-user+type rename executed in the background.
 // The foreground resolves schema + library-dir snapshots so that admin mid-job
@@ -64,6 +58,10 @@ func (h *Handler) PostAdminRenameUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dirSnap, err := shadowfs.ResolveLibraryDirName(ctx, h.DB.Pool, targetID)
+	if errors.Is(err, shadowfs.ErrUserNotFound) {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "user not found", r.URL.Path)
+		return
+	}
 	if err != nil {
 		slog.Error("admin-rename: resolve library dir", "error", err, "target_id", targetID)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "resolve", r.URL.Path)
@@ -250,13 +248,14 @@ func (h *Handler) PostAdminRenameBulk(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				var pgErr *pgconn.PgError
 				if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+					// Unique partial index idx_bg_jobs_one_running: user already has
+					// a running shadowfs_rename job — skip without error.
 					skipped++
 					continue
 				}
-				if errors.Is(err, pgx.ErrNoRows) {
-					skipped++
-					continue
-				}
+				// NIT #39: pgx.ErrNoRows is impossible for INSERT...RETURNING id
+				// (an INSERT either succeeds, conflicts, or errors — never ErrNoRows).
+				// That dead branch has been removed.
 				slog.Warn("admin-rename-bulk: insert per-user job", "error", err, "uid", s.uid)
 				skipped++
 				continue
