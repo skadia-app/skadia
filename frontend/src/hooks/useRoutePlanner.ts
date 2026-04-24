@@ -172,6 +172,25 @@ function buildSegmentFromFeature(
   const approachTo = props['approach_to'] as number[][] | undefined
   const subSegments = (props['segments'] as RouteSubSegment[] | undefined) ?? []
 
+  // Backend (services/api/internal/routing/result.go:188-197) emits
+  // properties.elevation_profile as Array<{dist_m, ele_m}> per Feature.
+  // Without extracting it here, buildCombinedProfileFromSegments returns null
+  // and the BRouter-fallback fires even for BadRouter routes (Critic #2).
+  const rawProfile = props['elevation_profile']
+  let elevationProfile: RouteElevationPoint[] | undefined
+  if (Array.isArray(rawProfile) && rawProfile.length > 0) {
+    const filtered = rawProfile
+      .filter(
+        (pt): pt is { dist_m: number; ele_m: number } =>
+          pt != null &&
+          typeof pt === 'object' &&
+          typeof (pt as { dist_m?: unknown }).dist_m === 'number' &&
+          typeof (pt as { ele_m?: unknown }).ele_m === 'number',
+      )
+      .map(pt => ({ dist_m: pt.dist_m, ele_m: pt.ele_m }))
+    if (filtered.length > 0) elevationProfile = filtered
+  }
+
   return {
     from_waypoint: from.id,
     to_waypoint: to.id,
@@ -185,6 +204,7 @@ function buildSegmentFromFeature(
     approach_from: approachFrom,
     approach_to: approachTo,
     sub_segments: subSegments,
+    elevation_profile: elevationProfile,
   }
 }
 
