@@ -8,6 +8,7 @@ import {
   getLibraryDir,
   updateLibraryDir,
   FILE_TYPE_LABELS,
+  API_STATUS,
   type FileType,
   type LibraryDirResponse,
 } from '@/api/shadowfs'
@@ -363,11 +364,11 @@ function LibraryDirSection() {
   const mut = useMutation<LibraryDirResponse>({
     mutationFn: () => updateLibraryDir(currentValue),
     onSuccess: (res) => {
-      if (res.status === 'library_dir_name_taken') {
+      if (res.status === API_STATUS.libraryDirNameTaken) {
         addToast({ type: 'warning', title: LIB_LABELS.toastLibraryDirTaken })
         return
       }
-      if (res.status === 'library_dir_name_clashes_with_user_uuid') {
+      if (res.status === API_STATUS.libraryDirNameClashesUUID) {
         addToast({ type: 'warning', title: LIB_LABELS.toastLibraryDirClashesUUID })
         return
       }
