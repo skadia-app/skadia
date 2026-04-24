@@ -150,6 +150,9 @@ func (h *Handler) UpdateShadowFSSettingsCompat(w http.ResponseWriter, r *http.Re
 // Callers should use GetShadowFSSettingsCompat instead (reads from user_file_schemas).
 // This stub remains so existing route wiring does not break at compile time.
 func (h *Handler) GetShadowFSSettings(w http.ResponseWriter, r *http.Request) {
+	slog.Warn("deprecated endpoint called",
+		"endpoint", "GET /settings/shadow-fs",
+		"replacement", "GET /settings/file-schemas")
 	h.GetShadowFSSettingsCompat(w, r)
 }
 
@@ -157,12 +160,18 @@ func (h *Handler) GetShadowFSSettings(w http.ResponseWriter, r *http.Request) {
 // Callers should use UpdateShadowFSSettingsCompat instead (writes to user_file_schemas).
 // This stub remains so existing route wiring does not break at compile time.
 func (h *Handler) UpdateShadowFSSettings(w http.ResponseWriter, r *http.Request) {
+	slog.Warn("deprecated endpoint called",
+		"endpoint", "PUT /settings/shadow-fs",
+		"replacement", "PUT /settings/file-schemas/activity")
 	h.UpdateShadowFSSettingsCompat(w, r)
 }
 
 // PreviewRename is a deleted legacy handler.
 // File renaming is now managed entirely through the FileStore/ShadowFS layer.
 func (h *Handler) PreviewRename(w http.ResponseWriter, r *http.Request) {
+	slog.Warn("deprecated endpoint called",
+		"endpoint", "POST /settings/shadow-fs/preview-rename",
+		"replacement", "POST /settings/file-schemas/preview-rename")
 	_, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
@@ -173,6 +182,9 @@ func (h *Handler) PreviewRename(w http.ResponseWriter, r *http.Request) {
 // ExecuteRename is a deleted legacy handler.
 // File renaming is now managed entirely through the FileStore/ShadowFS layer.
 func (h *Handler) ExecuteRename(w http.ResponseWriter, r *http.Request) {
+	slog.Warn("deprecated endpoint called",
+		"endpoint", "POST /settings/shadow-fs/execute-rename",
+		"replacement", "POST /settings/file-schemas/execute-rename")
 	_, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
