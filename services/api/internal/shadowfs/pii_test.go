@@ -16,7 +16,7 @@ func TestContainsPIIVariable(t *testing.T) {
 		{"power_avg rejected", "{power_avg}", "power_avg"},
 		{"case-sensitive Notes ok", "{year}/{Notes}", ""},
 		{"notes_extended ok (no exact match)", "{year}/{notes_extended}", ""},
-		{"multiple pii returns first", "{notes}-{description}", "notes"},
+		{"multiple pii returns first blacklist match (iteration order)", "{notes}-{description}", "notes"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
