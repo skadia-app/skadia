@@ -13,6 +13,7 @@ interface DifficultySelectsProps {
 const sacOptions: ReadonlyArray<ColoredSelectOption> = SAC_SCALE_OPTIONS.map(o => ({
   value: o.value,
   label: o.label,
+  shortLabel: o.value, // Trigger shows e.g. "T3"; dropdown list keeps "T3 — anspruchsvolles Bergwandern"
   color: SAC_BADGE_COLORS[o.value],
 }))
 

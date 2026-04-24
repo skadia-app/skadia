@@ -5,6 +5,13 @@ export interface ColoredSelectOption {
   label: string
   /** Optional CSS color (hex or css-name) rendered as a dot in the trigger when this option is selected. */
   color?: string
+  /**
+   * Optional shorter text shown in the *trigger* when this option is selected.
+   * The full `label` is still shown in the dropdown list. Useful when the
+   * full label is too long for narrow layouts (e.g. "T3 — anspruchsvolles
+   * Bergwandern" → `shortLabel: 'T3'`).
+   */
+  shortLabel?: string
 }
 
 interface ColoredSelectProps {
@@ -42,15 +49,31 @@ export function ColoredSelect({
   const current = options.find(o => o.value === value) ?? null
   const isLegacy = !!allowLegacy && value != null && value !== '' && !current
   const swatch = current?.color
+  const triggerShort = current?.shortLabel && current.shortLabel !== current.label ? current.shortLabel : null
 
   return (
     <div className={cn('relative', className)}>
       {swatch && (
         <span
           aria-hidden
-          className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full border border-neutral-300 dark:border-neutral-600"
+          className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full border border-neutral-300 dark:border-neutral-600 z-10"
           style={{ backgroundColor: swatch }}
         />
+      )}
+      {triggerShort && (
+        // Overlay masks the native select's selected-option text when it would
+        // overflow. The dropdown list itself is unaffected (browser renders it
+        // from <option>.label). pointer-events-none lets clicks reach the select.
+        <span
+          aria-hidden
+          className={cn(
+            'pointer-events-none absolute inset-y-px flex items-center text-sm text-neutral-900 dark:text-neutral-100 bg-white dark:bg-neutral-800 rounded-md',
+            swatch ? 'left-5' : 'left-2',
+            'right-6',
+          )}
+        >
+          {triggerShort}
+        </span>
       )}
       <select
         value={value ?? ''}
