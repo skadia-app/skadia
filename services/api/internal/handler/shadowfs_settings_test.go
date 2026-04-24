@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -179,5 +180,88 @@ func TestGetLibraryDirS3BackendReason(t *testing.T) {
 	}
 	if body["admin_managed_reason"] != "s3_backend" {
 		t.Errorf("admin_managed_reason: got %v, want s3_backend", body["admin_managed_reason"])
+	}
+}
+
+func TestUpdateLibraryDirLockdown403(t *testing.T) {
+	pool := fusionTestPool(t)
+	userID := insertTestUser(t, pool)
+
+	db := &database.DB{Pool: pool}
+	store := settings.NewSettingsStore(db, "", "local")
+
+	// Set user_can_edit_dir_name = "false" → gate must block.
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO server_settings (key, value, encrypted, updated_at) VALUES ($1, $2, false, NOW())
+		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+		"library.user_can_edit_dir_name", "false")
+	if err != nil {
+		t.Fatalf("upsert setting: %v", err)
+	}
+	if err := store.Reload(context.Background()); err != nil {
+		t.Fatalf("reload settings: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), //nolint:errcheck
+			`DELETE FROM server_settings WHERE key = 'library.user_can_edit_dir_name'`)
+	})
+
+	h := &Handler{
+		DB:       db,
+		Settings: store,
+	}
+
+	ctx := context.WithValue(context.Background(), middleware.UserIDKey, userID)
+	body := `{"library_dir_name":"my-library"}`
+	req := httptest.NewRequest("PUT", "/api/v1/settings/library-dir",
+		strings.NewReader(body)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.UpdateLibraryDir(w, req)
+
+	if w.Code != 403 {
+		t.Errorf("expected 403 (admin_locked), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateLibraryDirS3Backend403(t *testing.T) {
+	pool := fusionTestPool(t)
+	userID := insertTestUser(t, pool)
+
+	db := &database.DB{Pool: pool}
+	store := settings.NewSettingsStore(db, "", "s3")
+
+	// Even with user_can_edit_dir_name = "true", s3 backend wins.
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO server_settings (key, value, encrypted, updated_at) VALUES ($1, $2, false, NOW())
+		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+		"library.user_can_edit_dir_name", "true")
+	if err != nil {
+		t.Fatalf("upsert setting: %v", err)
+	}
+	if err := store.Reload(context.Background()); err != nil {
+		t.Fatalf("reload settings: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), //nolint:errcheck
+			`DELETE FROM server_settings WHERE key = 'library.user_can_edit_dir_name'`)
+	})
+
+	h := &Handler{
+		DB:       db,
+		Settings: store,
+		Config:   &HandlerConfig{StorageBackend: "s3"},
+	}
+
+	ctx := context.WithValue(context.Background(), middleware.UserIDKey, userID)
+	body := `{"library_dir_name":"my-library"}`
+	req := httptest.NewRequest("PUT", "/api/v1/settings/library-dir",
+		strings.NewReader(body)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.UpdateLibraryDir(w, req)
+
+	if w.Code != 403 {
+		t.Errorf("expected 403 (s3_backend), got %d: %s", w.Code, w.Body.String())
 	}
 }
