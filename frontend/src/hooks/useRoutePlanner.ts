@@ -92,6 +92,14 @@ interface RoutePlannerState {
   // Monoton steigender Counter für Stale-Check parallel laufender loadRoute-Calls.
   lazyFillToken: number
   lazyFillPendingSave: boolean
+  // Bug B (2026-04-24): Engine-switch must not recompute when a saved route
+  // was loaded and the target engine has no pending profile/setting change.
+  // - lastRenderedEngine: engine whose computation produced the current
+  //   `segments`. null = not rendered yet (fresh hook, pre-load).
+  // - dirtyEngines: per-engine flag set when its profile/settings changed
+  //   since the last render. Cleared when that engine renders.
+  lastRenderedEngine: RoutingEngine | null
+  dirtyEngines: { badrouter: boolean; brouter: boolean }
 }
 
 const INITIAL_STATE: RoutePlannerState = {
@@ -110,6 +118,8 @@ const INITIAL_STATE: RoutePlannerState = {
   lazyFillInProgress: false,
   lazyFillToken: 0,
   lazyFillPendingSave: false,
+  lastRenderedEngine: null,
+  dirtyEngines: { badrouter: false, brouter: false },
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -745,6 +755,10 @@ export function useRoutePlanner() {
           _statsCache: newCache,
           routeStats: mergeSegmentStatsForState(newSegments, newCache),
           isCalculating: false,
+          // Bug B: rendered geometry now reflects this engine — mark it as
+          // the rendered engine and clear its dirty-flag.
+          lastRenderedEngine: engine,
+          dirtyEngines: { ...s.dirtyEngines, [engine]: false },
         }
       })
     } catch (err) {
@@ -1090,6 +1104,12 @@ export function useRoutePlanner() {
       _statsCache: {},
       lazyFillInProgress: false,
       lazyFillPendingSave: false,
+      // Bug B (2026-04-24): treat the loaded geometry as already rendered by
+      // the current engine, with both engines clean. A subsequent engine-
+      // switch then takes the display-only path until the user actually
+      // changes a panel/setting.
+      lastRenderedEngine: s.routingEngine,
+      dirtyEngines: { badrouter: false, brouter: false },
     }))
 
     if (!cached) {
@@ -1350,14 +1370,30 @@ export function useRoutePlanner() {
   // ── Routing engine ──────────────────────────────────────────────────────────
 
   const setRoutingEngine = useCallback(async (engine: RoutingEngine) => {
-    let currentWaypoints: RouteWaypoint[] = []
-    let currentBrouterProfile = 'hiking-mountain'
-    let currentProfileConfig: ProfileConfig | null = null
+    // Bug B (2026-04-24): switching engines on a LOADED saved route must not
+    // wipe its persisted geometry — display-only swap unless the target
+    // engine has pending profile/setting changes since the last render.
+    // FRESH planning (editingRouteId === null) keeps the original behaviour:
+    // recompute so the user can compare engines on a route they're building.
+    let needsRecompute = false
+    let recomputeArgs: { wps: RouteWaypoint[]; cfg: ProfileConfig; profile: string } | null = null
+
     setState(s => {
       if (s.routingEngine === engine) return s
-      currentWaypoints = s.waypoints
-      currentBrouterProfile = s.brouterProfile
-      currentProfileConfig = s.profileConfig
+
+      const isLoadedRoute = s.editingRouteId !== null
+      const hasSegments = s.segments.length > 0
+      const targetEngineDirty = s.dirtyEngines[engine]
+
+      if (isLoadedRoute && hasSegments && !targetEngineDirty) {
+        // Display-only: keep saved geometry visible, just swap the engine flag.
+        return { ...s, routingEngine: engine }
+      }
+
+      needsRecompute = true
+      if (s.profileConfig) {
+        recomputeArgs = { wps: s.waypoints, cfg: s.profileConfig, profile: s.brouterProfile }
+      }
       return {
         ...s,
         routingEngine: engine,
@@ -1368,20 +1404,55 @@ export function useRoutePlanner() {
         _statsCache: {},
       }
     })
-    if (!currentProfileConfig) {
+
+    if (!needsRecompute) return
+    if (!recomputeArgs) {
       setState(s => ({ ...s, isCalculating: false }))
       return
     }
+    const args = recomputeArgs as { wps: RouteWaypoint[]; cfg: ProfileConfig; profile: string }
     // Pass the new engine value explicitly — do NOT read from state here,
     // as React batches setState updates and s.routingEngine would still be stale.
-    for (let i = 0; i < currentWaypoints.length - 1; i++) {
-      await _calculateSegment(currentWaypoints[i], currentWaypoints[i + 1], currentProfileConfig, engine, currentBrouterProfile)
+    for (let i = 0; i < args.wps.length - 1; i++) {
+      await _calculateSegment(args.wps[i], args.wps[i + 1], args.cfg, engine, args.profile)
     }
-    setState(s => ({ ...s, isCalculating: false }))
+    setState(s => ({
+      ...s,
+      isCalculating: false,
+      lastRenderedEngine: engine,
+      dirtyEngines: { ...s.dirtyEngines, [engine]: false },
+    }))
   }, [_calculateSegment])
 
   const setBrouterProfile = useCallback((profile: string) => {
-    setState(s => ({ ...s, brouterProfile: profile }))
+    // Bug B: profile change for the BRouter engine. If BRouter is the active
+    // engine, mark dirty so a future engine-switch back to BRouter triggers a
+    // recompute. The actual recompute on profile-change while BRouter is
+    // active is currently NOT wired from the UI (separate UX gap, not in
+    // scope for this commit — see commit message).
+    setState(s => ({
+      ...s,
+      brouterProfile: profile,
+      dirtyEngines: { ...s.dirtyEngines, brouter: true },
+    }))
+  }, [])
+
+  /**
+   * Bug B (2026-04-24): Public API to flag an engine as having pending
+   * profile/setting changes. UI panels that mutate engine-specific settings
+   * (e.g. BadRouter slider panel, BRouter profile selector) call this so
+   * a subsequent engine-switch back to that engine triggers a recompute
+   * instead of a stale display-only swap.
+   *
+   * No-op when engine === currently active engine AND profile/settings are
+   * already in lockstep with the rendered geometry — callers may invoke
+   * defensively without checking.
+   */
+  const markEngineDirty = useCallback((engine: RoutingEngine) => {
+    setState(s => ({
+      ...s,
+      dirtyEngines: { ...s.dirtyEngines, [engine]: true },
+    }))
   }, [])
 
   // ── Save mutation ────────────────────────────────────────────────────────────
@@ -1638,6 +1709,7 @@ export function useRoutePlanner() {
     setSportType,
     setRoutingEngine,
     setBrouterProfile,
+    markEngineDirty,
 
     // ── Route lifecycle ───────────────────────────────────────────────────
     loadRoute,
