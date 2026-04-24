@@ -8,9 +8,13 @@ interface SurfaceDropdownProps {
   disabled?: boolean
 }
 
-// Surface is relevant for all seg types except wintersport (snow/ice implicit)
-// and lift (trivial infrastructure — no meaningful surface choice). Fix: #6b.
-const SURFACE_HIDDEN_FOR: readonly SegType[] = ['wintersport', 'lift']
+// Surface is relevant only for land-based seg types. Hidden for:
+//  - wintersport: snow/ice implicit
+//  - wassersport: water is the surface by definition
+//  - lift: trivial infrastructure, no meaningful surface choice
+// Parent (SegmentSidebar.handleSegTypeChange) already clears meta.surface on
+// transitions into any of these, so values do not silently persist.
+const SURFACE_HIDDEN_FOR: readonly SegType[] = ['wintersport', 'wassersport', 'lift']
 
 const surfaceOptions: ReadonlyArray<ColoredSelectOption> = SURFACE_DROPDOWN_OPTIONS.map(opt => ({
   value: opt,
