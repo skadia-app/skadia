@@ -102,8 +102,10 @@ LEFT JOIN LATERAL (
 		case 2:
 			visibilityClause = fmt.Sprintf("(%s OR %s)", parts[0], parts[1])
 		default:
-			// Fallback: show all accessible (same as empty filter)
-			visibilityClause = "(s.visibility = 'public' OR s.created_by = $1 OR $2 = true)"
+			// Defense-in-depth: whitelist + handler dedup ensure len is always 1 or 2.
+			// FALSE here closes the fail-open hole — unknown token count yields no results
+			// rather than silently showing everything. (#15, A1)
+			visibilityClause = "FALSE"
 		}
 	} else {
 		visibilityClause = "(s.visibility = 'public' OR s.created_by = $1 OR $2 = true)"

@@ -86,13 +86,29 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if params.VisibilityFilter != "" {
+		// Dedup + clamp: build a set of whitelisted tokens, drop empties/whitespace,
+		// write deterministically sorted result back to params so the DB layer
+		// always sees at most len=2 and never a stale toggle fail-open (#15, A2).
+		seen := make(map[string]struct{}, 2)
 		for _, v := range strings.Split(params.VisibilityFilter, ",") {
 			v = strings.TrimSpace(v)
+			if v == "" {
+				continue
+			}
 			if v != "public" && v != "private" {
 				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid visibility parameter (expect public, private, or public,private)", r.URL.Path)
 				return
 			}
+			seen[v] = struct{}{}
 		}
+		// Reconstruct deterministic order: public before private.
+		deduped := make([]string, 0, 2)
+		for _, k := range []string{"public", "private"} {
+			if _, ok := seen[k]; ok {
+				deduped = append(deduped, k)
+			}
+		}
+		params.VisibilityFilter = strings.Join(deduped, ",")
 	}
 	if params.DifficultyMatch != "" && params.DifficultyMatch != "any" && params.DifficultyMatch != "all" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid difficulty_match parameter (expect any or all)", r.URL.Path)
