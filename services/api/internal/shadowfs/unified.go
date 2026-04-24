@@ -19,8 +19,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -33,6 +33,7 @@ type UnifiedShadowFS struct {
 	target           atomic.Value   // stores string: "local" or "s3"
 	basePath         string         // LIBRARY_BASE_PATH (for getUserDir, schema rendering)
 	renderer         *SchemaRenderer
+	settings         *settings.SettingsStore
 	keepVersions     int
 	maxUserBytes     int64
 	s3BucketDefault  string
@@ -50,6 +51,7 @@ func NewUnifiedShadowFS(
 	targetBackend string,
 	basePath string,
 	renderer *SchemaRenderer,
+	store *settings.SettingsStore,
 	keepVersions int,
 	maxUserBytes int64,
 	s3BucketDefault, s3BucketActivity, s3BucketMedia string,
@@ -60,6 +62,7 @@ func NewUnifiedShadowFS(
 		s3:               s3,
 		basePath:         basePath,
 		renderer:         renderer,
+		settings:         store,
 		keepVersions:     keepVersions,
 		maxUserBytes:     maxUserBytes,
 		s3BucketDefault:  s3BucketDefault,
@@ -178,20 +181,7 @@ func (u *UnifiedShadowFS) bucketOpts(fileType string) *BackendOpts {
 
 // getUserDir returns the library directory name for a user.
 func (u *UnifiedShadowFS) getUserDir(ctx context.Context, userID string) (string, error) {
-	var dirName *string
-	err := u.pool.QueryRow(ctx,
-		`SELECT library_dir_name FROM users WHERE id = $1`, userID).Scan(&dirName)
-	if err != nil {
-		return "", fmt.Errorf("shadowfs: query user: %w", err)
-	}
-	name := userID
-	if dirName != nil && *dirName != "" {
-		name = *dirName
-	}
-	if strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
-		return "", fmt.Errorf("shadowfs: invalid library_dir_name: %q", name)
-	}
-	return name, nil
+	return ResolveLibraryDirName(ctx, u.pool, userID)
 }
 
 // getUserDirOrFallback returns the user's library directory name, falling back to the
@@ -286,16 +276,9 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 			}
 			storagePath = filepath.Join(userDir, DirForType("edit"), *entry.ParentID+".json")
 		} else {
-			schema := u.renderer.DefaultSchema(entry.FileType)
-			var userSchema string
-			schemaErr := u.pool.QueryRow(ctx,
-				`SELECT schema_template FROM user_file_schemas WHERE user_id = $1 AND file_type = $2`,
-				entry.UserID, entry.FileType).Scan(&userSchema)
-			if schemaErr != nil && !errors.Is(schemaErr, pgx.ErrNoRows) {
-				return FileRecord{}, fmt.Errorf("shadowfs: query schema: %w", schemaErr)
-			}
-			if schemaErr == nil && userSchema != "" {
-				schema = userSchema
+			schema, schemaErr := ResolveUserSchema(ctx, u.pool, u.settings, u.renderer, entry.UserID, entry.FileType)
+			if schemaErr != nil {
+				return FileRecord{}, fmt.Errorf("shadowfs: resolve schema: %w", schemaErr)
 			}
 			rendered := u.renderer.RenderPath(entry.FileType, schema, entry.Tags, ext)
 			storagePath = filepath.Join(userDir, DirForType(entry.FileType), rendered)
