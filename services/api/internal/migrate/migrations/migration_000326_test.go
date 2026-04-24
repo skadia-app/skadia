@@ -179,29 +179,62 @@ func TestMigration000326PreservesTruncatedUUIDs(t *testing.T) {
 	}
 }
 
-// TestMigration000326AuditLogEntry verifies that the migration inserts an entry
-// in auth_audit_log with event_type = 'migration' and details->>'migration' = '000326'.
-// We apply the audit INSERT directly (same SQL as in the migration) and confirm
-// at least one matching row exists.
+// TestMigration000326AuditLogEntry verifies that the migration CTE inserts an
+// audit_log entry with event_type = 'migration', details->>'migration' = '000326',
+// AND that reset_null_count reflects only the rows actually reset by the CTE
+// (not the pre-existing NULL count).
+//
+// The real CTE from 000326_library_settings_admin_model.up.sql is run verbatim
+// so we exercise the exact production SQL path (R2 MED #9).
 func TestMigration000326AuditLogEntry(t *testing.T) {
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
-	// Apply only the audit INSERT part of the migration.
-	const auditSQL = `
+	// Insert a test user with a UUID-shaped label so the CTE has at least one
+	// row to reset — this makes reset_null_count verifiable (must be >= 1).
+	userID := uuid.NewString()
+	label := "11111111-1111-4111-8111-111111111111" // canonical 36-char UUID
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, username, email, email_verified, registration_source, library_dir_name)
+		 VALUES ($1, $2, $3, true, 'test', $4)
+		 ON CONFLICT (id) DO UPDATE SET library_dir_name = EXCLUDED.library_dir_name`,
+		userID,
+		"mig326_audit_"+userID[:8],
+		"mig326_audit_"+userID[:8]+"@example.com",
+		label,
+	)
+	if err != nil {
+		t.Fatalf("insert test user: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, "DELETE FROM users WHERE id = $1", userID)
+	})
+
+	// Run the REAL CTE from the migration file (verbatim copy of the production SQL).
+	// This tests the audit INSERT is driven by the CTE reset_rows count, not a
+	// static subquery on current NULLs (R2 MED #9).
+	const realMigrationCTE = `
+WITH reset_rows AS (
+    UPDATE users
+    SET library_dir_name = NULL
+    WHERE library_dir_name IS NOT NULL
+      AND library_dir_name ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{8,12}$'
+    RETURNING 1
+)
 INSERT INTO auth_audit_log (user_id, event_type, details)
-VALUES (NULL, 'migration', jsonb_build_object(
+SELECT NULL, 'migration', jsonb_build_object(
   'migration', '000326',
   'name', 'library_settings_admin_model',
-  'reset_null_count', (SELECT count(*) FROM users WHERE library_dir_name IS NULL)
-))`
+  'reset_null_count', (SELECT count(*) FROM reset_rows)
+)`
 
-	if _, err := pool.Exec(ctx, auditSQL); err != nil {
-		t.Fatalf("insert audit log: %v", err)
+	if _, err := pool.Exec(ctx, realMigrationCTE); err != nil {
+		t.Fatalf("run CTE migration SQL: %v", err)
 	}
 
+	// Verify: at least one audit_log entry with matching migration key.
 	var count int
-	err := pool.QueryRow(ctx, `
+	err = pool.QueryRow(ctx, `
 		SELECT count(*)
 		FROM auth_audit_log
 		WHERE event_type = 'migration'
@@ -212,5 +245,22 @@ VALUES (NULL, 'migration', jsonb_build_object(
 	}
 	if count == 0 {
 		t.Error("expected at least one auth_audit_log entry with migration=000326, got 0")
+	}
+
+	// Verify: the most-recent entry has reset_null_count >= 1 (our test user was reset).
+	var resetCount int
+	err = pool.QueryRow(ctx, `
+		SELECT (details->>'reset_null_count')::int
+		FROM auth_audit_log
+		WHERE event_type = 'migration'
+		  AND details->>'migration' = '000326'
+		ORDER BY id DESC
+		LIMIT 1
+	`).Scan(&resetCount)
+	if err != nil {
+		t.Fatalf("query reset_null_count: %v", err)
+	}
+	if resetCount < 1 {
+		t.Errorf("expected reset_null_count >= 1 (test user should have been reset), got %d", resetCount)
 	}
 }
