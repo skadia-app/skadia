@@ -120,8 +120,11 @@ type RouteSuggestion struct {
 	// Uses handler-internal DTO (ResponsePassedSummit) to avoid leaking DB types.
 	SummitsPassed []ResponsePassedSummit `json:"summits_passed,omitempty"`
 
-	// ElevationProfile holds the full-resolution elevation profile for this
-	// suggestion, forwarded from the Pareto-reconstruction result (Spec §6.4).
+	// ElevationProfile is the authoritative top-level profile for the suggestion
+	// (Spec §6.4 "key always present"). The same data is also exposed per-feature
+	// in geojson.properties.elevation_profile for per-segment consumers. Both
+	// paths intentionally carry the same data — frontend should prefer the
+	// top-level field for the combined chart, per-feature for segment editing.
 	// nil when no DEM data is available for the route.
 	ElevationProfile *[]routing.ElevationPoint `json:"elevation_profile"`
 }
