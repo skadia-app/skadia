@@ -247,6 +247,16 @@ func allTables() []tableSpec {
 			FKFields: []string{"segment_id"},
 			Conflict: cmSkipWarn,
 		},
+		{
+			// Geometry lives here (track/start_point/end_point) — without this
+			// an imported segment has no routeable shape. Phase 4 so the parent
+			// segment already exists with remapped id.
+			Name:     "segment_versions",
+			Phase:    4,
+			PKField:  "id",
+			UserCol:  "created_by",
+			FKFields: []string{"segment_id"},
+		},
 
 		// ── Phase 5: Activities + files ────────────────────────────────────────
 
