@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
@@ -622,11 +623,22 @@ func (db *DB) DeleteSegments(ctx context.Context, ids []string, userID string) (
 }
 
 // PublishSegment sets a private segment to public.
-// Only the creator may publish. Returns false if segment not found, not owned, or already public.
-func (db *DB) PublishSegment(ctx context.Context, segmentID, creatorID string) (bool, error) {
-	tag, err := db.Pool.Exec(ctx,
-		`UPDATE segments SET visibility = 'public' WHERE id = $1 AND created_by = $2 AND visibility = 'private'`,
-		segmentID, creatorID)
+// Owner may publish; admins may publish any private segment (isAdmin skips ownership check).
+// Returns false if segment not found, not owned (and not admin), or already public.
+func (db *DB) PublishSegment(ctx context.Context, segmentID, actorID string, isAdmin bool) (bool, error) {
+	var (
+		tag pgconn.CommandTag
+		err error
+	)
+	if isAdmin {
+		tag, err = db.Pool.Exec(ctx,
+			`UPDATE segments SET visibility = 'public' WHERE id = $1 AND visibility = 'private'`,
+			segmentID)
+	} else {
+		tag, err = db.Pool.Exec(ctx,
+			`UPDATE segments SET visibility = 'public' WHERE id = $1 AND created_by = $2 AND visibility = 'private'`,
+			segmentID, actorID)
+	}
 	if err != nil {
 		return false, fmt.Errorf("publish segment: %w", err)
 	}
