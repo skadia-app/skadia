@@ -16,27 +16,6 @@ import { useToast } from '@/lib/toast'
 import { LIB_LABELS } from '@/lib/libraryLabels'
 import { SettingsSection } from '@/components/ui/SettingsSection'
 
-// ── i18n strings (centralised) ─────────────────────────────────────────────
-
-const LABELS = {
-  title: 'Dateibenennung',
-  description: 'Benennungsschema für jeden Dateityp. Variablen werden durch Werte des jeweiligen Eintrags ersetzt.',
-  availableVars: 'Verfügbare Variablen',
-  schemaTemplate: 'Schema-Template',
-  insertVariable: 'Variable einfügen',
-  preview: 'Vorschau',
-  save: 'Speichern',
-  saving: 'Speichert...',
-  libraryDir: 'Bibliotheks-Verzeichnis',
-  libraryDirDesc: 'Name des Wurzel-Verzeichnisses in der Bibliothek.',
-  libraryDirPlaceholder: 'skadia-library',
-
-  errorLoad: 'Schemata konnten nicht geladen werden',
-  errorSave: 'Fehler beim Speichern',
-  saved: 'Schema gespeichert',
-  savedLibDir: 'Bibliotheks-Verzeichnis gespeichert',
-} as const
-
 // ── Variable definitions per type ─────────────────────────────────────────
 // IMPORTANT: Keep in sync with backend variable list defined in
 // services/api/internal/shadowfs/schema.go (SchemaRenderer.Render) and
@@ -166,11 +145,11 @@ function SchemaSection({ fileType, initialSchema, effectiveSchema, isUserOverrid
           setLocalValue(null)
         }
       })
-      addToast({ type: 'success', title: LABELS.saved })
+      addToast({ type: 'success', title: LIB_LABELS.fileSchemaToastSaved })
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : 'Unbekannter Fehler'
-      addToast({ type: 'error', title: LABELS.errorSave, message: msg, duration: 0 })
+      addToast({ type: 'error', title: LIB_LABELS.fileSchemaErrorSave, message: msg, duration: 0 })
     },
   })
 
@@ -232,7 +211,7 @@ function SchemaSection({ fileType, initialSchema, effectiveSchema, isUserOverrid
               htmlFor={`schema-input-${fileType}`}
               className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1"
             >
-              {LABELS.schemaTemplate}
+              {LIB_LABELS.fileSchemaTemplateLabel}
             </label>
             <div className="flex gap-2">
               <input
@@ -258,7 +237,7 @@ function SchemaSection({ fileType, initialSchema, effectiveSchema, isUserOverrid
                            disabled:opacity-40 disabled:cursor-not-allowed
                            transition-colors"
               >
-                {mut.isPending ? LABELS.saving : LABELS.save}
+                {mut.isPending ? LIB_LABELS.savingButton : LIB_LABELS.saveButton}
               </button>
             </div>
             {disabled && disabledHint && (
@@ -276,7 +255,7 @@ function SchemaSection({ fileType, initialSchema, effectiveSchema, isUserOverrid
           {/* Variable chips */}
           <div className="space-y-1.5">
             <span className="text-xs text-neutral-500 dark:text-neutral-500">
-              {LABELS.availableVars}
+              {LIB_LABELS.fileSchemaAvailableVars}
             </span>
             <div className="flex flex-wrap gap-1.5">
               {vars.map(v => (
@@ -284,7 +263,7 @@ function SchemaSection({ fileType, initialSchema, effectiveSchema, isUserOverrid
                   key={v.key}
                   onClick={() => insertVariable(v.key)}
                   disabled={disabled}
-                  aria-label={`${LABELS.insertVariable}: ${v.key}`}
+                  aria-label={`${LIB_LABELS.fileSchemaInsertVariable}: ${v.key}`}
                   className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md
                              border border-neutral-200 dark:border-neutral-700
                              bg-neutral-50 dark:bg-neutral-800
@@ -307,7 +286,7 @@ function SchemaSection({ fileType, initialSchema, effectiveSchema, isUserOverrid
           {/* Live preview */}
           <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 p-3">
             <span className="text-xs text-neutral-500 dark:text-neutral-500 block mb-1">
-              {LABELS.preview}
+              {LIB_LABELS.fileSchemaPreview}
             </span>
             <span className="text-sm font-mono text-neutral-800 dark:text-neutral-200 break-all">
               {preview}
@@ -326,7 +305,7 @@ function SchemaSection({ fileType, initialSchema, effectiveSchema, isUserOverrid
           {/* Save error inline */}
           {mut.isError && (
             <p className="text-xs text-rose-500">
-              {LABELS.errorSave}:{' '}
+              {LIB_LABELS.fileSchemaErrorSave}:{' '}
               {mut.error instanceof Error ? mut.error.message : 'Unbekannt'}
             </p>
           )}
@@ -375,11 +354,11 @@ function LibraryDirSection() {
       queryClient.invalidateQueries({ queryKey: ['library-dir'] }).then(() => {
         setLocalValue(null)
       })
-      addToast({ type: 'success', title: LABELS.savedLibDir })
+      addToast({ type: 'success', title: LIB_LABELS.libraryDirToastSaved })
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : 'Unbekannter Fehler'
-      addToast({ type: 'error', title: LABELS.errorSave, message: msg, duration: 0 })
+      addToast({ type: 'error', title: LIB_LABELS.fileSchemaErrorSave, message: msg, duration: 0 })
     },
   })
 
@@ -387,10 +366,10 @@ function LibraryDirSection() {
     <div className="border border-neutral-200 dark:border-neutral-700 rounded-lg p-4 space-y-3">
       <div>
         <h3 className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
-          {LABELS.libraryDir}
+          {LIB_LABELS.libraryDirSectionTitle}
         </h3>
         <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-          {LABELS.libraryDirDesc}
+          {LIB_LABELS.libraryDirSectionDesc}
         </p>
       </div>
 
@@ -417,14 +396,14 @@ function LibraryDirSection() {
         /* Editable view */
         <div className="flex gap-2">
           <label htmlFor="library-dir-input" className="sr-only">
-            {LABELS.libraryDir}
+            {LIB_LABELS.libraryDirSectionTitle}
           </label>
           <input
             id="library-dir-input"
             type="text"
             value={currentValue}
             onChange={e => setLocalValue(e.target.value)}
-            placeholder={LABELS.libraryDirPlaceholder}
+            placeholder={LIB_LABELS.libraryDirInputPlaceholder}
             maxLength={100}
             className="flex-1 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2
                        bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100
@@ -439,14 +418,14 @@ function LibraryDirSection() {
                        disabled:opacity-40 disabled:cursor-not-allowed
                        transition-colors"
           >
-            {mut.isPending ? LABELS.saving : LABELS.save}
+            {mut.isPending ? LIB_LABELS.savingButton : LIB_LABELS.saveButton}
           </button>
         </div>
       )}
 
       {mut.isError && (
         <p className="text-xs text-rose-500">
-          {LABELS.errorSave}:{' '}
+          {LIB_LABELS.fileSchemaErrorSave}:{' '}
           {mut.error instanceof Error ? mut.error.message : 'Unbekannt'}
         </p>
       )}
@@ -486,10 +465,10 @@ export default function FileSchemaSettings() {
     : undefined
 
   return (
-    <SettingsSection title={LABELS.title} description={LABELS.description}>
+    <SettingsSection title={LIB_LABELS.fileSchemaSectionTitle} description={LIB_LABELS.fileSchemaSectionDescription}>
 
       {isError && (
-        <p className="text-sm text-rose-500">{LABELS.errorLoad}</p>
+        <p className="text-sm text-rose-500">{LIB_LABELS.fileSchemaErrorLoad}</p>
       )}
 
       {isLoading ? (
