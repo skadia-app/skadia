@@ -1424,18 +1424,49 @@ export function useRoutePlanner() {
     }))
   }, [_calculateSegment])
 
-  const setBrouterProfile = useCallback((profile: string) => {
-    // Bug B: profile change for the BRouter engine. If BRouter is the active
-    // engine, mark dirty so a future engine-switch back to BRouter triggers a
-    // recompute. The actual recompute on profile-change while BRouter is
-    // active is currently NOT wired from the UI (separate UX gap, not in
-    // scope for this commit — see commit message).
+  const setBrouterProfile = useCallback(async (profile: string) => {
+    let needsRecompute = false
+    let recomputeArgs: { wps: RouteWaypoint[]; cfg: ProfileConfig } | null = null
+
+    setState(s => {
+      const isActiveBrouter = s.routingEngine === 'brouter'
+      const canRecompute = isActiveBrouter && s.waypoints.length >= 2 && s.profileConfig !== null
+
+      if (canRecompute) {
+        needsRecompute = true
+        recomputeArgs = { wps: s.waypoints, cfg: s.profileConfig! }
+        return {
+          ...s,
+          brouterProfile: profile,
+          segments: [],
+          isCalculating: true,
+          calculationError: null,
+          routeStats: null,
+          _statsCache: {},
+          dirtyEngines: { ...s.dirtyEngines, brouter: true },
+        }
+      }
+
+      // Inactive engine OR not enough waypoints: just flag dirty.
+      return {
+        ...s,
+        brouterProfile: profile,
+        dirtyEngines: { ...s.dirtyEngines, brouter: true },
+      }
+    })
+
+    if (!needsRecompute || !recomputeArgs) return
+    const args = recomputeArgs as { wps: RouteWaypoint[]; cfg: ProfileConfig }
+    for (let i = 0; i < args.wps.length - 1; i++) {
+      await _calculateSegment(args.wps[i], args.wps[i + 1], args.cfg, 'brouter', profile)
+    }
     setState(s => ({
       ...s,
-      brouterProfile: profile,
-      dirtyEngines: { ...s.dirtyEngines, brouter: true },
+      isCalculating: false,
+      lastRenderedEngine: 'brouter',
+      dirtyEngines: { ...s.dirtyEngines, brouter: false },
     }))
-  }, [])
+  }, [_calculateSegment])
 
   /**
    * Bug B (2026-04-24): Public API to flag an engine as having pending
