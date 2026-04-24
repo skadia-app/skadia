@@ -140,12 +140,15 @@ func main() {
 			cfg.LibraryKeepVersions, cfg.MaxUserStorageBytes,
 			cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
 
+		migrSettingsStore := settings.NewSettingsStore(db, cfg.SettingsEncryptionKey, cfg.StorageBackend)
+
 		if err := shadowfs.RunMigrateStorage(
 			ctx, db.Pool,
 			srcBE, tgtBE, *target,
 			store.BucketFor,
 			cfg.LibraryBasePath,
 			shadowfs.NewSchemaRenderer(),
+			migrSettingsStore,
 			*dryRun, *batchSize, *workers, *cleanupSource,
 		); err != nil {
 			fmt.Fprintf(os.Stderr, "migrate-storage: FAILED: %v\n", err)
