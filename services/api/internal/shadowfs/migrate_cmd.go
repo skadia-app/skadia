@@ -17,6 +17,7 @@ import (
 
 	"errors"
 
+	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -48,6 +49,7 @@ func RunMigrateStorage(
 	bucketFn func(string) string,
 	basePath string,
 	renderer *SchemaRenderer,
+	store *settings.SettingsStore,
 	dryRun bool,
 	batchSize, workers int,
 	cleanupSource bool,
@@ -123,7 +125,7 @@ func RunMigrateStorage(
 		}
 
 		if err := processBatch(ctx, pool, rows, source, target, targetName, sourceName,
-			bucketFn, basePath, renderer, workers,
+			bucketFn, basePath, renderer, store, workers,
 			&totalMigrated, &totalBytes, &totalErrors, grandTotal, start); err != nil {
 			return fmt.Errorf("migrate-storage: process batch: %w", err)
 		}
@@ -298,6 +300,7 @@ func processBatch(
 	bucketFn func(string) string,
 	basePath string,
 	renderer *SchemaRenderer,
+	store *settings.SettingsStore,
 	workers int,
 	totalMigrated, totalBytes, totalErrors *int64,
 	grandTotal int64,
@@ -317,7 +320,7 @@ func processBatch(
 					return
 				}
 				if err := migrateFile(ctx, pool, rec, source, target, targetName,
-					bucketFn, basePath, renderer); err != nil {
+					bucketFn, basePath, renderer, store); err != nil {
 					slog.Error("migrate-storage: file failed",
 						"id", rec.ID, "path", rec.StoragePath, "error", err)
 					atomic.AddInt64(totalErrors, 1)
@@ -344,11 +347,12 @@ func migrateFile(
 	bucketFn func(string) string,
 	basePath string,
 	renderer *SchemaRenderer,
+	store *settings.SettingsStore,
 ) error {
 	srcOpts := migrBucketOpts(bucketFn, rec.FileType)
 
 	// Compute target path.
-	targetPath, targetOpts, err := computeTargetPath(ctx, pool, rec, targetName, bucketFn, renderer)
+	targetPath, targetOpts, err := computeTargetPath(ctx, pool, rec, targetName, bucketFn, renderer, store)
 	if err != nil {
 		return fmt.Errorf("compute target path: %w", err)
 	}
@@ -438,6 +442,7 @@ func computeTargetPath(
 	targetName string,
 	bucketFn func(string) string,
 	renderer *SchemaRenderer,
+	store *settings.SettingsStore,
 ) (path string, opts *BackendOpts, err error) {
 	ext := sanitizeExt(filepath.Ext(rec.FileName))
 
@@ -471,8 +476,13 @@ func computeTargetPath(
 		}
 
 		// Try schema-based path when we have enough tags.
+		// Use ResolveUserSchema so admin-default settings are respected.
 		if renderer != nil && rec.ParentType != "" {
-			schema := renderer.DefaultSchema(rec.FileType)
+			schema, schemaErr := ResolveUserSchema(ctx, pool, store, renderer, rec.UserID, rec.FileType)
+			if schemaErr != nil {
+				slog.Warn("migrate-storage: resolve user schema", "user_id", rec.UserID, "file_type", rec.FileType, "error", schemaErr)
+				schema = renderer.DefaultSchema(rec.FileType)
+			}
 			if schema != "" {
 				tags := extractTagsForFile(ctx, pool, rec.FileType, rec.ParentType, rec.ParentID)
 				if len(tags) > 0 {
