@@ -33,6 +33,10 @@ export const LIB_LABELS = {
   toastLibraryDirClashesUUID: 'Name entspricht einer fremden User-UUID',
   toastError: 'Fehler',
 
+  // Schema effective-value hint
+  schemaEffectiveLabel: 'Effektiv:',
+  schemaAdminDefaultHint: 'Standard: ',
+
   // Status-Konstanten (aus API-Responses)
   statusLibraryDirNameTaken: 'library_dir_name_taken',
   statusLibraryDirNameClashesUUID: 'library_dir_name_clashes_with_user_uuid',
