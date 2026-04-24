@@ -671,7 +671,7 @@ function UserLibraryDirDialog({
             <FolderEdit className="h-5 w-5 text-blue-600 dark:text-blue-400" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold">Library-Dir bearbeiten</h2>
+            <h2 className="text-lg font-semibold">{LIB_LABELS.editLibraryDirMenuItem}</h2>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">{user.username}</p>
           </div>
         </div>
@@ -683,7 +683,7 @@ function UserLibraryDirDialog({
         )}
 
         {isError && (
-          <p className="py-2 text-sm text-red-500">Fehler beim Laden der Library-Dir.</p>
+          <p className="py-2 text-sm text-red-500">{LIB_LABELS.loadLibraryDirErrorTitle}</p>
         )}
 
         {!isLoading && !isError && data && (
@@ -710,18 +710,18 @@ function UserLibraryDirDialog({
                   {setDirMutation.isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : null}
-                  Speichern
+                  {LIB_LABELS.saveButton}
                 </button>
               </div>
               <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                Effektiv:{' '}
+                {LIB_LABELS.effectiveLabel}{' '}
                 <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-xs dark:bg-neutral-800">
                   {inputValue != null && inputValue.trim() ? inputValue.trim() : data.effective_name}
                 </code>
               </p>
               {!current.trim() && data.library_dir_name && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
-                  Leer lassen = auf UUID zurücksetzen
+                  {LIB_LABELS.resetToUUIDHint}
                 </p>
               )}
             </div>
@@ -729,7 +729,7 @@ function UserLibraryDirDialog({
             {/* Rename buttons per file type */}
             <div className="space-y-2">
               <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                Rename ausführen
+                {LIB_LABELS.executeRenameButton}
               </p>
               <div className="flex flex-wrap gap-2">
                 {FILE_TYPES_FOR_RENAME.map(ft => (
@@ -749,7 +749,7 @@ function UserLibraryDirDialog({
                 ))}
               </div>
               <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                Startet einen Rename-Job im Hintergrund.
+                {LIB_LABELS.renameJobBackgroundHint}
               </p>
             </div>
           </>
@@ -760,7 +760,7 @@ function UserLibraryDirDialog({
             onClick={onClose}
             className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
           >
-            Schließen
+            {LIB_LABELS.closeButton}
           </button>
         </div>
       </div>
@@ -852,7 +852,7 @@ function UserActionsMenu({
 
             <DropdownMenuItem onClick={() => onAction('library-dir')} className="gap-2">
               <FolderEdit className="h-4 w-4 text-blue-500" />
-              Library-Dir bearbeiten
+              {LIB_LABELS.editLibraryDirMenuItem}
             </DropdownMenuItem>
           </>
         )}

@@ -37,6 +37,19 @@ export const LIB_LABELS = {
   schemaEffectiveLabel: 'Effektiv:',
   schemaAdminDefaultHint: 'Standard: ',
 
+  // Common action buttons
+  saveButton: 'Speichern',
+  discardButton: 'Verwerfen',
+  closeButton: 'Schließen',
+
+  // UserLibraryDirDialog
+  editLibraryDirMenuItem: 'Library-Dir bearbeiten',
+  effectiveLabel: 'Effektiv:',
+  resetToUUIDHint: 'Leer lassen = auf UUID zurücksetzen',
+  executeRenameButton: 'Rename ausführen',
+  renameJobBackgroundHint: 'Startet einen Rename-Job im Hintergrund.',
+  loadLibraryDirErrorTitle: 'Fehler beim Laden der Library-Dir.',
+
   // Status-Konstanten (aus API-Responses)
   statusLibraryDirNameTaken: 'library_dir_name_taken',
   statusLibraryDirNameClashesUUID: 'library_dir_name_clashes_with_user_uuid',
