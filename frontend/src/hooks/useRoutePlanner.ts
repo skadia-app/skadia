@@ -514,6 +514,36 @@ function cumulativeHaversineMeters(coords: number[][]): number {
   return total
 }
 
+/**
+ * buildProfileFromCoordZ: Last-resort elevation source from segment geometry's
+ * inline-Z (coord[2]) when the DEM endpoint returns no usable samples.
+ *
+ * Use case: routes outside DEM coverage (e.g. Hessen on a Lightweight setup)
+ * where /elevation/profile returns elevation=null for every sample, but the
+ * segments still carry valid 3D coordinates from the original routing pass.
+ *
+ * Distance axis is built via cumulativeHaversineMeters along the same coord
+ * stream used for the DEM call (segment-order geometry — caller must already
+ * have sorted by waypoint order). Returns [] if fewer than 2 valid Z-values
+ * are available — caller should treat that as "no profile".
+ */
+function buildProfileFromCoordZ(coords: number[][]): RouteElevationPoint[] {
+  const out: RouteElevationPoint[] = []
+  let cum = 0
+  for (let i = 0; i < coords.length; i++) {
+    if (i > 0) {
+      const [lon1, lat1] = coords[i - 1]
+      const [lon2, lat2] = coords[i]
+      cum += haversineM(lat1, lon1, lat2, lon2)
+    }
+    const c = coords[i]
+    if (c.length >= 3 && typeof c[2] === 'number' && Number.isFinite(c[2])) {
+      out.push({ dist_m: cum, ele_m: c[2] })
+    }
+  }
+  return out.length >= 2 ? out : []
+}
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useRoutePlanner() {
@@ -1154,10 +1184,23 @@ export function useRoutePlanner() {
           }
           const totalDistM = cumulativeHaversineMeters(combinedCoordinates)
           const converted = legacyToRouteProfile(profile, totalDistM)
+          // Bug A fix (2026-04-24): when DEM returned only null elevations
+          // (region outside DEM coverage), legacyToRouteProfile filters them
+          // all out → converted=[]. Fall back to inline-Z (coord[2]) from
+          // segment geometry, which still carries valid heights from the
+          // original routing pass. If even inline-Z is empty/missing, keep
+          // effectiveProfile null and skip the PendingSave flag.
+          let final = converted
+          if (final.length === 0) {
+            final = buildProfileFromCoordZ(combinedCoordinates)
+          }
+          if (final.length === 0) {
+            return { ...s, lazyFillInProgress: false }
+          }
           applied = true
           return {
             ...s,
-            effectiveProfile: converted,
+            effectiveProfile: final,
             lazyFillInProgress: false,
             lazyFillPendingSave: true,
           }
