@@ -86,6 +86,42 @@ func (h *Handler) GetFileSchemas(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, result)
 }
 
+// GetFileSchemasContext returns editable/backend/admin_managed_reason metadata for
+// the file-schemas settings UI. Separated from GET /file-schemas to keep that
+// endpoint's top-level array shape backward-compatible.
+// GET /api/v1/settings/file-schemas-context
+//
+// NOTE: Route needs registration: GET /settings/file-schemas-context
+func (h *Handler) GetFileSchemasContext(w http.ResponseWriter, r *http.Request) {
+	if _, ok := httputil.RequireUserID(w, r); !ok {
+		return
+	}
+
+	backend := "local"
+	if h.Config != nil && h.Config.StorageBackend == "s3" {
+		backend = "s3"
+	}
+
+	canEdit := h.Settings != nil && h.Settings.Get("library.user_can_edit_schemas").Value == "true"
+	editable := canEdit
+
+	// Priority: s3 > admin_locked > null
+	var reason *string
+	if backend == "s3" {
+		v := "s3_backend"
+		reason = &v
+	} else if !canEdit {
+		v := "admin_locked"
+		reason = &v
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"editable":             editable,
+		"backend":              backend,
+		"admin_managed_reason": reason,
+	})
+}
+
 // UpdateFileSchema sets a custom schema template for a specific file type.
 // PUT /api/v1/settings/file-schemas/{type}
 func (h *Handler) UpdateFileSchema(w http.ResponseWriter, r *http.Request) {

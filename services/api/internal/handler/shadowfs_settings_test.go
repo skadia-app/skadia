@@ -183,6 +183,68 @@ func TestGetLibraryDirS3BackendReason(t *testing.T) {
 	}
 }
 
+func TestGetFileSchemasContextBasic(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires DB")
+	}
+	pool := fusionTestPool(t)
+	userID := insertTestUser(t, pool)
+
+	db := &database.DB{Pool: pool}
+	store := settings.NewSettingsStore(db, "", "local")
+
+	// Set user_can_edit_schemas = "true".
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO server_settings (key, value, encrypted, updated_at) VALUES ($1, $2, false, NOW())
+		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+		"library.user_can_edit_schemas", "true")
+	if err != nil {
+		t.Fatalf("upsert setting: %v", err)
+	}
+	if err := store.Reload(context.Background()); err != nil {
+		t.Fatalf("reload settings: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), //nolint:errcheck
+			`DELETE FROM server_settings WHERE key = 'library.user_can_edit_schemas'`)
+	})
+
+	h := &Handler{
+		DB:       db,
+		Settings: store,
+	}
+
+	ctx := context.WithValue(context.Background(), middleware.UserIDKey, userID)
+	req := httptest.NewRequest("GET", "/api/v1/settings/file-schemas-context", nil).WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.GetFileSchemasContext(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	for _, field := range []string{"editable", "backend", "admin_managed_reason"} {
+		if _, ok := body[field]; !ok {
+			t.Errorf("missing field %q", field)
+		}
+	}
+	// canEdit=true, backend=local → editable=true, reason=null.
+	if body["editable"] != true {
+		t.Errorf("editable: got %v, want true", body["editable"])
+	}
+	if body["backend"] != "local" {
+		t.Errorf("backend: got %v, want local", body["backend"])
+	}
+	if body["admin_managed_reason"] != nil {
+		t.Errorf("admin_managed_reason: got %v, want null", body["admin_managed_reason"])
+	}
+}
+
 func TestUpdateLibraryDirLockdown403(t *testing.T) {
 	pool := fusionTestPool(t)
 	userID := insertTestUser(t, pool)
