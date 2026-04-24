@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 )
@@ -24,6 +25,7 @@ type ReconcileJob struct {
 	basePath     string              // for local orphan walk
 	bucketFn     func(string) string // fileType → S3 bucket
 	renderer     *SchemaRenderer
+	settings     *settings.SettingsStore
 	keepVersions int
 }
 
@@ -45,7 +47,9 @@ type ReconcileResult struct {
 // NewReconcileJob creates a new reconciliation job.
 // local and s3 may be nil if the respective backend is not configured.
 // bucketFn maps fileType → S3 bucket name (may be nil when s3 is nil).
-func NewReconcileJob(pool *pgxpool.Pool, local, s3 StorageBackend, basePath string, bucketFn func(string) string, renderer *SchemaRenderer, keepVersions int) *ReconcileJob {
+// store is the server settings store; pass nil to skip lockdown enforcement
+// (call-sites in admin_storage.go and main.go need updating).
+func NewReconcileJob(pool *pgxpool.Pool, local, s3 StorageBackend, basePath string, bucketFn func(string) string, renderer *SchemaRenderer, store *settings.SettingsStore, keepVersions int) *ReconcileJob {
 	return &ReconcileJob{
 		pool:         pool,
 		local:        local,
@@ -53,6 +57,7 @@ func NewReconcileJob(pool *pgxpool.Pool, local, s3 StorageBackend, basePath stri
 		basePath:     basePath,
 		bucketFn:     bucketFn,
 		renderer:     renderer,
+		settings:     store,
 		keepVersions: keepVersions,
 	}
 }
@@ -668,14 +673,13 @@ func (j *ReconcileJob) checkRenameCleanup(ctx context.Context, r *ReconcileResul
 			return ctx.Err()
 		}
 
-		// Query user's current schema for this file type.
-		schema := j.renderer.DefaultSchema(item.fileType)
-		var userSchema string
-		err := j.pool.QueryRow(ctx,
-			`SELECT schema_template FROM user_file_schemas WHERE user_id = $1 AND file_type = $2`,
-			item.userID, item.fileType).Scan(&userSchema)
-		if err == nil && userSchema != "" {
-			schema = userSchema
+		// Resolve schema via ResolveUserSchema so that lockdown (library.user_can_edit_schemas=false)
+		// prevents user overrides from being applied during reconcile.
+		schema, err := ResolveUserSchema(ctx, j.pool, j.settings, j.renderer, item.userID, item.fileType)
+		if err != nil {
+			slog.Warn("shadowfs reconcile: resolve user schema failed, using built-in default",
+				"user_id", item.userID, "file_type", item.fileType, "error", err)
+			schema = j.renderer.DefaultSchema(item.fileType)
 		}
 
 		ext := filepath.Ext(item.fileName)
