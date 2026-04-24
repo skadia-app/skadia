@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchSegment, updateSegment, publishSegment, reverseSegment, type Segment, type UpdateSegmentPayload } from '@/api/segments'
+import { getMe } from '@/api/auth'
 import { ApiError } from '@/api/client'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
@@ -40,6 +41,8 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
     queryFn: () => fetchSegment(initialSegment.id, { includeGeoJSON: true }),
     staleTime: 5 * 60 * 1000,
   })
+
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: getMe, staleTime: 60_000 })
 
   const [name, setName] = useState(initialSegment.name)
   const [description, setDescription] = useState(initialSegment.description ?? '')
@@ -401,9 +404,12 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
             <button
               onClick={() => {
                 if (initialSegment.visibility === 'private' && visibility === 'public') {
+                  const isForeignAdmin = me?.is_admin && initialSegment.created_by !== me?.user_id
                   openModal({
                     title: 'Segment veröffentlichen?',
-                    message: 'Alle Nutzer können das Segment danach sehen. Eine Neuberechnung wird gestartet.',
+                    message: isForeignAdmin
+                      ? 'Admin-Aktion: Du veröffentlichst ein fremdes Segment. Alle Nutzer können es danach sehen, alle Aktivitäten werden rückwirkend gematcht. Der Ersteller wird nicht benachrichtigt.'
+                      : 'Alle Nutzer können das Segment danach sehen. Eine Neuberechnung wird gestartet.',
                     buttons: [
                       { label: 'Abbrechen', variant: 'default', onClick: () => {} },
                       { label: 'Veröffentlichen', variant: 'destructive', onClick: () => publishMut.mutate() },
