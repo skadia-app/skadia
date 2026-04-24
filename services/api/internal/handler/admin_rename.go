@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -226,9 +227,12 @@ func (h *Handler) PostAdminRenameBulk(w http.ResponseWriter, r *http.Request) {
 
 	shutdown.Go("admin-rename-bulk:"+fileType, func(bgCtx context.Context) {
 		// Release advisory lock at end (independent of per-user outcomes).
-		// Use a background-safe context so the unlock still fires during shutdown.
+		// Use a detached context so the unlock still fires even when bgCtx is
+		// cancelled during graceful shutdown (MED #15).
 		defer func() {
-			_, _ = conn.Exec(bgCtx, `SELECT pg_advisory_unlock($1)`, bulkRenameAdvisoryLockKey)
+			unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, _ = conn.Exec(unlockCtx, `SELECT pg_advisory_unlock($1)`, bulkRenameAdvisoryLockKey)
 			conn.Release()
 		}()
 
