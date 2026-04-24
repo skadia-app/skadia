@@ -407,6 +407,35 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           displayControlsDefault: false,
           controls: { line_string: false, trash: false },
           defaultMode: 'draw_line_string',
+          // Custom styles: thick grey line matching the activity-track-line (A1).
+          // inactive = finalized line (simple_select), active = line being drawn.
+          styles: [
+            {
+              id: 'gl-draw-line-inactive',
+              type: 'line',
+              filter: ['all', ['==', 'active', 'false'], ['==', '$type', 'LineString'], ['!=', 'mode', 'static']],
+              layout: { 'line-cap': 'round', 'line-join': 'round' },
+              paint: { 'line-color': '#6b7280', 'line-width': 4, 'line-opacity': 0.9 },
+            },
+            {
+              id: 'gl-draw-line-active',
+              type: 'line',
+              filter: ['all', ['==', 'active', 'true'], ['==', '$type', 'LineString']],
+              layout: { 'line-cap': 'round', 'line-join': 'round' },
+              paint: { 'line-color': '#6b7280', 'line-width': 3, 'line-dasharray': [2, 2], 'line-opacity': 0.9 },
+            },
+            {
+              id: 'gl-draw-point-active',
+              type: 'circle',
+              filter: ['all', ['==', '$type', 'Point'], ['==', 'meta', 'vertex']],
+              paint: {
+                'circle-radius': 5,
+                'circle-color': '#ffffff',
+                'circle-stroke-width': 2,
+                'circle-stroke-color': '#6b7280',
+              },
+            },
+          ],
         })
         map.addControl(draw as unknown as maplibregl.IControl)
         drawRef.current = draw
