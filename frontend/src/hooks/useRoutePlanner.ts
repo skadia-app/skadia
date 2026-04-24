@@ -28,6 +28,8 @@ import type { ProfileConfig } from '@/lib/routingProfiles'
 import { getProfileDefaults, cacheServerDefaults } from '@/lib/routingProfiles'
 import { useToast } from '@/lib/toast'
 import { catmullRom, polylineDistanceM } from '@/lib/catmull-rom'
+import { haversineM } from '@/lib/geoUtils'
+import { showLazyFillNoticeOncePerSession } from '@/lib/strings/route-planner'
 
 // ─── Exported types ──────────────────────────────────────────────────────────
 
@@ -463,6 +465,27 @@ export function deserializeRouteStats(
     summits_passed:    enrichment.summits_passed as RouteStats['summits_passed'],
     coordinates:       [],
   }
+}
+
+/**
+ * cumulativeHaversineMeters: O(n) kumulative Haversine über lon/lat-GeoJSON-Coords.
+ *
+ * Helper-Anker (verifiziert 2026-04-24): bestehender `haversineM(lat, lng, lat, lng)`
+ * in `frontend/src/lib/geoUtils.ts:4` — Argument-Reihenfolge ist (lat, lng),
+ * GeoJSON-[lon, lat] muss explizit übersetzt werden.
+ *
+ * Achsen-Anmerkung (Spec §7.4): Diese kumulative Distanz ist `geometry-inklusiv`
+ * und kann am Anfang/Ende um die Approach-Längen vom späteren _calculateSegment-
+ * Profile abweichen. Akzeptabel für Phase 1 (Lazy-Fill = best effort für Alt-Routen).
+ */
+function cumulativeHaversineMeters(coords: number[][]): number {
+  let total = 0
+  for (let i = 1; i < coords.length; i++) {
+    const [lon1, lat1] = coords[i - 1]
+    const [lon2, lat2] = coords[i]
+    total += haversineM(lat1, lon1, lat2, lon2)
+  }
+  return total
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -961,42 +984,34 @@ export function useRoutePlanner() {
   // ── Load route into planner ─────────────────────────────────────────────────
 
   const loadRoute = useCallback((route: PlannedRoute) => {
+    // Spec Rev 2.3 §7.4 / F3: Saved routes load instantly from DB
+    // (waypoints + segments + profile + enrichment). NEVER recalculateAll().
+    resetScalePin()
+
     // route.profile is a string — try cache first, then fetch async
     const cached = getProfileDefaults(route.profile)
-    if (cached) {
-      resetScalePin()
-      setState(s => ({
-        ...s,
-        waypoints: route.waypoints,
-        // L-11: DB-Segmente bleiben als Sub-Frame-Zwischenzustand stehen.
-        // recalculateAll() setzt sie auf [] und befüllt routeStats neu via Quelle 1.
-        // Intentional — falls recalculateAll scheitert stehen die DB-Segmente als Fallback.
-        segments: route.segments,
-        profileConfig: cached,
-        sportType: route.sport_type,
-        isCalculating: false,
-        calculationError: null,
-        editingRouteId: route.id,
-        routeStats: null,      // V6-Retrofit: reset vor Re-Routing
-        _statsCache: {},
-      }))
-      // V6-Retrofit Quelle 3: Re-Routing triggert _calculateSegment-Schleife,
-      // die via Quelle 1 routeStats befüllt. ~500 ms Latenz, akzeptiert (Spec §3 Non-Goal).
-      void recalculateAll()
-    } else {
-      resetScalePin()
-      // Load waypoints/segments immediately, fetch profile in background
-      setState(s => ({
-        ...s,
-        waypoints: route.waypoints,
-        segments: route.segments,
-        sportType: route.sport_type,
-        isCalculating: false,
-        calculationError: null,
-        editingRouteId: route.id,
-        routeStats: null,
-        _statsCache: {},
-      }))
+
+    setState(s => ({
+      ...s,
+      waypoints: route.waypoints,
+      segments: route.segments,
+      // profileConfig: use cached if present; otherwise keep current and fetch below.
+      profileConfig: cached ?? s.profileConfig,
+      sportType: route.sport_type,
+      isCalculating: false,
+      calculationError: null,
+      editingRouteId: route.id,
+      // Spec §6.2 / §7.4: hydrate effectiveProfile + routeStats from DB.
+      effectiveProfile: route.elevation_profile ?? null,
+      routeStats: deserializeRouteStats(route.enrichment ?? null),
+      _statsCache: {},
+      lazyFillInProgress: false,
+      lazyFillPendingSave: false,
+    }))
+
+    if (!cached) {
+      // Profile defaults were not in cache — fetch them (does NOT trigger
+      // recalculateAll; Spec §7.4 forbids it on load).
       fetchProfileDefaults(route.profile)
         .then(resp => {
           cacheServerDefaults(route.profile, resp)
@@ -1008,8 +1023,6 @@ export function useRoutePlanner() {
             if (!fresh) return s
             return { ...s, profileConfig: fresh }
           })
-          // NACH profileConfig-Set: Re-Routing triggern
-          void recalculateAll()
         })
         .catch(() => {
           addToast({
@@ -1020,7 +1033,93 @@ export function useRoutePlanner() {
           })
         })
     }
-  }, [recalculateAll])
+
+    // ── Lazy-Fill (Spec Rev 2.3 §7.4 / F3 / §R7) ──────────────────────────
+    // Only DEM-sampling — never recalculateAll.
+    const needsLazyFill =
+      (route.elevation_profile == null || route.elevation_profile.length === 0)
+      && (route.segments?.length ?? 0) > 0
+
+    if (!needsLazyFill) return
+
+    // Snapshot the segments-array reference BEFORE the await.
+    // Any user mutation (moveWaypoint/add/delete → _calculateSegment replaces
+    // the segments array) will break the === check in the post-await callback.
+    const segmentsSnapshot = route.segments
+
+    // Token-counter prevents a concurrent loadRoute(R2) from being overwritten
+    // by an in-flight loadRoute(R1) lazy-fill result.
+    let expectedToken = 0
+    setState(s => {
+      const newToken = (s.lazyFillToken ?? 0) + 1
+      expectedToken = newToken
+      return { ...s, lazyFillInProgress: true, lazyFillToken: newToken }
+    })
+
+    void (async () => {
+      try {
+        // Build combined geometry from segments (sorted by waypoint order
+        // for safety — mirrors the pattern at line ~1255).
+        const wpOrder = new Map(route.waypoints.map((wp, i) => [wp.id, i]))
+        const combinedCoordinates = [...segmentsSnapshot]
+          .sort((a, b) =>
+            (wpOrder.get(a.from_waypoint) ?? Infinity) -
+            (wpOrder.get(b.from_waypoint) ?? Infinity),
+          )
+          .flatMap(seg => (seg.geometry?.coordinates ?? []) as number[][])
+
+        if (combinedCoordinates.length < 2) {
+          setState(s => ({ ...s, lazyFillInProgress: false }))
+          return
+        }
+
+        const combinedGeometry: GeoJSON.LineString = {
+          type: 'LineString',
+          coordinates: combinedCoordinates,
+        }
+
+        // getElevationProfile is NOT a routing call — it samples DEM heights
+        // along the persisted geometry. No route drift possible.
+        const { profile } = await getElevationProfile(combinedGeometry, 200)
+
+        if (!profile || profile.length === 0) {
+          // No DEM available (Lightweight system): silent graceful degradation.
+          setState(s => ({ ...s, lazyFillInProgress: false }))
+          return
+        }
+
+        let applied = false
+        // Spec §7.4 + §R7: stale-check via reference-identity + token counter.
+        setState(s => {
+          // 1. User triggered a segment mutation during the call: discard.
+          if (s.segments !== segmentsSnapshot) {
+            return { ...s, lazyFillInProgress: false }
+          }
+          // 2. A newer loadRoute incremented the token: discard.
+          if (s.lazyFillToken !== expectedToken) {
+            return { ...s, lazyFillInProgress: false }
+          }
+          const totalDistM = cumulativeHaversineMeters(combinedCoordinates)
+          const converted = legacyToRouteProfile(profile, totalDistM)
+          applied = true
+          return {
+            ...s,
+            effectiveProfile: converted,
+            lazyFillInProgress: false,
+            lazyFillPendingSave: true,
+          }
+        })
+
+        if (applied) {
+          showLazyFillNoticeOncePerSession(addToast)
+        }
+      } catch {
+        // Endpoint unavailable (Selfhoster ohne PostGIS-DEM, 500 etc.):
+        // silent graceful degradation. No toast, no state crash.
+        setState(s => ({ ...s, lazyFillInProgress: false }))
+      }
+    })()
+  }, [addToast])
 
   // Load waypoints into the planner without creating/linking a saved route.
   const loadWaypoints = useCallback((waypoints: RouteWaypoint[]) => {
