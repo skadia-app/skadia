@@ -20,6 +20,34 @@ type KeyDef struct {
 	Validate  func(string) error    // nil = no validation
 }
 
+// piiBlacklistForSchemas is a copy of shadowfs.piiBlacklistVariables kept here
+// to avoid an import cycle (settings ↛ shadowfs). Keep in sync with shadowfs/pii.go.
+// NIT #41: used by defaultSchemaValidate to reject PII variables in stored schemas.
+var piiBlacklistForSchemas = []string{
+	"bio",
+	"comment",
+	"description",
+	"hr_avg",
+	"message",
+	"notes",
+	"power_avg",
+	"tags",
+}
+
+// defaultSchemaValidate is the Validate function shared by all library.default_schema.*
+// KeyDefs. An empty value is always valid (renderer built-in default applies).
+func defaultSchemaValidate(v string) error {
+	if v == "" {
+		return nil
+	}
+	for _, pii := range piiBlacklistForSchemas {
+		if strings.Contains(v, "{"+pii+"}") {
+			return fmt.Errorf("schema must not contain PII variable {%s}", pii)
+		}
+	}
+	return nil
+}
+
 // AllKeys is the ordered list of every registered setting.
 var AllKeys = []KeyDef{
 	{
@@ -177,22 +205,41 @@ var AllKeys = []KeyDef{
 			return nil
 		},
 	},
+	// NIT #41: PII validation inline in KeyDef. We cannot import shadowfs here
+	// (import cycle: shadowfs → settings → shadowfs). Instead we duplicate the
+	// PII blacklist as a local slice. The canonical blacklist lives in
+	// shadowfs/pii.go; keep both in sync when extending.
+	//
+	// An empty schema value is allowed and means "use renderer built-in default".
 	{
 		Key: "library.default_schema.activity", Default: "", Group: "library",
 		// Default wird via ApplySeedsIfMissing aus renderer.DefaultSchema gesetzt.
 		// Empty default triggert Fallback auf Renderer im Resolver.
+		Validate: defaultSchemaValidate,
 	},
 	{
-		Key: "library.default_schema.media", Default: "", Group: "library",
+		Key:      "library.default_schema.media",
+		Default:  "",
+		Group:    "library",
+		Validate: defaultSchemaValidate,
 	},
 	{
-		Key: "library.default_schema.document", Default: "", Group: "library",
+		Key:      "library.default_schema.document",
+		Default:  "",
+		Group:    "library",
+		Validate: defaultSchemaValidate,
 	},
 	{
-		Key: "library.default_schema.health", Default: "", Group: "library",
+		Key:      "library.default_schema.health",
+		Default:  "",
+		Group:    "library",
+		Validate: defaultSchemaValidate,
 	},
 	{
-		Key: "library.default_schema.route", Default: "", Group: "library",
+		Key:      "library.default_schema.route",
+		Default:  "",
+		Group:    "library",
+		Validate: defaultSchemaValidate,
 	},
 }
 
