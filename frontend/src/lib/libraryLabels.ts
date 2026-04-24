@@ -51,9 +51,4 @@ export const LIB_LABELS = {
   renameJobBackgroundHint: 'Startet einen Rename-Job im Hintergrund.',
   loadLibraryDirErrorTitle: 'Fehler beim Laden der Library-Dir.',
 
-  // Status-Konstanten (aus API-Responses)
-  statusLibraryDirNameTaken: 'library_dir_name_taken',
-  statusLibraryDirNameClashesUUID: 'library_dir_name_clashes_with_user_uuid',
-  statusBulkRenameInProgress: 'bulk_rename_in_progress',
-  statusRenameInProgress: 'rename_in_progress',
 } as const
