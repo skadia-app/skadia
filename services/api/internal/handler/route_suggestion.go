@@ -119,6 +119,11 @@ type RouteSuggestion struct {
 	// Summits and passes passed within the user-configured radius.
 	// Uses handler-internal DTO (ResponsePassedSummit) to avoid leaking DB types.
 	SummitsPassed []ResponsePassedSummit `json:"summits_passed,omitempty"`
+
+	// ElevationProfile holds the full-resolution elevation profile for this
+	// suggestion, forwarded from the Pareto-reconstruction result (Spec §6.4).
+	// nil when no DEM data is available for the route.
+	ElevationProfile *[]routing.ElevationPoint `json:"elevation_profile"`
 }
 
 // ResponsePassedSummit is a handler-internal DTO for database.PassedSummit.
@@ -538,6 +543,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 			VfRanges:               vfRanges,
 			VfUnknownRanges:        vfUnknownRanges,
 			SummitsPassed:          responseSummits,
+			ElevationProfile:       merged.ElevationProfile,
 		})
 	}
 
