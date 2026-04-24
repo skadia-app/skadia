@@ -131,14 +131,14 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
   }
 
   return (
-    <ModalShell onClose={onClose} maxWidth="max-w-md" className="bg-neutral-900 rounded-xl border border-neutral-800 space-y-4">
-        <h2 className="text-lg font-semibold text-neutral-100">Segment bearbeiten</h2>
+    <ModalShell onClose={onClose} maxWidth="max-w-md" className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 space-y-4">
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Segment bearbeiten</h2>
 
         {/* Map Preview */}
         <MapPreview 
           geojsonTrack={segment.track_geojson || ''} 
           height="160px" 
-          className="mb-2 rounded-lg overflow-hidden border border-neutral-800"
+          className="mb-2 rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-800"
         />
 
         <input
@@ -183,7 +183,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         <div className="space-y-3">
           {(segment.segment_type === 'standard' || segment.segment_type === 'trail') && (
             <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Höhenprofil</label>
+              <label className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">Höhenprofil</label>
               <ClimbTypePills
                 segType={segment.segment_type as any}
                 value={climbType}
@@ -200,15 +200,15 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
                 type="checkbox"
                 checked={bidirectional}
                 onChange={e => setBidirectional(e.target.checked)}
-                className="rounded border-neutral-600 accent-accent-DEFAULT"
+                className="rounded border-neutral-400 dark:border-neutral-600 accent-accent-DEFAULT"
               />
-              <span className="text-sm text-neutral-300">Bidirektionales Matching</span>
+              <span className="text-sm text-neutral-700 dark:text-neutral-300">Bidirektionales Matching</span>
             </label>
           )}
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Erlaubte Sportarten</label>
+          <label className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">Erlaubte Sportarten</label>
           <SportCategoryChips
             segType={segment.segment_type as any}
             activeTypes={allowedSportTypes}
@@ -253,7 +253,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
                 className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
                   visibility === 'public'
                     ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
-                    : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
+                    : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                 }`}
               >
                 Öffentlich
@@ -263,8 +263,8 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
                 onClick={() => setVisibility('private')}
                 className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
                   visibility === 'private'
-                    ? 'bg-neutral-700 text-neutral-100 border-neutral-600'
-                    : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
+                    ? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100 border-neutral-300 dark:border-neutral-600'
+                    : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                 }`}
               >
                 Privat
@@ -283,11 +283,11 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
             type="checkbox"
             checked={newVersion}
             onChange={e => setNewVersion(e.target.checked)}
-            className="mt-0.5 rounded border-neutral-600 accent-accent-DEFAULT"
+            className="mt-0.5 rounded border-neutral-400 dark:border-neutral-600 accent-accent-DEFAULT"
           />
-          <span className="text-sm text-neutral-300">
+          <span className="text-sm text-neutral-700 dark:text-neutral-300">
             Neue Version erstellen
-            <span className="block text-xs text-neutral-500 mt-0.5">
+            <span className="block text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
               Nur aktivieren wenn sich die Route grundlegend ändert.
               Bestehende Bestzeiten bleiben der alten Version zugeordnet.
             </span>
@@ -313,7 +313,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
             <button
               onClick={onClose}
               disabled={reverseMutation.isPending}
-              className="cursor-pointer px-3 py-1.5 text-sm border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="cursor-pointer px-3 py-1.5 text-sm border border-neutral-300 dark:border-neutral-700 rounded-lg text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Abbrechen
             </button>
