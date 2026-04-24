@@ -1490,6 +1490,9 @@ export function useRoutePlanner() {
 
   // Captured synchronously in mutationFn so onSuccess can tell update vs. create.
   const wasUpdateRef = useRef(false)
+  // Captured synchronously in mutationFn so onSuccess can detect a concurrent
+  // loadRoute() that replaced editingRouteId while the PATCH was in-flight.
+  const savingRouteIdRef = useRef<string | null>(null)
 
   const saveRouteMutation = useMutation({
     mutationFn: (overrides: Partial<PlannedRoute>) => {
@@ -1550,24 +1553,37 @@ export function useRoutePlanner() {
         ...overrides,
       }
       wasUpdateRef.current = state.editingRouteId !== null
+      savingRouteIdRef.current = state.editingRouteId
       if (state.editingRouteId !== null) {
         return updateRoute(state.editingRouteId, payload)
       }
       return createRoute(payload)
     },
     onSuccess: saved => {
-      setState(s => ({
-        ...s,
-        editingRouteId: saved.id,
-        lazyFillPendingSave: false,  // Spec §7.2: reset after successful save
-        // Bump token to invalidate any in-flight lazy-fill whose resolve would
-        // otherwise re-set lazyFillPendingSave=true after we cleared it here.
-        // The lazy-fill setState-callback checks s.lazyFillToken === expectedToken
-        // and no-ops on mismatch, so it silently discards the stale update.
-        lazyFillToken: (s.lazyFillToken ?? 0) + 1,
-      }))
+      // Cache invalidation always fires, regardless of any race.
       queryClient.invalidateQueries({ queryKey: ['routes'] })
       queryClient.invalidateQueries({ queryKey: ['route', saved.id] })
+      setState(s => {
+        // Guard against concurrent loadRoute(): read editingRouteId from the
+        // *current* state snapshot (not the stale closure) so we catch any
+        // route swap that happened while the PATCH was in-flight.
+        // If we were updating route X and state now shows a different route, skip
+        // the editingRouteId / lazyFill updates — they belong to the new route.
+        const idDrifted = wasUpdateRef.current && s.editingRouteId !== savingRouteIdRef.current
+        if (idDrifted) {
+          return s
+        }
+        return {
+          ...s,
+          editingRouteId: saved.id,
+          lazyFillPendingSave: false,  // Spec §7.2: reset after successful save
+          // Bump token to invalidate any in-flight lazy-fill whose resolve would
+          // otherwise re-set lazyFillPendingSave=true after we cleared it here.
+          // The lazy-fill setState-callback checks s.lazyFillToken === expectedToken
+          // and no-ops on mismatch, so it silently discards the stale update.
+          lazyFillToken: (s.lazyFillToken ?? 0) + 1,
+        }
+      })
       if (wasUpdateRef.current) {
         addToast({
           type: 'success',
