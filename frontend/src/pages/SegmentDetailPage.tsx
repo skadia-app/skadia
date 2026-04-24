@@ -163,17 +163,22 @@ export default function SegmentDetailPage() {
           >
             <Map size={14} /> Auf Karte
           </button>
-          {/* Publish: shown for creator of private segment */}
-          {segment.visibility === 'private' && segment.created_by === me?.user_id && (
+          {/* Publish: shown for creator of private segment OR admin */}
+          {segment.visibility === 'private' && (segment.created_by === me?.user_id || me?.is_admin) && (
             <button
-              onClick={() => openModal({
-                title: 'Segment veröffentlichen?',
-                message: 'Alle Nutzer können das Segment danach sehen. Ein Recompute-Job wird gestartet.',
-                buttons: [
-                  { label: 'Abbrechen', variant: 'default', onClick: () => {} },
-                  { label: 'Veröffentlichen', variant: 'destructive', onClick: () => publishMut.mutate() },
-                ],
-              })}
+              onClick={() => {
+                const isForeignAdmin = me?.is_admin && segment.created_by !== me?.user_id
+                openModal({
+                  title: 'Segment veröffentlichen?',
+                  message: isForeignAdmin
+                    ? 'Admin-Aktion: Du veröffentlichst ein fremdes Segment. Alle Nutzer können es danach sehen, alle Aktivitäten werden rückwirkend gematcht. Der Ersteller wird nicht benachrichtigt.'
+                    : 'Alle Nutzer können das Segment danach sehen. Ein Recompute-Job wird gestartet.',
+                  buttons: [
+                    { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+                    { label: 'Veröffentlichen', variant: 'destructive', onClick: () => publishMut.mutate() },
+                  ],
+                })
+              }}
               disabled={publishMut.isPending}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-amber-400 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 cursor-pointer transition-colors disabled:opacity-50"
             >
