@@ -16,7 +16,14 @@ func TestContainsPIIVariable(t *testing.T) {
 		{"power_avg rejected", "{power_avg}", "power_avg"},
 		{"case-sensitive Notes ok", "{year}/{Notes}", ""},
 		{"notes_extended ok (no exact match)", "{year}/{notes_extended}", ""},
-		{"multiple pii returns first blacklist match (iteration order)", "{notes}-{description}", "notes"},
+		// piiBlacklistVariables is sorted alphabetically; "bio" < "description" < "notes"
+		// so for {notes}-{description} the first blacklist hit is "description".
+		{"multiple pii returns first blacklist match (alphabetical order)", "{notes}-{description}", "description"},
+		// LOW #37: new entries
+		{"bio rejected", "{year}/{bio}", "bio"},
+		{"comment rejected", "{comment}/{title}", "comment"},
+		{"message rejected", "{year}-{message}", "message"},
+		{"tags rejected", "{tags}/{year}", "tags"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
