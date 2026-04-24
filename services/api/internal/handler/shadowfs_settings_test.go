@@ -224,6 +224,60 @@ func TestUpdateLibraryDirLockdown403(t *testing.T) {
 	}
 }
 
+func TestGetFileSchemasResponseIsArrayWithNewFields(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires DB")
+	}
+	pool := fusionTestPool(t)
+	userID := insertTestUser(t, pool)
+
+	db := &database.DB{Pool: pool}
+	store := settings.NewSettingsStore(db, "", "local")
+	if err := store.Reload(context.Background()); err != nil {
+		t.Fatalf("reload settings: %v", err)
+	}
+
+	h := &Handler{
+		DB:       db,
+		Settings: store,
+	}
+
+	ctx := context.WithValue(context.Background(), middleware.UserIDKey, userID)
+	req := httptest.NewRequest("GET", "/api/v1/settings/file-schemas", nil).WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.GetFileSchemas(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var body []map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	// Top-level shape must remain an array with 5 entries.
+	if len(body) != 5 {
+		t.Fatalf("expected 5 entries, got %d", len(body))
+	}
+
+	for _, entry := range body {
+		for _, field := range []string{"file_type", "schema", "effective_schema", "is_user_override"} {
+			if _, ok := entry[field]; !ok {
+				t.Errorf("entry %v missing field %q", entry["file_type"], field)
+			}
+		}
+		// With no user override, effective_schema must be non-empty (default).
+		if entry["effective_schema"] == "" {
+			t.Errorf("entry %v: effective_schema must be non-empty", entry["file_type"])
+		}
+		// With no user override stored, is_user_override must be false.
+		if entry["is_user_override"] != false {
+			t.Errorf("entry %v: is_user_override: got %v, want false", entry["file_type"], entry["is_user_override"])
+		}
+	}
+}
+
 func TestUpdateLibraryDirS3Backend403(t *testing.T) {
 	pool := fusionTestPool(t)
 	userID := insertTestUser(t, pool)

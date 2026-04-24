@@ -60,16 +60,27 @@ func (h *Handler) GetFileSchemas(w http.ResponseWriter, r *http.Request) {
 
 	renderer := shadowfs.NewSchemaRenderer()
 	type schemaEntry struct {
-		FileType string `json:"file_type"`
-		Schema   string `json:"schema"`
+		FileType        string `json:"file_type"`
+		Schema          string `json:"schema"`
+		EffectiveSchema string `json:"effective_schema"`
+		IsUserOverride  bool   `json:"is_user_override"`
 	}
+	canEditSchemas := h.Settings != nil && h.Settings.Get("library.user_can_edit_schemas").Value == "true"
 	result := make([]schemaEntry, 0, len(allowedFileTypes))
 	for _, ft := range allowedFileTypes {
-		schema, ok := stored[ft]
-		if !ok {
-			schema = renderer.DefaultSchema(ft)
+		userSchema := stored[ft]
+		effective, err := shadowfs.ResolveUserSchema(r.Context(), h.DB.Pool, h.Settings, renderer, userID, ft)
+		if err != nil {
+			slog.Error("get file-schemas: resolve", "error", err, "file_type", ft)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "resolve error", r.URL.Path)
+			return
 		}
-		result = append(result, schemaEntry{FileType: ft, Schema: schema})
+		result = append(result, schemaEntry{
+			FileType:        ft,
+			Schema:          userSchema,
+			EffectiveSchema: effective,
+			IsUserOverride:  userSchema != "" && canEditSchemas,
+		})
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, result)
