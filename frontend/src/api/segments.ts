@@ -120,6 +120,7 @@ export async function fetchSegments(params: FetchSegmentsOpts = {}): Promise<Seg
 export interface UpdateSegmentPayload {
   name?: string
   description?: string
+  segment_type?: string
   segment_type_meta?: Record<string, unknown>
   new_version?: boolean
   terrain_type?: string
