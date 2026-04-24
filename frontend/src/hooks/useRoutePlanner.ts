@@ -1405,6 +1405,11 @@ export function useRoutePlanner() {
         ...s,
         editingRouteId: saved.id,
         lazyFillPendingSave: false,  // Spec §7.2: reset after successful save
+        // Bump token to invalidate any in-flight lazy-fill whose resolve would
+        // otherwise re-set lazyFillPendingSave=true after we cleared it here.
+        // The lazy-fill setState-callback checks s.lazyFillToken === expectedToken
+        // and no-ops on mismatch, so it silently discards the stale update.
+        lazyFillToken: (s.lazyFillToken ?? 0) + 1,
       }))
       queryClient.invalidateQueries({ queryKey: ['routes'] })
       queryClient.invalidateQueries({ queryKey: ['route', saved.id] })
