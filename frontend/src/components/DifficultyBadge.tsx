@@ -6,16 +6,22 @@ interface DifficultyBadgeProps {
   color?: string | null
 }
 
+// DAV-Skipisten-Konvention: blau (leicht) — rot (mittel) — schwarz (schwer).
+// „Schwarz" muss im Light-Mode tatsächlich dunkel sein, nicht transparentes Grau,
+// sonst wirkt ein T4-Badge blasser als T2. Im Dark-Mode invertieren wir den
+// Schwarz-Ton (heller Hintergrund auf dunkler Karte), damit er nicht mit der
+// Card-Fläche verschmilzt. Blau/Rot nutzen Light: satte Pastell-Fülle,
+// Dark: transparenter Akzent wie vorher.
 const COLOR_MAP = {
-  blue:  { bg: 'bg-blue-500/20',      text: 'text-blue-400',    label: 'Blau' },
-  red:   { bg: 'bg-red-500/20',       text: 'text-red-400',     label: 'Rot' },
-  black: { bg: 'bg-neutral-600/40',   text: 'text-neutral-300', label: 'Schwarz' },
+  blue:  { bg: 'bg-blue-500',                          text: 'text-white',                           label: 'Blau' },
+  red:   { bg: 'bg-red-600',                           text: 'text-white',                           label: 'Rot' },
+  black: { bg: 'bg-neutral-900 dark:bg-neutral-100',   text: 'text-white dark:text-neutral-900',     label: 'Schwarz' },
 }
 
 const SCALE_COLOR_MAP: Record<string, { bg: string, text: string }> = {
-  blue:  { bg: 'bg-blue-500/20',    text: 'text-blue-400' },
-  red:   { bg: 'bg-red-500/20',     text: 'text-red-400' },
-  black: { bg: 'bg-neutral-700/50', text: 'text-neutral-300' },
+  blue:  { bg: 'bg-blue-100 dark:bg-blue-500/20',       text: 'text-blue-800 dark:text-blue-300' },
+  red:   { bg: 'bg-red-100 dark:bg-red-500/20',         text: 'text-red-800 dark:text-red-300' },
+  black: { bg: 'bg-neutral-900 dark:bg-neutral-200',    text: 'text-white dark:text-neutral-900' },
 }
 
 export function DifficultyBadge({ sac, mtb, color }: DifficultyBadgeProps) {
