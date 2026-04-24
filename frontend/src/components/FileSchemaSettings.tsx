@@ -367,6 +367,10 @@ function LibraryDirSection() {
         addToast({ type: 'warning', title: LIB_LABELS.toastLibraryDirTaken })
         return
       }
+      if (res.status === 'library_dir_name_clashes_with_user_uuid') {
+        addToast({ type: 'warning', title: LIB_LABELS.toastLibraryDirClashesUUID })
+        return
+      }
       queryClient.invalidateQueries({ queryKey: ['library-dir'] }).then(() => {
         setLocalValue(null)
       })

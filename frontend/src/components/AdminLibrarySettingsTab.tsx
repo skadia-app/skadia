@@ -48,7 +48,7 @@ export function AdminLibrarySettingsTab() {
       } else {
         addToast({
           type: 'success',
-          title: `${LIB_LABELS.toastRenameStarted} (${res.user_count ?? 0} User, ${fileType})`,
+          title: `${LIB_LABELS.toastRenameStarted} (${res.candidate_count ?? 0} User, ${fileType})`,
         })
       }
     },
