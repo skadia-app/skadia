@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type {
   RouteWaypoint,
@@ -1457,6 +1457,9 @@ export function useRoutePlanner() {
 
   // ── Save mutation ────────────────────────────────────────────────────────────
 
+  // Captured synchronously in mutationFn so onSuccess can tell update vs. create.
+  const wasUpdateRef = useRef(false)
+
   const saveRouteMutation = useMutation({
     mutationFn: (overrides: Partial<PlannedRoute>) => {
       if (!state.profileConfig) {
@@ -1515,6 +1518,7 @@ export function useRoutePlanner() {
         enrichment: enrichmentPayload,
         ...overrides,
       }
+      wasUpdateRef.current = state.editingRouteId !== null
       if (state.editingRouteId !== null) {
         return updateRoute(state.editingRouteId, payload)
       }
@@ -1533,6 +1537,13 @@ export function useRoutePlanner() {
       }))
       queryClient.invalidateQueries({ queryKey: ['routes'] })
       queryClient.invalidateQueries({ queryKey: ['route', saved.id] })
+      if (wasUpdateRef.current) {
+        addToast({
+          type: 'success',
+          title: 'Route aktualisiert',
+          message: saved.name || undefined,
+        })
+      }
     },
   })
 
