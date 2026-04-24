@@ -51,6 +51,7 @@ type SegmentCreate struct {
 type SegmentUpdate struct {
 	Name              *string          `json:"name,omitempty"`
 	Description       *string          `json:"description,omitempty"`
+	SegmentType       *string          `json:"segment_type,omitempty"` // nil = unchanged; handler whitelists
 	SegmentTypeMeta   *json.RawMessage `json:"segment_type_meta,omitempty"`
 	NewVersion        bool             `json:"new_version,omitempty"`
 	TerrainType       *string          `json:"terrain_type,omitempty"`

@@ -486,6 +486,11 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, updat
 		args = append(args, *update.Description)
 		argIdx++
 	}
+	if update.SegmentType != nil {
+		setClauses = append(setClauses, fmt.Sprintf("segment_type = $%d", argIdx))
+		args = append(args, *update.SegmentType)
+		argIdx++
+	}
 	if update.SegmentTypeMeta != nil {
 		setClauses = append(setClauses, fmt.Sprintf("segment_type_meta = $%d", argIdx))
 		args = append(args, *update.SegmentTypeMeta)
