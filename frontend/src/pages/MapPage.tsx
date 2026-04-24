@@ -501,7 +501,7 @@ export default function MapPage() {
     for (const c of allCoords) bounds.extend(c)
     map.fitBounds(bounds, { padding: 80, maxZoom: 15 })
     lastFittedRouteIdRef.current = planner.editingRouteId
-  }, [planner.editingRouteId, planner.segments])
+  }, [planner.editingRouteId, planner.segments, styleVersion])
 
   // ── Route Suggestion map layers ──────────────────────────────────────────
   const SUGGESTION_OFFSETS: [number, number][] = useMemo(() => [[0, 0], [-3, 0], [3, 0]], [])
