@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type GeoJSONLineString struct {
 	Type        string      `json:"type"`
@@ -54,6 +57,9 @@ type PlannedRoute struct {
 	SourceID       *string `json:"source_id,omitempty"`       // Platform-specific ID
 	SourceURL      *string `json:"source_url,omitempty"`      // Link back to source
 	GeometryHash   *string `json:"geometry_hash,omitempty"`   // SHA256 of snapped geometry
+	// Opaque JSONB columns — frontend produces and consumes; backend passes through.
+	ElevationProfile json.RawMessage `db:"elevation_profile" json:"elevation_profile,omitempty"`
+	Enrichment       json.RawMessage `db:"enrichment"        json:"enrichment,omitempty"`
 }
 
 // RouteImportData is the input struct for importing routes from external sources.
