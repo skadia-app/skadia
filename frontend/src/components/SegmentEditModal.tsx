@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchSegment, updateSegment, publishSegment, reverseSegment, type Segment, type UpdateSegmentPayload } from '@/api/segments'
+import { ApiError } from '@/api/client'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 import { useModal } from '@/lib/modal'
@@ -364,7 +365,18 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         </label>
 
         {mutation.isError && (
-          <p className="text-sm text-red-400">Fehler beim Speichern.</p>
+          <p className="text-sm text-red-600 dark:text-red-400">
+            {(() => {
+              const err = mutation.error
+              if (err instanceof ApiError) {
+                if (err.status === 403) return 'Keine Berechtigung: Du bist nicht der Besitzer dieses Segments.'
+                if (err.status === 404) return 'Segment nicht gefunden.'
+                const detail = (err.json?.detail as string | undefined) ?? (err.json?.message as string | undefined)
+                if (detail) return `Fehler beim Speichern: ${detail}`
+              }
+              return 'Fehler beim Speichern.'
+            })()}
+          </p>
         )}
 
         <div className="flex gap-2 items-center justify-between pt-2">

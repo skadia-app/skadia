@@ -169,7 +169,8 @@ export class ApiError extends Error {
 async function apiErrorFromResponse(res: Response): Promise<ApiError> {
   const text = await res.text()
   const ct = res.headers.get('content-type') ?? ''
-  if (ct.includes('application/json') && text.length > 0) {
+  // Match both `application/json` and RFC 7807 `application/problem+json`.
+  if (/\bjson\b/.test(ct) && text.length > 0) {
     try {
       const parsed = JSON.parse(text) as unknown
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -186,7 +187,8 @@ async function apiErrorFromResponse(res: Response): Promise<ApiError> {
 function apiErrorFromXhr(xhr: XMLHttpRequest): ApiError {
   const text = xhr.responseText ?? ''
   const ct = xhr.getResponseHeader('content-type') ?? ''
-  if (ct.includes('application/json') && text.length > 0) {
+  // Match both `application/json` and RFC 7807 `application/problem+json`.
+  if (/\bjson\b/.test(ct) && text.length > 0) {
     try {
       const parsed = JSON.parse(text) as unknown
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
