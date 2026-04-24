@@ -64,12 +64,13 @@ export function ColoredSelect({
         // Overlay masks the native select's selected-option text when it would
         // overflow. The dropdown list itself is unaffected (browser renders it
         // from <option>.label). pointer-events-none lets clicks reach the select.
+        // Mirrors the <select>'s border + padding box so the text starts at the
+        // exact same x-offset as a non-overlaid select would.
         <span
           aria-hidden
           className={cn(
-            'pointer-events-none absolute inset-y-px flex items-center text-sm text-neutral-900 dark:text-neutral-100 bg-white dark:bg-neutral-800 rounded-md',
-            swatch ? 'left-5' : 'left-2',
-            'right-6',
+            'pointer-events-none absolute inset-0 flex items-center rounded-md border border-transparent bg-white dark:bg-neutral-800 pr-2 text-sm text-neutral-900 dark:text-neutral-100',
+            swatch ? 'pl-5' : 'pl-2',
           )}
         >
           {triggerShort}
