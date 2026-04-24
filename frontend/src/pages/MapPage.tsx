@@ -463,9 +463,14 @@ export default function MapPage() {
   }, [planner.segments.length, planner.elevationProfile])
 
   // Fit map bounds when a saved route is loaded into the planner.
-  // Triggers only on editingRouteId change so manual segment edits don't re-fit.
+  // The ref tracks which editingRouteId has already been fitted so that
+  // subsequent segment updates (waypoint edits, per-segment recomputes) do
+  // not re-fit and cause visual jank.  Only the first time a non-null
+  // editingRouteId is seen AND segments have geometry triggers fitBounds.
+  const lastFittedRouteIdRef = useRef<string | null>(null)
   useEffect(() => {
     if (!planner.editingRouteId) return
+    if (planner.editingRouteId === lastFittedRouteIdRef.current) return
     const map = mapRef.current
     if (!map) return
     const allCoords: [number, number][] = []
@@ -482,6 +487,7 @@ export default function MapPage() {
     const bounds = new maplibregl.LngLatBounds(allCoords[0], allCoords[0])
     for (const c of allCoords) bounds.extend(c)
     map.fitBounds(bounds, { padding: 80, maxZoom: 15 })
+    lastFittedRouteIdRef.current = planner.editingRouteId
   }, [planner.editingRouteId, planner.segments])
 
   // ── Route Suggestion map layers ──────────────────────────────────────────
