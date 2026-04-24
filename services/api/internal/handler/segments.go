@@ -236,18 +236,23 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := chi.URLParam(r, "id")
+	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 
-	// Load existing segment: pass userID so own private segments are visible.
-	// (Pre-existing bug fix: was GetSegment(ctx, id, "") which only returns public segments.)
-	existing, err := h.DB.GetSegment(r.Context(), id, userID, false, false)
+	// Load existing segment: pass userID so own private segments are visible,
+	// and isAdmin so admins can edit any segment they can read.
+	existing, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin, false)
 
 	if err != nil {
 		slog.Error("update segment: get segment failed", "id", id, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load segment", r.URL.Path)
 		return
 	}
-	if existing == nil || existing.CreatedBy != userID {
+	if existing == nil {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "segment not found", r.URL.Path)
+		return
+	}
+	if existing.CreatedBy != userID && !isAdmin {
+		httputil.WriteError(w, http.StatusForbidden, "Forbidden", "only the owner can edit this segment", r.URL.Path)
 		return
 	}
 
