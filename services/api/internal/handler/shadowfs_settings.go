@@ -455,7 +455,7 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Physical rename only makes sense for the local backend.
-	if h.Config == nil || h.Config.StorageBackend != "local" {
+	if h.storageBackend() != "local" {
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"status":  "ok",
 			"renamed": 0,

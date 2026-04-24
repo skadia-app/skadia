@@ -30,7 +30,7 @@ func (h *Handler) PostAdminRenameUser(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown file type", r.URL.Path)
 		return
 	}
-	if h.Config == nil || h.Config.StorageBackend != "local" {
+	if h.storageBackend() != "local" {
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"status":  "ok",
 			"renamed": 0,
@@ -120,7 +120,7 @@ func (h *Handler) PostAdminRenameBulk(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown file type", r.URL.Path)
 		return
 	}
-	if h.Config == nil || h.Config.StorageBackend != "local" {
+	if h.storageBackend() != "local" {
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "note": "not applicable"})
 		return
 	}
