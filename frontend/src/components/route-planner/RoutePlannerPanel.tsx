@@ -257,7 +257,6 @@ export default function RoutePlannerPanel({
   const { addToast } = useToast()
   const { openModal } = useModal()
   const queryClient = useQueryClient()
-  const [collapsed, setCollapsed] = useState(false)
   const dragIndexRef = useRef<number | null>(null)
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
@@ -468,15 +467,12 @@ export default function RoutePlannerPanel({
   }
 
   return (
-    <div className="h-full w-72 flex flex-col border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 flex-shrink-0">
+    <div className="h-full flex flex-col border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
       <div className="flex flex-col overflow-hidden flex-1 min-h-0">
 
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-100 dark:border-neutral-800 flex-shrink-0">
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            className="flex-1 flex items-center gap-2 hover:text-accent-DEFAULT cursor-pointer transition-colors"
-          >
+          <div className="flex items-center gap-2 flex-1">
             {/* Route icon */}
             <svg className="w-4 h-4 text-accent-DEFAULT flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M12.207 2.232a.75.75 0 00.025 1.06l4.146 3.958H6.375a5.375 5.375 0 000 10.75H9.75a.75.75 0 000-1.5H6.375a3.875 3.875 0 010-7.75h10.003l-4.146 3.957a.75.75 0 001.036 1.085l5.5-5.25a.75.75 0 000-1.085l-5.5-5.25a.75.75 0 00-1.061.025z" clipRule="evenodd" />
@@ -484,14 +480,7 @@ export default function RoutePlannerPanel({
             <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
               {editingRoute ? `Route: ${editingRoute.name}` : 'Route planen'}
             </span>
-            <svg
-              className={`w-4 h-4 text-neutral-400 ml-auto transition-transform ${collapsed ? '-rotate-90' : ''}`}
-              viewBox="0 0 20 20"
-              fill="currentColor"
-            >
-              <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-            </svg>
-          </button>
+          </div>
           <button
             onClick={onClose}
             className="ml-2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer flex-shrink-0"
@@ -503,8 +492,7 @@ export default function RoutePlannerPanel({
           </button>
         </div>
 
-        {!collapsed && (
-          <div className="flex flex-col overflow-y-auto min-h-0">
+        <div className="flex flex-col overflow-y-auto min-h-0">
 
             {/* Routing engine toggle */}
             <div className="px-3 pt-2.5 pb-1.5 border-b border-neutral-100 dark:border-neutral-800">
@@ -809,11 +797,9 @@ export default function RoutePlannerPanel({
             )}
 
           </div>
-        )}
 
         {/* ── Fixierter unterer Bereich (Stats + Buttons) ──────────────── */}
-        {!collapsed && (
-          <div className="flex-shrink-0 border-t border-neutral-100 dark:border-neutral-800">
+        <div className="flex-shrink-0 border-t border-neutral-100 dark:border-neutral-800">
             {/* Route statistics */}
             {hasRoute && (
               <div className="mx-3 mt-2 mb-2 rounded-lg bg-neutral-50 dark:bg-neutral-800/60 px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-1">
@@ -931,7 +917,6 @@ export default function RoutePlannerPanel({
               )}
             </div>
           </div>
-        )}
       </div>
     </div>
   )
