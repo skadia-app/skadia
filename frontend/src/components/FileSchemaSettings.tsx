@@ -3,6 +3,7 @@ import { ChevronDown } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getFileSchemas,
+  getFileSchemasContext,
   updateFileSchema,
   getLibraryDir,
   updateLibraryDir,
@@ -11,6 +12,7 @@ import {
   type LibraryDirResponse,
 } from '@/api/shadowfs'
 import { useToast } from '@/lib/toast'
+import { LIB_LABELS } from '@/lib/libraryLabels'
 import { SettingsSection } from '@/components/ui/SettingsSection'
 
 // ── i18n strings (centralised) ─────────────────────────────────────────────
@@ -125,9 +127,11 @@ const FILE_TYPE_ORDER: FileType[] = ['activity', 'media', 'document', 'health', 
 interface SchemaSectionProps {
   fileType: FileType
   initialSchema: string
+  disabled?: boolean
+  disabledHint?: string
 }
 
-function SchemaSection({ fileType, initialSchema }: SchemaSectionProps) {
+function SchemaSection({ fileType, initialSchema, disabled = false, disabledHint }: SchemaSectionProps) {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -233,15 +237,19 @@ function SchemaSection({ fileType, initialSchema }: SchemaSectionProps) {
                 id={`schema-input-${fileType}`}
                 type="text"
                 value={currentValue}
-                onChange={e => setLocalValue(e.target.value)}
+                onChange={e => !disabled && setLocalValue(e.target.value)}
+                disabled={disabled}
+                readOnly={disabled}
                 className="flex-1 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2
                            bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100
                            placeholder:text-neutral-400 dark:placeholder:text-neutral-600
-                           focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT text-sm font-mono"
+                           focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT text-sm font-mono
+                           disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-neutral-50
+                           dark:disabled:bg-neutral-800/50"
               />
               <button
                 onClick={() => mut.mutate()}
-                disabled={!isDirty || mut.isPending}
+                disabled={!isDirty || mut.isPending || disabled}
                 className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium text-white
                            bg-accent-DEFAULT hover:bg-accent-600
                            disabled:opacity-40 disabled:cursor-not-allowed
@@ -250,6 +258,11 @@ function SchemaSection({ fileType, initialSchema }: SchemaSectionProps) {
                 {mut.isPending ? LABELS.saving : LABELS.save}
               </button>
             </div>
+            {disabled && disabledHint && (
+              <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+                {disabledHint}
+              </p>
+            )}
           </div>
 
           {/* Variable chips */}
@@ -262,6 +275,7 @@ function SchemaSection({ fileType, initialSchema }: SchemaSectionProps) {
                 <button
                   key={v.key}
                   onClick={() => insertVariable(v.key)}
+                  disabled={disabled}
                   aria-label={`${LABELS.insertVariable}: ${v.key}`}
                   className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md
                              border border-neutral-200 dark:border-neutral-700
@@ -269,7 +283,11 @@ function SchemaSection({ fileType, initialSchema }: SchemaSectionProps) {
                              text-neutral-600 dark:text-neutral-400
                              hover:bg-orange-50 hover:border-orange-300 hover:text-accent-600
                              dark:hover:bg-orange-900/20 dark:hover:border-orange-700 dark:hover:text-orange-400
-                             cursor-pointer transition-colors"
+                             cursor-pointer transition-colors
+                             disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-neutral-50
+                             dark:disabled:hover:bg-neutral-800 disabled:hover:border-neutral-200
+                             dark:disabled:hover:border-neutral-700 disabled:hover:text-neutral-600
+                             dark:disabled:hover:text-neutral-400"
                 >
                   <span className="font-mono">{v.key}</span>
                   <span className="text-neutral-400 dark:text-neutral-600">{v.label}</span>
@@ -406,6 +424,12 @@ export default function FileSchemaSettings() {
     staleTime: 60_000,
   })
 
+  const { data: context } = useQuery({
+    queryKey: ['file-schemas-context'],
+    queryFn: getFileSchemasContext,
+    staleTime: 60_000,
+  })
+
   // Build lookup by file_type for O(1) access
   const schemaMap = useMemo(() => {
     const map: Partial<Record<FileType, string>> = {}
@@ -414,6 +438,13 @@ export default function FileSchemaSettings() {
     }
     return map
   }, [schemas])
+
+  const schemasDisabled = context?.editable === false
+  const schemasHint = schemasDisabled
+    ? context?.admin_managed_reason === 's3_backend'
+      ? LIB_LABELS.schemaS3Inactive
+      : LIB_LABELS.schemaAdminManaged
+    : undefined
 
   return (
     <SettingsSection title={LABELS.title} description={LABELS.description}>
@@ -435,6 +466,8 @@ export default function FileSchemaSettings() {
               key={ft}
               fileType={ft}
               initialSchema={schemaMap[ft] ?? ''}
+              disabled={schemasDisabled}
+              disabledHint={schemasHint}
             />
           ))}
         </div>
