@@ -341,14 +341,23 @@ function LibraryDirSection() {
     staleTime: 60_000,
   })
 
+  const editable = data?.editable !== false
+  const effectiveName = data?.effective_name ?? ''
+  const adminManagedReason = data?.admin_managed_reason ?? null
+
   const currentValue = localValue ?? data?.library_dir_name ?? ''
-  const isDirty = localValue !== null && localValue !== data?.library_dir_name
+  const isDirty = localValue !== null && localValue !== (data?.library_dir_name ?? '')
+
+  const readOnlyHint =
+    adminManagedReason === 's3_backend'
+      ? LIB_LABELS.libraryDirNotApplicableS3
+      : LIB_LABELS.libraryDirManagedByAdmin
 
   const mut = useMutation<LibraryDirResponse>({
     mutationFn: () => updateLibraryDir(currentValue),
     onSuccess: (res) => {
       if (res.status === 'library_dir_name_taken') {
-        addToast({ type: 'warning', title: 'Verzeichnisname bereits vergeben' })
+        addToast({ type: 'warning', title: LIB_LABELS.toastLibraryDirTaken })
         return
       }
       queryClient.invalidateQueries({ queryKey: ['library-dir'] }).then(() => {
@@ -372,39 +381,57 @@ function LibraryDirSection() {
           {LABELS.libraryDirDesc}
         </p>
       </div>
-      <div className="flex gap-2">
-        {isLoading ? (
-          <div className="h-9 flex-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 animate-pulse" />
-        ) : (
-          <>
-            <label htmlFor="library-dir-input" className="sr-only">
-              {LABELS.libraryDir}
-            </label>
-            <input
-              id="library-dir-input"
-              type="text"
-              value={currentValue}
-              onChange={e => setLocalValue(e.target.value)}
-              placeholder={LABELS.libraryDirPlaceholder}
-              maxLength={100}
-              className="flex-1 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2
-                         bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100
-                         placeholder:text-neutral-400 dark:placeholder:text-neutral-600
-                         focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT text-sm font-mono"
-            />
-          </>
-        )}
-        <button
-          onClick={() => mut.mutate()}
-          disabled={!isDirty || mut.isPending || isLoading}
-          className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium text-white
-                     bg-accent-DEFAULT hover:bg-accent-600
-                     disabled:opacity-40 disabled:cursor-not-allowed
-                     transition-colors"
-        >
-          {mut.isPending ? LABELS.saving : LABELS.save}
-        </button>
-      </div>
+
+      {isLoading ? (
+        <div className="h-9 rounded-lg bg-neutral-100 dark:bg-neutral-800 animate-pulse" />
+      ) : !editable ? (
+        /* Read-only view */
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg
+                          border border-neutral-200 dark:border-neutral-700
+                          bg-neutral-50 dark:bg-neutral-800/50">
+            <span className="text-xs text-neutral-500 dark:text-neutral-400 shrink-0">
+              {LIB_LABELS.libraryDirPrefix}
+            </span>
+            <code className="text-sm font-mono text-neutral-800 dark:text-neutral-200 break-all">
+              {effectiveName}
+            </code>
+          </div>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            {readOnlyHint}
+          </p>
+        </div>
+      ) : (
+        /* Editable view */
+        <div className="flex gap-2">
+          <label htmlFor="library-dir-input" className="sr-only">
+            {LABELS.libraryDir}
+          </label>
+          <input
+            id="library-dir-input"
+            type="text"
+            value={currentValue}
+            onChange={e => setLocalValue(e.target.value)}
+            placeholder={LABELS.libraryDirPlaceholder}
+            maxLength={100}
+            className="flex-1 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2
+                       bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100
+                       placeholder:text-neutral-400 dark:placeholder:text-neutral-600
+                       focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT text-sm font-mono"
+          />
+          <button
+            onClick={() => mut.mutate()}
+            disabled={!isDirty || mut.isPending}
+            className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium text-white
+                       bg-accent-DEFAULT hover:bg-accent-600
+                       disabled:opacity-40 disabled:cursor-not-allowed
+                       transition-colors"
+          >
+            {mut.isPending ? LABELS.saving : LABELS.save}
+          </button>
+        </div>
+      )}
+
       {mut.isError && (
         <p className="text-xs text-rose-500">
           {LABELS.errorSave}:{' '}
