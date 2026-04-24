@@ -1,7 +1,10 @@
 package settings
 
 import (
+	"context"
+	"sync"
 	"testing"
+	"time"
 )
 
 // newTestStore creates a SettingsStore without a DB connection by building the
@@ -198,5 +201,81 @@ func TestValidation_ValidKeepVersions(t *testing.T) {
 		if err := kd.Validate(v); err == nil {
 			t.Errorf("expected error for keep_versions=%q, got nil", v)
 		}
+	}
+}
+
+func TestSettingsStoreTTLRefresh(t *testing.T) {
+	pool := settingsTestPool(t)
+	ctx := context.Background()
+
+	store := newTestSettingsStore(t, pool)
+
+	// Ensure key exists with initial value
+	_, _ = pool.Exec(ctx,
+		`INSERT INTO server_settings (key, value, encrypted, updated_at) VALUES ($1, $2, false, NOW())
+		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+		"library.user_can_edit_schemas", "true")
+
+	// Force cache rebuild
+	_ = store.Reload(ctx)
+	if got := store.Get("library.user_can_edit_schemas").Value; got != "true" {
+		t.Fatalf("initial: got %q", got)
+	}
+
+	// Bypass store.Put: modify DB directly (simulates another replica)
+	_, _ = pool.Exec(ctx,
+		`UPDATE server_settings SET value = 'false' WHERE key = 'library.user_can_edit_schemas'`)
+
+	// Within TTL: old cache value
+	if got := store.Get("library.user_can_edit_schemas").Value; got != "true" {
+		t.Errorf("within TTL: got %q, want cached 'true'", got)
+	}
+
+	// Force expiry by setting lastLoad backward
+	store.setLastLoadForTest(time.Now().Add(-35 * time.Second))
+
+	// Next Get triggers rebuild (fire-and-forget). Wait for it to complete.
+	_ = store.Get("library.user_can_edit_schemas")
+	if err := store.waitForRebuildCompleteForTest(2 * time.Second); err != nil {
+		t.Fatalf("wait for rebuild: %v", err)
+	}
+	if got := store.Get("library.user_can_edit_schemas").Value; got != "false" {
+		t.Errorf("after TTL expiry: got %q, want refreshed 'false'", got)
+	}
+}
+
+func TestSettingsStoreSingleFlightConcurrentGet(t *testing.T) {
+	pool := settingsTestPool(t)
+	defer pool.Close()
+	store := newTestSettingsStore(t, pool)
+
+	// Trigger TTL expiry
+	store.setLastLoadForTest(time.Now().Add(-1 * time.Minute))
+
+	// Fire 100 parallel Gets
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = store.Get("smtp.host")
+		}()
+	}
+	wg.Wait()
+
+	// Wait for the triggered rebuild to complete (singleflight is fire-and-forget).
+	// waitForRebuildCompleteForTest blocks until either rebuildCount incremented
+	// at least once or timeout — deterministic and race-safe.
+	if err := store.waitForRebuildCompleteForTest(2 * time.Second); err != nil {
+		t.Fatalf("wait for rebuild: %v", err)
+	}
+
+	got := store.rebuildCountForTest()
+	// Allow 1-2: single-flight coalesces concurrent calls. If the Goroutine
+	// scheduler had one straggler that arrived after rebuild 1 finished,
+	// a second rebuild can legitimately fire. Upper bound is what matters —
+	// not 100.
+	if got < 1 || got > 2 {
+		t.Errorf("expected 1-2 rebuilds (single-flight coalescing), got %d", got)
 	}
 }

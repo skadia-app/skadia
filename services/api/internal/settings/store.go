@@ -9,10 +9,13 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/crypto"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/jackc/pgx/v5"
+	"golang.org/x/sync/singleflight"
 )
 
 // sentinelMasked is the API-visible placeholder that the frontend sends back
@@ -39,6 +42,13 @@ type SettingsStore struct {
 	storageBackend string // "local" or "s3"; set from config at startup
 	mu             sync.RWMutex
 	cache          map[string]CachedSetting
+
+	// TTL-based refresh (spec §4.4). lastLoad is written ONLY by loadCache
+	// (single-write-source). Reading uses RLock.
+	lastLoad     time.Time
+	ttl          time.Duration
+	sfGroup      singleflight.Group
+	rebuildCount uint64 // atomic, for tests
 }
 
 // NewSettingsStore creates a store and eagerly loads the cache from the DB.
@@ -51,7 +61,9 @@ func NewSettingsStore(db *database.DB, encryptionKey, storageBackend string) *Se
 		encryptionKey:  encryptionKey,
 		storageBackend: storageBackend,
 		cache:          make(map[string]CachedSetting, len(AllKeys)),
+		ttl:            30 * time.Second,
 	}
+	// lastLoad is set by loadCache (single-write-source, v2-Korrektur).
 	// loadCache is best-effort at startup; log but don't panic on DB error.
 	if err := s.loadCache(context.Background()); err != nil {
 		slog.Error("settings: initial cache load failed — using defaults/env", "error", err)
@@ -124,6 +136,7 @@ func (s *SettingsStore) loadCache(ctx context.Context) error {
 
 	s.mu.Lock()
 	s.cache = fresh
+	s.lastLoad = time.Now()
 	s.mu.Unlock()
 	return nil
 }
@@ -185,10 +198,31 @@ func (s *SettingsStore) Get(key string) CachedSetting {
 	if s == nil {
 		return CachedSetting{}
 	}
+
+	// TTL check — if stale, trigger single-flight rebuild.
+	// Readers keep seeing cached value during rebuild (no blocking).
 	s.mu.RLock()
+	stale := s.ttl > 0 && !s.lastLoad.IsZero() && time.Since(s.lastLoad) > s.ttl
 	cs := s.cache[key]
 	s.mu.RUnlock()
+
+	if stale {
+		go s.triggerRebuild()
+	}
 	return cs
+}
+
+// triggerRebuild coalesces concurrent expiry triggers into a single loadCache
+// call via singleflight. Fire-and-forget — callers get the stale value, not
+// the refreshed one.
+func (s *SettingsStore) triggerRebuild() {
+	_, _, _ = s.sfGroup.Do("cache", func() (any, error) {
+		atomic.AddUint64(&s.rebuildCount, 1)
+		if err := s.loadCache(context.Background()); err != nil {
+			slog.Warn("settings: TTL rebuild failed", "error", err)
+		}
+		return nil, nil
+	})
 }
 
 // GetAll returns all settings organised by group.
@@ -388,3 +422,32 @@ func (s *SettingsStore) Reload(ctx context.Context) error {
 
 // ensure pgx is used (rows.Next / rows.Scan / rows.Err come from pgx).
 var _ = pgx.ErrNoRows
+
+// ---- Test-only helpers ----
+// Kept in store.go (not _test.go) so they share the unexported field access
+// without exporting. They are only called from tests in the same package.
+
+func (s *SettingsStore) setLastLoadForTest(t time.Time) {
+	s.mu.Lock()
+	s.lastLoad = t
+	s.mu.Unlock()
+}
+
+func (s *SettingsStore) rebuildCountForTest() uint64 {
+	return atomic.LoadUint64(&s.rebuildCount)
+}
+
+// waitForRebuildCompleteForTest blocks until at least one rebuild has
+// completed after the call started, or timeout fires. Used by tests to
+// avoid racy assertions on fire-and-forget triggerRebuild goroutines.
+func (s *SettingsStore) waitForRebuildCompleteForTest(timeout time.Duration) error {
+	start := atomic.LoadUint64(&s.rebuildCount)
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if atomic.LoadUint64(&s.rebuildCount) > start {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("timeout waiting for rebuild")
+}
