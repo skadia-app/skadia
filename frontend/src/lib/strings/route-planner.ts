@@ -5,6 +5,7 @@ export const lazyFillMessages = {
   noticeMessage:    'Das Höhenprofil dieser Route wurde neu berechnet. Drücke Speichern, um die Änderung zu sichern.',
   inProgress:       'Höhenprofil wird berechnet',
   inProgressDetail: 'Bitte kurz warten — Route wird gerade aktualisiert.',
+  saveButtonHint:   'Höhenprofil wurde automatisch ergänzt — bitte speichern',
 } as const
 
 const LAZY_FILL_NOTICE_KEY = 'skadia.lazy_fill_notice_shown'
