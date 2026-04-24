@@ -457,13 +457,53 @@ export default function SegmentsPage() {
         </div>
 
         {showAdvanced && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 p-4 bg-neutral-50/50 dark:bg-neutral-800/20 rounded-xl border border-neutral-200 dark:border-neutral-800 animate-in fade-in slide-in-from-top-2 duration-200">
-            {/* SAC Scale — with difficulty_match toggle when BOTH SAC AND MTB are active (#9, A3) */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">SAC-Skala</span>
-                {(sacFilter.length > 0 && mtbFilter.length > 0) && (
-                  // A4: role=radiogroup for ARIA semantics; keyboard nav via onKeyDown
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-4 bg-neutral-50/50 dark:bg-neutral-800/20 rounded-xl border border-neutral-200 dark:border-neutral-800 animate-in fade-in slide-in-from-top-2 duration-200">
+            {/* Difficulty block: SAC + MTB stacked with shared combine-toggle */}
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">SAC-Skala</label>
+                <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                  {SAC_SCALE_OPTIONS.map(opt => (
+                    <label key={opt.value} className="flex items-center gap-1.5 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        checked={sacFilter.includes(opt.value)}
+                        onChange={e => {
+                          const next = e.target.checked ? [...sacFilter, opt.value] : sacFilter.filter(v => v !== opt.value)
+                          setFilter('sac_scale', next.length > 0 ? next : null)
+                        }}
+                        className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+                      />
+                      <span className="text-xs text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-200">{opt.value}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">MTB-Skala</label>
+                <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                  {MTB_SCALE_OPTIONS.map(opt => (
+                    <label key={opt.value} className="flex items-center gap-1.5 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        checked={mtbFilter.includes(opt.value)}
+                        onChange={e => {
+                          const next = e.target.checked ? [...mtbFilter, opt.value] : mtbFilter.filter(v => v !== opt.value)
+                          setFilter('mtb_scale', next.length > 0 ? next : null)
+                        }}
+                        className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+                      />
+                      <span className="text-xs text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-200">{opt.value}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Combine-toggle — visible when BOTH scales have at least one active filter */}
+              {(sacFilter.length > 0 && mtbFilter.length > 0) && (
+                <div className="pt-2 border-t border-neutral-200 dark:border-neutral-800/60 flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-neutral-600 dark:text-neutral-400">SAC + MTB kombinieren:</span>
                   <div
                     className="flex gap-1"
                     role="radiogroup"
@@ -471,13 +511,11 @@ export default function SegmentsPage() {
                     onKeyDown={(e) => {
                       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                         e.preventDefault()
-                        // Toggle between 'all' (null) and 'any'
                         if (difficultyMatch === 'all') {
                           setFilter('difficulty_match', 'any')
                         } else {
                           setFilter('difficulty_match', null)
                         }
-                        // Move focus to the now-active pill
                         const btns = e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')
                         btns.forEach(btn => {
                           if (btn.getAttribute('aria-checked') === 'true') btn.focus()
@@ -489,71 +527,31 @@ export default function SegmentsPage() {
                       size="sm"
                       active={difficultyMatch === 'all'}
                       onClick={() => {
-                        // No-op when already active (#11)
                         if (difficultyMatch !== 'all') setFilter('difficulty_match', null)
                       }}
                       role="radio"
                       ariaChecked={difficultyMatch === 'all'}
-                      ariaLabel="Alle Kriterien erfüllen"
-                      // Roving tabindex: only the active radio is tab-reachable.
+                      ariaLabel="Segment muss beide Skalen erfüllen"
                       tabIndex={difficultyMatch === 'all' ? 0 : -1}
                     >
-                      Alle
+                      UND
                     </Pill>
                     <Pill
                       size="sm"
                       active={difficultyMatch === 'any'}
                       onClick={() => {
-                        // No-op when already active (#11)
                         if (difficultyMatch !== 'any') setFilter('difficulty_match', 'any')
                       }}
                       role="radio"
                       ariaChecked={difficultyMatch === 'any'}
-                      ariaLabel="Eines genügt"
+                      ariaLabel="Segment muss nur eine der Skalen erfüllen"
                       tabIndex={difficultyMatch === 'any' ? 0 : -1}
                     >
-                      Eines
+                      ODER
                     </Pill>
                   </div>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-                {SAC_SCALE_OPTIONS.map(opt => (
-                  <label key={opt.value} className="flex items-center gap-1.5 cursor-pointer group">
-                    <input
-                      type="checkbox"
-                      checked={sacFilter.includes(opt.value)}
-                      onChange={e => {
-                        const next = e.target.checked ? [...sacFilter, opt.value] : sacFilter.filter(v => v !== opt.value)
-                        setFilter('sac_scale', next.length > 0 ? next : null)
-                      }}
-                      className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
-                    />
-                    <span className="text-xs text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-200">{opt.value}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* MTB Scale */}
-            <div className="space-y-2">
-              <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">MTB-Skala</label>
-              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-                {MTB_SCALE_OPTIONS.map(opt => (
-                  <label key={opt.value} className="flex items-center gap-1.5 cursor-pointer group">
-                    <input
-                      type="checkbox"
-                      checked={mtbFilter.includes(opt.value)}
-                      onChange={e => {
-                        const next = e.target.checked ? [...mtbFilter, opt.value] : mtbFilter.filter(v => v !== opt.value)
-                        setFilter('mtb_scale', next.length > 0 ? next : null)
-                      }}
-                      className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
-                    />
-                    <span className="text-xs text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-200">{opt.value}</span>
-                  </label>
-                ))}
-              </div>
+                </div>
+              )}
             </div>
 
             {/* Surface — #3 fix: multi-select checkboxes analog SAC/MTB (was single-select dropdown) */}
