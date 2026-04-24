@@ -56,6 +56,9 @@ type SettingsStore struct {
 // is cancelled.
 // storageBackend must be "local" or "s3" (mirrors config.StorageBackend).
 func NewSettingsStore(db *database.DB, encryptionKey, storageBackend string) *SettingsStore {
+	// ttl is configurable via LIBRARY_SETTINGS_TTL_SECONDS env var (integer seconds).
+	// Default 30. Zero or negative values are ignored (keep default). Setting "0"
+	// explicitly via env → interpreted as "disable TTL refresh" (cache never rebuilds).
 	// MED #24: Allow TTL tuning without recompile. Default 30s is appropriate
 	// for production; tests or high-churn envs can lower it.
 	// The SettingsStore must not read itself (bootstrap cycle), so we use os.Getenv
