@@ -1532,5 +1532,9 @@ export function useRoutePlanner() {
     // ── V6-Retrofit: aggregierte Route-Stats ──────────────────────────────
     // null wenn BRouter-Engine, kein Segment, oder noch keine Stats berechnet.
     routeStats: state.routeStats,
+
+    // ── Lazy-Fill DEM (Spec §7.4) ─────────────────────────────────────────
+    lazyFillPendingSave: state.lazyFillPendingSave,
+    lazyFillInProgress: state.lazyFillInProgress,
   }
 }
