@@ -62,11 +62,11 @@ export default function SegmentsPage() {
   const sacFilter = searchParams.get('sac_scale')?.split(',').filter(Boolean) ?? []
   const mtbFilter = searchParams.get('mtb_scale')?.split(',').filter(Boolean) ?? []
   const surfaceFilter = searchParams.get('surface')?.split(',').filter(Boolean) ?? []
-  const visibility = searchParams.get('visibility') ?? ''
+  const visibilityFilter = searchParams.get('visibility')?.split(',').filter(Boolean) ?? []
   const difficultyMatch = (searchParams.get('difficulty_match') ?? 'all') as 'any' | 'all'
 
   const [showAdvanced, setShowAdvanced] = useState(() =>
-    sacFilter.length > 0 || mtbFilter.length > 0 || surfaceFilter.length > 0 || !!visibility
+    sacFilter.length > 0 || mtbFilter.length > 0 || surfaceFilter.length > 0 || visibilityFilter.length > 0
   )
 
   const setFilter = (key: string, value: string | string[] | null) => {
@@ -132,9 +132,9 @@ export default function SegmentsPage() {
     sac_scale: sacFilter.length > 0 ? sacFilter.join(',') : undefined,
     mtb_scale: mtbFilter.length > 0 ? mtbFilter.join(',') : undefined,
     surface: surfaceFilter.length > 0 ? surfaceFilter.join(',') : undefined,
-    visibility: (visibility as any) || undefined,
+    visibility: visibilityFilter.length > 0 ? visibilityFilter.join(',') : undefined,
     difficulty_match: (sacFilter.length > 0 || mtbFilter.length > 0) && difficultyMatch === 'any' ? 'any' : undefined,
-  }), [sportGroup, search, terrainFilter, showAllLifts, sacFilter, mtbFilter, surfaceFilter, visibility, difficultyMatch])
+  }), [sportGroup, search, terrainFilter, showAllLifts, sacFilter, mtbFilter, surfaceFilter, visibilityFilter, difficultyMatch])
 
   const {
     data,
@@ -287,7 +287,7 @@ export default function SegmentsPage() {
     )
   }
 
-  const activeFilterCount = (sacFilter.length + mtbFilter.length + surfaceFilter.length + (visibility ? 1 : 0))
+  const activeFilterCount = (sacFilter.length + mtbFilter.length + surfaceFilter.length + (visibilityFilter.length === 1 ? 1 : 0))
 
   return (
     <div>
@@ -493,18 +493,38 @@ export default function SegmentsPage() {
               </div>
             </div>
 
-            {/* Visibility */}
+            {/* Visibility — multi-checkbox: both checked = default (all), one checked = filter */}
             <div className="space-y-2">
               <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Sichtbarkeit</label>
-              <select
-                value={visibility}
-                onChange={e => setFilter('visibility', e.target.value || null)}
-                className="w-full border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-xs bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-400"
-              >
-                <option value="">Alle Sichtbarkeiten</option>
-                <option value="public">Öffentlich</option>
-                <option value="private">Nur meine privaten</option>
-              </select>
+              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                {(['public', 'private'] as const).map(v => {
+                  const label = v === 'public' ? 'Öffentlich' : 'Privat'
+                  const isChecked = visibilityFilter.length === 0 || visibilityFilter.includes(v)
+                  return (
+                    <label key={v} className="flex items-center gap-1.5 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          const other = v === 'public' ? 'private' : 'public'
+                          if (isChecked) {
+                            // Prevent unchecking the last active option — must keep at least one
+                            const otherChecked = visibilityFilter.length === 0 || visibilityFilter.includes(other)
+                            if (!otherChecked) return
+                            setFilter('visibility', [other])
+                          } else {
+                            const next = visibilityFilter.length === 0 ? [v] : [...visibilityFilter, v]
+                            // Both selected = default state → clear filter param
+                            setFilter('visibility', next.length === 2 ? null : next)
+                          }
+                        }}
+                        className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+                      />
+                      <span className="text-xs text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-200">{label}</span>
+                    </label>
+                  )
+                })}
+              </div>
             </div>
           </div>
         )}

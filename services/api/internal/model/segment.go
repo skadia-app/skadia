@@ -154,7 +154,7 @@ type ListSegmentsParams struct {
 	SacScale         string // komma-separiert, z.B. "T2,T3"
 	MtbScale         string // komma-separiert
 	Surface          string // komma-separiert
-	VisibilityFilter string // "public" | "private" | "" (= Default: beides)
+	VisibilityFilter string // komma-separiert: "public", "private", "public,private", "" (= Default: beides)
 	DifficultyMatch  string // "any" | "all" | "" (= Default: "all")
 }
 // ListSegmentsResult enthaelt die paginierte Segment-Liste.
