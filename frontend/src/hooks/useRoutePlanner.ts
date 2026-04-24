@@ -1479,13 +1479,6 @@ export function useRoutePlanner() {
    * already in lockstep with the rendered geometry — callers may invoke
    * defensively without checking.
    */
-  const markEngineDirty = useCallback((engine: RoutingEngine) => {
-    setState(s => ({
-      ...s,
-      dirtyEngines: { ...s.dirtyEngines, [engine]: true },
-    }))
-  }, [])
-
   // ── Save mutation ────────────────────────────────────────────────────────────
 
   // Captured synchronously in mutationFn so onSuccess can tell update vs. create.
@@ -1767,7 +1760,6 @@ export function useRoutePlanner() {
     setSportType,
     setRoutingEngine,
     setBrouterProfile,
-    markEngineDirty,
 
     // ── Route lifecycle ───────────────────────────────────────────────────
     loadRoute,
