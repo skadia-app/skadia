@@ -1,8 +1,98 @@
 // frontend/src/lib/libraryLabels.ts
 
+import type { FileType } from '@/api/shadowfs'
+
 // Pattern follows bestEffortLabels.ts, jobLabels.ts etc. — all labels files
 // live in frontend/src/lib/. Static Record-of-strings (no functions) —
 // compatible with future i18n framework that uses {placeholder} interpolation.
+
+// ── Variable definitions per FileType ─────────────────────────────────────
+// IMPORTANT: Keep in sync with backend variable list defined in
+// services/api/internal/shadowfs/schema.go (SchemaRenderer.Render) and
+// services/api/internal/shadowfs/legacy_template.go.
+// Any new variable added on the backend MUST also be added here.
+
+export interface VarDef {
+  key: string
+  label: string
+}
+
+export const TYPE_VARIABLES: Record<FileType, VarDef[]> = {
+  activity: [
+    { key: '{year}',        label: 'Jahr'          },
+    { key: '{month}',       label: 'Monat'         },
+    { key: '{day}',         label: 'Tag'           },
+    { key: '{time}',        label: 'Uhrzeit'       },
+    { key: '{sport}',       label: 'Sportart'      },
+    { key: '{subCategory}', label: 'Unterkategorie'},
+    { key: '{city}',        label: 'Stadt'         },
+    { key: '{country}',     label: 'Land'          },
+    { key: '{title}',       label: 'Titel'         },
+    { key: '{distance_km}', label: 'Distanz (km)'  },
+    { key: '{duration_h}',  label: 'Dauer (h)'     },
+    { key: '{elevation_m}', label: 'Höhenmeter'    },
+  ],
+  media: [
+    { key: '{year}',        label: 'Jahr'          },
+    { key: '{month}',       label: 'Monat'         },
+    { key: '{day}',         label: 'Tag'           },
+    { key: '{time}',        label: 'Uhrzeit'       },
+    { key: '{title}',       label: 'Titel'         },
+    { key: '{parent_type}', label: 'Eltern-Typ'    },
+    { key: '{parent_name}', label: 'Eltern-Name'   },
+    { key: '{camera}',      label: 'Kamera'        },
+    { key: '{width}',       label: 'Breite (px)'   },
+    { key: '{height}',      label: 'Höhe (px)'     },
+  ],
+  document: [
+    { key: '{year}',        label: 'Jahr'        },
+    { key: '{month}',       label: 'Monat'       },
+    { key: '{day}',         label: 'Tag'         },
+    { key: '{category}',    label: 'Kategorie'   },
+    { key: '{title}',       label: 'Titel'       },
+    { key: '{parent_type}', label: 'Eltern-Typ'  },
+    { key: '{parent_name}', label: 'Eltern-Name' },
+  ],
+  health: [
+    { key: '{year}',  label: 'Jahr'  },
+    { key: '{month}', label: 'Monat' },
+    { key: '{day}',   label: 'Tag'   },
+    { key: '{type}',  label: 'Typ'   },
+  ],
+  route: [
+    { key: '{sport}',       label: 'Sportart'      },
+    { key: '{title}',       label: 'Titel'         },
+    { key: '{distance_km}', label: 'Distanz (km)'  },
+    { key: '{elevation_m}', label: 'Höhenmeter'    },
+    { key: '{difficulty}',  label: 'Schwierigkeit' },
+  ],
+}
+
+export const EXAMPLE_VALUES: Record<string, string> = {
+  '{year}':        '2024',
+  '{month}':       '03',
+  '{day}':         '15',
+  '{time}':        '14-30',
+  '{sport}':       'cycling',
+  '{subCategory}': 'mountain',
+  '{city}':        'Berlin',
+  '{country}':     'Deutschland',
+  '{title}':       'Feierabendrunde',
+  '{distance_km}': '42',
+  '{duration_h}':  '2',
+  '{elevation_m}': '850',
+  '{parent_type}': 'activity',
+  '{parent_name}': 'Feierabendrunde',
+  '{camera}':      'Nikon-Z6',
+  '{width}':       '5504',
+  '{height}':      '3096',
+  '{category}':    'rechnung',
+  '{type}':        'hrv',
+  '{difficulty}':  'T3',
+}
+
+export const FILE_TYPE_ORDER: FileType[] = ['activity', 'media', 'document', 'health', 'route']
+
 export const LIB_LABELS = {
   // Library-Dir
   libraryDirPrefix: 'Pfad-Präfix:',

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
 // ── Mock @tanstack/react-query ────────────────────────────────────────────────
@@ -65,16 +65,23 @@ vi.mock('@/components/ui/SettingsSection', () => ({
 }))
 
 // ── Mock @/lib/libraryLabels ──────────────────────────────────────────────────
+// Use importOriginal so FILE_TYPE_ORDER, TYPE_VARIABLES, EXAMPLE_VALUES etc.
+// are all included — we only need to override LIB_LABELS partially.
 
-vi.mock('@/lib/libraryLabels', () => ({
-  LIB_LABELS: {
-    schemaAdminManaged: 'Diese Einstellung wird vom Administrator verwaltet.',
-    schemaS3Inactive: 'Pfad-Einstellungen sind bei S3-Storage inaktiv.',
-    libraryDirPrefix: 'Pfad-Präfix:',
-    libraryDirManagedByAdmin: 'Wird vom Administrator verwaltet.',
-    libraryDirNotApplicableS3: 'Nicht anwendbar bei S3-Storage.',
-  },
-}))
+vi.mock('@/lib/libraryLabels', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/libraryLabels')>()
+  return {
+    ...actual,
+    LIB_LABELS: {
+      ...actual.LIB_LABELS,
+      schemaAdminManaged: 'Diese Einstellung wird vom Administrator verwaltet.',
+      schemaS3Inactive: 'Pfad-Einstellungen sind bei S3-Storage inaktiv.',
+      libraryDirPrefix: 'Pfad-Präfix:',
+      libraryDirManagedByAdmin: 'Wird vom Administrator verwaltet.',
+      libraryDirNotApplicableS3: 'Nicht anwendbar bei S3-Storage.',
+    },
+  }
+})
 
 // ── Component under test ──────────────────────────────────────────────────────
 
@@ -112,13 +119,12 @@ describe('FileSchemaSettings — editable state from context', () => {
     mockContext = { editable: false, backend: 'local', admin_managed_reason: 'admin_locked' }
     render(<FileSchemaSettings />)
 
-    // Open a section by clicking its header
-    const activityHeader = screen.getByText('Aktivitäten').closest('button')
-    activityHeader?.click()
+    // Open a section by clicking its header via fireEvent (triggers React event system)
+    const activityHeader = screen.getByText('Aktivitäten').closest('button')!
+    fireEvent.click(activityHeader)
 
-    // The input should be disabled
+    // The input inside the expanded panel should be disabled
     const inputs = document.querySelectorAll('input[type="text"]')
-    // At least one schema input should be disabled
     const disabledInputs = Array.from(inputs).filter(
       (el) => (el as HTMLInputElement).disabled,
     )
@@ -132,9 +138,9 @@ describe('FileSchemaSettings — editable state from context', () => {
     mockContext = { editable: false, backend: 's3', admin_managed_reason: 's3_backend' }
     render(<FileSchemaSettings />)
 
-    // Open a section
-    const activityHeader = screen.getByText('Aktivitäten').closest('button')
-    activityHeader?.click()
+    // Open a section via fireEvent
+    const activityHeader = screen.getByText('Aktivitäten').closest('button')!
+    fireEvent.click(activityHeader)
 
     expect(screen.getAllByText('Pfad-Einstellungen sind bei S3-Storage inaktiv.').length).toBeGreaterThan(0)
   })
@@ -143,9 +149,9 @@ describe('FileSchemaSettings — editable state from context', () => {
     mockContext = { editable: true, backend: 'local', admin_managed_reason: null }
     render(<FileSchemaSettings />)
 
-    // Open a section
-    const activityHeader = screen.getByText('Aktivitäten').closest('button')
-    activityHeader?.click()
+    // Open a section via fireEvent
+    const activityHeader = screen.getByText('Aktivitäten').closest('button')!
+    fireEvent.click(activityHeader)
 
     const inputs = document.querySelectorAll('input[type="text"]')
     const disabledInputs = Array.from(inputs).filter(
