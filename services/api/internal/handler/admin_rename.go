@@ -212,9 +212,13 @@ func (h *Handler) PostAdminRenameBulk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// candidate_count = users matched before the background loop; not all may
+	// actually start (some skipped via 23505 when a per-user rename is already
+	// running). started_count is only knowable after the background goroutine
+	// completes — see logs for the full breakdown.
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{
-		"status":     "ok",
-		"user_count": len(snaps),
+		"status":          "ok",
+		"candidate_count": len(snaps),
 	})
 
 	basePath := h.Config.LibraryBasePath
