@@ -143,8 +143,8 @@ LEFT JOIN LATERAL (
 			argIdx += 4
 		}
 	}
-	if p.OnlyRidden {
-		where += " AND COALESCE(ue.ridden_count, 0) > 0"
+	if p.LiftsOnlyRidden {
+		where += " AND (s.segment_type != 'lift' OR COALESCE(ue.ridden_count, 0) > 0)"
 	}
 
 	// COALESCE for explicit null-safety; plan §2.2 Step 3B.

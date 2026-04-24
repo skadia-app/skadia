@@ -126,7 +126,7 @@ export default function SegmentsPage() {
     segment_types: terrainFilter.length === 0
       ? 'standard,trail,wintersport,wassersport'
       : terrainFilter.join(','),
-    only_ridden: terrainFilter.includes('lift') && !showAllLifts ? true : undefined,
+    lifts_only_ridden: terrainFilter.includes('lift') && !showAllLifts ? true : undefined,
     sac_scale: sacFilter.length > 0 ? sacFilter.join(',') : undefined,
     mtb_scale: mtbFilter.length > 0 ? mtbFilter.join(',') : undefined,
     surface: surfaceFilter.length > 0 ? surfaceFilter.join(',') : undefined,
