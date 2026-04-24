@@ -419,6 +419,52 @@ export function mergeSegmentStatsForState(
   }
 }
 
+// ─── RouteStats persistence helpers ───────────────────────────────────────────
+
+/**
+ * Serialize RouteStats into a JSON-safe object for the enrichment JSONB payload.
+ * The `coordinates` field is NOT persisted (it is a runtime index into the
+ * combined segment geometry and is rebuilt on load).
+ */
+function serializeRouteStats(stats: RouteStats): Record<string, unknown> {
+  return {
+    forest_pct:         stats.forest_pct,
+    protected_pct:      stats.protected_pct,
+    forest_ranges:      stats.forest_ranges,
+    protected_ranges:   stats.protected_ranges,
+    sac_ranges:         stats.sac_ranges,
+    mtb_ranges:         stats.mtb_ranges,
+    vf_ranges:          stats.vf_ranges,
+    vf_unknown_ranges:  stats.vf_unknown_ranges,
+    summits_passed:     stats.summits_passed,
+  }
+}
+
+/**
+ * Deserialize a stored enrichment JSONB payload back into RouteStats.
+ * Returns null if the payload is absent or has an unrecognised version.
+ * `coordinates` is set to [] — it is rebuilt from segment geometries at runtime.
+ *
+ * Used in T5.4 (loadRoute hydration).
+ */
+export function deserializeRouteStats(
+  enrichment: Record<string, unknown> | null | undefined,
+): RouteStats | null {
+  if (!enrichment || enrichment.enrichment_version !== 1) return null
+  return {
+    forest_pct:        enrichment.forest_pct as number | null,
+    protected_pct:     enrichment.protected_pct as number | null,
+    forest_ranges:     enrichment.forest_ranges as RouteStats['forest_ranges'],
+    protected_ranges:  enrichment.protected_ranges as RouteStats['protected_ranges'],
+    sac_ranges:        enrichment.sac_ranges as RouteStats['sac_ranges'],
+    mtb_ranges:        enrichment.mtb_ranges as RouteStats['mtb_ranges'],
+    vf_ranges:         enrichment.vf_ranges as RouteStats['vf_ranges'],
+    vf_unknown_ranges: enrichment.vf_unknown_ranges as RouteStats['vf_unknown_ranges'],
+    summits_passed:    enrichment.summits_passed as RouteStats['summits_passed'],
+    coordinates:       [],
+  }
+}
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useRoutePlanner() {
@@ -1154,6 +1200,15 @@ export function useRoutePlanner() {
         coordinates: combinedCoords,
       })
 
+      const profilePayload: RouteElevationPoint[] | null =
+        state.effectiveProfile && state.effectiveProfile.length > 0
+          ? state.effectiveProfile
+          : null
+
+      const enrichmentPayload: Record<string, unknown> | null = state.routeStats
+        ? { enrichment_version: 1, ...serializeRouteStats(state.routeStats) }
+        : null
+
       const payload: Partial<PlannedRoute> = {
         waypoints: state.waypoints,
         segments: state.segments,
@@ -1163,6 +1218,8 @@ export function useRoutePlanner() {
         total_distance_m: totals.distance_m,
         total_elevation_gain: totals.elevation_gain,
         total_elevation_loss: totals.elevation_loss,
+        elevation_profile: profilePayload,
+        enrichment: enrichmentPayload,
         ...overrides,
       }
       if (state.editingRouteId !== null) {
@@ -1171,7 +1228,11 @@ export function useRoutePlanner() {
       return createRoute(payload)
     },
     onSuccess: saved => {
-      setState(s => ({ ...s, editingRouteId: saved.id }))
+      setState(s => ({
+        ...s,
+        editingRouteId: saved.id,
+        lazyFillPendingSave: false,  // Spec §7.2: reset after successful save
+      }))
       queryClient.invalidateQueries({ queryKey: ['routes'] })
       queryClient.invalidateQueries({ queryKey: ['route', saved.id] })
     },
