@@ -455,15 +455,10 @@ func computeTargetPath(
 		}
 
 	case "local":
-		// Schema-based path: look up user's library_dir_name.
-		var dirName *string
-		if qErr := pool.QueryRow(ctx,
-			`SELECT library_dir_name FROM users WHERE id = $1`, rec.UserID).Scan(&dirName); qErr != nil {
-			return "", nil, fmt.Errorf("getUserDir: %w", qErr)
-		}
-		userDir := rec.UserID
-		if dirName != nil && *dirName != "" {
-			userDir = *dirName
+		// Schema-based path: resolve effective library directory name.
+		userDir, rErr := ResolveLibraryDirName(ctx, pool, rec.UserID)
+		if rErr != nil {
+			return "", nil, fmt.Errorf("getUserDir: %w", rErr)
 		}
 		if strings.Contains(userDir, "..") || strings.Contains(userDir, "/") || strings.Contains(userDir, "\\") {
 			return "", nil, fmt.Errorf("invalid library_dir_name: %q", userDir)
