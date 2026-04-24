@@ -20,6 +20,7 @@ export const LIB_LABELS = {
   hintDirEditDisabledS3: 'Nicht anwendbar bei S3-Storage',
   buttonBulkRename: 'Rename auf alle User anwenden',
   bulkRenameConfirmTitle: 'Bulk-Rename bestätigen',
+  bulkRenameConfirmLabel: 'Bulk-Rename starten',
   // Template with {ft} placeholder — replaced at call-site via .replace('{ft}', ft).
   // Future i18n framework (e.g. i18next) natively supports this pattern.
   bulkRenameConfirmMessage:

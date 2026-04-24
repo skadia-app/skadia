@@ -90,21 +90,18 @@ describe('AdminLibrarySettingsTab', () => {
       expect(screen.getByDisplayValue('{user_id}/activity')).toBeInTheDocument(),
     )
 
-    // Click the bulk-rename button for 'activity'
-    const bulkButtons = screen.getAllByRole('button', { name: /Rename auf alle User/i })
-    fireEvent.click(bulkButtons[0])
+    // Click the bulk-rename trigger button for 'activity'
+    const triggerBtn = screen.getByRole('button', { name: /Rename auf alle User anwenden/i })
+    fireEvent.click(triggerBtn)
 
     // Confirm dialog should open
     await waitFor(() =>
       expect(screen.getByText(/Bulk-Rename bestätigen/i)).toBeInTheDocument(),
     )
 
-    const allConfirmBtns = screen.getAllByRole('button', { name: /Rename auf alle User/i })
-    // The modal's confirm button is rendered by ConfirmModal — ensure it's present
-    expect(allConfirmBtns.length).toBeGreaterThan(0)
-    // The trigger button is disabled while bulk.isPending
-    // Here we click confirm — after click mutation starts; button in ConfirmModal gets isPending
-    fireEvent.click(allConfirmBtns[allConfirmBtns.length - 1])
+    // The confirm button in the modal has a distinct label — no ambiguity with the trigger
+    const confirmBtn = screen.getByRole('button', { name: /Bulk-Rename starten/i })
+    fireEvent.click(confirmBtn)
 
     // After the mutation resolves (status = bulk_rename_in_progress),
     // the modal should close (setBulkConfirmFileType(null) in onSuccess)
