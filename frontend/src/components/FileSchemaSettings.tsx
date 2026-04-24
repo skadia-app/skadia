@@ -11,6 +11,7 @@ import {
   API_STATUS,
   type FileType,
   type LibraryDirResponse,
+  type UpdateLibraryDirResponse,
 } from '@/api/shadowfs'
 import { useToast } from '@/lib/toast'
 import { LIB_LABELS } from '@/lib/libraryLabels'
@@ -340,7 +341,7 @@ function LibraryDirSection() {
       ? LIB_LABELS.libraryDirNotApplicableS3
       : LIB_LABELS.libraryDirManagedByAdmin
 
-  const mut = useMutation<LibraryDirResponse>({
+  const mut = useMutation<UpdateLibraryDirResponse>({
     mutationFn: () => updateLibraryDir(currentValue),
     onSuccess: (res) => {
       if (res.status === API_STATUS.libraryDirNameTaken) {
