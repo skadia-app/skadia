@@ -1,18 +1,21 @@
 import { useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import AdminStorageDashboard from '@/components/AdminStorageDashboard'
+import AdminLibrarySettingsTab from '@/components/AdminLibrarySettingsTab'
 import AdminUsersPage from '@/pages/admin/AdminUsersPage'
 import AdminSystemTab from '@/pages/settings/AdminSystemTab'
+import { LIB_LABELS } from '@/lib/libraryLabels'
 
 const SUB_TABS = [
   { id: 'users' as const, label: 'Benutzer' },
   { id: 'storage' as const, label: 'Speicher' },
   { id: 'system' as const, label: 'System' },
+  { id: 'library' as const, label: LIB_LABELS.adminTabTitle },
 ] as const
 
 type SubTab = (typeof SUB_TABS)[number]['id']
 
-const VALID_SUBS = new Set<SubTab>(['users', 'storage', 'system'])
+const VALID_SUBS = new Set<SubTab>(['users', 'storage', 'system', 'library'])
 
 export default function AdminSettingsTab() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -49,6 +52,7 @@ export default function AdminSettingsTab() {
       {activeSubTab === 'users' && <AdminUsersPage />}
       {activeSubTab === 'storage' && <AdminStorageDashboard />}
       {activeSubTab === 'system' && <AdminSystemTab />}
+      {activeSubTab === 'library' && <AdminLibrarySettingsTab />}
     </div>
   )
 }
