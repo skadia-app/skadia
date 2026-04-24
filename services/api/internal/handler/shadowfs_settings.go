@@ -122,7 +122,7 @@ func (h *Handler) UpdateFileSchema(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetLibraryDir returns the user's library directory name.
+// GetLibraryDir returns the user's library directory name plus admin-model metadata.
 // GET /api/v1/settings/library-dir
 func (h *Handler) GetLibraryDir(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
@@ -141,13 +141,35 @@ func (h *Handler) GetLibraryDir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := userID
-	if libraryDirName != nil {
-		name = *libraryDirName
+	effectiveName := userID
+	if libraryDirName != nil && *libraryDirName != "" {
+		effectiveName = *libraryDirName
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{
-		"library_dir_name": name,
+	backend := "local"
+	if h.Config != nil && h.Config.StorageBackend == "s3" {
+		backend = "s3"
+	}
+
+	canEdit := h.Settings != nil && h.Settings.Get("library.user_can_edit_dir_name").Value == "true"
+	editable := canEdit && backend == "local"
+
+	// Priority: s3 > admin_locked > null
+	var reason *string
+	if backend == "s3" {
+		r := "s3_backend"
+		reason = &r
+	} else if !canEdit {
+		r := "admin_locked"
+		reason = &r
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"library_dir_name":     libraryDirName, // *string, null if unset
+		"effective_name":       effectiveName,
+		"editable":             editable,
+		"backend":              backend,
+		"admin_managed_reason": reason,
 	})
 }
 
