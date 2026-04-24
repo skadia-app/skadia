@@ -908,12 +908,16 @@ export function useRoutePlanner() {
       // the visible flash (route → blank → route). _calculateSegment replaces each
       // segment in-place via findIndex+map (Quelle 1 path).
       // Stats cache IS cleared: will be repopulated per-segment by _calculateSegment.
+      // Bug #4 fix: mark the active engine dirty BEFORE kicking off the recompute,
+      // so the invariant "dirty=true iff this engine has uncomputed pending changes"
+      // holds during the entire in-flight window. _calculateSegment clears it on completion.
       return {
         ...s,
         isCalculating: true,
         calculationError: null,
         routeStats: null,
         _statsCache: {},
+        dirtyEngines: { ...s.dirtyEngines, [s.routingEngine]: true },
       }
     })
     if (!currentProfileConfig) {
@@ -1036,7 +1040,17 @@ export function useRoutePlanner() {
         currentWaypoints = s.waypoints
         currentEngine = s.routingEngine
         currentBrouterProfile = s.brouterProfile
-        return { ...s, profileConfig, segments: [], isCalculating: true, calculationError: null }
+        // Bug #4 fix: mark the active engine dirty BEFORE kicking off recompute so
+        // the invariant "dirty=true iff this engine has uncomputed pending changes"
+        // holds during the in-flight window. _calculateSegment clears it on completion.
+        return {
+          ...s,
+          profileConfig,
+          segments: [],
+          isCalculating: true,
+          calculationError: null,
+          dirtyEngines: { ...s.dirtyEngines, [s.routingEngine]: true },
+        }
       })
       writeStoredProfile(profileConfig.profile)
       for (let i = 0; i < currentWaypoints.length - 1; i++) {
