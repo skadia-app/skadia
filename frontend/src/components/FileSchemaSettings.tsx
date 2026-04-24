@@ -127,11 +127,13 @@ const FILE_TYPE_ORDER: FileType[] = ['activity', 'media', 'document', 'health', 
 interface SchemaSectionProps {
   fileType: FileType
   initialSchema: string
+  effectiveSchema: string
+  isUserOverride: boolean
   disabled?: boolean
   disabledHint?: string
 }
 
-function SchemaSection({ fileType, initialSchema, disabled = false, disabledHint }: SchemaSectionProps) {
+function SchemaSection({ fileType, initialSchema, effectiveSchema, isUserOverride, disabled = false, disabledHint }: SchemaSectionProps) {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -211,9 +213,9 @@ function SchemaSection({ fileType, initialSchema, disabled = false, disabledHint
           {FILE_TYPE_LABELS[fileType] ?? fileType}
         </span>
         <div className="flex items-center gap-3">
-          {!open && initialSchema && (
+          {!open && (initialSchema || effectiveSchema) && (
             <span className="text-xs font-mono text-neutral-400 dark:text-neutral-500 truncate max-w-60">
-              {initialSchema}
+              {initialSchema || effectiveSchema}
             </span>
           )}
           <ChevronDown className={`w-4 h-4 text-neutral-400 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
@@ -236,7 +238,7 @@ function SchemaSection({ fileType, initialSchema, disabled = false, disabledHint
                 ref={inputRef}
                 id={`schema-input-${fileType}`}
                 type="text"
-                value={currentValue}
+                value={disabled ? (currentValue || effectiveSchema) : currentValue}
                 onChange={e => !disabled && setLocalValue(e.target.value)}
                 disabled={disabled}
                 readOnly={disabled}
@@ -261,6 +263,11 @@ function SchemaSection({ fileType, initialSchema, disabled = false, disabledHint
             {disabled && disabledHint && (
               <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400">
                 {disabledHint}
+              </p>
+            )}
+            {!disabled && !isUserOverride && effectiveSchema && (
+              <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                {LIB_LABELS.schemaAdminDefaultHint}<code className="rounded bg-neutral-100 px-1 py-0.5 font-mono dark:bg-neutral-800">{effectiveSchema}</code>
               </p>
             )}
           </div>
@@ -459,9 +466,9 @@ export default function FileSchemaSettings() {
 
   // Build lookup by file_type for O(1) access
   const schemaMap = useMemo(() => {
-    const map: Partial<Record<FileType, string>> = {}
+    const map: Partial<Record<FileType, { schema: string; effective_schema: string; is_user_override: boolean }>> = {}
     for (const s of schemas ?? []) {
-      map[s.file_type] = s.schema
+      map[s.file_type] = { schema: s.schema, effective_schema: s.effective_schema, is_user_override: s.is_user_override }
     }
     return map
   }, [schemas])
@@ -492,7 +499,9 @@ export default function FileSchemaSettings() {
             <SchemaSection
               key={ft}
               fileType={ft}
-              initialSchema={schemaMap[ft] ?? ''}
+              initialSchema={schemaMap[ft]?.schema ?? ''}
+              effectiveSchema={schemaMap[ft]?.effective_schema ?? ''}
+              isUserOverride={schemaMap[ft]?.is_user_override ?? false}
               disabled={schemasDisabled}
               disabledHint={schemasHint}
             />
