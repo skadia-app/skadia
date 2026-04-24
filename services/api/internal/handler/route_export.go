@@ -9,8 +9,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/routing"
 )
 
 // ExportRouteGPX handles GET /api/v1/routes/{id}/gpx
@@ -98,6 +100,10 @@ func writeRouteGPX(w io.Writer, route *model.PlannedRoute) {
 `)
 	}
 
+	// Spec Rev 2.3 §6.3 Option A: parse persisted elevation profile once.
+	// Used below for defensive coord[2] override on non-offroad segments.
+	profile := parsePersistedProfile(route.ElevationProfile)
+
 	if hasSegmentGeometry {
 		// Per-segment trkseg path.
 		for i := range route.Segments {
@@ -106,7 +112,19 @@ func writeRouteGPX(w io.Writer, route *model.PlannedRoute) {
 `)
 			if seg.Geometry != nil {
 				isOffroad := seg.Mode == "offroad"
-				for _, coord := range seg.Geometry.Coordinates {
+				// Defensive override: for non-offroad segments with an available
+				// profile, replace coord[2] values via cumulative-Haversine
+				// interpolation. Covers legacy routes (pre-Phase-1) where
+				// elevation_profile was Lazy-Filled but segment coords in the DB
+				// still carry stale carriedEle values. Happy-path (post-Phase-1
+				// saved routes) is unaffected because coord[2] is already correct.
+				// Offroad segments are skipped — they carry their own estimated
+				// elevation source and must retain skadia:ele_estimated semantics.
+				coords := seg.Geometry.Coordinates
+				if profile != nil && !isOffroad && len(coords) > 0 {
+					coords = overrideCoord2FromProfile(coords, profile)
+				}
+				for _, coord := range coords {
 					if len(coord) < 2 {
 						continue
 					}
@@ -140,7 +158,14 @@ func writeRouteGPX(w io.Writer, route *model.PlannedRoute) {
 		if route.GeometryGeoJSON != "" {
 			var ls geoJSONLineCoords
 			if err := json.Unmarshal([]byte(route.GeometryGeoJSON), &ls); err == nil && ls.Type == "LineString" {
-				for _, coord := range ls.Coordinates {
+				// Spec Rev 2.3 §6.3 Option A: defensive override for legacy path too.
+				// No seg.Mode available here — apply profile unconditionally (no offroad
+				// segments exist in the legacy single-trkseg path).
+				coords := ls.Coordinates
+				if profile != nil && len(coords) > 0 {
+					coords = overrideCoord2FromProfile(coords, profile)
+				}
+				for _, coord := range coords {
 					if len(coord) < 2 {
 						continue
 					}
@@ -162,4 +187,53 @@ func writeRouteGPX(w io.Writer, route *model.PlannedRoute) {
 	fmt.Fprint(w, `  </trk>
 </gpx>
 `)
+}
+
+// parsePersistedProfile decodes route.ElevationProfile (json.RawMessage from
+// the planned_routes.elevation_profile JSONB column, Migration 000325) into
+// []routing.ElevationPoint. Returns nil on null/empty/parse-error so callers
+// can use a simple nil-check before applying the profile.
+func parsePersistedProfile(raw json.RawMessage) []routing.ElevationPoint {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var pts []routing.ElevationPoint
+	if err := json.Unmarshal(raw, &pts); err != nil || len(pts) == 0 {
+		return nil
+	}
+	return pts
+}
+
+// overrideCoord2FromProfile returns a copy of coords where each element's
+// coord[2] (elevation) is replaced by a value linearly interpolated from
+// profile at the cumulative Haversine distance of that point.
+//
+// Spec Rev 2.3 §6.3 Option A. Works on [][]float64 (GeoJSON coordinate
+// format: [lon, lat, ele]) rather than the routing-internal LatLonEle slice,
+// so it mirrors routing.applyProfileToCoords semantically but operates at the
+// handler layer without touching routing internals.
+//
+// The original coords slice is never mutated; callers receive a fresh slice.
+func overrideCoord2FromProfile(coords [][]float64, profile []routing.ElevationPoint) [][]float64 {
+	if len(coords) == 0 || len(profile) == 0 {
+		return coords
+	}
+	out := make([][]float64, len(coords))
+	var distAccum float64
+	for i, c := range coords {
+		// Defensive copy: ensure at least 3 elements so coord[2] is always valid.
+		nc := make([]float64, 3)
+		copy(nc, c)
+		if i > 0 {
+			// GeoJSON order: c[0]=lon, c[1]=lat.
+			// geo.DistanceHaversine expects (lat, lon).
+			distAccum += geo.DistanceHaversine(
+				coords[i-1][1], coords[i-1][0], // prev: lat, lon
+				c[1], c[0],                     // curr: lat, lon
+			)
+		}
+		nc[2] = routing.InterpolateProfileEleAt(profile, distAccum)
+		out[i] = nc
+	}
+	return out
 }

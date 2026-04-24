@@ -58,8 +58,11 @@ type PlannedRoute struct {
 	SourceURL      *string `json:"source_url,omitempty"`      // Link back to source
 	GeometryHash   *string `json:"geometry_hash,omitempty"`   // SHA256 of snapped geometry
 	// Opaque JSONB columns — frontend produces and consumes; backend passes through.
-	ElevationProfile json.RawMessage `db:"elevation_profile" json:"elevation_profile,omitempty"`
-	Enrichment       json.RawMessage `db:"enrichment"        json:"enrichment,omitempty"`
+	// ElevationProfile: persisted from planned_routes.elevation_profile (Migration 000325).
+	// Enrichment: route enrichment metadata (Migration 000325).
+	// Both are nil when the column is NULL.
+	ElevationProfile json.RawMessage `json:"elevation_profile,omitempty"`
+	Enrichment       json.RawMessage `json:"enrichment,omitempty"`
 }
 
 // RouteImportData is the input struct for importing routes from external sources.
