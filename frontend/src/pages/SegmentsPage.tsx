@@ -167,6 +167,18 @@ export default function SegmentsPage() {
     }
   }, [terrainFilter, showAllLifts])
 
+  // A3: difficulty_match toggle is only meaningful when BOTH SAC and MTB filters are active.
+  // When the user unchecks one group (falling below 2 active groups), the param must be
+  // cleared so the URL does not persist a toggle state that has no effect (#9).
+  useEffect(() => {
+    const bothActive = sacFilter.length > 0 && mtbFilter.length > 0
+    if (!bothActive && searchParams.get('difficulty_match') !== null) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('difficulty_match')
+      setSearchParams(next, { replace: true })
+    }
+  }, [sacFilter.length, mtbFilter.length])
+
   const sentinelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -404,16 +416,40 @@ export default function SegmentsPage() {
 
         {showAdvanced && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 p-4 bg-neutral-50/50 dark:bg-neutral-800/20 rounded-xl border border-neutral-200 dark:border-neutral-800 animate-in fade-in slide-in-from-top-2 duration-200">
-            {/* SAC Scale — with difficulty_match toggle when SAC or MTB active */}
+            {/* SAC Scale — with difficulty_match toggle when BOTH SAC AND MTB are active (#9, A3) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">SAC-Skala</span>
-                {(sacFilter.length > 0 || mtbFilter.length > 0) && (
-                  <div className="flex gap-1" role="group" aria-label="Schwierigkeits-Verknüpfung">
+                {(sacFilter.length > 0 && mtbFilter.length > 0) && (
+                  // A4: role=radiogroup for ARIA semantics; keyboard nav via onKeyDown
+                  <div
+                    className="flex gap-1"
+                    role="radiogroup"
+                    aria-label="Schwierigkeits-Kombinationsmodus"
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                        e.preventDefault()
+                        // Toggle between 'all' (null) and 'any'
+                        if (difficultyMatch === 'all') {
+                          setFilter('difficulty_match', 'any')
+                        } else {
+                          setFilter('difficulty_match', null)
+                        }
+                        // Move focus to the now-active pill
+                        const btns = e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+                        btns.forEach(btn => {
+                          if (btn.getAttribute('aria-checked') === 'true') btn.focus()
+                        })
+                      }
+                    }}
+                  >
                     <Pill
                       size="sm"
                       active={difficultyMatch === 'all'}
-                      onClick={() => setFilter('difficulty_match', difficultyMatch === 'all' ? null : 'all')}
+                      onClick={() => {
+                        // No-op when already active (#11)
+                        if (difficultyMatch !== 'all') setFilter('difficulty_match', null)
+                      }}
                       role="radio"
                       ariaChecked={difficultyMatch === 'all'}
                       ariaLabel="Alle Kriterien erfüllen"
@@ -423,7 +459,10 @@ export default function SegmentsPage() {
                     <Pill
                       size="sm"
                       active={difficultyMatch === 'any'}
-                      onClick={() => setFilter('difficulty_match', 'any')}
+                      onClick={() => {
+                        // No-op when already active (#11)
+                        if (difficultyMatch !== 'any') setFilter('difficulty_match', 'any')
+                      }}
                       role="radio"
                       ariaChecked={difficultyMatch === 'any'}
                       ariaLabel="Eines genügt"
