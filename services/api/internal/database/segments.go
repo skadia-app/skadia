@@ -25,9 +25,11 @@ var (
 )
 
 func (db *DB) ListSegments(ctx context.Context, p model.ListSegmentsParams) (*model.ListSegmentsResult, error) {
-	// args: $1 = userID, $2 = isAdmin (fixed positions for WHERE clause)
-	args := []any{p.UserID, p.IsAdmin}
-	argIdx := 3 // next dynamic param starts at $3
+	// args: $1 = userID (always used by CTE). $2 = isAdmin is appended ONLY when the
+	// visibility clause actually references it — otherwise pgx passes an orphan param
+	// and PG raises 42P18 "could not determine data type of parameter $2".
+	args := []any{p.UserID}
+	argIdx := 2
 
 	// --- CTE: user_efforts ---
 	cte := `
@@ -86,6 +88,20 @@ LEFT JOIN LATERAL (
 	// Admin sees all segments (public + private from all users).
 	// Segments contain only geometry/metadata — no personal health data.
 	// Admin access is covered by the existing audit log.
+	// isAdminPlaceholder returns "$N" for isAdmin, appending p.IsAdmin to args
+	// on first call so the param is bound. Cached via closure over shared state.
+	var isAdminBound bool
+	var isAdminPlaceholderIdx int
+	isAdminPlaceholder := func() string {
+		if !isAdminBound {
+			isAdminPlaceholderIdx = argIdx
+			args = append(args, p.IsAdmin)
+			argIdx++
+			isAdminBound = true
+		}
+		return fmt.Sprintf("$%d", isAdminPlaceholderIdx)
+	}
+
 	var visibilityClause string
 	if p.VisibilityFilter != "" {
 		parts := make([]string, 0, 2)
@@ -94,7 +110,7 @@ LEFT JOIN LATERAL (
 			case "public":
 				parts = append(parts, "s.visibility = 'public'")
 			case "private":
-				parts = append(parts, "(s.visibility = 'private' AND (s.created_by = $1 OR $2 = true))")
+				parts = append(parts, fmt.Sprintf("(s.visibility = 'private' AND (s.created_by = $1 OR %s = true))", isAdminPlaceholder()))
 			}
 		}
 		switch len(parts) {
@@ -109,7 +125,7 @@ LEFT JOIN LATERAL (
 			visibilityClause = "FALSE"
 		}
 	} else {
-		visibilityClause = "(s.visibility = 'public' OR s.created_by = $1 OR $2 = true)"
+		visibilityClause = fmt.Sprintf("(s.visibility = 'public' OR s.created_by = $1 OR %s = true)", isAdminPlaceholder())
 	}
 	where := fmt.Sprintf(" WHERE %s", visibilityClause)
 
@@ -465,7 +481,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
 	return &s, nil
 }
 
-func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, update *model.SegmentUpdate) (*model.Segment, error) {
+func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdmin bool, update *model.SegmentUpdate) (*model.Segment, error) {
 	// If new_version requested: copy latest segment_version to create a new one
 	if update.NewVersion {
 		if err := db.createNewSegmentVersion(ctx, segmentID); err != nil {
@@ -532,12 +548,20 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, updat
 	}
 
 	if len(setClauses) == 0 {
-		return db.GetSegment(ctx, segmentID, userID, false, false)
+		return db.GetSegment(ctx, segmentID, userID, isAdmin, false)
 	}
 
-	query := fmt.Sprintf("UPDATE segments SET %s WHERE id = $%d AND created_by = $%d",
-		strings.Join(setClauses, ", "), argIdx, argIdx+1)
-	args = append(args, segmentID, userID)
+	// Owner-check bypassed for admins (handler already authorized the edit).
+	var query string
+	if isAdmin {
+		query = fmt.Sprintf("UPDATE segments SET %s WHERE id = $%d",
+			strings.Join(setClauses, ", "), argIdx)
+		args = append(args, segmentID)
+	} else {
+		query = fmt.Sprintf("UPDATE segments SET %s WHERE id = $%d AND created_by = $%d",
+			strings.Join(setClauses, ", "), argIdx, argIdx+1)
+		args = append(args, segmentID, userID)
+	}
 
 	tag, err := db.Pool.Exec(ctx, query, args...)
 	if err != nil {
@@ -547,7 +571,7 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, updat
 		return nil, nil
 	}
 
-	return db.GetSegment(ctx, segmentID, userID, false, false)
+	return db.GetSegment(ctx, segmentID, userID, isAdmin, false)
 }
 
 // createNewSegmentVersion copies the latest segment_version into a new version row.
