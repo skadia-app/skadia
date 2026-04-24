@@ -7,6 +7,7 @@ import type { ProfileConfig } from '@/lib/routingProfiles'
 import { getProfileDefaults, cacheServerDefaults } from '@/lib/routingProfiles'
 import { getProfileDefaults as fetchProfileDefaults } from '@/api/routes'
 import { fmtDist, fmtDurationMin } from '@/lib/format'
+import { lazyFillMessages } from '@/lib/strings/route-planner'
 import ProfileEditor from './ProfileEditor'
 import {
   fetchAllProfiles,
@@ -886,7 +887,7 @@ export default function RoutePlannerPanel({
                     'flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors cursor-pointer',
                     lazyFillPendingSave && !isSaving ? 'ring-2 ring-amber-400 animate-pulse' : '',
                   ].join(' ')}
-                  title={lazyFillPendingSave ? 'Höhenprofil wurde automatisch ergänzt — bitte speichern' : undefined}
+                  title={lazyFillPendingSave ? lazyFillMessages.saveButtonHint : undefined}
                 >
                   {isSaving ? (
                     <>
