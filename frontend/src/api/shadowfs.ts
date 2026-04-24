@@ -51,11 +51,11 @@ export interface UpdateLibraryDirResponse {
 // LibraryDir is kept as an alias for backward compatibility.
 export type LibraryDir = LibraryDirResponse
 
-export interface BulkRenameResponse {
-  status: 'ok' | 'bulk_rename_in_progress'
-  candidate_count?: number
-  note?: string
-}
+// BulkRenameResponse uses a discriminated union so candidate_count is required
+// when status='ok' and absent when status='bulk_rename_in_progress' (R2 NIT #18).
+export type BulkRenameResponse =
+  | { status: 'ok'; candidate_count: number; note?: string }
+  | { status: 'bulk_rename_in_progress' }
 
 export interface RenameResponse {
   status: 'ok' | 'rename_in_progress'
