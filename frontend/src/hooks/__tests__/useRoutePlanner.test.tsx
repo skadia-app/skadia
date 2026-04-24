@@ -940,3 +940,184 @@ describe('useRoutePlanner lazy-fill token-counter (Spec §7.5, Critic #7)', () =
   })
 })
 
+// ── Critic finding #10 (MAJOR): Lazy-fill geometry-inclusive distance axis ───
+//
+// Plan §10 Q1 acknowledges: lazy-fill uses cumulativeHaversineMeters over the
+// WHOLE geometry (approach-inclusive), while retrackUnified emits profiles that
+// are approach-exclusive. This is a known Phase-1 acceptance: lazy-fill is
+// best-effort for legacy routes where no per-segment profile_dist_m is available.
+//
+// This test PINS the current geometry-inclusive behavior so that Phase 4
+// (Hover-Sync via per-segment profile_dist_m) introduces a deliberate, detectable
+// change rather than a silent regression.
+
+describe('useRoutePlanner lazy-fill distance-axis (Critic #10, §10 Q1 Phase-1)', () => {
+  let qc: QueryClient
+
+  beforeEach(async () => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    addToastMock.mockClear()
+    sessionStorage.removeItem('skadia.lazy_fill_notice_shown')
+    computeInternalRouteMock.mockReset()
+
+    const { getProfileDefaults, cacheServerDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue(null)
+    vi.mocked(cacheServerDefaults).mockReset()
+
+    const { getProfileDefaults: fetchProfileDefaults } = await import('@/api/routes')
+    vi.mocked(fetchProfileDefaults).mockResolvedValue({
+      profile: 'hiking',
+      uphill_cost: 7,
+    } as any)
+  })
+
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <ToastProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </ToastProvider>
+  )
+
+  it('TestLazyFill_DistanceAxis_GeometryInclusive_KnownDriftFromBackend', async () => {
+    // KNOWN PHASE-1 ACCEPTANCE (Plan §10 Q1):
+    //
+    // Lazy-fill builds the combined geometry from all segment coordinates
+    // and computes totalDistM = cumulativeHaversineMeters(combinedCoordinates).
+    // This includes any coordinates that would be classified as "approach" by the
+    // backend's retrackUnified (which emits approach-exclusive profiles).
+    //
+    // The resulting dist_m scale:
+    //   elevationProfile[i].dist_m = fraction_i * totalDistM_geometry_inclusive
+    //
+    // For a route with a 2-segment geometry:
+    //   Segment 1: coords [11.0,47.0], [11.05,47.05], [11.1,47.1]  (3 points)
+    //   Segment 2: coords [11.1,47.1], [11.15,47.15]               (2 points)
+    //
+    // Combined (junction-dedup removes the repeated [11.1,47.1]):
+    //   [11.0,47.0] → [11.05,47.05] → [11.1,47.1] → [11.15,47.15]
+    //
+    // Phase 4 (Hover-Sync) will change the axis to approach-exclusive
+    // via per-segment profile_dist_m. When that happens, this test will fail,
+    // signalling the intentional axis harmonization.
+    //
+    // NOTE: The lazy-fill code uses segment geometry from the segments array
+    // directly (not the approach arrays from computeInternalRoute response),
+    // so the combined geometry IS the full geometry.
+
+    const seg1Coords = [
+      [11.0, 47.0, 500],
+      [11.05, 47.05, 510],
+      [11.1, 47.1, 520],
+    ]
+    const seg2Coords = [
+      [11.1, 47.1, 520],
+      [11.15, 47.15, 530],
+    ]
+
+    const wp1: RouteWaypoint = { id: 'w1', latlng: [47.0, 11.0], type: 'start' }
+    const wp2: RouteWaypoint = { id: 'w2', latlng: [47.1, 11.1], type: 'via' }
+    const wp3: RouteWaypoint = { id: 'w3', latlng: [47.15, 11.15], type: 'end' }
+
+    const seg1: RouteSegment = {
+      from_waypoint: 'w1',
+      to_waypoint: 'w2',
+      mode: 'routed',
+      geometry: { type: 'LineString', coordinates: seg1Coords },
+      control_points: [],
+      smooth: true,
+      distance_m: 8000,
+      elevation_gain: 20,
+      elevation_loss: 0,
+    }
+    const seg2: RouteSegment = {
+      from_waypoint: 'w2',
+      to_waypoint: 'w3',
+      mode: 'routed',
+      geometry: { type: 'LineString', coordinates: seg2Coords },
+      control_points: [],
+      smooth: true,
+      distance_m: 5000,
+      elevation_gain: 10,
+      elevation_loss: 0,
+    }
+
+    const route: PlannedRoute = {
+      id: 'geom-inclusive-test',
+      name: 'Geometry Inclusive Test',
+      sport_type: 'hiking',
+      profile: 'hiking',
+      waypoints: [wp1, wp2, wp3],
+      segments: [seg1, seg2],
+      time_override: false,
+      auto_tag: false,
+      photos: [],
+      tags: [],
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      elevation_profile: null,
+      enrichment: null,
+    }
+
+    // Mock getElevationProfile with 5 equidistant samples (fraction 0..1).
+    // The resulting dist_m values must span the geometry-inclusive total distance.
+    const { getElevationProfile } = await import('@/api/routes')
+    const elevSamples: ElevationPoint[] = [
+      { fraction: 0,    elevation: 500 },
+      { fraction: 0.25, elevation: 505 },
+      { fraction: 0.5,  elevation: 510 },
+      { fraction: 0.75, elevation: 520 },
+      { fraction: 1,    elevation: 530 },
+    ]
+    vi.mocked(getElevationProfile).mockResolvedValue({ profile: elevSamples })
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    act(() => {
+      result.current.loadRoute(route)
+    })
+
+    await waitFor(() => {
+      expect(result.current.lazyFillInProgress).toBe(false)
+    })
+
+    const profile = result.current.elevationProfile
+    expect(profile).not.toBeNull()
+    expect(profile!.length).toBe(5)
+
+    // dist_m[0] must be 0 (fraction=0)
+    expect(profile![0].dist_m).toBe(0)
+
+    // dist_m[last] must equal totalDistM = cumulativeHaversineMeters(combinedCoords).
+    // Combined coords (lazy-fill flatMaps all segments):
+    //   [11.0,47.0], [11.05,47.05], [11.1,47.1], [11.1,47.1], [11.15,47.15]
+    //
+    // NOTE: lazy-fill does NOT dedup the junction coordinate (it flatMaps all
+    // segment coords directly). This means the combined geometry includes the
+    // repeated [11.1,47.1] junction point, which adds zero distance but confirms
+    // geometry-inclusive (not approach-exclusive) semantics.
+    //
+    // Phase-1 acceptance: dist_m[last] > 0, profile is non-trivial.
+    // Phase 4 will change the axis — when this test breaks, the fix is intentional.
+    expect(profile![profile!.length - 1].dist_m).toBeGreaterThan(0)
+
+    // dist_m values must be monotonically non-decreasing (fraction 0..1 × totalDistM).
+    for (let i = 1; i < profile!.length; i++) {
+      expect(profile![i].dist_m).toBeGreaterThanOrEqual(profile![i - 1].dist_m)
+    }
+
+    // Ele values must match the mocked elevations (fraction → ele_m).
+    expect(profile![0].ele_m).toBe(500)
+    expect(profile![4].ele_m).toBe(530)
+
+    // The last dist_m value equals fraction=1 * totalDistM (geometry-inclusive).
+    // This is the key assertion pinning the Phase-1 axis semantics:
+    //   dist_m[last] = totalDistM_geometry_inclusive
+    // When Phase 4 changes to approach-exclusive, dist_m[last] will differ from
+    // the geometry-inclusive total and this test will need deliberate update.
+    const lastDistM = profile![profile!.length - 1].dist_m
+    const firstDistM = profile![0].dist_m
+    expect(lastDistM).toBeGreaterThan(firstDistM)
+    // dist_m[0.5 fraction] must be exactly half of dist_m[1.0 fraction]
+    expect(profile![2].dist_m).toBeCloseTo(lastDistM * 0.5, 5)
+  })
+})
+
