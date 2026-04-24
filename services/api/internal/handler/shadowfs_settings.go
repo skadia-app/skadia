@@ -21,7 +21,10 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
-var allowedFileTypes = []string{"activity", "media", "document", "health", "route"}
+// allowedFileTypes mirrors shadowfs.UserFacingFileTypes (canonical source).
+// Declared as package-level var to avoid repeated shadowfs.UserFacingFileTypes
+// references in isAllowedFileType and handler loops.
+var allowedFileTypes = shadowfs.UserFacingFileTypes
 
 // GetFileSchemas returns all per-type file schemas for the current user.
 // GET /api/v1/settings/file-schemas
