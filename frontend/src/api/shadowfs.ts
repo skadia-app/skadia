@@ -31,16 +31,21 @@ export interface FileSchemaUpdateResponse {
   warnings: string[]
 }
 
-// LibraryDirResponse is used for GET /settings/library-dir and PUT responses.
+// LibraryDirResponse is the shape returned by GET /settings/library-dir.
 // `library_dir_name` is nullable (null when admin has not set a name).
-// `status` is set on conflict or async-job conditions.
 export interface LibraryDirResponse {
   library_dir_name: string | null
   effective_name: string
   editable: boolean
   backend: 'local' | 's3'
   admin_managed_reason: 'admin_locked' | 's3_backend' | null
-  status?: 'library_dir_name_taken' | 'library_dir_name_clashes_with_user_uuid'
+}
+
+// UpdateLibraryDirResponse is the shape returned by PUT /settings/library-dir.
+// Backend always returns status-only; frontend re-fetches via invalidateQueries
+// to get the full LibraryDirResponse shape (R2 MED #7).
+export interface UpdateLibraryDirResponse {
+  status: 'ok' | 'library_dir_name_taken' | 'library_dir_name_clashes_with_user_uuid'
 }
 
 // LibraryDir is kept as an alias for backward compatibility.
@@ -98,8 +103,8 @@ export async function getLibraryDir(): Promise<LibraryDirResponse> {
   return apiClient<LibraryDirResponse>('/settings/library-dir')
 }
 
-export async function updateLibraryDir(libraryDirName: string): Promise<LibraryDirResponse> {
-  return apiClient<LibraryDirResponse>('/settings/library-dir', {
+export async function updateLibraryDir(libraryDirName: string): Promise<UpdateLibraryDirResponse> {
+  return apiClient<UpdateLibraryDirResponse>('/settings/library-dir', {
     method: 'PUT',
     body: { library_dir_name: libraryDirName },
   })

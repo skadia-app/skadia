@@ -317,9 +317,10 @@ func (h *Handler) UpdateLibraryDir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{
-		"library_dir_name": name,
-	})
+	// Return status-only (consistent with reset paths + admin endpoint).
+	// Frontend calls invalidateQueries(['library-dir']) on success to re-fetch
+	// the full LibraryDirResponse shape from GET — no body consumption needed (R2 MED #7).
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // PreviewFileRename computes which active files would be moved when the user's
