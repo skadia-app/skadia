@@ -155,6 +155,7 @@ type ListSegmentsParams struct {
 	MtbScale         string // komma-separiert
 	Surface          string // komma-separiert
 	VisibilityFilter string // "public" | "private" | "" (= Default: beides)
+	DifficultyMatch  string // "any" | "all" | "" (= Default: "all")
 }
 // ListSegmentsResult enthaelt die paginierte Segment-Liste.
 type ListSegmentsResult struct {

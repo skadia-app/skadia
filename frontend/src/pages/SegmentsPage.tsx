@@ -14,6 +14,7 @@ import SegmentEditModal from '@/components/SegmentEditModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
 import { Lock, Trash2, FilterX, ChevronDown, ChevronUp } from 'lucide-react'
 import { SAC_SCALE_OPTIONS, MTB_SCALE_OPTIONS, SURFACE_DROPDOWN_OPTIONS } from '@/components/segment-editor/constants'
+import { Pill } from '@/components/ui/Pill'
 
 const SPORT_GROUP_LABELS: Record<string, string> = {
   bike: 'Radfahren',
@@ -62,6 +63,7 @@ export default function SegmentsPage() {
   const mtbFilter = searchParams.get('mtb_scale')?.split(',').filter(Boolean) ?? []
   const surfaceFilter = searchParams.get('surface')?.split(',').filter(Boolean) ?? []
   const visibility = searchParams.get('visibility') ?? ''
+  const difficultyMatch = (searchParams.get('difficulty_match') ?? 'all') as 'any' | 'all'
 
   const [showAdvanced, setShowAdvanced] = useState(() =>
     sacFilter.length > 0 || mtbFilter.length > 0 || surfaceFilter.length > 0 || !!visibility
@@ -131,7 +133,8 @@ export default function SegmentsPage() {
     mtb_scale: mtbFilter.length > 0 ? mtbFilter.join(',') : undefined,
     surface: surfaceFilter.length > 0 ? surfaceFilter.join(',') : undefined,
     visibility: (visibility as any) || undefined,
-  }), [sportGroup, search, terrainFilter, showAllLifts, sacFilter, mtbFilter, surfaceFilter, visibility])
+    difficulty_match: (sacFilter.length > 0 || mtbFilter.length > 0) && difficultyMatch === 'any' ? 'any' : undefined,
+  }), [sportGroup, search, terrainFilter, showAllLifts, sacFilter, mtbFilter, surfaceFilter, visibility, difficultyMatch])
 
   const {
     data,
@@ -401,9 +404,35 @@ export default function SegmentsPage() {
 
         {showAdvanced && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 p-4 bg-neutral-50/50 dark:bg-neutral-800/20 rounded-xl border border-neutral-200 dark:border-neutral-800 animate-in fade-in slide-in-from-top-2 duration-200">
-            {/* SAC Scale */}
+            {/* SAC Scale — with difficulty_match toggle when SAC or MTB active */}
             <div className="space-y-2">
-              <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">SAC-Skala</label>
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">SAC-Skala</span>
+                {(sacFilter.length > 0 || mtbFilter.length > 0) && (
+                  <div className="flex gap-1" role="group" aria-label="Schwierigkeits-Verknüpfung">
+                    <Pill
+                      size="sm"
+                      active={difficultyMatch === 'all'}
+                      onClick={() => setFilter('difficulty_match', difficultyMatch === 'all' ? null : 'all')}
+                      role="radio"
+                      ariaChecked={difficultyMatch === 'all'}
+                      ariaLabel="Alle Kriterien erfüllen"
+                    >
+                      Alle
+                    </Pill>
+                    <Pill
+                      size="sm"
+                      active={difficultyMatch === 'any'}
+                      onClick={() => setFilter('difficulty_match', 'any')}
+                      role="radio"
+                      ariaChecked={difficultyMatch === 'any'}
+                      ariaLabel="Eines genügt"
+                    >
+                      Eines
+                    </Pill>
+                  </div>
+                )}
+              </div>
               <div className="flex flex-wrap gap-x-3 gap-y-1.5">
                 {SAC_SCALE_OPTIONS.map(opt => (
                   <label key={opt.value} className="flex items-center gap-1.5 cursor-pointer group">
