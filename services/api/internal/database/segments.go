@@ -148,15 +148,27 @@ LEFT JOIN LATERAL (
 	}
 
 	// COALESCE for explicit null-safety; plan §2.2 Step 3B.
-	if p.SacScale != "" {
-		where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'sac_scale', '') = ANY(string_to_array($%d, ','))", argIdx)
-		args = append(args, p.SacScale)
-		argIdx++
-	}
-	if p.MtbScale != "" {
-		where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'mtb_scale', '') = ANY(string_to_array($%d, ','))", argIdx)
-		args = append(args, p.MtbScale)
-		argIdx++
+	// DifficultyMatch "any": SAC OR MTB in a single OR-block (when both are set).
+	// DifficultyMatch "all" or "": classic AND (current behaviour).
+	if p.SacScale != "" && p.MtbScale != "" && p.DifficultyMatch == "any" {
+		where += fmt.Sprintf(
+			" AND (COALESCE(s.segment_type_meta->>'sac_scale', '') = ANY(string_to_array($%d, ','))"+
+				" OR COALESCE(s.segment_type_meta->>'mtb_scale', '') = ANY(string_to_array($%d, ',')))",
+			argIdx, argIdx+1,
+		)
+		args = append(args, p.SacScale, p.MtbScale)
+		argIdx += 2
+	} else {
+		if p.SacScale != "" {
+			where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'sac_scale', '') = ANY(string_to_array($%d, ','))", argIdx)
+			args = append(args, p.SacScale)
+			argIdx++
+		}
+		if p.MtbScale != "" {
+			where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'mtb_scale', '') = ANY(string_to_array($%d, ','))", argIdx)
+			args = append(args, p.MtbScale)
+			argIdx++
+		}
 	}
 	if p.Surface != "" {
 		where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'surface', '') = ANY(string_to_array($%d, ','))", argIdx)

@@ -59,6 +59,7 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 		MtbScale:         r.URL.Query().Get("mtb_scale"),
 		Surface:          r.URL.Query().Get("surface"),
 		VisibilityFilter: r.URL.Query().Get("visibility"),
+		DifficultyMatch:  r.URL.Query().Get("difficulty_match"),
 	}
 
 	// Input-Validation (§5.3 Spec N2-6) — verhindert DoS via malformed Query
@@ -86,6 +87,10 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 	}
 	if params.VisibilityFilter != "" && params.VisibilityFilter != "public" && params.VisibilityFilter != "private" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid visibility parameter", r.URL.Path)
+		return
+	}
+	if params.DifficultyMatch != "" && params.DifficultyMatch != "any" && params.DifficultyMatch != "all" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid difficulty_match parameter (expect any or all)", r.URL.Path)
 		return
 	}
 
