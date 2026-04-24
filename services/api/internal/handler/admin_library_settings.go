@@ -48,6 +48,29 @@ func (h *Handler) UpdateAdminLibrarySettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// LOW #27: nil means the key was absent in the JSON body entirely.
+	if body.DefaultSchemas == nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
+			"default_schemas is required", r.URL.Path)
+		return
+	}
+
+	// HIGH #12: Require all 5 file-type keys to be present. Missing keys
+	// would silently leave stale DB values; extra keys would pass through
+	// the loop below unchecked. Exact-5 enforces full-replacement semantics.
+	if len(body.DefaultSchemas) != 5 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
+			"default_schemas must contain exactly 5 keys (activity, media, document, health, route)", r.URL.Path)
+		return
+	}
+	for _, ft := range userFacingSchemaFileTypes {
+		if _, ok := body.DefaultSchemas[ft]; !ok {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
+				fmt.Sprintf("default_schemas missing required key %q", ft), r.URL.Path)
+			return
+		}
+	}
+
 	// Validate schemas
 	renderer := shadowfs.NewSchemaRenderer()
 	for ft, schema := range body.DefaultSchemas {
