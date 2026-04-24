@@ -404,6 +404,13 @@ export default function MapPage() {
     } catch { return true }
   })
 
+  const [plannerPanelOpen, setPlannerPanelOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem('skadia-planner-panel-visible')
+      return saved !== null ? saved === 'true' : true
+    } catch { return true }
+  })
+
   const planner = useRoutePlanner()
   const { addToast } = useToast()
 
@@ -414,6 +421,11 @@ export default function MapPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: reads initial location.search, then clears it
   }, [])
+
+  // Auto-open planner panel when routing becomes available
+  useEffect(() => {
+    if (plannerActive) setPlannerPanelOpen(true)
+  }, [plannerActive])
 
   // Load route planner state from navigation state (mount-only: reads initial location.state, then clears it)
   // Handles both editRouteId (from RoutesPage edit button) and plannerWaypoints (from ActivityDetailPage).
@@ -447,6 +459,7 @@ export default function MapPage() {
   // When planner is deactivated: clear route state and hide sub-panels
   const handlePlannerClose = useCallback(() => {
     setPlannerActive(false)
+    setPlannerPanelOpen(false)
     setShowSuggestionDialog(false)
     setShowSaveDialog(false)
     setShowProfileChart(false)
@@ -2418,70 +2431,87 @@ export default function MapPage() {
     <div className="fixed inset-0 z-40 flex flex-col" style={{ top: '3.5rem' }}>
       <div className="flex flex-row flex-1 min-h-0 relative overflow-hidden">
 
-        {/* ── Planner-Spalte (links, volle Höhe) ────────────────────────── */}
+        {/* ── Planner-Panel (links, absolute overlay mit Tab) ───────────── */}
         {plannerActive && (
-          <RoutePlannerPanel
-            waypoints={planner.waypoints}
-            segments={planner.segments}
-            profileConfig={planner.profile.status === 'ready' ? planner.profile.config : null}
-            showHeatmap={viewMode === 'heatmap'}
-            routingEngine={planner.routingEngine}
-            brouterProfile={planner.brouterProfile}
-            badRouterAvailable={planner.capabilities?.routing ?? false}
-            onRoutingEngineChange={planner.setRoutingEngine}
-            onBrouterProfileChange={planner.setBrouterProfile}
-            totalDistanceM={planner.totals.distance_m}
-            totalElevationGain={planner.totals.elevation_gain}
-            totalElevationLoss={planner.totals.elevation_loss}
-            estimatedTimeMin={undefined}
-            onProfileChange={(cfg) => {
-              if (planner.profile.status === 'ready') void planner.profile.setAndRecalculate(cfg)
-            }}
-            onRemoveWaypoint={planner.removeWaypoint}
-            onReorderWaypoints={planner.reorderWaypoints}
-            onRecalculateAll={() => {
-              if (planner.profile.status === 'ready') void planner.profile.recalculate()
-            }}
-            onToggleSegmentMode={(waypointId) => {
-              const seg = planner.segments.find(s => s.from_waypoint === waypointId)
-              if (seg) planner.toggleOffroad({ from: seg.from_waypoint, to: seg.to_waypoint })
-            }}
-            onToggleHeatmap={(enabled) => {
-              const map = mapRef.current
-              if (!map) return
-              removeOverlayLayers(map)
-              removeTerraIncognitaLayers(map)
-              if (enabled) {
-                if (filtersRef.current.sportTypes.size > 0) {
-                  addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current)
-                }
-                setViewMode('heatmap')
-              } else {
-                setViewMode('off')
-              }
-            }}
-            onClearRoute={planner.clear}
-            onSave={() => {
-              // Variante A: wenn eine geladene Route editiert wird, direkt via
-              // PATCH aktualisieren — kein Dialog nötig, Metadata bleibt erhalten.
-              if (planner.editingRouteId && planner.profile.status === 'ready') {
-                planner.profile.saveRoute()
-              } else {
-                setShowSaveDialog(true)
-              }
-            }}
-            onSuggest={() => setShowSuggestionDialog(true)}
-            onClose={handlePlannerClose}
-            calculationError={planner.calculationError}
-            onClearError={planner.clearError}
-            editingRoute={null}
-            isSaving={planner.profile.status === 'ready' && planner.profile.isSaving}
-            lazyFillPendingSave={planner.lazyFillPendingSave}
-          />
+          <div className={`absolute left-0 top-0 bottom-0 z-10 w-72 flex flex-row-reverse transition-transform duration-200 ease-in-out ${plannerPanelOpen ? 'translate-x-0' : '-translate-x-[calc(100%-1.25rem)]'}`}>
+            {/* Tab (rechte Seite des Panels, immer sichtbar) */}
+            <button
+              onClick={() => {
+                const next = !plannerPanelOpen
+                setPlannerPanelOpen(next)
+                try { localStorage.setItem('skadia-planner-panel-visible', String(next)) } catch { /* ignore */ }
+              }}
+              className="w-5 flex-shrink-0 flex items-center justify-center bg-neutral-50 dark:bg-neutral-800 border-r border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer"
+              title={plannerPanelOpen ? 'Planer ausblenden' : 'Planer einblenden'}
+            >
+              <svg className={`w-3 h-3 transition-transform ${plannerPanelOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+              </svg>
+            </button>
+            {/* Panel-Inhalt (immer gerendert — kein conditional) */}
+            <div className="flex-1 border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-y-auto">
+              <RoutePlannerPanel
+                waypoints={planner.waypoints}
+                segments={planner.segments}
+                profileConfig={planner.profile.status === 'ready' ? planner.profile.config : null}
+                showHeatmap={viewMode === 'heatmap'}
+                routingEngine={planner.routingEngine}
+                brouterProfile={planner.brouterProfile}
+                badRouterAvailable={planner.capabilities?.routing ?? false}
+                onRoutingEngineChange={planner.setRoutingEngine}
+                onBrouterProfileChange={planner.setBrouterProfile}
+                totalDistanceM={planner.totals.distance_m}
+                totalElevationGain={planner.totals.elevation_gain}
+                totalElevationLoss={planner.totals.elevation_loss}
+                estimatedTimeMin={undefined}
+                onProfileChange={(cfg) => {
+                  if (planner.profile.status === 'ready') void planner.profile.setAndRecalculate(cfg)
+                }}
+                onRemoveWaypoint={planner.removeWaypoint}
+                onReorderWaypoints={planner.reorderWaypoints}
+                onRecalculateAll={() => {
+                  if (planner.profile.status === 'ready') void planner.profile.recalculate()
+                }}
+                onToggleSegmentMode={(waypointId) => {
+                  const seg = planner.segments.find(s => s.from_waypoint === waypointId)
+                  if (seg) planner.toggleOffroad({ from: seg.from_waypoint, to: seg.to_waypoint })
+                }}
+                onToggleHeatmap={(enabled) => {
+                  const map = mapRef.current
+                  if (!map) return
+                  removeOverlayLayers(map)
+                  removeTerraIncognitaLayers(map)
+                  if (enabled) {
+                    if (filtersRef.current.sportTypes.size > 0) {
+                      addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current)
+                    }
+                    setViewMode('heatmap')
+                  } else {
+                    setViewMode('off')
+                  }
+                }}
+                onClearRoute={planner.clear}
+                onSave={() => {
+                  if (planner.editingRouteId && planner.profile.status === 'ready') {
+                    planner.profile.saveRoute()
+                  } else {
+                    setShowSaveDialog(true)
+                  }
+                }}
+                onSuggest={() => setShowSuggestionDialog(true)}
+                onClose={handlePlannerClose}
+                calculationError={planner.calculationError}
+                onClearError={planner.clearError}
+                editingRoute={null}
+                isSaving={planner.profile.status === 'ready' && planner.profile.isSaving}
+                lazyFillPendingSave={planner.lazyFillPendingSave}
+              />
+            </div>
+          </div>
         )}
 
         {/* ── Mittlere Spalte: Karte + Bottom-Bar ───────────────────────── */}
-        <div className="flex flex-col flex-1 min-h-0 min-w-0" style={{ paddingRight: filterPanelVisible ? '16rem' : '1.25rem' }}>
+        <div className="flex flex-col flex-1 min-h-0 min-w-0" style={{ paddingLeft: plannerActive && plannerPanelOpen ? '18rem' : '1.25rem', paddingRight: filterPanelVisible ? '16rem' : '1.25rem' }}>
 
         {/* ── Kartenbereich ─────────────────────────────────────────────── */}
         <div className="relative flex-1 min-h-0 overflow-hidden">
@@ -2660,16 +2690,20 @@ export default function MapPage() {
                 return
               }
               if (plannerActive) {
-                handlePlannerClose()
+                const next = !plannerPanelOpen
+                setPlannerPanelOpen(next)
+                try { localStorage.setItem('skadia-planner-panel-visible', String(next)) } catch { /* ignore */ }
               } else {
                 setPlannerActive(true)
+                setPlannerPanelOpen(true)
+                try { localStorage.setItem('skadia-planner-panel-visible', 'true') } catch { /* ignore */ }
               }
             }}
             title={plannerAvailable ? 'Routenplaner' : 'Routenplaner benötigt BRouter-Segmente oder BadRouter-Graph.'}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors ${
               !plannerAvailable
                 ? 'opacity-50 cursor-not-allowed bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600'
-                : plannerActive
+                : plannerActive && plannerPanelOpen
                   ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT cursor-pointer'
                   : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer'
             }`}
