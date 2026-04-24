@@ -32,14 +32,12 @@ func (h *Handler) GetShadowFSSettingsCompat(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Fetch activity schema from user_file_schemas (populated by migration 000232).
-	var schema string
-	_ = h.DB.Pool.QueryRow(r.Context(),
-		`SELECT schema_template FROM user_file_schemas WHERE user_id = $1 AND file_type = 'activity'`,
-		userID,
-	).Scan(&schema)
-	if schema == "" {
-		schema = shadowfs.NewSchemaRenderer().DefaultSchema("activity")
+	// Fetch activity schema via ResolveUserSchema so that lockdown settings are honoured.
+	renderer := shadowfs.NewSchemaRenderer()
+	schema, err := shadowfs.ResolveUserSchema(r.Context(), h.DB.Pool, h.Settings, renderer, userID, "activity")
+	if err != nil {
+		slog.Warn("shadow-fs compat: resolve user schema failed, using built-in default", "error", err)
+		schema = renderer.DefaultSchema("activity")
 	}
 
 	hotfolderEnabled, err := h.DB.GetUserHotfolderEnabled(r.Context(), userID)
