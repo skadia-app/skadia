@@ -392,8 +392,8 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 	// Register background job for ActiveJobsIndicator visibility.
 	var jobID string
 	if err := h.DB.Pool.QueryRow(ctx,
-		`INSERT INTO background_jobs (id, job_type, user_id, status, created_at)
-		 VALUES (gen_random_uuid(), 'shadowfs_rename', $1, 'running', NOW())
+		`INSERT INTO background_jobs (id, job_type, user_id, status)
+		 VALUES (gen_random_uuid(), 'shadowfs_rename', $1, 'running')
 		 RETURNING id`,
 		userID,
 	).Scan(&jobID); err != nil {
@@ -418,7 +418,7 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) executeFileRenameBackground(ctx context.Context, userID, fileType, basePath, jobID string) {
 	defer func() {
 		if _, err := h.DB.Pool.Exec(ctx,
-			`UPDATE background_jobs SET status = 'completed', completed_at = NOW() WHERE id = $1`,
+			`UPDATE background_jobs SET status = 'completed', finished_at = NOW() WHERE id = $1`,
 			jobID,
 		); err != nil {
 			slog.Warn("rename-execute: complete job failed", "job_id", jobID, "error", err)
