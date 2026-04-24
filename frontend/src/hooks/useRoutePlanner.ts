@@ -1389,46 +1389,46 @@ export function useRoutePlanner() {
     // engine has pending profile/setting changes since the last render.
     // FRESH planning (editingRouteId === null) keeps the original behaviour:
     // recompute so the user can compare engines on a route they're building.
-    let needsRecompute = false
-    let recomputeArgs: { wps: RouteWaypoint[]; cfg: ProfileConfig; profile: string } | null = null
+    //
+    // Fix #5 (React 19 StrictMode): the recompute decision is made here from
+    // the `state` closure variable BEFORE entering setState. This avoids the
+    // StrictMode double-invocation hazard where the reducer runs twice and the
+    // outer `needsRecompute`/`recomputeArgs` variables can be left with stale
+    // values from the first invocation.
+    if (state.routingEngine === engine) return
 
-    setState(s => {
-      if (s.routingEngine === engine) return s
+    const isLoadedRoute = state.editingRouteId !== null
+    const hasSegments = state.segments.length > 0
+    const targetEngineDirty = state.dirtyEngines[engine]
+    const needsRecompute = !(isLoadedRoute && hasSegments && !targetEngineDirty)
+    const recomputeArgs = needsRecompute && state.profileConfig
+      ? { wps: state.waypoints, cfg: state.profileConfig, profile: state.brouterProfile }
+      : null
 
-      const isLoadedRoute = s.editingRouteId !== null
-      const hasSegments = s.segments.length > 0
-      const targetEngineDirty = s.dirtyEngines[engine]
+    if (!needsRecompute) {
+      // Display-only: keep saved geometry visible, just swap the engine flag.
+      setState(s => ({ ...s, routingEngine: engine }))
+      return
+    }
 
-      if (isLoadedRoute && hasSegments && !targetEngineDirty) {
-        // Display-only: keep saved geometry visible, just swap the engine flag.
-        return { ...s, routingEngine: engine }
-      }
+    setState(s => ({
+      ...s,
+      routingEngine: engine,
+      segments: [],
+      isCalculating: true,
+      calculationError: null,
+      routeStats: null,
+      _statsCache: {},
+    }))
 
-      needsRecompute = true
-      if (s.profileConfig) {
-        recomputeArgs = { wps: s.waypoints, cfg: s.profileConfig, profile: s.brouterProfile }
-      }
-      return {
-        ...s,
-        routingEngine: engine,
-        segments: [],
-        isCalculating: true,
-        calculationError: null,
-        routeStats: null,
-        _statsCache: {},
-      }
-    })
-
-    if (!needsRecompute) return
     if (!recomputeArgs) {
       setState(s => ({ ...s, isCalculating: false }))
       return
     }
-    const args = recomputeArgs as { wps: RouteWaypoint[]; cfg: ProfileConfig; profile: string }
     // Pass the new engine value explicitly — do NOT read from state here,
     // as React batches setState updates and s.routingEngine would still be stale.
-    for (let i = 0; i < args.wps.length - 1; i++) {
-      await _calculateSegment(args.wps[i], args.wps[i + 1], args.cfg, engine, args.profile)
+    for (let i = 0; i < recomputeArgs.wps.length - 1; i++) {
+      await _calculateSegment(recomputeArgs.wps[i], recomputeArgs.wps[i + 1], recomputeArgs.cfg, engine, recomputeArgs.profile)
     }
     setState(s => ({
       ...s,
@@ -1436,43 +1436,42 @@ export function useRoutePlanner() {
       lastRenderedEngine: engine,
       dirtyEngines: { ...s.dirtyEngines, [engine]: false },
     }))
-  }, [_calculateSegment])
+  }, [state, _calculateSegment])
 
   const setBrouterProfile = useCallback(async (profile: string) => {
-    let needsRecompute = false
-    let recomputeArgs: { wps: RouteWaypoint[]; cfg: ProfileConfig } | null = null
+    // Fix #5 (React 19 StrictMode): compute the recompute decision from the
+    // `state` closure variable BEFORE entering setState to avoid the double-
+    // invocation hazard where mutating outer-scope variables inside a reducer
+    // leaves stale values after the second invocation.
+    const isActiveBrouter = state.routingEngine === 'brouter'
+    const canRecompute = isActiveBrouter && state.waypoints.length >= 2 && state.profileConfig !== null
+    const recomputeArgs = canRecompute && state.profileConfig
+      ? { wps: state.waypoints, cfg: state.profileConfig }
+      : null
 
-    setState(s => {
-      const isActiveBrouter = s.routingEngine === 'brouter'
-      const canRecompute = isActiveBrouter && s.waypoints.length >= 2 && s.profileConfig !== null
-
-      if (canRecompute) {
-        needsRecompute = true
-        recomputeArgs = { wps: s.waypoints, cfg: s.profileConfig! }
-        return {
-          ...s,
-          brouterProfile: profile,
-          segments: [],
-          isCalculating: true,
-          calculationError: null,
-          routeStats: null,
-          _statsCache: {},
-          dirtyEngines: { ...s.dirtyEngines, brouter: true },
-        }
-      }
-
+    if (canRecompute) {
+      setState(s => ({
+        ...s,
+        brouterProfile: profile,
+        segments: [],
+        isCalculating: true,
+        calculationError: null,
+        routeStats: null,
+        _statsCache: {},
+        dirtyEngines: { ...s.dirtyEngines, brouter: true },
+      }))
+    } else {
       // Inactive engine OR not enough waypoints: just flag dirty.
-      return {
+      setState(s => ({
         ...s,
         brouterProfile: profile,
         dirtyEngines: { ...s.dirtyEngines, brouter: true },
-      }
-    })
+      }))
+    }
 
-    if (!needsRecompute || !recomputeArgs) return
-    const args = recomputeArgs as { wps: RouteWaypoint[]; cfg: ProfileConfig }
-    for (let i = 0; i < args.wps.length - 1; i++) {
-      await _calculateSegment(args.wps[i], args.wps[i + 1], args.cfg, 'brouter', profile)
+    if (!recomputeArgs) return
+    for (let i = 0; i < recomputeArgs.wps.length - 1; i++) {
+      await _calculateSegment(recomputeArgs.wps[i], recomputeArgs.wps[i + 1], recomputeArgs.cfg, 'brouter', profile)
     }
     setState(s => ({
       ...s,
@@ -1480,7 +1479,7 @@ export function useRoutePlanner() {
       lastRenderedEngine: 'brouter',
       dirtyEngines: { ...s.dirtyEngines, brouter: false },
     }))
-  }, [_calculateSegment])
+  }, [state, _calculateSegment])
 
   /**
    * Bug B (2026-04-24): Public API to flag an engine as having pending
