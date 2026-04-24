@@ -17,6 +17,13 @@ import {
   type AdminUserSession,
 } from '@/api/auth'
 import { getAdminSettings } from '@/api/adminSettings'
+import {
+  getAdminUserLibraryDir,
+  adminSetUserLibraryDir,
+  adminRenameUser,
+  FILE_TYPE_LABELS,
+} from '@/api/shadowfs'
+import { LIB_LABELS } from '@/lib/libraryLabels'
 import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 import { fmtDateTime, parseUserAgent } from '@/lib/format'
@@ -45,7 +52,9 @@ import {
   Loader2,
   FolderOpen,
   FolderX,
+  FolderEdit,
   Trash2,
+  RefreshCw,
 } from 'lucide-react'
 
 // ── Centralized i18n-ready labels ───────────────────────────────────────────
@@ -595,6 +604,170 @@ function DeleteUserDialog({
   )
 }
 
+// ── Library-Dir Labels (admin context) ─────────────────────────────────────
+
+const FILE_TYPES_FOR_RENAME = ['activity', 'media', 'document', 'health', 'route'] as const
+
+// ── UserLibraryDirDialog ────────────────────────────────────────────────────
+
+function UserLibraryDirDialog({
+  user,
+  onClose,
+}: {
+  user: AdminUser
+  onClose: () => void
+}) {
+  const { addToast } = useToast()
+  const queryClient = useQueryClient()
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['admin-user-library-dir', user.id],
+    queryFn: () => getAdminUserLibraryDir(user.id),
+  })
+
+  const [inputValue, setInputValue] = useState<string | null>(null)
+  const current = inputValue ?? data?.library_dir_name ?? ''
+
+  const setDirMutation = useMutation({
+    mutationFn: (name: string | null) => adminSetUserLibraryDir(user.id, name),
+    onSuccess: (res) => {
+      if (res.status === LIB_LABELS.statusLibraryDirNameTaken) {
+        addToast({ type: 'warning', title: LIB_LABELS.toastLibraryDirTaken, duration: 0 })
+        return
+      }
+      if (res.status === LIB_LABELS.statusLibraryDirNameClashesUUID) {
+        addToast({ type: 'warning', title: LIB_LABELS.toastLibraryDirClashesUUID, duration: 0 })
+        return
+      }
+      queryClient.invalidateQueries({ queryKey: ['admin-user-library-dir', user.id] })
+      setInputValue(null)
+      addToast({ type: 'success', title: LIB_LABELS.toastSaved })
+    },
+    onError: (err: Error) => {
+      addToast({ type: 'error', title: LIB_LABELS.toastError, message: err.message, duration: 0 })
+    },
+  })
+
+  const renameMutation = useMutation({
+    mutationFn: (fileType: string) => adminRenameUser(user.id, fileType),
+    onSuccess: () => {
+      addToast({ type: 'success', title: LIB_LABELS.toastRenameStarted })
+    },
+    onError: (err: Error) => {
+      addToast({ type: 'error', title: LIB_LABELS.toastError, message: err.message, duration: 0 })
+    },
+  })
+
+  function handleSave() {
+    const trimmed = current.trim()
+    setDirMutation.mutate(trimmed || null)
+  }
+
+  return (
+    <ModalShell onClose={onClose} maxWidth="max-w-md">
+      <div className="space-y-5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-500/10">
+            <FolderEdit className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold">Library-Dir bearbeiten</h2>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{user.username}</p>
+          </div>
+        </div>
+
+        {isLoading && (
+          <div className="flex justify-center py-4">
+            <Loader2 className="h-5 w-5 animate-spin text-neutral-400" />
+          </div>
+        )}
+
+        {isError && (
+          <p className="py-2 text-sm text-red-500">Fehler beim Laden der Library-Dir.</p>
+        )}
+
+        {!isLoading && !isError && data && (
+          <>
+            {/* Library-Dir-Name edit */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                {LIB_LABELS.libraryDirPrefix}
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={current}
+                  onChange={e => setInputValue(e.target.value)}
+                  placeholder={user.id}
+                  className={`${AUTH_INPUT_CLASS} flex-1`}
+                  disabled={setDirMutation.isPending}
+                />
+                <button
+                  onClick={handleSave}
+                  disabled={setDirMutation.isPending}
+                  className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-accent-DEFAULT px-3 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {setDirMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : null}
+                  Speichern
+                </button>
+              </div>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                Effektiv:{' '}
+                <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-xs dark:bg-neutral-800">
+                  {inputValue != null && inputValue.trim() ? inputValue.trim() : data.effective_name}
+                </code>
+              </p>
+              {!current.trim() && data.library_dir_name && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Leer lassen = auf UUID zurücksetzen
+                </p>
+              )}
+            </div>
+
+            {/* Rename buttons per file type */}
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                Rename ausführen
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {FILE_TYPES_FOR_RENAME.map(ft => (
+                  <button
+                    key={ft}
+                    onClick={() => renameMutation.mutate(ft)}
+                    disabled={renameMutation.isPending}
+                    className="flex cursor-pointer items-center gap-1.5 rounded border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {renameMutation.isPending ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3 w-3" />
+                    )}
+                    {FILE_TYPE_LABELS[ft] ?? ft}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                Startet einen Rename-Job im Hintergrund.
+              </p>
+            </div>
+          </>
+        )}
+
+        <div className="flex justify-end border-t border-neutral-100 pt-3 dark:border-neutral-800">
+          <button
+            onClick={onClose}
+            className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+          >
+            Schließen
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
 // ── User Actions Menu ───────────────────────────────────────────────────────
 
 function UserActionsMenu({
@@ -606,7 +779,7 @@ function UserActionsMenu({
   user: AdminUser
   currentUserId: string
   hotfolderGlobalMode: string
-  onAction: (action: 'activate' | 'deactivate' | 'reset-password' | 'sessions' | 'revoke-sessions' | 'set-admin' | 'delete' | 'toggle-hotfolder') => void
+  onAction: (action: 'activate' | 'deactivate' | 'reset-password' | 'sessions' | 'revoke-sessions' | 'set-admin' | 'delete' | 'toggle-hotfolder' | 'library-dir') => void
 }) {
   const isDeleted = user.deleted_at != null
   const isSelf = user.id === currentUserId
@@ -676,6 +849,11 @@ function UserActionsMenu({
               <KeyRound className="h-4 w-4 text-amber-500" />
               Passwort zurücksetzen
             </DropdownMenuItem>
+
+            <DropdownMenuItem onClick={() => onAction('library-dir')} className="gap-2">
+              <FolderEdit className="h-4 w-4 text-blue-500" />
+              Library-Dir bearbeiten
+            </DropdownMenuItem>
           </>
         )}
 
@@ -724,6 +902,7 @@ export default function AdminUsersPage() {
   const [resetPasswordUser, setResetPasswordUser] = useState<AdminUser | null>(null)
   const [sessionsUser, setSessionsUser] = useState<AdminUser | null>(null)
   const [deleteUser, setDeleteUser] = useState<AdminUser | null>(null)
+  const [libraryDirUser, setLibraryDirUser] = useState<AdminUser | null>(null)
   const [confirmAction, setConfirmAction] = useState<{
     type: 'activate' | 'deactivate' | 'revoke-sessions' | 'set-admin' | 'toggle-hotfolder'
     user: AdminUser
@@ -831,7 +1010,7 @@ export default function AdminUsersPage() {
 
   function handleUserAction(
     user: AdminUser,
-    action: 'activate' | 'deactivate' | 'reset-password' | 'sessions' | 'revoke-sessions' | 'set-admin' | 'delete' | 'toggle-hotfolder',
+    action: 'activate' | 'deactivate' | 'reset-password' | 'sessions' | 'revoke-sessions' | 'set-admin' | 'delete' | 'toggle-hotfolder' | 'library-dir',
   ) {
     switch (action) {
       case 'activate':
@@ -857,6 +1036,9 @@ export default function AdminUsersPage() {
         break
       case 'delete':
         setDeleteUser(user)
+        break
+      case 'library-dir':
+        setLibraryDirUser(user)
         break
     }
   }
@@ -1155,6 +1337,13 @@ export default function AdminUsersPage() {
           user={deleteUser}
           onClose={() => setDeleteUser(null)}
           onDeleted={() => queryClient.invalidateQueries({ queryKey: ['admin-users'] })}
+        />
+      )}
+
+      {libraryDirUser && (
+        <UserLibraryDirDialog
+          user={libraryDirUser}
+          onClose={() => setLibraryDirUser(null)}
         />
       )}
 

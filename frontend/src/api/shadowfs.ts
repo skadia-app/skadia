@@ -125,6 +125,16 @@ export async function adminRenameUser(userId: string, fileType: string): Promise
   })
 }
 
+export interface AdminUserLibraryDir {
+  user_id: string
+  library_dir_name: string | null
+  effective_name: string
+}
+
+export async function getAdminUserLibraryDir(userId: string): Promise<AdminUserLibraryDir> {
+  return apiClient<AdminUserLibraryDir>(`/admin/users/${userId}/library-dir`)
+}
+
 export async function adminSetUserLibraryDir(
   userId: string,
   name: string | null,
