@@ -308,3 +308,90 @@ func TestInjectElevationProfileFromInlineZ_NonFeatureCollection_NoOp(t *testing.
 		t.Errorf("error key must remain unchanged, got %v", gj["error"])
 	}
 }
+
+// TestExtractCoordinates_MalformedCoords_PreservesDistanceConsistency verifies
+// Critic finding #11 (MAJOR): when BRouter emits a null or non-array element
+// inside geometry.coordinates, the distance axis in the injected elevation_profile
+// is internally consistent with the wire coordinate list received by the frontend.
+//
+// Architecture note: extractCoordinates drops malformed coord entries (null /
+// non-array / non-numeric lon-lat) because they have no valid position and
+// cannot participate in Haversine accumulation. The frontend receives the original
+// geometry.coordinates unchanged — including the null entry. Both sides therefore
+// skip the same unusable point, so profile dist_m values match what the frontend
+// would compute over the non-null wire coords. No drift.
+//
+// This test confirms three invariants:
+//  1. geometry.coordinates in the wire GeoJSON is NOT mutated (still contains
+//     the null entry at index 1).
+//  2. extractCoordinates returns only the 2 valid coords (null dropped).
+//  3. Profile dist_m[1] equals the Haversine distance between the 2 valid coords
+//     (i.e. the distance axis is consistent with the reduced coord list that
+//     both the proxy and any null-aware frontend consumer would use).
+func TestExtractCoordinates_MalformedCoords_PreservesDistanceConsistency(t *testing.T) {
+	// BRouter edge-case: null element between two valid 3D coords.
+	raw := `{"type":"FeatureCollection","features":[{
+	  "type":"Feature",
+	  "properties":{},
+	  "geometry":{"type":"LineString","coordinates":[
+	    [11.404, 47.270, 581],
+	    null,
+	    [11.406, 47.272, 600]
+	  ]}
+	}]}`
+
+	var gj map[string]any
+	if err := json.Unmarshal([]byte(raw), &gj); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Invariant 1: geometry.coordinates is unchanged after inject.
+	injectElevationProfileFromInlineZ(gj)
+
+	feat := gj["features"].([]any)[0].(map[string]any)
+	geom := feat["geometry"].(map[string]any)
+	wireCoordsRaw := geom["coordinates"].([]any)
+	if len(wireCoordsRaw) != 3 {
+		t.Fatalf("wire geometry.coordinates: want 3 elements (incl. null), got %d", len(wireCoordsRaw))
+	}
+	if wireCoordsRaw[1] != nil {
+		t.Errorf("wire coordinates[1] must remain nil (null in JSON), got %v", wireCoordsRaw[1])
+	}
+
+	// Invariant 2: extractCoordinates drops the null, returns 2 valid coords.
+	coords := extractCoordinates(feat)
+	if len(coords) != 2 {
+		t.Fatalf("extractCoordinates: want 2 valid coords (null dropped), got %d", len(coords))
+	}
+
+	// Invariant 3: profile dist_m[1] = Haversine(coord0, coord1) — i.e. the
+	// distance axis uses only the coords that extractCoordinates produced.
+	props := feat["properties"].(map[string]any)
+	profileRaw := props["elevation_profile"]
+	if profileRaw == nil {
+		t.Fatal("elevation_profile must not be nil (both valid coords have usable Z)")
+	}
+	profile := profileRaw.([]map[string]any)
+	if len(profile) != 2 {
+		t.Fatalf("profile: want 2 points, got %d", len(profile))
+	}
+	assertInDelta(t, 0.0, profile[0]["dist_m"].(float64), 0.01, "profile[0].dist_m")
+
+	// Expected distance: Haversine between the two valid extracted coords.
+	wantDist := haversineM(coords[0].Lat, coords[0].Lon, coords[1].Lat, coords[1].Lon)
+	assertInDelta(t, wantDist, profile[1]["dist_m"].(float64), 1.0,
+		"profile[1].dist_m must equal Haversine(coord0, coord1) — no drift")
+}
+
+// haversineM computes the Haversine distance in metres between two lat/lon points.
+// Mirrors the geo.DistanceHaversine formula used in buildProfileFromInlineZ so
+// we can assert the expected value without importing the geo package.
+func haversineM(lat1, lon1, lat2, lon2 float64) float64 {
+	const R = 6371000.0
+	toRad := func(d float64) float64 { return d * math.Pi / 180 }
+	dLat := toRad(lat2 - lat1)
+	dLon := toRad(lon2 - lon1)
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(toRad(lat1))*math.Cos(toRad(lat2))*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return R * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+}
