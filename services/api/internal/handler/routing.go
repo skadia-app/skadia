@@ -216,6 +216,11 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	// Muster identisch zu route_suggestion.go — nutzt computeAllRanges (ein
 	// Pass), aggregateForestProtectedFromResult (distanzgewichtet) und
 	// FindSummitsAlongGeom (PostGIS ST_DWithin).
+	// NOTE: extras may not contain "elevation_profile" — that key is owned
+	// by buildProperties() in result.go (Spec Rev 2.3 §6.1) and a collision
+	// here would silently override the canonical value. If a future feature
+	// needs to attach profile-related extras, use a different key
+	// (e.g., "elevation_profile_meta").
 	extras := map[string]any{}
 
 	if len(result.EdgeTags1) > 0 {
