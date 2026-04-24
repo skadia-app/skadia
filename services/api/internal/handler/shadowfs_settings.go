@@ -396,6 +396,22 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Foreground: resolve schema and library dir once, pass as snapshot to background.
+	// This ensures admin mid-job changes do not affect an already-started rename job.
+	renderer := shadowfs.NewSchemaRenderer()
+	schemaSnapshot, err := shadowfs.ResolveUserSchema(ctx, h.DB.Pool, h.Settings, renderer, userID, fileType)
+	if err != nil {
+		slog.Error("rename-execute: resolve schema", "error", err, "user_id", userID)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
+		return
+	}
+	libraryDirSnapshot, err := shadowfs.ResolveLibraryDirName(ctx, h.DB.Pool, userID)
+	if err != nil {
+		slog.Error("rename-execute: resolve library dir", "error", err, "user_id", userID)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
+		return
+	}
+
 	// Return immediately — actual rename work runs in background.
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"status": "ok",
@@ -404,12 +420,15 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 
 	// Run the rename work in background via shutdown.Go for graceful-shutdown awareness.
 	shutdown.Go("rename-execute:"+userID+":"+fileType, func(bgCtx context.Context) {
-		h.executeFileRenameBackground(bgCtx, userID, fileType, basePath, jobID)
+		h.executeFileRenameBackground(bgCtx, userID, fileType, basePath, jobID, schemaSnapshot, libraryDirSnapshot)
 	})
 }
 
 // executeFileRenameBackground performs the actual file rename work in a background goroutine.
-func (h *Handler) executeFileRenameBackground(ctx context.Context, userID, fileType, basePath, jobID string) {
+// schemaSnapshot and libraryDirSnapshot are resolved in the foreground before the background
+// goroutine starts, ensuring admin mid-job changes do not affect an already-started rename job.
+func (h *Handler) executeFileRenameBackground(ctx context.Context, userID, fileType, basePath, jobID,
+	schemaSnapshot, libraryDirSnapshot string) {
 	defer func() {
 		if _, err := h.DB.Pool.Exec(ctx,
 			`UPDATE background_jobs SET status = 'completed', finished_at = NOW() WHERE id = $1`,
@@ -436,29 +455,11 @@ func (h *Handler) executeFileRenameBackground(ctx context.Context, userID, fileT
 	}
 	defer conn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, lockKey) //nolint:errcheck
 
-	// Fetch the current (already-saved) schema for this user+type.
+	// Use pre-resolved snapshots (captured at job-start in foreground).
+	// Admin changes to schema or library_dir_name after job start do not affect this run.
 	renderer := shadowfs.NewSchemaRenderer()
-	schema := renderer.DefaultSchema(fileType)
-	var userSchema string
-	if scanErr := conn.QueryRow(ctx,
-		`SELECT schema_template FROM user_file_schemas WHERE user_id = $1 AND file_type = $2`,
-		userID, fileType,
-	).Scan(&userSchema); scanErr == nil && userSchema != "" {
-		schema = userSchema
-	}
-
-	// Resolve user directory name.
-	var libraryDirName *string
-	if err := conn.QueryRow(ctx,
-		`SELECT library_dir_name FROM users WHERE id = $1`, userID,
-	).Scan(&libraryDirName); err != nil {
-		slog.Error("rename-execute: query library_dir_name", "error", err)
-		return
-	}
-	userDir := userID
-	if libraryDirName != nil && *libraryDirName != "" {
-		userDir = *libraryDirName
-	}
+	schema := schemaSnapshot
+	userDir := libraryDirSnapshot
 	typeDirPrefix := filepath.Join(userDir, shadowfs.DirForType(fileType))
 
 	// Query all active files not currently being renamed.
