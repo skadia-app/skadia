@@ -13,7 +13,17 @@ import { DifficultyColorPicker } from './segment-editor/DifficultyColorPicker'
 import { ClimbTypePills } from './segment-editor/ClimbTypePills'
 import { MapPreview } from './segment-editor/MapPreview'
 import { SportCategoryChips, expandCategoryToSportTypes, isCategoryFullyActive } from './segment-editor/SportCategoryChips'
-import { WINTER_SPORT_WHITELIST, WATER_SPORT_WHITELIST } from './segment-editor/constants'
+import { WINTER_SPORT_WHITELIST, WATER_SPORT_WHITELIST, BIDIRECTIONAL_DEFAULT, type SegType } from './segment-editor/constants'
+import { Pill } from './ui/Pill'
+
+const SEG_TYPE_LABELS: Record<SegType, string> = {
+  standard: 'Standard',
+  trail: 'Trail',
+  lap: 'Runde',
+  wintersport: 'Winter',
+  wassersport: 'Wassersport',
+  lift: 'Lift',
+}
 
 interface Props {
   segment: Segment
@@ -48,28 +58,64 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
     initialSegment.allowed_sport_types ?? null
   )
   const [bidirectional, setBidirectional] = useState<boolean>(initialSegment.bidirectional ?? true)
-  
+  const [userEditedBidirectional, setUserEditedBidirectional] = useState(false)
+  const [segType, setSegType] = useState<SegType>((initialSegment.segment_type as SegType) ?? 'standard')
+
+  function handleSegTypeChange(newType: SegType) {
+    setSegType(newType)
+    if (!userEditedBidirectional) {
+      setBidirectional(BIDIRECTIONAL_DEFAULT[newType])
+    }
+    if (newType === 'wintersport' || newType === 'wassersport' || newType === 'lift') {
+      setSacScale(null)
+      setMtbScale(null)
+      setSurface(null)
+      setDiffColor(null)
+    }
+    if (newType === 'wintersport') {
+      setAllowedSportTypes(prev => {
+        if (!prev) return null
+        const filtered = prev.filter(s => WINTER_SPORT_WHITELIST.includes(s))
+        return filtered.length === 0 ? null : filtered
+      })
+    }
+    if (newType === 'wassersport') {
+      setAllowedSportTypes(prev => {
+        if (!prev) return null
+        const filtered = prev.filter(s => WATER_SPORT_WHITELIST.includes(s))
+        return filtered.length === 0 ? null : filtered
+      })
+    }
+  }
+
   const { openModal } = useModal()
   const { addToast } = useToast()
 
   const mutation = useMutation({
     mutationFn: () => {
       const meta: Record<string, unknown> = { ...segment.segment_type_meta }
-      if (segment.segment_type === 'trail') {
+      if (segType === 'trail') {
         if (sacScale) meta.sac_scale = sacScale; else delete meta.sac_scale
         if (mtbScale) meta.mtb_scale = mtbScale; else delete meta.mtb_scale
         if (surface) meta.surface = surface; else delete meta.surface
+      } else {
+        delete meta.sac_scale
+        delete meta.mtb_scale
+        delete meta.surface
       }
-      if (segment.segment_type === 'trail' || segment.segment_type === 'wintersport') {
+      if (segType === 'trail' || segType === 'wintersport') {
         if (diffColor) meta.difficulty_color = diffColor; else delete meta.difficulty_color
+      } else {
+        delete meta.difficulty_color
       }
-      
+
       const payload: UpdateSegmentPayload = {
         name: name.trim(),
         description: description.trim() || undefined,
+        segment_type: segType,
         segment_type_meta: Object.keys(meta).length > 0 ? meta : undefined,
         new_version: newVersion || undefined,
-        climb_type: segment.segment_type === 'lap' ? 'standard' : climbType,
+        climb_type: segType === 'lap' ? 'standard' : climbType,
         bidirectional,
         allowed_sport_types: allowedSportTypes ?? [],
       }
@@ -156,9 +202,28 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
           className={`${AUTH_INPUT_CLASS} resize-none`}
         />
 
+        {/* Segment-Typ Picker */}
+        <div className="space-y-1.5">
+          <label className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">Segment-Typ</label>
+          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Segment-Typ">
+            {(['standard', 'trail', 'lap', 'wintersport', 'wassersport', 'lift'] as SegType[]).map(t => (
+              <Pill
+                key={t}
+                active={segType === t}
+                onClick={() => handleSegTypeChange(t)}
+                role="radio"
+                ariaChecked={segType === t}
+                disabled={isLoadingFull}
+              >
+                {SEG_TYPE_LABELS[t]}
+              </Pill>
+            ))}
+          </div>
+        </div>
+
         <div className="space-y-4">
           <DifficultySelects
-            segType={segment.segment_type as any}
+            segType={segType}
             sacScale={sacScale}
             mtbScale={mtbScale}
             onChange={(f, v) => f === 'sac' ? setSacScale(v) : setMtbScale(v)}
@@ -166,14 +231,14 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
           />
 
           <SurfaceDropdown
-            segType={segment.segment_type as any}
+            segType={segType}
             value={surface}
             onChange={setSurface}
             disabled={isLoadingFull}
           />
 
           <DifficultyColorPicker
-            segType={segment.segment_type as any}
+            segType={segType}
             value={diffColor}
             onChange={setDiffColor}
             disabled={isLoadingFull}
@@ -181,11 +246,11 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         </div>
 
         <div className="space-y-3">
-          {(segment.segment_type === 'standard' || segment.segment_type === 'trail') && (
+          {(segType === 'standard' || segType === 'trail') && (
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">Höhenprofil</label>
               <ClimbTypePills
-                segType={segment.segment_type as any}
+                segType={segType}
                 value={climbType}
                 onChange={setClimbType}
                 disabled={isLoadingFull}
@@ -194,12 +259,16 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
           )}
 
           {/* Bidirectional toggle — only shown for non-lap segments (lap = closed loop) */}
-          {segment.segment_type !== 'lap' && (
+          {segType !== 'lap' && (
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
                 checked={bidirectional}
-                onChange={e => setBidirectional(e.target.checked)}
+                onChange={e => {
+                  const newVal = e.target.checked
+                  setBidirectional(newVal)
+                  setUserEditedBidirectional(newVal !== BIDIRECTIONAL_DEFAULT[segType])
+                }}
                 className="rounded border-neutral-400 dark:border-neutral-600 accent-accent-DEFAULT"
               />
               <span className="text-sm text-neutral-700 dark:text-neutral-300">Bidirektionales Matching</span>
@@ -210,10 +279,10 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         <div className="space-y-1.5">
           <label className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">Erlaubte Sportarten</label>
           <SportCategoryChips
-            segType={segment.segment_type as any}
+            segType={segType}
             activeTypes={allowedSportTypes}
             onToggleCategory={(catKey) => {
-              const whitelist = segment.segment_type === 'wintersport' ? WINTER_SPORT_WHITELIST : (segment.segment_type === 'wassersport' ? WATER_SPORT_WHITELIST : undefined)
+              const whitelist = segType === 'wintersport' ? WINTER_SPORT_WHITELIST : (segType === 'wassersport' ? WATER_SPORT_WHITELIST : undefined)
               const types = expandCategoryToSportTypes(catKey, whitelist)
               if (types.length === 0) return
 
@@ -244,7 +313,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         </div>
 
         {/* Visibility toggle — not for lift segments */}
-        {segment.segment_type !== 'lift' && (
+        {segType !== 'lift' && (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <button
@@ -299,7 +368,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         )}
 
         <div className="flex gap-2 items-center justify-between pt-2">
-          {segment.segment_type !== 'lap' && (
+          {segType !== 'lap' && (
             <button
               type="button"
               onClick={handleReverse}
