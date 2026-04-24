@@ -100,10 +100,7 @@ func (h *Handler) GetFileSchemasContext(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	backend := "local"
-	if h.Config != nil && h.Config.StorageBackend == "s3" {
-		backend = "s3"
-	}
+	backend := h.storageBackend()
 
 	canEdit := h.Settings != nil && h.Settings.Get("library.user_can_edit_schemas").Value == "true"
 	editable := canEdit
@@ -210,10 +207,7 @@ func (h *Handler) GetLibraryDir(w http.ResponseWriter, r *http.Request) {
 		effectiveName = *libraryDirName
 	}
 
-	backend := "local"
-	if h.Config != nil && h.Config.StorageBackend == "s3" {
-		backend = "s3"
-	}
+	backend := h.storageBackend()
 
 	canEdit := h.Settings != nil && h.Settings.Get("library.user_can_edit_dir_name").Value == "true"
 	editable := canEdit && backend == "local"
@@ -246,7 +240,7 @@ func (h *Handler) UpdateLibraryDir(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Gate: S3 backend does not support per-user directory names.
-	if h.Config != nil && h.Config.StorageBackend == "s3" {
+	if h.storageBackend() == "s3" {
 		httputil.WriteError(w, http.StatusForbidden, "Forbidden",
 			"library_dir_name not available for S3 backend", r.URL.Path)
 		return
@@ -357,6 +351,10 @@ func (h *Handler) PreviewFileRename(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve user directory name once.
 	userDir, err := shadowfs.ResolveLibraryDirName(r.Context(), h.DB.Pool, userID)
+	if errors.Is(err, shadowfs.ErrUserNotFound) {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "user not found", r.URL.Path)
+		return
+	}
 	if err != nil {
 		slog.Error("rename-preview: resolve library dir", "error", err, "user_id", userID)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
@@ -439,6 +437,15 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// MED #16: Gate on admin lockdown. When user_can_edit_schemas is false,
+	// the admin owns effective schema via admin-rename endpoints. Allowing
+	// user-triggered renames during lockdown would bypass admin control.
+	if h.Settings == nil || h.Settings.Get("library.user_can_edit_schemas").Value != "true" {
+		httputil.WriteError(w, http.StatusForbidden, "Forbidden",
+			"rename-execute is managed by administrator during lockdown", r.URL.Path)
+		return
+	}
+
 	fileType := chi.URLParam(r, "type")
 	if !isAllowedFileType(fileType) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown file type", r.URL.Path)
@@ -503,6 +510,10 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	libraryDirSnapshot, err := shadowfs.ResolveLibraryDirName(ctx, h.DB.Pool, userID)
+	if errors.Is(err, shadowfs.ErrUserNotFound) {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "user not found", r.URL.Path)
+		return
+	}
 	if err != nil {
 		slog.Error("rename-execute: resolve library dir", "error", err, "user_id", userID)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
@@ -809,4 +820,20 @@ func isDigits(s string) bool {
 
 func isAllowedFileType(ft string) bool {
 	return slices.Contains(allowedFileTypes, ft)
+}
+
+// storageBackend returns the configured storage backend name ("local" or "s3").
+// When h.Config is nil (test-only wiring), it falls back to "local".
+//
+// LOW #32: centralizing this nil-guard removes ~3 duplicate inline checks and
+// documents the nil-Config contract explicitly. Production always has Config
+// wired; nil is a test-only artefact.
+func (h *Handler) storageBackend() string {
+	if h.Config == nil {
+		return "local"
+	}
+	if h.Config.StorageBackend == "s3" {
+		return "s3"
+	}
+	return "local"
 }
