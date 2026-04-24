@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import AdminStorageDashboard from '@/components/AdminStorageDashboard'
-import AdminLibrarySettingsTab from '@/components/AdminLibrarySettingsTab'
+import { AdminLibrarySettingsTab } from '@/components/AdminLibrarySettingsTab'
 import AdminUsersPage from '@/pages/admin/AdminUsersPage'
 import AdminSystemTab from '@/pages/settings/AdminSystemTab'
 import { LIB_LABELS } from '@/lib/libraryLabels'
