@@ -12,13 +12,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// resolverTestPool mirrors the bootstrap in shadowfs_test.go (env: DATABASE_URL).
+// resolverTestPool bootstraps a pgxpool from TEST_DATABASE_URL (consistent with
+// handler/testhelpers_test.go and settings/testhelpers_test.go conventions).
 // Skip the test if no DB is available.
 func resolverTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("DATABASE_URL")
+	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
-		t.Skip("DATABASE_URL not set")
+		t.Skip("TEST_DATABASE_URL not set")
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
