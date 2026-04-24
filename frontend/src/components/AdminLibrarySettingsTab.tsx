@@ -162,7 +162,7 @@ export function AdminLibrarySettingsTab() {
         <ConfirmModal
           title={LIB_LABELS.bulkRenameConfirmTitle}
           message={LIB_LABELS.bulkRenameConfirmMessage.replace('{ft}', bulkConfirmFileType)}
-          confirmLabel={LIB_LABELS.buttonBulkRename}
+          confirmLabel={LIB_LABELS.bulkRenameConfirmLabel}
           isPending={bulk.isPending}
           onConfirm={() => bulk.mutate(bulkConfirmFileType)}
           onClose={() => setBulkConfirmFileType(null)}
