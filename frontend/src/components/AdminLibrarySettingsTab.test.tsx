@@ -99,11 +99,6 @@ describe('AdminLibrarySettingsTab', () => {
       expect(screen.getByText(/Bulk-Rename bestätigen/i)).toBeInTheDocument(),
     )
 
-    // Confirm button in the dialog
-    const confirmButton = screen.getByRole('button', { name: /Rename auf alle User/i, hidden: false })
-    // While isPending the button should be disabled (prevent double-click)
-    // Simulate isPending by checking the confirm button inside ConfirmModal
-    // The ConfirmModal's own confirm button is the last one in the document
     const allConfirmBtns = screen.getAllByRole('button', { name: /Rename auf alle User/i })
     // The modal's confirm button is rendered by ConfirmModal — ensure it's present
     expect(allConfirmBtns.length).toBeGreaterThan(0)
