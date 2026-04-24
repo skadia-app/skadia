@@ -2455,7 +2455,15 @@ export default function MapPage() {
               }
             }}
             onClearRoute={planner.clear}
-            onSave={() => setShowSaveDialog(true)}
+            onSave={() => {
+              // Variante A: wenn eine geladene Route editiert wird, direkt via
+              // PATCH aktualisieren — kein Dialog nötig, Metadata bleibt erhalten.
+              if (planner.editingRouteId && planner.profile.status === 'ready') {
+                planner.profile.saveRoute()
+              } else {
+                setShowSaveDialog(true)
+              }
+            }}
             onSuggest={() => setShowSuggestionDialog(true)}
             onClose={handlePlannerClose}
             calculationError={planner.calculationError}
