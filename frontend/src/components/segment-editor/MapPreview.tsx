@@ -21,20 +21,24 @@ export function MapPreview({ geojsonTrack, height = '200px', className }: MapPre
   useEffect(() => {
     if (!containerRef.current || !geojsonTrack) return
     
-    let geojson: GeoJSON.Feature<GeoJSON.LineString>
+    // Accept both a bare LineString Geometry (what the backend returns via
+    // ST_AsGeoJSON) and a wrapped Feature<LineString>.
+    let parsed: GeoJSON.Feature<GeoJSON.LineString> | GeoJSON.LineString
     try {
-      if (typeof geojsonTrack === 'string') {
-        geojson = JSON.parse(geojsonTrack)
-      } else {
-        // Assume it's already an object if not string
-        geojson = geojsonTrack as any
-      }
+      parsed = typeof geojsonTrack === 'string' ? JSON.parse(geojsonTrack) : (geojsonTrack as any)
     } catch (e) {
       console.warn('MapPreview: invalid GeoJSON', e)
       return
     }
-    
-    const coords = geojson.geometry?.coordinates ?? []
+
+    const lineString: GeoJSON.LineString =
+      parsed.type === 'Feature' ? (parsed.geometry as GeoJSON.LineString) : (parsed as GeoJSON.LineString)
+    const coords = lineString?.coordinates ?? []
+    const geojson: GeoJSON.Feature<GeoJSON.LineString> = {
+      type: 'Feature',
+      properties: {},
+      geometry: lineString,
+    }
     
     const map = new maplibregl.Map({
       container: containerRef.current,
