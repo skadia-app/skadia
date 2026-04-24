@@ -155,6 +155,45 @@ var AllKeys = []KeyDef{
 	{
 		Key: "timescale.compression", EnvVar: "", Default: "false", Encrypted: false, Group: "timescale",
 	},
+
+	// ── Library settings (Spec 2026-04-24, admin-owned model) ──────────
+	{
+		Key: "library.user_can_edit_dir_name", EnvVar: "LIBRARY_USER_CAN_EDIT_DIR_NAME",
+		Default: "false", Encrypted: false, Group: "library",
+		Validate: func(v string) error {
+			if v != "true" && v != "false" {
+				return fmt.Errorf("library.user_can_edit_dir_name must be 'true' or 'false', got %q", v)
+			}
+			return nil
+		},
+	},
+	{
+		Key: "library.user_can_edit_schemas", EnvVar: "LIBRARY_USER_CAN_EDIT_SCHEMAS",
+		Default: "true", Encrypted: false, Group: "library",
+		Validate: func(v string) error {
+			if v != "true" && v != "false" {
+				return fmt.Errorf("library.user_can_edit_schemas must be 'true' or 'false', got %q", v)
+			}
+			return nil
+		},
+	},
+	{
+		Key: "library.default_schema.activity", Default: "", Group: "library",
+		// Default wird via ApplySeedsIfMissing aus renderer.DefaultSchema gesetzt.
+		// Empty default triggert Fallback auf Renderer im Resolver.
+	},
+	{
+		Key: "library.default_schema.media", Default: "", Group: "library",
+	},
+	{
+		Key: "library.default_schema.document", Default: "", Group: "library",
+	},
+	{
+		Key: "library.default_schema.health", Default: "", Group: "library",
+	},
+	{
+		Key: "library.default_schema.route", Default: "", Group: "library",
+	},
 }
 
 // KeysByKey maps key strings to their KeyDef for O(1) lookup.
