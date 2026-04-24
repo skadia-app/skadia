@@ -11,7 +11,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ToastProvider } from '@/lib/toast'
 import { useRoutePlanner, mergeSegmentStatsForState } from '../useRoutePlanner'
 import type { RouteStats } from '../useRoutePlanner'
-import type { RouteSegment } from '@/api/routes'
+import type { RouteSegment, PlannedRoute, RouteWaypoint, ElevationPoint } from '@/api/routes'
 import { makeFakeRouteStats, makeFakeSuggestion } from '@/test-utils/routeFixtures'
 
 // addToastMock must be hoisted so vi.mock factory can reference it
@@ -41,6 +41,9 @@ vi.mock('@/api/routes', async () => {
       uphill_cost: 7,
     }),
     computeInternalRoute: computeInternalRouteMock,
+    // DEM endpoint — default: empty profile (no DEM available). Tests that need
+    // a resolved profile override this via vi.mocked(getElevationProfile).mockResolvedValue(...)
+    getElevationProfile: vi.fn().mockResolvedValue({ profile: [] }),
   }
 })
 
@@ -436,5 +439,391 @@ describe('useRoutePlanner routeStats Quelle 1 — addWaypoint via computeInterna
     expect(result.current.routeStats!.protected_pct).toBe(0.15)
     expect(result.current.routeStats!.sac_ranges).not.toBeNull()
     expect(result.current.routeStats!.sac_ranges!['T2']).toEqual([{ from: 0, to: 2 }])
+  })
+})
+
+// ── Lazy-Fill DEM-only (Spec Rev 2.3 §7.5) ───────────────────────────────────
+//
+// Tests cover three cases:
+//   1. Route already has elevation_profile → no lazy-fill triggered
+//   2. Route with null profile → DEM-only lazy-fill (getElevationProfile called,
+//      computeInternalRoute NOT called, segments untouched, lazyFillPendingSave=true)
+//   3. Stale lazy-fill result discarded when user moves a waypoint mid-flight
+//      (reference-identity check: s.segments !== segmentsSnapshot → discard)
+//
+// Note on API function names: the plan references `calculateSegment` which does
+// not exist in @/api/routes. The real equivalent that _calculateSegment uses
+// internally is `computeInternalRoute` (verified via grep). Spies target that.
+
+/** Build a minimal PlannedRoute with required fields, merging overrides. */
+function makeTestRoute(overrides: Partial<PlannedRoute> = {}): PlannedRoute {
+  const wp1: RouteWaypoint = { id: 'wp1', latlng: [47.0, 11.0], type: 'start' }
+  const wp2: RouteWaypoint = { id: 'wp2', latlng: [47.1, 11.1], type: 'end' }
+  const defaultSegment: RouteSegment = {
+    from_waypoint: 'wp1',
+    to_waypoint: 'wp2',
+    mode: 'routed',
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [11.0, 47.0, 500],
+        [11.05, 47.05, 510],
+        [11.1, 47.1, 520],
+      ],
+    },
+    control_points: [],
+    smooth: true,
+    distance_m: 12000,
+    elevation_gain: 200,
+    elevation_loss: 50,
+  }
+  return {
+    id: 'test-route-1',
+    name: 'Test Route',
+    sport_type: 'hiking',
+    profile: 'hiking',
+    waypoints: [wp1, wp2],
+    segments: [defaultSegment],
+    time_override: false,
+    auto_tag: false,
+    photos: [],
+    tags: [],
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    elevation_profile: null,
+    enrichment: null,
+    ...overrides,
+  }
+}
+
+describe('useRoutePlanner lazy-fill (DEM-only, Spec Rev 2.3 §7.5)', () => {
+  let qc: QueryClient
+
+  beforeEach(async () => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    addToastMock.mockClear()
+    sessionStorage.removeItem('skadia.lazy_fill_notice_shown')
+
+    const { getProfileDefaults, cacheServerDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue(null)
+    vi.mocked(cacheServerDefaults).mockReset()
+
+    const { getProfileDefaults: fetchProfileDefaults, getElevationProfile } =
+      await import('@/api/routes')
+    vi.mocked(fetchProfileDefaults).mockResolvedValue({
+      profile: 'hiking',
+      uphill_cost: 7,
+    } as any)
+    // Default: getElevationProfile resolves with empty profile (no DEM available)
+    vi.mocked(getElevationProfile).mockResolvedValue({ profile: [] })
+  })
+
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <ToastProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </ToastProvider>
+  )
+
+  it('TestLoadRoute_NoLazyFill_WhenProfilePresent', async () => {
+    // Route with a persisted elevation_profile → getElevationProfile must NOT be called.
+    const { getElevationProfile } = await import('@/api/routes')
+    const getElevSpy = vi.mocked(getElevationProfile)
+    getElevSpy.mockClear()
+
+    const route = makeTestRoute({
+      elevation_profile: [
+        { dist_m: 0, ele_m: 100 },
+        { dist_m: 50, ele_m: 110 },
+      ],
+      enrichment: { enrichment_version: 1, forest_pct: 0.5 },
+    })
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    act(() => {
+      result.current.loadRoute(route)
+    })
+
+    // elevationProfile is hydrated synchronously from route.elevation_profile
+    await waitFor(() => {
+      expect(result.current.elevationProfile).not.toBeNull()
+    })
+
+    // DEM endpoint must NOT have been called
+    expect(getElevSpy).not.toHaveBeenCalled()
+    // No lazy-fill state active
+    expect(result.current.lazyFillPendingSave).toBe(false)
+    expect(result.current.lazyFillInProgress).toBe(false)
+  })
+
+  it('TestLoadRoute_LazyFillWhenProfileNull_DEMOnly', async () => {
+    // Spec §7.4: getElevationProfile is called (DEM-only), computeInternalRoute is NOT.
+    // Segments remain identical (no geometry drift).
+    const { getElevationProfile } = await import('@/api/routes')
+    const getElevSpy = vi.mocked(getElevationProfile)
+    getElevSpy.mockResolvedValue({
+      profile: [
+        { fraction: 0, elevation: 100 },
+        { fraction: 0.5, elevation: 110 },
+        { fraction: 1, elevation: 120 },
+      ] as ElevationPoint[],
+    })
+
+    const computeSpy = vi.mocked(computeInternalRouteMock)
+    computeSpy.mockClear()
+
+    const route = makeTestRoute({ elevation_profile: null, enrichment: null })
+    const initialSegments = route.segments
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    act(() => {
+      result.current.loadRoute(route)
+    })
+
+    // Wait for lazy-fill to complete
+    await waitFor(() => {
+      expect(result.current.lazyFillInProgress).toBe(false)
+    })
+
+    // getElevationProfile was called exactly once (DEM-only path)
+    expect(getElevSpy).toHaveBeenCalledTimes(1)
+
+    // computeInternalRoute (recalculateAll equivalent) was NOT called
+    expect(computeSpy).not.toHaveBeenCalled()
+
+    // elevationProfile is now populated
+    expect(result.current.elevationProfile).not.toBeNull()
+
+    // Geometry (segments) is identical — no route drift
+    expect(result.current.segments).toEqual(initialSegments)
+
+    // lazyFillPendingSave is true after successful fill
+    expect(result.current.lazyFillPendingSave).toBe(true)
+  })
+
+  it('TestLoadRoute_LazyFillStaleResult_DiscardedWhenUserMoved', async () => {
+    // Spec §R7 + Rev 2.3: stale-check via reference-identity (s.segments !== snapshot).
+    //
+    // The lazy-fill callback is kept pending while the user moves a waypoint.
+    // moveWaypoint fires _calculateSegment (via computeInternalRoute), which
+    // replaces state.segments with a new array — breaking reference-identity
+    // against segmentsSnapshot captured at loadRoute() time. When the
+    // in-flight getElevationProfile resolves, the stale-check discards the result.
+    //
+    // Note: moveWaypoint only fires _calculateSegment when profileConfig is set.
+    // We must wait for the profile to be hydrated (status='ready') before
+    // calling moveWaypoint, otherwise the move is a no-op for segments.
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+
+    // Keep getElevationProfile in-flight until we manually resolve it
+    let resolveGetElev!: (v: { profile: ElevationPoint[] }) => void
+    const { getElevationProfile } = await import('@/api/routes')
+    vi.mocked(getElevationProfile).mockImplementation(
+      () => new Promise(resolve => { resolveGetElev = resolve }),
+    )
+
+    // Mock computeInternalRoute to return a new geometry (new segments array
+    // reference — this is what breaks segmentsSnapshot identity).
+    const newCoords = [
+      [11.5, 47.3, 600],
+      [11.55, 47.35, 610],
+      [11.6, 47.4, 620],
+    ]
+    computeInternalRouteMock.mockResolvedValue({
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: newCoords },
+        properties: {
+          distance_m: 8000,
+          ascent_m: 100,
+          descent_m: 30,
+          forest_pct: null,
+          protected_pct: null,
+          sac_ranges: null,
+          mtb_ranges: null,
+          vf_ranges: null,
+          vf_unknown_ranges: null,
+          summits_passed: null,
+        },
+      }],
+    })
+
+    const route = makeTestRoute({ elevation_profile: null })
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    act(() => {
+      result.current.loadRoute(route)
+    })
+
+    // Lazy-fill is in-flight
+    await waitFor(() => {
+      expect(result.current.lazyFillInProgress).toBe(true)
+    })
+
+    // Wait for profile to be ready (required for moveWaypoint to trigger recalc)
+    await waitFor(() => {
+      expect(result.current.profile.status).toBe('ready')
+    })
+
+    // User moves a waypoint — triggers _calculateSegment → new segments array
+    await act(async () => {
+      await result.current.moveWaypoint('wp1', [47.3, 11.5])
+    })
+
+    // Wait for segment recalculation to complete (computeInternalRoute called)
+    await waitFor(() => {
+      expect(computeInternalRouteMock).toHaveBeenCalled()
+    })
+
+    // Capture profile state after user move (may be null or have fresh data)
+    const profileAfterMove = result.current.elevationProfile
+
+    // Now resolve the stale lazy-fill with a clearly distinguishable value (ele=999)
+    act(() => {
+      resolveGetElev({ profile: [{ fraction: 0, elevation: 999 }, { fraction: 1, elevation: 999 }] })
+    })
+
+    // Wait for lazy-fill to settle
+    await waitFor(() => {
+      expect(result.current.lazyFillInProgress).toBe(false)
+    })
+
+    // Stale-check must have discarded the 999-elevation result.
+    // The effective profile must NOT contain the stale 999 value.
+    // (Note: ele_m=999 corresponds to fraction=0/1 after conversion.)
+    const finalProfile = result.current.elevationProfile
+    if (finalProfile != null && finalProfile.length > 0) {
+      // If profile is present, it must not be the stale one
+      expect(finalProfile).toEqual(profileAfterMove)
+      expect(finalProfile[0].ele_m).not.toBe(999)
+    } else {
+      // Profile is null (no DEM data from moveWaypoint recalc) — still correct,
+      // because the stale value (999) was discarded.
+      expect(finalProfile).toBeNull()
+    }
+    // lazyFillPendingSave must NOT be true (stale result was discarded)
+    expect(result.current.lazyFillPendingSave).toBe(false)
+  })
+
+  it('TestLoadRoute_LazyFillNoDEM_SilentGracefulDegradation', async () => {
+    // Spec §7.4: empty profile response (no DEM) → silent, no toast, no crash,
+    // lazyFillPendingSave remains false.
+    const { getElevationProfile } = await import('@/api/routes')
+    vi.mocked(getElevationProfile).mockResolvedValue({ profile: [] })
+
+    const route = makeTestRoute({ elevation_profile: null })
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    act(() => {
+      result.current.loadRoute(route)
+    })
+
+    await waitFor(() => {
+      expect(result.current.lazyFillInProgress).toBe(false)
+    })
+
+    expect(result.current.elevationProfile).toBeNull()
+    // No toast (silent graceful degradation)
+    expect(addToastMock).not.toHaveBeenCalled()
+    expect(result.current.lazyFillPendingSave).toBe(false)
+  })
+
+  it('TestLoadRoute_LazyFillError_SilentGracefulDegradation', async () => {
+    // Spec §7.4: 500/exception → silent, no toast, no crash.
+    const { getElevationProfile } = await import('@/api/routes')
+    vi.mocked(getElevationProfile).mockRejectedValue(new Error('PostGIS-DEM not available'))
+
+    const route = makeTestRoute({ elevation_profile: null })
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    act(() => {
+      result.current.loadRoute(route)
+    })
+
+    await waitFor(() => {
+      expect(result.current.lazyFillInProgress).toBe(false)
+    })
+
+    expect(result.current.elevationProfile).toBeNull()
+    expect(addToastMock).not.toHaveBeenCalled()
+    expect(result.current.lazyFillPendingSave).toBe(false)
+  })
+
+  it('TestLazyFillToast_OnlyShownOncePerSession', async () => {
+    // Spec §7.4: the "profile was filled" notice appears at most once per session.
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+
+    const { getElevationProfile } = await import('@/api/routes')
+    vi.mocked(getElevationProfile).mockResolvedValue({
+      profile: [{ fraction: 0, elevation: 100 }, { fraction: 1, elevation: 110 }] as ElevationPoint[],
+    })
+
+    sessionStorage.removeItem('skadia.lazy_fill_notice_shown')
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => { expect(result.current.profile.status).toBe('ready') })
+
+    // First load with null profile
+    act(() => {
+      result.current.loadRoute(makeTestRoute({ id: 'r1', elevation_profile: null }))
+    })
+    await waitFor(() => { expect(result.current.lazyFillInProgress).toBe(false) })
+    expect(addToastMock).toHaveBeenCalledTimes(1)
+
+    addToastMock.mockClear()
+    // Reset lazyFillPendingSave by simulating save (set it back via a new load with profile)
+    // Second load with null profile in same session → toast suppressed
+    act(() => {
+      result.current.loadRoute(makeTestRoute({ id: 'r2', elevation_profile: null }))
+    })
+    await waitFor(() => { expect(result.current.lazyFillInProgress).toBe(false) })
+
+    // sessionStorage flag set → toast must NOT fire again
+    expect(addToastMock).not.toHaveBeenCalled()
+  })
+
+  it('TestLoadRoute_FromActivityCreated_TriggersLazyFill', async () => {
+    // Spec §3 Non-Goal: route_from_activity.go creates routes with elevation_profile=nil.
+    // First loadRoute MUST trigger DEM-only lazy-fill, NOT computeInternalRoute.
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+
+    const { getElevationProfile } = await import('@/api/routes')
+    vi.mocked(getElevationProfile).mockResolvedValue({
+      profile: [
+        { fraction: 0, elevation: 800 },
+        { fraction: 0.5, elevation: 850 },
+        { fraction: 1, elevation: 900 },
+      ] as ElevationPoint[],
+    })
+
+    computeInternalRouteMock.mockClear()
+
+    const route = makeTestRoute({
+      id: 'activity-route',
+      elevation_profile: null,
+      enrichment: null,
+    })
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    act(() => {
+      result.current.loadRoute(route)
+    })
+
+    await waitFor(() => {
+      expect(result.current.lazyFillInProgress).toBe(false)
+    })
+
+    // DEM endpoint called exactly once
+    expect(vi.mocked(getElevationProfile)).toHaveBeenCalledTimes(1)
+    // computeInternalRoute (routing) was NOT called (DEM-only path)
+    expect(computeInternalRouteMock).not.toHaveBeenCalled()
+    // lazyFillPendingSave set after successful fill
+    expect(result.current.lazyFillPendingSave).toBe(true)
   })
 })
