@@ -15,7 +15,7 @@ import RouteProfileChart from '@/components/route-planner/RouteProfileChart'
 import RouteSurfacesBar from '@/components/route-planner/RouteSurfacesBar'
 import ScaleLegend from '@/components/route-planner/ScaleLegend'
 import RouteComparisonPanel, { SUGGESTION_COLORS } from '@/components/route-planner/RouteComparisonPanel'
-import { getRoute, legacyToRouteProfile } from '@/api/routes'
+import { getRoute } from '@/api/routes'
 import type { RouteSuggestion } from '@/api/routes'
 import { useRoutePlanner } from '@/hooks/useRoutePlanner'
 import { getTagTextColor, getTagBadgeStyle } from '@/lib/tagUtils'
@@ -3202,12 +3202,7 @@ export default function MapPage() {
             {!bottomBarCollapsed && (
               <div className="px-3 py-2">
                 <RouteProfileChart
-                  // T3.3-bridge: legacyToRouteProfile converts ElevationPoint[] (fraction/ele)
-                  // to RouteElevationPoint[] (dist_m/ele_m). Remove when T3.3 wires
-                  // effectiveProfile into the hook return.
-                  profile={planner.elevationProfile
-                    ? legacyToRouteProfile(planner.elevationProfile, planner.totals.distance_m)
-                    : null}
+                  profile={planner.elevationProfile}
                   totalDistanceM={planner.totals.distance_m}
                   segments={planner.segments}
                   height={140}
