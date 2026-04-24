@@ -285,6 +285,7 @@ function buildTileUrl(
 
 export default function MapPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null)
+  const mapRelativeRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const navigate = useNavigate()
   const location = useLocation()
@@ -394,7 +395,6 @@ export default function MapPage() {
   const [suggestionPartialSearch, setSuggestionPartialSearch] = useState(false)
   const suggestionCountRef = useRef(0)
   const [hoveredSuggestion, setHoveredSuggestion] = useState<number | null>(null)
-  const [showProfileChart, setShowProfileChart] = useState(false)
   const [bottomBarCollapsed, setBottomBarCollapsed] = useState(false)
   const highlight = useStickyHighlight()
   const [filterPanelVisible, setFilterPanelVisible] = useState(() => {
@@ -413,6 +413,14 @@ export default function MapPage() {
 
   const planner = useRoutePlanner()
   const { addToast } = useToast()
+  const [layerMenuOpen, setLayerMenuOpen] = useState(false)
+
+  const topButtonsRef = useRef<HTMLDivElement>(null)
+  const baseStylesFullRowRef = useRef<HTMLDivElement>(null)
+  const viewModeGroupRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLDivElement>(null)
+  const [topOverlap, setTopOverlap] = useState(false)
+  const [baseStylesCollapsed, setBaseStylesCollapsedState] = useState(false)
 
   // Clear URL param after reading it (avoid re-activating on back-navigation)
   useEffect(() => {
@@ -462,18 +470,10 @@ export default function MapPage() {
     setPlannerPanelOpen(false)
     setShowSuggestionDialog(false)
     setShowSaveDialog(false)
-    setShowProfileChart(false)
     setRouteSuggestions(null)
     setSuggestionPartialSearch(false)
     planner.clear()
   }, [planner])
-
-  // Show profile chart automatically when segments are available
-  useEffect(() => {
-    if (planner.segments.length > 0 && planner.elevationProfile) {
-      setShowProfileChart(true)
-    }
-  }, [planner.segments.length, planner.elevationProfile])
 
   // Fit map bounds when a saved route is loaded into the planner.
   // The ref tracks which editingRouteId has already been fitted so that
@@ -1275,6 +1275,39 @@ export default function MapPage() {
       mapRef.current = null
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    let rafId = 0
+    const measure = () => {
+      const buttons = topButtonsRef.current?.getBoundingClientRect()
+      const search = searchRef.current?.getBoundingClientRect()
+      const base = baseStylesFullRowRef.current?.getBoundingClientRect()
+      const view = viewModeGroupRef.current?.getBoundingClientRect()
+      const gap = 8
+      if (buttons && search && buttons.width > 0 && search.width > 0) {
+        setTopOverlap(search.right + gap > buttons.left)
+      }
+      if (base && view && base.width > 0 && view.width > 0) {
+        setBaseStylesCollapsedState(base.right + gap > view.left)
+      }
+    }
+    const schedule = () => {
+      cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(measure)
+    }
+    schedule()
+    const ro = new ResizeObserver(schedule)
+    if (mapRelativeRef.current) ro.observe(mapRelativeRef.current)
+    if (topButtonsRef.current) ro.observe(topButtonsRef.current)
+    if (baseStylesFullRowRef.current) ro.observe(baseStylesFullRowRef.current)
+    if (viewModeGroupRef.current) ro.observe(viewModeGroupRef.current)
+    window.addEventListener('resize', schedule)
+    return () => {
+      cancelAnimationFrame(rafId)
+      ro.disconnect()
+      window.removeEventListener('resize', schedule)
+    }
+  }, [])
 
   // ── Kartenstil wechseln ──────────────────────────────────────────────────
   // prevBaseStyleRef verhindert den redundanten setStyle()-Aufruf beim ersten
@@ -2427,29 +2460,40 @@ export default function MapPage() {
     }
   }, [overlayState.showAmenities, styleVersion, currentUserId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const plannerAvailable = planner.capabilities?.routing ?? false
+
   return (
     <div className="fixed inset-0 z-40 flex flex-col" style={{ top: '3.5rem' }}>
       <div className="flex flex-row flex-1 min-h-0 relative overflow-hidden">
 
         {/* ── Planner-Panel (links, absolute overlay mit Tab) ───────────── */}
-        {plannerActive && (
-          <div className={`absolute left-0 top-0 bottom-0 z-10 w-72 flex flex-row-reverse transition-transform duration-200 ease-in-out ${plannerPanelOpen ? 'translate-x-0' : '-translate-x-[calc(100%-1.25rem)]'}`}>
-            {/* Tab (rechte Seite des Panels, immer sichtbar) */}
+        {plannerAvailable && (
+          <div className={`absolute left-0 top-0 bottom-0 z-10 w-72 flex flex-row-reverse transition-transform duration-200 ease-in-out ${plannerActive && plannerPanelOpen ? 'translate-x-0' : '-translate-x-[calc(100%-1.25rem)]'}`}>
+            {/* Tab (rechte Seite des Panels, immer sichtbar solange Routing verfügbar) */}
             <button
               onClick={() => {
-                const next = !plannerPanelOpen
-                setPlannerPanelOpen(next)
-                try { localStorage.setItem('skadia-planner-panel-visible', String(next)) } catch { /* ignore */ }
+                if (plannerActive) {
+                  const next = !plannerPanelOpen
+                  setPlannerPanelOpen(next)
+                  try { localStorage.setItem('skadia-planner-panel-visible', String(next)) } catch { /* ignore */ }
+                } else {
+                  setPlannerActive(true)
+                  setPlannerPanelOpen(true)
+                  try { localStorage.setItem('skadia-planner-panel-visible', 'true') } catch { /* ignore */ }
+                }
               }}
-              className="w-5 flex-shrink-0 flex items-center justify-center bg-neutral-50 dark:bg-neutral-800 border-r border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer"
-              title={plannerPanelOpen ? 'Planer ausblenden' : 'Planer einblenden'}
+              className="w-5 flex-shrink-0 flex flex-col items-center justify-center gap-1.5 bg-neutral-50 dark:bg-neutral-800 border-r border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer transition-colors overflow-hidden"
+              title={plannerActive && plannerPanelOpen ? 'Routenplaner ausblenden' : 'Routenplaner einblenden'}
             >
-              <svg className={`w-3 h-3 transition-transform ${plannerPanelOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+              <svg className={`w-3 h-3 flex-shrink-0 transition-transform text-neutral-400 ${plannerActive && plannerPanelOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
               </svg>
+              <span className="text-[10px] text-neutral-300 select-none leading-none" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
+                {plannerActive && plannerPanelOpen ? 'Routenplaner ausblenden' : 'Routenplaner einblenden'}
+              </span>
             </button>
-            {/* Panel-Inhalt (immer gerendert — kein conditional) */}
-            <div className="flex-1 border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-y-auto">
+            {/* Panel-Inhalt — nur wenn Planer aktiv */}
+            {plannerActive && <div className="flex-1 border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-y-auto">
               <RoutePlannerPanel
                 waypoints={planner.waypoints}
                 segments={planner.segments}
@@ -2506,15 +2550,15 @@ export default function MapPage() {
                 isSaving={planner.profile.status === 'ready' && planner.profile.isSaving}
                 lazyFillPendingSave={planner.lazyFillPendingSave}
               />
-            </div>
+            </div>}
           </div>
         )}
 
         {/* ── Mittlere Spalte: Karte + Bottom-Bar ───────────────────────── */}
-        <div className="flex flex-col flex-1 min-h-0 min-w-0" style={{ paddingLeft: plannerActive && plannerPanelOpen ? '18rem' : '1.25rem', paddingRight: filterPanelVisible ? '16rem' : '1.25rem' }}>
+        <div className="flex flex-col flex-1 min-h-0 min-w-0" style={{ paddingLeft: plannerAvailable ? (plannerActive && plannerPanelOpen ? '18rem' : '1.25rem') : '0', paddingRight: filterPanelVisible ? '16rem' : '1.25rem' }}>
 
         {/* ── Kartenbereich ─────────────────────────────────────────────── */}
-        <div className="relative flex-1 min-h-0 overflow-hidden">
+        <div ref={mapRelativeRef} className="relative flex-1 min-h-0 overflow-hidden">
         <div
           ref={mapContainerRef}
           className="w-full h-full"
@@ -2529,8 +2573,12 @@ export default function MapPage() {
           hasUnknownVf={(planner.routeStats?.vf_unknown_ranges?.length ?? 0) > 0}
         />
 
-        {/* ── Kartenstil-Buttons — links unten ────────────────────────── */}
-        <div className="absolute bottom-4 left-4 z-10 flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md">
+        {/* Base style selector: full row when wide, dropdown when narrow */}
+        <div
+          ref={baseStylesFullRowRef}
+          aria-hidden={baseStylesCollapsed || undefined}
+          className={`absolute bottom-4 left-4 z-10 flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md ${baseStylesCollapsed ? 'invisible pointer-events-none' : ''}`}
+        >
           {(Object.keys(BASE_STYLES) as BaseStyle[]).map((key) => {
             const isOfflineStyle = key === 'local' || key === 'offline'
             const offlineAvailable = planner.capabilities?.offline_map ?? false
@@ -2563,6 +2611,58 @@ export default function MapPage() {
             )
           })}
         </div>
+        {baseStylesCollapsed && (
+          <div className="absolute bottom-4 left-4 z-10">
+            {layerMenuOpen && (
+              <div
+                className="fixed inset-0 z-[9]"
+                onClick={() => setLayerMenuOpen(false)}
+              />
+            )}
+            <div className="relative">
+              <button
+                onClick={() => setLayerMenuOpen(o => !o)}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
+              >
+                {BASE_STYLES[baseStyle].label}
+                <svg className={`w-3 h-3 transition-transform ${layerMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                </svg>
+              </button>
+              {layerMenuOpen && (
+                <div className="absolute bottom-full mb-1 left-0 flex flex-col rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white/95 dark:bg-neutral-800/95 backdrop-blur-sm shadow-lg overflow-hidden min-w-[6rem] z-10">
+                  {(Object.keys(BASE_STYLES) as BaseStyle[]).map((key) => {
+                    const isOfflineStyle = key === 'local' || key === 'offline'
+                    const offlineAvailable = planner.capabilities?.offline_map ?? false
+                    const disabled = isOfflineStyle && !offlineAvailable
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => {
+                          if (disabled) {
+                            addToast({ type: 'info', title: 'Lokale Karten nicht verfügbar', message: 'Aktiviere lokale Kartendaten in den Einstellungen.' })
+                            return
+                          }
+                          setBaseStyle(key)
+                          setLayerMenuOpen(false)
+                        }}
+                        className={`px-3 py-1.5 text-xs font-medium text-left transition-colors ${
+                          disabled
+                            ? 'opacity-40 cursor-not-allowed text-neutral-600 dark:text-neutral-300'
+                            : baseStyle === key
+                              ? 'bg-accent-DEFAULT text-white cursor-pointer'
+                              : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer'
+                        }`}
+                      >
+                        {BASE_STYLES[key].label}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── View-Mode + Badges — mittig unten ────────────────────────── */}
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-1.5">
@@ -2593,8 +2693,8 @@ export default function MapPage() {
             </div>
           )}
 
-          {/* View-Mode-Gruppe */}
-          <div className="flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md">
+          {/* View mode group */}
+          <div ref={viewModeGroupRef} className="flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md">
               <button
                 onClick={() => {
                   const map = mapRef.current
@@ -2674,15 +2774,14 @@ export default function MapPage() {
           </div>
         </div>
 
-        {/* Geocoding search — centered on full map width */}
-        <GeoSearch mapRef={mapRef} />
+        {/* Geocoding search — centered, drops below buttons on narrow widths */}
+        <div ref={searchRef} className={`absolute ${topOverlap ? 'top-12' : 'top-3'} left-1/2 -translate-x-1/2 z-[9]`}>
+          <GeoSearch mapRef={mapRef} embedded />
+        </div>
 
-        {/* Toggle buttons — top right, links vom Filter-Toggle-Button */}
-        <div className="absolute top-3 right-[5.5rem] z-10 flex gap-1.5 flex-wrap justify-end">
+        {/* Toggle buttons — top-right, above search (z-10 > z-[9]) */}
+        <div ref={topButtonsRef} className="absolute top-3 right-4 z-10 flex gap-1.5 flex-wrap justify-end">
           {/* Route Planner toggle button */}
-          {(() => {
-            const plannerAvailable = planner.capabilities?.routing ?? false
-            return (
           <button
             onClick={() => {
               if (!plannerAvailable) {
@@ -2714,8 +2813,6 @@ export default function MapPage() {
             </svg>
             Planer
           </button>
-            )
-          })()}
           <button
             onClick={() => setShowIndoorAssign(!showIndoorAssign)}
             className={`px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors cursor-pointer ${
@@ -2756,7 +2853,7 @@ export default function MapPage() {
           >
             Eigene Karten
           </button>
-        </div>
+          </div>
 
         {/* Segments Overlay — Segment-Linien als Karten-Ebene */}
         <SegmentsOverlay
@@ -3241,34 +3338,19 @@ export default function MapPage() {
         </div>{/* Ende: Kartenbereich (relative flex-1 min-h-0) */}
 
         {/* ── Bottom-Bar: Höhenprofil (gedockt, ein-/ausklappbar) ────────── */}
-        {plannerActive && showProfileChart && planner.elevationProfile && planner.elevationProfile.length > 0 && (
+        {plannerActive && planner.elevationProfile && planner.elevationProfile.length > 0 && (
           <div className="flex-shrink-0 border-t border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
             {/* Toggle-Tab */}
-            <div className="flex items-center justify-between px-4 py-1.5 border-b border-neutral-100 dark:border-neutral-800">
-              <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Höhenprofil</span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setBottomBarCollapsed(c => !c)}
-                  className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
-                  aria-label={bottomBarCollapsed ? 'Höhenprofil einblenden' : 'Höhenprofil ausblenden'}
-                  title={bottomBarCollapsed ? 'Einblenden' : 'Ausblenden'}
-                >
-                  <svg className={`w-3.5 h-3.5 transition-transform ${bottomBarCollapsed ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => setShowProfileChart(false)}
-                  className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
-                  aria-label="Höhenprofil schließen"
-                  title="Schließen"
-                >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                  </svg>
-                </button>
-              </div>
-            </div>
+            <button
+              onClick={() => setBottomBarCollapsed(c => !c)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-1 bg-neutral-50 dark:bg-neutral-800 border-b border-neutral-100 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
+              aria-label={bottomBarCollapsed ? 'Höhenprofil einblenden' : 'Höhenprofil ausblenden'}
+            >
+              <svg className={`w-3 h-3 transition-transform text-neutral-400 ${bottomBarCollapsed ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+              </svg>
+              <span className="text-[10px] text-neutral-400">{bottomBarCollapsed ? 'Höhenprofil einblenden' : 'Höhenprofil ausblenden'}</span>
+            </button>
             {!bottomBarCollapsed && (
               <div className="px-3 py-2">
                 <RouteProfileChart
@@ -3311,12 +3393,15 @@ export default function MapPage() {
               setFilterPanelVisible(next)
               try { localStorage.setItem('skadia-filter-panel-visible', String(next)) } catch { /* ignore */ }
             }}
-            className="w-5 flex-shrink-0 flex items-center justify-center bg-neutral-50 dark:bg-neutral-800 border-l border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+            className="w-5 flex-shrink-0 flex flex-col items-center justify-center gap-1.5 bg-neutral-50 dark:bg-neutral-800 border-l border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer transition-colors overflow-hidden"
             title={filterPanelVisible ? 'Filter ausblenden' : 'Filter einblenden'}
           >
-            <svg className={`w-3 h-3 transition-transform ${filterPanelVisible ? '' : 'rotate-180'}`} viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+            <svg className={`w-3 h-3 flex-shrink-0 transition-transform text-neutral-400 ${filterPanelVisible ? '' : 'rotate-180'}`} viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
             </svg>
+            <span className="text-[10px] text-neutral-300 select-none leading-none" style={{ writingMode: 'vertical-rl' }}>
+              {filterPanelVisible ? 'Filter ausblenden' : 'Filter einblenden'}
+            </span>
           </button>
           {/* Panel content — immer gerendert damit Transform-Animation in beide Richtungen funktioniert */}
           <div className="flex-1 border-l border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 overflow-y-auto">
