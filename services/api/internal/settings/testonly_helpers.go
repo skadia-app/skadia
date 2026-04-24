@@ -1,3 +1,7 @@
+// Package settings — this file is test-only but must be exported for
+// cross-package tests (auth, handler) that import settings.NewStoreForTest.
+// Do NOT call from production code. It is intentionally NOT named _test.go
+// because Go restricts cross-package imports of _test.go files.
 package settings
 
 import (
