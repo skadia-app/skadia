@@ -613,9 +613,17 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 	// Source-side: insert partial edge geometry from projection point to seed node.
 	// Without this, there's a straight line (Luftlinie) from the projection to the
 	// first network node — visually cutting across roads/bridges/water.
+	//
+	// srcVeLen tracks how many coords were prepended. applyProfileToCoords below
+	// must skip these (Critic #5): the profile is approach-exclusive (Spec §5.5) and
+	// starts at the first network node, not the VE projection point. Applying the
+	// profile across the whole slice would clamp srcVE coords to profile[0].EleM,
+	// overwriting the DEM-interpolated elevations from extractPartialEdgeGeometry.
+	var srcVeLen int
 	if srcVE != nil {
 		partialCoords := extractPartialEdgeGeometry(reader, srcVE, chain[0].nodeID, true)
 		if len(partialCoords) > 0 {
+			srcVeLen = len(partialCoords)
 			coords = append(partialCoords, coords...)
 			for i := range segments {
 				segments[i].FromIdx += len(partialCoords)
@@ -635,8 +643,15 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 	lastRealEdgeCoordEnd := len(coords)
 
 	// Destination-side: insert partial edge geometry from last node to projection point.
+	//
+	// dstVeLen tracks how many coords were appended. applyProfileToCoords below
+	// must skip these (Critic #5): the profile ends at bestDstNode. Applying the
+	// profile across dstVE coords would clamp them to profile[last].EleM, overwriting
+	// the DEM-interpolated elevations from extractPartialEdgeGeometry.
+	var dstVeLen int
 	if dstVE != nil {
 		partialCoords := extractPartialEdgeGeometry(reader, dstVE, bestDstNode, false)
+		dstVeLen = len(partialCoords)
 		coords = append(coords, partialCoords...)
 	}
 
@@ -659,8 +674,14 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 	// DP-intermediate points no longer carry the stale carriedEle value.
 	// MUST run after all coord mutations (srcVE prepend, dstVE append) to avoid
 	// subsequent writes re-introducing the spike.
+	//
+	// Critic #5 fix: apply the profile only to the network-coord slice, NOT the
+	// VE prepend/append tails. The profile is approach-exclusive (Spec §5.5) and
+	// covers coords[srcVeLen : len(coords)-dstVeLen]. VE coords outside this range
+	// keep their DEM-interpolated elevations from extractPartialEdgeGeometry.
 	if elevProfile != nil {
-		applyProfileToCoords(coords, *elevProfile)
+		networkEnd := len(coords) - dstVeLen
+		applyProfileToCoords(coords[srcVeLen:networkEnd], *elevProfile)
 	}
 
 	return &RouteResult{
