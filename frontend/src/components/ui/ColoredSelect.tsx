@@ -48,7 +48,7 @@ export function ColoredSelect({
       {swatch && (
         <span
           aria-hidden
-          className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-2.5 w-2.5 rounded-full border border-neutral-300 dark:border-neutral-600"
+          className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full border border-neutral-300 dark:border-neutral-600"
           style={{ backgroundColor: swatch }}
         />
       )}
@@ -57,8 +57,8 @@ export function ColoredSelect({
         disabled={disabled}
         onChange={e => onChange(e.target.value === '' ? null : e.target.value)}
         className={cn(
-          'w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 py-1.5 pr-8 text-sm text-neutral-900 dark:text-neutral-100 transition-colors duration-150 hover:border-neutral-400 dark:hover:border-neutral-600 focus:outline-none focus-visible:ring-1 focus-visible:ring-accent-DEFAULT disabled:opacity-50',
-          swatch ? 'pl-7' : 'pl-2.5',
+          'w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 py-1.5 pr-2 text-sm text-neutral-900 dark:text-neutral-100 transition-colors duration-150 hover:border-neutral-400 dark:hover:border-neutral-600 focus:outline-none focus-visible:ring-1 focus-visible:ring-accent-DEFAULT disabled:opacity-50',
+          swatch ? 'pl-5' : 'pl-2',
           isLegacy && 'border-amber-400 dark:border-amber-600 text-amber-700 dark:text-amber-400',
         )}
       >
