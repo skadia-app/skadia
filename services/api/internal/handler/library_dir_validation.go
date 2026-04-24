@@ -4,10 +4,20 @@ package handler
 import (
 	"context"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// uuidShapeRegex matches the canonical UUID format (8-4-4-4-12 hex digits).
+// Compiled once at package init to avoid per-request allocation.
+// HIGH #13: position-only checks (len==36, dashes at known offsets) pass
+// non-hex characters such as "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx".
+// This regex requires genuine hex digits in every position.
+var uuidShapeRegex = regexp.MustCompile(
+	`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`,
 )
 
 // validateLibraryDirName validates a proposed library_dir_name and writes the
@@ -49,7 +59,8 @@ func validateLibraryDirName(ctx context.Context, w http.ResponseWriter, r *http.
 
 	// 3. UUID-format-reject: any UUID-shaped name (including selfUserID's own UUID)
 	// would collide with the implicit fallback path — reject it outright.
-	if len(name) == 36 && name[8] == '-' && name[13] == '-' && name[18] == '-' && name[23] == '-' {
+	// HIGH #13: use regex instead of position-only checks to also verify hex chars.
+	if uuidShapeRegex.MatchString(name) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
 			"library_dir_name must not be in UUID format", r.URL.Path)
 		return true
