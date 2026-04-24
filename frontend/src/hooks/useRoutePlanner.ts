@@ -1186,7 +1186,10 @@ export function useRoutePlanner() {
           .flatMap(seg => (seg.geometry?.coordinates ?? []) as number[][])
 
         if (combinedCoordinates.length < 2) {
-          setState(s => ({ ...s, lazyFillInProgress: false }))
+          setState(s => {
+            if (s.lazyFillToken !== expectedToken || s.segments !== segmentsSnapshot) return s
+            return { ...s, lazyFillInProgress: false }
+          })
           return
         }
 
@@ -1201,7 +1204,10 @@ export function useRoutePlanner() {
 
         if (!profile || profile.length === 0) {
           // No DEM available (Lightweight system): silent graceful degradation.
-          setState(s => ({ ...s, lazyFillInProgress: false }))
+          setState(s => {
+            if (s.lazyFillToken !== expectedToken || s.segments !== segmentsSnapshot) return s
+            return { ...s, lazyFillInProgress: false }
+          })
           return
         }
 
@@ -1258,7 +1264,10 @@ export function useRoutePlanner() {
       } catch {
         // Endpoint unavailable (Selfhoster ohne PostGIS-DEM, 500 etc.):
         // silent graceful degradation. No toast, no state crash.
-        setState(s => ({ ...s, lazyFillInProgress: false }))
+        setState(s => {
+          if (s.lazyFillToken !== expectedToken || s.segments !== segmentsSnapshot) return s
+          return { ...s, lazyFillInProgress: false }
+        })
       }
     })()
   }, [addToast])
