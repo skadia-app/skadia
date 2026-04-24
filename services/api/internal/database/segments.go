@@ -86,12 +86,26 @@ LEFT JOIN LATERAL (
 	// Segments contain only geometry/metadata — no personal health data.
 	// Admin access is covered by the existing audit log.
 	var visibilityClause string
-	switch p.VisibilityFilter {
-	case "public":
-		visibilityClause = "s.visibility = 'public'"
-	case "private":
-		visibilityClause = "s.visibility = 'private' AND (s.created_by = $1 OR $2 = true)"
-	default:
+	if p.VisibilityFilter != "" {
+		parts := make([]string, 0, 2)
+		for _, v := range strings.Split(p.VisibilityFilter, ",") {
+			switch strings.TrimSpace(v) {
+			case "public":
+				parts = append(parts, "s.visibility = 'public'")
+			case "private":
+				parts = append(parts, "(s.visibility = 'private' AND (s.created_by = $1 OR $2 = true))")
+			}
+		}
+		switch len(parts) {
+		case 1:
+			visibilityClause = parts[0]
+		case 2:
+			visibilityClause = fmt.Sprintf("(%s OR %s)", parts[0], parts[1])
+		default:
+			// Fallback: show all accessible (same as empty filter)
+			visibilityClause = "(s.visibility = 'public' OR s.created_by = $1 OR $2 = true)"
+		}
+	} else {
 		visibilityClause = "(s.visibility = 'public' OR s.created_by = $1 OR $2 = true)"
 	}
 	where := fmt.Sprintf(" WHERE %s", visibilityClause)

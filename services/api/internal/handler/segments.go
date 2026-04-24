@@ -85,9 +85,14 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid surface parameter", r.URL.Path)
 		return
 	}
-	if params.VisibilityFilter != "" && params.VisibilityFilter != "public" && params.VisibilityFilter != "private" {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid visibility parameter", r.URL.Path)
-		return
+	if params.VisibilityFilter != "" {
+		for _, v := range strings.Split(params.VisibilityFilter, ",") {
+			v = strings.TrimSpace(v)
+			if v != "public" && v != "private" {
+				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid visibility parameter (expect public, private, or public,private)", r.URL.Path)
+				return
+			}
+		}
 	}
 	if params.DifficultyMatch != "" && params.DifficultyMatch != "any" && params.DifficultyMatch != "all" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid difficulty_match parameter (expect any or all)", r.URL.Path)
