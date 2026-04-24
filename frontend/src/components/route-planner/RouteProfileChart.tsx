@@ -8,7 +8,7 @@ import {
   AxisPointerComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import type { ElevationPoint, RouteSegment } from '@/api/routes'
+import type { RouteElevationPoint, RouteSegment } from '@/api/routes'
 import type { RouteStats } from '@/hooks/useRoutePlanner'
 import { useECharts } from '@/hooks/useECharts'
 import { aggregateScaleLevels } from '@/lib/scaleAggregation'
@@ -38,9 +38,11 @@ interface ProfilePoint {
 }
 
 interface Props {
-  /** Elevation profile from POST /elevation/profile */
-  profile: ElevationPoint[]
-  /** Total route distance in meters — used to convert fraction→km */
+  /** Elevation profile — RouteElevationPoint[] with cumulative dist_m/ele_m.
+   *  null → "Höhenprofil nicht verfügbar" placeholder is rendered. */
+  profile: RouteElevationPoint[] | null
+  /** Total route distance in meters — used for hover fraction calculation and
+   *  x-axis max when profile is shorter than the full route (e.g. partial fill). */
   totalDistanceM: number
   /** Route segments — used to colour offroad sections */
   segments?: RouteSegment[]
@@ -69,56 +71,55 @@ interface Props {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * Build a flat ProfilePoint array from the raw ElevationPoint list.
- * Grade is computed as a centred finite difference (m per km → %).
+ * Build a flat ProfilePoint array from a RouteElevationPoint list.
+ * Uses cumulative dist_m directly (no fraction back-calculation).
+ * Grade is computed as a centred finite difference (m/m → %).
  */
 function buildProfile(
-  raw: ElevationPoint[],
+  raw: RouteElevationPoint[],
   totalDistanceM: number,
   segments: RouteSegment[],
 ): ProfilePoint[] {
-  // Filter out null elevations — backend sends null when DEM data is unavailable
-  const valid = raw.filter((pt): pt is ElevationPoint & { elevation: number } => pt.elevation !== null)
-  if (valid.length < 2) return []
+  if (raw.length < 2) return []
 
-  // Pre-compute offroad fraction ranges from segments
+  // Pre-compute offroad dist_m ranges from segments
   const totalM = segments.reduce((s, sg) => s + sg.distance_m, 0) || totalDistanceM
-  let coveredFraction = 0
+  let coveredM = 0
   const offroadRanges: Array<{ start: number; end: number }> = []
   for (const seg of segments) {
-    const len = totalM > 0 ? seg.distance_m / totalM : 0
+    const len = seg.distance_m
     if (seg.mode === 'offroad') {
-      offroadRanges.push({ start: coveredFraction, end: coveredFraction + len })
+      offroadRanges.push({ start: coveredM, end: coveredM + len })
     }
-    coveredFraction += len
+    coveredM += len
   }
 
-  const points: ProfilePoint[] = valid.map((pt, i) => {
-    const distanceKm = pt.fraction * totalDistanceM / 1000
+  const points: ProfilePoint[] = raw.map((pt, i) => {
+    const distanceKm = pt.dist_m / 1000
 
-    // Grade via centred difference
+    // Grade via centred finite difference (ele per dist → %)
     let grade = 0
-    if (i > 0 && i < valid.length - 1) {
-      const prev = valid[i - 1]
-      const next = valid[i + 1]
-      const dElev = next.elevation - prev.elevation
-      const dDist = (next.fraction - prev.fraction) * totalDistanceM
+    if (i > 0 && i < raw.length - 1) {
+      const prev = raw[i - 1]
+      const next = raw[i + 1]
+      const dElev = next.ele_m - prev.ele_m
+      const dDist = next.dist_m - prev.dist_m
       grade = dDist > 0 ? (dElev / dDist) * 100 : 0
-    } else if (i === 0 && valid.length > 1) {
-      const next = valid[1]
-      const dElev = next.elevation - valid[0].elevation
-      const dDist = (next.fraction - valid[0].fraction) * totalDistanceM
+    } else if (i === 0 && raw.length > 1) {
+      const next = raw[1]
+      const dElev = next.ele_m - raw[0].ele_m
+      const dDist = next.dist_m - raw[0].dist_m
       grade = dDist > 0 ? (dElev / dDist) * 100 : 0
-    } else if (i === valid.length - 1 && valid.length > 1) {
-      const prev = valid[valid.length - 2]
-      const dElev = valid[i].elevation - prev.elevation
-      const dDist = (valid[i].fraction - prev.fraction) * totalDistanceM
+    } else if (i === raw.length - 1 && raw.length > 1) {
+      const prev = raw[raw.length - 2]
+      const dElev = raw[i].ele_m - prev.ele_m
+      const dDist = raw[i].dist_m - prev.dist_m
       grade = dDist > 0 ? (dElev / dDist) * 100 : 0
     }
 
-    const isOffroad = offroadRanges.some(r => pt.fraction >= r.start && pt.fraction <= r.end)
+    const isOffroad = offroadRanges.some(r => pt.dist_m >= r.start && pt.dist_m <= r.end)
 
-    return { distanceKm, elevation: pt.elevation, grade, isOffroad }
+    return { distanceKm, elevation: pt.ele_m, grade, isOffroad }
   })
 
   return points
@@ -162,9 +163,9 @@ export default function RouteProfileChart({
   summitPinned = false,
   onToggleSummitPin,
 }: Props) {
-  // Build processed data
+  // Build processed data — empty array when profile is null (renders placeholder)
   const points = useMemo(
-    () => buildProfile(profile, totalDistanceM, segments),
+    () => profile !== null ? buildProfile(profile, totalDistanceM, segments) : [],
     [profile, totalDistanceM, segments],
   )
 
@@ -368,13 +369,13 @@ export default function RouteProfileChart({
     { color: 'rgba(139,92,246,0.85)', label: 'Offroad' },
   ]
 
-  if (points.length === 0) {
+  if (profile === null || points.length === 0) {
     return (
       <div
         className="flex items-center justify-center rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-sm text-neutral-400"
         style={{ height }}
       >
-        Kein Höhenprofil verfügbar
+        Höhenprofil nicht verfügbar
       </div>
     )
   }
