@@ -540,9 +540,8 @@ func main() {
 	// Seed library.default_schema.* settings if not yet stored.
 	{
 		seedRenderer := shadowfs.NewSchemaRenderer()
-		userFacingFileTypes := []string{"activity", "media", "document", "health", "route"}
-		librarySeedDefaults := make(map[string]string, len(userFacingFileTypes))
-		for _, ft := range userFacingFileTypes {
+		librarySeedDefaults := make(map[string]string, len(shadowfs.UserFacingFileTypes))
+		for _, ft := range shadowfs.UserFacingFileTypes {
 			librarySeedDefaults["library.default_schema."+ft] = seedRenderer.DefaultSchema(ft)
 		}
 		if err := settings.ApplySeedsIfMissing(ctx, settingsStore, librarySeedDefaults); err != nil {

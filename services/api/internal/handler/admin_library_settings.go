@@ -10,9 +10,8 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
-// userFacingSchemaFileTypes mirrors the scope in settings/seed.go — 5 file types
-// editable by admin. report/chat are renderer-only (spec §4.1).
-var userFacingSchemaFileTypes = []string{"activity", "media", "document", "health", "route"}
+// userFacingSchemaFileTypes is the canonical list from shadowfs (MED #26).
+var userFacingSchemaFileTypes = shadowfs.UserFacingFileTypes
 
 // GetAdminLibrarySettings returns all library.* settings for admin consumption.
 // GET /api/v1/admin/library-settings
