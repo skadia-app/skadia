@@ -243,7 +243,9 @@ func (h *Handler) PostAdminRenameBulk(w http.ResponseWriter, r *http.Request) {
 		}()
 
 		skipped := 0
-		renamed := 0
+		// "started" reflects goroutines dispatched; actual rename completion is async.
+		// Each started goroutine may still produce 0 renames if files need no path change.
+		started := 0
 
 		for _, s := range snaps {
 			// Try to register per-user job. 23505 = user already has a
@@ -270,13 +272,13 @@ func (h *Handler) PostAdminRenameBulk(w http.ResponseWriter, r *http.Request) {
 			}
 
 			h.executeFileRenameBackground(bgCtx, s.uid, fileType, basePath, perUserJobID, s.schema, s.dir)
-			renamed++
+			started++
 		}
 
 		slog.Info("admin-rename-bulk: done",
 			"file_type", fileType,
 			"total", len(snaps),
-			"renamed", renamed,
+			"started", started,
 			"skipped", skipped)
 	})
 }
