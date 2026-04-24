@@ -462,6 +462,28 @@ export default function MapPage() {
     }
   }, [planner.segments.length, planner.elevationProfile])
 
+  // Fit map bounds when a saved route is loaded into the planner.
+  // Triggers only on editingRouteId change so manual segment edits don't re-fit.
+  useEffect(() => {
+    if (!planner.editingRouteId) return
+    const map = mapRef.current
+    if (!map) return
+    const allCoords: [number, number][] = []
+    for (const seg of planner.segments) {
+      const coords = seg.geometry?.coordinates
+      if (!coords) continue
+      for (const c of coords) {
+        if (typeof c[0] === 'number' && typeof c[1] === 'number') {
+          allCoords.push([c[0], c[1]])
+        }
+      }
+    }
+    if (allCoords.length === 0) return
+    const bounds = new maplibregl.LngLatBounds(allCoords[0], allCoords[0])
+    for (const c of allCoords) bounds.extend(c)
+    map.fitBounds(bounds, { padding: 80, maxZoom: 15 })
+  }, [planner.editingRouteId, planner.segments])
+
   // ── Route Suggestion map layers ──────────────────────────────────────────
   const SUGGESTION_OFFSETS: [number, number][] = useMemo(() => [[0, 0], [-3, 0], [3, 0]], [])
 
