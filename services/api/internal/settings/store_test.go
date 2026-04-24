@@ -244,6 +244,35 @@ func TestSettingsStoreTTLRefresh(t *testing.T) {
 	}
 }
 
+// TestSettingsStoreStartupRecoversFromLoadCacheFailure verifies that a fresh
+// store where initial loadCache never succeeded (lastLoad is zero) still
+// triggers a TTL rebuild on the next Get. Previously an IsZero-guard blocked
+// ALL future rebuilds in that scenario (Opus-Kritiker CRIT #3).
+func TestSettingsStoreStartupRecoversFromLoadCacheFailure(t *testing.T) {
+	pool := settingsTestPool(t)
+	ctx := context.Background()
+
+	// Create store — simulate "DB works now".
+	store := newTestSettingsStore(t, pool)
+
+	// Nuke lastLoad to simulate "initial loadCache failed" scenario.
+	store.setLastLoadForTest(time.Time{}) // zero
+
+	// Baseline: constructor-driven loadCache counts as 0 rebuilds (rebuildCount
+	// only increments inside triggerRebuild). The relevant invariant for this
+	// test is the delta after the Get below.
+	baseline := store.rebuildCountForTest()
+	_ = baseline
+	_ = ctx
+
+	// Get should see stale=true (IsZero would've been guard) and trigger rebuild.
+	_ = store.Get("smtp.host")
+
+	if err := store.waitForRebuildCompleteForTest(2 * time.Second); err != nil {
+		t.Fatalf("rebuild never triggered despite zero lastLoad: %v", err)
+	}
+}
+
 func TestSettingsStoreSingleFlightConcurrentGet(t *testing.T) {
 	pool := settingsTestPool(t)
 	defer pool.Close()

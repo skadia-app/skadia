@@ -202,7 +202,11 @@ func (s *SettingsStore) Get(key string) CachedSetting {
 	// TTL check — if stale, trigger single-flight rebuild.
 	// Readers keep seeing cached value during rebuild (no blocking).
 	s.mu.RLock()
-	stale := s.ttl > 0 && !s.lastLoad.IsZero() && time.Since(s.lastLoad) > s.ttl
+	// NOTE: IsZero-Guard removed deliberately — if the initial loadCache in
+	// NewSettingsStore failed (DB down at startup), lastLoad stays zero and an
+	// IsZero check would block ALL future rebuild attempts. time.Since(zero) is
+	// huge → stale = true → singleflight + goroutine safely coalesce rebuilds.
+	stale := s.ttl > 0 && time.Since(s.lastLoad) > s.ttl
 	cs := s.cache[key]
 	s.mu.RUnlock()
 
