@@ -26,6 +26,12 @@ interface PillBaseProps {
   // Matching aria attribute for the role
   ariaChecked?: boolean | 'mixed'
   ariaLabel?: string
+  /**
+   * Tab-order override. Useful for roving-tabindex patterns in radiogroups —
+   * active pill gets tabIndex=0, inactive peers -1 so Tab moves between
+   * groups, Arrow keys move within.
+   */
+  tabIndex?: number
 }
 
 interface PillButtonProps extends PillBaseProps {
@@ -74,6 +80,7 @@ export function Pill(props: PillProps) {
     role,
     ariaChecked,
     ariaLabel,
+    tabIndex,
   } = props
 
   const sharedClassName = cn(
@@ -106,6 +113,7 @@ export function Pill(props: PillProps) {
         role={role}
         aria-checked={ariaChecked}
         aria-label={ariaLabel}
+        tabIndex={tabIndex}
         className={sharedClassName}
       >
         {inner}
@@ -120,6 +128,7 @@ export function Pill(props: PillProps) {
       role={role}
       aria-checked={ariaChecked}
       aria-label={ariaLabel}
+      tabIndex={tabIndex}
       disabled={disabled}
       onClick={onClick}
       className={cn(sharedClassName, disabled && 'cursor-not-allowed opacity-50')}
