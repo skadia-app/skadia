@@ -1191,7 +1191,8 @@ export function useRoutePlanner() {
     // I3-Invariant: MUSS als erste Anweisung bleiben — "Übernehmen"-Flow
     // im Comparison-Panel (onSelect-Handler des RouteComparisonPanel) ist von diesem Reset abhängig.
     resetScalePin()
-    const coords = s.geojson?.features?.[0]?.geometry?.coordinates as number[][] | undefined
+    const firstFeature = s.geojson?.features?.[0]
+    const coords = firstFeature?.geometry?.coordinates as number[][] | undefined
     if (!coords || coords.length < 2) {
       setState(st => ({
         ...st,
@@ -1211,6 +1212,27 @@ export function useRoutePlanner() {
       type: 'end',
     }
 
+    // Critic #15 (MAJOR): extract per-segment elevation_profile from the
+    // feature's properties so that buildCombinedProfileFromSegments returns
+    // a non-null profile and the useEffect-sync does NOT trigger an unnecessary
+    // /elevation/profile fallback (the data is already in this response).
+    // Mirrors buildSegmentFromFeature parsing logic.
+    const featureProps = (firstFeature?.properties ?? {}) as Record<string, unknown>
+    const rawSegProfile = featureProps['elevation_profile']
+    let segElevationProfile: RouteElevationPoint[] | undefined
+    if (Array.isArray(rawSegProfile) && rawSegProfile.length > 0) {
+      const filtered = rawSegProfile
+        .filter(
+          (pt): pt is { dist_m: number; ele_m: number } =>
+            pt != null &&
+            typeof pt === 'object' &&
+            typeof (pt as { dist_m?: unknown }).dist_m === 'number' &&
+            typeof (pt as { ele_m?: unknown }).ele_m === 'number',
+        )
+        .map(pt => ({ dist_m: pt.dist_m, ele_m: pt.ele_m }))
+      if (filtered.length > 0) segElevationProfile = filtered
+    }
+
     const segment: RouteSegment = {
       from_waypoint: startWp.id,
       to_waypoint: endWp.id,
@@ -1224,6 +1246,7 @@ export function useRoutePlanner() {
       distance_m: s.distance_m,
       elevation_gain: s.ascent_m,
       elevation_loss: s.descent_m,
+      elevation_profile: segElevationProfile,
     }
 
     // V6-Retrofit Quelle 2: Stats aus Suggestion direkt übernehmen + synthetisch cachen.
@@ -1252,6 +1275,10 @@ export function useRoutePlanner() {
       editingRouteId: null,
       calculationError: null,
       isCalculating: false,
+      // Critic #4 (MAJOR): hydrate effectiveProfile from suggestion top-level.
+      // Top-level is authoritative (Spec §6.4), per-feature is for per-segment
+      // wiring (already done via segElevationProfile above).
+      effectiveProfile: s.elevation_profile ?? null,
     }))
   }, [])
 
