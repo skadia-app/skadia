@@ -1217,10 +1217,22 @@ export function useRoutePlanner() {
             return { ...s, lazyFillInProgress: false }
           }
           const totalDistM = cumulativeHaversineMeters(combinedCoordinates)
-          const converted = legacyToRouteProfile(profile, totalDistM)
+          // Bug #6 fix: detect partial DEM coverage. legacyToRouteProfile only
+          // filters out null samples — when more than half the samples are null
+          // the remaining profile has a non-uniform dist_m axis with visible
+          // gaps. In that case, fall back to the coord[2]-derived profile which
+          // is uniform (from the original routing pass). The 50% threshold is
+          // intentional: below it we accept the partial DEM data as "good enough"
+          // because the gaps are small and real (the area is outside DEM coverage).
+          const nullCount = profile.filter(pt => pt.elevation === null).length
+          const nullRatio = profile.length > 0 ? nullCount / profile.length : 1
+          const converted = nullRatio <= 0.5
+            ? legacyToRouteProfile(profile, totalDistM)
+            : []
           // Bug A fix (2026-04-24): when DEM returned only null elevations
           // (region outside DEM coverage), legacyToRouteProfile filters them
-          // all out → converted=[]. Fall back to inline-Z (coord[2]) from
+          // all out → converted=[]. Bug #6 extends this: same fallback when
+          // DEM coverage is below 50%. Fall back to inline-Z (coord[2]) from
           // segment geometry, which still carries valid heights from the
           // original routing pass. If even inline-Z is empty/missing, keep
           // effectiveProfile null and skip the PendingSave flag.
