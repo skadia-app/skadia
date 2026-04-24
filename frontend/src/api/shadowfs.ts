@@ -48,7 +48,8 @@ export type LibraryDir = LibraryDirResponse
 
 export interface BulkRenameResponse {
   status: 'ok' | 'bulk_rename_in_progress'
-  user_count?: number
+  candidate_count?: number
+  note?: string
 }
 
 export interface RenameResponse {
