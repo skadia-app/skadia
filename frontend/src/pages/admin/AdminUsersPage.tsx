@@ -21,6 +21,7 @@ import {
   getAdminUserLibraryDir,
   adminSetUserLibraryDir,
   adminRenameUser,
+  API_STATUS,
   FILE_TYPE_LABELS,
 } from '@/api/shadowfs'
 import { LIB_LABELS } from '@/lib/libraryLabels'
@@ -631,11 +632,11 @@ function UserLibraryDirDialog({
   const setDirMutation = useMutation({
     mutationFn: (name: string | null) => adminSetUserLibraryDir(user.id, name),
     onSuccess: (res) => {
-      if (res.status === LIB_LABELS.statusLibraryDirNameTaken) {
+      if (res.status === API_STATUS.libraryDirNameTaken) {
         addToast({ type: 'warning', title: LIB_LABELS.toastLibraryDirTaken, duration: 0 })
         return
       }
-      if (res.status === LIB_LABELS.statusLibraryDirNameClashesUUID) {
+      if (res.status === API_STATUS.libraryDirNameClashesUUID) {
         addToast({ type: 'warning', title: LIB_LABELS.toastLibraryDirClashesUUID, duration: 0 })
         return
       }

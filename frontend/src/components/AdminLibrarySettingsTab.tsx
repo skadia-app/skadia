@@ -6,6 +6,7 @@ import {
   getAdminLibrarySettings,
   updateAdminLibrarySettings,
   adminRenameBulk,
+  API_STATUS,
   type AdminLibrarySettings,
 } from '@/api/shadowfs'
 import { LIB_LABELS } from '@/lib/libraryLabels'
@@ -43,7 +44,7 @@ export function AdminLibrarySettingsTab() {
     mutationFn: adminRenameBulk,
     onSuccess: (res, fileType) => {
       setBulkConfirmFileType(null)
-      if (res.status === LIB_LABELS.statusBulkRenameInProgress) {
+      if (res.status === API_STATUS.bulkRenameInProgress) {
         addToast({ type: 'warning', title: LIB_LABELS.toastBulkAlreadyRunning })
       } else {
         addToast({

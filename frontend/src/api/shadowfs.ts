@@ -69,6 +69,15 @@ export interface AdminLibrarySettings {
   default_schemas: Record<string, string>
 }
 
+// API response status constants — mirror backend status strings from
+// handler/shadowfs_settings.go + admin_user_library_dir.go.
+export const API_STATUS = {
+  libraryDirNameTaken: 'library_dir_name_taken',
+  libraryDirNameClashesUUID: 'library_dir_name_clashes_with_user_uuid',
+  bulkRenameInProgress: 'bulk_rename_in_progress',
+  renameInProgress: 'rename_in_progress',
+} as const
+
 // ── API functions ──────────────────────────────────────────────────────────
 
 export async function getFileSchemas(): Promise<FileSchema[]> {
