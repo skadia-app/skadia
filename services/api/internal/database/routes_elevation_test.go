@@ -137,6 +137,87 @@ func TestCreateRoute_PersistEnrichment(t *testing.T) {
 	}
 }
 
+// TestMigration000325_UpDown verifies the column lifecycle for migration 000325
+// (routes_persist_profile_enrichment): down removes elevation_profile + enrichment,
+// up adds them, and the cycle is idempotent when repeated.
+//
+// Test order: down (idempotent) → up → assert columns present → down → assert
+// columns absent → up → assert columns present (idempotent re-add).
+//
+// Critic finding #18 (NIT).
+func TestMigration000325_UpDown(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	hasColumn := func(col string) bool {
+		var exists bool
+		err := db.Pool.QueryRow(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM information_schema.columns
+				WHERE table_name = 'planned_routes' AND column_name = $1
+			)`, col).Scan(&exists)
+		if err != nil {
+			t.Fatalf("hasColumn(%q): %v", col, err)
+		}
+		return exists
+	}
+
+	runSQL := func(label, sql string) {
+		t.Helper()
+		if _, err := db.Pool.Exec(ctx, sql); err != nil {
+			t.Fatalf("%s: %v", label, err)
+		}
+	}
+
+	// Step 1: down (idempotent — IF EXISTS handles already-absent columns).
+	runSQL("down", `ALTER TABLE planned_routes
+		DROP COLUMN IF EXISTS elevation_profile,
+		DROP COLUMN IF EXISTS enrichment`)
+
+	if hasColumn("elevation_profile") {
+		t.Error("elevation_profile still present after down — IF EXISTS did not work")
+	}
+	if hasColumn("enrichment") {
+		t.Error("enrichment still present after down — IF EXISTS did not work")
+	}
+
+	// Step 2: up — must add both columns.
+	runSQL("up", `ALTER TABLE planned_routes
+		ADD COLUMN elevation_profile JSONB,
+		ADD COLUMN enrichment        JSONB`)
+
+	if !hasColumn("elevation_profile") {
+		t.Error("elevation_profile absent after up")
+	}
+	if !hasColumn("enrichment") {
+		t.Error("enrichment absent after up")
+	}
+
+	// Step 3: down again — must remove columns.
+	runSQL("down again", `ALTER TABLE planned_routes
+		DROP COLUMN IF EXISTS elevation_profile,
+		DROP COLUMN IF EXISTS enrichment`)
+
+	if hasColumn("elevation_profile") {
+		t.Error("elevation_profile still present after second down")
+	}
+	if hasColumn("enrichment") {
+		t.Error("enrichment still present after second down")
+	}
+
+	// Step 4: up again — idempotent re-add.
+	runSQL("up again", `ALTER TABLE planned_routes
+		ADD COLUMN elevation_profile JSONB,
+		ADD COLUMN enrichment        JSONB`)
+
+	if !hasColumn("elevation_profile") {
+		t.Error("elevation_profile absent after second up — idempotency broken")
+	}
+	if !hasColumn("enrichment") {
+		t.Error("enrichment absent after second up — idempotency broken")
+	}
+}
+
 // TestUpdateRoute_PersistElevationProfile verifies that UpdateRoute persists
 // ElevationProfile and Enrichment changes correctly.
 func TestUpdateRoute_PersistElevationProfile(t *testing.T) {
