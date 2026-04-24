@@ -10,7 +10,6 @@ import {
   FILE_TYPE_LABELS,
   API_STATUS,
   type FileType,
-  type LibraryDirResponse,
   type UpdateLibraryDirResponse,
 } from '@/api/shadowfs'
 import { useToast } from '@/lib/toast'
