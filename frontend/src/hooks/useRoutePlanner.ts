@@ -1011,6 +1011,33 @@ export function useRoutePlanner() {
     // route.profile is a string — try cache first, then fetch async
     const cached = getProfileDefaults(route.profile)
 
+    // Critic #3 (BLOCKER): deserializeRouteStats sets coordinates: [].
+    // MapPage memo-guard (routeStats.coordinates.length >= 2) gates the
+    // SAC/MTB/VF range overlays + scale-color base — without rebuilding
+    // coordinates from segment geometry here, those overlays never render
+    // for loaded routes. Mirrors the merge logic in mergeSegmentStatsForState
+    // (junction-dedup: skip first coord of each segment after the first).
+    const baseStats = deserializeRouteStats(route.enrichment ?? null)
+    let routeStats = baseStats
+    if (baseStats) {
+      const wpOrder = new Map(route.waypoints.map((wp, i) => [wp.id, i]))
+      const sortedSegs = [...route.segments].sort(
+        (a, b) =>
+          (wpOrder.get(a.from_waypoint) ?? Infinity) -
+          (wpOrder.get(b.from_waypoint) ?? Infinity),
+      )
+      const coords: number[][] = []
+      for (let i = 0; i < sortedSegs.length; i++) {
+        const segCoords = (sortedSegs[i].geometry?.coordinates ?? []) as number[][]
+        if (i === 0) {
+          for (const c of segCoords) coords.push(c)
+        } else {
+          for (let j = 1; j < segCoords.length; j++) coords.push(segCoords[j])
+        }
+      }
+      routeStats = { ...baseStats, coordinates: coords }
+    }
+
     setState(s => ({
       ...s,
       waypoints: route.waypoints,
@@ -1023,7 +1050,7 @@ export function useRoutePlanner() {
       editingRouteId: route.id,
       // Spec §6.2 / §7.4: hydrate effectiveProfile + routeStats from DB.
       effectiveProfile: route.elevation_profile ?? null,
-      routeStats: deserializeRouteStats(route.enrichment ?? null),
+      routeStats,
       _statsCache: {},
       lazyFillInProgress: false,
       lazyFillPendingSave: false,
