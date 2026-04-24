@@ -46,6 +46,12 @@ func ResolveUserSchema(ctx context.Context, pool *pgxpool.Pool,
 	return renderer.DefaultSchema(fileType), nil
 }
 
+// ErrUserNotFound is returned by ResolveLibraryDirName when the queried user
+// does not exist (pgx.ErrNoRows). Callers should map this to HTTP 404.
+// MED #25: separating "user deleted" from generic DB errors prevents 500 for
+// a condition that is a normal, caller-recoverable outcome.
+var ErrUserNotFound = errors.New("user not found")
+
 // ResolveLibraryDirName returns the effective library directory prefix for userID.
 // Resolution (spec §4.2):
 //  1. users.library_dir_name IS NOT NULL → that value
@@ -53,10 +59,15 @@ func ResolveUserSchema(ctx context.Context, pool *pgxpool.Pool,
 //
 // Lockdown on user_can_edit_dir_name does NOT override an admin-set value.
 // The flag only gates the user-facing PUT endpoint, not resolution.
+//
+// Returns ErrUserNotFound (suitable for HTTP 404) when the user row does not exist.
 func ResolveLibraryDirName(ctx context.Context, pool *pgxpool.Pool, userID string) (string, error) {
 	var name *string
 	err := pool.QueryRow(ctx,
 		`SELECT library_dir_name FROM users WHERE id = $1`, userID).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrUserNotFound
+	}
 	if err != nil {
 		return "", fmt.Errorf("resolve library dir: query: %w", err)
 	}
