@@ -475,6 +475,9 @@ export default function MapPage() {
     planner.clear()
   }, [planner])
 
+  // Style version counter for re-adding layers after style changes
+  const [styleVersion, setStyleVersion] = useState(0)
+
   // Fit map bounds when a saved route is loaded into the planner.
   // The ref tracks which editingRouteId has already been fitted so that
   // subsequent segment updates (waypoint edits, per-segment recomputes) do
@@ -610,9 +613,6 @@ export default function MapPage() {
       map.setPaintProperty(layerId, 'line-width', isHovered ? 6 : 4)
     }
   }, [hoveredSuggestion, routeSuggestions])
-
-  // Style version counter for re-adding layers after style changes
-  const [styleVersion, setStyleVersion] = useState(0)
 
   // Build RoutePlannerState for useRouteEditor
   const routeEditorState = useMemo(() => ({
