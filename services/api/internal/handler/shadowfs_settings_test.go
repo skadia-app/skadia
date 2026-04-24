@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
@@ -337,6 +339,109 @@ func TestGetFileSchemasResponseIsArrayWithNewFields(t *testing.T) {
 		if entry["is_user_override"] != false {
 			t.Errorf("entry %v: is_user_override: got %v, want false", entry["file_type"], entry["is_user_override"])
 		}
+	}
+}
+
+func TestUpdateFileSchemaPIIRejected(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires DB")
+	}
+	pool := fusionTestPool(t)
+	userID := insertTestUser(t, pool)
+
+	db := &database.DB{Pool: pool}
+	store := settings.NewSettingsStore(db, "", "local")
+
+	// Enable user_can_edit_schemas so the gate passes, then hit PII check.
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO server_settings (key, value, encrypted, updated_at) VALUES ($1, $2, false, NOW())
+		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+		"library.user_can_edit_schemas", "true")
+	if err != nil {
+		t.Fatalf("upsert setting: %v", err)
+	}
+	if err := store.Reload(context.Background()); err != nil {
+		t.Fatalf("reload settings: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), //nolint:errcheck
+			`DELETE FROM server_settings WHERE key = 'library.user_can_edit_schemas'`)
+	})
+
+	h := &Handler{
+		DB:       db,
+		Settings: store,
+	}
+
+	ctx := context.WithValue(context.Background(), middleware.UserIDKey, userID)
+	// "notes" is a PII variable.
+	reqBody := `{"schema":"{year}/{notes}"}`
+	req := httptest.NewRequest("PUT", "/api/v1/settings/file-schemas/activity",
+		strings.NewReader(reqBody)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	// Wire chi router so URLParam works.
+	chiCtx := chi.NewRouteContext()
+	chiCtx.URLParams.Add("type", "activity")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, chiCtx))
+
+	h.UpdateFileSchema(w, req)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 (PII), got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "notes") {
+		t.Errorf("expected 'notes' in error message, got: %s", w.Body.String())
+	}
+}
+
+func TestUpdateFileSchemaLockdown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires DB")
+	}
+	pool := fusionTestPool(t)
+	userID := insertTestUser(t, pool)
+
+	db := &database.DB{Pool: pool}
+	store := settings.NewSettingsStore(db, "", "local")
+
+	// Set user_can_edit_schemas = "false" → gate must block.
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO server_settings (key, value, encrypted, updated_at) VALUES ($1, $2, false, NOW())
+		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+		"library.user_can_edit_schemas", "false")
+	if err != nil {
+		t.Fatalf("upsert setting: %v", err)
+	}
+	if err := store.Reload(context.Background()); err != nil {
+		t.Fatalf("reload settings: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), //nolint:errcheck
+			`DELETE FROM server_settings WHERE key = 'library.user_can_edit_schemas'`)
+	})
+
+	h := &Handler{
+		DB:       db,
+		Settings: store,
+	}
+
+	ctx := context.WithValue(context.Background(), middleware.UserIDKey, userID)
+	reqBody := `{"schema":"{year}/{month}/{title}"}`
+	req := httptest.NewRequest("PUT", "/api/v1/settings/file-schemas/activity",
+		strings.NewReader(reqBody)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	chiCtx := chi.NewRouteContext()
+	chiCtx.URLParams.Add("type", "activity")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, chiCtx))
+
+	h.UpdateFileSchema(w, req)
+
+	if w.Code != 403 {
+		t.Fatalf("expected 403 (admin_locked), got %d: %s", w.Code, w.Body.String())
 	}
 }
 
