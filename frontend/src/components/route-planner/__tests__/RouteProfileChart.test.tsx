@@ -52,11 +52,12 @@ vi.mock('@/lib/scaleAggregation', () => ({
 import RouteProfileChart from '../RouteProfileChart'
 import { makeFakeRouteStats } from '@/test-utils/routeFixtures'
 
-// Minimal ElevationPoint array — enough for buildProfile to produce ≥2 valid pts.
+// Minimal RouteElevationPoint array — enough for buildProfile to produce ≥2 valid pts.
+// dist_m is cumulative (0 → totalDistanceM). elevation uses ele_m field.
 const FAKE_PROFILE = [
-  { fraction: 0.0, elevation: 500 },
-  { fraction: 0.5, elevation: 510 },
-  { fraction: 1.0, elevation: 500 },
+  { dist_m: 0,     ele_m: 500 },
+  { dist_m: 5850,  ele_m: 510 },
+  { dist_m: 11700, ele_m: 500 },
 ]
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
