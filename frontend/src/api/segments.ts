@@ -94,7 +94,10 @@ export interface FetchSegmentsOpts {
   sac_scale?: string
   mtb_scale?: string
   surface?: string
-  visibility?: 'public' | 'private'
+  /** comma-separated: "public", "private", or "public,private" */
+  visibility?: string
+  /** "any" = OR between SAC and MTB; "all" (default) = AND */
+  difficulty_match?: 'any' | 'all'
 }
 
 export async function fetchSegments(params: FetchSegmentsOpts = {}): Promise<SegmentsResponse> {
@@ -112,6 +115,7 @@ export async function fetchSegments(params: FetchSegmentsOpts = {}): Promise<Seg
   if (params.mtb_scale) qs.set('mtb_scale', params.mtb_scale)
   if (params.surface) qs.set('surface', params.surface)
   if (params.visibility) qs.set('visibility', params.visibility)
+  if (params.difficulty_match) qs.set('difficulty_match', params.difficulty_match)
   
   const q = qs.toString()
   return apiClient<SegmentsResponse>(`/segments${q ? `?${q}` : ''}`)
