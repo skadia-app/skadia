@@ -283,10 +283,16 @@ function extractRouteStatsFromFeature(feature: GeoJSON.Feature | undefined): Rou
  *   approach-inklusiv wäre und gegen das approach-exklusive Profil driftet —
  *   Spec §5.5).
  *
- * Achsen-Diskrepanz (Critic-Finding #9): Bei Segmenten ohne Profil wird ersatzweise
- * seg.distance_m als Offset verwendet. Für routed-Segmente ist das approach-inklusiv,
- * für offroad approach-exklusiv. Akzeptierter Drift in Phase 1 — Hover-Sync (Phase 4)
- * braucht eine sauberere Lösung (z.B. seg.profile_dist_m als separates Feld).
+ * Achsen-Diskrepanz (Critic-Finding #9 + #17): Bei Segmenten ohne Profil wird
+ * ersatzweise seg.distance_m als Offset verwendet. Für routed-Segmente ist das
+ * approach-inklusiv, für offroad approach-exklusiv. Der resultierende Drift ist
+ * typischerweise 10–100 m (abhängig von der Approach-Länge), also im Bereich eines
+ * einzelnen Elevation-Profile-Sample-Intervalls. Akzeptierter Drift in Phase 1.
+ *
+ * Phase-4-Folgepunkt (Plan §10 Q1, Hover-Sync): Beheben via per-Segment
+ * profile_dist_m-Feld, das die tatsächliche routed Distanz exklusive Approach
+ * liefert. Wird in TestBuildCombinedProfileFromSegments_NoProfile_DistanceDrift
+ * (noch zu ergänzen) quantitativ abgedeckt.
  *
  * Junction-Dedup: Erstes Profil-Sample pro Folge-Segment wird übersprungen,
  * weil es den letzten Punkt des Vorgänger-Segments dupliziert.
