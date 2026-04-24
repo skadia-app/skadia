@@ -163,6 +163,11 @@ LEFT JOIN LATERAL (
 		where += " AND (s.segment_type != 'lift' OR COALESCE(ue.ridden_count, 0) > 0)"
 	}
 
+	// Split-approach note (B4): visibility is split by Go (handler dedup + clamping required it).
+	// SAC / MTB / Surface stay PG-side (string_to_array) — handler whitelist validators already
+	// ensure the comma-string is safe, and the asymmetry is intentional: Go-split was needed
+	// for visibility dedup; for the others no dedup is required and PG-split is fine.
+	//
 	// COALESCE for explicit null-safety; plan §2.2 Step 3B.
 	// DifficultyMatch "any": SAC OR MTB in a single OR-block (when both are set).
 	// DifficultyMatch "all" or "": classic AND (current behaviour).
