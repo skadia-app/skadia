@@ -2416,7 +2416,7 @@ export default function MapPage() {
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col" style={{ top: '3.5rem' }}>
-      <div className="flex flex-row flex-1 min-h-0">
+      <div className="flex flex-row flex-1 min-h-0 relative overflow-hidden">
 
         {/* ── Planner-Spalte (links, volle Höhe) ────────────────────────── */}
         {plannerActive && (
@@ -2481,10 +2481,10 @@ export default function MapPage() {
         )}
 
         {/* ── Mittlere Spalte: Karte + Bottom-Bar ───────────────────────── */}
-        <div className="flex flex-col flex-1 min-h-0 min-w-0">
+        <div className="flex flex-col flex-1 min-h-0 min-w-0" style={{ paddingRight: filterPanelVisible ? '16rem' : '1.25rem' }}>
 
         {/* ── Kartenbereich ─────────────────────────────────────────────── */}
-        <div className="relative flex-1 min-h-0">
+        <div className="relative flex-1 min-h-0 overflow-hidden">
         <div
           ref={mapContainerRef}
           className="w-full h-full"
@@ -3267,8 +3267,9 @@ export default function MapPage() {
 
         </div>{/* Ende: Mittlere Spalte (flex flex-col flex-1 min-h-0 min-w-0) */}
 
-        {/* ── Filter-Panel-Spalte (rechts, volle Höhe, ein-/ausklappbar) ── */}
-        <div className={`flex-shrink-0 flex transition-[width] duration-200 ease-in-out ${filterPanelVisible ? 'w-64' : 'w-5'}`}>
+        {/* ── Filter-Panel (rechts, absolut überlagert, kein Layout-Einfluss) ── */}
+        {/* Overlay-Ansatz: Map-Container ändert nie seine Breite → kein WebGL-Flackern */}
+        <div className={`absolute right-0 top-0 bottom-0 z-10 w-64 flex transition-transform duration-200 ease-in-out ${filterPanelVisible ? 'translate-x-0' : 'translate-x-[calc(100%-1.25rem)]'}`}>
           {/* Collapse toggle tab */}
           <button
             onClick={() => {
@@ -3283,27 +3284,25 @@ export default function MapPage() {
               <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
             </svg>
           </button>
-          {/* Panel content */}
-          {filterPanelVisible && (
-            <div className="flex-1 border-l border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 overflow-y-auto">
-              <MapFilters
-                filters={filters}
-                onChange={handleFilterChange}
-                forceDark={baseStyle === 'dark'}
-                viewMode={viewMode}
-                overlayState={overlayState}
-                onOverlayChange={updateOverlay}
-                segmentFilters={segmentFilters}
-                onSegmentFiltersChange={(f) => setSegmentFilters(f)}
-                segmentColors={segmentColors}
-                onSegmentColorsChange={(c) => setSegmentColors(c)}
-                coverageState={coverageState}
-                onCoverageUpdate={updateComposite}
-                onCoverageToggleLayer={toggleCoverageLayer}
-                docked
-              />
-            </div>
-          )}
+          {/* Panel content — immer gerendert damit Transform-Animation in beide Richtungen funktioniert */}
+          <div className="flex-1 border-l border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 overflow-y-auto">
+            <MapFilters
+              filters={filters}
+              onChange={handleFilterChange}
+              forceDark={baseStyle === 'dark'}
+              viewMode={viewMode}
+              overlayState={overlayState}
+              onOverlayChange={updateOverlay}
+              segmentFilters={segmentFilters}
+              onSegmentFiltersChange={(f) => setSegmentFilters(f)}
+              segmentColors={segmentColors}
+              onSegmentColorsChange={(c) => setSegmentColors(c)}
+              coverageState={coverageState}
+              onCoverageUpdate={updateComposite}
+              onCoverageToggleLayer={toggleCoverageLayer}
+              docked
+            />
+          </div>
         </div>
 
       </div>{/* Ende: Zeilen-Wrapper (flex flex-row flex-1 min-h-0) */}
