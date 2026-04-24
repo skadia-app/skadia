@@ -40,6 +40,7 @@ export const LIB_LABELS = {
 
   // Common action buttons
   saveButton: 'Speichern',
+  savingButton: 'Speichert...',
   discardButton: 'Verwerfen',
   closeButton: 'Schließen',
 
@@ -50,5 +51,23 @@ export const LIB_LABELS = {
   executeRenameButton: 'Rename ausführen',
   renameJobBackgroundHint: 'Startet einen Rename-Job im Hintergrund.',
   loadLibraryDirErrorTitle: 'Fehler beim Laden der Library-Dir.',
+
+  // FileSchemaSettings — section
+  fileSchemaSectionTitle: 'Dateibenennung',
+  fileSchemaSectionDescription:
+    'Benennungsschema für jeden Dateityp. Variablen werden durch Werte des jeweiligen Eintrags ersetzt.',
+  fileSchemaAvailableVars: 'Verfügbare Variablen',
+  fileSchemaTemplateLabel: 'Schema-Template',
+  fileSchemaInsertVariable: 'Variable einfügen',
+  fileSchemaPreview: 'Vorschau',
+  fileSchemaToastSaved: 'Schema gespeichert',
+  fileSchemaErrorLoad: 'Schemata konnten nicht geladen werden',
+  fileSchemaErrorSave: 'Fehler beim Speichern',
+
+  // FileSchemaSettings — library dir subsection
+  libraryDirSectionTitle: 'Bibliotheks-Verzeichnis',
+  libraryDirSectionDesc: 'Name des Wurzel-Verzeichnisses in der Bibliothek.',
+  libraryDirInputPlaceholder: 'skadia-library',
+  libraryDirToastSaved: 'Bibliotheks-Verzeichnis gespeichert',
 
 } as const
