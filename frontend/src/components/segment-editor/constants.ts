@@ -104,11 +104,14 @@ export const SAC_SCALE_OPTIONS: ReadonlyArray<{ value: string; label: string }> 
   { value: 'T6', label: 'T6 — schwieriges Alpinwandern' },
 ]
 
+// Bewusst ohne Zusätze — verführerische Kurzbeschreibungen führen zu
+// Selbstüberschätzung (siehe User-Feedback 2026-04-24). Die offizielle
+// Skala ist auf https://www.singletrail-skala.de/ definiert.
 export const MTB_SCALE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: 'S0', label: 'S0 — leicht, befestigt' },
-  { value: 'S1', label: 'S1 — leicht, kleine Hindernisse' },
-  { value: 'S2', label: 'S2 — mittel, größere Hindernisse' },
-  { value: 'S3', label: 'S3 — schwer, grobes Gelände' },
-  { value: 'S4', label: 'S4 — sehr schwer, enge Spitzkehren' },
-  { value: 'S5', label: 'S5 — extrem, Steilpassagen' },
+  { value: 'S0', label: 'S0' },
+  { value: 'S1', label: 'S1' },
+  { value: 'S2', label: 'S2' },
+  { value: 'S3', label: 'S3' },
+  { value: 'S4', label: 'S4' },
+  { value: 'S5', label: 'S5' },
 ]
