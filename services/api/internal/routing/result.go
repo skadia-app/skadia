@@ -79,12 +79,10 @@ func (r *RouteResult) AvgFlat() float32 {
 type LatLonEle struct {
 	Lat float64 `json:"lat"`
 	Lon float64 `json:"lon"`
-	// Ele is the elevation in meters at this coordinate.
-	//
-	// DEPRECATED as of 2026-04-22. Use the route's `elevation_profile` property
-	// for accurate per-point elevations at full DEM resolution. This field
-	// retains the start-node carriedEle value for backward compatibility only
-	// and will be removed in Phase 5.
+	// Ele is the elevation in meters. The value is deterministically derived
+	// from the route's ElevationProfile via applyProfileToCoords (Spec Rev 2.3
+	// §6.1, F1). coord[2] remains a 3D-GeoJSON-standard property — Phase 5
+	// (originally planned to remove it) was canceled in Spec Rev 2.3 §3.
 	//
 	// See docs/internal/specs/2026-04-22-route-elevation-profile-separation-design.md
 	Ele float64 `json:"ele"`
