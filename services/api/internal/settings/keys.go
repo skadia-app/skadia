@@ -23,6 +23,8 @@ type KeyDef struct {
 // piiBlacklistForSchemas is a copy of shadowfs.piiBlacklistVariables kept here
 // to avoid an import cycle (settings ↛ shadowfs). Keep in sync with shadowfs/pii.go.
 // NIT #41: used by defaultSchemaValidate to reject PII variables in stored schemas.
+// CI guard: shadowfs/pii_sync_test.go (R2 MED #4) compares this list against
+// shadowfs.PIIBlacklistForTest() and fails if they drift.
 var piiBlacklistForSchemas = []string{
 	"bio",
 	"comment",
@@ -32,6 +34,15 @@ var piiBlacklistForSchemas = []string{
 	"notes",
 	"power_avg",
 	"tags",
+}
+
+// PIIBlacklistForTest exposes piiBlacklistForSchemas for cross-package sync tests.
+// Do NOT use in production code. Named *ForTest to make intent explicit.
+// See shadowfs/pii_sync_test.go for the CI guard (R2 MED #4).
+func PIIBlacklistForTest() []string {
+	out := make([]string, len(piiBlacklistForSchemas))
+	copy(out, piiBlacklistForSchemas)
+	return out
 }
 
 // defaultSchemaValidate is the Validate function shared by all library.default_schema.*
