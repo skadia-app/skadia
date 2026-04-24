@@ -791,3 +791,72 @@ func TestBuildSegmentsUnified_DistanceAnchors(t *testing.T) {
 		t.Errorf("seg[1] dist: want [50, 90], got [%.2f, %.2f]", segs2[1].FromDistM, segs2[1].ToDistM)
 	}
 }
+
+// TestApplyProfileToCoords_VESliceSkip verifies that applyProfileToCoords,
+// when called with a sub-slice that excludes the VE prepend/append coords,
+// leaves those VE coords untouched (Critic finding #5 fix, Spec §5.5).
+//
+// Layout:  coords = [srcVE0, srcVE1, net0, net1, net2, dstVE0]
+// Profile covers the network slice (net0..net2), distM starting at 0.
+// Pre-fix: applyProfileToCoords over all 6 coords would clamp:
+//   - srcVE0, srcVE1 → profile[0].EleM  (distAccum < profile[0].DistM = 0)
+//   - dstVE0        → profile[last].EleM (distAccum > profile[last].DistM)
+// Post-fix (this test): only coords[srcVeLen:networkEnd] is passed → VE coords
+// retain their extractPartialEdgeGeometry-interpolated elevations.
+func TestApplyProfileToCoords_VESliceSkip(t *testing.T) {
+	// Profile: 3 points at 0m, 50m, 100m with distinct elevations.
+	// This simulates a 2-edge network covering 100m total.
+	profile := []ElevationPoint{
+		{DistM: 0, EleM: 200.0},
+		{DistM: 50, EleM: 250.0},
+		{DistM: 100, EleM: 300.0},
+	}
+
+	// Distinct sentinel elevations for VE coords so clamping would be visible.
+	const srcVe0Ele = 111.1
+	const srcVe1Ele = 122.2
+	const dstVe0Ele = 333.3
+
+	// coords[0..1] = srcVE prepend (2 coords), coords[2..4] = network, coords[5] = dstVE append.
+	// Network coords are placed at lat=47.0°, spaced so ~50m apart (≈0.00045° latitude each).
+	coords := []LatLonEle{
+		{Lat: 46.999, Lon: 8.0, Ele: srcVe0Ele}, // srcVE[0] — sentinel
+		{Lat: 46.9995, Lon: 8.0, Ele: srcVe1Ele}, // srcVE[1] — sentinel
+		{Lat: 47.0000, Lon: 8.0, Ele: 0},          // net[0] — will get profile[0].EleM
+		{Lat: 47.0005, Lon: 8.0, Ele: 0},          // net[1] — will get ~profile[1].EleM
+		{Lat: 47.0009, Lon: 8.0, Ele: 0},          // net[2] — will get ~profile[2].EleM (clamp-end)
+		{Lat: 47.0013, Lon: 8.0, Ele: dstVe0Ele}, // dstVE[0] — sentinel
+	}
+
+	srcVeLen := 2
+	dstVeLen := 1
+	networkEnd := len(coords) - dstVeLen
+
+	// Apply profile only to the network sub-slice (the post-fix behavior).
+	applyProfileToCoords(coords[srcVeLen:networkEnd], profile)
+
+	// VE coords must be untouched.
+	if coords[0].Ele != srcVe0Ele {
+		t.Errorf("srcVE[0].Ele clobbered: want %.1f, got %.4f (was clamped to profile[0].EleM=%.1f?)",
+			srcVe0Ele, coords[0].Ele, profile[0].EleM)
+	}
+	if coords[1].Ele != srcVe1Ele {
+		t.Errorf("srcVE[1].Ele clobbered: want %.1f, got %.4f (was clamped to profile[0].EleM=%.1f?)",
+			srcVe1Ele, coords[1].Ele, profile[0].EleM)
+	}
+	if coords[5].Ele != dstVe0Ele {
+		t.Errorf("dstVE[0].Ele clobbered: want %.1f, got %.4f (was clamped to profile[last].EleM=%.1f?)",
+			dstVe0Ele, coords[5].Ele, profile[len(profile)-1].EleM)
+	}
+
+	// Network coords[2] must be profile[0].EleM (distAccum=0 at first network coord).
+	if coords[2].Ele != profile[0].EleM {
+		t.Errorf("net[0].Ele: want %.1f (profile[0].EleM), got %.4f", profile[0].EleM, coords[2].Ele)
+	}
+
+	// Network coords[4] (last) must be ≥ profile[1].EleM (ascending profile, clamp-end).
+	// It should be approximately profile[2].EleM since it's ~100m into the network.
+	if coords[4].Ele < profile[1].EleM {
+		t.Errorf("net[2].Ele: want >= %.1f (profile[1].EleM=250m mark), got %.4f", profile[1].EleM, coords[4].Ele)
+	}
+}
