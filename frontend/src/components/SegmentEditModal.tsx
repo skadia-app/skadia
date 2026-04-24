@@ -304,7 +304,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
               type="button"
               onClick={handleReverse}
               disabled={mutation.isPending || publishMut.isPending || reverseMutation.isPending}
-              className="cursor-pointer rounded-lg border border-amber-800/60 bg-amber-950/30 px-3 py-1.5 text-sm text-amber-400 hover:bg-amber-900/40 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="cursor-pointer rounded-lg border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 text-sm text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               ⇄ Richtung umkehren
             </button>
