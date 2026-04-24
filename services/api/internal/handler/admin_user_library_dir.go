@@ -9,6 +9,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -21,6 +22,10 @@ func (h *Handler) GetAdminUserLibraryDir(w http.ResponseWriter, r *http.Request)
 	err := h.DB.Pool.QueryRow(r.Context(),
 		`SELECT library_dir_name FROM users WHERE id = $1`, targetID).Scan(&name)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "user not found", r.URL.Path)
+			return
+		}
 		slog.Error("admin get user library dir", "error", err, "target", targetID)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "db error", r.URL.Path)
 		return

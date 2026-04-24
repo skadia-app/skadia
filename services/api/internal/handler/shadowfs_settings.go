@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -537,8 +538,14 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 // goroutine starts, ensuring admin mid-job changes do not affect an already-started rename job.
 func (h *Handler) executeFileRenameBackground(ctx context.Context, userID, fileType, basePath, jobID,
 	schemaSnapshot, libraryDirSnapshot string) {
+	// Use detached context so cleanup updates survive graceful shutdown.
+	// If ctx is cancelled (shutdown), the background_jobs status update and
+	// is_renaming reset must still run to avoid stranded rows. Mirrors
+	// admin_rename.go MED #15 fix (R2 HIGH #1).
 	defer func() {
-		if _, err := h.DB.Pool.Exec(ctx,
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := h.DB.Pool.Exec(cleanupCtx,
 			`UPDATE background_jobs SET status = 'completed', finished_at = NOW() WHERE id = $1`,
 			jobID,
 		); err != nil {
@@ -619,8 +626,11 @@ func (h *Handler) executeFileRenameBackground(ctx context.Context, userID, fileT
 	}
 
 	// Safety net: clear any leftover is_renaming flags on exit (crash recovery).
+	// Uses detached context so the reset fires even during graceful shutdown (R2 HIGH #1).
 	defer func() {
-		if _, clearErr := h.DB.Pool.Exec(ctx,
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, clearErr := h.DB.Pool.Exec(cleanupCtx,
 			`UPDATE user_files SET is_renaming = false
 			 WHERE user_id = $1 AND file_type = $2 AND is_renaming = true`,
 			userID, fileType,
