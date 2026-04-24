@@ -15,7 +15,7 @@ func testUnifiedStore(t *testing.T, pool *pgxpool.Pool) (*UnifiedShadowFS, strin
 	t.Helper()
 	dir := t.TempDir()
 	localBE := NewLocalBackend(dir)
-	fs := NewUnifiedShadowFS(pool, localBE, nil, "local", dir, NewSchemaRenderer(), 1, 0, "", "", "")
+	fs := NewUnifiedShadowFS(pool, localBE, nil, "local", dir, NewSchemaRenderer(), nil, 1, 0, "", "", "")
 	return fs, dir
 }
 

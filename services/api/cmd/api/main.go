@@ -136,8 +136,9 @@ func main() {
 		}
 
 		store := shadowfs.NewUnifiedShadowFS(db.Pool, localBE, s3BE, *target,
-			cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), cfg.LibraryKeepVersions,
-			cfg.MaxUserStorageBytes, cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
+			cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), nil,
+			cfg.LibraryKeepVersions, cfg.MaxUserStorageBytes,
+			cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
 
 		if err := shadowfs.RunMigrateStorage(
 			ctx, db.Pool,
@@ -185,8 +186,9 @@ func main() {
 		}
 
 		store := shadowfs.NewUnifiedShadowFS(db.Pool, localBE, s3BE, "s3",
-			cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), cfg.LibraryKeepVersions,
-			cfg.MaxUserStorageBytes, cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
+			cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), nil,
+			cfg.LibraryKeepVersions, cfg.MaxUserStorageBytes,
+			cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
 
 		if err := shadowfs.RunRepairRegistry(ctx, db.Pool, localBE, s3BE, store.BucketFor); err != nil {
 			fmt.Fprintf(os.Stderr, "repair-registry: FAILED: %v\n", err)
@@ -304,8 +306,9 @@ func main() {
 		}
 
 		sfs := shadowfs.NewUnifiedShadowFS(db.Pool, localBE, s3BE, cfg.StorageBackend,
-			cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), cfg.LibraryKeepVersions,
-			cfg.MaxUserStorageBytes, cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
+			cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), nil,
+			cfg.LibraryKeepVersions, cfg.MaxUserStorageBytes,
+			cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
 
 		source, err := dataimport.OpenSource(*archivePath)
 		if err != nil {
@@ -522,6 +525,28 @@ func main() {
 	// NOTE: Stale running jobs are handled later via h.ResumeInterruptedJobs
 	// after the Handler is fully initialised (needs DB + Handler for matching).
 
+	// PMC service — always created; used by event consumer and recompute endpoint.
+	pmcService := &pmc.Service{DB: db}
+
+	// Best Efforts service — always created; used by recompute and recalc endpoints.
+	bestEffortsService := &bestefforts.Service{Store: db}
+
+	// Settings store — write-through cache over server_settings table.
+	settingsStore := settings.NewSettingsStore(db, cfg.SettingsEncryptionKey, cfg.StorageBackend)
+
+	// Seed library.default_schema.* settings if not yet stored.
+	{
+		seedRenderer := shadowfs.NewSchemaRenderer()
+		userFacingFileTypes := []string{"activity", "media", "document", "health", "route"}
+		librarySeedDefaults := make(map[string]string, len(userFacingFileTypes))
+		for _, ft := range userFacingFileTypes {
+			librarySeedDefaults["library.default_schema."+ft] = seedRenderer.DefaultSchema(ft)
+		}
+		if err := settings.ApplySeedsIfMissing(ctx, settingsStore, librarySeedDefaults); err != nil {
+			slog.Error("startup: ApplySeedsIfMissing failed", "error", err)
+		}
+	}
+
 	// ShadowFS (unified storage) — both backends always created when configured;
 	// UnifiedShadowFS routes to the target backend and can read from either.
 	var localBE, s3BE shadowfs.StorageBackend
@@ -533,8 +558,9 @@ func main() {
 			cfg.S3Bucket, cfg.S3Region, cfg.S3ForcePathStyle)
 	}
 	store := shadowfs.NewUnifiedShadowFS(db.Pool, localBE, s3BE, cfg.StorageBackend,
-		cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), cfg.LibraryKeepVersions,
-		cfg.MaxUserStorageBytes, cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
+		cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), settingsStore,
+		cfg.LibraryKeepVersions, cfg.MaxUserStorageBytes,
+		cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
 	slog.Info("shadowfs: unified backend active", "target", cfg.StorageBackend)
 
 	// S3 startup connectivity check — fail fast when STORAGE_BACKEND=s3 but S3 is unreachable.
@@ -550,15 +576,6 @@ func main() {
 		pingCancel()
 		slog.Info("shadowfs: S3 connectivity verified", "endpoint", cfg.S3Endpoint, "bucket", cfg.S3Bucket)
 	}
-
-	// PMC service — always created; used by event consumer and recompute endpoint.
-	pmcService := &pmc.Service{DB: db}
-
-	// Best Efforts service — always created; used by recompute and recalc endpoints.
-	bestEffortsService := &bestefforts.Service{Store: db}
-
-	// Settings store — write-through cache over server_settings table.
-	settingsStore := settings.NewSettingsStore(db, cfg.SettingsEncryptionKey, cfg.StorageBackend)
 
 	// NATS (optional - log warning if unavailable)
 	var pub *event.Publisher
@@ -768,7 +785,7 @@ func main() {
 	// ShadowFS reconciliation (daily, graceful shutdown)
 	if cfg.LibraryBasePath != "" {
 		reconcileRenderer := shadowfs.NewSchemaRenderer()
-		reconcileJob := shadowfs.NewReconcileJob(db.Pool, localBE, s3BE, cfg.LibraryBasePath, store.BucketFor, reconcileRenderer, cfg.LibraryKeepVersions)
+		reconcileJob := shadowfs.NewReconcileJob(db.Pool, localBE, s3BE, cfg.LibraryBasePath, store.BucketFor, reconcileRenderer, settingsStore, cfg.LibraryKeepVersions)
 		shutdown.Go("shadowfs-reconciliation", func(ctx context.Context) {
 			doReconcile := func() {
 				slog.Info("shadowfs reconcile: starting run")
@@ -1052,6 +1069,14 @@ func main() {
 				r.Put("/settings", h.AdminPutSettings)
 				r.Post("/settings/reload", h.AdminReloadSettings)
 				r.Post("/settings/test-email", h.AdminTestEmail)
+
+				// Library admin settings
+				r.Get("/library-settings", h.GetAdminLibrarySettings)
+				r.Put("/library-settings", h.UpdateAdminLibrarySettings)
+				r.Get("/users/{id}/library-dir", h.GetAdminUserLibraryDir)
+				r.Put("/users/{id}/library-dir", h.UpdateAdminUserLibraryDir)
+				r.Post("/users/{id}/files/{type}/rename-execute", h.PostAdminRenameUser)
+				r.Post("/rename-execute-bulk", h.PostAdminRenameBulk)
 			})
 
 			// ── Regular authenticated routes ──
@@ -1174,6 +1199,7 @@ func main() {
 			r.Patch("/settings/weather", h.UpdateWeatherSettings)
 
 			r.Get("/settings/file-schemas", h.GetFileSchemas)
+			r.Get("/settings/file-schemas-context", h.GetFileSchemasContext)
 			r.Put("/settings/file-schemas/{type}", h.UpdateFileSchema)
 			r.Post("/settings/file-schemas/{type}/rename-preview", h.PreviewFileRename)
 			r.Post("/settings/file-schemas/{type}/rename-execute", h.ExecuteFileRename)
