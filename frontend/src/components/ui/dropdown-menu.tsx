@@ -15,7 +15,12 @@ const DropdownMenuContent = forwardRef<
       sideOffset={sideOffset}
       className={cn(
         'z-50 min-w-[180px] rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg py-1',
-        'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
+        // Close animation removed: Radix Presence's unmountSuspended intermediate
+        // state (triggered by animate-out CSS) caused "Maximum update depth exceeded"
+        // in React 19 when state updates (e.g. surface selection) happened
+        // concurrently with the portal close animation inside createPortal trees.
+        // Open animation kept; it does not involve unmountSuspended.
+        'data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
         className,
       )}
       {...props}
