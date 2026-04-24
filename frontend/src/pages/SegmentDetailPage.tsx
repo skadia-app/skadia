@@ -125,7 +125,7 @@ export default function SegmentDetailPage() {
             dateTo={dateTo ?? ''}
             onChange={(from, to) => { setDateFrom(from || undefined); setDateTo(to || undefined) }}
           />
-          {segment.segment_type !== 'lift' && (
+          {segment.segment_type !== 'lift' && (me?.user_id === segment.created_by || me?.is_admin) && (
           <button
             onClick={() => setShowEdit(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
