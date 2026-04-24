@@ -1178,12 +1178,19 @@ export function useRoutePlanner() {
         // Build combined geometry from segments (sorted by waypoint order
         // for safety — mirrors the pattern at line ~1255).
         const wpOrder = new Map(route.waypoints.map((wp, i) => [wp.id, i]))
-        const combinedCoordinates = [...segmentsSnapshot]
-          .sort((a, b) =>
+        // Junction-dedup: for segment index > 0, skip the first coord (it's the
+        // last coord of the previous segment). Mirrors buildCombinedProfileFromSegments.
+        const sortedSegments = [...segmentsSnapshot].sort(
+          (a, b) =>
             (wpOrder.get(a.from_waypoint) ?? Infinity) -
             (wpOrder.get(b.from_waypoint) ?? Infinity),
-          )
-          .flatMap(seg => (seg.geometry?.coordinates ?? []) as number[][])
+        )
+        const combinedCoordinates = sortedSegments.flatMap(
+          (seg, i) => {
+            const coords = (seg.geometry?.coordinates ?? []) as number[][]
+            return i === 0 ? coords : coords.slice(1)
+          },
+        )
 
         if (combinedCoordinates.length < 2) {
           setState(s => {
