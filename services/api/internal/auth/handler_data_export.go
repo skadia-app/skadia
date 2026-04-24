@@ -353,6 +353,8 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 		}
 		failedFiles = fp
 	} else if basePath := h.Config.ShadowFSBasePath; basePath != "" {
+		slog.Warn("data export: ShadowFS nil, falling back to legacy basePath",
+			"user_id", userID, "base_path", basePath)
 		streamShadowFSToZip(basePath, userID, zw)
 	}
 
