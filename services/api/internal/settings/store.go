@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/crypto"
 	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/jackc/pgx/v5"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -56,12 +56,23 @@ type SettingsStore struct {
 // is cancelled.
 // storageBackend must be "local" or "s3" (mirrors config.StorageBackend).
 func NewSettingsStore(db *database.DB, encryptionKey, storageBackend string) *SettingsStore {
+	// MED #24: Allow TTL tuning without recompile. Default 30s is appropriate
+	// for production; tests or high-churn envs can lower it.
+	// The SettingsStore must not read itself (bootstrap cycle), so we use os.Getenv
+	// directly rather than going through the store's own Get method.
+	ttl := 30 * time.Second
+	if v := os.Getenv("LIBRARY_SETTINGS_TTL_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			ttl = time.Duration(n) * time.Second
+		}
+	}
+
 	s := &SettingsStore{
 		db:             db,
 		encryptionKey:  encryptionKey,
 		storageBackend: storageBackend,
 		cache:          make(map[string]CachedSetting, len(AllKeys)),
-		ttl:            30 * time.Second,
+		ttl:            ttl,
 	}
 	// lastLoad is set by loadCache (single-write-source, v2-Korrektur).
 	// loadCache is best-effort at startup; log but don't panic on DB error.
@@ -423,9 +434,6 @@ func (s *SettingsStore) Put(ctx context.Context, updates map[string]*string, adm
 func (s *SettingsStore) Reload(ctx context.Context) error {
 	return s.loadCache(ctx)
 }
-
-// ensure pgx is used (rows.Next / rows.Scan / rows.Err come from pgx).
-var _ = pgx.ErrNoRows
 
 // ---- Test-only helpers ----
 // Kept in store.go (not _test.go) so they share the unexported field access
