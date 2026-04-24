@@ -33,3 +33,13 @@ func ContainsPIIVariable(schema string) string {
 	}
 	return ""
 }
+
+// PIIBlacklistForTest exposes piiBlacklistVariables for cross-package sync tests.
+// Do NOT use in production code. Named *ForTest to make intent explicit.
+// See shadowfs/pii_sync_test.go for the CI guard that keeps settings/keys.go
+// and shadowfs/pii.go in sync (R2 MED #4).
+func PIIBlacklistForTest() []string {
+	out := make([]string, len(piiBlacklistVariables))
+	copy(out, piiBlacklistVariables)
+	return out
+}
