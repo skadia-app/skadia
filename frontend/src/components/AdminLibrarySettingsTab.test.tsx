@@ -62,19 +62,40 @@ describe('AdminLibrarySettingsTab', () => {
     mockGetAdminLibrarySettings.mockResolvedValue(MOCK_SETTINGS)
   })
 
-  it('renders 5 file-type schema inputs', async () => {
+  it('renders 5 accordion rows for file types', async () => {
     render(<AdminLibrarySettingsTab />, { wrapper: makeWrapper() })
 
-    // Wait for the query to resolve and inputs to appear
+    // Wait for data to load — accordion headers appear as buttons with German labels
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Aktivitäten/i })).toBeInTheDocument()
+    })
+
+    // All 5 file type accordion headers should be present
+    expect(screen.getByRole('button', { name: /Aktivitäten/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Medien/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Dokumente/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Gesundheit/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Routen/i })).toBeInTheDocument()
+  })
+
+  it('shows schema input when accordion row is expanded', async () => {
+    render(<AdminLibrarySettingsTab />, { wrapper: makeWrapper() })
+
+    // Wait for data to load
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Aktivitäten/i })).toBeInTheDocument()
+    })
+
+    // Click to expand the activity row
+    fireEvent.click(screen.getByRole('button', { name: /Aktivitäten/i }))
+
+    // Input should now be visible with the saved value
     await waitFor(() => {
       expect(screen.getByDisplayValue('{user_id}/activity')).toBeInTheDocument()
     })
 
-    const FILE_TYPES = ['activity', 'media', 'document', 'health', 'route']
-    for (const ft of FILE_TYPES) {
-      expect(screen.getByLabelText(ft)).toBeInTheDocument()
-    }
-    expect(screen.getAllByRole('textbox')).toHaveLength(5)
+    // Only 1 textbox visible (other rows are collapsed)
+    expect(screen.getAllByRole('textbox')).toHaveLength(1)
   })
 
   it('bulk-rename confirm-dialog prevents double-click', async () => {
@@ -85,12 +106,18 @@ describe('AdminLibrarySettingsTab', () => {
 
     render(<AdminLibrarySettingsTab />, { wrapper: makeWrapper() })
 
-    // Wait until data loads
+    // Wait until data loads and expand the activity row
     await waitFor(() =>
-      expect(screen.getByDisplayValue('{user_id}/activity')).toBeInTheDocument(),
+      expect(screen.getByRole('button', { name: /Aktivitäten/i })).toBeInTheDocument(),
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Aktivitäten/i }))
+
+    // Wait for the bulk-rename trigger button to appear inside the expanded row
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Rename auf alle User anwenden/i })).toBeInTheDocument(),
     )
 
-    // Click the bulk-rename trigger button for 'activity'
+    // Click the bulk-rename trigger button
     const triggerBtn = screen.getByRole('button', { name: /Rename auf alle User anwenden/i })
     fireEvent.click(triggerBtn)
 
@@ -104,7 +131,7 @@ describe('AdminLibrarySettingsTab', () => {
     fireEvent.click(confirmBtn)
 
     // After the mutation resolves (status = bulk_rename_in_progress),
-    // the modal should close (setBulkConfirmFileType(null) in onSuccess)
+    // the modal should close (setBulkConfirm(false) in onSuccess)
     await waitFor(() =>
       expect(screen.queryByText(/Bulk-Rename bestätigen/i)).not.toBeInTheDocument(),
     )
