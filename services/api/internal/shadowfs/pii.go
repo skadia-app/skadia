@@ -6,11 +6,19 @@ import "strings"
 // piiBlacklistVariables lists template variables that must not appear in
 // file path schemas. Rationale: Filesystem backups bypass DB-level GDPR
 // deletion, so PII in the path itself is a compliance risk.
+//
+// LOW #37: extended with bio, comment, message, tags — all fields that may
+// contain free-form user input and are therefore GDPR-sensitive.
+// Keep sorted alphabetically for diff readability.
 var piiBlacklistVariables = []string{
-	"notes",
+	"bio",
+	"comment",
 	"description",
 	"hr_avg",
+	"message",
+	"notes",
 	"power_avg",
+	"tags",
 }
 
 // ContainsPIIVariable returns the first blacklisted variable found in the
