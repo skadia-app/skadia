@@ -130,6 +130,13 @@ func (h *Handler) UpdateFileSchema(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Gate: user_can_edit_schemas must be enabled by admin.
+	if h.Settings == nil || h.Settings.Get("library.user_can_edit_schemas").Value != "true" {
+		httputil.WriteError(w, http.StatusForbidden, "Forbidden",
+			"file schemas are managed by administrator", r.URL.Path)
+		return
+	}
+
 	fileType := chi.URLParam(r, "type")
 	if !isAllowedFileType(fileType) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown file type", r.URL.Path)
@@ -140,6 +147,13 @@ func (h *Handler) UpdateFileSchema(w http.ResponseWriter, r *http.Request) {
 		Schema string `json:"schema"`
 	}](w, r)
 	if !ok {
+		return
+	}
+
+	// PII check: reject schemas that embed personal data into file paths.
+	if piiKey := shadowfs.ContainsPIIVariable(body.Schema); piiKey != "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
+			fmt.Sprintf("schema must not contain PII variable {%s}", piiKey), r.URL.Path)
 		return
 	}
 
