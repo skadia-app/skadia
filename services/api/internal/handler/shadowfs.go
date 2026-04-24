@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -77,6 +78,23 @@ func (h *Handler) UpdateShadowFSSettingsCompat(w http.ResponseWriter, r *http.Re
 	req, ok := httputil.DecodeJSON[ShadowFSSettingsRequest](w, r)
 	if !ok {
 		return
+	}
+
+	// Lockdown gate — consistent with UpdateFileSchema (spec 2026-04-24 §4/§7).
+	// Only enforced if a schema write is actually requested; hotfolder-only toggles
+	// remain permitted when admin has locked schema edits.
+	if req.Schema != "" {
+		if h.Settings == nil || h.Settings.Get("library.user_can_edit_schemas").Value != "true" {
+			httputil.WriteError(w, http.StatusForbidden, "Forbidden",
+				"file schemas are managed by administrator", r.URL.Path)
+			return
+		}
+		// PII gate — reject schemas embedding personal data into file paths.
+		if piiKey := shadowfs.ContainsPIIVariable(req.Schema); piiKey != "" {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
+				fmt.Sprintf("schema must not contain PII variable {%s}", piiKey), r.URL.Path)
+			return
+		}
 	}
 
 	// Validate schema before persisting.

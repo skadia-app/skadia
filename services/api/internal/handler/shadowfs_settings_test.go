@@ -445,6 +445,104 @@ func TestUpdateFileSchemaLockdown(t *testing.T) {
 	}
 }
 
+// TestUpdateShadowFSSettingsCompatLockdown verifies that the legacy
+// PUT /settings/shadow-fs endpoint honours the library.user_can_edit_schemas
+// admin gate (Opus-Kritiker CRIT #1 — closed 2026-04-24).
+func TestUpdateShadowFSSettingsCompatLockdown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires DB")
+	}
+	pool := fusionTestPool(t)
+	userID := insertTestUser(t, pool)
+
+	db := &database.DB{Pool: pool}
+	store := settings.NewSettingsStore(db, "", "local")
+
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO server_settings (key, value, encrypted, updated_at) VALUES ($1, $2, false, NOW())
+		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+		"library.user_can_edit_schemas", "false")
+	if err != nil {
+		t.Fatalf("upsert setting: %v", err)
+	}
+	if err := store.Reload(context.Background()); err != nil {
+		t.Fatalf("reload settings: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), //nolint:errcheck
+			`DELETE FROM server_settings WHERE key = 'library.user_can_edit_schemas'`)
+	})
+
+	h := &Handler{
+		DB:       db,
+		Settings: store,
+	}
+
+	ctx := context.WithValue(context.Background(), middleware.UserIDKey, userID)
+	reqBody := `{"schema":"{year}/{month}/{title}"}`
+	req := httptest.NewRequest("PUT", "/api/v1/settings/shadow-fs",
+		strings.NewReader(reqBody)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.UpdateShadowFSSettingsCompat(w, req)
+
+	if w.Code != 403 {
+		t.Fatalf("expected 403 (admin_locked), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestUpdateShadowFSSettingsCompatPII verifies that the legacy endpoint
+// rejects PII variables in schema templates (Opus-Kritiker CRIT #1).
+func TestUpdateShadowFSSettingsCompatPII(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires DB")
+	}
+	pool := fusionTestPool(t)
+	userID := insertTestUser(t, pool)
+
+	db := &database.DB{Pool: pool}
+	store := settings.NewSettingsStore(db, "", "local")
+
+	// Enable schema edits so the lockdown gate passes — PII gate must still fire.
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO server_settings (key, value, encrypted, updated_at) VALUES ($1, $2, false, NOW())
+		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+		"library.user_can_edit_schemas", "true")
+	if err != nil {
+		t.Fatalf("upsert setting: %v", err)
+	}
+	if err := store.Reload(context.Background()); err != nil {
+		t.Fatalf("reload settings: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), //nolint:errcheck
+			`DELETE FROM server_settings WHERE key = 'library.user_can_edit_schemas'`)
+	})
+
+	h := &Handler{
+		DB:       db,
+		Settings: store,
+	}
+
+	ctx := context.WithValue(context.Background(), middleware.UserIDKey, userID)
+	// "notes" is a PII variable.
+	reqBody := `{"schema":"{year}/{notes}"}`
+	req := httptest.NewRequest("PUT", "/api/v1/settings/shadow-fs",
+		strings.NewReader(reqBody)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.UpdateShadowFSSettingsCompat(w, req)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 (PII), got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "notes") {
+		t.Errorf("expected 'notes' in error message, got: %s", w.Body.String())
+	}
+}
+
 func TestUpdateLibraryDirS3Backend403(t *testing.T) {
 	pool := fusionTestPool(t)
 	userID := insertTestUser(t, pool)
