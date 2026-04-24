@@ -2536,8 +2536,12 @@ export default function MapPage() {
                 }}
                 onClearRoute={planner.clear}
                 onSave={() => {
-                  if (planner.editingRouteId && planner.profile.status === 'ready') {
-                    planner.profile.saveRoute()
+                  if (planner.editingRouteId) {
+                    // Loaded route: always silent-PATCH, never open dialog (would create duplicate).
+                    // If profileConfig isn't ready, saveRoute() shows an error toast itself.
+                    if (planner.profile.status === 'ready') {
+                      planner.profile.saveRoute()
+                    }
                   } else {
                     setShowSaveDialog(true)
                   }
