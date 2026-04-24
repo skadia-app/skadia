@@ -48,11 +48,20 @@ export function MapPreview({ geojsonTrack, height = '200px', className }: MapPre
     
     map.on('load', () => {
       map.addSource('track', { type: 'geojson', data: geojson })
+      // White casing underneath for contrast against busy topo tiles.
+      map.addLayer({
+        id: 'track-line-casing',
+        type: 'line',
+        source: 'track',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#ffffff', 'line-width': 7, 'line-opacity': 0.95 },
+      })
       map.addLayer({
         id: 'track-line',
         type: 'line',
         source: 'track',
-        paint: { 'line-color': '#F97316', 'line-width': 3 },
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#F97316', 'line-width': 4, 'line-opacity': 1.0 },
       })
       
       if (coords.length >= 2) {
