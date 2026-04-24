@@ -66,7 +66,7 @@ func TestRenameExecuteForegroundSnapshot(t *testing.T) {
 	}
 
 	// Execute background function with snapshots — verifies new signature compiles and runs.
-	h.executeFileRenameBackground(ctx, userID, "activity", "/tmp/test-base", "job-1", schemaSnapshot, libraryDirSnapshot)
+	h.executeFileRenameBackground(ctx, userID, "activity", t.TempDir(), "job-1", schemaSnapshot, libraryDirSnapshot)
 
 	// Post-condition: no files were renamed (user_files is empty for test user),
 	// background_jobs row "job-1" does not exist — UpdateBackgroundJob will fail silently.
