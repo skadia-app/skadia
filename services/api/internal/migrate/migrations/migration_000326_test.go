@@ -16,6 +16,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -51,7 +52,7 @@ func TestMigration000326ResetsUUIDShapedLabels(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert a test user with a UUID-shaped label.
-	userID := "m326-uuid-full-0000-0000-000000000001"
+	userID := uuid.NewString()
 	label := "11111111-1111-4111-8111-111111111111" // canonical 36-char UUID
 	_, err := pool.Exec(ctx,
 		`INSERT INTO users (id, username, email, email_verified, registration_source, library_dir_name)
@@ -89,7 +90,7 @@ func TestMigration000326PreservesCustomLabels(t *testing.T) {
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
-	userID := "m326-custom-000-0000-0000-000000000002"
+	userID := uuid.NewString()
 	label := "my-library"
 	_, err := pool.Exec(ctx,
 		`INSERT INTO users (id, username, email, email_verified, registration_source, library_dir_name)
@@ -135,11 +136,11 @@ func TestMigration000326PreservesTruncatedUUIDs(t *testing.T) {
 		label string // last block is shorter than 12 chars but >= 8
 	}{
 		{
-			id:    "m326-trunc35-0000-0000-000000000003",
+			id:    uuid.NewString(),
 			label: "de7508e1-c517-4764-8b41-3f27341433a", // 35 chars (last block = 11)
 		},
 		{
-			id:    "m326-trunc33-0000-0000-000000000004",
+			id:    uuid.NewString(),
 			label: "de7508e1-c517-4764-8b41-3f2734143", // 33 chars (last block = 9)
 		},
 	}
