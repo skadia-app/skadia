@@ -171,28 +171,45 @@ LEFT JOIN LATERAL (
 	// COALESCE for explicit null-safety; plan §2.2 Step 3B.
 	// DifficultyMatch "any": SAC OR MTB in a single OR-block (when both are set).
 	// DifficultyMatch "all" or "": classic AND (current behaviour).
+	// C1: Use meta ? 'key' AND meta->>'key' = ANY(...) instead of COALESCE(meta->>'key','') = ANY(...).
+	// The COALESCE wrap hides the expression from the partial-index planner — the index predicate
+	// from Migration 000323 is (meta->>'sac_scale') WHERE meta ? 'sac_scale', which matches
+	// exactly the two-part predicate below and enables an Index Scan instead of Seq Scan.
+	// No new migration is needed: the 000323 indexes already have the correct expression form.
 	if p.SacScale != "" && p.MtbScale != "" && p.DifficultyMatch == "any" {
 		where += fmt.Sprintf(
-			" AND (COALESCE(s.segment_type_meta->>'sac_scale', '') = ANY(string_to_array($%d, ','))"+
-				" OR COALESCE(s.segment_type_meta->>'mtb_scale', '') = ANY(string_to_array($%d, ',')))",
+			" AND ("+
+				"(s.segment_type_meta ? 'sac_scale' AND s.segment_type_meta->>'sac_scale' = ANY(string_to_array($%d, ',')))"+
+				" OR "+
+				"(s.segment_type_meta ? 'mtb_scale' AND s.segment_type_meta->>'mtb_scale' = ANY(string_to_array($%d, ',')))"+
+				")",
 			argIdx, argIdx+1,
 		)
 		args = append(args, p.SacScale, p.MtbScale)
 		argIdx += 2
 	} else {
 		if p.SacScale != "" {
-			where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'sac_scale', '') = ANY(string_to_array($%d, ','))", argIdx)
+			where += fmt.Sprintf(
+				" AND s.segment_type_meta ? 'sac_scale' AND s.segment_type_meta->>'sac_scale' = ANY(string_to_array($%d, ','))",
+				argIdx,
+			)
 			args = append(args, p.SacScale)
 			argIdx++
 		}
 		if p.MtbScale != "" {
-			where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'mtb_scale', '') = ANY(string_to_array($%d, ','))", argIdx)
+			where += fmt.Sprintf(
+				" AND s.segment_type_meta ? 'mtb_scale' AND s.segment_type_meta->>'mtb_scale' = ANY(string_to_array($%d, ','))",
+				argIdx,
+			)
 			args = append(args, p.MtbScale)
 			argIdx++
 		}
 	}
 	if p.Surface != "" {
-		where += fmt.Sprintf(" AND COALESCE(s.segment_type_meta->>'surface', '') = ANY(string_to_array($%d, ','))", argIdx)
+		where += fmt.Sprintf(
+			" AND s.segment_type_meta ? 'surface' AND s.segment_type_meta->>'surface' = ANY(string_to_array($%d, ','))",
+			argIdx,
+		)
 		args = append(args, p.Surface)
 		argIdx++
 	}
