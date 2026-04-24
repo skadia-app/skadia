@@ -54,6 +54,8 @@ export interface PlannedRoute {
   time_override: boolean
   auto_tag: boolean
   geometry_geojson?: string        // ST_AsGeoJSON — present in list (simplified) and detail
+  elevation_profile?: RouteElevationPoint[] | null  // NEW
+  enrichment?: Record<string, unknown> | null       // NEW (opaque JSONB-passthrough)
   photos: RoutePhoto[]
   tags: Tag[]
   created_at: string
@@ -84,6 +86,22 @@ export interface POIResult {
 export interface ElevationPoint {
   fraction: number
   elevation: number | null
+}
+
+// NEW — Route-Response-Profile, distinct vom /elevation/profile-Endpoint-Type
+export interface RouteElevationPoint {
+  dist_m: number
+  ele_m: number
+}
+
+// Legacy → Route-Profile Converter (für BRouter-Save-Pfad bei Fallback)
+export function legacyToRouteProfile(
+  points: ElevationPoint[],
+  totalDistM: number,
+): RouteElevationPoint[] {
+  return points
+    .filter((pt): pt is ElevationPoint & { elevation: number } => pt.elevation !== null)
+    .map(pt => ({ dist_m: pt.fraction * totalDistM, ele_m: pt.elevation }))
 }
 
 export interface IsochronePolygon {
