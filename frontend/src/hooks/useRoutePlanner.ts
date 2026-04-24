@@ -1458,6 +1458,20 @@ export function useRoutePlanner() {
       ) {
         return s
       }
+      // Critic #6 (MAJOR, belt-and-suspenders): when editing a loaded route
+      // and a non-null full-resolution profile is already present (from
+      // route.elevation_profile or a completed lazy-fill), do NOT overwrite
+      // it with a shorter candidate (e.g. a 200-sample DEM resampling).
+      // The lazy-fill code-path is unaffected: it sets effectiveProfile via
+      // its own setState while prev is still null, so this guard is bypassed.
+      if (
+        s.editingRouteId !== null &&
+        prev !== null &&
+        next !== null &&
+        prev.length > next.length
+      ) {
+        return s
+      }
       return { ...s, effectiveProfile: next }
     })
     // profileFromSegments is recomputed each render (new identity), but the
