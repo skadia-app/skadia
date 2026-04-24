@@ -449,6 +449,12 @@ export interface RouteSuggestion {
   // Keys = 'K1'..'K6'. vf_unknown_ranges deckt highway=via_ferrata ohne Scale ab.
   vf_ranges?: Record<string, CoordRange[]>
   vf_unknown_ranges?: CoordRange[]
+
+  // Spec §6.4: top-level elevation profile, authoritative source for the
+  // combined chart. Same data is also present in geojson.features[i].properties
+  // .elevation_profile (per-segment view). Backend handler:
+  // services/api/internal/handler/route_suggestion.go:129+549.
+  elevation_profile?: RouteElevationPoint[] | null
 }
 
 export async function suggestRoute(
