@@ -9,6 +9,7 @@ import type {
   RouteSuggestion,
   CoordRange,
   PassedSummit,
+  RouteElevationPoint,
 } from '@/api/routes'
 import {
   getCapabilities,
@@ -19,6 +20,7 @@ import {
   computeInternalRoute,
   computeRoute,
   getElevationProfile,
+  legacyToRouteProfile,
   type ElevationPoint,
   getProfileDefaults as fetchProfileDefaults,
 } from '@/api/routes'
@@ -80,6 +82,14 @@ interface RoutePlannerState {
   // NICHT im Return-Object — rein intern. Muss im selben State-Objekt wie
   // segments[] leben, damit setState atomisch bleibt.
   _statsCache: Record<string, RouteStats>
+  // Spec Rev 2.3 / §6.2: Zentraler Profil-State, gespeist aus 4 Quellen
+  // (Segment-Profile, BRouter-Fallback, Lazy-Fill, geladene Route).
+  effectiveProfile: RouteElevationPoint[] | null
+  // Lazy-Fill (Phase 5) — bereits hier vorbereitet (Spec §R7).
+  lazyFillInProgress: boolean
+  // Monoton steigender Counter für Stale-Check parallel laufender loadRoute-Calls.
+  lazyFillToken: number
+  lazyFillPendingSave: boolean
 }
 
 const INITIAL_STATE: RoutePlannerState = {
@@ -94,6 +104,10 @@ const INITIAL_STATE: RoutePlannerState = {
   brouterProfile: 'hiking-mountain',
   routeStats: null,
   _statsCache: {},
+  effectiveProfile: null,
+  lazyFillInProgress: false,
+  lazyFillToken: 0,
+  lazyFillPendingSave: false,
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -236,6 +250,58 @@ function extractRouteStatsFromFeature(feature: GeoJSON.Feature | undefined): Rou
     summits_passed: (props.summits_passed as RouteStats['summits_passed']) ?? null,
     coordinates: coords,
   }
+}
+
+/**
+ * Build combined elevation profile from per-segment RouteElevationPoint[] arrays.
+ *
+ * Distanz-Konvention (Spec §10 Q1 + §6.2):
+ * - segment.elevation_profile[i].dist_m ist segment-lokal (startet bei 0 pro Segment).
+ * - Helper addiert die Profil-letzte-DistM (NICHT seg.distance_m, weil das
+ *   approach-inklusiv wäre und gegen das approach-exklusive Profil driftet —
+ *   Spec §5.5).
+ *
+ * Achsen-Diskrepanz (Critic-Finding #9): Bei Segmenten ohne Profil wird ersatzweise
+ * seg.distance_m als Offset verwendet. Für routed-Segmente ist das approach-inklusiv,
+ * für offroad approach-exklusiv. Akzeptierter Drift in Phase 1 — Hover-Sync (Phase 4)
+ * braucht eine sauberere Lösung (z.B. seg.profile_dist_m als separates Feld).
+ *
+ * Junction-Dedup: Erstes Profil-Sample pro Folge-Segment wird übersprungen,
+ * weil es den letzten Punkt des Vorgänger-Segments dupliziert.
+ *
+ * Exported for unit tests only.
+ */
+export function buildCombinedProfileFromSegments(
+  segments: RouteSegment[],
+  waypoints: RouteWaypoint[],
+): RouteElevationPoint[] | null {
+  // Defensive sort: segments may be temporarily out of waypoint order during
+  // recalculation (mirrors combinedCoordinates logic).
+  const wpOrder = new Map(waypoints.map((wp, i) => [wp.id, i]))
+  const sorted = [...segments].sort(
+    (a, b) =>
+      (wpOrder.get(a.from_waypoint) ?? Infinity) -
+      (wpOrder.get(b.from_waypoint) ?? Infinity),
+  )
+  const out: RouteElevationPoint[] = []
+  let distAccum = 0
+  let hadAny = false
+  for (const seg of sorted) {
+    const p = seg.elevation_profile
+    if (!p || p.length === 0) {
+      // No profile: still advance distAccum by segment distance for axis continuity.
+      distAccum += seg.distance_m ?? 0
+      continue
+    }
+    const startIdx = hadAny ? 1 : 0
+    for (let i = startIdx; i < p.length; i++) {
+      out.push({ dist_m: distAccum + p[i].dist_m, ele_m: p[i].ele_m })
+    }
+    // Advance by the profile's last dist_m (approach-exclusive, Spec §5.5).
+    distAccum += p[p.length - 1].dist_m
+    hadAny = true
+  }
+  return out.length > 0 ? out : null
 }
 
 /** Exported for unit tests only — do not use in production code outside this file. */
@@ -1111,7 +1177,15 @@ export function useRoutePlanner() {
     },
   })
 
-  // ── Elevation profile ───────────────────────────────────────────────────────
+  // ── Elevation profile (Spec §6.2 / Rev 2.3) ─────────────────────────────────
+  //
+  // Quelle 1 (Primary): pro-Segment elevation_profile — vom Backend in
+  //   RouteSegment.elevation_profile geliefert (Phase 2/3.1) bzw. später
+  //   von Lazy-Fill nachgeladen (Phase 5).
+  // Quelle 2 (Fallback): POST /elevation/profile gegen die kombinierte
+  //   Geometrie — nur wenn KEIN Segment ein Profil trägt.
+  // Die effectiveProfile-State wird via useEffect aus diesen Quellen synchronisiert
+  // und ist die single-source-of-truth für Konsumenten + Save-Pfad.
 
   // Build combined coordinate list from all segment geometries, sorted by
   // waypoint order (state.segments is normally sorted, but defensive sort here
@@ -1121,52 +1195,15 @@ export function useRoutePlanner() {
     .sort((a, b) => (_wpOrderForProfile.get(a.from_waypoint) ?? Infinity) - (_wpOrderForProfile.get(b.from_waypoint) ?? Infinity))
     .flatMap(seg => seg.geometry?.coordinates ?? [])
 
-  // Check whether the geometry already carries elevation (3rd coordinate).
-  // BadRouter returns [lon, lat, ele]; BRouter returns [lon, lat] only.
-  const hasGeometryElevation =
-    combinedCoordinates.length >= 2 &&
-    combinedCoordinates[0].length >= 3
+  const profileFromSegments: RouteElevationPoint[] | null =
+    buildCombinedProfileFromSegments(state.segments, state.waypoints)
 
-  // If BadRouter-style elevation is present, derive the profile directly from
-  // coordinates — no extra API call needed.
-  const profileFromGeometry: ElevationPoint[] | null = hasGeometryElevation
-    ? (() => {
-        const coords = combinedCoordinates
-        // Haversine distance in meters between two [lon, lat] points
-        const haversineM = (a: number[], b: number[]): number => {
-          const R = 6371000
-          const dLat = (b[1] - a[1]) * Math.PI / 180
-          const dLon = (b[0] - a[0]) * Math.PI / 180
-          const sinDLat = Math.sin(dLat / 2)
-          const sinDLon = Math.sin(dLon / 2)
-          const h = sinDLat * sinDLat +
-            Math.cos(a[1] * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180) * sinDLon * sinDLon
-          return 2 * R * Math.asin(Math.sqrt(h))
-        }
+  // Fallback: POST /elevation/profile only when no segment carries a profile.
+  const needsBRouterFallback: boolean =
+    profileFromSegments === null && combinedCoordinates.length >= 2
 
-        const segLengths: number[] = []
-        for (let i = 1; i < coords.length; i++) {
-          segLengths.push(haversineM(coords[i - 1], coords[i]))
-        }
-        const totalLen = segLengths.reduce((a, b) => a + b, 0)
-        if (totalLen === 0) return null
-
-        const points: ElevationPoint[] = [{ fraction: 0, elevation: coords[0][2] ?? null }]
-        let cumLen = 0
-        for (let i = 0; i < segLengths.length; i++) {
-          cumLen += segLengths[i]
-          points.push({
-            fraction: cumLen / totalLen,
-            elevation: coords[i + 1][2] ?? null,
-          })
-        }
-        return points
-      })()
-    : null
-
-  // Fallback: POST /elevation/profile (for BRouter routes without 3D geometry)
   const combinedGeometry: GeoJSON.LineString | null =
-    !hasGeometryElevation && combinedCoordinates.length >= 2
+    needsBRouterFallback
       ? { type: 'LineString', coordinates: combinedCoordinates }
       : null
 
@@ -1180,9 +1217,51 @@ export function useRoutePlanner() {
       combinedCoordinates[combinedCoordinates.length - 1]?.toString(),
     ],
     queryFn: () => getElevationProfile(combinedGeometry!, 200),
-    enabled: combinedGeometry !== null,
+    enabled: needsBRouterFallback,
     staleTime: 60 * 1000,
   })
+
+  // Distance total — needs to be computed here (before the `totals` block below)
+  // so the BRouter-fallback converter can scale fraction → dist_m. Mirrors the
+  // sum in `totals.distance_m` (single source of truth: state.segments).
+  const _totalDistMForProfile = state.segments.reduce(
+    (acc, seg) => acc + seg.distance_m,
+    0,
+  )
+
+  // Sync effectiveProfile from the two sources. Shallow-equality guard prevents
+  // re-render loops: buildCombinedProfileFromSegments returns a new array each
+  // render, so reference comparison alone would always trigger setState.
+  useEffect(() => {
+    const next: RouteElevationPoint[] | null =
+      profileFromSegments
+      ?? (elevationProfileQuery.data
+            ? legacyToRouteProfile(elevationProfileQuery.data.profile, _totalDistMForProfile)
+            : null)
+    setState(s => {
+      const prev = s.effectiveProfile
+      if (prev === next) return s
+      if (prev === null && next === null) return s
+      if (
+        prev && next && prev.length === next.length &&
+        prev[0]?.dist_m === next[0]?.dist_m &&
+        prev[0]?.ele_m === next[0]?.ele_m &&
+        prev[prev.length - 1]?.dist_m === next[next.length - 1]?.dist_m &&
+        prev[prev.length - 1]?.ele_m === next[next.length - 1]?.ele_m
+      ) {
+        return s
+      }
+      return { ...s, effectiveProfile: next }
+    })
+    // profileFromSegments is recomputed each render (new identity), but the
+    // shallow-equality guard above no-ops when content is unchanged.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    state.segments,
+    state.waypoints,
+    elevationProfileQuery.data,
+    _totalDistMForProfile,
+  ])
 
   // ── Totals ──────────────────────────────────────────────────────────────────
 
@@ -1269,10 +1348,11 @@ export function useRoutePlanner() {
     capabilities: capabilitiesQuery.data ?? null,
     capabilitiesLoading: capabilitiesQuery.isLoading,
 
-    // ── React Query: elevation profile ────────────────────────────────────
-    // Prefer geometry-embedded elevation (BadRouter), fall back to API query (BRouter)
-    elevationProfile: profileFromGeometry ?? elevationProfileQuery.data?.profile ?? null,
-    elevationProfileLoading: !profileFromGeometry && elevationProfileQuery.isLoading,
+    // ── Elevation profile (Spec §6.2 / Rev 2.3) ──────────────────────────
+    // Single source of truth: effectiveProfile state (see useEffect above).
+    // Type: RouteElevationPoint[] — { dist_m, ele_m } in meters.
+    elevationProfile: state.effectiveProfile,
+    elevationProfileLoading: needsBRouterFallback && elevationProfileQuery.isLoading,
 
     // ── Profile-gated namespace ───────────────────────────────────────────
     profile: profileState,

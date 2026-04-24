@@ -30,6 +30,7 @@ export interface RouteSegment {
   approach_from?: number[][]      // [lon, lat] pairs: click point → edge projection
   approach_to?: number[][]        // [lon, lat] pairs: edge projection → click point
   sub_segments?: RouteSubSegment[] // From BadRouter GeoJSON properties.segments
+  elevation_profile?: RouteElevationPoint[] | null  // NEW — per-segment Frontend-State (Spec §6.2)
 }
 
 export interface RoutePhoto {
