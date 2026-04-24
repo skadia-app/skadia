@@ -2,6 +2,9 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -92,8 +95,91 @@ func (h *Handler) GetRoute(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, route)
 }
 
-// UpdateRoute updates mutable fields of a planned route, enforcing ownership.
+// patchableRouteFields lists the JSON keys the client is allowed to PATCH.
+// Keys outside this list (id, user_id, created_at, updated_at, source_*,
+// geometry_hash) are silently ignored to prevent privilege-escalation and to
+// keep server-controlled fields authoritative.
+var patchableRouteFields = map[string]struct{}{
+	"name":                 {},
+	"description":          {},
+	"sport_type":           {},
+	"difficulty":           {},
+	"profile":              {},
+	"geometry_geojson":     {},
+	"waypoints":            {},
+	"segments":             {},
+	"total_distance_m":     {},
+	"total_elevation_gain": {},
+	"total_elevation_loss": {},
+	"estimated_time_min":   {},
+	"time_override":        {},
+	"auto_tag":             {},
+	"elevation_profile":    {},
+	"enrichment":           {},
+}
+
+// applyRoutePatch merges JSON-patch fields into an existing route.
+// Only keys listed in patchableRouteFields are applied; unknown or immutable
+// keys are ignored. Keys present with an explicit null clear nullable fields
+// (e.g. description → NULL); keys absent from the body preserve the DB value.
+func applyRoutePatch(route *model.PlannedRoute, fields map[string]json.RawMessage) error {
+	for key, raw := range fields {
+		if _, ok := patchableRouteFields[key]; !ok {
+			continue
+		}
+		var target any
+		switch key {
+		case "name":
+			target = &route.Name
+		case "description":
+			target = &route.Description
+		case "sport_type":
+			target = &route.SportType
+		case "difficulty":
+			target = &route.Difficulty
+		case "profile":
+			target = &route.Profile
+		case "geometry_geojson":
+			target = &route.GeometryGeoJSON
+		case "waypoints":
+			target = &route.Waypoints
+		case "segments":
+			target = &route.Segments
+		case "total_distance_m":
+			target = &route.TotalDistanceM
+		case "total_elevation_gain":
+			target = &route.TotalElevationGain
+		case "total_elevation_loss":
+			target = &route.TotalElevationLoss
+		case "estimated_time_min":
+			target = &route.EstimatedTimeMin
+		case "time_override":
+			target = &route.TimeOverride
+		case "auto_tag":
+			target = &route.AutoTag
+		case "elevation_profile":
+			// json.RawMessage: explicit null clears (raw == "null"), any value passes through.
+			route.ElevationProfile = append(route.ElevationProfile[:0], raw...)
+			continue
+		case "enrichment":
+			route.Enrichment = append(route.Enrichment[:0], raw...)
+			continue
+		default:
+			continue
+		}
+		if err := json.Unmarshal(raw, target); err != nil {
+			return fmt.Errorf("patch field %q: %w", key, err)
+		}
+	}
+	return nil
+}
+
+// UpdateRoute applies a partial update to a planned route, enforcing ownership.
 // PATCH /api/v1/routes/{id}
+//
+// Semantics: fields present in the JSON body overwrite the DB value (including
+// explicit null for nullable columns). Fields absent from the body are
+// preserved. See patchableRouteFields for the allow-list.
 func (h *Handler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -106,20 +192,40 @@ func (h *Handler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	route, ok := httputil.DecodeJSON[model.PlannedRoute](w, r)
-	if !ok {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<20)) // 16 MiB cap
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "failed to read body", r.URL.Path)
 		return
 	}
 
-	route.ID = id
-	route.UserID = userID
-
-	// UpdateRoute enforces ownership via WHERE id = $1 AND user_id = $2
-	if err := h.DB.UpdateRoute(r.Context(), &route); httputil.HandleDBErr(w, r, err, "route not found", "id", id) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, route)
+	// Fetch existing route (also enforces ownership — returns ErrNoRows for
+	// other users or missing rows, mapped to 404 without leaking existence).
+	existing, err := h.DB.GetRoute(r.Context(), id, userID)
+	if httputil.HandleDBErr(w, r, err, "route not found", "id", id, "user_id", userID) {
+		return
+	}
+
+	if err := applyRoutePatch(existing, fields); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+
+	// IDs are never patchable — reassert from URL/context for UpdateRoute's
+	// WHERE id = $1 AND user_id = $2 clause.
+	existing.ID = id
+	existing.UserID = userID
+
+	if err := h.DB.UpdateRoute(r.Context(), existing); httputil.HandleDBErr(w, r, err, "route not found", "id", id) {
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, existing)
 }
 
 // DeleteRoute removes a planned route, enforcing ownership.
