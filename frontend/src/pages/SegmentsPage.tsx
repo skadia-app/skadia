@@ -52,6 +52,14 @@ const SEGMENT_TYPE_LABELS: Record<string, string> = {
   wassersport: 'Wassersport',
 }
 
+// Canonical list of visibility-filter values. Used both for iteration in the
+// checkbox render and the Set-based toggle handler — single source of truth.
+const VISIBILITY_ALL = ['public', 'private'] as const
+const VISIBILITY_LABELS: Record<(typeof VISIBILITY_ALL)[number], string> = {
+  public: 'Öffentlich',
+  private: 'Privat',
+}
+
 export default function SegmentsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -129,13 +137,26 @@ export default function SegmentsPage() {
     return Object.entries(SPORT_GROUP_LABELS).filter(([key]) => usedSportGroups.has(key))
   }, [hideUnused, allGroupsData, usedSportGroups])
 
-  // Debounced search
+  // Debounced search — uses functional setSearchParams to avoid stale-closure on
+  // `searchParams`: if a filter change happens while the 300ms debounce is pending,
+  // the captured searchParams would overwrite that change on fire. Functional form
+  // reads current state at fire time. Timer cleaned on unmount.
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const handleSearchChange = useCallback((value: string) => {
     setSearchInput(value)
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
-    searchTimerRef.current = setTimeout(() => setFilter('search', value || null), 300)
-  }, [searchParams])
+    searchTimerRef.current = setTimeout(() => {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev)
+        if (value) next.set('search', value)
+        else next.delete('search')
+        return next
+      }, { replace: true })
+    }, 300)
+  }, [setSearchParams])
+  useEffect(() => () => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+  }, [])
 
   const filterParams = useMemo(() => ({
     sport_group: sportGroup || undefined,
@@ -468,6 +489,8 @@ export default function SegmentsPage() {
                       role="radio"
                       ariaChecked={difficultyMatch === 'all'}
                       ariaLabel="Alle Kriterien erfüllen"
+                      // Roving tabindex: only the active radio is tab-reachable.
+                      tabIndex={difficultyMatch === 'all' ? 0 : -1}
                     >
                       Alle
                     </Pill>
@@ -481,6 +504,7 @@ export default function SegmentsPage() {
                       role="radio"
                       ariaChecked={difficultyMatch === 'any'}
                       ariaLabel="Eines genügt"
+                      tabIndex={difficultyMatch === 'any' ? 0 : -1}
                     >
                       Eines
                     </Pill>
@@ -551,11 +575,10 @@ export default function SegmentsPage() {
             <div className="space-y-2">
               <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Sichtbarkeit</label>
               <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-                {(['public', 'private'] as const).map(v => {
-                  const label = v === 'public' ? 'Öffentlich' : 'Privat'
+                {VISIBILITY_ALL.map(v => {
+                  const label = VISIBILITY_LABELS[v]
                   // B2: Set-based handler — single source of truth.
                   // Empty filter == both active (default). We expand to full set for toggle logic.
-                  const VISIBILITY_ALL = ['public', 'private'] as const
                   const current = new Set<string>(visibilityFilter.length === 0 ? VISIBILITY_ALL : visibilityFilter)
                   const isChecked = current.has(v)
                   return (
