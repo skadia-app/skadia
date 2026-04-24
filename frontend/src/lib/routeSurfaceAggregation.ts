@@ -3,6 +3,8 @@
 export interface RouteSubSegment {
   from_idx: number
   to_idx: number
+  from_dist_m?: number   // NEW — optional for backward-compat with pre-Phase-1 DB entries
+  to_dist_m?: number     // NEW — required for Phase 4 chart hover (surface/highway tooltip via dist-axis lookup)
   highway: string
   surface: string
   sac_scale?: string
