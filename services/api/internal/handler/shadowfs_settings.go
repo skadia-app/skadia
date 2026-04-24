@@ -181,6 +181,20 @@ func (h *Handler) UpdateLibraryDir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Gate: S3 backend does not support per-user directory names.
+	if h.Config != nil && h.Config.StorageBackend == "s3" {
+		httputil.WriteError(w, http.StatusForbidden, "Forbidden",
+			"library_dir_name not available for S3 backend", r.URL.Path)
+		return
+	}
+
+	// Gate: admin must allow user edits.
+	if h.Settings == nil || h.Settings.Get("library.user_can_edit_dir_name").Value != "true" {
+		httputil.WriteError(w, http.StatusForbidden, "Forbidden",
+			"library_dir_name is managed by administrator", r.URL.Path)
+		return
+	}
+
 	body, ok := httputil.DecodeJSON[struct {
 		LibraryDirName string `json:"library_dir_name"`
 	}](w, r)
