@@ -544,7 +544,7 @@ func (w *LibraryWatcher) registeredFiles(ctx context.Context, userID string) (ma
 // listUserDirs returns a map of directory name -> user ID for all active users.
 func (w *LibraryWatcher) listUserDirs(ctx context.Context) (map[string]string, error) {
 	rows, err := w.pool.Query(ctx,
-		`SELECT id, library_dir_name FROM users WHERE is_active = true AND deleted_at IS NULL`)
+		`SELECT id, COALESCE(library_dir_name, id::text) AS effective_dir FROM users WHERE is_active = true AND deleted_at IS NULL`)
 	if err != nil {
 		return nil, err
 	}
@@ -552,16 +552,11 @@ func (w *LibraryWatcher) listUserDirs(ctx context.Context) (map[string]string, e
 
 	dirs := make(map[string]string)
 	for rows.Next() {
-		var id string
-		var dirName *string
-		if err := rows.Scan(&id, &dirName); err != nil {
+		var id, effective string
+		if err := rows.Scan(&id, &effective); err != nil {
 			return nil, err
 		}
-		name := id
-		if dirName != nil && *dirName != "" {
-			name = *dirName
-		}
-		dirs[name] = id
+		dirs[effective] = id
 	}
 	return dirs, rows.Err()
 }
