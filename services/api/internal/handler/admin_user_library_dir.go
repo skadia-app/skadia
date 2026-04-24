@@ -68,28 +68,8 @@ func (h *Handler) UpdateAdminUserLibraryDir(w http.ResponseWriter, r *http.Reque
 
 	name := strings.TrimSpace(*body.LibraryDirName)
 
-	// Same validation as user endpoint
-	if strings.ContainsRune(name, 0) || len(name) > 100 ||
-		strings.Contains(name, "/") || strings.Contains(name, "\\") ||
-		strings.Contains(name, "..") || name == "." || strings.HasPrefix(name, "_") {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid library_dir_name", r.URL.Path)
-		return
-	}
-	if len(name) == 36 && name[8] == '-' && name[13] == '-' && name[18] == '-' && name[23] == '-' {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
-			"library_dir_name must not be in UUID format", r.URL.Path)
-		return
-	}
-
-	// UUID-clash check: does the value match another user's UUID?
-	var exists bool
-	_ = h.DB.Pool.QueryRow(r.Context(),
-		`SELECT EXISTS(SELECT 1 FROM users WHERE id::text = $1 AND id::text != $2)`,
-		name, targetID).Scan(&exists)
-	if exists {
-		httputil.WriteJSON(w, http.StatusOK, map[string]string{
-			"status": "library_dir_name_clashes_with_user_uuid",
-		})
+	// Shared validation: path-safety + clash-before-uuid-format-reject (HIGH #7).
+	if validateLibraryDirName(r.Context(), w, r, h.DB.Pool, name, targetID) {
 		return
 	}
 

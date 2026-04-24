@@ -256,16 +256,32 @@ func (h *Handler) UpdateLibraryDir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Pointer body: null → explicit reset (MED #18 — match admin-endpoint semantics).
 	body, ok := httputil.DecodeJSON[struct {
-		LibraryDirName string `json:"library_dir_name"`
+		LibraryDirName *string `json:"library_dir_name"`
 	}](w, r)
 	if !ok {
 		return
 	}
 
-	name := strings.TrimSpace(body.LibraryDirName)
+	// Null → reset to NULL (UUID default will be used on read)
+	if body.LibraryDirName == nil {
+		_, err := h.DB.Pool.Exec(r.Context(),
+			`UPDATE users SET library_dir_name = NULL WHERE id = $1`,
+			userID,
+		)
+		if err != nil {
+			slog.Error("failed to reset library_dir_name", "error", err, "user_id", userID)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
+			return
+		}
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
 
-	// Empty → reset to NULL (UUID default will be used on read)
+	name := strings.TrimSpace(*body.LibraryDirName)
+
+	// Empty string after trim → treat as reset.
 	if name == "" {
 		_, err := h.DB.Pool.Exec(r.Context(),
 			`UPDATE users SET library_dir_name = NULL WHERE id = $1`,
@@ -276,31 +292,12 @@ func (h *Handler) UpdateLibraryDir(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
 			return
 		}
-		httputil.WriteJSON(w, http.StatusOK, map[string]string{
-			"library_dir_name": userID,
-		})
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 		return
 	}
 
-	// Security checks
-	if strings.ContainsRune(name, 0) {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid library_dir_name: contains null byte", r.URL.Path)
-		return
-	}
-	if len(name) > 100 {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "library_dir_name exceeds maximum length of 100", r.URL.Path)
-		return
-	}
-	if strings.Contains(name, "/") || strings.Contains(name, "\\") ||
-		strings.Contains(name, "..") || name == "." ||
-		strings.HasPrefix(name, "_") {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid library_dir_name", r.URL.Path)
-		return
-	}
-	// L24: Reject names that look like UUIDs — they would collide with the
-	// user-ID fallback path (data/library/{uuid}/). Pattern: 8-4-4-4-12 hex.
-	if len(name) == 36 && name[8] == '-' && name[13] == '-' && name[18] == '-' && name[23] == '-' {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "library_dir_name must not be in UUID format", r.URL.Path)
+	// Shared validation: path-safety + clash-before-uuid-format-reject (HIGH #7+#8).
+	if validateLibraryDirName(r.Context(), w, r, h.DB.Pool, name, userID) {
 		return
 	}
 
