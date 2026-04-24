@@ -259,17 +259,11 @@ func (h *Handler) PreviewFileRename(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Resolve user directory name once.
-	var libraryDirName *string
-	if err := h.DB.Pool.QueryRow(r.Context(),
-		`SELECT library_dir_name FROM users WHERE id = $1`, userID,
-	).Scan(&libraryDirName); err != nil {
-		slog.Error("rename-preview: query library_dir_name", "error", err, "user_id", userID)
+	userDir, err := shadowfs.ResolveLibraryDirName(r.Context(), h.DB.Pool, userID)
+	if err != nil {
+		slog.Error("rename-preview: resolve library dir", "error", err, "user_id", userID)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
 		return
-	}
-	userDir := userID
-	if libraryDirName != nil && *libraryDirName != "" {
-		userDir = *libraryDirName
 	}
 
 	// Query all active files of this type.
