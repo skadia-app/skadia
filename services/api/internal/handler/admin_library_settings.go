@@ -58,15 +58,31 @@ func (h *Handler) UpdateAdminLibrarySettings(w http.ResponseWriter, r *http.Requ
 	// HIGH #12: Require all 5 file-type keys to be present. Missing keys
 	// would silently leave stale DB values; extra keys would pass through
 	// the loop below unchecked. Exact-5 enforces full-replacement semantics.
-	if len(body.DefaultSchemas) != 5 {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
-			"default_schemas must contain exactly 5 keys (activity, media, document, health, route)", r.URL.Path)
-		return
-	}
-	for _, ft := range userFacingSchemaFileTypes {
-		if _, ok := body.DefaultSchemas[ft]; !ok {
+	// NIT #17: Collect all missing AND extra keys before returning so the caller
+	// gets a single diagnostic message instead of one-at-a-time failures.
+	{
+		expected := userFacingSchemaFileTypes
+		var missing, extras []string
+		for _, ft := range expected {
+			if _, ok := body.DefaultSchemas[ft]; !ok {
+				missing = append(missing, ft)
+			}
+		}
+		for ft := range body.DefaultSchemas {
+			found := false
+			for _, e := range expected {
+				if ft == e {
+					found = true
+					break
+				}
+			}
+			if !found {
+				extras = append(extras, ft)
+			}
+		}
+		if len(missing) > 0 || len(extras) > 0 {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
-				fmt.Sprintf("default_schemas missing required key %q", ft), r.URL.Path)
+				fmt.Sprintf("default_schemas: missing=%v extras=%v", missing, extras), r.URL.Path)
 			return
 		}
 	}
@@ -74,19 +90,8 @@ func (h *Handler) UpdateAdminLibrarySettings(w http.ResponseWriter, r *http.Requ
 	// Validate schemas
 	renderer := shadowfs.NewSchemaRenderer()
 	for ft, schema := range body.DefaultSchemas {
-		// Reject unknown file types
-		found := false
-		for _, allowed := range userFacingSchemaFileTypes {
-			if ft == allowed {
-				found = true
-				break
-			}
-		}
-		if !found {
-			httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
-				fmt.Sprintf("unknown file type %q in default_schemas", ft), r.URL.Path)
-			return
-		}
+		// All keys are validated as known above (missing/extras check), so no
+		// unknown-file-type branch is needed here.
 
 		if piiKey := shadowfs.ContainsPIIVariable(schema); piiKey != "" {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
