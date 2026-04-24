@@ -872,16 +872,18 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := chi.URLParam(r, "id")
+	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 
 	// Get segment to verify ownership and retrieve name for job display.
-	seg, err := h.DB.GetSegment(r.Context(), id, userID, false, false)
+	// Admins may publish any private segment they can read.
+	seg, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin, false)
 
 	if err != nil {
 		slog.Error("publish segment: get segment failed", "segment_id", id, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
 		return
 	}
-	if seg == nil || seg.CreatedBy != userID {
+	if seg == nil || (seg.CreatedBy != userID && !isAdmin) {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "segment not found or not owned", r.URL.Path)
 		return
 	}
@@ -899,7 +901,7 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set visibility = 'public'. After this point the segment is visible to all users.
-	published, err := h.DB.PublishSegment(r.Context(), id, userID)
+	published, err := h.DB.PublishSegment(r.Context(), id, userID, isAdmin)
 	if err != nil {
 		slog.Error("publish segment failed", "segment_id", id, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to publish segment", r.URL.Path)
