@@ -827,3 +827,116 @@ describe('useRoutePlanner lazy-fill (DEM-only, Spec Rev 2.3 §7.5)', () => {
     expect(result.current.lazyFillPendingSave).toBe(true)
   })
 })
+
+// ── Critic finding #7 (MAJOR): Token-counter path in loadRoute ────────────────
+//
+// Spec §7.5: "loadRoute(R2) while R1 in-flight" — the reference-identity branch
+// (s.segments !== segmentsSnapshot) was already covered. This test covers the
+// TOKEN-COUNTER branch: a second loadRoute() increments lazyFillToken so that
+// the in-flight R1 lazy-fill setState callback sees s.lazyFillToken !== expectedToken
+// and discards R1's result.
+
+describe('useRoutePlanner lazy-fill token-counter (Spec §7.5, Critic #7)', () => {
+  let qc: QueryClient
+
+  beforeEach(async () => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    addToastMock.mockClear()
+    sessionStorage.removeItem('skadia.lazy_fill_notice_shown')
+    computeInternalRouteMock.mockReset()
+
+    const { getProfileDefaults, cacheServerDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue(null)
+    vi.mocked(cacheServerDefaults).mockReset()
+
+    const { getProfileDefaults: fetchProfileDefaults } = await import('@/api/routes')
+    vi.mocked(fetchProfileDefaults).mockResolvedValue({
+      profile: 'hiking',
+      uphill_cost: 7,
+    } as any)
+  })
+
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <ToastProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </ToastProvider>
+  )
+
+  it('TestLoadRoute_LazyFillToken_DiscardedOnNewerLoad', async () => {
+    // Token-counter stale-check: loadRoute(R2) while R1's getElevationProfile is
+    // in-flight increments lazyFillToken. When R1's promise resolves, the token
+    // check (s.lazyFillToken !== expectedToken) discards R1's result, so the
+    // stale 999-elevation value is never written to effectiveProfile.
+    //
+    // R1: getElevationProfile hangs until we manually resolve it with ele=999.
+    // R2: getElevationProfile resolves immediately with [] (no DEM → null profile).
+    // After both settle: elevationProfile must be null (R2's outcome), not 999.
+
+    let resolveR1!: (v: { profile: ElevationPoint[] }) => void
+    let callCount = 0
+
+    const { getElevationProfile } = await import('@/api/routes')
+    vi.mocked(getElevationProfile).mockImplementation(() => {
+      callCount += 1
+      if (callCount === 1) {
+        // R1's call: hang until resolved manually
+        return new Promise(resolve => { resolveR1 = resolve })
+      }
+      // R2's call: resolve immediately with no DEM data → null elevationProfile
+      return Promise.resolve({ profile: [] })
+    })
+
+    const routeR1 = makeTestRoute({ id: 'r1', elevation_profile: null })
+    const routeR2 = makeTestRoute({ id: 'r2', elevation_profile: null })
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    // Load R1 — triggers lazy-fill (in-flight, token=1)
+    act(() => {
+      result.current.loadRoute(routeR1)
+    })
+
+    // R1's lazy-fill is now in-flight
+    await waitFor(() => {
+      expect(result.current.lazyFillInProgress).toBe(true)
+    })
+
+    // Load R2 while R1 is in-flight — increments token to 2, editingRouteId → r2
+    act(() => {
+      result.current.loadRoute(routeR2)
+    })
+
+    expect(result.current.editingRouteId).toBe('r2')
+
+    // Wait for R2's lazy-fill to settle (no DEM → false immediately)
+    await waitFor(() => {
+      expect(result.current.lazyFillInProgress).toBe(false)
+    })
+
+    // Now resolve R1's in-flight getElevationProfile with stale ele=999
+    act(() => {
+      resolveR1({ profile: [{ fraction: 0, elevation: 999 }, { fraction: 1, elevation: 999 }] })
+    })
+
+    // Allow the setState callback to run
+    await waitFor(() => {
+      // editingRouteId must still be r2 (R1 did not overwrite it)
+      expect(result.current.editingRouteId).toBe('r2')
+    })
+
+    // R1's stale 999-elevation must have been discarded by the token check.
+    // R2 had no DEM data → elevationProfile is null.
+    const finalProfile = result.current.elevationProfile
+    if (finalProfile != null && finalProfile.length > 0) {
+      expect(finalProfile[0].ele_m).not.toBe(999)
+      expect(finalProfile[finalProfile.length - 1].ele_m).not.toBe(999)
+    } else {
+      // null or empty — correct: R2 resolved with empty profile, R1 was discarded
+      expect(finalProfile).toBeNull()
+    }
+
+    // lazyFillPendingSave must NOT be true (R1 discarded, R2 had no DEM)
+    expect(result.current.lazyFillPendingSave).toBe(false)
+  })
+})
+
