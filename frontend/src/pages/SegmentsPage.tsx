@@ -92,12 +92,18 @@ export default function SegmentsPage() {
     sacFilter.length > 0 || mtbFilter.length > 0 || surfaceFilter.length > 0 || visibilityFilter.length > 0
   )
 
+  // Functional-form update avoids stale-closure races: two setFilter calls in
+  // the same React tick (e.g. segType change clearing dependent filters)
+  // both read the current URL state at fire time instead of a captured snapshot.
+  // Same pattern as handleSearchChange below.
   const setFilter = (key: string, value: string | string[] | null) => {
-    const next = new URLSearchParams(searchParams)
     const strValue = Array.isArray(value) ? value.join(',') : value
-    if (strValue) next.set(key, strValue)
-    else next.delete(key)
-    setSearchParams(next, { replace: true })
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (strValue) next.set(key, strValue)
+      else next.delete(key)
+      return next
+    }, { replace: true })
   }
 
   const queryClient = useQueryClient()

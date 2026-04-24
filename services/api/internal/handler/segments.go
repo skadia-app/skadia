@@ -181,6 +181,7 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 		if dv, ok := m["difficulty_color"].(string); ok {
 			m["difficulty_color"] = normalizeDifficultyColor(dv)
 		}
+		stripIncompatibleMeta(m, create.SegmentType)
 		buf, err := json.Marshal(m)
 		if err != nil {
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "re-marshal meta", r.URL.Path)
@@ -256,6 +257,21 @@ func (h *Handler) GetSegment(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, segment)
 }
 
+// stripIncompatibleMeta removes segment_type_meta keys that don't apply to the
+// given segType. Wassersport/Wintersport/Lift have implicit surface
+// (water/snow/infrastructure) and no ground-based difficulty scales — frontend
+// already hides these fields, this is backend defense-in-depth so hand-crafted
+// API payloads (or legacy data still in the map) don't persist orphaned values
+// that the filter queries would still match.
+func stripIncompatibleMeta(m map[string]any, segType string) {
+	switch segType {
+	case "wassersport", "wintersport", "lift":
+		delete(m, "surface")
+		delete(m, "sac_scale")
+		delete(m, "mtb_scale")
+	}
+}
+
 func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -300,6 +316,23 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate segment_type if set — restrict to canonical enum values.
+	// (The frontend segment-type picker sends this; without validation the DB
+	// CHECK constraint would yield a 500 instead of a clean 400.)
+	if update.SegmentType != nil {
+		validSegTypes := map[string]bool{"standard": true, "trail": true, "lap": true, "wintersport": true, "wassersport": true, "lift": true}
+		if !validSegTypes[*update.SegmentType] {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid segment_type", r.URL.Path)
+			return
+		}
+	}
+
+	// Effective segment_type after this update — used to strip incompatible meta.
+	effectiveSegType := existing.SegmentType
+	if update.SegmentType != nil {
+		effectiveSegType = *update.SegmentType
+	}
+
 	// Normalize historic German labels in segment_type_meta before DB write.
 	if update.SegmentTypeMeta != nil && len(*update.SegmentTypeMeta) > 0 {
 		var m map[string]any
@@ -313,6 +346,7 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 		if dv, ok := m["difficulty_color"].(string); ok {
 			m["difficulty_color"] = normalizeDifficultyColor(dv)
 		}
+		stripIncompatibleMeta(m, effectiveSegType)
 		buf, err := json.Marshal(m)
 		if err != nil {
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "re-marshal meta", r.URL.Path)
