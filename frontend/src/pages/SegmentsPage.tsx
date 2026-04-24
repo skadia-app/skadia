@@ -59,10 +59,25 @@ export default function SegmentsPage() {
   const terrainFilter = searchParams.get('segment_types')?.split(',') ?? ['standard', 'trail', 'wintersport', 'wassersport']
   const showAllLifts = searchParams.get('show_lifts') === 'true'
   const search = searchParams.get('search') ?? ''
-  const sacFilter = searchParams.get('sac_scale')?.split(',').filter(Boolean) ?? []
-  const mtbFilter = searchParams.get('mtb_scale')?.split(',').filter(Boolean) ?? []
-  const surfaceFilter = searchParams.get('surface')?.split(',').filter(Boolean) ?? []
-  const visibilityFilter = searchParams.get('visibility')?.split(',').filter(Boolean) ?? []
+  // B3: Stable array references via useMemo — without this, every render creates a new
+  // array instance which causes filterParams memo to recompute and triggers unnecessary
+  // fetches even when the URL hasn't changed (#6).
+  const sacFilter = useMemo(
+    () => searchParams.get('sac_scale')?.split(',').filter(Boolean) ?? [],
+    [searchParams.get('sac_scale')],
+  )
+  const mtbFilter = useMemo(
+    () => searchParams.get('mtb_scale')?.split(',').filter(Boolean) ?? [],
+    [searchParams.get('mtb_scale')],
+  )
+  const surfaceFilter = useMemo(
+    () => searchParams.get('surface')?.split(',').filter(Boolean) ?? [],
+    [searchParams.get('surface')],
+  )
+  const visibilityFilter = useMemo(
+    () => searchParams.get('visibility')?.split(',').filter(Boolean) ?? [],
+    [searchParams.get('visibility')],
+  )
   const difficultyMatch = (searchParams.get('difficulty_match') ?? 'all') as 'any' | 'all'
 
   const [showAdvanced, setShowAdvanced] = useState(() =>
@@ -538,24 +553,26 @@ export default function SegmentsPage() {
               <div className="flex flex-wrap gap-x-3 gap-y-1.5">
                 {(['public', 'private'] as const).map(v => {
                   const label = v === 'public' ? 'Öffentlich' : 'Privat'
-                  const isChecked = visibilityFilter.length === 0 || visibilityFilter.includes(v)
+                  // B2: Set-based handler — single source of truth.
+                  // Empty filter == both active (default). We expand to full set for toggle logic.
+                  const VISIBILITY_ALL = ['public', 'private'] as const
+                  const current = new Set<string>(visibilityFilter.length === 0 ? VISIBILITY_ALL : visibilityFilter)
+                  const isChecked = current.has(v)
                   return (
                     <label key={v} className="flex items-center gap-1.5 cursor-pointer group">
                       <input
                         type="checkbox"
                         checked={isChecked}
                         onChange={() => {
-                          const other = v === 'public' ? 'private' : 'public'
-                          if (isChecked) {
-                            // Prevent unchecking the last active option — must keep at least one
-                            const otherChecked = visibilityFilter.length === 0 || visibilityFilter.includes(other)
-                            if (!otherChecked) return
-                            setFilter('visibility', [other])
-                          } else {
-                            const next = visibilityFilter.length === 0 ? [v] : [...visibilityFilter, v]
-                            // Both selected = default state → clear filter param
-                            setFilter('visibility', next.length === 2 ? null : next)
-                          }
+                          const next = new Set(current)
+                          if (next.has(v)) next.delete(v)
+                          else next.add(v)
+                          // Prevent unchecking the last active option — must keep at least one (#10)
+                          if (next.size === 0) return
+                          // Both selected == default state → clear filter param (B1: canonical URL #8)
+                          if (next.size === VISIBILITY_ALL.length) setFilter('visibility', null)
+                          // Deterministic order: public before private
+                          else setFilter('visibility', VISIBILITY_ALL.filter(k => next.has(k)))
                         }}
                         className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
                       />
