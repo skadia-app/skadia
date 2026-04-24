@@ -101,11 +101,22 @@ export default function RouteSaveDialog({
     onSuccess: (saved) => {
       queryClient.invalidateQueries({ queryKey: ['routes'] })
       queryClient.invalidateQueries({ queryKey: ['route', saved.id] })
-      addToast({
-        type: 'success',
-        title: saveMode === 'save_as_new' ? 'Als neue Route gespeichert' : 'Route gespeichert',
-        message: saved.name,
-      })
+      // "Route aktualisiert" matches the wording from the hook's silent-PATCH path.
+      // Only shown when updating an existing route via the dialog (not on create or
+      // save-as-new, which produce a new route and are already self-evident).
+      if (isEditing && saveMode === 'save') {
+        addToast({
+          type: 'success',
+          title: 'Route aktualisiert',
+          message: saved.name || undefined,
+        })
+      } else if (saveMode === 'save_as_new') {
+        addToast({
+          type: 'success',
+          title: 'Als neue Route gespeichert',
+          message: saved.name,
+        })
+      }
       onSaved(saved)
       onClose()
     },
