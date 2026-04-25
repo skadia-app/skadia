@@ -17,15 +17,15 @@ export function getTheme(): EChartsTheme {
 }
 
 /**
- * Manages an ECharts instance: init once on mount, setOption on dep change,
- * dispose on unmount.
- *
- * @param getOption - Called with theme to produce chart options. Re-runs on dep change.
- * @param deps - Re-run setOption when these change.
+ * Manages an ECharts instance: init, resize, dark-mode, dispose.
+ * @param getOption - Called with theme to produce chart options.
+ *   IMPORTANT: If this function closes over external state, include that state in `deps`.
+ *   If `getOption` is an inline arrow, it works automatically (new ref on each render).
+ *   If `getOption` is a stable/memoized function, external state changes won't trigger re-render.
+ * @param deps - Re-render chart when these change.
  * @param onChart - Optional callback receiving the chart instance after init.
- *   Re-runs on dep change AFTER setOption — useful for re-binding event handlers
- *   that close over fresh state. Return optional cleanup fn (called before next
- *   onChart and on dispose).
+ *   Use it to register event handlers, call dispatchAction, set group, etc.
+ *   Return an optional cleanup function (called before dispose).
  */
 export function useECharts(
   getOption: (theme: EChartsTheme) => echarts.EChartsCoreOption,
@@ -33,35 +33,24 @@ export function useECharts(
   onChart?: (chart: echarts.ECharts) => (() => void) | void,
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
-  const onChartCleanupRef = useRef<(() => void) | null>(null)
 
-  // Mount/unmount only — no re-init on dep change.
   useEffect(() => {
     if (!containerRef.current) return
+
+    const theme = getTheme()
     const chart = echarts.init(containerRef.current, undefined, { renderer: 'canvas' })
-    chartRef.current = chart
+    chart.setOption(getOption(theme))
+
+    const chartCleanup = onChart?.(chart)
 
     const observer = new ResizeObserver(() => chart.resize())
     observer.observe(containerRef.current)
 
     return () => {
-      onChartCleanupRef.current?.()
-      onChartCleanupRef.current = null
+      chartCleanup?.()
       observer.disconnect()
       chart.dispose()
-      chartRef.current = null
     }
-  }, [])
-
-  // Update on dep change — only setOption + re-bind handlers, no teardown.
-  useEffect(() => {
-    const chart = chartRef.current
-    if (!chart) return
-    chart.setOption(getOption(getTheme()))
-    onChartCleanupRef.current?.()
-    const cleanup = onChart?.(chart)
-    onChartCleanupRef.current = (cleanup ?? null) as (() => void) | null
   }, deps) // eslint-disable-line react-hooks/exhaustive-deps — NICHT ENTFERNEN: deps werden vom Caller übergeben, getOption ist absichtlich ausgeschlossen (sonst infinite Re-Renders bei inline Arrows)
 
   return containerRef
