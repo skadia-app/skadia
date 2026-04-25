@@ -189,6 +189,15 @@ function RouteProfileChart({
   const points = useSnapshot ? snap.current.points : livePoints
   const effectiveTotalM = useSnapshot ? snap.current.totalDistanceM : totalDistanceM
 
+  // X-axis must derive from the chart data itself (approach-exclusive,
+  // Spec §5.4) — not from totalDistanceM which sums seg.distance_m
+  // (approach-inclusive) and would render the line ending well short of
+  // the axis max. Prefer the last point's distanceKm; fall back to
+  // effectiveTotalM/1000 only when the chart is empty.
+  const axisMaxKm = points.length > 0
+    ? points[points.length - 1].distanceKm
+    : effectiveTotalM / 1000
+
   // Y-axis range with padding
   const yRange = useMemo(() => {
     if (points.length === 0) return { min: 0, max: 100 }
@@ -267,7 +276,7 @@ function RouteProfileChart({
         xAxis: {
           type: 'value',
           min: 0,
-          max: effectiveTotalM / 1000,
+          max: axisMaxKm,
           axisLabel: {
             fontSize: 10,
             color: '#6b7280',
