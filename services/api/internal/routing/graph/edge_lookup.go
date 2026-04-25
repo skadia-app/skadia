@@ -16,6 +16,8 @@ type EdgeCandidate struct {
 	DistM    float64
 	ProjLat  float64
 	ProjLng  float64
+	Tags1    uint64
+	Tags2    uint64
 	Surface  string
 	Highway  string
 }
@@ -74,9 +76,10 @@ func FindNearEdges(g *Graph, lat, lng float64) []EdgeCandidate {
 						continue
 					}
 
-					tags := g.EdgeTags1[eIdx]
-					hw := HighwayName(DecodeHighway(tags))
-					sf := SurfaceName(DecodeSurface(tags))
+					tags1 := g.EdgeTags1[eIdx]
+					tags2 := g.EdgeTags2[eIdx]
+					hw := HighwayName(DecodeHighway(tags1))
+					sf := SurfaceName(DecodeSurface(tags1))
 
 					candidates = append(candidates, EdgeCandidate{
 						EdgeIdx:  eIdx,
@@ -85,6 +88,8 @@ func FindNearEdges(g *Graph, lat, lng float64) []EdgeCandidate {
 						DistM:    distM,
 						ProjLat:  projLat,
 						ProjLng:  projLng,
+						Tags1:    tags1,
+						Tags2:    tags2,
 						Surface:  sf,
 						Highway:  hw,
 					})
