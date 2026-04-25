@@ -1,0 +1,784 @@
+#!/usr/bin/env bash
+#
+# Git pre-commit hook: scan staged changes before allowing the commit.
+#
+# Detects:
+#   0. TypeScript baseline regressions in frontend/  (blocks new tsc errors
+#                                                     beyond frontend/.tsc-baseline)
+#   1. Unusually large files                       (configurable threshold,
+#                                                   lockfiles whitelisted)
+#   2a. Personal fitness / GPS tracks              (FIT, GPX, TCX, KML, KMZ)
+#   2b. Binary / media assets outside allowed paths
+#   2c. Cryptographic key files by filename        (id_rsa, *.pem, *.key, ...)
+#   3. .env / dotenv files
+#   4. Tokens, API keys, private keys              (regex patterns)
+#   5. Database connection URIs with credentials
+#   6. Personal email addresses                    (PII)
+#   7. Symlinks pointing outside the repo
+#   8. New local-only/private tracked paths       (ignored private scratch
+#                                                   and generated memory)
+#   9. Public/private text privacy guard          (local paths, coordinates,
+#                                                   sensitive filenames in
+#                                                   public docs/changelog and
+#                                                   legacy private docs)
+#  10. gitleaks staged-scan                       (entropy + provider rules,
+#                                                   optional — skipped if not
+#                                                   installed)
+#  11. actionlint                                  (GHA YAML lint, only when
+#                                                   .github/workflows/*.yml is
+#                                                   staged; optional)
+#  12. zizmor                                      (GHA security audit, only
+#                                                   when .github/workflows/
+#                                                   *.yml is staged; optional)
+#  13. hadolint                                   (Dockerfile lint, only when
+#                                                   a Dockerfile is staged;
+#                                                   optional)
+#  14. shellcheck                                  (shell-script lint, only
+#                                                   when a *.sh / .githooks/*
+#                                                   is staged; optional)
+#
+# Activation (per clone, once):
+#     git config core.hooksPath .githooks
+#
+# Customization: edit the CONFIG block below to match your project.
+# Override per-clone: drop a `.githooks/config.local.sh` (gitignored) that sets
+# any of the variables — it is sourced after the defaults.
+#
+# Exit codes:
+#     0  ok, commit proceeds
+#     1  finding detected, commit blocked
+#     2  hook itself errored (fail-closed)
+#
+# Bypass (use with care): `git commit --no-verify` — disables ALL hooks.
+#
+# This hook fires on `git commit` and `git commit --amend` (the latter scans
+# only the new content being added by the amendment, since `git diff --cached`
+# returns just that). Replay-style operations (rebase, cherry-pick, merge)
+# skip the hook automatically — those commits already passed (or did not pass)
+# the hook on their original creation, and re-checking them adds friction
+# without security value. History rewriters such as `git filter-repo` and BFG
+# bypass the commit machinery entirely and never reach this hook.
+
+set -uo pipefail
+
+# ----------------------------------------------------------------------------
+# Bash compatibility: this hook works on Bash 3.2+ syntactically (macOS
+# default Bash supported on the language level — we avoid Bash-4-only
+# syntax like `${var,,}` and `declare -A`).
+#
+# But the hook calls GNU coreutils `timeout`, which macOS does NOT ship
+# by default. macOS contributors must install GNU coreutils first:
+#
+#     brew install coreutils
+#     # then either alias `timeout=gtimeout` in your shell, or add
+#     # /opt/homebrew/opt/coreutils/libexec/gnubin to your PATH so plain
+#     # `timeout` resolves to the GNU version.
+#
+# Without that, the required-tools loop below fails closed on macOS.
+# ----------------------------------------------------------------------------
+if [ -z "${BASH_VERSION:-}" ]; then
+    echo "pre-commit: Bash required (this hook is not POSIX-portable)." >&2
+    exit 2
+fi
+
+# ----------------------------------------------------------------------------
+# Required tools. Fail-closed if any is missing rather than silently passing.
+# ----------------------------------------------------------------------------
+for tool in git grep awk sed timeout stat tr xargs; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "pre-commit: required tool '$tool' not found in PATH." >&2
+        exit 2
+    fi
+done
+
+# ----------------------------------------------------------------------------
+# Check 0: TypeScript baseline gate for frontend/
+#
+# Blocks commits that introduce new TypeScript errors beyond the current
+# baseline (frontend/.tsc-baseline). Auto-lowers the baseline when errors
+# decrease. Only runs when .ts/.tsx files under frontend/ are staged. Runs
+# before the heavier secret/PII scans so a TS regression aborts early.
+# ----------------------------------------------------------------------------
+if git diff --cached --name-only --diff-filter=ACMR | grep -qE '^frontend/.*\.(ts|tsx)$'; then
+    REPO_ROOT_FOR_TSC="$(git rev-parse --show-toplevel)"
+    BASELINE_FILE="$REPO_ROOT_FOR_TSC/frontend/.tsc-baseline"
+
+    if ! command -v npx >/dev/null 2>&1; then
+        echo "pre-commit: npx not found, skipping tsc baseline gate (install Node to enable)" >&2
+    else
+        TSC_OUTPUT=$(cd "$REPO_ROOT_FOR_TSC/frontend" && npx tsc -b --pretty false 2>&1)
+        TSC_ERRORS=$(printf '%s\n' "$TSC_OUTPUT" | grep -c "error TS" || true)
+        TSC_BASELINE=$(cat "$BASELINE_FILE" 2>/dev/null || echo "0")
+
+        if [ "$TSC_ERRORS" -gt "$TSC_BASELINE" ]; then
+            echo "" >&2
+            echo "pre-commit: tsc errors $TSC_ERRORS > baseline $TSC_BASELINE — commit blocked" >&2
+            echo "" >&2
+            printf '%s\n' "$TSC_OUTPUT" | grep "error TS" | head -15 >&2
+            echo "" >&2
+            echo "If the increase is intentional (e.g. you accept a new error):" >&2
+            echo "  echo $TSC_ERRORS > frontend/.tsc-baseline && git add frontend/.tsc-baseline" >&2
+            echo "" >&2
+            exit 1
+        fi
+
+        if [ "$TSC_ERRORS" -lt "$TSC_BASELINE" ]; then
+            echo "$TSC_ERRORS" > "$BASELINE_FILE"
+            git add "$BASELINE_FILE"
+            echo "pre-commit: tsc baseline lowered $TSC_BASELINE -> $TSC_ERRORS" >&2
+        fi
+    fi
+fi
+
+# ----------------------------------------------------------------------------
+# CONFIG — defaults; override via .githooks/config.local.sh
+# ----------------------------------------------------------------------------
+
+# Files larger than this trigger a LARGE_FILE warning unless the path or
+# basename matches one of the size-exempt patterns below.
+#
+# The allowlists live in two pure-DATA files (no bash, never sourced) at
+# .githooks/large-files-allowlist-paths.txt and
+# .githooks/large-files-allowlist-basenames.re. The CI mirror
+# (.github/workflows/repo-hygiene.yml) reads the same files from
+# origin/main so a malicious PR cannot widen the gate. Contributor-side
+# hook reads from local worktree because the contributor controls their
+# own commit.
+SIZE_THRESHOLD_KB=500
+LARGE_FILES_ALLOWLIST_DIR="$(git rev-parse --show-toplevel 2>/dev/null)/.githooks"
+LARGE_FILES_PATHS_FILE="$LARGE_FILES_ALLOWLIST_DIR/large-files-allowlist-paths.txt"
+LARGE_FILES_BASENAMES_FILE="$LARGE_FILES_ALLOWLIST_DIR/large-files-allowlist-basenames.re"
+if [ ! -f "$LARGE_FILES_PATHS_FILE" ] || [ ! -f "$LARGE_FILES_BASENAMES_FILE" ]; then
+    echo "pre-commit: missing large-files allowlist files at $LARGE_FILES_ALLOWLIST_DIR" >&2
+    exit 2
+fi
+# Read paths (skip blank + comment lines). Reject any line that contains
+# glob metacharacters, parent traversal, or an absolute path — these
+# could turn the allowlist into a sweep-everything rule if someone with
+# write access (or a confused contributor) adds them.
+SIZE_EXEMPT_PATHS=()
+while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    case "$line" in
+        \#*) continue ;;
+        */../*|/*|*\**|*\?*|*\[*)
+            echo "pre-commit: refusing dangerous path-prefix '$line' in large-files allowlist" >&2
+            exit 2
+            ;;
+    esac
+    SIZE_EXEMPT_PATHS+=("$line")
+done < "$LARGE_FILES_PATHS_FILE"
+# Read regex (first non-blank, non-comment line wins).
+SIZE_EXEMPT_BASENAMES_RE=$(grep -m1 -vE '^(\s*#|\s*$)' "$LARGE_FILES_BASENAMES_FILE" || true)
+if [ -z "$SIZE_EXEMPT_BASENAMES_RE" ]; then
+    echo "pre-commit: empty basename-regex in $LARGE_FILES_BASENAMES_FILE" >&2
+    exit 2
+fi
+
+# Paths where binary / media assets are intentionally tracked. Each entry is a
+# literal prefix; trailing slash recommended.
+#
+# IMPORTANT: do NOT add `data/` here. Per project convention `data/` is a
+# bind-mount for runtime artefacts (DEM tiles, OSM imports, ML models, user
+# uploads). Adding it would silently allow personal fitness exports to land in
+# `data/imports/` undetected — which is exactly what this hook prevents.
+ALLOWED_BINARY_PATHS=(
+    "frontend/public/"
+    "frontend/src/assets/"
+    "docs/documentation/assets/"
+    "docs/documentation/static/"
+    "vendor/"
+    "services/api/vendor/"
+)
+
+# Strings that should NOT count as secrets even if they match a pattern.
+# Use this for shared development credentials and obvious placeholders.
+DEV_CREDENTIAL_ALLOWLIST='changeme|YOUR_KEY_HERE|PASTE_KEY_HERE|REPLACE_ME|dummy|fake-?(key|token|secret)|mock-?(key|token|secret)|placeholder|example_?(key|token|secret)|x{8,}|0{8,}'
+
+# Email addresses / domains excluded from PII detection. The committer's own
+# email is auto-added below.
+#
+# Local-parts split by risk:
+#   - `noreply@` / `no-reply@` are convention for system / bot addresses
+#     (Anthropic, GitHub, Atlassian, etc.) — allowlist regardless of domain.
+#   - `root@` / `admin@` / `test@` are commonly real user accounts at hosting
+#     providers — require a safe-domain anchor (example/test/invalid/localhost
+#     and the well-known noreply domains).
+EMAIL_ALLOWLIST='@(([^@[:space:]]+\.)?(example|test|invalid|localhost)\.)|@users\.noreply\.github\.com|^(noreply|no-reply)@|^(root|admin|test)@(localhost|example\.|test\.|invalid\.|users\.noreply\.github\.com)'
+
+# Files where contributor emails are conventional and expected (release notes,
+# author lists, mailmap). Diffs scoped to these paths are excluded from
+# PII_EMAIL detection. The committer's own email is always allowlisted via
+# EMAIL_ALLOWLIST regardless.
+PII_PATH_EXCLUDE_RE='(^|/)(CHANGELOG(\.md)?|HISTORY(\.md)?|RELEASES?(\.md)?|AUTHORS|CONTRIBUTORS|MAINTAINERS|CODEOWNERS|\.mailmap)$'
+
+# Files whose paths match this regex are excluded from JWT detection. Test
+# files and documentation routinely contain example JWTs that would otherwise
+# trigger a finding on every PR. Anchors are stricter than `_tests_anywhere_`:
+# we want only properly-named test files and dedicated test/fixture folders.
+JWT_PATH_EXCLUDE_RE='(_test\.go$|\.test\.[jt]sx?$|(^|/)tests?/|(^|/)fixtures?/|(^|/)__tests__/|(^|/)testdata/|^docs/|\.md$|\.mdx$|\.example$)'
+
+# Diff scanning timeout (seconds). Prevents the hook from hanging on huge
+# diffs.
+DIFF_TIMEOUT_SEC=10
+
+# Source local overrides if present, BUT only when running interactively on a
+# contributor's machine. In CI the `config.local.sh` would come from the
+# untrusted PR working tree (a malicious PR could `git add -f` an
+# allowlist-everything override and neutralise the canonical hook). Setting
+# SKADIA_HOOK_NO_LOCAL_CONFIG=1 in the CI workflow prevents this.
+REPO_ROOT_FOR_CONFIG=$(git rev-parse --show-toplevel 2>/dev/null) || REPO_ROOT_FOR_CONFIG=""
+if [ "${SKADIA_HOOK_NO_LOCAL_CONFIG:-0}" = "0" ] \
+    && [ -n "$REPO_ROOT_FOR_CONFIG" ] \
+    && [ -f "$REPO_ROOT_FOR_CONFIG/.githooks/config.local.sh" ]; then
+    # shellcheck disable=SC1091
+    . "$REPO_ROOT_FOR_CONFIG/.githooks/config.local.sh"
+fi
+
+# Escape ERE metacharacters for regex anchoring (backslash, dot, plus, star,
+# question mark, parentheses, braces, brackets, pipe, caret, dollar).
+escape_re() {
+    printf '%s' "$1" | sed -e 's/[\\.+*?(){}|^$[]/\\&/g'
+}
+
+# Auto-add the local committer email to the allowlist so a contributor's own
+# email in a Co-Authored-By trailer or AUTHORS update does not block them.
+COMMITTER_EMAIL=$(git config --get user.email 2>/dev/null || echo "")
+if [ -n "$COMMITTER_EMAIL" ]; then
+    EMAIL_ALLOWLIST="${EMAIL_ALLOWLIST}|^$(escape_re "$COMMITTER_EMAIL")\$"
+fi
+
+# ----------------------------------------------------------------------------
+# Implementation
+# ----------------------------------------------------------------------------
+
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$REPO_ROOT" || exit 2
+
+# Skip during replay-style operations: rebase, cherry-pick, merge. The hook is
+# meant to catch fresh content the user is about to introduce, not to
+# re-validate already-recorded commits being replayed.
+GIT_DIR=$(git rev-parse --git-dir 2>/dev/null) || GIT_DIR=".git"
+if [ -d "$GIT_DIR/rebase-merge" ] \
+    || [ -d "$GIT_DIR/rebase-apply" ] \
+    || [ -f "$GIT_DIR/CHERRY_PICK_HEAD" ] \
+    || [ -f "$GIT_DIR/MERGE_HEAD" ]; then
+    exit 0
+fi
+
+# Nothing staged → let git print its own message.
+if [ -z "$(git diff --cached --name-only 2>/dev/null)" ]; then
+    exit 0
+fi
+
+WARNINGS=()
+
+# Normalize a filename for extension-based matching: strip any directory
+# component and lowercase.
+lower_basename() {
+    local f="$1"
+    local b="${f##*/}"
+    printf '%s' "$b" | tr '[:upper:]' '[:lower:]'
+}
+
+# Returns 0 if the given path is under any ALLOWED_BINARY_PATHS entry.
+path_is_allowed() {
+    local f="$1"
+    local prefix
+    for prefix in "${ALLOWED_BINARY_PATHS[@]}"; do
+        # Literal prefix match, not glob
+        case "$f" in
+            "$prefix"*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+# Returns 0 if the given path is exempt from the size check.
+size_exempt() {
+    local f="$1"
+    local base="${f##*/}"
+    if [[ "$base" =~ $SIZE_EXEMPT_BASENAMES_RE ]]; then
+        return 0
+    fi
+    local prefix
+    for prefix in "${SIZE_EXEMPT_PATHS[@]}"; do
+        case "$f" in "$prefix"*) return 0 ;; esac
+    done
+    return 1
+}
+
+# ---- Check 1: oversized files ----------------------------------------------
+SIZE_THRESHOLD_BYTES=$((SIZE_THRESHOLD_KB * 1024))
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    [ -f "$f" ] || continue
+    if size_exempt "$f"; then
+        continue
+    fi
+    # GNU stat (Linux) first, BSD stat (macOS) as fallback
+    size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f" 2>/dev/null || echo 0)
+    if [ "$size" -gt "$SIZE_THRESHOLD_BYTES" ]; then
+        size_kb=$((size / 1024))
+        WARNINGS+=("LARGE_FILE: $f (${size_kb} KB) — over ${SIZE_THRESHOLD_KB} KB threshold. If intentional, add to SIZE_EXEMPT_PATHS or SIZE_EXEMPT_BASENAMES_RE; otherwise unstage.")
+    fi
+done < <(git diff --cached --name-only --diff-filter=AM 2>/dev/null)
+
+# ---- Check 2a: personal fitness / GPS tracks (priority over generic MEDIA) -
+# Even anonymized tracks leak home/work location via their start and end
+# points, which is why this gets its own warning class. Includes Modified —
+# replacing example.gpx with a real personal track must be caught too.
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    lower=$(lower_basename "$f")
+    case "$lower" in
+        *.fit|*.gpx|*.tcx|*.kml|*.kmz)
+            if ! path_is_allowed "$f"; then
+                WARNINGS+=("FITNESS_DATA: $f — looks like a personal GPS/fitness track. Even anonymized tracks leak home and work location via start/end points. If this is synthetic test data, add its path to ALLOWED_BINARY_PATHS.")
+            fi
+            ;;
+    esac
+done < <(git diff --cached --name-only --diff-filter=AM 2>/dev/null)
+
+# ---- Check 2b: cryptographic key files by filename -------------------------
+# Content-based detection (PRIVATE_KEY_BLOCK below) only catches the BEGIN
+# marker line. Filename-based detection catches keys committed without that
+# line — split commits, encrypted bundles, binary keystores.
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    base="${f##*/}"
+    lower=$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')
+    # Stem-based: covers id_rsa, id_rsa.bak, id_rsa_backup, id_rsa.pub etc.
+    case "$lower" in
+        id_rsa*|id_dsa*|id_ecdsa*|id_ed25519*|id_xmss*)
+            WARNINGS+=("KEYFILE: $f — looks like an SSH key by filename. Private keys belong in ~/.ssh; public keys rarely belong in a code repo.")
+            continue
+            ;;
+        secring.*|pubring.*)
+            WARNINGS+=("KEYFILE: $f — GnuPG keyring file. Belongs in ~/.gnupg.")
+            continue
+            ;;
+    esac
+    case "$lower" in
+        *.pem|*.pem.*|*.key|*.key.*|*.ppk|*.p12|*.pfx|*.p7c|*.p7b|*.p7s|*.jks|*.keystore|*.kdbx|*.gpg|*.asc|*.crt|*.cer|*.pkcs12)
+            WARNINGS+=("KEYFILE: $f — extension suggests a cryptographic key/certificate. Verify before commit; private keys belong in a secrets manager, not a repo.")
+            ;;
+    esac
+done < <(git diff --cached --name-only --diff-filter=AM 2>/dev/null)
+
+# ---- Check 2c: generic binary / media assets outside allowed paths ---------
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    lower=$(lower_basename "$f")
+    # Already handled by 2a (fitness) — skip
+    case "$lower" in
+        *.fit|*.gpx|*.tcx|*.kml|*.kmz) continue ;;
+    esac
+    # Archives are ALWAYS flagged regardless of ALLOWED_BINARY_PATHS — opaque
+    # blobs that could hide secrets even under vendor/ or other allowed paths.
+    case "$lower" in
+        *.zip|*.tar|*.tar.gz|*.tgz|*.tar.bz2|*.tbz2|*.tar.xz|*.txz|*.7z|*.rar|*.gz|*.bz2|*.xz|*.zst)
+            WARNINGS+=("ARCHIVE: $f — archive blobs are opaque to this scanner and to gitleaks. If intentional (test fixtures, vendored bundle), document why; otherwise unstage and check contents first.")
+            continue
+            ;;
+    esac
+    case "$lower" in
+        *.png|*.jpg|*.jpeg|*.gif|*.bmp|*.webp|*.tiff|*.tif|*.ico|\
+        *.jxl|*.avif|*.heic|*.heif|*.jp2|*.jpx|\
+        *.pdf|*.psd|*.ai|*.sketch|*.fig|\
+        *.mp4|*.mov|*.webm|*.avi|*.mkv|*.m4v|*.wmv|\
+        *.mp3|*.wav|*.flac|*.ogg|*.opus|*.aac|*.m4a|\
+        *.dmg|*.exe|*.dll|*.so|*.dylib|*.deb|*.rpm|*.msi|*.pkg|\
+        *.iso|*.img|*.vmdk|*.qcow2|*.ova|*.apk|*.ipa|*.aab|\
+        *.xlsx|*.xls|*.docx|*.doc|*.pptx|*.ppt|*.odt|*.ods|*.odp|\
+        *.ttf|*.otf|*.woff|*.woff2|*.eot|\
+        *.parquet|*.feather|*.arrow|*.npy|*.npz|*.h5|*.hdf5|\
+        *.onnx|*.gguf|*.safetensors|*.pt|*.pth|*.ckpt|*.tflite|\
+        *.sqlite|*.sqlite3|*.db|*.mbtiles|*.pbf)
+            if ! path_is_allowed "$f"; then
+                # JPEG and similar can carry GPS EXIF — extra hint
+                case "$lower" in
+                    *.jpg|*.jpeg|*.heic|*.heif|*.tiff|*.tif)
+                        WARNINGS+=("MEDIA: $f — image asset outside ALLOWED_BINARY_PATHS. Note: EXIF metadata can leak GPS location; strip with exiftool before committing intentional images.")
+                        ;;
+                    *)
+                        WARNINGS+=("MEDIA: $f — binary asset outside ALLOWED_BINARY_PATHS. If intentional, extend the allowlist; otherwise unstage.")
+                        ;;
+                esac
+            fi
+            ;;
+    esac
+done < <(git diff --cached --name-only --diff-filter=AM 2>/dev/null)
+
+# ---- Check 3: .env / dotenv files ------------------------------------------
+# Whitelist-based: anything matching .env* triggers, except documented
+# placeholder variants.
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    base="${f##*/}"
+    case "$base" in
+        # Allowed placeholder/template variants
+        *.env.example|*.env.template|*.env.sample) ;;
+        *.tfvars.example|*.tfvars.template|*.tfvars.sample) ;;
+        # Anything else .env-shaped
+        .env|.env.*|*.env|.envrc|direnv.envrc|.flaskenv|.envvars|.environment)
+            WARNINGS+=("DOTENV: $f — looks like a dotenv-shaped file. Use .env.example/.env.template for shared scaffolding; never commit real values.")
+            ;;
+        # Terraform variable files routinely carry cloud credentials
+        *.tfvars|*.tfvars.json)
+            WARNINGS+=("TFVARS: $f — Terraform variables file, often contains cloud credentials. Use *.tfvars.example for scaffolding.")
+            ;;
+    esac
+done < <(git diff --cached --name-only --diff-filter=AM 2>/dev/null)
+
+# ---- Check 4 + 5: secrets in added lines -----------------------------------
+# Use parallel arrays (Bash 3.2 compatible) and process Anthropic before OpenAI
+# to avoid the broader sk- pattern double-matching the more specific sk-ant-.
+DIFF_RAW=$(timeout "$DIFF_TIMEOUT_SEC" git diff --cached -U0 --no-color 2>/dev/null)
+DIFF_STATUS=$?
+if [ "$DIFF_STATUS" -ne 0 ] && [ "$DIFF_STATUS" -ne 1 ]; then
+    # 0 = success, 1 = differences found (also success). Anything else is a
+    # real error or timeout — fail-closed.
+    echo "pre-commit: 'git diff --cached' failed or timed out (exit $DIFF_STATUS) — refusing to skip checks." >&2
+    exit 2
+fi
+ADDED_LINES=$(printf '%s\n' "$DIFF_RAW" | grep -E '^\+' | grep -vE '^\+\+\+ ' || true)
+
+SECRET_LABELS=(
+    "ANTHROPIC_API_KEY"
+    "OPENAI_API_KEY"
+    "AWS_ACCESS_KEY"
+    "GITHUB_PAT_classic"
+    "GITHUB_PAT_finegrained"
+    "GITHUB_OAUTH"
+    "GOOGLE_API_KEY"
+    "SLACK_TOKEN"
+    "STRIPE_LIVE_SECRET"
+    "STRIPE_LIVE_PUBLISHABLE"
+    "STRIPE_WEBHOOK_SECRET"
+    "GITLAB_PAT"
+    "NPM_TOKEN"
+    "MAPBOX_SECRET"
+    "SENTRY_DSN"
+    "PRIVATE_KEY_BLOCK"
+    "POSTGRES_URI_WITH_CREDS"
+    "MYSQL_URI_WITH_CREDS"
+    "MONGODB_URI_WITH_CREDS"
+    "REDIS_URI_WITH_CREDS"
+)
+SECRET_PATTERNS=(
+    'sk-ant-(api03-)?[A-Za-z0-9_-]{40,}'
+    'sk-(proj-)?[A-Za-z0-9_-]{40,}'
+    'AKIA[0-9A-Z]{16}'
+    'ghp_[A-Za-z0-9]{36}'
+    'github_pat_[A-Za-z0-9_]{80,}'
+    'gho_[A-Za-z0-9]{36}'
+    'AIza[0-9A-Za-z_-]{35}'
+    'xox[baprs]-[A-Za-z0-9-]{10,}'
+    'sk_live_[A-Za-z0-9]{24,}'
+    'pk_live_[A-Za-z0-9]{24,}'
+    'whsec_[A-Za-z0-9]{32,}'
+    'glpat-[A-Za-z0-9_-]{20,}'
+    'npm_[A-Za-z0-9]{36}'
+    'sk\.eyJ[A-Za-z0-9_.-]{60,}'
+    'https://[a-f0-9]{32}@[a-zA-Z0-9.-]+\.ingest\.sentry\.io/'
+    '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+    'postgres(ql)?://[a-zA-Z0-9_-]+:[^@[:space:]/$]{4,}@[a-zA-Z0-9.-]+'
+    'mysql://[a-zA-Z0-9_-]+:[^@[:space:]/$]{4,}@[a-zA-Z0-9.-]+'
+    'mongodb(\+srv)?://[a-zA-Z0-9_-]+:[^@[:space:]/$]{4,}@[a-zA-Z0-9.-]+'
+    'redis://[a-zA-Z0-9_-]*:[^@[:space:]/$]{4,}@[a-zA-Z0-9.-]+'
+)
+
+# JWT detection runs separately so we can exclude test/doc paths.
+JWT_PATTERN='eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
+
+# Track secrets already matched so a generic pattern (OpenAI sk-*) does not
+# re-flag what a more specific pattern (Anthropic sk-ant-*) already caught.
+CONSUMED_MATCHES=()
+
+contains_consumed() {
+    local needle="$1"
+    local h
+    for h in "${CONSUMED_MATCHES[@]:-}"; do
+        # Exact equality only — substring match risks suppressing distinct
+        # tokens that happen to share a tail with an earlier match.
+        [ "$needle" = "$h" ] && return 0
+    done
+    return 1
+}
+
+for i in "${!SECRET_LABELS[@]}"; do
+    label="${SECRET_LABELS[$i]}"
+    pattern="${SECRET_PATTERNS[$i]}"
+    matches=$(printf '%s\n' "$ADDED_LINES" | grep -aoE "$pattern" 2>/dev/null \
+        | grep -vE "$DEV_CREDENTIAL_ALLOWLIST" \
+        | head -3 || true)
+    # Post-filter: URI hosts pointing at obvious local/dev services are not
+    # secrets in any meaningful sense (test fixtures, docker-compose configs,
+    # CI). The regex captures up through the host so `@localhost`, `@db` etc.
+    # are part of the match.
+    #
+    # IF YOU EDIT THE HOST LIST BELOW: also update Allowlist 5 in
+    # .gitleaks.toml so the local hook and the gitleaks gate stay in
+    # lockstep on which DSN shapes are post-filtered.
+    case "$label" in
+        POSTGRES_URI_WITH_CREDS|MYSQL_URI_WITH_CREDS|MONGODB_URI_WITH_CREDS|REDIS_URI_WITH_CREDS)
+            matches=$(printf '%s\n' "$matches" \
+                | grep -vE '@(localhost|127\.0\.0\.1|0\.0\.0\.0|postgres|mysql|mongo|mongodb|redis|db|database)(:|/|$|[^a-zA-Z0-9.-])' \
+                || true)
+            ;;
+    esac
+    [ -z "$matches" ] && continue
+    # Filter out matches already consumed by a more specific pattern
+    fresh=""
+    while IFS= read -r m; do
+        [ -z "$m" ] && continue
+        if ! contains_consumed "$m"; then
+            fresh+="$m"$'\n'
+            CONSUMED_MATCHES+=("$m")
+        fi
+    done <<< "$matches"
+    [ -z "$fresh" ] && continue
+    masked=$(printf '%s\n' "$fresh" | head -1 | awk '{ if (length($0)>20) print substr($0,1,12)"…"substr($0,length($0)-3); else print $0 }')
+    WARNINGS+=("SECRET[$label]: pattern match in diff (masked: $masked). If real, remove from diff and rotate the credential.")
+done
+
+# JWT scan, scoped to non-test/doc files. We re-diff only the relevant paths
+# rather than post-filtering, so false positives in test fixtures don't fire.
+JWT_FILES=$(git diff --cached --name-only --diff-filter=AM 2>/dev/null \
+    | grep -vE "$JWT_PATH_EXCLUDE_RE" || true)
+if [ -n "$JWT_FILES" ]; then
+    # Pass paths to git diff via stdin (POSIX: NUL-separated, works on macOS).
+    JWT_DIFF=$(printf '%s\n' "$JWT_FILES" | tr '\n' '\0' \
+        | xargs -0 -r timeout "$DIFF_TIMEOUT_SEC" \
+            git diff --cached -U0 --no-color -- 2>/dev/null || true)
+    JWT_ADDED=$(printf '%s\n' "$JWT_DIFF" | grep -E '^\+' | grep -vE '^\+\+\+ ' || true)
+    jwt_matches=$(printf '%s\n' "$JWT_ADDED" | grep -aoE "$JWT_PATTERN" \
+        | grep -vE "$DEV_CREDENTIAL_ALLOWLIST" | head -3 || true)
+    if [ -n "$jwt_matches" ]; then
+        masked=$(printf '%s\n' "$jwt_matches" | head -1 | awk '{ print substr($0,1,12)"…" }')
+        WARNINGS+=("SECRET[JWT]: JWT-shaped token in non-test code (masked: $masked). If real, rotate. If example, move to test/docs.")
+    fi
+fi
+
+# ---- Check 6: personal email addresses (PII) -------------------------------
+# Re-diff only the paths NOT excluded by PII_PATH_EXCLUDE_RE so contributor
+# emails in CHANGELOG/AUTHORS/etc. don't trigger findings.
+PII_FILES=$(git diff --cached --name-only --diff-filter=AM 2>/dev/null \
+    | grep -vE "$PII_PATH_EXCLUDE_RE" || true)
+if [ -n "$PII_FILES" ]; then
+    PII_DIFF=$(printf '%s\n' "$PII_FILES" | tr '\n' '\0' \
+        | xargs -0 -r timeout "$DIFF_TIMEOUT_SEC" \
+            git diff --cached -U0 --no-color -- 2>/dev/null || true)
+    PII_ADDED=$(printf '%s\n' "$PII_DIFF" | grep -E '^\+' | grep -vE '^\+\+\+ ' || true)
+    EMAILS=$(printf '%s\n' "$PII_ADDED" | grep -aoE '[a-zA-Z0-9]([a-zA-Z0-9._+-]*[a-zA-Z0-9])?@[a-zA-Z0-9-]+(\.[a-zA-Z]{2,})+' 2>/dev/null \
+        | sort -u | grep -vE "$EMAIL_ALLOWLIST" | head -5 || true)
+    if [ -n "$EMAILS" ]; then
+        count=$(printf '%s\n' "$EMAILS" | grep -c .)
+        sample=$(printf '%s\n' "$EMAILS" | head -3 | tr '\n' ', ' | sed 's/, $//')
+        WARNINGS+=("PII_EMAIL: $count personal email address(es) in diff (samples: $sample). If real user data, anonymize or move out of the repo. (CHANGELOG/AUTHORS/etc. are auto-excluded.)")
+    fi
+fi
+
+# ---- Check 7: symlinks in stage --------------------------------------------
+# Symlinks that escape the repo (absolute paths, parent traversal, or paths
+# that resolve outside $REPO_ROOT) can be used to exfiltrate host data after
+# checkout — e.g. `~/.aws/credentials` on a CI runner. Symlinks into `.git/`
+# are also dangerous: a `post-commit` symlink could trigger arbitrary code.
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    [ -L "$f" ] || continue
+    target=$(readlink "$f" 2>/dev/null || echo "")
+    if [ -z "$target" ]; then
+        continue
+    fi
+    # Resolve target relative to the symlink's directory
+    if command -v realpath >/dev/null 2>&1; then
+        link_dir=$(dirname "$f")
+        resolved=$(realpath -m "$link_dir/$target" 2>/dev/null || echo "")
+    else
+        resolved=""
+    fi
+    case "$target" in
+        /*)
+            WARNINGS+=("SYMLINK: $f → $target (absolute target). Symlinks to absolute paths leak host filesystem state after checkout.")
+            continue
+            ;;
+    esac
+    case "$resolved" in
+        "$REPO_ROOT"/.git|"$REPO_ROOT"/.git/*)
+            WARNINGS+=("SYMLINK: $f → $target resolves into .git/ — can be abused to hijack hooks or refs after checkout.")
+            continue
+            ;;
+    esac
+    if [ -n "$resolved" ] && [ "${resolved#"$REPO_ROOT"}" = "$resolved" ]; then
+        WARNINGS+=("SYMLINK: $f → $target resolves outside the repository ($resolved). Reject unless intentional.")
+    fi
+done < <(git diff --cached --name-only --diff-filter=AM 2>/dev/null)
+
+# ---- Check 8: new local-only/private tracked paths ---------------------------
+# Local scratch and generated memory paths must not enter the public repository.
+PRIVATE_PATH_ADDS=$(git diff --cached --name-only --diff-filter=AR 2>/dev/null \
+    | grep -E '^(\.private/|\.superpowers/|\.claude/|memory/|ideas/)' || true)
+if [ -n "$PRIVATE_PATH_ADDS" ] && [ "${SKADIA_ALLOW_PRIVATE_PATH_ADDS:-0}" != "1" ]; then
+    sample=$(printf '%s\n' "$PRIVATE_PATH_ADDS" | head -5 | tr '\n' ', ' | sed 's/, $//')
+    WARNINGS+=("PRIVATE-PATH-ADD: new or renamed local-only/private tracked path(s): $sample. Keep local scratch and generated memory out of the public repo, or set SKADIA_ALLOW_PRIVATE_PATH_ADDS=1 only for an explicitly requested exception.")
+fi
+
+# ---- Check 9: public/private text privacy guard -----------------------------
+PUBLIC_CONTENT_GUARD="${SKADIA_PUBLIC_CONTENT_GUARD:-$REPO_ROOT/.githooks/public-content-guard}"
+if [ -x "$PUBLIC_CONTENT_GUARD" ]; then
+    PUBLIC_GUARD_DIFF=$(mktemp)
+    printf '%s\n' "$DIFF_RAW" > "$PUBLIC_GUARD_DIFF"
+    if ! "$PUBLIC_CONTENT_GUARD" --diff-file "$PUBLIC_GUARD_DIFF" >&2; then
+        WARNINGS+=("PUBLIC-CONTENT: public text or local private patterns matched. See findings above.")
+    fi
+    rm -f "$PUBLIC_GUARD_DIFF"
+fi
+
+# ---- Check 10: gitleaks staged scan (optional, complementary) --------------
+# The custom checks above are strict on enumerated patterns. gitleaks adds
+# Shannon-entropy detection (catches unknown/custom tokens that no provider
+# regex matches) and ~150 community-maintained provider rules. Run only if
+# gitleaks is on PATH; skipped silently otherwise so the hook stays portable.
+#
+# Exit codes from gitleaks:
+#   0   no leaks found
+#   1   leaks found
+#   126/127  not executable / not found (handled by the command -v guard above)
+#   other    tool error — surface as a soft warning, do not fail-closed
+if command -v gitleaks >/dev/null 2>&1; then
+    GITLEAKS_OUTPUT=$(timeout 30 gitleaks git --staged --redact --no-banner 2>&1)
+    GITLEAKS_STATUS=$?
+    case "$GITLEAKS_STATUS" in
+        0) ;;
+        1)
+            # Print gitleaks' own findings output — it formats per-finding
+            # blocks with file:line and redacted match. Add a summary warning
+            # so the hook joins it with its own findings.
+            echo "" >&2
+            printf '%s\n' "$GITLEAKS_OUTPUT" >&2
+            count=$(printf '%s\n' "$GITLEAKS_OUTPUT" | grep -cE '^Finding:' || true)
+            [ "$count" = "0" ] && count="?"
+            WARNINGS+=("GITLEAKS: $count finding(s) above. If real, rotate. If false positive, allowlist via .gitleaks.toml or unstage.")
+            ;;
+        *)
+            WARNINGS+=("GITLEAKS: tool exited with status $GITLEAKS_STATUS (output: $(printf '%s' "$GITLEAKS_OUTPUT" | head -c 200)). Scan inconclusive — verify manually.")
+            ;;
+    esac
+fi
+
+# ---- Check 11 + 12: GitHub Actions YAML lint + security audit ---------------
+# Run only when .github/workflows/*.yml files are staged. Both tools are
+# optional and skipped silently if not installed locally — install on the
+# workstation via `cargo install zizmor` / `pipx install zizmor` and the
+# distro's actionlint package (or `go install
+# github.com/rhysd/actionlint/cmd/actionlint@latest`).
+STAGED_WORKFLOWS=$(git diff --cached --name-only --diff-filter=AM 2>/dev/null \
+    | grep -E '^\.github/workflows/.*\.ya?ml$' || true)
+if [ -n "$STAGED_WORKFLOWS" ]; then
+    # ---- Check 11: actionlint ----
+    if command -v actionlint >/dev/null 2>&1; then
+        ACT_OUT=$(printf '%s\n' "$STAGED_WORKFLOWS" \
+            | xargs -r actionlint -no-color 2>&1)
+        ACT_STATUS=$?
+        if [ "$ACT_STATUS" -ne 0 ]; then
+            echo "" >&2
+            printf '%s\n' "$ACT_OUT" >&2
+            count=$(printf '%s\n' "$ACT_OUT" | grep -cE '^[^:]+:[0-9]+:' || true)
+            [ "$count" = "0" ] && count="?"
+            WARNINGS+=("ACTIONLINT: $count issue(s) above in staged GitHub Actions workflow files.")
+        fi
+    fi
+
+    # ---- Check 12: zizmor ----
+    # Exit codes: 0 = clean, 13 = findings, 14 = analysis error.
+    # `-q` suppresses the cosmetic INFO banner.
+    if command -v zizmor >/dev/null 2>&1; then
+        ZZ_OUT=$(printf '%s\n' "$STAGED_WORKFLOWS" \
+            | xargs -r zizmor -q --no-progress --format plain 2>&1)
+        ZZ_STATUS=$?
+        case "$ZZ_STATUS" in
+            0) ;;
+            13)
+                echo "" >&2
+                printf '%s\n' "$ZZ_OUT" >&2
+                WARNINGS+=("ZIZMOR: GHA security findings above in staged workflow files. Triage each — false positives go in zizmor.yml allowlist, real issues fix in the workflow.")
+                ;;
+            *)
+                WARNINGS+=("ZIZMOR: tool exited with status $ZZ_STATUS — scan inconclusive (output: $(printf '%s' "$ZZ_OUT" | head -c 200))")
+                ;;
+        esac
+    fi
+fi
+
+# ---- Check 13: hadolint on staged Dockerfiles ------------------------------
+# Optional, command-v guarded. Mirrors .github/workflows/repo-hygiene.yml's
+# hadolint job so contributors see the same Dockerfile lint findings
+# locally before push. Install via `brew install hadolint` or a binary
+# release from github.com/hadolint/hadolint.
+STAGED_DOCKERFILES=$(git diff --cached --name-only --diff-filter=AM 2>/dev/null \
+    | grep -E '(^|/)Dockerfile([.-][^/]*)?$' || true)
+if [ -n "$STAGED_DOCKERFILES" ] && command -v hadolint >/dev/null 2>&1; then
+    HD_OUT=$(printf '%s\n' "$STAGED_DOCKERFILES" \
+        | xargs -r hadolint --no-color --ignore DL3008 --ignore DL3009 2>&1)
+    HD_STATUS=$?
+    if [ "$HD_STATUS" -ne 0 ]; then
+        echo "" >&2
+        printf '%s\n' "$HD_OUT" >&2
+        count=$(printf '%s\n' "$HD_OUT" | grep -cE 'DL[0-9]+|SC[0-9]+' || true)
+        [ "$count" = "0" ] && count="?"
+        WARNINGS+=("HADOLINT: $count Dockerfile finding(s) above. Triage each — false positives can be ignored via the pre-commit + CI ignore lists.")
+    fi
+fi
+
+# ---- Check 14: shellcheck on staged shell scripts --------------------------
+# Optional, command-v guarded. Lints .sh files plus the hook itself if
+# staged. Install via `brew install shellcheck` or distro package.
+STAGED_SHELL=$(git diff --cached --name-only --diff-filter=AM 2>/dev/null \
+    | grep -E '\.sh$|^\.githooks/(pre-commit|commit-msg|public-content-guard|[^/]+\.sh)$' || true)
+if [ -n "$STAGED_SHELL" ] && command -v shellcheck >/dev/null 2>&1; then
+    SC_OUT=$(printf '%s\n' "$STAGED_SHELL" \
+        | xargs -r shellcheck --color=never --severity=warning 2>&1)
+    SC_STATUS=$?
+    if [ "$SC_STATUS" -ne 0 ]; then
+        echo "" >&2
+        printf '%s\n' "$SC_OUT" >&2
+        count=$(printf '%s\n' "$SC_OUT" | grep -cE '^In .* line ' || true)
+        [ "$count" = "0" ] && count="?"
+        WARNINGS+=("SHELLCHECK: $count shell-script finding(s) above. Fix or annotate with '# shellcheck disable=SCxxxx' + reason.")
+    fi
+fi
+
+# ----------------------------------------------------------------------------
+# Output
+# ----------------------------------------------------------------------------
+if [ ${#WARNINGS[@]} -eq 0 ]; then
+    exit 0
+fi
+
+if [ -t 2 ]; then
+    RED='\033[0;31m'; YELLOW='\033[0;33m'; BOLD='\033[1m'; NC='\033[0m'
+else
+    RED=''; YELLOW=''; BOLD=''; NC=''
+fi
+
+{
+    echo
+    echo -e "${RED}${BOLD}✖ pre-commit: ${#WARNINGS[@]} potentially sensitive item(s) staged${NC}"
+    echo
+    for w in "${WARNINGS[@]}"; do
+        echo -e "  ${YELLOW}•${NC} $w"
+    done
+    echo
+    echo -e "${BOLD}How to resolve:${NC}"
+    echo "  1. Unstage:                  git restore --staged <path>"
+    echo "  2. Add to .gitignore, then unstage"
+    echo "  3. Real secret: remove from diff and rotate the credential"
+    echo "  4. False positive: tune .githooks/pre-commit or override via .githooks/config.local.sh"
+    echo
+    echo "  Emergency bypass (not recommended): git commit --no-verify"
+    echo
+} >&2
+
+exit 1
