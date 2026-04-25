@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type {
   RouteWaypoint,
@@ -1688,22 +1688,41 @@ export function useRoutePlanner() {
   // Build combined coordinate list from all segment geometries, sorted by
   // waypoint order (state.segments is normally sorted, but defensive sort here
   // covers the brief window between loadRoute and recalculateAll completing).
-  const _wpOrderForProfile = new Map(state.waypoints.map((wp, i) => [wp.id, i]))
-  const combinedCoordinates = [...state.segments]
-    .sort((a, b) => (_wpOrderForProfile.get(a.from_waypoint) ?? Infinity) - (_wpOrderForProfile.get(b.from_waypoint) ?? Infinity))
-    .flatMap(seg => seg.geometry?.coordinates ?? [])
-
-  const profileFromSegments: RouteElevationPoint[] | null =
-    buildCombinedProfileFromSegments(state.segments, state.waypoints)
+  //
+  // Bug D fix (2026-04-25): vorher wurden combinedCoordinates, profileFromSegments
+  // und _totalDistMForProfile bei JEDEM Render neu berechnet. Beim schnellen
+  // Setzen mehrerer Wegpunkte erzeugte das ständig neue Array-Identitäten
+  // → neuer queryKey für elevationProfileQuery → Refetch + useEffect-Trigger
+  // → Render-Storm und UI-Ruckler. useMemo bündelt die Ableitungen mit den
+  // einzigen wirklichen Inputs (segments + waypoints).
+  const { combinedCoordinates, profileFromSegments, _totalDistMForProfile } = useMemo(() => {
+    const wpOrder = new Map(state.waypoints.map((wp, i) => [wp.id, i]))
+    const sorted = [...state.segments].sort(
+      (a, b) =>
+        (wpOrder.get(a.from_waypoint) ?? Infinity) -
+        (wpOrder.get(b.from_waypoint) ?? Infinity),
+    )
+    const coords = sorted.flatMap(seg => seg.geometry?.coordinates ?? [])
+    const totalDist = state.segments.reduce((acc, seg) => acc + seg.distance_m, 0)
+    const profile = buildCombinedProfileFromSegments(state.segments, state.waypoints)
+    return {
+      combinedCoordinates: coords,
+      profileFromSegments: profile,
+      _totalDistMForProfile: totalDist,
+    }
+  }, [state.segments, state.waypoints])
 
   // Fallback: POST /elevation/profile only when no segment carries a profile.
   const needsBRouterFallback: boolean =
     profileFromSegments === null && combinedCoordinates.length >= 2
 
-  const combinedGeometry: GeoJSON.LineString | null =
-    needsBRouterFallback
-      ? { type: 'LineString', coordinates: combinedCoordinates }
-      : null
+  const combinedGeometry: GeoJSON.LineString | null = useMemo(
+    () =>
+      needsBRouterFallback
+        ? { type: 'LineString', coordinates: combinedCoordinates }
+        : null,
+    [needsBRouterFallback, combinedCoordinates],
+  )
 
   const elevationProfileQuery = useQuery<{ profile: ElevationPoint[] }>({
     queryKey: [
@@ -1718,14 +1737,6 @@ export function useRoutePlanner() {
     enabled: needsBRouterFallback,
     staleTime: 60 * 1000,
   })
-
-  // Distance total — needs to be computed here (before the `totals` block below)
-  // so the BRouter-fallback converter can scale fraction → dist_m. Mirrors the
-  // sum in `totals.distance_m` (single source of truth: state.segments).
-  const _totalDistMForProfile = state.segments.reduce(
-    (acc, seg) => acc + seg.distance_m,
-    0,
-  )
 
   // Sync effectiveProfile from the two sources. Shallow-equality guard prevents
   // re-render loops: buildCombinedProfileFromSegments returns a new array each
