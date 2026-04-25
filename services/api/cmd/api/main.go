@@ -645,11 +645,11 @@ func main() {
 			RoutingTimeout:      parseDuration(os.Getenv("ROUTING_TIMEOUT"), 30*time.Second),
 			MaxUploadSize:       cfg.MaxUploadSize,
 			ImportAllowedDirs:   cfg.ImportAllowedDirs,
-			OSMDataDir:         cfg.OSMDataDir,
-			DEMDataDir:         cfg.DEMDataDir,
-			BRouterSegmentsDir: cfg.BRouterSegmentsDir,
-			BRouterProfilesDir: cfg.BRouterProfilesDir,
-			TilesDir:           cfg.TilesDir,
+			OSMDataDir:          cfg.OSMDataDir,
+			DEMDataDir:          cfg.DEMDataDir,
+			BRouterSegmentsDir:  cfg.BRouterSegmentsDir,
+			BRouterProfilesDir:  cfg.BRouterProfilesDir,
+			TilesDir:            cfg.TilesDir,
 			LibraryBasePath:     cfg.LibraryBasePath,
 			StorageBackend:      cfg.StorageBackend,
 			KeepVersions:        cfg.LibraryKeepVersions,
@@ -949,7 +949,7 @@ func main() {
 			r.With(middleware.RateLimitGeneric(authRL)).
 				Delete("/account", authHandler.DeleteAccount)
 			r.With(middleware.RateLimitPerUser(authRL, "export:", 1.0/300, 1)).
-					Post("/data-export", authHandler.DataExport)
+				Post("/data-export", authHandler.DataExport)
 			r.With(middleware.RateLimitPerUser(authRL, "export-status:", 60.0/60, 10)).
 				Get("/data-export/{jobID}", authHandler.DataExportStatus)
 			r.Get("/data-export/{jobID}/download", authHandler.DataExportDownload)
@@ -1187,6 +1187,7 @@ func main() {
 
 			r.Get("/me", h.GetMe)
 			r.Patch("/me", h.UpdateMe)
+			r.Post("/users/me/acknowledge/surface-extension", h.AcknowledgeSurfaceExtension)
 
 			r.Get("/settings/profile", h.GetProfile)
 			r.Patch("/settings/profile", h.PatchProfile)
