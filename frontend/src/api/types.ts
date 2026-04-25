@@ -500,6 +500,7 @@ export interface EnrichmentSettings {
   enable_border_detection: boolean
   enable_lift_detection: boolean
   enable_surface_detection: boolean
+  enable_difficulty_scales: boolean
   enable_interval_detection: boolean
   enable_embeddings: boolean
   // Non-detection features

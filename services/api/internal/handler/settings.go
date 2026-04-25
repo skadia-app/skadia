@@ -69,15 +69,16 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := model.MeResponse{
-		UserID:             user.ID,
-		Username:           user.Username,
-		DisplayName:        user.DisplayName,
-		Email:              user.Email,
-		IsAdmin:            user.IsAdmin,
-		EmailVerified:      user.EmailVerified,
-		HasPassword:        user.PasswordHash != nil,
-		MustChangePassword: user.MustChangePassword,
-		RegistrationSource: user.RegistrationSrc,
+		UserID:                         user.ID,
+		Username:                       user.Username,
+		DisplayName:                    user.DisplayName,
+		Email:                          user.Email,
+		IsAdmin:                        user.IsAdmin,
+		EmailVerified:                  user.EmailVerified,
+		HasPassword:                    user.PasswordHash != nil,
+		MustChangePassword:             user.MustChangePassword,
+		RegistrationSource:             user.RegistrationSrc,
+		SurfaceExtensionAcknowledgedAt: user.SurfaceExtensionAcknowledgedAt,
 	}
 	httputil.WriteJSON(w, http.StatusOK, resp)
 }

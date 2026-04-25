@@ -28,6 +28,7 @@ import AdminSettingsTab from '@/pages/settings/AdminSettingsTab'
 import { MLServiceSection } from '@/pages/settings/MLServiceSection'
 import { NotificationSettingsSection } from '@/pages/settings/NotificationSettingsSection'
 import { LocalMapAndGeoSection } from '@/pages/settings/LocalMapAndGeoSection'
+import { SurfaceExtensionBanner } from '@/components/SurfaceExtensionBanner'
 import Toggle from '@/components/Toggle'
 import { SettingsSection } from '@/components/ui/SettingsSection'
 
@@ -48,7 +49,8 @@ const ANALYSIS_MODULES: AnalysisModule[] = [
   { label: 'Grenzüberquerungen',      description: 'Erkennt überquerte Ländergrenzen.',                                               field: 'enable_border_detection',    requiresML: false },
   { label: 'Stopps & Einkehr',        description: 'Erkennt Aufenthalte und Restaurantbesuche (≥10 min).',                            field: 'enable_stop_detection',      requiresML: false },
   { label: 'Lifte / Seilbahnen',      description: 'Erkennt Gondelbahnen und Sessellifte.',                                           field: 'enable_lift_detection',      requiresML: true  },
-  { label: 'Untergrundtypen',         description: 'Erkennt Asphalt, Schotter, Trail etc.',                                           field: 'enable_surface_detection',   requiresML: false },
+  { label: 'Untergrundtypen',         description: 'Erkennt Wegtypen, Oberflächen sowie Wald-/Schutzgebietsanteile aus einem gemeinsamen OSM-Snap.', field: 'enable_surface_detection',   requiresML: false },
+  { label: 'Schwierigkeitsskalen',    description: 'Erkennt SAC- (Wandern), S-Skala (MTB) und Klettersteig-Schwierigkeit.',          field: 'enable_difficulty_scales',   requiresML: false },
   { label: 'Anstiege',                description: 'Erkennt und klassifiziert Anstiege.',                                             field: 'enable_ascent_detection',    requiresML: false },
   { label: 'Intervalltraining',       description: 'Erkennt Trainingsintervalle automatisch.',                                        field: 'enable_interval_detection',  requiresML: false },
   { label: 'Rundenerkennung',         description: 'Erkennt automatisch Runden/Laps bei Aktivitäten auf Rundkursen.',                 field: 'enable_lap_detection',       requiresML: false },
@@ -57,7 +59,8 @@ const ANALYSIS_MODULES: AnalysisModule[] = [
 
 function AutomatischeAnalysenSection() {
   const { addToast } = useToast()
-  const { isAdmin } = useUser()
+  const { isAdmin, user } = useUser()
+  const currentUser = user as (typeof user & { surface_extension_acknowledged_at?: string | null }) | undefined
 
   const { settings, isLoading, isError, mutation: mut } = useEnrichmentSettings()
 
@@ -91,6 +94,7 @@ function AutomatischeAnalysenSection() {
       description="Analysen, die nach dem Upload automatisch im Hintergrund durchgeführt werden."
       className="space-y-6"
     >
+      <SurfaceExtensionBanner show={!currentUser?.surface_extension_acknowledged_at} />
 
       {isError && (
         <p className="text-sm text-red-500 dark:text-red-400">
@@ -1833,4 +1837,3 @@ function ImportSettingsSection() {
     </SettingsSection>
   )
 }
-
