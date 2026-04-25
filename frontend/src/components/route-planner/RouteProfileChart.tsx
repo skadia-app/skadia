@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react'
+import { memo, useMemo, useRef } from 'react'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -151,7 +151,7 @@ function formatGrade(grade: number): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function RouteProfileChart({
+function RouteProfileChart({
   profile,
   totalDistanceM,
   segments = [],
@@ -509,3 +509,5 @@ export default function RouteProfileChart({
     </div>
   )
 }
+
+export default memo(RouteProfileChart)

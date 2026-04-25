@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useEffect } from 'react'
+import { memo, useMemo, useState, useCallback, useEffect } from 'react'
 import StackedBar from '@/components/shared/StackedBar'
 import {
   SURFACE_GROUPS,
@@ -65,7 +65,7 @@ function buildAggregated(
   return displayed
 }
 
-export default function RouteSurfacesBar({ segments, onHighlight, pinnedType = null, onPin }: Props) {
+function RouteSurfacesBar({ segments, onHighlight, pinnedType = null, onPin }: Props) {
   const [hoveredType, setHoveredType] = useState<{ kind: 'highway' | 'surface'; key: string } | null>(null)
 
   const { highways, surfaces } = useMemo(() => {
@@ -161,3 +161,5 @@ export default function RouteSurfacesBar({ segments, onHighlight, pinnedType = n
     </div>
   )
 }
+
+export default memo(RouteSurfacesBar)
