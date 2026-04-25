@@ -1,9 +1,4 @@
 export const labels = {
-  banner: {
-    surfaceExtensionBody:
-      'Der Toggle "Untergrundtypen" erkennt seit Update zusätzlich Wald- und Schutzgebietsanteile. Falls Sie das nicht möchten, deaktivieren Sie den Toggle.',
-    surfaceExtensionAck: 'Verstanden',
-  },
   trackSummary: {
     ascent: 'Aufstieg',
     descent: 'Abstieg',

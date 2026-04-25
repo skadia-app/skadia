@@ -28,7 +28,6 @@ import AdminSettingsTab from '@/pages/settings/AdminSettingsTab'
 import { MLServiceSection } from '@/pages/settings/MLServiceSection'
 import { NotificationSettingsSection } from '@/pages/settings/NotificationSettingsSection'
 import { LocalMapAndGeoSection } from '@/pages/settings/LocalMapAndGeoSection'
-import { SurfaceExtensionBanner } from '@/components/SurfaceExtensionBanner'
 import Toggle from '@/components/Toggle'
 import { SettingsSection } from '@/components/ui/SettingsSection'
 
@@ -60,7 +59,6 @@ const ANALYSIS_MODULES: AnalysisModule[] = [
 function AutomatischeAnalysenSection() {
   const { addToast } = useToast()
   const { isAdmin, user } = useUser()
-  const currentUser = user as (typeof user & { surface_extension_acknowledged_at?: string | null }) | undefined
 
   const { settings, isLoading, isError, mutation: mut } = useEnrichmentSettings()
 
@@ -94,8 +92,6 @@ function AutomatischeAnalysenSection() {
       description="Analysen, die nach dem Upload automatisch im Hintergrund durchgeführt werden."
       className="space-y-6"
     >
-      <SurfaceExtensionBanner show={!currentUser?.surface_extension_acknowledged_at} />
-
       {isError && (
         <p className="text-sm text-red-500 dark:text-red-400">
           Einstellungen konnten nicht geladen werden.
