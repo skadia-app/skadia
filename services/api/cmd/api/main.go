@@ -1164,6 +1164,7 @@ func main() {
 			r.Get("/imports", h.GetImports)
 
 			r.Get("/activities/{id}/geo-tags", h.GetGeoTags)
+			r.Get("/activities/{id}/track-summary", h.ActivityTrackSummary)
 			r.Get("/activities/{id}/enrichment-status", h.GetEnrichmentStatus)
 
 			// User-triggered enrichment backfills (non-admin, user-scoped).

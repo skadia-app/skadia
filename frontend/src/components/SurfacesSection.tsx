@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchSurfaces } from '@/api/enrichment'
+import type { ActivityTrackSummary, TrackSummarySurfaceItem } from '@/api/trackSummary'
+import type { ActivitySurface } from '@/api/types'
 import {
   SURFACE_COLORS,
   HIGHWAY_COLORS,
@@ -12,29 +14,54 @@ import StackedBar from '@/components/shared/StackedBar'
 
 interface Props {
   activityId: string
+  summary?: Pick<ActivityTrackSummary, 'surfaces' | 'highways'> | null
 }
 
-export default function SurfacesSection({ activityId }: Props) {
+function summaryRows(
+  summary: Pick<ActivityTrackSummary, 'surfaces' | 'highways'> | null
+): ActivitySurface[] {
+  if (!summary) return []
+  const surfaces = (summary.surfaces ?? []).map(item => summarySurfaceRow(item, 'surface'))
+  const highways = (summary.highways ?? []).map(item => summarySurfaceRow(item, 'highway'))
+  return [...surfaces, ...highways]
+}
+
+function summarySurfaceRow(item: TrackSummarySurfaceItem, category: 'surface' | 'highway'): ActivitySurface {
+  return {
+    id: `summary-${category}-${item.type}`,
+    category,
+    surface_type: item.type,
+    path_type: item.type,
+    length_m: item.length_m,
+    percentage: item.percentage,
+  }
+}
+
+export default function SurfacesSection({ activityId, summary }: Props) {
   const [collapsed, setCollapsed] = useState(false)
+  const useSummary = summary !== undefined
 
   const { data: surfaces = [], isLoading, isError } = useQuery({
     queryKey: ['activity-surfaces', activityId],
     queryFn: () => fetchSurfaces(activityId),
+    enabled: !useSummary,
   })
 
-  if (isLoading) return null
-  if (isError) return null
-  if (surfaces.length === 0) return null
+  if (!useSummary && isLoading) return null
+  if (!useSummary && isError) return null
+
+  const rows = useSummary ? summaryRows(summary) : surfaces
+  if (rows.length === 0) return null
 
   // Split by category
-  const surfaceRows = surfaces.filter(s => s.category === 'surface')
-  const highwayRows = surfaces.filter(s => s.category === 'highway')
+  const surfaceRows = rows.filter(s => s.category === 'surface')
+  const highwayRows = rows.filter(s => s.category === 'highway')
 
   // Legacy fallback: old data without category → show everything as a single surface bar
   const isLegacy = surfaceRows.length === 0 && highwayRows.length === 0
 
   const aggregatedSurfaces = isLegacy
-    ? aggregateSurfaces(surfaces)
+    ? aggregateSurfaces(rows)
     : aggregateSurfaces(surfaceRows)
   const aggregatedHighways = isLegacy ? [] : aggregateHighways(highwayRows)
 
