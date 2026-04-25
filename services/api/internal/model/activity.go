@@ -545,6 +545,7 @@ type EnrichmentSettings struct {
 	EnableBorderDetection     bool `json:"enable_border_detection"`
 	EnableLiftDetection       bool `json:"enable_lift_detection"`
 	EnableSurfaceDetection    bool `json:"enable_surface_detection"`
+	EnableDifficultyScales    bool `json:"enable_difficulty_scales"`
 	EnableIntervalDetection   bool `json:"enable_interval_detection"`
 	EnableEmbeddings          bool `json:"enable_embeddings"`
 
