@@ -649,7 +649,26 @@ export default function MapPage() {
     removeControlPoint: planner.removeControlPoint,
     highlightedType: highlight.effective,
     isCalculating: planner.isCalculating,
-  }), [planner, highlight.effective])
+  // Perf (Wave 3, Fix 1): Dep-Liste auf konkrete Felder umgeschrieben.  Vorher
+  // depte das Memo auf das gesamte `planner`-Objekt (neue Identität bei JEDEM
+  // setState in useRoutePlanner — z.B. routeStats-Updates), wodurch es konstant
+  // invalidierte und useRouteEditor-Effekte (5× setData auf MapLibre) auslöste.
+  // Alle planner.*-Callbacks sind in useRoutePlanner via useCallback stabil.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [
+    planner.waypoints,
+    planner.segments,
+    planner.isCalculating,
+    planner.addWaypoint,
+    planner.moveWaypoint,
+    planner.removeWaypoint,
+    planner.insertViaWaypoint,
+    planner.toggleOffroad,
+    planner.updateControlPoint,
+    planner.insertControlPoint,
+    planner.removeControlPoint,
+    highlight.effective,
+  ])
 
   // Register MapLibre click handlers for route editing
   useRouteEditor(mapRef, routeEditorState, plannerActive, styleVersion)
