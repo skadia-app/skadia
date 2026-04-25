@@ -89,6 +89,9 @@ traefik/dynamic/redirect.yml
 
 
 
+
+# Codex CLI trust marker (per-project)
+.codex
 CLAUDE.md
 CLAUDE.MD
 frontend/CLAUDE.md
