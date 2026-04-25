@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { memo, useState, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { RouteWaypoint, RouteSegment, PlannedRoute } from '@/api/routes'
 import { useToast } from '@/lib/toast'
@@ -75,36 +75,54 @@ interface WaypointItemProps {
   isDragging: boolean
   isDragOver: boolean
   onRemove: (id: string) => void
-  onDragStart: (e: React.DragEvent) => void
-  onDragOver: (e: React.DragEvent) => void
+  /** Stable handler — receives (event, itemIndex). WaypointItem creates its own closure. */
+  onDragStartAt: (e: React.DragEvent, index: number) => void
+  /** Stable handler — receives (event, itemIndex). */
+  onDragOverAt: (e: React.DragEvent, index: number) => void
   onDragLeave: () => void
-  onDrop: (e: React.DragEvent) => void
+  /** Stable handler — receives (event, itemIndex). */
+  onDropAt: (e: React.DragEvent, index: number) => void
   onDragEnd: () => void
   segmentAfter?: RouteSegment
 }
 
-function WaypointItem({
+const WaypointItem = memo(function WaypointItem({
   waypoint,
   index,
   total,
   isDragging,
   isDragOver,
   onRemove,
-  onDragStart,
-  onDragOver,
+  onDragStartAt,
+  onDragOverAt,
   onDragLeave,
-  onDrop,
+  onDropAt,
   onDragEnd,
   segmentAfter,
 }: WaypointItemProps) {
   const label = waypoint.poi_name
     ?? `${waypoint.latlng[0].toFixed(4)}, ${waypoint.latlng[1].toFixed(4)}`
 
+  // Per-item closures built inside the component — stable across parent re-renders
+  // because the index-aware parent handlers are stable useCallback references.
+  const handleDragStart = useCallback(
+    (e: React.DragEvent) => onDragStartAt(e, index),
+    [onDragStartAt, index],
+  )
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => onDragOverAt(e, index),
+    [onDragOverAt, index],
+  )
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => onDropAt(e, index),
+    [onDropAt, index],
+  )
+
   return (
     <div
-      onDragOver={onDragOver}
+      onDragOver={handleDragOver}
       onDragLeave={onDragLeave}
-      onDrop={onDrop}
+      onDrop={handleDrop}
       className={[
         'flex items-start gap-1.5 py-1 rounded transition-colors',
         isDragging ? 'opacity-40' : '',
@@ -114,7 +132,7 @@ function WaypointItem({
       {/* Grip handle for drag-to-reorder — always visible */}
       <div
         draggable
-        onDragStart={onDragStart}
+        onDragStart={handleDragStart}
         onDragEnd={onDragEnd}
         className="flex-shrink-0 pt-1"
         title="Verschieben"
@@ -172,7 +190,7 @@ function WaypointItem({
       </div>
     </div>
   )
-}
+})
 
 // Offline fallback for BRouter profiles (used when API is not available)
 const BROUTER_PROFILES_FALLBACK = [
@@ -410,24 +428,24 @@ export default function RoutePlannerPanel({
 
   const hasRoute = waypoints.length >= 2
 
-  function handleDragStart(e: React.DragEvent, index: number) {
+  const handleDragStart = useCallback((e: React.DragEvent, index: number) => {
     dragIndexRef.current = index
     setDraggingIndex(index)
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('text/plain', String(index))
-  }
+  }, [])
 
-  function handleDragOver(e: React.DragEvent, index: number) {
+  const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
     if (dragIndexRef.current !== index) setDragOverIndex(index)
-  }
+  }, [])
 
-  function handleDragLeave() {
+  const handleDragLeave = useCallback(() => {
     setDragOverIndex(null)
-  }
+  }, [])
 
-  function handleDrop(_e: React.DragEvent, dropIndex: number) {
+  const handleDrop = useCallback((_e: React.DragEvent, dropIndex: number) => {
     const from = dragIndexRef.current
     if (from === null || from === dropIndex) { setDragOverIndex(null); return }
     const reordered = [...waypoints]
@@ -440,13 +458,13 @@ export default function RoutePlannerPanel({
     onReorderWaypoints(reassigned)
     void onRecalculateAll()
     setDragOverIndex(null)
-  }
+  }, [waypoints, onReorderWaypoints, onRecalculateAll])
 
-  function handleDragEnd() {
+  const handleDragEnd = useCallback(() => {
     dragIndexRef.current = null
     setDraggingIndex(null)
     setDragOverIndex(null)
-  }
+  }, [])
 
   const handleClear = useCallback(() => {
     if (waypoints.length > 0) {
@@ -752,10 +770,10 @@ export default function RoutePlannerPanel({
                       isDragging={draggingIndex === i}
                       isDragOver={dragOverIndex === i}
                       onRemove={onRemoveWaypoint}
-                      onDragStart={(e) => handleDragStart(e, i)}
-                      onDragOver={(e) => handleDragOver(e, i)}
+                      onDragStartAt={handleDragStart}
+                      onDragOverAt={handleDragOver}
                       onDragLeave={handleDragLeave}
-                      onDrop={(e) => handleDrop(e, i)}
+                      onDropAt={handleDrop}
                       onDragEnd={handleDragEnd}
                       segmentAfter={segmentAfterWaypoint(wp, i)}
                     />
