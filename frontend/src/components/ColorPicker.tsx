@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react'
+import { memo, useRef, useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
 export interface ColorPickerProps {
@@ -62,7 +62,7 @@ const GH = 150 // gradient height
  * - Normal view: only a colored swatch button.
  * - Click: opens a popover with hue/saturation gradient, hue slider and hex input.
  */
-export default function ColorPicker({ value, onChange, onConfirm, onCancel, className }: ColorPickerProps) {
+function ColorPicker({ value, onChange, onConfirm, onCancel, className }: ColorPickerProps) {
   const confirmMode = !!onConfirm
   const swatchRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -278,3 +278,5 @@ export default function ColorPicker({ value, onChange, onConfirm, onCancel, clas
     </div>
   )
 }
+
+export default memo(ColorPicker)
