@@ -39,6 +39,7 @@ import { fetchGeoTags, fetchStops } from '@/api/enrichment'
 import { apiFetch } from '@/lib/auth'
 import type { GeoTag, ActivityStop } from '@/api/types'
 import { fetchActivityBestEfforts } from '@/api/bestEfforts'
+import { useActivityTrackSummary } from '@/api/trackSummary'
 import { BestEffortBadges } from '@/components/BestEffortBadges'
 import MultisportSection from '@/components/MultisportSection'
 import { MultisportMap, type MultisportMapHandle } from '@/components/activity/MultisportMap'
@@ -160,6 +161,11 @@ export default function ActivityDetailPage() {
     queryFn: () => fetchStops(activeActivityId!),
     enabled: !!activeActivityId,
   })
+
+  const trackSummaryQuery = useActivityTrackSummary(
+    activeActivityId,
+    !!activity && activity.sport_type !== 'multisport',
+  )
 
   // Load child activities for multisport parent
   const { data: childActivities } = useQuery<Activity[]>({
@@ -882,7 +888,12 @@ export default function ActivityDetailPage() {
       {activity.sport_type !== 'multisport' && !hiddenModules.has('stops') && <StopsSection activityId={activity.id} timezone={activity.timezone} />}
 
       {/* Untergrund (nicht für Multisport) */}
-      {activity.sport_type !== 'multisport' && !hiddenModules.has('surfaces') && <SurfacesSection activityId={activity.id} />}
+      {activity.sport_type !== 'multisport' && !hiddenModules.has('surfaces') && (
+        <SurfacesSection
+          activityId={activity.id}
+          summary={trackSummaryQuery.isError ? undefined : (trackSummaryQuery.data ?? null)}
+        />
+      )}
 
       {/* Enrichment-Modul-Status */}
       <EnrichmentStatusSection
