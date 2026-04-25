@@ -686,6 +686,7 @@ export default function MapPage() {
   const [summitPinned, setSummitPinned] = useState(false)
   const [summitHovered, setSummitHovered] = useState(false)
   const summitMarkersActive = summitPinned || summitHovered
+  const toggleSummitPin = useCallback(() => setSummitPinned(p => !p), [])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1103,13 +1104,13 @@ export default function MapPage() {
     }
   })
 
-  const updateOverlay = (key: keyof MapOverlayState, value: boolean) => {
+  const updateOverlay = useCallback((key: keyof MapOverlayState, value: boolean) => {
     setOverlayState(prev => {
       const next = { ...prev, [key]: value }
       localStorage.setItem('skadia-map-overlays', JSON.stringify(next))
       return next
     })
-  }
+  }, [])
 
   // location.state: activateSegmentsOverlay — z.B. von SegmentsPage aus
   useEffect(() => {
@@ -2218,6 +2219,9 @@ export default function MapPage() {
     setFilters(next)
     localStorage.setItem('skadia-sport-colors', JSON.stringify({ ...next.colorConfig, heatmapColor: next.heatmapColor }))
   }, [])
+
+  const handleSegmentFiltersChange = useCallback((f: SegmentsOverlayFilters) => setSegmentFilters(f), [])
+  const handleSegmentColorsChange = useCallback((c: Partial<SegmentColorConfig>) => setSegmentColors(c), [])
 
   // Load activities for the selected location tag popup
   useEffect(() => {
@@ -3402,7 +3406,7 @@ export default function MapPage() {
                   onScaleHover={planner.setScaleHover}
                   onSummitHover={setSummitHovered}
                   summitPinned={summitPinned}
-                  onToggleSummitPin={() => setSummitPinned(p => !p)}
+                  onToggleSummitPin={toggleSummitPin}
                   isCalculating={planner.isCalculating}
                 />
                 <RouteSurfacesBar
@@ -3413,7 +3417,7 @@ export default function MapPage() {
                       ? highlight.sticky
                       : null
                   }
-                  onPin={(t) => highlight.handleClick(t)}
+                  onPin={highlight.handleClick}
                 />
               </div>
             )}
@@ -3452,9 +3456,9 @@ export default function MapPage() {
               overlayState={overlayState}
               onOverlayChange={updateOverlay}
               segmentFilters={segmentFilters}
-              onSegmentFiltersChange={(f) => setSegmentFilters(f)}
+              onSegmentFiltersChange={handleSegmentFiltersChange}
               segmentColors={segmentColors}
-              onSegmentColorsChange={(c) => setSegmentColors(c)}
+              onSegmentColorsChange={handleSegmentColorsChange}
               coverageState={coverageState}
               onCoverageUpdate={updateComposite}
               onCoverageToggleLayer={toggleCoverageLayer}

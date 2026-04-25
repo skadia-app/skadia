@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { memo, useMemo, useRef, useState } from 'react'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import type { CoverageOverlayState, CoverageCompositeState } from '@/hooks/useCoverageOverlays'
 import { useNavigate } from 'react-router-dom'
@@ -135,7 +135,7 @@ interface Props {
   docked?: boolean
 }
 
-export default function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlayState, onOverlayChange, segmentFilters, onSegmentFiltersChange, segmentColors, onSegmentColorsChange, coverageState, onCoverageUpdate, onCoverageToggleLayer, docked = false }: Props) {
+function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlayState, onOverlayChange, segmentFilters, onSegmentFiltersChange, segmentColors, onSegmentColorsChange, coverageState, onCoverageUpdate, onCoverageToggleLayer, docked = false }: Props) {
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
@@ -878,3 +878,5 @@ export default function MapFilters({ filters, onChange, forceDark, viewMode = 't
     </div>
   )
 }
+
+export default memo(MapFilters)
