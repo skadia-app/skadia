@@ -77,13 +77,11 @@ interface Props {
  */
 function buildProfile(
   raw: RouteElevationPoint[],
-  totalDistanceM: number,
   segments: RouteSegment[],
 ): ProfilePoint[] {
   if (raw.length < 2) return []
 
   // Pre-compute offroad dist_m ranges from segments
-  const totalM = segments.reduce((s, sg) => s + sg.distance_m, 0) || totalDistanceM
   let coveredM = 0
   const offroadRanges: Array<{ start: number; end: number }> = []
   for (const seg of segments) {
@@ -165,8 +163,8 @@ export default function RouteProfileChart({
 }: Props) {
   // Build processed data — empty array when profile is null (renders placeholder)
   const points = useMemo(
-    () => profile !== null ? buildProfile(profile, totalDistanceM, segments) : [],
-    [profile, totalDistanceM, segments],
+    () => profile !== null ? buildProfile(profile, segments) : [],
+    [profile, segments],
   )
 
   // Y-axis range with padding
