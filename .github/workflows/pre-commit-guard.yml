@@ -1,0 +1,136 @@
+name: pre-commit guard
+
+# Server-side enforcement of the same checks defined in .githooks/pre-commit,
+# plus a dedicated secret scan via gitleaks.
+#
+# Runs on every PR and push to main — non-bypassable, regardless of whether
+# the contributor has activated the local hook via core.hooksPath.
+#
+# Branch-protection note (manual repo setup):
+#   Both jobs (`guard` and `gitleaks`) must be added to "Required status checks"
+#   in the repository's branch protection rules so that a green `guard` cannot
+#   merge while `gitleaks` is red. See `.github/BRANCH_PROTECTION.md` for the
+#   recommended config.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  LC_ALL: C.UTF-8
+  GIT_TERMINAL_PROMPT: "0"
+  # CI loads the canonical hook from origin/main but checks out the PR tree.
+  # The PR tree might contain a malicious .githooks/config.local.sh that would
+  # otherwise neutralise the hook. Setting this var disables that sourcing
+  # path inside the hook.
+  SKADIA_HOOK_NO_LOCAL_CONFIG: "1"
+
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        # actions/checkout v4.2.2 — pinned by SHA against tag-move attacks.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Determine diff range
+        id: range
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            # On push: compare against the parent commit. New branches whose
+            # `before` is the zero SHA, or force-pushes whose `before` is no
+            # longer reachable, fall back to `merge-base origin/main HEAD`.
+            before="${{ github.event.before }}"
+            head="${{ github.event.after }}"
+            if [ -z "$before" ] \
+                || [ "$before" = "0000000000000000000000000000000000000000" ] \
+                || ! git cat-file -e "$before^{commit}" 2>/dev/null; then
+                base=$(git merge-base origin/main "$head" 2>/dev/null || echo "$head~1")
+            else
+                base="$before"
+            fi
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+
+      - name: Load hook from main branch (not from PR)
+        # Loading the hook from the PR branch would let a malicious PR ship a
+        # neutered hook alongside its bad content. We load the canonical
+        # version from origin/main instead. On the very first push to main,
+        # there's nothing to load against — fall back to the working-tree
+        # version since there's no untrusted PR-author yet.
+        run: |
+          if git cat-file -e origin/main:.githooks/pre-commit 2>/dev/null; then
+              git show origin/main:.githooks/pre-commit > /tmp/canonical-pre-commit
+              echo "Loaded canonical hook from origin/main"
+          else
+              cp .githooks/pre-commit /tmp/canonical-pre-commit
+              echo "::warning::origin/main has no .githooks/pre-commit yet — using working-tree version. Future PRs will load the canonical version once main has the hook."
+          fi
+          chmod +x /tmp/canonical-pre-commit
+
+      - name: Stage diff into index
+        run: |
+          set -euo pipefail
+          base="${{ steps.range.outputs.base }}"
+          head="${{ steps.range.outputs.head }}"
+          echo "Comparing $base...$head"
+
+          # `...` (three dots) = symmetric diff via merge-base, the correct
+          # semantic for "what does this PR add". `AMR` covers Add, Modify,
+          # and Rename — renames with content changes can carry secrets.
+          changed=$(git diff --name-only --diff-filter=AMR -z "$base...$head" || true)
+          if [ -z "$changed" ]; then
+              echo "No file additions/modifications/renames in this range — skipping check."
+              exit 0
+          fi
+
+          # Sanity cap: if a single PR/push touches more than 5000 files
+          # (force-push of a long-divergent branch, history rewrite, etc.) the
+          # subsequent staging loop becomes minutes-long. Bail loudly instead.
+          file_count=$(printf '%s' "$changed" | tr -cd '\0' | wc -c)
+          if [ "$file_count" -gt 5000 ]; then
+              echo "::error::diff range covers $file_count files — refusing to scan a window this large. Open a smaller PR or force-push to a clean base."
+              exit 1
+          fi
+
+          # Force-add even files that are now in .gitignore — staging is what
+          # the hook scans, not the gitignore. Use NUL-separation so paths
+          # with newlines survive.
+          printf '%s' "$changed" | xargs -0 -r git add -f --
+
+      - name: Run canonical pre-commit hook
+        run: /tmp/canonical-pre-commit
+
+  gitleaks:
+    # Independent secret scan with a much larger pattern library than the
+    # in-house hook. Run in parallel — both must pass.
+    runs-on: ubuntu-24.04
+    permissions:
+      # gitleaks-action posts annotations to PRs when findings exist; needs
+      # write on pull-requests for that. `contents: read` is the bare minimum.
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check out repository
+        # actions/checkout v4.2.2 — pinned by SHA.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        # gitleaks-action v2.3.9 — pinned by SHA against tag-move attacks.
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Free Starter license for public repos; private/org repos need
+          # GITLEAKS_LICENSE in the repo's secrets.
