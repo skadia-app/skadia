@@ -549,27 +549,55 @@ export function useRouteEditor(
   }, [active, styleVersion, mapRef, addLayers])
 
   // ── Sync GeoJSON data whenever planner state changes ──────────────────────
-  // Bug 1 fix: only sync when sources actually exist (sourcesReadyRef guards this).
-  // The initial data push happens in addLayers() right after sources are created.
+  // Perf (Wave 3, Fix 2): Source-Sync in 4 schmalere Effects gesplittet, damit
+  // ein waypoints-Change nicht mehr cpSrc/approachSrc/routeSrc neu setzt (und
+  // umgekehrt). Bug 1 fix bleibt: sourcesReadyRef guardet alle Effects, der
+  // initiale Push erfolgt nach wie vor in addLayers() direkt nach Source-Anlage.
+  // Hinweis: planner.isCalculating ist KEIN Dep — die calc-Source spiegelt die
+  // segments/waypoints und der Animation-Loop unten reagiert separat auf
+  // isCalculating.
+
+  // 2a — Route-Linie (Routed/Offroad): segments only.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !active || !sourcesReadyRef.current) return
+    const src = map.getSource(SOURCE_ROUTE) as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(buildRouteGeoJSON(planner.segments))
+  }, [active, planner.segments, mapRef])
 
-    const routeSrc       = map.getSource(SOURCE_ROUTE)       as maplibregl.GeoJSONSource | undefined
-    const wpSrc          = map.getSource(SOURCE_WP)          as maplibregl.GeoJSONSource | undefined
-    const cpSrc          = map.getSource(SOURCE_CP)          as maplibregl.GeoJSONSource | undefined
-    const approachSrc    = map.getSource(SOURCE_APPROACH)    as maplibregl.GeoJSONSource | undefined
-    const calcSrc        = map.getSource(SOURCE_CALCULATING) as maplibregl.GeoJSONSource | undefined
+  // 2b — Waypoint-Marker: waypoints only.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !active || !sourcesReadyRef.current) return
+    const src = map.getSource(SOURCE_WP) as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(buildWaypointGeoJSON(planner.waypoints))
+  }, [active, planner.waypoints, mapRef])
 
-    if (routeSrc)    routeSrc.setData(buildRouteGeoJSON(planner.segments))
-    if (wpSrc)       wpSrc.setData(buildWaypointGeoJSON(planner.waypoints))
-    if (cpSrc)       cpSrc.setData(buildControlPointGeoJSON(planner.segments))
-    if (approachSrc) approachSrc.setData(buildApproachGeoJSON(planner.segments))
-    if (calcSrc)     calcSrc.setData(buildCalculatingGeoJSON(planner.segments, planner.waypoints))
-  // planner.isCalculating is optional — include it so the effect re-runs when
-  // calculation starts/stops (clears the placeholder line on completion).
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, planner.segments, planner.waypoints, planner.isCalculating ?? false])
+  // 2c — Control-Points (offroad): segments only.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !active || !sourcesReadyRef.current) return
+    const src = map.getSource(SOURCE_CP) as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(buildControlPointGeoJSON(planner.segments))
+  }, [active, planner.segments, mapRef])
+
+  // 2d — Approach-Linien (snap > threshold): segments only.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !active || !sourcesReadyRef.current) return
+    const src = map.getSource(SOURCE_APPROACH) as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(buildApproachGeoJSON(planner.segments))
+  }, [active, planner.segments, mapRef])
+
+  // 2e — Calculating-Placeholder (Triangle-Lines während Routing): braucht
+  // beide. Hinweis: in onMouseMove (Wave 2) wird diese Source zusätzlich direkt
+  // mit `updated`-Waypoints aktualisiert — die direkte Mutation bleibt unberührt.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !active || !sourcesReadyRef.current) return
+    const src = map.getSource(SOURCE_CALCULATING) as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(buildCalculatingGeoJSON(planner.segments, planner.waypoints))
+  }, [active, planner.segments, planner.waypoints, mapRef])
 
   // ── Highlight overlay: yellow sub-segments on hover/pin ───────────────────
   useEffect(() => {
