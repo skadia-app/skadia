@@ -3403,6 +3403,7 @@ export default function MapPage() {
                   onSummitHover={setSummitHovered}
                   summitPinned={summitPinned}
                   onToggleSummitPin={() => setSummitPinned(p => !p)}
+                  isCalculating={planner.isCalculating}
                 />
                 <RouteSurfacesBar
                   segments={planner.segments}
