@@ -25,8 +25,17 @@ interface Performance {
 
 function getDirectionLabels(segment?: Segment) {
   if (segment?.segment_type === 'lift') return { standard: 'Bergfahrt', reverse: 'Talfahrt', all: 'Alle' }
-  if (segment?.climb_type === 'bergauf' || segment?.climb_type === 'bergab') return { standard: 'Bergauf', reverse: 'Bergab', all: 'Alle' }
+  // Track-Orientierung beim Erstellen = climb_type. Also ist "standard"-Richtung
+  // exakt der climb_type des Segments, "reverse" die Gegenrichtung.
+  if (segment?.climb_type === 'bergab') return { standard: 'Bergab', reverse: 'Bergauf', all: 'Alle' }
+  if (segment?.climb_type === 'bergauf') return { standard: 'Bergauf', reverse: 'Bergab', all: 'Alle' }
   return { standard: 'Standard', reverse: 'Reverse', all: 'Alle' }
+}
+
+function getAvailableModes(segment?: Segment): Array<'standard' | 'reverse' | 'all'> {
+  // Nicht-bidirektionale Segmente haben nur eine sinnvolle Richtung — die gespeicherte.
+  if (segment && !segment.bidirectional) return ['standard']
+  return ['standard', 'reverse', 'all']
 }
 
 interface SegmentActivityListProps {
@@ -38,6 +47,7 @@ interface SegmentActivityListProps {
 
 export function SegmentActivityList({ segmentId, segment, filters }: SegmentActivityListProps) {
   const navigate = useNavigate()
+  const availableModes = getAvailableModes(segment)
   const [directionMode, setDirectionMode] = useState<'standard' | 'reverse' | 'all'>('standard')
 
   const isReverse = directionMode === 'all' ? undefined : directionMode === 'reverse'
@@ -89,9 +99,9 @@ export function SegmentActivityList({ segmentId, segment, filters }: SegmentActi
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Direction controls */}
-      <div className="flex gap-2">
-        {(['standard', 'reverse', 'all'] as const).map(mode => (
+      {/* Direction controls — bei nicht-bidirektionalen Segmenten nur eine Richtung anzeigen */}
+      {availableModes.length > 1 && <div className="flex gap-2">
+        {availableModes.map(mode => (
           <button
             key={mode}
             onClick={() => setDirectionMode(mode)}
@@ -104,7 +114,7 @@ export function SegmentActivityList({ segmentId, segment, filters }: SegmentActi
             {getDirectionLabels(segment)[mode as 'standard' | 'reverse' | 'all']}
           </button>
         ))}
-      </div>
+      </div>}
 
       {/* Activity list */}
       <div className="flex flex-col gap-2 max-h-72 overflow-y-auto">
