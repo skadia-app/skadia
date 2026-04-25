@@ -756,20 +756,14 @@ export function useRouteEditor(
       const { segments } = plannerRef.current
       const latlng: [number, number] = [e.lngLat.lat, e.lngLat.lng]
 
-      // Find the segment whose geometry was clicked
-      let bestSegIdx = -1
-      let bestDist = Infinity
-      for (let i = 0; i < segments.length; i++) {
-        const seg = segments[i]
-        if (!seg.geometry) continue
-        for (const coord of seg.geometry.coordinates) {
-          const pt = map.project([coord[0], coord[1]])
-          const dx = pt.x - e.point.x
-          const dy = pt.y - e.point.y
-          const d = Math.sqrt(dx * dx + dy * dy)
-          if (d < bestDist) { bestDist = d; bestSegIdx = i }
-        }
-      }
+      // MapLibre passes the hit feature in e.features; buildRouteGeoJSON tags
+      // each feature with segment_from/segment_to, so an O(1) lookup beats
+      // scanning every coord of every segment with map.project() per coord
+      // (which dominated mousedown latency on long routes).
+      const fromId = e.features?.[0]?.properties?.['segment_from'] as string | undefined
+      const bestSegIdx = fromId
+        ? segments.findIndex(s => s.from_waypoint === fromId)
+        : -1
 
       if (bestSegIdx >= 0) {
         const seg = segments[bestSegIdx]
