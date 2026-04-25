@@ -1,6 +1,6 @@
 # services/api/internal/migrate — Agent Instructions
 
-See [`../../../../AGENTS.md`](../../../../AGENTS.md) (project-wide) and [`../../AGENTS.md`](../../AGENTS.md) (backend).
+See [`../../../../AGENTS.md`](../../../../AGENTS.md) (project-wide), [`../../AGENTS.md`](../../AGENTS.md) (backend), and [`README.md`](README.md) (operational runbook: rollback ordering, Fusion-refactor 000302–308 strict order, 000308 failure recovery — read it before touching anything in that range).
 
 ## The only migrations directory
 
