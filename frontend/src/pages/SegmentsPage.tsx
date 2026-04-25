@@ -175,7 +175,7 @@ export default function SegmentsPage() {
     mtb_scale: mtbFilter.length > 0 ? mtbFilter.join(',') : undefined,
     surface: surfaceFilter.length > 0 ? surfaceFilter.join(',') : undefined,
     visibility: visibilityFilter.length > 0 ? visibilityFilter.join(',') : undefined,
-    difficulty_match: (sacFilter.length > 0 || mtbFilter.length > 0) && difficultyMatch === 'any' ? 'any' : undefined,
+    difficulty_match: (sacFilter.length > 0 || mtbFilter.length > 0) && difficultyMatch === 'any' ? ('any' as const) : undefined,
   }), [sportGroup, search, terrainFilter, showAllLifts, sacFilter, mtbFilter, surfaceFilter, visibilityFilter, difficultyMatch])
 
   const {
