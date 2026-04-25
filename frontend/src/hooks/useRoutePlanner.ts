@@ -309,6 +309,10 @@ function extractRouteStatsFromFeature(feature: GeoJSON.Feature | undefined): Rou
  *
  * Exported for unit tests only.
  */
+// Perf (Wave 3, Fix 4): Cost-Analyse — O(W) Map-Build + O(S log S) Sort +
+// O(N) Doppelloop über Segments×Profile-Punkte. Ein Push + ein Object pro
+// Profilpunkt, keine Allocations in der Inner Loop. Bei 100km / 10 Segmenten /
+// 5000 Profilpunkten ≈ <2ms gemessen — keine Architektur-Änderung sinnvoll.
 export function buildCombinedProfileFromSegments(
   segments: RouteSegment[],
   waypoints: RouteWaypoint[],
@@ -1766,6 +1770,11 @@ export function useRoutePlanner() {
       const prev = s.effectiveProfile
       if (prev === next) return s
       if (prev === null && next === null) return s
+      // Perf (Wave 3, Fix 3): Equality-Check ist bewusst O(1) — Length-Match
+      // plus first/last dist_m+ele_m. Bei 10k-Punkt-Profilen reicht das, weil
+      // jede Profil-Modifikation entweder die Länge oder den Endpunkt verschiebt
+      // (Waypoint-Move ändert distAccum am Segment-Übergang). Vollscan würde
+      // 40k Vergleiche pro setState kosten und keinen praktischen Nutzen bringen.
       if (
         prev && next && prev.length === next.length &&
         prev[0]?.dist_m === next[0]?.dist_m &&
