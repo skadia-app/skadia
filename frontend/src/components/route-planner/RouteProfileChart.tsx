@@ -172,12 +172,22 @@ export default function RouteProfileChart({
     [profile, segments],
   )
 
-  // Freeze chart input while a recompute is in flight: hold the last settled
-  // points until isCalculating goes false again. Avoids ECharts setOption
-  // storms during rapid drag-release sequences.
-  const lastSettledPoints = useRef(livePoints)
-  if (!isCalculating) lastSettledPoints.current = livePoints
-  const points = isCalculating ? lastSettledPoints.current : livePoints
+  // Snapshot of the last "good" frame (≥2 points, not during a recompute).
+  // Held during:
+  //   - isCalculating === true (recompute in flight, transient profile)
+  //   - transient empty windows like insertViaWaypoint, where segments are
+  //     briefly removed before _calculateSegment fires (would otherwise
+  //     collapse the whole panel to "Höhenprofil nicht verfügbar")
+  // Both points AND totalDistanceM are frozen together so the x-axis scale
+  // stays consistent with the rendered data.
+  const snap = useRef({ points: livePoints, totalDistanceM })
+  const haveLive = livePoints.length >= 2
+  if (!isCalculating && haveLive) {
+    snap.current = { points: livePoints, totalDistanceM }
+  }
+  const useSnapshot = (!haveLive || isCalculating) && snap.current.points.length >= 2
+  const points = useSnapshot ? snap.current.points : livePoints
+  const effectiveTotalM = useSnapshot ? snap.current.totalDistanceM : totalDistanceM
 
   // Y-axis range with padding
   const yRange = useMemo(() => {
@@ -257,7 +267,7 @@ export default function RouteProfileChart({
         xAxis: {
           type: 'value',
           min: 0,
-          max: totalDistanceM / 1000,
+          max: effectiveTotalM / 1000,
           axisLabel: {
             fontSize: 10,
             color: '#6b7280',
@@ -305,7 +315,7 @@ export default function RouteProfileChart({
         ],
       } as EChartsCoreOption
     },
-    [points, yRange, totalDistanceM, onHoverFraction],
+    [points, yRange, effectiveTotalM, onHoverFraction],
     (chart) => {
       if (!onHoverFraction) return
 
@@ -315,7 +325,7 @@ export default function RouteProfileChart({
           return
         }
         const pt = points[params.dataIndex]
-        const fraction = totalDistanceM > 0 ? pt.distanceKm / (totalDistanceM / 1000) : 0
+        const fraction = effectiveTotalM > 0 ? pt.distanceKm / (effectiveTotalM / 1000) : 0
         onHoverFraction(fraction)
       }
 
@@ -379,7 +389,11 @@ export default function RouteProfileChart({
     { color: 'rgba(139,92,246,0.85)', label: 'Offroad' },
   ]
 
-  if (profile === null || points.length === 0) {
+  // Placeholder only when truly empty — profile === null alone is too eager
+  // because insertViaWaypoint briefly evicts the affected segment, making
+  // effectiveProfile null for one render. The snapshot above keeps `points`
+  // populated through that window.
+  if (points.length === 0) {
     return (
       <div
         className="flex items-center justify-center rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-sm text-neutral-400"
