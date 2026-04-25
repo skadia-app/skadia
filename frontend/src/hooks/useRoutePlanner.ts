@@ -749,11 +749,34 @@ export function useRoutePlanner() {
           delete newCache[segmentKey]
         }
 
+        // Bug A fix (2026-04-25): Stats-Erhaltung bei geladenen Routen.
+        // RouteSegment-Type (api/routes.ts:19-34) persistiert KEINE Per-Segment-
+        // Stats — das aggregierte routeStats kommt aus route.enrichment JSONB.
+        // Wenn der User nach loadRoute einen Wegpunkt verschiebt/hinzufügt, hat
+        // _statsCache nur den NEU berechneten Eintrag, die anderen Segmente sind
+        // im Cache nicht vertreten. mergeSegmentStatsForState würde dann nur die
+        // Stats des neuen Segments zurückgeben → Gipfel/Forest/SAC anderer
+        // Segmente verschwinden aus dem Side-Panel.
+        //
+        // Schutzregel: wenn (a) ein deserialisiertes baseStats existiert (s.routeStats != null)
+        // UND (b) der Cache NICHT für alle Segmente Einträge hat → das alte
+        // routeStats bleibt erhalten (best-effort: lieber leicht stale Aggregat
+        // als komplett verlorenes Enrichment). Sobald der User recalculateAll()
+        // triggert oder alle Segmente einzeln neu berechnet werden, ist der
+        // Cache vollständig und der Merge übernimmt wieder.
+        const allSegmentsInCache = newSegments.every(
+          seg => newCache[`${seg.from_waypoint}:${seg.to_waypoint}`],
+        )
+        const mergedStats = mergeSegmentStatsForState(newSegments, newCache)
+        const nextRouteStats = allSegmentsInCache || s.routeStats === null
+          ? mergedStats
+          : s.routeStats
+
         return {
           ...s,
           segments: newSegments,
           _statsCache: newCache,
-          routeStats: mergeSegmentStatsForState(newSegments, newCache),
+          routeStats: nextRouteStats,
           isCalculating: false,
           // Bug B: rendered geometry now reflects this engine — mark it as
           // the rendered engine and clear its dirty-flag.
