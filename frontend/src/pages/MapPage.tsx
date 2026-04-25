@@ -46,6 +46,7 @@ import { fetchTerraIncognita, type TerraIncognitaCoverage } from '@/api/terraInc
 import { useToast } from '@/lib/toast'
 import { findNearbyLocationTag } from '@/lib/geoUtils'
 import { removeTerraIncognitaLayers, addTerraIncognitaLayers } from '@/lib/mapTerraIncognita'
+import { enforceRouteLayersOnTop } from '@/lib/mapRouteLayers'
 import GeoSearch from '@/components/map/GeoSearch'
 import { useStickyHighlight } from '@/hooks/useStickyHighlight'
 import { isInteractiveDescriptorKey } from '@/lib/descriptorFilter'
@@ -2110,6 +2111,8 @@ export default function MapPage() {
         'circle-opacity': 0.9,
       },
     })
+    // Wave 3, Fix 5: Route-Layer wieder nach oben holen.
+    enforceRouteLayersOnTop(map)
 
     // Build LineString features for direction arrows (segments with track_geojson)
     const trackFeatures: GeoJSON.Feature[] = segmentData
@@ -2164,6 +2167,8 @@ export default function MapPage() {
               'icon-opacity': 0.75,
             },
           })
+          // Wave 3, Fix 5: Route-Layer wieder nach oben holen.
+          enforceRouteLayersOnTop(map)
         }
       }
     }
@@ -2302,6 +2307,8 @@ export default function MapPage() {
           ? ['==', ['get', 'visited'], true]
           : ['literal', true])
       }
+      // Wave 3, Fix 5: Route-Layer wieder nach oben holen.
+      enforceRouteLayersOnTop(map)
     }
 
     if (overlayState.showSummits) {
@@ -2354,6 +2361,8 @@ export default function MapPage() {
           },
         })
       }
+      // Wave 3, Fix 5: Route-Layer wieder nach oben holen.
+      enforceRouteLayersOnTop(map)
     } else {
       if (map.getLayer('waters-layer')) map.removeLayer('waters-layer')
       if (map.getSource('waters-source')) map.removeSource('waters-source')
@@ -2399,6 +2408,8 @@ export default function MapPage() {
           },
         })
       }
+      // Wave 3, Fix 5: Route-Layer wieder nach oben holen.
+      enforceRouteLayersOnTop(map)
     } else {
       if (map.getLayer('forests-layer')) map.removeLayer('forests-layer')
       if (map.getSource('forests-source')) map.removeSource('forests-source')
@@ -2429,6 +2440,8 @@ export default function MapPage() {
           },
         })
       }
+      // Wave 3, Fix 5: Route-Layer wieder nach oben holen.
+      enforceRouteLayersOnTop(map)
     } else {
       if (map.getLayer('visited-pois-layer')) map.removeLayer('visited-pois-layer')
       if (map.getSource('visited-pois-source')) map.removeSource('visited-pois-source')
@@ -2473,6 +2486,8 @@ export default function MapPage() {
           },
         })
       }
+      // Wave 3, Fix 5: Route-Layer wieder nach oben holen.
+      enforceRouteLayersOnTop(map)
     } else {
       if (map.getLayer('pois-layer')) map.removeLayer('pois-layer')
       if (map.getSource('pois-source')) map.removeSource('pois-source')
