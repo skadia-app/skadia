@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -66,6 +66,10 @@ interface Props {
   summitPinned?: boolean
   /** Toggle-Callback für den Summit-Pin */
   onToggleSummitPin?: () => void
+  /** True während Routing-Recompute. Chart freezt am letzten gerenderten Stand
+   *  und committet erst nach Settle — verhindert ECharts-Re-Render-Storm
+   *  bei jedem Zwischenergebnis während Drag-/Multi-Click-Operationen. */
+  isCalculating?: boolean
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -160,12 +164,20 @@ export default function RouteProfileChart({
   onSummitHover,
   summitPinned = false,
   onToggleSummitPin,
+  isCalculating = false,
 }: Props) {
   // Build processed data — empty array when profile is null (renders placeholder)
-  const points = useMemo(
+  const livePoints = useMemo(
     () => profile !== null ? buildProfile(profile, segments) : [],
     [profile, segments],
   )
+
+  // Freeze chart input while a recompute is in flight: hold the last settled
+  // points until isCalculating goes false again. Avoids ECharts setOption
+  // storms during rapid drag-release sequences.
+  const lastSettledPoints = useRef(livePoints)
+  if (!isCalculating) lastSettledPoints.current = livePoints
+  const points = isCalculating ? lastSettledPoints.current : livePoints
 
   // Y-axis range with padding
   const yRange = useMemo(() => {
