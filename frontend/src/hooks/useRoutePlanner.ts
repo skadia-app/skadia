@@ -561,6 +561,13 @@ export function useRoutePlanner() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
 
+  // Bug B (2026-04-25): tracks which source produced the current
+  // state.effectiveProfile ('segments' = full per-segment aggregate,
+  // 'dem-fallback' = 200-sample DEM resampling, 'none' = no profile yet).
+  // Used by the effectiveProfile-sync useEffect to reject regressions where
+  // a shorter dem-fallback would overwrite a longer segments-based profile.
+  const _prevSourceRef = useRef<'segments' | 'dem-fallback' | 'none'>('none')
+
   // ── Scale-Pin + Hover state (SAC / MTB / Via Ferrata) ────────────────────────
   // scalePin: persistente Auswahl (Click auf Badge, bleibt bis erneuter Click
   // oder Reset). scaleHover: transient (Badge-Hover, clearet bei mouseleave).
@@ -1125,6 +1132,14 @@ export function useRoutePlanner() {
       routeStats = { ...baseStats, coordinates: coords }
     }
 
+    // Bug B (2026-04-25): mark the deserialized profile as "segments"-grade
+    // so the effectiveProfile-sync useEffect's truncation-guard knows the
+    // current prev is full-resolution and rejects shorter dem-fallback
+    // candidates that may briefly appear during user edits.
+    if (route.elevation_profile != null && route.elevation_profile.length > 0) {
+      _prevSourceRef.current = 'segments'
+    }
+
     setState(s => ({
       ...s,
       waypoints: route.waypoints,
@@ -1280,6 +1295,10 @@ export function useRoutePlanner() {
             return { ...s, lazyFillInProgress: false }
           }
           applied = true
+          // Bug B (2026-04-25): lazy-fill produced a full DEM profile (200+
+          // samples) — treat as 'segments'-grade so subsequent edits cannot
+          // overwrite it with a shorter dem-fallback candidate.
+          _prevSourceRef.current = 'segments'
           return {
             ...s,
             effectiveProfile: final,
@@ -1414,6 +1433,11 @@ export function useRoutePlanner() {
       // wiring (already done via segElevationProfile above).
       effectiveProfile: s.elevation_profile ?? null,
     }))
+    // Bug B (2026-04-25): suggestion delivers a full top-level profile —
+    // mark as 'segments'-grade for the truncation-guard.
+    if (s.elevation_profile != null && s.elevation_profile.length > 0) {
+      _prevSourceRef.current = 'segments'
+    }
   }, [])
 
   // ── Clear ───────────────────────────────────────────────────────────────────
@@ -1706,6 +1730,21 @@ export function useRoutePlanner() {
   // Sync effectiveProfile from the two sources. Shallow-equality guard prevents
   // re-render loops: buildCombinedProfileFromSegments returns a new array each
   // render, so reference comparison alone would always trigger setState.
+  //
+  // Bug B fix (2026-04-25): Source-Tracking gegen Höhenprofil-Trunkierung.
+  // Vorher schützte der Guard nur bei `editingRouteId !== null` (geladene Route).
+  // Bei frischer Route (editingRouteId=null) konnte ein Add-Waypoint mit kurz
+  // unvollständigem profileFromSegments (neues Segment ohne elevation_profile-
+  // Feld → distAccum advanced, aber keine Punkte) das DEM-Fallback (200-Sample-
+  // Resampling) als Sieger küren und das vorhandene Vollprofil überschreiben.
+  // Neue Regel: wenn `prev` aus 'segments' kam und `next` aus 'dem-fallback'
+  // kommt UND `prev.length > next.length` → next verwerfen. Engine-agnostisch.
+  const nextSource: 'segments' | 'dem-fallback' | 'none' =
+    profileFromSegments !== null
+      ? 'segments'
+      : elevationProfileQuery.data
+        ? 'dem-fallback'
+        : 'none'
   useEffect(() => {
     const next: RouteElevationPoint[] | null =
       profileFromSegments
@@ -1739,6 +1778,24 @@ export function useRoutePlanner() {
       ) {
         return s
       }
+      // Bug B fix (2026-04-25): engine-agnostischer Trunkierungsschutz.
+      // Wenn das aktuelle Profil aus dem (vollständigen) Segment-Aggregat kam
+      // und der neue Kandidat aus dem DEM-Fallback (200-Sample-Resampling) ist
+      // UND kürzer, dann ist das eine Regression — typisches Symptom: ein neu
+      // hinzugefügtes Segment hat kurz noch kein elevation_profile, sodass
+      // profileFromSegments null wird und das DEM-Fallback gewinnt. Der vorige
+      // editingRouteId-Guard fing den Fall nur für geladene Routen ab.
+      // _prevSourceRef tracked die Quelle des aktuellen prev-Profils.
+      if (
+        prev !== null &&
+        next !== null &&
+        _prevSourceRef.current === 'segments' &&
+        nextSource === 'dem-fallback' &&
+        prev.length > next.length
+      ) {
+        return s
+      }
+      _prevSourceRef.current = nextSource
       return { ...s, effectiveProfile: next }
     })
     // profileFromSegments is recomputed each render (new identity), but the
