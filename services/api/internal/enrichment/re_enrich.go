@@ -183,7 +183,10 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 			}
 		}
 		if !skipSurfaces {
-			enabled := settings == nil || settings.EnableSurfaceDetection
+			trackSettings := settings
+			if trackSettings == nil {
+				trackSettings = defaultSurfaceTrackAnalysisSettings()
+			}
 			var surfStream []EnrichmentStreamPoint
 			if graphReader != nil {
 				if stream == nil {
@@ -191,7 +194,7 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 				}
 				surfStream = stream
 			}
-			if err := EnrichSurfaces(ctx, db, activityID, enabled, graphReader, surfStream); err != nil {
+			if err := EnrichTrackAnalysis(ctx, db, activityID, trackSettings, graphReader, surfStream); err != nil {
 				slog.Warn("re-enrich: surfaces failed", "activity_id", activityID, "error", err)
 			}
 		}

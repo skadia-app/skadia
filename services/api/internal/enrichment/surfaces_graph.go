@@ -100,11 +100,16 @@ func enrichSurfacesGraph(
 	return persistSurfaceResults(ctx, db, activityID, surfaceBreakdowns, highwayBreakdowns)
 }
 
+type resampledPoint = struct {
+	lat float64
+	lng float64
+}
+
 // resampleStreamPoints filters GPS-valid points from stream, then resamples
 // them to uniform spacing of spacingM metres using linear interpolation.
 // Returns at least 2 points when the total track distance is >= spacingM,
 // otherwise an empty/single-point slice (caller must guard with len < 2).
-func resampleStreamPoints(stream []EnrichmentStreamPoint, spacingM float64) []struct{ lat, lng float64 } {
+func resampleStreamPoints(stream []EnrichmentStreamPoint, spacingM float64) []resampledPoint {
 	// Collect GPS-valid raw points.
 	type rawPt struct{ lat, lng float64 }
 	var raw []rawPt
@@ -130,14 +135,14 @@ func resampleStreamPoints(stream []EnrichmentStreamPoint, spacingM float64) []st
 	}
 
 	numPts := max(2, int(totalDist/spacingM)+1)
-	out := make([]struct{ lat, lng float64 }, numPts)
+	out := make([]resampledPoint, numPts)
 
 	// Linear interpolation along cumulative distance.
 	j := 0 // segment pointer into raw[]
 	for i := range numPts {
 		target := float64(i) * (totalDist / float64(numPts-1))
 		if target >= totalDist {
-			out[i] = struct{ lat, lng float64 }{raw[len(raw)-1].lat, raw[len(raw)-1].lng}
+			out[i] = resampledPoint{raw[len(raw)-1].lat, raw[len(raw)-1].lng}
 			continue
 		}
 		// Advance j so that cumDist[j] <= target < cumDist[j+1].
@@ -149,7 +154,7 @@ func resampleStreamPoints(stream []EnrichmentStreamPoint, spacingM float64) []st
 		if segLen > 1e-10 {
 			t = (target - cumDist[j]) / segLen
 		}
-		out[i] = struct{ lat, lng float64 }{
+		out[i] = resampledPoint{
 			lat: raw[j].lat + t*(raw[j+1].lat-raw[j].lat),
 			lng: raw[j].lng + t*(raw[j+1].lng-raw[j].lng),
 		}
@@ -188,7 +193,7 @@ func equirectDistMeters(lat1, lng1, lat2, lng2 float64) float64 {
 //     (~50 m) it re-initialises from emission probabilities only (no
 //     transition from the pre-gap state), preventing stale path propagation.
 func viterbiMatch(
-	pts []struct{ lat, lng float64 },
+	pts []resampledPoint,
 	candidates [][]graph.EdgeCandidate,
 ) []graph.EdgeCandidate {
 	n := len(pts)
@@ -352,7 +357,7 @@ func viterbiMatch(
 //   - Disconnected (great-circle penalty) → -max(gcDist/10, 3.0)
 func transitionLogProb(
 	pec, ec graph.EdgeCandidate,
-	from, to struct{ lat, lng float64 },
+	from, to resampledPoint,
 ) float64 {
 	if pec.EdgeIdx == ec.EdgeIdx {
 		return 0
