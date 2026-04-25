@@ -3,6 +3,7 @@ import maplibregl from 'maplibre-gl'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { fetchSegments, type Segment, type SegmentsResponse } from '@/api/segments'
+import { enforceRouteLayersOnTop } from '@/lib/mapRouteLayers'
 
 export interface SegmentColorConfig {
   standard: string
@@ -332,6 +333,10 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
         'circle-opacity': 0.85,
       },
     })
+
+    // Wave 3, Fix 5: Route + Wegpunkte wieder ans Stack-Ende holen,
+    // damit dieser Overlay sie nicht überdeckt.
+    enforceRouteLayersOnTop(map)
 
     // Hover-Tooltip
     const popup = new maplibregl.Popup({
