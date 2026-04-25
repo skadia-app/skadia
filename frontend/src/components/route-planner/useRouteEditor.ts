@@ -11,7 +11,7 @@
  *  - Hover interactions on route line and markers
  */
 
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import type { RouteWaypoint, RouteSegment } from '@/api/routes'
 import type { SegmentKey } from '@/hooks/useRoutePlanner'
@@ -256,6 +256,9 @@ export function useRouteEditor(
 
   // Track which waypoint is currently being dragged (by its ID).
   const draggingRef = useRef<string | null>(null)
+  // React state for drag-active: drives the animation loop without per-mousemove re-renders.
+  // Only flips on mousedown/mouseup (2 events per drag), so re-render cost is minimal.
+  const [isDraggingWp, setIsDraggingWp] = useState(false)
   // Track the latest dragged waypoint position (visual only during drag; committed on mouseup).
   const draggedWpPositionRef = useRef<[number, number] | null>(null)
   // Track which control point is currently being dragged.
@@ -630,11 +633,13 @@ export function useRouteEditor(
     src.setData({ type: 'FeatureCollection', features })
   }, [active, planner.highlightedType, planner.segments])
 
-  // ── Animation loop: pulse glow on calculating layer (only when calculating) ─
+  // ── Animation loop: pulse glow on calculating layer ──────────────────────────
+  // Runs during active route calculation AND during waypoint drag (so the triangle
+  // animates live while the user is dragging before mouseup triggers _calculateSegment).
   const isCalculating = planner.isCalculating ?? false
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !active || !isCalculating) return
+    if (!map || !active || (!isCalculating && !isDraggingWp)) return
 
     let animFrame: number | null = null
 
@@ -662,7 +667,7 @@ export function useRouteEditor(
     return () => {
       if (animFrame !== null) cancelAnimationFrame(animFrame)
     }
-  }, [active, isCalculating])
+  }, [active, isCalculating, isDraggingWp])
 
   // ── Map interactions (click, drag, context menu) ──────────────────────────
   useEffect(() => {
@@ -755,6 +760,8 @@ export function useRouteEditor(
           mouseDownPtRef.current = e.point
           map.getCanvas().style.cursor = 'grabbing'
           map.dragPan.disable()
+          // Start triangle animation immediately (before mouseup triggers isCalculating)
+          setIsDraggingWp(true)
         }
       }
     }
@@ -915,6 +922,8 @@ export function useRouteEditor(
       mouseDownPtRef.current = e.point
       map.getCanvas().style.cursor = 'grabbing'
       map.dragPan.disable()
+      // Start triangle animation immediately for existing-waypoint drag too
+      setIsDraggingWp(true)
     }
 
     // ── Drag control points ────────────────────────────────────────────────
@@ -941,12 +950,18 @@ export function useRouteEditor(
       // The planner state (and routing API) is only updated on mouseup.
       if (draggingRef.current) {
         draggedWpPositionRef.current = latlng
-        const { waypoints } = plannerRef.current
+        const { waypoints, segments } = plannerRef.current
         const updated = waypoints.map(wp =>
           wp.id === draggingRef.current ? { ...wp, latlng } : wp,
         )
         const wpSrc = map.getSource(SOURCE_WP) as maplibregl.GeoJSONSource | undefined
         wpSrc?.setData(buildWaypointGeoJSON(updated))
+        // Also imperatively update the calculating source so the triangle follows
+        // the drag cursor in real time. Without this, the calculating line is frozen
+        // at the waypoint positions from the last React render (the positions before
+        // the drag started), making the triangle appear static or absent during drag.
+        const calcSrc = map.getSource(SOURCE_CALCULATING) as maplibregl.GeoJSONSource | undefined
+        calcSrc?.setData(buildCalculatingGeoJSON(segments, updated))
         return
       }
 
@@ -982,6 +997,8 @@ export function useRouteEditor(
         mouseDownPtRef.current = null
         map.getCanvas().style.cursor = 'crosshair'
         map.dragPan.enable()
+        // Animation will continue via isCalculating while _calculateSegment is in-flight
+        setIsDraggingWp(false)
         plannerRef.current.moveWaypoint(wpId, finalPos)
         return
       }
