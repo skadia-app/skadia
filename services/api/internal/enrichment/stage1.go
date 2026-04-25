@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	suncalc "github.com/sixdouglas/suncalc"
 	"github.com/ringsaturn/tzf"
+	suncalc "github.com/sixdouglas/suncalc"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
@@ -77,12 +77,15 @@ func RunGeoAndPublishStage2(ctx context.Context, db *database.DB, userID, activi
 			}
 		}
 		if !skipSurfaces {
-			surfEnabled := enrichSettings == nil || enrichSettings.EnableSurfaceDetection
+			trackSettings := enrichSettings
+			if trackSettings == nil {
+				trackSettings = defaultSurfaceTrackAnalysisSettings()
+			}
 			var surfStream []EnrichmentStreamPoint
 			if graphReader != nil {
 				surfStream, _ = getEnrichmentStream(ctx, db, activityID)
 			}
-			if err := EnrichSurfaces(ctx, db, activityID, surfEnabled, graphReader, surfStream); err != nil {
+			if err := EnrichTrackAnalysis(ctx, db, activityID, trackSettings, graphReader, surfStream); err != nil {
 				slog.Warn("RunGeoAndPublishStage2: surfaces enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
 			}
 		}
@@ -598,12 +601,15 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 				skipSurfaces = def.CategoryKey == "water"
 			}
 			if !skipSurfaces {
-				surfEnabled := enrichSettings == nil || enrichSettings.EnableSurfaceDetection
+				trackSettings := enrichSettings
+				if trackSettings == nil {
+					trackSettings = defaultSurfaceTrackAnalysisSettings()
+				}
 				var surfStream []EnrichmentStreamPoint
 				if !skipStreamEnrichment && graphReader != nil {
 					surfStream, _ = getEnrichmentStream(ctx, db, activityID)
 				}
-				if err := EnrichSurfaces(ctx, db, activityID, surfEnabled, graphReader, surfStream); err != nil {
+				if err := EnrichTrackAnalysis(ctx, db, activityID, trackSettings, graphReader, surfStream); err != nil {
 					slog.Warn("stage1: surfaces enrichment failed (non-fatal)", "activity_id", activityID, "error", err)
 				}
 			}
