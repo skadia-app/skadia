@@ -204,8 +204,8 @@ func (r *UnifiedRouter) routeSameEdge(srcVE, dstVE *VirtualEndpoint, cfg *CostCo
 	// The two coord entries already carry the correct Ele values (ProjEleDm / 10.0),
 	// so applyProfileToCoords is not needed — coords and profile are consistent by construction.
 	sameEdgeProfile := []ElevationPoint{
-		{DistM: 0, EleM: float64(srcVE.Proj.ProjEleDm) / 10.0},
-		{DistM: directDist, EleM: float64(dstVE.Proj.ProjEleDm) / 10.0},
+		{DistM: 0, EleM: PtrEle(float64(srcVE.Proj.ProjEleDm) / 10.0)},
+		{DistM: directDist, EleM: PtrEle(float64(dstVE.Proj.ProjEleDm) / 10.0)},
 	}
 
 	return &RouteResult{

@@ -316,7 +316,10 @@ func TestBuildRouteResultFromEdges_NoSpike_NonMonotonicEdge(t *testing.T) {
 		if distDelta <= 0 {
 			continue // monotonic guard; skip zero-span
 		}
-		eleDelta := prof[i].EleM - prof[i-1].EleM
+		if prof[i].EleM == nil || prof[i-1].EleM == nil {
+			continue // nil samples skipped; phase-D will resolve
+		}
+		eleDelta := *prof[i].EleM - *prof[i-1].EleM
 		if eleDelta < 0 {
 			eleDelta = -eleDelta
 		}
@@ -333,7 +336,10 @@ func TestBuildRouteResultFromEdges_NoSpike_NonMonotonicEdge(t *testing.T) {
 		t.Fatalf("profile len = %d, want %d", len(prof), len(wantEleM))
 	}
 	for i, want := range wantEleM {
-		assertInDelta(t, want, prof[i].EleM, 0.01, "prof["+itoa(i)+"].EleM")
+		if prof[i].EleM == nil {
+			t.Fatalf("prof[%d].EleM is nil", i)
+		}
+		assertInDelta(t, want, *prof[i].EleM, 0.01, "prof["+itoa(i)+"].EleM")
 	}
 }
 

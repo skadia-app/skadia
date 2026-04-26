@@ -48,8 +48,8 @@ func TestBuildElevationProfile_LinearAscent(t *testing.T) {
 	assertInDelta(t, 30.0, profile[1].DistM, 0.01, "profile[1].DistM")
 	assertInDelta(t, 70.0, profile[2].DistM, 0.01, "profile[2].DistM")
 	assertInDelta(t, 120.0, profile[3].DistM, 0.01, "profile[3].DistM")
-	assertInDelta(t, 593.0, profile[0].EleM, 0.01, "profile[0].EleM")
-	assertInDelta(t, 1891.0, profile[3].EleM, 0.01, "profile[3].EleM")
+	assertInDelta(t, 593.0, *profile[0].EleM, 0.01, "profile[0].EleM")
+	assertInDelta(t, 1891.0, *profile[3].EleM, 0.01, "profile[3].EleM")
 	if len(startD) != 1 || startD[0] != 0.0 {
 		t.Errorf("want startD=[0.0], got %v", startD)
 	}
@@ -75,9 +75,9 @@ func TestBuildElevationProfile_MultiEdgeJunctionDedup(t *testing.T) {
 	assertInDelta(t, 0.0, profile[0].DistM, 0.01, "profile[0].DistM")
 	assertInDelta(t, 50.0, profile[1].DistM, 0.01, "profile[1].DistM")
 	assertInDelta(t, 90.0, profile[2].DistM, 0.01, "profile[2].DistM") // 50 + 40 (segDists[0] of edge 200)
-	assertInDelta(t, 593.0, profile[0].EleM, 0.01, "profile[0].EleM")
-	assertInDelta(t, 610.0, profile[1].EleM, 0.01, "profile[1].EleM")
-	assertInDelta(t, 650.0, profile[2].EleM, 0.01, "profile[2].EleM")
+	assertInDelta(t, 593.0, *profile[0].EleM, 0.01, "profile[0].EleM")
+	assertInDelta(t, 610.0, *profile[1].EleM, 0.01, "profile[1].EleM")
+	assertInDelta(t, 650.0, *profile[2].EleM, 0.01, "profile[2].EleM")
 }
 
 func TestBuildElevationProfile_EmptyDEM_ContinuesDistance(t *testing.T) {
@@ -123,7 +123,7 @@ func TestBuildElevationProfile_SinglePointEdge(t *testing.T) {
 	if len(profile) != 1 {
 		t.Fatalf("want 1 profile point, got %d", len(profile))
 	}
-	assertInDelta(t, 593.0, profile[0].EleM, 0.01, "profile[0].EleM")
+	assertInDelta(t, 593.0, *profile[0].EleM, 0.01, "profile[0].EleM")
 	assertInDelta(t, 50.0, endD[0], 0.01, "endD[0]")
 }
 
@@ -133,14 +133,14 @@ func TestInterpolateProfileEleAt_EdgeCases(t *testing.T) {
 	assertInDelta(t, 0.0, InterpolateProfileEleAt([]ElevationPoint{}, 50), 0.0001, "empty profile")
 
 	// Single-point profile clamps both ways
-	single := []ElevationPoint{{DistM: 100, EleM: 500}}
+	single := []ElevationPoint{{DistM: 100, EleM: PtrEle(500)}}
 	assertInDelta(t, 500.0, InterpolateProfileEleAt(single, 0), 0.0001, "single-point clamp-start")
 	assertInDelta(t, 500.0, InterpolateProfileEleAt(single, 9999), 0.0001, "single-point clamp-end")
 
 	p := []ElevationPoint{
-		{DistM: 0, EleM: 100},
-		{DistM: 100, EleM: 200},
-		{DistM: 250, EleM: 350},
+		{DistM: 0, EleM: PtrEle(100)},
+		{DistM: 100, EleM: PtrEle(200)},
+		{DistM: 250, EleM: PtrEle(350)},
 	}
 	// Clamp-start
 	assertInDelta(t, 100.0, InterpolateProfileEleAt(p, -10), 0.0001, "clamp-start negative")
@@ -163,8 +163,8 @@ func TestApplyProfileToCoords_OverwritesEleInPlace(t *testing.T) {
 		{Lat: 0.002, Lon: 0.0, Ele: 999}, // ~222.64m
 	}
 	profile := []ElevationPoint{
-		{DistM: 0, EleM: 100},
-		{DistM: 222.64, EleM: 300},
+		{DistM: 0, EleM: PtrEle(100)},
+		{DistM: 222.64, EleM: PtrEle(300)},
 	}
 	applyProfileToCoords(coords, profile)
 	assertInDelta(t, 100.0, coords[0].Ele, 0.5, "coords[0].Ele")
@@ -178,5 +178,5 @@ func TestApplyProfileToCoords_NoOpsOnEmpty(t *testing.T) {
 	applyProfileToCoords(coords, nil)
 	assertInDelta(t, 42.0, coords[0].Ele, 0.0001, "nil-profile no-op")
 
-	applyProfileToCoords(nil, []ElevationPoint{{DistM: 0, EleM: 100}}) // must not panic
+	applyProfileToCoords(nil, []ElevationPoint{{DistM: 0, EleM: PtrEle(100)}}) // must not panic
 }

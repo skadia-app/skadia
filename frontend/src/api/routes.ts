@@ -98,17 +98,17 @@ export interface ElevationPoint {
 // NEW — Route-Response-Profile, distinct vom /elevation/profile-Endpoint-Type
 export interface RouteElevationPoint {
   dist_m: number
-  ele_m: number
+  ele_m: number | null  // null for NoData / coverage gap (Spec §6 Class A)
 }
 
-// Legacy → Route-Profile Converter (für BRouter-Save-Pfad bei Fallback)
+// Legacy → Route-Profile Converter (for BRouter save-path fallback).
+// null elevation is preserved as-is — do NOT substitute 0 or any sentinel
+// (buildProfile handles nulls by skipping those points).
 export function legacyToRouteProfile(
   points: ElevationPoint[],
   totalDistM: number,
 ): RouteElevationPoint[] {
-  return points
-    .filter((pt): pt is ElevationPoint & { elevation: number } => pt.elevation !== null)
-    .map(pt => ({ dist_m: pt.fraction * totalDistM, ele_m: pt.elevation }))
+  return points.map(pt => ({ dist_m: pt.fraction * totalDistM, ele_m: pt.elevation }))
 }
 
 export interface IsochronePolygon {

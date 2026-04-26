@@ -96,26 +96,32 @@ function buildProfile(
     coveredM += len
   }
 
-  const points: ProfilePoint[] = raw.map((pt, i) => {
+  // TODO Plan D: render gap visually instead of dropping null points
+  const valid = raw.filter(
+    (pt): pt is RouteElevationPoint & { ele_m: number } => pt.ele_m !== null,
+  )
+  if (valid.length < 2) return []
+
+  const points: ProfilePoint[] = valid.map((pt, i) => {
     const distanceKm = pt.dist_m / 1000
 
     // Grade via centred finite difference (ele per dist → %)
     let grade = 0
-    if (i > 0 && i < raw.length - 1) {
-      const prev = raw[i - 1]
-      const next = raw[i + 1]
+    if (i > 0 && i < valid.length - 1) {
+      const prev = valid[i - 1]
+      const next = valid[i + 1]
       const dElev = next.ele_m - prev.ele_m
       const dDist = next.dist_m - prev.dist_m
       grade = dDist > 0 ? (dElev / dDist) * 100 : 0
-    } else if (i === 0 && raw.length > 1) {
-      const next = raw[1]
-      const dElev = next.ele_m - raw[0].ele_m
-      const dDist = next.dist_m - raw[0].dist_m
+    } else if (i === 0 && valid.length > 1) {
+      const next = valid[1]
+      const dElev = next.ele_m - valid[0].ele_m
+      const dDist = next.dist_m - valid[0].dist_m
       grade = dDist > 0 ? (dElev / dDist) * 100 : 0
-    } else if (i === raw.length - 1 && raw.length > 1) {
-      const prev = raw[raw.length - 2]
-      const dElev = raw[i].ele_m - prev.ele_m
-      const dDist = raw[i].dist_m - prev.dist_m
+    } else if (i === valid.length - 1 && valid.length > 1) {
+      const prev = valid[valid.length - 2]
+      const dElev = valid[i].ele_m - prev.ele_m
+      const dDist = valid[i].dist_m - prev.dist_m
       grade = dDist > 0 ? (dElev / dDist) * 100 : 0
     }
 

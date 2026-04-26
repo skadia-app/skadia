@@ -48,7 +48,7 @@ func buildElevationProfile(
 			if i == 0 {
 				profile = append(profile, ElevationPoint{
 					DistM: distAccum,
-					EleM:  float64(elevs[0]) / 10.0,
+					EleM:  PtrEle(float64(elevs[0]) / 10.0),
 				})
 			}
 			distAccum += edgeDistM
@@ -70,7 +70,7 @@ func buildElevationProfile(
 		if i == 0 {
 			profile = append(profile, ElevationPoint{
 				DistM: distAccum,
-				EleM:  float64(elevs[0]) / 10.0,
+				EleM:  PtrEle(float64(elevs[0]) / 10.0),
 			})
 		}
 		// All subsequent points: emit. Distance ALWAYS accumulates including
@@ -80,7 +80,7 @@ func buildElevationProfile(
 			distAccum += float64(segDists[k-1]) / 100.0
 			profile = append(profile, ElevationPoint{
 				DistM: distAccum,
-				EleM:  float64(elevs[k]) / 10.0,
+				EleM:  PtrEle(float64(elevs[k]) / 10.0),
 			})
 		}
 		edgeEndDistM[i] = distAccum
@@ -105,11 +105,19 @@ func InterpolateProfileEleAt(profile []ElevationPoint, distM float64) float64 {
 		return 0
 	}
 	if distM <= profile[0].DistM {
-		return profile[0].EleM
+		// TODO(phase-D): handle nil EleM via gap-fill interpolation.
+		if profile[0].EleM == nil {
+			return 0
+		}
+		return *profile[0].EleM
 	}
 	last := len(profile) - 1
 	if distM >= profile[last].DistM {
-		return profile[last].EleM
+		// TODO(phase-D): handle nil EleM via gap-fill interpolation.
+		if profile[last].EleM == nil {
+			return 0
+		}
+		return *profile[last].EleM
 	}
 	// Binary search: find largest lo with profile[lo].DistM <= distM
 	lo, hi := 0, last
@@ -121,8 +129,12 @@ func InterpolateProfileEleAt(profile []ElevationPoint, distM float64) float64 {
 			hi = mid
 		}
 	}
-	d0, e0 := profile[lo].DistM, profile[lo].EleM
-	d1, e1 := profile[lo+1].DistM, profile[lo+1].EleM
+	// TODO(phase-D): handle nil EleM via gap-fill interpolation.
+	if profile[lo].EleM == nil || profile[lo+1].EleM == nil {
+		return 0
+	}
+	d0, e0 := profile[lo].DistM, *profile[lo].EleM
+	d1, e1 := profile[lo+1].DistM, *profile[lo+1].EleM
 	span := d1 - d0
 	if span <= 0 {
 		// Defensive: equal/non-monotonic adjacent samples → no interpolation,
@@ -164,8 +176,44 @@ func applyProfileToCoords(coords []LatLonEle, profile []ElevationPoint) {
 				coords[i].Lat, coords[i].Lon,
 			)
 		}
-		coords[i].Ele = InterpolateProfileEleAt(profile, distAccum)
+		// Determine whether the nearest profile sample has a valid elevation.
+		// TODO(phase-D): full gap-fill will resolve nil samples; for now mark
+		// coords as invalid when the interpolation would return 0 due to nil.
+		eleValid := nearestProfileSampleValid(profile, distAccum)
+		if eleValid {
+			coords[i].Ele = InterpolateProfileEleAt(profile, distAccum)
+			coords[i].EleValid = true
+		}
+		// else: leave Ele unchanged, EleValid stays false (zero value).
 	}
+}
+
+// nearestProfileSampleValid returns true when the two surrounding profile
+// samples (used by InterpolateProfileEleAt) are both non-nil.
+// For the clamp cases (before first / after last sample) it checks only the
+// boundary sample. This keeps applyProfileToCoords and InterpolateProfileEleAt
+// consistent without duplicating the binary-search.
+func nearestProfileSampleValid(profile []ElevationPoint, distM float64) bool {
+	if len(profile) == 0 {
+		return false
+	}
+	if distM <= profile[0].DistM {
+		return profile[0].EleM != nil
+	}
+	last := len(profile) - 1
+	if distM >= profile[last].DistM {
+		return profile[last].EleM != nil
+	}
+	lo, hi := 0, last
+	for lo < hi-1 {
+		mid := (lo + hi) / 2
+		if profile[mid].DistM <= distM {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	return profile[lo].EleM != nil && profile[lo+1].EleM != nil
 }
 
 // graphReaderForElev is the minimal subset of graph-reader methods needed
