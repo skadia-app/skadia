@@ -48,9 +48,10 @@ func insertBackfillTestActivity(t *testing.T, db *database.DB, userID string, st
 	t.Helper()
 
 	activityID := uuid.NewString()
+	// has_gps=true so the candidate predicate considers the activity at all.
 	_, err := db.Pool.Exec(context.Background(), `
-		INSERT INTO activities (id, user_id, title, sport_type, started_at, created_at)
-		VALUES ($1, $2, $3, 'cycling', $4, $4)
+		INSERT INTO activities (id, user_id, title, sport_type, started_at, created_at, has_gps)
+		VALUES ($1, $2, $3, 'cycling', $4, $4, true)
 	`, activityID, userID, "backfill test activity", startedAt)
 	if err != nil {
 		t.Fatalf("insert activity: %v", err)
@@ -58,28 +59,30 @@ func insertBackfillTestActivity(t *testing.T, db *database.DB, userID string, st
 	return activityID
 }
 
-func TestListActivityEnrichmentBackfillCandidates_SurfaceRowsDoNotCountAsEnriched(t *testing.T) {
+// TestListActivityEnrichmentBackfillCandidates_MetaRowMarksConverged verifies
+// the convergence anchor: an activity with an activity_enrichment_meta row is
+// considered done (regardless of which categories were materialized in
+// activity_enrichments), while an activity with no meta row stays a candidate.
+//
+// This replaces the old "surface rows don't count as enriched" test which
+// checked the legacy category-presence predicate. The category-presence
+// predicate was wrong: a road-bike ride on asphalt has zero SAC/MTB/VF
+// content and would never get those rows materialized — the predicate would
+// flag it as missing-scales forever, never converging.
+func TestListActivityEnrichmentBackfillCandidates_MetaRowMarksConverged(t *testing.T) {
 	db := activityEnrichmentsTestDB(t)
 	ctx := context.Background()
 	userID := insertBackfillTestUser(t, db)
 
-	surfaceOnlyID := insertBackfillTestActivity(t, db, userID, time.Now().Add(-2*time.Hour))
-	enrichedID := insertBackfillTestActivity(t, db, userID, time.Now().Add(-time.Hour))
+	pendingID := insertBackfillTestActivity(t, db, userID, time.Now().Add(-2*time.Hour))
+	convergedID := insertBackfillTestActivity(t, db, userID, time.Now().Add(-time.Hour))
 
 	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO activity_enrichments (activity_id, category, type, percentage, length_m)
-		VALUES ($1, 'surface', 'asphalt', 100, 50)
-	`, surfaceOnlyID)
+		INSERT INTO activity_enrichment_meta (activity_id, path, resample_spacing_m)
+		VALUES ($1, 'sql', 25.0)
+	`, convergedID)
 	if err != nil {
-		t.Fatalf("insert surface enrichment: %v", err)
-	}
-
-	_, err = db.Pool.Exec(ctx, `
-		INSERT INTO activity_enrichments (activity_id, category, type, percentage)
-		VALUES ($1, 'forest_pct', '', 42)
-	`, enrichedID)
-	if err != nil {
-		t.Fatalf("insert enrichment-category row: %v", err)
+		t.Fatalf("insert enrichment meta: %v", err)
 	}
 
 	candidates, err := listActivityEnrichmentBackfillCandidates(ctx, db, false)
@@ -87,19 +90,19 @@ func TestListActivityEnrichmentBackfillCandidates_SurfaceRowsDoNotCountAsEnriche
 		t.Fatalf("list candidates: %v", err)
 	}
 
-	if !candidateContains(candidates, surfaceOnlyID) {
-		t.Fatalf("surface-only activity %s should still be a candidate", surfaceOnlyID)
+	if !candidateContains(candidates, pendingID) {
+		t.Fatalf("pending activity %s (no meta row) should be a candidate", pendingID)
 	}
-	if candidateContains(candidates, enrichedID) {
-		t.Fatalf("activity %s with forest_pct should not be a candidate without force", enrichedID)
+	if candidateContains(candidates, convergedID) {
+		t.Fatalf("activity %s with meta row should not be a candidate without force", convergedID)
 	}
 
 	forced, err := listActivityEnrichmentBackfillCandidates(ctx, db, true)
 	if err != nil {
 		t.Fatalf("list forced candidates: %v", err)
 	}
-	if !candidateContains(forced, enrichedID) {
-		t.Fatalf("force=true should include enriched activity %s", enrichedID)
+	if !candidateContains(forced, convergedID) {
+		t.Fatalf("force=true should include converged activity %s", convergedID)
 	}
 }
 
