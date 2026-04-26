@@ -81,6 +81,28 @@ export function pointInPolygon(pt: [number, number], ring: [number, number][]): 
   return inside
 }
 
+/**
+ * Pick an appropriate fitBounds maxZoom cap based on the bounding-box diagonal.
+ * Short routes (<500m) are allowed to zoom in tighter; very long tours (>50km)
+ * get a lower cap so surrounding context remains visible.
+ *
+ * @param swLat  South-west corner latitude
+ * @param swLng  South-west corner longitude
+ * @param neLat  North-east corner latitude
+ * @param neLng  North-east corner longitude
+ */
+export function pickMaxZoomForBounds(
+  swLat: number,
+  swLng: number,
+  neLat: number,
+  neLng: number,
+): number {
+  const diagM = haversineM(swLat, swLng, neLat, neLng)
+  if (diagM < 500) return 17      // Walking-route — allow zooming in tighter
+  if (diagM > 50_000) return 14   // Long tour — cap lower so full route fits
+  return 15                       // Mid-range: preserves existing behaviour
+}
+
 /** Centroid of a point array */
 export function centroid(points: [number, number][]): [number, number] {
   const sum = points.reduce(([ax, ay], [x, y]) => [ax + x, ay + y], [0, 0])
