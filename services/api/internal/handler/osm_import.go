@@ -408,11 +408,7 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 
 			graphPath := h.Config.RoutingGraphPath
 			tileDir := filepath.Join(filepath.Dir(graphPath), "tiles")
-			hgtDirs := []string{
-				filepath.Join(h.Config.DEMDataDir, "sonny-05"),
-				filepath.Join(h.Config.DEMDataDir, "sonny-1"),
-				filepath.Join(h.Config.DEMDataDir, "glo30"),
-			}
+			hgtDirs := dem.HGTDirsForConfig(h.Config.DEMDataDir)
 
 			mainReporter.SetPhase("tiles")
 			// Implicit force=true: fresh import data → stale tiles must be replaced
