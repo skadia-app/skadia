@@ -17,6 +17,8 @@ type AllRanges struct {
 	Mtb       map[string][]CoordRange
 	Vf        map[string][]CoordRange
 	VfUnknown []CoordRange
+	Surface   map[string][]CoordRange
+	Highway   map[string][]CoordRange
 }
 
 const (
@@ -175,6 +177,54 @@ func ComputeAllRanges(edgeCoordStart []int, edgeTags1 []uint64, edgeTags2 []uint
 type LatLng struct {
 	Lat float64
 	Lng float64
+}
+
+// ComputeTypeRangesFromLabels builds a map from each unique label to the
+// contiguous coord-index ranges where that label appears.
+// labels[i] is the classification of the i-th resampled point;
+// the resulting CoordRange values use the same index space (0-based point index).
+// Empty labels are skipped. Returns nil when labels is empty.
+func ComputeTypeRangesFromLabels(labels []string) map[string][]CoordRange {
+	n := len(labels)
+	if n == 0 {
+		return nil
+	}
+
+	// Collect unique types so we can build per-type boolean masks.
+	seen := make(map[string]struct{}, 8)
+	for _, l := range labels {
+		if l != "" {
+			seen[l] = struct{}{}
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+
+	result := make(map[string][]CoordRange, len(seen))
+	for typ := range seen {
+		// Build a boolean mask for this type.
+		mask := make([]bool, n)
+		for i, l := range labels {
+			mask[i] = l == typ
+		}
+
+		// edgeCoordStart = [0, 1, 2, ..., n-1] — one "edge" per resampled point.
+		edgeCoordStart := make([]int, n)
+		for i := range n {
+			edgeCoordStart[i] = i
+		}
+
+		ranges := ContiguousRangesFromMatch(mask, edgeCoordStart, n-1)
+		if len(ranges) > 0 {
+			result[typ] = ranges
+		}
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func AggregateForestProtected(coords []LatLng, edgeCoordStart []int, edgeTags2 []uint64, lastRealCoordIdx int) (forestPct, protectedPct float64) {

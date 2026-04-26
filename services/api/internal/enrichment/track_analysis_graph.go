@@ -82,8 +82,9 @@ func enrichTrackAnalysisGraph(
 
 	if settings.EnableSurfaceDetection {
 		points := classifyGraphMatches(matched, candidates)
-		surfaceBreakdowns := aggregateByField(points, func(p matchedPoint) string { return p.SurfaceClass })
-		highwayBreakdowns := aggregateByField(points, func(p matchedPoint) string { return p.HighwayClass })
+		// withRanges=true: graph path has full per-point index alignment, so ranges are reliable.
+		surfaceBreakdowns := aggregateByField(points, func(p matchedPoint) string { return p.SurfaceClass }, true)
+		highwayBreakdowns := aggregateByField(points, func(p matchedPoint) string { return p.HighwayClass }, true)
 
 		if err := writeSurfaceHighwayEnrichments(ctx, tx, activityID, surfaceBreakdowns, highwayBreakdowns); err != nil {
 			return err
@@ -276,14 +277,14 @@ func writeSurfaceHighwayEnrichments(
 	for _, s := range surfaces {
 		batch.Queue(`
 			INSERT INTO activity_enrichments (activity_id, category, type, percentage, length_m, ranges)
-			VALUES ($1, 'surface', $2, $3, $4, NULL)
-		`, activityID, s.Type, s.Percentage, s.LengthM)
+			VALUES ($1, 'surface', $2, $3, $4, $5)
+		`, activityID, s.Type, s.Percentage, s.LengthM, rangesToJSON(s.Ranges))
 	}
 	for _, h := range highways {
 		batch.Queue(`
 			INSERT INTO activity_enrichments (activity_id, category, type, percentage, length_m, ranges)
-			VALUES ($1, 'highway', $2, $3, $4, NULL)
-		`, activityID, h.Type, h.Percentage, h.LengthM)
+			VALUES ($1, 'highway', $2, $3, $4, $5)
+		`, activityID, h.Type, h.Percentage, h.LengthM, rangesToJSON(h.Ranges))
 	}
 	if batch.Len() == 0 {
 		return nil

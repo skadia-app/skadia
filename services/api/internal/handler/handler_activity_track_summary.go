@@ -26,6 +26,8 @@ type activityTrackSummaryResponse struct {
 	MtbRanges       map[string][]edgetags.CoordRange `json:"mtb_ranges"`
 	VfRanges        map[string][]edgetags.CoordRange `json:"vf_ranges"`
 	VfUnknownRanges []edgetags.CoordRange            `json:"vf_unknown_ranges"`
+	SurfaceRanges   map[string][]edgetags.CoordRange `json:"surface_ranges"`
+	HighwayRanges   map[string][]edgetags.CoordRange `json:"highway_ranges"`
 	Surfaces        []surfaceItem                    `json:"surfaces"`
 	Highways        []surfaceItem                    `json:"highways"`
 	Summits         []geoTagItem                     `json:"summits"`
@@ -283,12 +285,24 @@ func buildTrackSummary(
 				Percentage: row.Percentage,
 				LengthM:    derefFloat64(row.LengthM),
 			})
+			if len(row.Ranges) > 0 {
+				if out.SurfaceRanges == nil {
+					out.SurfaceRanges = make(map[string][]edgetags.CoordRange)
+				}
+				out.SurfaceRanges[row.Type] = row.Ranges
+			}
 		case "highway":
 			out.Highways = append(out.Highways, surfaceItem{
 				Type:       row.Type,
 				Percentage: row.Percentage,
 				LengthM:    derefFloat64(row.LengthM),
 			})
+			if len(row.Ranges) > 0 {
+				if out.HighwayRanges == nil {
+					out.HighwayRanges = make(map[string][]edgetags.CoordRange)
+				}
+				out.HighwayRanges[row.Type] = row.Ranges
+			}
 		case "sac_scale":
 			if out.SacRanges == nil {
 				out.SacRanges = make(map[string][]edgetags.CoordRange)
