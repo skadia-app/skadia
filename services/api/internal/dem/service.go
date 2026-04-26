@@ -7,6 +7,18 @@ import (
 	"sync/atomic"
 )
 
+// Servicer is the interface implemented by Service. It allows handler tests to
+// inject a mock without depending on the concrete *Service type.
+type Servicer interface {
+	// ElevationBatch returns decimeter-scale elevations for int32×1e7 encoded
+	// coordinates. NoData (-32768) is returned for coordinates without coverage.
+	ElevationBatch(lats, lons []int32) ([]int32, error)
+	// Health returns the current service health snapshot.
+	Health() Health
+	// Close releases all mmap'd resources. Idempotent.
+	Close()
+}
+
 // cellEntry holds the lazily-opened HGT grid for a single 1°×1° cell.
 // sync.Once guarantees exactly one mmap-open even under high concurrency.
 type cellEntry struct {
