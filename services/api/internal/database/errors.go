@@ -1,6 +1,10 @@
 package database
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/jackc/pgx/v5/pgconn"
+)
 
 // Sentinel errors returned by DB functions. Callers should use errors.Is
 // instead of string-matching on err.Error().
@@ -14,3 +18,13 @@ var (
 	ErrBikeSetupNotFound     = errors.New("bike setup not found")
 	ErrReadOnly              = errors.New("read-only")
 )
+
+// isUniqueViolation reports whether err is a Postgres unique-constraint violation (SQLSTATE 23505).
+// If constraintName is non-empty, only returns true for that specific constraint.
+func isUniqueViolation(err error, constraintName string) bool {
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	if !ok || pgErr.Code != "23505" {
+		return false
+	}
+	return constraintName == "" || pgErr.ConstraintName == constraintName
+}

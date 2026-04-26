@@ -1,12 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
-import { getCapabilities, type Capabilities } from '@/api/routes'
+import { useCapabilities } from '@/hooks/useCapabilities'
 
 export function OfflineMapSettings() {
-  const { data: caps, isLoading } = useQuery<Capabilities>({
-    queryKey: ['capabilities'],
-    queryFn: getCapabilities,
-    staleTime: 60_000,
-  })
+  const { data: caps, isLoading } = useCapabilities()
 
   if (isLoading) {
     return (

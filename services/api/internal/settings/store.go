@@ -452,6 +452,20 @@ func (s *SettingsStore) rebuildCountForTest() uint64 {
 	return atomic.LoadUint64(&s.rebuildCount)
 }
 
+// GetInt returns the integer value of a registered setting.
+// Returns an error if the setting is missing OR not parseable as int.
+func (s *SettingsStore) GetInt(key string) (int, error) {
+	cs := s.Get(key)
+	if cs.Value == "" {
+		return 0, fmt.Errorf("setting %q has no value", key)
+	}
+	n, err := strconv.Atoi(cs.Value)
+	if err != nil {
+		return 0, fmt.Errorf("setting %q is not an integer (got %q): %w", key, cs.Value, err)
+	}
+	return n, nil
+}
+
 // waitForRebuildCompleteForTest blocks until at least one rebuild has
 // completed after the call started, or timeout fires. Used by tests to
 // avoid racy assertions on fire-and-forget triggerRebuild goroutines.
