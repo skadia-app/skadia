@@ -1,6 +1,7 @@
 import type { BestEffortRanked } from '@/api/bestEfforts'
 import { CategoryGrid } from './CategoryGrid'
 import { MAIN_CATEGORIES, MAIN_CATEGORY_LABELS, type MainCategory } from '@/lib/recordsConstants'
+import { pickBestPerCategory } from '@/lib/bestEffortRanking'
 import { cn } from '@/lib/utils'
 
 interface SportCardProps {
@@ -18,7 +19,7 @@ const VARIANT_BADGES: Record<string, { label: string; className: string }> = {
 }
 
 export function SportCard({ mainCategory, records, color, onNavigate }: SportCardProps) {
-  const rank1Count = records.filter((r) => r.rank === 1).length
+  const rank1Count = pickBestPerCategory(records).length
 
   const sportGroups = MAIN_CATEGORIES[mainCategory]
   const presentGroups = new Set(records.map((r) => r.sport_group))
