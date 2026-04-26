@@ -11,7 +11,5 @@ export const labels = {
     mtbUpToTpl: (level: string) => `bis ${level}`,
     vfUpToTpl: (level: string) => `bis ${level}`,
     vfUnknownPresent: 'Klettersteig ohne Skala',
-    scalesDisabled: 'Schwierigkeitsskalen-Erkennung deaktiviert',
-    scalesDisabledHint: 'Aktivierbar in Einstellungen → Analysen',
   },
 } as const

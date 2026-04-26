@@ -166,7 +166,7 @@ function getConfig(groupKey: string): CategoryConfig {
 }
 
 export default function GeoTagsList({ activityId, hiddenModules }: GeoTagsListProps) {
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(true)
 
   const { data: tags, isLoading } = useQuery({
     queryKey: ['geo-tags', activityId],
