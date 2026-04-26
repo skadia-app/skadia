@@ -18,6 +18,15 @@ type sqlTrackTagStats struct {
 	scales       scalePercentages
 }
 
+// enrichTrackAnalysisSQL is the PostGIS-lateral-join fallback path.
+//
+// INVARIANT: this function is the sole writer to activity_enrichments for the
+// given activity within this call. Both the graph path
+// (enrichTrackAnalysisGraph) and this SQL fallback MUST DELETE+INSERT inside
+// their own Tx; no outer-Tx writes are allowed. Callers (re_enrich,
+// recompute, backfill) must not pre-DELETE — see Finding #3 for the data-loss
+// window that creates. Track_analysis.go falls through from graph to SQL on
+// error, which is only safe because both paths are self-contained.
 func enrichTrackAnalysisSQL(
 	ctx context.Context,
 	db *database.DB,
@@ -71,6 +80,12 @@ func enrichTrackAnalysisSQL(
 		if err != nil {
 			return err
 		}
+		// SQL fallback never has per-edge ranges — only the graph path can
+		// produce coordinate-index-aligned ranges from the snapped track. Pass
+		// zero-value AllRanges{} explicitly to make the absence intentional;
+		// writeDifficultyScalesTx then writes scale percentages with NULL
+		// ranges, which is the contract documented in
+		// activity_enrichment_meta.path = 'sql' (see migration 000329).
 		if err := writeDifficultyScalesTx(ctx, tx, activityID, stats.scales, edgetags.AllRanges{}); err != nil {
 			return err
 		}
