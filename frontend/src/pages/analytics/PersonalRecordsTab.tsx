@@ -24,7 +24,7 @@ import {
   SUB_FILTERS,
   POWER_CURVE_GROUPS,
   CATEGORY_PREFIXES,
-  SPORT_GROUP_TO_SPORT_TYPES,
+  matchesSportGroup,
   type MainCategory,
 } from '@/lib/recordsConstants'
 import { HighlightBanner } from '@/components/records/HighlightBanner'
@@ -236,14 +236,15 @@ export default function PersonalRecordsTab() {
     reincludeMutation.mutate({ activityId, category })
   }
 
-  // Segment sport filter for detail mode — maps sport_groups → sport_types
-  // so SegmentSection (which filters on SegmentEffort.sport_type) matches correctly.
-  const segmentSportFilter = useMemo(() => {
+  // Segment effort filter for detail mode — predicate based on (sport_type, sub_type)
+  // so the (running, trail) pattern routes to running_trail without false positives.
+  const segmentEffortFilter = useMemo(() => {
     if (!mainCategory) return undefined
     const groups = subFilter
       ? SUB_FILTERS[mainCategory].find(f => f.label === subFilter)?.sportGroups ?? MAIN_CATEGORIES[mainCategory]
       : MAIN_CATEGORIES[mainCategory]
-    return groups.flatMap(g => SPORT_GROUP_TO_SPORT_TYPES[g] ?? [])
+    return (effort: { sport_type: string; sub_type?: string }) =>
+      groups.some(g => matchesSportGroup(g, effort))
   }, [mainCategory, subFilter])
 
   // Power series for detail mode
@@ -528,7 +529,7 @@ export default function PersonalRecordsTab() {
               <SegmentSection
                 personalPRs={segmentPRs}
                 globalTop={globalTopEfforts}
-                sportFilter={segmentSportFilter}
+                effortFilter={segmentEffortFilter}
               />
               {segmentPRs.length === 0 && globalTopEfforts.length === 0 && (
                 <EmptyTabState message="Keine Segment-Bestzeiten für diese Sportart" />
@@ -573,7 +574,7 @@ export default function PersonalRecordsTab() {
             <SegmentSection
               personalPRs={segmentPRs}
               globalTop={globalTopEfforts}
-              sportFilter={segmentSportFilter}
+              effortFilter={segmentEffortFilter}
             />
           )}
         </div>

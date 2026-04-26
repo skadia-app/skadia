@@ -34,6 +34,7 @@ export interface SegmentEffort {
   elapsed_time_s: number
   is_reverse: boolean
   sport_type: string
+  sub_type?: string
   rank_overall?: number
   is_personal_best: boolean
   personal_rank?: number

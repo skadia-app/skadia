@@ -21,18 +21,20 @@ function rankStyle(rank: number | undefined) {
 interface SegmentSectionProps {
   personalPRs: SegmentEffort[]
   globalTop: GlobalTopSegmentEffort[]
-  sportFilter?: string[]
+  /** Predicate to filter by best-efforts sport_group; accepts (sport_type, sub_type) so
+   * (running, trail) can be routed to running_trail without false positives. */
+  effortFilter?: (effort: SegmentEffort) => boolean
 }
 
-export function SegmentSection({ personalPRs, globalTop, sportFilter }: SegmentSectionProps) {
+export function SegmentSection({ personalPRs, globalTop, effortFilter }: SegmentSectionProps) {
   const [tab, setTab] = useState<'personal' | 'global'>('personal')
 
-  const filteredPersonal = sportFilter
-    ? personalPRs.filter((e) => sportFilter.includes(e.sport_type))
+  const filteredPersonal = effortFilter
+    ? personalPRs.filter(effortFilter)
     : personalPRs
 
-  const filteredGlobal = sportFilter
-    ? globalTop.filter((e) => sportFilter.includes(e.sport_type))
+  const filteredGlobal = effortFilter
+    ? globalTop.filter(effortFilter)
     : globalTop
 
   if (filteredPersonal.length === 0 && filteredGlobal.length === 0) return null
