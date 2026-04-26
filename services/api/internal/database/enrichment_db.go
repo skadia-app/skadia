@@ -40,27 +40,27 @@ var validEnrichmentCols = map[string]bool{
 	// Elevation source (from elevation.go, stage1.go)
 	"elevation_source": true,
 	// Stage-1 enrichment fields (from enrichment/stage1.go)
-	"time_of_day":        true,
-	"sunrise_at":         true,
-	"sunset_at":          true,
-	"trimp":              true,
-	"variability_index":  true,
-	"efficiency_factor":  true,
-	"aerobic_decoupling": true,
-	"intensity":          true,
-	"start_city":         true,
-	"start_state":        true,
-	"start_country":      true,
-	"start_country_code": true,
-	"end_city":           true,
-	"title_auto":         true,
-	"tags":               true,
-	"sub_type":           true,
+	"time_of_day":          true,
+	"sunrise_at":           true,
+	"sunset_at":            true,
+	"trimp":                true,
+	"variability_index":    true,
+	"efficiency_factor":    true,
+	"aerobic_decoupling":   true,
+	"intensity":            true,
+	"start_city":           true,
+	"start_state":          true,
+	"start_country":        true,
+	"start_country_code":   true,
+	"end_city":             true,
+	"title_auto":           true,
+	"tags":                 true,
+	"sub_type":             true,
 	"exclude_from_heatmap": true,
 	// Activity metadata (manual activity, recompute, importers)
-	"title":          true,
+	"title":           true,
 	"title_is_manual": true,
-	"description":    true,
+	"description":     true,
 	// Timezone from GPS start position (tzf library)
 	"timezone": true,
 }
@@ -419,27 +419,6 @@ func (db *DB) GetActivityStops(ctx context.Context, activityID string) ([]model.
 	return stops, rows.Err()
 }
 
-// GetActivitySurfaces returns detected surfaces for an activity.
-func (db *DB) GetActivitySurfaces(ctx context.Context, activityID string) ([]model.ActivitySurface, error) {
-	rows, err := db.Pool.Query(ctx,
-		`SELECT id, category, surface_type, path_type, length_m, percentage
-		 FROM activity_surfaces WHERE activity_id = $1 ORDER BY category, percentage DESC`,
-		activityID)
-	if err != nil {
-		return nil, fmt.Errorf("get activity surfaces: %w", err)
-	}
-	defer rows.Close()
-	var surfaces []model.ActivitySurface
-	for rows.Next() {
-		var s model.ActivitySurface
-		if err := rows.Scan(&s.ID, &s.Category, &s.SurfaceType, &s.PathType, &s.LengthM, &s.Percentage); err != nil {
-			return nil, fmt.Errorf("scan activity surface: %w", err)
-		}
-		surfaces = append(surfaces, s)
-	}
-	return surfaces, rows.Err()
-}
-
 // GetEnrichmentModuleStatus returns per-module enrichment status for an activity.
 // It checks enrichment_errors for failures and various data tables for presence.
 func (db *DB) GetEnrichmentModuleStatus(ctx context.Context, activityID string) ([]model.EnrichmentModuleStatus, error) {
@@ -473,7 +452,7 @@ func (db *DB) GetEnrichmentModuleStatus(ctx context.Context, activityID string) 
 			(SELECT count(*) FROM activity_geo_tags WHERE activity_id = $1 AND category = 'forest'),
 			(SELECT count(*) FROM activity_geo_tags WHERE activity_id = $1 AND category = 'border'),
 			(SELECT count(*) FROM activity_stops WHERE activity_id = $1),
-			(SELECT count(*) FROM activity_surfaces WHERE activity_id = $1),
+			(SELECT count(*) FROM activity_enrichments WHERE activity_id = $1 AND category IN ('surface', 'highway')),
 			(SELECT count(*) FROM activity_climbs WHERE activity_id = $1),
 			(SELECT count(*) FROM activity_lift_candidates WHERE activity_id = $1),
 			(SELECT count(*) FROM activity_intervals WHERE activity_id = $1),
@@ -540,12 +519,6 @@ func (db *DB) DeleteActivityStops(ctx context.Context, activityID string) error 
 // DeleteActivityLiftCandidates removes all lift candidates for an activity (Stage 2 data).
 func (db *DB) DeleteActivityLiftCandidates(ctx context.Context, activityID string) error {
 	_, err := db.Pool.Exec(ctx, `DELETE FROM activity_lift_candidates WHERE activity_id = $1`, activityID)
-	return err
-}
-
-// DeleteActivitySurfaces removes all surface data for an activity (Stage 2 data).
-func (db *DB) DeleteActivitySurfaces(ctx context.Context, activityID string) error {
-	_, err := db.Pool.Exec(ctx, `DELETE FROM activity_surfaces WHERE activity_id = $1`, activityID)
 	return err
 }
 
