@@ -100,6 +100,19 @@ func enrichTrackAnalysisGraph(
 		}
 	}
 
+	// Persist enrichment path metadata so that the track-summary handler can read
+	// graph_snap_used directly without a heuristic (see activity_enrichment_meta).
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO activity_enrichment_meta (activity_id, path, resample_spacing_m, computed_at)
+		VALUES ($1, 'graph', $2, NOW())
+		ON CONFLICT (activity_id) DO UPDATE
+			SET path = EXCLUDED.path,
+			    resample_spacing_m = EXCLUDED.resample_spacing_m,
+			    computed_at = EXCLUDED.computed_at
+	`, activityID, surfaceResampleM); err != nil {
+		return fmt.Errorf("track_analysis_graph: upsert enrichment meta: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("track_analysis_graph: commit tx: %w", err)
 	}

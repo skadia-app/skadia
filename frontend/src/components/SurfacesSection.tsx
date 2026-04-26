@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Info } from 'lucide-react'
+import { Info, Loader2 } from 'lucide-react'
 import type { ActivityTrackSummary, TrackSummarySurfaceItem } from '@/api/trackSummary'
 import type { HighlightKind } from '@/hooks/useStickyHighlight'
 import {
@@ -10,11 +10,19 @@ import {
   aggregateHighways,
 } from '@/lib/surfaceConstants'
 import StackedBar from '@/components/shared/StackedBar'
+import { useActiveJobs } from '@/lib/useActiveJobs'
 
 export type SurfaceHighlight = { kind: 'highway' | 'surface'; key: string } | null
 
 interface Props {
   summary?: Pick<ActivityTrackSummary, 'surfaces' | 'highways' | 'graph_snap_used' | 'surface_ranges' | 'highway_ranges'> | null
+  /**
+   * Whether the parent query is still loading (undefined = query in flight).
+   * When true, a skeleton/pulse state is shown instead of this section.
+   */
+  summaryLoading?: boolean
+  /** Activity ID used to check for active enrichment jobs. */
+  activityId?: string
   /** Hover changes (null = no hover). Parent owns the global highlight state. */
   onHighlight?: (h: HighlightKind) => void
   /** Controlled pin state (sticky after click). */
@@ -54,8 +62,11 @@ function summarySurfaceRow(item: TrackSummarySurfaceItem, category: 'surface' | 
   }
 }
 
-export default function SurfacesSection({ summary, onHighlight, pinnedType = null, onPin, streamsLoading }: Props) {
+export default function SurfacesSection({ summary, summaryLoading, activityId, onHighlight, pinnedType = null, onPin, streamsLoading }: Props) {
   const [collapsed, setCollapsed] = useState(false)
+
+  const { isJobActiveForEntity } = useActiveJobs()
+  const isEnrichmentActive = activityId != null && isJobActiveForEntity(activityId)
 
   const rows = summaryRows(summary ?? null)
 
@@ -112,8 +123,28 @@ export default function SurfacesSection({ summary, onHighlight, pinnedType = nul
     onPin?.(next)
   }, [pinnedType, onPin])
 
-  if (rows.length === 0) return null
+  // Query still in flight — let the parent's skeleton handle it.
+  if (summaryLoading) return null
+
   const hasAnything = aggregatedSurfaces.length > 0 || aggregatedHighways.length > 0
+
+  // No surface data yet: show a "computing" hint when an enrichment job is running,
+  // so users know results are on the way rather than seeing a blank section.
+  if (!hasAnything && isEnrichmentActive) {
+    return (
+      <div>
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">
+          Wege und Oberflächen
+        </h2>
+        <p className="flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
+          Wird verarbeitet…
+        </p>
+      </div>
+    )
+  }
+
+  if (rows.length === 0) return null
   if (!hasAnything) return null
 
   const hwActiveKey = pinnedType?.kind === 'highway' ? pinnedType.key : null

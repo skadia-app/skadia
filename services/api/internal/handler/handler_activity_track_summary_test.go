@@ -21,7 +21,7 @@ func TestBuildTrackSummary_JSONShapeNullFieldsAndSettingsSnapshot(t *testing.T) 
 		{Category: "forest_pct", Percentage: forestPct, Ranges: []edgetags.CoordRange{{From: 2, To: 5}}},
 		{Category: "surface", Type: "asphalt", Percentage: 75, LengthM: ptrFloat64(1500)},
 		{Category: "highway", Type: "track", Percentage: 25, LengthM: ptrFloat64(500)},
-	}, nil)
+	}, nil, nil)
 	if err != nil {
 		t.Fatalf("buildTrackSummary: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestBuildTrackSummary_GroupsScalesAndGeoTags(t *testing.T) {
 		{Category: "summit", Name: "Peak", OSMID: ptrInt64(100), Lat: ptrFloat64(47.1), Lng: ptrFloat64(11.1), EleM: ptrFloat64(2000), DistM: ptrFloat64(18), TrackPos: &trackPos},
 		{Category: "flowing_water", Name: "Creek", OSMID: ptrInt64(200)},
 		{Category: "settlement", Name: "Village", OSMID: ptrInt64(300)},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("buildTrackSummary: %v", err)
 	}
@@ -107,27 +107,27 @@ func TestBuildTrackSummary_GroupsScalesAndGeoTags(t *testing.T) {
 func TestBuildTrackSummary_SurfaceAndHighwayRanges(t *testing.T) {
 	summary, err := buildTrackSummary(&model.EnrichmentSettings{}, []trackSummaryEnrichmentRow{
 		{
-			Category: "surface",
-			Type:     "asphalt",
+			Category:   "surface",
+			Type:       "asphalt",
 			Percentage: 60,
 			LengthM:    ptrFloat64(1200),
 			Ranges:     []edgetags.CoordRange{{From: 0, To: 10}, {From: 20, To: 30}},
 		},
 		{
-			Category: "surface",
-			Type:     "gravel",
+			Category:   "surface",
+			Type:       "gravel",
 			Percentage: 40,
 			LengthM:    ptrFloat64(800),
 			Ranges:     []edgetags.CoordRange{{From: 10, To: 20}},
 		},
 		{
-			Category: "highway",
-			Type:     "path",
+			Category:   "highway",
+			Type:       "path",
 			Percentage: 75,
 			LengthM:    ptrFloat64(1500),
 			Ranges:     []edgetags.CoordRange{{From: 0, To: 25}},
 		},
-	}, nil)
+	}, nil, nil)
 	if err != nil {
 		t.Fatalf("buildTrackSummary: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestBuildTrackSummary_SurfaceRangesNullWhenAbsent(t *testing.T) {
 	// Surface rows without ranges → surface_ranges must be null in JSON.
 	summary, err := buildTrackSummary(&model.EnrichmentSettings{}, []trackSummaryEnrichmentRow{
 		{Category: "surface", Type: "asphalt", Percentage: 100, LengthM: ptrFloat64(2000)},
-	}, nil)
+	}, nil, nil)
 	if err != nil {
 		t.Fatalf("buildTrackSummary: %v", err)
 	}
@@ -184,6 +184,70 @@ func TestBuildTrackSummary_SurfaceRangesNullWhenAbsent(t *testing.T) {
 	}
 	if !strings.Contains(string(body), `"surface_ranges":null`) {
 		t.Fatalf("expected surface_ranges:null in JSON, got %s", string(body))
+	}
+}
+
+// TestBuildTrackSummary_GraphSnapUsedFromMeta verifies that graph_snap_used is
+// populated from the persisted enrichment path, not from the heuristic.
+func TestBuildTrackSummary_GraphSnapUsedFromMeta(t *testing.T) {
+	// No surface rows but path='graph' → graph_snap_used must be true.
+	pathGraph := "graph"
+	summary, err := buildTrackSummary(&model.EnrichmentSettings{}, nil, nil, &pathGraph)
+	if err != nil {
+		t.Fatalf("buildTrackSummary: %v", err)
+	}
+	if summary.GraphSnapUsed == nil {
+		t.Fatal("GraphSnapUsed is nil, want *true")
+	}
+	if !*summary.GraphSnapUsed {
+		t.Fatalf("GraphSnapUsed = %v, want true", *summary.GraphSnapUsed)
+	}
+
+	// path='sql' → graph_snap_used must be false, even if surface rows with ranges exist.
+	pathSQL := "sql"
+	summarySQL, err := buildTrackSummary(&model.EnrichmentSettings{}, []trackSummaryEnrichmentRow{
+		{Category: "surface", Type: "asphalt", Percentage: 100, LengthM: ptrFloat64(1000),
+			Ranges: []edgetags.CoordRange{{From: 0, To: 50}}},
+	}, nil, &pathSQL)
+	if err != nil {
+		t.Fatalf("buildTrackSummary sql: %v", err)
+	}
+	if summarySQL.GraphSnapUsed == nil {
+		t.Fatal("GraphSnapUsed is nil for sql path, want *false")
+	}
+	if *summarySQL.GraphSnapUsed {
+		t.Fatal("GraphSnapUsed = true for sql path, want false")
+	}
+
+	// nil enrichmentPath (not yet enriched) → graph_snap_used must be nil.
+	summaryNil, err := buildTrackSummary(&model.EnrichmentSettings{}, []trackSummaryEnrichmentRow{
+		{Category: "surface", Type: "asphalt", Percentage: 100, LengthM: ptrFloat64(1000),
+			Ranges: []edgetags.CoordRange{{From: 0, To: 50}}},
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("buildTrackSummary nil path: %v", err)
+	}
+	if summaryNil.GraphSnapUsed != nil {
+		t.Fatalf("GraphSnapUsed = %v, want nil for un-enriched activity", *summaryNil.GraphSnapUsed)
+	}
+}
+
+// TestBuildTrackSummary_ResampleSpacingMPresent verifies that resample_spacing_m
+// is always present in the JSON response.
+func TestBuildTrackSummary_ResampleSpacingMPresent(t *testing.T) {
+	summary, err := buildTrackSummary(&model.EnrichmentSettings{}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("buildTrackSummary: %v", err)
+	}
+	if summary.ResampleSpacingM <= 0 {
+		t.Fatalf("ResampleSpacingM = %v, want > 0", summary.ResampleSpacingM)
+	}
+	body, err := json.Marshal(summary)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(body), `"resample_spacing_m":`) {
+		t.Fatalf("JSON missing resample_spacing_m: %s", body)
 	}
 }
 

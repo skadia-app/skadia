@@ -1,3 +1,8 @@
+-- NOTE: this legacy copy is intentionally fragile on NULL semantics.
+-- activity_surfaces rows may have NULL percentage/length_m; COALESCE(…, 0)
+-- produces a 0-value row rather than skipping it. This is acceptable because
+-- the rows only existed for the initial migration; subsequent enrichment runs
+-- overwrite them. Do not rely on the copied data being numerically accurate.
 DO $$
 BEGIN
     IF to_regclass('activity_surfaces') IS NOT NULL THEN
