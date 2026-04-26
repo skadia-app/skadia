@@ -962,6 +962,7 @@ export default function ActivityDetailPage() {
           hasGps={activity.has_gps}
           onClose={() => setMapFullscreen(false)}
           activityId={activity.id}
+          geoTags={geoTags}
         />
       )}
 

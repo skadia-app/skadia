@@ -23,7 +23,8 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { LngLatLike } from 'maplibre-gl'
-import type { StreamPoint } from '@/api/types'
+import type { StreamPoint, GeoTag } from '@/api/types'
+import { MountainSnow } from 'lucide-react'
 import ColorPicker from '@/components/ColorPicker'
 import { BASE_STYLES, buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
 import { apiClient } from '@/api/client'
@@ -77,6 +78,8 @@ interface Props {
   hasGps: boolean
   onClose: () => void
   activityId?: string
+  /** Geo tags for summit/pass markers — same source as TrackMap. */
+  geoTags?: GeoTag[]
 }
 
 // ── Stream definitions ────────────────────────────────────────────────────────
@@ -208,7 +211,7 @@ function findNearestIdx(arr: number[], value: number): number {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function MapFullscreen({ streams, sportColor, sportType, fitSportId, hasGps, onClose, activityId }: Props) {
+export default function MapFullscreen({ streams, sportColor, sportType, fitSportId, hasGps, onClose, activityId, geoTags }: Props) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -225,6 +228,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
   })
 
   const [showPhotos, setShowPhotos] = useState(true)
+  const [showSummits, setShowSummits] = useState(true)
   const [mapLoaded, setMapLoaded] = useState(false)
   const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null)
 
@@ -346,6 +350,70 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: { 'line-color': sportColor, 'line-width': 3, 'line-opacity': 0.85 },
       })
+
+      // Summit/pass markers from geoTags — same data shape as TrackMap.
+      // Renders an SVG triangle icon with name + elevation label below.
+      const summitTags = (geoTags ?? []).filter(
+        (t) => (t.category === 'summit' || t.category === 'pass') && t.lat != null,
+      )
+      if (summitTags.length > 0 && !m.getSource('fullscreen-summits')) {
+        m.addSource('fullscreen-summits', {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: summitTags.map((t) => ({
+              type: 'Feature' as const,
+              geometry: { type: 'Point' as const, coordinates: [t.lng!, t.lat!] },
+              properties: { name: t.name ?? '', ele: t.ele_m ?? t.ele ?? 0 },
+            })),
+          },
+        })
+        const addSummitLayer = () => {
+          if (m.getLayer('fullscreen-summits-layer')) return
+          m.addLayer({
+            id: 'fullscreen-summits-layer',
+            type: 'symbol',
+            source: 'fullscreen-summits',
+            layout: {
+              'icon-image': 'fullscreen-summit-icon',
+              'icon-size': 0.9,
+              'icon-allow-overlap': true,
+              'text-field': ['concat', ['get', 'name'], '\n', ['to-string', ['get', 'ele']], ' m'] as maplibregl.ExpressionSpecification,
+              'text-font': ['Open Sans Regular'],
+              'text-size': 11,
+              'text-offset': [0, 1.4],
+              'text-anchor': 'top',
+              'text-optional': true,
+            },
+            paint: { 'text-color': '#374151', 'text-halo-color': 'white', 'text-halo-width': 1 },
+          })
+        }
+        if (m.hasImage('fullscreen-summit-icon')) {
+          addSummitLayer()
+        } else {
+          const sz = 24
+          const cvs = document.createElement('canvas')
+          cvs.width = sz
+          cvs.height = sz
+          const ctx = cvs.getContext('2d')
+          if (ctx) {
+            ctx.fillStyle = '#f97316'
+            ctx.strokeStyle = '#ffffff'
+            ctx.lineWidth = 1.5
+            ctx.beginPath()
+            ctx.moveTo(2, 20)
+            ctx.lineTo(8, 8)
+            ctx.lineTo(12, 14)
+            ctx.lineTo(16, 8)
+            ctx.lineTo(22, 20)
+            ctx.closePath()
+            ctx.fill()
+            ctx.stroke()
+            m.addImage('fullscreen-summit-icon', ctx.getImageData(0, 0, sz, sz))
+          }
+          addSummitLayer()
+        }
+      }
 
       if (!initialFitDoneRef.current) {
         const bounds = new maplibregl.LngLatBounds()
@@ -497,6 +565,15 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
       }
     }
   }, [positionedPhotos, mapLoaded, showPhotos])
+
+  // Summit-layer visibility — toggleable via toolbar button.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (map.getLayer('fullscreen-summits-layer')) {
+      map.setLayoutProperty('fullscreen-summits-layer', 'visibility', showSummits ? 'visible' : 'none')
+    }
+  }, [showSummits, mapLoaded])
 
   // ── Move hover marker on map ──────────────────────────────────────────────
   const moveMarker = useCallback((index: number | null) => {
@@ -967,6 +1044,25 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
           <div className="absolute bottom-3 left-3 z-10">
             <MapColorLegend scale={metricColoring.scale} />
           </div>
+        )}
+
+        {/* Summit toggle button (only if activity has summits/passes) */}
+        {(geoTags ?? []).some(t => (t.category === 'summit' || t.category === 'pass') && t.lat != null) && (
+          <button
+            onClick={() => setShowSummits(v => !v)}
+            title={showSummits ? 'Gipfel ausblenden' : 'Gipfel einblenden'}
+            className={[
+              // Position: left of the photo button (or in the photo slot if no photos).
+              positionedPhotos.length > 0 ? 'absolute top-3 right-[9.5rem]' : 'absolute top-3 right-[6.5rem]',
+              'z-10 flex items-center justify-center w-9 h-9',
+              'rounded-lg backdrop-blur-sm shadow-md cursor-pointer transition-colors',
+              showSummits
+                ? 'bg-accent-DEFAULT text-white'
+                : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 hover:bg-white dark:hover:bg-neutral-700',
+            ].join(' ')}
+          >
+            <MountainSnow className="w-4 h-4" aria-hidden="true" />
+          </button>
         )}
 
         {/* Photo toggle button (only if activity has positioned photos) */}
