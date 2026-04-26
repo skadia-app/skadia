@@ -24,7 +24,11 @@ func DetermineSportGroup(sportType, subType string, isIndoor, isVirtual, isElect
 		if isIndoor {
 			return "running_indoor"
 		}
-		if sportType == "trail_running" {
+		// Garmin imports surface trail runs as either sport_type="trail_running"
+		// (newer FIT enum) or sport_type="running" + sub_type="trail" (legacy
+		// classification still used by the Garmin Export Importer). Both must
+		// map to running_trail or the Records sub-filter "Trail" stays empty.
+		if sportType == "trail_running" || subType == "trail" {
 			return "running_trail"
 		}
 		return "running"
