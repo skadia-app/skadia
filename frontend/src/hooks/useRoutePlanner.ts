@@ -1251,7 +1251,7 @@ export function useRoutePlanner() {
 
         // getElevationProfile is NOT a routing call — it samples DEM heights
         // along the persisted geometry. No route drift possible.
-        const { profile } = await getElevationProfile(combinedGeometry, 200)
+        const { profile } = await getElevationProfile(combinedGeometry, { numPoints: 200 })
 
         if (!profile || profile.length === 0) {
           // No DEM available (Lightweight system): silent graceful degradation.
@@ -1741,7 +1741,7 @@ export function useRoutePlanner() {
       combinedCoordinates[0]?.toString(),
       combinedCoordinates[combinedCoordinates.length - 1]?.toString(),
     ],
-    queryFn: () => getElevationProfile(combinedGeometry!, 200),
+    queryFn: () => getElevationProfile(combinedGeometry!, { numPoints: 200 }),
     enabled: needsBRouterFallback,
     staleTime: 60 * 1000,
   })

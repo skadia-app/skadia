@@ -270,9 +270,12 @@ export async function queryElevation(
 
 export async function getElevationProfile(
   geometry: GeoJSON.LineString,
-  numPoints: number = 100,
+  opts: { numPoints?: number; atVertices?: boolean } = {},
 ): Promise<{ profile: ElevationPoint[] }> {
-  return apiClient('/elevation/profile', { method: 'POST', body: { geometry, num_points: numPoints } })
+  const body: Record<string, unknown> = { geometry }
+  if (opts.atVertices) body.at_vertices = true
+  else body.num_points = opts.numPoints ?? 200
+  return apiClient('/elevation/profile', { method: 'POST', body })
 }
 
 // === POI Search ===
