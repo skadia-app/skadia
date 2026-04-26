@@ -1189,7 +1189,6 @@ func main() {
 
 			r.Get("/me", h.GetMe)
 			r.Patch("/me", h.UpdateMe)
-			r.Post("/users/me/acknowledge/surface-extension", h.AcknowledgeSurfaceExtension)
 
 			r.Get("/settings/profile", h.GetProfile)
 			r.Patch("/settings/profile", h.PatchProfile)

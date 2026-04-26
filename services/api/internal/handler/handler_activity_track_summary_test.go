@@ -52,6 +52,14 @@ func TestBuildTrackSummary_JSONShapeNullFieldsAndSettingsSnapshot(t *testing.T) 
 			t.Fatalf("summary JSON missing %s in %s", want, jsonBody)
 		}
 	}
+	for _, unwanted := range []string{
+		`"user_id":`,
+		`"enable_surface_detection":`,
+	} {
+		if strings.Contains(jsonBody, unwanted) {
+			t.Fatalf("summary JSON unexpectedly contains %s in %s", unwanted, jsonBody)
+		}
+	}
 }
 
 func TestBuildTrackSummary_GroupsScalesAndGeoTags(t *testing.T) {
