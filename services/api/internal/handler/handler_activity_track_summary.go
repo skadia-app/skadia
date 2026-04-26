@@ -122,6 +122,14 @@ func (h *Handler) ActivityTrackSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ownerID != userID {
+		// Defense-in-depth audit log: Skadia is multi-user (selfhost target up
+		// to 100k+ accounts), so cross-user access attempts must be auditable
+		// even when the 403 path looks identical to the caller.
+		slog.Warn("track-summary: cross-user access attempt",
+			"user_id", userID,
+			"owner_id", ownerID,
+			"activity_id", activityID,
+		)
 		httputil.WriteError(w, http.StatusForbidden, "Forbidden", "activity belongs to another user", r.URL.Path)
 		return
 	}
