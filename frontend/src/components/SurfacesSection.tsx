@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import type { ReactNode } from 'react'
 import { Info, Loader2 } from 'lucide-react'
 import type { ActivityTrackSummary, TrackSummarySurfaceItem } from '@/api/trackSummary'
 import type { HighlightKind } from '@/hooks/useStickyHighlight'
@@ -31,6 +32,12 @@ interface Props {
   onPin?: (h: SurfaceHighlight) => void
   /** Whether track streams are still loading — suppresses hover interaction. */
   streamsLoading?: boolean
+  /**
+   * Optional pills row rendered directly after the section header (before bars).
+   * Used by ActivityDetailPage to place StatsRow (forest/protected/POIs/scales)
+   * inside this section instead of floating above it.
+   */
+  pills?: ReactNode
 }
 
 interface SurfaceDisplayRow {
@@ -62,7 +69,7 @@ function summarySurfaceRow(item: TrackSummarySurfaceItem, category: 'surface' | 
   }
 }
 
-export default function SurfacesSection({ summary, summaryLoading, activityId, onHighlight, pinnedType = null, onPin, streamsLoading }: Props) {
+export default function SurfacesSection({ summary, summaryLoading, activityId, onHighlight, pinnedType = null, onPin, streamsLoading, pills }: Props) {
   const [collapsed, setCollapsed] = useState(false)
 
   const { isJobActiveForEntity } = useActiveJobs()
@@ -169,6 +176,10 @@ export default function SurfacesSection({ summary, summaryLoading, activityId, o
           Wege und Oberflächen
         </h2>
       </button>
+
+      {/* Item 1: pills row (forest/protected/POIs/scales) placed below the header,
+          not above. Passed in by ActivityDetailPage via the pills prop. */}
+      {pills && <div className="mb-3">{pills}</div>}
 
       {!collapsed && (
         <div className="space-y-5">
