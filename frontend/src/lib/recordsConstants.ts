@@ -84,7 +84,14 @@ export const OW_BADGE = 'FW'
 /**
  * Mapping from sport_group values (used in BestEffortRanked.sport_group) to
  * sport_type values (used in SegmentEffort.sport_type / sportTaxonomy.ts).
- * Used to filter SegmentSection correctly.
+ * Used as the base for matchesSportGroup() below.
+ *
+ * NOTE: Garmin FIT files encode trail running as sport=running + sub_sport=trail,
+ * not as a distinct trail_running sport_type — the FIT enum has no such value.
+ * Migration 000037 normalized historical trail_running rows to (running, trail).
+ * matchesSportGroup() therefore inspects sub_type to disambiguate running vs.
+ * running_trail; the base list keeps trail_running for future Strava/GPX/TCX
+ * imports that may still surface that string.
  */
 export const SPORT_GROUP_TO_SPORT_TYPES: Record<string, string[]> = {
   running:          ['running'],
@@ -97,4 +104,24 @@ export const SPORT_GROUP_TO_SPORT_TYPES: Record<string, string[]> = {
   hiking:           ['hiking', 'mountaineering', 'snowshoeing'],
   swim_pool:        ['lap_swimming'],
   swim_ow:          ['open_water_swimming', 'swimming'],
+}
+
+/** Predicate for filtering SegmentEffort / similar records by best-efforts sport_group. */
+export function matchesSportGroup(
+  sportGroup: string,
+  effort: { sport_type: string; sub_type?: string },
+): boolean {
+  const types = SPORT_GROUP_TO_SPORT_TYPES[sportGroup] ?? []
+  const matchesType = types.includes(effort.sport_type)
+
+  if (sportGroup === 'running_trail') {
+    // (running, trail) is the Garmin-FIT canonical representation; trail_running
+    // is the legacy Strava/GPX/TCX representation — accept both.
+    return matchesType || (effort.sport_type === 'running' && effort.sub_type === 'trail')
+  }
+  if (sportGroup === 'running') {
+    // Plain road running: exclude entries that should belong to running_trail.
+    return matchesType && effort.sub_type !== 'trail'
+  }
+  return matchesType
 }
