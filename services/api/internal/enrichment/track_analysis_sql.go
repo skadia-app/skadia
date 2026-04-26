@@ -30,6 +30,25 @@ func enrichTrackAnalysisSQL(
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	if err := deleteExistingTrackAnalysisTx(ctx, tx, activityID); err != nil {
+		return err
+	}
+
+	var tagStats sqlTrackTagStats
+	tagStatsLoaded := false
+	loadTagStats := func() (sqlTrackTagStats, error) {
+		if tagStatsLoaded {
+			return tagStats, nil
+		}
+		stats, err := computeTrackTagStatsSQLTx(ctx, tx, activityID)
+		if err != nil {
+			return sqlTrackTagStats{}, err
+		}
+		tagStats = stats
+		tagStatsLoaded = true
+		return tagStats, nil
+	}
+
 	if settings.EnableSurfaceDetection {
 		surfaceBreakdowns, highwayBreakdowns, err := computeSurfaceBreakdownsSQLTx(ctx, tx, activityID)
 		if err != nil {
@@ -38,13 +57,21 @@ func enrichTrackAnalysisSQL(
 		if err := writeSurfaceHighwayEnrichments(ctx, tx, activityID, surfaceBreakdowns, highwayBreakdowns); err != nil {
 			return err
 		}
-		if err := writeForestProtectedSQLTx(ctx, tx, activityID); err != nil {
+		stats, err := loadTagStats()
+		if err != nil {
+			return err
+		}
+		if err := writeForestProtectedTx(ctx, tx, activityID, stats.forestPct, stats.protectedPct, nil, nil); err != nil {
 			return err
 		}
 	}
 
 	if settings.EnableDifficultyScales {
-		if err := writeDifficultyScalesSQLTx(ctx, tx, activityID); err != nil {
+		stats, err := loadTagStats()
+		if err != nil {
+			return err
+		}
+		if err := writeDifficultyScalesTx(ctx, tx, activityID, stats.scales, edgetags.AllRanges{}); err != nil {
 			return err
 		}
 	}
@@ -53,22 +80,6 @@ func enrichTrackAnalysisSQL(
 		return fmt.Errorf("track_analysis_sql: commit tx: %w", err)
 	}
 	return nil
-}
-
-func writeForestProtectedSQLTx(ctx context.Context, tx pgx.Tx, activityID string) error {
-	stats, err := computeTrackTagStatsSQLTx(ctx, tx, activityID)
-	if err != nil {
-		return err
-	}
-	return writeForestProtectedTx(ctx, tx, activityID, stats.forestPct, stats.protectedPct, nil, nil)
-}
-
-func writeDifficultyScalesSQLTx(ctx context.Context, tx pgx.Tx, activityID string) error {
-	stats, err := computeTrackTagStatsSQLTx(ctx, tx, activityID)
-	if err != nil {
-		return err
-	}
-	return writeDifficultyScalesTx(ctx, tx, activityID, stats.scales, edgetags.AllRanges{})
 }
 
 func computeTrackTagStatsSQLTx(ctx context.Context, tx pgx.Tx, activityID string) (sqlTrackTagStats, error) {
