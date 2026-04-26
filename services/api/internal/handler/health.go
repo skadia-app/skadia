@@ -32,7 +32,7 @@ type Handler struct {
 	CoverageReader  *coverage.DiskCoverageReader // nil when coverage binaries are not available
 	PNGCache        *coverage.PNGCache           // LRU cache for rendered PNG tiles
 
-	DEMSvc *dem.Service // lazy mmap'd HGT service; nil when not configured
+	DEMSvc dem.Servicer // lazy mmap'd HGT service; nil when not configured
 
 	PMC          *pmc.Service          // TSS/PMC recomputation service
 	BestEfforts  *bestefforts.Service  // best effort computation service
