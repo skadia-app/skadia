@@ -28,6 +28,20 @@ func TestEnrichTrackAnalysis_NilSettingsNoOp(t *testing.T) {
 	}
 }
 
+// With active settings the nil db must surface as an error rather than silently
+// no-oping — otherwise misconfigured callers would skip enrichment unnoticed.
+func TestEnrichTrackAnalysis_NilDBWithActiveSettingsReturnsError(t *testing.T) {
+	settings := &model.EnrichmentSettings{
+		EnableSurfaceDetection: true,
+		EnableDifficultyScales: false,
+	}
+
+	err := EnrichTrackAnalysis(context.Background(), nil, "activity-id", settings, nil, nil)
+	if err == nil {
+		t.Fatalf("EnrichTrackAnalysis with nil db + active settings: expected error, got nil")
+	}
+}
+
 func TestExpandCoalescedStarts_MapsMatchedIndicesToTrackIndices(t *testing.T) {
 	got := expandCoalescedStarts([]int{0, 2, 3}, []int{4, 5, 12, 20})
 	want := []int{4, 12, 20}
