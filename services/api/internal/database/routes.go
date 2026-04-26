@@ -30,13 +30,13 @@ func (db *DB) CreateRoute(ctx context.Context, route *model.PlannedRoute) (strin
 			geometry, waypoints, segments,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			estimated_time_min, time_override, auto_tag,
-			elevation_profile, enrichment
+			elevation_profile, enrichment, routing_engine
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
 			ST_Force2D(ST_GeomFromGeoJSON($7)), $8, $9,
 			$10, $11, $12,
 			$13, $14, $15,
-			$16, $17
+			$16, $17, $18
 		)
 		RETURNING id
 	`,
@@ -44,7 +44,7 @@ func (db *DB) CreateRoute(ctx context.Context, route *model.PlannedRoute) (strin
 		route.GeometryGeoJSON, waypointsJSON, segmentsJSON,
 		route.TotalDistanceM, route.TotalElevationGain, route.TotalElevationLoss,
 		route.EstimatedTimeMin, route.TimeOverride, route.AutoTag,
-		route.ElevationProfile, route.Enrichment,
+		route.ElevationProfile, route.Enrichment, route.RoutingEngine,
 	).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("create route: %w", err)
@@ -64,7 +64,7 @@ func (db *DB) GetRoute(ctx context.Context, id, userID string) (*model.PlannedRo
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			estimated_time_min, time_override, auto_tag,
 			created_at, updated_at,
-			elevation_profile, enrichment
+			elevation_profile, enrichment, routing_engine
 		FROM planned_routes
 		WHERE id = $1 AND user_id = $2
 	`, id, userID).Scan(
@@ -75,7 +75,7 @@ func (db *DB) GetRoute(ctx context.Context, id, userID string) (*model.PlannedRo
 		&route.TotalDistanceM, &route.TotalElevationGain, &route.TotalElevationLoss,
 		&route.EstimatedTimeMin, &route.TimeOverride, &route.AutoTag,
 		&route.CreatedAt, &route.UpdatedAt,
-		&route.ElevationProfile, &route.Enrichment,
+		&route.ElevationProfile, &route.Enrichment, &route.RoutingEngine,
 	)
 	if err != nil {
 		return nil, err // caller checks pgx.ErrNoRows
@@ -171,7 +171,8 @@ func (db *DB) UpdateRoute(ctx context.Context, route *model.PlannedRoute) error 
 			time_override      = $15,
 			auto_tag           = $16,
 			elevation_profile  = $17,
-			enrichment         = $18
+			enrichment         = $18,
+			routing_engine     = $19
 		WHERE id = $1 AND user_id = $2
 	`,
 		route.ID, route.UserID,
@@ -179,7 +180,7 @@ func (db *DB) UpdateRoute(ctx context.Context, route *model.PlannedRoute) error 
 		route.GeometryGeoJSON, waypointsJSON, segmentsJSON,
 		route.TotalDistanceM, route.TotalElevationGain, route.TotalElevationLoss,
 		route.EstimatedTimeMin, route.TimeOverride, route.AutoTag,
-		route.ElevationProfile, route.Enrichment,
+		route.ElevationProfile, route.Enrichment, route.RoutingEngine,
 	)
 	if err != nil {
 		return fmt.Errorf("update route: %w", err)
@@ -215,14 +216,14 @@ func (db *DB) DuplicateRoute(ctx context.Context, id, userID string) (string, er
 			profile, geometry, waypoints, segments,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			estimated_time_min, time_override, auto_tag,
-			elevation_profile, enrichment
+			elevation_profile, enrichment, routing_engine
 		)
 		SELECT
 			user_id, name || ' (Kopie)', description, sport_type, difficulty,
 			profile, geometry, waypoints, segments,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			estimated_time_min, time_override, auto_tag,
-			elevation_profile, enrichment
+			elevation_profile, enrichment, routing_engine
 		FROM planned_routes
 		WHERE id = $1 AND user_id = $2
 		RETURNING id

@@ -63,6 +63,10 @@ type PlannedRoute struct {
 	// Both are nil when the column is NULL.
 	ElevationProfile json.RawMessage `json:"elevation_profile,omitempty"`
 	Enrichment       json.RawMessage `json:"enrichment,omitempty"`
+	// RoutingEngine: engine that produced the saved geometry ('badrouter'|'brouter').
+	// NULL for legacy routes — frontend falls back to current state.routingEngine on load.
+	// Migration 000332.
+	RoutingEngine *string `json:"routing_engine,omitempty"` // 'badrouter' | 'brouter' | nil
 }
 
 // RouteImportData is the input struct for importing routes from external sources.
