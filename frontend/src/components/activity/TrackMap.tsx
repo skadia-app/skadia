@@ -9,9 +9,11 @@ import type { CoordRange } from '@/api/routes'
 import type { ZoomRange } from '@/components/ActivityCharts'
 import { SURFACE_GROUPS } from '@/lib/surfaceConstants'
 import { RESAMPLE_SPACING_M } from '@/lib/trackSummaryConstants'
+import { SAC_COLORS, MTB_COLORS, VF_COLORS, VF_UNKNOWN_COLOR } from '@/lib/scaleColors'
 import { useMetricColoring } from './useMetricColoring'
 import MapColorDropdown from './MapColorDropdown'
 import MapColorLegend from './MapColorLegend'
+import ScaleLegend from '@/components/shared/scale-legend/ScaleLegend'
 
 export type SurfaceHighlightKey = {
   kind: 'highway' | 'surface'
@@ -62,6 +64,15 @@ interface TrackMapProps {
    * Must match the interval used when building surface_ranges / highway_ranges.
    */
   resampleSpacingM?: number | null
+  /**
+   * Active scale kind from ScaleBadge hover/pin (sac | mtb | vf).
+   * When set, all ranges for that scale are rendered in rainbow colours + ScaleLegend.
+   */
+  scaleHighlight?: 'sac' | 'mtb' | 'vf' | null
+  /** Ranges for the active scale kind (sac_ranges / mtb_ranges / vf_ranges from API). */
+  scaleRanges?: Record<string, CoordRange[]> | null
+  /** Whether vf_unknown_ranges exist — passed to ScaleLegend for K? indicator. */
+  hasUnknownVf?: boolean
 }
 
 const SUMMIT_ICON_SVG = `data:image/svg+xml,${encodeURIComponent(
@@ -77,6 +88,19 @@ const SUMMARY_POI_LAYER_ID = 'activity-track-summary-pois-layer'
 const SURFACE_HIGHLIGHT_SOURCE_ID = 'activity-track-summary-surface-highlight-source'
 const SURFACE_HIGHLIGHT_HALO_LAYER_ID = 'activity-track-summary-surface-highlight-halo'
 const SURFACE_HIGHLIGHT_LINE_LAYER_ID = 'activity-track-summary-surface-highlight-line'
+
+// Scale (SAC/MTB/VF) rainbow highlight — separate source so surface + scale
+// highlights can coexist without interference.
+const SCALE_HIGHLIGHT_SOURCE_ID = 'activity-scale-highlight-source'
+const SCALE_HIGHLIGHT_HALO_LAYER_ID = 'activity-scale-highlight-halo'
+const SCALE_HIGHLIGHT_LINE_LAYER_ID = 'activity-scale-highlight-line'
+
+// Per-level color lookup for rainbow rendering.
+const SCALE_LEVEL_COLORS: Record<'sac' | 'mtb' | 'vf', Record<string, string>> = {
+  sac: SAC_COLORS as Record<string, string>,
+  mtb: MTB_COLORS as Record<string, string>,
+  vf: VF_COLORS as Record<string, string>,
+}
 
 function highlightedPoiKind(category: HighlightedPoiCategory): HighlightedPoiHoverKind {
   if (category === 'summit' || category === 'pass') return 'summit'
@@ -123,6 +147,9 @@ export default function TrackMap({
   highwayRanges = null,
   locationPin,
   resampleSpacingM,
+  scaleHighlight = null,
+  scaleRanges = null,
+  hasUnknownVf = false,
 }: TrackMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -604,6 +631,43 @@ export default function TrackMap({
       )
     }
 
+    // Scale (SAC/MTB/VF) rainbow highlight — per-feature color via 'line-color' data expression.
+    if (!map.getSource(SCALE_HIGHLIGHT_SOURCE_ID)) {
+      map.addSource(SCALE_HIGHLIGHT_SOURCE_ID, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+    }
+    if (!map.getLayer(SCALE_HIGHLIGHT_HALO_LAYER_ID)) {
+      map.addLayer(
+        {
+          id: SCALE_HIGHLIGHT_HALO_LAYER_ID,
+          type: 'line',
+          source: SCALE_HIGHLIGHT_SOURCE_ID,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#ffffff', 'line-width': 9, 'line-opacity': 0.55 },
+        },
+        SUMMARY_SUMMIT_LAYER_ID,
+      )
+    }
+    if (!map.getLayer(SCALE_HIGHLIGHT_LINE_LAYER_ID)) {
+      map.addLayer(
+        {
+          id: SCALE_HIGHLIGHT_LINE_LAYER_ID,
+          type: 'line',
+          source: SCALE_HIGHLIGHT_SOURCE_ID,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          // Color comes from per-feature 'color' property set in the update effect below.
+          paint: {
+            'line-color': ['coalesce', ['get', 'color'], '#FACC15'],
+            'line-width': 5,
+            'line-opacity': 0.95,
+          },
+        },
+        SUMMARY_SUMMIT_LAYER_ID,
+      )
+    }
+
     const summitFeatures = highlightedPois
       .filter(p => p.category === 'summit' || p.category === 'pass')
       .map(p => ({
@@ -746,6 +810,45 @@ export default function TrackMap({
     }
     src.setData({ type: 'FeatureCollection', features })
   }, [mapLoaded, hasTrack, surfaceHighlight, surfaceRanges, highwayRanges, resampledCoords])
+
+  // Scale (SAC/MTB/VF) rainbow highlight — renders ALL levels of the active scale
+  // simultaneously, each in its own rainbow colour. Mirrors route-planner behaviour:
+  // "Hover/Klick auf SAC-Pille = ALLE SAC-Levels in jeweiliger Farbe gleichzeitig."
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded || !hasTrack) return
+    const src = map.getSource(SCALE_HIGHLIGHT_SOURCE_ID) as maplibregl.GeoJSONSource | undefined
+    if (!src) return
+
+    const empty: GeoJSON.FeatureCollection<GeoJSON.LineString> = { type: 'FeatureCollection', features: [] }
+
+    if (!scaleHighlight || !scaleRanges || resampledCoords.length < 2) {
+      src.setData(empty)
+      return
+    }
+
+    const colorMap = SCALE_LEVEL_COLORS[scaleHighlight]
+    const features: GeoJSON.Feature<GeoJSON.LineString>[] = []
+    const last = resampledCoords.length - 1
+
+    for (const [level, levelRanges] of Object.entries(scaleRanges)) {
+      const color = colorMap[level] ?? (scaleHighlight === 'vf' ? VF_UNKNOWN_COLOR : '#FACC15')
+      for (const r of levelRanges) {
+        const start = Math.max(0, Math.min(last, r.from))
+        const end = Math.max(0, Math.min(last, r.to))
+        if (end - start < 1) continue
+        const slice = resampledCoords.slice(start, end + 1)
+        if (slice.length < 2) continue
+        features.push({
+          type: 'Feature',
+          properties: { level, color },
+          geometry: { type: 'LineString', coordinates: slice },
+        })
+      }
+    }
+
+    src.setData({ type: 'FeatureCollection', features })
+  }, [mapLoaded, hasTrack, scaleHighlight, scaleRanges, resampledCoords])
 
   // Location-Pin-Karte für Indoor-Aktivitäten ohne GPS
   useEffect(() => {
@@ -977,6 +1080,13 @@ export default function TrackMap({
 
       {/* Legend top-right (below NavigationControl) */}
       {hasGps && <MapColorLegend scale={metricColoring.scale} />}
+
+      {/* Scale legend — shown when a scale pin is active. Positioned bottom-right
+          (matching route-planner convention from ScaleLegend.tsx). */}
+      <ScaleLegend
+        kind={scaleHighlight ?? null}
+        hasUnknownVf={hasUnknownVf}
+      />
     </div>
   )
 }

@@ -72,7 +72,9 @@ import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
 import { HealthContextCards } from '@/components/activity/HealthContextCards'
 import { RunningFormCard } from '@/components/RunningFormCard'
 import { useToast } from '@/lib/toast'
-import TrackSummary from '@/components/track-summary/TrackSummary'
+import TrackSummary, { buildStatsRowProps } from '@/components/track-summary/TrackSummary'
+import type { ScaleKind } from '@/components/track-summary/TrackSummary'
+import StatsRow from '@/components/track-summary/StatsRow'
 
 function getSportEmoji(sportType: string): string {
   const map: Record<string, string> = {
@@ -224,6 +226,19 @@ export default function ActivityDetailPage() {
   // SurfacesSection.onHighlight is typed as (h: HighlightKind) => void (wide union).
   // SurfacesSection only ever calls it with highway/surface values, so the cast is safe.
   const onSurfaceHighlight = surfaceHighlightApi.setHover as (h: HighlightKind) => void
+
+  // Scale (SAC/MTB/VF) hover+pin state — drives TrackMap rainbow highlight + ScaleLegend.
+  const [scaleHover, setScaleHover] = useState<ScaleKind | null>(null)
+  const [scalePin, setScalePin] = useState<ScaleKind | null>(null)
+  const scaleEffective = scaleHover ?? scalePin
+
+  const handleScaleHover = useCallback((kind: ScaleKind | null) => {
+    setScaleHover(kind)
+  }, [])
+
+  const handleScalePin = useCallback((kind: ScaleKind) => {
+    setScalePin(prev => (prev === kind ? null : kind))
+  }, [])
   const multisportMapRef = useRef<MultisportMapHandle>(null)
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const [mapInView, setMapInView] = useState(true)
@@ -872,6 +887,10 @@ export default function ActivityDetailPage() {
               sportType={activity.sport_type}
               onSymbolHover={handleTrackSummarySymbolHover}
               onSymbolLeave={handleTrackSummarySymbolLeave}
+              pinnedScale={scalePin}
+              onScaleHover={handleScaleHover}
+              onScalePin={handleScalePin}
+              suppressPillsAtTop
             >
               {!hiddenModules.has('surfaces') && (
                 <SurfacesSection
@@ -882,6 +901,17 @@ export default function ActivityDetailPage() {
                   pinnedType={surfaceHighlightSticky}
                   onPin={surfaceHighlightApi.handleClick}
                   streamsLoading={streamsLoading}
+                  pills={trackSummaryQuery.data && (
+                    <StatsRow
+                      {...buildStatsRowProps(trackSummaryQuery.data)}
+                      sportType={activity.sport_type}
+                      onSymbolHover={handleTrackSummarySymbolHover}
+                      onSymbolLeave={handleTrackSummarySymbolLeave}
+                      pinnedScale={scalePin}
+                      onScaleHover={handleScaleHover}
+                      onScalePin={handleScalePin}
+                    />
+                  )}
                 />
               )}
             </TrackSummary>
@@ -906,6 +936,14 @@ export default function ActivityDetailPage() {
               surfaceRanges={trackSummaryQuery.data?.surface_ranges ?? null}
               highwayRanges={trackSummaryQuery.data?.highway_ranges ?? null}
               resampleSpacingM={trackSummaryQuery.data?.resample_spacing_m ?? null}
+              scaleHighlight={scaleEffective}
+              scaleRanges={
+                scaleEffective === 'sac' ? (trackSummaryQuery.data?.sac_ranges ?? null) :
+                scaleEffective === 'mtb' ? (trackSummaryQuery.data?.mtb_ranges ?? null) :
+                scaleEffective === 'vf' ? (trackSummaryQuery.data?.vf_ranges ?? null) :
+                null
+              }
+              hasUnknownVf={(trackSummaryQuery.data?.vf_unknown_ranges?.length ?? 0) > 0}
               locationPin={assignedLocationTag && assignedLocationTag.lat != null && assignedLocationTag.lng != null
                 ? { lat: assignedLocationTag.lat, lng: assignedLocationTag.lng, name: assignedLocationTag.name, color: assignedLocationTag.color }
                 : undefined}
