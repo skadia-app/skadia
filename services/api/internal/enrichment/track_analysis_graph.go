@@ -7,6 +7,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment/edgetags"
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 	"github.com/jackc/pgx/v5"
@@ -57,16 +58,16 @@ func enrichTrackAnalysisGraph(
 		tags2 = append(tags2, ec.Tags2)
 	}
 
-	edgeCoordStart, coalescedTags1, coalescedTags2 := edgetags.CoalesceConsecutive(edgeIdxs, tags1, tags2)
-	edgeCoordStart = expandCoalescedStarts(edgeCoordStart, matchedCoordIdxs)
 	lastCoordIdx := len(pts) - 1
-	allRanges := edgetags.ComputeAllRanges(edgeCoordStart, coalescedTags1, coalescedTags2, lastCoordIdx)
-	scalePct := computeScalePercentages(tags1, tags2, len(pts))
+	edgeCoordStart, coalescedTags1, coalescedTags2 := buildMatchedEdgeRanges(edgeIdxs, tags1, tags2, matchedCoordIdxs, lastCoordIdx)
 
 	coords := make([]edgetags.LatLng, len(pts))
 	for i, pt := range pts {
 		coords[i] = edgetags.LatLng{Lat: pt.lat, Lng: pt.lng}
 	}
+
+	allRanges := edgetags.ComputeAllRanges(edgeCoordStart, coalescedTags1, coalescedTags2, lastCoordIdx)
+	scalePct := computeScalePercentagesByDistance(coords, edgeCoordStart, coalescedTags1, coalescedTags2, lastCoordIdx)
 	forestPct, protectedPct := edgetags.AggregateForestProtected(coords, edgeCoordStart, coalescedTags2, lastCoordIdx)
 
 	tx, err := db.Pool.Begin(ctx)
@@ -74,6 +75,10 @@ func enrichTrackAnalysisGraph(
 		return fmt.Errorf("track_analysis_graph: begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if err := deleteExistingTrackAnalysisTx(ctx, tx, activityID); err != nil {
+		return err
+	}
 
 	if settings.EnableSurfaceDetection {
 		points := classifyGraphMatches(matched, candidates)
@@ -100,6 +105,53 @@ func enrichTrackAnalysisGraph(
 	return nil
 }
 
+func buildMatchedEdgeRanges(edgeIdxs []uint32, tags1, tags2 []uint64, matchedCoordIdxs []int, lastCoordIdx int) (edgeCoordStart []int, t1Out, t2Out []uint64) {
+	n := len(edgeIdxs)
+	if n == 0 || len(tags1) != n || len(tags2) != n || len(matchedCoordIdxs) != n || lastCoordIdx < 0 {
+		return nil, nil, nil
+	}
+
+	appendRange := func(start int, t1, t2 uint64) {
+		if len(edgeCoordStart) > 0 && edgeCoordStart[len(edgeCoordStart)-1] == start {
+			t1Out[len(t1Out)-1] = t1
+			t2Out[len(t2Out)-1] = t2
+			return
+		}
+		edgeCoordStart = append(edgeCoordStart, start)
+		t1Out = append(t1Out, t1)
+		t2Out = append(t2Out, t2)
+	}
+
+	prevCoord := -1
+	var prevEdge uint32
+	for i, coordIdx := range matchedCoordIdxs {
+		if coordIdx < 0 || coordIdx > lastCoordIdx {
+			return nil, nil, nil
+		}
+
+		if i == 0 {
+			if coordIdx > 0 {
+				appendRange(0, 0, 0)
+			}
+			appendRange(coordIdx, tags1[i], tags2[i])
+		} else if coordIdx > prevCoord+1 {
+			appendRange(prevCoord+1, 0, 0)
+			appendRange(coordIdx, tags1[i], tags2[i])
+		} else if coordIdx == prevCoord+1 && edgeIdxs[i] != prevEdge {
+			appendRange(coordIdx, tags1[i], tags2[i])
+		}
+
+		prevCoord = coordIdx
+		prevEdge = edgeIdxs[i]
+	}
+
+	if prevCoord >= 0 && prevCoord < lastCoordIdx {
+		appendRange(prevCoord+1, 0, 0)
+	}
+
+	return edgeCoordStart, t1Out, t2Out
+}
+
 func expandCoalescedStarts(edgeCoordStart []int, matchedCoordIdxs []int) []int {
 	if len(edgeCoordStart) == 0 {
 		return nil
@@ -111,6 +163,80 @@ func expandCoalescedStarts(edgeCoordStart []int, matchedCoordIdxs []int) []int {
 		}
 		out = append(out, matchedCoordIdxs[start])
 	}
+	return out
+}
+
+func computeScalePercentagesByDistance(coords []edgetags.LatLng, edgeCoordStart []int, tags1, tags2 []uint64, lastCoordIdx int) scalePercentages {
+	out := scalePercentages{
+		Sac: make(map[string]float64, len(edgetags.SacLevels)),
+		Mtb: make(map[string]float64, len(edgetags.MtbLevels)),
+		Vf:  make(map[string]float64, len(edgetags.VfLevels)),
+	}
+	n := len(tags1)
+	if n == 0 || len(tags2) != n || len(edgeCoordStart) != n || len(coords) < 2 || lastCoordIdx <= 0 {
+		return out
+	}
+	lastCoordIdx = min(lastCoordIdx, len(coords)-1)
+
+	var totalDist float64
+	sacDist := make(map[string]float64, len(edgetags.SacLevels))
+	mtbDist := make(map[string]float64, len(edgetags.MtbLevels))
+	vfDist := make(map[string]float64, len(edgetags.VfLevels))
+	var vfUnknownDist float64
+
+	for i, t1 := range tags1 {
+		startIdx := edgeCoordStart[i]
+		endIdx := lastCoordIdx
+		if i+1 < n {
+			endIdx = edgeCoordStart[i+1]
+		}
+		if endIdx > lastCoordIdx {
+			endIdx = lastCoordIdx
+		}
+		if startIdx < 0 || startIdx >= endIdx || endIdx >= len(coords) {
+			continue
+		}
+
+		var edgeDist float64
+		for j := startIdx + 1; j <= endIdx; j++ {
+			edgeDist += geo.DistanceHaversine(
+				coords[j-1].Lat, coords[j-1].Lng,
+				coords[j].Lat, coords[j].Lng,
+			)
+		}
+		if edgeDist == 0 {
+			continue
+		}
+		totalDist += edgeDist
+
+		if sac := graph.SacScaleShort(graph.DecodeSacScale(t1)); sac != "" {
+			sacDist[sac] += edgeDist
+		}
+		if mtb := graph.MtbScaleShort(graph.DecodeMtbScale(t1)); mtb != "" {
+			mtbDist[mtb] += edgeDist
+		}
+		t2 := tags2[i]
+		if vf := graph.ViaFerrataScaleShort(graph.DecodeViaFerrataScale(t2)); vf != "" {
+			vfDist[vf] += edgeDist
+		}
+		if graph.DecodeViaFerrataScale(t2) == 0 && graph.DecodeHighway(t1) == 22 {
+			vfUnknownDist += edgeDist
+		}
+	}
+
+	if totalDist == 0 {
+		return out
+	}
+	for k, v := range sacDist {
+		out.Sac[k] = v / totalDist * 100.0
+	}
+	for k, v := range mtbDist {
+		out.Mtb[k] = v / totalDist * 100.0
+	}
+	for k, v := range vfDist {
+		out.Vf[k] = v / totalDist * 100.0
+	}
+	out.VfUnknown = vfUnknownDist / totalDist * 100.0
 	return out
 }
 

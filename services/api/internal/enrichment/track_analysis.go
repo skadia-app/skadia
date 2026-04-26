@@ -8,6 +8,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/jackc/pgx/v5"
 )
 
 // EnrichTrackAnalysis writes the unified per-track OSM-derived analysis.
@@ -30,10 +31,6 @@ func EnrichTrackAnalysis(
 		return fmt.Errorf("track_analysis: db is nil for active enrichment")
 	}
 
-	if _, err := db.Pool.Exec(ctx, "DELETE FROM activity_enrichments WHERE activity_id = $1", activityID); err != nil {
-		return fmt.Errorf("track_analysis: delete existing enrichments: %w", err)
-	}
-
 	if graphReader != nil && len(stream) > 0 {
 		bbox := streamBBox(stream)
 		if graphReader.HasTilesFor(bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon) {
@@ -47,6 +44,13 @@ func EnrichTrackAnalysis(
 	}
 
 	return enrichTrackAnalysisSQL(ctx, db, activityID, settings)
+}
+
+func deleteExistingTrackAnalysisTx(ctx context.Context, tx pgx.Tx, activityID string) error {
+	if _, err := tx.Exec(ctx, "DELETE FROM activity_enrichments WHERE activity_id = $1", activityID); err != nil {
+		return fmt.Errorf("track_analysis: delete existing enrichments: %w", err)
+	}
+	return nil
 }
 
 func defaultSurfaceTrackAnalysisSettings() *model.EnrichmentSettings {
