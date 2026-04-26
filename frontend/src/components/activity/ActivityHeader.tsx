@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useToast } from '@/lib/toast'
-import { updateActivity, reprocessActivity, reprocessAllActivities, ungroupActivity, type ExportFormat } from '@/api/activities'
+import { updateActivity, reprocessActivity, ungroupActivity, type ExportFormat } from '@/api/activities'
 import { revertFusion } from '@/api/fusion'
 import { invalidateAfterFusion } from '@/lib/fusionCacheInvalidation'
 import { getCapabilities, getWaypointsFromActivity } from '@/api/routes'
@@ -129,16 +129,20 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
     },
   })
 
-  // Scoped reprocess via recompute-all with ids=[activity.id] + scope
+  // Scoped reprocess via per-activity endpoint: creates a background job with
+  // entity_id = activity.id so the global useActiveJobs spinner tracks it.
   const reprocessScopedMutation = useMutation({
-    mutationFn: (scope: string[]) =>
-      reprocessAllActivities({ ids: [activity.id], scope }),
+    mutationFn: (scope: string[]) => reprocessActivity(activity.id, scope),
     onMutate: () => {
       setReprocessState('loading')
       setReprocessScopeOpen(false)
     },
-    onSuccess: () => {
-      // Reload full activity data since recompute-all doesn't return the updated record
+    onSuccess: (result) => {
+      if (result && 'job_id' in result) {
+        // 202 Accepted: background job started — spinner stays via useEffect/hasActiveRecomputeJob
+        return
+      }
+      // Synchronous 200 response (legacy/fallback)
       queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
       queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
       queryClient.invalidateQueries({ queryKey: ['activity-sensors', activity.id] })

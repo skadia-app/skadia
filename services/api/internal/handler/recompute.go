@@ -482,10 +482,23 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	doTags := allScope || scope["tags"]
 	doDetails := allScope || scope["details"]
 	doSegments := allScope || scope["segments"]
-	doGeo := allScope || scope["geo"]
 	doBestEfforts := allScope || scope["best_efforts"]
 	doRunningForm := allScope || scope["running_form"]
 	doSpeedSmooth := scope["speed_smooth"] // opt-in only, never part of "all"
+
+	// Individual geo submodule flags. The legacy "geo" aggregate key activates all
+	// submodules for backwards compatibility. When the frontend sends individual keys
+	// (e.g. "surfaces"), only those modules run — enabling true per-submodule selectivity.
+	geoAll := scope["geo"] // legacy aggregate: treat as all submodules
+	doSummits := allScope || geoAll || scope["summits"]
+	doForests := allScope || geoAll || scope["forests"]
+	doWater := allScope || geoAll || scope["water"]
+	doStops := allScope || geoAll || scope["stops"]
+	doLifts := allScope || geoAll || scope["lifts"]
+	doSurfaces := allScope || geoAll || scope["surfaces"]
+	doBorders := allScope || geoAll || scope["borders"]
+	// doGeo is the aggregate: true if any geo submodule is requested.
+	doGeo := doSummits || doForests || doWater || doStops || doLifts || doSurfaces || doBorders
 
 	// 1. Load reprocess info (S3 key, format, manual sport flag, file_id).
 	info, err := h.DB.GetActivityReprocessInfo(ctx, activityID)
@@ -766,20 +779,52 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 
 	// 7d. Geo Stage-2 data cleanup (summits, forests, water, stops, lifts, track analysis, borders).
 	// Stage 2 ML modules self-clean on re-run, but an explicit delete here ensures a clean
-	// slate when "geo" scope is selected without a full recompute.
+	// slate before re-enrichment. Deletes are per-submodule so only selected data is cleared.
 	if doGeo {
 		geoBatch := &pgx.Batch{}
-		geoBatch.Queue("DELETE FROM activity_geo_tags WHERE activity_id = $1", activityID)
-		geoBatch.Queue("DELETE FROM activity_stops WHERE activity_id = $1", activityID)
-		geoBatch.Queue("DELETE FROM activity_lift_candidates WHERE activity_id = $1", activityID)
-		geoBatch.Queue("DELETE FROM activity_enrichments WHERE activity_id = $1", activityID)
-		gbr := h.DB.Pool.SendBatch(ctx, geoBatch)
-		for range 4 {
-			if _, err := gbr.Exec(); err != nil {
-				slog.Error("reprocess: batch delete geo data failed", "id", activityID, "error", err)
-			}
+		n := 0 // track queued statements for the result loop
+		if doSummits {
+			geoBatch.Queue("DELETE FROM activity_geo_tags WHERE activity_id = $1 AND category IN ('summit', 'pass')", activityID)
+			n++
 		}
-		gbr.Close()
+		if doForests {
+			geoBatch.Queue("DELETE FROM activity_geo_tags WHERE activity_id = $1 AND category = 'forest'", activityID)
+			n++
+		}
+		if doWater {
+			geoBatch.Queue("DELETE FROM activity_geo_tags WHERE activity_id = $1 AND category IN ('still_water', 'flowing_water')", activityID)
+			n++
+		}
+		if doBorders {
+			geoBatch.Queue("DELETE FROM activity_geo_tags WHERE activity_id = $1 AND category = 'border'", activityID)
+			n++
+		}
+		// settlements share the borders/geo scope via the "borders" key (borders+settlements)
+		if doBorders {
+			geoBatch.Queue("DELETE FROM activity_geo_tags WHERE activity_id = $1 AND category = 'settlement'", activityID)
+			n++
+		}
+		if doStops {
+			geoBatch.Queue("DELETE FROM activity_stops WHERE activity_id = $1", activityID)
+			n++
+		}
+		if doLifts {
+			geoBatch.Queue("DELETE FROM activity_lift_candidates WHERE activity_id = $1", activityID)
+			n++
+		}
+		if doSurfaces {
+			geoBatch.Queue("DELETE FROM activity_enrichments WHERE activity_id = $1", activityID)
+			n++
+		}
+		if n > 0 {
+			gbr := h.DB.Pool.SendBatch(ctx, geoBatch)
+			for range n {
+				if _, err := gbr.Exec(); err != nil {
+					slog.Error("reprocess: batch delete geo data failed", "id", activityID, "error", err)
+				}
+			}
+			gbr.Close()
+		}
 	}
 
 	// 8. Stage 1 Enrichment (synchronous, ~50ms). Triggers Stage 2 via NATS at the end.
@@ -803,12 +848,87 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	// (start_city, title_auto, is_commute, base tags, etc.), add it to the
 	// expression below.
 	doStage1 := allScope || doStreams || doMetrics || doSportType || doTags || doDetails || doSensors || doGeo
+
+	// geoViaStage1: when true, RunStage1 handles all geo modules (allScope path).
+	// When false, geo is handled here per-submodule after RunStage1 (skipGeo=true).
+	// This allows selective geo reprocess (e.g. only surfaces) without running all modules.
+	geoViaStage1 := allScope
 	if data.HasGPS && data.StartLat != 0 && doStage1 {
 		var gr routing.GraphReader
 		if h.GraphManager != nil {
 			gr = h.GraphManager.Reader()
 		}
-		enrichment.RunStage1(ctx, h.DB, userID, activityID, data, h.Events, false, false, gr, !doGeo)
+		enrichment.RunStage1(ctx, h.DB, userID, activityID, data, h.Events, false, false, gr, !geoViaStage1)
+	}
+
+	// Per-submodule geo enrichment: runs when geo is requested but not as part of allScope.
+	// allScope delegates geo to RunStage1 (above); scoped reprocess runs only selected modules.
+	if doGeo && !geoViaStage1 && data.HasGPS {
+		var gr routing.GraphReader
+		if h.GraphManager != nil {
+			gr = h.GraphManager.Reader()
+		}
+
+		// Build GeoEnrichmentSettings from selected submodule flags.
+		// User-configured radius is preserved by loading enrichment settings.
+		geoSettings := enrichment.GeoEnrichmentSettings{
+			EnableSummitDetection:     doSummits,
+			EnableSettlementDetection: doBorders, // settlements share the borders scope
+			EnableForestDetection:     doForests,
+			EnableWaterDetection:      doWater,
+			EnableBorderDetection:     doBorders,
+			EnableSurfaceDetection:    doSurfaces,
+			SummitDetectionRadiusM:    80.0, // default; overridden below if user settings exist
+		}
+		if userSettings, err := h.DB.GetEnrichmentSettings(ctx, userID); err == nil && userSettings != nil {
+			geoSettings.SummitDetectionRadiusM = userSettings.SummitDetectionRadiusM
+		}
+
+		if err := enrichment.RunGeoEnrichment(ctx, h.DB, activityID, geoSettings); err != nil {
+			slog.Warn("reprocess: per-submodule geo enrichment failed (non-fatal)", "id", activityID, "error", err)
+		}
+
+		// Surfaces enrichment — only for GPS, non-virtual, non-water activities.
+		if doSurfaces && !data.IsVirtual {
+			skipSurfaces := false
+			if def, ok := sport.GetSportDef(data.SportType); ok {
+				skipSurfaces = def.CategoryKey == "water"
+			}
+			if !skipSurfaces {
+				var surfStream []enrichment.EnrichmentStreamPoint
+				if gr != nil {
+					surfStream, _ = enrichment.GetEnrichmentStream(ctx, h.DB, activityID)
+				}
+				// Load user settings for track analysis config, but force surface/difficulty
+				// flags on since the user explicitly selected this scope.
+				surfSettings, _ := h.DB.GetEnrichmentSettings(ctx, userID)
+				if surfSettings == nil {
+					surfSettings = &model.EnrichmentSettings{
+						EnableSurfaceDetection: true,
+						EnableDifficultyScales: true,
+					}
+				} else {
+					surfSettings.EnableSurfaceDetection = true
+					surfSettings.EnableDifficultyScales = true
+				}
+				if err := enrichment.EnrichTrackAnalysis(ctx, h.DB, activityID, surfSettings, gr, surfStream); err != nil {
+					slog.Warn("reprocess: surfaces enrichment failed (non-fatal)", "id", activityID, "error", err)
+				}
+			}
+		}
+
+		// Emit Stage-2 event only for ML modules in the selection (currently: lifts).
+		// Stage-2 handles lift detection; all other geo modules are Go-native.
+		if doLifts && h.Events != nil {
+			stage2Modules := []string{"lifts"}
+			if err := h.Events.PublishStage2Ready(event.Stage2ReadyEvent{
+				ActivityID:     activityID,
+				UserID:         userID,
+				EnabledModules: stage2Modules,
+			}); err != nil {
+				slog.Warn("reprocess: per-submodule stage2 publish failed (non-fatal)", "id", activityID, "error", err)
+			}
+		}
 	}
 
 	// 8b. Apply automation rules (all activities — not just GPS, since Frost/Nacht/etc. apply to indoor too).

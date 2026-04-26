@@ -3,8 +3,8 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { useToast } from '@/lib/toast'
 import { Link } from 'react-router-dom'
 import { fmtDateCompact } from '@/lib/format'
-import { fetchActivities, reprocessAllActivities } from '@/api/activities'
-import type { ReprocessFilter, ReprocessResult } from '@/api/activities'
+import { fetchActivities, reprocessAllActivities, isReprocessAccepted } from '@/api/activities'
+import type { ReprocessFilter, ReprocessCompleted } from '@/api/activities'
 import type { Activity } from '@/api/types'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { REPROCESS_SCOPES, GEO_SCOPE_KEYS, GEO_SCOPE_LABELS, DEFAULT_SCOPES, toBackendScope, toggleScopeKey, type AnyReprocessKey } from '@/lib/reprocessScopes'
@@ -21,7 +21,7 @@ export default function WorkshopReprocessPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
-  const [result, setResult] = useState<ReprocessResult | null>(null)
+  const [result, setResult] = useState<ReprocessCompleted | null>(null)
   const [scope, setScope] = useState<Set<AnyReprocessKey>>(new Set(DEFAULT_SCOPES))
 
   const { data: activitiesData } = useQuery({
@@ -36,7 +36,10 @@ export default function WorkshopReprocessPage() {
     mutationFn: (filter?: ReprocessFilter) => reprocessAllActivities(filter),
     onSuccess: (data) => {
       setShowConfirm(false)
-      if (data.status === 'already_running') {
+      if (isReprocessAccepted(data)) {
+        // 202: background job started — progress tracked via global job banner
+        addToast({ type: 'info', title: 'Verarbeitung gestartet', message: `${data.total} Aktivität${data.total === 1 ? '' : 'en'} werden neu verarbeitet.` })
+      } else if (data.status === 'already_running') {
         addToast({ type: 'warning', title: 'Job läuft bereits', message: 'Ein Recompute-Job ist bereits aktiv.' })
       } else {
         setResult(data)
