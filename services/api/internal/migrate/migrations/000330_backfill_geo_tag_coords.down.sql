@@ -1,10 +1,14 @@
--- 000330_backfill_geo_tag_coords.down.sql
--- Reverting this migration would clear lat/lng from point-type geo tags.
--- That would break map marker rendering again; only roll back if the
--- corresponding code fix in geo_enrich.go / stops.go is also reverted.
+-- 000330_backfill_geo_tag_coords down
+--
+-- NOT REVERSIBLE.
+--
+-- The up migration backfilled lat/lng for activity_geo_tags rows whose
+-- map_point_lat/map_point_lon were set but lat/lng were NULL. After this
+-- migration runs, new code paths (geo_enrich.go, stops.go) write canonical
+-- lat/lng on INSERT, so we cannot distinguish "filled by this migration"
+-- from "written by current code". Reverting blindly would null out
+-- production data; we choose data preservation over rollback symmetry.
+--
+-- If a hard rollback is needed, restore from a pre-migration backup.
 
-UPDATE activity_geo_tags
-SET lat = NULL,
-    lng = NULL
-WHERE category IN ('summit', 'pass', 'settlement', 'gastronomy')
-  AND lat IS NOT NULL;
+SELECT 1; -- no-op
