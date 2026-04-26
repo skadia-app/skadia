@@ -38,4 +38,8 @@ COMMENT ON COLUMN activity_enrichments.type IS
     'Subtype key within a category. Empty string is reserved for scalar categories without per-type buckets.';
 
 COMMENT ON COLUMN activity_enrichments.ranges IS
-    'JSON array of coordinate-index ranges: [{"from": int, "to": int}], zero-based in activity_tracks.track_full points, to exclusive.';
+    'JSON array of coordinate-index ranges: [{"from": int, "to": int}], zero-based in the '
+    'resampled track at enrichment.TrackResampleSpacingM (default 10 m uniform point spacing). '
+    'Indices do NOT refer to activity_tracks.track_full — they refer to the resampled track. '
+    '"to" is exclusive. NULL for SQL-fallback rows (no per-point alignment available). '
+    'Consult activity_enrichment_meta for the exact path and resample_spacing_m used.';
