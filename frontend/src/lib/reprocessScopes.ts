@@ -1,7 +1,14 @@
 // GEO_SCOPE_KEYS: individual geo submodule names passed directly to the backend.
-// Each key is sent as-is; the backend accepts them both in recompute.go (single-activity
-// and bulk) and re_enrich.go. The legacy aggregate "geo" is no longer sent from the
+// Each key is sent as-is; the legacy aggregate "geo" is no longer sent from the
 // frontend — the backend expands it internally for backwards compat.
+//
+// Keep in sync with services/api/internal/handler/re_enrich.go::geoSubmodules
+// and services/api/internal/enrichment/modules.go::CanonicalModules.
+// Vocab asymmetries documented there: re_enrich.go's geoSubmodules covers
+// summits/settlements/forests/water/borders/surfaces; lifts and stops are
+// recompute-only because they require the Stage-1 FIT reparse. 'borders'
+// on the frontend collapses borders + settlements (recompute.go wires
+// EnableSettlementDetection = doBorders).
 export const GEO_SCOPE_KEYS = ['summits', 'forests', 'water', 'stops', 'lifts', 'surfaces', 'borders'] as const
 export type GeoScopeKey = (typeof GEO_SCOPE_KEYS)[number]
 
