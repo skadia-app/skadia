@@ -884,6 +884,8 @@ func main() {
 	r.Get("/api/v1/coverage/info", h.CoverageBuildInfo)
 	r.Get("/api/v1/coverage/tiles/*", h.CoverageTile)
 	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)
+	// Public — no jwtAuth (sister of /sports/taxonomy; frontend fetches before login).
+	r.Get("/api/v1/system-layers/keys", h.GetSystemLayerKeys)
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		// Go-native auth endpoints
 		r.With(middleware.RateLimitGeneric(authRL)).Get("/config", authHandler.AuthConfig)
@@ -1080,6 +1082,15 @@ func main() {
 				r.Put("/users/{id}/library-dir", h.UpdateAdminUserLibraryDir)
 				r.Post("/users/{id}/files/{type}/rename-execute", h.PostAdminRenameUser)
 				r.Post("/rename-execute-bulk", h.PostAdminRenameBulk)
+
+				// Map layers — admin CRUD + system layer visibility.
+				// Admin GET includes disabled rows; the public GET (below) filters them out.
+				r.Get("/map-layers", h.GetAdminMapLayers)
+				r.Post("/map-layers", h.CreateMapLayer)
+				r.Patch("/map-layers/{id}", h.PatchMapLayer)
+				r.Delete("/map-layers/{id}", h.DeleteMapLayer)
+				r.Post("/map-layers/sort", h.BulkSortMapLayers)
+				r.Patch("/system-layer-visibility/{key}", h.PatchSystemLayerVisibility)
 			})
 
 			// ── Regular authenticated routes ──
@@ -1256,6 +1267,29 @@ func main() {
 			r.Delete("/automation-rules/{id}", h.DeleteRule)
 			r.Post("/automation-rules/apply", h.ApplyRules)
 			r.Post("/automation-rules/{id}/apply", h.ApplySingleRule)
+
+			// Map layers — public read (authenticated users)
+			r.Get("/map-layers", h.GetMapLayers)
+
+			// User-managed custom tile-URL layers
+			r.Route("/map-layers/user", func(r chi.Router) {
+				r.Get("/", h.GetUserMapLayers)
+				// Write operations share a per-user rate limiter; perTenMin is read from
+				// Settings on every request so admin changes take effect immediately for new reqs.
+				rateLimitMapLayerTenMin := func() int {
+					v, err := h.Settings.GetInt("library.user_map_layer_rate_limit_per_10min")
+					if err != nil {
+						return 60 // safe default if setting is missing or malformed
+					}
+					return v
+				}
+				r.With(middleware.RateLimitMapLayerWrite(authRL, rateLimitMapLayerTenMin)).Group(func(r chi.Router) {
+					r.Post("/", h.CreateUserMapLayer)
+					r.Patch("/{id}", h.PatchUserMapLayer)
+					r.Delete("/{id}", h.DeleteUserMapLayer)
+					r.Post("/sort", h.BulkSortUserMapLayers)
+				})
+			})
 
 			// Custom Maps
 			r.Get("/custom-maps", h.ListCustomMaps)

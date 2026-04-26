@@ -28,3 +28,13 @@ func isUniqueViolation(err error, constraintName string) bool {
 	}
 	return constraintName == "" || pgErr.ConstraintName == constraintName
 }
+
+// isCheckViolation reports whether err is a Postgres check-constraint violation (SQLSTATE 23514).
+// If constraintName is non-empty, only returns true for that specific constraint.
+func isCheckViolation(err error, constraintName string) bool {
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	if !ok || pgErr.Code != "23514" {
+		return false
+	}
+	return constraintName == "" || pgErr.ConstraintName == constraintName
+}

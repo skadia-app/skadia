@@ -11,6 +11,16 @@ import (
 	"github.com/microcosm-cc/bluemonday"
 )
 
+// Sentinel errors returned by ValidateURLTemplate. Callers should use errors.Is.
+var (
+	// ErrPrivateIPBlocked is returned when blockPrivateIPs=true and the URL resolves
+	// to an RFC1918, loopback, or link-local address.
+	ErrPrivateIPBlocked = errors.New("tile-URL on private network address blocked")
+	// ErrIPv6ULABlocked is returned when blockPrivateIPs=true and the URL resolves
+	// to an IPv6 ULA address (fc00::/7).
+	ErrIPv6ULABlocked = errors.New("tile-URL on IPv6 ULA blocked")
+)
+
 var (
 	// {z}, {x}, {y} are mandatory; {switch:a,b,c} optional.
 	rePlaceholderZ = regexp.MustCompile(`\{z\}`)
@@ -86,11 +96,11 @@ func blockPrivateIPLiteral(host string) error {
 		return nil // hostname, not an IP literal
 	}
 	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsPrivate() {
-		return errors.New("tile-URL on private network address blocked")
+		return ErrPrivateIPBlocked
 	}
 	// IPv6 ULA (fc00::/7) — not covered by IsPrivate in all Go versions; double-check.
 	if ip4 := ip.To4(); ip4 == nil && len(ip) == 16 && (ip[0]&0xfe) == 0xfc {
-		return errors.New("tile-URL on IPv6 ULA blocked")
+		return ErrIPv6ULABlocked
 	}
 	return nil
 }
