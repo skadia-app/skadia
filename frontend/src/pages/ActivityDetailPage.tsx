@@ -63,8 +63,9 @@ import { RadarSummary } from '@/components/activity/RadarSummary'
 import { RadarDensityChart } from '@/components/activity/RadarDensityChart'
 import { SensorList } from '@/components/activity/SensorList'
 import ActivityHeader from '@/components/activity/ActivityHeader'
-import TrackMap, { type HighlightedPoi, type HighlightedPoiHoverKind } from '@/components/activity/TrackMap'
+import TrackMap, { type HighlightedPoi, type HighlightedPoiHoverKind, type SurfaceHighlightKey } from '@/components/activity/TrackMap'
 import { useStickyHighlight } from '@/hooks/useStickyHighlight'
+import type { HighlightKind } from '@/hooks/useStickyHighlight'
 import TagsBadges from '@/components/activity/TagsBadges'
 import ZoneDistributionChart from '@/components/activity/ZoneDistributionChart'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
@@ -215,16 +216,14 @@ export default function ActivityDetailPage() {
   const [highlightedPoiHoverKind, setHighlightedPoiHoverKind] = useState<HighlightedPoiHoverKind | null>(null)
 
   // Coordinates hover/pin between the SurfacesSection bars and the TrackMap
-  // line-highlight overlay (mirrors RoutePlanner ↔ MapPage in MapPage.tsx).
-  const surfaceHighlightApi = useStickyHighlight()
-  const surfaceHighlightSticky =
-    surfaceHighlightApi.sticky?.kind === 'highway' || surfaceHighlightApi.sticky?.kind === 'surface'
-      ? surfaceHighlightApi.sticky
-      : null
-  const surfaceHighlightEffective =
-    surfaceHighlightApi.effective?.kind === 'highway' || surfaceHighlightApi.effective?.kind === 'surface'
-      ? surfaceHighlightApi.effective
-      : null
+  // line-highlight overlay. Parametrised over SurfaceHighlightKey so that
+  // effective/sticky are already narrowed — no post-call filtering needed.
+  const surfaceHighlightApi = useStickyHighlight<SurfaceHighlightKey>()
+  const surfaceHighlightSticky = surfaceHighlightApi.sticky
+  const surfaceHighlightEffective = surfaceHighlightApi.effective
+  // SurfacesSection.onHighlight is typed as (h: HighlightKind) => void (wide union).
+  // SurfacesSection only ever calls it with highway/surface values, so the cast is safe.
+  const onSurfaceHighlight = surfaceHighlightApi.setHover as (h: HighlightKind) => void
   const multisportMapRef = useRef<MultisportMapHandle>(null)
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const [mapInView, setMapInView] = useState(true)
@@ -877,7 +876,9 @@ export default function ActivityDetailPage() {
               {!hiddenModules.has('surfaces') && (
                 <SurfacesSection
                   summary={trackSummaryQuery.data ?? null}
-                  onHighlight={surfaceHighlightApi.setHover}
+                  summaryLoading={trackSummaryQuery.isLoading}
+                  activityId={activity.id}
+                  onHighlight={onSurfaceHighlight}
                   pinnedType={surfaceHighlightSticky}
                   onPin={surfaceHighlightApi.handleClick}
                   streamsLoading={streamsLoading}
@@ -904,6 +905,7 @@ export default function ActivityDetailPage() {
               surfaceHighlight={surfaceHighlightEffective}
               surfaceRanges={trackSummaryQuery.data?.surface_ranges ?? null}
               highwayRanges={trackSummaryQuery.data?.highway_ranges ?? null}
+              resampleSpacingM={trackSummaryQuery.data?.resample_spacing_m ?? null}
               locationPin={assignedLocationTag && assignedLocationTag.lat != null && assignedLocationTag.lng != null
                 ? { lat: assignedLocationTag.lat, lng: assignedLocationTag.lng, name: assignedLocationTag.name, color: assignedLocationTag.color }
                 : undefined}

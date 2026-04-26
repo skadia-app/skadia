@@ -1,6 +1,7 @@
-import { useId, useState } from 'react'
+import { useId } from 'react'
 import { Building2, Droplet, Mountain } from 'lucide-react'
 import type { SummaryItem, StatsKind } from './StatsRow'
+import { useHoverPopover } from '@/hooks/useHoverPopover'
 
 interface Props {
   kind: StatsKind
@@ -18,34 +19,20 @@ function itemIcon(kind: StatsKind) {
   return <Building2 className="h-3 w-3 shrink-0 text-neutral-400" aria-hidden="true" />
 }
 
-// Guard for the hover/focus guard pattern (same technique as SummitBadge in route-planner).
-const DATA_ATTR = 'data-symbol-popover'
-
 export function SymbolListPopover({ kind, icon, label, items, onHover, onLeave }: Props) {
-  const [open, setOpen] = useState(false)
   // Stable ID for aria-describedby wiring (tooltip pattern — no listbox/option semantics
   // because we don't implement keyboard arrow navigation that role="listbox" implies).
   const tooltipId = useId()
 
-  const openPopover = () => {
-    setOpen(true)
-    // Only summit chips trigger map highlighting.
-    if (kind === 'summit') onHover?.(kind, items)
-  }
-
-  const closeWithGuard = (relatedTarget: EventTarget | null) => {
-    const rt = relatedTarget as HTMLElement | null
-    if (rt?.closest?.(`[${DATA_ATTR}]`)) return
-    setOpen(false)
-    if (kind === 'summit') onLeave?.()
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape' && open) {
-      setOpen(false)
+  const { open, triggerProps, popoverProps, sentinelAttr } = useHoverPopover({
+    onOpen: () => {
+      // Only summit chips trigger map highlighting.
+      if (kind === 'summit') onHover?.(kind, items)
+    },
+    onClose: () => {
       if (kind === 'summit') onLeave?.()
-    }
-  }
+    },
+  })
 
   const ariaLabel =
     kind === 'summit'
@@ -55,17 +42,13 @@ export function SymbolListPopover({ kind, icon, label, items, onHover, onLeave }
         : `${label}, Ortschaftsliste öffnen`
 
   return (
-    <div className="relative inline-block" {...{ [DATA_ATTR]: '' }}>
+    <div className="relative inline-block" {...{ [sentinelAttr]: '' }}>
       <button
         type="button"
         className="inline-flex items-center gap-1.5 rounded-md bg-neutral-100 px-2 py-1 text-neutral-700 transition-colors hover:bg-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT/60 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
         aria-label={ariaLabel}
         aria-describedby={open ? tooltipId : undefined}
-        onMouseEnter={openPopover}
-        onMouseLeave={(e) => closeWithGuard(e.relatedTarget)}
-        onFocus={openPopover}
-        onBlur={(e) => closeWithGuard(e.relatedTarget)}
-        onKeyDown={handleKeyDown}
+        {...triggerProps}
       >
         {icon}
         <span>{label}</span>
@@ -76,7 +59,7 @@ export function SymbolListPopover({ kind, icon, label, items, onHover, onLeave }
           id={tooltipId}
           role="tooltip"
           className="absolute z-20 bottom-full left-0 mb-1 min-w-[200px] max-h-56 overflow-y-auto rounded-lg bg-white/95 dark:bg-neutral-800/95 shadow-lg border border-neutral-200 dark:border-neutral-700 p-2 text-xs"
-          {...{ [DATA_ATTR]: '' }}
+          {...popoverProps}
         >
           <ul className="space-y-1">
             {items.map((item, idx) => {
