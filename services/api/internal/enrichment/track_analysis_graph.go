@@ -233,7 +233,7 @@ func computeScalePercentagesByDistance(coords []edgetags.LatLng, edgeCoordStart 
 		if vf := graph.ViaFerrataScaleShort(graph.DecodeViaFerrataScale(t2)); vf != "" {
 			vfDist[vf] += edgeDist
 		}
-		if graph.DecodeViaFerrataScale(t2) == 0 && graph.DecodeHighway(t1) == 22 {
+		if graph.DecodeViaFerrataScale(t2) == 0 && graph.DecodeHighway(t1) == graph.HighwayViaFerrata {
 			vfUnknownDist += edgeDist
 		}
 	}
@@ -396,7 +396,7 @@ func computeScalePercentages(tags1, tags2 []uint64, totalPoints int) scalePercen
 			if vf := graph.ViaFerrataScaleShort(graph.DecodeViaFerrataScale(t2)); vf != "" {
 				out.Vf[vf]++
 			}
-			if graph.DecodeViaFerrataScale(t2) == 0 && graph.DecodeHighway(t1) == 22 {
+			if graph.DecodeViaFerrataScale(t2) == 0 && graph.DecodeHighway(t1) == graph.HighwayViaFerrata {
 				out.VfUnknown++
 			}
 		}
