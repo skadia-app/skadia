@@ -1,5 +1,9 @@
 import { REPROCESS_SCOPES, GEO_SCOPE_KEYS, GEO_SCOPE_LABELS, type AnyReprocessKey } from '@/lib/reprocessScopes'
 
+// Geo submodules that require the ML service to run.
+// Source of truth: keep in sync with SettingsPage ANALYSIS_MODULES.requiresML.
+const GEO_REQUIRES_ML = new Set<string>(['lifts'])
+
 interface Props {
   selected: Set<AnyReprocessKey>
   onToggle: (key: AnyReprocessKey) => void
@@ -62,7 +66,7 @@ export function ScopeCheckboxList({ selected, onToggle, layout = 'vertical', sho
           )}
         </label>
       ))}
-      <p className={separatorClass}>Geo-Anreicherung (ML, asynchron)</p>
+      <p className={separatorClass}>Geo-Anreicherung (asynchron)</p>
       {GEO_SCOPE_KEYS.map(key => (
         <label key={key} className={labelClass}>
           <input
@@ -72,9 +76,19 @@ export function ScopeCheckboxList({ selected, onToggle, layout = 'vertical', sho
             className={isInline ? inputClass : showDescriptions ? 'rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT' : inputClass}
           />
           {spanClass ? (
-            <span className={spanClass}>{GEO_SCOPE_LABELS[key]}</span>
+            <span className={spanClass}>
+              {GEO_SCOPE_LABELS[key]}
+              {GEO_REQUIRES_ML.has(key) && (
+                <span className="ml-1 text-xs font-medium text-purple-600 dark:text-purple-400">ML</span>
+              )}
+            </span>
           ) : (
-            GEO_SCOPE_LABELS[key]
+            <span className="flex items-center gap-1">
+              {GEO_SCOPE_LABELS[key]}
+              {GEO_REQUIRES_ML.has(key) && (
+                <span className="text-xs font-medium text-purple-600 dark:text-purple-400">ML</span>
+              )}
+            </span>
           )}
         </label>
       ))}

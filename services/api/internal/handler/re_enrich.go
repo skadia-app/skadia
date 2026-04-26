@@ -20,6 +20,12 @@ var validReEnrichModules = []string{
 	"summits", "settlements", "forests", "water", "borders", "surfaces",
 }
 
+// geoSubmodules lists the individual geo module names that the legacy "geo"
+// aggregate key expands to. Kept in sync with recompute.go scope handling.
+var geoSubmodules = []string{
+	"summits", "settlements", "forests", "water", "borders", "surfaces",
+}
+
 // ReEnrichActivities re-runs selected enrichment modules for the user's activities
 // without downloading or re-parsing original files from S3.
 //
@@ -42,6 +48,27 @@ func (h *Handler) ReEnrichActivities(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "modules required", r.URL.Path)
 		return
 	}
+
+	// Expand the legacy "geo" aggregate key to individual submodule names so that
+	// re_enrich.go and recompute.go accept the same module vocabulary.
+	expanded := make([]string, 0, len(req.Modules))
+	for _, m := range req.Modules {
+		if m == "geo" {
+			expanded = append(expanded, geoSubmodules...)
+		} else {
+			expanded = append(expanded, m)
+		}
+	}
+	// Deduplicate (a request may mix "geo" and explicit names).
+	seen := make(map[string]struct{}, len(expanded))
+	deduped := expanded[:0]
+	for _, m := range expanded {
+		if _, ok := seen[m]; !ok {
+			seen[m] = struct{}{}
+			deduped = append(deduped, m)
+		}
+	}
+	req.Modules = deduped
 
 	// Validate modules
 	for _, m := range req.Modules {

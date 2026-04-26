@@ -111,11 +111,25 @@ export interface ReprocessFilter {
   scope?: string[]
 }
 
-export interface ReprocessResult {
+// 202 Accepted response (background job started)
+export interface ReprocessAccepted {
+  job_id: string
+  status: 'running'
+  total: number
+}
+
+// 200 OK response (synchronous completion — rare, legacy fallback)
+export interface ReprocessCompleted {
   status?: 'already_running'
   processed: number
   errors: number
   total: number
+}
+
+export type ReprocessResult = ReprocessAccepted | ReprocessCompleted
+
+export function isReprocessAccepted(r: ReprocessResult): r is ReprocessAccepted {
+  return 'job_id' in r
 }
 
 export async function reprocessAllActivities(filter?: ReprocessFilter): Promise<ReprocessResult> {

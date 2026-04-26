@@ -1,4 +1,7 @@
-// GEO_SCOPE_KEYS: alle Geo-Features triggern dasselbe "geo" Backend-Scope (Stage 2 läuft zusammen).
+// GEO_SCOPE_KEYS: individual geo submodule names passed directly to the backend.
+// Each key is sent as-is; the backend accepts them both in recompute.go (single-activity
+// and bulk) and re_enrich.go. The legacy aggregate "geo" is no longer sent from the
+// frontend — the backend expands it internally for backwards compat.
 export const GEO_SCOPE_KEYS = ['summits', 'forests', 'water', 'stops', 'lifts', 'surfaces', 'borders'] as const
 export type GeoScopeKey = (typeof GEO_SCOPE_KEYS)[number]
 
@@ -38,13 +41,9 @@ export function toggleScopeKey(prev: Set<AnyReprocessKey>, key: AnyReprocessKey)
 }
 
 export function toBackendScope(sel: Set<AnyReprocessKey>): string[] {
-  const result = new Set<string>()
-  for (const s of sel) {
-    if ((GEO_SCOPE_KEYS as readonly string[]).includes(s)) {
-      result.add('geo')
-    } else {
-      result.add(s)
-    }
-  }
-  return [...result]
+  // Pass each selected scope key directly. Geo submodule keys (summits, forests, …)
+  // are sent individually so the backend can run only the selected modules.
+  // Previously all geo keys were collapsed to "geo" — that aggregation is removed
+  // so that e.g. selecting only "surfaces" actually runs only surface enrichment.
+  return [...sel]
 }
