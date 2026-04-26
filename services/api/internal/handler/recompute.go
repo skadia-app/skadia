@@ -442,30 +442,30 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 // scope controls which categories to reprocess (nil = all):
 //
 //   - "streams":      streams + track. Needs file re-parse. Triggers RunStage1
-//                     (track geometry feeds start_city / title_auto / is_commute).
+//     (track geometry feeds start_city / title_auto / is_commute).
 //   - "sensors":      sensor records (HR, power, cadence zones). Needs file re-parse.
-//                     Triggers RunStage1 because re-parse rewrites activity metadata.
+//     Triggers RunStage1 because re-parse rewrites activity metadata.
 //   - "details":      laps, splits, split summaries, lengths, climb pro events. Needs
-//                     file re-parse. Triggers RunStage1 for the same reason.
+//     file re-parse. Triggers RunStage1 for the same reason.
 //   - "metrics":      all computed metrics (times, distances, HR, power, etc.). Needs
-//                     file re-parse. Triggers RunStage1.
+//     file re-parse. Triggers RunStage1.
 //   - "sport_type":   sport_type + sub_type (only if not manually set). Triggers
-//                     RunStage1 because auto-title depends on sport type.
+//     RunStage1 because auto-title depends on sport type.
 //   - "tags":         re-evaluate autotag rules and update tags. Triggers RunStage1
-//                     (Stage 1 writes base tags like "Commute", "Indoor").
+//     (Stage 1 writes base tags like "Commute", "Indoor").
 //   - "geo":          Stage 2 geo enrichment (summits, forests, water, stops, lifts,
-//                     surfaces, borders). Triggers RunStage1 with `!doGeo==false` so
-//                     Stage 1 kicks off Stage 2 via NATS.
+//     surfaces, borders). Triggers RunStage1 with `!doGeo==false` so
+//     Stage 1 kicks off Stage 2 via NATS.
 //   - "segments":     segment efforts + lap detection. Works purely on streams +
-//                     activity metadata that already exists — does NOT trigger
-//                     RunStage1 (no dependency on start_city / title_auto / tags).
+//     activity metadata that already exists — does NOT trigger
+//     RunStage1 (no dependency on start_city / title_auto / tags).
 //   - "best_efforts": recompute best effort records for this activity. Works on the
-//                     stream only. Does NOT trigger RunStage1.
+//     stream only. Does NOT trigger RunStage1.
 //   - "running_form": compute duty factor, vertical ratio, GCT asymmetry + fatigue
-//                     indices (running/trail_running only). Works on the stream only.
-//                     Does NOT trigger RunStage1.
+//     indices (running/trail_running only). Works on the stream only.
+//     Does NOT trigger RunStage1.
 //   - "speed_smooth": opt-in median filter on speed_ms. Never part of "all". Does
-//                     NOT trigger RunStage1 (stream-only; see comment in block 8.).
+//     NOT trigger RunStage1 (stream-only; see comment in block 8.).
 //
 // skipAnalyticsEvent suppresses PublishAnalyticsInvalidate when true (used in bulk recompute
 // to avoid flooding — the caller publishes a single invalidation after all workers complete).
@@ -764,7 +764,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		sidecar.WriteMetaCompanion(ctx, h.ShadowFS, h.DB, userID, activityID, *activity.FileID, data, activity)
 	}
 
-	// 7d. Geo Stage-2 data cleanup (summits, forests, water, stops, lifts, surfaces, borders).
+	// 7d. Geo Stage-2 data cleanup (summits, forests, water, stops, lifts, track analysis, borders).
 	// Stage 2 ML modules self-clean on re-run, but an explicit delete here ensures a clean
 	// slate when "geo" scope is selected without a full recompute.
 	if doGeo {
@@ -772,7 +772,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		geoBatch.Queue("DELETE FROM activity_geo_tags WHERE activity_id = $1", activityID)
 		geoBatch.Queue("DELETE FROM activity_stops WHERE activity_id = $1", activityID)
 		geoBatch.Queue("DELETE FROM activity_lift_candidates WHERE activity_id = $1", activityID)
-		geoBatch.Queue("DELETE FROM activity_surfaces WHERE activity_id = $1", activityID)
+		geoBatch.Queue("DELETE FROM activity_enrichments WHERE activity_id = $1", activityID)
 		gbr := h.DB.Pool.SendBatch(ctx, geoBatch)
 		for range 4 {
 			if _, err := gbr.Exec(); err != nil {

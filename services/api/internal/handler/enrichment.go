@@ -455,28 +455,6 @@ func (h *Handler) GetActivityStops(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, stops)
 }
 
-// GetActivitySurfaces returns detected surfaces for an activity.
-func (h *Handler) GetActivitySurfaces(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httputil.RequireUserID(w, r)
-	if !ok {
-		return
-	}
-	_, activityID, ok := h.requireActivity(w, r, userID)
-	if !ok {
-		return
-	}
-
-	surfaces, err := h.DB.GetActivitySurfaces(r.Context(), activityID)
-	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get surfaces", r.URL.Path)
-		return
-	}
-	if surfaces == nil {
-		surfaces = []model.ActivitySurface{}
-	}
-	httputil.WriteJSON(w, http.StatusOK, surfaces)
-}
-
 // GetEnrichmentStatus returns per-module enrichment status for an activity.
 func (h *Handler) GetEnrichmentStatus(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)

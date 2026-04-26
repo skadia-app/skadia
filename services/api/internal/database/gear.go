@@ -1192,67 +1192,67 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		) hc ON true
 		LEFT JOIN LATERAL (
 			SELECT
-				COALESCE(SUM(percentage) FILTER (WHERE surface_type IN ('asphalt','paved','concrete','concrete:plates','concrete:lanes','paving_stones','sett')), 0) AS surface_paved_pct,
-				COALESCE(SUM(percentage) FILTER (WHERE surface_type IN ('gravel','compacted','fine_gravel','pebblestone')), 0) AS surface_gravel_pct,
-				COALESCE(SUM(percentage) FILTER (WHERE surface_type IN ('ground','dirt','earth','grass','mud','sand','wood','woodchips','rock','stepping_stones')), 0) AS surface_trail_pct,
-				COALESCE(SUM(percentage) FILTER (WHERE surface_type NOT IN ('asphalt','paved','concrete','concrete:plates','concrete:lanes','paving_stones','sett','gravel','compacted','fine_gravel','pebblestone','ground','dirt','earth','grass','mud','sand','wood','woodchips','rock','stepping_stones') OR surface_type IS NULL), 0) AS surface_unknown_pct
-			FROM activity_surfaces WHERE activity_id = a.id
+				COALESCE(SUM(percentage) FILTER (WHERE type IN ('asphalt','paved','concrete','concrete:plates','concrete:lanes','paving_stones','sett')), 0) AS surface_paved_pct,
+				COALESCE(SUM(percentage) FILTER (WHERE type IN ('gravel','compacted','fine_gravel','pebblestone')), 0) AS surface_gravel_pct,
+				COALESCE(SUM(percentage) FILTER (WHERE type IN ('ground','dirt','earth','grass','mud','sand','wood','woodchips','rock','stepping_stones')), 0) AS surface_trail_pct,
+				COALESCE(SUM(percentage) FILTER (WHERE type NOT IN ('asphalt','paved','concrete','concrete:plates','concrete:lanes','paving_stones','sett','gravel','compacted','fine_gravel','pebblestone','ground','dirt','earth','grass','mud','sand','wood','woodchips','rock','stepping_stones') OR type IS NULL), 0) AS surface_unknown_pct
+			FROM activity_enrichments WHERE activity_id = a.id AND category = 'surface'
 		) sf ON true
 		WHERE a.id = $1`,
 		activityID,
 	)
 
 	var (
-		sportType, subType, source, intensity, title, description *string
-		isIndoor, isElectric, hasGPS, hideMap, isRoundTrip           bool
-		visibility                                                *string
-		elapsedTimeS, movingTimeS                                 *int
-		weekday, month                                            *int
-		timeOfDay                                                 []string
-		distanceM, avgSpeedMS, maxSpeedMS, minSpeedMS             *float64
-		elevGainM, elevLossM, maxElevM, minElevM                  *float64
-		avgHR, maxHR, minHR                                       *float64
-		avgCadence, maxCadence                                    *float64
-		avgPowerW, maxPowerW, minPowerW, normPowerW, tss, trimp   *float64
-		avgTempC, minTempC, maxTempC                              *float64
-		startCity, startState, startCountry, startCountryCode     *string
-		endCity                                                   *string
-		gearID                                                    *string
-		tags                                                      []string
-		startedAt                                                 time.Time
-		startLat, startLon                                        *float64
-		endLat, endLon                                            *float64
-		photoCount, detectedLapCount                              int
-		liftCount                                                 *int
-		liftAscentM, liftDescentM, liftDistM                      *float64
-		liftDurationS                                             *int
-		netAscentM, netDescentM, netDistM                         *float64
-		climbCount                                                int
-		climbCategoryMax                                          *int
-		weatherTempC, weatherHumidity                            *float64
-		weatherWindSpeedMS, weatherWindGustsMS                   *float64
-		weatherCondition                                         *string
-		weatherTempMinC, weatherTempMaxC                         *float64
-		activityCreatedAt                                        time.Time
-		summitCount, borderCrossingCount, stopCount, intervalCount int
-		hasPass, hasGastroStop, hasStructuredIntervals, hasHCClimb bool
+		sportType, subType, source, intensity, title, description             *string
+		isIndoor, isElectric, hasGPS, hideMap, isRoundTrip                    bool
+		visibility                                                            *string
+		elapsedTimeS, movingTimeS                                             *int
+		weekday, month                                                        *int
+		timeOfDay                                                             []string
+		distanceM, avgSpeedMS, maxSpeedMS, minSpeedMS                         *float64
+		elevGainM, elevLossM, maxElevM, minElevM                              *float64
+		avgHR, maxHR, minHR                                                   *float64
+		avgCadence, maxCadence                                                *float64
+		avgPowerW, maxPowerW, minPowerW, normPowerW, tss, trimp               *float64
+		avgTempC, minTempC, maxTempC                                          *float64
+		startCity, startState, startCountry, startCountryCode                 *string
+		endCity                                                               *string
+		gearID                                                                *string
+		tags                                                                  []string
+		startedAt                                                             time.Time
+		startLat, startLon                                                    *float64
+		endLat, endLon                                                        *float64
+		photoCount, detectedLapCount                                          int
+		liftCount                                                             *int
+		liftAscentM, liftDescentM, liftDistM                                  *float64
+		liftDurationS                                                         *int
+		netAscentM, netDescentM, netDistM                                     *float64
+		climbCount                                                            int
+		climbCategoryMax                                                      *int
+		weatherTempC, weatherHumidity                                         *float64
+		weatherWindSpeedMS, weatherWindGustsMS                                *float64
+		weatherCondition                                                      *string
+		weatherTempMinC, weatherTempMaxC                                      *float64
+		activityCreatedAt                                                     time.Time
+		summitCount, borderCrossingCount, stopCount, intervalCount            int
+		hasPass, hasGastroStop, hasStructuredIntervals, hasHCClimb            bool
 		surfacePavedPct, surfaceGravelPct, surfaceTrailPct, surfaceUnknownPct float64
-		isCommute                                                bool
-		swimStroke                                               *string
-		poolLengthM                                              *float64
-		numActiveLengths                                         *int
-		maxDepthM, avgDepthM                                     *float64
-		endCnsPct                                                *int16
-		jumpCount                                                *int
-		totalGrit, avgFlow                                       *float64
-		avgLevMotorPowerW                                        *int
-		levBatteryPct                                            *float64
-		parentID                                                 *string
-		numSessions                                              *int16
-		aerobicTE, anaerobicTE                                  *float64
-		aerobicDecoupling, variabilityIndex                     *float64
-		efficiencyFactor, intensityFactor                       *float64
-		workoutRPE, workoutFeel                                 *int
+		isCommute                                                             bool
+		swimStroke                                                            *string
+		poolLengthM                                                           *float64
+		numActiveLengths                                                      *int
+		maxDepthM, avgDepthM                                                  *float64
+		endCnsPct                                                             *int16
+		jumpCount                                                             *int
+		totalGrit, avgFlow                                                    *float64
+		avgLevMotorPowerW                                                     *int
+		levBatteryPct                                                         *float64
+		parentID                                                              *string
+		numSessions                                                           *int16
+		aerobicTE, anaerobicTE                                                *float64
+		aerobicDecoupling, variabilityIndex                                   *float64
+		efficiencyFactor, intensityFactor                                     *float64
+		workoutRPE, workoutFeel                                               *int
 	)
 
 	err := row.Scan(
@@ -1301,7 +1301,7 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 
 	m := map[string]any{
 		"is_indoor":          isIndoor,
-		"is_electric":           isElectric,
+		"is_electric":        isElectric,
 		"has_gps":            hasGPS,
 		"hide_map":           hideMap,
 		"is_round_trip":      isRoundTrip,
