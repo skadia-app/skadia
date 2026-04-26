@@ -24,7 +24,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import type { LngLatLike } from 'maplibre-gl'
 import type { StreamPoint, GeoTag } from '@/api/types'
-import { MountainSnow } from 'lucide-react'
+import { Mountain } from 'lucide-react'
 import ColorPicker from '@/components/ColorPicker'
 import { BASE_STYLES, buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
 import { apiClient } from '@/api/client'
@@ -1061,7 +1061,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
                 : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 hover:bg-white dark:hover:bg-neutral-700',
             ].join(' ')}
           >
-            <MountainSnow className="w-4 h-4" aria-hidden="true" />
+            <Mountain className="w-4 h-4" aria-hidden="true" />
           </button>
         )}
 
