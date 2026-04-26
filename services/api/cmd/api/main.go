@@ -990,6 +990,7 @@ func main() {
 				r.Post("/backfill-enrichment", h.BackfillEnrichment)
 				r.Post("/backfill-sunrise-sunset", h.BackfillSunriseSunset)
 				r.Post("/backfill-timezones", h.BackfillTimezones)
+				r.Post("/backfill-activity-enrichments", h.AdminBackfillActivityEnrichments)
 				r.Post("/phash-backfill", h.StartPhashBackfill)
 				r.Post("/backfill-developer-apps", h.BackfillDeveloperApps)
 				r.Post("/backfill-developer-field-columns", h.BackfillDeveloperFieldColumns)

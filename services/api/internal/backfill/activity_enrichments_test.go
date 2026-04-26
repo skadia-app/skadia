@@ -170,6 +170,47 @@ func TestRunActivityEnrichmentsBackfill_RefusesWhenBackfillRunning(t *testing.T)
 	}
 }
 
+func TestRunActivityEnrichmentsBackfill_AllowsOwnedBackgroundJob(t *testing.T) {
+	db := activityEnrichmentsTestDB(t)
+	ctx := context.Background()
+	userID := insertBackfillTestUser(t, db)
+	jobID := uuid.NewString()
+
+	_, err := db.Pool.Exec(ctx, `
+		INSERT INTO background_jobs (id, user_id, job_type, status)
+		VALUES ($1, $2, $3, 'running')
+	`, jobID, userID, activityEnrichmentsJobType)
+	if err != nil {
+		t.Fatalf("insert owned running backfill: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Pool.Exec(context.Background(), "DELETE FROM background_jobs WHERE id = $1", jobID)
+	})
+
+	err = RunActivityEnrichmentsBackfill(ctx, db, nil, BackfillOptions{DryRun: true, OwnedJobID: jobID})
+	if err != nil {
+		t.Fatalf("owned running job should not self-block: %v", err)
+	}
+
+	otherUserID := insertBackfillTestUser(t, db)
+	otherJobID := uuid.NewString()
+	_, err = db.Pool.Exec(ctx, `
+		INSERT INTO background_jobs (id, user_id, job_type, status)
+		VALUES ($1, $2, $3, 'running')
+	`, otherJobID, otherUserID, activityEnrichmentsJobType)
+	if err != nil {
+		t.Fatalf("insert other running backfill: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Pool.Exec(context.Background(), "DELETE FROM background_jobs WHERE id = $1", otherJobID)
+	})
+
+	err = RunActivityEnrichmentsBackfill(ctx, db, nil, BackfillOptions{DryRun: true, OwnedJobID: jobID})
+	if !errors.Is(err, ErrBackfillRunning) {
+		t.Fatalf("expected ErrBackfillRunning for another running job, got %v", err)
+	}
+}
+
 func candidateContains(candidates []activityEnrichmentBackfillCandidate, activityID string) bool {
 	for _, c := range candidates {
 		if c.ActivityID == activityID {
