@@ -160,9 +160,9 @@ func enrichGeoTagsSummits(ctx context.Context, db *database.DB, activityID strin
 		batch.Queue(`
 			INSERT INTO activity_geo_tags
 			    (activity_id, category, name, osm_id, map_type,
-			     map_point_lat, map_point_lon, ele_m, dist_m)
-			VALUES ($1, $2, $3, $4, 'point', $5, $6, $7, $8)
-		`, activityID, category, s.Name, s.OsmID, s.Lat, s.Lng, s.EleM, s.DistM)
+			     lat, lng, map_point_lat, map_point_lon, ele_m, dist_m)
+			VALUES ($1, $2, $3, $4, 'point', $5, $6, $7, $8, $9, $10)
+		`, activityID, category, s.Name, s.OsmID, s.Lat, s.Lng, s.Lat, s.Lng, s.EleM, s.DistM)
 	}
 
 	if batch.Len() > 0 {
@@ -244,9 +244,9 @@ func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID s
 		batch.Queue(`
 			INSERT INTO activity_geo_tags
 			    (activity_id, category, name, osm_id, map_type,
-			     map_point_lat, map_point_lon, source, admin_level)
-			VALUES ($1, 'settlement', $2, $3, 'point', $4, $5, $6, $7)
-		`, activityID, name, osmID, centerLat, centerLon, source, adminLevel)
+			     lat, lng, map_point_lat, map_point_lon, source, admin_level)
+			VALUES ($1, 'settlement', $2, $3, 'point', $4, $5, $6, $7, $8, $9)
+		`, activityID, name, osmID, centerLat, centerLon, centerLat, centerLon, source, adminLevel)
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("settlements: rows iteration: %w", err)
