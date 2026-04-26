@@ -64,6 +64,7 @@ import { RadarDensityChart } from '@/components/activity/RadarDensityChart'
 import { SensorList } from '@/components/activity/SensorList'
 import ActivityHeader from '@/components/activity/ActivityHeader'
 import TrackMap, { type HighlightedPoi, type HighlightedPoiHoverKind } from '@/components/activity/TrackMap'
+import { useStickyHighlight } from '@/hooks/useStickyHighlight'
 import TagsBadges from '@/components/activity/TagsBadges'
 import ZoneDistributionChart from '@/components/activity/ZoneDistributionChart'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
@@ -212,6 +213,18 @@ export default function ActivityDetailPage() {
   const [mapFullscreen, setMapFullscreen] = useState(false)
   const [hoveredChildId, setHoveredChildId] = useState<string | null>(null)
   const [highlightedPoiHoverKind, setHighlightedPoiHoverKind] = useState<HighlightedPoiHoverKind | null>(null)
+
+  // Coordinates hover/pin between the SurfacesSection bars and the TrackMap
+  // line-highlight overlay (mirrors RoutePlanner ↔ MapPage in MapPage.tsx).
+  const surfaceHighlightApi = useStickyHighlight()
+  const surfaceHighlightSticky =
+    surfaceHighlightApi.sticky?.kind === 'highway' || surfaceHighlightApi.sticky?.kind === 'surface'
+      ? surfaceHighlightApi.sticky
+      : null
+  const surfaceHighlightEffective =
+    surfaceHighlightApi.effective?.kind === 'highway' || surfaceHighlightApi.effective?.kind === 'surface'
+      ? surfaceHighlightApi.effective
+      : null
   const multisportMapRef = useRef<MultisportMapHandle>(null)
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const [mapInView, setMapInView] = useState(true)
@@ -864,6 +877,9 @@ export default function ActivityDetailPage() {
               {!hiddenModules.has('surfaces') && (
                 <SurfacesSection
                   summary={trackSummaryQuery.data ?? null}
+                  onHighlight={surfaceHighlightApi.setHover}
+                  pinnedType={surfaceHighlightSticky}
+                  onPin={surfaceHighlightApi.handleClick}
                 />
               )}
             </TrackSummary>
@@ -884,6 +900,9 @@ export default function ActivityDetailPage() {
               stops={stops}
               highlightedPois={highlightedPois}
               highlightedPoiHoverKind={highlightedPoiHoverKind}
+              surfaceHighlight={surfaceHighlightEffective}
+              surfaceRanges={trackSummaryQuery.data?.surface_ranges ?? null}
+              highwayRanges={trackSummaryQuery.data?.highway_ranges ?? null}
               locationPin={assignedLocationTag && assignedLocationTag.lat != null && assignedLocationTag.lng != null
                 ? { lat: assignedLocationTag.lat, lng: assignedLocationTag.lng, name: assignedLocationTag.name, color: assignedLocationTag.color }
                 : undefined}

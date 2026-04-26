@@ -39,6 +39,11 @@ export interface ActivityTrackSummary {
   vf_unknown_ranges: CoordRange[] | null
   surfaces: TrackSummarySurfaceItem[] | null
   highways: TrackSummarySurfaceItem[] | null
+  // Map raw OSM type → coordinate-index ranges (over the resampled track at
+  // ~10 m spacing among GPS-valid stream points). Null when no per-segment
+  // ranges were stored (older data, before the ranges-backfill).
+  surface_ranges: Record<string, CoordRange[]> | null
+  highway_ranges: Record<string, CoordRange[]> | null
   summits: TrackSummaryGeoTagItem[] | null
   waters: TrackSummaryWaterItem[] | null
   settlements: TrackSummaryGeoTagItem[] | null

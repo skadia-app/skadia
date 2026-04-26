@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import type { ActivityTrackSummary, TrackSummarySurfaceItem } from '@/api/trackSummary'
 import {
   SURFACE_COLORS,
@@ -9,8 +9,16 @@ import {
 } from '@/lib/surfaceConstants'
 import StackedBar from '@/components/shared/StackedBar'
 
+export type SurfaceHighlight = { kind: 'highway' | 'surface'; key: string } | null
+
 interface Props {
   summary?: Pick<ActivityTrackSummary, 'surfaces' | 'highways'> | null
+  /** Hover changes (null = no hover). Parent owns the global highlight state. */
+  onHighlight?: (h: SurfaceHighlight) => void
+  /** Controlled pin state (sticky after click). */
+  pinnedType?: SurfaceHighlight
+  /** Click toggles the pin; parent decides next state. */
+  onPin?: (h: SurfaceHighlight) => void
 }
 
 interface SurfaceDisplayRow {
@@ -42,21 +50,50 @@ function summarySurfaceRow(item: TrackSummarySurfaceItem, category: 'surface' | 
   }
 }
 
-export default function SurfacesSection({ summary }: Props) {
+export default function SurfacesSection({ summary, onHighlight, pinnedType = null, onPin }: Props) {
   const [collapsed, setCollapsed] = useState(false)
 
   const rows = summaryRows(summary ?? null)
-  if (rows.length === 0) return null
 
-  // Split by category
+  // Split by category — done before the early return so hooks below stay stable.
   const surfaceRows = rows.filter(s => s.category === 'surface')
   const highwayRows = rows.filter(s => s.category === 'highway')
 
   const aggregatedSurfaces = aggregateSurfaces(surfaceRows)
   const aggregatedHighways = aggregateHighways(highwayRows)
 
+  // Hover/pin handlers — mirror RouteSurfacesBar so the route-planner pattern
+  // is the single source of truth for hover-coordination semantics.
+  const handleHwHover = useCallback((key: string | null) => {
+    onHighlight?.(key ? { kind: 'highway', key } : null)
+  }, [onHighlight])
+
+  const handleHwPin = useCallback((key: string) => {
+    const next: SurfaceHighlight =
+      pinnedType?.kind === 'highway' && pinnedType.key === key
+        ? null
+        : { kind: 'highway', key }
+    onPin?.(next)
+  }, [pinnedType, onPin])
+
+  const handleSfHover = useCallback((key: string | null) => {
+    onHighlight?.(key ? { kind: 'surface', key } : null)
+  }, [onHighlight])
+
+  const handleSfPin = useCallback((key: string) => {
+    const next: SurfaceHighlight =
+      pinnedType?.kind === 'surface' && pinnedType.key === key
+        ? null
+        : { kind: 'surface', key }
+    onPin?.(next)
+  }, [pinnedType, onPin])
+
+  if (rows.length === 0) return null
   const hasAnything = aggregatedSurfaces.length > 0 || aggregatedHighways.length > 0
   if (!hasAnything) return null
+
+  const hwActiveKey = pinnedType?.kind === 'highway' ? pinnedType.key : null
+  const sfActiveKey = pinnedType?.kind === 'surface' ? pinnedType.key : null
 
   return (
     <div>
@@ -83,6 +120,9 @@ export default function SurfacesSection({ summary }: Props) {
               colorMap={HIGHWAY_COLORS}
               labelMap={HIGHWAY_LABELS}
               title="Wegearten"
+              onHover={handleHwHover}
+              onPin={handleHwPin}
+              activeKey={hwActiveKey}
             />
           )}
           {aggregatedSurfaces.length > 0 && (
@@ -90,6 +130,9 @@ export default function SurfacesSection({ summary }: Props) {
               aggregated={aggregatedSurfaces}
               colorMap={SURFACE_COLORS}
               title="Oberflächen"
+              onHover={handleSfHover}
+              onPin={handleSfPin}
+              activeKey={sfActiveKey}
             />
           )}
         </div>
