@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
@@ -945,13 +946,9 @@ func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []pa
 		// Tile Build
 		reporter.SetPhase("tiles")
 		tileDir := filepath.Join(filepath.Dir(graphPath), "tiles")
-		// HGT dirs in priority order: highest resolution first
+		// Filter HGT dirs to those that actually exist (highest resolution first).
 		hgtDirs := []string{}
-		for _, dir := range []string{
-			filepath.Join(h.Config.DEMDataDir, "sonny-05"),
-			filepath.Join(h.Config.DEMDataDir, "sonny-1"),
-			hgtDir,
-		} {
+		for _, dir := range dem.HGTDirsForConfig(h.Config.DEMDataDir) {
 			if _, err := os.Stat(dir); err == nil {
 				hgtDirs = append(hgtDirs, dir)
 			}
