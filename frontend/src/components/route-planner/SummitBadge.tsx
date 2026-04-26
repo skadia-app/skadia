@@ -1,6 +1,6 @@
-import { useState } from 'react'
 import type { PassedSummit } from '@/api/routes'
 import { statsSummitsLabel } from '@/lib/strings/suggest-routes'
+import { useHoverPopover } from '@/hooks/useHoverPopover'
 
 interface Props {
   summits: PassedSummit[]
@@ -19,41 +19,20 @@ function summitKey(s: PassedSummit): string {
 }
 
 export function SummitBadge({ summits, onHover, isPinned, onTogglePin }: Props) {
-  const [open, setOpen] = useState(false)
-
-  const openNow = () => {
-    setOpen(true)
-    onHover(true)
-  }
-
-  const closeWithGuard = (relatedTarget: EventTarget | null) => {
-    const rt = relatedTarget as HTMLElement | null
-    if (rt?.closest?.('[data-summit-badge]')) return
-    setOpen(false)
-    onHover(false)
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape' && open) {
-      setOpen(false)
-      onHover(false)
-    }
-  }
+  const { open, triggerProps, popoverProps } = useHoverPopover({
+    onOpen: () => onHover(true),
+    onClose: () => onHover(false),
+  })
 
   return (
-    <div className="relative inline-block" data-summit-badge>
+    <div className="relative inline-block" {...popoverProps}>
       <button
         type="button"
         className={`inline-flex items-center gap-1 text-sm rounded px-1.5 py-0.5 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer transition-colors ${isPinned ? 'ring-2 ring-accent' : ''}`}
-        aria-expanded={open}
         aria-haspopup="listbox"
         aria-pressed={isPinned}
         aria-label={`${statsSummitsLabel(summits.length)}, Details öffnen`}
-        onMouseEnter={openNow}
-        onMouseLeave={(e) => closeWithGuard(e.relatedTarget)}
-        onFocus={openNow}
-        onBlur={(e) => closeWithGuard(e.relatedTarget)}
-        onKeyDown={handleKeyDown}
+        {...triggerProps}
         onClick={onTogglePin}
       >
         {statsSummitsLabel(summits.length)}
@@ -63,7 +42,7 @@ export function SummitBadge({ summits, onHover, isPinned, onTogglePin }: Props) 
           className="absolute z-20 bottom-full left-0 mb-1 min-w-[210px] max-h-56 overflow-y-auto rounded-lg bg-white/95 dark:bg-neutral-800/95 shadow-lg border border-neutral-200 dark:border-neutral-700 p-2 text-xs"
           role="listbox"
           aria-label="Gipfel und Pässe auf der Route"
-          data-summit-badge
+          {...popoverProps}
         >
           <ul className="space-y-1">
             {summits.map((s) => (
