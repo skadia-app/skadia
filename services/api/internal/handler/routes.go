@@ -116,6 +116,7 @@ var patchableRouteFields = map[string]struct{}{
 	"auto_tag":             {},
 	"elevation_profile":    {},
 	"enrichment":           {},
+	"routing_engine":       {},
 }
 
 // applyRoutePatch merges JSON-patch fields into an existing route.
@@ -164,6 +165,8 @@ func applyRoutePatch(route *model.PlannedRoute, fields map[string]json.RawMessag
 		case "enrichment":
 			route.Enrichment = append(route.Enrichment[:0], raw...)
 			continue
+		case "routing_engine":
+			target = &route.RoutingEngine
 		default:
 			continue
 		}
