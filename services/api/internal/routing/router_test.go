@@ -687,8 +687,11 @@ func TestRouteSameEdge_ProfileTwoPoints(t *testing.T) {
 	if math.Abs(prof[1].DistM-result.DistanceM) > 0.01 {
 		t.Errorf("profile[1].DistM=%.4f, want %.4f (result.DistanceM)", prof[1].DistM, result.DistanceM)
 	}
-	// Both elevation values must be non-negative (sanity)
-	if prof[0].EleM < 0 || prof[1].EleM < 0 {
-		t.Errorf("negative elevation in same-edge profile: [%.1f, %.1f]", prof[0].EleM, prof[1].EleM)
+	// Both elevation values must be non-nil and non-negative (sanity)
+	if prof[0].EleM == nil || prof[1].EleM == nil {
+		t.Fatalf("nil EleM in same-edge profile")
+	}
+	if *prof[0].EleM < 0 || *prof[1].EleM < 0 {
+		t.Errorf("negative elevation in same-edge profile: [%.1f, %.1f]", *prof[0].EleM, *prof[1].EleM)
 	}
 }

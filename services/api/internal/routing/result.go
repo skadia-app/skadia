@@ -8,10 +8,15 @@ import (
 
 // ElevationPoint is a single point in the full-resolution elevation profile,
 // anchored to cumulative route distance (approach-exclusive — see spec §5.5).
+// EleM is a pointer so that gap-fill phase D can emit null for points without
+// valid DEM data; null MUST be preserved in JSON (no omitempty).
 type ElevationPoint struct {
-	DistM float64 `json:"dist_m"`
-	EleM  float64 `json:"ele_m"`
+	DistM float64  `json:"dist_m"`
+	EleM  *float64 `json:"ele_m"`
 }
+
+// PtrEle returns a pointer to v, for use in ElevationPoint literals.
+func PtrEle(v float64) *float64 { return &v }
 
 // RouteResult holds the complete routing result.
 type RouteResult struct {
@@ -86,6 +91,10 @@ type LatLonEle struct {
 	//
 	// See docs/internal/specs/2026-04-22-route-elevation-profile-separation-design.md
 	Ele float64 `json:"ele"`
+	// EleValid is false when the corresponding ElevationPoint.EleM is nil
+	// (gap-fill phase D will populate real values; gap-fill phase A.0 leaves
+	// nil points unresolved). Omitted from JSON when true (happy path).
+	EleValid bool `json:"ele_valid,omitempty"`
 }
 
 // RouteSegment describes a contiguous section with the same OSM way properties.

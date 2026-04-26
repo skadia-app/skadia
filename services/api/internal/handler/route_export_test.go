@@ -150,9 +150,9 @@ func TestExportRouteGPX_HappyPath_CorrectEleFromCoord2(t *testing.T) {
 func TestExportRouteGPX_LegacyRouteWithProfileBackfilled_DefensivelyCorrects(t *testing.T) {
 	// Profile: 0→593m, 100m→650m, 200m→710m (monotonic — no spikes).
 	profile := []routing.ElevationPoint{
-		{DistM: 0, EleM: 593},
-		{DistM: 100, EleM: 650},
-		{DistM: 200, EleM: 710},
+		{DistM: 0, EleM: routing.PtrEle(593)},
+		{DistM: 100, EleM: routing.PtrEle(650)},
+		{DistM: 200, EleM: routing.PtrEle(710)},
 	}
 	// Segment coords have stale spike values in coord[2] (all 593 from carriedEle).
 	// Two points close together (~111m apart at equator per degree of latitude).
@@ -242,8 +242,8 @@ func TestExportRouteGPX_NilProfile_LegacyCoord2_NoCrash(t *testing.T) {
 func TestExportRouteGPX_OffroadKeepsEstimatedFlag(t *testing.T) {
 	// Profile covers the full route.
 	profile := []routing.ElevationPoint{
-		{DistM: 0, EleM: 800},
-		{DistM: 500, EleM: 900},
+		{DistM: 0, EleM: routing.PtrEle(800)},
+		{DistM: 500, EleM: routing.PtrEle(900)},
 	}
 	offroadEle := 850.0 // stale offroad estimate in coord[2]
 	route := &model.PlannedRoute{
@@ -287,9 +287,9 @@ func TestExportRouteGPX_OffroadKeepsEstimatedFlag(t *testing.T) {
 func TestExportRouteGPX_MultiLegRoute_NoAdditiveDrift(t *testing.T) {
 	// Simple profile: 0→100m over 300m distance.
 	profile := []routing.ElevationPoint{
-		{DistM: 0, EleM: 100},
-		{DistM: 150, EleM: 150},
-		{DistM: 300, EleM: 200},
+		{DistM: 0, EleM: routing.PtrEle(100)},
+		{DistM: 150, EleM: routing.PtrEle(150)},
+		{DistM: 300, EleM: routing.PtrEle(200)},
 	}
 	// Stale coord[2] = 0 everywhere to verify profile is applied.
 	route := &model.PlannedRoute{
