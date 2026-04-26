@@ -83,7 +83,7 @@ export default function EnrichmentStatusSection({ activityId, enrichmentStatus, 
       queryClient.invalidateQueries({ queryKey: ['activity', activityId] })
       queryClient.invalidateQueries({ queryKey: ['geo-tags', activityId] })
       queryClient.invalidateQueries({ queryKey: ['stops', activityId] })
-      queryClient.invalidateQueries({ queryKey: ['surfaces', activityId] })
+      queryClient.invalidateQueries({ queryKey: ['activity-track-summary', activityId] })
       queryClient.invalidateQueries({ queryKey: ['climbs', activityId] })
       addToast({ type: 'success', title: 'Geo-Enrichment gestartet' })
     },

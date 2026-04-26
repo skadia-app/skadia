@@ -571,15 +571,6 @@ export interface ActivityStop {
   confidence?: string | null    // poi_matched, speed_fallback
 }
 
-export interface ActivitySurface {
-  id: string
-  category?: 'surface' | 'highway'
-  surface_type: string
-  path_type: string
-  length_m: number
-  percentage: number
-}
-
 export interface DetectedLap {
   id: string
   activity_id: string

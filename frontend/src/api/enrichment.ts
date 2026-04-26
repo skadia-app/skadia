@@ -1,6 +1,6 @@
 import { apiClient } from './client'
 import { apiFetch } from '@/lib/auth'
-import type { GeoTag, Climb, ActivityInterval, EnrichmentSettings, ActivityStop, ActivitySurface } from './types'
+import type { GeoTag, Climb, ActivityInterval, EnrichmentSettings, ActivityStop } from './types'
 import type * as GeoJSON from 'geojson'
 
 export async function fetchGeoTags(activityId: string): Promise<GeoTag[]> {
@@ -57,10 +57,6 @@ export async function startGeocodingBackfill(): Promise<{ job_id: string; total:
 
 export async function fetchStops(activityId: string): Promise<ActivityStop[]> {
   return apiClient<ActivityStop[]>(`/activities/${activityId}/stops`)
-}
-
-export async function fetchSurfaces(activityId: string): Promise<ActivitySurface[]> {
-  return apiClient<ActivitySurface[]>(`/activities/${activityId}/surfaces`)
 }
 
 export interface EnrichmentModuleStatus {

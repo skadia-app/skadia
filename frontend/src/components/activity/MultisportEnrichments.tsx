@@ -1,12 +1,23 @@
 import { useState } from 'react'
 import { useQueries } from '@tanstack/react-query'
-import { fetchGeoTags, fetchStops, fetchSurfaces } from '@/api/enrichment'
+import { fetchGeoTags, fetchStops } from '@/api/enrichment'
+import { fetchActivityTrackSummary } from '@/api/trackSummary'
 import { fmtDuration, fmtTime } from '@/lib/format'
-import type { Activity, GeoTag, ActivityStop, ActivitySurface } from '@/api/types'
+import type { Activity, GeoTag, ActivityStop } from '@/api/types'
+import type { TrackSummarySurfaceItem } from '@/api/trackSummary'
 
 interface Props {
   childActivities: Activity[]
   timezone?: string | null
+}
+
+interface SurfaceDisplayRow {
+  id: string
+  category: 'surface' | 'highway'
+  surface_type: string
+  path_type: string
+  length_m: number
+  percentage: number
 }
 
 // ── Geo-Tags rendering helpers ────────────────────────────────────────────────
@@ -283,8 +294,8 @@ export default function MultisportEnrichments({ childActivities, timezone }: Pro
 
   const surfaceQueries = useQueries({
     queries: ids.map(id => ({
-      queryKey: ['activity-surfaces', id],
-      queryFn: () => fetchSurfaces(id),
+      queryKey: ['activity-track-summary', id],
+      queryFn: () => fetchActivityTrackSummary(id),
       staleTime: 5 * 60 * 1000,
     })),
   })
@@ -308,17 +319,15 @@ export default function MultisportEnrichments({ childActivities, timezone }: Pro
     .filter(s => s.duration_s >= 120)
     .sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
 
-  // Merge surfaces: separate by category, then aggregate
-  const allSurfaceData = surfaceQueries.flatMap(q => q.data ?? [])
-
   // Surface dimension
   const surfaceMap = new Map<string, number>()
-  for (const s of allSurfaceData.filter(s => s.category === 'surface' || !s.category)) {
-    const key = s.surface_type || s.path_type // legacy fallback
-    surfaceMap.set(key, (surfaceMap.get(key) ?? 0) + s.length_m)
+  for (const q of surfaceQueries) {
+    for (const item of q.data?.surfaces ?? []) {
+      addSummaryLength(surfaceMap, item)
+    }
   }
   const totalSurfaceLength = [...surfaceMap.values()].reduce((sum, l) => sum + l, 0)
-  const mergedSurfaces: ActivitySurface[] = [...surfaceMap.entries()]
+  const mergedSurfaces: SurfaceDisplayRow[] = [...surfaceMap.entries()]
     .map(([surface_type, length_m]) => ({
       id: surface_type,
       category: 'surface' as const,
@@ -331,11 +340,13 @@ export default function MultisportEnrichments({ childActivities, timezone }: Pro
 
   // Highway dimension
   const highwayMap = new Map<string, number>()
-  for (const s of allSurfaceData.filter(s => s.category === 'highway')) {
-    highwayMap.set(s.path_type, (highwayMap.get(s.path_type) ?? 0) + s.length_m)
+  for (const q of surfaceQueries) {
+    for (const item of q.data?.highways ?? []) {
+      addSummaryLength(highwayMap, item)
+    }
   }
   const totalHighwayLength = [...highwayMap.values()].reduce((sum, l) => sum + l, 0)
-  const mergedHighways: ActivitySurface[] = [...highwayMap.entries()]
+  const mergedHighways: SurfaceDisplayRow[] = [...highwayMap.entries()]
     .map(([path_type, length_m]) => ({
       id: path_type,
       category: 'highway' as const,
@@ -381,6 +392,10 @@ export default function MultisportEnrichments({ childActivities, timezone }: Pro
       )}
     </div>
   )
+}
+
+function addSummaryLength(target: Map<string, number>, item: TrackSummarySurfaceItem) {
+  target.set(item.type, (target.get(item.type) ?? 0) + item.length_m)
 }
 
 // ── Sub-renderers ─────────────────────────────────────────────────────────────
@@ -512,7 +527,7 @@ const HIGHWAY_LABELS: Record<string, string> = {
   offroad: 'Offroad', unknown: 'Unbekannt',
 }
 
-function SurfacesDisplay({ surfaces, dimension = 'surface' }: { surfaces: ActivitySurface[]; dimension?: 'surface' | 'highway' }) {
+function SurfacesDisplay({ surfaces, dimension = 'surface' }: { surfaces: SurfaceDisplayRow[]; dimension?: 'surface' | 'highway' }) {
   const colorMap = dimension === 'highway' ? HIGHWAY_COLORS : SURFACE_COLORS
   const labelMap = dimension === 'highway' ? HIGHWAY_LABELS : SURFACE_LABELS
   const typeKey = dimension === 'highway' ? 'path_type' : 'surface_type'
