@@ -10,6 +10,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
@@ -36,13 +37,16 @@ type UnifiedRouter struct {
 	reader GraphReader
 	sem    chan struct{}
 	isoSem chan struct{} // separate semaphore for isochrone (2 concurrent)
+	demSvc dem.Servicer // injected at boot for off-graph DEM lookups (Spec §3.2)
 }
 
 // NewUnifiedRouter creates a router backed by any GraphReader.
 // maxConcurrent limits simultaneous routing queries (semaphore-based).
 // maxConcurrentIsochrones limits concurrent isochrone/reachability expansions
 // (defaults to 2 if <= 0; override via SKADIA_ISO_CONCURRENCY env).
-func NewUnifiedRouter(reader GraphReader, maxConcurrent int, maxConcurrentIsochrones int) *UnifiedRouter {
+// demSvc is used for off-graph DEM lookups (approach/departure elevation profiles).
+// Pass nil to disable DEM lookups (useful in tests).
+func NewUnifiedRouter(reader GraphReader, maxConcurrent int, maxConcurrentIsochrones int, demSvc dem.Servicer) *UnifiedRouter {
 	if maxConcurrentIsochrones <= 0 {
 		maxConcurrentIsochrones = 2
 	}
@@ -50,6 +54,7 @@ func NewUnifiedRouter(reader GraphReader, maxConcurrent int, maxConcurrentIsochr
 		reader: reader,
 		sem:    make(chan struct{}, maxConcurrent),
 		isoSem: make(chan struct{}, maxConcurrentIsochrones),
+		demSvc: demSvc,
 	}
 }
 

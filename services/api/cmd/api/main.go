@@ -667,7 +667,8 @@ func main() {
 	}
 
 	// Routing graph manager — initialize tiled routing (UnifiedRouter).
-	graphMgr := &routing.GraphManager{}
+	// DEMSvc is forwarded so UnifiedRouter can perform off-graph DEM lookups (Spec §3.2).
+	graphMgr := &routing.GraphManager{DEMSvc: demSvc}
 	h.GraphManager = graphMgr
 	tileDir := filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "tiles")
 	tileCacheBytes := int64(4_000_000_000) // 4 GB default
