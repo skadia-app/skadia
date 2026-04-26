@@ -216,6 +216,28 @@ var AllKeys = []KeyDef{
 			return nil
 		},
 	},
+	{
+		Key: "library.user_map_layer_limit", EnvVar: "LIBRARY_USER_MAP_LAYER_LIMIT",
+		Default: "50", Encrypted: false, Group: "library",
+		Validate: func(v string) error {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 || n > 10000 {
+				return fmt.Errorf("library.user_map_layer_limit must be integer 1-10000, got %q", v)
+			}
+			return nil
+		},
+	},
+	{
+		Key: "library.user_map_layer_rate_limit_per_10min", EnvVar: "LIBRARY_USER_MAP_LAYER_RATE_LIMIT_PER_10MIN",
+		Default: "60", Encrypted: false, Group: "library",
+		Validate: func(v string) error {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 || n > 10000 {
+				return fmt.Errorf("library.user_map_layer_rate_limit_per_10min must be integer 1-10000, got %q", v)
+			}
+			return nil
+		},
+	},
 	// NIT #41: PII validation inline in KeyDef. We cannot import shadowfs here
 	// (import cycle: shadowfs → settings → shadowfs). Instead we duplicate the
 	// PII blacklist as a local slice. The canonical blacklist lives in
