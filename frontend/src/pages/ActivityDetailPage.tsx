@@ -851,6 +851,25 @@ export default function ActivityDetailPage() {
         />
       )}
 
+      {/* Track-Zusammenfassung + Wege/Oberflächen (nicht für Multisport) */}
+      {activity.sport_type !== 'multisport' && (
+        !trackSummaryQuery.isError && (
+          <TrackSummary
+            summary={trackSummaryQuery.data}
+            ascentM={activity.elevation_gain_m}
+            descentM={activity.elevation_loss_m}
+            onSymbolHover={handleTrackSummarySymbolHover}
+            onSymbolLeave={handleTrackSummarySymbolLeave}
+          >
+            {!hiddenModules.has('surfaces') && (
+              <SurfacesSection
+                summary={trackSummaryQuery.data ?? null}
+              />
+            )}
+          </TrackSummary>
+        )
+      )}
+
       {/* Map (nicht für Multisport-Parent — die Karte ist oben in der Multisport-Sektion) */}
       {activity.sport_type !== 'multisport' && (
         <div ref={mapContainerRef}>
@@ -874,25 +893,6 @@ export default function ActivityDetailPage() {
               : undefined}
           />
         </div>
-      )}
-
-      {/* Track-Zusammenfassung + Wege/Oberflächen (nicht für Multisport) */}
-      {activity.sport_type !== 'multisport' && (
-        !trackSummaryQuery.isError && (
-          <TrackSummary
-            summary={trackSummaryQuery.data}
-            ascentM={activity.elevation_gain_m}
-            descentM={activity.elevation_loss_m}
-            onSymbolHover={handleTrackSummarySymbolHover}
-            onSymbolLeave={handleTrackSummarySymbolLeave}
-          >
-            {!hiddenModules.has('surfaces') && (
-              <SurfacesSection
-                summary={trackSummaryQuery.data ?? null}
-              />
-            )}
-          </TrackSummary>
-        )
       )}
 
       {/* Map fullscreen overlay */}

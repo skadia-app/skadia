@@ -39,6 +39,7 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
         queryClient.invalidateQueries({ queryKey: ['activity', id] })
         queryClient.invalidateQueries({ queryKey: ['activity-streams', id] })
         queryClient.invalidateQueries({ queryKey: ['activity-sensors', id] })
+        queryClient.invalidateQueries({ queryKey: ['activity-track-summary', id] })
       })
       setState('success')
       onSuccess?.()

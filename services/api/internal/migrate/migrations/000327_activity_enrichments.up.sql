@@ -34,12 +34,6 @@ END $$;
 ALTER TABLE user_enrichment_settings
     ADD COLUMN IF NOT EXISTS enable_difficulty_scales BOOLEAN NOT NULL DEFAULT true;
 
-ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS surface_extension_acknowledged_at TIMESTAMPTZ;
-
-COMMENT ON COLUMN users.surface_extension_acknowledged_at IS
-    'Timestamp when the user acknowledged the surface-analysis scope extension banner. NULL means the banner has not been acknowledged yet.';
-
 COMMENT ON COLUMN activity_enrichments.type IS
     'Subtype key within a category. Empty string is reserved for scalar categories without per-type buckets.';
 

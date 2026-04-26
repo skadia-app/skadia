@@ -1,10 +1,79 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import type { QueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import { fetchActiveJobs } from '@/api/jobs'
 import type { ActiveJob } from '@/api/jobs'
 import { JOB_TYPE_LABELS } from '@/lib/jobLabels'
 
 export type { ActiveJob }
+
+export function invalidateQueriesForCompletedJob(queryClient: QueryClient, job: ActiveJob) {
+  if (job.job_type === 'segment_recompute' && job.entity_id) {
+    queryClient.invalidateQueries({ queryKey: ['segment', job.entity_id] })
+    queryClient.invalidateQueries({ queryKey: ['segment-performances', job.entity_id] })
+    queryClient.invalidateQueries({ queryKey: ['segments'] })
+    return
+  }
+
+  if (job.job_type === 'activity_recompute' && job.entity_id) {
+    queryClient.invalidateQueries({ queryKey: ['activity', job.entity_id] })
+    queryClient.invalidateQueries({ queryKey: ['activity-streams', job.entity_id] })
+    queryClient.invalidateQueries({ queryKey: ['activity-sensors', job.entity_id] })
+    queryClient.invalidateQueries({ queryKey: ['activity-track-summary', job.entity_id] })
+    return
+  }
+
+  if (job.job_type === 'recompute_multisport') {
+    queryClient.invalidateQueries({ queryKey: ['activities'] })
+    if (job.entity_id) {
+      queryClient.invalidateQueries({ queryKey: ['activity', job.entity_id] })
+      queryClient.invalidateQueries({ queryKey: ['activity-children', job.entity_id] })
+    }
+    queryClient.invalidateQueries({ queryKey: ['activity-track-summary'] })
+    return
+  }
+
+  if (
+    job.job_type === 'activity_recompute_all' ||
+    job.job_type === 'backfill_activity_enrichments' ||
+    job.job_type === 'data_import_enrichment'
+  ) {
+    queryClient.invalidateQueries({ queryKey: ['activities'] })
+    queryClient.invalidateQueries({ queryKey: ['activity-track-summary'] })
+    return
+  }
+
+  if (job.job_type === 'osm_import') {
+    queryClient.invalidateQueries({ queryKey: ['osm-status'] })
+    queryClient.invalidateQueries({ queryKey: ['osm-regions-status'] })
+    return
+  }
+
+  if (job.job_type === 'osm_enrichment') {
+    queryClient.invalidateQueries({ queryKey: ['osm-status'] })
+    queryClient.invalidateQueries({ queryKey: ['osm-regions'] })
+    return
+  }
+
+  if (job.job_type === 'garmin_import' || job.job_type === 'strava_import' || job.job_type === 'komoot_import') {
+    queryClient.invalidateQueries({ queryKey: ['activities'] })
+    queryClient.invalidateQueries({ queryKey: ['activity-track-summary'] })
+    return
+  }
+
+  if (job.job_type === 'fusion_queue_compute') {
+    queryClient.invalidateQueries({ queryKey: ['fusion-queue'] })
+    return
+  }
+
+  if (job.job_type === 'data_import') {
+    queryClient.invalidateQueries({ queryKey: ['activities'] })
+    queryClient.invalidateQueries({ queryKey: ['tags'] })
+    queryClient.invalidateQueries({ queryKey: ['gear'] })
+    queryClient.invalidateQueries({ queryKey: ['segments'] })
+    queryClient.invalidateQueries({ queryKey: ['activity-track-summary'] })
+  }
+}
 
 export function useActiveJobs() {
   const queryClient = useQueryClient()
@@ -41,34 +110,7 @@ export function useActiveJobs() {
         }
       }
       if (wasRunning && job.status === 'completed') {
-        if (job.job_type === 'segment_recompute' && job.entity_id) {
-          queryClient.invalidateQueries({ queryKey: ['segment', job.entity_id] })
-          queryClient.invalidateQueries({ queryKey: ['segment-performances', job.entity_id] })
-          queryClient.invalidateQueries({ queryKey: ['segments'] })
-        }
-        if (job.job_type === 'activity_recompute_all') {
-          queryClient.invalidateQueries({ queryKey: ['activities'] })
-        }
-        if (job.job_type === 'osm_import') {
-          queryClient.invalidateQueries({ queryKey: ['osm-status'] })
-          queryClient.invalidateQueries({ queryKey: ['osm-regions-status'] })
-        }
-        if (job.job_type === 'osm_enrichment') {
-          queryClient.invalidateQueries({ queryKey: ['osm-status'] })
-          queryClient.invalidateQueries({ queryKey: ['osm-regions'] })
-        }
-        if (job.job_type === 'garmin_import' || job.job_type === 'strava_import') {
-          queryClient.invalidateQueries({ queryKey: ['activities'] })
-        }
-        if (job.job_type === 'fusion_queue_compute') {
-          queryClient.invalidateQueries({ queryKey: ['fusion-queue'] })
-        }
-        if (job.job_type === 'data_import') {
-          queryClient.invalidateQueries({ queryKey: ['activities'] })
-          queryClient.invalidateQueries({ queryKey: ['tags'] })
-          queryClient.invalidateQueries({ queryKey: ['gear'] })
-          queryClient.invalidateQueries({ queryKey: ['segments'] })
-        }
+        invalidateQueriesForCompletedJob(queryClient, job)
       }
     }
 

@@ -31,7 +31,11 @@ type activityTrackSummaryResponse struct {
 	Summits         []geoTagItem                     `json:"summits"`
 	Waters          []waterItem                      `json:"waters"`
 	Settlements     []geoTagItem                     `json:"settlements"`
-	Settings        *model.EnrichmentSettings        `json:"settings"`
+	Settings        trackSummarySettingsSnapshot     `json:"settings"`
+}
+
+type trackSummarySettingsSnapshot struct {
+	EnableDifficultyScales bool `json:"enable_difficulty_scales"`
 }
 
 type surfaceItem struct {
@@ -259,7 +263,11 @@ func buildTrackSummary(
 	enrichments []trackSummaryEnrichmentRow,
 	geoTags []trackSummaryGeoTagRow,
 ) (*activityTrackSummaryResponse, error) {
-	out := &activityTrackSummaryResponse{Settings: settings}
+	out := &activityTrackSummaryResponse{
+		Settings: trackSummarySettingsSnapshot{
+			EnableDifficultyScales: settings != nil && settings.EnableDifficultyScales,
+		},
+	}
 
 	for _, row := range enrichments {
 		switch row.Category {

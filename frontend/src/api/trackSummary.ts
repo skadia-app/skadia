@@ -1,7 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from './client'
-import type { EnrichmentSettings } from './types'
 import type { CoordRange } from './routes'
+
+export interface TrackSummarySettingsSnapshot {
+  enable_difficulty_scales: boolean
+}
 
 export interface TrackSummarySurfaceItem {
   type: string
@@ -39,7 +42,7 @@ export interface ActivityTrackSummary {
   summits: TrackSummaryGeoTagItem[] | null
   waters: TrackSummaryWaterItem[] | null
   settlements: TrackSummaryGeoTagItem[] | null
-  settings: EnrichmentSettings
+  settings: TrackSummarySettingsSnapshot
 }
 
 export function fetchActivityTrackSummary(activityId: string): Promise<ActivityTrackSummary> {
