@@ -9,11 +9,16 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// TrackResampleSpacingM is the uniform point spacing used when resampling tracks
+// for surface/highway enrichment. Exported so the handler can include it in the
+// API response; the frontend uses it for stream-index mapping.
+const TrackResampleSpacingM = 10.0
+
 const (
-	surfaceMatchToleranceM = 25.0   // max distance GPS point → nearest way
-	surfaceResampleM       = 10.0   // resample track to uniform point spacing
-	surfaceBBoxExpand      = 0.0006 // ST_Expand in degrees (~28m lon at 65°, ~67m lat)
-	surfaceModeWindowSize  = 5      // sliding window for mode filter (5 points = 50m)
+	surfaceMatchToleranceM = 25.0              // max distance GPS point → nearest way
+	surfaceResampleM       = TrackResampleSpacingM // resample track to uniform point spacing
+	surfaceBBoxExpand      = 0.0006            // ST_Expand in degrees (~28m lon at 65°, ~67m lat)
+	surfaceModeWindowSize  = 5                 // sliding window for mode filter (5 points = 50m)
 )
 
 type matchedPoint struct {
@@ -30,7 +35,7 @@ type SurfaceBreakdown struct {
 	Type       string              `json:"type"`
 	LengthM    float64             `json:"length_m"`
 	Percentage float64             `json:"percentage"`
-	Ranges     []edgetags.CoordRange // not serialised; used internally for persistence
+	Ranges     []edgetags.CoordRange `json:"-"` // not serialised; used internally for persistence
 }
 
 func computeSurfaceBreakdownsSQLTx(ctx context.Context, tx pgx.Tx, activityID string) ([]SurfaceBreakdown, []SurfaceBreakdown, error) {

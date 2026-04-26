@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment/edgetags"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
@@ -34,9 +35,18 @@ type activityTrackSummaryResponse struct {
 	Waters          []waterItem                      `json:"waters"`
 	Settlements     []geoTagItem                     `json:"settlements"`
 	Settings        trackSummarySettingsSnapshot     `json:"settings"`
+	// GraphSnapUsed indicates which enrichment path was taken for surface/highway data.
+	// nil = not yet enriched; true = graph (map-snap) path with range data;
+	// false = SQL fallback path (ranges absent). Derived from the presence of
+	// surface_ranges in the persisted enrichment rows — no schema change needed.
+	GraphSnapUsed    *bool   `json:"graph_snap_used"`
+	// ResampleSpacingM is the uniform point spacing used during track resampling.
+	// The frontend uses this for stream-index mapping when interpreting range data.
+	ResampleSpacingM float64 `json:"resample_spacing_m"`
 }
 
 type trackSummarySettingsSnapshot struct {
+	// DEPRECATED 2026-04-26: now mirrors enable_surface_detection. Drop in next API major.
 	EnableDifficultyScales bool `json:"enable_difficulty_scales"`
 }
 
@@ -265,10 +275,13 @@ func buildTrackSummary(
 	enrichments []trackSummaryEnrichmentRow,
 	geoTags []trackSummaryGeoTagRow,
 ) (*activityTrackSummaryResponse, error) {
+	enableSurface := settings != nil && settings.EnableSurfaceDetection
 	out := &activityTrackSummaryResponse{
 		Settings: trackSummarySettingsSnapshot{
-			EnableDifficultyScales: settings != nil && settings.EnableDifficultyScales,
+			// DEPRECATED: mirrors enable_surface_detection; kept for API compatibility.
+			EnableDifficultyScales: enableSurface,
 		},
+		ResampleSpacingM: enrichment.TrackResampleSpacingM,
 	}
 
 	for _, row := range enrichments {
@@ -321,6 +334,25 @@ func buildTrackSummary(
 		case "vf_unknown":
 			out.VfUnknownRanges = row.Ranges
 		}
+	}
+
+	// Derive graph_snap_used via heuristic: if surface enrichments exist and any
+	// surface_ranges are populated the graph (map-snap) path was used; if surface
+	// enrichments exist but all ranges are nil the SQL fallback path was used.
+	// No schema change needed — ranges are already loaded from activity_enrichments.
+	{
+		var hasSurface bool
+		for _, row := range enrichments {
+			if row.Category == "surface" {
+				hasSurface = true
+				break
+			}
+		}
+		if hasSurface {
+			usedGraph := len(out.SurfaceRanges) > 0
+			out.GraphSnapUsed = &usedGraph
+		}
+		// else: GraphSnapUsed stays nil (not yet enriched)
 	}
 
 	for _, row := range geoTags {

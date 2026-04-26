@@ -35,6 +35,11 @@ type activityEnrichmentBackfillCandidate struct {
 	UserID     string
 }
 
+// RunActivityEnrichmentsBackfill re-runs the activity track enrichment pipeline.
+// As of 2026-04-26, candidate selection requires has_gps=true; non-GPS activities
+// are excluded from both dry-run and real run regardless of the Force flag.
+// To clean up stale enrichment rows on activities that lost their has_gps state,
+// use a separate maintenance task — this backfill no longer touches them.
 func RunActivityEnrichmentsBackfill(
 	ctx context.Context,
 	db *database.DB,

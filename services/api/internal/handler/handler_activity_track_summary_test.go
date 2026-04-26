@@ -46,7 +46,10 @@ func TestBuildTrackSummary_JSONShapeNullFieldsAndSettingsSnapshot(t *testing.T) 
 		`"summits":null`,
 		`"waters":null`,
 		`"settlements":null`,
-		`"enable_difficulty_scales":false`,
+		// enable_difficulty_scales is deprecated and now mirrors enable_surface_detection.
+		// With EnableSurfaceDetection=true the value must be true regardless of the
+		// original EnableDifficultyScales setting.
+		`"enable_difficulty_scales":true`,
 	} {
 		if !strings.Contains(jsonBody, want) {
 			t.Fatalf("summary JSON missing %s in %s", want, jsonBody)
