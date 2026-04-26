@@ -140,19 +140,27 @@ func computeForActivityInner[T model.BestEffortPoint](ctx context.Context, store
 			continue
 		}
 
-		efforts = append(efforts, BestEffortRecord{
+		record := BestEffortRecord{
 			ID:             uuid.New().String(),
 			UserID:         info.UserID,
 			ActivityID:     info.ID,
 			Category:       result.Category,
 			SportGroup:     sportGroup,
-			ElapsedTimeS:   new(result.ElapsedTimeS),
 			ValueNumeric:   new(result.ValueNumeric),
 			AchievedAt:     info.StartedAt,
 			StreamStartIdx: new(result.StreamStartIdx),
 			StreamEndIdx:   new(result.StreamEndIdx),
 			Suspicious:     result.Suspicious,
-		})
+		}
+		// Superlatives are ranked purely by value_numeric DESC. ComputeSuperlative
+		// fills ElapsedTimeS with the activity's total duration, which has no meaning
+		// for the ranking — and because rankingOrderExpr sorts elapsed_time_s ASC
+		// first, storing it would let the shortest activity win every superlative.
+		// Leave NULL so the ranking falls through to value_numeric DESC.
+		if cat.Type != TypeValueSuperlative {
+			record.ElapsedTimeS = new(result.ElapsedTimeS)
+		}
+		efforts = append(efforts, record)
 	}
 
 	// Delete before upsert so sport_group changes (e.g. running → running_trail after
