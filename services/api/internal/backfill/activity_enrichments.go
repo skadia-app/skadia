@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	activityEnrichmentsJobType = "backfill_activity_enrichments"
+	ActivityEnrichmentsJobType = "backfill_activity_enrichments"
+	activityEnrichmentsJobType = ActivityEnrichmentsJobType
 	backfillBatchSize          = 100
 	backfillBatchSleep         = time.Second
 )
@@ -24,8 +25,9 @@ var (
 )
 
 type BackfillOptions struct {
-	Force  bool
-	DryRun bool
+	Force      bool
+	DryRun     bool
+	OwnedJobID string
 }
 
 type activityEnrichmentBackfillCandidate struct {
@@ -39,16 +41,8 @@ func RunActivityEnrichmentsBackfill(
 	graphReader routing.GraphReader,
 	opts BackfillOptions,
 ) error {
-	if running, err := db.HasRunningJobGlobal(ctx, "tile_build"); err != nil {
-		return fmt.Errorf("check running tile_build job: %w", err)
-	} else if running {
-		return ErrTileBuildRunning
-	}
-
-	if running, err := db.HasRunningJobGlobal(ctx, activityEnrichmentsJobType); err != nil {
-		return fmt.Errorf("check running activity enrichments backfill: %w", err)
-	} else if running {
-		return ErrBackfillRunning
+	if err := checkActivityEnrichmentsBackfillMutex(ctx, db, opts.OwnedJobID); err != nil {
+		return err
 	}
 
 	candidates, err := listActivityEnrichmentBackfillCandidates(ctx, db, opts.Force)
@@ -61,10 +55,86 @@ func RunActivityEnrichmentsBackfill(
 		"dry_run", opts.DryRun,
 		"force", opts.Force,
 	)
+	if opts.OwnedJobID != "" {
+		_ = db.UpdateBackgroundJobTotal(ctx, opts.OwnedJobID, int64(len(candidates)))
+	}
 	if opts.DryRun {
 		return nil
 	}
 
+	return runActivityEnrichmentsBackfill(ctx, db, graphReader, opts, candidates)
+}
+
+func DryRunActivityEnrichmentsBackfill(ctx context.Context, db *database.DB, opts BackfillOptions) (int, error) {
+	opts.DryRun = true
+	if err := checkActivityEnrichmentsBackfillMutex(ctx, db, opts.OwnedJobID); err != nil {
+		return 0, err
+	}
+
+	candidates, err := listActivityEnrichmentBackfillCandidates(ctx, db, opts.Force)
+	if err != nil {
+		return 0, err
+	}
+	return len(candidates), nil
+}
+
+func checkActivityEnrichmentsBackfillMutex(ctx context.Context, db *database.DB, ownedJobID string) error {
+	if running, err := db.HasRunningJobGlobal(ctx, "tile_build"); err != nil {
+		return fmt.Errorf("check running tile_build job: %w", err)
+	} else if running {
+		return ErrTileBuildRunning
+	}
+
+	if ownedJobID == "" {
+		if running, err := db.HasRunningJobGlobal(ctx, activityEnrichmentsJobType); err != nil {
+			return fmt.Errorf("check running activity enrichments backfill: %w", err)
+		} else if running {
+			return ErrBackfillRunning
+		}
+		return nil
+	}
+
+	var ownsRunningJob bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM background_jobs
+			WHERE id = $1
+			  AND job_type = $2
+			  AND status = 'running'
+		)
+	`, ownedJobID, activityEnrichmentsJobType).Scan(&ownsRunningJob); err != nil {
+		return fmt.Errorf("check owned activity enrichments backfill: %w", err)
+	}
+	if !ownsRunningJob {
+		return ErrBackfillRunning
+	}
+
+	var otherRunning bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM background_jobs
+			WHERE job_type = $1
+			  AND status = 'running'
+			  AND id <> $2
+		)
+	`, activityEnrichmentsJobType, ownedJobID).Scan(&otherRunning); err != nil {
+		return fmt.Errorf("check other activity enrichments backfill: %w", err)
+	}
+	if otherRunning {
+		return ErrBackfillRunning
+	}
+	return nil
+}
+
+func runActivityEnrichmentsBackfill(
+	ctx context.Context,
+	db *database.DB,
+	graphReader routing.GraphReader,
+	opts BackfillOptions,
+	candidates []activityEnrichmentBackfillCandidate,
+) error {
 	for i, candidate := range candidates {
 		settings, err := db.GetEnrichmentSettings(ctx, candidate.UserID)
 		if err != nil {
@@ -98,6 +168,9 @@ func RunActivityEnrichmentsBackfill(
 			continue
 		}
 
+		if opts.OwnedJobID != "" {
+			_ = db.UpdateBackgroundJobProgress(ctx, opts.OwnedJobID, int64(i+1))
+		}
 		if (i+1)%backfillBatchSize == 0 {
 			slog.Info("activity enrichments backfill progress",
 				"done", i+1,
