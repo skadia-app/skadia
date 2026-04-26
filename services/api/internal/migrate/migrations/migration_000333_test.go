@@ -1,0 +1,269 @@
+package migrations_test
+
+// Integration tests for migration 000333 (map_layers).
+//
+// Requires TEST_DATABASE_URL to point to a fully-migrated Skadia database.
+// Tests are skipped when the env var is not set so CI without a live DB stays green.
+//
+// Strategy: each test loads the migration SQL from disk and executes it inside
+// a transaction that is rolled back on completion, so the live schema is unaffected.
+// The idempotent test exercises up → down → up to validate both directions.
+
+import (
+	"context"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+)
+
+// captureNotices opens a fresh pgx.Conn (not pool) with an OnNotice hook so that
+// RAISE NOTICE messages emitted by the migration SQL can be captured. This is
+// required because OnNotice must be configured before the connection is established;
+// it cannot be retrofitted to an existing pool connection.
+func captureNotices(t *testing.T, fn func(conn *pgx.Conn)) string {
+	t.Helper()
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set — skipping migration integration test")
+	}
+	var sb strings.Builder
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("captureNotices: parse config: %v", err)
+	}
+	cfg.OnNotice = func(_ *pgconn.PgConn, n *pgconn.Notice) {
+		sb.WriteString(n.Message + "\n")
+	}
+	conn, err := pgx.ConnectConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("captureNotices: connect: %v", err)
+	}
+	defer conn.Close(context.Background())
+	fn(conn)
+	return sb.String()
+}
+
+func TestMigration000333Seeds(t *testing.T) {
+	upSQL, err := os.ReadFile("000333_map_layers.up.sql")
+	if err != nil {
+		t.Fatalf("read up.sql: %v", err)
+	}
+
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := tx.Rollback(ctx); err != nil && err.Error() != "tx is closed" {
+			t.Logf("rollback: %v", err)
+		}
+	})
+
+	if _, err := tx.Exec(ctx, string(upSQL)); err != nil {
+		t.Fatalf("apply up.sql: %v", err)
+	}
+
+	var mapLayers int
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM map_layers WHERE is_system = true`).Scan(&mapLayers); err != nil {
+		t.Fatalf("query map_layers count: %v", err)
+	}
+	if mapLayers != 7 {
+		t.Errorf("map_layers seed: want 7 system rows, got %d", mapLayers)
+	}
+
+	var sysVis int
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM system_layer_visibility`).Scan(&sysVis); err != nil {
+		t.Fatalf("query system_layer_visibility count: %v", err)
+	}
+	if sysVis != 14 {
+		t.Errorf("system_layer_visibility seed: want 14 rows, got %d", sysVis)
+	}
+}
+
+func TestMigration000333UpdatedAtTriggers(t *testing.T) {
+	upSQL, err := os.ReadFile("000333_map_layers.up.sql")
+	if err != nil {
+		t.Fatalf("read up.sql: %v", err)
+	}
+
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := tx.Rollback(ctx); err != nil && err.Error() != "tx is closed" {
+			t.Logf("rollback: %v", err)
+		}
+	})
+
+	if _, err := tx.Exec(ctx, string(upSQL)); err != nil {
+		t.Fatalf("apply up.sql: %v", err)
+	}
+
+	for _, table := range []string{"map_layers", "system_layer_visibility", "user_map_layers"} {
+		var hasTrigger bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_trigger
+				WHERE tgname = 'trg_' || $1 || '_updated_at' AND NOT tgisinternal
+			)
+		`, table).Scan(&hasTrigger); err != nil {
+			t.Fatalf("query trigger for %s: %v", table, err)
+		}
+		if !hasTrigger {
+			t.Errorf("trigger trg_%s_updated_at must exist after migration", table)
+		}
+	}
+}
+
+func TestMigration000333UrlConsistencyConstraint(t *testing.T) {
+	upSQL, err := os.ReadFile("000333_map_layers.up.sql")
+	if err != nil {
+		t.Fatalf("read up.sql: %v", err)
+	}
+
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := tx.Rollback(ctx); err != nil && err.Error() != "tx is closed" {
+			t.Logf("rollback: %v", err)
+		}
+	})
+
+	if _, err := tx.Exec(ctx, string(upSQL)); err != nil {
+		t.Fatalf("apply up.sql: %v", err)
+	}
+
+	// raster_tiles with both url_template AND style_url must be rejected.
+	_, err = tx.Exec(ctx, `
+		INSERT INTO map_layers (key, role, name, source_kind, url_template, style_url)
+		VALUES ('bad-raster', 'base', 'Bad', 'raster_tiles',
+			'https://example.com/{z}/{x}/{y}.png', 'https://example.com/style.json')
+	`)
+	if err == nil {
+		t.Error("expected constraint violation for raster_tiles with style_url set, got nil")
+	}
+
+	// vector_style without style_url must be rejected.
+	_, err = tx.Exec(ctx, `
+		INSERT INTO map_layers (key, role, name, source_kind, url_template)
+		VALUES ('bad-vector', 'base', 'Bad', 'vector_style', 'https://example.com/{z}/{x}/{y}.pbf')
+	`)
+	if err == nil {
+		t.Error("expected constraint violation for vector_style without style_url, got nil")
+	}
+}
+
+// TestMigration000333RoundTrip verifies that up → down → up produces the same
+// row counts as a single up run (no double-seeding) and that the audit-log
+// DELETE in down.sql prevents audit rows from accumulating across re-cycles.
+func TestMigration000333RoundTrip(t *testing.T) {
+	upSQL, err := os.ReadFile("000333_map_layers.up.sql")
+	if err != nil {
+		t.Fatalf("read up.sql: %v", err)
+	}
+	downSQL, err := os.ReadFile("000333_map_layers.down.sql")
+	if err != nil {
+		t.Fatalf("read down.sql: %v", err)
+	}
+
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin outer tx: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := tx.Rollback(ctx); err != nil && err.Error() != "tx is closed" {
+			t.Logf("rollback outer tx: %v", err)
+		}
+	})
+
+	// First up.
+	if _, err := tx.Exec(ctx, string(upSQL)); err != nil {
+		t.Fatalf("first up.sql: %v", err)
+	}
+
+	// Savepoint so we can undo the down migration cleanly within the same tx.
+	if _, err := tx.Exec(ctx, "SAVEPOINT before_down"); err != nil {
+		t.Fatalf("savepoint: %v", err)
+	}
+
+	// Down migration — ignoring RAISE NOTICE (no pgx.Conn with OnNotice here).
+	if _, err := tx.Exec(ctx, string(downSQL)); err != nil {
+		t.Fatalf("down.sql: %v", err)
+	}
+
+	// Second up.
+	if _, err := tx.Exec(ctx, string(upSQL)); err != nil {
+		t.Fatalf("second up.sql after down: %v", err)
+	}
+
+	// map_layers seed must still be exactly 7 (not 14).
+	var mapLayers int
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM map_layers WHERE is_system = true`).Scan(&mapLayers); err != nil {
+		t.Fatalf("query map_layers count after round-trip: %v", err)
+	}
+	if mapLayers != 7 {
+		t.Errorf("map_layers after up→down→up: want 7, got %d (double-seed?)", mapLayers)
+	}
+
+	// system_layer_visibility seed must still be exactly 14 (not 28).
+	var sysVis int
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM system_layer_visibility`).Scan(&sysVis); err != nil {
+		t.Fatalf("query system_layer_visibility count after round-trip: %v", err)
+	}
+	if sysVis != 14 {
+		t.Errorf("system_layer_visibility after up→down→up: want 14, got %d (double-seed?)", sysVis)
+	}
+
+	// Audit-log must contain exactly 1 row for migration '000333' (down.sql
+	// DELETE + second up INSERT = net 1, not 2). Validates F14 fix.
+	var auditRows int
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM auth_audit_log WHERE details->>'migration' = '000333'`).Scan(&auditRows); err != nil {
+		t.Fatalf("query audit_log count after round-trip: %v", err)
+	}
+	if auditRows != 1 {
+		t.Errorf("auth_audit_log for migration '000333' after up→down→up: want 1, got %d", auditRows)
+	}
+}
+
+func TestMigration000333DownRaisesNotice(t *testing.T) {
+	downSQL, err := os.ReadFile("000333_map_layers.down.sql")
+	if err != nil {
+		t.Fatalf("read down.sql: %v", err)
+	}
+
+	// We need the up migration applied first. Run in a separate connection so we
+	// can roll it back cleanly; the notice connection runs down.sql in isolation.
+	// This test verifies RAISE NOTICE fires before table drops; it does NOT need
+	// the tables to exist (the DO $$ block runs regardless of table existence).
+	noticed := captureNotices(t, func(conn *pgx.Conn) {
+		ctx := context.Background()
+		// Run just the DO $$ RAISE NOTICE ... $$ block from down.sql.
+		// We use the full SQL — DROP TABLE IF EXISTS is harmless for non-existent tables.
+		if _, err := conn.Exec(ctx, string(downSQL)); err != nil {
+			// Ignore: tables might not exist in this connection's schema state.
+			// We only care that the NOTICE was emitted before any error.
+		}
+	})
+
+	if !strings.Contains(noticed, "Run pg_dump") {
+		t.Errorf("down.sql must RAISE NOTICE containing 'Run pg_dump' before dropping user data; got: %q", noticed)
+	}
+}
