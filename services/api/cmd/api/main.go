@@ -25,6 +25,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/dataimport"
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/garmin"
 	"github.com/skadia-app/skadia/services/api/internal/handler"
@@ -618,6 +619,10 @@ func main() {
 		slog.Warn("KOMOOT_ENCRYPTION_KEY is not set — Komoot import will be unavailable until configured")
 	}
 
+	// DEM Service — lazy mmap per HGT cell, shared across all requests.
+	// Closed after HTTP shutdown so in-flight requests always have a valid service.
+	demSvc := dem.NewService(dem.HGTDirsForConfig(cfg.DEMDataDir))
+
 	// Build the ImportService which holds the shared post-processing pipeline.
 	// The SegmentMatcher callback is wired after the Handler is created
 	// (it references handler methods), so we set it below.
@@ -633,6 +638,7 @@ func main() {
 		ShadowFS:       store,
 		ShadowFSConfig: shadowFSCfg,
 		ImportService:  importSvc,
+		DEMSvc:         demSvc,
 		Config: &handler.HandlerConfig{
 			LiteLLMConfigPath:   cfg.LiteLLMConfigPath,
 			LiteLLMInternalURL:  cfg.LiteLLMInternalURL,
@@ -1686,6 +1692,9 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("server forced to shutdown", "error", err)
 	}
+
+	// Release mmap'd DEM grids after all HTTP requests have drained.
+	demSvc.Close()
 
 	slog.Info("server stopped")
 }
