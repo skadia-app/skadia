@@ -58,6 +58,11 @@ func getEnrichmentStream(ctx context.Context, db *database.DB, activityID string
 	return pts, nil
 }
 
+// GetEnrichmentStream loads stream rows for callers outside this package.
+func GetEnrichmentStream(ctx context.Context, db *database.DB, activityID string) ([]EnrichmentStreamPoint, error) {
+	return getEnrichmentStream(ctx, db, activityID)
+}
+
 // StreamEnrichmentSettings contains the per-user flags that gate individual
 // stream-enrichment modules. Pass allStreamEnabled() to run every module
 // regardless of user preferences.
