@@ -6,18 +6,12 @@ import (
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/enrichment/edgetags"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-func TestBuildTrackSummary_JSONShapeNullFieldsAndSettingsSnapshot(t *testing.T) {
+func TestBuildTrackSummary_JSONShapeNullFields(t *testing.T) {
 	forestPct := 61.5
-	settings := &model.EnrichmentSettings{
-		UserID:                 "user-1",
-		EnableSurfaceDetection: true,
-		EnableDifficultyScales: false,
-	}
 
-	summary, err := buildTrackSummary(settings, []trackSummaryEnrichmentRow{
+	summary, err := buildTrackSummary([]trackSummaryEnrichmentRow{
 		{Category: "forest_pct", Percentage: forestPct, Ranges: []edgetags.CoordRange{{From: 2, To: 5}}},
 		{Category: "surface", Type: "asphalt", Percentage: 75, LengthM: ptrFloat64(1500)},
 		{Category: "highway", Type: "track", Percentage: 25, LengthM: ptrFloat64(500)},
@@ -46,18 +40,19 @@ func TestBuildTrackSummary_JSONShapeNullFieldsAndSettingsSnapshot(t *testing.T) 
 		`"summits":null`,
 		`"waters":null`,
 		`"settlements":null`,
-		// enable_difficulty_scales is deprecated and now mirrors enable_surface_detection.
-		// With EnableSurfaceDetection=true the value must be true regardless of the
-		// original EnableDifficultyScales setting.
-		`"enable_difficulty_scales":true`,
 	} {
 		if !strings.Contains(jsonBody, want) {
 			t.Fatalf("summary JSON missing %s in %s", want, jsonBody)
 		}
 	}
+	// The deprecated `settings` envelope (and its `enable_difficulty_scales`
+	// mirror) was removed — no consumer ever read it. Guard against accidental
+	// reintroduction.
 	for _, unwanted := range []string{
 		`"user_id":`,
 		`"enable_surface_detection":`,
+		`"enable_difficulty_scales":`,
+		`"settings":`,
 	} {
 		if strings.Contains(jsonBody, unwanted) {
 			t.Fatalf("summary JSON unexpectedly contains %s in %s", unwanted, jsonBody)
@@ -67,7 +62,7 @@ func TestBuildTrackSummary_JSONShapeNullFieldsAndSettingsSnapshot(t *testing.T) 
 
 func TestBuildTrackSummary_GroupsScalesAndGeoTags(t *testing.T) {
 	trackPos := 0.42
-	summary, err := buildTrackSummary(&model.EnrichmentSettings{}, []trackSummaryEnrichmentRow{
+	summary, err := buildTrackSummary([]trackSummaryEnrichmentRow{
 		{Category: "sac_scale", Type: "T3", Percentage: 12, Ranges: []edgetags.CoordRange{{From: 1, To: 3}}},
 		{Category: "mtb_scale", Type: "S1", Percentage: 8, Ranges: []edgetags.CoordRange{{From: 4, To: 7}}},
 		{Category: "vf_scale", Type: "K2", Percentage: 4, Ranges: []edgetags.CoordRange{{From: 8, To: 9}}},
@@ -105,7 +100,7 @@ func TestBuildTrackSummary_GroupsScalesAndGeoTags(t *testing.T) {
 }
 
 func TestBuildTrackSummary_SurfaceAndHighwayRanges(t *testing.T) {
-	summary, err := buildTrackSummary(&model.EnrichmentSettings{}, []trackSummaryEnrichmentRow{
+	summary, err := buildTrackSummary([]trackSummaryEnrichmentRow{
 		{
 			Category:   "surface",
 			Type:       "asphalt",
@@ -169,7 +164,7 @@ func TestBuildTrackSummary_SurfaceAndHighwayRanges(t *testing.T) {
 
 func TestBuildTrackSummary_SurfaceRangesNullWhenAbsent(t *testing.T) {
 	// Surface rows without ranges → surface_ranges must be null in JSON.
-	summary, err := buildTrackSummary(&model.EnrichmentSettings{}, []trackSummaryEnrichmentRow{
+	summary, err := buildTrackSummary([]trackSummaryEnrichmentRow{
 		{Category: "surface", Type: "asphalt", Percentage: 100, LengthM: ptrFloat64(2000)},
 	}, nil, nil)
 	if err != nil {
@@ -192,7 +187,7 @@ func TestBuildTrackSummary_SurfaceRangesNullWhenAbsent(t *testing.T) {
 func TestBuildTrackSummary_GraphSnapUsedFromMeta(t *testing.T) {
 	// No surface rows but path='graph' → graph_snap_used must be true.
 	pathGraph := "graph"
-	summary, err := buildTrackSummary(&model.EnrichmentSettings{}, nil, nil, &pathGraph)
+	summary, err := buildTrackSummary(nil, nil, &pathGraph)
 	if err != nil {
 		t.Fatalf("buildTrackSummary: %v", err)
 	}
@@ -205,7 +200,7 @@ func TestBuildTrackSummary_GraphSnapUsedFromMeta(t *testing.T) {
 
 	// path='sql' → graph_snap_used must be false, even if surface rows with ranges exist.
 	pathSQL := "sql"
-	summarySQL, err := buildTrackSummary(&model.EnrichmentSettings{}, []trackSummaryEnrichmentRow{
+	summarySQL, err := buildTrackSummary([]trackSummaryEnrichmentRow{
 		{Category: "surface", Type: "asphalt", Percentage: 100, LengthM: ptrFloat64(1000),
 			Ranges: []edgetags.CoordRange{{From: 0, To: 50}}},
 	}, nil, &pathSQL)
@@ -220,7 +215,7 @@ func TestBuildTrackSummary_GraphSnapUsedFromMeta(t *testing.T) {
 	}
 
 	// nil enrichmentPath (not yet enriched) → graph_snap_used must be nil.
-	summaryNil, err := buildTrackSummary(&model.EnrichmentSettings{}, []trackSummaryEnrichmentRow{
+	summaryNil, err := buildTrackSummary([]trackSummaryEnrichmentRow{
 		{Category: "surface", Type: "asphalt", Percentage: 100, LengthM: ptrFloat64(1000),
 			Ranges: []edgetags.CoordRange{{From: 0, To: 50}}},
 	}, nil, nil)
@@ -235,7 +230,7 @@ func TestBuildTrackSummary_GraphSnapUsedFromMeta(t *testing.T) {
 // TestBuildTrackSummary_ResampleSpacingMPresent verifies that resample_spacing_m
 // is always present in the JSON response.
 func TestBuildTrackSummary_ResampleSpacingMPresent(t *testing.T) {
-	summary, err := buildTrackSummary(&model.EnrichmentSettings{}, nil, nil, nil)
+	summary, err := buildTrackSummary(nil, nil, nil)
 	if err != nil {
 		t.Fatalf("buildTrackSummary: %v", err)
 	}

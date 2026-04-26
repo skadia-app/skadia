@@ -15,7 +15,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/enrichment/edgetags"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 type activityTrackSummaryResponse struct {
@@ -34,7 +33,6 @@ type activityTrackSummaryResponse struct {
 	Summits         []geoTagItem                     `json:"summits"`
 	Waters          []waterItem                      `json:"waters"`
 	Settlements     []geoTagItem                     `json:"settlements"`
-	Settings        trackSummarySettingsSnapshot     `json:"settings"`
 	// GraphSnapUsed indicates which enrichment path was taken for surface/highway data.
 	// nil = not yet enriched; true = graph (map-snap) path with range data;
 	// false = SQL fallback path (ranges absent). Read from activity_enrichment_meta,
@@ -43,11 +41,6 @@ type activityTrackSummaryResponse struct {
 	// ResampleSpacingM is the uniform point spacing used during track resampling.
 	// The frontend uses this for stream-index mapping when interpreting range data.
 	ResampleSpacingM float64 `json:"resample_spacing_m"`
-}
-
-type trackSummarySettingsSnapshot struct {
-	// DEPRECATED 2026-04-26: now mirrors enable_surface_detection. Drop in next API major.
-	EnableDifficultyScales bool `json:"enable_difficulty_scales"`
 }
 
 type surfaceItem struct {
@@ -133,13 +126,6 @@ func (h *Handler) ActivityTrackSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	settings, err := h.DB.GetEnrichmentSettings(r.Context(), userID)
-	if err != nil {
-		slog.Error("activity track summary: settings lookup failed", "user_id", userID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load enrichment settings", r.URL.Path)
-		return
-	}
-
 	enrichmentRows, err := h.readTrackSummaryEnrichments(r, activityID)
 	if err != nil {
 		slog.Error("activity track summary: enrichment lookup failed", "activity_id", activityID, "error", err)
@@ -162,7 +148,7 @@ func (h *Handler) ActivityTrackSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	summary, err := buildTrackSummary(settings, enrichmentRows, geoTagRows, enrichmentPath)
+	summary, err := buildTrackSummary(enrichmentRows, geoTagRows, enrichmentPath)
 	if err != nil {
 		slog.Error("activity track summary: build failed", "activity_id", activityID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to build track summary", r.URL.Path)
@@ -297,17 +283,11 @@ func decodeTrackSummaryRanges(raw []byte) ([]edgetags.CoordRange, error) {
 }
 
 func buildTrackSummary(
-	settings *model.EnrichmentSettings,
 	enrichments []trackSummaryEnrichmentRow,
 	geoTags []trackSummaryGeoTagRow,
 	enrichmentPath *string,
 ) (*activityTrackSummaryResponse, error) {
-	enableSurface := settings != nil && settings.EnableSurfaceDetection
 	out := &activityTrackSummaryResponse{
-		Settings: trackSummarySettingsSnapshot{
-			// DEPRECATED: mirrors enable_surface_detection; kept for API compatibility.
-			EnableDifficultyScales: enableSurface,
-		},
 		ResampleSpacingM: enrichment.TrackResampleSpacingM,
 	}
 
