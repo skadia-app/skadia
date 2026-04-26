@@ -58,7 +58,7 @@ const ANALYSIS_MODULES: AnalysisModule[] = [
 
 function AutomatischeAnalysenSection() {
   const { addToast } = useToast()
-  const { isAdmin, user } = useUser()
+  const { isAdmin } = useUser()
 
   const { settings, isLoading, isError, mutation: mut } = useEnrichmentSettings()
 

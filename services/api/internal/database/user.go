@@ -209,8 +209,7 @@ var ErrEmailCollision = fmt.Errorf("email already registered")
 const allUserColumns = `id, username, display_name, email, is_admin, is_active,
 	created_at, updated_at, password_hash, email_verified, registration_source,
 	password_changed_at, last_login_at, failed_login_count, login_delay_until,
-	deleted_at, must_change_password, pending_email, COALESCE(timezone, ''), pending_approval,
-	pending_approval`
+	deleted_at, must_change_password, pending_email, COALESCE(timezone, ''), pending_approval`
 
 // scanUser scans a row into a model.User using the allUserColumns column order.
 func scanUser(row pgx.Row) (*model.User, error) {
