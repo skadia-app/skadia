@@ -851,48 +851,45 @@ export default function ActivityDetailPage() {
         />
       )}
 
-      {/* Track-Zusammenfassung + Wege/Oberflächen (nicht für Multisport) */}
+      {/* Track-Zusammenfassung + Wege/Oberflächen + Karte als zusammenhängender Block (nicht für Multisport) */}
       {activity.sport_type !== 'multisport' && (
-        !trackSummaryQuery.isError && (
-          <TrackSummary
-            summary={trackSummaryQuery.data}
-            ascentM={activity.elevation_gain_m}
-            descentM={activity.elevation_loss_m}
-            onSymbolHover={handleTrackSummarySymbolHover}
-            onSymbolLeave={handleTrackSummarySymbolLeave}
-          >
-            {!hiddenModules.has('surfaces') && (
-              <SurfacesSection
-                summary={trackSummaryQuery.data ?? null}
-              />
-            )}
-          </TrackSummary>
-        )
-      )}
-
-      {/* Map (nicht für Multisport-Parent — die Karte ist oben in der Multisport-Sektion) */}
-      {activity.sport_type !== 'multisport' && (
-        <div ref={mapContainerRef}>
-          <TrackMap
-            activityId={activity.id}
-            streams={streams ?? []}
-            streamsLoading={streamsLoading}
-            hoverIndex={hoverIndex}
-            sportColor={sportColor(activity.sport_type)}
-            sportType={activity.sport_type}
-            fitSportId={activity.fit_sport_id}
-            hasGps={activity.has_gps}
-            zoomRange={zoomRange}
-            onMaximize={() => setMapFullscreen(true)}
-            geoTags={mapGeoTags}
-            stops={stops}
-            highlightedPois={highlightedPois}
-            highlightedPoiHoverKind={highlightedPoiHoverKind}
-            locationPin={assignedLocationTag && assignedLocationTag.lat != null && assignedLocationTag.lng != null
-              ? { lat: assignedLocationTag.lat, lng: assignedLocationTag.lng, name: assignedLocationTag.name, color: assignedLocationTag.color }
-              : undefined}
-          />
-        </div>
+        <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 space-y-4">
+          {!trackSummaryQuery.isError && (
+            <TrackSummary
+              summary={trackSummaryQuery.data}
+              sportType={activity.sport_type}
+              onSymbolHover={handleTrackSummarySymbolHover}
+              onSymbolLeave={handleTrackSummarySymbolLeave}
+            >
+              {!hiddenModules.has('surfaces') && (
+                <SurfacesSection
+                  summary={trackSummaryQuery.data ?? null}
+                />
+              )}
+            </TrackSummary>
+          )}
+          <div ref={mapContainerRef}>
+            <TrackMap
+              activityId={activity.id}
+              streams={streams ?? []}
+              streamsLoading={streamsLoading}
+              hoverIndex={hoverIndex}
+              sportColor={sportColor(activity.sport_type)}
+              sportType={activity.sport_type}
+              fitSportId={activity.fit_sport_id}
+              hasGps={activity.has_gps}
+              zoomRange={zoomRange}
+              onMaximize={() => setMapFullscreen(true)}
+              geoTags={mapGeoTags}
+              stops={stops}
+              highlightedPois={highlightedPois}
+              highlightedPoiHoverKind={highlightedPoiHoverKind}
+              locationPin={assignedLocationTag && assignedLocationTag.lat != null && assignedLocationTag.lng != null
+                ? { lat: assignedLocationTag.lat, lng: assignedLocationTag.lng, name: assignedLocationTag.name, color: assignedLocationTag.color }
+                : undefined}
+            />
+          </div>
+        </section>
       )}
 
       {/* Map fullscreen overlay */}

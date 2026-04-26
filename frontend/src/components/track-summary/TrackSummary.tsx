@@ -12,8 +12,7 @@ const VF_ORDER = ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'] as const
 
 interface TrackSummaryProps {
   summary: ActivityTrackSummary | undefined
-  ascentM?: number | null
-  descentM?: number | null
+  sportType?: string
   onSymbolHover?: StatsRowProps['onSymbolHover']
   onSymbolLeave?: StatsRowProps['onSymbolLeave']
   children?: ReactNode
@@ -71,8 +70,7 @@ function LoadingShell() {
 
 export function TrackSummary({
   summary,
-  ascentM,
-  descentM,
+  sportType,
   onSymbolHover,
   onSymbolLeave,
   children,
@@ -88,8 +86,6 @@ export function TrackSummary({
   return (
     <section data-testid="track-summary" className="space-y-3">
       <StatsRow
-        ascentM={ascentM}
-        descentM={descentM}
         forestPct={summary.forest_pct}
         protectedPct={summary.protected_pct}
         summits={summits}
@@ -98,7 +94,7 @@ export function TrackSummary({
         sacAggregate={pickMaxScale(summary.sac_ranges, SAC_ORDER)}
         mtbAggregate={pickMaxScale(summary.mtb_ranges, MTB_ORDER)}
         vfAggregate={pickVfAggregate(summary)}
-        scalesDisabled={!summary.settings.enable_difficulty_scales}
+        sportType={sportType}
         onSymbolHover={onSymbolHover}
         onSymbolLeave={onSymbolLeave}
       />

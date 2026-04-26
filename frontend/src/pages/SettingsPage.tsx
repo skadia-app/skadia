@@ -48,8 +48,7 @@ const ANALYSIS_MODULES: AnalysisModule[] = [
   { label: 'Grenzüberquerungen',      description: 'Erkennt überquerte Ländergrenzen.',                                               field: 'enable_border_detection',    requiresML: false },
   { label: 'Stopps & Einkehr',        description: 'Erkennt Aufenthalte und Restaurantbesuche (≥10 min).',                            field: 'enable_stop_detection',      requiresML: false },
   { label: 'Lifte / Seilbahnen',      description: 'Erkennt Gondelbahnen und Sessellifte.',                                           field: 'enable_lift_detection',      requiresML: true  },
-  { label: 'Untergrundtypen',         description: 'Erkennt Wegtypen, Oberflächen sowie Wald-/Schutzgebietsanteile aus einem gemeinsamen OSM-Snap.', field: 'enable_surface_detection',   requiresML: false },
-  { label: 'Schwierigkeitsskalen',    description: 'Erkennt SAC- (Wandern), S-Skala (MTB) und Klettersteig-Schwierigkeit.',          field: 'enable_difficulty_scales',   requiresML: false },
+  { label: 'Untergrundtypen',         description: 'Erkennt Wegtypen, Oberflächen und Wald-/Schutzgebietsanteile sowie Schwierigkeiten.',         field: 'enable_surface_detection',   requiresML: false },
   { label: 'Anstiege',                description: 'Erkennt und klassifiziert Anstiege.',                                             field: 'enable_ascent_detection',    requiresML: false },
   { label: 'Intervalltraining',       description: 'Erkennt Trainingsintervalle automatisch.',                                        field: 'enable_interval_detection',  requiresML: false },
   { label: 'Rundenerkennung',         description: 'Erkennt automatisch Runden/Laps bei Aktivitäten auf Rundkursen.',                 field: 'enable_lap_detection',       requiresML: false },
@@ -120,7 +119,14 @@ function AutomatischeAnalysenSection() {
                 checked={enabled && !mlUnavailable}
                 onChange={() => {
                   if (!settings) return
-                  mut.mutate({ [module.field]: !(settings[module.field] ?? true) })
+                  const next = !(settings[module.field] ?? true)
+                  // Difficulty-scales share the same OSM-snap pipeline as surface detection.
+                  // Keep enable_difficulty_scales in sync so the backend gate fires correctly.
+                  const patch: Partial<EnrichmentSettings> = { [module.field]: next }
+                  if (module.field === 'enable_surface_detection') {
+                    patch.enable_difficulty_scales = next
+                  }
+                  mut.mutate(patch)
                 }}
                 disabled={isLoading || mut.isPending || mlUnavailable}
                 className="mt-0.5"
