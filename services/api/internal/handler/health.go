@@ -8,6 +8,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/auth"
 	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -30,6 +31,8 @@ type Handler struct {
 	CoverageBaseDir string                       // base directory for FCOV coverage files
 	CoverageReader  *coverage.DiskCoverageReader // nil when coverage binaries are not available
 	PNGCache        *coverage.PNGCache           // LRU cache for rendered PNG tiles
+
+	DEMSvc *dem.Service // lazy mmap'd HGT service; nil when not configured
 
 	PMC          *pmc.Service          // TSS/PMC recomputation service
 	BestEfforts  *bestefforts.Service  // best effort computation service
@@ -164,7 +167,30 @@ func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 		status["s3"] = "not configured"
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, status)
+	// DEM service health — nil when not configured (e.g. in tests).
+	demHealth := map[string]any{}
+	if h.DEMSvc != nil {
+		dh := h.DEMSvc.Health()
+		if len(dh.CorruptCells) > 0 {
+			status["status"] = "degraded"
+			demHealth["corrupt_cells"] = dh.CorruptCells
+		}
+		if dh.Closed {
+			demHealth["status"] = "closed"
+		} else {
+			demHealth["status"] = "ok"
+		}
+	} else {
+		demHealth["status"] = "not configured"
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"status": status["status"],
+		"db":     status["db"],
+		"nats":   status["nats"],
+		"s3":     status["s3"],
+		"dem":    demHealth,
+	})
 }
 
 // importAllowedDirs returns the configured import allowed directories,
