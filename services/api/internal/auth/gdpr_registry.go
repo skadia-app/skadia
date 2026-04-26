@@ -114,7 +114,6 @@ var GDPRRegistry = map[string]TableCategory{
 	"activity_stops":            Derived,
 	"activity_streams":          Derived,
 	"activity_enrichments":      Derived,
-	"activity_surfaces":         Derived,
 	"activity_tag_removals":     Derived,
 	"activity_time_in_zone":     Derived, // FIT-zone data, cascades from activities
 	"activity_tracks":           Derived,
