@@ -40,6 +40,7 @@ import { apiFetch } from '@/lib/auth'
 import type { GeoTag, ActivityStop } from '@/api/types'
 import { fetchActivityBestEfforts } from '@/api/bestEfforts'
 import { useActivityTrackSummary } from '@/api/trackSummary'
+import type { TrackSummaryGeoTagItem, TrackSummaryWaterItem } from '@/api/trackSummary'
 import { BestEffortBadges } from '@/components/BestEffortBadges'
 import MultisportSection from '@/components/MultisportSection'
 import { MultisportMap, type MultisportMapHandle } from '@/components/activity/MultisportMap'
@@ -62,13 +63,14 @@ import { RadarSummary } from '@/components/activity/RadarSummary'
 import { RadarDensityChart } from '@/components/activity/RadarDensityChart'
 import { SensorList } from '@/components/activity/SensorList'
 import ActivityHeader from '@/components/activity/ActivityHeader'
-import TrackMap from '@/components/activity/TrackMap'
+import TrackMap, { type HighlightedPoi, type HighlightedPoiHoverKind } from '@/components/activity/TrackMap'
 import TagsBadges from '@/components/activity/TagsBadges'
 import ZoneDistributionChart from '@/components/activity/ZoneDistributionChart'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
 import { HealthContextCards } from '@/components/activity/HealthContextCards'
 import { RunningFormCard } from '@/components/RunningFormCard'
 import { useToast } from '@/lib/toast'
+import TrackSummary from '@/components/track-summary/TrackSummary'
 
 function getSportEmoji(sportType: string): string {
   const map: Record<string, string> = {
@@ -209,6 +211,7 @@ export default function ActivityDetailPage() {
   const [hoveredClimbRange, setHoveredClimbRange] = useState<{ startKm: number; endKm: number } | null>(null)
   const [mapFullscreen, setMapFullscreen] = useState(false)
   const [hoveredChildId, setHoveredChildId] = useState<string | null>(null)
+  const [highlightedPoiHoverKind, setHighlightedPoiHoverKind] = useState<HighlightedPoiHoverKind | null>(null)
   const multisportMapRef = useRef<MultisportMapHandle>(null)
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const [mapInView, setMapInView] = useState(true)
@@ -375,6 +378,86 @@ export default function ActivityDetailPage() {
       multisportMapRef.current?.setHoverPoint({ lat: pt.lat, lng: pt.lng })
     }
   }, [multisportChartData])
+
+  const gpsStreams = useMemo(
+    () => (streams ?? []).filter((s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null),
+    [streams],
+  )
+
+  const highlightedPois = useMemo<HighlightedPoi[]>(() => {
+    const summary = trackSummaryQuery.data
+    if (!summary || activity?.sport_type === 'multisport') return []
+
+    const resolveCoords = (item: TrackSummaryGeoTagItem | TrackSummaryWaterItem) => {
+      if (item.track_pos != null && gpsStreams.length > 0) {
+        const idx = Math.max(0, Math.min(gpsStreams.length - 1, Math.round(item.track_pos * (gpsStreams.length - 1))))
+        const point = gpsStreams[idx]
+        if (point) return { lat: point.lat, lng: point.lng }
+      }
+      if (item.lat != null && item.lng != null) return { lat: item.lat, lng: item.lng }
+      return null
+    }
+
+    const pois: HighlightedPoi[] = []
+    for (const item of summary.summits ?? []) {
+      const coords = resolveCoords(item)
+      if (!coords) continue
+      const category = item.category === 'pass' ? 'pass' : 'summit'
+      pois.push({
+        id: `summary-${category}-${item.id}`,
+        category,
+        name: item.name,
+        lat: coords.lat,
+        lng: coords.lng,
+        trackPos: item.track_pos,
+        distM: item.dist_m,
+        eleM: item.ele_m,
+      })
+    }
+    for (const item of summary.waters ?? []) {
+      const coords = resolveCoords(item)
+      if (!coords) continue
+      pois.push({
+        id: `summary-water-${item.id}`,
+        category: item.kind === 'still' ? 'still_water' : 'flowing_water',
+        name: item.name,
+        lat: coords.lat,
+        lng: coords.lng,
+        trackPos: item.track_pos,
+        distM: item.dist_m,
+        eleM: item.ele_m,
+      })
+    }
+    for (const item of summary.settlements ?? []) {
+      const coords = resolveCoords(item)
+      if (!coords) continue
+      pois.push({
+        id: `summary-settlement-${item.id}`,
+        category: 'settlement',
+        name: item.name,
+        lat: coords.lat,
+        lng: coords.lng,
+        trackPos: item.track_pos,
+        distM: item.dist_m,
+        eleM: item.ele_m,
+      })
+    }
+
+    return pois.sort((a, b) => (a.distM ?? Number.MAX_SAFE_INTEGER) - (b.distM ?? Number.MAX_SAFE_INTEGER))
+  }, [activity?.sport_type, gpsStreams, trackSummaryQuery.data])
+
+  const mapGeoTags = useMemo(() => {
+    if (!highlightedPois.some(p => p.category === 'summit' || p.category === 'pass')) return geoTags
+    return geoTags?.filter(t => t.category !== 'summit' && t.category !== 'pass')
+  }, [geoTags, highlightedPois])
+
+  const handleTrackSummarySymbolHover = useCallback((kind: HighlightedPoiHoverKind) => {
+    setHighlightedPoiHoverKind(kind)
+  }, [])
+
+  const handleTrackSummarySymbolLeave = useCallback(() => {
+    setHighlightedPoiHoverKind(null)
+  }, [])
 
   // Tags für Standort-Sektion bei Indoor-Aktivitäten laden
   const { data: allTagsForLocation = [] } = useQuery({
@@ -782,13 +865,42 @@ export default function ActivityDetailPage() {
             hasGps={activity.has_gps}
             zoomRange={zoomRange}
             onMaximize={() => setMapFullscreen(true)}
-            geoTags={geoTags}
+            geoTags={mapGeoTags}
             stops={stops}
+            highlightedPois={highlightedPois}
+            highlightedPoiHoverKind={highlightedPoiHoverKind}
             locationPin={assignedLocationTag && assignedLocationTag.lat != null && assignedLocationTag.lng != null
               ? { lat: assignedLocationTag.lat, lng: assignedLocationTag.lng, name: assignedLocationTag.name, color: assignedLocationTag.color }
               : undefined}
           />
         </div>
+      )}
+
+      {/* Track-Zusammenfassung + Wege/Oberflächen (nicht für Multisport) */}
+      {activity.sport_type !== 'multisport' && (
+        trackSummaryQuery.isError ? (
+          !hiddenModules.has('surfaces') && (
+            <SurfacesSection
+              activityId={activity.id}
+              summary={undefined}
+            />
+          )
+        ) : (
+          <TrackSummary
+            summary={trackSummaryQuery.data}
+            ascentM={activity.elevation_gain_m}
+            descentM={activity.elevation_loss_m}
+            onSymbolHover={handleTrackSummarySymbolHover}
+            onSymbolLeave={handleTrackSummarySymbolLeave}
+          >
+            {!hiddenModules.has('surfaces') && (
+              <SurfacesSection
+                activityId={activity.id}
+                summary={trackSummaryQuery.data ?? null}
+              />
+            )}
+          </TrackSummary>
+        )
       )}
 
       {/* Map fullscreen overlay */}
@@ -886,14 +998,6 @@ export default function ActivityDetailPage() {
 
       {/* Stopps (nicht für Multisport-Parent) */}
       {activity.sport_type !== 'multisport' && !hiddenModules.has('stops') && <StopsSection activityId={activity.id} timezone={activity.timezone} />}
-
-      {/* Untergrund (nicht für Multisport) */}
-      {activity.sport_type !== 'multisport' && !hiddenModules.has('surfaces') && (
-        <SurfacesSection
-          activityId={activity.id}
-          summary={trackSummaryQuery.isError ? undefined : (trackSummaryQuery.data ?? null)}
-        />
-      )}
 
       {/* Enrichment-Modul-Status */}
       <EnrichmentStatusSection
