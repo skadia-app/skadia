@@ -3,6 +3,7 @@ import type { BestEffortRanked } from '@/api/bestEfforts'
 import { PRCell } from './PRCell'
 import { CATEGORY_PREFIXES } from '@/lib/recordsConstants'
 import { CATEGORY_LABELS } from '@/lib/bestEffortLabels'
+import { pickBestPerCategory } from '@/lib/bestEffortRanking'
 
 const CATEGORY_KEYS = Object.keys(CATEGORY_LABELS)
 
@@ -43,7 +44,7 @@ interface CategoryGridProps {
 }
 
 export function CategoryGrid({ records, sportGroup }: CategoryGridProps) {
-  const rank1 = useMemo(() => records.filter((r) => r.rank === 1), [records])
+  const rank1 = useMemo(() => pickBestPerCategory(records), [records])
 
   const sections = useMemo(() => {
     return SECTIONS.map((sec) => {

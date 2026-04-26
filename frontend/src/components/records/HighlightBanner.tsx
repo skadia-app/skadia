@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { formatBestEffortValue } from '@/lib/bestEffortLabels'
 import { fmtDateMedium } from '@/lib/format'
 import { SPORT_GROUP_LABELS } from '@/lib/recordsConstants'
+import { pickBestPerCategory } from '@/lib/bestEffortRanking'
 import type { BestEffortRanked } from '@/api/bestEfforts'
 
 interface HighlightBannerProps {
@@ -11,7 +12,7 @@ interface HighlightBannerProps {
 
 export function HighlightBanner({ records }: HighlightBannerProps) {
   const cards = useMemo(() => {
-    const rank1 = records.filter((r) => r.rank === 1)
+    const rank1 = pickBestPerCategory(records)
     const result: { label: string; value: string; sub: string; activityId: string; gradient: string }[] = []
 
     // 1. Most recent PR

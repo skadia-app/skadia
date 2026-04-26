@@ -1,9 +1,10 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronDown, TrendingUp } from 'lucide-react'
 import { formatBestEffortDisplay, categoryLabel, CATEGORY_LABELS } from '@/lib/bestEffortLabels'
 import { fmtDateMedium, fmtDuration } from '@/lib/format'
 import type { BestEffortRanked } from '@/api/bestEfforts'
+import { pickBestPerCategory } from '@/lib/bestEffortRanking'
 import { cn } from '@/lib/utils'
 
 const RANK_STYLES: Record<number, { bg: string; text: string }> = {
@@ -49,12 +50,21 @@ export function DetailTable({
     })
   }, [])
 
-  const categories = Array.from(new Set(records.map((r) => r.category)))
-    .sort((a, b) => {
-      const ia = CATEGORY_KEYS.indexOf(a)
-      const ib = CATEGORY_KEYS.indexOf(b)
-      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib)
-    })
+  // Pick one rank-1 per category across all sport_groups (e.g. for MainCategory
+  // "Laufen" the absolute best regardless of running / running_trail / …) so the
+  // table never shows the same category twice. The picked record's sport_group
+  // also fixes the source for ranks 2/3 in the expand rows below.
+  const rank1ByCategory = useMemo(() => {
+    const map = new Map<string, BestEffortRanked>()
+    for (const r of pickBestPerCategory(records)) map.set(r.category, r)
+    return map
+  }, [records])
+
+  const categories = Array.from(rank1ByCategory.keys()).sort((a, b) => {
+    const ia = CATEGORY_KEYS.indexOf(a)
+    const ib = CATEGORY_KEYS.indexOf(b)
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib)
+  })
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-hidden">
@@ -71,9 +81,13 @@ export function DetailTable({
         </thead>
         <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
           {categories.map((cat) => {
-            const catRecords = records.filter((r) => r.category === cat).sort((a, b) => a.rank - b.rank)
-            const rank1 = catRecords[0]
+            const rank1 = rank1ByCategory.get(cat)
             if (!rank1) return null
+            // Ranks 2/3 are taken from the same sport_group as the picked rank-1
+            // (otherwise we'd mix groups and the deltas would compare apples and oranges).
+            const catRecords = records
+              .filter((r) => r.category === cat && r.sport_group === rank1.sport_group)
+              .sort((a, b) => a.rank - b.rank)
             const hasMore = catRecords.length > 1
             const isExpanded = expanded.has(cat)
             const display = formatBestEffortDisplay(cat, rank1.elapsed_time_s, rank1.value_numeric, sportGroup)
