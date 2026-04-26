@@ -35,7 +35,7 @@ export function invalidateAfterFusion(qc: QueryClient, scope: FusionInvalidation
     'activity-climbs',
     'activity-stops',
     'activity-intervals',
-    'activity-surfaces',
+    'activity-track-summary',
     'geo-tags',
     'best-efforts',
     'zone-distribution',

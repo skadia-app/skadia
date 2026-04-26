@@ -1,8 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { fetchSurfaces } from '@/api/enrichment'
 import type { ActivityTrackSummary, TrackSummarySurfaceItem } from '@/api/trackSummary'
-import type { ActivitySurface } from '@/api/types'
 import {
   SURFACE_COLORS,
   HIGHWAY_COLORS,
@@ -13,20 +10,28 @@ import {
 import StackedBar from '@/components/shared/StackedBar'
 
 interface Props {
-  activityId: string
   summary?: Pick<ActivityTrackSummary, 'surfaces' | 'highways'> | null
+}
+
+interface SurfaceDisplayRow {
+  id: string
+  category: 'surface' | 'highway'
+  surface_type: string
+  path_type: string
+  length_m: number
+  percentage: number
 }
 
 function summaryRows(
   summary: Pick<ActivityTrackSummary, 'surfaces' | 'highways'> | null
-): ActivitySurface[] {
+): SurfaceDisplayRow[] {
   if (!summary) return []
   const surfaces = (summary.surfaces ?? []).map(item => summarySurfaceRow(item, 'surface'))
   const highways = (summary.highways ?? []).map(item => summarySurfaceRow(item, 'highway'))
   return [...surfaces, ...highways]
 }
 
-function summarySurfaceRow(item: TrackSummarySurfaceItem, category: 'surface' | 'highway'): ActivitySurface {
+function summarySurfaceRow(item: TrackSummarySurfaceItem, category: 'surface' | 'highway'): SurfaceDisplayRow {
   return {
     id: `summary-${category}-${item.type}`,
     category,
@@ -37,33 +42,18 @@ function summarySurfaceRow(item: TrackSummarySurfaceItem, category: 'surface' | 
   }
 }
 
-export default function SurfacesSection({ activityId, summary }: Props) {
+export default function SurfacesSection({ summary }: Props) {
   const [collapsed, setCollapsed] = useState(false)
-  const useSummary = summary !== undefined
 
-  const { data: surfaces = [], isLoading, isError } = useQuery({
-    queryKey: ['activity-surfaces', activityId],
-    queryFn: () => fetchSurfaces(activityId),
-    enabled: !useSummary,
-  })
-
-  if (!useSummary && isLoading) return null
-  if (!useSummary && isError) return null
-
-  const rows = useSummary ? summaryRows(summary) : surfaces
+  const rows = summaryRows(summary ?? null)
   if (rows.length === 0) return null
 
   // Split by category
   const surfaceRows = rows.filter(s => s.category === 'surface')
   const highwayRows = rows.filter(s => s.category === 'highway')
 
-  // Legacy fallback: old data without category → show everything as a single surface bar
-  const isLegacy = surfaceRows.length === 0 && highwayRows.length === 0
-
-  const aggregatedSurfaces = isLegacy
-    ? aggregateSurfaces(rows)
-    : aggregateSurfaces(surfaceRows)
-  const aggregatedHighways = isLegacy ? [] : aggregateHighways(highwayRows)
+  const aggregatedSurfaces = aggregateSurfaces(surfaceRows)
+  const aggregatedHighways = aggregateHighways(highwayRows)
 
   const hasAnything = aggregatedSurfaces.length > 0 || aggregatedHighways.length > 0
   if (!hasAnything) return null
@@ -99,7 +89,7 @@ export default function SurfacesSection({ activityId, summary }: Props) {
             <StackedBar
               aggregated={aggregatedSurfaces}
               colorMap={SURFACE_COLORS}
-              title={isLegacy ? 'Untergrund' : 'Oberflächen'}
+              title="Oberflächen"
             />
           )}
         </div>

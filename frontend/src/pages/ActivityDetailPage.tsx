@@ -878,14 +878,7 @@ export default function ActivityDetailPage() {
 
       {/* Track-Zusammenfassung + Wege/Oberflächen (nicht für Multisport) */}
       {activity.sport_type !== 'multisport' && (
-        trackSummaryQuery.isError ? (
-          !hiddenModules.has('surfaces') && (
-            <SurfacesSection
-              activityId={activity.id}
-              summary={undefined}
-            />
-          )
-        ) : (
+        !trackSummaryQuery.isError && (
           <TrackSummary
             summary={trackSummaryQuery.data}
             ascentM={activity.elevation_gain_m}
@@ -895,7 +888,6 @@ export default function ActivityDetailPage() {
           >
             {!hiddenModules.has('surfaces') && (
               <SurfacesSection
-                activityId={activity.id}
                 summary={trackSummaryQuery.data ?? null}
               />
             )}
