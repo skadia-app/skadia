@@ -198,13 +198,16 @@ func listActivityEnrichmentBackfillCandidates(
 	rows, err := db.Pool.Query(ctx, `
 		SELECT a.id, a.user_id
 		FROM activities a
-		WHERE $1
-		   OR NOT EXISTS (
-			SELECT 1
-			FROM activity_enrichments e
-			WHERE e.activity_id = a.id
-			  AND e.category IN ('forest_pct', 'protected_pct', 'sac_scale', 'mtb_scale', 'vf_scale', 'vf_unknown')
-		   )
+		WHERE a.has_gps = true
+		  AND (
+			$1
+			OR NOT EXISTS (
+				SELECT 1
+				FROM activity_enrichments e
+				WHERE e.activity_id = a.id
+				  AND e.category IN ('forest_pct', 'protected_pct', 'sac_scale', 'mtb_scale', 'vf_scale', 'vf_unknown')
+			)
+		  )
 		ORDER BY a.created_at DESC
 	`, force)
 	if err != nil {
