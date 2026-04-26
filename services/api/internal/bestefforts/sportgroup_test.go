@@ -15,6 +15,9 @@ func TestDetermineSportGroup(t *testing.T) {
 		// ── Running ──
 		{name: "running outdoor", sportType: "running", want: "running"},
 		{name: "trail running", sportType: "trail_running", want: "running_trail"},
+		{name: "running with sub_type trail (Garmin legacy)", sportType: "running", subType: "trail", want: "running_trail"},
+		{name: "running sub_type trail indoor overrides", sportType: "running", subType: "trail", isIndoor: true, want: "running_indoor"},
+		{name: "running sub_type trail virtual overrides", sportType: "running", subType: "trail", isVirtual: true, want: "running_virtual"},
 		{name: "trail running indoor overrides trail", sportType: "trail_running", isIndoor: true, want: "running_indoor"},   // Indoor > Trail
 		{name: "trail running virtual overrides trail", sportType: "trail_running", isVirtual: true, want: "running_virtual"}, // Virtual > Trail
 		{name: "treadmill via isIndoor", sportType: "running", isIndoor: true, want: "running_indoor"},
