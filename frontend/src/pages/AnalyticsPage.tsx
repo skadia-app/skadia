@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useAnalyticsFilters, getPresets, savePreset, deletePreset } from '@/lib/analyticsFilters'
 import type { AnalyticsFilterState, FilterPreset } from '@/lib/analyticsFilters'
@@ -18,6 +18,7 @@ const tabs = [
   { to: '/analytics/health', label: 'Gesundheit' },
   { to: '/analytics/stats', label: 'Statistiken' },
   { to: '/analytics/insights', label: 'Insights' },
+  { to: '/analytics/records', label: 'Bestleistungen' },
 ]
 
 // Quick-select date presets
@@ -675,6 +676,8 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
 export default function AnalyticsPage() {
   const { filters, setFilters, toQueryString } = useAnalyticsFilters()
   const [filterOpen, setFilterOpen] = useState(false)
+  const location = useLocation()
+  const isRecordsTab = location.pathname === '/analytics/records' || location.pathname === '/analytics/records/'
 
   const filterCount = activeFilterCount(filters)
 
@@ -734,30 +737,32 @@ export default function AnalyticsPage() {
             </NavLink>
           ))}
         </div>
-        {/* Filter toggle button */}
-        <button
-          onClick={() => setFilterOpen(o => !o)}
-          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border cursor-pointer transition-colors whitespace-nowrap ${
-            filterCount > 0
-              ? 'border-[var(--color-accent-DEFAULT)] bg-[var(--color-accent-DEFAULT)]/10 text-[var(--color-accent-DEFAULT)] font-medium'
-              : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
-          }`}
-          aria-expanded={filterOpen}
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h18M7 8h10M10 12h4" />
-          </svg>
-          Filter
-          {filterCount > 0 && (
-            <span className="rounded-full bg-[var(--color-accent-DEFAULT)] text-white text-xs font-bold w-4 h-4 flex items-center justify-center leading-none">
-              {filterCount}
-            </span>
-          )}
-        </button>
+        {/* Filter toggle button — hidden on Records tab */}
+        {!isRecordsTab && (
+          <button
+            onClick={() => setFilterOpen(o => !o)}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border cursor-pointer transition-colors whitespace-nowrap ${
+              filterCount > 0
+                ? 'border-[var(--color-accent-DEFAULT)] bg-[var(--color-accent-DEFAULT)]/10 text-[var(--color-accent-DEFAULT)] font-medium'
+                : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
+            }`}
+            aria-expanded={filterOpen}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h18M7 8h10M10 12h4" />
+            </svg>
+            Filter
+            {filterCount > 0 && (
+              <span className="rounded-full bg-[var(--color-accent-DEFAULT)] text-white text-xs font-bold w-4 h-4 flex items-center justify-center leading-none">
+                {filterCount}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
-      {/* Active filter chips summary */}
-      {filterCount > 0 && !filterOpen && filterSummary.length > 0 && (
+      {/* Active filter chips summary — hidden on Records tab */}
+      {!isRecordsTab && filterCount > 0 && !filterOpen && filterSummary.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-neutral-500 dark:text-neutral-400">Aktiv:</span>
           {filterSummary.map((s, i) => (
@@ -777,8 +782,8 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {/* Collapsible filter panel */}
-      {filterOpen && (
+      {/* Collapsible filter panel — hidden on Records tab */}
+      {!isRecordsTab && filterOpen && (
         <FilterPanel
           filters={filters}
           onFilterChange={setFilters}

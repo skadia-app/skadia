@@ -103,9 +103,9 @@ function ExcludedList({ excluded, onReinclude, reincludingKey }: ExcludedListPro
   )
 }
 
-// ── Main Page ──────────────────────────────────────────────────────────────
+// ── Main Tab ──────────────────────────────────────────────────────────────
 
-export default function PersonalRecordsPage() {
+export default function PersonalRecordsTab() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
 
@@ -256,7 +256,7 @@ export default function PersonalRecordsPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-6xl mx-auto px-6 pb-20">
+    <div className="space-y-0">
       {/* Header */}
       <div className="flex items-center justify-between mb-6 pt-2">
         <div className="flex items-center gap-3">
