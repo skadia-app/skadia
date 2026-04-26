@@ -428,10 +428,12 @@ function RouteProfileChart({
             </span>
             {routeStats && (
               <>
-                {routeStats.forest_pct != null && routeStats.forest_pct > 0 && (
+                {/* Threshold mirrors StatsRow.tsx (Math.round(pct) >= 1 on 0..100 scale).
+                    forest_pct/protected_pct here are 0..1, hence the *100 before rounding. */}
+                {routeStats.forest_pct != null && Math.round(routeStats.forest_pct * 100) >= 1 && (
                   <span title="Waldanteil auf der Route">{statsForestLabel(Math.round(routeStats.forest_pct * 100))}</span>
                 )}
-                {routeStats.protected_pct != null && routeStats.protected_pct > 0.05 && (
+                {routeStats.protected_pct != null && Math.round(routeStats.protected_pct * 100) >= 1 && (
                   <span title="Anteil durch Schutzgebiet auf der Route">{statsProtectedLabel(Math.round(routeStats.protected_pct * 100))}</span>
                 )}
                 {routeStats.summits_passed && routeStats.summits_passed.length > 0 && (
