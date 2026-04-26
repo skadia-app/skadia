@@ -463,11 +463,11 @@ func enrichStreamStops(ctx context.Context, db *database.DB, _ string, activityI
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO activity_geo_tags
 				    (activity_id, category, name, osm_id, map_type,
-				     map_point_lat, map_point_lon, duration_min, meta)
-				VALUES ($1, 'gastronomy', $2, $3, 'point', $4, $5, $6, $7)
+				     lat, lng, map_point_lat, map_point_lon, duration_min, meta)
+				VALUES ($1, 'gastronomy', $2, $3, 'point', $4, $5, $6, $7, $8, $9)
 				ON CONFLICT DO NOTHING
 			`, activityID, stop.POI.Name, poiOsmID,
-				stop.CenterLat, stop.CenterLng, durationMin, metaBytes,
+				stop.CenterLat, stop.CenterLng, stop.CenterLat, stop.CenterLng, durationMin, metaBytes,
 			); err != nil {
 				slog.Warn("stops: insert gastronomy tag failed",
 					"activity_id", activityID,
