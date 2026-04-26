@@ -543,6 +543,7 @@ func gdprExportTables() []gdprExportTableSpec {
 		{"data/segment_favorites.json", "segment_favorites", "user_id = $1 ORDER BY created_at DESC"},
 		{"data/oauth_connections.json", "oauth_connections", "user_id = $1"},
 		{"data/user_files.json", "user_files", "user_id = $1 ORDER BY created_at DESC"},
+		{"data/user_map_layers.json", "user_map_layers", "user_id = $1 ORDER BY sort_order, id"},
 		{"data/file_attachments.json", "file_attachments", "user_id = $1 ORDER BY created_at DESC"},
 		{"data/training_zones.json", "training_zones", "user_id = $1"},
 		{"data/activity_edits.json", "activity_edits", "user_id = $1"},
