@@ -20,16 +20,23 @@ export type VfAggregate = ScaleAggregate & {
   hasUnknown: boolean
 }
 
-// Sports for which SAC / MTB / VF difficulty scale pills are meaningful.
-// Mirrors the backend enrichment gate — only outdoor/mountain sports produce these scales.
+// Frontend-only display gate: pills are only meaningful for these sports.
+// Backend produces the data unconditionally. Generic 'cycling' (road) is
+// deliberately excluded — SAC/VF are meaningless on road bikes. 'mountain_biking'
+// and 'gravel_cycling' are included because MTB scale is relevant there.
+// 'via_ferrata' sports require VF scale; 'rock_climbing' and 'mountaineering'
+// use SAC/VF. For multisport children, the caller must pass the child sport_type
+// or fall back to fit_sport_id resolution upstream.
 const SCALE_VISIBLE_SPORTS = new Set([
   'hiking',
   'mountaineering',
   'snowshoeing',
   'trail_running',
   'mountain_biking',
+  'gravel_cycling',
   'backcountry_skiing',
   'rock_climbing',
+  'via_ferrata',
 ])
 
 export interface StatsRowProps {

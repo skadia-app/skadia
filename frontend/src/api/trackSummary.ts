@@ -48,6 +48,15 @@ export interface ActivityTrackSummary {
   waters: TrackSummaryWaterItem[] | null
   settlements: TrackSummaryGeoTagItem[] | null
   settings: TrackSummarySettingsSnapshot
+  // Whether the enrichment used the graph-snap pipeline (OSM tile coverage
+  // required). False or absent means the SQL-fallback path was used and
+  // surface_ranges / highway_ranges will be null — map highlight is unavailable.
+  // Added by backend R1-B wave; optional so older responses remain valid.
+  graph_snap_used?: boolean
+  // Resampling interval in metres used when building surface_ranges / highway_ranges.
+  // Absent in older responses; fall back to the frontend constant RESAMPLE_SPACING_M.
+  // Added by backend R1-B wave.
+  resample_spacing_m?: number
 }
 
 export function fetchActivityTrackSummary(activityId: string): Promise<ActivityTrackSummary> {

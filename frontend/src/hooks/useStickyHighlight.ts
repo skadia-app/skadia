@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import type { DescriptorKey } from '@/lib/descriptorFilter'
 
 export type HighlightKind =
-  | { kind: 'highway'; key: string }
-  | { kind: 'surface'; key: string }
+  | { kind: 'highway'; key: string; overflowRawTypes?: string[] }
+  | { kind: 'surface'; key: string; overflowRawTypes?: string[] }
   | { kind: 'descriptor'; descriptorKey: DescriptorKey }
   | null
 
