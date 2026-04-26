@@ -10,6 +10,20 @@ import { useMetricColoring } from './useMetricColoring'
 import MapColorDropdown from './MapColorDropdown'
 import MapColorLegend from './MapColorLegend'
 
+export type HighlightedPoiCategory = 'summit' | 'pass' | 'still_water' | 'flowing_water' | 'settlement'
+export type HighlightedPoiHoverKind = 'summit' | 'water' | 'settlement'
+
+export interface HighlightedPoi {
+  id: string
+  category: HighlightedPoiCategory
+  name: string
+  lat: number
+  lng: number
+  trackPos: number | null
+  distM: number | null
+  eleM: number | null
+}
+
 interface TrackMapProps {
   activityId?: string
   streams: StreamPoint[]
@@ -23,6 +37,8 @@ interface TrackMapProps {
   onMaximize: () => void
   geoTags?: GeoTag[]
   stops?: ActivityStop[]
+  highlightedPois?: HighlightedPoi[]
+  highlightedPoiHoverKind?: HighlightedPoiHoverKind | null
   locationPin?: { lat: number; lng: number; name: string; color: string }
 }
 
@@ -32,7 +48,53 @@ const SUMMIT_ICON_SVG = `data:image/svg+xml,${encodeURIComponent(
   '</svg>'
 )}`
 
-export default function TrackMap({ activityId, streams, streamsLoading, hoverIndex, sportColor, sportType, fitSportId, hasGps, zoomRange, onMaximize, geoTags, stops, locationPin }: TrackMapProps) {
+const SUMMARY_SUMMIT_SOURCE_ID = 'activity-track-summary-summits-source'
+const SUMMARY_SUMMIT_LAYER_ID = 'activity-track-summary-summits-layer'
+const SUMMARY_POI_SOURCE_ID = 'activity-track-summary-pois-source'
+const SUMMARY_POI_LAYER_ID = 'activity-track-summary-pois-layer'
+
+function highlightedPoiKind(category: HighlightedPoiCategory): HighlightedPoiHoverKind {
+  if (category === 'summit' || category === 'pass') return 'summit'
+  if (category === 'still_water' || category === 'flowing_water') return 'water'
+  return 'settlement'
+}
+
+function highlightedPoiCategoryLabel(category: HighlightedPoiCategory): string {
+  switch (category) {
+    case 'summit': return 'Gipfel'
+    case 'pass': return 'Pass'
+    case 'still_water': return 'Gewässer'
+    case 'flowing_water': return 'Bach/Fluss'
+    case 'settlement': return 'Ort'
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+export default function TrackMap({
+  activityId,
+  streams,
+  streamsLoading,
+  hoverIndex,
+  sportColor,
+  sportType,
+  fitSportId,
+  hasGps,
+  zoomRange,
+  onMaximize,
+  geoTags,
+  stops,
+  highlightedPois = [],
+  highlightedPoiHoverKind = null,
+  locationPin,
+}: TrackMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -44,6 +106,7 @@ export default function TrackMap({ activityId, streams, streamsLoading, hoverInd
   const [showPhotos, setShowPhotos] = useState(true)
   const [mapLoaded, setMapLoaded] = useState(false)
   const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null)
+  const hasSummarySummitPois = highlightedPois.some(p => p.category === 'summit' || p.category === 'pass')
 
   const { data: allPhotos = [] } = useQuery({
     queryKey: ['activity-photos', activityId],
@@ -338,6 +401,167 @@ export default function TrackMap({ activityId, streams, streamsLoading, hoverInd
       mapRef.current = null
     }
   }, [hasTrack]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Track-summary POIs use route-planner-style GeoJSON layers instead of DOM markers:
+  // cheap to update for hover and visually quieter than photo thumbnails.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded || !hasTrack) return
+
+    if (hasSummarySummitPois) {
+      if (map.getLayer('activity-summits-layer')) map.removeLayer('activity-summits-layer')
+      if (map.getSource('activity-summits')) map.removeSource('activity-summits')
+    }
+
+    if (!map.getSource(SUMMARY_SUMMIT_SOURCE_ID)) {
+      map.addSource(SUMMARY_SUMMIT_SOURCE_ID, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+    }
+    if (!map.hasImage('summary-summit-icon')) {
+      const sz = 24
+      const cvs = document.createElement('canvas')
+      cvs.width = sz
+      cvs.height = sz
+      const ctx = cvs.getContext('2d')
+      if (ctx) {
+        ctx.beginPath()
+        ctx.moveTo(sz / 2, 3)
+        ctx.lineTo(3, sz - 3)
+        ctx.lineTo(sz - 3, sz - 3)
+        ctx.closePath()
+        ctx.fillStyle = '#475569'
+        ctx.fill()
+        ctx.strokeStyle = '#ffffff'
+        ctx.lineWidth = 2
+        ctx.lineJoin = 'round'
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.moveTo(sz / 2, 3)
+        ctx.lineTo(sz / 2 - 4, 11)
+        ctx.lineTo(sz / 2 + 4, 11)
+        ctx.closePath()
+        ctx.fillStyle = '#f8fafc'
+        ctx.fill()
+        map.addImage('summary-summit-icon', ctx.getImageData(0, 0, sz, sz))
+      }
+    }
+    if (!map.getLayer(SUMMARY_SUMMIT_LAYER_ID) && map.hasImage('summary-summit-icon')) {
+      map.addLayer({
+        id: SUMMARY_SUMMIT_LAYER_ID,
+        type: 'symbol',
+        source: SUMMARY_SUMMIT_SOURCE_ID,
+        layout: {
+          'icon-image': 'summary-summit-icon',
+          'icon-size': ['case', ['boolean', ['get', 'active'], false], 0.95, 0.72],
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+        },
+        paint: {
+          'icon-opacity': ['case', ['boolean', ['get', 'dimmed'], false], 0.42, 0.82],
+        },
+      })
+    }
+
+    if (!map.getSource(SUMMARY_POI_SOURCE_ID)) {
+      map.addSource(SUMMARY_POI_SOURCE_ID, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+    }
+    if (!map.getLayer(SUMMARY_POI_LAYER_ID)) {
+      map.addLayer({
+        id: SUMMARY_POI_LAYER_ID,
+        type: 'circle',
+        source: SUMMARY_POI_SOURCE_ID,
+        paint: {
+          'circle-radius': ['case', ['boolean', ['get', 'active'], false], 6, 4],
+          'circle-color': [
+            'match',
+            ['get', 'category'],
+            'still_water', '#0ea5e9',
+            'flowing_water', '#38bdf8',
+            'settlement', '#64748b',
+            '#64748b',
+          ],
+          'circle-opacity': ['case', ['boolean', ['get', 'dimmed'], false], 0.34, 0.68],
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': ['case', ['boolean', ['get', 'active'], false], 2, 1.5],
+        },
+      })
+    }
+
+    const summitFeatures = highlightedPois
+      .filter(p => p.category === 'summit' || p.category === 'pass')
+      .map(p => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] },
+        properties: {
+          ...p,
+          kind: highlightedPoiKind(p.category),
+          label: highlightedPoiCategoryLabel(p.category),
+          active: highlightedPoiHoverKind === highlightedPoiKind(p.category),
+          dimmed: highlightedPoiHoverKind != null && highlightedPoiHoverKind !== highlightedPoiKind(p.category),
+        },
+      }))
+    const quietPoiFeatures = highlightedPois
+      .filter(p => p.category !== 'summit' && p.category !== 'pass')
+      .map(p => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] },
+        properties: {
+          ...p,
+          kind: highlightedPoiKind(p.category),
+          label: highlightedPoiCategoryLabel(p.category),
+          active: highlightedPoiHoverKind === highlightedPoiKind(p.category),
+          dimmed: highlightedPoiHoverKind != null && highlightedPoiHoverKind !== highlightedPoiKind(p.category),
+        },
+      }))
+
+    ;(map.getSource(SUMMARY_SUMMIT_SOURCE_ID) as maplibregl.GeoJSONSource | undefined)?.setData({
+      type: 'FeatureCollection',
+      features: summitFeatures,
+    })
+    ;(map.getSource(SUMMARY_POI_SOURCE_ID) as maplibregl.GeoJSONSource | undefined)?.setData({
+      type: 'FeatureCollection',
+      features: quietPoiFeatures,
+    })
+
+    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: true, offset: 10 })
+    const showPopup = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      const props = e.features?.[0]?.properties
+      if (!props) return
+      const name = escapeHtml(String(props.name || props.label || 'POI'))
+      const label = escapeHtml(String(props.label || 'POI'))
+      const ele = props.eleM != null ? ` · ${Math.round(Number(props.eleM)).toLocaleString('de-DE')} m` : ''
+      const dist = props.distM != null ? ` · ${(Number(props.distM) / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 })} km` : ''
+      popup
+        .setLngLat(e.lngLat)
+        .setHTML(`<span style="font-size:12px;font-weight:600">${name}</span><br><span style="font-size:11px;color:#6b7280">${label}${ele}${dist}</span>`)
+        .addTo(map)
+    }
+    const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
+    const clearPointer = () => { map.getCanvas().style.cursor = '' }
+
+    map.on('click', SUMMARY_SUMMIT_LAYER_ID, showPopup)
+    map.on('click', SUMMARY_POI_LAYER_ID, showPopup)
+    map.on('mouseenter', SUMMARY_SUMMIT_LAYER_ID, setPointer)
+    map.on('mouseenter', SUMMARY_POI_LAYER_ID, setPointer)
+    map.on('mouseleave', SUMMARY_SUMMIT_LAYER_ID, clearPointer)
+    map.on('mouseleave', SUMMARY_POI_LAYER_ID, clearPointer)
+
+    return () => {
+      popup.remove()
+      if (!map.getStyle()) return
+      map.off('click', SUMMARY_SUMMIT_LAYER_ID, showPopup)
+      map.off('click', SUMMARY_POI_LAYER_ID, showPopup)
+      map.off('mouseenter', SUMMARY_SUMMIT_LAYER_ID, setPointer)
+      map.off('mouseenter', SUMMARY_POI_LAYER_ID, setPointer)
+      map.off('mouseleave', SUMMARY_SUMMIT_LAYER_ID, clearPointer)
+      map.off('mouseleave', SUMMARY_POI_LAYER_ID, clearPointer)
+    }
+  }, [hasTrack, hasSummarySummitPois, highlightedPoiHoverKind, highlightedPois, mapLoaded])
 
   // Location-Pin-Karte für Indoor-Aktivitäten ohne GPS
   useEffect(() => {
