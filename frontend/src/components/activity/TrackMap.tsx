@@ -56,6 +56,12 @@ interface TrackMapProps {
   /** Map raw OSM highway type → coord-index ranges into the resampled track. */
   highwayRanges?: Record<string, CoordRange[]> | null
   locationPin?: { lat: number; lng: number; name: string; color: string }
+  /**
+   * Resampling interval in metres from the API response (resample_spacing_m field).
+   * Falls back to the local RESAMPLE_SPACING_M constant when absent (older backends).
+   * Must match the interval used when building surface_ranges / highway_ranges.
+   */
+  resampleSpacingM?: number | null
 }
 
 const SUMMIT_ICON_SVG = `data:image/svg+xml,${encodeURIComponent(
@@ -116,6 +122,7 @@ export default function TrackMap({
   surfaceRanges = null,
   highwayRanges = null,
   locationPin,
+  resampleSpacingM,
 }: TrackMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -157,7 +164,9 @@ export default function TrackMap({
   // this array, so we can slice it directly to build highlight LineStrings.
   const resampledCoords = useMemo<[number, number][]>(() => {
     if (coordinates.length < 2) return []
-    const SPACING_M = RESAMPLE_SPACING_M // mirrors surfaceResampleM in surfaces_sql.go (TODO: use resample_spacing_m from API response when R1-B ships it)
+    // Use interval from API response; fall back to local constant for older backends
+    // that don't yet include resample_spacing_m in the track-summary response.
+    const SPACING_M = resampleSpacingM ?? RESAMPLE_SPACING_M
     // Cumulative distance via equirectangular approximation.
     // Uses per-segment cos(lat) at the *start* of each segment, identical to
     // the backend equirectDistMeters(lat1,lng1,lat2,lng2) in surfaces_graph.go.
@@ -193,7 +202,7 @@ export default function TrackMap({
       ]
     }
     return out
-  }, [coordinates])
+  }, [coordinates, resampleSpacingM])
 
   const metricColoring = useMetricColoring({
     streams,

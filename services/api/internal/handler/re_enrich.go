@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"slices"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
@@ -15,10 +14,9 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
-var validReEnrichModules = []string{
-	"ascents", "stops", "intervals",
-	"summits", "settlements", "forests", "water", "borders", "surfaces",
-}
+// validReEnrichModules is kept for the geoSubmodules expansion logic below.
+// Module validation now delegates to enrichment.IsValidReEnrichModule which
+// reads from enrichment.ReEnrichModules — the single canonical source of truth.
 
 // geoSubmodules lists the individual geo module names that the legacy "geo"
 // aggregate key expands to. Kept in sync with recompute.go scope handling.
@@ -70,9 +68,9 @@ func (h *Handler) ReEnrichActivities(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Modules = deduped
 
-	// Validate modules
+	// Validate modules — single source of truth in enrichment.ReEnrichModules.
 	for _, m := range req.Modules {
-		if !slices.Contains(validReEnrichModules, m) {
+		if !enrichment.IsValidReEnrichModule(m) {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
 				fmt.Sprintf("invalid module: %s", m), r.URL.Path)
 			return

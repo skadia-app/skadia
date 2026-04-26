@@ -173,16 +173,12 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 	if containsAny(modules, "surfaces") {
 		// Skip surface detection for virtual/indoor activities and water sports —
 		// OSM road surface matching produces nonsensical results for these.
-		skipSurfaces := false
+		// Gate logic is shared via ShouldEnrichSurfaces (enrichment/gates.go).
+		shouldRun := false
 		if act, err := db.GetActivity(ctx, activityID); err == nil {
-			skipSurfaces = act.IsVirtual
-			if !skipSurfaces {
-				if def, ok := sport.GetSportDef(act.SportType); ok {
-					skipSurfaces = def.CategoryKey == "water"
-				}
-			}
+			shouldRun = ShouldEnrichSurfaces(act)
 		}
-		if !skipSurfaces {
+		if shouldRun {
 			trackSettings := settings
 			if trackSettings == nil {
 				trackSettings = defaultSurfaceTrackAnalysisSettings()

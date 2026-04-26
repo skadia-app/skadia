@@ -2,8 +2,16 @@ import { useQuery } from '@tanstack/react-query'
 import { apiClient } from './client'
 import type { CoordRange } from './routes'
 
+/**
+ * Settings snapshot captured at enrichment time.
+ *
+ * The legacy_difficulty_scales_mirror field mirrors enable_surface_detection and is
+ * deprecated — it is kept for API stability but must not be used for UI logic.
+ * For current enrichment settings, use useEnrichmentSettings() (Settings endpoint).
+ */
 export interface TrackSummarySettingsSnapshot {
-  enable_difficulty_scales: boolean
+  /** @deprecated Mirrors enable_surface_detection at enrichment time. Use useEnrichmentSettings() for UI logic. */
+  legacy_difficulty_scales_mirror: boolean
 }
 
 export interface TrackSummarySurfaceItem {

@@ -114,6 +114,7 @@ var GDPRRegistry = map[string]TableCategory{
 	"activity_stops":            Derived,
 	"activity_streams":          Derived,
 	"activity_enrichments":      Derived,
+	"activity_enrichment_meta":  Derived, // path (graph|sql) + resample_spacing_m; cascades via activity_id FK
 	"activity_tag_removals":     Derived,
 	"activity_time_in_zone":     Derived, // FIT-zone data, cascades from activities
 	"activity_tracks":           Derived,

@@ -211,6 +211,90 @@ func TestRunActivityEnrichmentsBackfill_AllowsOwnedBackgroundJob(t *testing.T) {
 	}
 }
 
+// TestWriteBackfillResult_MetadataShape verifies that writeBackfillResult stores
+// the expected JSON structure in the job metadata column.
+func TestWriteBackfillResult_MetadataShape(t *testing.T) {
+	db := activityEnrichmentsTestDB(t)
+	ctx := context.Background()
+	userID := insertBackfillTestUser(t, db)
+	jobID := uuid.NewString()
+
+	_, err := db.Pool.Exec(ctx, `
+		INSERT INTO background_jobs (id, user_id, job_type, status, progress_total)
+		VALUES ($1, $2, $3, 'running', 10)
+	`, jobID, userID, activityEnrichmentsJobType)
+	if err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Pool.Exec(context.Background(), "DELETE FROM background_jobs WHERE id = $1", jobID)
+	})
+
+	failedIDs := []string{"aaa", "bbb"}
+	if err := writeBackfillResult(ctx, db, jobID, 8, 2, 10, failedIDs, false); err != nil {
+		t.Fatalf("writeBackfillResult: %v", err)
+	}
+
+	var meta string
+	if err := db.Pool.QueryRow(ctx,
+		"SELECT metadata::text FROM background_jobs WHERE id = $1", jobID,
+	).Scan(&meta); err != nil {
+		t.Fatalf("read metadata: %v", err)
+	}
+
+	for _, want := range []string{
+		`"processed":8`,
+		`"failed":2`,
+		`"total":10`,
+		`"failed_ids":["aaa","bbb"]`,
+	} {
+		if !containsStr(meta, want) {
+			t.Fatalf("metadata missing %q, got: %s", want, meta)
+		}
+	}
+}
+
+// TestWriteBackfillResult_AbortedReturnsError verifies that writeBackfillResult
+// returns a non-nil error when the backfill is aborted due to high failure rate.
+func TestWriteBackfillResult_AbortedReturnsError(t *testing.T) {
+	// No DB needed — use empty jobID to skip DB write.
+	err := writeBackfillResult(context.Background(), nil, "", 3, 7, 10, nil, true)
+	if err == nil {
+		t.Fatal("expected error for aborted=true, got nil")
+	}
+}
+
+// TestEnrichOneCandidate_NoSettings verifies that enrichOneCandidate treats
+// nil settings as a no-op (not an error) to avoid counting disabled-users
+// as failures.
+func TestEnrichOneCandidate_NoSettings(t *testing.T) {
+	db := activityEnrichmentsTestDB(t)
+	ctx := context.Background()
+	userID := insertBackfillTestUser(t, db)
+	actID := insertBackfillTestActivity(t, db, userID, time.Now())
+
+	// No user_enrichment_settings row → GetEnrichmentSettings returns nil → should be no-op.
+	err := enrichOneCandidate(ctx, db, nil, activityEnrichmentBackfillCandidate{
+		ActivityID: actID,
+		UserID:     userID,
+	})
+	if err != nil {
+		t.Fatalf("enrichOneCandidate with nil settings should succeed silently, got: %v", err)
+	}
+}
+
+func containsStr(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		func() bool {
+			for i := 0; i <= len(s)-len(substr); i++ {
+				if s[i:i+len(substr)] == substr {
+					return true
+				}
+			}
+			return false
+		}())
+}
+
 func candidateContains(candidates []activityEnrichmentBackfillCandidate, activityID string) bool {
 	for _, c := range candidates {
 		if c.ActivityID == activityID {

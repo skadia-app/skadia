@@ -889,31 +889,28 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 
 		// Surfaces enrichment — only for GPS, non-virtual, non-water activities.
-		if doSurfaces && !data.IsVirtual {
-			skipSurfaces := false
-			if def, ok := sport.GetSportDef(data.SportType); ok {
-				skipSurfaces = def.CategoryKey == "water"
+		// Gate logic is shared via enrichment.ShouldEnrichSurfacesData (enrichment/gates.go).
+		if doSurfaces && enrichment.ShouldEnrichSurfacesData(data) {
+			var surfStream []enrichment.EnrichmentStreamPoint
+			if gr != nil {
+				surfStream, _ = enrichment.GetEnrichmentStream(ctx, h.DB, activityID)
 			}
-			if !skipSurfaces {
-				var surfStream []enrichment.EnrichmentStreamPoint
-				if gr != nil {
-					surfStream, _ = enrichment.GetEnrichmentStream(ctx, h.DB, activityID)
+			// Load user settings for track analysis config. Force EnableSurfaceDetection=true
+			// because the user explicitly requested the "surfaces" scope. Do NOT force
+			// EnableDifficultyScales — if the user has disabled difficulty scales in their
+			// settings, a per-submodule surfaces reprocess must not silently override that.
+			surfSettings, _ := h.DB.GetEnrichmentSettings(ctx, userID)
+			if surfSettings == nil {
+				surfSettings = &model.EnrichmentSettings{
+					EnableSurfaceDetection: true,
+					// EnableDifficultyScales stays false (user default when no settings)
 				}
-				// Load user settings for track analysis config, but force surface/difficulty
-				// flags on since the user explicitly selected this scope.
-				surfSettings, _ := h.DB.GetEnrichmentSettings(ctx, userID)
-				if surfSettings == nil {
-					surfSettings = &model.EnrichmentSettings{
-						EnableSurfaceDetection: true,
-						EnableDifficultyScales: true,
-					}
-				} else {
-					surfSettings.EnableSurfaceDetection = true
-					surfSettings.EnableDifficultyScales = true
-				}
-				if err := enrichment.EnrichTrackAnalysis(ctx, h.DB, activityID, surfSettings, gr, surfStream); err != nil {
-					slog.Warn("reprocess: surfaces enrichment failed (non-fatal)", "id", activityID, "error", err)
-				}
+			} else {
+				surfSettings.EnableSurfaceDetection = true
+				// EnableDifficultyScales: intentionally NOT overridden — honour user preference.
+			}
+			if err := enrichment.EnrichTrackAnalysis(ctx, h.DB, activityID, surfSettings, gr, surfStream); err != nil {
+				slog.Warn("reprocess: surfaces enrichment failed (non-fatal)", "id", activityID, "error", err)
 			}
 		}
 

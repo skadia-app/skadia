@@ -37,8 +37,8 @@ type activityTrackSummaryResponse struct {
 	Settings        trackSummarySettingsSnapshot     `json:"settings"`
 	// GraphSnapUsed indicates which enrichment path was taken for surface/highway data.
 	// nil = not yet enriched; true = graph (map-snap) path with range data;
-	// false = SQL fallback path (ranges absent). Derived from the presence of
-	// surface_ranges in the persisted enrichment rows — no schema change needed.
+	// false = SQL fallback path (ranges absent). Read from activity_enrichment_meta,
+	// written by EnrichTrackAnalysis at enrichment time.
 	GraphSnapUsed    *bool   `json:"graph_snap_used"`
 	// ResampleSpacingM is the uniform point spacing used during track resampling.
 	// The frontend uses this for stream-index mapping when interpreting range data.
@@ -152,8 +152,17 @@ func (h *Handler) ActivityTrackSummary(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity geo tags", r.URL.Path)
 		return
 	}
+	// Read persisted enrichment path from activity_enrichment_meta.
+	// Nil means the activity has not been enriched via EnrichTrackAnalysis yet.
+	// Route: GET /api/v1/activities/{id}/track-summary (registered with v1 prefix).
+	enrichmentPath, err := h.readEnrichmentPath(r, activityID)
+	if err != nil {
+		slog.Error("activity track summary: enrichment meta lookup failed", "activity_id", activityID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load enrichment meta", r.URL.Path)
+		return
+	}
 
-	summary, err := buildTrackSummary(settings, enrichmentRows, geoTagRows)
+	summary, err := buildTrackSummary(settings, enrichmentRows, geoTagRows, enrichmentPath)
 	if err != nil {
 		slog.Error("activity track summary: build failed", "activity_id", activityID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to build track summary", r.URL.Path)
@@ -259,6 +268,23 @@ func (h *Handler) readTrackSummaryGeoTags(r *http.Request, activityID string) ([
 	return out, rows.Err()
 }
 
+// readEnrichmentPath reads the persisted enrichment path for an activity from
+// activity_enrichment_meta. Returns nil when no row exists (not yet enriched).
+// Returns "graph" or "sql" otherwise.
+func (h *Handler) readEnrichmentPath(r *http.Request, activityID string) (*string, error) {
+	var path string
+	err := h.DB.Pool.QueryRow(r.Context(), `
+		SELECT path FROM activity_enrichment_meta WHERE activity_id = $1
+	`, activityID).Scan(&path)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &path, nil
+}
+
 func decodeTrackSummaryRanges(raw []byte) ([]edgetags.CoordRange, error) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil, nil
@@ -274,6 +300,7 @@ func buildTrackSummary(
 	settings *model.EnrichmentSettings,
 	enrichments []trackSummaryEnrichmentRow,
 	geoTags []trackSummaryGeoTagRow,
+	enrichmentPath *string,
 ) (*activityTrackSummaryResponse, error) {
 	enableSurface := settings != nil && settings.EnableSurfaceDetection
 	out := &activityTrackSummaryResponse{
@@ -336,24 +363,15 @@ func buildTrackSummary(
 		}
 	}
 
-	// Derive graph_snap_used via heuristic: if surface enrichments exist and any
-	// surface_ranges are populated the graph (map-snap) path was used; if surface
-	// enrichments exist but all ranges are nil the SQL fallback path was used.
-	// No schema change needed — ranges are already loaded from activity_enrichments.
-	{
-		var hasSurface bool
-		for _, row := range enrichments {
-			if row.Category == "surface" {
-				hasSurface = true
-				break
-			}
-		}
-		if hasSurface {
-			usedGraph := len(out.SurfaceRanges) > 0
-			out.GraphSnapUsed = &usedGraph
-		}
-		// else: GraphSnapUsed stays nil (not yet enriched)
+	// Set graph_snap_used from the persisted enrichment path in activity_enrichment_meta.
+	// nil = activity not yet enriched via EnrichTrackAnalysis.
+	// "graph" = viterbi map-snap path (ranges are coordinate-index aligned).
+	// "sql"   = PostGIS lateral-join fallback (ranges absent, percentages only).
+	if enrichmentPath != nil {
+		usedGraph := *enrichmentPath == "graph"
+		out.GraphSnapUsed = &usedGraph
 	}
+	// enrichmentPath == nil: GraphSnapUsed stays nil (not yet enriched)
 
 	for _, row := range geoTags {
 		switch row.Category {

@@ -2,6 +2,7 @@ package backfill
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,6 +18,19 @@ const (
 	activityEnrichmentsJobType = ActivityEnrichmentsJobType
 	backfillBatchSize          = 100
 	backfillBatchSleep         = time.Second
+
+	// backfillPerActivityTimeout is the per-activity context deadline so that a
+	// single activity enrichment cannot stall the entire backfill indefinitely.
+	backfillPerActivityTimeout = 30 * time.Second
+
+	// backfillMaxFailedIDs is the maximum number of failed activity IDs stored
+	// in the job metadata to bound metadata size.
+	backfillMaxFailedIDs = 50
+
+	// backfillFailureRateAbort is the fraction of activities that may fail
+	// before the backfill is considered a global failure (status='failed').
+	// Below this threshold the job completes with status='completed_with_errors'.
+	backfillFailureRateAbort = 0.50
 )
 
 var (
@@ -40,6 +54,9 @@ type activityEnrichmentBackfillCandidate struct {
 // are excluded from both dry-run and real run regardless of the Force flag.
 // To clean up stale enrichment rows on activities that lost their has_gps state,
 // use a separate maintenance task — this backfill no longer touches them.
+//
+// DO NOT parallelize this backfill — see memory oom-concurrent-jobs.md.
+// Heavy PostGIS operations under concurrent load cause OOM on this host.
 func RunActivityEnrichmentsBackfill(
 	ctx context.Context,
 	db *database.DB,
@@ -140,46 +157,51 @@ func runActivityEnrichmentsBackfill(
 	opts BackfillOptions,
 	candidates []activityEnrichmentBackfillCandidate,
 ) error {
+	total := len(candidates)
+	var processed, failed int
+	var failedIDs []string // capped at backfillMaxFailedIDs
+
 	for i, candidate := range candidates {
-		settings, err := db.GetEnrichmentSettings(ctx, candidate.UserID)
-		if err != nil {
-			slog.Warn("activity enrichments backfill: fetch settings failed",
+		iterErr := enrichOneCandidate(ctx, db, graphReader, candidate)
+		if iterErr != nil {
+			failed++
+			slog.Warn("activity enrichments backfill: activity failed",
 				"activity_id", candidate.ActivityID,
 				"user_id", candidate.UserID,
-				"error", err,
+				"error", iterErr,
 			)
-			continue
-		}
-		if settings == nil || (!settings.EnableSurfaceDetection && !settings.EnableDifficultyScales) {
-			continue
+			if len(failedIDs) < backfillMaxFailedIDs {
+				failedIDs = append(failedIDs, candidate.ActivityID)
+			}
+		} else {
+			processed++
 		}
 
-		stream, err := enrichment.GetEnrichmentStream(ctx, db, candidate.ActivityID)
-		if err != nil {
-			slog.Warn("activity enrichments backfill: load stream failed",
-				"activity_id", candidate.ActivityID,
-				"user_id", candidate.UserID,
-				"error", err,
-			)
-			continue
-		}
-
-		if err := enrichment.EnrichTrackAnalysis(ctx, db, candidate.ActivityID, settings, graphReader, stream); err != nil {
-			slog.Warn("activity enrichments backfill: enrich activity failed",
-				"activity_id", candidate.ActivityID,
-				"user_id", candidate.UserID,
-				"error", err,
-			)
-			continue
-		}
-
+		// Progress always advances — every iteration counts, success or failure.
 		if opts.OwnedJobID != "" {
 			_ = db.UpdateBackgroundJobProgress(ctx, opts.OwnedJobID, int64(i+1))
 		}
+
+		// Early abort if failure rate exceeds threshold (avoids burning through
+		// the whole candidate set when enrichment is systematically broken).
+		if total > 10 && i >= 10 {
+			if float64(failed)/float64(i+1) > backfillFailureRateAbort {
+				slog.Error("activity enrichments backfill: failure rate too high, aborting",
+					"processed", processed,
+					"failed", failed,
+					"total", total,
+					"rate", float64(failed)/float64(i+1),
+				)
+				return writeBackfillResult(ctx, db, opts.OwnedJobID, processed, failed, total, failedIDs, true)
+			}
+		}
+
 		if (i+1)%backfillBatchSize == 0 {
 			slog.Info("activity enrichments backfill progress",
 				"done", i+1,
-				"total", len(candidates),
+				"total", total,
+				"processed", processed,
+				"failed", failed,
 			)
 			timer := time.NewTimer(backfillBatchSleep)
 			select {
@@ -191,7 +213,93 @@ func runActivityEnrichmentsBackfill(
 		}
 	}
 
-	slog.Info("activity enrichments backfill complete", "processed", len(candidates))
+	slog.Info("activity enrichments backfill complete",
+		"total", total,
+		"processed", processed,
+		"failed", failed,
+	)
+	return writeBackfillResult(ctx, db, opts.OwnedJobID, processed, failed, total, failedIDs, false)
+}
+
+// enrichOneCandidate runs the full enrichment pipeline for a single candidate.
+// It fetches the user's settings and loads the stream, then calls EnrichTrackAnalysis.
+// A per-activity deadline prevents one slow activity from blocking the backfill.
+func enrichOneCandidate(
+	ctx context.Context,
+	db *database.DB,
+	graphReader routing.GraphReader,
+	candidate activityEnrichmentBackfillCandidate,
+) error {
+	actCtx, cancel := context.WithTimeout(ctx, backfillPerActivityTimeout)
+	defer cancel()
+
+	settings, err := db.GetEnrichmentSettings(actCtx, candidate.UserID)
+	if err != nil {
+		return fmt.Errorf("fetch settings: %w", err)
+	}
+	if settings == nil || (!settings.EnableSurfaceDetection && !settings.EnableDifficultyScales) {
+		// User has disabled all relevant enrichment — skip silently, not an error.
+		return nil
+	}
+
+	stream, err := enrichment.GetEnrichmentStream(actCtx, db, candidate.ActivityID)
+	if err != nil {
+		return fmt.Errorf("load stream: %w", err)
+	}
+
+	if err := enrichment.EnrichTrackAnalysis(actCtx, db, candidate.ActivityID, settings, graphReader, stream); err != nil {
+		return fmt.Errorf("enrich track analysis: %w", err)
+	}
+	return nil
+}
+
+// writeBackfillResult stores failure metadata into the job record and returns
+// a structured error when the backfill failed catastrophically (aborted).
+// When aborted=false the caller always completes the job successfully (the
+// handler's outer CompleteBackgroundJob call handles final status).
+func writeBackfillResult(
+	ctx context.Context,
+	db *database.DB,
+	jobID string,
+	processed, failed, total int,
+	failedIDs []string,
+	aborted bool,
+) error {
+	if jobID == "" {
+		if aborted {
+			return fmt.Errorf("backfill aborted: %d/%d activities failed", failed, total)
+		}
+		return nil
+	}
+
+	// Store partial-failure metadata in the job record so operators can inspect
+	// which activities failed without grepping logs.
+	type backfillMeta struct {
+		Processed int      `json:"processed"`
+		Failed    int      `json:"failed"`
+		Total     int      `json:"total"`
+		FailedIDs []string `json:"failed_ids,omitempty"`
+		Aborted   bool     `json:"aborted,omitempty"`
+	}
+	meta := backfillMeta{
+		Processed: processed,
+		Failed:    failed,
+		Total:     total,
+		Aborted:   aborted,
+	}
+	if len(failedIDs) > 0 {
+		meta.FailedIDs = failedIDs
+	}
+	metaJSON, _ := json.Marshal(meta)
+	_, _ = db.Pool.Exec(ctx,
+		`UPDATE background_jobs SET metadata = $1 WHERE id = $2`,
+		string(metaJSON), jobID,
+	)
+
+	if aborted {
+		return fmt.Errorf("backfill aborted: %d/%d activities failed (rate >%.0f%%)",
+			failed, total, backfillFailureRateAbort*100)
+	}
 	return nil
 }
 
@@ -200,9 +308,15 @@ func listActivityEnrichmentBackfillCandidates(
 	db *database.DB,
 	force bool,
 ) ([]activityEnrichmentBackfillCandidate, error) {
+	// Candidate predicate respects each user's enable_difficulty_scales setting:
+	// an activity is only considered "missing enrichment" for difficulty-scale
+	// categories when the user has that feature enabled. This prevents incorrectly
+	// treating activities as needing backfill just because sac_scale/mtb_scale/vf_scale
+	// rows are absent for users who never enabled difficulty scales.
 	rows, err := db.Pool.Query(ctx, `
 		SELECT a.id, a.user_id
 		FROM activities a
+		LEFT JOIN user_enrichment_settings ues ON ues.user_id = a.user_id
 		WHERE a.has_gps = true
 		  AND (
 			$1
@@ -210,7 +324,19 @@ func listActivityEnrichmentBackfillCandidates(
 				SELECT 1
 				FROM activity_enrichments e
 				WHERE e.activity_id = a.id
-				  AND e.category IN ('forest_pct', 'protected_pct', 'sac_scale', 'mtb_scale', 'vf_scale', 'vf_unknown')
+				  AND e.category IN (
+					'forest_pct', 'protected_pct',
+					'surface', 'highway'
+				  )
+			)
+			OR (
+				COALESCE(ues.enable_difficulty_scales, true)
+				AND NOT EXISTS (
+					SELECT 1
+					FROM activity_enrichments e
+					WHERE e.activity_id = a.id
+					  AND e.category IN ('sac_scale', 'mtb_scale', 'vf_scale', 'vf_unknown')
+				)
 			)
 		  )
 		ORDER BY a.created_at DESC
