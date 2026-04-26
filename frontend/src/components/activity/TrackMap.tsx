@@ -10,6 +10,7 @@ import type { ZoomRange } from '@/components/ActivityCharts'
 import { SURFACE_GROUPS } from '@/lib/surfaceConstants'
 import { RESAMPLE_SPACING_M } from '@/lib/trackSummaryConstants'
 import { SAC_COLORS, MTB_COLORS, VF_COLORS, VF_UNKNOWN_COLOR } from '@/lib/scaleColors'
+import { Mountain } from 'lucide-react'
 import { useMetricColoring } from './useMetricColoring'
 import MapColorDropdown from './MapColorDropdown'
 import MapColorLegend from './MapColorLegend'
@@ -160,6 +161,7 @@ export default function TrackMap({
   const photoBlobUrlsRef = useRef<string[]>([])
 
   const [showPhotos, setShowPhotos] = useState(true)
+  const [showSummits, setShowSummits] = useState(true)
   const [mapLoaded, setMapLoaded] = useState(false)
   const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null)
   const hasSummarySummitPois = highlightedPois.some(p => p.category === 'summit' || p.category === 'pass')
@@ -510,10 +512,11 @@ export default function TrackMap({
     const map = mapRef.current
     if (!map || !mapLoaded || !hasTrack) return
 
-    if (hasSummarySummitPois) {
-      if (map.getLayer('activity-summits-layer')) map.removeLayer('activity-summits-layer')
-      if (map.getSource('activity-summits')) map.removeSource('activity-summits')
-    }
+    // Note: previously this branch removed the geoTags-based `activity-summits-layer`
+    // when the track-summary POI source had summits, deferring rendering to the
+    // SUMMARY_SUMMIT_LAYER below. Removed 2026-04-26: the geoTags layer is the
+    // user-visible default (with permanent name + elevation labels) and is
+    // controlled via the toolbar's summit toggle.
 
     if (!map.getSource(SUMMARY_SUMMIT_SOURCE_ID)) {
       map.addSource(SUMMARY_SUMMIT_SOURCE_ID, {
@@ -958,6 +961,22 @@ export default function TrackMap({
     }
   }, [positionedPhotos, mapLoaded, showPhotos]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Summit layer visibility — toggleable via toolbar button. Both the
+  // geoTags-based layer (with name + elevation labels) and the track-summary
+  // hover-highlight layer get hidden together so toggling off really hides
+  // everything related to summits.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const visibility = showSummits ? 'visible' : 'none'
+    if (map.getLayer('activity-summits-layer')) {
+      map.setLayoutProperty('activity-summits-layer', 'visibility', visibility)
+    }
+    if (map.getLayer(SUMMARY_SUMMIT_LAYER_ID)) {
+      map.setLayoutProperty(SUMMARY_SUMMIT_LAYER_ID, 'visibility', visibility)
+    }
+  }, [showSummits, mapLoaded])
+
   // Chart brush → highlight via fitBounds (programmaticFit) — line-opacity modulation is handled by useMetricColoring
   useEffect(() => {
     const map = mapRef.current
@@ -1060,6 +1079,17 @@ export default function TrackMap({
             <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
               <path fillRule="evenodd" d="M1 8a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 018.07 3h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0016.07 6H17a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V8zm13.5 3a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM10 14a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
             </svg>
+          </button>
+        )}
+
+        {/* Summit toggle — only shown when activity has any summits/passes in geoTags */}
+        {(geoTags ?? []).some(t => (t.category === 'summit' || t.category === 'pass') && t.lat != null) && (
+          <button
+            onClick={() => setShowSummits(p => !p)}
+            className={`${btnBase} ${showSummits ? btnActive : btnDimmed}`}
+            title={showSummits ? 'Gipfel ausblenden' : 'Gipfel einblenden'}
+          >
+            <Mountain className="w-4 h-4" aria-hidden="true" />
           </button>
         )}
 
