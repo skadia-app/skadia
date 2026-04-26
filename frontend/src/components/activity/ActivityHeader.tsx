@@ -131,6 +131,10 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
 
   // Scoped reprocess via per-activity endpoint: creates a background job with
   // entity_id = activity.id so the global useActiveJobs spinner tracks it.
+  // Routes to /activities/{id}/recompute (handler/recompute.go), which accepts
+  // the full GEO_SCOPE_KEYS vocabulary including 'lifts' and 'stops'. Do NOT
+  // redirect to /activities/re-enrich — re_enrich rejects 'lifts'/'stops'
+  // (they require the Stage-1 FIT reparse).
   const reprocessScopedMutation = useMutation({
     mutationFn: (scope: string[]) => reprocessActivity(activity.id, scope),
     onMutate: () => {
