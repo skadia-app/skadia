@@ -739,7 +739,7 @@ export default function ActivitiesPage() {
   const fusionCount = fusionData?.length ?? 0
 
   // ── Paginierter Modus ────────────────────────────────────────────────────
-  const { data: pageData, isLoading: pageLoading, isFetching: pageFetching } = useQuery({
+  const { data: pageData, isLoading: pageLoading, isFetching: pageFetching, isPlaceholderData } = useQuery({
     queryKey: ['activities', cursor, pageSize, effectiveSortBy, effectiveSortDir, filterKey],
     queryFn: () => fetchActivities(cursor, pageSize as number, effectiveSortBy, effectiveSortDir, apiFilters),
     enabled: !isInfinite,
@@ -747,7 +747,7 @@ export default function ActivitiesPage() {
   })
 
   useEffect(() => {
-    if (!pageData) return
+    if (!pageData || isPlaceholderData) return
     setTotal(pageData.total)
     if (pageData.next_cursor != null && cursors[pageIndex + 1] == null) {
       setCursors(prev => {
@@ -756,7 +756,7 @@ export default function ActivitiesPage() {
         return next
       })
     }
-  }, [pageData, pageIndex]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pageData, pageIndex, isPlaceholderData]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Infinite-Scroll-Modus ────────────────────────────────────────────────
   const {
