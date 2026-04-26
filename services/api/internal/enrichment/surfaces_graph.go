@@ -1,104 +1,11 @@
 package enrichment
 
 import (
-	"context"
-	"log/slog"
 	"math"
 
-	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
-
-// enrichSurfacesGraph matches the activity track against the tiled graph using
-// a Viterbi algorithm and writes surface/highway statistics to activity_surfaces.
-//
-// It is the graph-based replacement for enrichSurfacesSQL: instead of a
-// PostGIS nearest-way join it calls FindNearEdges on the tiled graph tiles,
-// then runs Viterbi map-matching to pick a coherent edge sequence before
-// aggregating statistics.
-//
-// graphGetter must return the tile Graph that covers (lat, lng), or nil when no
-// tile is loaded for that location. Points that fall outside all loaded tiles
-// are treated as offroad.
-func enrichSurfacesGraph(
-	ctx context.Context,
-	db *database.DB,
-	graphGetter func(lat, lng float64) *graph.Graph,
-	activityID string,
-	stream []EnrichmentStreamPoint,
-) error {
-	pts := resampleStreamPoints(stream, surfaceResampleM)
-	if len(pts) < 2 {
-		slog.Debug("surfaces_graph: fewer than 2 resampled points, skipping",
-			"activity_id", activityID,
-			"resampled", len(pts),
-		)
-		return nil
-	}
-
-	// For each resampled point gather edge candidates from the tiled graph.
-	candidates := make([][]graph.EdgeCandidate, len(pts))
-	for i, pt := range pts {
-		g := graphGetter(pt.lat, pt.lng)
-		if g == nil {
-			candidates[i] = nil
-			continue
-		}
-		cands := graph.FindNearEdges(g, pt.lat, pt.lng)
-		if len(cands) == 0 {
-			candidates[i] = nil
-		} else {
-			candidates[i] = cands
-		}
-	}
-
-	matched := viterbiMatch(pts, candidates)
-
-	// Classify each matched edge into SurfaceClass / HighwayClass.
-	// Use candidates slice (not matched struct fields) to detect offroad:
-	// zero-value EdgeCandidate is ambiguous (EdgeIdx=0 is a valid edge).
-	points := make([]matchedPoint, len(matched))
-	for i, ec := range matched {
-		p := matchedPoint{Idx: i}
-
-		if len(candidates[i]) == 0 {
-			// No edge candidates within 25m → offroad
-			p.SurfaceClass = "offroad"
-			p.HighwayClass = "offroad"
-		} else if ec.Surface == "" || ec.Surface == "unknown" {
-			p.SurfaceClass = "unknown"
-			p.HighwayClass = ec.Highway
-			if p.HighwayClass == "" {
-				p.HighwayClass = "unknown"
-			}
-		} else {
-			p.SurfaceClass = ec.Surface
-			p.HighwayClass = ec.Highway
-			if p.HighwayClass == "" {
-				p.HighwayClass = "unknown"
-			}
-		}
-
-		points[i] = p
-	}
-
-	// No modeFilter here: Viterbi already provides temporal consistency
-	// via connectivity-aware transitions. Graph edges have no OsmID, so
-	// modeFilter (which keys on OsmID) would be a no-op anyway.
-
-	surfaceBreakdowns := aggregateByField(points, func(p matchedPoint) string { return p.SurfaceClass })
-	highwayBreakdowns := aggregateByField(points, func(p matchedPoint) string { return p.HighwayClass })
-
-	slog.Info("surfaces_graph: Viterbi map-matching complete",
-		"activity_id", activityID,
-		"resampled_pts", len(pts),
-		"surface_types", len(surfaceBreakdowns),
-		"highway_types", len(highwayBreakdowns),
-	)
-
-	return persistSurfaceResults(ctx, db, activityID, surfaceBreakdowns, highwayBreakdowns)
-}
 
 type resampledPoint = struct {
 	lat float64

@@ -190,7 +190,7 @@ func TestClassification_UnknownSurface(t *testing.T) {
 		Highway: new("track"),
 	}
 
-	// Reproduce the classification block from enrichSurfacesSQL.
+	// Reproduce the SQL surface classification block.
 	if p.DistM == nil || *p.DistM > surfaceMatchToleranceM {
 		p.SurfaceClass = "offroad"
 		p.HighwayClass = "offroad"
@@ -225,7 +225,7 @@ func TestClassification_Offroad(t *testing.T) {
 		DistM: nil,
 	}
 
-	// Reproduce the classification block from enrichSurfacesSQL.
+	// Reproduce the SQL surface classification block.
 	if p.DistM == nil || *p.DistM > surfaceMatchToleranceM {
 		p.SurfaceClass = "offroad"
 		p.HighwayClass = "offroad"

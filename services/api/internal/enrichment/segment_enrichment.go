@@ -105,7 +105,7 @@ func SuggestSegmentEnrichment(
 }
 
 // matchEdgesViaGraph runs Viterbi against graphReader and extracts edge-level
-// sample data (surface, sac, mtb, length). Mirrors enrichSurfacesGraph's
+// sample data (surface, sac, mtb, length). Mirrors track-analysis graph
 // control flow: per-point FindNearEdges → Viterbi → edge-tag extraction.
 // Returns (edges, graphAvailable, coverage_pct, err).
 //
