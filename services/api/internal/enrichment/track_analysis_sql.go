@@ -38,9 +38,6 @@ func enrichTrackAnalysisSQL(
 		if err := writeSurfaceHighwayEnrichments(ctx, tx, activityID, surfaceBreakdowns, highwayBreakdowns); err != nil {
 			return err
 		}
-		if err := persistSurfaceResultsTx(ctx, tx, activityID, surfaceBreakdowns, highwayBreakdowns); err != nil {
-			return err
-		}
 		if err := writeForestProtectedSQLTx(ctx, tx, activityID); err != nil {
 			return err
 		}

@@ -3,10 +3,8 @@ package enrichment
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"slices"
 
-	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -31,54 +29,6 @@ type SurfaceBreakdown struct {
 	Type       string  `json:"type"`
 	LengthM    float64 `json:"length_m"`
 	Percentage float64 `json:"percentage"`
-}
-
-// enrichSurfacesSQL matches the activity track against osm_ways using a
-// nearest-neighbour lateral join on resampled track points.
-//
-// The approach avoids the slow ST_Intersection + ST_Buffer pattern from the
-// legacy EnrichSurfaces (17 min → ~100 ms) and produces per-point
-// classifications that are then smoothed by a sliding-window mode filter
-// before being aggregated into SurfaceBreakdown rows.
-func enrichSurfacesSQL(ctx context.Context, db *database.DB, activityID string) error {
-	surfaceBreakdowns, highwayBreakdowns, err := computeSurfaceBreakdownsSQL(ctx, db, activityID)
-	if err != nil {
-		return err
-	}
-	return persistSurfaceResults(ctx, db, activityID, surfaceBreakdowns, highwayBreakdowns)
-}
-
-func computeSurfaceBreakdownsSQL(ctx context.Context, db *database.DB, activityID string) ([]SurfaceBreakdown, []SurfaceBreakdown, error) {
-	rows, err := db.Pool.Query(ctx, `
-		WITH route_pts AS (
-		    SELECT (dp).path[1] AS idx, (dp).geom AS pt
-		    FROM (
-		        SELECT ST_DumpPoints(
-		            ST_Segmentize(ST_Simplify(track_full, 0.00005)::geography, $2)::geometry
-		        ) AS dp
-		        FROM activity_tracks WHERE activity_id = $1
-		    ) sub
-		),
-		matched AS (
-		    SELECT rp.idx, w.surface, w.highway, w.osm_id,
-		           ST_Distance(rp.pt::geography, w.geom::geography) AS dist_m
-		    FROM route_pts rp
-		    LEFT JOIN LATERAL (
-		        SELECT w.surface, w.highway, w.osm_id, w.geom
-		        FROM osm_ways w
-		        WHERE w.geom && ST_Expand(rp.pt, $3)
-		        ORDER BY w.geom <-> rp.pt
-		        LIMIT 1
-		    ) w ON true
-		)
-		SELECT idx, surface, highway, osm_id, dist_m FROM matched ORDER BY idx
-	`, activityID, surfaceResampleM, surfaceBBoxExpand)
-	if err != nil {
-		return nil, nil, fmt.Errorf("surfaces_sql: query: %w", err)
-	}
-	defer rows.Close()
-
-	return scanSurfaceBreakdowns(rows)
 }
 
 func computeSurfaceBreakdownsSQLTx(ctx context.Context, tx pgx.Tx, activityID string) ([]SurfaceBreakdown, []SurfaceBreakdown, error) {
@@ -257,79 +207,4 @@ func aggregateByField(points []matchedPoint, fieldFn func(matchedPoint) string) 
 	})
 
 	return breakdowns
-}
-
-// persistSurfaceResults deletes existing activity_surfaces rows for the
-// activity and re-inserts them via a pgx.Batch. Surface breakdowns are
-// written with category='surface' (surface_type filled, path_type empty);
-// highway breakdowns are written with category='highway' (surface_type
-// empty, path_type filled).
-func persistSurfaceResults(
-	ctx context.Context,
-	db *database.DB,
-	activityID string,
-	surfaces []SurfaceBreakdown,
-	highways []SurfaceBreakdown,
-) error {
-	tx, err := db.Pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("surfaces_sql: begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	if err := persistSurfaceResultsTx(ctx, tx, activityID, surfaces, highways); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("surfaces_sql: commit tx: %w", err)
-	}
-	return nil
-}
-
-func persistSurfaceResultsTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	activityID string,
-	surfaces []SurfaceBreakdown,
-	highways []SurfaceBreakdown,
-) error {
-	if _, err := tx.Exec(ctx,
-		"DELETE FROM activity_surfaces WHERE activity_id = $1",
-		activityID,
-	); err != nil {
-		return fmt.Errorf("surfaces_sql: delete existing rows: %w", err)
-	}
-
-	batch := &pgx.Batch{}
-
-	for _, s := range surfaces {
-		batch.Queue(
-			`INSERT INTO activity_surfaces
-			    (activity_id, category, surface_type, path_type, length_m, percentage)
-			VALUES ($1, $2, $3, '-', $4, $5)`,
-			activityID, "surface", s.Type, s.LengthM, s.Percentage,
-		)
-	}
-
-	for _, h := range highways {
-		batch.Queue(
-			`INSERT INTO activity_surfaces
-			    (activity_id, category, surface_type, path_type, length_m, percentage)
-			VALUES ($1, 'highway', '-', $2, $3, $4)`,
-			activityID, h.Type, h.LengthM, h.Percentage,
-		)
-	}
-
-	if batch.Len() > 0 {
-		if err := tx.SendBatch(ctx, batch).Close(); err != nil {
-			return fmt.Errorf("surfaces_sql: batch insert: %w", err)
-		}
-	}
-
-	slog.Info("surfaces: persist complete",
-		"activity_id", activityID,
-		"surface_types", len(surfaces),
-		"highway_types", len(highways),
-	)
-	return nil
 }

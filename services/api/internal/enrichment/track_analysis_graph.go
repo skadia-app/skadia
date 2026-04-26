@@ -83,9 +83,6 @@ func enrichTrackAnalysisGraph(
 		if err := writeSurfaceHighwayEnrichments(ctx, tx, activityID, surfaceBreakdowns, highwayBreakdowns); err != nil {
 			return err
 		}
-		if err := persistSurfaceResultsTx(ctx, tx, activityID, surfaceBreakdowns, highwayBreakdowns); err != nil {
-			return err
-		}
 		if err := writeForestProtectedTx(ctx, tx, activityID, forestPct*100.0, protectedPct*100.0, allRanges.Forest, allRanges.Protected); err != nil {
 			return err
 		}

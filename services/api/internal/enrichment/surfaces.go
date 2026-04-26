@@ -1,25 +1,5 @@
 package enrichment
 
-import (
-	"context"
-
-	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/skadia-app/skadia/services/api/internal/routing"
-)
-
-// EnrichSurfaces is deprecated. Use EnrichTrackAnalysis with explicit
-// model.EnrichmentSettings instead.
-func EnrichSurfaces(ctx context.Context, db *database.DB, activityID string, enabled bool,
-	graphReader routing.GraphReader, stream []EnrichmentStreamPoint) error {
-
-	settings := &model.EnrichmentSettings{
-		EnableSurfaceDetection: enabled,
-		EnableDifficultyScales: false,
-	}
-	return EnrichTrackAnalysis(ctx, db, activityID, settings, graphReader, stream)
-}
-
 type bbox struct {
 	minLat, minLon, maxLat, maxLon float64
 }
