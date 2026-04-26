@@ -8,11 +8,17 @@ import type { StreamPoint, GeoTag, ActivityStop } from '@/api/types'
 import type { CoordRange } from '@/api/routes'
 import type { ZoomRange } from '@/components/ActivityCharts'
 import { SURFACE_GROUPS } from '@/lib/surfaceConstants'
+import { RESAMPLE_SPACING_M } from '@/lib/trackSummaryConstants'
 import { useMetricColoring } from './useMetricColoring'
 import MapColorDropdown from './MapColorDropdown'
 import MapColorLegend from './MapColorLegend'
 
-export type SurfaceHighlightKey = { kind: 'highway' | 'surface'; key: string } | null
+export type SurfaceHighlightKey = {
+  kind: 'highway' | 'surface'
+  key: string
+  /** Raw OSM types that overflowed into the '__other__' bucket — used to union their ranges. */
+  overflowRawTypes?: string[]
+} | null
 
 export type HighlightedPoiCategory = 'summit' | 'pass' | 'still_water' | 'flowing_water' | 'settlement'
 export type HighlightedPoiHoverKind = 'summit' | 'water' | 'settlement'
@@ -151,14 +157,18 @@ export default function TrackMap({
   // this array, so we can slice it directly to build highlight LineStrings.
   const resampledCoords = useMemo<[number, number][]>(() => {
     if (coordinates.length < 2) return []
-    const SPACING_M = 10
-    // Cumulative distance via equirectangular approx (matches backend formula).
-    const lat0Rad = (coordinates[0][1] * Math.PI) / 180
-    const cosLat = Math.cos(lat0Rad)
+    const SPACING_M = RESAMPLE_SPACING_M // mirrors surfaceResampleM in surfaces_sql.go (TODO: use resample_spacing_m from API response when R1-B ships it)
+    // Cumulative distance via equirectangular approximation.
+    // Uses per-segment cos(lat) at the *start* of each segment, identical to
+    // the backend equirectDistMeters(lat1,lng1,lat2,lng2) in surfaces_graph.go.
+    // Using a single cos(lat0) for the whole track drifts by cos(lat1)/cos(lat0)
+    // on long N–S routes; per-segment evaluation eliminates that bias.
     const M_PER_DEG_LAT = 111320 // ≈ geo.MetersPerDegreeLat
     const cum = new Array<number>(coordinates.length)
     cum[0] = 0
     for (let i = 1; i < coordinates.length; i++) {
+      const lat1Rad = (coordinates[i - 1][1] * Math.PI) / 180
+      const cosLat = Math.cos(lat1Rad) // cos of segment start lat — matches backend
       const dLat = (coordinates[i][1] - coordinates[i - 1][1]) * M_PER_DEG_LAT
       const dLng = (coordinates[i][0] - coordinates[i - 1][0]) * cosLat * M_PER_DEG_LAT
       cum[i] = cum[i - 1] + Math.sqrt(dLat * dLat + dLng * dLng)
@@ -675,14 +685,31 @@ export default function TrackMap({
 
     let ranges: CoordRange[] = []
     if (surfaceHighlight.kind === 'highway') {
-      ranges = (highwayRanges?.[surfaceHighlight.key]) ?? []
+      if (surfaceHighlight.key === '__other__' && surfaceHighlight.overflowRawTypes) {
+        // "Sonstige" highway bucket: union ranges of all overflow raw highway types.
+        for (const rawType of surfaceHighlight.overflowRawTypes) {
+          ranges = ranges.concat(highwayRanges?.[rawType] ?? [])
+        }
+      } else {
+        ranges = (highwayRanges?.[surfaceHighlight.key]) ?? []
+      }
     } else {
       // surface key is the GROUP label (e.g. "Naturweg") — union all raw
       // types whose SURFACE_GROUPS bucket matches.
+      // For '__other__', overflowRawTypes carries the exact display-group names
+      // that overflowed; look up each group's contributing raw OSM types.
       const map_ = surfaceRanges ?? {}
-      for (const rawType of Object.keys(map_)) {
-        const group = SURFACE_GROUPS[rawType] ?? rawType
-        if (group === surfaceHighlight.key) ranges = ranges.concat(map_[rawType] ?? [])
+      if (surfaceHighlight.key === '__other__' && surfaceHighlight.overflowRawTypes) {
+        const overflowGroups = new Set(surfaceHighlight.overflowRawTypes)
+        for (const rawType of Object.keys(map_)) {
+          const group = SURFACE_GROUPS[rawType] ?? rawType
+          if (overflowGroups.has(group)) ranges = ranges.concat(map_[rawType] ?? [])
+        }
+      } else {
+        for (const rawType of Object.keys(map_)) {
+          const group = SURFACE_GROUPS[rawType] ?? rawType
+          if (group === surfaceHighlight.key) ranges = ranges.concat(map_[rawType] ?? [])
+        }
       }
     }
 

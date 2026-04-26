@@ -1,5 +1,7 @@
 import { useState, useCallback } from 'react'
+import { Info } from 'lucide-react'
 import type { ActivityTrackSummary, TrackSummarySurfaceItem } from '@/api/trackSummary'
+import type { HighlightKind } from '@/hooks/useStickyHighlight'
 import {
   SURFACE_COLORS,
   HIGHWAY_COLORS,
@@ -12,13 +14,15 @@ import StackedBar from '@/components/shared/StackedBar'
 export type SurfaceHighlight = { kind: 'highway' | 'surface'; key: string } | null
 
 interface Props {
-  summary?: Pick<ActivityTrackSummary, 'surfaces' | 'highways'> | null
+  summary?: Pick<ActivityTrackSummary, 'surfaces' | 'highways' | 'graph_snap_used' | 'surface_ranges' | 'highway_ranges'> | null
   /** Hover changes (null = no hover). Parent owns the global highlight state. */
-  onHighlight?: (h: SurfaceHighlight) => void
+  onHighlight?: (h: HighlightKind) => void
   /** Controlled pin state (sticky after click). */
   pinnedType?: SurfaceHighlight
   /** Click toggles the pin; parent decides next state. */
   onPin?: (h: SurfaceHighlight) => void
+  /** Whether track streams are still loading — suppresses hover interaction. */
+  streamsLoading?: boolean
 }
 
 interface SurfaceDisplayRow {
@@ -50,7 +54,7 @@ function summarySurfaceRow(item: TrackSummarySurfaceItem, category: 'surface' | 
   }
 }
 
-export default function SurfacesSection({ summary, onHighlight, pinnedType = null, onPin }: Props) {
+export default function SurfacesSection({ summary, onHighlight, pinnedType = null, onPin, streamsLoading }: Props) {
   const [collapsed, setCollapsed] = useState(false)
 
   const rows = summaryRows(summary ?? null)
@@ -62,11 +66,27 @@ export default function SurfacesSection({ summary, onHighlight, pinnedType = nul
   const aggregatedSurfaces = aggregateSurfaces(surfaceRows)
   const aggregatedHighways = aggregateHighways(highwayRows)
 
+  // Whether map highlight is available for this activity:
+  // - graph_snap_used explicitly false → SQL fallback was used, ranges are null
+  // - graph_snap_used absent AND all ranges null → treat as unavailable
+  const rangesAvailable = summary != null && (
+    summary.graph_snap_used === true ||
+    (summary.graph_snap_used == null && (
+      (summary.surface_ranges != null && Object.keys(summary.surface_ranges).length > 0) ||
+      (summary.highway_ranges != null && Object.keys(summary.highway_ranges).length > 0)
+    ))
+  )
+
   // Hover/pin handlers — mirror RouteSurfacesBar so the route-planner pattern
   // is the single source of truth for hover-coordination semantics.
+  // When ranges or streams are not available, suppress the highlight callback.
   const handleHwHover = useCallback((key: string | null) => {
-    onHighlight?.(key ? { kind: 'highway', key } : null)
-  }, [onHighlight])
+    if (!rangesAvailable || streamsLoading) return
+    if (!key) { onHighlight?.(null); return }
+    // Pass overflow raw types so TrackMap can union ranges for the '__other__' bucket.
+    const bucket = aggregatedHighways.find(a => a.surface_type === key)
+    onHighlight?.({ kind: 'highway' as const, key, overflowRawTypes: bucket?.overflowRawTypes })
+  }, [onHighlight, rangesAvailable, streamsLoading, aggregatedHighways])
 
   const handleHwPin = useCallback((key: string) => {
     const next: SurfaceHighlight =
@@ -77,8 +97,12 @@ export default function SurfacesSection({ summary, onHighlight, pinnedType = nul
   }, [pinnedType, onPin])
 
   const handleSfHover = useCallback((key: string | null) => {
-    onHighlight?.(key ? { kind: 'surface', key } : null)
-  }, [onHighlight])
+    if (!rangesAvailable || streamsLoading) return
+    if (!key) { onHighlight?.(null); return }
+    // Pass overflow raw types (display-group names) so TrackMap can union ranges for '__other__'.
+    const bucket = aggregatedSurfaces.find(a => a.surface_type === key)
+    onHighlight?.({ kind: 'surface' as const, key, overflowRawTypes: bucket?.overflowRawTypes })
+  }, [onHighlight, rangesAvailable, streamsLoading, aggregatedSurfaces])
 
   const handleSfPin = useCallback((key: string) => {
     const next: SurfaceHighlight =
@@ -94,6 +118,9 @@ export default function SurfacesSection({ summary, onHighlight, pinnedType = nul
 
   const hwActiveKey = pinnedType?.kind === 'highway' ? pinnedType.key : null
   const sfActiveKey = pinnedType?.kind === 'surface' ? pinnedType.key : null
+
+  // Bars are interactive only when ranges are present and streams have loaded.
+  const barsInteractive = rangesAvailable && !streamsLoading
 
   return (
     <div>
@@ -120,9 +147,10 @@ export default function SurfacesSection({ summary, onHighlight, pinnedType = nul
               colorMap={HIGHWAY_COLORS}
               labelMap={HIGHWAY_LABELS}
               title="Wegearten"
-              onHover={handleHwHover}
-              onPin={handleHwPin}
+              onHover={barsInteractive ? handleHwHover : undefined}
+              onPin={barsInteractive ? handleHwPin : undefined}
               activeKey={hwActiveKey}
+              streamsLoading={streamsLoading}
             />
           )}
           {aggregatedSurfaces.length > 0 && (
@@ -130,10 +158,25 @@ export default function SurfacesSection({ summary, onHighlight, pinnedType = nul
               aggregated={aggregatedSurfaces}
               colorMap={SURFACE_COLORS}
               title="Oberflächen"
-              onHover={handleSfHover}
-              onPin={handleSfPin}
+              onHover={barsInteractive ? handleSfHover : undefined}
+              onPin={barsInteractive ? handleSfPin : undefined}
               activeKey={sfActiveKey}
+              streamsLoading={streamsLoading}
             />
+          )}
+
+          {/* Availability hints — shown once per section, not per bar */}
+          {streamsLoading && (
+            <p className="flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+              <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              Kartendaten werden geladen…
+            </p>
+          )}
+          {!streamsLoading && !rangesAvailable && (
+            <p className="flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+              <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              Karten-Highlight für Wege/Oberflächen ist für diese Aktivität nicht verfügbar (eingeschränkte Tile-Coverage).
+            </p>
           )}
         </div>
       )}

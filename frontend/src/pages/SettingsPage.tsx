@@ -48,7 +48,7 @@ const ANALYSIS_MODULES: AnalysisModule[] = [
   { label: 'Grenzüberquerungen',      description: 'Erkennt überquerte Ländergrenzen.',                                               field: 'enable_border_detection',    requiresML: false },
   { label: 'Stopps & Einkehr',        description: 'Erkennt Aufenthalte und Restaurantbesuche (≥10 min).',                            field: 'enable_stop_detection',      requiresML: false },
   { label: 'Lifte / Seilbahnen',      description: 'Erkennt Gondelbahnen und Sessellifte.',                                           field: 'enable_lift_detection',      requiresML: true  },
-  { label: 'Untergrundtypen',         description: 'Erkennt Wegtypen, Oberflächen und Wald-/Schutzgebietsanteile sowie Schwierigkeiten.',         field: 'enable_surface_detection',   requiresML: false },
+  { label: 'Untergrundtypen',         description: 'Erkennt Wegtypen, Oberflächen und Wald-/Schutzgebietsanteile sowie Wege-Schwierigkeiten (SAC/MTB/Klettersteig).',         field: 'enable_surface_detection',   requiresML: false },
   { label: 'Anstiege',                description: 'Erkennt und klassifiziert Anstiege.',                                             field: 'enable_ascent_detection',    requiresML: false },
   { label: 'Intervalltraining',       description: 'Erkennt Trainingsintervalle automatisch.',                                        field: 'enable_interval_detection',  requiresML: false },
   { label: 'Rundenerkennung',         description: 'Erkennt automatisch Runden/Laps bei Aktivitäten auf Rundkursen.',                 field: 'enable_lap_detection',       requiresML: false },
@@ -60,6 +60,23 @@ function AutomatischeAnalysenSection() {
   const { isAdmin } = useUser()
 
   const { settings, isLoading, isError, mutation: mut } = useEnrichmentSettings()
+
+  // One-shot legacy sync: legacy users may have enable_surface_detection=true but
+  // enable_difficulty_scales=false because the scales toggle was added later. On
+  // first mount, if the two fields are out of sync, bring enable_difficulty_scales
+  // in line with enable_surface_detection. The useRef guard ensures this fires
+  // at most once per mount, preventing any re-render loop.
+  const legacySyncFiredRef = useRef(false)
+  useEffect(() => {
+    if (legacySyncFiredRef.current) return
+    if (!settings) return
+    if (settings.enable_surface_detection !== settings.enable_difficulty_scales) {
+      legacySyncFiredRef.current = true
+      mut.mutate({ enable_difficulty_scales: settings.enable_surface_detection })
+    } else {
+      legacySyncFiredRef.current = true
+    }
+  }, [settings]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: capabilities } = useQuery({
     queryKey: ['capabilities'],

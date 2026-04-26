@@ -112,6 +112,8 @@ export interface AggregatedSurface {
   surface_type: string
   length_m: number
   percentage: number
+  /** Raw OSM types that were merged into this display group (only set for '__other__' bucket). */
+  overflowRawTypes?: string[]
 }
 
 // Always show at least MIN_SHOWN surface types before collapsing to "Sonstige",
@@ -150,12 +152,15 @@ export function aggregateSurfaces(
 
   const otherLength = overflow.reduce((a, s) => a + s.length_m, 0)
   if (otherLength > 0) {
+    // Collect the raw OSM types that contributed to this display group so that
+    // callers can union their ranges for the "Sonstige" hover highlight.
     displayed = [
       ...displayed,
       {
         surface_type: '__other__',
         length_m: otherLength,
         percentage: (otherLength / totalLength) * 100,
+        overflowRawTypes: overflow.map(s => s.surface_type),
       },
     ]
   }
@@ -195,6 +200,9 @@ export function aggregateHighways(
         surface_type: '__other__',
         length_m: otherLength,
         percentage: (otherLength / totalLength) * 100,
+        // For highways, overflow types are exact OSM highway keys (not display groups),
+        // so they can be looked up directly in highway_ranges.
+        overflowRawTypes: overflow.map(s => s.surface_type),
       },
     ]
   }

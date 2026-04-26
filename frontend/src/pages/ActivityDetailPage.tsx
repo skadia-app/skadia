@@ -880,6 +880,7 @@ export default function ActivityDetailPage() {
                   onHighlight={surfaceHighlightApi.setHover}
                   pinnedType={surfaceHighlightSticky}
                   onPin={surfaceHighlightApi.handleClick}
+                  streamsLoading={streamsLoading}
                 />
               )}
             </TrackSummary>
