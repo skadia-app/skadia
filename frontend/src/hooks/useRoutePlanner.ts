@@ -1284,11 +1284,12 @@ export function useRoutePlanner() {
           const converted = nullRatio <= 0.5
             ? legacyToRouteProfile(profile, totalDistM)
             : []
-          // Bug A fix (2026-04-24): when DEM returned only null elevations
-          // (region outside DEM coverage), legacyToRouteProfile filters them
-          // all out → converted=[]. Bug #6 extends this: same fallback when
-          // DEM coverage is below 50%. Fall back to inline-Z (coord[2]) from
-          // segment geometry, which still carries valid heights from the
+          // DEM-fallback: when `legacyToRouteProfile` would return empty —
+          // either all DEM samples are null (region outside coverage, Bug A
+          // fix 2026-04-24) or more than half are null (sparse profile with
+          // non-uniform dist_m axis, Bug #6 — gated above by the
+          // `nullRatio <= 0.5` ternary) — fall back to inline-Z (coord[2])
+          // from segment geometry, which still carries valid heights from the
           // original routing pass. If even inline-Z is empty/missing, keep
           // effectiveProfile null and skip the PendingSave flag.
           let final = converted
