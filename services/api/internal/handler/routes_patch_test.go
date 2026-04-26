@@ -121,6 +121,47 @@ func TestApplyRoutePatch_ElevationProfileExplicitNullClears(t *testing.T) {
 	}
 }
 
+func TestApplyRoutePatch_RoutingEngineSetsValue(t *testing.T) {
+	r := &model.PlannedRoute{}
+	body := []byte(`{"routing_engine": "brouter"}`)
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(body, &fields)
+	if err := applyRoutePatch(r, fields); err != nil {
+		t.Fatalf("applyRoutePatch: %v", err)
+	}
+	if r.RoutingEngine == nil || *r.RoutingEngine != "brouter" {
+		t.Errorf("RoutingEngine: expected \"brouter\", got %v", r.RoutingEngine)
+	}
+}
+
+func TestApplyRoutePatch_RoutingEngineAbsentPreservesExisting(t *testing.T) {
+	eng := "badrouter"
+	r := &model.PlannedRoute{RoutingEngine: &eng}
+	body := []byte(`{"name": "new name"}`)
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(body, &fields)
+	if err := applyRoutePatch(r, fields); err != nil {
+		t.Fatalf("applyRoutePatch: %v", err)
+	}
+	if r.RoutingEngine == nil || *r.RoutingEngine != "badrouter" {
+		t.Errorf("RoutingEngine wiped when absent from patch body: got %v", r.RoutingEngine)
+	}
+}
+
+func TestApplyRoutePatch_RoutingEngineExplicitNullClears(t *testing.T) {
+	eng := "badrouter"
+	r := &model.PlannedRoute{RoutingEngine: &eng}
+	body := []byte(`{"routing_engine": null}`)
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(body, &fields)
+	if err := applyRoutePatch(r, fields); err != nil {
+		t.Fatalf("applyRoutePatch: %v", err)
+	}
+	if r.RoutingEngine != nil {
+		t.Errorf("RoutingEngine: expected nil after explicit null, got %q", *r.RoutingEngine)
+	}
+}
+
 // ----------------------------------------------------------------------------
 // Integration-level coverage against a real DB. Skipped unless TEST_DATABASE_URL is set.
 // ----------------------------------------------------------------------------
@@ -294,5 +335,54 @@ func TestUpdateRoute_NonExistentID404_Integration(t *testing.T) {
 	w := patchRouteRequest(t, h, userID, "00000000-0000-0000-0000-000000000000", body)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for missing id; got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateRoute_RoutingEngineSetAndPreserve_Integration(t *testing.T) {
+	if os.Getenv("TEST_DATABASE_URL") == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	userID := insertTestUser(t, pool)
+	routeID := insertTestRoute(t, h, userID)
+
+	// 1. Set routing_engine to "brouter".
+	w := patchRouteRequest(t, h, userID, routeID, []byte(`{"routing_engine":"brouter"}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("PATCH status = %d, body = %s", w.Code, w.Body.String())
+	}
+	got, err := h.DB.GetRoute(context.Background(), routeID, userID)
+	if err != nil {
+		t.Fatalf("GetRoute: %v", err)
+	}
+	if got.RoutingEngine == nil || *got.RoutingEngine != "brouter" {
+		t.Errorf("RoutingEngine: expected \"brouter\", got %v", got.RoutingEngine)
+	}
+
+	// 2. PATCH with routing_engine absent → value preserved.
+	w = patchRouteRequest(t, h, userID, routeID, []byte(`{"name":"updated"}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("PATCH (preserve) status = %d, body = %s", w.Code, w.Body.String())
+	}
+	got, err = h.DB.GetRoute(context.Background(), routeID, userID)
+	if err != nil {
+		t.Fatalf("GetRoute: %v", err)
+	}
+	if got.RoutingEngine == nil || *got.RoutingEngine != "brouter" {
+		t.Errorf("RoutingEngine wiped by absent-field PATCH: got %v", got.RoutingEngine)
+	}
+
+	// 3. PATCH with explicit null → cleared to NULL.
+	w = patchRouteRequest(t, h, userID, routeID, []byte(`{"routing_engine":null}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("PATCH (null) status = %d, body = %s", w.Code, w.Body.String())
+	}
+	got, err = h.DB.GetRoute(context.Background(), routeID, userID)
+	if err != nil {
+		t.Fatalf("GetRoute: %v", err)
+	}
+	if got.RoutingEngine != nil {
+		t.Errorf("RoutingEngine should be NULL after explicit null PATCH; got %q", *got.RoutingEngine)
 	}
 }
