@@ -57,6 +57,7 @@ export interface PlannedRoute {
   geometry_geojson?: string        // ST_AsGeoJSON — present in list (simplified) and detail
   elevation_profile?: RouteElevationPoint[] | null  // NEW
   enrichment?: Record<string, unknown> | null       // NEW (opaque JSONB-passthrough)
+  routing_engine?: 'badrouter' | 'brouter' | null   // NEW (Migration 000332)
   photos: RoutePhoto[]
   tags: Tag[]
   created_at: string

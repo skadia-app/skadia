@@ -1161,10 +1161,12 @@ export function useRoutePlanner() {
       lazyFillInProgress: false,
       lazyFillPendingSave: false,
       // Bug B (2026-04-24): treat the loaded geometry as already rendered by
-      // the current engine, with both engines clean. A subsequent engine-
-      // switch then takes the display-only path until the user actually
-      // changes a panel/setting.
-      lastRenderedEngine: s.routingEngine,
+      // the persisted engine (or current selection for legacy routes without
+      // routing_engine). Also seed routingEngine so the engine-toggle UI
+      // reflects the engine that actually produced the saved geometry.
+      // Finding #10 (2026-04-24): seed from route.routing_engine, not s.routingEngine.
+      routingEngine: (route.routing_engine ?? s.routingEngine) as typeof s.routingEngine,
+      lastRenderedEngine: (route.routing_engine ?? s.routingEngine) as typeof s.routingEngine,
       dirtyEngines: { badrouter: false, brouter: false },
     }))
 
@@ -1636,6 +1638,7 @@ export function useRoutePlanner() {
         total_elevation_loss: totals.elevation_loss,
         elevation_profile: profilePayload,
         enrichment: enrichmentPayload,
+        routing_engine: state.routingEngine,
         ...overrides,
       }
       wasUpdateRef.current = state.editingRouteId !== null
