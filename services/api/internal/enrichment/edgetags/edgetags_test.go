@@ -124,3 +124,53 @@ func TestCoalesceConsecutive_Empty(t *testing.T) {
 		t.Errorf("empty input: got non-nil")
 	}
 }
+
+func TestComputeTypeRangesFromLabels_Basic(t *testing.T) {
+	// 10 labels: asphalt 0-4, gravel 5-7, asphalt 8-9.
+	labels := []string{"asphalt", "asphalt", "asphalt", "asphalt", "asphalt",
+		"gravel", "gravel", "gravel",
+		"asphalt", "asphalt"}
+
+	got := ComputeTypeRangesFromLabels(labels)
+	if got == nil {
+		t.Fatal("expected non-nil result")
+	}
+
+	// Asphalt should yield two ranges: [0,5) and [8,10).
+	asphalt := got["asphalt"]
+	if len(asphalt) != 2 {
+		t.Fatalf("asphalt: want 2 ranges, got %d: %v", len(asphalt), asphalt)
+	}
+	if asphalt[0] != (CoordRange{From: 0, To: 5}) {
+		t.Errorf("asphalt[0]: got %+v, want {0,5}", asphalt[0])
+	}
+	if asphalt[1] != (CoordRange{From: 8, To: 10}) {
+		t.Errorf("asphalt[1]: got %+v, want {8,10}", asphalt[1])
+	}
+
+	// Gravel should yield one range: [5,8).
+	gravel := got["gravel"]
+	if len(gravel) != 1 || gravel[0] != (CoordRange{From: 5, To: 8}) {
+		t.Errorf("gravel: got %v, want [{5 8}]", gravel)
+	}
+}
+
+func TestComputeTypeRangesFromLabels_Empty(t *testing.T) {
+	if got := ComputeTypeRangesFromLabels(nil); got != nil {
+		t.Errorf("nil input: got %v, want nil", got)
+	}
+	if got := ComputeTypeRangesFromLabels([]string{}); got != nil {
+		t.Errorf("empty input: got %v, want nil", got)
+	}
+}
+
+func TestComputeTypeRangesFromLabels_AllSameType(t *testing.T) {
+	labels := []string{"asphalt", "asphalt", "asphalt"}
+	got := ComputeTypeRangesFromLabels(labels)
+	if got == nil || len(got["asphalt"]) != 1 {
+		t.Fatalf("expected single range, got %v", got)
+	}
+	if got["asphalt"][0] != (CoordRange{From: 0, To: 3}) {
+		t.Errorf("asphalt: got %+v, want {0,3}", got["asphalt"][0])
+	}
+}

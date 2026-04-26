@@ -127,7 +127,7 @@ func TestAggregateByField_Percentages(t *testing.T) {
 		points[i] = makePoint(i, nil, "offroad", "offroad")
 	}
 
-	result := aggregateByField(points, func(p matchedPoint) string { return p.SurfaceClass })
+	result := aggregateByField(points, func(p matchedPoint) string { return p.SurfaceClass }, false)
 
 	// Collect into a map for easy lookup.
 	pctByType := make(map[string]float64)
@@ -165,7 +165,7 @@ func TestAggregateByField_SortedDescending(t *testing.T) {
 		makePoint(3, &id, "asphalt", "primary"),
 	}
 
-	result := aggregateByField(points, func(p matchedPoint) string { return p.SurfaceClass })
+	result := aggregateByField(points, func(p matchedPoint) string { return p.SurfaceClass }, false)
 
 	if len(result) == 0 {
 		t.Fatal("empty result")

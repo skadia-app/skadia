@@ -101,5 +101,88 @@ func TestBuildTrackSummary_GroupsScalesAndGeoTags(t *testing.T) {
 	}
 }
 
+func TestBuildTrackSummary_SurfaceAndHighwayRanges(t *testing.T) {
+	summary, err := buildTrackSummary(&model.EnrichmentSettings{}, []trackSummaryEnrichmentRow{
+		{
+			Category: "surface",
+			Type:     "asphalt",
+			Percentage: 60,
+			LengthM:    ptrFloat64(1200),
+			Ranges:     []edgetags.CoordRange{{From: 0, To: 10}, {From: 20, To: 30}},
+		},
+		{
+			Category: "surface",
+			Type:     "gravel",
+			Percentage: 40,
+			LengthM:    ptrFloat64(800),
+			Ranges:     []edgetags.CoordRange{{From: 10, To: 20}},
+		},
+		{
+			Category: "highway",
+			Type:     "path",
+			Percentage: 75,
+			LengthM:    ptrFloat64(1500),
+			Ranges:     []edgetags.CoordRange{{From: 0, To: 25}},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("buildTrackSummary: %v", err)
+	}
+
+	// surface_ranges must contain asphalt and gravel entries.
+	if summary.SurfaceRanges == nil {
+		t.Fatal("SurfaceRanges is nil, want map")
+	}
+	if got := summary.SurfaceRanges["asphalt"]; len(got) != 2 || got[0] != (edgetags.CoordRange{From: 0, To: 10}) {
+		t.Fatalf("unexpected SurfaceRanges[asphalt]: %#v", got)
+	}
+	if got := summary.SurfaceRanges["gravel"]; len(got) != 1 || got[0] != (edgetags.CoordRange{From: 10, To: 20}) {
+		t.Fatalf("unexpected SurfaceRanges[gravel]: %#v", got)
+	}
+
+	// highway_ranges must contain the path entry.
+	if summary.HighwayRanges == nil {
+		t.Fatal("HighwayRanges is nil, want map")
+	}
+	if got := summary.HighwayRanges["path"]; len(got) != 1 || got[0] != (edgetags.CoordRange{From: 0, To: 25}) {
+		t.Fatalf("unexpected HighwayRanges[path]: %#v", got)
+	}
+
+	// JSON shape must include the new fields.
+	body, err := json.Marshal(summary)
+	if err != nil {
+		t.Fatalf("marshal summary: %v", err)
+	}
+	jsonBody := string(body)
+	for _, want := range []string{
+		`"surface_ranges":{"asphalt"`,
+		`"highway_ranges":{"path"`,
+	} {
+		if !strings.Contains(jsonBody, want) {
+			t.Fatalf("summary JSON missing %q in %s", want, jsonBody)
+		}
+	}
+}
+
+func TestBuildTrackSummary_SurfaceRangesNullWhenAbsent(t *testing.T) {
+	// Surface rows without ranges → surface_ranges must be null in JSON.
+	summary, err := buildTrackSummary(&model.EnrichmentSettings{}, []trackSummaryEnrichmentRow{
+		{Category: "surface", Type: "asphalt", Percentage: 100, LengthM: ptrFloat64(2000)},
+	}, nil)
+	if err != nil {
+		t.Fatalf("buildTrackSummary: %v", err)
+	}
+	if summary.SurfaceRanges != nil {
+		t.Fatalf("SurfaceRanges should be nil when no ranges stored, got %#v", summary.SurfaceRanges)
+	}
+	body, err := json.Marshal(summary)
+	if err != nil {
+		t.Fatalf("marshal summary: %v", err)
+	}
+	if !strings.Contains(string(body), `"surface_ranges":null`) {
+		t.Fatalf("expected surface_ranges:null in JSON, got %s", string(body))
+	}
+}
+
 func ptrFloat64(v float64) *float64 { return &v }
 func ptrInt64(v int64) *int64       { return &v }

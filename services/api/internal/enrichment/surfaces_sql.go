@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/skadia-app/skadia/services/api/internal/enrichment/edgetags"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -26,9 +27,10 @@ type matchedPoint struct {
 }
 
 type SurfaceBreakdown struct {
-	Type       string  `json:"type"`
-	LengthM    float64 `json:"length_m"`
-	Percentage float64 `json:"percentage"`
+	Type       string              `json:"type"`
+	LengthM    float64             `json:"length_m"`
+	Percentage float64             `json:"percentage"`
+	Ranges     []edgetags.CoordRange // not serialised; used internally for persistence
 }
 
 func computeSurfaceBreakdownsSQLTx(ctx context.Context, tx pgx.Tx, activityID string) ([]SurfaceBreakdown, []SurfaceBreakdown, error) {
@@ -106,8 +108,9 @@ func scanSurfaceBreakdowns(rows pgx.Rows) ([]SurfaceBreakdown, []SurfaceBreakdow
 	points = modeFilter(points)
 
 	// Aggregate into surface and highway breakdowns.
-	surfaceBreakdowns := aggregateByField(points, func(p matchedPoint) string { return p.SurfaceClass })
-	highwayBreakdowns := aggregateByField(points, func(p matchedPoint) string { return p.HighwayClass })
+	// SQL path: ranges are not available (no resampled-point index alignment), so withRanges=false.
+	surfaceBreakdowns := aggregateByField(points, func(p matchedPoint) string { return p.SurfaceClass }, false)
+	highwayBreakdowns := aggregateByField(points, func(p matchedPoint) string { return p.HighwayClass }, false)
 
 	return surfaceBreakdowns, highwayBreakdowns, nil
 }
@@ -175,7 +178,9 @@ func modeFilter(points []matchedPoint) []matchedPoint {
 // aggregateByField accumulates length (each point = surfaceResampleM metres)
 // per unique value returned by fieldFn, computes percentages, and returns
 // the results sorted descending by LengthM.
-func aggregateByField(points []matchedPoint, fieldFn func(matchedPoint) string) []SurfaceBreakdown {
+// Pass withRanges=true to also compute CoordRange slices per type; withRanges=false
+// leaves Ranges nil (used for the SQL fallback path where full range data is unavailable).
+func aggregateByField(points []matchedPoint, fieldFn func(matchedPoint) string, withRanges bool) []SurfaceBreakdown {
 	totals := make(map[string]float64)
 	for _, p := range points {
 		totals[fieldFn(p)] += surfaceResampleM
@@ -183,17 +188,30 @@ func aggregateByField(points []matchedPoint, fieldFn func(matchedPoint) string) 
 
 	totalAll := float64(len(points)) * surfaceResampleM
 
+	var typeRanges map[string][]edgetags.CoordRange
+	if withRanges && len(points) > 0 {
+		labels := make([]string, len(points))
+		for i, p := range points {
+			labels[i] = fieldFn(p)
+		}
+		typeRanges = edgetags.ComputeTypeRangesFromLabels(labels)
+	}
+
 	breakdowns := make([]SurfaceBreakdown, 0, len(totals))
 	for typ, lengthM := range totals {
 		pct := 0.0
 		if totalAll > 0 {
 			pct = lengthM / totalAll * 100.0
 		}
-		breakdowns = append(breakdowns, SurfaceBreakdown{
+		bd := SurfaceBreakdown{
 			Type:       typ,
 			LengthM:    lengthM,
 			Percentage: pct,
-		})
+		}
+		if typeRanges != nil {
+			bd.Ranges = typeRanges[typ]
+		}
+		breakdowns = append(breakdowns, bd)
 	}
 
 	slices.SortFunc(breakdowns, func(a, b SurfaceBreakdown) int {
