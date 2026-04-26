@@ -812,10 +812,11 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			geoBatch.Queue("DELETE FROM activity_lift_candidates WHERE activity_id = $1", activityID)
 			n++
 		}
-		if doSurfaces {
-			geoBatch.Queue("DELETE FROM activity_enrichments WHERE activity_id = $1", activityID)
-			n++
-		}
+		// Surfaces: the worker (enrichTrackAnalysisSQL / _graph) handles its own
+		// DELETE+INSERT atomically inside its own Tx — no outer DELETE needed.
+		// A pre-worker outer DELETE created a data-loss window: a worker crash
+		// between this DELETE and its own commit would leave the activity with
+		// zero enrichment rows. doSurfaces is intentionally NOT queued here.
 		if n > 0 {
 			gbr := h.DB.Pool.SendBatch(ctx, geoBatch)
 			for range n {
@@ -895,20 +896,19 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			if gr != nil {
 				surfStream, _ = enrichment.GetEnrichmentStream(ctx, h.DB, activityID)
 			}
-			// Load user settings for track analysis config. Force EnableSurfaceDetection=true
-			// because the user explicitly requested the "surfaces" scope. Do NOT force
-			// EnableDifficultyScales — if the user has disabled difficulty scales in their
-			// settings, a per-submodule surfaces reprocess must not silently override that.
+			// Load user settings for track analysis config. The "surfaces" submodule
+			// in the merged surfaces+scales toggle UX is a single user-visible
+			// concept — we force BOTH gates to true regardless of stored preference.
+			// A legacy stored state of (surface=true, scales=false) would otherwise
+			// produce a partial recompute that omits sac/mtb/vf scales even though
+			// the user has no UI to set scales independently anymore. Mirrors the
+			// re_enrich.go path for the same reason.
 			surfSettings, _ := h.DB.GetEnrichmentSettings(ctx, userID)
 			if surfSettings == nil {
-				surfSettings = &model.EnrichmentSettings{
-					EnableSurfaceDetection: true,
-					// EnableDifficultyScales stays false (user default when no settings)
-				}
-			} else {
-				surfSettings.EnableSurfaceDetection = true
-				// EnableDifficultyScales: intentionally NOT overridden — honour user preference.
+				surfSettings = &model.EnrichmentSettings{}
 			}
+			surfSettings.EnableSurfaceDetection = true
+			surfSettings.EnableDifficultyScales = true
 			if err := enrichment.EnrichTrackAnalysis(ctx, h.DB, activityID, surfSettings, gr, surfStream); err != nil {
 				slog.Warn("reprocess: surfaces enrichment failed (non-fatal)", "id", activityID, "error", err)
 			}
