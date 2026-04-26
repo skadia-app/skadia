@@ -35,7 +35,15 @@ export function cumulativeDistanceM(coords: ReadonlyArray<readonly [number, numb
  * Resample a [lng, lat] coordinate array to a uniform spacing of `spacingM` metres.
  * Mirrors the backend resampleStreamPoints algorithm.
  *
- * @param coords   Input coordinates as [lng, lat] pairs (MapLibre convention).
+ * Input array MUST be pre-filtered to GPS-valid points only (matches the backend
+ * `EnrichmentStreamPoint{Lat,Lng != nil}` filter in
+ * services/api/internal/enrichment/surfaces_graph.go). Passing arrays with
+ * synthetic/zero points (e.g. pause gaps materialised as [0, 0]) will misalign
+ * the range indices returned by the API: cumulative-distance arithmetic happily
+ * spans the gap, so output index N here will not correspond to backend index N.
+ *
+ * @param coords   Input coordinates as [lng, lat] pairs (MapLibre convention),
+ *                 pre-filtered to GPS-valid points (no nulls, no [0,0] sentinels).
  * @param spacingM Target spacing between output points in metres. Defaults to 10.
  * @returns Resampled coordinate array, or empty array if input has fewer than 2 points
  *          or total length < 1 µm.
