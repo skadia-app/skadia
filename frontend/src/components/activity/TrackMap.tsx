@@ -5,10 +5,14 @@ import { useQuery } from '@tanstack/react-query'
 import { listActivityPhotos, type ActivityPhoto } from '@/api/activityPhotos'
 import { apiDownload } from '@/api/client'
 import type { StreamPoint, GeoTag, ActivityStop } from '@/api/types'
+import type { CoordRange } from '@/api/routes'
 import type { ZoomRange } from '@/components/ActivityCharts'
+import { SURFACE_GROUPS } from '@/lib/surfaceConstants'
 import { useMetricColoring } from './useMetricColoring'
 import MapColorDropdown from './MapColorDropdown'
 import MapColorLegend from './MapColorLegend'
+
+export type SurfaceHighlightKey = { kind: 'highway' | 'surface'; key: string } | null
 
 export type HighlightedPoiCategory = 'summit' | 'pass' | 'still_water' | 'flowing_water' | 'settlement'
 export type HighlightedPoiHoverKind = 'summit' | 'water' | 'settlement'
@@ -39,6 +43,12 @@ interface TrackMapProps {
   stops?: ActivityStop[]
   highlightedPois?: HighlightedPoi[]
   highlightedPoiHoverKind?: HighlightedPoiHoverKind | null
+  /** Active hover/pin from SurfacesSection — drives the map line-highlight overlay. */
+  surfaceHighlight?: SurfaceHighlightKey
+  /** Map raw OSM surface type → coord-index ranges into the resampled track. */
+  surfaceRanges?: Record<string, CoordRange[]> | null
+  /** Map raw OSM highway type → coord-index ranges into the resampled track. */
+  highwayRanges?: Record<string, CoordRange[]> | null
   locationPin?: { lat: number; lng: number; name: string; color: string }
 }
 
@@ -52,6 +62,9 @@ const SUMMARY_SUMMIT_SOURCE_ID = 'activity-track-summary-summits-source'
 const SUMMARY_SUMMIT_LAYER_ID = 'activity-track-summary-summits-layer'
 const SUMMARY_POI_SOURCE_ID = 'activity-track-summary-pois-source'
 const SUMMARY_POI_LAYER_ID = 'activity-track-summary-pois-layer'
+const SURFACE_HIGHLIGHT_SOURCE_ID = 'activity-track-summary-surface-highlight-source'
+const SURFACE_HIGHLIGHT_HALO_LAYER_ID = 'activity-track-summary-surface-highlight-halo'
+const SURFACE_HIGHLIGHT_LINE_LAYER_ID = 'activity-track-summary-surface-highlight-line'
 
 function highlightedPoiKind(category: HighlightedPoiCategory): HighlightedPoiHoverKind {
   if (category === 'summit' || category === 'pass') return 'summit'
@@ -93,6 +106,9 @@ export default function TrackMap({
   stops,
   highlightedPois = [],
   highlightedPoiHoverKind = null,
+  surfaceHighlight = null,
+  surfaceRanges = null,
+  highwayRanges = null,
   locationPin,
 }: TrackMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
@@ -128,6 +144,46 @@ export default function TrackMap({
     const hasTrack = coordinates.length >= 2
     return { coordinates, hasTrack }
   }, [streams])
+
+  // Resampled coordinates at ~10 m spacing — mirrors the backend's
+  // `resampleStreamPoints` (services/api/internal/enrichment/surfaces_graph.go).
+  // CoordRange.from / .to from `surface_ranges` / `highway_ranges` index into
+  // this array, so we can slice it directly to build highlight LineStrings.
+  const resampledCoords = useMemo<[number, number][]>(() => {
+    if (coordinates.length < 2) return []
+    const SPACING_M = 10
+    // Cumulative distance via equirectangular approx (matches backend formula).
+    const lat0Rad = (coordinates[0][1] * Math.PI) / 180
+    const cosLat = Math.cos(lat0Rad)
+    const M_PER_DEG_LAT = 111320 // ≈ geo.MetersPerDegreeLat
+    const cum = new Array<number>(coordinates.length)
+    cum[0] = 0
+    for (let i = 1; i < coordinates.length; i++) {
+      const dLat = (coordinates[i][1] - coordinates[i - 1][1]) * M_PER_DEG_LAT
+      const dLng = (coordinates[i][0] - coordinates[i - 1][0]) * cosLat * M_PER_DEG_LAT
+      cum[i] = cum[i - 1] + Math.sqrt(dLat * dLat + dLng * dLng)
+    }
+    const total = cum[cum.length - 1]
+    if (total < 1e-6) return []
+    const numPts = Math.max(2, Math.floor(total / SPACING_M) + 1)
+    const out: [number, number][] = new Array(numPts)
+    let j = 0
+    for (let i = 0; i < numPts; i++) {
+      const target = (i * total) / (numPts - 1)
+      if (target >= total) {
+        out[i] = coordinates[coordinates.length - 1]
+        continue
+      }
+      while (j < coordinates.length - 2 && cum[j + 1] < target) j++
+      const segLen = cum[j + 1] - cum[j]
+      const t = segLen > 1e-10 ? (target - cum[j]) / segLen : 0
+      out[i] = [
+        coordinates[j][0] + t * (coordinates[j + 1][0] - coordinates[j][0]),
+        coordinates[j][1] + t * (coordinates[j + 1][1] - coordinates[j][1]),
+      ]
+    }
+    return out
+  }, [coordinates])
 
   const metricColoring = useMetricColoring({
     streams,
@@ -454,12 +510,14 @@ export default function TrackMap({
         source: SUMMARY_SUMMIT_SOURCE_ID,
         layout: {
           'icon-image': 'summary-summit-icon',
-          'icon-size': ['case', ['boolean', ['get', 'active'], false], 0.95, 0.72],
+          // Stronger active/dimmed contrast than the quiet POI layer below — pulls
+          // the eye to summits/passes when the user hovers the matching pill.
+          'icon-size': ['case', ['boolean', ['get', 'active'], false], 1.2, 0.6],
           'icon-allow-overlap': true,
           'icon-ignore-placement': true,
         },
         paint: {
-          'icon-opacity': ['case', ['boolean', ['get', 'dimmed'], false], 0.42, 0.82],
+          'icon-opacity': ['case', ['boolean', ['get', 'dimmed'], false], 0.25, 0.9],
         },
       })
     }
@@ -471,12 +529,14 @@ export default function TrackMap({
       })
     }
     if (!map.getLayer(SUMMARY_POI_LAYER_ID)) {
+      // Water/settlement markers stay visually static — only the popover list
+      // reacts to hover. User decision: keep map quiet, only summits pop.
       map.addLayer({
         id: SUMMARY_POI_LAYER_ID,
         type: 'circle',
         source: SUMMARY_POI_SOURCE_ID,
         paint: {
-          'circle-radius': ['case', ['boolean', ['get', 'active'], false], 6, 4],
+          'circle-radius': 4,
           'circle-color': [
             'match',
             ['get', 'category'],
@@ -485,11 +545,44 @@ export default function TrackMap({
             'settlement', '#64748b',
             '#64748b',
           ],
-          'circle-opacity': ['case', ['boolean', ['get', 'dimmed'], false], 0.34, 0.68],
+          'circle-opacity': 0.68,
           'circle-stroke-color': '#ffffff',
-          'circle-stroke-width': ['case', ['boolean', ['get', 'active'], false], 2, 1.5],
+          'circle-stroke-width': 1.5,
         },
       })
+    }
+
+    // Surface/highway hover highlight — yellow line over the track. Inserted
+    // BEFORE the summit/POI layers so the markers stay on top.
+    if (!map.getSource(SURFACE_HIGHLIGHT_SOURCE_ID)) {
+      map.addSource(SURFACE_HIGHLIGHT_SOURCE_ID, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+    }
+    if (!map.getLayer(SURFACE_HIGHLIGHT_HALO_LAYER_ID)) {
+      map.addLayer(
+        {
+          id: SURFACE_HIGHLIGHT_HALO_LAYER_ID,
+          type: 'line',
+          source: SURFACE_HIGHLIGHT_SOURCE_ID,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#ffffff', 'line-width': 9, 'line-opacity': 0.7 },
+        },
+        SUMMARY_SUMMIT_LAYER_ID,
+      )
+    }
+    if (!map.getLayer(SURFACE_HIGHLIGHT_LINE_LAYER_ID)) {
+      map.addLayer(
+        {
+          id: SURFACE_HIGHLIGHT_LINE_LAYER_ID,
+          type: 'line',
+          source: SURFACE_HIGHLIGHT_SOURCE_ID,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#FACC15', 'line-width': 5, 'line-opacity': 0.95 },
+        },
+        SUMMARY_SUMMIT_LAYER_ID,
+      )
     }
 
     const summitFeatures = highlightedPois
@@ -505,6 +598,7 @@ export default function TrackMap({
           dimmed: highlightedPoiHoverKind != null && highlightedPoiHoverKind !== highlightedPoiKind(p.category),
         },
       }))
+    // Water/settlement features carry no active/dimmed flags — paint is static.
     const quietPoiFeatures = highlightedPois
       .filter(p => p.category !== 'summit' && p.category !== 'pass')
       .map(p => ({
@@ -514,8 +608,6 @@ export default function TrackMap({
           ...p,
           kind: highlightedPoiKind(p.category),
           label: highlightedPoiCategoryLabel(p.category),
-          active: highlightedPoiHoverKind === highlightedPoiKind(p.category),
-          dimmed: highlightedPoiHoverKind != null && highlightedPoiHoverKind !== highlightedPoiKind(p.category),
         },
       }))
 
@@ -562,6 +654,62 @@ export default function TrackMap({
       map.off('mouseleave', SUMMARY_POI_LAYER_ID, clearPointer)
     }
   }, [hasTrack, hasSummarySummitPois, highlightedPoiHoverKind, highlightedPois, mapLoaded])
+
+  // Surface/highway highlight overlay — yellow line over the matching parts
+  // of the resampled track. Mirrors the route-planner highlight semantics
+  // (`useRouteEditor.ts`): for surfaces, we union all raw OSM types whose
+  // SURFACE_GROUPS bucket matches the active key; for highways, exact match
+  // on the raw key.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded || !hasTrack) return
+    const src = map.getSource(SURFACE_HIGHLIGHT_SOURCE_ID) as maplibregl.GeoJSONSource | undefined
+    if (!src) return
+
+    const empty: GeoJSON.FeatureCollection<GeoJSON.LineString> = { type: 'FeatureCollection', features: [] }
+
+    if (!surfaceHighlight || resampledCoords.length < 2) {
+      src.setData(empty)
+      return
+    }
+
+    let ranges: CoordRange[] = []
+    if (surfaceHighlight.kind === 'highway') {
+      ranges = (highwayRanges?.[surfaceHighlight.key]) ?? []
+    } else {
+      // surface key is the GROUP label (e.g. "Naturweg") — union all raw
+      // types whose SURFACE_GROUPS bucket matches.
+      const map_ = surfaceRanges ?? {}
+      for (const rawType of Object.keys(map_)) {
+        const group = SURFACE_GROUPS[rawType] ?? rawType
+        if (group === surfaceHighlight.key) ranges = ranges.concat(map_[rawType] ?? [])
+      }
+    }
+
+    if (ranges.length === 0) {
+      src.setData(empty)
+      return
+    }
+
+    const features: GeoJSON.Feature<GeoJSON.LineString>[] = []
+    const last = resampledCoords.length - 1
+    for (const r of ranges) {
+      const start = Math.max(0, Math.min(last, r.from))
+      const end = Math.max(0, Math.min(last, r.to))
+      if (end - start < 1) continue
+      // CoordRange.to is exclusive in spec, but slicing with end+1 over-shoots
+      // by one; coords are dense so the visual delta is sub-pixel either way.
+      // Matching route-planner: we use slice(start, end+1) to keep the line closed.
+      const slice = resampledCoords.slice(start, end + 1)
+      if (slice.length < 2) continue
+      features.push({
+        type: 'Feature',
+        properties: { kind: surfaceHighlight.kind, key: surfaceHighlight.key },
+        geometry: { type: 'LineString', coordinates: slice },
+      })
+    }
+    src.setData({ type: 'FeatureCollection', features })
+  }, [mapLoaded, hasTrack, surfaceHighlight, surfaceRanges, highwayRanges, resampledCoords])
 
   // Location-Pin-Karte für Indoor-Aktivitäten ohne GPS
   useEffect(() => {
