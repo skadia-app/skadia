@@ -26,6 +26,7 @@ type activityTrackSummaryResponse struct {
 	MtbRanges       map[string][]edgetags.CoordRange `json:"mtb_ranges"`
 	VfRanges        map[string][]edgetags.CoordRange `json:"vf_ranges"`
 	VfUnknownRanges []edgetags.CoordRange            `json:"vf_unknown_ranges"`
+	VfUnknownPct    *float64                         `json:"vf_unknown_pct,omitempty"`
 	SurfaceRanges   map[string][]edgetags.CoordRange `json:"surface_ranges"`
 	HighwayRanges   map[string][]edgetags.CoordRange `json:"highway_ranges"`
 	Surfaces        []surfaceItem                    `json:"surfaces"`
@@ -348,6 +349,8 @@ func buildTrackSummary(
 			out.VfRanges[row.Type] = row.Ranges
 		case "vf_unknown":
 			out.VfUnknownRanges = row.Ranges
+			pct := row.Percentage
+			out.VfUnknownPct = &pct
 		}
 	}
 
