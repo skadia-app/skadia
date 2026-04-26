@@ -66,6 +66,34 @@ var highwayEnum = map[string]uint8{
 	"pedestrian": 21, "via_ferrata": 22,
 }
 
+// Highway enum constants. Values mirror highwayEnum above; keep the two in
+// sync. Exported so callers can compare DecodeHighway() results without
+// hardcoding magic numbers.
+const (
+	HighwayMotorway      uint8 = 1
+	HighwayMotorwayLink  uint8 = 2
+	HighwayTrunk         uint8 = 3
+	HighwayTrunkLink     uint8 = 4
+	HighwayPrimary       uint8 = 5
+	HighwayPrimaryLink   uint8 = 6
+	HighwaySecondary     uint8 = 7
+	HighwaySecondaryLink uint8 = 8
+	HighwayTertiary      uint8 = 9
+	HighwayTertiaryLink  uint8 = 10
+	HighwayResidential   uint8 = 11
+	HighwayLivingStreet  uint8 = 12
+	HighwayUnclassified  uint8 = 13
+	HighwayService       uint8 = 14
+	HighwayTrack         uint8 = 15
+	HighwayPath          uint8 = 16
+	HighwayFootway       uint8 = 17
+	HighwayCycleway      uint8 = 18
+	HighwayBridleway     uint8 = 19
+	HighwaySteps         uint8 = 20
+	HighwayPedestrian    uint8 = 21
+	HighwayViaFerrata    uint8 = 22
+)
+
 var surfaceEnum = map[string]uint8{
 	"asphalt": 1, "concrete": 2, "paving_stones": 3, "sett": 4,
 	"cobblestone": 5, "metal": 6, "wood": 7,

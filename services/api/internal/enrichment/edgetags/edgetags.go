@@ -116,7 +116,7 @@ func ComputeAllRanges(edgeCoordStart []int, edgeTags1 []uint64, edgeTags2 []uint
 		if vfRaw >= 1 && vfRaw <= 6 {
 			vfM[vfRaw-1][i] = true
 		}
-		if vfRaw == 0 && graph.DecodeHighway(t1) == 22 {
+		if vfRaw == 0 && graph.DecodeHighway(t1) == graph.HighwayViaFerrata {
 			vfUnknownM[i] = true
 		}
 	}
