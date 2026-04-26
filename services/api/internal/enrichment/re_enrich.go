@@ -183,6 +183,13 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 			if trackSettings == nil {
 				trackSettings = defaultSurfaceTrackAnalysisSettings()
 			}
+			// User explicitly requested surfaces reprocess — force both gates
+			// regardless of stored preference. Mirrors handler/recompute.go for
+			// the merged surfaces+scales toggle UX (legacy split would otherwise
+			// no-op silently for users with stored enable_surface_detection=false
+			// or enable_difficulty_scales=false).
+			trackSettings.EnableSurfaceDetection = true
+			trackSettings.EnableDifficultyScales = true
 			var surfStream []EnrichmentStreamPoint
 			if graphReader != nil {
 				if stream == nil {
