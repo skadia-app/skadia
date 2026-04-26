@@ -53,9 +53,14 @@ func deleteExistingTrackAnalysisTx(ctx context.Context, tx pgx.Tx, activityID st
 	return nil
 }
 
+// defaultSurfaceTrackAnalysisSettings returns the fallback settings used when a
+// caller has no per-user enrichment settings on hand. Both gates default to true
+// to reflect the merged surfaces+scales toggle UX — the historical split
+// (surface=true, scales=false) encoded a legacy preference that the UI no
+// longer exposes independently.
 func defaultSurfaceTrackAnalysisSettings() *model.EnrichmentSettings {
 	return &model.EnrichmentSettings{
 		EnableSurfaceDetection: true,
-		EnableDifficultyScales: false,
+		EnableDifficultyScales: true,
 	}
 }
