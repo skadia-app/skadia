@@ -141,7 +141,7 @@ func (h *Handler) ActivityTrackSummary(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity enrichments", r.URL.Path)
 		return
 	}
-	geoTagRows, err := h.readTrackSummaryGeoTags(r, activityID)
+	geoTagRows, err := h.readTrackSummaryGeoTags(r, activityID, userID)
 	if err != nil {
 		slog.Error("activity track summary: geo tag lookup failed", "activity_id", activityID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity geo tags", r.URL.Path)
@@ -215,7 +215,11 @@ func (h *Handler) readTrackSummaryEnrichments(r *http.Request, activityID string
 	return out, rows.Err()
 }
 
-func (h *Handler) readTrackSummaryGeoTags(r *http.Request, activityID string) ([]trackSummaryGeoTagRow, error) {
+func (h *Handler) readTrackSummaryGeoTags(r *http.Request, activityID string, userID string) ([]trackSummaryGeoTagRow, error) {
+	// Defense-in-depth: re-verify activity ownership inside the query rather
+	// than relying solely on the upstream owner-check. activity_geo_tags has
+	// no direct user_id column today; once RLS lands on that table the EXISTS
+	// predicate becomes redundant but harmless.
 	rows, err := h.DB.Pool.Query(r.Context(), `
 		SELECT DISTINCT ON (g.osm_id, g.category)
 			g.id::text,
@@ -235,8 +239,9 @@ func (h *Handler) readTrackSummaryGeoTags(r *http.Request, activityID string) ([
 		JOIN activity_tracks t ON t.activity_id = g.activity_id
 		WHERE g.activity_id = $1
 		  AND g.category IN ('summit', 'pass', 'still_water', 'flowing_water', 'settlement')
+		  AND EXISTS (SELECT 1 FROM activities a WHERE a.id = $1 AND a.user_id::text = $2)
 		ORDER BY g.osm_id, g.category, g.dist_m NULLS LAST
-	`, activityID)
+	`, activityID, userID)
 	if err != nil {
 		return nil, err
 	}
