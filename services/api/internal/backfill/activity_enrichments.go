@@ -10,6 +10,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 )
 
@@ -47,6 +48,7 @@ type BackfillOptions struct {
 type activityEnrichmentBackfillCandidate struct {
 	ActivityID string
 	UserID     string
+	SportType  string
 }
 
 // RunActivityEnrichmentsBackfill re-runs the activity track enrichment pipeline.
@@ -308,35 +310,33 @@ func listActivityEnrichmentBackfillCandidates(
 	db *database.DB,
 	force bool,
 ) ([]activityEnrichmentBackfillCandidate, error) {
-	// Candidate predicate respects each user's enable_difficulty_scales setting:
-	// an activity is only considered "missing enrichment" for difficulty-scale
-	// categories when the user has that feature enabled. This prevents incorrectly
-	// treating activities as needing backfill just because sac_scale/mtb_scale/vf_scale
-	// rows are absent for users who never enabled difficulty scales.
+	// Convergence anchor: activity_enrichment_meta is written unconditionally
+	// by both the graph and SQL track-analysis paths (see migration 000329).
+	// "No meta row" means the track-analysis worker has never run for this
+	// activity — that is the only correct candidate predicate.
+	//
+	// The previous predicate looked for missing rows in specific
+	// activity_enrichments categories (sac_scale/mtb_scale/vf_scale/...). That
+	// was wrong because the worker only writes those rows when the
+	// corresponding scale percentage is > 0. A road-bike ride on asphalt has
+	// no SAC content and would be flagged "missing scales" forever — the
+	// backfill would never converge for it.
+	//
+	// Surface/water/virtual gating: SQL excludes is_virtual=true cheaply.
+	// Water-sport sport_types cannot be reliably encoded in SQL (taxonomy is
+	// in Go) — those are filtered in-process after the query via
+	// enrichment.ShouldEnrichSurfaces with a synthetic *model.Activity.
 	rows, err := db.Pool.Query(ctx, `
-		SELECT a.id, a.user_id
+		SELECT a.id, a.user_id, a.sport_type
 		FROM activities a
-		LEFT JOIN user_enrichment_settings ues ON ues.user_id = a.user_id
 		WHERE a.has_gps = true
+		  AND a.is_virtual = false
 		  AND (
 			$1
 			OR NOT EXISTS (
 				SELECT 1
-				FROM activity_enrichments e
-				WHERE e.activity_id = a.id
-				  AND e.category IN (
-					'forest_pct', 'protected_pct',
-					'surface', 'highway'
-				  )
-			)
-			OR (
-				COALESCE(ues.enable_difficulty_scales, true)
-				AND NOT EXISTS (
-					SELECT 1
-					FROM activity_enrichments e
-					WHERE e.activity_id = a.id
-					  AND e.category IN ('sac_scale', 'mtb_scale', 'vf_scale', 'vf_unknown')
-				)
+				FROM activity_enrichment_meta aem
+				WHERE aem.activity_id = a.id
 			)
 		  )
 		ORDER BY a.created_at DESC
@@ -347,15 +347,27 @@ func listActivityEnrichmentBackfillCandidates(
 	defer rows.Close()
 
 	var candidates []activityEnrichmentBackfillCandidate
+	var skippedWater int
 	for rows.Next() {
 		var candidate activityEnrichmentBackfillCandidate
-		if err := rows.Scan(&candidate.ActivityID, &candidate.UserID); err != nil {
+		if err := rows.Scan(&candidate.ActivityID, &candidate.UserID, &candidate.SportType); err != nil {
 			return nil, fmt.Errorf("list activity enrichments backfill candidates: scan: %w", err)
+		}
+		// Apply ShouldEnrichSurfaces water-sport gate via a synthetic Activity.
+		// is_virtual already filtered in SQL; only sport-category check remains.
+		synthetic := &model.Activity{SportType: candidate.SportType}
+		if !enrichment.ShouldEnrichSurfaces(synthetic) {
+			skippedWater++
+			continue
 		}
 		candidates = append(candidates, candidate)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list activity enrichments backfill candidates: rows: %w", err)
+	}
+	if skippedWater > 0 {
+		slog.Info("activity enrichments backfill: skipped water-sport candidates",
+			"skipped", skippedWater)
 	}
 	return candidates, nil
 }
