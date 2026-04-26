@@ -44,7 +44,7 @@ import { fetchActivity, updateActivity } from '@/api/activities'
 import { SegmentsOverlay, DEFAULT_SEGMENT_FILTERS, type SegmentColorConfig, type SegmentsOverlayFilters } from '@/components/Map/SegmentsOverlay'
 import { fetchTerraIncognita, type TerraIncognitaCoverage } from '@/api/terraIncognita'
 import { useToast } from '@/lib/toast'
-import { findNearbyLocationTag } from '@/lib/geoUtils'
+import { findNearbyLocationTag, pickMaxZoomForBounds } from '@/lib/geoUtils'
 import { removeTerraIncognitaLayers, addTerraIncognitaLayers } from '@/lib/mapTerraIncognita'
 import { enforceRouteLayersOnTop } from '@/lib/mapRouteLayers'
 import GeoSearch from '@/components/map/GeoSearch'
@@ -503,7 +503,9 @@ export default function MapPage() {
     if (allCoords.length === 0) return
     const bounds = new maplibregl.LngLatBounds(allCoords[0], allCoords[0])
     for (const c of allCoords) bounds.extend(c)
-    map.fitBounds(bounds, { padding: 80, maxZoom: 15 })
+    const sw = bounds.getSouthWest()
+    const ne = bounds.getNorthEast()
+    map.fitBounds(bounds, { padding: 80, maxZoom: pickMaxZoomForBounds(sw.lat, sw.lng, ne.lat, ne.lng) })
     lastFittedRouteIdRef.current = planner.editingRouteId
   }, [planner.editingRouteId, planner.segments, styleVersion])
 
@@ -594,7 +596,9 @@ export default function MapPage() {
       if (allCoords.length > 0) {
         const bounds = new maplibregl.LngLatBounds(allCoords[0], allCoords[0])
         allCoords.forEach(c => bounds.extend(c))
-        map.fitBounds(bounds, { padding: 80, maxZoom: 15 })
+        const sw = bounds.getSouthWest()
+        const ne = bounds.getNorthEast()
+        map.fitBounds(bounds, { padding: 80, maxZoom: pickMaxZoomForBounds(sw.lat, sw.lng, ne.lat, ne.lng) })
       }
     }
 
