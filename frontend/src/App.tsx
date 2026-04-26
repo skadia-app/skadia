@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react'
-import { Routes, Route, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { apiClient } from '@/api/client'
 import { ThemeProvider } from '@/lib/theme'
 import { AccentColorProvider } from '@/lib/accentColor'
@@ -65,7 +65,7 @@ const AdminAuditLogPage = lazy(() => import('@/pages/admin/AdminAuditLogPage'))
 const WorkoutsPage = lazy(() => import('@/pages/WorkoutsPage'))
 const WorkoutDetailPage = lazy(() => import('@/pages/WorkoutDetailPage'))
 const RecordingGroupPage = lazy(() => import('@/pages/RecordingGroupPage'))
-const PersonalRecordsPage = lazy(() => import('@/pages/PersonalRecordsPage'))
+const PersonalRecordsTab = lazy(() => import('@/pages/analytics/PersonalRecordsTab'))
 
 function ImportRedirect() {
   const [searchParams] = useSearchParams()
@@ -98,6 +98,11 @@ function ImportRedirect() {
       <p className="text-neutral-500">Importiere Aktivität...</p>
     </div>
   )
+}
+
+function RecordsRedirect() {
+  const { search } = useLocation()
+  return <Navigate to={`/analytics/records${search}`} replace />
 }
 
 function LoadingSpinner() {
@@ -152,12 +157,13 @@ export default function App() {
                               <Route path="health" element={<HealthTab />} />
                               <Route path="stats" element={<StatsTab />} />
                               <Route path="insights" element={<InsightsTab />} />
+                              <Route path="records" element={<PersonalRecordsTab />} />
                             </Route>
                             <Route path="chat" element={<ChatPage />} />
                             <Route path="routes" element={<RoutesPage />} />
                             <Route path="segments" element={<SegmentsPage />} />
                             <Route path="segments/:id" element={<SegmentDetailPage />} />
-                            <Route path="records" element={<PersonalRecordsPage />} />
+                            <Route path="records" element={<RecordsRedirect />} />
                             <Route path="workouts" element={<WorkoutsPage />} />
                             <Route path="workouts/:id" element={<WorkoutDetailPage />} />
                             <Route path="workshop" element={<WorkshopPage />} />
