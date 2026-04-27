@@ -68,6 +68,22 @@ func (rl *RateLimiter) Allow(key string, rps float64, burst int) bool {
 	return e.limiter.Allow()
 }
 
+// Invalidate removes the rate limiter entry for key, forcing the next request
+// from that key to start with a fresh limit/burst. Use this when an admin changes
+// a rate-limit setting and wants the new value to take effect immediately for a
+// specific key rather than waiting up to 15 min for the cleanup cycle.
+//
+// TODO(STATE.md): Wire this into the settings-store update path so that a change
+// to library.user_map_layer_rate_limit_per_10min immediately evicts all
+// "maplayer:user:" prefixed entries. Currently the cleanup goroutine handles this
+// naturally for inactive users; active users see the old limit until their entry
+// expires (acceptable for this administrative operation).
+func (rl *RateLimiter) Invalidate(key string) {
+	if _, loaded := rl.limiters.LoadAndDelete(key); loaded {
+		rl.size.Add(-1)
+	}
+}
+
 func (rl *RateLimiter) cleanup(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

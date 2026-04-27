@@ -6,11 +6,10 @@
 //
 // New consumers MUST use useMapLayers() — never import from this file directly.
 import type { MapLayer } from '@/api/mapLayers'
-
-export interface Capabilities {
-  offline_map?: boolean
-  [k: string]: boolean | undefined
-}
+// Single source-of-truth: Capabilities is defined in routes.ts with an open
+// index signature so future backend capability keys compile without casting.
+export type { Capabilities } from '@/api/routes'
+import type { Capabilities } from '@/api/routes'
 
 /** Convert backend opacity (0–100, integer) to MapLibre paint opacity (0.0–1.0). */
 export function opacityPercentToFloat(n: number): number {
@@ -19,7 +18,7 @@ export function opacityPercentToFloat(n: number): number {
 
 /** Expand `{switch:a,b,c}` to a `tiles` array, returning N URLs. */
 export function expandSwitch(template: string): string[] {
-  const m = template.match(/\{switch:([a-z0-9](?:,[a-z0-9])*)\}/)
+  const m = template.match(/\{switch:([a-z0-9]+(?:,[a-z0-9]+)*)\}/)
   if (!m) return [template]
   const tokens = m[1].split(',')
   return tokens.map((t) => template.replace(m[0], t))

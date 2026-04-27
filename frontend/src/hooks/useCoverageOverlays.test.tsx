@@ -34,6 +34,7 @@ function mockVisibility(keys: Record<string, { enabled: boolean }>) {
     isLoading: false,
     base: [],
     overlay: [],
+    disabled: [],
     raw: [],
     systemVisibility,
     capabilitiesLoading: false,
