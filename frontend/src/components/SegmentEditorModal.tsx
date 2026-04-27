@@ -24,7 +24,9 @@ import {
   buildHeatmapTileUrl,
   loadHeatmapColor,
 } from '@/lib/mapHeatmap'
-import { buildRasterStyle, RASTER_STYLES, type BaseStyle } from '@/lib/mapStyles'
+import { buildLayerStyle } from '@/lib/mapStyles'
+import { useMapLayers } from '@/hooks/useMapLayers'
+import { useCapabilities } from '@/hooks/useCapabilities'
 import { apiClient } from '@/api/client'
 import { getToken } from '@/lib/auth'
 import { createSegment, suggestSegmentEnrichment } from '@/api/segments'
@@ -127,7 +129,19 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   const trackPointsRef = useRef(trackPoints)
   useEffect(() => { trackPointsRef.current = trackPoints }, [trackPoints])
 
-  const [mapStyle, setMapStyle] = useState<BaseStyle>('osm')
+  const { base } = useMapLayers()
+  const { data: caps } = useCapabilities()
+  const [mapStyle, setMapStyle] = useState<string>('osm')
+
+  // Sync styleKey to DB reality: if the persisted key is no longer in base
+  // (admin disabled it), fall back to base[0].
+  useEffect(() => {
+    if (base.length > 0 && !base.find((l) => l.key === mapStyle)) {
+      setMapStyle(base[0].key)
+    }
+  }, [base, mapStyle])
+
+  const selectedBaseLayer = base.find((l) => l.key === mapStyle) ?? base[0]
   const [heatmapOn, setHeatmapOn] = useState(false)
 
   // ── styleVersion: bumped by persistent style.load handler (A4) ───────────
@@ -330,15 +344,19 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   // styleVersion so custom layers are rebuilt without full map recreation.
   useEffect(() => {
     const container = mapContainerRef.current
-    if (!container) return
+    if (!container || mapRef.current) return
 
     const pts = trackPointsRef.current
     const initialCenter: [number, number] =
       pts && pts.length > 0 ? [pts[0].lng, pts[0].lat] : [11.0, 48.0]
 
+    const initLayer = base.find((l) => l.key === mapStyle) ?? base[0]
+    const initStyle = initLayer ? buildLayerStyle(initLayer, caps ?? {}) : null
+    if (!initStyle) return
+
     const map = new maplibregl.Map({
       container,
-      style: buildRasterStyle('osm'),
+      style: initStyle as import('maplibre-gl').StyleSpecification | string,
       center: initialCenter,
       zoom: 12,
       transformRequest: (url: string): RequestParameters => {
@@ -465,21 +483,22 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       map.remove()
       mapRef.current = null
     }
+    // base[0]?.key triggers init once layers arrive; mapRef.current guard prevents re-init.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // ← intentionally empty: map is created once; style changes via setStyle()
+  }, [base[0]?.key])
 
   // ── Map style switch (A4) ──────────────────────────────────────────────────
   // When mapStyle changes, save camera position then call setStyle().
   // The persistent style.load handler (registered in map init) restores camera
   // and bumps styleVersion, which triggers the layer-rebuild effect below.
-  const prevMapStyleRef = useRef<BaseStyle>('osm')
+  const prevMapStyleRef = useRef<string>('osm')
   useEffect(() => {
     const map = mapRef.current
-    if (!map || prevMapStyleRef.current === mapStyle) return
+    if (!map || prevMapStyleRef.current === mapStyle || !selectedBaseLayer) return
     prevMapStyleRef.current = mapStyle
     pendingCameraRestoreRef.current = { center: map.getCenter(), zoom: map.getZoom() }
-    map.setStyle(buildRasterStyle(mapStyle))
-  }, [mapStyle])
+    map.setStyle(buildLayerStyle(selectedBaseLayer, caps ?? {}) as import('maplibre-gl').StyleSpecification | string)
+  }, [mapStyle, selectedBaseLayer, caps])
 
   // ── Layer rebuild after style switch (A4) ─────────────────────────────────
   // setStyle() wipes all custom sources + layers. styleVersion bumps whenever
@@ -955,19 +974,19 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
 
         {/* B1 — Map-Style toggles: genuine segmented control */}
         <div className="flex items-center gap-0.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 p-1">
-          {RASTER_STYLES.map(([key, def]) => (
+          {base.filter((l) => l.source_kind === 'raster_tiles').map((l) => (
             <button
-              key={key}
+              key={l.key}
               type="button"
-              onClick={() => setMapStyle(key)}
+              onClick={() => setMapStyle(l.key)}
               className={cn(
                 'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
-                mapStyle === key
+                mapStyle === l.key
                   ? 'bg-white dark:bg-neutral-700 shadow-sm text-neutral-900 dark:text-neutral-100'
                   : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100',
               )}
             >
-              {def.label}
+              {l.name}
             </button>
           ))}
         </div>

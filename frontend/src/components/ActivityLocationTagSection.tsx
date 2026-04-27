@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useTransition, type ChangeEvent, type KeyboardEvent } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, useTransition, type ChangeEvent, type KeyboardEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -9,13 +9,9 @@ import { useCreateLocationTag } from '@/hooks/useCreateLocationTag'
 import { getTagBadgeStyle } from '@/lib/tagUtils'
 import { useToast } from '@/lib/toast'
 import ColorPicker from '@/components/ColorPicker'
-import { buildRasterStyle } from '@/lib/mapStyles'
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const MAP_STYLE = buildRasterStyle('osm')
+import { buildLayerStyle } from '@/lib/mapStyles'
+import { useMapLayers } from '@/hooks/useMapLayers'
+import { useCapabilities } from '@/hooks/useCapabilities'
 
 interface NominatimResult {
   place_id: number
@@ -178,13 +174,29 @@ function LocationPickerMap({ onConfirm, onCancel }: LocationPickerMapProps) {
   const mountedRef = useRef(true)
   const [pendingCoords, setPendingCoords] = useState<{ lat: number; lng: number } | null>(null)
 
+  const { base } = useMapLayers()
+  const { data: caps } = useCapabilities()
+
+  // Compute the initial base style once layers have loaded; fall back to
+  // the first available layer so the map renders as soon as data arrives.
+  // useMemo stabilizes the style object reference so the init effect only
+  // fires once (when base[0] and caps both arrive), not on every render.
+  const defaultLayer = base[0]
+  const mapStyle = useMemo(
+    () => (defaultLayer ? buildLayerStyle(defaultLayer, caps ?? {}) : null),
+    // Re-derive only when the layer key or caps reference changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [defaultLayer?.key, caps],
+  )
+
   useEffect(() => {
     mountedRef.current = true
-    if (!mapContainer.current) return
+    // Guard: mapStyle is null until layers load; also skip if map already exists.
+    if (!mapContainer.current || !mapStyle || mapRef.current) return
 
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: MAP_STYLE,
+      style: mapStyle as import('maplibre-gl').StyleSpecification | string,
       center: [10, 47],
       zoom: 4,
       interactive: true,
@@ -212,7 +224,9 @@ function LocationPickerMap({ onConfirm, onCancel }: LocationPickerMapProps) {
       markerRef.current = null
       map.remove()
     }
-  }, [])
+  // mapStyle triggers init once layers arrive; mapRef guard prevents re-init.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapStyle])
 
   const handleGeoSelect = useCallback((lat: number, lng: number) => {
     if (!mountedRef.current) return

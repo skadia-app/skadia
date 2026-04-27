@@ -4,7 +4,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { patchActivityPhotoLocation, isVideoPhoto, type ActivityPhoto } from '@/api/activityPhotos'
-import { buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
+import { buildLayerStyle } from '@/lib/mapStyles'
+import { useMapLayers } from '@/hooks/useMapLayers'
+import { useCapabilities } from '@/hooks/useCapabilities'
 import { apiDownload } from '@/api/client'
 import { useToast } from '@/lib/toast'
 import AuthenticatedImage from '@/components/AuthenticatedImage'
@@ -40,14 +42,6 @@ function nearestTrackPoint(coords: [number, number][], lng: number, lat: number)
   return best
 }
 
-// ── Style toggle options ──────────────────────────────────────────────────────
-
-const OVERLAY_STYLES: Array<{ key: BaseStyle; label: string }> = [
-  { key: 'osm', label: 'OSM' },
-  { key: 'topo', label: 'Topo' },
-  { key: 'satellite', label: 'Satellit' },
-]
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function PhotoGeoAssignmentOverlay({
@@ -74,8 +68,21 @@ export default function PhotoGeoAssignmentOverlay({
   const addMarkerRef = useRef<((photo: PositionedPhoto, map: maplibregl.Map) => void) | null>(null)
   const patchMutateRef = useRef<((vars: PatchVars) => void) | null>(null)
 
-  // State
-  const [mapStyle, setMapStyle] = useState<BaseStyle>('osm')
+  const { base } = useMapLayers()
+  const { data: caps } = useCapabilities()
+
+  // State: styleKey tracks the currently selected base layer key.
+  const [styleKey, setStyleKey] = useState<string>('osm')
+
+  // Sync styleKey to DB reality: if the persisted key is no longer in base
+  // (admin disabled it), fall back to base[0].
+  useEffect(() => {
+    if (base.length > 0 && !base.find((l) => l.key === styleKey)) {
+      setStyleKey(base[0].key)
+    }
+  }, [base, styleKey])
+
+  const selectedLayer = base.find((l) => l.key === styleKey) ?? base[0]
   const [pending, setPending] = useState<ActivityPhoto[]>(unpositionedPhotos)
   const [assigned, setAssigned] = useState<PositionedPhoto[]>(positionedPhotos)
 
@@ -195,7 +202,7 @@ export default function PhotoGeoAssignmentOverlay({
 
   useEffect(() => {
     const el = mapContainerRef.current
-    if (!el || trackCoords.length < 2) return
+    if (!el || trackCoords.length < 2 || mapRef.current) return
 
     const bounds = trackCoords.reduce(
       (b, c) => b.extend(c),
@@ -204,9 +211,12 @@ export default function PhotoGeoAssignmentOverlay({
 
     let fitDone = false
 
+    const initStyle = selectedLayer ? buildLayerStyle(selectedLayer, caps ?? {}) : null
+    if (!initStyle) return
+
     const map = new maplibregl.Map({
       container: el,
-      style: buildRasterStyle('osm'),
+      style: initStyle as import('maplibre-gl').StyleSpecification | string,
       center: [0, 0],
       zoom: 1,
     })
@@ -256,16 +266,17 @@ export default function PhotoGeoAssignmentOverlay({
       map.remove()
       mapRef.current = null
     }
+    // selectedLayer?.key triggers re-run once layers load; mapRef.current guard prevents re-init.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // intentionally runs only once
+  }, [selectedLayer?.key])
 
   // ── Style change ──────────────────────────────────────────────────────────
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map) return
-    map.setStyle(buildRasterStyle(mapStyle))
-  }, [mapStyle])
+    if (!map || !selectedLayer) return
+    map.setStyle(buildLayerStyle(selectedLayer, caps ?? {}) as import('maplibre-gl').StyleSpecification | string)
+  }, [selectedLayer, caps])
 
   // ── Drop indicator ────────────────────────────────────────────────────────
 
@@ -414,17 +425,17 @@ export default function PhotoGeoAssignmentOverlay({
           >
             {/* Map style toggle */}
             <div className="absolute top-2 left-2 z-10 flex rounded-lg overflow-hidden shadow-lg">
-              {OVERLAY_STYLES.map(({ key, label }) => (
+              {base.map((l) => (
                 <button
-                  key={key}
-                  onClick={() => setMapStyle(key)}
+                  key={l.key}
+                  onClick={() => setStyleKey(l.key)}
                   className={`px-2.5 py-1 text-xs font-medium cursor-pointer transition-colors ${
-                    mapStyle === key
+                    styleKey === l.key
                       ? 'bg-accent-DEFAULT text-white'
                       : 'bg-neutral-900/90 text-neutral-300 hover:bg-neutral-800 hover:text-white'
                   }`}
                 >
-                  {label}
+                  {l.name}
                 </button>
               ))}
             </div>

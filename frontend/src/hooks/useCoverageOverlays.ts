@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { Map as MaplibreMap } from 'maplibre-gl'
 import { apiClient } from '@/api/client'
+import { useSystemLayerVisibility } from './useSystemLayerVisibility'
 
 export interface CoverageCompositeState {
   enabled: boolean
@@ -91,7 +92,11 @@ async function fetchCoverageInfo(): Promise<{ buildTimestamp: string }> {
   return apiClient<{ buildTimestamp: string }>('/coverage/info')
 }
 
-function syncLayerVisibility(map: MaplibreMap, state: CoverageOverlayState) {
+function syncLayerVisibility(
+  map: MaplibreMap,
+  state: CoverageOverlayState,
+  adminEnabled: (key: string) => boolean,
+) {
   const compositeKeys = Object.keys(COMPOSITE_LAYERS) as (keyof CoverageOverlayState)[]
   for (const compositeKey of compositeKeys) {
     const compositeState = state[compositeKey]
@@ -102,7 +107,10 @@ function syncLayerVisibility(map: MaplibreMap, state: CoverageOverlayState) {
 
       const subLayerKey = Object.entries(LAYER_KEY_TO_API).find(([, v]) => v === apiLayer)?.[0]
       const subLayerEnabled = subLayerKey ? compositeState.layers[subLayerKey] ?? true : true
-      const shouldShow = compositeState.enabled && subLayerEnabled
+      // Respect admin system_layer_visibility: if the operator has disabled this
+      // sublayer globally, force it off regardless of the user's composite toggle.
+      const adminAllows = adminEnabled(`coverage_${apiLayer}`)
+      const shouldShow = compositeState.enabled && subLayerEnabled && adminAllows
 
       map.setLayoutProperty(layerId, 'visibility', shouldShow ? 'visible' : 'none')
       if (shouldShow) {
@@ -116,6 +124,11 @@ export function useCoverageOverlays(mapInstance: MaplibreMap | null, styleVersio
   const [state, setState] = useState<CoverageOverlayState>(loadState)
   const stateRef = useRef(state)
   stateRef.current = state
+
+  const { visibility } = useSystemLayerVisibility()
+  // Stable predicate: returns true when the admin has not disabled a sublayer key.
+  // Falls back to enabled=true for keys with no admin row (default-on).
+  const adminEnabled = useCallback((key: string): boolean => visibility(key).enabled, [visibility])
 
   const { data: coverageInfo } = useQuery({
     queryKey: ['coverage-info'],
@@ -166,7 +179,7 @@ export function useCoverageOverlays(mapInstance: MaplibreMap | null, styleVersio
     }
 
     // Apply current state
-    syncLayerVisibility(mapInstance, stateRef.current)
+    syncLayerVisibility(mapInstance, stateRef.current, adminEnabled)
 
     return () => {
       if (!mapInstance) return
@@ -177,13 +190,13 @@ export function useCoverageOverlays(mapInstance: MaplibreMap | null, styleVersio
         if (mapInstance.getSource(sourceId)) mapInstance.removeSource(sourceId)
       }
     }
-  }, [mapInstance, styleVersion, buildTimestamp])
+  }, [mapInstance, styleVersion, buildTimestamp, adminEnabled])
 
   // Effect 2: Sync visibility + opacity — no source/layer add/remove
   useEffect(() => {
     if (!mapInstance || styleVersion === 0) return
-    syncLayerVisibility(mapInstance, state)
-  }, [mapInstance, state, styleVersion])
+    syncLayerVisibility(mapInstance, state, adminEnabled)
+  }, [mapInstance, state, styleVersion, adminEnabled])
 
   const updateComposite = useCallback(
     (key: keyof CoverageOverlayState, update: Partial<CoverageCompositeState>) => {

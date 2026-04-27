@@ -1,6 +1,7 @@
 import { memo, useMemo, useRef, useState } from 'react'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import type { CoverageOverlayState, CoverageCompositeState } from '@/hooks/useCoverageOverlays'
+import { useSystemLayerVisibility } from '@/hooks/useSystemLayerVisibility'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { DayPicker } from 'react-day-picker'
@@ -137,6 +138,31 @@ interface Props {
 
 function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlayState, onOverlayChange, segmentFilters, onSegmentFiltersChange, segmentColors, onSegmentColorsChange, coverageState, onCoverageUpdate, onCoverageToggleLayer, docked = false }: Props) {
   const navigate = useNavigate()
+  const { visibility } = useSystemLayerVisibility()
+
+  // Visibility helpers for system-controlled vector overlay toggles.
+  // Falls back to enabled=true when no admin row exists (default-on).
+  const vis = {
+    summits: visibility('summits'),
+    waters: visibility('waters'),
+    forests: visibility('forests'),
+    visitedPois: visibility('visited_pois'),
+    amenitiesTiles: visibility('amenities_tiles'),
+    segmentsLines: visibility('segments_lines'),
+  }
+
+  // Coverage composite groups: show the composite toggle only when at least one
+  // sublayer is admin-enabled (prevents showing an empty toggle with nothing behind it).
+  const NATURE_SUBLAYERS = ['coverage_landuse', 'coverage_forest', 'coverage_water', 'coverage_river_proximity', 'coverage_protected']
+  const NOISE_SUBLAYERS = ['coverage_noise']
+  const TRAFFIC_SUBLAYERS = ['coverage_urbanization', 'coverage_traffic']
+  const anyEnabled = (keys: string[]) => keys.some((k) => visibility(k).enabled)
+  const coverageVis = {
+    nature: anyEnabled(NATURE_SUBLAYERS),
+    noise: anyEnabled(NOISE_SUBLAYERS),
+    trafficUrban: anyEnabled(TRAFFIC_SUBLAYERS),
+  }
+
   const [collapsed, setCollapsed] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [expandedColorGroups, setExpandedColorGroups] = useState<Set<string>>(new Set())
@@ -679,38 +705,49 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlay
                 >
                   Gipfelsammlung öffnen →
                 </button>
-                <div className="space-y-1">
-                  <label className="flex items-center gap-2 text-xs cursor-pointer">
-                    <input type="checkbox" checked={overlayState.showSummits} onChange={e => onOverlayChange('showSummits', e.target.checked)} className="rounded" />
-                    <span>Gipfel</span>
-                  </label>
-                  {overlayState.showSummits && (
-                    <label className="flex items-center gap-2 text-xs cursor-pointer ml-5 text-neutral-500 dark:text-neutral-400">
-                      <input type="checkbox" checked={overlayState.summitsOnlyVisited} onChange={e => onOverlayChange('summitsOnlyVisited', e.target.checked)} className="rounded" />
-                      <span>Nur besuchte</span>
+                {vis.summits.enabled && (
+                  <div className="space-y-1">
+                    <label className="flex items-center gap-2 text-xs cursor-pointer">
+                      <input type="checkbox" checked={overlayState.showSummits} onChange={e => onOverlayChange('showSummits', e.target.checked)} className="rounded" />
+                      <span>{vis.summits.label ?? 'Gipfel'}</span>
                     </label>
-                  )}
-                </div>
-                <label className="flex items-center gap-2 text-xs cursor-pointer">
-                  <input type="checkbox" checked={overlayState.showWaters} onChange={e => onOverlayChange('showWaters', e.target.checked)} className="rounded" />
-                  <span>Gewässer</span>
-                </label>
-                <label className="flex items-center gap-2 text-xs cursor-pointer">
-                  <input type="checkbox" checked={overlayState.showForests} onChange={e => onOverlayChange('showForests', e.target.checked)} className="rounded" />
-                  <span>Wälder</span>
-                </label>
-                <label className="flex items-center gap-2 text-xs cursor-pointer">
-                  <input type="checkbox" checked={overlayState.showVisitedPois} onChange={e => onOverlayChange('showVisitedPois', e.target.checked)} className="rounded" />
-                  <span>Besuchte Einkehr</span>
-                </label>
-                <label className="flex items-center gap-2 text-xs cursor-pointer">
-                  <input type="checkbox" checked={overlayState.showAmenities} onChange={e => onOverlayChange('showAmenities', e.target.checked)} className="rounded" />
-                  <span>Einkehr (Tiles)</span>
-                </label>
-                <div className="space-y-1">
+                    {overlayState.showSummits && (
+                      <label className="flex items-center gap-2 text-xs cursor-pointer ml-5 text-neutral-500 dark:text-neutral-400">
+                        <input type="checkbox" checked={overlayState.summitsOnlyVisited} onChange={e => onOverlayChange('summitsOnlyVisited', e.target.checked)} className="rounded" />
+                        <span>Nur besuchte</span>
+                      </label>
+                    )}
+                  </div>
+                )}
+                {vis.waters.enabled && (
+                  <label className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input type="checkbox" checked={overlayState.showWaters} onChange={e => onOverlayChange('showWaters', e.target.checked)} className="rounded" />
+                    <span>{vis.waters.label ?? 'Gewässer'}</span>
+                  </label>
+                )}
+                {vis.forests.enabled && (
+                  <label className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input type="checkbox" checked={overlayState.showForests} onChange={e => onOverlayChange('showForests', e.target.checked)} className="rounded" />
+                    <span>{vis.forests.label ?? 'Wälder'}</span>
+                  </label>
+                )}
+                {vis.visitedPois.enabled && (
+                  <label className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input type="checkbox" checked={overlayState.showVisitedPois} onChange={e => onOverlayChange('showVisitedPois', e.target.checked)} className="rounded" />
+                    <span>{vis.visitedPois.label ?? 'Besuchte Einkehr'}</span>
+                  </label>
+                )}
+                {vis.amenitiesTiles.enabled && (
+                  <label className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input type="checkbox" checked={overlayState.showAmenities} onChange={e => onOverlayChange('showAmenities', e.target.checked)} className="rounded" />
+                    <span>{vis.amenitiesTiles.label ?? 'Einkehr (Tiles)'}</span>
+                  </label>
+                )}
+                {vis.segmentsLines.enabled && (
+                  <div className="space-y-1">
                   <label className="flex items-center gap-2 text-xs cursor-pointer">
                     <input type="checkbox" checked={overlayState.showSegmentsOverlay} onChange={e => onOverlayChange('showSegmentsOverlay', e.target.checked)} className="rounded" />
-                    <span>Segmente (Linien)</span>
+                    <span>{vis.segmentsLines.label ?? 'Segmente (Linien)'}</span>
                   </label>
                   {overlayState.showSegmentsOverlay && segmentFilters && onSegmentFiltersChange && segmentColors && onSegmentColorsChange && (
                     <div className="ml-5 space-y-2">
@@ -805,47 +842,54 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlay
                     </div>
                   )}
                 </div>
+                )}
 
                 {/* Coverage-Overlays */}
                 {coverageState && onCoverageUpdate && onCoverageToggleLayer && (
                   <>
                     <div className="border-t border-neutral-200 dark:border-neutral-700 my-2" />
-                    <CoverageCompositeToggle
-                      label="Natur-Overlay"
-                      color="text-green-600 dark:text-green-400"
-                      state={coverageState.nature}
-                      compositeKey="nature"
-                      layerLabels={{
-                        forest: 'Wald',
-                        water: 'Gewaesser',
-                        riverProximity: 'Fluss-Naehe',
-                        protected: 'Schutzgebiete',
-                        landuse: 'Landnutzung',
-                      }}
-                      onToggle={onCoverageUpdate}
-                      onToggleLayer={onCoverageToggleLayer}
-                    />
-                    <CoverageCompositeToggle
-                      label="Lärm-Overlay"
-                      color="text-purple-500 dark:text-purple-400"
-                      state={coverageState.noise}
-                      compositeKey="noise"
-                      layerLabels={{}}
-                      onToggle={onCoverageUpdate}
-                      onToggleLayer={onCoverageToggleLayer}
-                    />
-                    <CoverageCompositeToggle
-                      label="Verkehr-Overlay"
-                      color="text-orange-500 dark:text-orange-400"
-                      state={coverageState.trafficUrban}
-                      compositeKey="trafficUrban"
-                      layerLabels={{
-                        traffic: 'Verkehr',
-                        urbanization: 'Urbanisierung',
-                      }}
-                      onToggle={onCoverageUpdate}
-                      onToggleLayer={onCoverageToggleLayer}
-                    />
+                    {coverageVis.nature && (
+                      <CoverageCompositeToggle
+                        label="Natur-Overlay"
+                        color="text-green-600 dark:text-green-400"
+                        state={coverageState.nature}
+                        compositeKey="nature"
+                        layerLabels={{
+                          forest: 'Wald',
+                          water: 'Gewaesser',
+                          riverProximity: 'Fluss-Naehe',
+                          protected: 'Schutzgebiete',
+                          landuse: 'Landnutzung',
+                        }}
+                        onToggle={onCoverageUpdate}
+                        onToggleLayer={onCoverageToggleLayer}
+                      />
+                    )}
+                    {coverageVis.noise && (
+                      <CoverageCompositeToggle
+                        label="Lärm-Overlay"
+                        color="text-purple-500 dark:text-purple-400"
+                        state={coverageState.noise}
+                        compositeKey="noise"
+                        layerLabels={{}}
+                        onToggle={onCoverageUpdate}
+                        onToggleLayer={onCoverageToggleLayer}
+                      />
+                    )}
+                    {coverageVis.trafficUrban && (
+                      <CoverageCompositeToggle
+                        label="Verkehr-Overlay"
+                        color="text-orange-500 dark:text-orange-400"
+                        state={coverageState.trafficUrban}
+                        compositeKey="trafficUrban"
+                        layerLabels={{
+                          traffic: 'Verkehr',
+                          urbanization: 'Urbanisierung',
+                        }}
+                        onToggle={onCoverageUpdate}
+                        onToggleLayer={onCoverageToggleLayer}
+                      />
+                    )}
                   </>
                 )}
               </div>
