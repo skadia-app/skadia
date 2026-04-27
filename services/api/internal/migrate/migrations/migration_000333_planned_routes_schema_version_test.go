@@ -1,6 +1,6 @@
 package migrations_test
 
-// Integration tests for migration 000999 (planned_routes_schema_version).
+// Integration tests for migration 000333 (planned_routes_schema_version).
 //
 // Requires TEST_DATABASE_URL to point to a fully-migrated Skadia database.
 // Tests are skipped when the env var is not set so CI without a live DB stays
@@ -17,7 +17,7 @@ import (
 )
 
 // TestMigration_PlannedRoutesSchemaVersion_AddsSchemaVersionColumn verifies that
-// migration 000999 added route_schema_version as a smallint NOT NULL DEFAULT 0.
+// migration 000333 added route_schema_version as a smallint NOT NULL DEFAULT 0.
 func TestMigration_PlannedRoutesSchemaVersion_AddsSchemaVersionColumn(t *testing.T) {
 	pool := migrationTestPool(t)
 	ctx := context.Background()
