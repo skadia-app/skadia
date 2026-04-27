@@ -52,7 +52,7 @@ describe('useUserMapLayersMutations', () => {
     await act(async () => {
       await result.current.create.mutateAsync({ name: 'Neu' })
     })
-    expect(spy).toHaveBeenCalledWith({ queryKey: ['user-map-layers'] })
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['user-map-layers', 'anon'] })
   })
 
   it('invalidates user-map-layers after remove', async () => {
@@ -62,7 +62,7 @@ describe('useUserMapLayersMutations', () => {
     await act(async () => {
       await result.current.remove.mutateAsync(1)
     })
-    expect(spy).toHaveBeenCalledWith({ queryKey: ['user-map-layers'] })
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['user-map-layers', 'anon'] })
   })
 
   it('invalidates user-map-layers after update', async () => {
@@ -72,7 +72,7 @@ describe('useUserMapLayersMutations', () => {
     await act(async () => {
       await result.current.update.mutateAsync({ id: 1, body: { name: 'Geändert' } })
     })
-    expect(spy).toHaveBeenCalledWith({ queryKey: ['user-map-layers'] })
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['user-map-layers', 'anon'] })
   })
 
   it('invalidates user-map-layers after sort', async () => {
@@ -82,6 +82,6 @@ describe('useUserMapLayersMutations', () => {
     await act(async () => {
       await result.current.sort.mutateAsync([{ id: 1, sort_order: 0 }])
     })
-    expect(spy).toHaveBeenCalledWith({ queryKey: ['user-map-layers'] })
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['user-map-layers', 'anon'] })
   })
 })

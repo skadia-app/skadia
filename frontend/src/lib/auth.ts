@@ -3,6 +3,8 @@
 // Cross-tab sync via BroadcastChannel ensures all tabs share the same token
 // without persisting it to storage.
 
+import { clearQueryClientCache } from './queryClient'
+
 let accessToken: string | null = null
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
 let refreshInFlight: Promise<boolean> | null = null
@@ -43,6 +45,10 @@ export function clearToken(): void {
     clearTimeout(refreshTimer)
     refreshTimer = null
   }
+  // Multi-user safety: drop every cached React-Query result before the next
+  // user (or anonymous redirect target) can read it. Synchronous, runs
+  // before any navigate()/location.href assignment in the caller.
+  clearQueryClientCache()
   if (!suppressBroadcast) {
     authChannel?.postMessage({ type: 'logout' })
   }
