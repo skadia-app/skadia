@@ -53,13 +53,13 @@ func TestRateLimiter_CleanupRemovesStaleEntries(t *testing.T) {
 	// Manually age the entry beyond the cleanup interval
 	if entry, ok := rl.limiters.Load("stale"); ok {
 		e := entry.(*limiterEntry)
-		e.lastSeen = time.Now().Add(-20 * time.Minute)
+		e.lastSeen.Store(time.Now().Add(-20 * time.Minute).UnixNano())
 	}
 
 	// Run cleanup with 15-minute interval — the stale entry should be removed
 	rl.limiters.Range(func(key, value any) bool {
 		e := value.(*limiterEntry)
-		if time.Since(e.lastSeen) > 15*time.Minute {
+		if time.Since(time.Unix(0, e.lastSeen.Load())) > 15*time.Minute {
 			rl.limiters.Delete(key)
 			rl.size.Add(-1)
 		}
