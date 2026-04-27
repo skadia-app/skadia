@@ -29,6 +29,9 @@ vi.mock('echarts/components', () => ({
   GridComponent: {},
   TooltipComponent: {},
   AxisPointerComponent: {},
+  DataZoomComponent: {},
+  BrushComponent: {},
+  ToolboxComponent: {},
 }))
 vi.mock('echarts/renderers', () => ({ CanvasRenderer: {} }))
 

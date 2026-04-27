@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef } from 'react'
+import { memo, useMemo, useRef, useState } from 'react'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -6,6 +6,9 @@ import {
   GridComponent,
   TooltipComponent,
   AxisPointerComponent,
+  DataZoomComponent,
+  BrushComponent,
+  ToolboxComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { RouteElevationPoint, RouteSegment } from '@/api/routes'
@@ -25,6 +28,9 @@ echarts.use([
   GridComponent,
   TooltipComponent,
   AxisPointerComponent,
+  DataZoomComponent,
+  BrushComponent,
+  ToolboxComponent,
   CanvasRenderer,
 ])
 
@@ -48,6 +54,8 @@ interface Props {
   segments?: RouteSegment[]
   /** Callback: null when mouse leaves, otherwise lat/lng along route at fraction */
   onHoverFraction?: (fraction: number | null) => void
+  onBrushZoom?: (startDistM: number, endDistM: number) => void
+  onBrushReset?: () => void
   /** Height of the chart container */
   height?: number
   /** V6-Retrofit: zentraler Stats-Shape aus useRoutePlanner.routeStats.
@@ -181,6 +189,8 @@ function RouteProfileChart({
   totalDistanceM,
   segments = [],
   onHoverFraction,
+  onBrushZoom,
+  onBrushReset,
   height = 180,
   routeStats,
   scalePin,
@@ -206,6 +216,8 @@ function RouteProfileChart({
   // Both points AND totalDistanceM are frozen together so the x-axis scale
   // stays consistent with the rendered data.
   const snap = useRef({ points: livePoints, totalDistanceM })
+  const chartInstanceRef = useRef<echarts.ECharts | null>(null)
+  const [isBrushZoomed, setIsBrushZoomed] = useState(false)
   const haveLive = livePoints.length >= 2
   if (!isCalculating && haveLive) {
     snap.current = { points: livePoints, totalDistanceM }
@@ -228,6 +240,10 @@ function RouteProfileChart({
       max: Math.ceil(hi + pad),
     }
   }, [points])
+
+  // Brush is opt-in: user must click the "Bereich auswählen" button to activate.
+  // This avoids the brush cursor interfering with normal hover/scroll interactions.
+  const [brushActive, setBrushActive] = useState(false)
 
   const containerRef = useECharts(
     () => {
@@ -322,6 +338,20 @@ function RouteProfileChart({
           seriesIndex: 0,
           outOfRange: { color: 'rgba(34,197,94,0.80)' },
         },
+        toolbox: onBrushZoom ? {
+          show: false,
+          feature: { brush: { type: ['lineX'] } },
+        } : undefined,
+        brush: onBrushZoom ? {
+          toolbox: [],
+          brushType: 'lineX',
+          brushMode: 'single',
+          xAxisIndex: 0,
+          brushStyle: { borderWidth: 1, color: 'rgba(249,115,22,0.12)', borderColor: '#f97316' },
+        } : undefined,
+        dataZoom: onBrushZoom ? [
+          { type: 'inside', xAxisIndex: 0, filterMode: 'none', zoomOnMouseWheel: false, moveOnMouseMove: true, moveOnMouseWheel: false },
+        ] : undefined,
         series: [
           {
             type: 'line',
@@ -341,33 +371,128 @@ function RouteProfileChart({
         ],
       } as EChartsCoreOption
     },
-    [points, yRange, effectiveTotalM, onHoverFraction],
+    [points, yRange, effectiveTotalM, onHoverFraction, onBrushZoom],
     (chart) => {
-      if (!onHoverFraction) return
+      chartInstanceRef.current = chart
+      const cleanups: Array<() => void> = []
 
-      const handleMove = (params: { dataIndex?: number }) => {
-        if (params.dataIndex == null || !points[params.dataIndex]) {
-          onHoverFraction(null)
-          return
+      if (onHoverFraction) {
+        const handleMove = (params: { dataIndex?: number }) => {
+          if (params.dataIndex == null || !points[params.dataIndex]) {
+            onHoverFraction(null)
+            return
+          }
+          const pt = points[params.dataIndex]
+          const fraction = effectiveTotalM > 0 ? pt.distanceKm / (effectiveTotalM / 1000) : 0
+          onHoverFraction(fraction)
         }
-        const pt = points[params.dataIndex]
-        const fraction = effectiveTotalM > 0 ? pt.distanceKm / (effectiveTotalM / 1000) : 0
-        onHoverFraction(fraction)
+
+        const handleOut = () => onHoverFraction(null)
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        chart.on('mousemove', handleMove as any)
+        chart.on('mouseout', handleOut)
+
+        cleanups.push(() => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          chart.off('mousemove', handleMove as any)
+          chart.off('mouseout', handleOut)
+        })
       }
 
-      const handleOut = () => onHoverFraction(null)
+      if (onBrushZoom) {
+        type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
+        const handleBrushEnd = (params: unknown) => {
+          const p = params as {
+            areas?: BrushArea[]
+            batch?: Array<{ areas?: BrushArea[] }>
+          }
+          const areas = p.areas ?? p.batch?.[0]?.areas
+          if (!areas || areas.length === 0) return
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      chart.on('mousemove', handleMove as any)
-      chart.on('mouseout', handleOut)
+          const area = areas[0]
+          let startKm: number
+          let endKm: number
+          if (area.coordRange) {
+            [startKm, endKm] = area.coordRange
+          } else if (area.range) {
+            const start = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
+            const end = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
+            if (typeof start !== 'number' || typeof end !== 'number') return
+            startKm = start
+            endKm = end
+          } else {
+            return
+          }
+
+          const xMaxKm = effectiveTotalM / 1000
+          const loKm = Math.max(0, Math.min(startKm, endKm))
+          const hiKm = Math.min(xMaxKm, Math.max(startKm, endKm))
+          if (xMaxKm <= 0 || hiKm - loKm < 0.005) return
+
+          chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: (loKm / xMaxKm) * 100, end: (hiKm / xMaxKm) * 100 })
+          chart.dispatchAction({ type: 'brush', command: 'clear', areas: [] })
+          chart.dispatchAction({
+            type: 'takeGlobalCursor',
+            key: 'brush',
+            brushOption: { brushType: false },
+          })
+          setIsBrushZoomed(true)
+          setBrushActive(false)
+          onBrushZoom(loKm * 1000, hiKm * 1000)
+        }
+
+        // Do NOT activate brush cursor here — brush is opt-in via the UI button.
+        chart.on('brushEnd', handleBrushEnd)
+        cleanups.push(() => chart.off('brushEnd', handleBrushEnd))
+      }
 
       return () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        chart.off('mousemove', handleMove as any)
-        chart.off('mouseout', handleOut)
+        chartInstanceRef.current = null
+        cleanups.forEach(cleanup => cleanup())
       }
     },
   )
+
+  const handleBrushReset = () => {
+    const chart = chartInstanceRef.current
+    if (chart) {
+      chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: 0, end: 100 })
+      // Deactivate brush cursor on reset — user must re-activate deliberately.
+      chart.dispatchAction({
+        type: 'takeGlobalCursor',
+        key: 'brush',
+        brushOption: { brushType: false },
+      })
+    }
+    setIsBrushZoomed(false)
+    setBrushActive(false)
+    onBrushReset?.()
+  }
+
+  const handleActivateBrush = () => {
+    const chart = chartInstanceRef.current
+    if (chart) {
+      chart.dispatchAction({
+        type: 'takeGlobalCursor',
+        key: 'brush',
+        brushOption: { brushType: 'lineX', brushMode: 'single' },
+      })
+    }
+    setBrushActive(true)
+  }
+
+  const handleDeactivateBrush = () => {
+    const chart = chartInstanceRef.current
+    if (chart) {
+      chart.dispatchAction({
+        type: 'takeGlobalCursor',
+        key: 'brush',
+        brushOption: { brushType: false },
+      })
+    }
+    setBrushActive(false)
+  }
 
   // ── Scale aggregation (LF-#6: ONE parsedCoords memo shared by SAC + MTB) ──
   // V6-Retrofit: parsedCoords kommt aus routeStats.coordinates (merged + deduped
@@ -528,6 +653,30 @@ function RouteProfileChart({
 
         {/* Gradient legend */}
         <div className="flex items-center gap-2 flex-wrap">
+          {isBrushZoomed && (
+            <button
+              type="button"
+              onClick={handleBrushReset}
+              className="text-[10px] text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100 underline underline-offset-2 cursor-pointer"
+            >
+              Zoom zurück
+            </button>
+          )}
+          {onBrushZoom && !isBrushZoomed && (
+            <button
+              type="button"
+              onClick={brushActive ? handleDeactivateBrush : handleActivateBrush}
+              className={[
+                'text-[10px] underline underline-offset-2 cursor-pointer',
+                brushActive
+                  ? 'text-orange-500 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300'
+                  : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100',
+              ].join(' ')}
+              title={brushActive ? 'Bereichsauswahl deaktivieren' : 'Bereich auf Karte zoomen'}
+            >
+              {brushActive ? 'Auswahl aktiv' : 'Bereich auswählen'}
+            </button>
+          )}
           {legendItems.map(item => (
             <div key={item.label} className="flex items-center gap-1">
               <span
