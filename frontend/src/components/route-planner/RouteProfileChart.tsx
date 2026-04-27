@@ -32,8 +32,8 @@ echarts.use([
 
 interface ProfilePoint {
   distanceKm: number
-  elevation: number       // always a real number (null points are filtered out)
-  grade: number          // gradient in percent
+  elevation: number | null  // null = DEM coverage gap (Spec §6 Class A); ECharts renders as gap
+  grade: number             // gradient in percent; 0 for null/gap points
   isOffroad: boolean
 }
 
@@ -78,8 +78,14 @@ interface Props {
  * Build a flat ProfilePoint array from a RouteElevationPoint list.
  * Uses cumulative dist_m directly (no fraction back-calculation).
  * Grade is computed as a centred finite difference (m/m → %).
+ *
+ * Null ele_m values (DEM coverage gaps, Spec §6 Class A) are preserved in the
+ * output so ECharts can render them as transparent gaps rather than interpolating
+ * fake heights. Grade is set to 0 for gap points.
+ *
+ * @internal Exported for unit-testing only.
  */
-function buildProfile(
+export function buildProfile(
   raw: RouteElevationPoint[],
   segments: RouteSegment[],
 ): ProfilePoint[] {
@@ -96,33 +102,40 @@ function buildProfile(
     coveredM += len
   }
 
-  // TODO Plan D: render gap visually instead of dropping null points
-  const valid = raw.filter(
-    (pt): pt is RouteElevationPoint & { ele_m: number } => pt.ele_m !== null,
-  )
-  if (valid.length < 2) return []
+  // Spec §6 Class A: null ele_m = DEM coverage gap. Keep null points so ECharts
+  // renders an honest visual gap rather than linearly interpolating fake heights.
+  // Require ≥2 non-null points to have a renderable chart at all.
+  const nonNullCount = raw.reduce((n, pt) => (pt.ele_m !== null ? n + 1 : n), 0)
+  if (nonNullCount < 2) return []
 
-  const points: ProfilePoint[] = valid.map((pt, i) => {
+  // Build a lookup of non-null points for grade computation — grade is only
+  // meaningful between points with actual elevation data.
+  const nonNullPts = raw.filter((pt): pt is RouteElevationPoint & { ele_m: number } =>
+    pt.ele_m !== null,
+  )
+
+  const points: ProfilePoint[] = raw.map(pt => {
     const distanceKm = pt.dist_m / 1000
 
-    // Grade via centred finite difference (ele per dist → %)
+    // Grade via centred finite difference using nearest non-null neighbours.
+    // For gap (null) points: grade = 0 (no colour, no numeric meaning).
     let grade = 0
-    if (i > 0 && i < valid.length - 1) {
-      const prev = valid[i - 1]
-      const next = valid[i + 1]
-      const dElev = next.ele_m - prev.ele_m
-      const dDist = next.dist_m - prev.dist_m
-      grade = dDist > 0 ? (dElev / dDist) * 100 : 0
-    } else if (i === 0 && valid.length > 1) {
-      const next = valid[1]
-      const dElev = next.ele_m - valid[0].ele_m
-      const dDist = next.dist_m - valid[0].dist_m
-      grade = dDist > 0 ? (dElev / dDist) * 100 : 0
-    } else if (i === valid.length - 1 && valid.length > 1) {
-      const prev = valid[valid.length - 2]
-      const dElev = valid[i].ele_m - prev.ele_m
-      const dDist = valid[i].dist_m - prev.dist_m
-      grade = dDist > 0 ? (dElev / dDist) * 100 : 0
+    if (pt.ele_m !== null) {
+      const idx = nonNullPts.findIndex(p => p.dist_m === pt.dist_m)
+      if (idx > 0 && idx < nonNullPts.length - 1) {
+        const prev = nonNullPts[idx - 1]
+        const next = nonNullPts[idx + 1]
+        const dDist = next.dist_m - prev.dist_m
+        grade = dDist > 0 ? ((next.ele_m - prev.ele_m) / dDist) * 100 : 0
+      } else if (idx === 0 && nonNullPts.length > 1) {
+        const next = nonNullPts[1]
+        const dDist = next.dist_m - pt.dist_m
+        grade = dDist > 0 ? ((next.ele_m - pt.ele_m) / dDist) * 100 : 0
+      } else if (idx === nonNullPts.length - 1 && nonNullPts.length > 1) {
+        const prev = nonNullPts[nonNullPts.length - 2]
+        const dDist = pt.dist_m - prev.dist_m
+        grade = dDist > 0 ? ((pt.ele_m - prev.ele_m) / dDist) * 100 : 0
+      }
     }
 
     const isOffroad = offroadRanges.some(r => pt.dist_m >= r.start && pt.dist_m <= r.end)
@@ -195,10 +208,11 @@ function RouteProfileChart({
   const points = useSnapshot ? snap.current.points : livePoints
   const effectiveTotalM = useSnapshot ? snap.current.totalDistanceM : totalDistanceM
 
-  // Y-axis range with padding
+  // Y-axis range with padding — skip null (gap) points
   const yRange = useMemo(() => {
     if (points.length === 0) return { min: 0, max: 100 }
-    const elevations = points.map(p => p.elevation)
+    const elevations = points.map(p => p.elevation).filter((e): e is number => e !== null)
+    if (elevations.length === 0) return { min: 0, max: 100 }
     const lo = Math.min(...elevations)
     const hi = Math.max(...elevations)
     const range = hi - lo
@@ -263,7 +277,7 @@ function RouteProfileChart({
             return `
               <div style="font-size:11px;line-height:1.7">
                 <div style="color:#9ca3af;margin-bottom:2px">${pt.distanceKm.toFixed(2)} km</div>
-                <div><span style="color:#9ca3af">Höhe:</span> <strong style="color:#f9fafb">${Math.round(pt.elevation)} m</strong></div>
+                <div><span style="color:#9ca3af">Höhe:</span> <strong style="color:#f9fafb">${pt.elevation !== null ? `${Math.round(pt.elevation)} m` : '—'}</strong></div>
                 <div><span style="color:#9ca3af">Steigung:</span> <strong style="color:${gradeColor(pt.grade)}">${formatGrade(pt.grade)}</strong></div>
                 <div>${modeLabel}</div>
               </div>
@@ -373,15 +387,20 @@ function RouteProfileChart({
     [routeStats?.vf_ranges, parsedCoords],
   )
 
-  // ── Elevation statistics ───────────────────────────────────────────────────
+  // ── Elevation statistics — skip null (gap) points ────────────────────────
   const stats = useMemo(() => {
     if (points.length < 2) return null
     let gain = 0
     let loss = 0
-    for (let i = 1; i < points.length; i++) {
-      const delta = points[i].elevation - points[i - 1].elevation
-      if (delta > 0) gain += delta
-      else loss += Math.abs(delta)
+    let prevEle: number | null = null
+    for (const pt of points) {
+      if (pt.elevation === null) continue
+      if (prevEle !== null) {
+        const delta = pt.elevation - prevEle
+        if (delta > 0) gain += delta
+        else loss += Math.abs(delta)
+      }
+      prevEle = pt.elevation
     }
     return { gain: Math.round(gain), loss: Math.round(loss) }
   }, [points])

@@ -196,11 +196,14 @@ function buildSegmentFromFeature(
   if (Array.isArray(rawProfile) && rawProfile.length > 0) {
     const filtered = rawProfile
       .filter(
-        (pt): pt is { dist_m: number; ele_m: number } =>
+        // ele_m may be null (DEM coverage gap — Spec §6 Class A). Pass null through
+        // so the chart can render an honest gap rather than interpolating fake heights.
+        (pt): pt is { dist_m: number; ele_m: number | null } =>
           pt != null &&
           typeof pt === 'object' &&
           typeof (pt as { dist_m?: unknown }).dist_m === 'number' &&
-          typeof (pt as { ele_m?: unknown }).ele_m === 'number',
+          ((pt as { ele_m?: unknown }).ele_m === null ||
+            typeof (pt as { ele_m?: unknown }).ele_m === 'number'),
       )
       .map(pt => ({ dist_m: pt.dist_m, ele_m: pt.ele_m }))
     if (filtered.length > 0) elevationProfile = filtered
@@ -1376,11 +1379,14 @@ export function useRoutePlanner() {
     if (Array.isArray(rawSegProfile) && rawSegProfile.length > 0) {
       const filtered = rawSegProfile
         .filter(
-          (pt): pt is { dist_m: number; ele_m: number } =>
+          // ele_m may be null (DEM coverage gap — Spec §6 Class A). Pass null through
+          // so the chart can render an honest gap rather than interpolating fake heights.
+          (pt): pt is { dist_m: number; ele_m: number | null } =>
             pt != null &&
             typeof pt === 'object' &&
             typeof (pt as { dist_m?: unknown }).dist_m === 'number' &&
-            typeof (pt as { ele_m?: unknown }).ele_m === 'number',
+            ((pt as { ele_m?: unknown }).ele_m === null ||
+              typeof (pt as { ele_m?: unknown }).ele_m === 'number'),
         )
         .map(pt => ({ dist_m: pt.dist_m, ele_m: pt.ele_m }))
       if (filtered.length > 0) segElevationProfile = filtered
