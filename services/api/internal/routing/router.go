@@ -887,9 +887,9 @@ func (r *UnifiedRouter) addApproach(result *RouteResult, srcVE, dstVE *VirtualEn
 }
 
 // approachElevToPtrM converts a DEM elevation in decimeters to *float64 in meters.
-// Returns nil for the NoData sentinel (-32768), which signals missing DEM coverage.
+// Returns nil for the NoData sentinel (dem.NoData = -32768), which signals missing DEM coverage.
 func approachElevToPtrM(e int32) *float64 {
-	if e == -32768 { // dem.NoData — avoid import cycle by using the literal value
+	if e == dem.NoData {
 		return nil
 	}
 	v := float64(e) / 10.0

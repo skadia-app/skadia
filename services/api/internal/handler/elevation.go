@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
@@ -247,7 +248,7 @@ func buildPerVertexProfile(coords [][]float64, eles []int32) []database.Elevatio
 		}
 
 		var elevM *float64
-		if eles[i] != noDataSentinel {
+		if eles[i] != dem.NoData {
 			// DEM returns decimeters; convert to meters.
 			v := float64(eles[i]) / 10.0
 			elevM = &v
@@ -263,11 +264,6 @@ func buildPerVertexProfile(coords [][]float64, eles []int32) []database.Elevatio
 	}
 	return profile
 }
-
-// noDataSentinel mirrors dem.NoData without importing the dem package into
-// the business logic layer (avoids circular-import risk and keeps the handler
-// free of dem internals).
-const noDataSentinel int32 = -32768
 
 // extractLineStringCoords parses a GeoJSON geometry and returns its
 // coordinates as a [][]float64 slice. Only LineString is supported.
