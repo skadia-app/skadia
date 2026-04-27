@@ -25,8 +25,10 @@ type RateLimiter struct {
 }
 
 type limiterEntry struct {
-	limiter  *rate.Limiter
-	lastSeen time.Time
+	limiter *rate.Limiter
+	// lastSeen is stored as Unix nanoseconds in an atomic int64 so concurrent
+	// Allow() writers and the cleanup goroutine reader cannot tear or race.
+	lastSeen atomic.Int64
 }
 
 // NewRateLimiter creates a rate limiter and starts a background cleanup goroutine.
@@ -42,7 +44,7 @@ func (rl *RateLimiter) Allow(key string, rps float64, burst int) bool {
 	// Fast path: key already exists.
 	if entry, ok := rl.limiters.Load(key); ok {
 		e := entry.(*limiterEntry)
-		e.lastSeen = time.Now()
+		e.lastSeen.Store(time.Now().UnixNano())
 		return e.limiter.Allow()
 	}
 
@@ -56,12 +58,12 @@ func (rl *RateLimiter) Allow(key string, rps float64, burst int) bool {
 
 	// Use LoadOrStore to avoid race between concurrent first-time callers.
 	newEntry := &limiterEntry{
-		limiter:  rate.NewLimiter(rate.Limit(rps), burst),
-		lastSeen: time.Now(),
+		limiter: rate.NewLimiter(rate.Limit(rps), burst),
 	}
+	newEntry.lastSeen.Store(time.Now().UnixNano())
 	actual, loaded := rl.limiters.LoadOrStore(key, newEntry)
 	e := actual.(*limiterEntry)
-	e.lastSeen = time.Now()
+	e.lastSeen.Store(time.Now().UnixNano())
 	if !loaded {
 		rl.size.Add(1)
 	}
@@ -92,7 +94,7 @@ func (rl *RateLimiter) cleanup(ctx context.Context, interval time.Duration) {
 		case <-ticker.C:
 			rl.limiters.Range(func(key, value any) bool {
 				e := value.(*limiterEntry)
-				if time.Since(e.lastSeen) > interval {
+				if time.Since(time.Unix(0, e.lastSeen.Load())) > interval {
 					rl.limiters.Delete(key)
 					rl.size.Add(-1)
 				}
