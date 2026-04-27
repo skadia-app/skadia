@@ -623,6 +623,11 @@ func main() {
 	// Closed after HTTP shutdown so in-flight requests always have a valid service.
 	demSvc := dem.NewService(dem.HGTDirsForConfig(cfg.DEMDataDir))
 
+	// Boot-time HGT drift scan — async, best-effort. Samples up to 5 tiles and
+	// records any HGT manifest mismatches in demSvc.Health().TileDriftCells.
+	// Does not block boot or affect routing correctness.
+	go demSvc.ScanTilesForDrift(cfg.TilesDir, 5)
+
 	// Build the ImportService which holds the shared post-processing pipeline.
 	// The SegmentMatcher callback is wired after the Handler is created
 	// (it references handler methods), so we set it below.

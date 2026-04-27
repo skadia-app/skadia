@@ -32,6 +32,37 @@ type cellEntry struct {
 // a fake via newServiceWithOpener.
 type openerFn func(hgtDirs []string, cellName string) (*HGTGrid, error)
 
+// healthState tracks service-level health flags that are set asynchronously
+// (e.g. by the boot-time drift scan). All methods are safe for concurrent use.
+type healthState struct {
+	mu             sync.Mutex
+	tileDriftCells map[string][]string // tileID hex string → drift cell names
+}
+
+func (h *healthState) markTileDrift(tileID string, cells []string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.tileDriftCells == nil {
+		h.tileDriftCells = make(map[string][]string)
+	}
+	h.tileDriftCells[tileID] = cells
+}
+
+func (h *healthState) driftSnapshot() map[string][]string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.tileDriftCells) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(h.tileDriftCells))
+	for k, v := range h.tileDriftCells {
+		cp := make([]string, len(v))
+		copy(cp, v)
+		out[k] = cp
+	}
+	return out
+}
+
 // Service provides lazy, concurrent-safe elevation lookups across all
 // configured HGT directories. Each 1°×1° cell is opened at most once
 // (sync.Once per cell) and kept mmap'd until Close is called.
@@ -47,6 +78,7 @@ type Service struct {
 	cells   map[string]*cellEntry // keyed by cellNameFor(lat,lon)
 	corrupt []string              // cell names that failed to open
 
+	health    healthState
 	closed    atomic.Bool
 	closeOnce sync.Once
 }
@@ -119,9 +151,12 @@ func (s *Service) ElevationBatch(lats, lons []int32) ([]int32, error) {
 
 // Health returns a snapshot of the service health. corrupt lists the cell
 // names that failed to open (e.g. truncated or unreadable HGT files).
+// TileDriftCells lists tiles whose HGT manifest no longer matches the files
+// on disk (detected by the async boot-time drift scan).
 type Health struct {
-	CorruptCells []string `json:"corrupt_cells,omitempty"`
-	Closed       bool     `json:"closed"`
+	CorruptCells   []string            `json:"corrupt_cells,omitempty"`
+	TileDriftCells map[string][]string `json:"tile_drift_cells,omitempty"`
+	Closed         bool                `json:"closed"`
 }
 
 // Health returns the current health snapshot. Safe to call concurrently.
@@ -131,8 +166,9 @@ func (s *Service) Health() Health {
 	copy(corrupt, s.corrupt)
 	s.mu.Unlock()
 	return Health{
-		CorruptCells: corrupt,
-		Closed:       s.closed.Load(),
+		CorruptCells:   corrupt,
+		TileDriftCells: s.health.driftSnapshot(),
+		Closed:         s.closed.Load(),
 	}
 }
 
