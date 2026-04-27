@@ -23,7 +23,12 @@ import { fmtDateCompact } from '@/lib/format'
 import { useRouteEditor } from '@/components/route-planner/useRouteEditor'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { SPORT_DEFS, categoryForSport, sportColor } from '@/lib/sportTaxonomy'
-import { BASE_STYLES, buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
+import { BASE_STYLES, buildRasterStyle, buildLayerStyle, expandSwitch, type BaseStyle } from '@/lib/mapStyles'
+import { mapLayerStackDiff } from '@/lib/mapLayerStackDiff'
+import { useMapLayers } from '@/hooks/useMapLayers'
+import { useCapabilities } from '@/hooks/useCapabilities'
+import { useUserMapLayers } from '@/hooks/useUserMapLayers'
+import type { MapLayer } from '@/api/mapLayers'
 import {
   HEATMAP_SOURCE_ID,
   addHeatmapLayers as addHeatmapGlowLayers,
@@ -293,9 +298,23 @@ export default function MapPage() {
   const { theme: uiTheme, setTheme: setUiTheme } = useTheme()
   const themeBeforeDarkMap = useRef<'light' | 'dark'>('light')
   const [savedViewport] = useState<StoredViewport | null>(loadViewport)
+
+  // DB-driven layer catalog.  useMapLayers() also drives the deprecation shim
+  // (_setBaseStylesShim) so BASE_STYLES stays populated for legacy consumers
+  // during the Phase-5 migration.
+  const { base: baseLayers, raw: rawLayers } = useMapLayers()
+  const { data: caps } = useCapabilities()
+  // Overlay re-apply: track the previous stack to compute minimal diffs.
+  const prevOverlayStackRef = useRef<MapLayer[]>([])
+  // User-custom layers (personal raster overlays, Task 39+).
+  const { data: userLayersData } = useUserMapLayers()
+
   const [baseStyle, setBaseStyle] = useState<BaseStyle>(
     savedViewport?.baseStyle ?? loadDefaultBaseStyle()
   )
+  // Resolve the currently-selected base MapLayer from the DB catalog.
+  // Falls back to null while loading (map init guard handles this).
+  const selectedBaseLayer = baseLayers.find((l) => l.key === baseStyle) ?? baseLayers[0] ?? null
   // Ref zum Zugriff auf aktuellen baseStyle in Unmount-Cleanup (Closure wäre stale)
   const baseStyleRef = useRef<BaseStyle>(savedViewport?.baseStyle ?? loadDefaultBaseStyle())
   const [filters, setFilters] = useState<MapFilterState>({
@@ -312,7 +331,13 @@ export default function MapPage() {
   // in den Dark Mode; beim Wegwechseln wird der vorherige Zustand wiederhergestellt.
   useEffect(() => {
     baseStyleRef.current = baseStyle
-    if (baseStyle === 'dark') {
+    // SCOPE-GAP: hardcoded check on layer key 'dark' to trigger UI dark theme.
+    // Spec §Future Considerations #9 (2026-04-26-map-layer-admin-design.md):
+    // proper fix is a `triggers_dark_ui` column on map_layers — deferred to a
+    // dedicated UX feature plan. If admin disables the 'dark' system layer,
+    // this check silently no-ops; that is accepted Phase-1 behaviour.
+    // User gate: map-layer-admin plan Task 28, 2026-04-26.
+    if (selectedBaseLayer?.key === 'dark' || (!selectedBaseLayer && baseStyle === 'dark')) {
       themeBeforeDarkMap.current = uiTheme
       setUiTheme('dark')
     } else {
@@ -871,6 +896,86 @@ export default function MapPage() {
     setupLayers()
   }, [styleVersion])
 
+  // ── System-overlay + user-custom stack re-apply ───────────────────────────
+  //
+  // Runs whenever the system overlay list (rawLayers) or user layers change.
+  // Uses mapLayerStackDiff to compute minimal add/remove/replace operations so
+  // MapLibre only re-fetches tiles for layers that actually changed.
+  //
+  // applyStackOp is defined inline here to keep this self-contained in MapPage
+  // until Task 37 factors it out. Placement: before 'gps-track-line-casing' so
+  // system overlays render below GPS tracks.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || styleVersion === 0) return
+
+    const BEFORE_ID = map.getLayer('gps-track-line-casing') ? 'gps-track-line-casing' : undefined
+
+    function applyStackOp(op: import('@/lib/mapLayerStackDiff').StackDiffOp) {
+      if (!map) return
+      const l = op.layer
+      if (op.op === 'remove' || op.op === 'replace') {
+        if (map.getLayer(l.key)) map.removeLayer(l.key)
+        if (map.getSource(l.key)) map.removeSource(l.key)
+      }
+      if (op.op === 'add' || op.op === 'replace') {
+        if (!map.getSource(l.key)) {
+          map.addSource(l.key, {
+            type: 'raster',
+            tiles: expandSwitch(l.url_template!),
+            tileSize: 256,
+            attribution: l.attribution ?? '',
+            ...(l.min_zoom != null && { minzoom: l.min_zoom }),
+            ...(l.max_zoom != null && { maxzoom: l.max_zoom }),
+          })
+        }
+        if (!map.getLayer(l.key)) {
+          map.addLayer(
+            {
+              id: l.key,
+              type: 'raster',
+              source: l.key,
+              paint: { 'raster-opacity': (l.default_opacity ?? 100) / 100 },
+            },
+            BEFORE_ID,
+          )
+        }
+      }
+    }
+
+    // System overlays: role='overlay', enabled=true, capability-passing (already filtered in rawLayers hook).
+    const sysOverlays = rawLayers.filter((l) => l.role === 'overlay' && l.enabled && l.source_kind === 'raster_tiles')
+
+    // User-custom layers: map to the MapLayer shape for the diff algorithm.
+    const userOverlays: MapLayer[] = (userLayersData ?? [])
+      .filter((ul) => ul.enabled)
+      .map((ul) => ({
+        id: ul.id,
+        key: `user-overlay-${ul.id}`,
+        role: 'overlay' as const,
+        name: ul.name,
+        source_kind: 'raster_tiles' as const,
+        url_template: ul.url_template,
+        attribution: ul.attribution,
+        min_zoom: ul.min_zoom,
+        max_zoom: ul.max_zoom,
+        default_opacity: ul.default_opacity,
+        is_system: false,
+        enabled: ul.enabled,
+        sort_order: ul.sort_order,
+        proxy_through_backend: false,
+        created_at: ul.created_at,
+        updated_at: ul.updated_at,
+      }))
+
+    const next = [...sysOverlays, ...userOverlays]
+    const ops = mapLayerStackDiff(prevOverlayStackRef.current, next)
+    for (const op of ops) {
+      applyStackOp(op)
+    }
+    prevOverlayStackRef.current = next
+  }, [mapRef, styleVersion, rawLayers, userLayersData]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── parsedCoords: shared coordinate array for both overlay useMemos ───────
   //
   // V6-Retrofit (Finding #6): Koordinaten kommen jetzt aus planner.routeStats.coordinates
@@ -1227,7 +1332,11 @@ export default function MapPage() {
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: buildRasterStyle(savedViewport?.baseStyle ?? loadDefaultBaseStyle()),
+      // Use DB-driven style when catalog is loaded; fall back to the shim while
+      // the first fetch is in-flight so the map initializes immediately.
+      style: selectedBaseLayer
+        ? (buildLayerStyle(selectedBaseLayer, (caps ?? {}) as import('@/lib/mapStyles').Capabilities) as import('maplibre-gl').StyleSpecification | string)
+        : (buildRasterStyle(savedViewport?.baseStyle ?? loadDefaultBaseStyle(), (caps ?? {}) as import('@/lib/mapStyles').Capabilities) as import('maplibre-gl').StyleSpecification | string),
       center: savedViewport ? savedViewport.center : [10.45, 51.16],
       zoom: savedViewport ? savedViewport.zoom : 6,
       attributionControl: { compact: false },
@@ -1349,7 +1458,12 @@ export default function MapPage() {
     // kann style.load synchron feuern, bevor map.once() registriert ist.
     pendingCameraRestoreRef.current = { center: map.getCenter(), zoom: map.getZoom() }
 
-    map.setStyle(buildRasterStyle(baseStyle))
+    // DB-driven style switch; fall back to shim while catalog is loading.
+    const mapCaps = (caps ?? {}) as import('@/lib/mapStyles').Capabilities
+    const styleSpec = selectedBaseLayer
+      ? buildLayerStyle(selectedBaseLayer, mapCaps)
+      : buildRasterStyle(baseStyle, mapCaps)
+    map.setStyle(styleSpec as import('maplibre-gl').StyleSpecification | string)
 
     // Persist baseStyle change to viewport
     const stored = loadViewport()
@@ -2625,37 +2739,31 @@ export default function MapPage() {
           aria-hidden={baseStylesCollapsed || undefined}
           className={`absolute bottom-4 left-4 z-10 flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md ${baseStylesCollapsed ? 'invisible pointer-events-none' : ''}`}
         >
-          {(Object.keys(BASE_STYLES) as BaseStyle[]).map((key) => {
-            const isOfflineStyle = key === 'local' || key === 'offline'
-            const offlineAvailable = planner.capabilities?.offline_map ?? false
-            const disabled = isOfflineStyle && !offlineAvailable
-            return (
-              <button
-                key={key}
-                onClick={() => {
-                  if (disabled) {
-                    addToast({
-                      type: 'info',
-                      title: 'Lokale Karten nicht verfügbar',
-                      message: 'Aktiviere lokale Kartendaten in den Einstellungen.',
-                    })
-                    return
-                  }
-                  setBaseStyle(key)
-                }}
-                title={disabled ? 'Lokale Kartendaten nicht verfügbar. Aktiviere sie in den Einstellungen.' : undefined}
-                className={`px-2.5 py-1 text-xs font-medium transition-colors ${
-                  disabled
-                    ? 'opacity-40 cursor-not-allowed text-neutral-600 dark:text-neutral-300'
-                    : baseStyle === key
-                      ? 'bg-accent-DEFAULT text-white cursor-pointer'
-                      : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer'
-                }`}
-              >
-                {BASE_STYLES[key].label}
-              </button>
-            )
-          })}
+          {/* Active (capability-passing) base layers */}
+          {baseLayers.map((layer) => (
+            <button
+              key={layer.key}
+              onClick={() => setBaseStyle(layer.key)}
+              className={`px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                baseStyle === layer.key
+                  ? 'bg-accent-DEFAULT text-white'
+                  : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+              }`}
+            >
+              {layer.name}
+            </button>
+          ))}
+          {/* Capability-missing base layers: shown grayed-out so users know they exist */}
+          {disabledLayers.filter((d) => d.layer.role === 'base').map(({ layer, missingCapability }) => (
+            <button
+              key={layer.key}
+              disabled
+              title={`Benötigt: ${missingCapability}`}
+              className="px-2.5 py-1 text-xs font-medium opacity-40 cursor-not-allowed text-neutral-600 dark:text-neutral-300"
+            >
+              {layer.name}
+            </button>
+          ))}
         </div>
         {baseStylesCollapsed && (
           <div className="absolute bottom-4 left-4 z-10">
@@ -2670,40 +2778,41 @@ export default function MapPage() {
                 onClick={() => setLayerMenuOpen(o => !o)}
                 className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
               >
-                {BASE_STYLES[baseStyle].label}
+                {selectedBaseLayer?.name ?? baseStyle}
                 <svg className={`w-3 h-3 transition-transform ${layerMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
                 </svg>
               </button>
               {layerMenuOpen && (
                 <div className="absolute bottom-full mb-1 left-0 flex flex-col rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white/95 dark:bg-neutral-800/95 backdrop-blur-sm shadow-lg overflow-hidden min-w-[6rem] z-10">
-                  {(Object.keys(BASE_STYLES) as BaseStyle[]).map((key) => {
-                    const isOfflineStyle = key === 'local' || key === 'offline'
-                    const offlineAvailable = planner.capabilities?.offline_map ?? false
-                    const disabled = isOfflineStyle && !offlineAvailable
-                    return (
-                      <button
-                        key={key}
-                        onClick={() => {
-                          if (disabled) {
-                            addToast({ type: 'info', title: 'Lokale Karten nicht verfügbar', message: 'Aktiviere lokale Kartendaten in den Einstellungen.' })
-                            return
-                          }
-                          setBaseStyle(key)
-                          setLayerMenuOpen(false)
-                        }}
-                        className={`px-3 py-1.5 text-xs font-medium text-left transition-colors ${
-                          disabled
-                            ? 'opacity-40 cursor-not-allowed text-neutral-600 dark:text-neutral-300'
-                            : baseStyle === key
-                              ? 'bg-accent-DEFAULT text-white cursor-pointer'
-                              : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer'
-                        }`}
-                      >
-                        {BASE_STYLES[key].label}
-                      </button>
-                    )
-                  })}
+                  {/* Active (capability-passing) base layers */}
+                  {baseLayers.map((layer) => (
+                    <button
+                      key={layer.key}
+                      onClick={() => {
+                        setBaseStyle(layer.key)
+                        setLayerMenuOpen(false)
+                      }}
+                      className={`px-3 py-1.5 text-xs font-medium text-left transition-colors cursor-pointer ${
+                        baseStyle === layer.key
+                          ? 'bg-accent-DEFAULT text-white'
+                          : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+                      }`}
+                    >
+                      {layer.name}
+                    </button>
+                  ))}
+                  {/* Capability-missing base layers: grayed-out with tooltip */}
+                  {disabledLayers.filter((d) => d.layer.role === 'base').map(({ layer, missingCapability }) => (
+                    <button
+                      key={layer.key}
+                      disabled
+                      title={`Benötigt: ${missingCapability}`}
+                      className="px-3 py-1.5 text-xs font-medium text-left opacity-40 cursor-not-allowed text-neutral-600 dark:text-neutral-300"
+                    >
+                      {layer.name}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
@@ -3455,7 +3564,7 @@ export default function MapPage() {
             <MapFilters
               filters={filters}
               onChange={handleFilterChange}
-              forceDark={baseStyle === 'dark'}
+              forceDark={selectedBaseLayer?.key === 'dark' || (!selectedBaseLayer && baseStyle === 'dark')}
               viewMode={viewMode}
               overlayState={overlayState}
               onOverlayChange={updateOverlay}
