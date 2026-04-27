@@ -274,6 +274,204 @@ func TestSystemCacheTablesExplicitlyRegistered(t *testing.T) {
 	}
 }
 
+// TestRegistryCategoryMatchesSchema verifies that each table's GDPRRegistry
+// category is consistent with the actual columns/foreign keys in the live
+// schema. This catches *misclassification on schema drift* — the failure mode
+// where a table is registered (so TestAllUserTablesInGDPRRegistry passes) but
+// its category no longer matches reality. Concretely:
+//
+//  1. Global tables MUST NOT have a user_id column and MUST NOT have any FK
+//     pointing at users(id). Adding such a column to a table classified as
+//     Global silently turns it into user-owned data without GDPR coverage.
+//
+//  2. Export / External / Derived tables MUST have a user linkage — either a
+//     user_id / created_by column, or a transitive FK chain to users(id) (up
+//     to 4 levels deep, matching TestAllUserTablesInGDPRRegistry's heuristic).
+//     A category-flagged table without any user link cannot be exported or
+//     purged correctly.
+//
+// System tables intentionally include both shapes (auth_audit_log, refresh_tokens
+// etc. have user_id; reverse_geocode_cache does not), so this test does not
+// constrain them — they remain a manual category.
+func TestRegistryCategoryMatchesSchema(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	// Tables with a user_id or created_by column (base relations only).
+	colRows, err := pool.Query(ctx, `
+		SELECT DISTINCT c.relname
+		FROM information_schema.columns col
+		JOIN pg_class c
+		  ON c.relname = col.table_name
+		 AND c.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
+		WHERE col.table_schema = 'public'
+		  AND col.column_name IN ('user_id', 'created_by')
+		  AND c.relkind = 'r'
+	`)
+	if err != nil {
+		t.Fatalf("user-column query: %v", err)
+	}
+	hasUserColumn := make(map[string]bool)
+	for colRows.Next() {
+		var name string
+		if err := colRows.Scan(&name); err != nil {
+			colRows.Close()
+			t.Fatalf("scan user-column row: %v", err)
+		}
+		hasUserColumn[name] = true
+	}
+	colRows.Close()
+
+	// Tables with any FK referencing users(id), regardless of column name
+	// (covers e.g. updated_by, owner_id where a real FK exists).
+	fkDirectRows, err := pool.Query(ctx, `
+		SELECT DISTINCT tc.table_name
+		FROM information_schema.table_constraints tc
+		JOIN information_schema.constraint_column_usage ccu
+		  ON ccu.constraint_name = tc.constraint_name
+		WHERE tc.constraint_type = 'FOREIGN KEY'
+		  AND tc.table_schema = 'public'
+		  AND ccu.table_schema = 'public'
+		  AND ccu.table_name = 'users'
+	`)
+	if err != nil {
+		t.Fatalf("direct-FK query: %v", err)
+	}
+	hasDirectUserFK := make(map[string]bool)
+	for fkDirectRows.Next() {
+		var name string
+		if err := fkDirectRows.Scan(&name); err != nil {
+			fkDirectRows.Close()
+			t.Fatalf("scan direct-FK row: %v", err)
+		}
+		hasDirectUserFK[name] = true
+	}
+	fkDirectRows.Close()
+
+	// Transitive FK chain to users (depth <= 4, mirrors TestAllUserTablesInGDPRRegistry).
+	chainRows, err := pool.Query(ctx, `
+		WITH RECURSIVE user_chain AS (
+			SELECT DISTINCT tc.table_name, 1 AS depth
+			FROM information_schema.table_constraints tc
+			JOIN information_schema.constraint_column_usage ccu
+			  ON ccu.constraint_name = tc.constraint_name
+			WHERE tc.constraint_type = 'FOREIGN KEY'
+			  AND tc.table_schema = 'public'
+			  AND ccu.table_schema = 'public'
+			  AND ccu.table_name = 'users'
+			UNION
+			SELECT DISTINCT tc.table_name, uc.depth + 1
+			FROM information_schema.table_constraints tc
+			JOIN information_schema.constraint_column_usage ccu
+			  ON ccu.constraint_name = tc.constraint_name
+			JOIN user_chain uc ON ccu.table_name = uc.table_name
+			WHERE tc.constraint_type = 'FOREIGN KEY'
+			  AND tc.table_schema = 'public'
+			  AND ccu.table_schema = 'public'
+			  AND uc.depth < 4
+		)
+		SELECT DISTINCT table_name FROM user_chain
+	`)
+	if err != nil {
+		t.Fatalf("chain-FK query: %v", err)
+	}
+	hasChainToUsers := make(map[string]bool)
+	for chainRows.Next() {
+		var name string
+		if err := chainRows.Scan(&name); err != nil {
+			chainRows.Close()
+			t.Fatalf("scan chain row: %v", err)
+		}
+		hasChainToUsers[name] = true
+	}
+	chainRows.Close()
+
+	// Skip tables that don't physically exist (e.g. some Global lookup entries).
+	tableExists := func(name string) bool {
+		var exists bool
+		if err := pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_class c
+				JOIN pg_namespace n ON n.oid = c.relnamespace
+				WHERE n.nspname = 'public'
+				  AND c.relname = $1
+				  AND c.relkind IN ('r', 'm', 'p')
+			)
+		`, name).Scan(&exists); err != nil {
+			t.Fatalf("pg_class lookup for %q: %v", name, err)
+		}
+		return exists
+	}
+
+	// users itself is special — it's the deletion target, not user-owned data
+	// in the FK-chain sense. Skip both directions.
+	for table, cat := range GDPRRegistry {
+		if table == "users" {
+			continue
+		}
+		if !tableExists(table) {
+			// TestRegistryEntriesExistInSchema reports stale entries; don't
+			// double-fail here.
+			continue
+		}
+
+		hasUserLink := hasUserColumn[table] || hasDirectUserFK[table] || hasChainToUsers[table]
+
+		switch cat {
+		case Global:
+			if hasUserLink {
+				reasons := []string{}
+				if hasUserColumn[table] {
+					reasons = append(reasons, "user_id/created_by column")
+				}
+				if hasDirectUserFK[table] {
+					reasons = append(reasons, "direct FK to users(id)")
+				}
+				if hasChainToUsers[table] && !hasDirectUserFK[table] {
+					reasons = append(reasons, "transitive FK chain to users")
+				}
+				t.Errorf(
+					"table %q is classified Global but the schema shows %s — "+
+						"reclassify to Export, External, or Derived (or System if it is "+
+						"transient/security data), and add export + purge coverage",
+					table, strings.Join(reasons, ", "),
+				)
+			}
+		case Export, External, Derived:
+			if !hasUserLink {
+				t.Errorf(
+					"table %q is classified %s but has no user_id/created_by column "+
+						"and no FK chain to users(id) — either add the user link, or "+
+						"reclassify to Global / System",
+					table, categoryName(cat),
+				)
+			}
+		case System:
+			// System is intentionally heterogeneous (auth_audit_log has user_id;
+			// reverse_geocode_cache does not). No schema-shape constraint.
+		}
+	}
+}
+
+// categoryName renders a TableCategory for human-readable test output.
+// Kept local to the test file so production code stays free of String().
+func categoryName(c TableCategory) string {
+	switch c {
+	case Export:
+		return "Export"
+	case External:
+		return "External"
+	case Derived:
+		return "Derived"
+	case System:
+		return "System"
+	case Global:
+		return "Global"
+	default:
+		return fmt.Sprintf("TableCategory(%d)", int(c))
+	}
+}
+
 // TestRegistryEntriesExistInSchema verifies that every non-Global entry in
 // GDPRRegistry corresponds to an actual table (or partition/materialized view)
 // in the database schema. This catches stale registry entries after a migration
