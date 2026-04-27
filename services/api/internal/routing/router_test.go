@@ -791,7 +791,11 @@ func TestRetrackUnified_SnapApproach_CoordEleMatchesProfile(t *testing.T) {
 }
 
 // TestRetrackUnified_ApproachInclusiveAxis verifies that the combined ElevationProfile
-// starts at DistM=0 (click_src) when approach is active.
+// starts at DistM=0 (click_src) and ends at a positive distance when approach is active.
+//
+// The click points are ~100m east of the edge (lon=11.001 vs edge lon=11.0), which
+// exceeds SnapThresholdM=1 and guarantees that snap-approach fires. If no approach
+// is triggered the test fails hard — use t.Fatalf to expose fixture regressions.
 func TestRetrackUnified_ApproachInclusiveAxis(t *testing.T) {
 	g := makeApproachGraph()
 	svc := &stubDEMServicer{fixedElevsDm: []int32{1500, 1510, 1520, 1530}}
@@ -807,8 +811,10 @@ func TestRetrackUnified_ApproachInclusiveAxis(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Route failed: %v", err)
 	}
+	// Click points are ~100m east of the edge; SnapThresholdM=1 ensures approach.
+	// A missing approach means the fixture regressed — fail hard, not skip.
 	if len(result.ApproachFromProfile) == 0 {
-		t.Skip("no snap approach triggered")
+		t.Fatalf("no snap approach triggered — click points should be >SnapThresholdM from edge; fixture may have regressed")
 	}
 	if result.ElevationProfile == nil {
 		t.Fatal("ElevationProfile: want non-nil after approach concat")
@@ -818,9 +824,14 @@ func TestRetrackUnified_ApproachInclusiveAxis(t *testing.T) {
 	if len(prof) == 0 {
 		t.Fatal("ElevationProfile: want non-empty")
 	}
-	// First point must be DistM=0 (click_src anchor).
+	// First point must be DistM=0 (click_src anchor, Spec §5.8 approach-inclusive axis).
 	if prof[0].DistM != 0 {
 		t.Errorf("ElevationProfile[0].DistM: want 0 (click_src), got %.4f", prof[0].DistM)
+	}
+	// Last point must cover a positive distance (approach + network + return approach).
+	lastDistM := prof[len(prof)-1].DistM
+	if lastDistM <= 0 {
+		t.Errorf("ElevationProfile[last].DistM: want >0 (approach-inclusive), got %.4f", lastDistM)
 	}
 }
 
