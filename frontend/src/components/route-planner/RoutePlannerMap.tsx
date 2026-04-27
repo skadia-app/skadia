@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import maplibregl, { type RequestParameters } from 'maplibre-gl'
 import type { StyleSpecification } from 'maplibre-gl'
 import { getToken } from '@/lib/auth'
+import { pickMaxZoomForBounds } from '@/lib/geoUtils'
 
 export interface RoutePlannerMapHandle {
   setHoverPoint(p: { lat: number; lng: number } | null): void
@@ -21,6 +22,7 @@ interface RoutePlannerMapProps {
   onMapDispose: () => void
   onStyleLoad: (map: maplibregl.Map) => void
   onTilesLoadingChange: (loading: boolean) => void
+  fullRouteCoords?: [number, number][]
   getViewportSnapshot: () => {
     center: [number, number]
     zoom: number
@@ -39,15 +41,36 @@ function RoutePlannerMap({
   onMapDispose,
   onStyleLoad,
   onTilesLoadingChange,
+  fullRouteCoords = [],
   getViewportSnapshot,
 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  const fullRouteCoordsRef = useRef<[number, number][]>([])
+  const fullRouteBoundsRef = useRef<maplibregl.LngLatBounds | null>(null)
+
+  useEffect(() => {
+    fullRouteCoordsRef.current = fullRouteCoords
+    if (fullRouteCoords.length === 0) {
+      fullRouteBoundsRef.current = null
+      return
+    }
+    const bounds = new maplibregl.LngLatBounds(fullRouteCoords[0], fullRouteCoords[0])
+    for (const coord of fullRouteCoords) bounds.extend(coord)
+    fullRouteBoundsRef.current = bounds
+  }, [fullRouteCoords])
 
   useImperativeHandle(ref, () => ({
     setHoverPoint() {},
     fitBoundsToBBox() {},
-    fitBoundsToFullRoute() {},
+    fitBoundsToFullRoute() {
+      const map = mapRef.current
+      const bounds = fullRouteBoundsRef.current
+      if (!map || !bounds) return
+      const sw = bounds.getSouthWest()
+      const ne = bounds.getNorthEast()
+      map.fitBounds(bounds, { padding: 80, maxZoom: pickMaxZoomForBounds(sw.lat, sw.lng, ne.lat, ne.lng) })
+    },
   }), [])
 
   useEffect(() => {
