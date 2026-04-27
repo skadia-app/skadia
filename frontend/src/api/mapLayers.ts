@@ -43,7 +43,10 @@ export interface SystemLayerDescriptor {
 export interface UserMapLayer {
   id: number
   name: string
-  url_template: string
+  role: 'base' | 'overlay'
+  source_kind: 'raster_tiles' | 'vector_style'
+  url_template?: string
+  style_url?: string
   attribution?: string
   min_zoom?: number
   max_zoom?: number
