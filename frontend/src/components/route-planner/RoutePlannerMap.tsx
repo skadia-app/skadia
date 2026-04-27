@@ -48,6 +48,7 @@ function RoutePlannerMap({
   const mapRef = useRef<maplibregl.Map | null>(null)
   const fullRouteCoordsRef = useRef<[number, number][]>([])
   const fullRouteBoundsRef = useRef<maplibregl.LngLatBounds | null>(null)
+  const hoverMarkerRef = useRef<maplibregl.Marker | null>(null)
 
   useEffect(() => {
     fullRouteCoordsRef.current = fullRouteCoords
@@ -61,7 +62,23 @@ function RoutePlannerMap({
   }, [fullRouteCoords])
 
   useImperativeHandle(ref, () => ({
-    setHoverPoint() {},
+    setHoverPoint(point) {
+      hoverMarkerRef.current?.remove()
+      hoverMarkerRef.current = null
+      if (!point) return
+      const map = mapRef.current
+      if (!map) return
+      const el = document.createElement('div')
+      el.style.width = '10px'
+      el.style.height = '10px'
+      el.style.borderRadius = '50%'
+      el.style.backgroundColor = 'white'
+      el.style.border = '2px solid #f97316'
+      el.style.boxShadow = '0 0 4px #f97316'
+      hoverMarkerRef.current = new maplibregl.Marker({ element: el })
+        .setLngLat([point.lng, point.lat])
+        .addTo(map)
+    },
     fitBoundsToBBox() {},
     fitBoundsToFullRoute() {
       const map = mapRef.current
@@ -130,6 +147,8 @@ function RoutePlannerMap({
     return () => {
       if (viewportSaveTimer) clearTimeout(viewportSaveTimer)
       ro.disconnect()
+      hoverMarkerRef.current?.remove()
+      hoverMarkerRef.current = null
       map.remove()
       mapRef.current = null
       onMapDispose()
