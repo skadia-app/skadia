@@ -522,9 +522,55 @@ export function deserializeRouteStats(
 
 // ─── Offroad DEM fill helper ──────────────────────────────────────────────────
 
+/** Haversine distance in meters between two [lon, lat] points. */
+function haversineDistanceM(a: [number, number], b: [number, number]): number {
+  const R = 6371000
+  const dLat = (b[1] - a[1]) * Math.PI / 180
+  const dLon = (b[0] - a[0]) * Math.PI / 180
+  const sinDLat = Math.sin(dLat / 2)
+  const sinDLon = Math.sin(dLon / 2)
+  const h =
+    sinDLat * sinDLat +
+    Math.cos(a[1] * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180) * sinDLon * sinDLon
+  return 2 * R * Math.asin(Math.sqrt(h))
+}
+
+/** Insert intermediate vertices along each polyline edge so the maximum gap
+ *  between consecutive vertices is ≤ stepM. Endpoints are preserved exactly.
+ *  No-op when the input has < 2 coordinates. */
+function densifyLineString(
+  line: GeoJSON.LineString,
+  stepM: number,
+): GeoJSON.LineString {
+  const coords = line.coordinates as [number, number][]
+  if (coords.length < 2 || stepM <= 0) return line
+
+  const out: [number, number][] = [coords[0]]
+  for (let i = 1; i < coords.length; i++) {
+    const a = coords[i - 1]
+    const b = coords[i]
+    const segM = haversineDistanceM(a, b)
+    if (segM > stepM) {
+      const subdivisions = Math.ceil(segM / stepM)
+      for (let k = 1; k < subdivisions; k++) {
+        const t = k / subdivisions
+        out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t])
+      }
+    }
+    out.push(b)
+  }
+  return { type: 'LineString', coordinates: out }
+}
+
+const OFFROAD_DENSIFY_STEP_M = 25
+
 /**
- * Pure async helper: samples DEM elevation at every vertex of an offroad
- * segment's geometry and returns the segment with elevation_profile populated.
+ * Pure async helper: densifies an offroad segment's polyline to ≤25m vertex
+ * spacing, samples DEM elevation at every (densified) vertex, and returns the
+ * segment with both the dense geometry AND elevation_profile populated. The
+ * dense geometry is what the map and the hover-coord-map consume so the
+ * profile↔coord 1:1 invariant holds and hover tracks the user's offroad line
+ * smoothly instead of jumping between the user's 2-3 click points.
  *
  * Returns the segment unchanged when:
  * - mode !== 'offroad' (no-op for routed segments)
@@ -539,9 +585,10 @@ async function fillOffroadSegmentProfile(
   addToast: Parameters<typeof getElevationAtVerticesChunked>[1],
 ): Promise<RouteSegment> {
   if (seg.mode !== 'offroad' || !seg.geometry) return seg
-  const profile = await getElevationAtVerticesChunked(seg.geometry, addToast)
+  const denseGeometry = densifyLineString(seg.geometry, OFFROAD_DENSIFY_STEP_M)
+  const profile = await getElevationAtVerticesChunked(denseGeometry, addToast)
   // ele_m may be null (DEM coverage gap — Phase A.0 nullable); pass through as-is.
-  return { ...seg, elevation_profile: profile }
+  return { ...seg, geometry: denseGeometry, elevation_profile: profile }
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
