@@ -185,6 +185,9 @@ github.com/jackc/puddle/v2/internal/genstack
 ## explicit; go 1.23
 github.com/klauspost/compress/flate
 github.com/klauspost/compress/internal/le
+# github.com/klauspost/cpuid/v2 v2.2.10
+## explicit; go 1.22
+github.com/klauspost/cpuid/v2
 # github.com/lestrrat-go/blackmagic v1.0.3
 ## explicit; go 1.23
 github.com/lestrrat-go/blackmagic
@@ -366,6 +369,9 @@ github.com/wneessen/go-mail
 github.com/wneessen/go-mail/internal/pkcs7
 github.com/wneessen/go-mail/log
 github.com/wneessen/go-mail/smtp
+# github.com/zeebo/xxh3 v1.1.0
+## explicit; go 1.22
+github.com/zeebo/xxh3
 # go.mongodb.org/mongo-driver v1.11.4
 ## explicit; go 1.13
 go.mongodb.org/mongo-driver/bson

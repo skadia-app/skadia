@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
@@ -108,6 +109,11 @@ func Serialize(g *Graph, path string) error {
 	// Landmark metadata (Section 26, tiny: ~276 bytes)
 	if g.LandmarkMeta != nil {
 		sections = append(sections, sectionData{SectionLandmarkMeta, serializeLandmarkMeta(g.LandmarkMeta)})
+	}
+
+	// HGT manifest (Section 27, optional — absent in pre-manifest tiles)
+	if g.HGTManifest != nil {
+		sections = append(sections, sectionData{SectionHGTManifest, EncodeHGTManifest(g.HGTManifest)})
 	}
 
 	sectionCnt := uint16(len(sections))
@@ -351,6 +357,17 @@ func Deserialize(path string) (*Graph, error) {
 		g.LandmarkMeta = deserializeLandmarkMeta(d)
 	}
 
+	// HGT manifest (Section 27) — optional; pre-manifest tiles simply lack it.
+	if d, ok := findSection(SectionHGTManifest); ok {
+		m, err := DecodeHGTManifest(d)
+		if err != nil {
+			// Corrupted manifest is non-fatal: log and continue without it.
+			slog.Warn("hgt manifest decode failed", "path", path, "error", err)
+		} else {
+			g.HGTManifest = m
+		}
+	}
+
 	return g, nil
 }
 
@@ -544,6 +561,16 @@ func DeserializeMmap(path string) (*Graph, error) {
 
 	if d, ok := findSection(SectionLandmarkMeta); ok && len(d) >= 276 {
 		g.LandmarkMeta = deserializeLandmarkMeta(d)
+	}
+
+	// HGT manifest (Section 27) — optional; pre-manifest tiles simply lack it.
+	if d, ok := findSection(SectionHGTManifest); ok {
+		m, err := DecodeHGTManifest(d)
+		if err != nil {
+			slog.Warn("hgt manifest decode failed (mmap)", "path", path, "error", err)
+		} else {
+			g.HGTManifest = m
+		}
 	}
 
 	runtime.SetFinalizer(g, (*Graph).closeMmap)

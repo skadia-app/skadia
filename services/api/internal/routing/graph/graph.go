@@ -57,6 +57,10 @@ type Graph struct {
 	// Landmark metadata (from Section 26, loaded eagerly — only 276 bytes)
 	LandmarkMeta *LandmarkMetaData
 
+	// HGT manifest (from Section 27, optional — absent in pre-manifest tiles).
+	// Records the HGT cells used during tile build for boot-time drift detection.
+	HGTManifest *HGTManifest
+
 	// Pending landmark data for serialization (not kept after Serialize)
 	pendingLandmarkSections map[uint16][]float32
 
@@ -149,6 +153,11 @@ const (
 	SectionLandmarkDistC uint16 = 24
 	SectionLandmarkDistD uint16 = 25
 	SectionLandmarkMeta  uint16 = 26
+
+	// HGT manifest (optional) — written during tile build for drift detection.
+	// Each entry records the cell name, file size, and xxhash3 of the HGT file.
+	// Pre-manifest tiles simply lack this section; readers skip it without error.
+	SectionHGTManifest uint16 = 27
 )
 
 // LandmarkSetID identifies one of the 4 landmark cost-config sets.
