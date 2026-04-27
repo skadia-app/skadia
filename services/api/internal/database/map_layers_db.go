@@ -231,10 +231,11 @@ func (db *DB) ListSystemLayerVisibility(ctx context.Context) ([]model.SystemLaye
 // invariant holds before this function runs.
 //
 // Behavior: when a row for `key` exists, the patch fields are written via the
-// ON CONFLICT DO UPDATE branch (existing semantics). When the row is missing
-// (e.g. deleted out-of-band, partial down/up cycle), the INSERT branch creates
-// it with column defaults from migration 000333 plus the patch values, so the
-// admin UI can always recreate state without an operator step.
+// ON CONFLICT DO UPDATE branch. When the row is missing (e.g. deleted
+// out-of-band, partial down/up cycle), the INSERT branch creates it with the
+// patch values inlined into the VALUES list — unpatched columns fall back to
+// the migration 000333 column DEFAULTs. This way a fresh row created by an
+// admin PATCH carries the patched value, not just the column default.
 //
 // An empty patch is a no-op and does not create a missing row — there is no
 // observable change to apply, and silent row creation on an empty PATCH would
@@ -243,20 +244,33 @@ func (db *DB) UpdateSystemLayerVisibility(ctx context.Context, key string, patch
 	if len(patch) == 0 {
 		return nil
 	}
+	// Build INSERT column list, VALUES placeholders, and the ON CONFLICT DO UPDATE
+	// SET clause from a single ordered iteration so column/parameter ordering stays
+	// in lock-step. EXCLUDED.<col> on the UPDATE branch references the row we
+	// tried to insert, which keeps the SET clause one source-of-truth derived
+	// from the patch keys.
+	cols := make([]string, 0, len(patch)+1)
+	placeholders := make([]string, 0, len(patch)+1)
 	setClauses := make([]string, 0, len(patch))
 	args := make([]any, 0, len(patch)+1)
+
+	cols = append(cols, "layer_key")
+	placeholders = append(placeholders, "$1")
 	args = append(args, key)
 	i := 2 // $1 is reserved for layer_key
 	for k, v := range patch {
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", sysVisibilityPgIdent(k), i))
+		col := sysVisibilityPgIdent(k)
+		cols = append(cols, col)
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i))
+		setClauses = append(setClauses, fmt.Sprintf("%s = EXCLUDED.%s", col, col))
 		args = append(args, v)
 		i++
 	}
-	// INSERT (layer_key) only — all other columns fall back to migration 000333 defaults
-	// on the INSERT branch; ON CONFLICT applies the patch on the UPDATE branch.
 	query := fmt.Sprintf(
-		`INSERT INTO system_layer_visibility (layer_key) VALUES ($1)
+		`INSERT INTO system_layer_visibility (%s) VALUES (%s)
 		 ON CONFLICT (layer_key) DO UPDATE SET %s`,
+		strings.Join(cols, ", "),
+		strings.Join(placeholders, ", "),
 		strings.Join(setClauses, ", "),
 	)
 	if _, err := db.Pool.Exec(ctx, query, args...); err != nil {
