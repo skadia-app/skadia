@@ -25,12 +25,11 @@ import {
   getProfileDefaults as fetchProfileDefaults,
 } from '@/api/routes'
 import { getElevationAtVerticesChunked } from '@/api/elevation-chunked'
+import { needsMigration, migrateRouteCached } from './migrateRoute'
 import type { ProfileConfig } from '@/lib/routingProfiles'
 import { getProfileDefaults, cacheServerDefaults } from '@/lib/routingProfiles'
 import { useToast } from '@/lib/toast'
 import { catmullRom, polylineDistanceM } from '@/lib/catmull-rom'
-import { haversineM } from '@/lib/geoUtils'
-import { showLazyFillNoticeOncePerSession } from '@/lib/strings/route-planner'
 
 // ─── Exported types ──────────────────────────────────────────────────────────
 
@@ -511,57 +510,6 @@ export function deserializeRouteStats(
     summits_passed:    enrichment.summits_passed as RouteStats['summits_passed'],
     coordinates:       [],
   }
-}
-
-/**
- * cumulativeHaversineMeters: O(n) kumulative Haversine über lon/lat-GeoJSON-Coords.
- *
- * Helper-Anker (verifiziert 2026-04-24): bestehender `haversineM(lat, lng, lat, lng)`
- * in `frontend/src/lib/geoUtils.ts:4` — Argument-Reihenfolge ist (lat, lng),
- * GeoJSON-[lon, lat] muss explizit übersetzt werden.
- *
- * Achsen-Anmerkung (Spec §7.4): Diese kumulative Distanz ist `geometry-inklusiv`
- * und kann am Anfang/Ende um die Approach-Längen vom späteren _calculateSegment-
- * Profile abweichen. Akzeptabel für Phase 1 (Lazy-Fill = best effort für Alt-Routen).
- */
-function cumulativeHaversineMeters(coords: number[][]): number {
-  let total = 0
-  for (let i = 1; i < coords.length; i++) {
-    const [lon1, lat1] = coords[i - 1]
-    const [lon2, lat2] = coords[i]
-    total += haversineM(lat1, lon1, lat2, lon2)
-  }
-  return total
-}
-
-/**
- * buildProfileFromCoordZ: Last-resort elevation source from segment geometry's
- * inline-Z (coord[2]) when the DEM endpoint returns no usable samples.
- *
- * Use case: routes outside DEM coverage (e.g. Hessen on a Lightweight setup)
- * where /elevation/profile returns elevation=null for every sample, but the
- * segments still carry valid 3D coordinates from the original routing pass.
- *
- * Distance axis is built via cumulativeHaversineMeters along the same coord
- * stream used for the DEM call (segment-order geometry — caller must already
- * have sorted by waypoint order). Returns [] if fewer than 2 valid Z-values
- * are available — caller should treat that as "no profile".
- */
-function buildProfileFromCoordZ(coords: number[][]): RouteElevationPoint[] {
-  const out: RouteElevationPoint[] = []
-  let cum = 0
-  for (let i = 0; i < coords.length; i++) {
-    if (i > 0) {
-      const [lon1, lat1] = coords[i - 1]
-      const [lon2, lat2] = coords[i]
-      cum += haversineM(lat1, lon1, lat2, lon2)
-    }
-    const c = coords[i]
-    if (c.length >= 3 && typeof c[2] === 'number' && Number.isFinite(c[2])) {
-      out.push({ dist_m: cum, ele_m: c[2] })
-    }
-  }
-  return out.length >= 2 ? out : []
 }
 
 // ─── Offroad DEM fill helper ──────────────────────────────────────────────────
@@ -1313,26 +1261,21 @@ export function useRoutePlanner() {
         })
     }
 
-    // ── Lazy-Fill (Spec Rev 2.3 §7.4 / F3 / §R7) ──────────────────────────
-    // Only DEM-sampling — never recalculateAll.
-    const needsLazyFill =
-      (route.elevation_profile == null || route.elevation_profile.length === 0)
-      && (route.segments?.length ?? 0) > 0
-
-    // Phase E: integrate migrateRoute call here — fill offroad segments that
-    // have no elevation_profile yet (pre-T0 routes loaded from DB). Will call
-    // fillOffroadAndApply for each offroad segment with missing profile.
-    // TODO(Phase E): uncomment and implement migrateRoute(route, fillOffroadAndApply)
-
-    if (!needsLazyFill) return
+    // ── Pre-T0 Migration (Phase E / Spec §5.3-5.5) ────────────────────────────
+    // Only migrate when the route needs it — T0 steady-state routes are
+    // served with route_schema_version=1 and all segments having profiles,
+    // so needsMigration returns false and we skip this entire path.
+    // Note: segments + lazyFillInProgress=false are already set by the setState
+    // above, so the no-migration path is a plain return.
+    if (!needsMigration(route)) return
 
     // Snapshot the segments-array reference BEFORE the await.
     // Any user mutation (moveWaypoint/add/delete → _calculateSegment replaces
     // the segments array) will break the === check in the post-await callback.
     const segmentsSnapshot = route.segments
 
-    // Token-counter prevents a concurrent loadRoute(R2) from being overwritten
-    // by an in-flight loadRoute(R1) lazy-fill result.
+    // Token-counter prevents a concurrent loadRoute(R2) from overwriting an
+    // in-flight loadRoute(R1) migration result.
     let expectedToken = 0
     setState(s => {
       const newToken = (s.lazyFillToken ?? 0) + 1
@@ -1341,113 +1284,40 @@ export function useRoutePlanner() {
     })
 
     void (async () => {
+      let migratedSegments: RouteSegment[]
       try {
-        // Build combined geometry from segments (sorted by waypoint order
-        // for safety — mirrors the pattern at line ~1255).
-        const wpOrder = new Map(route.waypoints.map((wp, i) => [wp.id, i]))
-        // Junction-dedup: for segment index > 0, skip the first coord (it's the
-        // last coord of the previous segment). Mirrors buildCombinedProfileFromSegments.
-        const sortedSegments = [...segmentsSnapshot].sort(
-          (a, b) =>
-            (wpOrder.get(a.from_waypoint) ?? Infinity) -
-            (wpOrder.get(b.from_waypoint) ?? Infinity),
-        )
-        const combinedCoordinates = sortedSegments.flatMap(
-          (seg, i) => {
-            const coords = (seg.geometry?.coordinates ?? []) as number[][]
-            return i === 0 ? coords : coords.slice(1)
-          },
-        )
-
-        if (combinedCoordinates.length < 2) {
-          setState(s => {
-            if (s.lazyFillToken !== expectedToken || s.segments !== segmentsSnapshot) return s
-            return { ...s, lazyFillInProgress: false }
-          })
-          return
-        }
-
-        const combinedGeometry: GeoJSON.LineString = {
-          type: 'LineString',
-          coordinates: combinedCoordinates,
-        }
-
-        // getElevationProfile is NOT a routing call — it samples DEM heights
-        // along the persisted geometry. No route drift possible.
-        const { profile } = await getElevationProfile(combinedGeometry, { numPoints: 200 })
-
-        if (!profile || profile.length === 0) {
-          // No DEM available (Lightweight system): silent graceful degradation.
-          setState(s => {
-            if (s.lazyFillToken !== expectedToken || s.segments !== segmentsSnapshot) return s
-            return { ...s, lazyFillInProgress: false }
-          })
-          return
-        }
-
-        let applied = false
-        // Spec §7.4 + §R7: stale-check via reference-identity + token counter.
-        setState(s => {
-          // 1. User triggered a segment mutation during the call: discard.
-          if (s.segments !== segmentsSnapshot) {
-            return { ...s, lazyFillInProgress: false }
-          }
-          // 2. A newer loadRoute incremented the token: discard.
-          if (s.lazyFillToken !== expectedToken) {
-            return { ...s, lazyFillInProgress: false }
-          }
-          const totalDistM = cumulativeHaversineMeters(combinedCoordinates)
-          // Bug #6 fix: detect partial DEM coverage. legacyToRouteProfile only
-          // filters out null samples — when more than half the samples are null
-          // the remaining profile has a non-uniform dist_m axis with visible
-          // gaps. In that case, fall back to the coord[2]-derived profile which
-          // is uniform (from the original routing pass). The 50% threshold is
-          // intentional: below it we accept the partial DEM data as "good enough"
-          // because the gaps are small and real (the area is outside DEM coverage).
-          const nullCount = profile.filter(pt => pt.elevation === null).length
-          const nullRatio = profile.length > 0 ? nullCount / profile.length : 1
-          const converted = nullRatio <= 0.5
-            ? legacyToRouteProfile(profile, totalDistM)
-            : []
-          // DEM-fallback: when `legacyToRouteProfile` would return empty —
-          // either all DEM samples are null (region outside coverage, Bug A
-          // fix 2026-04-24) or more than half are null (sparse profile with
-          // non-uniform dist_m axis, Bug #6 — gated above by the
-          // `nullRatio <= 0.5` ternary) — fall back to inline-Z (coord[2])
-          // from segment geometry, which still carries valid heights from the
-          // original routing pass. If even inline-Z is empty/missing, keep
-          // effectiveProfile null and skip the PendingSave flag.
-          let final = converted
-          if (final.length === 0) {
-            final = buildProfileFromCoordZ(combinedCoordinates)
-          }
-          if (final.length === 0) {
-            return { ...s, lazyFillInProgress: false }
-          }
-          applied = true
-          // Bug B (2026-04-25): lazy-fill produced a full DEM profile (200+
-          // samples) — treat as 'segments'-grade so subsequent edits cannot
-          // overwrite it with a shorter dem-fallback candidate.
-          _prevSourceRef.current = 'segments'
-          return {
-            ...s,
-            effectiveProfile: final,
-            lazyFillInProgress: false,
-            lazyFillPendingSave: true,
-          }
-        })
-
-        if (applied) {
-          showLazyFillNoticeOncePerSession(addToast)
-        }
+        migratedSegments = await migrateRouteCached(route)
       } catch {
-        // Endpoint unavailable (Selfhoster ohne PostGIS-DEM, 500 etc.):
-        // silent graceful degradation. No toast, no state crash.
+        // DEM endpoint unavailable or migration error: silent graceful degradation.
+        // Toast is shown so the user knows the profile may be incomplete.
+        addToast({
+          type: 'error',
+          title: 'Höhenprofil-Migration fehlgeschlagen',
+          message: 'Höhenprofil bleibt unvollständig — bitte Seite neu laden.',
+          duration: 0,
+        })
         setState(s => {
           if (s.lazyFillToken !== expectedToken || s.segments !== segmentsSnapshot) return s
           return { ...s, lazyFillInProgress: false }
         })
+        return
       }
+
+      setState(s => {
+        // Race-guard: user triggered a segment mutation or a newer loadRoute
+        // incremented the token while migration was in-flight → discard.
+        if (s.lazyFillToken !== expectedToken || s.segments !== segmentsSnapshot) {
+          return { ...s, lazyFillInProgress: false }
+        }
+        // Migration is strictly read-only (Spec §5.4): do NOT set
+        // lazyFillPendingSave=true. The next explicit user save will persist
+        // the filled profiles and set route_schema_version=1 server-side.
+        return {
+          ...s,
+          segments: migratedSegments,
+          lazyFillInProgress: false,
+        }
+      })
     })()
   }, [addToast])
 
