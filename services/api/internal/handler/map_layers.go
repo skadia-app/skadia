@@ -184,7 +184,7 @@ func (h *Handler) PatchMapLayer(w http.ResponseWriter, r *http.Request) {
 	case patchErr != nil:
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
 	default:
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -221,7 +221,7 @@ func (h *Handler) BulkSortMapLayers(w http.ResponseWriter, r *http.Request) {
 	for attempt := 0; attempt < 3; attempt++ {
 		err := h.DB.BulkSortMapLayers(r.Context(), items)
 		if err == nil {
-			w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		if errors.Is(err, database.ErrBulkSortItemNotFound) {
