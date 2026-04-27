@@ -23,7 +23,7 @@ import { fmtDateCompact } from '@/lib/format'
 import { useRouteEditor } from '@/components/route-planner/useRouteEditor'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { SPORT_DEFS, categoryForSport, sportColor } from '@/lib/sportTaxonomy'
-import { BASE_STYLES, buildRasterStyle, buildLayerStyle, expandSwitch, type BaseStyle } from '@/lib/mapStyles'
+import { buildLayerStyle, expandSwitch, type BaseStyle } from '@/lib/mapStyles'
 import { mapLayerStackDiff } from '@/lib/mapLayerStackDiff'
 import { useMapLayers } from '@/hooks/useMapLayers'
 import { useCapabilities } from '@/hooks/useCapabilities'
@@ -194,7 +194,8 @@ function loadDefaultBaseStyle(): BaseStyle {
     const s = localStorage.getItem(MAP_DEFAULTS_KEY)
     if (s) {
       const p = JSON.parse(s)
-      if (p.defaultBaseStyle && p.defaultBaseStyle in BASE_STYLES) return p.defaultBaseStyle
+      // Key validity is checked at render time via selectedBaseLayer; return as-is.
+      if (p.defaultBaseStyle) return p.defaultBaseStyle as BaseStyle
     }
   } catch { /* ignore */ }
   return 'osm'
@@ -1330,11 +1331,13 @@ export default function MapPage() {
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      // Use DB-driven style when catalog is loaded; fall back to the shim while
-      // the first fetch is in-flight so the map initializes immediately.
+      // Use DB-driven style when the catalog is already cached (common case after
+      // first load). If baseLayers is still empty (cold start, catalog in flight),
+      // initialize with a minimal placeholder; the catalog-load effect below will
+      // call setStyle() once the first layer arrives.
       style: selectedBaseLayer
         ? (buildLayerStyle(selectedBaseLayer, (caps ?? {}) as import('@/lib/mapStyles').Capabilities) as import('maplibre-gl').StyleSpecification | string)
-        : (buildRasterStyle(savedViewport?.baseStyle ?? loadDefaultBaseStyle(), (caps ?? {}) as import('@/lib/mapStyles').Capabilities) as import('maplibre-gl').StyleSpecification | string),
+        : ({ version: 8, sources: {}, layers: [] } as import('maplibre-gl').StyleSpecification),
       center: savedViewport ? savedViewport.center : [10.45, 51.16],
       zoom: savedViewport ? savedViewport.zoom : 6,
       attributionControl: { compact: false },
@@ -1441,6 +1444,21 @@ export default function MapPage() {
     }
   }, [])
 
+  // ── Catalog-load: apply real base style once the DB catalog arrives ─────
+  // When MapPage renders before the first fetch completes, the map is initialized
+  // with a minimal placeholder style (see init effect above). This effect fires
+  // once the catalog provides a valid selectedBaseLayer and swaps it in.
+  const catalogAppliedRef = useRef(false)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !selectedBaseLayer || catalogAppliedRef.current) return
+    catalogAppliedRef.current = true
+    const mapCaps = (caps ?? {}) as import('@/lib/mapStyles').Capabilities
+    try {
+      map.setStyle(buildLayerStyle(selectedBaseLayer, mapCaps) as import('maplibre-gl').StyleSpecification | string)
+    } catch { /* capability mismatch during cold start — ignore, user can switch manually */ }
+  }, [baseLayers]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Kartenstil wechseln ──────────────────────────────────────────────────
   // prevBaseStyleRef verhindert den redundanten setStyle()-Aufruf beim ersten
   // Render (baseStyle='osm' == Initialstil der Map-Instanz). Ohne diesen Schutz
@@ -1448,7 +1466,7 @@ export default function MapPage() {
   const prevBaseStyleRef = useRef<BaseStyle>(savedViewport?.baseStyle ?? loadDefaultBaseStyle())
   useEffect(() => {
     const map = mapRef.current
-    if (!map || prevBaseStyleRef.current === baseStyle) return
+    if (!map || !selectedBaseLayer || prevBaseStyleRef.current === baseStyle) return
     prevBaseStyleRef.current = baseStyle
 
     // Kamera vor setStyle() sichern — persistenter style.load-Handler stellt sie wieder her.
@@ -1456,12 +1474,8 @@ export default function MapPage() {
     // kann style.load synchron feuern, bevor map.once() registriert ist.
     pendingCameraRestoreRef.current = { center: map.getCenter(), zoom: map.getZoom() }
 
-    // DB-driven style switch; fall back to shim while catalog is loading.
     const mapCaps = (caps ?? {}) as import('@/lib/mapStyles').Capabilities
-    const styleSpec = selectedBaseLayer
-      ? buildLayerStyle(selectedBaseLayer, mapCaps)
-      : buildRasterStyle(baseStyle, mapCaps)
-    map.setStyle(styleSpec as import('maplibre-gl').StyleSpecification | string)
+    map.setStyle(buildLayerStyle(selectedBaseLayer, mapCaps) as import('maplibre-gl').StyleSpecification | string)
 
     // Persist baseStyle change to viewport
     const stored = loadViewport()
