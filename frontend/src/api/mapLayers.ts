@@ -62,6 +62,15 @@ export async function fetchMapLayers(): Promise<{
   return apiClient('/map-layers')
 }
 
+// Admin-only: GET /api/v1/admin/map-layers — includes disabled layers so the
+// admin UI can re-enable them. Same response shape as fetchMapLayers.
+export async function fetchAdminMapLayers(): Promise<{
+  layers: MapLayer[]
+  system_visibility: Record<string, SystemLayerVisibility>
+}> {
+  return apiClient('/admin/map-layers')
+}
+
 // Public (no auth): GET /api/v1/system-layers/keys
 export async function fetchSystemLayerKeys(): Promise<SystemLayerDescriptor[]> {
   return apiClient('/system-layers/keys')
