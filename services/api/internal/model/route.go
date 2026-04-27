@@ -26,9 +26,27 @@ type RouteSegment struct {
 	ControlPoints [][2]float64       `json:"control_points,omitempty"`
 	Smooth        bool               `json:"smooth"`
 	DistanceM     float64            `json:"distance_m"`
-	ElevationGain float64            `json:"elevation_gain"`
-	ElevationLoss float64            `json:"elevation_loss"`
-	Geometry      *GeoJSONLineString `json:"geometry,omitempty"`
+	// TotalDistanceM is the approach-inclusive distance (DistanceM plus the
+	// click-to-projection straight-line approach legs). Absent for legacy
+	// segments and BRouter/offroad-only segments. T0 (Migration 000334).
+	TotalDistanceM     *float64           `json:"total_distance_m,omitempty"`
+	ElevationGain      float64            `json:"elevation_gain"`
+	ElevationLoss      float64            `json:"elevation_loss"`
+	ElevationEstimated *bool              `json:"elevation_estimated,omitempty"`
+	Geometry           *GeoJSONLineString `json:"geometry,omitempty"`
+	// ApproachFrom / ApproachTo are the off-network polylines linking a
+	// click-point to the nearest road projection. Frontend-produced and
+	// frontend-consumed; backend stores them opaquely so they survive a
+	// save/reload roundtrip and the offroad-approach pieces of a saved route
+	// are not silently discarded.
+	ApproachFrom [][]float64 `json:"approach_from,omitempty"`
+	ApproachTo   [][]float64 `json:"approach_to,omitempty"`
+	// SubSegments carry per-edge highway/surface/scale metadata (BadRouter).
+	// Opaque pass-through — backend persists but does not interpret.
+	SubSegments json.RawMessage `json:"sub_segments,omitempty"`
+	// ElevationProfile is the per-segment T0 profile (RouteElevationPoint[]).
+	// Opaque pass-through.
+	ElevationProfile json.RawMessage `json:"elevation_profile,omitempty"`
 }
 
 type PlannedRoute struct {
