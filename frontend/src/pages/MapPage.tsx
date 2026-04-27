@@ -500,6 +500,27 @@ export default function MapPage() {
     planner.clear()
   }, [planner])
 
+  const plannerCombinedCoords = useMemo<[number, number][]>(() => {
+    const out: [number, number][] = []
+    const wpOrder = new Map(planner.waypoints.map((wp, idx) => [wp.id, idx]))
+    const sortedSegments = [...planner.segments].sort(
+      (a, b) =>
+        (wpOrder.get(a.from_waypoint) ?? Infinity) -
+        (wpOrder.get(b.from_waypoint) ?? Infinity),
+    )
+    for (let segIdx = 0; segIdx < sortedSegments.length; segIdx++) {
+      const coords = sortedSegments[segIdx].geometry?.coordinates ?? []
+      const start = segIdx === 0 ? 0 : 1
+      for (let coordIdx = start; coordIdx < coords.length; coordIdx++) {
+        const coord = coords[coordIdx]
+        if (typeof coord[0] === 'number' && typeof coord[1] === 'number') {
+          out.push([coord[0], coord[1]])
+        }
+      }
+    }
+    return out
+  }, [planner.segments, planner.waypoints])
+
   // Style version counter for re-adding layers after style changes
   const [styleVersion, setStyleVersion] = useState(0)
 
@@ -513,10 +534,10 @@ export default function MapPage() {
     if (!planner.editingRouteId) return
     if (planner.editingRouteId === lastFittedRouteIdRef.current) return
     if (!routePlannerMapRef.current) return
-    if (planner.segments.every(seg => (seg.geometry?.coordinates?.length ?? 0) === 0)) return
+    if (plannerCombinedCoords.length === 0) return
     routePlannerMapRef.current.fitBoundsToFullRoute()
     lastFittedRouteIdRef.current = planner.editingRouteId
-  }, [planner.editingRouteId, planner.segments, styleVersion])
+  }, [planner.editingRouteId, plannerCombinedCoords.length, styleVersion])
 
   // ── Route Suggestion map layers ──────────────────────────────────────────
   const SUGGESTION_OFFSETS: [number, number][] = useMemo(() => [[0, 0], [-3, 0], [3, 0]], [])
@@ -979,16 +1000,6 @@ export default function MapPage() {
     // Fallback: activeSuggestion.geojson (Suggestion-Flow, bevor routeStats gesetzt)
     return ((activeSuggestion?.geojson?.features?.[0]?.geometry?.coordinates) ?? []) as number[][]
   }, [planner.routeStats, activeSuggestion?.geojson])
-
-  const routePlannerCoords = useMemo<[number, number][]>(() => {
-    const out: [number, number][] = []
-    for (const coord of parsedCoords) {
-      if (typeof coord[0] === 'number' && typeof coord[1] === 'number') {
-        out.push([coord[0], coord[1]])
-      }
-    }
-    return out
-  }, [parsedCoords])
 
   // ── Scale-Base source content (SAC/MTB/VF coloured ranges) ─────────────────
   //
@@ -2682,7 +2693,7 @@ export default function MapPage() {
           onMapDispose={() => { mapRef.current = null }}
           onStyleLoad={handleMapStyleLoad}
           onTilesLoadingChange={setIsMapTilesLoading}
-          fullRouteCoords={routePlannerCoords}
+          fullRouteCoords={plannerCombinedCoords}
           getViewportSnapshot={getViewportSnapshot}
         />
 
