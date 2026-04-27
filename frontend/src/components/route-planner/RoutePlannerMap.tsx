@@ -63,21 +63,29 @@ function RoutePlannerMap({
 
   useImperativeHandle(ref, () => ({
     setHoverPoint(point) {
-      hoverMarkerRef.current?.remove()
-      hoverMarkerRef.current = null
-      if (!point) return
       const map = mapRef.current
+      if (!point) {
+        hoverMarkerRef.current?.remove()
+        hoverMarkerRef.current = null
+        return
+      }
       if (!map) return
-      const el = document.createElement('div')
-      el.style.width = '10px'
-      el.style.height = '10px'
-      el.style.borderRadius = '50%'
-      el.style.backgroundColor = 'white'
-      el.style.border = '2px solid #f97316'
-      el.style.boxShadow = '0 0 4px #f97316'
-      hoverMarkerRef.current = new maplibregl.Marker({ element: el })
-        .setLngLat([point.lng, point.lat])
-        .addTo(map)
+      if (hoverMarkerRef.current) {
+        // Reuse existing marker — only update position, no DOM churn
+        hoverMarkerRef.current.setLngLat([point.lng, point.lat])
+      } else {
+        // Lazy-create once; the element lives for the full marker lifetime
+        const el = document.createElement('div')
+        el.style.width = '10px'
+        el.style.height = '10px'
+        el.style.borderRadius = '50%'
+        el.style.backgroundColor = 'white'
+        el.style.border = '2px solid #f97316'
+        el.style.boxShadow = '0 0 4px #f97316'
+        hoverMarkerRef.current = new maplibregl.Marker({ element: el })
+          .setLngLat([point.lng, point.lat])
+          .addTo(map)
+      }
     },
     fitBoundsToBBox(bbox, opts) {
       const map = mapRef.current
@@ -98,6 +106,7 @@ function RoutePlannerMap({
       const ne = bounds.getNorthEast()
       map.fitBounds(bounds, { padding: 80, maxZoom: pickMaxZoomForBounds(sw.lat, sw.lng, ne.lat, ne.lng) })
     },
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- handle methods read refs lazily; no captured state
   }), [])
 
   useEffect(() => {

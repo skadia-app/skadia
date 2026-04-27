@@ -68,6 +68,7 @@ export function ToastItem({ toast }: ToastItemProps) {
         </div>
         {toast.action && (
           <button
+            type="button"
             onClick={() => { toast.action!.onClick(); removeToast(toast.id) }}
             className={`${styles.text} text-xs font-semibold underline underline-offset-2 hover:opacity-70 cursor-pointer whitespace-nowrap flex-shrink-0`}
           >
@@ -76,6 +77,7 @@ export function ToastItem({ toast }: ToastItemProps) {
         )}
       </div>
       <button
+        type="button"
         onClick={() => removeToast(toast.id)}
         className={`${styles.iconColor} hover:opacity-70 flex-shrink-0 mt-0.5 cursor-pointer`}
         aria-label="Schließen"

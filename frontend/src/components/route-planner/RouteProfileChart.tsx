@@ -241,6 +241,10 @@ function RouteProfileChart({
     }
   }, [points])
 
+  // Brush is opt-in: user must click the "Bereich auswählen" button to activate.
+  // This avoids the brush cursor interfering with normal hover/scroll interactions.
+  const [brushActive, setBrushActive] = useState(false)
+
   const containerRef = useECharts(
     () => {
       if (points.length === 0) return {}
@@ -434,14 +438,11 @@ function RouteProfileChart({
             brushOption: { brushType: false },
           })
           setIsBrushZoomed(true)
+          setBrushActive(false)
           onBrushZoom(loKm * 1000, hiKm * 1000)
         }
 
-        chart.dispatchAction({
-          type: 'takeGlobalCursor',
-          key: 'brush',
-          brushOption: { brushType: 'lineX', brushMode: 'single' },
-        })
+        // Do NOT activate brush cursor here — brush is opt-in via the UI button.
         chart.on('brushEnd', handleBrushEnd)
         cleanups.push(() => chart.off('brushEnd', handleBrushEnd))
       }
@@ -457,14 +458,40 @@ function RouteProfileChart({
     const chart = chartInstanceRef.current
     if (chart) {
       chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: 0, end: 100 })
+      // Deactivate brush cursor on reset — user must re-activate deliberately.
+      chart.dispatchAction({
+        type: 'takeGlobalCursor',
+        key: 'brush',
+        brushOption: { brushType: false },
+      })
+    }
+    setIsBrushZoomed(false)
+    setBrushActive(false)
+    onBrushReset?.()
+  }
+
+  const handleActivateBrush = () => {
+    const chart = chartInstanceRef.current
+    if (chart) {
       chart.dispatchAction({
         type: 'takeGlobalCursor',
         key: 'brush',
         brushOption: { brushType: 'lineX', brushMode: 'single' },
       })
     }
-    setIsBrushZoomed(false)
-    onBrushReset?.()
+    setBrushActive(true)
+  }
+
+  const handleDeactivateBrush = () => {
+    const chart = chartInstanceRef.current
+    if (chart) {
+      chart.dispatchAction({
+        type: 'takeGlobalCursor',
+        key: 'brush',
+        brushOption: { brushType: false },
+      })
+    }
+    setBrushActive(false)
   }
 
   // ── Scale aggregation (LF-#6: ONE parsedCoords memo shared by SAC + MTB) ──
@@ -633,6 +660,21 @@ function RouteProfileChart({
               className="text-[10px] text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100 underline underline-offset-2 cursor-pointer"
             >
               Zoom zurück
+            </button>
+          )}
+          {onBrushZoom && !isBrushZoomed && (
+            <button
+              type="button"
+              onClick={brushActive ? handleDeactivateBrush : handleActivateBrush}
+              className={[
+                'text-[10px] underline underline-offset-2 cursor-pointer',
+                brushActive
+                  ? 'text-orange-500 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300'
+                  : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100',
+              ].join(' ')}
+              title={brushActive ? 'Bereichsauswahl deaktivieren' : 'Bereich auf Karte zoomen'}
+            >
+              {brushActive ? 'Auswahl aktiv' : 'Bereich auswählen'}
             </button>
           )}
           {legendItems.map(item => (
