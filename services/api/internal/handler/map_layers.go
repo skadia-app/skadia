@@ -101,6 +101,16 @@ func (h *Handler) PatchMapLayer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate default_opacity range before reaching the DB CHECK constraint
+	// (which would return 500 instead of a meaningful 422).
+	if v, ok := patch["default_opacity"].(float64); ok {
+		if v < 0 || v > 100 {
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+				mapLayerErrBody("invalid_opacity", "default_opacity must be between 0 and 100"))
+			return
+		}
+	}
+
 	// Reject attempts to mutate immutable identity fields. Changing key would
 	// invalidate any client LocalStorage entries keyed on it; changing source_kind
 	// would silently corrupt the layer's URL / style references.
@@ -274,6 +284,9 @@ func validateMapLayerInput(m *model.MapLayer) error {
 	}
 	if m.Role != "base" && m.Role != "overlay" {
 		return errors.New("role must be 'base' or 'overlay'")
+	}
+	if m.DefaultOpacity < 0 || m.DefaultOpacity > 100 {
+		return errors.New("default_opacity must be between 0 and 100")
 	}
 	switch m.SourceKind {
 	case "raster_tiles":

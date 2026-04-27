@@ -299,10 +299,8 @@ export default function MapPage() {
   const themeBeforeDarkMap = useRef<'light' | 'dark'>('light')
   const [savedViewport] = useState<StoredViewport | null>(loadViewport)
 
-  // DB-driven layer catalog.  useMapLayers() also drives the deprecation shim
-  // (_setBaseStylesShim) so BASE_STYLES stays populated for legacy consumers
-  // during the Phase-5 migration.
-  const { base: baseLayers, raw: rawLayers } = useMapLayers()
+  // DB-driven layer catalog.
+  const { base: baseLayers, raw: rawLayers, disabled: disabledLayers } = useMapLayers()
   const { data: caps } = useCapabilities()
   // Overlay re-apply: track the previous stack to compute minimal diffs.
   const prevOverlayStackRef = useRef<MapLayer[]>([])

@@ -114,4 +114,26 @@ describe('useMapLayers', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false))
     expect(result.current.raw).toHaveLength(3)
   })
+
+  it('disabled list contains capability-blocked layers with their missingCapability key', async () => {
+    ;(useCapabilities as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: { offline_map: false },
+      isLoading: false,
+    })
+    const { result } = renderHook(() => useMapLayers(), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.disabled).toHaveLength(1)
+    expect(result.current.disabled[0].layer.key).toBe('offline')
+    expect(result.current.disabled[0].missingCapability).toBe('offline_map')
+  })
+
+  it('disabled list is empty while caps still loading', async () => {
+    ;(useCapabilities as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: undefined,
+      isLoading: true,
+    })
+    const { result } = renderHook(() => useMapLayers(), { wrapper })
+    await waitFor(() => expect(result.current.raw).toHaveLength(3))
+    expect(result.current.disabled).toHaveLength(0)
+  })
 })
