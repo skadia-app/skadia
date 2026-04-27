@@ -67,24 +67,19 @@ export function buildProfileToCoordMap(
       continue
     }
 
-    if (p.length !== segCoords.length) {
-      // 1:1 mapping invariant violated — caller must bail.
-      return null
-    }
-
     // Profile points: junction-dedup mirrors buildCombinedProfileFromSegments.
     const profileStartIdx = hadAny ? 1 : 0
 
-    // Build a coord-index lookup within this segment's coord window.
-    // The segment has p.length profile points and segCoords.length coord points.
-    // Profile point j maps to coord point j (1-to-1, both at-vertices).
-    // After junction-dedup: profile[j] → segCoords[j], global offset = globalCoordIdx.
+    // Profile point j maps to coord point j (at-vertices, 1-to-1 in T0 form).
+    // Lengths can differ in mixed-form routes (silently-migrated pre-T0 segments,
+    // synthetic prepended {dist_m:0}-points). Best-effort mapping: clamp the
+    // coord index to the available coord window so hover degrades gracefully
+    // (slight position offset) instead of disabling for the whole route.
+    const segCoordLast = segCoords.length - 1
     for (let j = profileStartIdx; j < p.length; j++) {
       profile.push({ dist_m: distAccum + p[j].dist_m, ele_m: p[j].ele_m })
-      // Coord index: global base + local index within this segment.
-      // coordStartIdx was used to dedup the first coord; same offset for profiles.
-      // Profile j corresponds to coord j within this segment.
-      map.push(globalCoordIdx + (j - profileStartIdx))
+      const localIdx = Math.min(Math.max(0, j - profileStartIdx), Math.max(0, segCoordLast - coordStartIdx))
+      map.push(globalCoordIdx + localIdx)
     }
 
     const coordsAdded = segCoords.length - coordStartIdx
