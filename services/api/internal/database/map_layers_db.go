@@ -224,31 +224,43 @@ func (db *DB) ListSystemLayerVisibility(ctx context.Context) ([]model.SystemLaye
 	return out, rows.Err()
 }
 
-// UpdateSystemLayerVisibility PATCHes a single system_layer_visibility row.
+// UpdateSystemLayerVisibility UPSERTs a single system_layer_visibility row.
 // The patch map may contain any subset of: enabled, default_enabled_for_new_users,
-// default_opacity, label_override. Unknown keys are rejected by the caller (handler).
-// Returns ErrNotFound when 0 rows are affected (key does not exist in the seed).
+// default_opacity, label_override. Unknown keys are rejected by the caller (handler),
+// which also validates `key` against model.SystemLayerKeySet() — so the closed-set
+// invariant holds before this function runs.
+//
+// Behavior: when a row for `key` exists, the patch fields are written via the
+// ON CONFLICT DO UPDATE branch (existing semantics). When the row is missing
+// (e.g. deleted out-of-band, partial down/up cycle), the INSERT branch creates
+// it with column defaults from migration 000333 plus the patch values, so the
+// admin UI can always recreate state without an operator step.
+//
+// An empty patch is a no-op and does not create a missing row — there is no
+// observable change to apply, and silent row creation on an empty PATCH would
+// be surprising.
 func (db *DB) UpdateSystemLayerVisibility(ctx context.Context, key string, patch map[string]any) error {
+	if len(patch) == 0 {
+		return nil
+	}
 	setClauses := make([]string, 0, len(patch))
 	args := make([]any, 0, len(patch)+1)
-	i := 1
+	args = append(args, key)
+	i := 2 // $1 is reserved for layer_key
 	for k, v := range patch {
 		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", sysVisibilityPgIdent(k), i))
 		args = append(args, v)
 		i++
 	}
-	if len(setClauses) == 0 {
-		return nil
-	}
-	args = append(args, key)
-	query := fmt.Sprintf("UPDATE system_layer_visibility SET %s WHERE layer_key = $%d",
-		strings.Join(setClauses, ", "), i)
-	tag, err := db.Pool.Exec(ctx, query, args...)
-	if err != nil {
+	// INSERT (layer_key) only — all other columns fall back to migration 000333 defaults
+	// on the INSERT branch; ON CONFLICT applies the patch on the UPDATE branch.
+	query := fmt.Sprintf(
+		`INSERT INTO system_layer_visibility (layer_key) VALUES ($1)
+		 ON CONFLICT (layer_key) DO UPDATE SET %s`,
+		strings.Join(setClauses, ", "),
+	)
+	if _, err := db.Pool.Exec(ctx, query, args...); err != nil {
 		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
 	}
 	return nil
 }
