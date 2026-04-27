@@ -404,11 +404,11 @@ function RouteProfileChart({
           brushStyle: { borderWidth: 1, color: 'rgba(249,115,22,0.12)', borderColor: '#f97316' },
         } : undefined,
         dataZoom: onBrushZoom ? [
-          // inside-dataZoom is only used as the receiver for the brush-end
-          // dispatchAction({type:'dataZoom'}). Do NOT let it intercept mouse
-          // events — moveOnMouseMove:true would put a grab cursor on the
-          // canvas and swallow drags before the brush component sees them.
-          { type: 'inside', xAxisIndex: 0, filterMode: 'none', zoomOnMouseWheel: false, moveOnMouseMove: false, moveOnMouseWheel: false },
+          // inside-dataZoom receives both the brush-end dispatchAction and the
+          // user's mouse-wheel zoom. moveOnMouseMove stays false so the brush
+          // cursor (left-drag) is not stolen by a pan-grab. moveOnMouseWheel
+          // also stays false — the wheel should zoom, not pan.
+          { type: 'inside', xAxisIndex: 0, filterMode: 'none', zoomOnMouseWheel: true, moveOnMouseMove: false, moveOnMouseWheel: false },
         ] : undefined,
         series: [
           {
@@ -519,6 +519,30 @@ function RouteProfileChart({
         })
         chart.on('brushEnd', handleBrushEnd)
         cleanups.push(() => chart.off('brushEnd', handleBrushEnd))
+
+        // Mirror wheel-zoom into the same map-sync + "Zoom zurück"-state
+        // as the brush flow. The dataZoom event fires for every range change,
+        // including programmatic dispatchAction calls; we ignore the latter
+        // by debouncing on the start/end percentage values themselves.
+        const handleDataZoom = (params: unknown) => {
+          const xMaxKm = effectiveTotalM / 1000
+          if (xMaxKm <= 0) return
+          // batch[0] is the standard shape for inside dataZoom events
+          const p = params as { batch?: Array<{ start?: number; end?: number }>; start?: number; end?: number }
+          const range = p.batch?.[0] ?? p
+          const startPct = typeof range.start === 'number' ? range.start : 0
+          const endPct = typeof range.end === 'number' ? range.end : 100
+          if (startPct <= 0 && endPct >= 100) {
+            setIsBrushZoomed(false)
+            return
+          }
+          setIsBrushZoomed(true)
+          onBrushZoom((startPct / 100) * xMaxKm * 1000, (endPct / 100) * xMaxKm * 1000)
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        chart.on('dataZoom', handleDataZoom as any)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        cleanups.push(() => chart.off('dataZoom', handleDataZoom as any))
       }
 
       return () => {
