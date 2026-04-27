@@ -109,7 +109,8 @@ func (db *DB) ListRoutes(ctx context.Context, userID string, limit, offset int) 
 			ST_AsGeoJSON(ST_Simplify(geometry, 0.001)) AS geometry_simplified,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			estimated_time_min, time_override, auto_tag,
-			created_at, updated_at
+			created_at, updated_at,
+			route_schema_version
 		FROM planned_routes
 		WHERE user_id = $1
 		ORDER BY updated_at DESC
@@ -130,6 +131,7 @@ func (db *DB) ListRoutes(ctx context.Context, userID string, limit, offset int) 
 			&r.TotalDistanceM, &r.TotalElevationGain, &r.TotalElevationLoss,
 			&r.EstimatedTimeMin, &r.TimeOverride, &r.AutoTag,
 			&r.CreatedAt, &r.UpdatedAt,
+			&r.RouteSchemaVersion,
 		); err != nil {
 			return nil, fmt.Errorf("scan route: %w", err)
 		}

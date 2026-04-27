@@ -166,6 +166,60 @@ func TestCreateRouteFromImport_SetsSchemaVersion1(t *testing.T) {
 	}
 }
 
+// TestListRoutes_ReturnsSchemaVersion verifies that ListRoutes passes through
+// route_schema_version correctly for mixed pre-T0 (v=0) and T0 (v=1) routes.
+func TestListRoutes_ReturnsSchemaVersion(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	userID := fmt.Sprintf("test-schema-list-%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupRoutes(t, db, userID) })
+
+	// Insert pre-T0 route with version=0 directly via SQL.
+	err := db.Pool.QueryRow(ctx, `
+		INSERT INTO planned_routes (
+			user_id, name, sport_type, profile,
+			geometry, waypoints, segments,
+			route_schema_version
+		) VALUES (
+			$1, 'Pre-T0 List', 'hiking', 'outdoor',
+			ST_Force2D(ST_GeomFromGeoJSON('{"type":"LineString","coordinates":[[11.39,47.26],[11.40,47.27]]}')),
+			'[]', '[]',
+			0
+		) RETURNING id`,
+		userID,
+	).Scan(new(string))
+	if err != nil {
+		t.Fatalf("insert v=0 route: %v", err)
+	}
+
+	// Insert T0 route (version=1) via CreateRoute.
+	v1Route := minimalRoute(userID)
+	v1Route.Name = "T0 List"
+	if _, err := db.CreateRoute(ctx, v1Route); err != nil {
+		t.Fatalf("CreateRoute v=1: %v", err)
+	}
+
+	routes, err := db.ListRoutes(ctx, userID, 10, 0)
+	if err != nil {
+		t.Fatalf("ListRoutes: %v", err)
+	}
+	if len(routes) < 2 {
+		t.Fatalf("expected at least 2 routes, got %d", len(routes))
+	}
+
+	versionByName := make(map[string]int)
+	for _, r := range routes {
+		versionByName[r.Name] = r.RouteSchemaVersion
+	}
+	if v, ok := versionByName["Pre-T0 List"]; !ok || v != 0 {
+		t.Errorf("Pre-T0 List: want RouteSchemaVersion=0, got %d (found=%v)", v, ok)
+	}
+	if v, ok := versionByName["T0 List"]; !ok || v != 1 {
+		t.Errorf("T0 List: want RouteSchemaVersion=1, got %d (found=%v)", v, ok)
+	}
+}
+
 // TestGetPlannedRoute_ReturnsSchemaVersion verifies that GetRoute correctly reads
 // and returns route_schema_version from the database row.
 func TestGetPlannedRoute_ReturnsSchemaVersion(t *testing.T) {
