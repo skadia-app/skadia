@@ -5,8 +5,6 @@
 //   3. DEMSettings                  — DEM height data
 //   4. OfflineMapSettings           — Protomaps / Martin
 //   5. OSMRegionManager             — OSM data management
-//
-// LocalMapAndGeoSection remains for now; full deletion in Task 36.
 import { MapLayersAdminSection } from '@/components/admin/MapLayersAdminSection'
 import { SystemLayerVisibilityAdminSection } from '@/components/admin/SystemLayerVisibilityAdminSection'
 import { DEMSettings } from '@/components/DEMSettings'

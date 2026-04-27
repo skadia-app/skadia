@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchMapLayers, type MapLayer, type SystemLayerVisibility } from '@/api/mapLayers'
 import { useCapabilities } from './useCapabilities'
-import { _setBaseStylesShim } from '@/lib/mapStyles'
 
 // Module-level set so capability-warning fires once per session per missing key.
 const warnedCaps = new Set<string>()
@@ -34,14 +33,7 @@ export function useMapLayers(): UseMapLayersResult {
 
   const { data, isLoading } = useQuery({
     queryKey: ['map-layers'],
-    queryFn: async () => {
-      const res = await fetchMapLayers()
-      // Sync deprecation-shim ONCE per fetch (not in useEffect — that would
-      // fan out across N consumers and create stale-closure windows during
-      // Phase 1.5 mixed-code rendering). Removed entirely in Task 37.
-      _setBaseStylesShim(res.layers)
-      return res
-    },
+    queryFn: fetchMapLayers,
     staleTime: 5 * 60_000,
   })
 
