@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { Map as MaplibreMap } from 'maplibre-gl'
 import { apiClient } from '@/api/client'
+import { opacityPercentToFloat } from '@/lib/mapStyles'
 import { useSystemLayerVisibility } from './useSystemLayerVisibility'
 
 export interface CoverageCompositeState {
@@ -114,7 +115,7 @@ function syncLayerVisibility(
 
       map.setLayoutProperty(layerId, 'visibility', shouldShow ? 'visible' : 'none')
       if (shouldShow) {
-        map.setPaintProperty(layerId, 'raster-opacity', compositeState.opacity / 100)
+        map.setPaintProperty(layerId, 'raster-opacity', opacityPercentToFloat(compositeState.opacity))
       }
     }
   }
