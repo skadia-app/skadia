@@ -202,6 +202,37 @@ func TestValidateStyleURL_LocalhostHostname(t *testing.T) {
 	}
 }
 
+// TestValidateMapLayer_TrimsLeadingWhitespace verifies that a URL pasted with
+// surrounding whitespace is accepted (net/url would otherwise emit "first path
+// segment in URL cannot contain colon").
+func TestValidateMapLayer_TrimsLeadingWhitespace(t *testing.T) {
+	cases := []string{
+		" https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+		"  https://tile.openstreetmap.org/{z}/{x}/{y}.png  ",
+		"\thttps://tile.openstreetmap.org/{z}/{x}/{y}.png",
+	}
+	for _, tpl := range cases {
+		if err := model.ValidateURLTemplate(tpl, false); err != nil {
+			t.Errorf("expected valid after TrimSpace for %q, got %v", tpl, err)
+		}
+	}
+}
+
+// TestValidateStyleURL_TrimsLeadingWhitespace mirrors the URL-template trim test
+// for the style_url validator.
+func TestValidateStyleURL_TrimsLeadingWhitespace(t *testing.T) {
+	cases := []string{
+		" https://demotiles.example.org/style.json",
+		"  https://demotiles.example.org/style.json  ",
+		"\thttps://demotiles.example.org/style.json",
+	}
+	for _, s := range cases {
+		if err := model.ValidateStyleURL(s, false); err != nil {
+			t.Errorf("expected valid after TrimSpace for %q, got %v", s, err)
+		}
+	}
+}
+
 func TestSanitizeAttribution(t *testing.T) {
 	cases := []struct {
 		name     string

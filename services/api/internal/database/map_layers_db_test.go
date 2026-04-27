@@ -351,10 +351,13 @@ func TestInsertUserMapLayer_RoundTrip(t *testing.T) {
 	uid := insertTestUser(t, db)
 	ctx := context.Background()
 
+	tpl := "https://tiles.example.com/{z}/{x}/{y}.png"
 	m := &model.UserMapLayer{
 		UserID:         uid,
+		Role:           "overlay",
 		Name:           "My Tiles",
-		URLTemplate:    "https://tiles.example.com/{z}/{x}/{y}.png",
+		SourceKind:     "raster_tiles",
+		URLTemplate:    &tpl,
 		DefaultOpacity: 80,
 		Enabled:        true,
 	}
@@ -382,21 +385,27 @@ func TestInsertUserMapLayer_LimitReached(t *testing.T) {
 	uid := insertTestUser(t, db)
 	ctx := context.Background()
 
+	tpl1 := "https://t.example.com/{z}/{x}/{y}.png"
 	// Insert first layer at limit=1.
 	m1 := &model.UserMapLayer{
 		UserID:      uid,
+		Role:        "overlay",
 		Name:        "First",
-		URLTemplate: "https://t.example.com/{z}/{x}/{y}.png",
+		SourceKind:  "raster_tiles",
+		URLTemplate: &tpl1,
 	}
 	if err := db.InsertUserMapLayer(ctx, m1, 1); err != nil {
 		t.Fatalf("first insert: %v", err)
 	}
 
+	tpl2 := "https://t.example.com/{z}/{x}/{y}.png"
 	// Second insert with same limit must fail.
 	m2 := &model.UserMapLayer{
 		UserID:      uid,
+		Role:        "overlay",
 		Name:        "Second",
-		URLTemplate: "https://t.example.com/{z}/{x}/{y}.png",
+		SourceKind:  "raster_tiles",
+		URLTemplate: &tpl2,
 	}
 	if err := db.InsertUserMapLayer(ctx, m2, 1); !isErrIs(err, ErrLimitReached) {
 		t.Errorf("expected ErrLimitReached, got %v", err)
@@ -408,19 +417,25 @@ func TestInsertUserMapLayer_DuplicateName(t *testing.T) {
 	uid := insertTestUser(t, db)
 	ctx := context.Background()
 
+	tplA := "https://t.example.com/{z}/{x}/{y}.png"
 	m := &model.UserMapLayer{
 		UserID:      uid,
+		Role:        "overlay",
 		Name:        "Dup Name",
-		URLTemplate: "https://t.example.com/{z}/{x}/{y}.png",
+		SourceKind:  "raster_tiles",
+		URLTemplate: &tplA,
 	}
 	if err := db.InsertUserMapLayer(ctx, m, 100); err != nil {
 		t.Fatalf("first insert: %v", err)
 	}
 
+	tplB := "https://other.example.com/{z}/{x}/{y}.png"
 	m2 := &model.UserMapLayer{
 		UserID:      uid,
+		Role:        "overlay",
 		Name:        "Dup Name", // same name, same user
-		URLTemplate: "https://other.example.com/{z}/{x}/{y}.png",
+		SourceKind:  "raster_tiles",
+		URLTemplate: &tplB,
 	}
 	if err := db.InsertUserMapLayer(ctx, m2, 100); !isErrIs(err, ErrDuplicateName) {
 		t.Errorf("expected ErrDuplicateName, got %v", err)
@@ -442,10 +457,13 @@ func TestDeleteUser_CascadesUserMapLayers(t *testing.T) {
 		t.Fatalf("insert user: %v", err)
 	}
 
+	tplDel := "https://t.example.com/{z}/{x}/{y}.png"
 	m := &model.UserMapLayer{
 		UserID:      uid,
+		Role:        "overlay",
 		Name:        "To Be Deleted",
-		URLTemplate: "https://t.example.com/{z}/{x}/{y}.png",
+		SourceKind:  "raster_tiles",
+		URLTemplate: &tplDel,
 	}
 	if err := db.InsertUserMapLayer(ctx, m, 100); err != nil {
 		t.Fatalf("insert layer: %v", err)

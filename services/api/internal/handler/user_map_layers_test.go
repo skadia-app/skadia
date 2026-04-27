@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
@@ -268,6 +269,46 @@ func TestBulkSortUserMapLayers_EmptyBody(t *testing.T) {
 	}
 }
 
+// TestCreateUserMapLayer_DefaultsEnabledTrue verifies that a layer created without
+// an explicit "enabled" field in the JSON body has enabled=true in the response.
+// The frontend create modal does not include an enabled toggle, so the handler
+// must not pass through the Go zero-value (false).
+func TestCreateUserMapLayer_DefaultsEnabledTrue(t *testing.T) {
+	pool := fusionTestPool(t)
+	uid := insertTestUser(t, pool)
+	h := newUserMapLayerHandler(t)
+	h.DB = &database.DB{Pool: pool}
+
+	// Intentionally no "enabled" field — client did not set it.
+	body := map[string]any{
+		"name":         "Default Enabled " + strconv.FormatInt(time.Now().UnixNano(), 36),
+		"url_template": "https://tiles.example.com/{z}/{x}/{y}.png",
+	}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/map-layers/user/", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, uid))
+	rr := httptest.NewRecorder()
+	h.CreateUserMapLayer(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		ID      int64 `json:"id"`
+		Enabled bool  `json:"enabled"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	t.Cleanup(func() {
+		h.DB.Pool.Exec(context.Background(), "DELETE FROM user_map_layers WHERE id = $1", resp.ID) //nolint:errcheck
+	})
+	if !resp.Enabled {
+		t.Error("enabled must default to true when not supplied by client")
+	}
+}
+
 func TestDeleteUserMapLayer_UserIsolation(t *testing.T) {
 	pool := fusionTestPool(t)
 	uidA := insertTestUser(t, pool)
@@ -288,5 +329,222 @@ func TestDeleteUserMapLayer_UserIsolation(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected 404 for cross-user delete, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestCreateUserMapLayer_DefaultsRoleAndSourceKind verifies that omitting
+// role and source_kind results in role='overlay' and source_kind='raster_tiles'.
+func TestCreateUserMapLayer_DefaultsRoleAndSourceKind(t *testing.T) {
+	pool := fusionTestPool(t)
+	uid := insertTestUser(t, pool)
+	h := newUserMapLayerHandler(t)
+	h.DB = &database.DB{Pool: pool}
+
+	body := map[string]any{
+		"name":         "Defaults " + strconv.FormatInt(time.Now().UnixNano(), 36),
+		"url_template": "https://tiles.example.com/{z}/{x}/{y}.png",
+	}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/map-layers/user/", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, uid))
+	rr := httptest.NewRecorder()
+	h.CreateUserMapLayer(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		ID         int64  `json:"id"`
+		Role       string `json:"role"`
+		SourceKind string `json:"source_kind"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	t.Cleanup(func() {
+		h.DB.Pool.Exec(context.Background(), "DELETE FROM user_map_layers WHERE id = $1", resp.ID) //nolint:errcheck
+	})
+	if resp.Role != "overlay" {
+		t.Errorf("expected role=overlay, got %q", resp.Role)
+	}
+	if resp.SourceKind != "raster_tiles" {
+		t.Errorf("expected source_kind=raster_tiles, got %q", resp.SourceKind)
+	}
+}
+
+// TestCreateUserMapLayer_BaseLayer verifies that role='base' with a raster URL is accepted.
+func TestCreateUserMapLayer_BaseLayer(t *testing.T) {
+	pool := fusionTestPool(t)
+	uid := insertTestUser(t, pool)
+	h := newUserMapLayerHandler(t)
+	h.DB = &database.DB{Pool: pool}
+
+	body := map[string]any{
+		"name":         "Base " + strconv.FormatInt(time.Now().UnixNano(), 36),
+		"role":         "base",
+		"source_kind":  "raster_tiles",
+		"url_template": "https://tiles.example.com/{z}/{x}/{y}.png",
+	}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/map-layers/user/", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, uid))
+	rr := httptest.NewRecorder()
+	h.CreateUserMapLayer(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for base raster layer, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		ID   int64  `json:"id"`
+		Role string `json:"role"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	t.Cleanup(func() {
+		h.DB.Pool.Exec(context.Background(), "DELETE FROM user_map_layers WHERE id = $1", resp.ID) //nolint:errcheck
+	})
+	if resp.Role != "base" {
+		t.Errorf("expected role=base, got %q", resp.Role)
+	}
+}
+
+// TestCreateUserMapLayer_VectorStyle verifies that source_kind='vector_style'
+// with a valid style_url is accepted.
+func TestCreateUserMapLayer_VectorStyle(t *testing.T) {
+	pool := fusionTestPool(t)
+	uid := insertTestUser(t, pool)
+	h := newUserMapLayerHandler(t)
+	h.DB = &database.DB{Pool: pool}
+
+	body := map[string]any{
+		"name":        "VectorStyle " + strconv.FormatInt(time.Now().UnixNano(), 36),
+		"source_kind": "vector_style",
+		"style_url":   "https://style.example.com/style.json",
+	}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/map-layers/user/", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, uid))
+	rr := httptest.NewRecorder()
+	h.CreateUserMapLayer(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for vector_style layer, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		ID         int64   `json:"id"`
+		SourceKind string  `json:"source_kind"`
+		StyleURL   *string `json:"style_url,omitempty"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	t.Cleanup(func() {
+		h.DB.Pool.Exec(context.Background(), "DELETE FROM user_map_layers WHERE id = $1", resp.ID) //nolint:errcheck
+	})
+	if resp.SourceKind != "vector_style" {
+		t.Errorf("expected source_kind=vector_style, got %q", resp.SourceKind)
+	}
+	if resp.StyleURL == nil || *resp.StyleURL == "" {
+		t.Error("style_url should be present in response")
+	}
+}
+
+// TestCreateUserMapLayer_VectorStyleWithoutStyleURL_422 verifies that omitting
+// style_url when source_kind='vector_style' returns 422 url_source_kind_mismatch.
+func TestCreateUserMapLayer_VectorStyleWithoutStyleURL_422(t *testing.T) {
+	pool := fusionTestPool(t)
+	uid := insertTestUser(t, pool)
+	h := newUserMapLayerHandler(t)
+	h.DB = &database.DB{Pool: pool}
+
+	body := map[string]any{
+		"name":        "BadVector " + uuid.New().String()[:8],
+		"source_kind": "vector_style",
+		// style_url intentionally missing
+	}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/map-layers/user/", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, uid))
+	rr := httptest.NewRecorder()
+	h.CreateUserMapLayer(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["error"] != "url_source_kind_mismatch" {
+		t.Errorf("expected error=url_source_kind_mismatch, got %q", resp["error"])
+	}
+}
+
+// TestCreateUserMapLayer_RasterWithStyleURL_422 verifies that providing
+// style_url with source_kind='raster_tiles' (the default) returns 422.
+func TestCreateUserMapLayer_RasterWithStyleURL_422(t *testing.T) {
+	pool := fusionTestPool(t)
+	uid := insertTestUser(t, pool)
+	h := newUserMapLayerHandler(t)
+	h.DB = &database.DB{Pool: pool}
+
+	body := map[string]any{
+		"name":         "BadRaster " + uuid.New().String()[:8],
+		"source_kind":  "raster_tiles",
+		"url_template": "https://tiles.example.com/{z}/{x}/{y}.png",
+		"style_url":    "https://style.example.com/style.json",
+	}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/map-layers/user/", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, uid))
+	rr := httptest.NewRecorder()
+	h.CreateUserMapLayer(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["error"] != "url_source_kind_mismatch" {
+		t.Errorf("expected error=url_source_kind_mismatch, got %q", resp["error"])
+	}
+}
+
+// TestPatchUserMapLayer_ChangeSourceKind verifies that PATCH can switch
+// source_kind from raster_tiles to vector_style when the correct URL fields are provided.
+func TestPatchUserMapLayer_ChangeSourceKind(t *testing.T) {
+	pool := fusionTestPool(t)
+	uid := insertTestUser(t, pool)
+	h := newUserMapLayerHandler(t)
+	h.DB = &database.DB{Pool: pool}
+
+	// Create a raster layer first.
+	layerID := insertTestUserMapLayer(t, h, uid, "ToConvert "+strconv.FormatInt(time.Now().UnixNano(), 36))
+
+	// PATCH it to vector_style — must provide style_url and no url_template.
+	patchBody := map[string]any{
+		"source_kind": "vector_style",
+		"style_url":   "https://style.example.com/style.json",
+	}
+	pb, _ := json.Marshal(patchBody)
+	req := httptest.NewRequest(http.MethodPatch, "/map-layers/user/"+strconv.FormatInt(layerID, 10), bytes.NewReader(pb))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, uid))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.FormatInt(layerID, 10))
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rr := httptest.NewRecorder()
+	h.PatchUserMapLayer(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for source_kind switch, got %d: %s", rr.Code, rr.Body.String())
 	}
 }

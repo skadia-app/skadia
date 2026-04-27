@@ -121,6 +121,10 @@ func ValidateURLTemplate(tpl string, blockPrivateIPs bool) error {
 	probe = rePlaceholderX.ReplaceAllString(probe, "1")
 	probe = rePlaceholderY.ReplaceAllString(probe, "1")
 	probe = reSwitch.ReplaceAllString(probe, "a")
+	// Strip accidental leading/trailing whitespace before parsing so a URL
+	// pasted with a leading space does not produce a cryptic "first path
+	// segment cannot contain colon" error from net/url.
+	probe = strings.TrimSpace(probe)
 	u, err := url.Parse(probe)
 	if err != nil {
 		return fmt.Errorf("url_template parse error: %w", err)
@@ -216,6 +220,10 @@ func blockPrivateHost(host string) error {
 //
 // The 2048-char limit mirrors the DB CHECK constraint.
 func ValidateStyleURL(s string, blockPrivateIPs bool) error {
+	// Strip accidental leading/trailing whitespace before any check so a URL
+	// pasted with surrounding spaces is accepted rather than producing a cryptic
+	// parse error.
+	s = strings.TrimSpace(s)
 	if s == "" {
 		return ErrStyleURLEmpty
 	}

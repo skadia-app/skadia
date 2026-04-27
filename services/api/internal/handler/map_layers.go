@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
@@ -64,7 +65,7 @@ func (h *Handler) CreateMapLayer(w http.ResponseWriter, r *http.Request) {
 	}
 	// Zero out server-controlled fields — callers must not influence these.
 	m.ID = 0
-	m.IsSystem = false
+	m.IsSystem = true // admin endpoint always creates system layers
 	m.ProxyThroughBackend = false // not implemented in Phase 1
 	m.CreatedAt = time.Time{}
 	m.UpdatedAt = time.Time{}
@@ -102,9 +103,34 @@ func (h *Handler) CreateMapLayer(w http.ResponseWriter, r *http.Request) {
 		s := model.SanitizeAttribution(*m.Attribution)
 		m.Attribution = &s
 	}
+	// Auto-generate a key from the name when the client omits it. Slugify to
+	// lowercase ASCII tokens joined by hyphens, capped at 32 runes. On a
+	// unique-key collision retry with "-2" … "-10" before giving up.
+	if m.Key == "" {
+		m.Key = slugifyName(m.Name)
+	}
 	if err := h.DB.InsertMapLayer(r.Context(), &m); err != nil {
 		if errors.Is(err, database.ErrDuplicateName) {
-			httputil.WriteJSON(w, http.StatusConflict, mapLayerErrBody("duplicate_key", "a layer with this key already exists"))
+			if m.Key != "" {
+				// Attempt suffix disambiguation before surfacing a collision error.
+				base := m.Key
+				succeeded := false
+				for suffix := 2; suffix <= 10; suffix++ {
+					m.Key = fmt.Sprintf("%s-%d", base, suffix)
+					if err2 := h.DB.InsertMapLayer(r.Context(), &m); err2 == nil {
+						succeeded = true
+						break
+					} else if !errors.Is(err2, database.ErrDuplicateName) {
+						httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
+						return
+					}
+				}
+				if succeeded {
+					httputil.WriteJSON(w, http.StatusCreated, m)
+					return
+				}
+			}
+			httputil.WriteJSON(w, http.StatusConflict, mapLayerErrBody("key_collision", "could not generate a unique key; supply an explicit key"))
 			return
 		}
 		if errors.Is(err, database.ErrURLSourceKindMismatch) {
@@ -157,14 +183,12 @@ func (h *Handler) PatchMapLayer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Reject attempts to mutate immutable identity fields. Changing key would
-	// invalidate any client LocalStorage entries keyed on it; changing source_kind
-	// would silently corrupt the layer's URL / style references.
-	if containsKey(patch, "key") || containsKey(patch, "source_kind") {
-		httputil.WriteJSON(w, http.StatusUnprocessableEntity,
-			mapLayerErrBody("field_immutable", "key and source_kind cannot be changed after creation"))
-		return
-	}
+	// Silently drop identity fields that must never change. The frontend replays
+	// the full object on edit, so these may arrive in the payload without intent.
+	// Dropping them (rather than 422-ing) prevents spurious "field_immutable"
+	// errors when an admin edits only min_zoom on an existing system layer.
+	delete(patch, "key")
+	delete(patch, "source_kind")
 
 	// Sanitize attribution in-place.
 	if v, ok := patch["attribution"].(string); ok {
@@ -530,4 +554,47 @@ func validateMapLayerInput(m *model.MapLayer) error {
 		}
 	}
 	return nil
+}
+
+// slugifyName converts a display name to a URL-safe key suitable for use as a
+// MapLibre source ID. Rules: fold to ASCII-only lowercase, collect [a-z0-9]
+// token runs, join with hyphens, cap at 32 runes. An empty input (or one that
+// has no ASCII alphanumeric chars) returns "layer".
+func slugifyName(name string) string {
+	const maxRunes = 32
+	// Decompose Unicode and fold to ASCII-range equivalents. We iterate rune by
+	// rune: keep [a-z0-9], convert [A-Z] to lowercase, treat everything else as
+	// a word boundary.
+	var tokens []string
+	var cur strings.Builder
+	for _, r := range name {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			cur.WriteRune(r)
+		} else if r >= 'A' && r <= 'Z' {
+			cur.WriteRune(unicode.ToLower(r))
+		} else {
+			if cur.Len() > 0 {
+				tokens = append(tokens, cur.String())
+				cur.Reset()
+			}
+		}
+	}
+	if cur.Len() > 0 {
+		tokens = append(tokens, cur.String())
+	}
+	if len(tokens) == 0 {
+		return "layer"
+	}
+	slug := strings.Join(tokens, "-")
+	// Truncate to maxRunes. Cut at a hyphen boundary if possible so the result
+	// doesn't end in a partial token.
+	if utf8.RuneCountInString(slug) > maxRunes {
+		runes := []rune(slug)[:maxRunes]
+		slug = string(runes)
+		// Trim a trailing partial token (anything after the last hyphen).
+		if idx := strings.LastIndexByte(slug, '-'); idx > 0 {
+			slug = slug[:idx]
+		}
+	}
+	return slug
 }

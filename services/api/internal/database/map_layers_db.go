@@ -52,18 +52,19 @@ func (db *DB) ListMapLayers(ctx context.Context, includeDisabled bool) ([]model.
 	return scanMapLayers(rows)
 }
 
-// InsertMapLayer inserts a new admin-created layer (is_system forced to false by the caller).
+// InsertMapLayer inserts an admin-created layer. The caller controls is_system:
+// admin-created layers set it to true (they manage the system catalog).
 // On success, m.ID / m.CreatedAt / m.UpdatedAt are populated from RETURNING.
 func (db *DB) InsertMapLayer(ctx context.Context, m *model.MapLayer) error {
 	err := db.Pool.QueryRow(ctx, `
 		INSERT INTO map_layers (key, role, name, source_kind, url_template, style_url, attribution,
 		                        min_zoom, max_zoom, default_opacity, is_system, enabled, sort_order,
 		                        proxy_through_backend, requires_capability)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,$11,$12,$13,$14)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		RETURNING id, created_at, updated_at
 	`,
 		m.Key, m.Role, m.Name, m.SourceKind, m.URLTemplate, m.StyleURL, m.Attribution,
-		m.MinZoom, m.MaxZoom, m.DefaultOpacity,
+		m.MinZoom, m.MaxZoom, m.DefaultOpacity, m.IsSystem,
 		m.Enabled, m.SortOrder, m.ProxyThroughBackend, m.RequiresCapability,
 	).Scan(&m.ID, &m.CreatedAt, &m.UpdatedAt)
 	if err != nil {
@@ -285,7 +286,8 @@ func (db *DB) UpdateSystemLayerVisibility(ctx context.Context, key string, patch
 // userID is a UUID string matching the users.id column.
 func (db *DB) ListUserMapLayers(ctx context.Context, userID string) ([]model.UserMapLayer, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, user_id, name, url_template, attribution, min_zoom, max_zoom,
+		SELECT id, user_id, role, name, source_kind, url_template, style_url,
+		       attribution, min_zoom, max_zoom,
 		       default_opacity, enabled, sort_order, created_at, updated_at
 		FROM user_map_layers
 		WHERE user_id = $1
@@ -320,12 +322,14 @@ func (db *DB) InsertUserMapLayer(ctx context.Context, m *model.UserMapLayer, lim
 	}
 
 	err = tx.QueryRow(ctx, `
-		INSERT INTO user_map_layers (user_id, name, url_template, attribution, min_zoom, max_zoom,
+		INSERT INTO user_map_layers (user_id, role, name, source_kind, url_template, style_url,
+		                             attribution, min_zoom, max_zoom,
 		                             default_opacity, enabled, sort_order)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		RETURNING id, created_at, updated_at
 	`,
-		m.UserID, m.Name, m.URLTemplate, m.Attribution, m.MinZoom, m.MaxZoom,
+		m.UserID, m.Role, m.Name, m.SourceKind, m.URLTemplate, m.StyleURL,
+		m.Attribution, m.MinZoom, m.MaxZoom,
 		m.DefaultOpacity, m.Enabled, m.SortOrder,
 	).Scan(&m.ID, &m.CreatedAt, &m.UpdatedAt)
 	if err != nil {
@@ -360,6 +364,9 @@ func (db *DB) UpdateUserMapLayer(ctx context.Context, userID string, id int64, p
 	if err != nil {
 		if isUniqueViolation(err, "user_map_layers_user_name") {
 			return ErrDuplicateName
+		}
+		if isCheckViolation(err, "user_map_layers_url_consistency") {
+			return ErrURLSourceKindMismatch
 		}
 		return err
 	}
@@ -448,7 +455,8 @@ func scanUserMapLayers(rows pgx.Rows) ([]model.UserMapLayer, error) {
 	for rows.Next() {
 		var m model.UserMapLayer
 		if err := rows.Scan(
-			&m.ID, &m.UserID, &m.Name, &m.URLTemplate, &m.Attribution,
+			&m.ID, &m.UserID, &m.Role, &m.Name, &m.SourceKind,
+			&m.URLTemplate, &m.StyleURL, &m.Attribution,
 			&m.MinZoom, &m.MaxZoom, &m.DefaultOpacity, &m.Enabled, &m.SortOrder,
 			&m.CreatedAt, &m.UpdatedAt,
 		); err != nil {
@@ -499,10 +507,15 @@ func sysVisibilityPgIdent(field string) string {
 }
 
 // userMapLayerPgIdent whitelists columns PATCHable on user_map_layers.
+// Unlike system map_layers, user layers allow patching role, source_kind, url_template,
+// and style_url because the resource is exclusively owned by the requesting user.
 func userMapLayerPgIdent(field string) string {
 	allowed := map[string]string{
 		"name":            "name",
+		"role":            "role",
+		"source_kind":     "source_kind",
 		"url_template":    "url_template",
+		"style_url":       "style_url",
 		"attribution":     "attribution",
 		"min_zoom":        "min_zoom",
 		"max_zoom":        "max_zoom",
