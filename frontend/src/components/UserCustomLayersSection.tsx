@@ -26,8 +26,17 @@ const LABELS = {
   modalSaving: 'Speichere…',
   modalCancel: 'Abbrechen',
   fieldName: 'Name',
-  fieldUrl: 'Tile-URL-Vorlage',
-  fieldUrlPlaceholder: 'https://tile.example.com/{z}/{x}/{y}.png',
+  fieldRole: 'Typ',
+  fieldRoleBase: 'Karte (Basis)',
+  fieldRoleBaseHint: 'Ersetzt die Hintergrundkarte.',
+  fieldRoleOverlay: 'Overlay',
+  fieldRoleOverlayHint: 'Legt sich über die Hintergrundkarte.',
+  fieldSourceKind: 'Format',
+  fieldUrlTemplate: 'Tile-URL-Vorlage',
+  fieldUrlTemplatePlaceholder: 'https://example.com/{z}/{x}/{y}.png',
+  fieldStyleUrl: 'Style-URL',
+  fieldStyleUrlPlaceholder: 'https://example.com/style.json',
+  fieldUrlEmptyHint: 'URL darf nicht leer sein.',
   fieldAttribution: 'Attribution',
   fieldMinZoom: 'Min. Zoom',
   fieldMaxZoom: 'Max. Zoom',
@@ -35,8 +44,6 @@ const LABELS = {
   privacyTitle: 'Hinweise zum Datenschutz',
   privacyLine1:
     'Kacheln werden direkt von deinem Browser beim eingetragenen Tile-Server geladen. Dieser sieht dabei deine IP-Adresse und die Koordinaten der besuchten Kartenausschnitte.',
-  privacyLine2:
-    'Der Server prüft die URL nur syntaktisch — DNS wird erst im Browser aufgelöst. Ein Anbieter, der den Hostnamen kontrolliert, kann den Namen nachträglich auf eine Adresse in deinem lokalen Netz zeigen lassen; dein Browser würde dann versuchen, von dort zu laden.',
   privacyLine3:
     'Trage daher nur Server ein, denen du vertraust.',
   deleteConfirmTitle: 'Layer löschen?',
@@ -48,9 +55,15 @@ const LABELS = {
   toastError: 'Fehler',
   toast422PrivateIP: 'Private Adressen sind nicht erlaubt',
   toast409Duplicate: 'Name bereits vergeben',
+  toastFieldImmutable: 'Diese Felder lassen sich nach dem Anlegen nicht mehr ändern',
   toast422LimitReached: (used: number, max: number) => `Limit erreicht (${used} von ${max})`,
   toast429RateLimit: (retryAfter: string) => `Zu viele Anfragen, Retry-After: ${retryAfter}s`,
   limitReachedHint: 'Limit erreicht — vorhandene Layer löschen, um Platz zu schaffen.',
+  toggleActiveLabel: (name: string) => `${name} — Aktiv`,
+  badgeBase: 'Karte',
+  badgeOverlay: 'Overlay',
+  badgeRaster: 'Raster',
+  badgeVector: 'Vector',
   loading: 'Lade Layer…',
 }
 
@@ -58,7 +71,10 @@ const LABELS = {
 
 interface LayerFormState {
   name: string
+  role: 'base' | 'overlay'
+  source_kind: 'raster_tiles' | 'vector_style'
   url_template: string
+  style_url: string
   attribution: string
   min_zoom: string
   max_zoom: string
@@ -68,10 +84,13 @@ interface LayerFormState {
 function emptyForm(): LayerFormState {
   return {
     name: '',
+    role: 'overlay',
+    source_kind: 'raster_tiles',
     url_template: '',
+    style_url: '',
     attribution: '',
-    min_zoom: '',
-    max_zoom: '',
+    min_zoom: '0',
+    max_zoom: '22',
     default_opacity_pct: '100',
   }
 }
@@ -79,7 +98,10 @@ function emptyForm(): LayerFormState {
 function layerToForm(l: UserMapLayer): LayerFormState {
   return {
     name: l.name,
-    url_template: l.url_template,
+    role: l.role,
+    source_kind: l.source_kind,
+    url_template: l.url_template ?? '',
+    style_url: l.style_url ?? '',
     attribution: l.attribution ?? '',
     min_zoom: l.min_zoom != null ? String(l.min_zoom) : '',
     max_zoom: l.max_zoom != null ? String(l.max_zoom) : '',
@@ -88,14 +110,24 @@ function layerToForm(l: UserMapLayer): LayerFormState {
 }
 
 function formToBody(f: LayerFormState): Partial<UserMapLayer> {
-  return {
+  const body: Partial<UserMapLayer> = {
     name: f.name,
-    url_template: f.url_template,
+    role: f.role,
+    source_kind: f.source_kind,
     attribution: f.attribution || undefined,
     min_zoom: f.min_zoom !== '' ? Number(f.min_zoom) : undefined,
     max_zoom: f.max_zoom !== '' ? Number(f.max_zoom) : undefined,
     default_opacity: Number(f.default_opacity_pct),
   }
+  // Send only the relevant URL field; clear the other so the backend stays consistent.
+  if (f.source_kind === 'raster_tiles') {
+    body.url_template = f.url_template.trim() || undefined
+    body.style_url = undefined
+  } else {
+    body.style_url = f.style_url.trim() || undefined
+    body.url_template = undefined
+  }
+  return body
 }
 
 // ── Error classification ──────────────────────────────────────────────────────
@@ -110,7 +142,7 @@ interface MapLayerErrorBody {
 }
 
 function classifyError(err: unknown): {
-  kind: 'private_ip' | 'duplicate' | 'limit_reached' | 'rate_limit' | 'generic'
+  kind: 'private_ip' | 'duplicate' | 'limit_reached' | 'rate_limit' | 'field_immutable' | 'generic'
   retryAfter?: string
   limit?: number
 } {
@@ -129,6 +161,9 @@ function classifyError(err: unknown): {
         kind: 'limit_reached',
         limit: typeof body.limit === 'number' ? body.limit : undefined,
       }
+    }
+    if (err.status === 422 && code === 'field_immutable') {
+      return { kind: 'field_immutable' }
     }
     if (err.status === 429) {
       // Retry-After header isn't currently exposed on ApiError; fall back to
@@ -149,6 +184,9 @@ function classifyError(err: unknown): {
   }
   if (msg.includes('422') && msg.includes('limit_reached')) {
     return { kind: 'limit_reached' }
+  }
+  if (msg.includes('field_immutable')) {
+    return { kind: 'field_immutable' }
   }
   if (msg.includes('429') || msg.includes('rate limit')) {
     const m = msg.match(/Retry-After[:\s]+(\d+)/i)
@@ -200,6 +238,9 @@ function LayerModal({ layer, usedCount, maxCount, onClose }: LayerModalProps) {
           duration: 0,
         })
         break
+      case 'field_immutable':
+        addToast({ type: 'error', title: LABELS.toastFieldImmutable, duration: 0 })
+        break
       default: {
         const msg = err instanceof Error ? err.message : String(err)
         addToast({ type: 'error', title: LABELS.toastError, message: msg, duration: 0 })
@@ -208,6 +249,11 @@ function LayerModal({ layer, usedCount, maxCount, onClose }: LayerModalProps) {
   }
 
   const isPending = mutations.create.isPending || mutations.update.isPending
+
+  // Determine which URL field is active and whether it's filled.
+  const isVectorSource = form.source_kind === 'vector_style'
+  const activeUrlEmpty = isVectorSource ? !form.style_url.trim() : !form.url_template.trim()
+  const canSubmit = !isPending && form.name.trim().length > 0 && !activeUrlEmpty
 
   function handleSave() {
     const body = formToBody(form)
@@ -224,7 +270,8 @@ function LayerModal({ layer, usedCount, maxCount, onClose }: LayerModalProps) {
         },
       )
     } else {
-      mutations.create.mutate(body, {
+      // New layers default to enabled so they appear on the map immediately.
+      mutations.create.mutate({ ...body, enabled: true }, {
         onSuccess: () => {
           addToast({ type: 'success', title: LABELS.toastCreated })
           qc.invalidateQueries({ queryKey: ['user-map-layers'] })
@@ -246,7 +293,6 @@ function LayerModal({ layer, usedCount, maxCount, onClose }: LayerModalProps) {
         <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2.5 space-y-1">
           <p className="text-xs font-semibold text-amber-800 dark:text-amber-400">{LABELS.privacyTitle}</p>
           <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">{LABELS.privacyLine1}</p>
-          <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">{LABELS.privacyLine2}</p>
           <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">{LABELS.privacyLine3}</p>
         </div>
 
@@ -264,20 +310,92 @@ function LayerModal({ layer, usedCount, maxCount, onClose }: LayerModalProps) {
           />
         </div>
 
-        {/* Tile URL */}
+        {/* Role — radio group */}
+        <fieldset className="space-y-1">
+          <legend className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+            {LABELS.fieldRole}
+          </legend>
+          <div className="flex gap-4">
+            {(['overlay', 'base'] as const).map(r => (
+              <label key={r} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="user-layer-role"
+                  value={r}
+                  checked={form.role === r}
+                  onChange={() => patch({ role: r })}
+                  className="accent-accent-DEFAULT"
+                />
+                <span className="text-sm text-neutral-700 dark:text-neutral-300">
+                  {r === 'base' ? LABELS.fieldRoleBase : LABELS.fieldRoleOverlay}
+                </span>
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+            {form.role === 'base' ? LABELS.fieldRoleBaseHint : LABELS.fieldRoleOverlayHint}
+          </p>
+        </fieldset>
+
+        {/* Source kind — dropdown */}
         <div className="space-y-1">
-          <label htmlFor="user-layer-modal-url" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            {LABELS.fieldUrl}
+          <label htmlFor="user-layer-modal-source-kind" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+            {LABELS.fieldSourceKind}
           </label>
-          <input
-            id="user-layer-modal-url"
-            type="url"
-            value={form.url_template}
-            onChange={e => patch({ url_template: e.target.value })}
-            placeholder={LABELS.fieldUrlPlaceholder}
+          <select
+            id="user-layer-modal-source-kind"
+            value={form.source_kind}
+            onChange={e => {
+              // Clear both URL fields when switching to avoid stale values carrying over.
+              patch({
+                source_kind: e.target.value as 'raster_tiles' | 'vector_style',
+                url_template: '',
+                style_url: '',
+              })
+            }}
             className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
-          />
+          >
+            <option value="raster_tiles">Raster-Tiles (XYZ-URL)</option>
+            <option value="vector_style">Vector Style (MapLibre Style-URL)</option>
+          </select>
         </div>
+
+        {/* URL — switches based on source_kind */}
+        {!isVectorSource ? (
+          <div className="space-y-1">
+            <label htmlFor="user-layer-modal-url-template" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              {LABELS.fieldUrlTemplate}
+            </label>
+            <input
+              id="user-layer-modal-url-template"
+              type="url"
+              value={form.url_template}
+              onChange={e => patch({ url_template: e.target.value })}
+              placeholder={LABELS.fieldUrlTemplatePlaceholder}
+              className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
+            />
+            {!form.url_template.trim() && (
+              <p className="text-xs text-red-500 dark:text-red-400">{LABELS.fieldUrlEmptyHint}</p>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <label htmlFor="user-layer-modal-style-url" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              {LABELS.fieldStyleUrl}
+            </label>
+            <input
+              id="user-layer-modal-style-url"
+              type="url"
+              value={form.style_url}
+              onChange={e => patch({ style_url: e.target.value })}
+              placeholder={LABELS.fieldStyleUrlPlaceholder}
+              className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
+            />
+            {!form.style_url.trim() && (
+              <p className="text-xs text-red-500 dark:text-red-400">{LABELS.fieldUrlEmptyHint}</p>
+            )}
+          </div>
+        )}
 
         {/* Attribution */}
         <div className="space-y-1">
@@ -343,7 +461,7 @@ function LayerModal({ layer, usedCount, maxCount, onClose }: LayerModalProps) {
           <button
             type="button"
             onClick={handleSave}
-            disabled={isPending || !form.name.trim() || !form.url_template.trim()}
+            disabled={!canSubmit}
             className="cursor-pointer rounded-lg px-4 py-2 text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {isPending ? LABELS.modalSaving : LABELS.modalSave}
@@ -395,6 +513,18 @@ export function UserCustomLayersSection() {
         setDeleteTarget(null)
       },
     })
+  }
+
+  function handleToggleEnabled(layer: UserMapLayer, enabled: boolean) {
+    mutations.update.mutate(
+      { id: layer.id, body: { enabled } },
+      {
+        onError: (err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err)
+          addToast({ type: 'error', title: LABELS.toastError, message: msg, duration: 0 })
+        },
+      },
+    )
   }
 
   function moveLayer(idx: number, direction: -1 | 1) {
@@ -474,12 +604,34 @@ export function UserCustomLayersSection() {
                 </button>
               </div>
 
+              {/* Active toggle */}
+              <div className="flex items-center shrink-0">
+                <input
+                  type="checkbox"
+                  checked={layer.enabled}
+                  onChange={e => handleToggleEnabled(layer, e.target.checked)}
+                  disabled={mutations.update.isPending}
+                  className="h-4 w-4 rounded accent-accent-DEFAULT cursor-pointer disabled:cursor-not-allowed"
+                  aria-label={LABELS.toggleActiveLabel(layer.name)}
+                />
+              </div>
+
               {/* Info */}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">
-                  {layer.name}
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">
+                    {layer.name}
+                  </p>
+                  <span className="shrink-0 text-[10px] uppercase font-medium px-1.5 py-0.5 rounded bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300">
+                    {layer.role === 'base' ? LABELS.badgeBase : LABELS.badgeOverlay}
+                  </span>
+                  <span className="shrink-0 text-[10px] uppercase font-medium px-1.5 py-0.5 rounded bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300">
+                    {layer.source_kind === 'raster_tiles' ? LABELS.badgeRaster : LABELS.badgeVector}
+                  </span>
+                </div>
+                <p className="text-xs text-neutral-400 truncate">
+                  {layer.source_kind === 'raster_tiles' ? layer.url_template : layer.style_url}
                 </p>
-                <p className="text-xs text-neutral-400 truncate">{layer.url_template}</p>
               </div>
 
               {/* Actions */}

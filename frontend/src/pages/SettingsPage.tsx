@@ -1394,7 +1394,7 @@ function HeatmapSettingsSection() {
   })
 
   // Dynamic base styles from server — replaces the old parallel hardcoded list.
-  const { base: baseLayers } = useMapLayers()
+  const { base: baseLayers, disabled: disabledLayers } = useMapLayers()
 
   // If the stored default refers to a layer that no longer exists (e.g. admin
   // disabled it), fall back to the first available layer and persist that so
@@ -1484,6 +1484,11 @@ function HeatmapSettingsSection() {
         >
           {baseLayers.map(l => (
             <option key={l.key} value={l.key}>{l.name}</option>
+          ))}
+          {disabledLayers.filter(d => d.layer.role === 'base').map(({ layer, missingCapability }) => (
+            <option key={layer.key} value={layer.key} disabled>
+              {layer.name} (Fähigkeit fehlt: {missingCapability})
+            </option>
           ))}
         </select>
       </div>

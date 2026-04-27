@@ -15,6 +15,7 @@ import {
 } from '@/api/mapLayers'
 import { ModalShell } from '@/components/ui/ModalShell'
 import ConfirmModal from '@/components/ConfirmModal'
+import { ApiError } from '@/api/client'
 
 // ── i18n-ready labels ─────────────────────────────────────────────────────────
 
@@ -43,6 +44,8 @@ const LABELS = {
   toastSortSaved: 'Reihenfolge gespeichert',
   toastError: 'Fehler',
   toastOutdated: 'Veraltet – bitte neu laden und erneut versuchen.',
+  toastFieldImmutable: 'Diese Felder lassen sich nach dem Anlegen nicht mehr ändern',
+  toastPrivateAddress: 'Private Adressen sind nicht erlaubt',
   fieldName: 'Name',
   fieldRole: 'Rolle',
   fieldRoleBase: 'Basiskarte',
@@ -84,8 +87,8 @@ function emptyForm(): LayerFormState {
     url_template: '',
     style_url: '',
     attribution: '',
-    min_zoom: '',
-    max_zoom: '',
+    min_zoom: '0',
+    max_zoom: '22',
     default_opacity_pct: '100',
     enabled: true,
     requires_capability: '',
@@ -109,6 +112,8 @@ function layerToForm(l: MapLayer): LayerFormState {
 }
 
 function formToBody(f: LayerFormState): Partial<MapLayer> {
+  const urlTemplate = f.url_template.trim()
+  const styleUrl = f.style_url.trim()
   const body: Partial<MapLayer> = {
     name: f.name,
     role: f.role,
@@ -121,10 +126,10 @@ function formToBody(f: LayerFormState): Partial<MapLayer> {
     requires_capability: f.requires_capability || undefined,
   }
   if (f.source_kind === 'raster_tiles') {
-    body.url_template = f.url_template || undefined
+    body.url_template = urlTemplate || undefined
     body.style_url = undefined
   } else {
-    body.style_url = f.style_url || undefined
+    body.style_url = styleUrl || undefined
     body.url_template = undefined
   }
   return body
@@ -152,15 +157,38 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
 
   const saveMut = useMutation({
     mutationFn: async () => {
-      const body = formToBody(form)
       if (layer) {
-        // Determine if url/style changed — need If-Match header then.
+        // Build a diff-only patch: compare form values against the original
+        // layer and send only changed fields. key, source_kind, and role are
+        // immutable server-side — always strip them from PATCH bodies.
+        const full = formToBody(form)
+        const original = layerToForm(layer)
+        const patch: Partial<MapLayer> = {}
+
+        if (form.name !== original.name) patch.name = full.name
+        if (form.attribution !== original.attribution) patch.attribution = full.attribution
+        if (form.min_zoom !== original.min_zoom) patch.min_zoom = full.min_zoom
+        if (form.max_zoom !== original.max_zoom) patch.max_zoom = full.max_zoom
+        if (form.default_opacity_pct !== original.default_opacity_pct) patch.default_opacity = full.default_opacity
+        if (form.enabled !== original.enabled) patch.enabled = full.enabled
+        if (form.requires_capability !== original.requires_capability) patch.requires_capability = full.requires_capability
+
+        // URL fields require the If-Match header on change
         const urlChanged =
-          (form.url_template || undefined) !== layer.url_template ||
-          (form.style_url || undefined) !== layer.style_url
-        await patchMapLayer(layer.id, body, urlChanged ? layer.updated_at : undefined)
+          form.url_template.trim() !== (layer.url_template ?? '') ||
+          form.style_url.trim() !== (layer.style_url ?? '')
+        if (urlChanged) {
+          patch.url_template = full.url_template
+          patch.style_url = full.style_url
+        }
+
+        // Only send the request when there is actually something to change.
+        // An empty PATCH body would either 200 no-op or 400 depending on backend.
+        if (Object.keys(patch).length > 0) {
+          await patchMapLayer(layer.id, patch, urlChanged ? layer.updated_at : undefined)
+        }
       } else {
-        await createMapLayer(body)
+        await createMapLayer(formToBody(form))
       }
     },
     onSuccess: () => {
@@ -171,13 +199,31 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
       onClose()
     },
     onError: (err: unknown) => {
-      // 412 / 428 → outdated
+      if (err instanceof ApiError) {
+        // Use structured JSON body for precise discrimination
+        const code = typeof err.json?.error === 'string' ? err.json.error : ''
+        if (err.status === 412 || err.status === 428) {
+          addToast({ type: 'error', title: LABELS.toastOutdated, duration: 0 })
+          qc.invalidateQueries({ queryKey: ['map-layers'] })
+          qc.invalidateQueries({ queryKey: ['admin-map-layers'] })
+          onClose()
+          return
+        }
+        if (code === 'field_immutable') {
+          addToast({ type: 'error', title: LABELS.toastFieldImmutable, duration: 0 })
+          return
+        }
+        if (code === 'private_address_blocked') {
+          addToast({ type: 'error', title: LABELS.toastPrivateAddress, duration: 0 })
+          return
+        }
+        addToast({ type: 'error', title: LABELS.toastError, message: err.body, duration: 0 })
+        return
+      }
+      // Fallback: string-match for non-ApiError throws (network errors etc.)
       const msg = err instanceof Error ? err.message : String(err)
-      if (msg.includes('412') || msg.includes('428') || msg.includes('Outdated')) {
-        addToast({ type: 'error', title: LABELS.toastOutdated, duration: 0 })
-        qc.invalidateQueries({ queryKey: ['map-layers'] })
-      qc.invalidateQueries({ queryKey: ['admin-map-layers'] })
-        onClose()
+      if (msg.includes('field_immutable')) {
+        addToast({ type: 'error', title: LABELS.toastFieldImmutable, duration: 0 })
         return
       }
       addToast({ type: 'error', title: LABELS.toastError, message: msg, duration: 0 })

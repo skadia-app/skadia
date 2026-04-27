@@ -40,6 +40,8 @@ function makeLayer(id: number, name: string): UserMapLayer {
   return {
     id,
     name,
+    role: 'overlay',
+    source_kind: 'raster_tiles',
     url_template: `https://tile-${id}.example.com/{z}/{x}/{y}.png`,
     default_opacity: 1,
     enabled: true,
