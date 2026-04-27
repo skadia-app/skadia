@@ -19,6 +19,13 @@ var (
 	// ErrIPv6ULABlocked is returned when blockPrivateIPs=true and the URL resolves
 	// to an IPv6 ULA address (fc00::/7).
 	ErrIPv6ULABlocked = errors.New("tile-URL on IPv6 ULA blocked")
+	// ErrStyleURLTooLong is returned when style_url exceeds 2048 chars (DB CHECK).
+	ErrStyleURLTooLong = errors.New("style_url too long (max 2048)")
+	// ErrStyleURLEmpty is returned when style_url is required but empty.
+	ErrStyleURLEmpty = errors.New("style_url must not be empty")
+	// ErrStyleURLInvalid is returned when style_url is neither a same-origin
+	// /api/v1/ relative path nor a parseable http(s) URL.
+	ErrStyleURLInvalid = errors.New("style_url must be an http(s) URL or a /api/v1/ relative path")
 )
 
 var (
@@ -101,6 +108,46 @@ func blockPrivateIPLiteral(host string) error {
 	// IPv6 ULA (fc00::/7) — not covered by IsPrivate in all Go versions; double-check.
 	if ip4 := ip.To4(); ip4 == nil && len(ip) == 16 && (ip[0]&0xfe) == 0xfc {
 		return ErrIPv6ULABlocked
+	}
+	return nil
+}
+
+// ValidateStyleURL checks a vector_style / protomaps_offline style document URL.
+// Accepted shapes:
+//   - same-origin relative path beginning with "/api/v1/" (e.g. "/api/v1/tiles/style.json")
+//   - absolute http(s) URL; for blockPrivateIPs=true, IP-literal hosts in the
+//     RFC1918 / loopback / link-local / ULA ranges are rejected (SSRF defense).
+//
+// The 2048-char limit mirrors the DB CHECK constraint.
+func ValidateStyleURL(s string, blockPrivateIPs bool) error {
+	if s == "" {
+		return ErrStyleURLEmpty
+	}
+	if len(s) > 2048 {
+		return ErrStyleURLTooLong
+	}
+	if strings.HasPrefix(s, "/api/v1/") {
+		// Same-origin relative path; must still parse cleanly so admins can't
+		// smuggle "/api/v1/..\\evil" or whitespace through.
+		if _, err := url.Parse(s); err != nil {
+			return fmt.Errorf("style_url parse error: %w", err)
+		}
+		return nil
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return fmt.Errorf("style_url parse error: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return ErrStyleURLInvalid
+	}
+	if u.Host == "" {
+		return ErrStyleURLInvalid
+	}
+	if blockPrivateIPs {
+		if err := blockPrivateIPLiteral(u.Hostname()); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"math"
 	"net/http"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -43,6 +44,16 @@ func (h *Handler) PatchSystemLayerVisibility(w http.ResponseWriter, r *http.Requ
 		if !allowed[k] {
 			httputil.WriteJSON(w, http.StatusBadRequest,
 				mapLayerErrBody("unknown_field", "unknown field: "+k))
+			return
+		}
+	}
+
+	// Validate default_opacity: integer in [0, 100]. JSON numbers decode as
+	// float64; reject non-integer values so SMALLINT cast doesn't truncate.
+	if v, ok := patch["default_opacity"].(float64); ok {
+		if v < 0 || v > 100 || v != math.Trunc(v) {
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+				mapLayerErrBody("invalid_opacity", "default_opacity must be an integer between 0 and 100"))
 			return
 		}
 	}

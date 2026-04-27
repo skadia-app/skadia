@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"math"
 	"math/rand/v2"
 	"net/http"
 	"strconv"
@@ -130,11 +131,13 @@ func (h *Handler) PatchUserMapLayer(w http.ResponseWriter, r *http.Request) {
 		patch["attribution"] = model.SanitizeAttribution(v)
 	}
 	// Validate default_opacity range before reaching the DB CHECK constraint
-	// (which would return 500 instead of a meaningful 422).
+	// (which would return 500 instead of a meaningful 422). JSON numbers all
+	// decode as float64; reject non-integer values so SMALLINT cast doesn't
+	// silently truncate.
 	if v, ok := patch["default_opacity"].(float64); ok {
-		if v < 0 || v > 100 {
+		if v < 0 || v > 100 || v != math.Trunc(v) {
 			httputil.WriteJSON(w, http.StatusUnprocessableEntity,
-				mapLayerErrBody("invalid_opacity", "default_opacity must be between 0 and 100"))
+				mapLayerErrBody("invalid_opacity", "default_opacity must be an integer between 0 and 100"))
 			return
 		}
 	}
@@ -187,8 +190,17 @@ func (h *Handler) BulkSortUserMapLayers(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+	if len(items) == 0 {
+		httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+			mapLayerErrBody("items_required", "at least one item is required"))
+		return
+	}
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
+		// Honor client cancellation: stop retrying if the request context is done.
+		if ctxErr := r.Context().Err(); ctxErr != nil {
+			return
+		}
 		err := h.DB.BulkSortUserMapLayers(r.Context(), uid, items)
 		if err == nil {
 			w.WriteHeader(http.StatusNoContent)

@@ -84,6 +84,57 @@ func TestValidateURLTemplate_SwitchPlaceholder(t *testing.T) {
 	}
 }
 
+func TestValidateStyleURL(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		cases := []string{
+			"/api/v1/tiles/style.json",
+			"https://demotiles.example.org/style.json",
+			"http://tiles.example.com/styles/v1/style.json?key=abc",
+		}
+		for _, s := range cases {
+			if err := model.ValidateStyleURL(s, false); err != nil {
+				t.Errorf("expected valid for %q, got %v", s, err)
+			}
+		}
+	})
+
+	t.Run("rejects empty", func(t *testing.T) {
+		if err := model.ValidateStyleURL("", false); err == nil {
+			t.Error("expected error for empty style_url")
+		}
+	})
+
+	t.Run("rejects too long", func(t *testing.T) {
+		long := "https://example.com/" + strings.Repeat("x", 2050)
+		err := model.ValidateStyleURL(long, false)
+		if err == nil || !strings.Contains(err.Error(), "too long") {
+			t.Errorf("expected too-long error, got %v", err)
+		}
+	})
+
+	t.Run("rejects bad scheme", func(t *testing.T) {
+		if err := model.ValidateStyleURL("ftp://x.example.org/style.json", false); err == nil {
+			t.Error("expected error for ftp scheme")
+		}
+	})
+
+	t.Run("rejects relative non-/api/v1/", func(t *testing.T) {
+		if err := model.ValidateStyleURL("/etc/passwd", false); err == nil {
+			t.Error("expected error for non-/api/v1/ relative path")
+		}
+	})
+
+	t.Run("blocks private IP when flag set", func(t *testing.T) {
+		if err := model.ValidateStyleURL("https://10.0.0.1/style.json", true); err == nil {
+			t.Error("expected private-IP block")
+		}
+		// Same URL passes when blockPrivateIPs=false (admin tier).
+		if err := model.ValidateStyleURL("https://10.0.0.1/style.json", false); err != nil {
+			t.Errorf("admin tier should allow IP literal: %v", err)
+		}
+	})
+}
+
 func TestSanitizeAttribution(t *testing.T) {
 	cases := []struct {
 		name     string

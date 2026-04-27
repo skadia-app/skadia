@@ -2,11 +2,14 @@ package handler
 
 import (
 	"errors"
+	"math"
 	"math/rand/v2"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -65,7 +68,21 @@ func (h *Handler) CreateMapLayer(w http.ResponseWriter, r *http.Request) {
 	m.UpdatedAt = time.Time{}
 
 	if err := validateMapLayerInput(&m); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		// Map specific sentinel errors / well-known prefixes to stable codes
+		// so the frontend can surface targeted messages.
+		code := "invalid_input"
+		status := http.StatusBadRequest
+		switch {
+		case errors.Is(err, model.ErrStyleURLTooLong):
+			code, status = "style_url_too_long", http.StatusUnprocessableEntity
+		case errors.Is(err, model.ErrStyleURLEmpty), errors.Is(err, model.ErrStyleURLInvalid):
+			code, status = "invalid_style_url", http.StatusUnprocessableEntity
+		case errors.Is(err, model.ErrPrivateIPBlocked), errors.Is(err, model.ErrIPv6ULABlocked):
+			code, status = "private_address_blocked", http.StatusUnprocessableEntity
+		case strings.HasPrefix(err.Error(), "requires_capability"):
+			code, status = "invalid_capability", http.StatusUnprocessableEntity
+		}
+		httputil.WriteJSON(w, status, mapLayerErrBody(code, err.Error()))
 		return
 	}
 	if m.Attribution != nil {
@@ -102,11 +119,13 @@ func (h *Handler) PatchMapLayer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate default_opacity range before reaching the DB CHECK constraint
-	// (which would return 500 instead of a meaningful 422).
+	// (which would return 500 instead of a meaningful 422). JSON numbers all
+	// decode as float64; reject non-integer values (e.g. 42.7) up-front because
+	// SMALLINT cast would silently truncate.
 	if v, ok := patch["default_opacity"].(float64); ok {
-		if v < 0 || v > 100 {
+		if v < 0 || v > 100 || v != math.Trunc(v) {
 			httputil.WriteJSON(w, http.StatusUnprocessableEntity,
-				mapLayerErrBody("invalid_opacity", "default_opacity must be between 0 and 100"))
+				mapLayerErrBody("invalid_opacity", "default_opacity must be an integer between 0 and 100"))
 			return
 		}
 	}
@@ -131,10 +150,28 @@ func (h *Handler) PatchMapLayer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Validate style_url is non-empty when present.
-	if v, ok := patch["style_url"].(string); ok && v == "" {
-		httputil.WriteJSON(w, http.StatusBadRequest, mapLayerErrBody("invalid_style_url", "style_url must not be empty"))
-		return
+	// Validate style_url shape when present (length, scheme, same-origin /api/v1/
+	// relative, no private-IP literals for absolute URLs).
+	if v, ok := patch["style_url"].(string); ok {
+		if err := model.ValidateStyleURL(v, false); err != nil {
+			code := "invalid_style_url"
+			if errors.Is(err, model.ErrStyleURLTooLong) {
+				code = "style_url_too_long"
+			}
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
+			return
+		}
+	}
+	// Validate requires_capability against the known capability key set so an
+	// admin typo doesn't permanently capability-block a layer. Empty string is
+	// treated as "no requirement" (the default).
+	if v, ok := patch["requires_capability"].(string); ok && v != "" {
+		if !capabilities.ValidKey(v) {
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+				mapLayerErrBody("invalid_capability",
+					"requires_capability must be one of: "+strings.Join(capabilities.ValidKeysSorted(), ", ")))
+			return
+		}
 	}
 
 	// Custom header — see plan §Concurrent Edit. RFC 7232 If-Match requires ETag semantics
@@ -217,8 +254,19 @@ func (h *Handler) BulkSortMapLayers(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if len(items) == 0 {
+		httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+			mapLayerErrBody("items_required", "at least one item is required"))
+		return
+	}
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
+		// Honor client cancellation: if the context is already done, stop
+		// retrying so we don't return serialization_retry_exhausted on a
+		// request the caller has abandoned.
+		if ctxErr := r.Context().Err(); ctxErr != nil {
+			return
+		}
 		err := h.DB.BulkSortMapLayers(r.Context(), items)
 		if err == nil {
 			w.WriteHeader(http.StatusNoContent)
@@ -297,13 +345,27 @@ func validateMapLayerInput(m *model.MapLayer) error {
 			return err
 		}
 	case "vector_style":
-		if m.StyleURL == nil || *m.StyleURL == "" {
+		if m.StyleURL == nil {
 			return errors.New("style_url required for vector_style")
 		}
+		if err := model.ValidateStyleURL(*m.StyleURL, false); err != nil {
+			return err
+		}
 	case "protomaps_offline":
-		// Both fields are nullable for offline layers.
+		// style_url is optional for offline layers; validate shape if present.
+		if m.StyleURL != nil && *m.StyleURL != "" {
+			if err := model.ValidateStyleURL(*m.StyleURL, false); err != nil {
+				return err
+			}
+		}
 	default:
 		return errors.New("source_kind must be 'raster_tiles', 'vector_style', or 'protomaps_offline'")
+	}
+	if m.RequiresCapability != nil && *m.RequiresCapability != "" {
+		if !capabilities.ValidKey(*m.RequiresCapability) {
+			return errors.New("requires_capability must be one of: " +
+				strings.Join(capabilities.ValidKeysSorted(), ", "))
+		}
 	}
 	return nil
 }

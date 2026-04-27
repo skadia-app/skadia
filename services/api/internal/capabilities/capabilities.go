@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +31,42 @@ type Capabilities struct {
 	// users to specify local filesystem paths for Garmin/Strava imports instead
 	// of being limited to ZIP uploads. False in default/cloud deployments.
 	ImportPathEnabled bool `json:"import_path_enabled"`
+}
+
+// validKeys is the set of JSON tags exported by the Capabilities struct.
+// Built once at init via reflection so map_layers.requires_capability
+// validation cannot drift from the struct shape.
+var validKeys = func() map[string]struct{} {
+	out := make(map[string]struct{})
+	t := reflect.TypeOf(Capabilities{})
+	for i := 0; i < t.NumField(); i++ {
+		tag := t.Field(i).Tag.Get("json")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		if comma := strings.IndexByte(tag, ','); comma >= 0 {
+			tag = tag[:comma]
+		}
+		out[tag] = struct{}{}
+	}
+	return out
+}()
+
+// ValidKey reports whether key is one of the known capability JSON keys.
+func ValidKey(key string) bool {
+	_, ok := validKeys[key]
+	return ok
+}
+
+// ValidKeysSorted returns the known capability keys in alphabetical order.
+// Used for human-readable error messages.
+func ValidKeysSorted() []string {
+	out := make([]string, 0, len(validKeys))
+	for k := range validKeys {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 const cacheTTL = 60 * time.Second
