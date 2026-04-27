@@ -24,7 +24,7 @@ import { fmtDateCompact } from '@/lib/format'
 import { useRouteEditor } from '@/components/route-planner/useRouteEditor'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { SPORT_DEFS, categoryForSport, sportColor } from '@/lib/sportTaxonomy'
-import { buildLayerStyle, expandSwitch, type BaseStyle } from '@/lib/mapStyles'
+import { buildLayerStyle, expandSwitch, opacityPercentToFloat, type BaseStyle } from '@/lib/mapStyles'
 import { mapLayerStackDiff } from '@/lib/mapLayerStackDiff'
 import { useMapLayers } from '@/hooks/useMapLayers'
 import { useCapabilities } from '@/hooks/useCapabilities'
@@ -1005,7 +1005,7 @@ export default function MapPage() {
               id: l.key,
               type: 'raster',
               source: l.key,
-              paint: { 'raster-opacity': (l.default_opacity ?? 100) / 100 },
+              paint: { 'raster-opacity': opacityPercentToFloat(l.default_opacity ?? 100) },
             },
             BEFORE_ID,
           )
@@ -3677,7 +3677,7 @@ function addOverlayLayers(
     })
 
     const lineColor = buildLineColor(filters)
-    const opacity = Math.pow(filters.opacity / 100, 2)
+    const opacity = Math.pow(opacityPercentToFloat(filters.opacity), 2)
     const glowOpacity = opacity * 0.35
 
     // Subtiler Glow-Layer unter den eigentlichen Tracks
@@ -3709,6 +3709,6 @@ function addOverlayLayers(
   } else {
     // Heatmap: 5 gestapelte Glow-Layer — Alpha-Compositing erzeugt natuerliche
     // Helligkeitsunterschiede: viel befahrene Strecken leuchten heller/waermer.
-    addHeatmapGlowLayers(map, tileUrl, filters.heatmapColor, undefined, Math.pow(filters.opacity / 100, 2))
+    addHeatmapGlowLayers(map, tileUrl, filters.heatmapColor, undefined, Math.pow(opacityPercentToFloat(filters.opacity), 2))
   }
 }
