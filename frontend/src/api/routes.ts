@@ -23,7 +23,8 @@ export interface RouteSegment {
   geometry?: GeoJSON.LineString   // BRouter or offroad polyline
   control_points: [number, number][] // Offroad: shape points
   smooth: boolean                 // Catmull-Rom spline on/off
-  distance_m: number
+  distance_m: number              // network-only (routed edges, without approach)
+  total_distance_m?: number       // approach-inclusive (= ElevationProfile[last].DistM); absent for BRouter/offroad
   elevation_gain: number          // DEM-based
   elevation_loss: number
   elevation_estimated?: boolean   // true for offroad segments (no DEM lookup)

@@ -179,6 +179,8 @@ function buildSegmentFromFeature(
   const props = feature?.properties ?? {}
   // BadRouter uses distance_m/ascent_m/descent_m, BRouter uses track-length/filtered ascend/descend
   const distance = Number(props['distance_m'] ?? props['track-length']) || 0
+  // total_distance_m is approach-inclusive (set by BadRouter addApproach); absent on BRouter/offroad.
+  const totalDistanceM = props['total_distance_m'] != null ? Number(props['total_distance_m']) : undefined
   const gain = Number(props['ascent_m'] ?? props['filtered ascend']) || 0
   const loss = Number(props['descent_m'] ?? props['filtered descend']) || 0
 
@@ -217,6 +219,7 @@ function buildSegmentFromFeature(
     control_points: isFallback ? [from.latlng, to.latlng] : [],
     smooth: true,
     distance_m: distance,
+    total_distance_m: totalDistanceM,
     elevation_gain: gain,
     elevation_loss: loss,
     approach_from: approachFrom,
@@ -1834,7 +1837,9 @@ export function useRoutePlanner() {
   // ── Totals ──────────────────────────────────────────────────────────────────
 
   const totals = {
-    distance_m: state.segments.reduce((acc, seg) => acc + seg.distance_m, 0),
+    // Use approach-inclusive total_distance_m when available (BadRouter); fall back to
+    // network-only distance_m for BRouter and offroad segments (Spec §5.5 / Finding #17).
+    distance_m: state.segments.reduce((acc, seg) => acc + (seg.total_distance_m ?? seg.distance_m), 0),
     elevation_gain: state.segments.reduce(
       (acc, seg) => acc + seg.elevation_gain,
       0,
