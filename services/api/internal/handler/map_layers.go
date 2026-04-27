@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -81,6 +82,8 @@ func (h *Handler) CreateMapLayer(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, model.ErrPrivateIPBlocked), errors.Is(err, model.ErrIPv6ULABlocked),
 			errors.Is(err, model.ErrBlockedHostname):
 			code = "private_address_blocked"
+		case errors.Is(err, model.ErrHostResolutionFailed):
+			code = "host_resolution_failed"
 		case strings.HasPrefix(err.Error(), "name_required"):
 			code = "name_required"
 		case strings.HasPrefix(err.Error(), "name_too_long"):
@@ -169,11 +172,19 @@ func (h *Handler) PatchMapLayer(w http.ResponseWriter, r *http.Request) {
 	}
 	// Validate URL template if present.
 	if v, ok := patch["url_template"].(string); ok {
-		if err := model.ValidateURLTemplate(v, false); err != nil {
+		// Admin tier: SSRF-block enabled. Admins should not save system layers
+		// pointing at internal addresses (localhost, postgres, RFC1918) because
+		// the URL is then served to every user via GET /map-layers — the seeded
+		// `local` system layer uses a relative `/api/v1/...` path, so legitimate
+		// internal references don't need IP literals.
+		if err := model.ValidateURLTemplate(v, true); err != nil {
 			code := "invalid_url"
-			if errors.Is(err, model.ErrPrivateIPBlocked) || errors.Is(err, model.ErrIPv6ULABlocked) ||
-				errors.Is(err, model.ErrBlockedHostname) {
+			switch {
+			case errors.Is(err, model.ErrPrivateIPBlocked), errors.Is(err, model.ErrIPv6ULABlocked),
+				errors.Is(err, model.ErrBlockedHostname):
 				code = "private_address_blocked"
+			case errors.Is(err, model.ErrHostResolutionFailed):
+				code = "host_resolution_failed"
 			}
 			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
 			return
@@ -182,7 +193,8 @@ func (h *Handler) PatchMapLayer(w http.ResponseWriter, r *http.Request) {
 	// Validate style_url shape when present (length, scheme, same-origin /api/v1/
 	// relative, no private-IP literals for absolute URLs).
 	if v, ok := patch["style_url"].(string); ok {
-		if err := model.ValidateStyleURL(v, false); err != nil {
+		// Admin tier: SSRF-block enabled (see url_template comment above).
+		if err := model.ValidateStyleURL(v, true); err != nil {
 			code := "invalid_style_url"
 			switch {
 			case errors.Is(err, model.ErrStyleURLTooLong):
@@ -190,19 +202,33 @@ func (h *Handler) PatchMapLayer(w http.ResponseWriter, r *http.Request) {
 			case errors.Is(err, model.ErrPrivateIPBlocked), errors.Is(err, model.ErrIPv6ULABlocked),
 				errors.Is(err, model.ErrBlockedHostname):
 				code = "private_address_blocked"
+			case errors.Is(err, model.ErrHostResolutionFailed):
+				code = "host_resolution_failed"
 			}
 			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
 			return
 		}
 	}
 	// Validate requires_capability against the known capability key set so an
-	// admin typo doesn't permanently capability-block a layer. Empty string is
-	// treated as "no requirement" (the default).
-	if v, ok := patch["requires_capability"].(string); ok && v != "" {
-		if !capabilities.ValidKey(v) {
+	// admin typo doesn't permanently capability-block a layer. Empty string and
+	// JSON null are treated as "no requirement" (clearing). Other types must
+	// be rejected explicitly — otherwise a `false` / number / object would slip
+	// past the type-assertion and get silently dropped by the field allow-list.
+	if raw, present := patch["requires_capability"]; present {
+		switch v := raw.(type) {
+		case nil:
+			// null → clear the requirement.
+		case string:
+			if v != "" && !capabilities.ValidKey(v) {
+				httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+					mapLayerErrBody("invalid_capability",
+						"requires_capability must be one of: "+strings.Join(capabilities.ValidKeysSorted(), ", ")))
+				return
+			}
+		default:
 			httputil.WriteJSON(w, http.StatusUnprocessableEntity,
-				mapLayerErrBody("invalid_capability",
-					"requires_capability must be one of: "+strings.Join(capabilities.ValidKeysSorted(), ", ")))
+				mapLayerErrBody("invalid_capability_type",
+					"requires_capability must be a string or null"))
 			return
 		}
 	}
@@ -345,9 +371,11 @@ func validateName(name string) (string, string, string) {
 	if trimmed == "" {
 		return "", "name_required", "name must not be empty"
 	}
-	// Length is checked on the original string (including surrounding whitespace
-	// the user typed) so the limit matches what they will see in the UI.
-	if len(name) > mapLayerNameMaxLen {
+	// Length is checked in characters (runes), not bytes, to match the DB
+	// CHECK constraint (Postgres length() counts characters). Without this,
+	// multibyte names (Cyrillic, CJK, emoji) ≤ 200 chars but > 200 bytes would
+	// be rejected here while the DB would accept them.
+	if utf8.RuneCountInString(name) > mapLayerNameMaxLen {
 		return "", "name_too_long", fmt.Sprintf("name must be at most %d characters", mapLayerNameMaxLen)
 	}
 	return trimmed, "", ""
@@ -472,20 +500,23 @@ func validateMapLayerInput(m *model.MapLayer) error {
 		if m.URLTemplate == nil {
 			return errors.New("url_template required for raster_tiles")
 		}
-		if err := model.ValidateURLTemplate(*m.URLTemplate, false); err != nil {
+		// Admin tier: SSRF-block enabled — system layers must not reference
+		// internal addresses; relative /api/v1/ paths are still accepted by
+		// the validators for legitimate internal endpoints.
+		if err := model.ValidateURLTemplate(*m.URLTemplate, true); err != nil {
 			return err
 		}
 	case "vector_style":
 		if m.StyleURL == nil {
 			return errors.New("style_url required for vector_style")
 		}
-		if err := model.ValidateStyleURL(*m.StyleURL, false); err != nil {
+		if err := model.ValidateStyleURL(*m.StyleURL, true); err != nil {
 			return err
 		}
 	case "protomaps_offline":
 		// style_url is optional for offline layers; validate shape if present.
 		if m.StyleURL != nil && *m.StyleURL != "" {
-			if err := model.ValidateStyleURL(*m.StyleURL, false); err != nil {
+			if err := model.ValidateStyleURL(*m.StyleURL, true); err != nil {
 				return err
 			}
 		}

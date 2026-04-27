@@ -31,6 +31,13 @@ var (
 	// ErrBlockedHostname is returned when blockPrivateIPs=true and the hostname
 	// is in the blocked-hostname list (e.g. localhost, postgres, internal service names).
 	ErrBlockedHostname = errors.New("tile-URL hostname is blocked")
+	// ErrHostResolutionFailed is returned when DNS resolution fails for a
+	// hostname during the SSRF check. The original net.DNSError (or other
+	// resolver error) is wrapped — callers can use errors.Is to detect this
+	// sentinel and surface a distinct "host_resolution_failed" code rather than
+	// conflating it with a syntactically invalid URL. The validator still
+	// fails closed (rejects the URL) for security.
+	ErrHostResolutionFailed = errors.New("hostname resolution failed")
 )
 
 // blockedHostnames is an exact-match list of hostnames that must never be the
@@ -82,8 +89,12 @@ var (
 )
 
 // ValidateURLTemplate checks placeholder presence, scheme, length, and optionally
-// blocks private/loopback IP literals (SSRF defense for user-submitted URLs).
-// Set blockPrivateIPs=true for user_map_layers, false for admin-managed map_layers.
+// blocks private/loopback IP literals (SSRF defense). Set blockPrivateIPs=true
+// for any URL persisted to the database — both user_map_layers AND admin-managed
+// map_layers — because system layers are served back to every user. Internal
+// references (e.g. own backend endpoints) belong on relative /api/v1/ paths,
+// not on absolute internal-IP/hostname URLs. blockPrivateIPs=false remains
+// available for tests / dry-run paths only.
 func ValidateURLTemplate(tpl string, blockPrivateIPs bool) error {
 	if len(tpl) > 2048 {
 		return errors.New("url_template too long (max 2048)")
@@ -183,10 +194,11 @@ func blockPrivateHost(host string) error {
 	defer cancel()
 	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
-		// Resolution failed (NXDOMAIN, timeout, network down). Don't synthesise a
-		// "private_address_blocked" error — surface a generic resolution error so
-		// the caller can show a non-misleading message.
-		return fmt.Errorf("hostname resolution failed: %w", err)
+		// Resolution failed (NXDOMAIN, timeout, network down). Fail closed
+		// (reject the URL) but tag with ErrHostResolutionFailed so handlers can
+		// surface a distinct "host_resolution_failed" code instead of the
+		// generic "invalid_url".
+		return fmt.Errorf("%w: %w", ErrHostResolutionFailed, err)
 	}
 	for _, a := range addrs {
 		if err := checkIPBlocked(a.IP); err != nil {
