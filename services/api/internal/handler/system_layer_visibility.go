@@ -2,7 +2,6 @@ package handler
 
 import (
 	"errors"
-	"math"
 	"net/http"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -48,12 +47,11 @@ func (h *Handler) PatchSystemLayerVisibility(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// Validate default_opacity: integer in [0, 100]. JSON numbers decode as
-	// float64; reject non-integer values so SMALLINT cast doesn't truncate.
+	// Validate default_opacity via the shared helper so the rules don't drift
+	// between system-visibility and map-layer handlers.
 	if v, ok := patch["default_opacity"].(float64); ok {
-		if v < 0 || v > 100 || v != math.Trunc(v) {
-			httputil.WriteJSON(w, http.StatusUnprocessableEntity,
-				mapLayerErrBody("invalid_opacity", "default_opacity must be an integer between 0 and 100"))
+		if code, msg := validateOpacityFloat(v); code != "" {
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, msg))
 			return
 		}
 	}
