@@ -1,6 +1,7 @@
 package model_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -133,6 +134,67 @@ func TestValidateStyleURL(t *testing.T) {
 			t.Errorf("admin tier should allow IP literal: %v", err)
 		}
 	})
+}
+
+// TestValidateURLTemplate_LocalhostHostname verifies the hostname-blocklist
+// short-circuit: even when DNS would lie, "localhost" by name must be rejected
+// when blockPrivateIPs=true.
+func TestValidateURLTemplate_LocalhostHostname(t *testing.T) {
+	cases := []string{
+		"https://localhost/{z}/{x}/{y}",
+		"https://LOCALHOST/{z}/{x}/{y}", // case-insensitive
+		"https://localhost.localdomain/{z}/{x}/{y}",
+		"https://postgres/{z}/{x}/{y}",
+		"https://api/{z}/{x}/{y}",
+		"https://garage/{z}/{x}/{y}",
+	}
+	for _, tpl := range cases {
+		if err := model.ValidateURLTemplate(tpl, true); err == nil {
+			t.Errorf("expected hostname block for %s, got nil", tpl)
+		}
+		// Admin tier (blockPrivateIPs=false) still allows these — they are
+		// intentionally reachable from the server side.
+		if err := model.ValidateURLTemplate(tpl, false); err != nil {
+			t.Errorf("admin tier should not block %s: %v", tpl, err)
+		}
+	}
+}
+
+// TestValidateURLTemplate_HostnameResolvesPrivate verifies DNS-based SSRF
+// blocking: a hostname whose A record points into a private range must be
+// rejected. We use the public 127.0.0.1.nip.io wildcard DNS service which
+// resolves to 127.0.0.1. If DNS is unavailable the test will fail open with
+// a generic resolution error — accept either as a pass to avoid flakiness in
+// sandboxed CI environments without network access.
+func TestValidateURLTemplate_HostnameResolvesPrivate(t *testing.T) {
+	tpl := "https://127.0.0.1.nip.io/{z}/{x}/{y}"
+	err := model.ValidateURLTemplate(tpl, true)
+	if err == nil {
+		t.Fatalf("expected DNS-resolves-to-private block, got nil")
+	}
+	// Either the private-IP sentinel (DNS worked) or a resolution-failed wrap
+	// (no DNS in test env) is acceptable here.
+	if !errors.Is(err, model.ErrPrivateIPBlocked) &&
+		!strings.Contains(err.Error(), "hostname resolution failed") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestValidateStyleURL_LocalhostHostname mirrors the URL-template hostname
+// block for the style_url validator.
+func TestValidateStyleURL_LocalhostHostname(t *testing.T) {
+	cases := []string{
+		"https://localhost/style.json",
+		"https://postgres/style.json",
+	}
+	for _, s := range cases {
+		if err := model.ValidateStyleURL(s, true); err == nil {
+			t.Errorf("expected hostname block for %s, got nil", s)
+		}
+		if err := model.ValidateStyleURL(s, false); err != nil {
+			t.Errorf("admin tier should not block %s: %v", s, err)
+		}
+	}
 }
 
 func TestSanitizeAttribution(t *testing.T) {

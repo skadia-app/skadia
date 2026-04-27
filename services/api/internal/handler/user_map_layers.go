@@ -2,7 +2,6 @@ package handler
 
 import (
 	"errors"
-	"math"
 	"math/rand/v2"
 	"net/http"
 	"strconv"
@@ -42,16 +41,18 @@ func (h *Handler) CreateUserMapLayer(w http.ResponseWriter, r *http.Request) {
 	}
 	m.UserID = uid // always set from context — never trust the body
 
-	if m.Name == "" {
-		httputil.WriteJSON(w, http.StatusBadRequest,
-			mapLayerErrBody("name_required", "name must not be empty"))
+	trimmed, code, msg := validateName(m.Name)
+	if code != "" {
+		httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, msg))
 		return
 	}
+	m.Name = trimmed
 	// blockPrivateIPs=true: user-submitted URLs must not target internal services.
 	if err := model.ValidateURLTemplate(m.URLTemplate, true); err != nil {
 		code := "invalid_url"
 		// Propagate the specific error code so the client can show the right message.
-		if errors.Is(err, model.ErrPrivateIPBlocked) || errors.Is(err, model.ErrIPv6ULABlocked) {
+		if errors.Is(err, model.ErrPrivateIPBlocked) || errors.Is(err, model.ErrIPv6ULABlocked) ||
+			errors.Is(err, model.ErrBlockedHostname) {
 			code = "private_address_blocked"
 		}
 		httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
@@ -59,7 +60,27 @@ func (h *Handler) CreateUserMapLayer(w http.ResponseWriter, r *http.Request) {
 	}
 	if m.DefaultOpacity < 0 || m.DefaultOpacity > 100 {
 		httputil.WriteJSON(w, http.StatusUnprocessableEntity,
-			mapLayerErrBody("invalid_opacity", "default_opacity must be between 0 and 100"))
+			mapLayerErrBody("invalid_opacity", "default_opacity must be an integer between 0 and 100"))
+		return
+	}
+	if m.MinZoom != nil && (*m.MinZoom < mapLayerMinZoom || *m.MinZoom > mapLayerMaxZoom) {
+		httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+			mapLayerErrBody("invalid_zoom_range", "min_zoom must be between 0 and 24"))
+		return
+	}
+	if m.MaxZoom != nil && (*m.MaxZoom < mapLayerMinZoom || *m.MaxZoom > mapLayerMaxZoom) {
+		httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+			mapLayerErrBody("invalid_zoom_range", "max_zoom must be between 0 and 24"))
+		return
+	}
+	if m.MinZoom != nil && m.MaxZoom != nil && *m.MinZoom > *m.MaxZoom {
+		httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+			mapLayerErrBody("invalid_zoom_range", "min_zoom must be <= max_zoom"))
+		return
+	}
+	if m.SortOrder < -mapLayerSortOrderLimit || m.SortOrder > mapLayerSortOrderLimit {
+		httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+			mapLayerErrBody("invalid_sort_order", "sort_order out of allowed range"))
 		return
 	}
 	if m.Attribution != nil {
@@ -120,7 +141,8 @@ func (h *Handler) PatchUserMapLayer(w http.ResponseWriter, r *http.Request) {
 	if v, ok := patch["url_template"].(string); ok {
 		if err := model.ValidateURLTemplate(v, true); err != nil {
 			code := "invalid_url"
-			if errors.Is(err, model.ErrPrivateIPBlocked) || errors.Is(err, model.ErrIPv6ULABlocked) {
+			if errors.Is(err, model.ErrPrivateIPBlocked) || errors.Is(err, model.ErrIPv6ULABlocked) ||
+				errors.Is(err, model.ErrBlockedHostname) {
 				code = "private_address_blocked"
 			}
 			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
@@ -130,22 +152,36 @@ func (h *Handler) PatchUserMapLayer(w http.ResponseWriter, r *http.Request) {
 	if v, ok := patch["attribution"].(string); ok {
 		patch["attribution"] = model.SanitizeAttribution(v)
 	}
+	// Validate name length when present.
+	if v, ok := patch["name"].(string); ok {
+		trimmed, code, msg := validateName(v)
+		if code != "" {
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, msg))
+			return
+		}
+		patch["name"] = trimmed
+	}
 	// Validate default_opacity range before reaching the DB CHECK constraint
 	// (which would return 500 instead of a meaningful 422). JSON numbers all
 	// decode as float64; reject non-integer values so SMALLINT cast doesn't
 	// silently truncate.
 	if v, ok := patch["default_opacity"].(float64); ok {
-		if v < 0 || v > 100 || v != math.Trunc(v) {
-			httputil.WriteJSON(w, http.StatusUnprocessableEntity,
-				mapLayerErrBody("invalid_opacity", "default_opacity must be an integer between 0 and 100"))
+		if code, msg := validateOpacityFloat(v); code != "" {
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, msg))
 			return
 		}
+	}
+	// Validate min_zoom / max_zoom / sort_order ranges (clamped to MapLibre's 0..24
+	// for zoom; bounded INTEGER range for sort_order).
+	if code, msg := validateZoomAndSort(patch); code != "" {
+		httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, msg))
+		return
 	}
 
 	patchErr := h.DB.UpdateUserMapLayer(r.Context(), uid, id, patch)
 	switch {
 	case errors.Is(patchErr, database.ErrNotFound):
-		http.NotFound(w, r)
+		httputil.WriteJSON(w, http.StatusNotFound, mapLayerErrBody("not_found", "map layer not found"))
 	case errors.Is(patchErr, database.ErrDuplicateName):
 		httputil.WriteJSON(w, http.StatusConflict,
 			mapLayerErrBody("duplicate_name", "you already have a layer with this name"))
@@ -171,7 +207,7 @@ func (h *Handler) DeleteUserMapLayer(w http.ResponseWriter, r *http.Request) {
 	delErr := h.DB.DeleteUserMapLayer(r.Context(), uid, id)
 	switch {
 	case errors.Is(delErr, database.ErrNotFound):
-		http.NotFound(w, r)
+		httputil.WriteJSON(w, http.StatusNotFound, mapLayerErrBody("not_found", "map layer not found"))
 	case delErr != nil:
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
 	default:

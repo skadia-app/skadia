@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"net/http"
@@ -69,20 +70,29 @@ func (h *Handler) CreateMapLayer(w http.ResponseWriter, r *http.Request) {
 
 	if err := validateMapLayerInput(&m); err != nil {
 		// Map specific sentinel errors / well-known prefixes to stable codes
-		// so the frontend can surface targeted messages.
+		// so the frontend can surface targeted messages. All validation
+		// failures use the structured 422 envelope (no RFC7807 here).
 		code := "invalid_input"
-		status := http.StatusBadRequest
 		switch {
 		case errors.Is(err, model.ErrStyleURLTooLong):
-			code, status = "style_url_too_long", http.StatusUnprocessableEntity
+			code = "style_url_too_long"
 		case errors.Is(err, model.ErrStyleURLEmpty), errors.Is(err, model.ErrStyleURLInvalid):
-			code, status = "invalid_style_url", http.StatusUnprocessableEntity
-		case errors.Is(err, model.ErrPrivateIPBlocked), errors.Is(err, model.ErrIPv6ULABlocked):
-			code, status = "private_address_blocked", http.StatusUnprocessableEntity
+			code = "invalid_style_url"
+		case errors.Is(err, model.ErrPrivateIPBlocked), errors.Is(err, model.ErrIPv6ULABlocked),
+			errors.Is(err, model.ErrBlockedHostname):
+			code = "private_address_blocked"
+		case strings.HasPrefix(err.Error(), "name_required"):
+			code = "name_required"
+		case strings.HasPrefix(err.Error(), "name_too_long"):
+			code = "name_too_long"
+		case strings.HasPrefix(err.Error(), "invalid_zoom_range"):
+			code = "invalid_zoom_range"
+		case strings.HasPrefix(err.Error(), "invalid_sort_order"):
+			code = "invalid_sort_order"
 		case strings.HasPrefix(err.Error(), "requires_capability"):
-			code, status = "invalid_capability", http.StatusUnprocessableEntity
+			code = "invalid_capability"
 		}
-		httputil.WriteJSON(w, status, mapLayerErrBody(code, err.Error()))
+		httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
 		return
 	}
 	if m.Attribution != nil {
@@ -123,11 +133,25 @@ func (h *Handler) PatchMapLayer(w http.ResponseWriter, r *http.Request) {
 	// decode as float64; reject non-integer values (e.g. 42.7) up-front because
 	// SMALLINT cast would silently truncate.
 	if v, ok := patch["default_opacity"].(float64); ok {
-		if v < 0 || v > 100 || v != math.Trunc(v) {
-			httputil.WriteJSON(w, http.StatusUnprocessableEntity,
-				mapLayerErrBody("invalid_opacity", "default_opacity must be an integer between 0 and 100"))
+		if code, msg := validateOpacityFloat(v); code != "" {
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, msg))
 			return
 		}
+	}
+	// Validate name length when present.
+	if v, ok := patch["name"].(string); ok {
+		trimmed, code, msg := validateName(v)
+		if code != "" {
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, msg))
+			return
+		}
+		patch["name"] = trimmed
+	}
+	// Validate min_zoom / max_zoom / sort_order ranges (clamps to MapLibre's 0..24
+	// for zoom; bounded INTEGER range for sort_order).
+	if code, msg := validateZoomAndSort(patch); code != "" {
+		httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, msg))
+		return
 	}
 
 	// Reject attempts to mutate immutable identity fields. Changing key would
@@ -146,7 +170,12 @@ func (h *Handler) PatchMapLayer(w http.ResponseWriter, r *http.Request) {
 	// Validate URL template if present.
 	if v, ok := patch["url_template"].(string); ok {
 		if err := model.ValidateURLTemplate(v, false); err != nil {
-			httputil.WriteJSON(w, http.StatusBadRequest, mapLayerErrBody("invalid_url", err.Error()))
+			code := "invalid_url"
+			if errors.Is(err, model.ErrPrivateIPBlocked) || errors.Is(err, model.ErrIPv6ULABlocked) ||
+				errors.Is(err, model.ErrBlockedHostname) {
+				code = "private_address_blocked"
+			}
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
 			return
 		}
 	}
@@ -155,8 +184,12 @@ func (h *Handler) PatchMapLayer(w http.ResponseWriter, r *http.Request) {
 	if v, ok := patch["style_url"].(string); ok {
 		if err := model.ValidateStyleURL(v, false); err != nil {
 			code := "invalid_style_url"
-			if errors.Is(err, model.ErrStyleURLTooLong) {
+			switch {
+			case errors.Is(err, model.ErrStyleURLTooLong):
 				code = "style_url_too_long"
+			case errors.Is(err, model.ErrPrivateIPBlocked), errors.Is(err, model.ErrIPv6ULABlocked),
+				errors.Is(err, model.ErrBlockedHostname):
+				code = "private_address_blocked"
 			}
 			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
 			return
@@ -203,7 +236,7 @@ func (h *Handler) PatchMapLayer(w http.ResponseWriter, r *http.Request) {
 	patchErr := h.DB.UpdateMapLayer(r.Context(), id, patch, ifMatch)
 	switch {
 	case errors.Is(patchErr, database.ErrNotFound):
-		http.NotFound(w, r)
+		httputil.WriteJSON(w, http.StatusNotFound, mapLayerErrBody("not_found", "map layer not found"))
 	case errors.Is(patchErr, database.ErrDuplicateName):
 		httputil.WriteJSON(w, http.StatusConflict, mapLayerErrBody("duplicate_key", "a layer with this key already exists"))
 	case errors.Is(patchErr, database.ErrURLSourceKindMismatch):
@@ -235,7 +268,7 @@ func (h *Handler) DeleteMapLayer(w http.ResponseWriter, r *http.Request) {
 	delErr := h.DB.DeleteMapLayer(r.Context(), id)
 	switch {
 	case errors.Is(delErr, database.ErrNotFound):
-		http.NotFound(w, r)
+		httputil.WriteJSON(w, http.StatusNotFound, mapLayerErrBody("not_found", "map layer not found"))
 	case errors.Is(delErr, database.ErrSystemLayerImmutable):
 		httputil.WriteJSON(w, http.StatusConflict,
 			mapLayerErrBody("system_layer_immutable", "system layers cannot be deleted; toggle 'enabled' instead"))
@@ -293,8 +326,91 @@ func (h *Handler) BulkSortMapLayers(w http.ResponseWriter, r *http.Request) {
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
+// Field bounds applied uniformly to admin + user map layers.
+const (
+	mapLayerNameMaxLen     = 200
+	mapLayerMinZoom        = 0
+	mapLayerMaxZoom        = 24
+	mapLayerSortOrderLimit = 2_000_000_000
+)
+
 func mapLayerErrBody(code, msg string) map[string]any {
 	return map[string]any{"error": code, "message": msg}
+}
+
+// validateName enforces non-empty + max length on a layer name. Pass the trimmed
+// string back via the *string so the caller can persist the cleaned value.
+func validateName(name string) (string, string, string) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return "", "name_required", "name must not be empty"
+	}
+	// Length is checked on the original string (including surrounding whitespace
+	// the user typed) so the limit matches what they will see in the UI.
+	if len(name) > mapLayerNameMaxLen {
+		return "", "name_too_long", fmt.Sprintf("name must be at most %d characters", mapLayerNameMaxLen)
+	}
+	return trimmed, "", ""
+}
+
+// validateOpacityFloat checks a JSON-decoded opacity value: integer in [0,100].
+// Returns ("", "") on success; otherwise (errorCode, errorMessage).
+func validateOpacityFloat(v float64) (string, string) {
+	if v < 0 || v > 100 || v != math.Trunc(v) {
+		return "invalid_opacity", "default_opacity must be an integer between 0 and 100"
+	}
+	return "", ""
+}
+
+// validateZoomAndSort validates min_zoom, max_zoom, and sort_order from a JSON
+// patch / create map. Each field is optional; missing keys are skipped. The
+// helper enforces 0..24 zoom range, min<=max, and a generous sort_order bound to
+// avoid raw 500s from the INTEGER column overflow.
+func validateZoomAndSort(p map[string]any) (string, string) {
+	var (
+		minZ, maxZ     *int64
+		minSet, maxSet bool
+	)
+	if v, ok := p["min_zoom"]; ok && v != nil {
+		f, fok := v.(float64)
+		if !fok || f != math.Trunc(f) {
+			return "invalid_zoom_range", "min_zoom must be an integer"
+		}
+		if f < mapLayerMinZoom || f > mapLayerMaxZoom {
+			return "invalid_zoom_range",
+				fmt.Sprintf("min_zoom must be between %d and %d", mapLayerMinZoom, mapLayerMaxZoom)
+		}
+		i := int64(f)
+		minZ = &i
+		minSet = true
+	}
+	if v, ok := p["max_zoom"]; ok && v != nil {
+		f, fok := v.(float64)
+		if !fok || f != math.Trunc(f) {
+			return "invalid_zoom_range", "max_zoom must be an integer"
+		}
+		if f < mapLayerMinZoom || f > mapLayerMaxZoom {
+			return "invalid_zoom_range",
+				fmt.Sprintf("max_zoom must be between %d and %d", mapLayerMinZoom, mapLayerMaxZoom)
+		}
+		i := int64(f)
+		maxZ = &i
+		maxSet = true
+	}
+	if minSet && maxSet && *minZ > *maxZ {
+		return "invalid_zoom_range", "min_zoom must be <= max_zoom"
+	}
+	if v, ok := p["sort_order"]; ok && v != nil {
+		f, fok := v.(float64)
+		if !fok || f != math.Trunc(f) {
+			return "invalid_sort_order", "sort_order must be an integer"
+		}
+		if f < -mapLayerSortOrderLimit || f > mapLayerSortOrderLimit {
+			return "invalid_sort_order",
+				fmt.Sprintf("sort_order must be between %d and %d", -mapLayerSortOrderLimit, mapLayerSortOrderLimit)
+		}
+	}
+	return "", ""
 }
 
 func containsKey(m map[string]any, k string) bool {
@@ -327,14 +443,29 @@ func mapLayerPatchFieldAllowed(field string) bool {
 
 // validateMapLayerInput enforces required fields per source_kind and basic role validation.
 func validateMapLayerInput(m *model.MapLayer) error {
-	if m.Name == "" {
-		return errors.New("name required")
+	trimmed, code, msg := validateName(m.Name)
+	if code != "" {
+		// Caller maps the leading token of the error to a stable code.
+		return errors.New(code + ": " + msg)
 	}
+	m.Name = trimmed
 	if m.Role != "base" && m.Role != "overlay" {
 		return errors.New("role must be 'base' or 'overlay'")
 	}
 	if m.DefaultOpacity < 0 || m.DefaultOpacity > 100 {
 		return errors.New("default_opacity must be between 0 and 100")
+	}
+	if m.MinZoom != nil && (*m.MinZoom < mapLayerMinZoom || *m.MinZoom > mapLayerMaxZoom) {
+		return fmt.Errorf("invalid_zoom_range: min_zoom must be between %d and %d", mapLayerMinZoom, mapLayerMaxZoom)
+	}
+	if m.MaxZoom != nil && (*m.MaxZoom < mapLayerMinZoom || *m.MaxZoom > mapLayerMaxZoom) {
+		return fmt.Errorf("invalid_zoom_range: max_zoom must be between %d and %d", mapLayerMinZoom, mapLayerMaxZoom)
+	}
+	if m.MinZoom != nil && m.MaxZoom != nil && *m.MinZoom > *m.MaxZoom {
+		return errors.New("invalid_zoom_range: min_zoom must be <= max_zoom")
+	}
+	if m.SortOrder < -mapLayerSortOrderLimit || m.SortOrder > mapLayerSortOrderLimit {
+		return fmt.Errorf("invalid_sort_order: sort_order must be between %d and %d", -mapLayerSortOrderLimit, mapLayerSortOrderLimit)
 	}
 	switch m.SourceKind {
 	case "raster_tiles":
