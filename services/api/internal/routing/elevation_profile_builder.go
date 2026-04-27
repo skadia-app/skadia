@@ -183,8 +183,12 @@ func applyProfileToCoords(coords []LatLonEle, profile []ElevationPoint) {
 		if eleValid {
 			coords[i].Ele = InterpolateProfileEleAt(profile, distAccum)
 			coords[i].EleValid = true
+		} else {
+			// Spec §3.2: Coord.Ele = 0.0 is the sentinel for missing/NoData elevation.
+			// Zero explicitly to prevent a linear-interpolated carry-over from
+			// extractPartialEdgeGeometry leaking through with EleValid=false.
+			coords[i].Ele = 0.0
 		}
-		// else: leave Ele unchanged, EleValid stays false (zero value).
 	}
 }
 

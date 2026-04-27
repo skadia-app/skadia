@@ -172,11 +172,59 @@ func TestApplyProfileToCoords_OverwritesEleInPlace(t *testing.T) {
 	assertInDelta(t, 300.0, coords[2].Ele, 0.5, "coords[2].Ele")
 }
 
+// TestApplyProfileToCoords_NilEleM_ZerosCoordEle verifies that when a profile
+// sample has EleM == nil (NoData / DEM gap), the affected coords get
+// Ele = 0.0 (Spec §3.2 sentinel) and EleValid = false — not a linear-interpolated
+// carry-over from a prior geometry-extraction pass.
+func TestApplyProfileToCoords_NilEleM_ZerosCoordEle(t *testing.T) {
+	// Profile: valid at dist=0 (EleM=100m), nil at dist=222.64m (DEM gap).
+	// Coords pre-populated with Ele=999 to expose any carry-over bug.
+	coords := []LatLonEle{
+		{Lat: 0.0, Lon: 0.0, Ele: 999},   // dist ≈ 0       — clamps to profile[0], EleM=100 → VALID
+		{Lat: 0.001, Lon: 0.0, Ele: 999}, // dist ≈ 111.32m — between valid and nil → INVALID (zeroed)
+		{Lat: 0.002, Lon: 0.0, Ele: 999}, // dist ≈ 222.64m — clamps to profile[1], EleM=nil → INVALID (zeroed)
+	}
+	profile := []ElevationPoint{
+		{DistM: 0, EleM: PtrEle(100)},
+		{DistM: 222.64, EleM: nil}, // DEM NoData at end
+	}
+	applyProfileToCoords(coords, profile)
+
+	// coords[0]: at dist=0, profile[0].EleM=100 → valid, Ele must be ~100.
+	if !coords[0].EleValid {
+		t.Errorf("coords[0].EleValid: want true (profile[0].EleM is non-nil), got false")
+	}
+	assertInDelta(t, 100.0, coords[0].Ele, 0.5, "coords[0].Ele")
+
+	// coords[1]: between EleM=100 and nil → nearestProfileSampleValid=false → zeroed.
+	if coords[1].EleValid {
+		t.Errorf("coords[1].EleValid: want false (nil EleM bracket), got true")
+	}
+	if coords[1].Ele != 0.0 {
+		t.Errorf("coords[1].Ele: want 0.0 (Spec §3.2 sentinel), got %.4f", coords[1].Ele)
+	}
+
+	// coords[2]: exactly at nil sample → clamped to profile[last].EleM=nil → zeroed.
+	if coords[2].EleValid {
+		t.Errorf("coords[2].EleValid: want false (nil EleM at clamp-end), got true")
+	}
+	if coords[2].Ele != 0.0 {
+		t.Errorf("coords[2].Ele: want 0.0 (Spec §3.2 sentinel), got %.4f", coords[2].Ele)
+	}
+}
+
 func TestApplyProfileToCoords_NoOpsOnEmpty(t *testing.T) {
-	// Both nil-profile and empty-coords are no-ops, must not panic.
+	// nil profile → early return (no DEM data at all for the route leg).
+	// The coord is not touched: Ele keeps its prior value, EleValid stays false.
+	// This is correct: the sentinel-zeroing (Spec §3.2) applies only when the
+	// profile IS non-empty but a specific sample has EleM == nil (DEM gap).
 	coords := []LatLonEle{{Lat: 0, Lon: 0, Ele: 42}}
 	applyProfileToCoords(coords, nil)
-	assertInDelta(t, 42.0, coords[0].Ele, 0.0001, "nil-profile no-op")
+	assertInDelta(t, 42.0, coords[0].Ele, 0.0001, "nil-profile no-op: Ele must remain unchanged")
+	if coords[0].EleValid {
+		t.Error("nil-profile: EleValid must remain false")
+	}
 
+	// empty-coords must not panic even with a non-empty profile.
 	applyProfileToCoords(nil, []ElevationPoint{{DistM: 0, EleM: PtrEle(100)}}) // must not panic
 }
