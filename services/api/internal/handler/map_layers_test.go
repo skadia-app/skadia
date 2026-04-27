@@ -137,8 +137,8 @@ func TestPatchMapLayer_NameChange(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.PatchMapLayer(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -249,8 +249,8 @@ func TestBulkSortMapLayers_ReflectsNewOrder(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.BulkSortMapLayers(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d: %s", rr.Code, rr.Body.String())
 	}
 
 	var so1, so2 int32

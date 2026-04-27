@@ -54,6 +54,6 @@ func (h *Handler) PatchSystemLayerVisibility(w http.ResponseWriter, r *http.Requ
 	case err != nil:
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
 	default:
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusNoContent)
 	}
 }

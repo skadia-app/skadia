@@ -61,8 +61,8 @@ func TestPatchSystemLayerVisibility_EnabledFalse(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.PatchSystemLayerVisibility(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d: %s", rr.Code, rr.Body.String())
 	}
 
 	// Reset to true so we don't pollute other tests.
