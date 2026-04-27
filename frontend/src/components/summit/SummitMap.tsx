@@ -1,8 +1,10 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useMemo } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { SummitVisit } from '@/api/summits'
-import { buildRasterStyle, getSavedMapStyle } from '@/lib/mapStyles'
+import { buildLayerStyle } from '@/lib/mapStyles'
+import { useMapLayers } from '@/hooks/useMapLayers'
+import { useCapabilities } from '@/hooks/useCapabilities'
 import { createSummitMarker, type SummitMarker } from './markerUtils'
 
 function addMarkers(
@@ -31,9 +33,18 @@ export default function SummitMap({ summits, selectedSummit, onSelectSummit, onM
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markersRef = useRef<SummitMarker[]>([])
 
+  const { base } = useMapLayers()
+  const { data: caps } = useCapabilities()
+  const defaultLayer = base[0]
+  const mapStyle = useMemo(
+    () => (defaultLayer ? buildLayerStyle(defaultLayer, caps ?? {}) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [defaultLayer?.key, caps],
+  )
+
   // Initialize map once
   useEffect(() => {
-    if (!mapContainer.current || mapRef.current) return
+    if (!mapContainer.current || mapRef.current || !mapStyle) return
 
     const summitsWithCoords = summits.filter(s => s.lat != null && s.lng != null)
 
@@ -49,7 +60,7 @@ export default function SummitMap({ summits, selectedSummit, onSelectSummit, onM
 
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: buildRasterStyle(getSavedMapStyle()),
+      style: mapStyle as import('maplibre-gl').StyleSpecification | string,
       center,
       zoom: 7,
     })
@@ -78,8 +89,9 @@ export default function SummitMap({ summits, selectedSummit, onSelectSummit, onM
       map.remove()
       mapRef.current = null
     }
+    // mapStyle triggers init once layers arrive; mapRef.current guard prevents re-init.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [mapStyle])
 
   // Update markers when summits or selection changes
   useEffect(() => {
