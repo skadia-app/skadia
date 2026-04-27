@@ -28,39 +28,25 @@ func newMapLayerHandler(t *testing.T) *Handler {
 	return &Handler{DB: &database.DB{Pool: pool}}
 }
 
-// insertTestMapLayer inserts a raster layer and schedules cleanup.
+// insertTestMapLayer inserts a non-system raster layer directly via SQL and
+// schedules cleanup. Bypasses the handler so tests can PATCH otherwise-immutable
+// fields (url_template, style_url, etc.) without triggering ErrSystemLayerImmutable.
 func insertTestMapLayer(t *testing.T, h *Handler, key, name string) int64 {
 	t.Helper()
 	tpl := "https://tile.example.com/{z}/{x}/{y}.png"
-	body := map[string]any{
-		"key":          key,
-		"role":         "base",
-		"name":         name,
-		"source_kind":  "raster_tiles",
-		"url_template": tpl,
-		"enabled":      true,
-		"sort_order":   100,
-	}
-	b, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, "/admin/map-layers",
-		bytes.NewReader(b))
-	req.Header.Set("Content-Type", "application/json")
-	req = req.WithContext(withUserAndAdmin(req.Context(), "admin-test-uid", true))
-	rr := httptest.NewRecorder()
-	h.CreateMapLayer(rr, req)
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("CreateMapLayer setup: got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp struct {
-		ID int64 `json:"id"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
+	var id int64
+	err := h.DB.Pool.QueryRow(context.Background(), `
+		INSERT INTO map_layers (key, role, name, source_kind, url_template, is_system, enabled, sort_order, default_opacity)
+		VALUES ($1, 'base', $2, 'raster_tiles', $3, false, true, 100, 100)
+		RETURNING id
+	`, key, name, tpl).Scan(&id)
+	if err != nil {
+		t.Fatalf("insertTestMapLayer: %v", err)
 	}
 	t.Cleanup(func() {
-		h.DB.Pool.Exec(context.Background(), "DELETE FROM map_layers WHERE id = $1", resp.ID) //nolint:errcheck
+		h.DB.Pool.Exec(context.Background(), "DELETE FROM map_layers WHERE id = $1", id) //nolint:errcheck
 	})
-	return resp.ID
+	return id
 }
 
 func TestGetMapLayers_Returns7PlusSeed(t *testing.T) {
@@ -88,7 +74,9 @@ func TestGetMapLayers_Returns7PlusSeed(t *testing.T) {
 	}
 }
 
-func TestCreateMapLayer_IsSystemForcedFalse(t *testing.T) {
+// TestCreateMapLayer_AdminCreatesSystemLayer verifies that layers created via the
+// admin endpoint always have is_system=true, regardless of what the client sends.
+func TestCreateMapLayer_AdminCreatesSystemLayer(t *testing.T) {
 	h := newMapLayerHandler(t)
 	tpl := "https://tile.example.com/{z}/{x}/{y}.png"
 	body := map[string]any{
@@ -97,7 +85,7 @@ func TestCreateMapLayer_IsSystemForcedFalse(t *testing.T) {
 		"name":         "Test Force",
 		"source_kind":  "raster_tiles",
 		"url_template": tpl,
-		"is_system":    true, // client tries to set this — must be ignored
+		"is_system":    false, // client tries to clear it — handler must override to true
 		"enabled":      true,
 	}
 	b, _ := json.Marshal(body)
@@ -117,8 +105,8 @@ func TestCreateMapLayer_IsSystemForcedFalse(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &row); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if row.IsSystem {
-		t.Error("is_system must be false regardless of what client sends")
+	if !row.IsSystem {
+		t.Error("is_system must be true for admin-created layers")
 	}
 	// Cleanup
 	h.DB.Pool.Exec(context.Background(), "DELETE FROM map_layers WHERE id = $1", row.ID) //nolint:errcheck
@@ -474,6 +462,148 @@ func TestBulkSortMapLayers_CtxCanceled(t *testing.T) {
 		if resp["error"] == "serialization_retry_exhausted" {
 			t.Fatalf("canceled context produced serialization_retry_exhausted; ctx-cancel short-circuit broken")
 		}
+	}
+}
+
+// TestCreateMapLayer_KeySlugifiedFromName verifies that when no key is supplied,
+// the handler derives one by slugifying the name.
+func TestCreateMapLayer_KeySlugifiedFromName(t *testing.T) {
+	h := newMapLayerHandler(t)
+	tpl := "https://tile.example.com/{z}/{x}/{y}.png"
+	body := map[string]any{
+		// key intentionally omitted — handler must generate it
+		"role":         "base",
+		"name":         "OpenStreetMap DE",
+		"source_kind":  "raster_tiles",
+		"url_template": tpl,
+		"enabled":      true,
+	}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/admin/map-layers", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(withUserAndAdmin(req.Context(), "admin", true))
+	rr := httptest.NewRecorder()
+	h.CreateMapLayer(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var row struct {
+		ID  int64  `json:"id"`
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &row); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	t.Cleanup(func() {
+		h.DB.Pool.Exec(context.Background(), "DELETE FROM map_layers WHERE id = $1", row.ID) //nolint:errcheck
+	})
+	if row.Key != "openstreetmap-de" {
+		t.Errorf("expected key=openstreetmap-de, got %q", row.Key)
+	}
+}
+
+// TestCreateMapLayer_KeyCollisionSuffix verifies that a duplicate name triggers
+// the "-2" suffix retry and produces a unique key.
+func TestCreateMapLayer_KeyCollisionSuffix(t *testing.T) {
+	h := newMapLayerHandler(t)
+	tpl := "https://tile.example.com/{z}/{x}/{y}.png"
+	ts := strconv.FormatInt(time.Now().UnixNano(), 36)
+	sharedName := "Collision " + ts
+
+	// Insert first layer with the derived key (no explicit key).
+	body1 := map[string]any{
+		"role": "base", "name": sharedName,
+		"source_kind": "raster_tiles", "url_template": tpl, "enabled": true,
+	}
+	b1, _ := json.Marshal(body1)
+	req1 := httptest.NewRequest(http.MethodPost, "/admin/map-layers", bytes.NewReader(b1))
+	req1.Header.Set("Content-Type", "application/json")
+	req1 = req1.WithContext(withUserAndAdmin(req1.Context(), "admin", true))
+	rr1 := httptest.NewRecorder()
+	h.CreateMapLayer(rr1, req1)
+	if rr1.Code != http.StatusCreated {
+		t.Fatalf("first create: got %d: %s", rr1.Code, rr1.Body.String())
+	}
+	var row1 struct {
+		ID  int64  `json:"id"`
+		Key string `json:"key"`
+	}
+	_ = json.Unmarshal(rr1.Body.Bytes(), &row1)
+	t.Cleanup(func() {
+		h.DB.Pool.Exec(context.Background(), "DELETE FROM map_layers WHERE id = $1", row1.ID) //nolint:errcheck
+	})
+
+	// Insert second layer with the same name — key collision must produce suffix.
+	body2 := map[string]any{
+		"role": "base", "name": sharedName,
+		"source_kind": "raster_tiles", "url_template": tpl, "enabled": true,
+	}
+	b2, _ := json.Marshal(body2)
+	req2 := httptest.NewRequest(http.MethodPost, "/admin/map-layers", bytes.NewReader(b2))
+	req2.Header.Set("Content-Type", "application/json")
+	req2 = req2.WithContext(withUserAndAdmin(req2.Context(), "admin", true))
+	rr2 := httptest.NewRecorder()
+	h.CreateMapLayer(rr2, req2)
+	if rr2.Code != http.StatusCreated {
+		t.Fatalf("second create (suffix): got %d: %s", rr2.Code, rr2.Body.String())
+	}
+	var row2 struct {
+		ID  int64  `json:"id"`
+		Key string `json:"key"`
+	}
+	_ = json.Unmarshal(rr2.Body.Bytes(), &row2)
+	t.Cleanup(func() {
+		h.DB.Pool.Exec(context.Background(), "DELETE FROM map_layers WHERE id = $1", row2.ID) //nolint:errcheck
+	})
+
+	if row2.Key == row1.Key {
+		t.Errorf("second layer got same key %q — suffix retry did not work", row2.Key)
+	}
+	if row2.ID == 0 {
+		t.Error("second layer ID not populated")
+	}
+}
+
+// TestPatchMapLayer_StripsImmutableFields verifies that sending key + source_kind
+// in a PATCH body together with min_zoom succeeds (immutable fields are silently
+// dropped rather than rejected with 422).
+func TestPatchMapLayer_StripsImmutableFields(t *testing.T) {
+	h := newMapLayerHandler(t)
+	id := insertTestMapLayer(t, h, "strip-immutable-"+strconv.FormatInt(time.Now().UnixNano(), 36), "Strip Immutable")
+
+	// Fetch the current key so we can verify it is unchanged after the PATCH.
+	var origKey string
+	h.DB.Pool.QueryRow(context.Background(), "SELECT key FROM map_layers WHERE id = $1", id).Scan(&origKey) //nolint:errcheck
+
+	body := map[string]any{
+		"key":         "totally-new-key",  // must be silently dropped
+		"source_kind": "vector_style",     // must be silently dropped
+		"min_zoom":    float64(3),
+	}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPatch, "/admin/map-layers/"+strconv.FormatInt(id, 10), bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.FormatInt(id, 10))
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rr := httptest.NewRecorder()
+	h.PatchMapLayer(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify key and source_kind are unchanged in the DB.
+	var gotKey, gotKind string
+	h.DB.Pool.QueryRow(context.Background(),
+		"SELECT key, source_kind FROM map_layers WHERE id = $1", id,
+	).Scan(&gotKey, &gotKind) //nolint:errcheck
+	if gotKey != origKey {
+		t.Errorf("key was mutated: want %q, got %q", origKey, gotKey)
+	}
+	if gotKind != "raster_tiles" {
+		t.Errorf("source_kind was mutated: want raster_tiles, got %q", gotKind)
 	}
 }
 

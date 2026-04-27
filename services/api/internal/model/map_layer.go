@@ -36,11 +36,18 @@ type SystemLayerVisibility struct {
 
 // UserMapLayer represents a row in user_map_layers.
 // UserID is a UUID string matching users.id and middleware.GetUserID return type.
+//
+// After migration 000338, url_template is nullable (used by raster_tiles source kind only)
+// and the row also carries role, source_kind, and style_url — matching the system map_layers
+// table so that user layers can be treated uniformly in the frontend.
 type UserMapLayer struct {
 	ID             int64     `json:"id"`
 	UserID         string    `json:"-"` // UUID; never expose in JSON
+	Role           string    `json:"role"`        // "base" | "overlay"
 	Name           string    `json:"name"`
-	URLTemplate    string    `json:"url_template"`
+	SourceKind     string    `json:"source_kind"` // "raster_tiles" | "vector_style"
+	URLTemplate    *string   `json:"url_template,omitempty"`
+	StyleURL       *string   `json:"style_url,omitempty"`
 	Attribution    *string   `json:"attribution,omitempty"`
 	MinZoom        *int16    `json:"min_zoom,omitempty"`
 	MaxZoom        *int16    `json:"max_zoom,omitempty"`

@@ -40,6 +40,17 @@ func (h *Handler) CreateUserMapLayer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m.UserID = uid // always set from context — never trust the body
+	// Default enabled=true when the client omits the field (JSON false-zero
+	// is indistinguishable from an explicit false; the frontend create modal
+	// does not include an enabled toggle so we must not persist false here).
+	m.Enabled = true
+	// Apply defaults for new fields when the client does not send them.
+	if m.Role == "" {
+		m.Role = "overlay"
+	}
+	if m.SourceKind == "" {
+		m.SourceKind = "raster_tiles"
+	}
 
 	trimmed, code, msg := validateName(m.Name)
 	if code != "" {
@@ -47,17 +58,68 @@ func (h *Handler) CreateUserMapLayer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m.Name = trimmed
-	// blockPrivateIPs=true: user-submitted URLs must not target internal services.
-	if err := model.ValidateURLTemplate(m.URLTemplate, true); err != nil {
-		code := "invalid_url"
-		// Propagate the specific error code so the client can show the right message.
-		if errors.Is(err, model.ErrPrivateIPBlocked) || errors.Is(err, model.ErrIPv6ULABlocked) ||
-			errors.Is(err, model.ErrBlockedHostname) {
-			code = "private_address_blocked"
-		}
-		httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
+
+	// Validate role and source_kind values.
+	if m.Role != "base" && m.Role != "overlay" {
+		httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+			mapLayerErrBody("invalid_role", "role must be 'base' or 'overlay'"))
 		return
 	}
+	if m.SourceKind != "raster_tiles" && m.SourceKind != "vector_style" {
+		httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+			mapLayerErrBody("invalid_source_kind", "source_kind must be 'raster_tiles' or 'vector_style'"))
+		return
+	}
+
+	// Validate URL fields consistent with source_kind.
+	// blockPrivateIPs=true: user-submitted URLs must not target internal services.
+	switch m.SourceKind {
+	case "raster_tiles":
+		if m.URLTemplate == nil || *m.URLTemplate == "" {
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+				mapLayerErrBody("url_source_kind_mismatch", "source_kind 'raster_tiles' requires url_template"))
+			return
+		}
+		if m.StyleURL != nil && *m.StyleURL != "" {
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+				mapLayerErrBody("url_source_kind_mismatch", "source_kind 'raster_tiles' must not have style_url"))
+			return
+		}
+		m.StyleURL = nil
+		tpl := *m.URLTemplate
+		if err := model.ValidateURLTemplate(tpl, true); err != nil {
+			code := "invalid_url"
+			if errors.Is(err, model.ErrPrivateIPBlocked) || errors.Is(err, model.ErrIPv6ULABlocked) ||
+				errors.Is(err, model.ErrBlockedHostname) {
+				code = "private_address_blocked"
+			}
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
+			return
+		}
+	case "vector_style":
+		if m.StyleURL == nil || *m.StyleURL == "" {
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+				mapLayerErrBody("url_source_kind_mismatch", "source_kind 'vector_style' requires style_url"))
+			return
+		}
+		if m.URLTemplate != nil && *m.URLTemplate != "" {
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+				mapLayerErrBody("url_source_kind_mismatch", "source_kind 'vector_style' must not have url_template"))
+			return
+		}
+		m.URLTemplate = nil
+		su := *m.StyleURL
+		if err := model.ValidateStyleURL(su, true); err != nil {
+			code := "invalid_url"
+			if errors.Is(err, model.ErrPrivateIPBlocked) || errors.Is(err, model.ErrIPv6ULABlocked) ||
+				errors.Is(err, model.ErrBlockedHostname) {
+				code = "private_address_blocked"
+			}
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
+			return
+		}
+	}
+
 	if m.DefaultOpacity < 0 || m.DefaultOpacity > 100 {
 		httputil.WriteJSON(w, http.StatusUnprocessableEntity,
 			mapLayerErrBody("invalid_opacity", "default_opacity must be an integer between 0 and 100"))
@@ -137,9 +199,67 @@ func (h *Handler) PatchUserMapLayer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Validate role when present.
+	if v, ok := patch["role"].(string); ok {
+		if v != "base" && v != "overlay" {
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+				mapLayerErrBody("invalid_role", "role must be 'base' or 'overlay'"))
+			return
+		}
+	}
+
+	// Validate source_kind when present. When source_kind changes, url_template
+	// and style_url must be provided in the same PATCH so the DB consistency
+	// CHECK is satisfied atomically.
+	if sk, hasSK := patch["source_kind"].(string); hasSK {
+		if sk != "raster_tiles" && sk != "vector_style" {
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+				mapLayerErrBody("invalid_source_kind", "source_kind must be 'raster_tiles' or 'vector_style'"))
+			return
+		}
+		switch sk {
+		case "raster_tiles":
+			// url_template must be in the patch (non-empty), style_url must be absent or nil.
+			tplRaw, hasTpl := patch["url_template"]
+			tpl, _ := tplRaw.(string)
+			if !hasTpl || tpl == "" {
+				httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+					mapLayerErrBody("url_source_kind_mismatch",
+						"switching to source_kind 'raster_tiles' requires url_template in the same PATCH"))
+				return
+			}
+			// Explicitly null out style_url so the DB constraint is satisfied.
+			patch["style_url"] = nil
+		case "vector_style":
+			// style_url must be in the patch (non-empty), url_template must be absent or nil.
+			suRaw, hasSU := patch["style_url"]
+			su, _ := suRaw.(string)
+			if !hasSU || su == "" {
+				httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+					mapLayerErrBody("url_source_kind_mismatch",
+						"switching to source_kind 'vector_style' requires style_url in the same PATCH"))
+				return
+			}
+			// Explicitly null out url_template so the DB constraint is satisfied.
+			patch["url_template"] = nil
+		}
+	}
+
 	// Validate url_template if present (private-IP block applies to user layers).
 	if v, ok := patch["url_template"].(string); ok {
 		if err := model.ValidateURLTemplate(v, true); err != nil {
+			code := "invalid_url"
+			if errors.Is(err, model.ErrPrivateIPBlocked) || errors.Is(err, model.ErrIPv6ULABlocked) ||
+				errors.Is(err, model.ErrBlockedHostname) {
+				code = "private_address_blocked"
+			}
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
+			return
+		}
+	}
+	// Validate style_url if present and non-nil.
+	if v, ok := patch["style_url"].(string); ok && v != "" {
+		if err := model.ValidateStyleURL(v, true); err != nil {
 			code := "invalid_url"
 			if errors.Is(err, model.ErrPrivateIPBlocked) || errors.Is(err, model.ErrIPv6ULABlocked) ||
 				errors.Is(err, model.ErrBlockedHostname) {
@@ -185,6 +305,10 @@ func (h *Handler) PatchUserMapLayer(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(patchErr, database.ErrDuplicateName):
 		httputil.WriteJSON(w, http.StatusConflict,
 			mapLayerErrBody("duplicate_name", "you already have a layer with this name"))
+	case errors.Is(patchErr, database.ErrURLSourceKindMismatch):
+		httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+			mapLayerErrBody("url_source_kind_mismatch",
+				"url_template/style_url must match source_kind: raster_tiles needs url_template, vector_style needs style_url"))
 	case patchErr != nil:
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
 	default:
@@ -262,10 +386,12 @@ func (h *Handler) BulkSortUserMapLayers(w http.ResponseWriter, r *http.Request) 
 }
 
 // userMapLayerPatchFieldAllowed returns true for fields accepted in a user-layer PATCH.
+// Unlike system map_layers, user layers allow changing role, source_kind, url_template,
+// and style_url because the resource is exclusively owned by the requesting user.
 func userMapLayerPatchFieldAllowed(field string) bool {
 	switch field {
-	case "name", "url_template", "attribution",
-		"min_zoom", "max_zoom", "default_opacity",
+	case "name", "role", "source_kind", "url_template", "style_url",
+		"attribution", "min_zoom", "max_zoom", "default_opacity",
 		"enabled", "sort_order":
 		return true
 	}
