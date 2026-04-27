@@ -9,7 +9,9 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '@/api/client'
 import ColorPicker from '@/components/ColorPicker'
-import { buildRasterStyle, BASE_STYLES, type BaseStyle } from '@/lib/mapStyles'
+import { buildLayerStyle } from '@/lib/mapStyles'
+import { useMapLayers } from '@/hooks/useMapLayers'
+import { useCapabilities } from '@/hooks/useCapabilities'
 import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl, loadHeatmapColor, saveHeatmapColor } from '@/lib/mapHeatmap'
 import { getSourceLineStyle, type SourceLineStyle } from '@/lib/comparisonColors'
 import { useSources } from './SourcesContext'
@@ -42,13 +44,32 @@ export default function MultiTrackMap({
   const visibleSourcesRef = useRef(visibleSources)
   const [styleVersion, setStyleVersion] = useState(0)
 
-  const [baseStyle, setBaseStyle] = useState<BaseStyle>(() => {
+  const { base } = useMapLayers()
+  const { data: caps } = useCapabilities()
+  const [baseStyle, setBaseStyle] = useState<string>(() => {
     try {
       const d = JSON.parse(localStorage.getItem('skadia-map-defaults') ?? '{}') as Record<string, unknown>
-      return (d.baseStyle as BaseStyle) ?? 'osm'
+      return (d.baseStyle as string) ?? 'osm'
     } catch { return 'osm' }
   })
-  const prevBaseStyleRef = useRef<BaseStyle>(baseStyle)
+
+  // Sync baseStyle to DB reality: if the persisted key is no longer in base
+  // (admin disabled it), fall back to base[0].
+  useEffect(() => {
+    if (base.length > 0 && !base.find((l) => l.key === baseStyle)) {
+      setBaseStyle(base[0].key)
+    }
+  }, [base, baseStyle])
+
+  const selectedBaseLayer = base.find((l) => l.key === baseStyle) ?? base[0]
+
+  // Refs kept current so the map-init closure always sees the latest layer/caps.
+  const selectedBaseLayerRef = useRef(selectedBaseLayer)
+  const capsRef = useRef(caps)
+  useEffect(() => { selectedBaseLayerRef.current = selectedBaseLayer }, [selectedBaseLayer])
+  useEffect(() => { capsRef.current = caps }, [caps])
+
+  const prevBaseStyleRef = useRef<string>(baseStyle)
   const [showHeatmapState, setShowHeatmapState] = useState(false)
   const [heatmapColor, setHeatmapColor] = useState<string>(loadHeatmapColor)
 
@@ -64,11 +85,15 @@ export default function MultiTrackMap({
 
   // ── Map init ────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!containerRef.current) return
+    if (!containerRef.current || mapRef.current) return
+
+    const layer = selectedBaseLayerRef.current
+    const initStyle = layer ? buildLayerStyle(layer, capsRef.current ?? {}) : null
+    if (!initStyle) return
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: buildRasterStyle(baseStyle),
+      style: initStyle as import('maplibre-gl').StyleSpecification | string,
       center: [14, 47],
       zoom: 4,
     })
@@ -96,21 +121,22 @@ export default function MultiTrackMap({
       map.remove()
       mapRef.current = null
     }
+  // selectedBaseLayer?.key triggers init once layers arrive; mapRef.current guard prevents re-init.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [selectedBaseLayer?.key])
 
   // ── Style switcher ──────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
-    if (!map || prevBaseStyleRef.current === baseStyle) return
+    if (!map || prevBaseStyleRef.current === baseStyle || !selectedBaseLayer) return
     prevBaseStyleRef.current = baseStyle
     pendingCameraRestoreRef.current = {
       center: map.getCenter() as LngLatLike,
       zoom: map.getZoom(),
     }
-    map.setStyle(buildRasterStyle(baseStyle))
+    map.setStyle(buildLayerStyle(selectedBaseLayer, caps ?? {}) as import('maplibre-gl').StyleSpecification | string)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseStyle])
+  }, [baseStyle, selectedBaseLayer, caps])
 
   // ── Heatmap ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -211,18 +237,18 @@ export default function MultiTrackMap({
       {showStyleSwitcher && (
         <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 flex-wrap pointer-events-auto">
           <div className="flex items-center gap-0.5 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm rounded-lg shadow-md p-0.5">
-            {(Object.keys(BASE_STYLES) as BaseStyle[]).map(key => (
+            {base.map((l) => (
               <button
-                key={key}
-                onClick={() => setBaseStyle(key)}
+                key={l.key}
+                onClick={() => setBaseStyle(l.key)}
                 className={[
                   'px-2 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer',
-                  baseStyle === key
+                  baseStyle === l.key
                     ? 'bg-accent-DEFAULT text-white'
                     : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700',
                 ].join(' ')}
               >
-                {BASE_STYLES[key].label}
+                {l.name}
               </button>
             ))}
           </div>

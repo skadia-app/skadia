@@ -26,7 +26,9 @@ import type { LngLatLike } from 'maplibre-gl'
 import type { StreamPoint, GeoTag } from '@/api/types'
 import { Mountain } from 'lucide-react'
 import ColorPicker from '@/components/ColorPicker'
-import { BASE_STYLES, buildRasterStyle, type BaseStyle } from '@/lib/mapStyles'
+import { buildLayerStyle } from '@/lib/mapStyles'
+import { useMapLayers } from '@/hooks/useMapLayers'
+import { useCapabilities } from '@/hooks/useCapabilities'
 import { apiClient } from '@/api/client'
 import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl, loadHeatmapColor, saveHeatmapColor } from '@/lib/mapHeatmap'
 import { findClosestIdx } from '@/lib/utils'
@@ -232,17 +234,37 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
   const [mapLoaded, setMapLoaded] = useState(false)
   const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null)
 
-  const [baseStyle, setBaseStyle] = useState<BaseStyle>(() => {
+  const { base } = useMapLayers()
+  const { data: caps } = useCapabilities()
+  const [baseStyle, setBaseStyle] = useState<string>(() => {
     try {
       const d = JSON.parse(localStorage.getItem('skadia-map-defaults') ?? '{}') as Record<string, unknown>
-      return (d.baseStyle as BaseStyle) ?? 'osm'
+      return (d.baseStyle as string) ?? 'osm'
     } catch { return 'osm' }
   })
+
+  // Sync baseStyle to DB reality: if the persisted key is no longer in base
+  // (admin disabled it), fall back to base[0].
+  useEffect(() => {
+    if (base.length > 0 && !base.find((l) => l.key === baseStyle)) {
+      setBaseStyle(base[0].key)
+    }
+  }, [base, baseStyle])
+
+  const selectedBaseLayer = base.find((l) => l.key === baseStyle) ?? base[0]
+
+  // Refs kept current so the initMap closure (captured once) always sees
+  // the latest layer/caps even when layers arrive after mount.
+  const selectedBaseLayerRef = useRef(selectedBaseLayer)
+  const capsRef = useRef(caps)
+  useEffect(() => { selectedBaseLayerRef.current = selectedBaseLayer }, [selectedBaseLayer])
+  useEffect(() => { capsRef.current = caps }, [caps])
+
   const [showHeatmap, setShowHeatmap] = useState(false)
   const [heatmapColor, setHeatmapColor] = useState<string>(loadHeatmapColor)
   const [styleVersion, setStyleVersion] = useState(0)
   const pendingCameraRestoreRef = useRef<{ center: LngLatLike; zoom: number } | null>(null)
-  const prevBaseStyleRef = useRef<BaseStyle>(baseStyle)
+  const prevBaseStyleRef = useRef<string>(baseStyle)
   const initialFitDoneRef = useRef(false)
 
   const { data: meData } = useQuery({
@@ -427,9 +449,13 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
       if (disposed || map) return
       if (el.clientWidth === 0 || el.clientHeight === 0) return
 
+      const layer = selectedBaseLayerRef.current
+      const initStyle = layer ? buildLayerStyle(layer, capsRef.current ?? {}) : null
+      if (!initStyle) return
+
       map = new maplibregl.Map({
         container: el,
-        style: buildRasterStyle(baseStyle),
+        style: initStyle as import('maplibre-gl').StyleSpecification | string,
         attributionControl: {},
         transformRequest: (url: string): RequestParameters => {
           if (url.includes('/api/v1/tiles/')) {
@@ -490,14 +516,14 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
   // ── Style switcher effect ─────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
-    if (!map || prevBaseStyleRef.current === baseStyle) return
+    if (!map || prevBaseStyleRef.current === baseStyle || !selectedBaseLayer) return
     prevBaseStyleRef.current = baseStyle
     pendingCameraRestoreRef.current = {
       center: map.getCenter() as LngLatLike,
       zoom: map.getZoom(),
     }
-    map.setStyle(buildRasterStyle(baseStyle))
-  }, [baseStyle]) // eslint-disable-line react-hooks/exhaustive-deps
+    map.setStyle(buildLayerStyle(selectedBaseLayer, caps ?? {}) as import('maplibre-gl').StyleSpecification | string)
+  }, [baseStyle, selectedBaseLayer, caps]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Heatmap effect ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -988,18 +1014,18 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
         {/* Kartenstil-Tabs + Heatmap */}
         <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 flex-wrap">
           <div className="flex items-center gap-0.5 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm rounded-lg shadow-md p-0.5">
-            {(Object.keys(BASE_STYLES) as BaseStyle[]).map(key => (
+            {base.map((l) => (
               <button
-                key={key}
-                onClick={() => setBaseStyle(key)}
+                key={l.key}
+                onClick={() => setBaseStyle(l.key)}
                 className={[
                   'px-2 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer',
-                  baseStyle === key
+                  baseStyle === l.key
                     ? 'bg-accent-DEFAULT text-white'
                     : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700',
                 ].join(' ')}
               >
-                {BASE_STYLES[key].label}
+                {l.name}
               </button>
             ))}
           </div>
