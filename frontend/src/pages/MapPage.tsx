@@ -512,24 +512,9 @@ export default function MapPage() {
   useEffect(() => {
     if (!planner.editingRouteId) return
     if (planner.editingRouteId === lastFittedRouteIdRef.current) return
-    const map = mapRef.current
-    if (!map) return
-    const allCoords: [number, number][] = []
-    for (const seg of planner.segments) {
-      const coords = seg.geometry?.coordinates
-      if (!coords) continue
-      for (const c of coords) {
-        if (typeof c[0] === 'number' && typeof c[1] === 'number') {
-          allCoords.push([c[0], c[1]])
-        }
-      }
-    }
-    if (allCoords.length === 0) return
-    const bounds = new maplibregl.LngLatBounds(allCoords[0], allCoords[0])
-    for (const c of allCoords) bounds.extend(c)
-    const sw = bounds.getSouthWest()
-    const ne = bounds.getNorthEast()
-    map.fitBounds(bounds, { padding: 80, maxZoom: pickMaxZoomForBounds(sw.lat, sw.lng, ne.lat, ne.lng) })
+    if (!routePlannerMapRef.current) return
+    if (planner.segments.every(seg => (seg.geometry?.coordinates?.length ?? 0) === 0)) return
+    routePlannerMapRef.current.fitBoundsToFullRoute()
     lastFittedRouteIdRef.current = planner.editingRouteId
   }, [planner.editingRouteId, planner.segments, styleVersion])
 
@@ -994,6 +979,16 @@ export default function MapPage() {
     // Fallback: activeSuggestion.geojson (Suggestion-Flow, bevor routeStats gesetzt)
     return ((activeSuggestion?.geojson?.features?.[0]?.geometry?.coordinates) ?? []) as number[][]
   }, [planner.routeStats, activeSuggestion?.geojson])
+
+  const routePlannerCoords = useMemo<[number, number][]>(() => {
+    const out: [number, number][] = []
+    for (const coord of parsedCoords) {
+      if (typeof coord[0] === 'number' && typeof coord[1] === 'number') {
+        out.push([coord[0], coord[1]])
+      }
+    }
+    return out
+  }, [parsedCoords])
 
   // ── Scale-Base source content (SAC/MTB/VF coloured ranges) ─────────────────
   //
@@ -2687,6 +2682,7 @@ export default function MapPage() {
           onMapDispose={() => { mapRef.current = null }}
           onStyleLoad={handleMapStyleLoad}
           onTilesLoadingChange={setIsMapTilesLoading}
+          fullRouteCoords={routePlannerCoords}
           getViewportSnapshot={getViewportSnapshot}
         />
 
