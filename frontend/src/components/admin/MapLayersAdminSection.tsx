@@ -13,7 +13,6 @@ import {
   type MapLayerRole,
   type MapLayerSourceKind,
 } from '@/api/mapLayers'
-import { opacityPercentToFloat } from '@/lib/mapStyles'
 import { ModalShell } from '@/components/ui/ModalShell'
 import ConfirmModal from '@/components/ConfirmModal'
 
@@ -103,7 +102,7 @@ function layerToForm(l: MapLayer): LayerFormState {
     attribution: l.attribution ?? '',
     min_zoom: l.min_zoom != null ? String(l.min_zoom) : '',
     max_zoom: l.max_zoom != null ? String(l.max_zoom) : '',
-    default_opacity_pct: String(Math.round((l.default_opacity ?? 1) * 100)),
+    default_opacity_pct: String(l.default_opacity ?? 100),
     enabled: l.enabled,
     requires_capability: l.requires_capability ?? '',
   }
@@ -117,7 +116,7 @@ function formToBody(f: LayerFormState): Partial<MapLayer> {
     attribution: f.attribution || undefined,
     min_zoom: f.min_zoom !== '' ? Number(f.min_zoom) : undefined,
     max_zoom: f.max_zoom !== '' ? Number(f.max_zoom) : undefined,
-    default_opacity: opacityPercentToFloat(Number(f.default_opacity_pct)),
+    default_opacity: Number(f.default_opacity_pct),
     enabled: f.enabled,
     requires_capability: f.requires_capability || undefined,
   }

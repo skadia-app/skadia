@@ -55,7 +55,7 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, visibility, onPatch
     visibility?.default_enabled_for_new_users ?? false,
   )
   const [opacity, setOpacity] = useState<number>(
-    visibility?.default_opacity != null ? Math.round(visibility.default_opacity * 100) : 100,
+    visibility?.default_opacity ?? 100,
   )
   const [label, setLabel] = useState(visibility?.label_override ?? '')
 
@@ -71,7 +71,7 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, visibility, onPatch
 
   function handleOpacity(val: number) {
     setOpacity(val)
-    onPatch(layerKey, { default_opacity: val / 100 })
+    onPatch(layerKey, { default_opacity: val })
   }
 
   function handleLabel(val: string) {
