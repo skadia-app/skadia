@@ -1,12 +1,14 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/microcosm-cc/bluemonday"
 )
@@ -26,7 +28,36 @@ var (
 	// ErrStyleURLInvalid is returned when style_url is neither a same-origin
 	// /api/v1/ relative path nor a parseable http(s) URL.
 	ErrStyleURLInvalid = errors.New("style_url must be an http(s) URL or a /api/v1/ relative path")
+	// ErrBlockedHostname is returned when blockPrivateIPs=true and the hostname
+	// is in the blocked-hostname list (e.g. localhost, postgres, internal service names).
+	ErrBlockedHostname = errors.New("tile-URL hostname is blocked")
 )
+
+// blockedHostnames is an exact-match list of hostnames that must never be the
+// target of a user-submitted tile URL. Includes loopback aliases and well-known
+// container service names that resolve inside the deployment network. Kept
+// in-source (not env-driven) so the security boundary is auditable.
+var blockedHostnames = map[string]struct{}{
+	"localhost":             {},
+	"localhost.localdomain": {},
+	"ip6-localhost":          {},
+	"ip6-loopback":           {},
+	// Container service names that exist on the project's compose network.
+	"postgres":  {},
+	"api":       {},
+	"nats":      {},
+	"garage":    {},
+	"martin":    {},
+	"brouter":   {},
+	"litellm":   {},
+	"ml":        {},
+}
+
+// hostnameLookupTimeout bounds DNS resolution at validation time. SSRF mitigation
+// reduces (but does not eliminate) DNS-rebind risk: the hostname is resolved here,
+// but the browser/server fetcher resolves again later and may receive a different
+// address. Document this in any user-facing privacy notice.
+const hostnameLookupTimeout = 1 * time.Second
 
 var (
 	// {z}, {x}, {y} are mandatory; {switch:a,b,c} optional.
@@ -87,7 +118,7 @@ func ValidateURLTemplate(tpl string, blockPrivateIPs bool) error {
 		return fmt.Errorf("url_template scheme must be http or https, got %q", u.Scheme)
 	}
 	if blockPrivateIPs {
-		if err := blockPrivateIPLiteral(u.Hostname()); err != nil {
+		if err := blockPrivateHost(u.Hostname()); err != nil {
 			return err
 		}
 	}
@@ -95,19 +126,72 @@ func ValidateURLTemplate(tpl string, blockPrivateIPs bool) error {
 }
 
 // blockPrivateIPLiteral rejects RFC1918, loopback, link-local, and ULA addresses
-// when the hostname is an IP literal. Hostnames are NOT DNS-resolved here —
-// only literal IPs are blocked to avoid DNS-based SSRF amplification.
+// when the hostname is an IP literal. Returns nil for hostnames — DNS resolution
+// is handled by blockPrivateHost.
 func blockPrivateIPLiteral(host string) error {
 	ip := net.ParseIP(strings.Trim(host, "[]"))
 	if ip == nil {
 		return nil // hostname, not an IP literal
 	}
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsPrivate() {
+	return checkIPBlocked(ip)
+}
+
+// checkIPBlocked returns the appropriate sentinel error for a private/loopback/
+// link-local/ULA address, or nil if the IP is publicly routable.
+func checkIPBlocked(ip net.IP) error {
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsPrivate() || ip.IsUnspecified() || ip.IsInterfaceLocalMulticast() {
 		return ErrPrivateIPBlocked
 	}
 	// IPv6 ULA (fc00::/7) — not covered by IsPrivate in all Go versions; double-check.
 	if ip4 := ip.To4(); ip4 == nil && len(ip) == 16 && (ip[0]&0xfe) == 0xfc {
 		return ErrIPv6ULABlocked
+	}
+	// 0.0.0.0/8 — Go's IsUnspecified covers only the bare 0.0.0.0; explicitly
+	// reject the rest of the /8 ("this network").
+	if ip4 := ip.To4(); ip4 != nil && ip4[0] == 0 {
+		return ErrPrivateIPBlocked
+	}
+	return nil
+}
+
+// blockPrivateHost is the SSRF gatekeeper used by both validators when
+// blockPrivateIPs=true. It rejects:
+//  1. IP literals in private/loopback/link-local/ULA/0.0.0.0/8 ranges.
+//  2. Hostnames in the exact-match blockedHostnames list (covers DNS-lying cases).
+//  3. Hostnames that resolve via DNS to any blocked address (any A/AAAA record).
+//
+// DNS rebinding caveat: validation-time and fetch-time resolutions may differ.
+// This function reduces but does not eliminate that risk. Reproduce the warning
+// in user-facing privacy text where these URLs are configured.
+func blockPrivateHost(host string) error {
+	if host == "" {
+		return nil
+	}
+	if err := blockPrivateIPLiteral(host); err != nil {
+		return err
+	}
+	if net.ParseIP(strings.Trim(host, "[]")) != nil {
+		// Pure IP literal — already checked above.
+		return nil
+	}
+	lower := strings.ToLower(host)
+	if _, blocked := blockedHostnames[lower]; blocked {
+		return ErrBlockedHostname
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), hostnameLookupTimeout)
+	defer cancel()
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		// Resolution failed (NXDOMAIN, timeout, network down). Don't synthesise a
+		// "private_address_blocked" error — surface a generic resolution error so
+		// the caller can show a non-misleading message.
+		return fmt.Errorf("hostname resolution failed: %w", err)
+	}
+	for _, a := range addrs {
+		if err := checkIPBlocked(a.IP); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -145,7 +229,7 @@ func ValidateStyleURL(s string, blockPrivateIPs bool) error {
 		return ErrStyleURLInvalid
 	}
 	if blockPrivateIPs {
-		if err := blockPrivateIPLiteral(u.Hostname()); err != nil {
+		if err := blockPrivateHost(u.Hostname()); err != nil {
 			return err
 		}
 	}
