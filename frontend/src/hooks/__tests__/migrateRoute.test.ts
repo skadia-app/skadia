@@ -175,6 +175,19 @@ describe('needsMigration', () => {
     })
     expect(needsMigration(route)).toBe(true)
   })
+
+  it('needsMigration: route_schema_version=1 BUT segment without profile triggers migration', () => {
+    // Covers the second OR-clause: (version≥1) AND (some segment has no profile).
+    // This happens for partial T0 saves where the schema version was bumped but
+    // not all segments received profiles (e.g. interrupted save, concurrent write).
+    const route = makeRoute({
+      route_schema_version: 1,
+      segments: [
+        makeSegment3D('w1', 'w2', 'routed', undefined),  // no elevation_profile
+      ],
+    })
+    expect(needsMigration(route)).toBe(true)
+  })
 })
 
 // ─── TestMigrationPathStillReachable (E.3.6 CI gate) ─────────────────────────
