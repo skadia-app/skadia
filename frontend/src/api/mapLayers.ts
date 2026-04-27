@@ -106,7 +106,10 @@ export async function patchSystemLayerVisibility(
 
 // User-managed custom tile-URL layers — routes under /api/v1/map-layers/user/
 export async function fetchUserMapLayers(): Promise<UserMapLayer[]> {
-  return apiClient('/map-layers/user/')
+  // Backend may marshal an empty slice as JSON `null`; normalize so consumers
+  // can rely on an array shape without nullish-checks.
+  const data = await apiClient<UserMapLayer[] | null>('/map-layers/user/')
+  return data ?? []
 }
 
 export async function createUserMapLayer(body: Partial<UserMapLayer>): Promise<UserMapLayer> {
