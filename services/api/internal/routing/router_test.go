@@ -960,3 +960,177 @@ func TestRouteSameEdge_ProfileTwoPoints(t *testing.T) {
 		t.Errorf("negative elevation in same-edge profile: [%.1f, %.1f]", *prof[0].EleM, *prof[1].EleM)
 	}
 }
+
+// makeFiveVertexEdgeGraph builds a 2-node graph with one bidirectional edge
+// carrying 3 intermediate geometry vertices and a 5-point EdgeElevProf with
+// matching segDists. Used by T0 C.4 same-edge full-resolution tests.
+//
+// Geometry (5 vertices along lon=11.0):
+//
+//	Node A at lat 47.000, intermediates at 47.001/47.002/47.003, Node B at 47.004.
+//
+// Each step ≈111m → segDist 11119cm fits uint16. Total edge ≈ 445m.
+// Elevations: 100, 110, 120, 130, 140 m (10m gain per step, monotonic ascent).
+func makeFiveVertexEdgeGraph(t *testing.T) *graph.Graph {
+	t.Helper()
+	const trackTags1 uint64 = 16 // path
+	g := &graph.Graph{
+		NodeCount: 2, EdgeCount: 2,
+		Offsets:   []uint32{0, 1, 2},
+		Targets:   []uint32{1, 0},
+		EdgeDist:  []uint32{44478, 44478}, // ~445m in cm
+		EdgeTags1: []uint64{trackTags1, trackTags1},
+		EdgeTags2: []uint64{0, 0},
+		EdgeOSMIdx: []uint32{0, 0},
+		OSMIDPool: []int64{1},
+		NodeLat:   []int32{470000000, 470040000},
+		NodeLon:   []int32{110000000, 110000000},
+		NodeEle:   []int32{1000, 1400}, // 100m, 140m
+		NodeTags:  []uint8{0, 0},
+
+		// 5 geom vertices per edge: NodeA + 3 intermediates + NodeB (in same orientation
+		// for both edges — reader returns indices [start+1:end-1] so the actual
+		// stored polyline must include the endpoints).
+		EdgeGeomOff: []uint32{0, 5, 10},
+		EdgeGeomLat: []int32{
+			// edge 0: A→B
+			470000000, 470010000, 470020000, 470030000, 470040000,
+			// edge 1: B→A (mirror)
+			470040000, 470030000, 470020000, 470010000, 470000000,
+		},
+		EdgeGeomLon: []int32{
+			110000000, 110000000, 110000000, 110000000, 110000000,
+			110000000, 110000000, 110000000, 110000000, 110000000,
+		},
+
+		// 5 elev points per edge → EdgeElevOff = [0, 5, 10].
+		EdgeElevOff: []uint32{0, 5, 10},
+		EdgeElevProf: []int32{
+			1000, 1100, 1200, 1300, 1400, // edge 0: ascending
+			1400, 1300, 1200, 1100, 1000, // edge 1: descending (mirror)
+		},
+		// 4 segDists per 5-point edge.
+		// EdgeElevSegDist offset for edge i = elevStart - edgeIdx = 0-0=0 for edge 0,
+		// 5-1=4 for edge 1. So we lay them in [0..4) and [4..8).
+		EdgeElevSegDist: []uint16{
+			11119, 11119, 11119, 11119, // edge 0
+			11119, 11119, 11119, 11119, // edge 1
+		},
+		IsBorder: []bool{false, false},
+	}
+	g.Grid = graph.BuildSpatialIndex(g, 0.01)
+	return g
+}
+
+// TestRouteSameEdge_FullResolutionCoordsAndProfile verifies T0 C.4: when src
+// and dst project onto the same edge with intermediate geometry, both Coords
+// and ElevationProfile carry the full-resolution interior vertices, not just
+// the two projection endpoints.
+func TestRouteSameEdge_FullResolutionCoordsAndProfile(t *testing.T) {
+	g := makeFiveVertexEdgeGraph(t)
+	r := newTestRouter(g)
+	cfg := simpleCostConfig()
+
+	// src at fraction ≈0.2 (lat≈47.0008), dst at fraction ≈0.8 (lat≈47.0032).
+	srcVE, err := r.snapToEdge(47.0008, 11.0, cfg)
+	if err != nil {
+		t.Fatalf("snap src: %v", err)
+	}
+	dstVE, err := r.snapToEdge(47.0032, 11.0, cfg)
+	if err != nil {
+		t.Fatalf("snap dst: %v", err)
+	}
+	if srcVE.Proj.EdgeHandle != dstVE.Proj.EdgeHandle {
+		t.Skipf("projections did not land on the same edge: src=%d dst=%d",
+			srcVE.Proj.EdgeHandle, dstVE.Proj.EdgeHandle)
+	}
+
+	result := r.routeSameEdge(srcVE, dstVE, cfg)
+	if result == nil {
+		t.Fatal("routeSameEdge returned nil")
+	}
+	if result.ElevationProfile == nil {
+		t.Fatal("ElevationProfile must not be nil")
+	}
+	prof := *result.ElevationProfile
+
+	if len(result.Coordinates) != len(prof) {
+		t.Fatalf("len(Coordinates)=%d vs len(ElevationProfile)=%d — must match (T0 C.4 invariant)",
+			len(result.Coordinates), len(prof))
+	}
+	if len(result.Coordinates) <= 2 {
+		t.Errorf("expected >2 coords for full-resolution slice, got %d", len(result.Coordinates))
+	}
+	if prof[0].DistM != 0 {
+		t.Errorf("prof[0].DistM: want 0, got %.4f", prof[0].DistM)
+	}
+	if math.Abs(prof[len(prof)-1].DistM-result.DistanceM) > 0.5 {
+		t.Errorf("prof[last].DistM=%.4f != result.DistanceM=%.4f", prof[len(prof)-1].DistM, result.DistanceM)
+	}
+	// Monotonic ascent — 10m gain per ~111m segment, full slice ≈ 6m gain.
+	if result.AscentM <= 0 {
+		t.Errorf("expected positive ascent on monotonic-up edge, got %.2f", result.AscentM)
+	}
+	if result.DescentM > 0.5 {
+		t.Errorf("expected ~0 descent on monotonic-up edge, got %.2f", result.DescentM)
+	}
+}
+
+// TestRouteSameEdge_ReversedDirection_ProfileAscends verifies that when the
+// traveler walks B→A on a same-edge route, the returned ElevationProfile has
+// strictly ascending DistM (i.e. distances run from 0 at the source to total
+// at the destination — no negative or out-of-order values).
+func TestRouteSameEdge_ReversedDirection_ProfileAscends(t *testing.T) {
+	g := makeFiveVertexEdgeGraph(t)
+	r := newTestRouter(g)
+	cfg := simpleCostConfig()
+
+	// src high (closer to NodeB at fraction ≈0.8), dst low (≈0.2).
+	srcVE, err := r.snapToEdge(47.0032, 11.0, cfg)
+	if err != nil {
+		t.Fatalf("snap src: %v", err)
+	}
+	dstVE, err := r.snapToEdge(47.0008, 11.0, cfg)
+	if err != nil {
+		t.Fatalf("snap dst: %v", err)
+	}
+	if srcVE.Proj.EdgeHandle != dstVE.Proj.EdgeHandle {
+		t.Skip("projections did not land on the same edge")
+	}
+	if srcVE.Proj.FractionAB <= dstVE.Proj.FractionAB {
+		t.Skipf("src fraction %.3f not > dst fraction %.3f — not the reversed case",
+			srcVE.Proj.FractionAB, dstVE.Proj.FractionAB)
+	}
+
+	result := r.routeSameEdge(srcVE, dstVE, cfg)
+	if result == nil {
+		t.Fatal("routeSameEdge returned nil")
+	}
+	prof := *result.ElevationProfile
+	if len(prof) < 2 {
+		t.Fatalf("reversed slice: want >=2 profile points, got %d", len(prof))
+	}
+	for i := 1; i < len(prof); i++ {
+		if prof[i].DistM < prof[i-1].DistM {
+			t.Errorf("prof[%d].DistM=%.3f < prof[%d].DistM=%.3f — must ascend",
+				i, prof[i].DistM, i-1, prof[i-1].DistM)
+		}
+	}
+	if prof[0].DistM != 0 {
+		t.Errorf("prof[0].DistM: want 0, got %.4f", prof[0].DistM)
+	}
+	// Reversed = traveling downhill (src ele > dst ele).
+	if result.DescentM <= 0 {
+		t.Errorf("reversed (downhill) route: DescentM should be > 0, got %.2f", result.DescentM)
+	}
+	if result.AscentM > 0.5 {
+		t.Errorf("reversed (downhill) route: AscentM should be ~0, got %.2f", result.AscentM)
+	}
+	// And: first coord matches the src projection direction (high-end vertex).
+	first := result.Coordinates[0]
+	last := result.Coordinates[len(result.Coordinates)-1]
+	if first.Lat <= last.Lat {
+		t.Errorf("reversed: first coord lat %.6f should be > last %.6f (traveler heads south)",
+			first.Lat, last.Lat)
+	}
+}

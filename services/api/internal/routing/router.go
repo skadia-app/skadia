@@ -150,37 +150,112 @@ func normalizeDir(dx, dy float32) (float32, float32) {
 
 // routeSameEdge handles the special case where source and destination project
 // to the same edge. The direct path on the edge is always optimal (triangle inequality).
+//
+// T0 Phase C.4 (Spec §5.8): Coords AND ElevationProfile are sliced parallel
+// from the full-resolution edge data via sliceEdgeCoordsAndProfile. The unified
+// vertex set guarantees len(Coordinates) == len(ElevationProfile). Ascent/
+// descent are integrated over the sliced profile so non-monotonic edges
+// (Stichweg/Refugio approach with intermediate humps) report correct elevation
+// gain instead of the previous endpoint-only delta.
 func (r *UnifiedRouter) routeSameEdge(srcVE, dstVE *VirtualEndpoint, cfg *CostConfig) *RouteResult {
 	proj := srcVE.Proj
 	fracFrom := srcVE.Proj.FractionAB
 	fracTo := dstVE.Proj.FractionAB
 
-	// Determine travel direction: from source to destination (may go A→B or B→A).
+	// Determine travel direction. fStart/fEnd are the canonical (ascending)
+	// fraction bounds passed to the slicer; reversed = traveler walks B→A.
 	reversed := fracFrom > fracTo
+	fStart, fEnd := fracFrom, fracTo
 	if reversed {
-		fracFrom, fracTo = fracTo, fracFrom
+		fStart, fEnd = fracTo, fracFrom
 	}
 
-	directFraction := fracTo - fracFrom
-	directDist := directFraction * proj.EdgeDistM
+	// Build the master full-edge coord polyline: [NodeA, ...intermediates..., NodeB].
+	nodeALat, nodeALon, _ := r.reader.NodeCoord(srcVE.GlobalA)
+	nodeBLat, nodeBLon, _ := r.reader.NodeCoord(srcVE.GlobalB)
+	intermLats, intermLons := r.reader.EdgeGeometry(proj.EdgeHandle)
+	coordsRaw := make([][2]int32, 0, len(intermLats)+2)
+	coordsRaw = append(coordsRaw, [2]int32{nodeALat, nodeALon})
+	for i := range intermLats {
+		coordsRaw = append(coordsRaw, [2]int32{intermLats[i], intermLons[i]})
+	}
+	coordsRaw = append(coordsRaw, [2]int32{nodeBLat, nodeBLon})
 
-	// Use actual src/dst projection elevations — correct regardless of travel direction.
-	srcEle := float64(srcVE.Proj.ProjEleDm) / 10.0
-	dstEle := float64(dstVE.Proj.ProjEleDm) / 10.0
+	// Build the master profile from raw EdgeElevProf data (cm → m, NoData → nil).
+	elevsDm, segDistsCm := r.reader.EdgeElevProfile(proj.EdgeHandle)
+	edgeProf := buildEdgeProfFromRaw(elevsDm, segDistsCm)
+
+	var slicedCoords []LatLonEle
+	var slicedProfile []ElevationPoint
+	if len(edgeProf) > 0 {
+		slicedCoords, slicedProfile = sliceEdgeCoordsAndProfile(coordsRaw, edgeProf, fStart, fEnd)
+	}
+
+	usedFallback := false
+	// Defensive: empty edge data (no DEM profile, single-vertex polyline). Fall
+	// back to projection-point endpoints so the route still has at least the
+	// two clicked positions. Profile uses ProjEleDm (best available signal).
+	// The fallback is built directly in src→dst order, so we skip the reverse
+	// step for it (no canonical ↔ traversal direction transformation needed).
+	if len(slicedCoords) == 0 {
+		usedFallback = true
+		slicedCoords = []LatLonEle{
+			{Lat: srcVE.Proj.ProjLat, Lon: srcVE.Proj.ProjLon, Ele: float64(srcVE.Proj.ProjEleDm) / 10.0, EleValid: true},
+			{Lat: dstVE.Proj.ProjLat, Lon: dstVE.Proj.ProjLon, Ele: float64(dstVE.Proj.ProjEleDm) / 10.0, EleValid: true},
+		}
+		fallbackDist := math.Abs(fEnd-fStart) * proj.EdgeDistM
+		slicedProfile = []ElevationPoint{
+			{DistM: 0, EleM: PtrEle(float64(srcVE.Proj.ProjEleDm) / 10.0)},
+			{DistM: fallbackDist, EleM: PtrEle(float64(dstVE.Proj.ProjEleDm) / 10.0)},
+		}
+	}
+
+	if reversed && !usedFallback {
+		slicedCoords = reverseLatLonEle(slicedCoords)
+		slicedProfile = reverseElevSlice(slicedProfile)
+	}
+
+	// directDist = master truth from the haversine cumsum (sliced profile's
+	// last DistM). Falls back to the projection-fraction span on the rare
+	// fallback path where the profile was synthesized from ProjEleDm above.
+	directDist := slicedProfile[len(slicedProfile)-1].DistM
+	if directDist <= 0 {
+		directDist = math.Abs(fEnd-fStart) * proj.EdgeDistM
+	}
+
+	// Integrate ascent/descent over the full sliced profile. Skip segments
+	// touching nil EleM samples (NoData) — gap-fill phase D will resolve.
 	var ascent, descent float64
-	diff := dstEle - srcEle
-	if diff > 0 {
-		ascent = diff
-	} else {
-		descent = -diff
+	for i := 1; i < len(slicedProfile); i++ {
+		if slicedProfile[i].EleM == nil || slicedProfile[i-1].EleM == nil {
+			continue
+		}
+		diff := *slicedProfile[i].EleM - *slicedProfile[i-1].EleM
+		if diff > 0 {
+			ascent += diff
+		} else {
+			descent -= diff
+		}
 	}
 
 	// Compute cost using slope-weighted edge cost factors and hysteresis.
+	// Per-segment hysteresis integration is a follow-up (out of T0 scope);
+	// for now use the existing single-segment shape but driven by the sliced
+	// directDist + endpoint-elevation delta in dm. The endpoint elevations
+	// come from the sliced profile (master truth) when available, falling
+	// back to ProjEleDm (DEM-rounded but consistent with the snap helper).
 	ecf := cfg.EdgeCost(proj.EdgeTags1, 0)
 	distCm := directDist * 100
-	// Elevation delta: from source projection to destination projection (in dm).
-	// srcVE/dstVE already represent actual travel direction — no reversed branch needed.
-	deltaEleDm := dstVE.Proj.ProjEleDm - srcVE.Proj.ProjEleDm
+
+	startEleM := slicedProfile[0].EleM
+	endEleM := slicedProfile[len(slicedProfile)-1].EleM
+	var deltaEleDm int32
+	if startEleM != nil && endEleM != nil {
+		deltaEleDm = int32(math.Round((*endEleM - *startEleM) * 10))
+	} else {
+		// NoData on either endpoint — fall back to projection elevations.
+		deltaEleDm = dstVE.Proj.ProjEleDm - srcVE.Proj.ProjEleDm
+	}
 	hyst := propagateHysteresis(PathState{}, deltaEleDm*100, int32(distCm)*10, cfg)
 
 	// Slope-weighted cost factor interpolation.
@@ -199,27 +274,13 @@ func (r *UnifiedRouter) routeSameEdge(srcVE, dstVE *VirtualEndpoint, cfg *CostCo
 	cf := cfUp*hyst.UpWeight + ecf.Flat*flatW + cfDown*hyst.DownWeight
 	cost := float64(float32(distCm)/100.0*cf + hyst.ElevCost)
 
-	coords := []LatLonEle{
-		{Lat: srcVE.Proj.ProjLat, Lon: srcVE.Proj.ProjLon, Ele: float64(srcVE.Proj.ProjEleDm) / 10.0},
-		{Lat: dstVE.Proj.ProjLat, Lon: dstVE.Proj.ProjLon, Ele: float64(dstVE.Proj.ProjEleDm) / 10.0},
-	}
-
-	// Spec §5.8: minimal 2-point elevation profile for same-edge special case.
-	// Distance axis: 0 at src projection, directDist at dst projection.
-	// The two coord entries already carry the correct Ele values (ProjEleDm / 10.0),
-	// so applyProfileToCoords is not needed — coords and profile are consistent by construction.
-	sameEdgeProfile := []ElevationPoint{
-		{DistM: 0, EleM: PtrEle(float64(srcVE.Proj.ProjEleDm) / 10.0)},
-		{DistM: directDist, EleM: PtrEle(float64(dstVE.Proj.ProjEleDm) / 10.0)},
-	}
-
 	return &RouteResult{
-		Coordinates:      coords,
+		Coordinates:      slicedCoords,
 		DistanceM:        directDist,
 		AscentM:          ascent,
 		DescentM:         descent,
 		Cost:             cost,
-		ElevationProfile: &sameEdgeProfile, // Spec §5.8, T1.3
+		ElevationProfile: &slicedProfile, // Spec §5.8, T1.3 — full-resolution profile (T0 C.4)
 	}
 }
 
