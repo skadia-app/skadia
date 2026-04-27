@@ -1,11 +1,13 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useMemo } from 'react'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { type SummitVisit } from '@/api/summits'
 import SummitActivityList from './SummitActivityList'
 import { ELEV_CLASSES, type ElevClass } from './summitConstants'
-import { buildRasterStyle, getSavedMapStyle } from '@/lib/mapStyles'
+import { buildLayerStyle } from '@/lib/mapStyles'
+import { useMapLayers } from '@/hooks/useMapLayers'
+import { useCapabilities } from '@/hooks/useCapabilities'
 import { createSummitMarker, type SummitMarker } from './markerUtils'
 import { useSummitCollection } from '@/hooks/useSummitCollection'
 
@@ -37,12 +39,21 @@ export default function SummitMapFullscreen({
 
   const { displaySummits, availableCountries, availableYears } = useSummitCollection({ countryFilter, elevClass, yearFilter })
 
+  const { base } = useMapLayers()
+  const { data: caps } = useCapabilities()
+  const defaultLayer = base[0]
+  const mapStyle = useMemo(
+    () => (defaultLayer ? buildLayerStyle(defaultLayer, caps ?? {}) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [defaultLayer?.key, caps],
+  )
+
   // MapLibre initialisieren
   useEffect(() => {
-    if (!mapContainer.current || mapRef.current) return
+    if (!mapContainer.current || mapRef.current || !mapStyle) return
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: buildRasterStyle(getSavedMapStyle()),
+      style: mapStyle as import('maplibre-gl').StyleSpecification | string,
       center: [11.4, 47.3],
       zoom: 7,
     })
@@ -52,7 +63,9 @@ export default function SummitMapFullscreen({
       map.remove()
       mapRef.current = null
     }
-  }, [])
+    // mapStyle triggers init once layers arrive; mapRef.current guard prevents re-init.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapStyle])
 
   // Marker bei Filterwechsel aktualisieren
   useEffect(() => {

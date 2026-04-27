@@ -1,7 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { buildRasterStyle } from '@/lib/mapStyles'
+import { buildLayerStyle } from '@/lib/mapStyles'
+import { useMapLayers } from '@/hooks/useMapLayers'
+import { useCapabilities } from '@/hooks/useCapabilities'
 
 interface MapPreviewProps {
   geojsonTrack: string | null | undefined
@@ -17,9 +19,18 @@ interface MapPreviewProps {
 export function MapPreview({ geojsonTrack, height = '200px', className }: MapPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
-  
+
+  const { base } = useMapLayers()
+  const { data: caps } = useCapabilities()
+  const defaultLayer = base[0]
+  const mapStyle = useMemo(
+    () => (defaultLayer ? buildLayerStyle(defaultLayer, caps ?? {}) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [defaultLayer?.key, caps],
+  )
+
   useEffect(() => {
-    if (!containerRef.current || !geojsonTrack) return
+    if (!containerRef.current || !geojsonTrack || !mapStyle) return
     
     // Accept both a bare LineString Geometry (what the backend returns via
     // ST_AsGeoJSON) and a wrapped Feature<LineString>.
@@ -42,7 +53,7 @@ export function MapPreview({ geojsonTrack, height = '200px', className }: MapPre
     
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: buildRasterStyle('osm'),
+      style: mapStyle as import('maplibre-gl').StyleSpecification | string,
       center: (coords[0] as [number, number]) ?? [11, 47],
       zoom: coords.length < 2 ? 14 : 10,
       interactive: true,
@@ -81,7 +92,8 @@ export function MapPreview({ geojsonTrack, height = '200px', className }: MapPre
         mapRef.current = null
       }
     }
-  }, [geojsonTrack])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geojsonTrack, mapStyle])
   
   if (!geojsonTrack) {
     return (

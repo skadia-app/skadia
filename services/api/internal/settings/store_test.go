@@ -308,3 +308,30 @@ func TestSettingsStoreSingleFlightConcurrentGet(t *testing.T) {
 		t.Errorf("expected 1-2 rebuilds (single-flight coalescing), got %d", got)
 	}
 }
+
+// TestStoreGetInt verifies the typed GetInt wrapper for registered integer settings.
+func TestStoreGetInt(t *testing.T) {
+	// Default value "50" is parseable as int.
+	s := newTestStore(t)
+	got, err := s.GetInt("library.user_map_layer_limit")
+	if err != nil {
+		t.Fatalf("GetInt with default: unexpected error: %v", err)
+	}
+	if got != 50 {
+		t.Errorf("GetInt with default: expected 50, got %d", got)
+	}
+
+	// Env override with non-integer value must return an error.
+	t.Setenv("LIBRARY_USER_MAP_LAYER_LIMIT", "not-a-number")
+	s2 := newTestStore(t)
+	_, err = s2.GetInt("library.user_map_layer_limit")
+	if err == nil {
+		t.Error("GetInt with non-integer env value: expected error, got nil")
+	}
+
+	// Unknown key has empty value — must return an error.
+	_, err = s.GetInt("nonexistent.key")
+	if err == nil {
+		t.Error("GetInt with unknown key: expected error, got nil")
+	}
+}

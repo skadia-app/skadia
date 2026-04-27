@@ -27,7 +27,8 @@ import AccountSettingsTab from '@/pages/settings/AccountSettingsTab'
 import AdminSettingsTab from '@/pages/settings/AdminSettingsTab'
 import { MLServiceSection } from '@/pages/settings/MLServiceSection'
 import { NotificationSettingsSection } from '@/pages/settings/NotificationSettingsSection'
-import { LocalMapAndGeoSection } from '@/pages/settings/LocalMapAndGeoSection'
+import { UserCustomLayersSection } from '@/components/UserCustomLayersSection'
+import { useMapLayers } from '@/hooks/useMapLayers'
 import Toggle from '@/components/Toggle'
 import { SettingsSection } from '@/components/ui/SettingsSection'
 
@@ -1152,8 +1153,22 @@ export default function SettingsPage() {
       {/* Reverse-Geocoding-Fallback (externer Dienst) */}
       <GeocodingFallbackSection />
 
-      {/* Lokale Karten & Geodaten */}
-      {isAdmin && <LocalMapAndGeoSection />}
+      {/* Eigene Karten-Layer (alle User) */}
+      <UserCustomLayersSection />
+
+      {/* Admin-Hinweis: DEM, Offline-Karten, OSM jetzt unter Admin → Karten & Tiles */}
+      {isAdmin && (
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          Admin-Optionen (DEM, Offline-Karten, OSM-Regionen, Layer-Verwaltung) jetzt unter{' '}
+          <Link
+            to="/settings?tab=admin&section=maps"
+            className="text-accent-DEFAULT hover:underline"
+          >
+            Settings → Admin → Karten &amp; Tiles
+          </Link>
+          .
+        </p>
+      )}
 
       </div>
       )}
@@ -1360,17 +1375,6 @@ function SportSettingsSection() {
 }
 
 
-type BaseStyle = 'osm' | 'topo' | 'cyclosm' | 'satellite' | 'dark' | 'local'
-
-const BASE_STYLE_OPTIONS: { value: BaseStyle; label: string }[] = [
-  { value: 'osm', label: 'OSM (Standard)' },
-  { value: 'topo', label: 'Topografisch' },
-  { value: 'cyclosm', label: 'CyclOSM' },
-  { value: 'satellite', label: 'Satellit' },
-  { value: 'dark', label: 'Dark' },
-  { value: 'local', label: 'Lokal (Offline)' },
-]
-
 function HeatmapSettingsSection() {
   const queryClient = useQueryClient()
   const [localRadius, setLocalRadius] = useState<number | null>(null)
@@ -1378,16 +1382,19 @@ function HeatmapSettingsSection() {
   const [localThreshold, setLocalThreshold] = useState<number | null>(null)
   const [localFilterMap, setLocalFilterMap] = useState<boolean | null>(null)
   const [localFilterActivity, setLocalFilterActivity] = useState<boolean | null>(null)
-  const [defaultBaseStyle, setDefaultBaseStyle] = useState<BaseStyle>(() => {
+  const [defaultBaseStyle, setDefaultBaseStyle] = useState<string>(() => {
     try {
       const s = localStorage.getItem('skadia-map-defaults')
       if (s) {
-        const p = JSON.parse(s)
-        if (p.defaultBaseStyle) return p.defaultBaseStyle as BaseStyle
+        const p = JSON.parse(s) as { defaultBaseStyle?: string }
+        if (p.defaultBaseStyle) return p.defaultBaseStyle
       }
     } catch { /* ignore */ }
     return 'osm'
   })
+
+  // Dynamic base styles from server — replaces the old parallel hardcoded list.
+  const { base: baseLayers } = useMapLayers()
 
   const { data: heatmapSettings } = useQuery({
     queryKey: ['heatmap-settings'],
@@ -1450,17 +1457,17 @@ function HeatmapSettingsSection() {
         <select
           value={defaultBaseStyle}
           onChange={e => {
-            const val = e.target.value as BaseStyle
+            const val = e.target.value
             setDefaultBaseStyle(val)
             try {
-              const stored = JSON.parse(localStorage.getItem('skadia-map-defaults') || '{}')
+              const stored = JSON.parse(localStorage.getItem('skadia-map-defaults') || '{}') as Record<string, unknown>
               localStorage.setItem('skadia-map-defaults', JSON.stringify({ ...stored, defaultBaseStyle: val }))
             } catch { /* ignore */ }
           }}
           className="w-48 px-3 py-1.5 text-sm rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
         >
-          {BASE_STYLE_OPTIONS.map(o => (
-            <option key={o.value} value={o.value}>{o.label}</option>
+          {baseLayers.map(l => (
+            <option key={l.key} value={l.key}>{l.name}</option>
           ))}
         </select>
       </div>

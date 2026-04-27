@@ -6,6 +6,8 @@ func TestAllKeysIncludesLibraryKeys(t *testing.T) {
 	expected := []string{
 		"library.user_can_edit_dir_name",
 		"library.user_can_edit_schemas",
+		"library.user_map_layer_limit",
+		"library.user_map_layer_rate_limit_per_10min",
 		"library.default_schema.activity",
 		"library.default_schema.media",
 		"library.default_schema.document",
@@ -18,10 +20,10 @@ func TestAllKeysIncludesLibraryKeys(t *testing.T) {
 		}
 	}
 	// Verify Group grouping: 3 pre-existing (keep_versions, sync_enabled, sync_auto_import)
-	// + 7 new admin-model keys = 10 total.
+	// + 7 admin-model keys + 2 user-map-layer keys = 12 total.
 	lib := KeysByGroup["library"]
-	if len(lib) != 10 {
-		t.Errorf("expected 10 library-group keys, got %d", len(lib))
+	if len(lib) != 12 {
+		t.Errorf("expected 12 library-group keys, got %d", len(lib))
 	}
 }
 

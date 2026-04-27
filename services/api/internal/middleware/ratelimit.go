@@ -68,6 +68,22 @@ func (rl *RateLimiter) Allow(key string, rps float64, burst int) bool {
 	return e.limiter.Allow()
 }
 
+// Invalidate removes the rate limiter entry for key, forcing the next request
+// from that key to start with a fresh limit/burst. Use this when an admin changes
+// a rate-limit setting and wants the new value to take effect immediately for a
+// specific key rather than waiting up to 15 min for the cleanup cycle.
+//
+// TODO(STATE.md): Wire this into the settings-store update path so that a change
+// to library.user_map_layer_rate_limit_per_10min immediately evicts all
+// "maplayer:user:" prefixed entries. Currently the cleanup goroutine handles this
+// naturally for inactive users; active users see the old limit until their entry
+// expires (acceptable for this administrative operation).
+func (rl *RateLimiter) Invalidate(key string) {
+	if _, loaded := rl.limiters.LoadAndDelete(key); loaded {
+		rl.size.Add(-1)
+	}
+}
+
 func (rl *RateLimiter) cleanup(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -169,6 +185,43 @@ func rateLimitByIP(rl *RateLimiter, prefix string, rps float64, burst int) func(
 			key := prefix + ":" + ip
 			if !rl.Allow(key, rps, burst) {
 				writeJSONError(w, http.StatusTooManyRequests, "too many requests")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RateLimitMapLayerWrite throttles user CRUD on /users/me/map-layers/*.
+// Key: "maplayer:user:<uuid>" — per-user, not per-IP.
+//
+// perTenMin is called fresh on every request so an admin who lowers the setting
+// in the settings store takes effect immediately for new requests.
+//
+// Note: golang.org/x/time/rate.Limiter caches its limit/burst on first Allow
+// because the RateLimiter stores one limiter per key. A settings change does NOT
+// update existing limiters; the cleanup goroutine evicts unused keys after 15 min,
+// so the new value takes effect naturally for inactive users. This is acceptable
+// for this feature: limit changes are rare administrative operations.
+func RateLimitMapLayerWrite(rl *RateLimiter, perTenMin func() int) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			uid := GetUserID(r.Context())
+			if uid == "" {
+				// Should not happen: this middleware sits inside the jwtAuth block.
+				// Fail open so the handler can issue its own 401.
+				next.ServeHTTP(w, r)
+				return
+			}
+			n := perTenMin()
+			rps := float64(n) / 600.0
+			burst := n / 4
+			if burst < 5 {
+				burst = 5
+			}
+			if !rl.Allow("maplayer:user:"+uid, rps, burst) {
+				w.Header().Set("Retry-After", "60")
+				writeJSONError(w, http.StatusTooManyRequests, "rate limit exceeded")
 				return
 			}
 			next.ServeHTTP(w, r)

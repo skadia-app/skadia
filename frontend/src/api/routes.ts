@@ -64,17 +64,22 @@ export interface PlannedRoute {
   updated_at: string
 }
 
+// Open index signature: backend /capabilities may return additional boolean fields
+// that are not known at compile time (e.g. future capabilities added server-side).
+// Named fields are optional (undefined = not advertised by this backend build) and
+// kept for IDE autocomplete; callers should treat absent keys as false.
 export interface Capabilities {
-  routing: boolean
-  brouter: boolean
-  badrouter: boolean
-  offline_map: boolean
-  surface_enrichment: boolean
-  dem_correction: boolean
-  isochrone: boolean
-  route_suggestion: boolean
-  ml_service: boolean
-  import_path_enabled: boolean
+  routing?: boolean
+  brouter?: boolean
+  badrouter?: boolean
+  offline_map?: boolean
+  surface_enrichment?: boolean
+  dem_correction?: boolean
+  isochrone?: boolean
+  route_suggestion?: boolean
+  ml_service?: boolean
+  import_path_enabled?: boolean
+  [k: string]: boolean | undefined
 }
 
 export interface POIResult {

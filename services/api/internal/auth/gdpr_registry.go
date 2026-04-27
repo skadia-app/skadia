@@ -65,6 +65,7 @@ var GDPRRegistry = map[string]TableCategory{
 	"user_enrichment_settings": Export,
 	"user_file_schemas":        Export,
 	"user_files":               Export, // Metadaten; Binaries via ShadowFS
+	"user_map_layers":          Export, // per-user custom tile-URL layers (Mig 000333)
 	"user_privacy_zones":       Export,
 	"activity_fusion_memberships": Export, // Join-Tabelle: welche Quell-Activity trägt welches Feld zur Merged-Activity bei. DeleteVia: CASCADE via activities(merged_id|source_id) und users(user_id)
 	"workouts":                    Export,
@@ -158,6 +159,9 @@ var GDPRRegistry = map[string]TableCategory{
 	// Global — no user_id; no GDPR relevance
 	// -------------------------------------------------------------------------
 	"developer_field_definitions": Global, // FIT-Schema-Lookup, kein user_id
+	// Map-layer admin tables — instance-wide, no user_id.
+	"map_layers":              Global,
+	"system_layer_visibility": Global,
 	// sport_taxonomy removed — table never existed in DB (stale aspirational entry, Mig cleanup)
 	"system_flags": Global,
 }
@@ -199,6 +203,7 @@ var ExportedTables = []string{
 	"segment_favorites",
 	"oauth_connections",
 	"user_files",
+	"user_map_layers",
 	"file_attachments",
 	"training_zones",
 	"activity_edits",

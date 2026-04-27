@@ -80,3 +80,14 @@ export async function getWeatherSettings(): Promise<WeatherPrefs> {
 export async function updateWeatherSettings(prefs: WeatherPrefs): Promise<WeatherPrefs> {
   return apiClient<WeatherPrefs>('/settings/weather', { method: 'PATCH', body: prefs })
 }
+
+// SettingsLimits holds user-facing system-wide limits exposed via the public
+// /api/v1/settings/limits endpoint (jwtAuth, not admin).
+export interface SettingsLimits {
+  user_map_layer_limit: number
+  user_map_layer_rate_limit_per_10min: number
+}
+
+export async function getSettingsLimits(): Promise<SettingsLimits> {
+  return apiClient<SettingsLimits>('/settings/limits')
+}
