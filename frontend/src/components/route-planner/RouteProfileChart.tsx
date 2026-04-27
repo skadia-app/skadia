@@ -114,6 +114,12 @@ export function buildProfile(
     pt.ele_m !== null,
   )
 
+  // O(1) lookup: dist_m → index into nonNullPts. Built once here so the
+  // raw.map below does not call findIndex for every point (was O(N²)).
+  const nonNullIdxByDist = new Map<number, number>(
+    nonNullPts.map((pt, i) => [pt.dist_m, i]),
+  )
+
   const points: ProfilePoint[] = raw.map(pt => {
     const distanceKm = pt.dist_m / 1000
 
@@ -121,7 +127,7 @@ export function buildProfile(
     // For gap (null) points: grade = 0 (no colour, no numeric meaning).
     let grade = 0
     if (pt.ele_m !== null) {
-      const idx = nonNullPts.findIndex(p => p.dist_m === pt.dist_m)
+      const idx = nonNullIdxByDist.get(pt.dist_m) ?? -1
       if (idx > 0 && idx < nonNullPts.length - 1) {
         const prev = nonNullPts[idx - 1]
         const next = nonNullPts[idx + 1]

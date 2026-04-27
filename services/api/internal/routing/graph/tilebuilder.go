@@ -3,7 +3,6 @@ package graph
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"runtime"
@@ -13,7 +12,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/zeebo/xxh3"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/skadia-app/skadia/services/api/internal/dem"
@@ -300,19 +298,20 @@ func buildHGTManifest(tileID uint32, hgtDirs []string) (*HGTManifest, error) {
 			preSize := info.Size()
 			preMtime := info.ModTime()
 
-			// Hash the entire file content.
-			h := xxh3.New()
-			if _, err := io.Copy(h, f); err != nil {
-				syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
-				f.Close()
+			// Hash the first and last 64 KB of the file (partial drift-detection
+			// heuristic — see dem.Xxh3Partial for rationale). Must use the same
+			// algorithm as drift_scan.go so that manifest hashes match at scan time.
+			// Release the shared lock and close the fd before Xxh3Partial reopens
+			// the file; the post-read stat below detects any rotation that occurs
+			// in the window between lock release and hash completion.
+			syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+			f.Close()
+
+			digest, err := dem.Xxh3Partial(path)
+			if err != nil {
 				slog.Warn("hgt manifest: hash read failed", "path", path, "error", err)
 				continue
 			}
-			digest := h.Sum64()
-
-			// Release lock before re-stat.
-			syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
-			f.Close()
 
 			// Post-read re-check: detect HGT rotation during the read.
 			info2, err := os.Stat(path)

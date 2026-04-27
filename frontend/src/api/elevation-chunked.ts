@@ -55,6 +55,11 @@ export async function getElevationAtVerticesChunked(
   line: GeoJSON.LineString,
   addToast: ((toast: Omit<Toast, 'id'>) => unknown) | null = null,
 ): Promise<RouteElevationPoint[]> {
+  if (line.coordinates.length < 2) {
+    // Single-vertex or empty linestring has no edges to query — return empty profile.
+    return []
+  }
+
   const vertexCount = line.coordinates.length
 
   let points: RouteElevationPoint[]

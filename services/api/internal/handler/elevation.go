@@ -201,6 +201,11 @@ func (h *Handler) elevationProfileAtVertices(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if h.DEMSvc == nil {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "elevation service not configured", r.URL.Path)
+		return
+	}
+
 	// Build int32×1e7 encoded lat/lon slices for batch lookup.
 	lats := make([]int32, len(coords))
 	lons := make([]int32, len(coords))

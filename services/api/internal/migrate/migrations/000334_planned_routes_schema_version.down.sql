@@ -1,1 +1,11 @@
+-- WARNING: dev-only / pre-frontend-deploy reversal.
+-- After frontend release, route_schema_version is read by Go and TS code paths;
+-- dropping the column would crash list/get route handlers at runtime.
+-- Optional sanity gate (commented out): refuse drop if v=1 rows exist.
+-- DO $$ BEGIN
+--   IF EXISTS (SELECT 1 FROM planned_routes WHERE route_schema_version = 1) THEN
+--     RAISE EXCEPTION 'cannot drop route_schema_version: % rows still at v=1',
+--       (SELECT count(*) FROM planned_routes WHERE route_schema_version = 1);
+--   END IF;
+-- END $$;
 ALTER TABLE planned_routes DROP COLUMN route_schema_version;

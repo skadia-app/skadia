@@ -21,7 +21,7 @@ func PtrEle(v float64) *float64 { return &v }
 // RouteResult holds the complete routing result.
 type RouteResult struct {
 	Coordinates    []LatLonEle    `json:"-"`
-	DistanceM      float64        `json:"distance_m"`       // network-only (routed edges, without approach)
+	DistanceM      float64        `json:"distance_m"`       // network + VE-tail (sub-edge between projection and seed node). Click-to-projection straight-line approach is in TotalDistanceM - DistanceM.
 	TotalDistanceM float64        `json:"total_distance_m"` // approach-inclusive (= ElevationProfile[last].DistM after addApproach)
 	AscentM        float64        `json:"ascent_m"`
 	DescentM     float64        `json:"descent_m"`
@@ -102,11 +102,18 @@ type LatLonEle struct {
 	// §6.1, F1). coord[2] remains a 3D-GeoJSON-standard property — Phase 5
 	// (originally planned to remove it) was canceled in Spec Rev 2.3 §3.
 	//
+	// When EleValid is false, Ele is 0 as a sentinel value (no DEM data).
+	// Consumers MUST check EleValid before using Ele — 0 does NOT mean sea level.
+	//
 	// See docs/internal/specs/2026-04-22-route-elevation-profile-separation-design.md
 	Ele float64 `json:"ele"`
 	// EleValid is false when the corresponding ElevationPoint.EleM is nil
 	// (gap-fill phase D will populate real values; gap-fill phase A.0 leaves
 	// nil points unresolved). Omitted from JSON when true (happy path).
+	//
+	// JSON contract: when EleValid=false, ToGeoJSON emits coord[2]=0 as sentinel.
+	// Downstream consumers (FIT/GPX export, third-party tools) cannot distinguish
+	// this from a genuine sea-level point — they MUST gate on the ele_valid field.
 	EleValid bool `json:"ele_valid,omitempty"`
 }
 
@@ -144,10 +151,14 @@ type LatLon struct {
 }
 
 // ToGeoJSON converts a RouteResult to a GeoJSON FeatureCollection.
+// GeoJSON coordinate contract: each point is [lon, lat, ele].
+// When a coordinate has EleValid=false, ele is emitted as 0 (sentinel for NoData).
+// Consumers that care about elevation MUST check the ele_valid field; 0 is NOT
+// guaranteed to mean sea level.
 func (r *RouteResult) ToGeoJSON() json.RawMessage {
 	coords := make([][]float64, len(r.Coordinates))
 	for i, c := range r.Coordinates {
-		coords[i] = []float64{c.Lon, c.Lat, c.Ele} // GeoJSON: [lon, lat, ele]
+		coords[i] = []float64{c.Lon, c.Lat, c.Ele} // GeoJSON: [lon, lat, ele]; ele=0 when EleValid=false
 	}
 
 	feature := map[string]any{

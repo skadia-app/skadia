@@ -197,10 +197,12 @@ func (s *Service) Health() Health {
 // times or concurrently. After Close, ElevationAt/ElevationBatch return errors.
 func (s *Service) Close() {
 	s.closeOnce.Do(func() {
-		// Mark closed so that new callers that haven't yet acquired closeMu.RLock
-		// fast-return with an error. Callers that are already inside the RLock
-		// section will complete normally (they hold a safe grid reference) and
-		// then release their read-lock before we acquire the write-lock below.
+		// Close marks the service closed and releases all mmap resources.
+		// Ordering: closed.Store(true) BEFORE acquiring closeMu.Lock() so that
+		// callers checking closed.Load() after our store will fast-return without
+		// touching the grids. In-flight callers that already passed the check hold
+		// closeMu.RLock(); Lock() waits for them to release before we tear down
+		// the mmaps, ensuring no pointer use after unmap.
 		s.closed.Store(true)
 
 		// Acquire the write-lock to wait for all in-flight ElevationAt /

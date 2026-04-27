@@ -67,6 +67,11 @@ export function buildProfileToCoordMap(
       continue
     }
 
+    if (p.length !== segCoords.length) {
+      // 1:1 mapping invariant violated — caller must bail.
+      return null
+    }
+
     // Profile points: junction-dedup mirrors buildCombinedProfileFromSegments.
     const profileStartIdx = hadAny ? 1 : 0
 
