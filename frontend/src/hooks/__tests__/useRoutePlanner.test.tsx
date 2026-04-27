@@ -14,6 +14,9 @@ import type { RouteStats } from '../useRoutePlanner'
 import type { RouteSegment, PlannedRoute, RouteWaypoint, ElevationPoint } from '@/api/routes'
 import { makeFakeRouteStats, makeFakeSuggestion } from '@/test-utils/routeFixtures'
 
+// Shared mock for getElevationAtVerticesChunked — used in D.2 token tests
+const getElevationAtVerticesChunkedMock = vi.hoisted(() => vi.fn())
+
 // addToastMock must be hoisted so vi.mock factory can reference it
 const addToastMock = vi.hoisted(() => vi.fn())
 
@@ -63,6 +66,10 @@ vi.mock('@/lib/toast', async () => {
     useToast: vi.fn().mockReturnValue({ addToast: addToastMock }),
   }
 })
+
+vi.mock('@/api/elevation-chunked', () => ({
+  getElevationAtVerticesChunked: getElevationAtVerticesChunkedMock,
+}))
 
 // ── buildCombinedProfileFromSegments unit tests (Phase D.1) ──────────────────
 
@@ -1238,3 +1245,306 @@ describe('useRoutePlanner lazy-fill distance-axis (Critic #10, §10 Q1 Phase-1)'
   })
 })
 
+// ── Phase D.2: fillOffroadProfile + per-segment fill tokens ──────────────────
+//
+// Tests cover:
+// 1. Happy path: fillOffroadProfile result applies when token is current.
+// 2. Parallel edits to different segments all apply (key differentiator vs global token).
+// 3. Re-edit same segment: earlier in-flight result is invalidated.
+// 4. Segment replaced (identity check): stale result is discarded.
+
+describe('fillOffroadProfile + per-segment fill tokens (Phase D.2)', () => {
+  let qc: QueryClient
+
+  // Minimal offroad segment factory
+  function makeOffroadSeg(fromId: string, toId: string): RouteSegment {
+    return {
+      from_waypoint: fromId,
+      to_waypoint: toId,
+      mode: 'offroad',
+      geometry: {
+        type: 'LineString',
+        coordinates: [[11, 47], [11.05, 47.05], [11.1, 47.1]],
+      },
+      control_points: [[47, 11], [47.05, 11.05], [47.1, 11.1]],
+      smooth: true,
+      distance_m: 5000,
+      elevation_gain: 50,
+      elevation_loss: 10,
+    }
+  }
+
+  // Minimal routed-segment-based PlannedRoute with one offroad segment
+  function makeOffroadRoute(fromId: string, toId: string): PlannedRoute {
+    const wp1: RouteWaypoint = { id: fromId, latlng: [47, 11], type: 'start' }
+    const wp2: RouteWaypoint = { id: toId, latlng: [47.1, 11.1], type: 'end' }
+    return {
+      id: 'offroad-route',
+      name: 'Offroad Route',
+      sport_type: 'hiking',
+      profile: 'hiking',
+      waypoints: [wp1, wp2],
+      segments: [makeOffroadSeg(fromId, toId)],
+      time_override: false,
+      auto_tag: false,
+      photos: [],
+      tags: [],
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      elevation_profile: null,
+      enrichment: null,
+    }
+  }
+
+  beforeEach(async () => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    addToastMock.mockClear()
+    getElevationAtVerticesChunkedMock.mockClear()
+
+    const { getProfileDefaults, cacheServerDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+    vi.mocked(cacheServerDefaults).mockReset()
+
+    const { getProfileDefaults: fetchProfileDefaults } = await import('@/api/routes')
+    vi.mocked(fetchProfileDefaults).mockResolvedValue({ profile: 'hiking', uphill_cost: 7 } as any)
+
+    // Default: returns a simple 3-point profile
+    getElevationAtVerticesChunkedMock.mockResolvedValue([
+      { dist_m: 0, ele_m: 500 },
+      { dist_m: 2500, ele_m: 520 },
+      { dist_m: 5000, ele_m: 510 },
+    ])
+  })
+
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <ToastProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </ToastProvider>
+  )
+
+  it('fillOffroadProfile applies result when token is current (happy path)', async () => {
+    // Wire: updateControlPoint triggers fillOffroadAndApply → getElevationAtVerticesChunked.
+    // After completion, the segment's elevation_profile must be set.
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => expect(result.current.profile.status).toBe('ready'))
+
+    const route = makeOffroadRoute('wp1', 'wp2')
+    act(() => { result.current.loadRoute(route) })
+
+    // Trigger: update a control point on the offroad segment
+    await act(async () => {
+      result.current.updateControlPoint({ from: 'wp1', to: 'wp2' }, 0, [47.02, 11.02])
+    })
+
+    // Wait for the DEM fill to complete
+    await waitFor(() => {
+      const seg = result.current.segments.find(
+        s => s.from_waypoint === 'wp1' && s.to_waypoint === 'wp2',
+      )
+      return seg?.elevation_profile != null && seg.elevation_profile.length > 0
+    })
+
+    const seg = result.current.segments.find(
+      s => s.from_waypoint === 'wp1' && s.to_waypoint === 'wp2',
+    )
+    expect(seg?.elevation_profile).not.toBeNull()
+    expect(seg?.elevation_profile).toHaveLength(3)
+    expect(seg?.elevation_profile![0].ele_m).toBe(500)
+    expect(getElevationAtVerticesChunkedMock).toHaveBeenCalled()
+  })
+
+  it('fillOffroadProfile per-segment-token: fills for different segments apply independently', async () => {
+    // Per-segment tokens ensure fills for DIFFERENT segments do not invalidate each other.
+    // A global token would: filling segment A increments the global counter, so the token
+    // that segment B's in-flight call captured is now stale → B's result discarded.
+    // With per-segment map: fillTokens.get('w1:w2') and fillTokens.get('w2:w3') are
+    // independent counters, so both results land correctly.
+    //
+    // Test: two-segment offroad route loaded, fill A triggered (hanging), fill B triggered
+    // (hanging — A still in-flight). Both resolved → both apply independently.
+
+    let resolveA!: (v: Array<{ dist_m: number; ele_m: number }>) => void
+    let resolveB!: (v: Array<{ dist_m: number; ele_m: number }>) => void
+    let callCount = 0
+    getElevationAtVerticesChunkedMock.mockImplementation(() => {
+      callCount += 1
+      if (callCount === 1) return new Promise(res => { resolveA = res })
+      return new Promise(res => { resolveB = res })
+    })
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => expect(result.current.profile.status).toBe('ready'))
+
+    // Two-segment offroad route (w1→w2, w2→w3).
+    // elevation_profile: non-null, non-empty → needsLazyFill=false.
+    const segAB = makeOffroadSeg('w1', 'w2')
+    const segBC = makeOffroadSeg('w2', 'w3')
+    const twoSegRoute: PlannedRoute = {
+      id: 'two-seg-offroad',
+      name: 'Two-segment offroad',
+      sport_type: 'hiking',
+      profile: 'hiking',
+      waypoints: [
+        { id: 'w1', latlng: [47, 11], type: 'start' },
+        { id: 'w2', latlng: [47.1, 11.1], type: 'via' },
+        { id: 'w3', latlng: [47.2, 11.2], type: 'end' },
+      ],
+      segments: [segAB, segBC],
+      time_override: false,
+      auto_tag: false,
+      photos: [],
+      tags: [],
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      elevation_profile: [{ dist_m: 0, ele_m: 0 }],  // non-null, non-empty → needsLazyFill=false
+      enrichment: null,
+    }
+
+    await act(async () => { result.current.loadRoute(twoSegRoute) })
+
+    // Fill for segment A (w1→w2) — in-flight call 1 (hanging).
+    await act(async () => {
+      result.current.updateControlPoint({ from: 'w1', to: 'w2' }, 0, [47.01, 11.01])
+    })
+
+    // Wait until DEM call 1 has started (fill A in-flight).
+    await waitFor(() => {
+      expect(getElevationAtVerticesChunkedMock).toHaveBeenCalledTimes(1)
+    })
+
+    // Fill for segment B (w2→w3) — in-flight call 2 (hanging).
+    // At this point fill A is still in-flight; both fills are concurrent.
+    await act(async () => {
+      result.current.updateControlPoint({ from: 'w2', to: 'w3' }, 0, [47.11, 11.11])
+    })
+
+    // Wait until DEM call 2 has also started.
+    await waitFor(() => {
+      expect(getElevationAtVerticesChunkedMock).toHaveBeenCalledTimes(2)
+    })
+
+    // Resolve both fills: A → ele_m=100, B → ele_m=200.
+    // With per-segment tokens: both should apply because their token counters are
+    // independent (fillTokens.get('w1:w2')=1 and fillTokens.get('w2:w3')=1 are separate).
+    await act(async () => {
+      resolveA([{ dist_m: 0, ele_m: 100 }, { dist_m: 5000, ele_m: 110 }])
+      resolveB([{ dist_m: 0, ele_m: 200 }, { dist_m: 5000, ele_m: 210 }])
+    })
+
+    // Both fills must have applied independently (per-segment tokens)
+    await waitFor(() => {
+      const segA = result.current.segments.find(s => s.from_waypoint === 'w1' && s.to_waypoint === 'w2')
+      const segB = result.current.segments.find(s => s.from_waypoint === 'w2' && s.to_waypoint === 'w3')
+      expect(segA?.elevation_profile?.[0]?.ele_m).toBe(100)
+      expect(segB?.elevation_profile?.[0]?.ele_m).toBe(200)
+    })
+  })
+
+  it('fillOffroadProfile per-segment-token: re-edit same segment invalidates earlier in-flight', async () => {
+    // Edit seg A → in-flight call 1 (ele=999 stale).
+    // Edit seg A again → in-flight call 2 (ele=777 fresh).
+    // When call 1 resolves AFTER call 2: must be discarded (token mismatch).
+
+    let resolveCall1!: (v: Array<{ dist_m: number; ele_m: number }>) => void
+    let callCount = 0
+    getElevationAtVerticesChunkedMock.mockImplementation(() => {
+      callCount += 1
+      if (callCount === 1) return new Promise(res => { resolveCall1 = res })
+      // Call 2 resolves immediately with ele=777
+      return Promise.resolve([{ dist_m: 0, ele_m: 777 }, { dist_m: 5000, ele_m: 780 }])
+    })
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => expect(result.current.profile.status).toBe('ready'))
+
+    const route = makeOffroadRoute('wp1', 'wp2')
+    act(() => { result.current.loadRoute(route) })
+
+    // First edit: triggers call 1 (in-flight, stale)
+    act(() => {
+      result.current.updateControlPoint({ from: 'wp1', to: 'wp2' }, 0, [47.01, 11.01])
+    })
+
+    // Second edit: triggers call 2 (resolves immediately with 777)
+    act(() => {
+      result.current.updateControlPoint({ from: 'wp1', to: 'wp2' }, 1, [47.09, 11.09])
+    })
+
+    // Wait for call 2 to land (ele=777)
+    await waitFor(() => {
+      const seg = result.current.segments.find(
+        s => s.from_waypoint === 'wp1' && s.to_waypoint === 'wp2',
+      )
+      return seg?.elevation_profile != null && seg.elevation_profile[0].ele_m === 777
+    })
+
+    // Now resolve the stale call 1 with ele=999
+    act(() => {
+      resolveCall1([{ dist_m: 0, ele_m: 999 }, { dist_m: 5000, ele_m: 999 }])
+    })
+
+    // Allow microtasks to flush
+    await act(async () => { await Promise.resolve() })
+
+    // The stale 999 result must have been discarded (token counter mismatch).
+    const seg = result.current.segments.find(
+      s => s.from_waypoint === 'wp1' && s.to_waypoint === 'wp2',
+    )
+    expect(seg?.elevation_profile![0].ele_m).toBe(777)
+    expect(seg?.elevation_profile![0].ele_m).not.toBe(999)
+  })
+
+  it('fillOffroadProfile segment-identity-check: segment replaced during fetch is skipped', async () => {
+    // Edit seg (triggers DEM fetch, in-flight). While in-flight, loadRoute() replaces
+    // all segments with new identities. When fetch resolves, identity check finds no
+    // segment with the original from/to keys → result silently discarded.
+
+    let resolveElev!: (v: Array<{ dist_m: number; ele_m: number }>) => void
+    getElevationAtVerticesChunkedMock.mockImplementation(
+      () => new Promise(res => { resolveElev = res }),
+    )
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => expect(result.current.profile.status).toBe('ready'))
+
+    const route = makeOffroadRoute('wp1', 'wp2')
+    act(() => { result.current.loadRoute(route) })
+
+    // Trigger in-flight DEM fetch
+    act(() => {
+      result.current.updateControlPoint({ from: 'wp1', to: 'wp2' }, 0, [47.01, 11.01])
+    })
+
+    // Wait until the DEM call has been initiated (resolver set)
+    await waitFor(() => {
+      expect(getElevationAtVerticesChunkedMock).toHaveBeenCalledTimes(1)
+    })
+
+    // Replace segments with a fresh loadRoute that uses different waypoint IDs
+    const freshRoute = makeOffroadRoute('x1', 'x2')
+    act(() => { result.current.loadRoute(freshRoute) })
+
+    // Now resolve the stale DEM fetch
+    act(() => {
+      resolveElev([{ dist_m: 0, ele_m: 888 }, { dist_m: 5000, ele_m: 890 }])
+    })
+
+    // Allow microtasks to flush
+    await act(async () => { await Promise.resolve() })
+
+    // The new route's segment (x1→x2) must not have been touched by the stale result.
+    const seg = result.current.segments.find(
+      s => s.from_waypoint === 'x1' && s.to_waypoint === 'x2',
+    )
+    // elevation_profile may be null or already filled by its own DEM call.
+    // The key assertion: the old segment (wp1→wp2) must not exist.
+    const oldSeg = result.current.segments.find(
+      s => s.from_waypoint === 'wp1' && s.to_waypoint === 'wp2',
+    )
+    expect(oldSeg).toBeUndefined()
+    // The new segment was not written with the stale ele_m=888
+    if (seg?.elevation_profile != null && seg.elevation_profile.length > 0) {
+      expect(seg.elevation_profile[0].ele_m).not.toBe(888)
+    }
+  })
+})
