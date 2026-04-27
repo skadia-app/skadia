@@ -160,42 +160,16 @@ func TestElevationProfile_AtVerticesIgnoresNumPoints(t *testing.T) {
 // (or absent) does NOT trigger the at_vertices branch (no polyline_too_long error
 // for a small geometry, no cap check applied).
 //
-// We verify the branching by sending exactly 2 vertices with no at_vertices flag
-// and confirming we do not get a 400 "polyline_too_long" back. The legacy path
-// will return 500 (nil DB), but that is a different code path, not the cap guard.
+// The legacy resample path requires a real *sql.DB which is not available in unit
+// tests. Rather than silently swallowing a nil-DB panic via recover() — which masks
+// regressions by producing a false-green — we skip explicitly with a clear message.
+//
+// TODO: legacy resample path requires *sql.DB; mock currently not built.
+// Skip rather than recover() to avoid silent green on regression.
+//
+// Plan-End-Critic finding #12 (T0 elevation-profile-gap-fill).
 func TestElevationProfile_LegacyResample_Unchanged(t *testing.T) {
-	defer func() {
-		// The legacy path panics on nil DB — catch it so the test runner survives.
-		_ = recover()
-	}()
-
-	h := &Handler{DEMSvc: &mockDEMService{}}
-	geomBytes, _ := json.Marshal(map[string]any{
-		"type":        "LineString",
-		"coordinates": [][]float64{{8.5, 47.5}, {8.6, 47.6}},
-	})
-	body, _ := json.Marshal(map[string]any{
-		"geometry":   json.RawMessage(geomBytes),
-		"num_points": 100,
-		// at_vertices is omitted — defaults to false
-	})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/elevation/profile", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, "user-test"))
-
-	w := httptest.NewRecorder()
-	h.ElevationProfile(w, req)
-
-	// The at_vertices branch returns 400 for >50000 vertices; for 2 vertices with
-	// at_vertices=false this should never be 400 "polyline_too_long".
-	if w.Code == http.StatusBadRequest {
-		var errResp map[string]any
-		_ = json.NewDecoder(w.Body).Decode(&errResp)
-		if title, _ := errResp["title"].(string); title == "polyline_too_long" {
-			t.Error("legacy path returned polyline_too_long — at_vertices branch was incorrectly triggered")
-		}
-	}
+	t.Skip("legacy resample test requires DB mock — see plan-end critic finding #12")
 }
 
 // --- test helpers ---
