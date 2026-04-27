@@ -8,16 +8,22 @@ import (
 
 // ElevationPoint is a single point in the full-resolution elevation profile,
 // anchored to cumulative route distance (approach-exclusive — see spec §5.5).
+// EleM is a pointer so that gap-fill phase D can emit null for points without
+// valid DEM data; null MUST be preserved in JSON (no omitempty).
 type ElevationPoint struct {
-	DistM float64 `json:"dist_m"`
-	EleM  float64 `json:"ele_m"`
+	DistM float64  `json:"dist_m"`
+	EleM  *float64 `json:"ele_m"`
 }
+
+// PtrEle returns a pointer to v, for use in ElevationPoint literals.
+func PtrEle(v float64) *float64 { return &v }
 
 // RouteResult holds the complete routing result.
 type RouteResult struct {
-	Coordinates  []LatLonEle    `json:"-"`
-	DistanceM    float64        `json:"distance_m"`
-	AscentM      float64        `json:"ascent_m"`
+	Coordinates    []LatLonEle    `json:"-"`
+	DistanceM      float64        `json:"distance_m"`       // network + VE-tail (sub-edge between projection and seed node). Click-to-projection straight-line approach is in TotalDistanceM - DistanceM.
+	TotalDistanceM float64        `json:"total_distance_m"` // approach-inclusive (= ElevationProfile[last].DistM after addApproach)
+	AscentM        float64        `json:"ascent_m"`
 	DescentM     float64        `json:"descent_m"`
 	Cost         float64        `json:"cost"`
 	Segments     []RouteSegment `json:"segments"`
@@ -65,6 +71,18 @@ type RouteResult struct {
 	// JSON serialisation happens via buildProperties (key "elevation_profile");
 	// this field itself is excluded from direct struct marshalling (json:"-").
 	ElevationProfile *[]ElevationPoint `json:"-"` // nil → JSON null via buildProperties
+
+	// ApproachFromProfile is the 2-point profile header for the snap-line from
+	// click_src to edge-projection_src. DistM=0 at click, DistM=approach_from_m
+	// at projection. EleM nil when DEM has no coverage (Spec §6 Class A).
+	// Excluded from JSON — emitted as part of the combined elevation_profile via
+	// buildProperties / addApproach.
+	ApproachFromProfile []ElevationPoint `json:"-"`
+
+	// ApproachToProfile is the 2-point profile header for the snap-line from
+	// edge-projection_dst to click_dst. DistM=0 at projection, DistM=approach_to_m
+	// at click. EleM nil when DEM has no coverage (Spec §6 Class A).
+	ApproachToProfile []ElevationPoint `json:"-"`
 }
 
 // AvgFlat returns the distance-weighted average flat cost factor of this route.
@@ -84,8 +102,19 @@ type LatLonEle struct {
 	// §6.1, F1). coord[2] remains a 3D-GeoJSON-standard property — Phase 5
 	// (originally planned to remove it) was canceled in Spec Rev 2.3 §3.
 	//
+	// When EleValid is false, Ele is 0 as a sentinel value (no DEM data).
+	// Consumers MUST check EleValid before using Ele — 0 does NOT mean sea level.
+	//
 	// See docs/internal/specs/2026-04-22-route-elevation-profile-separation-design.md
 	Ele float64 `json:"ele"`
+	// EleValid is false when the corresponding ElevationPoint.EleM is nil
+	// (gap-fill phase D will populate real values; gap-fill phase A.0 leaves
+	// nil points unresolved). Omitted from JSON when true (happy path).
+	//
+	// JSON contract: when EleValid=false, ToGeoJSON emits coord[2]=0 as sentinel.
+	// Downstream consumers (FIT/GPX export, third-party tools) cannot distinguish
+	// this from a genuine sea-level point — they MUST gate on the ele_valid field.
+	EleValid bool `json:"ele_valid,omitempty"`
 }
 
 // RouteSegment describes a contiguous section with the same OSM way properties.
@@ -122,10 +151,14 @@ type LatLon struct {
 }
 
 // ToGeoJSON converts a RouteResult to a GeoJSON FeatureCollection.
+// GeoJSON coordinate contract: each point is [lon, lat, ele].
+// When a coordinate has EleValid=false, ele is emitted as 0 (sentinel for NoData).
+// Consumers that care about elevation MUST check the ele_valid field; 0 is NOT
+// guaranteed to mean sea level.
 func (r *RouteResult) ToGeoJSON() json.RawMessage {
 	coords := make([][]float64, len(r.Coordinates))
 	for i, c := range r.Coordinates {
-		coords[i] = []float64{c.Lon, c.Lat, c.Ele} // GeoJSON: [lon, lat, ele]
+		coords[i] = []float64{c.Lon, c.Lat, c.Ele} // GeoJSON: [lon, lat, ele]; ele=0 when EleValid=false
 	}
 
 	feature := map[string]any{
@@ -185,8 +218,9 @@ func (r *RouteResult) ToGeoJSONWithExtras(extras map[string]any) json.RawMessage
 
 func (r *RouteResult) buildProperties() map[string]any {
 	props := map[string]any{
-		"distance_m":        int(r.DistanceM),
-		"ascent_m":          int(r.AscentM),
+		"distance_m":       int(r.DistanceM),
+		"total_distance_m": int(r.TotalDistanceM),
+		"ascent_m":         int(r.AscentM),
 		"descent_m":         int(r.DescentM),
 		"cost":              int(r.Cost),
 		"segments":          r.Segments,
@@ -339,6 +373,12 @@ func mergeLegs(legs []*RouteResult) *RouteResult {
 
 	if len(mergedProfile) > 0 {
 		result.ElevationProfile = &mergedProfile
+		// TotalDistanceM for a merged multi-leg route: derive from the combined
+		// profile's last point (approach-inclusive, mirrors the single-leg contract
+		// set by addApproach). Falls back to network-only DistanceM when no profile.
+		result.TotalDistanceM = mergedProfile[len(mergedProfile)-1].DistM
+	} else {
+		result.TotalDistanceM = result.DistanceM
 	}
 	return result
 }

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
@@ -36,13 +37,16 @@ type UnifiedRouter struct {
 	reader GraphReader
 	sem    chan struct{}
 	isoSem chan struct{} // separate semaphore for isochrone (2 concurrent)
+	demSvc dem.Servicer // injected at boot for off-graph DEM lookups (Spec §3.2)
 }
 
 // NewUnifiedRouter creates a router backed by any GraphReader.
 // maxConcurrent limits simultaneous routing queries (semaphore-based).
 // maxConcurrentIsochrones limits concurrent isochrone/reachability expansions
 // (defaults to 2 if <= 0; override via SKADIA_ISO_CONCURRENCY env).
-func NewUnifiedRouter(reader GraphReader, maxConcurrent int, maxConcurrentIsochrones int) *UnifiedRouter {
+// demSvc is used for off-graph DEM lookups (approach/departure elevation profiles).
+// Pass nil to disable DEM lookups (useful in tests).
+func NewUnifiedRouter(reader GraphReader, maxConcurrent int, maxConcurrentIsochrones int, demSvc dem.Servicer) *UnifiedRouter {
 	if maxConcurrentIsochrones <= 0 {
 		maxConcurrentIsochrones = 2
 	}
@@ -50,6 +54,7 @@ func NewUnifiedRouter(reader GraphReader, maxConcurrent int, maxConcurrentIsochr
 		reader: reader,
 		sem:    make(chan struct{}, maxConcurrent),
 		isoSem: make(chan struct{}, maxConcurrentIsochrones),
+		demSvc: demSvc,
 	}
 }
 
@@ -145,37 +150,122 @@ func normalizeDir(dx, dy float32) (float32, float32) {
 
 // routeSameEdge handles the special case where source and destination project
 // to the same edge. The direct path on the edge is always optimal (triangle inequality).
+//
+// T0 Phase C.4 (Spec §5.8): Coords AND ElevationProfile are sliced parallel
+// from the full-resolution edge data via sliceEdgeCoordsAndProfile. The unified
+// vertex set guarantees len(Coordinates) == len(ElevationProfile). Ascent/
+// descent are integrated over the sliced profile so non-monotonic edges
+// (Stichweg/Refugio approach with intermediate humps) report correct elevation
+// gain instead of the previous endpoint-only delta.
 func (r *UnifiedRouter) routeSameEdge(srcVE, dstVE *VirtualEndpoint, cfg *CostConfig) *RouteResult {
 	proj := srcVE.Proj
 	fracFrom := srcVE.Proj.FractionAB
 	fracTo := dstVE.Proj.FractionAB
 
-	// Determine travel direction: from source to destination (may go A→B or B→A).
+	// Determine travel direction. fStart/fEnd are the canonical (ascending)
+	// fraction bounds passed to the slicer; reversed = traveler walks B→A.
 	reversed := fracFrom > fracTo
+	fStart, fEnd := fracFrom, fracTo
 	if reversed {
-		fracFrom, fracTo = fracTo, fracFrom
+		fStart, fEnd = fracTo, fracFrom
 	}
 
-	directFraction := fracTo - fracFrom
-	directDist := directFraction * proj.EdgeDistM
+	// Build the master full-edge coord polyline: [NodeA, ...intermediates..., NodeB].
+	nodeALat, nodeALon, _ := r.reader.NodeCoord(srcVE.GlobalA)
+	nodeBLat, nodeBLon, _ := r.reader.NodeCoord(srcVE.GlobalB)
+	intermLats, intermLons := r.reader.EdgeGeometry(proj.EdgeHandle)
+	coordsRaw := make([][2]int32, 0, len(intermLats)+2)
+	coordsRaw = append(coordsRaw, [2]int32{nodeALat, nodeALon})
+	for i := range intermLats {
+		coordsRaw = append(coordsRaw, [2]int32{intermLats[i], intermLons[i]})
+	}
+	coordsRaw = append(coordsRaw, [2]int32{nodeBLat, nodeBLon})
 
-	// Use actual src/dst projection elevations — correct regardless of travel direction.
-	srcEle := float64(srcVE.Proj.ProjEleDm) / 10.0
-	dstEle := float64(dstVE.Proj.ProjEleDm) / 10.0
+	// Build the master profile from raw EdgeElevProf data (cm → m, NoData → nil).
+	elevsDm, segDistsCm := r.reader.EdgeElevProfile(proj.EdgeHandle)
+	edgeProf := buildEdgeProfFromRaw(elevsDm, segDistsCm)
+
+	var slicedCoords []LatLonEle
+	var slicedProfile []ElevationPoint
+	if len(edgeProf) > 0 {
+		slicedCoords, slicedProfile = sliceEdgeCoordsAndProfile(coordsRaw, edgeProf, fStart, fEnd)
+	}
+
+	usedFallback := false
+	// Defensive: empty edge data (no DEM profile, single-vertex polyline). Fall
+	// back to projection-point endpoints so the route still has at least the
+	// two clicked positions. Profile uses ProjEleDm (best available signal).
+	// The fallback is built directly in src→dst order, so we skip the reverse
+	// step for it (no canonical ↔ traversal direction transformation needed).
+	if len(slicedCoords) == 0 {
+		usedFallback = true
+		slicedCoords = []LatLonEle{
+			{Lat: srcVE.Proj.ProjLat, Lon: srcVE.Proj.ProjLon, Ele: float64(srcVE.Proj.ProjEleDm) / 10.0, EleValid: true},
+			{Lat: dstVE.Proj.ProjLat, Lon: dstVE.Proj.ProjLon, Ele: float64(dstVE.Proj.ProjEleDm) / 10.0, EleValid: true},
+		}
+		fallbackDist := math.Abs(fEnd-fStart) * proj.EdgeDistM
+		if fallbackDist <= 1e-6 {
+			// Degenerate same-edge case: src and dst project to the same fraction
+			// (e.g. user clicked the same point twice). A two-point profile with
+			// DistM=[0,0] would fail IsT0FormCompliant's strict-monotonicity check.
+			// Emit a single anchor point instead — zero-distance route, one position.
+			slicedProfile = []ElevationPoint{
+				{DistM: 0, EleM: PtrEle(float64(srcVE.Proj.ProjEleDm) / 10.0)},
+			}
+		} else {
+			slicedProfile = []ElevationPoint{
+				{DistM: 0, EleM: PtrEle(float64(srcVE.Proj.ProjEleDm) / 10.0)},
+				{DistM: fallbackDist, EleM: PtrEle(float64(dstVE.Proj.ProjEleDm) / 10.0)},
+			}
+		}
+	}
+
+	if reversed && !usedFallback {
+		slicedCoords = reverseLatLonEle(slicedCoords)
+		slicedProfile = reverseElevSlice(slicedProfile)
+	}
+
+	// directDist = master truth from the haversine cumsum (sliced profile's
+	// last DistM). Falls back to the projection-fraction span on the rare
+	// fallback path where the profile was synthesized from ProjEleDm above.
+	directDist := slicedProfile[len(slicedProfile)-1].DistM
+	if directDist <= 0 {
+		directDist = math.Abs(fEnd-fStart) * proj.EdgeDistM
+	}
+
+	// Integrate ascent/descent over the full sliced profile. Skip segments
+	// touching nil EleM samples (NoData) — gap-fill phase D will resolve.
 	var ascent, descent float64
-	diff := dstEle - srcEle
-	if diff > 0 {
-		ascent = diff
-	} else {
-		descent = -diff
+	for i := 1; i < len(slicedProfile); i++ {
+		if slicedProfile[i].EleM == nil || slicedProfile[i-1].EleM == nil {
+			continue
+		}
+		diff := *slicedProfile[i].EleM - *slicedProfile[i-1].EleM
+		if diff > 0 {
+			ascent += diff
+		} else {
+			descent -= diff
+		}
 	}
 
 	// Compute cost using slope-weighted edge cost factors and hysteresis.
+	// Per-segment hysteresis integration is a follow-up (out of T0 scope);
+	// for now use the existing single-segment shape but driven by the sliced
+	// directDist + endpoint-elevation delta in dm. The endpoint elevations
+	// come from the sliced profile (master truth) when available, falling
+	// back to ProjEleDm (DEM-rounded but consistent with the snap helper).
 	ecf := cfg.EdgeCost(proj.EdgeTags1, 0)
 	distCm := directDist * 100
-	// Elevation delta: from source projection to destination projection (in dm).
-	// srcVE/dstVE already represent actual travel direction — no reversed branch needed.
-	deltaEleDm := dstVE.Proj.ProjEleDm - srcVE.Proj.ProjEleDm
+
+	startEleM := slicedProfile[0].EleM
+	endEleM := slicedProfile[len(slicedProfile)-1].EleM
+	var deltaEleDm int32
+	if startEleM != nil && endEleM != nil {
+		deltaEleDm = int32(math.Round((*endEleM - *startEleM) * 10))
+	} else {
+		// NoData on either endpoint — fall back to projection elevations.
+		deltaEleDm = dstVE.Proj.ProjEleDm - srcVE.Proj.ProjEleDm
+	}
 	hyst := propagateHysteresis(PathState{}, deltaEleDm*100, int32(distCm)*10, cfg)
 
 	// Slope-weighted cost factor interpolation.
@@ -194,27 +284,14 @@ func (r *UnifiedRouter) routeSameEdge(srcVE, dstVE *VirtualEndpoint, cfg *CostCo
 	cf := cfUp*hyst.UpWeight + ecf.Flat*flatW + cfDown*hyst.DownWeight
 	cost := float64(float32(distCm)/100.0*cf + hyst.ElevCost)
 
-	coords := []LatLonEle{
-		{Lat: srcVE.Proj.ProjLat, Lon: srcVE.Proj.ProjLon, Ele: float64(srcVE.Proj.ProjEleDm) / 10.0},
-		{Lat: dstVE.Proj.ProjLat, Lon: dstVE.Proj.ProjLon, Ele: float64(dstVE.Proj.ProjEleDm) / 10.0},
-	}
-
-	// Spec §5.8: minimal 2-point elevation profile for same-edge special case.
-	// Distance axis: 0 at src projection, directDist at dst projection.
-	// The two coord entries already carry the correct Ele values (ProjEleDm / 10.0),
-	// so applyProfileToCoords is not needed — coords and profile are consistent by construction.
-	sameEdgeProfile := []ElevationPoint{
-		{DistM: 0, EleM: float64(srcVE.Proj.ProjEleDm) / 10.0},
-		{DistM: directDist, EleM: float64(dstVE.Proj.ProjEleDm) / 10.0},
-	}
-
 	return &RouteResult{
-		Coordinates:      coords,
-		DistanceM:        directDist,
-		AscentM:          ascent,
-		DescentM:         descent,
-		Cost:             cost,
-		ElevationProfile: &sameEdgeProfile, // Spec §5.8, T1.3
+		Coordinates:    slicedCoords,
+		DistanceM:      directDist,
+		TotalDistanceM: directDist, // same-edge: approach-free at this stage; addApproach overrides
+		AscentM:        ascent,
+		DescentM:       descent,
+		Cost:           cost,
+		ElevationProfile: &slicedProfile, // Spec §5.8, T1.3 — full-resolution profile (T0 C.4)
 	}
 }
 
@@ -697,24 +774,164 @@ func (r *UnifiedRouter) routeLegPass1(ctx context.Context,
 // snap distance from the original coordinate to the edge projection exceeds
 // a threshold. This visualizes the gap between where the user clicked and
 // where the route actually starts/ends on the graph.
+//
+// When r.demSvc is non-nil, click and projection elevations are resolved via
+// dem.Servicer.ElevationBatch (4-point batch: clickSrc, projSrc, projDst, clickDst).
+// This fixes the previous bug where both the click and projection coordinates
+// received the projection-point elevation (ProjEleDm) — causing an incorrect
+// elevation at the user-clicked map position (Spec §6 Class A correction).
+//
+// Additionally builds ApproachFromProfile / ApproachToProfile (2-point headers)
+// and prepends/appends them to result.ElevationProfile, making the combined
+// profile approach-inclusive: Profile[0].DistM==0 (click_src),
+// Profile[last].DistM≈result.DistanceM (click_dst).
 func (r *UnifiedRouter) addApproach(result *RouteResult, srcVE, dstVE *VirtualEndpoint,
 	cfg *CostConfig, includeFrom, includeTo bool) {
 	snapThreshold := float64(100)
 	if cfg.SnapThresholdM > 0 {
 		snapThreshold = float64(cfg.SnapThresholdM)
 	}
+
+	// Resolve DEM elevations for all four approach points in a single batch.
+	// Order: [clickSrc, projSrc, projDst, clickDst].
+	// Falls back to projection elevation (ProjEleDm) when r.demSvc is nil
+	// (test paths) — EleValid is false in that case.
+	var srcClickEle, srcProjEle, dstProjEle, dstClickEle *float64
+	if r.demSvc != nil {
+		latsE7 := []int32{
+			int32(math.Round(srcVE.OrigLat * 1e7)),
+			int32(math.Round(srcVE.Proj.ProjLat * 1e7)),
+			int32(math.Round(dstVE.Proj.ProjLat * 1e7)),
+			int32(math.Round(dstVE.OrigLat * 1e7)),
+		}
+		lonsE7 := []int32{
+			int32(math.Round(srcVE.OrigLon * 1e7)),
+			int32(math.Round(srcVE.Proj.ProjLon * 1e7)),
+			int32(math.Round(dstVE.Proj.ProjLon * 1e7)),
+			int32(math.Round(dstVE.OrigLon * 1e7)),
+		}
+		eles, err := r.demSvc.ElevationBatch(latsE7, lonsE7)
+		if err != nil {
+			slog.Warn("dem.ElevationBatch failed for approach", "err", err)
+		} else if len(eles) == 4 {
+			srcClickEle = approachElevToPtrM(eles[0])
+			srcProjEle = approachElevToPtrM(eles[1])
+			dstProjEle = approachElevToPtrM(eles[2])
+			dstClickEle = approachElevToPtrM(eles[3])
+		}
+	}
+
+	var approachFromM, approachToM float64
 	if includeFrom && srcVE.Proj.DistanceM > snapThreshold {
+		approachFromM = geo.DistanceHaversine(
+			srcVE.OrigLat, srcVE.OrigLon,
+			srcVE.Proj.ProjLat, srcVE.Proj.ProjLon,
+		)
 		result.ApproachFrom = []LatLonEle{
-			{Lat: srcVE.OrigLat, Lon: srcVE.OrigLon, Ele: float64(srcVE.Proj.ProjEleDm) / 10.0},
-			{Lat: srcVE.Proj.ProjLat, Lon: srcVE.Proj.ProjLon, Ele: float64(srcVE.Proj.ProjEleDm) / 10.0},
+			{
+				Lat:      srcVE.OrigLat,
+				Lon:      srcVE.OrigLon,
+				Ele:      approachDerefOrZero(srcClickEle),
+				EleValid: srcClickEle != nil,
+			},
+			{
+				Lat:      srcVE.Proj.ProjLat,
+				Lon:      srcVE.Proj.ProjLon,
+				Ele:      approachDerefOrZero(srcProjEle),
+				EleValid: srcProjEle != nil,
+			},
+		}
+		result.ApproachFromProfile = []ElevationPoint{
+			{DistM: 0, EleM: srcClickEle},
+			{DistM: approachFromM, EleM: srcProjEle},
 		}
 	}
 	if includeTo && dstVE.Proj.DistanceM > snapThreshold {
+		approachToM = geo.DistanceHaversine(
+			dstVE.Proj.ProjLat, dstVE.Proj.ProjLon,
+			dstVE.OrigLat, dstVE.OrigLon,
+		)
 		result.ApproachTo = []LatLonEle{
-			{Lat: dstVE.Proj.ProjLat, Lon: dstVE.Proj.ProjLon, Ele: float64(dstVE.Proj.ProjEleDm) / 10.0},
-			{Lat: dstVE.OrigLat, Lon: dstVE.OrigLon, Ele: float64(dstVE.Proj.ProjEleDm) / 10.0},
+			{
+				Lat:      dstVE.Proj.ProjLat,
+				Lon:      dstVE.Proj.ProjLon,
+				Ele:      approachDerefOrZero(dstProjEle),
+				EleValid: dstProjEle != nil,
+			},
+			{
+				Lat:      dstVE.OrigLat,
+				Lon:      dstVE.OrigLon,
+				Ele:      approachDerefOrZero(dstClickEle),
+				EleValid: dstClickEle != nil,
+			},
+		}
+		result.ApproachToProfile = []ElevationPoint{
+			{DistM: 0, EleM: dstProjEle},
+			{DistM: approachToM, EleM: dstClickEle},
 		}
 	}
+
+	// Extend result.ElevationProfile to be approach-inclusive:
+	//   [ApproachFromProfile] + [existing network+VE-tail profile] + [ApproachToProfile]
+	// This makes Profile[0].DistM==0 at click_src and
+	// Profile[last].DistM≈result.DistanceM at click_dst.
+	//
+	// Only prepend/append when the corresponding approach was added (non-nil profile).
+	// Uses Variant (b): Approach-Coord elevations are already set above; the
+	// combined profile is purely for the JSON elevation_profile response.
+	hasFromProfile := len(result.ApproachFromProfile) > 0
+	hasToProfile := len(result.ApproachToProfile) > 0
+	if hasFromProfile || hasToProfile {
+		var netProfile []ElevationPoint
+		if result.ElevationProfile != nil {
+			netProfile = *result.ElevationProfile
+		}
+		combined := concatProfilesWithJunctionDedup(
+			result.ApproachFromProfile,
+			netProfile,
+			result.ApproachToProfile,
+		)
+		if len(combined) > 0 {
+			result.ElevationProfile = &combined
+		}
+	}
+
+	// Approach-inclusive total distance for the response. result.DistanceM stays
+	// network-only — used by cost/stat consumers; do not mutate.
+	//
+	// Note: concatProfilesWithJunctionDedup removes the shared boundary point
+	// between ApproachFrom and the network profile (and between the network
+	// profile and ApproachTo). When approach_from_m is very small, this dedup
+	// compresses the first few meters visually — the chart appears to "start"
+	// slightly into the approach. This is by design: the junction point is
+	// identical in both segments, so keeping it would produce a duplicate DistM
+	// which fails the strict-monotonicity invariant. Cosmetic artefact only.
+	if result.ElevationProfile != nil && len(*result.ElevationProfile) > 0 {
+		result.TotalDistanceM = (*result.ElevationProfile)[len(*result.ElevationProfile)-1].DistM
+	} else {
+		// Fallback: no profile means we cannot compute the inclusive distance;
+		// expose network-only distance to keep the field defined.
+		result.TotalDistanceM = result.DistanceM
+	}
+}
+
+// approachElevToPtrM converts a DEM elevation in decimeters to *float64 in meters.
+// Returns nil for the NoData sentinel (dem.NoData = -32768), which signals missing DEM coverage.
+func approachElevToPtrM(e int32) *float64 {
+	if e == dem.NoData {
+		return nil
+	}
+	v := float64(e) / 10.0
+	return &v
+}
+
+// approachDerefOrZero dereferences a *float64 elevation, returning 0.0 when nil.
+// Used to populate LatLonEle.Ele when EleValid tracks validity separately.
+func approachDerefOrZero(p *float64) float64 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // extractPath reconstructs the node path from state by following parent pointers.

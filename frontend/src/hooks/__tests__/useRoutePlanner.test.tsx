@@ -9,10 +9,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ToastProvider } from '@/lib/toast'
-import { useRoutePlanner, mergeSegmentStatsForState } from '../useRoutePlanner'
+import { useRoutePlanner, mergeSegmentStatsForState, buildCombinedProfileFromSegments } from '../useRoutePlanner'
 import type { RouteStats } from '../useRoutePlanner'
 import type { RouteSegment, PlannedRoute, RouteWaypoint, ElevationPoint } from '@/api/routes'
 import { makeFakeRouteStats, makeFakeSuggestion } from '@/test-utils/routeFixtures'
+import { clearMigrationCache } from '../migrateRoute'
+
+// Shared mock for getElevationAtVerticesChunked — used in D.2 token tests
+const getElevationAtVerticesChunkedMock = vi.hoisted(() => vi.fn())
 
 // addToastMock must be hoisted so vi.mock factory can reference it
 const addToastMock = vi.hoisted(() => vi.fn())
@@ -62,6 +66,127 @@ vi.mock('@/lib/toast', async () => {
     ...actual,
     useToast: vi.fn().mockReturnValue({ addToast: addToastMock }),
   }
+})
+
+vi.mock('@/api/elevation-chunked', () => ({
+  getElevationAtVerticesChunked: getElevationAtVerticesChunkedMock,
+}))
+
+// ── buildCombinedProfileFromSegments unit tests (Phase D.1) ──────────────────
+
+/**
+ * Minimal segment helper for buildCombinedProfileFromSegments tests.
+ * Uses from/to waypoint IDs that match the waypoints array in each test.
+ */
+function makeProfileSeg(
+  fromId: string,
+  toId: string,
+  distM: number,
+  profile?: Array<{ dist_m: number; ele_m: number | null }>,
+): RouteSegment {
+  return {
+    from_waypoint: fromId,
+    to_waypoint: toId,
+    mode: 'routed',
+    geometry: { type: 'LineString', coordinates: [[11, 47], [11.1, 47.1]] },
+    control_points: [],
+    smooth: true,
+    distance_m: distM,
+    elevation_gain: 0,
+    elevation_loss: 0,
+    elevation_profile: profile,
+  }
+}
+
+function makeWpList(...ids: string[]): RouteWaypoint[] {
+  return ids.map((id, i) => ({
+    id,
+    latlng: [47 + i * 0.1, 11 + i * 0.1] as [number, number],
+    type: (i === 0 ? 'start' : i === ids.length - 1 ? 'end' : 'via') as RouteWaypoint['type'],
+  }))
+}
+
+describe('buildCombinedProfileFromSegments (Phase D.1)', () => {
+  it('concatenates with junction-dedup', () => {
+    // Seg1: [0..100], Seg2: [0..100]. Junction-dedup drops seg2's point at dist_m=0.
+    const segs = [
+      makeProfileSeg('w1', 'w2', 100, [
+        { dist_m: 0, ele_m: 100 },
+        { dist_m: 100, ele_m: 110 },
+      ]),
+      makeProfileSeg('w2', 'w3', 100, [
+        { dist_m: 0, ele_m: 110 },   // junction — deduped
+        { dist_m: 100, ele_m: 120 },
+      ]),
+    ]
+    const wps = makeWpList('w1', 'w2', 'w3')
+    const out = buildCombinedProfileFromSegments(segs, wps)
+    expect(out).not.toBeNull()
+    // Output: 3 points (seg1[0], seg1[1], seg2[1])
+    expect(out).toEqual([
+      { dist_m: 0,   ele_m: 100 },
+      { dist_m: 100, ele_m: 110 },
+      { dist_m: 200, ele_m: 120 },
+    ])
+  })
+
+  it('preserves distAccum for empty-profile segments (M5 case)', () => {
+    // Seg1: profile [0..100], seg2: NO profile (distance_m=200), seg3: [0..100]
+    // seg3 must end at dist=400 (100 from seg1 + 200 gap fallback + 100 from seg3).
+    //
+    // Junction-dedup note: hadAny is true after seg1 emits points. When seg3 runs,
+    // startIdx=1 → seg3's first point (dist_m=0) is junction-deduped. So the first
+    // emitted point from seg3 is profile[1] at distAccum(300) + p[1].dist_m(100) = 400.
+    const segs = [
+      makeProfileSeg('w1', 'w2', 100, [
+        { dist_m: 0, ele_m: 100 },
+        { dist_m: 100, ele_m: 110 },
+      ]),
+      makeProfileSeg('w2', 'w3', 200, []),   // M5: DEM gap — empty profile
+      makeProfileSeg('w3', 'w4', 100, [
+        { dist_m: 0, ele_m: 130 },
+        { dist_m: 100, ele_m: 140 },
+      ]),
+    ]
+    const wps = makeWpList('w1', 'w2', 'w3', 'w4')
+    const out = buildCombinedProfileFromSegments(segs, wps)
+    expect(out).not.toBeNull()
+    // Output: seg1[0,1] + seg3[1] (seg3[0] junction-deduped by hadAny=true)
+    expect(out).toHaveLength(3)
+    // seg3's last point: distAccum(300) + p[1].dist_m(100) = 400
+    const last = out![out!.length - 1]
+    expect(last.dist_m).toBe(400)
+    expect(last.ele_m).toBe(140)
+    // seg3's first emitted point is at 400 (junction-deduped from seg3[0]=300).
+    // Verify seg2 gap is correctly reflected: seg1 ends at 100, then 200 gap → next at 400.
+    expect(out![0].dist_m).toBe(0)
+    expect(out![1].dist_m).toBe(100)
+    expect(out![2].dist_m).toBe(400)
+  })
+
+  it('handles null ele_m points (DEM gap — Phase A.0 nullable)', () => {
+    // ele_m may be null for DEM coverage gaps; they must be passed through.
+    const segs = [
+      makeProfileSeg('w1', 'w2', 100, [
+        { dist_m: 0, ele_m: null },
+        { dist_m: 50, ele_m: null },
+        { dist_m: 100, ele_m: 100 },
+      ]),
+    ]
+    const wps = makeWpList('w1', 'w2')
+    const out = buildCombinedProfileFromSegments(segs, wps)
+    expect(out).not.toBeNull()
+    expect(out).toHaveLength(3)
+    expect(out![0].ele_m).toBeNull()
+    expect(out![1].ele_m).toBeNull()
+    expect(out![2].ele_m).toBe(100)
+  })
+
+  it('returns null when no segment has a profile', () => {
+    const segs = [makeProfileSeg('w1', 'w2', 100)]
+    const wps = makeWpList('w1', 'w2')
+    expect(buildCombinedProfileFromSegments(segs, wps)).toBeNull()
+  })
 })
 
 // ── mergeSegmentStatsForState unit tests ──────────────────────────────────────
@@ -503,6 +628,10 @@ describe('useRoutePlanner lazy-fill (DEM-only, Spec Rev 2.3 §7.5)', () => {
     qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     addToastMock.mockClear()
     sessionStorage.removeItem('skadia.lazy_fill_notice_shown')
+    // Reset migration session cache so each test starts clean.
+    clearMigrationCache()
+    // Reset getElevationAtVerticesChunked mock to a safe default (returns empty array).
+    getElevationAtVerticesChunkedMock.mockResolvedValue([])
 
     const { getProfileDefaults, cacheServerDefaults } = await import('@/lib/routingProfiles')
     vi.mocked(getProfileDefaults).mockReturnValue(null)
@@ -525,17 +654,33 @@ describe('useRoutePlanner lazy-fill (DEM-only, Spec Rev 2.3 §7.5)', () => {
   )
 
   it('TestLoadRoute_NoLazyFill_WhenProfilePresent', async () => {
-    // Route with a persisted elevation_profile → getElevationProfile must NOT be called.
+    // T0 steady-state route (route_schema_version=1, all segments have profiles)
+    // → neither getElevationProfile nor getElevationAtVerticesChunked called.
     const { getElevationProfile } = await import('@/api/routes')
     const getElevSpy = vi.mocked(getElevationProfile)
     getElevSpy.mockClear()
+    getElevationAtVerticesChunkedMock.mockClear()
 
+    // T0 route: version=1 AND per-segment profile present → needsMigration=false.
     const route = makeTestRoute({
+      route_schema_version: 1,
       elevation_profile: [
         { dist_m: 0, ele_m: 100 },
         { dist_m: 50, ele_m: 110 },
       ],
       enrichment: { enrichment_version: 1, forest_pct: 0.5 },
+      segments: [{
+        from_waypoint: 'wp1',
+        to_waypoint: 'wp2',
+        mode: 'routed' as const,
+        geometry: { type: 'LineString', coordinates: [[11.0, 47.0, 500], [11.1, 47.1, 520]] },
+        control_points: [],
+        smooth: true,
+        distance_m: 12000,
+        elevation_gain: 200,
+        elevation_loss: 50,
+        elevation_profile: [{ dist_m: 0, ele_m: 500 }, { dist_m: 12000, ele_m: 520 }],
+      }],
     })
 
     const { result } = renderHook(() => useRoutePlanner(), { wrapper })
@@ -549,29 +694,23 @@ describe('useRoutePlanner lazy-fill (DEM-only, Spec Rev 2.3 §7.5)', () => {
       expect(result.current.elevationProfile).not.toBeNull()
     })
 
-    // DEM endpoint must NOT have been called
+    // Neither DEM endpoint must have been called (T0 route — no migration)
     expect(getElevSpy).not.toHaveBeenCalled()
+    expect(getElevationAtVerticesChunkedMock).not.toHaveBeenCalled()
     // No lazy-fill state active
     expect(result.current.lazyFillPendingSave).toBe(false)
     expect(result.current.lazyFillInProgress).toBe(false)
   })
 
   it('TestLoadRoute_LazyFillWhenProfileNull_DEMOnly', async () => {
-    // Spec §7.4: getElevationProfile is called (DEM-only), computeInternalRoute is NOT.
-    // Segments remain identical (no geometry drift).
-    const { getElevationProfile } = await import('@/api/routes')
-    const getElevSpy = vi.mocked(getElevationProfile)
-    getElevSpy.mockResolvedValue({
-      profile: [
-        { fraction: 0, elevation: 100 },
-        { fraction: 0.5, elevation: 110 },
-        { fraction: 1, elevation: 120 },
-      ] as ElevationPoint[],
-    })
-
+    // Phase E / Spec §5.3: pre-T0 route (route_schema_version=0, segment without profile)
+    // → migration is triggered. Stage 1 (coord-Z) fills the profile from inline-Z.
+    // computeInternalRoute must NOT be called (no re-routing).
+    // Migration is read-only: lazyFillPendingSave stays false.
     const computeSpy = vi.mocked(computeInternalRouteMock)
     computeSpy.mockClear()
 
+    // Default segment has 3D coords [lon, lat, Z] → Stage 1 fills from Z
     const route = makeTestRoute({ elevation_profile: null, enrichment: null })
     const initialSegments = route.segments
 
@@ -581,25 +720,26 @@ describe('useRoutePlanner lazy-fill (DEM-only, Spec Rev 2.3 §7.5)', () => {
       result.current.loadRoute(route)
     })
 
-    // Wait for lazy-fill to complete
+    // Wait for migration to complete
     await waitFor(() => {
       expect(result.current.lazyFillInProgress).toBe(false)
     })
 
-    // getElevationProfile was called exactly once (DEM-only path)
-    expect(getElevSpy).toHaveBeenCalledTimes(1)
-
-    // computeInternalRoute (recalculateAll equivalent) was NOT called
+    // computeInternalRoute (re-routing) was NOT called
     expect(computeSpy).not.toHaveBeenCalled()
 
-    // elevationProfile is now populated
+    // elevationProfile is populated (Stage 1 coord-Z filled it)
     expect(result.current.elevationProfile).not.toBeNull()
 
-    // Geometry (segments) is identical — no route drift
-    expect(result.current.segments).toEqual(initialSegments)
+    // Geometry (waypoints, coordinates) is identical — no route drift.
+    // Note: segments now have elevation_profile added by migration (expected).
+    expect(result.current.segments.length).toBe(initialSegments.length)
+    expect(result.current.segments[0].from_waypoint).toBe(initialSegments[0].from_waypoint)
+    expect(result.current.segments[0].to_waypoint).toBe(initialSegments[0].to_waypoint)
+    expect(result.current.segments[0].geometry).toEqual(initialSegments[0].geometry)
 
-    // lazyFillPendingSave is true after successful fill
-    expect(result.current.lazyFillPendingSave).toBe(true)
+    // Migration is read-only (Spec §5.4): lazyFillPendingSave remains false
+    expect(result.current.lazyFillPendingSave).toBe(false)
   })
 
   it('TestLoadRoute_LazyFillStaleResult_DiscardedWhenUserMoved', async () => {
@@ -709,12 +849,30 @@ describe('useRoutePlanner lazy-fill (DEM-only, Spec Rev 2.3 §7.5)', () => {
   })
 
   it('TestLoadRoute_LazyFillNoDEM_SilentGracefulDegradation', async () => {
-    // Spec §7.4: empty profile response (no DEM) → silent, no toast, no crash,
-    // lazyFillPendingSave remains false.
-    const { getElevationProfile } = await import('@/api/routes')
-    vi.mocked(getElevationProfile).mockResolvedValue({ profile: [] })
+    // Phase E: pre-T0 route with no inline-Z coords AND DEM returns empty →
+    // all 3 migration stages produce nothing → silent graceful degradation,
+    // no toast, no crash, lazyFillPendingSave remains false.
+    getElevationAtVerticesChunkedMock.mockResolvedValue([])
 
-    const route = makeTestRoute({ elevation_profile: null })
+    // Segment WITHOUT 3D coords (no inline-Z) and no DEM coverage
+    const route = makeTestRoute({
+      elevation_profile: null,
+      segments: [{
+        from_waypoint: 'wp1',
+        to_waypoint: 'wp2',
+        mode: 'routed' as const,
+        geometry: {
+          type: 'LineString',
+          // 2D coords only (no Z) — Stage 1 returns []
+          coordinates: [[11.0, 47.0], [11.1, 47.1]],
+        },
+        control_points: [],
+        smooth: true,
+        distance_m: 12000,
+        elevation_gain: 0,
+        elevation_loss: 0,
+      }],
+    })
     const { result } = renderHook(() => useRoutePlanner(), { wrapper })
 
     act(() => {
@@ -725,18 +883,39 @@ describe('useRoutePlanner lazy-fill (DEM-only, Spec Rev 2.3 §7.5)', () => {
       expect(result.current.lazyFillInProgress).toBe(false)
     })
 
-    expect(result.current.elevationProfile).toBeNull()
-    // No toast (silent graceful degradation)
+    // All stages produced nothing — profile stays null / segment profile stays empty
+    // No toast (silent graceful degradation per Spec §5.4)
+    // Note: error toast is shown on exception; empty results are not an error.
     expect(addToastMock).not.toHaveBeenCalled()
     expect(result.current.lazyFillPendingSave).toBe(false)
   })
 
   it('TestLoadRoute_LazyFillError_SilentGracefulDegradation', async () => {
-    // Spec §7.4: 500/exception → silent, no toast, no crash.
-    const { getElevationProfile } = await import('@/api/routes')
-    vi.mocked(getElevationProfile).mockRejectedValue(new Error('PostGIS-DEM not available'))
+    // Phase E: pre-T0 route where Stage 1 (coord-Z) fills from inline-Z.
+    // migrateRouteCached does not throw in this case.
+    // Separate error case: DEM exception on 2D-coord route where Stage 1+2 produce nothing
+    // → toast shown, state is not crashed, lazyFillPendingSave remains false.
+    getElevationAtVerticesChunkedMock.mockRejectedValue(new Error('PostGIS-DEM not available'))
 
-    const route = makeTestRoute({ elevation_profile: null })
+    // 2D coords (no Z) → Stage 1 returns [], Stage 2 returns [] (no top-level profile),
+    // Stage 3 (DEM) throws → error path: toast shown.
+    const route = makeTestRoute({
+      elevation_profile: null,
+      segments: [{
+        from_waypoint: 'wp1',
+        to_waypoint: 'wp2',
+        mode: 'routed' as const,
+        geometry: {
+          type: 'LineString',
+          coordinates: [[11.0, 47.0], [11.1, 47.1]],
+        },
+        control_points: [],
+        smooth: true,
+        distance_m: 12000,
+        elevation_gain: 0,
+        elevation_loss: 0,
+      }],
+    })
     const { result } = renderHook(() => useRoutePlanner(), { wrapper })
 
     act(() => {
@@ -747,62 +926,50 @@ describe('useRoutePlanner lazy-fill (DEM-only, Spec Rev 2.3 §7.5)', () => {
       expect(result.current.lazyFillInProgress).toBe(false)
     })
 
-    expect(result.current.elevationProfile).toBeNull()
-    expect(addToastMock).not.toHaveBeenCalled()
+    // Phase E error path: toast is shown when migrateRouteCached throws
+    expect(addToastMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }))
     expect(result.current.lazyFillPendingSave).toBe(false)
   })
 
   it('TestLazyFillToast_OnlyShownOncePerSession', async () => {
-    // Spec §7.4: the "profile was filled" notice appears at most once per session.
+    // Phase E: pre-T0 migration is silent (no toast on successful coord-Z fill).
+    // The showLazyFillNoticeOncePerSession path is removed in Phase E.
+    // This test verifies: multiple pre-T0 route loads → NO toast (migration is silent).
     const { getProfileDefaults } = await import('@/lib/routingProfiles')
     vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
 
-    const { getElevationProfile } = await import('@/api/routes')
-    vi.mocked(getElevationProfile).mockResolvedValue({
-      profile: [{ fraction: 0, elevation: 100 }, { fraction: 1, elevation: 110 }] as ElevationPoint[],
-    })
-
     sessionStorage.removeItem('skadia.lazy_fill_notice_shown')
+    addToastMock.mockClear()
 
     const { result } = renderHook(() => useRoutePlanner(), { wrapper })
     await waitFor(() => { expect(result.current.profile.status).toBe('ready') })
 
-    // First load with null profile
+    // First pre-T0 load — coord-Z fills the profile silently
     act(() => {
       result.current.loadRoute(makeTestRoute({ id: 'r1', elevation_profile: null }))
     })
     await waitFor(() => { expect(result.current.lazyFillInProgress).toBe(false) })
-    expect(addToastMock).toHaveBeenCalledTimes(1)
+    // Migration is silent — no toast for successful coord-Z fill
+    expect(addToastMock).not.toHaveBeenCalled()
 
-    addToastMock.mockClear()
-    // Reset lazyFillPendingSave by simulating save (set it back via a new load with profile)
-    // Second load with null profile in same session → toast suppressed
+    // Second pre-T0 load — still no toast
     act(() => {
       result.current.loadRoute(makeTestRoute({ id: 'r2', elevation_profile: null }))
     })
     await waitFor(() => { expect(result.current.lazyFillInProgress).toBe(false) })
-
-    // sessionStorage flag set → toast must NOT fire again
     expect(addToastMock).not.toHaveBeenCalled()
   })
 
   it('TestLoadRoute_FromActivityCreated_TriggersLazyFill', async () => {
-    // Spec §3 Non-Goal: route_from_activity.go creates routes with elevation_profile=nil.
-    // First loadRoute MUST trigger DEM-only lazy-fill, NOT computeInternalRoute.
+    // Phase E: route_from_activity.go creates routes with elevation_profile=nil (pre-T0).
+    // loadRoute MUST trigger pre-T0 migration, NOT computeInternalRoute.
+    // Stage 1 fills from coord-Z (3D geometry). Migration is read-only.
     const { getProfileDefaults } = await import('@/lib/routingProfiles')
     vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
 
-    const { getElevationProfile } = await import('@/api/routes')
-    vi.mocked(getElevationProfile).mockResolvedValue({
-      profile: [
-        { fraction: 0, elevation: 800 },
-        { fraction: 0.5, elevation: 850 },
-        { fraction: 1, elevation: 900 },
-      ] as ElevationPoint[],
-    })
-
     computeInternalRouteMock.mockClear()
 
+    // Default segment has 3D coords → Stage 1 fills
     const route = makeTestRoute({
       id: 'activity-route',
       elevation_profile: null,
@@ -819,12 +986,12 @@ describe('useRoutePlanner lazy-fill (DEM-only, Spec Rev 2.3 §7.5)', () => {
       expect(result.current.lazyFillInProgress).toBe(false)
     })
 
-    // DEM endpoint called exactly once
-    expect(vi.mocked(getElevationProfile)).toHaveBeenCalledTimes(1)
-    // computeInternalRoute (routing) was NOT called (DEM-only path)
+    // computeInternalRoute (re-routing) was NOT called (migration is DEM/coord-Z only)
     expect(computeInternalRouteMock).not.toHaveBeenCalled()
-    // lazyFillPendingSave set after successful fill
-    expect(result.current.lazyFillPendingSave).toBe(true)
+    // elevationProfile filled from Stage 1 coord-Z
+    expect(result.current.elevationProfile).not.toBeNull()
+    // Migration is read-only (Spec §5.4)
+    expect(result.current.lazyFillPendingSave).toBe(false)
   })
 })
 
@@ -844,6 +1011,8 @@ describe('useRoutePlanner lazy-fill token-counter (Spec §7.5, Critic #7)', () =
     addToastMock.mockClear()
     sessionStorage.removeItem('skadia.lazy_fill_notice_shown')
     computeInternalRouteMock.mockReset()
+    clearMigrationCache()
+    getElevationAtVerticesChunkedMock.mockResolvedValue([])
 
     const { getProfileDefaults, cacheServerDefaults } = await import('@/lib/routingProfiles')
     vi.mocked(getProfileDefaults).mockReturnValue(null)
@@ -978,30 +1147,19 @@ describe('useRoutePlanner lazy-fill distance-axis (Critic #10, §10 Q1 Phase-1)'
   )
 
   it('TestLazyFill_DistanceAxis_GeometryInclusive_KnownDriftFromBackend', async () => {
-    // KNOWN PHASE-1 ACCEPTANCE (Plan §10 Q1):
-    //
-    // Lazy-fill builds the combined geometry from all segment coordinates
-    // and computes totalDistM = cumulativeHaversineMeters(combinedCoordinates).
-    // This includes any coordinates that would be classified as "approach" by the
-    // backend's retrackUnified (which emits approach-exclusive profiles).
-    //
-    // The resulting dist_m scale:
-    //   elevationProfile[i].dist_m = fraction_i * totalDistM_geometry_inclusive
+    // Phase E version: pre-T0 migration fills per-segment profiles from coord-Z
+    // (Stage 1). buildCombinedProfileFromSegments then produces the effective profile.
     //
     // For a route with a 2-segment geometry:
-    //   Segment 1: coords [11.0,47.0], [11.05,47.05], [11.1,47.1]  (3 points)
-    //   Segment 2: coords [11.1,47.1], [11.15,47.15]               (2 points)
+    //   Segment 1: coords [11.0,47.0,500], [11.05,47.05,510], [11.1,47.1,520] (3 pts)
+    //   Segment 2: coords [11.1,47.1,520], [11.15,47.15,530]                  (2 pts)
     //
-    // Combined (junction-dedup removes the repeated [11.1,47.1]):
-    //   [11.0,47.0] → [11.05,47.05] → [11.1,47.1] → [11.15,47.15]
+    // After migration: seg1 gets elevation_profile with 3 points (dist_m from Z),
+    //   seg2 gets elevation_profile with 2 points.
+    // buildCombinedProfileFromSegments: junction-dedup → 3 + 2 - 1 = 4 points total.
     //
-    // Phase 4 (Hover-Sync) will change the axis to approach-exclusive
-    // via per-segment profile_dist_m. When that happens, this test will fail,
-    // signalling the intentional axis harmonization.
-    //
-    // NOTE: The lazy-fill code uses segment geometry from the segments array
-    // directly (not the approach arrays from computeInternalRoute response),
-    // so the combined geometry IS the full geometry.
+    // Phase 4 (Hover-Sync) will change the axis to approach-exclusive.
+    // When that happens, update the expected point count and dist_m values.
 
     const seg1Coords = [
       [11.0, 47.0, 500],
@@ -1057,18 +1215,6 @@ describe('useRoutePlanner lazy-fill distance-axis (Critic #10, §10 Q1 Phase-1)'
       enrichment: null,
     }
 
-    // Mock getElevationProfile with 5 equidistant samples (fraction 0..1).
-    // The resulting dist_m values must span the geometry-inclusive total distance.
-    const { getElevationProfile } = await import('@/api/routes')
-    const elevSamples: ElevationPoint[] = [
-      { fraction: 0,    elevation: 500 },
-      { fraction: 0.25, elevation: 505 },
-      { fraction: 0.5,  elevation: 510 },
-      { fraction: 0.75, elevation: 520 },
-      { fraction: 1,    elevation: 530 },
-    ]
-    vi.mocked(getElevationProfile).mockResolvedValue({ profile: elevSamples })
-
     const { result } = renderHook(() => useRoutePlanner(), { wrapper })
 
     act(() => {
@@ -1081,43 +1227,330 @@ describe('useRoutePlanner lazy-fill distance-axis (Critic #10, §10 Q1 Phase-1)'
 
     const profile = result.current.elevationProfile
     expect(profile).not.toBeNull()
-    expect(profile!.length).toBe(5)
+    // Phase E: coord-Z fills both segments → combined profile has
+    // seg1 (3 pts) + seg2 (2 pts) - 1 junction dedup = 4 points.
+    // Phase 4 will change the axis — when this test breaks, update intentionally.
+    expect(profile!.length).toBe(4)
 
-    // dist_m[0] must be 0 (fraction=0)
+    // dist_m[0] must be 0
     expect(profile![0].dist_m).toBe(0)
 
-    // dist_m[last] must equal totalDistM = cumulativeHaversineMeters(combinedCoords).
-    // Combined coords (lazy-fill flatMaps all segments):
-    //   [11.0,47.0], [11.05,47.05], [11.1,47.1], [11.1,47.1], [11.15,47.15]
-    //
-    // NOTE: lazy-fill does NOT dedup the junction coordinate (it flatMaps all
-    // segment coords directly). This means the combined geometry includes the
-    // repeated [11.1,47.1] junction point, which adds zero distance but confirms
-    // geometry-inclusive (not approach-exclusive) semantics.
-    //
-    // Phase-1 acceptance: dist_m[last] > 0, profile is non-trivial.
-    // Phase 4 will change the axis — when this test breaks, the fix is intentional.
-    expect(profile![profile!.length - 1].dist_m).toBeGreaterThan(0)
-
-    // dist_m values must be monotonically non-decreasing (fraction 0..1 × totalDistM).
+    // dist_m values must be monotonically non-decreasing
     for (let i = 1; i < profile!.length; i++) {
       expect(profile![i].dist_m).toBeGreaterThanOrEqual(profile![i - 1].dist_m)
     }
 
-    // Ele values must match the mocked elevations (fraction → ele_m).
+    // Ele values match the inline-Z (500, 510, 520, 530)
     expect(profile![0].ele_m).toBe(500)
-    expect(profile![4].ele_m).toBe(530)
+    expect(profile![1].ele_m).toBe(510)
+    expect(profile![2].ele_m).toBe(520)
+    expect(profile![3].ele_m).toBe(530)
 
-    // The last dist_m value equals fraction=1 * totalDistM (geometry-inclusive).
-    // This is the key assertion pinning the Phase-1 axis semantics:
-    //   dist_m[last] = totalDistM_geometry_inclusive
-    // When Phase 4 changes to approach-exclusive, dist_m[last] will differ from
-    // the geometry-inclusive total and this test will need deliberate update.
-    const lastDistM = profile![profile!.length - 1].dist_m
-    const firstDistM = profile![0].dist_m
-    expect(lastDistM).toBeGreaterThan(firstDistM)
-    // dist_m[0.5 fraction] must be exactly half of dist_m[1.0 fraction]
-    expect(profile![2].dist_m).toBeCloseTo(lastDistM * 0.5, 5)
+    // Last dist_m > 0 (non-trivial distance axis)
+    expect(profile![profile!.length - 1].dist_m).toBeGreaterThan(0)
   })
 })
 
+// ── Phase D.2: fillOffroadProfile + per-segment fill tokens ──────────────────
+//
+// Tests cover:
+// 1. Happy path: fillOffroadProfile result applies when token is current.
+// 2. Parallel edits to different segments all apply (key differentiator vs global token).
+// 3. Re-edit same segment: earlier in-flight result is invalidated.
+// 4. Segment replaced (identity check): stale result is discarded.
+
+describe('fillOffroadProfile + per-segment fill tokens (Phase D.2)', () => {
+  let qc: QueryClient
+
+  // Minimal offroad segment factory
+  function makeOffroadSeg(fromId: string, toId: string): RouteSegment {
+    return {
+      from_waypoint: fromId,
+      to_waypoint: toId,
+      mode: 'offroad',
+      geometry: {
+        type: 'LineString',
+        coordinates: [[11, 47], [11.05, 47.05], [11.1, 47.1]],
+      },
+      control_points: [[47, 11], [47.05, 11.05], [47.1, 11.1]],
+      smooth: true,
+      distance_m: 5000,
+      elevation_gain: 50,
+      elevation_loss: 10,
+    }
+  }
+
+  // Minimal routed-segment-based PlannedRoute with one offroad segment
+  function makeOffroadRoute(fromId: string, toId: string): PlannedRoute {
+    const wp1: RouteWaypoint = { id: fromId, latlng: [47, 11], type: 'start' }
+    const wp2: RouteWaypoint = { id: toId, latlng: [47.1, 11.1], type: 'end' }
+    return {
+      id: 'offroad-route',
+      name: 'Offroad Route',
+      sport_type: 'hiking',
+      profile: 'hiking',
+      waypoints: [wp1, wp2],
+      segments: [makeOffroadSeg(fromId, toId)],
+      time_override: false,
+      auto_tag: false,
+      photos: [],
+      tags: [],
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      elevation_profile: null,
+      enrichment: null,
+    }
+  }
+
+  beforeEach(async () => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    addToastMock.mockClear()
+    getElevationAtVerticesChunkedMock.mockClear()
+
+    const { getProfileDefaults, cacheServerDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+    vi.mocked(cacheServerDefaults).mockReset()
+
+    const { getProfileDefaults: fetchProfileDefaults } = await import('@/api/routes')
+    vi.mocked(fetchProfileDefaults).mockResolvedValue({ profile: 'hiking', uphill_cost: 7 } as any)
+
+    // Default: returns a simple 3-point profile
+    getElevationAtVerticesChunkedMock.mockResolvedValue([
+      { dist_m: 0, ele_m: 500 },
+      { dist_m: 2500, ele_m: 520 },
+      { dist_m: 5000, ele_m: 510 },
+    ])
+  })
+
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <ToastProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </ToastProvider>
+  )
+
+  it('fillOffroadProfile applies result when token is current (happy path)', async () => {
+    // Wire: updateControlPoint triggers fillOffroadAndApply → getElevationAtVerticesChunked.
+    // After completion, the segment's elevation_profile must be set.
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => expect(result.current.profile.status).toBe('ready'))
+
+    const route = makeOffroadRoute('wp1', 'wp2')
+    act(() => { result.current.loadRoute(route) })
+
+    // Trigger: update a control point on the offroad segment
+    await act(async () => {
+      result.current.updateControlPoint({ from: 'wp1', to: 'wp2' }, 0, [47.02, 11.02])
+    })
+
+    // Wait for the DEM fill to complete
+    await waitFor(() => {
+      const seg = result.current.segments.find(
+        s => s.from_waypoint === 'wp1' && s.to_waypoint === 'wp2',
+      )
+      return seg?.elevation_profile != null && seg.elevation_profile.length > 0
+    })
+
+    const seg = result.current.segments.find(
+      s => s.from_waypoint === 'wp1' && s.to_waypoint === 'wp2',
+    )
+    expect(seg?.elevation_profile).not.toBeNull()
+    expect(seg?.elevation_profile).toHaveLength(3)
+    expect(seg?.elevation_profile![0].ele_m).toBe(500)
+    expect(getElevationAtVerticesChunkedMock).toHaveBeenCalled()
+  })
+
+  it('fillOffroadProfile per-segment-token: fills for different segments apply independently', async () => {
+    // Per-segment tokens ensure fills for DIFFERENT segments do not invalidate each other.
+    // A global token would: filling segment A increments the global counter, so the token
+    // that segment B's in-flight call captured is now stale → B's result discarded.
+    // With per-segment map: fillTokens.get('w1:w2') and fillTokens.get('w2:w3') are
+    // independent counters, so both results land correctly.
+    //
+    // Test: two-segment offroad route loaded, fill A triggered (hanging), fill B triggered
+    // (hanging — A still in-flight). Both resolved → both apply independently.
+
+    let resolveA!: (v: Array<{ dist_m: number; ele_m: number }>) => void
+    let resolveB!: (v: Array<{ dist_m: number; ele_m: number }>) => void
+    let callCount = 0
+    getElevationAtVerticesChunkedMock.mockImplementation(() => {
+      callCount += 1
+      if (callCount === 1) return new Promise(res => { resolveA = res })
+      return new Promise(res => { resolveB = res })
+    })
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => expect(result.current.profile.status).toBe('ready'))
+
+    // Two-segment offroad route (w1→w2, w2→w3).
+    // elevation_profile: non-null, non-empty → needsLazyFill=false.
+    const segAB = makeOffroadSeg('w1', 'w2')
+    const segBC = makeOffroadSeg('w2', 'w3')
+    const twoSegRoute: PlannedRoute = {
+      id: 'two-seg-offroad',
+      name: 'Two-segment offroad',
+      sport_type: 'hiking',
+      profile: 'hiking',
+      waypoints: [
+        { id: 'w1', latlng: [47, 11], type: 'start' },
+        { id: 'w2', latlng: [47.1, 11.1], type: 'via' },
+        { id: 'w3', latlng: [47.2, 11.2], type: 'end' },
+      ],
+      segments: [segAB, segBC],
+      time_override: false,
+      auto_tag: false,
+      photos: [],
+      tags: [],
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      elevation_profile: [{ dist_m: 0, ele_m: 0 }],  // non-null, non-empty → needsLazyFill=false
+      enrichment: null,
+    }
+
+    await act(async () => { result.current.loadRoute(twoSegRoute) })
+
+    // Fill for segment A (w1→w2) — in-flight call 1 (hanging).
+    await act(async () => {
+      result.current.updateControlPoint({ from: 'w1', to: 'w2' }, 0, [47.01, 11.01])
+    })
+
+    // Wait until DEM call 1 has started (fill A in-flight).
+    await waitFor(() => {
+      expect(getElevationAtVerticesChunkedMock).toHaveBeenCalledTimes(1)
+    })
+
+    // Fill for segment B (w2→w3) — in-flight call 2 (hanging).
+    // At this point fill A is still in-flight; both fills are concurrent.
+    await act(async () => {
+      result.current.updateControlPoint({ from: 'w2', to: 'w3' }, 0, [47.11, 11.11])
+    })
+
+    // Wait until DEM call 2 has also started.
+    await waitFor(() => {
+      expect(getElevationAtVerticesChunkedMock).toHaveBeenCalledTimes(2)
+    })
+
+    // Resolve both fills: A → ele_m=100, B → ele_m=200.
+    // With per-segment tokens: both should apply because their token counters are
+    // independent (fillTokens.get('w1:w2')=1 and fillTokens.get('w2:w3')=1 are separate).
+    await act(async () => {
+      resolveA([{ dist_m: 0, ele_m: 100 }, { dist_m: 5000, ele_m: 110 }])
+      resolveB([{ dist_m: 0, ele_m: 200 }, { dist_m: 5000, ele_m: 210 }])
+    })
+
+    // Both fills must have applied independently (per-segment tokens)
+    await waitFor(() => {
+      const segA = result.current.segments.find(s => s.from_waypoint === 'w1' && s.to_waypoint === 'w2')
+      const segB = result.current.segments.find(s => s.from_waypoint === 'w2' && s.to_waypoint === 'w3')
+      expect(segA?.elevation_profile?.[0]?.ele_m).toBe(100)
+      expect(segB?.elevation_profile?.[0]?.ele_m).toBe(200)
+    })
+  })
+
+  it('fillOffroadProfile per-segment-token: re-edit same segment invalidates earlier in-flight', async () => {
+    // Edit seg A → in-flight call 1 (ele=999 stale).
+    // Edit seg A again → in-flight call 2 (ele=777 fresh).
+    // When call 1 resolves AFTER call 2: must be discarded (token mismatch).
+
+    let resolveCall1!: (v: Array<{ dist_m: number; ele_m: number }>) => void
+    let callCount = 0
+    getElevationAtVerticesChunkedMock.mockImplementation(() => {
+      callCount += 1
+      if (callCount === 1) return new Promise(res => { resolveCall1 = res })
+      // Call 2 resolves immediately with ele=777
+      return Promise.resolve([{ dist_m: 0, ele_m: 777 }, { dist_m: 5000, ele_m: 780 }])
+    })
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => expect(result.current.profile.status).toBe('ready'))
+
+    const route = makeOffroadRoute('wp1', 'wp2')
+    act(() => { result.current.loadRoute(route) })
+
+    // First edit: triggers call 1 (in-flight, stale)
+    act(() => {
+      result.current.updateControlPoint({ from: 'wp1', to: 'wp2' }, 0, [47.01, 11.01])
+    })
+
+    // Second edit: triggers call 2 (resolves immediately with 777)
+    act(() => {
+      result.current.updateControlPoint({ from: 'wp1', to: 'wp2' }, 1, [47.09, 11.09])
+    })
+
+    // Wait for call 2 to land (ele=777)
+    await waitFor(() => {
+      const seg = result.current.segments.find(
+        s => s.from_waypoint === 'wp1' && s.to_waypoint === 'wp2',
+      )
+      return seg?.elevation_profile != null && seg.elevation_profile[0].ele_m === 777
+    })
+
+    // Now resolve the stale call 1 with ele=999
+    act(() => {
+      resolveCall1([{ dist_m: 0, ele_m: 999 }, { dist_m: 5000, ele_m: 999 }])
+    })
+
+    // Allow microtasks to flush
+    await act(async () => { await Promise.resolve() })
+
+    // The stale 999 result must have been discarded (token counter mismatch).
+    const seg = result.current.segments.find(
+      s => s.from_waypoint === 'wp1' && s.to_waypoint === 'wp2',
+    )
+    expect(seg?.elevation_profile![0].ele_m).toBe(777)
+    expect(seg?.elevation_profile![0].ele_m).not.toBe(999)
+  })
+
+  it('fillOffroadProfile segment-identity-check: segment replaced during fetch is skipped', async () => {
+    // Edit seg (triggers DEM fetch, in-flight). While in-flight, loadRoute() replaces
+    // all segments with new identities. When fetch resolves, identity check finds no
+    // segment with the original from/to keys → result silently discarded.
+
+    let resolveElev!: (v: Array<{ dist_m: number; ele_m: number }>) => void
+    getElevationAtVerticesChunkedMock.mockImplementation(
+      () => new Promise(res => { resolveElev = res }),
+    )
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => expect(result.current.profile.status).toBe('ready'))
+
+    const route = makeOffroadRoute('wp1', 'wp2')
+    act(() => { result.current.loadRoute(route) })
+
+    // Trigger in-flight DEM fetch
+    act(() => {
+      result.current.updateControlPoint({ from: 'wp1', to: 'wp2' }, 0, [47.01, 11.01])
+    })
+
+    // Wait until the DEM call has been initiated (resolver set)
+    await waitFor(() => {
+      expect(getElevationAtVerticesChunkedMock).toHaveBeenCalledTimes(1)
+    })
+
+    // Replace segments with a fresh loadRoute that uses different waypoint IDs
+    const freshRoute = makeOffroadRoute('x1', 'x2')
+    act(() => { result.current.loadRoute(freshRoute) })
+
+    // Now resolve the stale DEM fetch
+    act(() => {
+      resolveElev([{ dist_m: 0, ele_m: 888 }, { dist_m: 5000, ele_m: 890 }])
+    })
+
+    // Allow microtasks to flush
+    await act(async () => { await Promise.resolve() })
+
+    // The new route's segment (x1→x2) must not have been touched by the stale result.
+    const seg = result.current.segments.find(
+      s => s.from_waypoint === 'x1' && s.to_waypoint === 'x2',
+    )
+    // elevation_profile may be null or already filled by its own DEM call.
+    // The key assertion: the old segment (wp1→wp2) must not exist.
+    const oldSeg = result.current.segments.find(
+      s => s.from_waypoint === 'wp1' && s.to_waypoint === 'wp2',
+    )
+    expect(oldSeg).toBeUndefined()
+    // The new segment was not written with the stale ele_m=888
+    if (seg?.elevation_profile != null && seg.elevation_profile.length > 0) {
+      expect(seg.elevation_profile[0].ele_m).not.toBe(888)
+    }
+  })
+})

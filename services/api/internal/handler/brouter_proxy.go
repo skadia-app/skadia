@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
@@ -164,7 +165,7 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	injectElevationProfileFromInlineZ(gj)
+	injectElevationProfileFromInlineZ(gj, h.DEMSvc)
 
 	if err := json.NewEncoder(w).Encode(gj); err != nil {
 		slog.Warn("BRouter proxy: failed to encode modified response", "error", err)
@@ -282,11 +283,16 @@ func buildProfileFromInlineZ(coords []brouterCoord) []map[string]any {
 // feature has no usable Z, the value is nil (frontend triggers fallback per
 // Spec §6.2 Entscheidungstabelle).
 //
+// When demSvc is non-nil, coordinates with missing or implausible inline-Z are
+// filled from the DEM service in a single batch call per feature (Spec §2.1
+// owner guarantee — defense-in-depth; likely never triggered in production).
+//
 // Robustness (Spec §R4 — Fallback-Strategie ist Caller-Side):
 //   - Missing/non-array features → no-op
 //   - Feature without (or null) properties → fresh map with elevation_profile
 //   - Feature with non-map properties → preserve unchanged (no data loss)
-func injectElevationProfileFromInlineZ(gj map[string]any) {
+//   - demSvc == nil → no DEM fallback attempted, profile stays as-is
+func injectElevationProfileFromInlineZ(gj map[string]any, demSvc dem.Servicer) {
 	features, ok := gj["features"].([]any)
 	if !ok {
 		return
@@ -298,6 +304,14 @@ func injectElevationProfileFromInlineZ(gj map[string]any) {
 		}
 		coords := extractCoordinates(feat)
 		profile := buildProfileFromInlineZ(coords)
+
+		// When the inline-Z pass yields an incomplete or missing profile,
+		// fill gaps from the DEM service (single batch call per feature).
+		// Defense-in-depth: demSvc may be nil when not configured.
+		if demSvc != nil && coords != nil {
+			profile = fillMissingElevFromDEM(coords, profile, demSvc)
+		}
+
 		// Store as a nil-interface rather than a typed-nil slice so that
 		// downstream `val == nil` checks (and the encoded JSON `null`) behave
 		// as callers expect. A typed-nil `[]map[string]any` wrapped in
@@ -319,6 +333,73 @@ func injectElevationProfileFromInlineZ(gj map[string]any) {
 		}
 		props["elevation_profile"] = profileVal
 	}
+}
+
+// fillMissingElevFromDEM fills coords whose inline-Z is missing or implausible
+// from demSvc in a single batch call, then rebuilds the elevation_profile.
+//
+// Strategy:
+//  1. Identify coords without a plausible inline-Z.
+//  2. If none are missing and profile is already complete (len == usable inline-Z
+//     count), return profile unchanged.
+//  3. Build a merged coord list: inline-Z where available, DEM where not.
+//  4. Call buildProfileFromInlineZ on the merged list.
+//
+// Returns the original profile unchanged on any DEM error (no degradation).
+// NoData results (dem.NoData sentinel) remain absent from the profile (ele_m
+// stays nil by omission — the point is simply not emitted).
+func fillMissingElevFromDEM(coords []brouterCoord, profile []map[string]any, demSvc dem.Servicer) []map[string]any {
+	// Collect indices of coords that lack a plausible inline-Z.
+	missing := make([]int, 0, len(coords))
+	for i, c := range coords {
+		if !c.EleOK || !isPlausibleSrtmEle(c.Ele) {
+			missing = append(missing, i)
+		}
+	}
+	if len(missing) == 0 {
+		// All coords already have plausible inline-Z — nothing to fill.
+		return profile
+	}
+
+	// Encode missing coordinates as int32×1e7 for the DEM batch call.
+	lats := make([]int32, len(missing))
+	lons := make([]int32, len(missing))
+	for j, idx := range missing {
+		lats[j] = int32(coords[idx].Lat * 1e7)
+		lons[j] = int32(coords[idx].Lon * 1e7)
+	}
+
+	demEles, err := demSvc.ElevationBatch(lats, lons)
+	if err != nil {
+		slog.Debug("BRouter proxy: DEM fallback failed, keeping inline-Z profile", "error", err)
+		return profile
+	}
+
+	// Build a merged coord slice: keep original inline-Z where plausible,
+	// substitute DEM elevation for gaps. Points where DEM returns NoData are
+	// left with EleOK=false so buildProfileFromInlineZ omits them naturally.
+	merged := make([]brouterCoord, len(coords))
+	copy(merged, coords)
+	for j, idx := range missing {
+		if j >= len(demEles) {
+			break
+		}
+		dm := demEles[j]
+		if dm == dem.NoData {
+			// DEM has no coverage here — leave EleOK=false.
+			continue
+		}
+		// DEM returns decimeters; convert to meters for the profile.
+		merged[idx].Ele = float64(dm) / 10.0
+		merged[idx].EleOK = true
+	}
+
+	rebuilt := buildProfileFromInlineZ(merged)
+	if rebuilt == nil {
+		// DEM data didn't produce a usable profile either — keep original.
+		return profile
+	}
+	return rebuilt
 }
 
 // isValidProfileParam validates BRouter profile parameter keys and values.

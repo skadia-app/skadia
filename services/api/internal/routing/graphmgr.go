@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/paulmach/orb"
 
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
@@ -68,6 +69,10 @@ type GraphManager struct {
 	unifiedRouter *UnifiedRouter
 
 	CoverageReader coverage.CoverageReader
+
+	// DEMSvc is injected at boot and forwarded to every UnifiedRouter instance
+	// created by this manager. May be nil when DEM data is unavailable.
+	DEMSvc dem.Servicer
 }
 
 // InitTiledReader initializes a TiledGraphReader and UnifiedRouter.
@@ -92,7 +97,7 @@ func (m *GraphManager) InitTiledReader(tileDir string, cacheBytes int64) (bool, 
 			isoConcurrency = n
 		}
 	}
-	m.unifiedRouter = NewUnifiedRouter(reader, maxConcurrent, isoConcurrency)
+	m.unifiedRouter = NewUnifiedRouter(reader, maxConcurrent, isoConcurrency, m.DEMSvc)
 
 	// Initialize TileManager for status display (tile_count, tile_cached).
 	mgr, err := NewTileManager(tileDir, cacheBytes)
@@ -129,7 +134,7 @@ func (m *GraphManager) UnifiedRouter() *UnifiedRouter {
 				isoConcurrency = n
 			}
 		}
-		m.unifiedRouter = NewUnifiedRouter(m.tiledReader, maxC, isoConcurrency)
+		m.unifiedRouter = NewUnifiedRouter(m.tiledReader, maxC, isoConcurrency, m.DEMSvc)
 		slog.Info("unified router lazily recreated after tile rebuild")
 	}
 	return m.unifiedRouter

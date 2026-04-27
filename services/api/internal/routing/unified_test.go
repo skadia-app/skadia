@@ -622,13 +622,17 @@ func TestRetrackUnified_NoSpike_NonMonotonicEdge(t *testing.T) {
 	}
 	// Point 3 (index 3): should be 1500.0m, not 593.0m (the carriedEle).
 	const wantEle3 = 1500.0
-	if prof[3].EleM != wantEle3 {
-		t.Errorf("profile[3].EleM: want %.1f (raw), got %.1f (carriedEle spike?)", wantEle3, prof[3].EleM)
+	if prof[3].EleM == nil || *prof[3].EleM != wantEle3 {
+		var got float64
+		if prof[3].EleM != nil {
+			got = *prof[3].EleM
+		}
+		t.Errorf("profile[3].EleM: want %.1f (raw), got %.1f (carriedEle spike?)", wantEle3, got)
 	}
 	// Profile should NOT be flat (all equal to elevs[0]).
 	allFlat := true
 	for _, p := range prof {
-		if p.EleM != float64(elevs[0])/10.0 {
+		if p.EleM == nil || *p.EleM != float64(elevs[0])/10.0 {
 			allFlat = false
 			break
 		}
@@ -710,14 +714,21 @@ func TestRetrackUnified_CoordsConsistentWithProfile(t *testing.T) {
 	}
 
 	// First coord Ele == profile[0].EleM (both at dist=0)
-	wantFirst := prof[0].EleM
+	if prof[0].EleM == nil {
+		t.Fatal("prof[0].EleM is nil")
+	}
+	wantFirst := *prof[0].EleM
 	gotFirst := result.Coordinates[0].Ele
 	if gotFirst != wantFirst {
 		t.Errorf("coords[0].Ele=%.2f, want %.2f (profile[0].EleM)", gotFirst, wantFirst)
 	}
 
 	// Last coord Ele == profile[last].EleM (clamp-end of applyProfileToCoords)
-	wantLast := prof[len(prof)-1].EleM
+	lastProf := prof[len(prof)-1]
+	if lastProf.EleM == nil {
+		t.Fatal("prof[last].EleM is nil")
+	}
+	wantLast := *lastProf.EleM
 	gotLast := result.Coordinates[len(result.Coordinates)-1].Ele
 	if gotLast != wantLast {
 		t.Errorf("coords[last].Ele=%.2f, want %.2f (profile[last].EleM)", gotLast, wantLast)
@@ -807,9 +818,9 @@ func TestApplyProfileToCoords_VESliceSkip(t *testing.T) {
 	// Profile: 3 points at 0m, 50m, 100m with distinct elevations.
 	// This simulates a 2-edge network covering 100m total.
 	profile := []ElevationPoint{
-		{DistM: 0, EleM: 200.0},
-		{DistM: 50, EleM: 250.0},
-		{DistM: 100, EleM: 300.0},
+		{DistM: 0, EleM: PtrEle(200.0)},
+		{DistM: 50, EleM: PtrEle(250.0)},
+		{DistM: 100, EleM: PtrEle(300.0)},
 	}
 
 	// Distinct sentinel elevations for VE coords so clamping would be visible.
@@ -838,25 +849,25 @@ func TestApplyProfileToCoords_VESliceSkip(t *testing.T) {
 	// VE coords must be untouched.
 	if coords[0].Ele != srcVe0Ele {
 		t.Errorf("srcVE[0].Ele clobbered: want %.1f, got %.4f (was clamped to profile[0].EleM=%.1f?)",
-			srcVe0Ele, coords[0].Ele, profile[0].EleM)
+			srcVe0Ele, coords[0].Ele, *profile[0].EleM)
 	}
 	if coords[1].Ele != srcVe1Ele {
 		t.Errorf("srcVE[1].Ele clobbered: want %.1f, got %.4f (was clamped to profile[0].EleM=%.1f?)",
-			srcVe1Ele, coords[1].Ele, profile[0].EleM)
+			srcVe1Ele, coords[1].Ele, *profile[0].EleM)
 	}
 	if coords[5].Ele != dstVe0Ele {
 		t.Errorf("dstVE[0].Ele clobbered: want %.1f, got %.4f (was clamped to profile[last].EleM=%.1f?)",
-			dstVe0Ele, coords[5].Ele, profile[len(profile)-1].EleM)
+			dstVe0Ele, coords[5].Ele, *profile[len(profile)-1].EleM)
 	}
 
 	// Network coords[2] must be profile[0].EleM (distAccum=0 at first network coord).
-	if coords[2].Ele != profile[0].EleM {
-		t.Errorf("net[0].Ele: want %.1f (profile[0].EleM), got %.4f", profile[0].EleM, coords[2].Ele)
+	if coords[2].Ele != *profile[0].EleM {
+		t.Errorf("net[0].Ele: want %.1f (profile[0].EleM), got %.4f", *profile[0].EleM, coords[2].Ele)
 	}
 
 	// Network coords[4] (last) must be ≥ profile[1].EleM (ascending profile, clamp-end).
 	// It should be approximately profile[2].EleM since it's ~100m into the network.
-	if coords[4].Ele < profile[1].EleM {
-		t.Errorf("net[2].Ele: want >= %.1f (profile[1].EleM=250m mark), got %.4f", profile[1].EleM, coords[4].Ele)
+	if coords[4].Ele < *profile[1].EleM {
+		t.Errorf("net[2].Ele: want >= %.1f (profile[1].EleM=250m mark), got %.4f", *profile[1].EleM, coords[4].Ele)
 	}
 }

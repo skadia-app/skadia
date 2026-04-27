@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"testing"
@@ -17,7 +18,7 @@ func TestRouteResult_BuildProperties_ElevationProfileNullVsSlice(t *testing.T) {
 		t.Fatalf("nil ElevationProfile: got %s, want null", string(raw))
 	}
 
-	profile := []ElevationPoint{{DistM: 0, EleM: 593}, {DistM: 100, EleM: 610}}
+	profile := []ElevationPoint{{DistM: 0, EleM: PtrEle(593)}, {DistM: 100, EleM: PtrEle(610)}}
 	rSet := &RouteResult{ElevationProfile: &profile}
 	propsSet := rSet.buildProperties()
 	raw2, err := json.Marshal(propsSet["elevation_profile"])
@@ -194,9 +195,9 @@ func makeTestLeg(distM float64, profile []ElevationPoint) *RouteResult {
 }
 
 func TestMergeLegs_DistanceAxisContinuity(t *testing.T) {
-	leg1 := makeTestLeg(50.0, []ElevationPoint{{0, 100}, {25, 105}, {50, 110}})
-	leg2 := makeTestLeg(40.0, []ElevationPoint{{0, 110}, {20, 120}, {40, 130}})
-	leg3 := makeTestLeg(60.0, []ElevationPoint{{0, 130}, {30, 140}, {60, 150}})
+	leg1 := makeTestLeg(50.0, []ElevationPoint{{0, PtrEle(100)}, {25, PtrEle(105)}, {50, PtrEle(110)}})
+	leg2 := makeTestLeg(40.0, []ElevationPoint{{0, PtrEle(110)}, {20, PtrEle(120)}, {40, PtrEle(130)}})
+	leg3 := makeTestLeg(60.0, []ElevationPoint{{0, PtrEle(130)}, {30, PtrEle(140)}, {60, PtrEle(150)}})
 	merged := mergeLegs([]*RouteResult{leg1, leg2, leg3})
 	if merged.ElevationProfile == nil {
 		t.Fatal("merged.ElevationProfile is nil, want non-nil")
@@ -222,9 +223,9 @@ func TestMergeLegs_LegProfileDoesntStartAtZero_DistanceShiftPreservesContinuity(
 	// bleibt der Distanz-Shift mathematisch konsistent — der erste
 	// emittierte Punkt landet bei mergedDistM + legProfile[startIdx].DistM,
 	// also nicht zwingend bei mergedDistM.
-	leg1 := makeTestLeg(50.0, []ElevationPoint{{0, 100}, {50, 110}})
+	leg1 := makeTestLeg(50.0, []ElevationPoint{{0, PtrEle(100)}, {50, PtrEle(110)}})
 	// leg2 startet im internen Profile bei 5m (degenerate erste Edge):
-	leg2 := makeTestLeg(40.0, []ElevationPoint{{5, 110}, {40, 130}})
+	leg2 := makeTestLeg(40.0, []ElevationPoint{{5, PtrEle(110)}, {40, PtrEle(130)}})
 	merged := mergeLegs([]*RouteResult{leg1, leg2})
 	p := *merged.ElevationProfile
 	// leg1 emits 2 points (indices 0,1). leg2 has 2 input points but dedup
@@ -243,7 +244,7 @@ func TestMergeLegs_LegProfileDoesntStartAtZero_DistanceShiftPreservesContinuity(
 	// mergedDistM=50, sondern hätte 55 ergeben.
 	// Emittiert: legProfile[1] = {40, 130} → DistM = 50 + 40 = 90.
 	assertInDelta(t, 90.0, p[2].DistM, 0.01, "p[2].DistM")
-	assertInDelta(t, 130.0, p[2].EleM, 0.01, "p[2].EleM")
+	assertInDelta(t, 130.0, *p[2].EleM, 0.01, "p[2].EleM")
 	// Strikt monoton trotz potenziellem Distanz-Sprung
 	for i := 1; i < len(p); i++ {
 		if !(p[i].DistM > p[i-1].DistM) {
@@ -254,7 +255,7 @@ func TestMergeLegs_LegProfileDoesntStartAtZero_DistanceShiftPreservesContinuity(
 
 func TestMergeLegs_FirstLegNilProfile_NoDedupOnFollowLegStart(t *testing.T) {
 	leg1 := makeTestLeg(50.0, nil) // no profile
-	leg2 := makeTestLeg(40.0, []ElevationPoint{{0, 110}, {40, 130}})
+	leg2 := makeTestLeg(40.0, []ElevationPoint{{0, PtrEle(110)}, {40, PtrEle(130)}})
 	merged := mergeLegs([]*RouteResult{leg1, leg2})
 	if merged.ElevationProfile == nil {
 		t.Fatal("merged.ElevationProfile is nil, want non-nil")
@@ -266,14 +267,14 @@ func TestMergeLegs_FirstLegNilProfile_NoDedupOnFollowLegStart(t *testing.T) {
 	}
 	// distance shift by leg1.DistanceM = 50
 	assertInDelta(t, 50.0, p[0].DistM, 0.01, "p[0].DistM")
-	assertInDelta(t, 110.0, p[0].EleM, 0.01, "p[0].EleM")
+	assertInDelta(t, 110.0, *p[0].EleM, 0.01, "p[0].EleM")
 	assertInDelta(t, 90.0, p[1].DistM, 0.01, "p[1].DistM")
 }
 
 func TestMergeLegs_MiddleLegNilProfile_DistanceGap(t *testing.T) {
-	leg1 := makeTestLeg(50.0, []ElevationPoint{{0, 100}, {50, 110}})
+	leg1 := makeTestLeg(50.0, []ElevationPoint{{0, PtrEle(100)}, {50, PtrEle(110)}})
 	leg2 := makeTestLeg(40.0, nil)
-	leg3 := makeTestLeg(60.0, []ElevationPoint{{0, 110}, {60, 150}})
+	leg3 := makeTestLeg(60.0, []ElevationPoint{{0, PtrEle(110)}, {60, PtrEle(150)}})
 	merged := mergeLegs([]*RouteResult{leg1, leg2, leg3})
 	p := *merged.ElevationProfile
 	// Per §5.4: dedup gate is len(mergedProfile) > 0.
@@ -285,11 +286,11 @@ func TestMergeLegs_MiddleLegNilProfile_DistanceGap(t *testing.T) {
 		t.Fatalf("len(profile) = %d, want %d", got, want)
 	}
 	assertInDelta(t, 0.0, p[0].DistM, 0.01, "p[0].DistM")
-	assertInDelta(t, 100.0, p[0].EleM, 0.01, "p[0].EleM")
+	assertInDelta(t, 100.0, *p[0].EleM, 0.01, "p[0].EleM")
 	assertInDelta(t, 50.0, p[1].DistM, 0.01, "p[1].DistM")
-	assertInDelta(t, 110.0, p[1].EleM, 0.01, "p[1].EleM")
+	assertInDelta(t, 110.0, *p[1].EleM, 0.01, "p[1].EleM")
 	assertInDelta(t, 150.0, p[2].DistM, 0.01, "p[2].DistM")
-	assertInDelta(t, 150.0, p[2].EleM, 0.01, "p[2].EleM")
+	assertInDelta(t, 150.0, *p[2].EleM, 0.01, "p[2].EleM")
 	// Strikt monoton (inkl. des 100m-Gaps zwischen p[1] und p[2]):
 	for i := 1; i < len(p); i++ {
 		if !(p[i].DistM > p[i-1].DistM) {
@@ -347,4 +348,25 @@ func TestMergeLegs_EmptyCoordsWithTags_InvariantSafe(t *testing.T) {
 	// EdgeHandles is NOT length-synchronized with EdgeCoordStart (used by
 	// aggregateLegOutdoor/aggregateLeg2Coverage which iterate handles independently
 	// via reader.EdgeTags*(h)). So we accept EdgeHandles may have len=2 here.
+}
+
+func TestElevationPoint_NullJSONRoundTrip(t *testing.T) {
+	in := []ElevationPoint{{DistM: 0, EleM: PtrEle(100.5)}, {DistM: 50, EleM: nil}}
+	buf, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !bytes.Contains(buf, []byte(`"ele_m":null`)) {
+		t.Fatalf("expected null in JSON, got %s", buf)
+	}
+	var out []ElevationPoint
+	if err := json.Unmarshal(buf, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out[1].EleM != nil {
+		t.Fatal("nil round-trip broken")
+	}
+	if out[0].EleM == nil || *out[0].EleM != 100.5 {
+		t.Fatalf("value round-trip broken: %v", out[0].EleM)
+	}
 }

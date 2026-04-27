@@ -25,6 +25,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/dataimport"
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/garmin"
 	"github.com/skadia-app/skadia/services/api/internal/handler"
@@ -618,6 +619,15 @@ func main() {
 		slog.Warn("KOMOOT_ENCRYPTION_KEY is not set — Komoot import will be unavailable until configured")
 	}
 
+	// DEM Service — lazy mmap per HGT cell, shared across all requests.
+	// Closed after HTTP shutdown so in-flight requests always have a valid service.
+	demSvc := dem.NewService(dem.HGTDirsForConfig(cfg.DEMDataDir))
+
+	// Boot-time HGT drift scan — async, best-effort. Samples up to 5 tiles and
+	// records any HGT manifest mismatches in demSvc.Health().TileDriftCells.
+	// Does not block boot or affect routing correctness.
+	go demSvc.ScanTilesForDrift(cfg.TilesDir, 5)
+
 	// Build the ImportService which holds the shared post-processing pipeline.
 	// The SegmentMatcher callback is wired after the Handler is created
 	// (it references handler methods), so we set it below.
@@ -633,6 +643,7 @@ func main() {
 		ShadowFS:       store,
 		ShadowFSConfig: shadowFSCfg,
 		ImportService:  importSvc,
+		DEMSvc:         demSvc,
 		Config: &handler.HandlerConfig{
 			LiteLLMConfigPath:   cfg.LiteLLMConfigPath,
 			LiteLLMInternalURL:  cfg.LiteLLMInternalURL,
@@ -661,7 +672,8 @@ func main() {
 	}
 
 	// Routing graph manager — initialize tiled routing (UnifiedRouter).
-	graphMgr := &routing.GraphManager{}
+	// DEMSvc is forwarded so UnifiedRouter can perform off-graph DEM lookups (Spec §3.2).
+	graphMgr := &routing.GraphManager{DEMSvc: demSvc}
 	h.GraphManager = graphMgr
 	tileDir := filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "tiles")
 	tileCacheBytes := int64(4_000_000_000) // 4 GB default
@@ -1686,6 +1698,9 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("server forced to shutdown", "error", err)
 	}
+
+	// Release mmap'd DEM grids after all HTTP requests have drained.
+	demSvc.Close()
 
 	slog.Info("server stopped")
 }

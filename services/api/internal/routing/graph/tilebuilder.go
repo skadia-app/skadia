@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -79,6 +80,18 @@ func BuildTile(ctx context.Context, pool *pgxpool.Pool, tileID uint32,
 
 	g.TileID = tileID
 	g.BorderIndex = borderIdx
+
+	// Build HGT manifest if hgtDirs were supplied. Best-effort: a manifest
+	// failure only produces a warning — it must not abort a successful tile build.
+	if len(hgtDirs) > 0 {
+		manifest, manifestErr := buildHGTManifest(tileID, hgtDirs)
+		if manifestErr != nil {
+			slog.Warn("hgt manifest build failed, tile will have no drift detection",
+				"tile_id", tileID, "error", manifestErr)
+		} else {
+			g.HGTManifest = manifest
+		}
+	}
 
 	if err := Serialize(g, tilePath); err != nil {
 		return nil, fmt.Errorf("serialize tile %d: %w", tileID, err)
@@ -237,4 +250,95 @@ func BuildAllTiles(ctx context.Context, pool *pgxpool.Pool, outputDir string,
 	}
 
 	return results, nil
+}
+
+// buildHGTManifest enumerates the HGT cells needed for tileID, locates each
+// file in hgtDirs (highest-resolution-first), acquires a shared flock, stats
+// the file, hashes its content with xxhash3, and performs a post-read
+// mtime+size re-check to detect HGT rotation during the build.
+//
+// Returns an error only if a rotation is detected (inconsistent pre/post stat).
+// Missing cells are silently omitted — partial coverage is normal.
+//
+// Linux-only: flock(2) is advisory and ineffective on NFS without -o nolock.
+// Documented limitation: operations on NFS-mounted HGT stores may not be
+// protected; use local storage for production deployments.
+func buildHGTManifest(tileID uint32, hgtDirs []string) (*HGTManifest, error) {
+	bbox := TileBBoxExpanded(tileID, BorderBuffer)
+	cells := dem.HGTCellsForBBox(bbox)
+
+	var refs []HGTCellRef
+	for _, cell := range cells {
+		filename := cell.FileName()
+		var found bool
+		for _, dir := range hgtDirs {
+			path := dir + "/" + filename
+
+			f, err := os.Open(path)
+			if err != nil {
+				continue
+			}
+
+			// Shared flock — allows concurrent tile builds to coexist.
+			// Blocks writers that hold an exclusive lock.
+			if lockErr := syscall.Flock(int(f.Fd()), syscall.LOCK_SH); lockErr != nil {
+				f.Close()
+				slog.Warn("hgt manifest: flock failed", "path", path, "error", lockErr)
+				continue
+			}
+
+			// Pre-read stat.
+			info, err := f.Stat()
+			if err != nil {
+				syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+				f.Close()
+				slog.Warn("hgt manifest: stat failed", "path", path, "error", err)
+				continue
+			}
+			preSize := info.Size()
+			preMtime := info.ModTime()
+
+			// Hash the first and last 64 KB of the file (partial drift-detection
+			// heuristic — see dem.Xxh3Partial for rationale). Must use the same
+			// algorithm as drift_scan.go so that manifest hashes match at scan time.
+			// Release the shared lock and close the fd before Xxh3Partial reopens
+			// the file; the post-read stat below detects any rotation that occurs
+			// in the window between lock release and hash completion.
+			syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+			f.Close()
+
+			digest, err := dem.Xxh3Partial(path)
+			if err != nil {
+				slog.Warn("hgt manifest: hash read failed", "path", path, "error", err)
+				continue
+			}
+
+			// Post-read re-check: detect HGT rotation during the read.
+			info2, err := os.Stat(path)
+			if err != nil {
+				slog.Warn("hgt manifest: post-read stat failed", "path", path, "error", err)
+				continue
+			}
+			if info2.Size() != preSize || info2.ModTime() != preMtime {
+				return nil, fmt.Errorf("hgt manifest: HGT rotated during tile build (%s): pre size=%d mtime=%v, post size=%d mtime=%v",
+					path, preSize, preMtime, info2.Size(), info2.ModTime())
+			}
+
+			// Strip ".hgt" extension for the cell name stored in the manifest.
+			cellName := filename[:len(filename)-4]
+			refs = append(refs, HGTCellRef{
+				CellName: cellName,
+				FileSize: preSize,
+				Xxhash3:  digest,
+			})
+			found = true
+			break
+		}
+		if !found {
+			// Missing cell is normal for tiles with partial DEM coverage.
+			slog.Debug("hgt manifest: no file for cell", "cell", filename)
+		}
+	}
+
+	return &HGTManifest{Cells: refs}, nil
 }
