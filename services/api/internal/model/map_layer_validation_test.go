@@ -54,9 +54,11 @@ func TestValidateURLTemplate_PrivateIPBlocked(t *testing.T) {
 		if err := model.ValidateURLTemplate(tpl, true); err == nil {
 			t.Errorf("expected private-IP block for %s, got nil", tpl)
 		}
-		// Same URL must pass when blockPrivateIPs=false (admin tier).
+		// Parameter contract: blockPrivateIPs=false skips the SSRF check
+		// (reserved for tests / dry-run paths only — admin AND user handler
+		// paths both pass true now).
 		if err := model.ValidateURLTemplate(tpl, false); err != nil {
-			t.Errorf("admin-tier should not block %s: %v", tpl, err)
+			t.Errorf("blockPrivateIPs=false should skip block for %s: %v", tpl, err)
 		}
 	}
 }
@@ -129,9 +131,11 @@ func TestValidateStyleURL(t *testing.T) {
 		if err := model.ValidateStyleURL("https://10.0.0.1/style.json", true); err == nil {
 			t.Error("expected private-IP block")
 		}
-		// Same URL passes when blockPrivateIPs=false (admin tier).
+		// Parameter contract: blockPrivateIPs=false skips the SSRF check.
+		// Both admin and user handler paths now pass true; this exercises the
+		// bypass for tests / dry-run callers.
 		if err := model.ValidateStyleURL("https://10.0.0.1/style.json", false); err != nil {
-			t.Errorf("admin tier should allow IP literal: %v", err)
+			t.Errorf("blockPrivateIPs=false should allow IP literal: %v", err)
 		}
 	})
 }
@@ -152,10 +156,11 @@ func TestValidateURLTemplate_LocalhostHostname(t *testing.T) {
 		if err := model.ValidateURLTemplate(tpl, true); err == nil {
 			t.Errorf("expected hostname block for %s, got nil", tpl)
 		}
-		// Admin tier (blockPrivateIPs=false) still allows these — they are
-		// intentionally reachable from the server side.
+		// Parameter contract: blockPrivateIPs=false bypasses the hostname
+		// blocklist. Both admin and user handler paths now pass true; this
+		// branch only exercises the bypass for tests / dry-run callers.
 		if err := model.ValidateURLTemplate(tpl, false); err != nil {
-			t.Errorf("admin tier should not block %s: %v", tpl, err)
+			t.Errorf("blockPrivateIPs=false should skip block for %s: %v", tpl, err)
 		}
 	}
 }
@@ -175,7 +180,7 @@ func TestValidateURLTemplate_HostnameResolvesPrivate(t *testing.T) {
 	// Either the private-IP sentinel (DNS worked) or a resolution-failed wrap
 	// (no DNS in test env) is acceptable here.
 	if !errors.Is(err, model.ErrPrivateIPBlocked) &&
-		!strings.Contains(err.Error(), "hostname resolution failed") {
+		!errors.Is(err, model.ErrHostResolutionFailed) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -192,7 +197,7 @@ func TestValidateStyleURL_LocalhostHostname(t *testing.T) {
 			t.Errorf("expected hostname block for %s, got nil", s)
 		}
 		if err := model.ValidateStyleURL(s, false); err != nil {
-			t.Errorf("admin tier should not block %s: %v", s, err)
+			t.Errorf("blockPrivateIPs=false should skip block for %s: %v", s, err)
 		}
 	}
 }
