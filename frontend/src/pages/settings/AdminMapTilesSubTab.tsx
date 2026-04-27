@@ -457,12 +457,12 @@ export default function AdminMapTilesSubTab() {
           </div>
         )}
 
-        {/* Action buttons: Import-Assistent + Lift-Segmente */}
-        <div className="flex flex-wrap gap-2 pt-2">
+        {/* Action buttons: Import-Assistent (full width) + Lift-Segmente */}
+        <div className="space-y-2 pt-2">
           <button
             type="button"
             onClick={() => setShowImportModal(true)}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 cursor-pointer transition-colors"
+            className="w-full px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 cursor-pointer transition-colors"
           >
             Import-Assistent
           </button>
@@ -470,7 +470,7 @@ export default function AdminMapTilesSubTab() {
             type="button"
             onClick={() => importLiftsMut.mutate()}
             disabled={importLiftsMut.isPending || !hasOsmData}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            className="w-full px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
             {importLiftsMut.isPending ? 'Importiere…' : 'Lift-Segmente importieren'}
           </button>

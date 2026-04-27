@@ -165,10 +165,10 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
   }, [selectedRegions, regionsData, demStatus, downloadDEM, buildTiles, buildCoverage])
 
   return (
-    <ModalShell onClose={onClose} maxWidth="max-w-4xl">
-      <div className="bg-white dark:bg-neutral-900 rounded-2xl border border-border w-full max-h-[92vh] flex flex-col shadow-2xl">
+    <ModalShell onClose={onClose} maxWidth="max-w-4xl" className="p-0">
+      <div className="w-full max-h-[92vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200 dark:border-neutral-800">
           <h2 className="text-base font-semibold">OSM Import-Assistent</h2>
           <button onClick={onClose} className="cursor-pointer text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
             <X size={18} />
@@ -390,7 +390,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-border flex items-center justify-between">
+        <div className="px-6 py-4 border-t border-neutral-200 dark:border-neutral-800 flex items-center justify-between">
           <span className="text-xs text-neutral-400">
             {selectedRegions.length} Region(en), {selectedCategories.length} Kategorie(n) gewählt
           </span>
@@ -398,7 +398,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
             <button
               onClick={onClose}
               disabled={mutation.isPending}
-              className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium border border-border text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium border border-neutral-200 dark:border-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               Abbrechen
             </button>
