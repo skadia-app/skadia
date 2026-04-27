@@ -406,6 +406,73 @@ describe('migrateRouteCached — session cache', () => {
   })
 })
 
+// ─── Stage-2 gate: single-segment vs. multi-segment ──────────────────────────
+
+describe('migrateRoute — Stage-2 legacyToRouteProfile gate', () => {
+  it('TestMigration_MultiSegment_LegacyTopLevel_NotApplied: Stage 2 must NOT trigger → DEM called', async () => {
+    // Pre-T0 multi-segment route with a top-level elevation_profile.
+    // Stage 2 must be skipped — applying the full-route profile to each gap
+    // segment would give every segment the identical full-route curve.
+    const topLevelProfile = [
+      { fraction: 0, elevation: 500 },
+      { fraction: 0.5, elevation: 550 },
+      { fraction: 1, elevation: 600 },
+    ]
+    const demProfile = [
+      { dist_m: 0, ele_m: 700 },
+      { dist_m: 5000, ele_m: 720 },
+      { dist_m: 10000, ele_m: 740 },
+    ]
+    getElevationAtVerticesChunkedMock.mockResolvedValue(demProfile)
+
+    // Two 2D segments — Stage 1 cannot fill them, Stage 2 must be skipped,
+    // Stage 3 (DEM) is the only option.
+    const seg1 = makeSegment2D('w1', 'w2')
+    const seg2 = makeSegment2D('w2', 'w3')
+    const route = makeRoute({
+      segments: [seg1, seg2],
+      // Cast through unknown: the legacy top-level profile uses { fraction, elevation }
+      // shape (pre-T0 BRouter format), not the modern RouteElevationPoint schema.
+      elevation_profile: topLevelProfile as unknown as PlannedRoute['elevation_profile'],
+    })
+
+    await migrateRoute(route)
+
+    // DEM MUST have been called (Stage 2 was not applied)
+    expect(getElevationAtVerticesChunkedMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('TestMigration_SingleSegment_LegacyTopLevel_Applied: Stage 2 triggers for single-segment routes', async () => {
+    // Single-segment route with a top-level elevation_profile (legacy BRouter).
+    // Stage 1 fails (2D geometry), Stage 2 should fill it → DEM must NOT be called.
+    const topLevelProfile = [
+      { fraction: 0, elevation: 800 },
+      { fraction: 0.5, elevation: 900 },
+      { fraction: 1, elevation: 850 },
+    ]
+    // DEM should not be called — we'll verify that below.
+    getElevationAtVerticesChunkedMock.mockResolvedValue([])
+
+    const seg = makeSegment2D('w1', 'w2')
+    const route = makeRoute({
+      segments: [seg],
+      // Cast through unknown: the legacy top-level profile uses { fraction, elevation }
+      // shape (pre-T0 BRouter format), not the modern RouteElevationPoint schema.
+      elevation_profile: topLevelProfile as unknown as PlannedRoute['elevation_profile'],
+    })
+
+    const result = await migrateRoute(route)
+
+    // DEM must NOT have been called (Stage 2 succeeded)
+    expect(getElevationAtVerticesChunkedMock).not.toHaveBeenCalled()
+    // Segment has a profile derived from the top-level legacy data
+    expect(result[0].elevation_profile).toBeDefined()
+    expect(result[0].elevation_profile!.length).toBeGreaterThanOrEqual(2)
+    // First point should have ele_m from the top-level profile (elevation=800 at fraction=0)
+    expect(result[0].elevation_profile![0].ele_m).toBe(800)
+  })
+})
+
 // ─── TestMigration_TwoTabsSameRoute_NoConflict ────────────────────────────────
 // Pre-existing architectural limitation: two concurrent tab migrations to the same
 // route cannot be coordinated without backend optimistic-concurrency support.
