@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { isAuthenticated, isDevAuth, setToken } from '@/lib/auth'
+import { clearQueryClientCache } from '@/lib/queryClient'
 import { getAuthConfig, loginWithEmail, type AuthConfig } from '@/api/auth'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
@@ -53,6 +54,10 @@ export default function LoginPage() {
 
     try {
       const data = await loginWithEmail(email, password)
+      // Multi-user safety: drop any anonymous-keyed query results (e.g. cached
+      // 401 errors under userId='anon') before the new user's queries fire.
+      // clearToken handles the logout side; this handles the login transition.
+      clearQueryClientCache()
       setToken(data.token)
       navigate(returnTo, { replace: true })
     } catch (err) {
@@ -64,6 +69,7 @@ export default function LoginPage() {
   }
 
   function handleDevLogin() {
+    clearQueryClientCache()
     setToken('dev-token')
     navigate('/activities', { replace: true })
   }

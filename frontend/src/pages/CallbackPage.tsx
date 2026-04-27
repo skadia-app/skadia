@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { setToken } from '@/lib/auth'
+import { clearQueryClientCache } from '@/lib/queryClient'
 import { exchangeAuthCode } from '@/api/auth'
 import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 
@@ -28,6 +29,9 @@ export default function CallbackPage() {
 
     exchangeAuthCode(code)
       .then(data => {
+        // Multi-user safety: drop any anon-keyed cache entries before the new
+        // user's queries fire (parallels LoginPage email-flow).
+        clearQueryClientCache()
         setToken(data.token)
         navigate('/activities', { replace: true })
       })
