@@ -70,6 +70,18 @@ type RouteResult struct {
 	// JSON serialisation happens via buildProperties (key "elevation_profile");
 	// this field itself is excluded from direct struct marshalling (json:"-").
 	ElevationProfile *[]ElevationPoint `json:"-"` // nil → JSON null via buildProperties
+
+	// ApproachFromProfile is the 2-point profile header for the snap-line from
+	// click_src to edge-projection_src. DistM=0 at click, DistM=approach_from_m
+	// at projection. EleM nil when DEM has no coverage (Spec §6 Class A).
+	// Excluded from JSON — emitted as part of the combined elevation_profile via
+	// buildProperties / addApproach.
+	ApproachFromProfile []ElevationPoint `json:"-"`
+
+	// ApproachToProfile is the 2-point profile header for the snap-line from
+	// edge-projection_dst to click_dst. DistM=0 at projection, DistM=approach_to_m
+	// at click. EleM nil when DEM has no coverage (Spec §6 Class A).
+	ApproachToProfile []ElevationPoint `json:"-"`
 }
 
 // AvgFlat returns the distance-weighted average flat cost factor of this route.

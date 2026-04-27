@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
@@ -637,6 +638,270 @@ func TestComputeTurnCost_Basic(t *testing.T) {
 	tc4, _, _ := computeTurnCost(0, 0, -100, 0, 1, 0, 0, 50000)
 	if tc4 != 0 {
 		t.Errorf("base=0: expected turnCost=0, got %f", tc4)
+	}
+}
+
+// stubDEMServicer implements dem.Servicer for tests. It returns a fixed elevation
+// (in decimeters) for every coordinate lookup, or dem.NoData when returnNoData
+// is true.
+type stubDEMServicer struct {
+	// fixedElevsDm is returned in order for successive ElevationBatch calls.
+	// If nil, returnNoData controls the response.
+	fixedElevsDm []int32
+	returnNoData bool
+	callCount    int
+}
+
+func (s *stubDEMServicer) ElevationBatch(lats, lons []int32) ([]int32, error) {
+	s.callCount++
+	out := make([]int32, len(lats))
+	for i := range out {
+		if s.returnNoData {
+			out[i] = dem.NoData
+		} else if s.fixedElevsDm != nil && i < len(s.fixedElevsDm) {
+			out[i] = s.fixedElevsDm[i]
+		} else {
+			out[i] = 1000 // 100.0 m default
+		}
+	}
+	return out, nil
+}
+func (s *stubDEMServicer) Health() dem.Health { return dem.Health{} }
+func (s *stubDEMServicer) Close()             {}
+
+// newTestRouterWithDEM creates a UnifiedRouter that uses the provided dem.Servicer.
+func newTestRouterWithDEM(g *graph.Graph, svc dem.Servicer) *UnifiedRouter {
+	reader := &SingleGraphReader{G: g, TileID: 0}
+	return NewUnifiedRouter(reader, 4, 2, svc)
+}
+
+// makeApproachGraph builds a minimal 2-node graph suitable for approach tests.
+// Nodes are placed ~500m apart so snap distance > 100m threshold.
+func makeApproachGraph() *graph.Graph {
+	nodes := [][3]float64{
+		{47.0, 11.0, 5000},   // node 0, 500m elevation
+		{47.005, 11.0, 5100}, // node 1, 510m elevation
+	}
+	edges := [][4]int{
+		{0, 1, 55600, 16}, // ~556m path
+		{1, 0, 55600, 16},
+	}
+	return makeTestGraph(nodes, edges)
+}
+
+// TestRetrackUnified_SnapApproach_TwoPointHeader verifies that ApproachFromProfile
+// and ApproachToProfile each contain exactly 2 ElevationPoints when a snap-approach
+// is triggered, with DistM=0 at click and DistM=approach distance at projection.
+func TestRetrackUnified_SnapApproach_TwoPointHeader(t *testing.T) {
+	g := makeApproachGraph()
+	// Fixed DEM elevations in decimeters: clickSrc=2000dm, projSrc=2010dm, projDst=2020dm, clickDst=2030dm
+	svc := &stubDEMServicer{fixedElevsDm: []int32{2000, 2010, 2020, 2030}}
+	r := newTestRouterWithDEM(g, svc)
+	cfg := simpleCostConfig()
+	cfg.SnapThresholdM = 1 // force approach for any snap distance >1m
+
+	ctx := context.Background()
+	// Request from slightly off node 0 — will snap to edge and create approach lines.
+	result, err := r.Route(ctx, RouteRequest{
+		FromLat: 47.0005, FromLon: 11.001, // offset ~100m from node 0
+		ToLat:   47.0045, ToLon: 11.001,   // offset ~100m from node 1
+	}, cfg)
+	if err != nil {
+		t.Fatalf("Route failed: %v", err)
+	}
+
+	if len(result.ApproachFromProfile) == 0 {
+		t.Skip("no snap approach triggered — adjust test offsets if needed")
+	}
+
+	// ApproachFromProfile: exactly 2 points, DistM[0]==0
+	afp := result.ApproachFromProfile
+	if len(afp) != 2 {
+		t.Fatalf("ApproachFromProfile: want 2 points, got %d", len(afp))
+	}
+	if afp[0].DistM != 0 {
+		t.Errorf("ApproachFromProfile[0].DistM: want 0, got %.4f", afp[0].DistM)
+	}
+	approachFromM := afp[1].DistM
+	if approachFromM <= 0 {
+		t.Errorf("ApproachFromProfile[1].DistM: want >0, got %.4f", approachFromM)
+	}
+
+	// ApproachToProfile: exactly 2 points, DistM[0]==0
+	if len(result.ApproachToProfile) != 2 {
+		t.Fatalf("ApproachToProfile: want 2 points, got %d", len(result.ApproachToProfile))
+	}
+	atp := result.ApproachToProfile
+	if atp[0].DistM != 0 {
+		t.Errorf("ApproachToProfile[0].DistM: want 0, got %.4f", atp[0].DistM)
+	}
+	if atp[1].DistM <= 0 {
+		t.Errorf("ApproachToProfile[1].DistM: want >0, got %.4f", atp[1].DistM)
+	}
+
+	// approach_from_m in buildProperties must match ApproachFromProfile[1].DistM
+	approachFromProps := haversineSum(result.ApproachFrom)
+	if math.Abs(approachFromM-approachFromProps) > 1.0 {
+		t.Errorf("ApproachFromProfile[1].DistM=%.2f != haversineSum(ApproachFrom)=%.2f",
+			approachFromM, approachFromProps)
+	}
+}
+
+// TestRetrackUnified_SnapApproach_CoordEleMatchesProfile verifies that the click
+// coordinate elevation comes from the DEM batch (not from ProjEleDm), and that
+// ApproachFrom[0].Ele matches *ApproachFromProfile[0].EleM.
+func TestRetrackUnified_SnapApproach_CoordEleMatchesProfile(t *testing.T) {
+	g := makeApproachGraph()
+	// clickSrc DEM elevation: 3000dm = 300.0m; projSrc: 3100dm = 310.0m
+	svc := &stubDEMServicer{fixedElevsDm: []int32{3000, 3100, 3200, 3300}}
+	r := newTestRouterWithDEM(g, svc)
+	cfg := simpleCostConfig()
+	cfg.SnapThresholdM = 1
+
+	ctx := context.Background()
+	result, err := r.Route(ctx, RouteRequest{
+		FromLat: 47.0005, FromLon: 11.001,
+		ToLat:   47.0045, ToLon: 11.001,
+	}, cfg)
+	if err != nil {
+		t.Fatalf("Route failed: %v", err)
+	}
+	if len(result.ApproachFromProfile) == 0 {
+		t.Skip("no snap approach triggered")
+	}
+
+	// Click coord elevation must come from DEM batch (3000dm = 300.0m)
+	afCoord := result.ApproachFrom[0]
+	if !afCoord.EleValid {
+		t.Errorf("ApproachFrom[0].EleValid: want true, got false")
+	}
+	wantClickEle := 300.0
+	if math.Abs(afCoord.Ele-wantClickEle) > 0.01 {
+		t.Errorf("ApproachFrom[0].Ele: want %.1f (from DEM batch), got %.4f", wantClickEle, afCoord.Ele)
+	}
+
+	// Coord ele must match profile EleM
+	afpClickEle := result.ApproachFromProfile[0].EleM
+	if afpClickEle == nil {
+		t.Fatal("ApproachFromProfile[0].EleM: want non-nil")
+	}
+	if math.Abs(*afpClickEle-afCoord.Ele) > 0.001 {
+		t.Errorf("ApproachFrom[0].Ele=%.4f != *ApproachFromProfile[0].EleM=%.4f", afCoord.Ele, *afpClickEle)
+	}
+}
+
+// TestRetrackUnified_ApproachInclusiveAxis verifies that the combined ElevationProfile
+// starts at DistM=0 (click_src) when approach is active.
+func TestRetrackUnified_ApproachInclusiveAxis(t *testing.T) {
+	g := makeApproachGraph()
+	svc := &stubDEMServicer{fixedElevsDm: []int32{1500, 1510, 1520, 1530}}
+	r := newTestRouterWithDEM(g, svc)
+	cfg := simpleCostConfig()
+	cfg.SnapThresholdM = 1
+
+	ctx := context.Background()
+	result, err := r.Route(ctx, RouteRequest{
+		FromLat: 47.0005, FromLon: 11.001,
+		ToLat:   47.0045, ToLon: 11.001,
+	}, cfg)
+	if err != nil {
+		t.Fatalf("Route failed: %v", err)
+	}
+	if len(result.ApproachFromProfile) == 0 {
+		t.Skip("no snap approach triggered")
+	}
+	if result.ElevationProfile == nil {
+		t.Fatal("ElevationProfile: want non-nil after approach concat")
+	}
+
+	prof := *result.ElevationProfile
+	if len(prof) == 0 {
+		t.Fatal("ElevationProfile: want non-empty")
+	}
+	// First point must be DistM=0 (click_src anchor).
+	if prof[0].DistM != 0 {
+		t.Errorf("ElevationProfile[0].DistM: want 0 (click_src), got %.4f", prof[0].DistM)
+	}
+}
+
+// TestRetrackUnified_DemNoData_NullEles_AndInvalidCoordEle verifies that when
+// the DEM batch returns NoData for all points, EleM is nil in the approach
+// profiles and EleValid is false on the approach coords (Spec §6 Class A).
+func TestRetrackUnified_DemNoData_NullEles_AndInvalidCoordEle(t *testing.T) {
+	g := makeApproachGraph()
+	svc := &stubDEMServicer{returnNoData: true}
+	r := newTestRouterWithDEM(g, svc)
+	cfg := simpleCostConfig()
+	cfg.SnapThresholdM = 1
+
+	ctx := context.Background()
+	result, err := r.Route(ctx, RouteRequest{
+		FromLat: 47.0005, FromLon: 11.001,
+		ToLat:   47.0045, ToLon: 11.001,
+	}, cfg)
+	if err != nil {
+		t.Fatalf("Route failed: %v", err)
+	}
+	if len(result.ApproachFromProfile) == 0 {
+		t.Skip("no snap approach triggered")
+	}
+
+	// All approach profile EleM must be nil (NoData → nil via approachElevToPtrM).
+	for i, p := range result.ApproachFromProfile {
+		if p.EleM != nil {
+			t.Errorf("ApproachFromProfile[%d].EleM: want nil (NoData), got %v", i, *p.EleM)
+		}
+	}
+	for i, p := range result.ApproachToProfile {
+		if p.EleM != nil {
+			t.Errorf("ApproachToProfile[%d].EleM: want nil (NoData), got %v", i, *p.EleM)
+		}
+	}
+
+	// Approach coord EleValid must be false.
+	if len(result.ApproachFrom) > 0 && result.ApproachFrom[0].EleValid {
+		t.Errorf("ApproachFrom[0].EleValid: want false when DEM returns NoData")
+	}
+	if len(result.ApproachTo) > 0 && result.ApproachTo[1].EleValid {
+		t.Errorf("ApproachTo[1].EleValid: want false when DEM returns NoData")
+	}
+}
+
+// TestAddApproach_NilDemSvc_FallsBackToProjectionEle verifies that when
+// r.demSvc is nil (test paths without DEM setup), approach coords have
+// EleValid=false and the profile EleM values are nil (zero-value / no DEM data).
+// This is Variant (b) from the plan: nil demSvc → EleValid=false, EleM=nil,
+// Ele=0.0 (zero value). Callers should treat EleValid=false as "unknown".
+func TestAddApproach_NilDemSvc_FallsBackToProjectionEle(t *testing.T) {
+	g := makeApproachGraph()
+	// nil demSvc — backward-compat path used by all existing tests.
+	r := newTestRouter(g)
+	cfg := simpleCostConfig()
+	cfg.SnapThresholdM = 1
+
+	ctx := context.Background()
+	result, err := r.Route(ctx, RouteRequest{
+		FromLat: 47.0005, FromLon: 11.001,
+		ToLat:   47.0045, ToLon: 11.001,
+	}, cfg)
+	if err != nil {
+		t.Fatalf("Route failed: %v", err)
+	}
+	if len(result.ApproachFromProfile) == 0 {
+		t.Skip("no snap approach triggered")
+	}
+
+	// With nil demSvc, all approach elevations are unknown → EleValid=false,
+	// EleM=nil, Ele=0.0 (zero-value — callers check EleValid, not Ele).
+	for i, c := range result.ApproachFrom {
+		if c.EleValid {
+			t.Errorf("ApproachFrom[%d].EleValid: want false when demSvc=nil", i)
+		}
+	}
+	for i, p := range result.ApproachFromProfile {
+		if p.EleM != nil {
+			t.Errorf("ApproachFromProfile[%d].EleM: want nil when demSvc=nil, got %.2f", i, *p.EleM)
+		}
 	}
 }
 

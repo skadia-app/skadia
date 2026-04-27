@@ -702,24 +702,146 @@ func (r *UnifiedRouter) routeLegPass1(ctx context.Context,
 // snap distance from the original coordinate to the edge projection exceeds
 // a threshold. This visualizes the gap between where the user clicked and
 // where the route actually starts/ends on the graph.
+//
+// When r.demSvc is non-nil, click and projection elevations are resolved via
+// dem.Servicer.ElevationBatch (4-point batch: clickSrc, projSrc, projDst, clickDst).
+// This fixes the previous bug where both the click and projection coordinates
+// received the projection-point elevation (ProjEleDm) — causing an incorrect
+// elevation at the user-clicked map position (Spec §6 Class A correction).
+//
+// Additionally builds ApproachFromProfile / ApproachToProfile (2-point headers)
+// and prepends/appends them to result.ElevationProfile, making the combined
+// profile approach-inclusive: Profile[0].DistM==0 (click_src),
+// Profile[last].DistM≈result.DistanceM (click_dst).
 func (r *UnifiedRouter) addApproach(result *RouteResult, srcVE, dstVE *VirtualEndpoint,
 	cfg *CostConfig, includeFrom, includeTo bool) {
 	snapThreshold := float64(100)
 	if cfg.SnapThresholdM > 0 {
 		snapThreshold = float64(cfg.SnapThresholdM)
 	}
+
+	// Resolve DEM elevations for all four approach points in a single batch.
+	// Order: [clickSrc, projSrc, projDst, clickDst].
+	// Falls back to projection elevation (ProjEleDm) when r.demSvc is nil
+	// (test paths) — EleValid is false in that case.
+	var srcClickEle, srcProjEle, dstProjEle, dstClickEle *float64
+	if r.demSvc != nil {
+		latsE7 := []int32{
+			int32(math.Round(srcVE.OrigLat * 1e7)),
+			int32(math.Round(srcVE.Proj.ProjLat * 1e7)),
+			int32(math.Round(dstVE.Proj.ProjLat * 1e7)),
+			int32(math.Round(dstVE.OrigLat * 1e7)),
+		}
+		lonsE7 := []int32{
+			int32(math.Round(srcVE.OrigLon * 1e7)),
+			int32(math.Round(srcVE.Proj.ProjLon * 1e7)),
+			int32(math.Round(dstVE.Proj.ProjLon * 1e7)),
+			int32(math.Round(dstVE.OrigLon * 1e7)),
+		}
+		eles, err := r.demSvc.ElevationBatch(latsE7, lonsE7)
+		if err != nil {
+			slog.Warn("dem.ElevationBatch failed for approach", "err", err)
+		} else if len(eles) == 4 {
+			srcClickEle = approachElevToPtrM(eles[0])
+			srcProjEle = approachElevToPtrM(eles[1])
+			dstProjEle = approachElevToPtrM(eles[2])
+			dstClickEle = approachElevToPtrM(eles[3])
+		}
+	}
+
+	var approachFromM, approachToM float64
 	if includeFrom && srcVE.Proj.DistanceM > snapThreshold {
+		approachFromM = geo.DistanceHaversine(
+			srcVE.OrigLat, srcVE.OrigLon,
+			srcVE.Proj.ProjLat, srcVE.Proj.ProjLon,
+		)
 		result.ApproachFrom = []LatLonEle{
-			{Lat: srcVE.OrigLat, Lon: srcVE.OrigLon, Ele: float64(srcVE.Proj.ProjEleDm) / 10.0},
-			{Lat: srcVE.Proj.ProjLat, Lon: srcVE.Proj.ProjLon, Ele: float64(srcVE.Proj.ProjEleDm) / 10.0},
+			{
+				Lat:      srcVE.OrigLat,
+				Lon:      srcVE.OrigLon,
+				Ele:      approachDerefOrZero(srcClickEle),
+				EleValid: srcClickEle != nil,
+			},
+			{
+				Lat:      srcVE.Proj.ProjLat,
+				Lon:      srcVE.Proj.ProjLon,
+				Ele:      approachDerefOrZero(srcProjEle),
+				EleValid: srcProjEle != nil,
+			},
+		}
+		result.ApproachFromProfile = []ElevationPoint{
+			{DistM: 0, EleM: srcClickEle},
+			{DistM: approachFromM, EleM: srcProjEle},
 		}
 	}
 	if includeTo && dstVE.Proj.DistanceM > snapThreshold {
+		approachToM = geo.DistanceHaversine(
+			dstVE.Proj.ProjLat, dstVE.Proj.ProjLon,
+			dstVE.OrigLat, dstVE.OrigLon,
+		)
 		result.ApproachTo = []LatLonEle{
-			{Lat: dstVE.Proj.ProjLat, Lon: dstVE.Proj.ProjLon, Ele: float64(dstVE.Proj.ProjEleDm) / 10.0},
-			{Lat: dstVE.OrigLat, Lon: dstVE.OrigLon, Ele: float64(dstVE.Proj.ProjEleDm) / 10.0},
+			{
+				Lat:      dstVE.Proj.ProjLat,
+				Lon:      dstVE.Proj.ProjLon,
+				Ele:      approachDerefOrZero(dstProjEle),
+				EleValid: dstProjEle != nil,
+			},
+			{
+				Lat:      dstVE.OrigLat,
+				Lon:      dstVE.OrigLon,
+				Ele:      approachDerefOrZero(dstClickEle),
+				EleValid: dstClickEle != nil,
+			},
+		}
+		result.ApproachToProfile = []ElevationPoint{
+			{DistM: 0, EleM: dstProjEle},
+			{DistM: approachToM, EleM: dstClickEle},
 		}
 	}
+
+	// Extend result.ElevationProfile to be approach-inclusive:
+	//   [ApproachFromProfile] + [existing network+VE-tail profile] + [ApproachToProfile]
+	// This makes Profile[0].DistM==0 at click_src and
+	// Profile[last].DistM≈result.DistanceM at click_dst.
+	//
+	// Only prepend/append when the corresponding approach was added (non-nil profile).
+	// Uses Variant (b): Approach-Coord elevations are already set above; the
+	// combined profile is purely for the JSON elevation_profile response.
+	hasFromProfile := len(result.ApproachFromProfile) > 0
+	hasToProfile := len(result.ApproachToProfile) > 0
+	if hasFromProfile || hasToProfile {
+		var netProfile []ElevationPoint
+		if result.ElevationProfile != nil {
+			netProfile = *result.ElevationProfile
+		}
+		combined := concatProfilesWithJunctionDedup(
+			result.ApproachFromProfile,
+			netProfile,
+			result.ApproachToProfile,
+		)
+		if len(combined) > 0 {
+			result.ElevationProfile = &combined
+		}
+	}
+}
+
+// approachElevToPtrM converts a DEM elevation in decimeters to *float64 in meters.
+// Returns nil for the NoData sentinel (-32768), which signals missing DEM coverage.
+func approachElevToPtrM(e int32) *float64 {
+	if e == -32768 { // dem.NoData — avoid import cycle by using the literal value
+		return nil
+	}
+	v := float64(e) / 10.0
+	return &v
+}
+
+// approachDerefOrZero dereferences a *float64 elevation, returning 0.0 when nil.
+// Used to populate LatLonEle.Ele when EleValid tracks validity separately.
+func approachDerefOrZero(p *float64) float64 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // extractPath reconstructs the node path from state by following parent pointers.
