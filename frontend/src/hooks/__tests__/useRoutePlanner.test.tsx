@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ToastProvider } from '@/lib/toast'
-import { useRoutePlanner, mergeSegmentStatsForState } from '../useRoutePlanner'
+import { useRoutePlanner, mergeSegmentStatsForState, buildCombinedProfileFromSegments } from '../useRoutePlanner'
 import type { RouteStats } from '../useRoutePlanner'
 import type { RouteSegment, PlannedRoute, RouteWaypoint, ElevationPoint } from '@/api/routes'
 import { makeFakeRouteStats, makeFakeSuggestion } from '@/test-utils/routeFixtures'
@@ -62,6 +62,123 @@ vi.mock('@/lib/toast', async () => {
     ...actual,
     useToast: vi.fn().mockReturnValue({ addToast: addToastMock }),
   }
+})
+
+// ── buildCombinedProfileFromSegments unit tests (Phase D.1) ──────────────────
+
+/**
+ * Minimal segment helper for buildCombinedProfileFromSegments tests.
+ * Uses from/to waypoint IDs that match the waypoints array in each test.
+ */
+function makeProfileSeg(
+  fromId: string,
+  toId: string,
+  distM: number,
+  profile?: Array<{ dist_m: number; ele_m: number | null }>,
+): RouteSegment {
+  return {
+    from_waypoint: fromId,
+    to_waypoint: toId,
+    mode: 'routed',
+    geometry: { type: 'LineString', coordinates: [[11, 47], [11.1, 47.1]] },
+    control_points: [],
+    smooth: true,
+    distance_m: distM,
+    elevation_gain: 0,
+    elevation_loss: 0,
+    elevation_profile: profile,
+  }
+}
+
+function makeWpList(...ids: string[]): RouteWaypoint[] {
+  return ids.map((id, i) => ({
+    id,
+    latlng: [47 + i * 0.1, 11 + i * 0.1] as [number, number],
+    type: (i === 0 ? 'start' : i === ids.length - 1 ? 'end' : 'via') as RouteWaypoint['type'],
+  }))
+}
+
+describe('buildCombinedProfileFromSegments (Phase D.1)', () => {
+  it('concatenates with junction-dedup', () => {
+    // Seg1: [0..100], Seg2: [0..100]. Junction-dedup drops seg2's point at dist_m=0.
+    const segs = [
+      makeProfileSeg('w1', 'w2', 100, [
+        { dist_m: 0, ele_m: 100 },
+        { dist_m: 100, ele_m: 110 },
+      ]),
+      makeProfileSeg('w2', 'w3', 100, [
+        { dist_m: 0, ele_m: 110 },   // junction — deduped
+        { dist_m: 100, ele_m: 120 },
+      ]),
+    ]
+    const wps = makeWpList('w1', 'w2', 'w3')
+    const out = buildCombinedProfileFromSegments(segs, wps)
+    expect(out).not.toBeNull()
+    // Output: 3 points (seg1[0], seg1[1], seg2[1])
+    expect(out).toEqual([
+      { dist_m: 0,   ele_m: 100 },
+      { dist_m: 100, ele_m: 110 },
+      { dist_m: 200, ele_m: 120 },
+    ])
+  })
+
+  it('preserves distAccum for empty-profile segments (M5 case)', () => {
+    // Seg1: profile [0..100], seg2: NO profile (distance_m=200), seg3: [0..100]
+    // seg3 must end at dist=400 (100 from seg1 + 200 gap fallback + 100 from seg3).
+    //
+    // Junction-dedup note: hadAny is true after seg1 emits points. When seg3 runs,
+    // startIdx=1 → seg3's first point (dist_m=0) is junction-deduped. So the first
+    // emitted point from seg3 is profile[1] at distAccum(300) + p[1].dist_m(100) = 400.
+    const segs = [
+      makeProfileSeg('w1', 'w2', 100, [
+        { dist_m: 0, ele_m: 100 },
+        { dist_m: 100, ele_m: 110 },
+      ]),
+      makeProfileSeg('w2', 'w3', 200, []),   // M5: DEM gap — empty profile
+      makeProfileSeg('w3', 'w4', 100, [
+        { dist_m: 0, ele_m: 130 },
+        { dist_m: 100, ele_m: 140 },
+      ]),
+    ]
+    const wps = makeWpList('w1', 'w2', 'w3', 'w4')
+    const out = buildCombinedProfileFromSegments(segs, wps)
+    expect(out).not.toBeNull()
+    // Output: seg1[0,1] + seg3[1] (seg3[0] junction-deduped by hadAny=true)
+    expect(out).toHaveLength(3)
+    // seg3's last point: distAccum(300) + p[1].dist_m(100) = 400
+    const last = out![out!.length - 1]
+    expect(last.dist_m).toBe(400)
+    expect(last.ele_m).toBe(140)
+    // seg3's first emitted point is at 400 (junction-deduped from seg3[0]=300).
+    // Verify seg2 gap is correctly reflected: seg1 ends at 100, then 200 gap → next at 400.
+    expect(out![0].dist_m).toBe(0)
+    expect(out![1].dist_m).toBe(100)
+    expect(out![2].dist_m).toBe(400)
+  })
+
+  it('handles null ele_m points (DEM gap — Phase A.0 nullable)', () => {
+    // ele_m may be null for DEM coverage gaps; they must be passed through.
+    const segs = [
+      makeProfileSeg('w1', 'w2', 100, [
+        { dist_m: 0, ele_m: null },
+        { dist_m: 50, ele_m: null },
+        { dist_m: 100, ele_m: 100 },
+      ]),
+    ]
+    const wps = makeWpList('w1', 'w2')
+    const out = buildCombinedProfileFromSegments(segs, wps)
+    expect(out).not.toBeNull()
+    expect(out).toHaveLength(3)
+    expect(out![0].ele_m).toBeNull()
+    expect(out![1].ele_m).toBeNull()
+    expect(out![2].ele_m).toBe(100)
+  })
+
+  it('returns null when no segment has a profile', () => {
+    const segs = [makeProfileSeg('w1', 'w2', 100)]
+    const wps = makeWpList('w1', 'w2')
+    expect(buildCombinedProfileFromSegments(segs, wps)).toBeNull()
+  })
 })
 
 // ── mergeSegmentStatsForState unit tests ──────────────────────────────────────
