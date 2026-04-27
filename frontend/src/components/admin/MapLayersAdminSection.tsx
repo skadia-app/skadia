@@ -2,7 +2,7 @@
 import { useState, useCallback } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useToast } from '@/lib/toast'
-import { useMapLayers } from '@/hooks/useMapLayers'
+import { useAdminMapLayers } from '@/hooks/useMapLayers'
 import { useCapabilities } from '@/hooks/useCapabilities'
 import {
   createMapLayer,
@@ -166,6 +166,7 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
     onSuccess: () => {
       addToast({ type: 'success', title: layer ? LABELS.toastUpdated : LABELS.toastCreated })
       qc.invalidateQueries({ queryKey: ['map-layers'] })
+      qc.invalidateQueries({ queryKey: ['admin-map-layers'] })
       onSaved()
       onClose()
     },
@@ -175,6 +176,7 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
       if (msg.includes('412') || msg.includes('428') || msg.includes('Outdated')) {
         addToast({ type: 'error', title: LABELS.toastOutdated, duration: 0 })
         qc.invalidateQueries({ queryKey: ['map-layers'] })
+      qc.invalidateQueries({ queryKey: ['admin-map-layers'] })
         onClose()
         return
       }
@@ -391,10 +393,9 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
 export function MapLayersAdminSection() {
   const { addToast } = useToast()
   const qc = useQueryClient()
-  const { raw: layers, isLoading } = useMapLayers()
+  const { raw: layers, isLoading } = useAdminMapLayers()
   const { data: caps } = useCapabilities()
 
-  const [editingLayer, setEditingLayer] = useState<MapLayer | null | 'new'>('new' as never)
   const [showModal, setShowModal] = useState(false)
   const [modalLayer, setModalLayer] = useState<MapLayer | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<MapLayer | null>(null)
@@ -410,6 +411,7 @@ export function MapLayersAdminSection() {
     onSuccess: () => {
       addToast({ type: 'success', title: LABELS.toastDeleted })
       qc.invalidateQueries({ queryKey: ['map-layers'] })
+      qc.invalidateQueries({ queryKey: ['admin-map-layers'] })
       setDeleteTarget(null)
     },
     onError: (err: unknown) => {
@@ -423,6 +425,7 @@ export function MapLayersAdminSection() {
     onSuccess: () => {
       addToast({ type: 'success', title: LABELS.toastSortSaved })
       qc.invalidateQueries({ queryKey: ['map-layers'] })
+      qc.invalidateQueries({ queryKey: ['admin-map-layers'] })
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err)
@@ -447,8 +450,6 @@ export function MapLayersAdminSection() {
     },
     [sorted, sortMut],
   )
-
-  void editingLayer  // suppress unused lint
 
   function capSatisfied(l: MapLayer): boolean {
     if (!l.requires_capability) return true
@@ -576,7 +577,7 @@ export function MapLayersAdminSection() {
         <LayerModal
           layer={modalLayer}
           capabilityKeys={capabilityKeys}
-          onClose={() => { setShowModal(false); setEditingLayer(null as never) }}
+          onClose={() => setShowModal(false)}
           onSaved={() => setShowModal(false)}
         />
       )}

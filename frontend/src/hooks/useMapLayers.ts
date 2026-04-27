@@ -1,5 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
-import { fetchMapLayers, type MapLayer, type SystemLayerVisibility } from '@/api/mapLayers'
+import {
+  fetchAdminMapLayers,
+  fetchMapLayers,
+  type MapLayer,
+  type SystemLayerVisibility,
+} from '@/api/mapLayers'
 import { useCapabilities } from './useCapabilities'
 
 // Module-level set so capability-warning fires once per session per missing key.
@@ -28,23 +33,22 @@ export interface UseMapLayersResult {
   capabilitiesLoading: boolean
 }
 
-export function useMapLayers(): UseMapLayersResult {
-  const { data: caps, isLoading: capsLoading } = useCapabilities()
+interface MapLayersQueryResult {
+  layers: MapLayer[]
+  system_visibility: Record<string, SystemLayerVisibility>
+}
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['map-layers'],
-    queryFn: fetchMapLayers,
-    staleTime: 5 * 60_000,
-  })
-
+function buildResult(
+  data: MapLayersQueryResult | undefined,
+  isLoading: boolean,
+  caps: ReturnType<typeof useCapabilities>['data'],
+  capsLoading: boolean,
+): UseMapLayersResult {
   const passesCap = (l: MapLayer): boolean => {
     if (!l.requires_capability) return true
-    // Restrictive default while capabilities are still loading.
     if (!caps) return false
     const key = l.requires_capability as keyof typeof caps
     if (!(key in caps)) {
-      // An admin set requires_capability to a key the backend never exposes.
-      // Warn once per layer key per session rather than silently filtering forever.
       if (!warnedCaps.has(l.requires_capability)) {
         console.warn(
           `map_layers.${l.key}: requires_capability=${l.requires_capability} but capability is not exposed by /capabilities`,
@@ -59,9 +63,6 @@ export function useMapLayers(): UseMapLayersResult {
   const enabledLayers = (data?.layers ?? []).filter((l) => l.enabled)
   const filtered = enabledLayers.filter((l) => passesCap(l))
 
-  // Layers that are enabled but blocked by a missing/false capability.
-  // Only populated once caps have loaded — while loading, we keep the
-  // restrictive default (no grayed-out entries yet) to avoid flicker.
   const disabled: DisabledLayer[] = caps
     ? enabledLayers
         .filter((l) => !passesCap(l) && !!l.requires_capability)
@@ -78,3 +79,34 @@ export function useMapLayers(): UseMapLayersResult {
     capabilitiesLoading: capsLoading,
   }
 }
+
+export function useMapLayers(): UseMapLayersResult {
+  const { data: caps, isLoading: capsLoading } = useCapabilities()
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['map-layers'],
+    queryFn: fetchMapLayers,
+    staleTime: 5 * 60_000,
+  })
+
+  return buildResult(data, isLoading, caps, capsLoading)
+}
+
+/**
+ * Admin variant of useMapLayers — calls GET /api/v1/admin/map-layers, which
+ * includes layers with enabled=false. Use this in admin UIs that need to show
+ * (and re-enable) disabled layers; the public hook would filter them out at the
+ * backend before they ever reach the client.
+ */
+export function useAdminMapLayers(): UseMapLayersResult {
+  const { data: caps, isLoading: capsLoading } = useCapabilities()
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin-map-layers'],
+    queryFn: fetchAdminMapLayers,
+    staleTime: 5 * 60_000,
+  })
+
+  return buildResult(data, isLoading, caps, capsLoading)
+}
+

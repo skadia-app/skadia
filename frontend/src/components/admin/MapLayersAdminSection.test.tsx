@@ -12,6 +12,7 @@ import type { MapLayer } from '@/api/mapLayers'
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockFetchMapLayers = vi.fn()
+const mockFetchAdminMapLayers = vi.fn()
 const mockCreateMapLayer = vi.fn()
 const mockPatchMapLayer = vi.fn()
 const mockDeleteMapLayer = vi.fn()
@@ -22,6 +23,7 @@ vi.mock('@/api/mapLayers', async () => {
   return {
     ...actual,
     fetchMapLayers: (...args: unknown[]) => mockFetchMapLayers(...args),
+    fetchAdminMapLayers: (...args: unknown[]) => mockFetchAdminMapLayers(...args),
     createMapLayer: (...args: unknown[]) => mockCreateMapLayer(...args),
     patchMapLayer: (...args: unknown[]) => mockPatchMapLayer(...args),
     deleteMapLayer: (...args: unknown[]) => mockDeleteMapLayer(...args),
@@ -109,6 +111,7 @@ describe('MapLayersAdminSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockFetchMapLayers.mockResolvedValue(MOCK_RESPONSE)
+    mockFetchAdminMapLayers.mockResolvedValue(MOCK_RESPONSE)
     mockCreateMapLayer.mockResolvedValue({ ...SYSTEM_LAYER, id: 99 })
     mockPatchMapLayer.mockResolvedValue(undefined)
     mockDeleteMapLayer.mockResolvedValue(undefined)

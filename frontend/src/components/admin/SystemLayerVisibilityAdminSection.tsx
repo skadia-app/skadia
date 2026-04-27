@@ -195,6 +195,7 @@ export function SystemLayerVisibilityAdminSection() {
     onSuccess: () => {
       addToast({ type: 'success', title: LABELS.toastSaved })
       qc.invalidateQueries({ queryKey: ['map-layers'] })
+      qc.invalidateQueries({ queryKey: ['admin-map-layers'] })
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err)
