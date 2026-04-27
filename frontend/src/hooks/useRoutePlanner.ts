@@ -87,6 +87,7 @@ interface RoutePlannerState {
   // Spec Rev 2.3 / §6.2: Zentraler Profil-State, gespeist aus 4 Quellen
   // (Segment-Profile, BRouter-Fallback, Lazy-Fill, geladene Route).
   effectiveProfile: RouteElevationPoint[] | null
+  routeSchemaVersion: number | null
   // Lazy-Fill (Phase 5) — bereits hier vorbereitet (Spec §R7).
   lazyFillInProgress: boolean
   // Monoton steigender Counter für Stale-Check parallel laufender loadRoute-Calls.
@@ -119,6 +120,7 @@ const INITIAL_STATE: RoutePlannerState = {
   routeStats: null,
   _statsCache: {},
   effectiveProfile: null,
+  routeSchemaVersion: null,
   lazyFillInProgress: false,
   lazyFillToken: 0,
   lazyFillPendingSave: false,
@@ -548,6 +550,7 @@ export function useRoutePlanner() {
   const [state, setState] = useState<RoutePlannerState>(INITIAL_STATE)
   const queryClient = useQueryClient()
   const { addToast } = useToast()
+  const loadedRouteRef = useRef<PlannedRoute | null>(null)
 
   // Bug B (2026-04-25): tracks which source produced the current
   // state.effectiveProfile ('segments' = full per-segment aggregate,
@@ -1188,6 +1191,7 @@ export function useRoutePlanner() {
     // Spec Rev 2.3 §7.4 / F3: Saved routes load instantly from DB
     // (waypoints + segments + profile + enrichment). NEVER recalculateAll().
     resetScalePin()
+    loadedRouteRef.current = route
 
     // route.profile is a string — try cache first, then fetch async
     const cached = getProfileDefaults(route.profile)
@@ -1239,6 +1243,7 @@ export function useRoutePlanner() {
       editingRouteId: route.id,
       // Spec §6.2 / §7.4: hydrate effectiveProfile + routeStats from DB.
       effectiveProfile: route.elevation_profile ?? null,
+      routeSchemaVersion: route.route_schema_version ?? 0,
       routeStats,
       _statsCache: {},
       lazyFillInProgress: false,
@@ -1340,6 +1345,7 @@ export function useRoutePlanner() {
 
   // Load waypoints into the planner without creating/linking a saved route.
   const loadWaypoints = useCallback((waypoints: RouteWaypoint[]) => {
+    loadedRouteRef.current = null
     setState(s => ({
       ...s,
       waypoints,
@@ -1349,6 +1355,7 @@ export function useRoutePlanner() {
       editingRouteId: null,
       routeStats: null,
       _statsCache: {},
+      routeSchemaVersion: null,
     }))
   }, [])
 
@@ -1361,6 +1368,7 @@ export function useRoutePlanner() {
     // I3-Invariant: MUSS als erste Anweisung bleiben — "Übernehmen"-Flow
     // im Comparison-Panel (onSelect-Handler des RouteComparisonPanel) ist von diesem Reset abhängig.
     resetScalePin()
+    loadedRouteRef.current = null
     const firstFeature = s.geojson?.features?.[0]
     const coords = firstFeature?.geometry?.coordinates as number[][] | undefined
     if (!coords || coords.length < 2) {
@@ -1446,6 +1454,7 @@ export function useRoutePlanner() {
       _statsCache: { [synthKey]: statsFromSuggestion },
       routeStats: statsFromSuggestion, // kein Shift nötig — einzelnes Segment, coordOffset=0
       editingRouteId: null,
+      routeSchemaVersion: null,
       calculationError: null,
       isCalculating: false,
       // Critic #4 (MAJOR): hydrate effectiveProfile from suggestion top-level.
@@ -1463,6 +1472,7 @@ export function useRoutePlanner() {
   // ── Clear ───────────────────────────────────────────────────────────────────
 
   const clear = useCallback(() => {
+    loadedRouteRef.current = null
     setState(s => ({
       ...INITIAL_STATE,
       profileConfig: s.profileConfig,
@@ -1678,6 +1688,7 @@ export function useRoutePlanner() {
         return {
           ...s,
           editingRouteId: saved.id,
+          routeSchemaVersion: saved.route_schema_version ?? 1,
           lazyFillPendingSave: false,  // Spec §7.2: reset after successful save
           // Bump token to invalidate any in-flight lazy-fill whose resolve would
           // otherwise re-set lazyFillPendingSave=true after we cleared it here.
@@ -1695,6 +1706,36 @@ export function useRoutePlanner() {
       }
     },
   })
+
+  const forceMigrateAndSave = useCallback(async (): Promise<PlannedRoute | null> => {
+    const loadedRoute = loadedRouteRef.current
+    if (!loadedRoute) return null
+
+    const routeForMigration: PlannedRoute = {
+      ...loadedRoute,
+      waypoints: state.waypoints,
+      segments: state.segments,
+      elevation_profile: state.effectiveProfile,
+    }
+    const migratedSegments = await migrateRouteCached(routeForMigration)
+    const migratedProfile = buildCombinedProfileFromSegments(migratedSegments, state.waypoints)
+
+    setState(s => ({
+      ...s,
+      segments: migratedSegments,
+      effectiveProfile: migratedProfile,
+      routeSchemaVersion: 1,
+      lazyFillInProgress: false,
+    }))
+
+    const saved = await saveRouteMutation.mutateAsync({
+      segments: migratedSegments,
+      elevation_profile: migratedProfile,
+      route_schema_version: 1,
+    })
+    loadedRouteRef.current = saved
+    return saved
+  }, [saveRouteMutation, state.effectiveProfile, state.segments, state.waypoints])
 
   // ── Elevation profile (Spec §6.2 / Rev 2.3) ─────────────────────────────────
   //
@@ -1896,6 +1937,7 @@ export function useRoutePlanner() {
     isCalculating: state.isCalculating,
     calculationError: state.calculationError,
     editingRouteId: state.editingRouteId,
+    routeSchemaVersion: state.routeSchemaVersion,
     routingEngine: state.routingEngine,
     brouterProfile: state.brouterProfile,
     totals,
@@ -1960,5 +2002,6 @@ export function useRoutePlanner() {
     // ── Lazy-Fill DEM (Spec §7.4) ─────────────────────────────────────────
     lazyFillPendingSave: state.lazyFillPendingSave,
     lazyFillInProgress: state.lazyFillInProgress,
+    forceMigrateAndSave,
   }
 }
