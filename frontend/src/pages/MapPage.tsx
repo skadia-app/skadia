@@ -26,9 +26,10 @@ import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { SPORT_DEFS, categoryForSport, sportColor } from '@/lib/sportTaxonomy'
 import { buildLayerStyle, expandSwitch, opacityPercentToFloat, type BaseStyle } from '@/lib/mapStyles'
 import { mapLayerStackDiff } from '@/lib/mapLayerStackDiff'
-import { useMapLayers } from '@/hooks/useMapLayers'
+import { useMapLayersMerged } from '@/hooks/useMapLayers'
 import { useCapabilities } from '@/hooks/useCapabilities'
-import { useUserMapLayers } from '@/hooks/useUserMapLayers'
+import { useUserMapLayers, useUserMapLayersMutations } from '@/hooks/useUserMapLayers'
+import MapOverlayPicker from '@/components/MapOverlayPicker'
 import type { MapLayer } from '@/api/mapLayers'
 import {
   HEATMAP_SOURCE_ID,
@@ -301,12 +302,15 @@ export default function MapPage() {
   const themeBeforeDarkMap = useRef<'light' | 'dark'>('light')
   const [savedViewport] = useState<StoredViewport | null>(loadViewport)
 
-  // DB-driven layer catalog.
-  const { base: baseLayers, raw: rawLayers, disabled: disabledLayers } = useMapLayers()
+  // DB-driven layer catalog, merged with user-owned custom layers.
+  // base/overlay include user layers (appended after system layers by sort_order).
+  // raw / systemBase / systemOverlay stay system-only for the overlay diff pipeline.
+  const { base: baseLayers, raw: rawLayers, disabled: disabledLayers } = useMapLayersMerged()
   const { data: caps } = useCapabilities()
   // Overlay re-apply: track the previous stack to compute minimal diffs.
   const prevOverlayStackRef = useRef<MapLayer[]>([])
-  // User-custom layers (personal raster overlays, Task 39+).
+  // User-custom layers (personal raster overlays) — still fetched separately
+  // for the overlay diff pipeline (mapLayerStackDiff) which keeps its own logic.
   const { data: userLayersData } = useUserMapLayers()
 
   const [baseStyle, setBaseStyle] = useState<BaseStyle>(
@@ -1016,9 +1020,12 @@ export default function MapPage() {
     // System overlays: role='overlay', enabled=true, capability-passing (already filtered in rawLayers hook).
     const sysOverlays = rawLayers.filter((l) => l.role === 'overlay' && l.enabled && l.source_kind === 'raster_tiles')
 
-    // User-custom layers: map to the MapLayer shape for the diff algorithm.
+    // User-custom raster overlays only: role='overlay', source_kind='raster_tiles'.
+    // vector_style user overlays are out of scope — MapLibre style-composition would be
+    // needed and is not yet implemented. Base-role user layers are excluded here because
+    // they switch the whole map style (handled in the base-style selector, not the diff stack).
     const userOverlays: MapLayer[] = (userLayersData ?? [])
-      .filter((ul) => ul.enabled)
+      .filter((ul) => ul.enabled && ul.role === 'overlay' && ul.source_kind === 'raster_tiles')
       .map((ul) => ({
         id: ul.id,
         key: `user-overlay-${ul.id}`,
@@ -1290,6 +1297,39 @@ export default function MapPage() {
       return next
     })
   }, [])
+
+  // ── Overlay Picker: per-session enabled + opacity for system overlay layers ──
+  // These states shadow what's in the MapLibre GL layer stack (added by the diff
+  // pipeline). Callbacks patch the live map directly via setPaintProperty /
+  // setLayoutProperty — no re-run of the stack diff is needed.
+  const [sysOverlayEnabled, setSysOverlayEnabled] = useState<Record<string, boolean>>({})
+  const [sysOverlayOpacity, setSysOverlayOpacity] = useState<Record<string, number>>({})
+
+  const handleToggleSystemOverlay = useCallback((key: string, enabled: boolean) => {
+    setSysOverlayEnabled(prev => ({ ...prev, [key]: enabled }))
+    const map = mapRef.current
+    if (map && map.getLayer(key)) {
+      map.setLayoutProperty(key, 'visibility', enabled ? 'visible' : 'none')
+    }
+  }, [])
+
+  const handleSetSystemOverlayOpacity = useCallback((key: string, opacity: number) => {
+    setSysOverlayOpacity(prev => ({ ...prev, [key]: opacity }))
+    const map = mapRef.current
+    if (map && map.getLayer(key)) {
+      map.setPaintProperty(key, 'raster-opacity', opacityPercentToFloat(opacity))
+    }
+  }, [])
+
+  // User layer mutations for the overlay picker
+  const userLayerMutations = useUserMapLayersMutations()
+
+  const handlePatchUserLayerFromPicker = useCallback(
+    (id: number, patch: Partial<{ enabled: boolean; default_opacity: number }>) => {
+      userLayerMutations.update.mutate({ id, body: patch })
+    },
+    [userLayerMutations.update],
+  )
 
   // location.state: activateSegmentsOverlay — z.B. von SegmentsPage aus
   useEffect(() => {
@@ -2772,22 +2812,41 @@ export default function MapPage() {
         />
 
         {/* Base style selector: full row when wide, dropdown when narrow */}
+        {/* max-w + overflow-x-auto: prevents clipping in the parent overflow-hidden map container */}
         <div
           ref={baseStylesFullRowRef}
           aria-hidden={baseStylesCollapsed || undefined}
-          className={`absolute bottom-4 left-4 z-10 flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md ${baseStylesCollapsed ? 'invisible pointer-events-none' : ''}`}
+          className={`absolute bottom-4 left-4 z-10 max-w-[calc(100%-2rem)] rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md ${baseStylesCollapsed ? 'invisible pointer-events-none' : ''}`}
         >
-          {/* Active (capability-passing) base layers */}
+          <div className="flex overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {/* Active (capability-passing) base layers — includes user-owned base layers */}
           {baseLayers.map((layer) => (
             <button
               key={layer.key}
               onClick={() => setBaseStyle(layer.key)}
-              className={`px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+              aria-label={layer.is_system ? layer.name : `${layer.name} (eigene Karte)`}
+              className={`flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
                 baseStyle === layer.key
                   ? 'bg-accent-DEFAULT text-white'
                   : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
               }`}
             >
+              {!layer.is_system && (
+                /* User-layer indicator: small person silhouette (Lucide User outline) */
+                <svg
+                  className="w-3 h-3 flex-shrink-0 opacity-70"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
+                </svg>
+              )}
               {layer.name}
             </button>
           ))}
@@ -2797,11 +2856,12 @@ export default function MapPage() {
               key={layer.key}
               disabled
               title={`Benötigt: ${missingCapability}`}
-              className="px-2.5 py-1 text-xs font-medium opacity-40 cursor-not-allowed text-neutral-600 dark:text-neutral-300"
+              className="flex-shrink-0 px-2.5 py-1 text-xs font-medium opacity-40 cursor-not-allowed text-neutral-600 dark:text-neutral-300"
             >
               {layer.name}
             </button>
           ))}
+          </div>
         </div>
         {baseStylesCollapsed && (
           <div className="absolute bottom-4 left-4 z-10">
@@ -2823,7 +2883,7 @@ export default function MapPage() {
               </button>
               {layerMenuOpen && (
                 <div className="absolute bottom-full mb-1 left-0 flex flex-col rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white/95 dark:bg-neutral-800/95 backdrop-blur-sm shadow-lg overflow-hidden min-w-[6rem] z-10">
-                  {/* Active (capability-passing) base layers */}
+                  {/* Active (capability-passing) base layers — includes user-owned base layers */}
                   {baseLayers.map((layer) => (
                     <button
                       key={layer.key}
@@ -2831,12 +2891,28 @@ export default function MapPage() {
                         setBaseStyle(layer.key)
                         setLayerMenuOpen(false)
                       }}
-                      className={`px-3 py-1.5 text-xs font-medium text-left transition-colors cursor-pointer ${
+                      aria-label={layer.is_system ? layer.name : `${layer.name} (eigene Karte)`}
+                      className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-left transition-colors cursor-pointer ${
                         baseStyle === layer.key
                           ? 'bg-accent-DEFAULT text-white'
                           : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
                       }`}
                     >
+                      {!layer.is_system && (
+                        <svg
+                          className="w-3 h-3 flex-shrink-0 opacity-70"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <circle cx="12" cy="8" r="4" />
+                          <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
+                        </svg>
+                      )}
                       {layer.name}
                     </button>
                   ))}
@@ -3047,6 +3123,31 @@ export default function MapPage() {
             Eigene Karten
           </button>
           </div>
+
+        {/* Overlay Picker — floating panel top-right, below the button strip */}
+        {(() => {
+          // System overlay layers from the catalog (raster or vector_style, enabled).
+          const sysOverlaysForPicker = rawLayers.filter(
+            (l) => l.role === 'overlay' && l.enabled && l.is_system,
+          )
+          // User raster overlays only — vector_style overlays are out of scope for overlay use.
+          const userOverlaysForPicker = (userLayersData ?? []).filter(
+            (ul) => ul.role === 'overlay' && ul.source_kind === 'raster_tiles',
+          )
+          return (
+            <MapOverlayPicker
+              coverageState={coverageState}
+              onCoverageUpdate={updateComposite}
+              systemOverlays={sysOverlaysForPicker}
+              systemOverlayEnabled={sysOverlayEnabled}
+              systemOverlayOpacity={sysOverlayOpacity}
+              onToggleSystemOverlay={handleToggleSystemOverlay}
+              onSetSystemOverlayOpacity={handleSetSystemOverlayOpacity}
+              userOverlays={userOverlaysForPicker}
+              onPatchUserLayer={handlePatchUserLayerFromPicker}
+            />
+          )
+        })()}
 
         {/* Segments Overlay — Segment-Linien als Karten-Ebene */}
         <SegmentsOverlay

@@ -2,10 +2,13 @@ import { useQuery } from '@tanstack/react-query'
 import {
   fetchAdminMapLayers,
   fetchMapLayers,
+  fetchUserMapLayers,
   type MapLayer,
   type SystemLayerVisibility,
+  type UserMapLayer,
 } from '@/api/mapLayers'
 import { useCapabilities } from './useCapabilities'
+import { useCurrentUserId } from '@/providers/UserProvider'
 
 // Module-level set so capability-warning fires once per session per missing key.
 const warnedCaps = new Set<string>()
@@ -90,6 +93,90 @@ export function useMapLayers(): UseMapLayersResult {
   })
 
   return buildResult(data, isLoading, caps, capsLoading)
+}
+
+// ── User-layer merging helpers ────────────────────────────────────────────────
+
+/**
+ * Maps a UserMapLayer to a MapLayer-compatible object so it can flow through
+ * the same rendering pipeline as system layers.
+ *
+ * Keys follow the convention:
+ *   base    → `user-base-${id}`
+ *   overlay → `user-overlay-${id}`
+ */
+function userLayerToMapLayer(ul: UserMapLayer): MapLayer {
+  return {
+    id: ul.id,
+    key: ul.role === 'base' ? `user-base-${ul.id}` : `user-overlay-${ul.id}`,
+    role: ul.role,
+    name: ul.name,
+    source_kind: ul.source_kind,
+    url_template: ul.url_template,
+    style_url: ul.style_url,
+    attribution: ul.attribution,
+    min_zoom: ul.min_zoom,
+    max_zoom: ul.max_zoom,
+    default_opacity: ul.default_opacity,
+    is_system: false,
+    enabled: ul.enabled,
+    sort_order: ul.sort_order,
+    proxy_through_backend: false,
+    // User layers have no capability gate.
+    requires_capability: undefined,
+    created_at: ul.created_at,
+    updated_at: ul.updated_at,
+  }
+}
+
+export interface UseMapLayersMergedResult extends UseMapLayersResult {
+  /** System-only base layers (no user layers). Use in admin/non-MapPage contexts. */
+  systemBase: MapLayer[]
+  /** System-only overlay layers (no user layers). Use in admin/non-MapPage contexts. */
+  systemOverlay: MapLayer[]
+}
+
+/**
+ * Extends useMapLayers() with user-owned custom layers merged into `base` and
+ * `overlay`. Sort order: system layers first (by sort_order), user layers after
+ * (by their own sort_order). The original `systemBase` / `systemOverlay` fields
+ * expose the system-only lists for consumers that need them.
+ *
+ * Only raster_tiles user overlays are surfaced in `overlay` — vector_style user
+ * layers with role='overlay' are excluded (MapLibre style-composition is out of
+ * scope). vector_style user base layers ARE included (they switch the whole style).
+ */
+export function useMapLayersMerged(): UseMapLayersMergedResult {
+  const systemResult = useMapLayers()
+  const userId = useCurrentUserId()
+
+  const { data: userLayersRaw } = useQuery<UserMapLayer[] | null, Error, UserMapLayer[]>({
+    queryKey: ['user-map-layers', userId],
+    queryFn: fetchUserMapLayers,
+    staleTime: 60_000,
+    select: (d) => d ?? [],
+  })
+
+  const userLayers = userLayersRaw ?? []
+
+  // Only include enabled user layers; for overlays restrict to raster_tiles.
+  const userBase: MapLayer[] = userLayers
+    .filter((ul) => ul.enabled && ul.role === 'base')
+    .map(userLayerToMapLayer)
+    .sort((a, b) => a.sort_order - b.sort_order)
+
+  const userOverlay: MapLayer[] = userLayers
+    .filter((ul) => ul.enabled && ul.role === 'overlay' && ul.source_kind === 'raster_tiles')
+    .map(userLayerToMapLayer)
+    .sort((a, b) => a.sort_order - b.sort_order)
+
+  return {
+    ...systemResult,
+    base: [...systemResult.base, ...userBase],
+    overlay: [...systemResult.overlay, ...userOverlay],
+    systemBase: systemResult.base,
+    systemOverlay: systemResult.overlay,
+  }
 }
 
 /**
