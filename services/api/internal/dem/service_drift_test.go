@@ -101,6 +101,20 @@ func xxh3Content(b []byte) uint64 {
 	return h.Sum64()
 }
 
+// xxh3ContentPartial returns the same partial xxhash3 digest that xxh3File
+// computes at scan time: head + tail xxh3PartialWindowSize bytes (or full
+// slice when smaller). Use this when building manifest entries in tests so
+// that the stored hash matches what the drift scan will compute from disk.
+func xxh3ContentPartial(b []byte) uint64 {
+	if len(b) <= 2*xxh3PartialWindowSize {
+		return xxh3Content(b)
+	}
+	h := xxh3.New()
+	h.Write(b[:xxh3PartialWindowSize])          //nolint:errcheck
+	h.Write(b[len(b)-xxh3PartialWindowSize:])   //nolint:errcheck
+	return h.Sum64()
+}
+
 // --- Tests ---
 
 // TestDriftCheck_StaleHGT_Warns verifies that when a manifest entry has a
@@ -178,7 +192,8 @@ func TestDriftCheck_MtimePreservingCopy_DetectedByXxhash3(t *testing.T) {
 	for i := range originalContent {
 		originalContent[i] = byte(i & 0xff)
 	}
-	originalHash := xxh3Content(originalContent)
+	// Use the same partial hash that buildHGTManifest stores at tile-build time.
+	originalHash := xxh3ContentPartial(originalContent)
 	originalSize := int64(len(originalContent))
 
 	// Write the "replaced" file (same size, different content).
@@ -247,8 +262,9 @@ func TestDriftCheck_ManifestMatch_NoFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Manifest matches the real file exactly.
-	hash := xxh3Content(content)
+	// Manifest matches the real file using the same partial hash that the drift
+	// scan computes at runtime (head + tail xxh3PartialWindowSize bytes).
+	hash := xxh3ContentPartial(content)
 	cells := []hgtManifestEntry{{
 		cellName: cellName,
 		fileSize: int64(len(content)),

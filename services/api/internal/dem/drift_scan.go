@@ -23,6 +23,71 @@ import (
 	"github.com/zeebo/xxh3"
 )
 
+// xxh3PartialWindowSize is the number of bytes read from each end of an HGT
+// file when computing the drift-detection hash. Reading the full file
+// (~25 MB SRTM-1" / ~100 MB Cop-30) for every cell of every sampled tile
+// causes several GB of unnecessary I/O at boot. A 64 KB head+tail window
+// detects truncation, header/metadata changes, and random content corruption
+// with high probability.
+//
+// This is a drift-detection heuristic, not a cryptographic integrity hash.
+// A deliberate "cp --preserve=mtime,size" that also preserves the first and
+// last 64 KB of the file would evade detection — that threat model is
+// considered out of scope for an advisory boot check.
+const xxh3PartialWindowSize = 64 * 1024 // 64 KB
+
+// Xxh3Partial computes the xxhash3 digest of the first and last
+// xxh3PartialWindowSize bytes of the file at path (or the full file when
+// smaller). It is exported so that routing/graph.buildHGTManifest can store
+// the same partial hash at tile-build time, keeping the comparison consistent.
+//
+// This is a drift-detection heuristic, not a cryptographic integrity hash.
+func Xxh3Partial(path string) (uint64, error) {
+	return xxh3Partial(path)
+}
+
+// xxh3Partial is the unexported implementation called by both Xxh3Partial and
+// xxh3File.
+func xxh3Partial(path string) (uint64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return 0, err
+	}
+	size := info.Size()
+
+	h := xxh3.New()
+
+	if size <= 2*xxh3PartialWindowSize {
+		// File fits in two windows — hash it entirely.
+		if _, err := io.Copy(h, f); err != nil {
+			return 0, err
+		}
+		return h.Sum64(), nil
+	}
+
+	// Head window.
+	head := make([]byte, xxh3PartialWindowSize)
+	if _, err := io.ReadFull(f, head); err != nil {
+		return 0, fmt.Errorf("xxh3 partial head read: %w", err)
+	}
+	h.Write(head) //nolint:errcheck
+
+	// Tail window.
+	tail := make([]byte, xxh3PartialWindowSize)
+	if _, err := f.ReadAt(tail, size-xxh3PartialWindowSize); err != nil {
+		return 0, fmt.Errorf("xxh3 partial tail read: %w", err)
+	}
+	h.Write(tail) //nolint:errcheck
+
+	return h.Sum64(), nil
+}
+
 // tileGraphMagic is the magic bytes expected at offset 0 of every tile file.
 // Duplicated from routing/graph.Magic to avoid the circular import.
 const tileGraphMagic = "FRGR"
@@ -79,13 +144,12 @@ func (s *Service) ScanTilesForDrift(tileDir string, sampleN int) {
 
 // scanTile reads section 27 of a single tile file, then compares each cell
 // entry against the corresponding HGT file on disk.  Any mismatch is flagged.
+//
+// Only the tile header, section directory, and section-27 payload are read —
+// the rest of the tile (routing graph data, which can be 100 MB–1 GB) is
+// never loaded into memory.
 func (s *Service) scanTile(tilePath string) error {
-	data, err := os.ReadFile(tilePath)
-	if err != nil {
-		return fmt.Errorf("read tile: %w", err)
-	}
-
-	manifest, err := extractHGTManifest(data)
+	manifest, err := extractHGTManifestFromFile(tilePath)
 	if err != nil {
 		// Section absent (pre-manifest tile) or corrupt — skip silently.
 		slog.Debug("dem drift scan: no manifest in tile (pre-manifest or corrupt)",
@@ -157,18 +221,11 @@ func (s *Service) findHGTFile(cellName string) string {
 	return ""
 }
 
-// xxh3File computes the xxhash3 digest of the file at path.
+// xxh3File computes a partial xxhash3 digest of the HGT file at path.
+// It hashes the first and last xxh3PartialWindowSize bytes (or the full file
+// when smaller) — see Xxh3Partial for rationale.
 func xxh3File(path string) (uint64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-	h := xxh3.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return 0, err
-	}
-	return h.Sum64(), nil
+	return xxh3Partial(path)
 }
 
 // --- Minimal tile binary reader (section 27 only) ---
@@ -183,9 +240,83 @@ type rawHGTManifest struct {
 	cells []hgtManifestEntry
 }
 
+// extractHGTManifestFromFile opens the tile at path, reads only the header
+// (64 bytes), section directory (sectionCnt × 12 bytes), and the section-27
+// payload.  The bulk of the tile file (routing graph data) is never read into
+// memory, avoiding the multi-GB heap spike that os.ReadFile caused on large
+// tiles.
+//
+// Returns (nil, nil) when section 27 is absent (pre-manifest tile).
+func extractHGTManifestFromFile(path string) (*rawHGTManifest, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open tile: %w", err)
+	}
+	defer f.Close()
+
+	// Read the fixed-size header.
+	header := make([]byte, tileHeaderSize)
+	if _, err := io.ReadFull(f, header); err != nil {
+		return nil, fmt.Errorf("tile header read: %w", err)
+	}
+	if string(header[0:4]) != tileGraphMagic {
+		return nil, fmt.Errorf("invalid magic %q", header[0:4])
+	}
+
+	sectionCnt := int(binary.LittleEndian.Uint16(header[60:62]))
+	if sectionCnt == 0 {
+		return nil, nil // pre-manifest tile with no sections
+	}
+
+	// Read only the section directory.
+	const sectionEntrySize = 12
+	dirBuf := make([]byte, sectionCnt*sectionEntrySize)
+	if _, err := io.ReadFull(f, dirBuf); err != nil {
+		return nil, fmt.Errorf("tile section directory read: %w", err)
+	}
+
+	// Locate section 27 within the directory.
+	var sectionOffset int64
+	var sectionLength int
+	found := false
+	for i := 0; i < sectionCnt; i++ {
+		off := i * sectionEntrySize
+		typ := binary.LittleEndian.Uint16(dirBuf[off : off+2])
+		rawOff := uint64(dirBuf[off+2]) |
+			uint64(dirBuf[off+3])<<8 |
+			uint64(dirBuf[off+4])<<16 |
+			uint64(dirBuf[off+5])<<24 |
+			uint64(dirBuf[off+6])<<32 |
+			uint64(dirBuf[off+7])<<40
+		length := binary.LittleEndian.Uint32(dirBuf[off+8 : off+12])
+		if typ == sectionHGTManifest {
+			sectionOffset = int64(rawOff)
+			sectionLength = int(length)
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, nil // pre-manifest tile
+	}
+
+	// Read only the section-27 payload using ReadAt to avoid a seek+read
+	// sequence that would require the file position to be advanced past
+	// potentially gigabytes of routing data.
+	sectionData := make([]byte, sectionLength)
+	if _, err := f.ReadAt(sectionData, sectionOffset); err != nil {
+		return nil, fmt.Errorf("section 27 read (offset=%d length=%d): %w",
+			sectionOffset, sectionLength, err)
+	}
+
+	return decodeRawHGTManifest(sectionData)
+}
+
 // extractHGTManifest reads section 27 from raw tile bytes and decodes it.
 // Returns (nil, nil) when the section is absent (pre-manifest tile).
 // Returns an error on malformed data.
+//
+// Kept for use in tests that build in-memory tile blobs.
 func extractHGTManifest(data []byte) (*rawHGTManifest, error) {
 	if len(data) < tileHeaderSize+4 {
 		return nil, fmt.Errorf("tile too small (%d bytes)", len(data))

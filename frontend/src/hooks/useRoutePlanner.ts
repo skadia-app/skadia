@@ -561,6 +561,13 @@ export function useRoutePlanner() {
   // every addToast identity change).
   const _fillOffroadRef = useRef<((seg: RouteSegment) => Promise<void>) | null>(null)
 
+  // Per-segment fill-token counters. Allocated synchronously (ref, not state)
+  // so that token assignment never writes to outer variables inside a setState
+  // updater — which React StrictMode prohibits (updaters may run twice).
+  // The allocated value is then mirrored into state so the race-guard in the
+  // completion updater can compare against s.fillTokens without an extra ref read.
+  const _fillTokenCountersRef = useRef<Map<string, number>>(new Map())
+
   // Always-current state snapshot for callbacks that need synchronous reads
   // (updateControlPoint / insertControlPoint / removeControlPoint) without
   // relying on React's batching timing for the setState-updater-capture pattern.
@@ -815,17 +822,21 @@ export function useRoutePlanner() {
   // Per-segment token counter: fillTokens Map<segKey, counter> prevents stale
   // in-flight results from landing when the same segment was re-edited.
   //
-  // Token allocation happens INSIDE the setState updater — React executes updaters
-  // sequentially within the same tick, so two concurrent calls for the same segment
-  // see different counter values without any external lock or ref.
+  // Token allocation is done via _fillTokenCountersRef (synchronous, outside
+  // setState) so that no side-effect writes to an outer variable inside a pure
+  // setState updater. The allocated value is then mirrored into state so that
+  // the race-guard in the completion updater can read s.fillTokens normally.
 
   const fillOffroadAndApply = useCallback(async (seg: RouteSegment) => {
     const segKey = `${seg.from_waypoint}:${seg.to_waypoint}`
-    let allocatedToken = 0
 
-    // Allocate token inside setState updater (sequential, race-free).
+    // Allocate token from the ref — synchronous, StrictMode-safe.
+    const allocatedToken = (_fillTokenCountersRef.current.get(segKey) ?? 0) + 1
+    _fillTokenCountersRef.current.set(segKey, allocatedToken)
+
+    // Mirror into state so the completion updater can use s.fillTokens for the
+    // race-guard check (pure updater — no outer-variable writes).
     setState(s => {
-      allocatedToken = (s.fillTokens.get(segKey) ?? 0) + 1
       const fillTokens = new Map(s.fillTokens)
       fillTokens.set(segKey, allocatedToken)
       return { ...s, fillTokens }

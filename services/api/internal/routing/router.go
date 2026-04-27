@@ -204,9 +204,19 @@ func (r *UnifiedRouter) routeSameEdge(srcVE, dstVE *VirtualEndpoint, cfg *CostCo
 			{Lat: dstVE.Proj.ProjLat, Lon: dstVE.Proj.ProjLon, Ele: float64(dstVE.Proj.ProjEleDm) / 10.0, EleValid: true},
 		}
 		fallbackDist := math.Abs(fEnd-fStart) * proj.EdgeDistM
-		slicedProfile = []ElevationPoint{
-			{DistM: 0, EleM: PtrEle(float64(srcVE.Proj.ProjEleDm) / 10.0)},
-			{DistM: fallbackDist, EleM: PtrEle(float64(dstVE.Proj.ProjEleDm) / 10.0)},
+		if fallbackDist <= 1e-6 {
+			// Degenerate same-edge case: src and dst project to the same fraction
+			// (e.g. user clicked the same point twice). A two-point profile with
+			// DistM=[0,0] would fail IsT0FormCompliant's strict-monotonicity check.
+			// Emit a single anchor point instead — zero-distance route, one position.
+			slicedProfile = []ElevationPoint{
+				{DistM: 0, EleM: PtrEle(float64(srcVE.Proj.ProjEleDm) / 10.0)},
+			}
+		} else {
+			slicedProfile = []ElevationPoint{
+				{DistM: 0, EleM: PtrEle(float64(srcVE.Proj.ProjEleDm) / 10.0)},
+				{DistM: fallbackDist, EleM: PtrEle(float64(dstVE.Proj.ProjEleDm) / 10.0)},
+			}
 		}
 	}
 
@@ -888,6 +898,14 @@ func (r *UnifiedRouter) addApproach(result *RouteResult, srcVE, dstVE *VirtualEn
 
 	// Approach-inclusive total distance for the response. result.DistanceM stays
 	// network-only — used by cost/stat consumers; do not mutate.
+	//
+	// Note: concatProfilesWithJunctionDedup removes the shared boundary point
+	// between ApproachFrom and the network profile (and between the network
+	// profile and ApproachTo). When approach_from_m is very small, this dedup
+	// compresses the first few meters visually — the chart appears to "start"
+	// slightly into the approach. This is by design: the junction point is
+	// identical in both segments, so keeping it would produce a duplicate DistM
+	// which fails the strict-monotonicity invariant. Cosmetic artefact only.
 	if result.ElevationProfile != nil && len(*result.ElevationProfile) > 0 {
 		result.TotalDistanceM = (*result.ElevationProfile)[len(*result.ElevationProfile)-1].DistM
 	} else {

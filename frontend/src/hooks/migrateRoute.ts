@@ -84,18 +84,21 @@ async function fillSegmentsViaConcatHop(
   const allCoords: number[][] = []
   const segVertexRanges: { key: string; seg: RouteSegment; start: number; end: number }[] = []
 
-  for (const [i, seg] of segs.entries()) {
+  for (const seg of segs) {
     if (!seg.geometry) {
       // Segment without geometry — cannot sample DEM. Keep as-is.
       segVertexRanges.push({ key: segKey(seg), seg, start: allCoords.length, end: allCoords.length })
       continue
     }
     const coords = seg.geometry.coordinates as number[][]
-    // Junction-dedup: drop first coord of non-first segments (it's the last coord
-    // of the previous segment — same physical point, would double-count it).
-    const sliceStart = i > 0 ? 1 : 0
+    // No cross-segment junction-dedup here: segs is the stillNeedsDem batch, which
+    // may be non-contiguous (e.g. only positions 1, 2, 4 of the original route).
+    // Deduping across batch-index boundaries would drop junction vertices from
+    // physically non-adjacent segments, corrupting per-segment vertex ranges and
+    // breaking buildProfileToCoordMap's 1:1 assumption. Each segment is sampled
+    // independently at its full geometry.
     const startIdx = allCoords.length
-    for (let j = sliceStart; j < coords.length; j++) {
+    for (let j = 0; j < coords.length; j++) {
       allCoords.push(coords[j])
     }
     segVertexRanges.push({ key: segKey(seg), seg, start: startIdx, end: allCoords.length })
@@ -168,7 +171,16 @@ function tryFillSegmentFromLocalSources(
     const converted = legacyToRouteProfile(topLevelProfile, totalDistM)
     const nonNull = converted.filter(p => p.ele_m !== null)
     if (nonNull.length >= 2) {
-      return { ...seg, elevation_profile: converted }
+      // Guard: if the first converted point has dist_m > 0 (BRouter routes whose
+      // fraction axis starts above 0), prepend a synthetic origin point so that
+      // the profile satisfies the T0 form requirement (first point at dist_m=0).
+      // Without this, IsT0FormCompliant rejects the profile and the route stays
+      // at version=0 indefinitely → silent migration loop.
+      const profile: RouteElevationPoint[] =
+        converted[0].dist_m > 0
+          ? [{ dist_m: 0, ele_m: converted[0].ele_m }, ...converted]
+          : converted
+      return { ...seg, elevation_profile: profile }
     }
   }
 

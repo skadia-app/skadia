@@ -330,16 +330,17 @@ describe('migrateRoute — Stage 3 (DEM concat-hop)', () => {
 
 // ─── TestFillSegmentsViaConcatHop_JunctionVertexInEarlierSegment ──────────────
 
-describe('fillSegmentsViaConcatHop — junction-vertex dedup', () => {
-  it('two 2D segments sharing a junction coord → N1+N2-1 total DEM points', async () => {
-    // Seg1: 3 coords, Seg2: 3 coords sharing first coord with seg1's last coord.
-    // Concat-hop: sliceStart=1 for seg2 → allCoords has 3 + 2 = 5 entries.
-    // DEM returns 5 points (one per vertex).
-    // After remapping: seg1 gets 3 points, seg2 gets 2 points.
+describe('fillSegmentsViaConcatHop — per-segment independence', () => {
+  it('two 2D segments in the same DEM batch → N1+N2 total DEM vertices (no cross-segment dedup)', async () => {
+    // Finding #4 fix: fillSegmentsViaConcatHop does NOT dedup junction vertices
+    // across segment boundaries. Each segment contributes all its coords.
+    // Seg1: 3 coords, Seg2: 3 coords → 6 total DEM vertices.
+    // After remapping: seg1 gets 3 points (indices 0..2), seg2 gets 3 points (indices 3..5).
     const demProfile = [
       { dist_m: 0, ele_m: 500 },
       { dist_m: 5000, ele_m: 510 },
-      { dist_m: 10000, ele_m: 520 },  // shared junction → in seg1 (earlier)
+      { dist_m: 10000, ele_m: 520 },  // seg1 last coord (junction physical position)
+      { dist_m: 10000, ele_m: 520 },  // seg2 first coord (same physical position — independent)
       { dist_m: 15000, ele_m: 530 },
       { dist_m: 20000, ele_m: 540 },
     ]
@@ -353,14 +354,20 @@ describe('fillSegmentsViaConcatHop — junction-vertex dedup', () => {
 
     // DEM called once for combined geometry
     expect(getElevationAtVerticesChunkedMock).toHaveBeenCalledTimes(1)
+    const calledWith = getElevationAtVerticesChunkedMock.mock.calls[0][0]
+    // 6 vertices total (3 per segment, no dedup)
+    expect(calledWith.coordinates.length).toBe(6)
 
-    // Seg1: points 0..2 (3 points, including junction)
+    // Seg1: points 0..2 (3 points)
     expect(result[0].elevation_profile!.length).toBe(3)
-    expect(result[0].elevation_profile![2].ele_m).toBe(520)  // junction in earlier seg
+    expect(result[0].elevation_profile![0].dist_m).toBe(0)
+    expect(result[0].elevation_profile![2].ele_m).toBe(520)
 
-    // Seg2: points 3..4 (2 points, junction dropped from later seg)
-    expect(result[1].elevation_profile!.length).toBe(2)
-    expect(result[1].elevation_profile![0].ele_m).toBe(530)  // first point AFTER junction
+    // Seg2: points 3..5 (3 points), normalised dist from 0
+    expect(result[1].elevation_profile!.length).toBe(3)
+    expect(result[1].elevation_profile![0].dist_m).toBe(0)
+    expect(result[1].elevation_profile![0].ele_m).toBe(520)
+    expect(result[1].elevation_profile![2].ele_m).toBe(540)
   })
 })
 
@@ -503,11 +510,16 @@ it.skip(
 
 it('TestMigration_ApproachEndEqualsNextSplineStart_NoDoubleDrop', async () => {
   // Two adjacent segments where seg1 ends at exactly the same coord as seg2 starts.
-  // Concat-hop sliceStart=1 for seg2 → junction coord is in seg1 only, not doubled.
+  // fillSegmentsViaConcatHop does NOT dedup across segment boundaries in the DEM
+  // batch (Finding #4 fix): each segment contributes all its coords independently.
+  // Seg1 has 2 coords, seg2 has 2 coords → 4 total DEM vertices.
+  // This prevents silent vertex loss when the stillNeedsDem batch is non-contiguous
+  // in the original route (e.g. positions [1, 2, 4] of a 5-segment route).
   const demProfile = [
     { dist_m: 0, ele_m: 500 },      // seg1 coord 0
-    { dist_m: 7000, ele_m: 510 },   // seg1 coord 1 (shared junction)
-    { dist_m: 14000, ele_m: 520 },  // seg2 coord 1 (first after junction)
+    { dist_m: 7000, ele_m: 510 },   // seg1 coord 1 (junction, included in seg1)
+    { dist_m: 7000, ele_m: 510 },   // seg2 coord 0 (junction repeated — seg2 is independent)
+    { dist_m: 14000, ele_m: 520 },  // seg2 coord 1
   ]
   getElevationAtVerticesChunkedMock.mockResolvedValue(demProfile)
 
@@ -544,20 +556,22 @@ it('TestMigration_ApproachEndEqualsNextSplineStart_NoDoubleDrop', async () => {
   const route = makeRoute({ segments: [seg1, seg2] })
   const result = await migrateRoute(route)
 
-  // DEM called once on combined geometry (3 vertices after junction-dedup)
+  // DEM called once on combined geometry (4 vertices — no cross-segment dedup)
   expect(getElevationAtVerticesChunkedMock).toHaveBeenCalledTimes(1)
   const calledWith = getElevationAtVerticesChunkedMock.mock.calls[0][0]
-  // Combined geometry has 3 vertices (not 4): seg1[0], seg1[1](=junction), seg2[1]
-  expect(calledWith.coordinates.length).toBe(3)
+  // Combined geometry has 4 vertices: seg1[0], seg1[1], seg2[0], seg2[1]
+  expect(calledWith.coordinates.length).toBe(4)
 
-  // Seg1: 2 points (0..1), junction in seg1
+  // Seg1: 2 points (indices 0..1), junction included
   expect(result[0].elevation_profile!.length).toBe(2)
-  expect(result[0].elevation_profile![1].ele_m).toBe(510)  // junction in earlier seg
+  expect(result[0].elevation_profile![0].dist_m).toBe(0)
+  expect(result[0].elevation_profile![1].ele_m).toBe(510)
 
-  // Seg2: 1 point (index 2 → after junction), normalised dist from 0
-  expect(result[1].elevation_profile!.length).toBe(1)
+  // Seg2: 2 points (indices 2..3), normalised dist from 0
+  expect(result[1].elevation_profile!.length).toBe(2)
   expect(result[1].elevation_profile![0].dist_m).toBe(0)
-  expect(result[1].elevation_profile![0].ele_m).toBe(520)
+  expect(result[1].elevation_profile![0].ele_m).toBe(510)
+  expect(result[1].elevation_profile![1].ele_m).toBe(520)
 })
 
 // ─── TestSessionMigratedCache_ClearedOnLogout ─────────────────────────────────
