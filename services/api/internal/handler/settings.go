@@ -166,6 +166,28 @@ func (h *Handler) UpdateWeatherSettings(w http.ResponseWriter, r *http.Request) 
 	httputil.WriteJSON(w, http.StatusOK, prefs)
 }
 
+// GetSettingsLimits returns a whitelist of user-relevant system-wide limits
+// so normal users can read limits without hitting the admin endpoint.
+// GET /api/v1/settings/limits — requires jwtAuth only (not admin).
+func (h *Handler) GetSettingsLimits(w http.ResponseWriter, r *http.Request) {
+	userMapLayerLimit, err := h.Settings.GetInt("library.user_map_layer_limit")
+	if err != nil {
+		slog.Error("GetSettingsLimits: read user_map_layer_limit failed", "error", err)
+		httputil.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	rateLimit, err := h.Settings.GetInt("library.user_map_layer_rate_limit_per_10min")
+	if err != nil {
+		slog.Error("GetSettingsLimits: read user_map_layer_rate_limit failed", "error", err)
+		httputil.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, map[string]int{
+		"user_map_layer_limit":                userMapLayerLimit,
+		"user_map_layer_rate_limit_per_10min": rateLimit,
+	})
+}
+
 // DetectMaxHR calculates the 90th percentile max HR from historical activity data
 // and updates max_hr_detected_bpm if the result is higher than the current value.
 func (h *Handler) DetectMaxHR(w http.ResponseWriter, r *http.Request) {
