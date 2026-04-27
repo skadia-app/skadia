@@ -551,12 +551,11 @@ export default function MapPage() {
       routePlannerMapRef.current?.setHoverPoint(null)
       return
     }
-    if (planner.routeSchemaVersion === 0) {
+    if (!profileCoordMap) {
       routePlannerMapRef.current?.setHoverPoint(null)
-      showPreT0HoverToast()
+      if (planner.routeSchemaVersion === 0) showPreT0HoverToast()
       return
     }
-    if (!profileCoordMap) return
     const point = hoverPointAtFraction(
       fraction,
       planner.totals.distance_m,
@@ -568,11 +567,10 @@ export default function MapPage() {
   }, [planner.routeSchemaVersion, planner.totals.distance_m, profileCoordMap, showPreT0HoverToast])
 
   const handleProfileBrushZoom = useCallback((startDistM: number, endDistM: number) => {
-    if (planner.routeSchemaVersion === 0) {
-      showPreT0HoverToast()
+    if (!profileCoordMap) {
+      if (planner.routeSchemaVersion === 0) showPreT0HoverToast()
       return
     }
-    if (!profileCoordMap) return
     const bbox = bboxForProfileDistRange(
       startDistM,
       endDistM,

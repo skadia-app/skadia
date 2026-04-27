@@ -153,6 +153,10 @@ export function bboxForProfileDistRange(
   const startCoordIdx = profileToCoordMap[startProfileIdx]
   const endCoordIdx = profileToCoordMap[endProfileIdx]
   if (startCoordIdx == null || endCoordIdx == null) return null
+  // Both dist endpoints snapped to the same coord → degenerate single-point bbox.
+  // A single [lon,lat,lon,lat] bbox would cause fitBounds to zoom to maxZoom=15
+  // on a single point. Return null so the caller skips the fitBounds call.
+  if (startCoordIdx === endCoordIdx) return null
 
   const from = Math.max(0, Math.min(startCoordIdx, endCoordIdx))
   const to = Math.min(coords.length - 1, Math.max(startCoordIdx, endCoordIdx))
