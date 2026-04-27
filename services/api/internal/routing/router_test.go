@@ -689,12 +689,15 @@ func makeApproachGraph() *graph.Graph {
 	return makeTestGraph(nodes, edges)
 }
 
-// TestRetrackUnified_SnapApproach_TwoPointHeader verifies that ApproachFromProfile
-// and ApproachToProfile each contain exactly 2 ElevationPoints when a snap-approach
-// is triggered, with DistM=0 at click and DistM=approach distance at projection.
-func TestRetrackUnified_SnapApproach_TwoPointHeader(t *testing.T) {
+// TestRetrackUnified_SnapApproach_DenseHeader verifies that ApproachFromProfile
+// and ApproachToProfile are densified to ≤25 m vertex spacing on a snap-approach,
+// with monotonic DistM, the first point at 0 and the last point at the haversine
+// click→projection distance. Pre-densification this used to be a 2-point header.
+func TestRetrackUnified_SnapApproach_DenseHeader(t *testing.T) {
 	g := makeApproachGraph()
-	// Fixed DEM elevations in decimeters: clickSrc=2000dm, projSrc=2010dm, projDst=2020dm, clickDst=2030dm
+	// Fixed DEM elevations for the 4-point endpoint batch (clickSrc, projSrc,
+	// projDst, clickDst). Intermediate densified samples fall through to the
+	// stub's default (1000dm = 100m).
 	svc := &stubDEMServicer{fixedElevsDm: []int32{2000, 2010, 2020, 2030}}
 	r := newTestRouterWithDEM(g, svc)
 	cfg := simpleCostConfig()
@@ -714,35 +717,49 @@ func TestRetrackUnified_SnapApproach_TwoPointHeader(t *testing.T) {
 		t.Skip("no snap approach triggered — adjust test offsets if needed")
 	}
 
-	// ApproachFromProfile: exactly 2 points, DistM[0]==0
+	// ApproachFromProfile: ≥2 points, monotonic, first=0
 	afp := result.ApproachFromProfile
-	if len(afp) != 2 {
-		t.Fatalf("ApproachFromProfile: want 2 points, got %d", len(afp))
+	if len(afp) < 2 {
+		t.Fatalf("ApproachFromProfile: want ≥2 points, got %d", len(afp))
 	}
 	if afp[0].DistM != 0 {
 		t.Errorf("ApproachFromProfile[0].DistM: want 0, got %.4f", afp[0].DistM)
 	}
-	approachFromM := afp[1].DistM
-	if approachFromM <= 0 {
-		t.Errorf("ApproachFromProfile[1].DistM: want >0, got %.4f", approachFromM)
+	for i := 1; i < len(afp); i++ {
+		if afp[i].DistM <= afp[i-1].DistM {
+			t.Errorf("ApproachFromProfile not strictly monotonic at i=%d: %.4f <= %.4f",
+				i, afp[i].DistM, afp[i-1].DistM)
+		}
 	}
+	approachFromM := afp[len(afp)-1].DistM
 
-	// ApproachToProfile: exactly 2 points, DistM[0]==0
-	if len(result.ApproachToProfile) != 2 {
-		t.Fatalf("ApproachToProfile: want 2 points, got %d", len(result.ApproachToProfile))
-	}
+	// ApproachToProfile: ≥2 points, monotonic, first=0
 	atp := result.ApproachToProfile
+	if len(atp) < 2 {
+		t.Fatalf("ApproachToProfile: want ≥2 points, got %d", len(atp))
+	}
 	if atp[0].DistM != 0 {
 		t.Errorf("ApproachToProfile[0].DistM: want 0, got %.4f", atp[0].DistM)
 	}
-	if atp[1].DistM <= 0 {
-		t.Errorf("ApproachToProfile[1].DistM: want >0, got %.4f", atp[1].DistM)
+	for i := 1; i < len(atp); i++ {
+		if atp[i].DistM <= atp[i-1].DistM {
+			t.Errorf("ApproachToProfile not strictly monotonic at i=%d: %.4f <= %.4f",
+				i, atp[i].DistM, atp[i-1].DistM)
+		}
 	}
 
-	// approach_from_m in buildProperties must match ApproachFromProfile[1].DistM
+	// Coord array must align 1:1 with profile (densified together).
+	if len(result.ApproachFrom) != len(afp) {
+		t.Errorf("ApproachFrom len=%d != ApproachFromProfile len=%d", len(result.ApproachFrom), len(afp))
+	}
+	if len(result.ApproachTo) != len(atp) {
+		t.Errorf("ApproachTo len=%d != ApproachToProfile len=%d", len(result.ApproachTo), len(atp))
+	}
+
+	// approach_from_m in buildProperties must match ApproachFromProfile[last].DistM
 	approachFromProps := haversineSum(result.ApproachFrom)
 	if math.Abs(approachFromM-approachFromProps) > 1.0 {
-		t.Errorf("ApproachFromProfile[1].DistM=%.2f != haversineSum(ApproachFrom)=%.2f",
+		t.Errorf("ApproachFromProfile last DistM=%.2f != haversineSum(ApproachFrom)=%.2f",
 			approachFromM, approachFromProps)
 	}
 }

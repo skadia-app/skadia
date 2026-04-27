@@ -770,6 +770,82 @@ func (r *UnifiedRouter) routeLegPass1(ctx context.Context,
 	return result, nil
 }
 
+// approachDensifyStepM is the maximum spacing between samples along a click→
+// projection straight line when the elevation profile is built. Smaller →
+// smoother chart curve and finer hover-marker tracking; cost is one extra
+// DEM lookup per added sample.
+const approachDensifyStepM = 25
+
+// buildDenseApproach samples points along the straight line from (srcLat,
+// srcLon) to (dstLat, dstLon) at ≤approachDensifyStepM spacing, queries DEM
+// for the intermediate samples (endpoints already have their elevations from
+// the caller's 4-point batch), and returns the densified Coord and Profile
+// arrays. The returned profile starts at DistM=0 and ends at DistM=totalM.
+func (r *UnifiedRouter) buildDenseApproach(
+	srcLat, srcLon float64, srcEle *float64,
+	dstLat, dstLon float64, dstEle *float64,
+	totalM float64,
+) ([]LatLonEle, []ElevationPoint) {
+	if totalM <= 0 {
+		return []LatLonEle{
+				{Lat: srcLat, Lon: srcLon, Ele: approachDerefOrZero(srcEle), EleValid: srcEle != nil},
+			},
+			[]ElevationPoint{{DistM: 0, EleM: srcEle}}
+	}
+	subdivisions := int(math.Ceil(totalM / approachDensifyStepM))
+	if subdivisions < 1 {
+		subdivisions = 1
+	}
+	n := subdivisions + 1
+
+	// Resolve elevations for the n-2 intermediate samples in a single batch.
+	intermediateEles := make([]*float64, n-2)
+	if n > 2 && r.demSvc != nil {
+		latsE7 := make([]int32, n-2)
+		lonsE7 := make([]int32, n-2)
+		for i := 1; i < n-1; i++ {
+			t := float64(i) / float64(n-1)
+			lat := srcLat + (dstLat-srcLat)*t
+			lon := srcLon + (dstLon-srcLon)*t
+			latsE7[i-1] = int32(math.Round(lat * 1e7))
+			lonsE7[i-1] = int32(math.Round(lon * 1e7))
+		}
+		eles, err := r.demSvc.ElevationBatch(latsE7, lonsE7)
+		if err != nil {
+			slog.Warn("dem.ElevationBatch failed for densified approach", "err", err)
+		} else if len(eles) == n-2 {
+			for i, e := range eles {
+				intermediateEles[i] = approachElevToPtrM(e)
+			}
+		}
+	}
+
+	coords := make([]LatLonEle, n)
+	profile := make([]ElevationPoint, n)
+	for i := 0; i < n; i++ {
+		t := float64(i) / float64(n-1)
+		lat := srcLat + (dstLat-srcLat)*t
+		lon := srcLon + (dstLon-srcLon)*t
+		var ele *float64
+		switch {
+		case i == 0:
+			ele = srcEle
+		case i == n-1:
+			ele = dstEle
+		default:
+			ele = intermediateEles[i-1]
+		}
+		coords[i] = LatLonEle{
+			Lat:      lat,
+			Lon:      lon,
+			Ele:      approachDerefOrZero(ele),
+			EleValid: ele != nil,
+		}
+		profile[i] = ElevationPoint{DistM: totalM * t, EleM: ele}
+	}
+	return coords, profile
+}
+
 // addApproach adds approach segments (straight lines) to a result when the
 // snap distance from the original coordinate to the edge projection exceeds
 // a threshold. This visualizes the gap between where the user clicked and
@@ -781,10 +857,15 @@ func (r *UnifiedRouter) routeLegPass1(ctx context.Context,
 // received the projection-point elevation (ProjEleDm) — causing an incorrect
 // elevation at the user-clicked map position (Spec §6 Class A correction).
 //
-// Additionally builds ApproachFromProfile / ApproachToProfile (2-point headers)
-// and prepends/appends them to result.ElevationProfile, making the combined
-// profile approach-inclusive: Profile[0].DistM==0 (click_src),
-// Profile[last].DistM≈result.DistanceM (click_dst).
+// The approach polyline + profile are densified to ≤approachDensifyStepM
+// spacing via buildDenseApproach so the elevation chart shows real terrain
+// across the click-to-road segment instead of a 2-point straight line, and
+// the hover marker on the map can track the approach smoothly.
+//
+// Builds ApproachFromProfile / ApproachToProfile and prepends/appends them to
+// result.ElevationProfile, making the combined profile approach-inclusive:
+// Profile[0].DistM==0 (click_src), Profile[last].DistM≈result.DistanceM
+// (click_dst).
 func (r *UnifiedRouter) addApproach(result *RouteResult, srcVE, dstVE *VirtualEndpoint,
 	cfg *CostConfig, includeFrom, includeTo bool) {
 	snapThreshold := float64(100)
@@ -827,48 +908,22 @@ func (r *UnifiedRouter) addApproach(result *RouteResult, srcVE, dstVE *VirtualEn
 			srcVE.OrigLat, srcVE.OrigLon,
 			srcVE.Proj.ProjLat, srcVE.Proj.ProjLon,
 		)
-		result.ApproachFrom = []LatLonEle{
-			{
-				Lat:      srcVE.OrigLat,
-				Lon:      srcVE.OrigLon,
-				Ele:      approachDerefOrZero(srcClickEle),
-				EleValid: srcClickEle != nil,
-			},
-			{
-				Lat:      srcVE.Proj.ProjLat,
-				Lon:      srcVE.Proj.ProjLon,
-				Ele:      approachDerefOrZero(srcProjEle),
-				EleValid: srcProjEle != nil,
-			},
-		}
-		result.ApproachFromProfile = []ElevationPoint{
-			{DistM: 0, EleM: srcClickEle},
-			{DistM: approachFromM, EleM: srcProjEle},
-		}
+		result.ApproachFrom, result.ApproachFromProfile = r.buildDenseApproach(
+			srcVE.OrigLat, srcVE.OrigLon, srcClickEle,
+			srcVE.Proj.ProjLat, srcVE.Proj.ProjLon, srcProjEle,
+			approachFromM,
+		)
 	}
 	if includeTo && dstVE.Proj.DistanceM > snapThreshold {
 		approachToM = geo.DistanceHaversine(
 			dstVE.Proj.ProjLat, dstVE.Proj.ProjLon,
 			dstVE.OrigLat, dstVE.OrigLon,
 		)
-		result.ApproachTo = []LatLonEle{
-			{
-				Lat:      dstVE.Proj.ProjLat,
-				Lon:      dstVE.Proj.ProjLon,
-				Ele:      approachDerefOrZero(dstProjEle),
-				EleValid: dstProjEle != nil,
-			},
-			{
-				Lat:      dstVE.OrigLat,
-				Lon:      dstVE.OrigLon,
-				Ele:      approachDerefOrZero(dstClickEle),
-				EleValid: dstClickEle != nil,
-			},
-		}
-		result.ApproachToProfile = []ElevationPoint{
-			{DistM: 0, EleM: dstProjEle},
-			{DistM: approachToM, EleM: dstClickEle},
-		}
+		result.ApproachTo, result.ApproachToProfile = r.buildDenseApproach(
+			dstVE.Proj.ProjLat, dstVE.Proj.ProjLon, dstProjEle,
+			dstVE.OrigLat, dstVE.OrigLon, dstClickEle,
+			approachToM,
+		)
 	}
 
 	// Extend result.ElevationProfile to be approach-inclusive:

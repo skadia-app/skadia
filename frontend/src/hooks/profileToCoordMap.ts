@@ -50,7 +50,22 @@ export function buildProfileToCoordMap(
 
   for (const seg of sorted) {
     const p = seg.elevation_profile
-    const segCoords = (seg.geometry?.coordinates ?? []) as [number, number][]
+    const networkCoords = (seg.geometry?.coordinates ?? []) as [number, number][]
+
+    // The per-segment elevation_profile is approach-inclusive (T0):
+    // [approach_from] + [network] + [approach_to], all densified by the
+    // backend's buildDenseApproach. The geometry on the segment is the
+    // network-only LineString — to align the coord array 1:1 with the
+    // profile (so the hover marker can track across the approaches), splice
+    // approach_from before and approach_to after.
+    const apprFrom = (seg.approach_from ?? []) as [number, number][]
+    const apprTo = (seg.approach_to ?? []) as [number, number][]
+    // Drop the boundary coord shared with the network (approach_from's last =
+    // network's first; approach_to's first = network's last) to avoid
+    // duplicates that would knock the 1:1 mapping out of sync.
+    const apprFromTrimmed = apprFrom.length >= 2 ? apprFrom.slice(0, -1) : apprFrom
+    const apprToTrimmed = apprTo.length >= 2 ? apprTo.slice(1) : apprTo
+    const segCoords: [number, number][] = [...apprFromTrimmed, ...networkCoords, ...apprToTrimmed]
 
     // Accumulate coords (junction-dedup: skip first coord after the first segment).
     const coordStartIdx = hadAny ? 1 : 0
