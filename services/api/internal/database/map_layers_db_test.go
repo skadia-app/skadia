@@ -203,6 +203,147 @@ func TestBulkSortMapLayers(t *testing.T) {
 	}
 }
 
+// ─── system_layer_visibility ─────────────────────────────────────────────────
+
+// TestUpdateSystemLayerVisibility_RecreatesMissingRow verifies that the UPSERT
+// behavior re-creates a system_layer_visibility row that has been deleted
+// out-of-band (manual SQL, partial down/up cycle). The admin UI must remain
+// able to PATCH any key in model.SystemLayerKeySet() without an operator step.
+func TestUpdateSystemLayerVisibility_RecreatesMissingRow(t *testing.T) {
+	db := mapLayerTestDB(t)
+	ctx := context.Background()
+
+	// Pick any seeded key from the closed set.
+	var key string
+	for k := range model.SystemLayerKeySet() {
+		key = k
+		break
+	}
+	if key == "" {
+		t.Skip("model.SystemLayerKeySet() is empty — nothing to test")
+	}
+
+	// Snapshot original row so we can restore it on cleanup.
+	var origEnabled, origDefaultForNew bool
+	var origOpacity *int16
+	var origLabel *string
+	err := db.Pool.QueryRow(ctx,
+		`SELECT enabled, default_enabled_for_new_users, default_opacity, label_override
+		 FROM system_layer_visibility WHERE layer_key = $1`, key,
+	).Scan(&origEnabled, &origDefaultForNew, &origOpacity, &origLabel)
+	if err != nil {
+		t.Fatalf("read original row for %q: %v", key, err)
+	}
+	t.Cleanup(func() {
+		// Restore via the same UPSERT path (will overwrite or recreate as needed).
+		_, _ = db.Pool.Exec(context.Background(),
+			`INSERT INTO system_layer_visibility
+			   (layer_key, enabled, default_enabled_for_new_users, default_opacity, label_override)
+			 VALUES ($1, $2, $3, $4, $5)
+			 ON CONFLICT (layer_key) DO UPDATE SET
+			   enabled = EXCLUDED.enabled,
+			   default_enabled_for_new_users = EXCLUDED.default_enabled_for_new_users,
+			   default_opacity = EXCLUDED.default_opacity,
+			   label_override = EXCLUDED.label_override`,
+			key, origEnabled, origDefaultForNew, origOpacity, origLabel,
+		)
+	})
+
+	// Delete the row out-of-band.
+	if _, err := db.Pool.Exec(ctx,
+		`DELETE FROM system_layer_visibility WHERE layer_key = $1`, key,
+	); err != nil {
+		t.Fatalf("delete row: %v", err)
+	}
+
+	// PATCH must now create the row, not return ErrNotFound.
+	if err := db.UpdateSystemLayerVisibility(ctx, key, map[string]any{"enabled": false}); err != nil {
+		t.Fatalf("UpdateSystemLayerVisibility on missing row: %v", err)
+	}
+
+	// Verify the row exists with the patched value and defaults for the rest.
+	var enabled, defNew bool
+	var opacity *int16
+	var label *string
+	err = db.Pool.QueryRow(ctx,
+		`SELECT enabled, default_enabled_for_new_users, default_opacity, label_override
+		 FROM system_layer_visibility WHERE layer_key = $1`, key,
+	).Scan(&enabled, &defNew, &opacity, &label)
+	if err != nil {
+		t.Fatalf("read recreated row: %v", err)
+	}
+	if enabled != false {
+		t.Errorf("enabled: expected false, got %v", enabled)
+	}
+	// default_enabled_for_new_users default is false (per migration 000333 column DEFAULT).
+	if defNew != false {
+		t.Errorf("default_enabled_for_new_users: expected false (column default), got %v", defNew)
+	}
+	if opacity != nil {
+		t.Errorf("default_opacity: expected NULL (column default), got %v", *opacity)
+	}
+	if label != nil {
+		t.Errorf("label_override: expected NULL (column default), got %v", *label)
+	}
+}
+
+// TestUpdateSystemLayerVisibility_UpdatesExistingRow verifies that the UPSERT
+// path applied to an existing row updates only the patched columns and leaves
+// the remaining columns untouched (no fallback to defaults on the UPDATE branch).
+func TestUpdateSystemLayerVisibility_UpdatesExistingRow(t *testing.T) {
+	db := mapLayerTestDB(t)
+	ctx := context.Background()
+
+	var key string
+	for k := range model.SystemLayerKeySet() {
+		key = k
+		break
+	}
+	if key == "" {
+		t.Skip("model.SystemLayerKeySet() is empty — nothing to test")
+	}
+
+	// Snapshot + restore on cleanup.
+	var origEnabled, origDefaultForNew bool
+	var origOpacity *int16
+	var origLabel *string
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT enabled, default_enabled_for_new_users, default_opacity, label_override
+		 FROM system_layer_visibility WHERE layer_key = $1`, key,
+	).Scan(&origEnabled, &origDefaultForNew, &origOpacity, &origLabel); err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Pool.Exec(context.Background(),
+			`UPDATE system_layer_visibility
+			 SET enabled = $1, default_enabled_for_new_users = $2,
+			     default_opacity = $3, label_override = $4
+			 WHERE layer_key = $5`,
+			origEnabled, origDefaultForNew, origOpacity, origLabel, key,
+		)
+	})
+
+	// Patch only `enabled`.
+	target := !origEnabled
+	if err := db.UpdateSystemLayerVisibility(ctx, key, map[string]any{"enabled": target}); err != nil {
+		t.Fatalf("UpdateSystemLayerVisibility: %v", err)
+	}
+
+	var enabled, defNew bool
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT enabled, default_enabled_for_new_users
+		 FROM system_layer_visibility WHERE layer_key = $1`, key,
+	).Scan(&enabled, &defNew); err != nil {
+		t.Fatalf("read row: %v", err)
+	}
+	if enabled != target {
+		t.Errorf("enabled: expected %v, got %v", target, enabled)
+	}
+	if defNew != origDefaultForNew {
+		t.Errorf("default_enabled_for_new_users: expected unchanged %v, got %v", origDefaultForNew, defNew)
+	}
+}
+
 // ─── user_map_layers ─────────────────────────────────────────────────────────
 
 func TestInsertUserMapLayer_RoundTrip(t *testing.T) {
