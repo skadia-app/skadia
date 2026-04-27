@@ -275,11 +275,12 @@ func (r *UnifiedRouter) routeSameEdge(srcVE, dstVE *VirtualEndpoint, cfg *CostCo
 	cost := float64(float32(distCm)/100.0*cf + hyst.ElevCost)
 
 	return &RouteResult{
-		Coordinates:      slicedCoords,
-		DistanceM:        directDist,
-		AscentM:          ascent,
-		DescentM:         descent,
-		Cost:             cost,
+		Coordinates:    slicedCoords,
+		DistanceM:      directDist,
+		TotalDistanceM: directDist, // same-edge: approach-free at this stage; addApproach overrides
+		AscentM:        ascent,
+		DescentM:       descent,
+		Cost:           cost,
 		ElevationProfile: &slicedProfile, // Spec §5.8, T1.3 — full-resolution profile (T0 C.4)
 	}
 }
@@ -883,6 +884,16 @@ func (r *UnifiedRouter) addApproach(result *RouteResult, srcVE, dstVE *VirtualEn
 		if len(combined) > 0 {
 			result.ElevationProfile = &combined
 		}
+	}
+
+	// Approach-inclusive total distance for the response. result.DistanceM stays
+	// network-only — used by cost/stat consumers; do not mutate.
+	if result.ElevationProfile != nil && len(*result.ElevationProfile) > 0 {
+		result.TotalDistanceM = (*result.ElevationProfile)[len(*result.ElevationProfile)-1].DistM
+	} else {
+		// Fallback: no profile means we cannot compute the inclusive distance;
+		// expose network-only distance to keep the field defined.
+		result.TotalDistanceM = result.DistanceM
 	}
 }
 

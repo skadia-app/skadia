@@ -833,6 +833,14 @@ func TestRetrackUnified_ApproachInclusiveAxis(t *testing.T) {
 	if lastDistM <= 0 {
 		t.Errorf("ElevationProfile[last].DistM: want >0 (approach-inclusive), got %.4f", lastDistM)
 	}
+	// TotalDistanceM must equal Profile[last].DistM within 1m tolerance (Spec §5.5).
+	if math.Abs(result.TotalDistanceM-lastDistM) > 1.0 {
+		t.Errorf("TotalDistanceM=%.4f != Profile[last].DistM=%.4f (delta > 1m)", result.TotalDistanceM, lastDistM)
+	}
+	// Sanity: TotalDistanceM >= DistanceM when approach is non-zero.
+	if result.TotalDistanceM < result.DistanceM {
+		t.Errorf("TotalDistanceM (%.4f) must be >= DistanceM (%.4f)", result.TotalDistanceM, result.DistanceM)
+	}
 }
 
 // TestRetrackUnified_DemNoData_NullEles_AndInvalidCoordEle verifies that when
@@ -1077,6 +1085,10 @@ func TestRouteSameEdge_FullResolutionCoordsAndProfile(t *testing.T) {
 	}
 	if math.Abs(prof[len(prof)-1].DistM-result.DistanceM) > 0.5 {
 		t.Errorf("prof[last].DistM=%.4f != result.DistanceM=%.4f", prof[len(prof)-1].DistM, result.DistanceM)
+	}
+	// Same-edge before addApproach: TotalDistanceM initialised to DistanceM.
+	if math.Abs(result.TotalDistanceM-result.DistanceM) > 0.5 {
+		t.Errorf("TotalDistanceM=%.4f != DistanceM=%.4f (same-edge, no approach yet)", result.TotalDistanceM, result.DistanceM)
 	}
 	// Monotonic ascent — 10m gain per ~111m segment, full slice ≈ 6m gain.
 	if result.AscentM <= 0 {

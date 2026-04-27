@@ -10,7 +10,19 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/routing"
 )
+
+// t0SchemaVersion returns 1 if the route data satisfies T0 form-compliance
+// (non-empty elevation_profile starting at dist_m=0 with monotonically increasing
+// distances), otherwise 0. This is the sole source of truth for
+// route_schema_version at write time — the frontend's claim is overridden.
+func t0SchemaVersion(segments []model.RouteSegment, elevationProfile json.RawMessage) int16 {
+	if routing.IsT0FormCompliant(len(segments), elevationProfile) {
+		return 1
+	}
+	return 0
+}
 
 // CreateRoute inserts a new planned route and returns its UUID.
 func (db *DB) CreateRoute(ctx context.Context, route *model.PlannedRoute) (string, error) {
@@ -22,6 +34,8 @@ func (db *DB) CreateRoute(ctx context.Context, route *model.PlannedRoute) (strin
 	if err != nil {
 		return "", fmt.Errorf("marshal segments: %w", err)
 	}
+
+	schemaVersion := t0SchemaVersion(route.Segments, route.ElevationProfile)
 
 	var id string
 	err = db.Pool.QueryRow(ctx, `
@@ -38,7 +52,7 @@ func (db *DB) CreateRoute(ctx context.Context, route *model.PlannedRoute) (strin
 			$10, $11, $12,
 			$13, $14, $15,
 			$16, $17, $18,
-			1
+			$19
 		)
 		RETURNING id
 	`,
@@ -47,6 +61,7 @@ func (db *DB) CreateRoute(ctx context.Context, route *model.PlannedRoute) (strin
 		route.TotalDistanceM, route.TotalElevationGain, route.TotalElevationLoss,
 		route.EstimatedTimeMin, route.TimeOverride, route.AutoTag,
 		route.ElevationProfile, route.Enrichment, route.RoutingEngine,
+		schemaVersion,
 	).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("create route: %w", err)
@@ -160,6 +175,8 @@ func (db *DB) UpdateRoute(ctx context.Context, route *model.PlannedRoute) error 
 		return fmt.Errorf("marshal segments: %w", err)
 	}
 
+	schemaVersion := t0SchemaVersion(route.Segments, route.ElevationProfile)
+
 	tag, err := db.Pool.Exec(ctx, `
 		UPDATE planned_routes SET
 			name               = $3,
@@ -179,7 +196,7 @@ func (db *DB) UpdateRoute(ctx context.Context, route *model.PlannedRoute) error 
 			elevation_profile  = $17,
 			enrichment         = $18,
 			routing_engine     = $19,
-			route_schema_version = 1
+			route_schema_version = $20
 		WHERE id = $1 AND user_id = $2
 	`,
 		route.ID, route.UserID,
@@ -188,6 +205,7 @@ func (db *DB) UpdateRoute(ctx context.Context, route *model.PlannedRoute) error 
 		route.TotalDistanceM, route.TotalElevationGain, route.TotalElevationLoss,
 		route.EstimatedTimeMin, route.TimeOverride, route.AutoTag,
 		route.ElevationProfile, route.Enrichment, route.RoutingEngine,
+		schemaVersion,
 	)
 	if err != nil {
 		return fmt.Errorf("update route: %w", err)
@@ -215,6 +233,8 @@ func (db *DB) DeleteRoute(ctx context.Context, id, userID string) error {
 
 // DuplicateRoute creates a copy of an existing route owned by the same user.
 // Returns the new route's UUID.
+// route_schema_version is copied from the source row: a Pre-T0 duplicate remains
+// Pre-T0 (triggering migration on next load) rather than being silently promoted.
 func (db *DB) DuplicateRoute(ctx context.Context, id, userID string) (string, error) {
 	var newID string
 	err := db.Pool.QueryRow(ctx, `
@@ -232,7 +252,7 @@ func (db *DB) DuplicateRoute(ctx context.Context, id, userID string) (string, er
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			estimated_time_min, time_override, auto_tag,
 			elevation_profile, enrichment, routing_engine,
-			1
+			route_schema_version
 		FROM planned_routes
 		WHERE id = $1 AND user_id = $2
 		RETURNING id
@@ -431,7 +451,16 @@ func (db *DB) FindRouteCandidatesByBBox(ctx context.Context, userID string, geoj
 }
 
 // CreateRouteFromImport inserts a route with source tracking and DB-computed geometry hash.
+// Imported routes rarely carry a T0 elevation_profile, so route_schema_version is
+// validated dynamically — importers that do supply a compliant profile get v=1.
 func (db *DB) CreateRouteFromImport(ctx context.Context, userID string, r *model.RouteImportData) (string, error) {
+	// Decode the segments JSON to count segments for T0 validation.
+	var segs []model.RouteSegment
+	if r.SegmentsJSON != "" && r.SegmentsJSON != "[]" {
+		_ = json.Unmarshal([]byte(r.SegmentsJSON), &segs) // best-effort; invalid JSON → empty slice → v=0
+	}
+	schemaVersion := t0SchemaVersion(segs, r.ElevationProfile)
+
 	var id string
 	err := db.Pool.QueryRow(ctx, `
 		INSERT INTO planned_routes (
@@ -447,12 +476,13 @@ func (db *DB) CreateRouteFromImport(ctx context.Context, userID string, r *model
 			$9, $10, $11,
 			$12, $13, $14,
 			encode(digest(ST_AsEWKB(ST_SnapToGrid(ST_Force2D(ST_GeomFromGeoJSON($6)), 0.00001)), 'sha256'), 'hex'),
-			1
+			$15
 		) RETURNING id`,
 		userID, r.Name, r.Description, r.SportType, r.Profile,
 		r.GeometryGeoJSON, r.WaypointsJSON, r.SegmentsJSON,
 		r.TotalDistanceM, r.TotalElevationGain, r.TotalElevationLoss,
 		r.SourcePlatform, r.SourceID, r.SourceURL,
+		schemaVersion,
 	).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("create route from import: %w", err)

@@ -80,14 +80,17 @@ type RouteImportData struct {
 	SportType          string
 	Profile            string
 	GeometryGeoJSON    string
-	WaypointsJSON      string // "[]" if none
-	SegmentsJSON       string // "[]" if none
+	WaypointsJSON      string          // "[]" if none
+	SegmentsJSON       string          // "[]" if none
 	TotalDistanceM     *float64
 	TotalElevationGain *float64
 	TotalElevationLoss *float64
 	SourcePlatform     *string
 	SourceID           *string
 	SourceURL          *string
+	// ElevationProfile is the merged route-level profile ([]routing.ElevationPoint
+	// serialised as JSON). Nil means no profile — route_schema_version will be 0.
+	ElevationProfile json.RawMessage
 }
 
 type RoutePhoto struct {

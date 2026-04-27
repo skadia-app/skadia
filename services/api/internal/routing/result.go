@@ -20,9 +20,10 @@ func PtrEle(v float64) *float64 { return &v }
 
 // RouteResult holds the complete routing result.
 type RouteResult struct {
-	Coordinates  []LatLonEle    `json:"-"`
-	DistanceM    float64        `json:"distance_m"`
-	AscentM      float64        `json:"ascent_m"`
+	Coordinates    []LatLonEle    `json:"-"`
+	DistanceM      float64        `json:"distance_m"`       // network-only (routed edges, without approach)
+	TotalDistanceM float64        `json:"total_distance_m"` // approach-inclusive (= ElevationProfile[last].DistM after addApproach)
+	AscentM        float64        `json:"ascent_m"`
 	DescentM     float64        `json:"descent_m"`
 	Cost         float64        `json:"cost"`
 	Segments     []RouteSegment `json:"segments"`
@@ -206,8 +207,9 @@ func (r *RouteResult) ToGeoJSONWithExtras(extras map[string]any) json.RawMessage
 
 func (r *RouteResult) buildProperties() map[string]any {
 	props := map[string]any{
-		"distance_m":        int(r.DistanceM),
-		"ascent_m":          int(r.AscentM),
+		"distance_m":       int(r.DistanceM),
+		"total_distance_m": int(r.TotalDistanceM),
+		"ascent_m":         int(r.AscentM),
 		"descent_m":         int(r.DescentM),
 		"cost":              int(r.Cost),
 		"segments":          r.Segments,
@@ -360,6 +362,12 @@ func mergeLegs(legs []*RouteResult) *RouteResult {
 
 	if len(mergedProfile) > 0 {
 		result.ElevationProfile = &mergedProfile
+		// TotalDistanceM for a merged multi-leg route: derive from the combined
+		// profile's last point (approach-inclusive, mirrors the single-leg contract
+		// set by addApproach). Falls back to network-only DistanceM when no profile.
+		result.TotalDistanceM = mergedProfile[len(mergedProfile)-1].DistM
+	} else {
+		result.TotalDistanceM = result.DistanceM
 	}
 	return result
 }
