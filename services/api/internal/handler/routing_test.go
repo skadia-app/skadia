@@ -185,16 +185,16 @@ func TestKomischesProfilRoute_NoSpike(t *testing.T) {
 	// overshoots between two distant sample points.
 	// -------------------------------------------------------------------------
 	spike := []routing.ElevationPoint{
-		{DistM: 0, EleM: 600},
-		{DistM: 10, EleM: 600},   // 10m horizontal, flat
-		{DistM: 11, EleM: 650},   // 1m step, 50m ele rise — maximum allowed edge
-		{DistM: 200, EleM: 650},  // long flat section after
+		{DistM: 0, EleM: routing.PtrEle(600)},
+		{DistM: 10, EleM: routing.PtrEle(600)},  // 10m horizontal, flat
+		{DistM: 11, EleM: routing.PtrEle(650)},  // 1m step, 50m ele rise — maximum allowed edge
+		{DistM: 200, EleM: routing.PtrEle(650)}, // long flat section after
 	}
 
 	// Verify interpolation does not overshoot between samples.
 	for _, pt := range spike {
 		got := routing.InterpolateProfileEleAt(spike, pt.DistM)
-		assertInDeltaRouting(t, pt.EleM, got, 0.001, "exact sample")
+		assertInDeltaRouting(t, *pt.EleM, got, 0.001, "exact sample")
 	}
 
 	// Midpoint between spike[1] (dist=10, ele=600) and spike[2] (dist=11, ele=650):
@@ -234,9 +234,9 @@ func TestKomischesProfilRoute_NoSpike(t *testing.T) {
 
 	// Profile derived from actual DEM: gentle 4m rise over ~400m.
 	profile := []routing.ElevationPoint{
-		{DistM: 0, EleM: 600},
-		{DistM: 200, EleM: 602},
-		{DistM: 400, EleM: 604},
+		{DistM: 0, EleM: routing.PtrEle(600)},
+		{DistM: 200, EleM: routing.PtrEle(602)},
+		{DistM: 400, EleM: routing.PtrEle(604)},
 	}
 
 	// Manually apply InterpolateProfileEleAt (mirrors applyProfileToCoords logic).
@@ -282,8 +282,11 @@ func TestKomischesProfilRoute_NoSpike(t *testing.T) {
 func checkNoSpike(t *testing.T, profile []routing.ElevationPoint, label string) {
 	t.Helper()
 	for i := 1; i < len(profile); i++ {
+		if profile[i].EleM == nil || profile[i-1].EleM == nil {
+			continue // nil samples skipped; phase-D will resolve
+		}
 		distDelta := profile[i].DistM - profile[i-1].DistM
-		eleDelta := math.Abs(profile[i].EleM - profile[i-1].EleM)
+		eleDelta := math.Abs(*profile[i].EleM - *profile[i-1].EleM)
 		if distDelta < 50 && eleDelta >= 50 {
 			t.Errorf("%s: spike at profile[%d→%d]: Δdist=%.2fm Δele=%.2fm (|Δele| ≥ 50m with Δdist < 50m)",
 				label, i-1, i, distDelta, eleDelta)

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
+import type { RouteElevationPoint } from '@/api/routes'
 
 // ── ECharts mocks ─────────────────────────────────────────────────────────────
 // RouteProfileChart calls echarts.use([...]) at module level and echarts.init()
@@ -49,7 +50,7 @@ vi.mock('@/lib/scaleAggregation', () => ({
 }))
 
 // ── Component under test ──────────────────────────────────────────────────────
-import RouteProfileChart from '../RouteProfileChart'
+import RouteProfileChart, { buildProfile } from '../RouteProfileChart'
 import { makeFakeRouteStats } from '@/test-utils/routeFixtures'
 
 // Minimal RouteElevationPoint array — enough for buildProfile to produce ≥2 valid pts.
@@ -189,5 +190,93 @@ describe('RouteProfileChart — K?-Chip-Reset (LF-#11, V6-Retrofit)', () => {
     // No forest/protected/summits chips — the stats section should not render those labels
     // (the gradient legend also has "%" labels but no forest/summits-specific text)
     expect(screen.queryByText(/Wald|Forest|Gipfel|Naturschutz|Protected/i)).not.toBeInTheDocument()
+  })
+})
+
+// ── buildProfile: null ele_m gap handling (Spec §6 Class A) ──────────────────
+
+describe('buildProfile — null ele_m preserved as transparent gap', () => {
+  it('TestBuildProfile_PreservesNullEleM_AsGap: null points kept in output with ele_m=null', () => {
+    const raw: RouteElevationPoint[] = [
+      { dist_m: 0,    ele_m: 500 },
+      { dist_m: 3000, ele_m: null },  // DEM coverage gap
+      { dist_m: 6000, ele_m: 550 },
+    ]
+    const result = buildProfile(raw, [])
+
+    // All 3 points must be in the output — null not dropped
+    expect(result).toHaveLength(3)
+    // First and last have real elevation
+    expect(result[0].elevation).toBe(500)
+    expect(result[2].elevation).toBe(550)
+    // Middle point must be null (gap), NOT 0 or interpolated
+    expect(result[1].elevation).toBeNull()
+    // Grade for gap point must be 0
+    expect(result[1].grade).toBe(0)
+  })
+
+  it('TestBuildProfile_PreservesNullEleM_AsGap: indices are preserved so ECharts series data has null at correct index', () => {
+    const raw: RouteElevationPoint[] = [
+      { dist_m: 0,     ele_m: 400 },
+      { dist_m: 5000,  ele_m: null },
+      { dist_m: 10000, ele_m: 420 },
+    ]
+    const result = buildProfile(raw, [])
+    // Verify null is at index 1, not shifted or dropped
+    const elevationSeries = result.map(p => p.elevation)
+    expect(elevationSeries[0]).toBe(400)
+    expect(elevationSeries[1]).toBeNull()  // ECharts renders this as gap, not 0
+    expect(elevationSeries[2]).toBe(420)
+  })
+
+  it('returns empty when fewer than 2 non-null points', () => {
+    const raw: RouteElevationPoint[] = [
+      { dist_m: 0,    ele_m: null },
+      { dist_m: 3000, ele_m: null },
+      { dist_m: 6000, ele_m: 500 },  // only 1 non-null — not renderable
+    ]
+    expect(buildProfile(raw, [])).toHaveLength(0)
+  })
+})
+
+// ── RouteProfileChart: null ele_m renders chart (not placeholder) ─────────────
+
+describe('RouteProfileChart — null ele_m gap rendering (Spec §6 Class A)', () => {
+  it('TestRouteProfileChart_RendersNullAsGap: chart renders (not placeholder) with partial null profile', () => {
+    // Profile with a null gap in the middle — but ≥2 non-null points → chart renders.
+    const profileWithGap: RouteElevationPoint[] = [
+      { dist_m: 0,    ele_m: 500 },
+      { dist_m: 3000, ele_m: null },
+      { dist_m: 6000, ele_m: 550 },
+    ]
+    render(
+      <RouteProfileChart
+        profile={profileWithGap}
+        totalDistanceM={6000}
+        routeStats={null}
+        scalePin={null}
+        onTogglePin={() => {}}
+      />
+    )
+    // Chart renders — placeholder "nicht verfügbar" must NOT appear
+    expect(screen.queryByText(/nicht verfügbar/i)).not.toBeInTheDocument()
+  })
+
+  it('shows placeholder when all ele_m are null (no renderable data)', () => {
+    const allNullProfile: RouteElevationPoint[] = [
+      { dist_m: 0,    ele_m: null },
+      { dist_m: 5000, ele_m: null },
+    ]
+    render(
+      <RouteProfileChart
+        profile={allNullProfile}
+        totalDistanceM={5000}
+        routeStats={null}
+        scalePin={null}
+        onTogglePin={() => {}}
+      />
+    )
+    // No renderable points → placeholder
+    expect(screen.getByText(/nicht verfügbar/i)).toBeInTheDocument()
   })
 })

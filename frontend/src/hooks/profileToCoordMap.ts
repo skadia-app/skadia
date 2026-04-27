@@ -1,0 +1,98 @@
+/**
+ * ProfileToCoordMap — side-channel mapping from combined-profile index to
+ * combined-coordinate index. Prerequisite for Appendix-B hover sync
+ * (plan Phase D.1.4 / Phase E hover brush).
+ *
+ * The mapping mirrors the exact same sort + junction-dedup logic as
+ * buildCombinedProfileFromSegments so the two arrays are always in sync.
+ */
+import type { RouteSegment, RouteWaypoint, RouteElevationPoint } from '@/api/routes'
+
+/** Index i → coordIdx: the combined-coordinate index corresponding to
+ *  combined-profile point i. Length equals the combined profile length. */
+export type ProfileToCoordMap = number[]
+
+/**
+ * Builds the combined profile, the ProfileToCoordMap, and the combined
+ * coordinate array in a single pass — all three use the same sort + dedup
+ * logic so they are always aligned.
+ *
+ * Junction-dedup: for segment index > 0, the first profile point AND the
+ * first coordinate are both skipped (they duplicate the last point of the
+ * previous segment).
+ *
+ * Returns null when no segment carries an elevation_profile (same contract
+ * as buildCombinedProfileFromSegments — null means "no profile data yet").
+ */
+export function buildProfileToCoordMap(
+  segments: RouteSegment[],
+  waypoints: RouteWaypoint[],
+): {
+  profile: RouteElevationPoint[]
+  map: ProfileToCoordMap
+  coords: [number, number][]
+} | null {
+  // Sort by waypoint order (defensive, mirrors buildCombinedProfileFromSegments).
+  const wpOrder = new Map(waypoints.map((wp, i) => [wp.id, i]))
+  const sorted = [...segments].sort(
+    (a, b) =>
+      (wpOrder.get(a.from_waypoint) ?? Infinity) -
+      (wpOrder.get(b.from_waypoint) ?? Infinity),
+  )
+
+  const profile: RouteElevationPoint[] = []
+  const map: ProfileToCoordMap = []
+  const coords: [number, number][] = []
+
+  let distAccum = 0
+  let hadAny = false
+  let globalCoordIdx = 0
+
+  for (const seg of sorted) {
+    const p = seg.elevation_profile
+    const segCoords = (seg.geometry?.coordinates ?? []) as [number, number][]
+
+    // Accumulate coords (junction-dedup: skip first coord after the first segment).
+    const coordStartIdx = hadAny ? 1 : 0
+    for (let ci = coordStartIdx; ci < segCoords.length; ci++) {
+      coords.push(segCoords[ci])
+    }
+
+    if (!p || p.length === 0) {
+      // No profile: advance distAccum (M5 coverage-gap / pre-T0 segment).
+      // Coords were already appended; advance coord counter accordingly.
+      const coordsAdded = segCoords.length - coordStartIdx
+      globalCoordIdx += coordsAdded
+      distAccum += seg.distance_m ?? 0
+      continue
+    }
+
+    if (p.length !== segCoords.length) {
+      // 1:1 mapping invariant violated — caller must bail.
+      return null
+    }
+
+    // Profile points: junction-dedup mirrors buildCombinedProfileFromSegments.
+    const profileStartIdx = hadAny ? 1 : 0
+
+    // Build a coord-index lookup within this segment's coord window.
+    // The segment has p.length profile points and segCoords.length coord points.
+    // Profile point j maps to coord point j (1-to-1, both at-vertices).
+    // After junction-dedup: profile[j] → segCoords[j], global offset = globalCoordIdx.
+    for (let j = profileStartIdx; j < p.length; j++) {
+      profile.push({ dist_m: distAccum + p[j].dist_m, ele_m: p[j].ele_m })
+      // Coord index: global base + local index within this segment.
+      // coordStartIdx was used to dedup the first coord; same offset for profiles.
+      // Profile j corresponds to coord j within this segment.
+      map.push(globalCoordIdx + (j - profileStartIdx))
+    }
+
+    const coordsAdded = segCoords.length - coordStartIdx
+    globalCoordIdx += coordsAdded
+    distAccum += p[p.length - 1].dist_m
+    hadAny = true
+  }
+
+  if (profile.length === 0) return null
+  return { profile, map, coords }
+}

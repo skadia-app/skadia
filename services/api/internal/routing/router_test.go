@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
 )
 
@@ -108,7 +109,7 @@ func simpleCostConfig() *CostConfig {
 // newTestRouter creates a UnifiedRouter backed by a SingleGraphReader.
 func newTestRouter(g *graph.Graph) *UnifiedRouter {
 	reader := &SingleGraphReader{G: g, TileID: 0}
-	return NewUnifiedRouter(reader, 4, 2)
+	return NewUnifiedRouter(reader, 4, 2, nil)
 }
 
 func TestRoute_Triangle_ShortestPath(t *testing.T) {
@@ -640,6 +641,289 @@ func TestComputeTurnCost_Basic(t *testing.T) {
 	}
 }
 
+// stubDEMServicer implements dem.Servicer for tests. It returns a fixed elevation
+// (in decimeters) for every coordinate lookup, or dem.NoData when returnNoData
+// is true.
+type stubDEMServicer struct {
+	// fixedElevsDm is returned in order for successive ElevationBatch calls.
+	// If nil, returnNoData controls the response.
+	fixedElevsDm []int32
+	returnNoData bool
+	callCount    int
+}
+
+func (s *stubDEMServicer) ElevationBatch(lats, lons []int32) ([]int32, error) {
+	s.callCount++
+	out := make([]int32, len(lats))
+	for i := range out {
+		if s.returnNoData {
+			out[i] = dem.NoData
+		} else if s.fixedElevsDm != nil && i < len(s.fixedElevsDm) {
+			out[i] = s.fixedElevsDm[i]
+		} else {
+			out[i] = 1000 // 100.0 m default
+		}
+	}
+	return out, nil
+}
+func (s *stubDEMServicer) Health() dem.Health { return dem.Health{} }
+func (s *stubDEMServicer) Close()             {}
+
+// newTestRouterWithDEM creates a UnifiedRouter that uses the provided dem.Servicer.
+func newTestRouterWithDEM(g *graph.Graph, svc dem.Servicer) *UnifiedRouter {
+	reader := &SingleGraphReader{G: g, TileID: 0}
+	return NewUnifiedRouter(reader, 4, 2, svc)
+}
+
+// makeApproachGraph builds a minimal 2-node graph suitable for approach tests.
+// Nodes are placed ~500m apart so snap distance > 100m threshold.
+func makeApproachGraph() *graph.Graph {
+	nodes := [][3]float64{
+		{47.0, 11.0, 5000},   // node 0, 500m elevation
+		{47.005, 11.0, 5100}, // node 1, 510m elevation
+	}
+	edges := [][4]int{
+		{0, 1, 55600, 16}, // ~556m path
+		{1, 0, 55600, 16},
+	}
+	return makeTestGraph(nodes, edges)
+}
+
+// TestRetrackUnified_SnapApproach_TwoPointHeader verifies that ApproachFromProfile
+// and ApproachToProfile each contain exactly 2 ElevationPoints when a snap-approach
+// is triggered, with DistM=0 at click and DistM=approach distance at projection.
+func TestRetrackUnified_SnapApproach_TwoPointHeader(t *testing.T) {
+	g := makeApproachGraph()
+	// Fixed DEM elevations in decimeters: clickSrc=2000dm, projSrc=2010dm, projDst=2020dm, clickDst=2030dm
+	svc := &stubDEMServicer{fixedElevsDm: []int32{2000, 2010, 2020, 2030}}
+	r := newTestRouterWithDEM(g, svc)
+	cfg := simpleCostConfig()
+	cfg.SnapThresholdM = 1 // force approach for any snap distance >1m
+
+	ctx := context.Background()
+	// Request from slightly off node 0 — will snap to edge and create approach lines.
+	result, err := r.Route(ctx, RouteRequest{
+		FromLat: 47.0005, FromLon: 11.001, // offset ~100m from node 0
+		ToLat:   47.0045, ToLon: 11.001,   // offset ~100m from node 1
+	}, cfg)
+	if err != nil {
+		t.Fatalf("Route failed: %v", err)
+	}
+
+	if len(result.ApproachFromProfile) == 0 {
+		t.Skip("no snap approach triggered — adjust test offsets if needed")
+	}
+
+	// ApproachFromProfile: exactly 2 points, DistM[0]==0
+	afp := result.ApproachFromProfile
+	if len(afp) != 2 {
+		t.Fatalf("ApproachFromProfile: want 2 points, got %d", len(afp))
+	}
+	if afp[0].DistM != 0 {
+		t.Errorf("ApproachFromProfile[0].DistM: want 0, got %.4f", afp[0].DistM)
+	}
+	approachFromM := afp[1].DistM
+	if approachFromM <= 0 {
+		t.Errorf("ApproachFromProfile[1].DistM: want >0, got %.4f", approachFromM)
+	}
+
+	// ApproachToProfile: exactly 2 points, DistM[0]==0
+	if len(result.ApproachToProfile) != 2 {
+		t.Fatalf("ApproachToProfile: want 2 points, got %d", len(result.ApproachToProfile))
+	}
+	atp := result.ApproachToProfile
+	if atp[0].DistM != 0 {
+		t.Errorf("ApproachToProfile[0].DistM: want 0, got %.4f", atp[0].DistM)
+	}
+	if atp[1].DistM <= 0 {
+		t.Errorf("ApproachToProfile[1].DistM: want >0, got %.4f", atp[1].DistM)
+	}
+
+	// approach_from_m in buildProperties must match ApproachFromProfile[1].DistM
+	approachFromProps := haversineSum(result.ApproachFrom)
+	if math.Abs(approachFromM-approachFromProps) > 1.0 {
+		t.Errorf("ApproachFromProfile[1].DistM=%.2f != haversineSum(ApproachFrom)=%.2f",
+			approachFromM, approachFromProps)
+	}
+}
+
+// TestRetrackUnified_SnapApproach_CoordEleMatchesProfile verifies that the click
+// coordinate elevation comes from the DEM batch (not from ProjEleDm), and that
+// ApproachFrom[0].Ele matches *ApproachFromProfile[0].EleM.
+func TestRetrackUnified_SnapApproach_CoordEleMatchesProfile(t *testing.T) {
+	g := makeApproachGraph()
+	// clickSrc DEM elevation: 3000dm = 300.0m; projSrc: 3100dm = 310.0m
+	svc := &stubDEMServicer{fixedElevsDm: []int32{3000, 3100, 3200, 3300}}
+	r := newTestRouterWithDEM(g, svc)
+	cfg := simpleCostConfig()
+	cfg.SnapThresholdM = 1
+
+	ctx := context.Background()
+	result, err := r.Route(ctx, RouteRequest{
+		FromLat: 47.0005, FromLon: 11.001,
+		ToLat:   47.0045, ToLon: 11.001,
+	}, cfg)
+	if err != nil {
+		t.Fatalf("Route failed: %v", err)
+	}
+	if len(result.ApproachFromProfile) == 0 {
+		t.Skip("no snap approach triggered")
+	}
+
+	// Click coord elevation must come from DEM batch (3000dm = 300.0m)
+	afCoord := result.ApproachFrom[0]
+	if !afCoord.EleValid {
+		t.Errorf("ApproachFrom[0].EleValid: want true, got false")
+	}
+	wantClickEle := 300.0
+	if math.Abs(afCoord.Ele-wantClickEle) > 0.01 {
+		t.Errorf("ApproachFrom[0].Ele: want %.1f (from DEM batch), got %.4f", wantClickEle, afCoord.Ele)
+	}
+
+	// Coord ele must match profile EleM
+	afpClickEle := result.ApproachFromProfile[0].EleM
+	if afpClickEle == nil {
+		t.Fatal("ApproachFromProfile[0].EleM: want non-nil")
+	}
+	if math.Abs(*afpClickEle-afCoord.Ele) > 0.001 {
+		t.Errorf("ApproachFrom[0].Ele=%.4f != *ApproachFromProfile[0].EleM=%.4f", afCoord.Ele, *afpClickEle)
+	}
+}
+
+// TestRetrackUnified_ApproachInclusiveAxis verifies that the combined ElevationProfile
+// starts at DistM=0 (click_src) and ends at a positive distance when approach is active.
+//
+// The click points are ~100m east of the edge (lon=11.001 vs edge lon=11.0), which
+// exceeds SnapThresholdM=1 and guarantees that snap-approach fires. If no approach
+// is triggered the test fails hard — use t.Fatalf to expose fixture regressions.
+func TestRetrackUnified_ApproachInclusiveAxis(t *testing.T) {
+	g := makeApproachGraph()
+	svc := &stubDEMServicer{fixedElevsDm: []int32{1500, 1510, 1520, 1530}}
+	r := newTestRouterWithDEM(g, svc)
+	cfg := simpleCostConfig()
+	cfg.SnapThresholdM = 1
+
+	ctx := context.Background()
+	result, err := r.Route(ctx, RouteRequest{
+		FromLat: 47.0005, FromLon: 11.001,
+		ToLat:   47.0045, ToLon: 11.001,
+	}, cfg)
+	if err != nil {
+		t.Fatalf("Route failed: %v", err)
+	}
+	// Click points are ~100m east of the edge; SnapThresholdM=1 ensures approach.
+	// A missing approach means the fixture regressed — fail hard, not skip.
+	if len(result.ApproachFromProfile) == 0 {
+		t.Fatalf("no snap approach triggered — click points should be >SnapThresholdM from edge; fixture may have regressed")
+	}
+	if result.ElevationProfile == nil {
+		t.Fatal("ElevationProfile: want non-nil after approach concat")
+	}
+
+	prof := *result.ElevationProfile
+	if len(prof) == 0 {
+		t.Fatal("ElevationProfile: want non-empty")
+	}
+	// First point must be DistM=0 (click_src anchor, Spec §5.8 approach-inclusive axis).
+	if prof[0].DistM != 0 {
+		t.Errorf("ElevationProfile[0].DistM: want 0 (click_src), got %.4f", prof[0].DistM)
+	}
+	// Last point must cover a positive distance (approach + network + return approach).
+	lastDistM := prof[len(prof)-1].DistM
+	if lastDistM <= 0 {
+		t.Errorf("ElevationProfile[last].DistM: want >0 (approach-inclusive), got %.4f", lastDistM)
+	}
+	// TotalDistanceM must equal Profile[last].DistM within 1m tolerance (Spec §5.5).
+	if math.Abs(result.TotalDistanceM-lastDistM) > 1.0 {
+		t.Errorf("TotalDistanceM=%.4f != Profile[last].DistM=%.4f (delta > 1m)", result.TotalDistanceM, lastDistM)
+	}
+	// Sanity: TotalDistanceM >= DistanceM when approach is non-zero.
+	if result.TotalDistanceM < result.DistanceM {
+		t.Errorf("TotalDistanceM (%.4f) must be >= DistanceM (%.4f)", result.TotalDistanceM, result.DistanceM)
+	}
+}
+
+// TestRetrackUnified_DemNoData_NullEles_AndInvalidCoordEle verifies that when
+// the DEM batch returns NoData for all points, EleM is nil in the approach
+// profiles and EleValid is false on the approach coords (Spec §6 Class A).
+func TestRetrackUnified_DemNoData_NullEles_AndInvalidCoordEle(t *testing.T) {
+	g := makeApproachGraph()
+	svc := &stubDEMServicer{returnNoData: true}
+	r := newTestRouterWithDEM(g, svc)
+	cfg := simpleCostConfig()
+	cfg.SnapThresholdM = 1
+
+	ctx := context.Background()
+	result, err := r.Route(ctx, RouteRequest{
+		FromLat: 47.0005, FromLon: 11.001,
+		ToLat:   47.0045, ToLon: 11.001,
+	}, cfg)
+	if err != nil {
+		t.Fatalf("Route failed: %v", err)
+	}
+	if len(result.ApproachFromProfile) == 0 {
+		t.Skip("no snap approach triggered")
+	}
+
+	// All approach profile EleM must be nil (NoData → nil via approachElevToPtrM).
+	for i, p := range result.ApproachFromProfile {
+		if p.EleM != nil {
+			t.Errorf("ApproachFromProfile[%d].EleM: want nil (NoData), got %v", i, *p.EleM)
+		}
+	}
+	for i, p := range result.ApproachToProfile {
+		if p.EleM != nil {
+			t.Errorf("ApproachToProfile[%d].EleM: want nil (NoData), got %v", i, *p.EleM)
+		}
+	}
+
+	// Approach coord EleValid must be false.
+	if len(result.ApproachFrom) > 0 && result.ApproachFrom[0].EleValid {
+		t.Errorf("ApproachFrom[0].EleValid: want false when DEM returns NoData")
+	}
+	if len(result.ApproachTo) > 0 && result.ApproachTo[1].EleValid {
+		t.Errorf("ApproachTo[1].EleValid: want false when DEM returns NoData")
+	}
+}
+
+// TestAddApproach_NilDemSvc_FallsBackToProjectionEle verifies that when
+// r.demSvc is nil (test paths without DEM setup), approach coords have
+// EleValid=false and the profile EleM values are nil (zero-value / no DEM data).
+// This is Variant (b) from the plan: nil demSvc → EleValid=false, EleM=nil,
+// Ele=0.0 (zero value). Callers should treat EleValid=false as "unknown".
+func TestAddApproach_NilDemSvc_FallsBackToProjectionEle(t *testing.T) {
+	g := makeApproachGraph()
+	// nil demSvc — backward-compat path used by all existing tests.
+	r := newTestRouter(g)
+	cfg := simpleCostConfig()
+	cfg.SnapThresholdM = 1
+
+	ctx := context.Background()
+	result, err := r.Route(ctx, RouteRequest{
+		FromLat: 47.0005, FromLon: 11.001,
+		ToLat:   47.0045, ToLon: 11.001,
+	}, cfg)
+	if err != nil {
+		t.Fatalf("Route failed: %v", err)
+	}
+	if len(result.ApproachFromProfile) == 0 {
+		t.Skip("no snap approach triggered")
+	}
+
+	// With nil demSvc, all approach elevations are unknown → EleValid=false,
+	// EleM=nil, Ele=0.0 (zero-value — callers check EleValid, not Ele).
+	for i, c := range result.ApproachFrom {
+		if c.EleValid {
+			t.Errorf("ApproachFrom[%d].EleValid: want false when demSvc=nil", i)
+		}
+	}
+	for i, p := range result.ApproachFromProfile {
+		if p.EleM != nil {
+			t.Errorf("ApproachFromProfile[%d].EleM: want nil when demSvc=nil, got %.2f", i, *p.EleM)
+		}
+	}
+}
+
 // TestRouteSameEdge_ProfileTwoPoints verifies that the same-edge special case
 // (routeSameEdge) emits a non-nil 2-point ElevationProfile (Spec §5.8, T1.3).
 // The profile distance axis must span [0, result.DistanceM] and the elevation
@@ -687,8 +971,189 @@ func TestRouteSameEdge_ProfileTwoPoints(t *testing.T) {
 	if math.Abs(prof[1].DistM-result.DistanceM) > 0.01 {
 		t.Errorf("profile[1].DistM=%.4f, want %.4f (result.DistanceM)", prof[1].DistM, result.DistanceM)
 	}
-	// Both elevation values must be non-negative (sanity)
-	if prof[0].EleM < 0 || prof[1].EleM < 0 {
-		t.Errorf("negative elevation in same-edge profile: [%.1f, %.1f]", prof[0].EleM, prof[1].EleM)
+	// Both elevation values must be non-nil and non-negative (sanity)
+	if prof[0].EleM == nil || prof[1].EleM == nil {
+		t.Fatalf("nil EleM in same-edge profile")
+	}
+	if *prof[0].EleM < 0 || *prof[1].EleM < 0 {
+		t.Errorf("negative elevation in same-edge profile: [%.1f, %.1f]", *prof[0].EleM, *prof[1].EleM)
+	}
+}
+
+// makeFiveVertexEdgeGraph builds a 2-node graph with one bidirectional edge
+// carrying 3 intermediate geometry vertices and a 5-point EdgeElevProf with
+// matching segDists. Used by T0 C.4 same-edge full-resolution tests.
+//
+// Geometry (5 vertices along lon=11.0):
+//
+//	Node A at lat 47.000, intermediates at 47.001/47.002/47.003, Node B at 47.004.
+//
+// Each step ≈111m → segDist 11119cm fits uint16. Total edge ≈ 445m.
+// Elevations: 100, 110, 120, 130, 140 m (10m gain per step, monotonic ascent).
+func makeFiveVertexEdgeGraph(t *testing.T) *graph.Graph {
+	t.Helper()
+	const trackTags1 uint64 = 16 // path
+	g := &graph.Graph{
+		NodeCount: 2, EdgeCount: 2,
+		Offsets:   []uint32{0, 1, 2},
+		Targets:   []uint32{1, 0},
+		EdgeDist:  []uint32{44478, 44478}, // ~445m in cm
+		EdgeTags1: []uint64{trackTags1, trackTags1},
+		EdgeTags2: []uint64{0, 0},
+		EdgeOSMIdx: []uint32{0, 0},
+		OSMIDPool: []int64{1},
+		NodeLat:   []int32{470000000, 470040000},
+		NodeLon:   []int32{110000000, 110000000},
+		NodeEle:   []int32{1000, 1400}, // 100m, 140m
+		NodeTags:  []uint8{0, 0},
+
+		// 5 geom vertices per edge: NodeA + 3 intermediates + NodeB (in same orientation
+		// for both edges — reader returns indices [start+1:end-1] so the actual
+		// stored polyline must include the endpoints).
+		EdgeGeomOff: []uint32{0, 5, 10},
+		EdgeGeomLat: []int32{
+			// edge 0: A→B
+			470000000, 470010000, 470020000, 470030000, 470040000,
+			// edge 1: B→A (mirror)
+			470040000, 470030000, 470020000, 470010000, 470000000,
+		},
+		EdgeGeomLon: []int32{
+			110000000, 110000000, 110000000, 110000000, 110000000,
+			110000000, 110000000, 110000000, 110000000, 110000000,
+		},
+
+		// 5 elev points per edge → EdgeElevOff = [0, 5, 10].
+		EdgeElevOff: []uint32{0, 5, 10},
+		EdgeElevProf: []int32{
+			1000, 1100, 1200, 1300, 1400, // edge 0: ascending
+			1400, 1300, 1200, 1100, 1000, // edge 1: descending (mirror)
+		},
+		// 4 segDists per 5-point edge.
+		// EdgeElevSegDist offset for edge i = elevStart - edgeIdx = 0-0=0 for edge 0,
+		// 5-1=4 for edge 1. So we lay them in [0..4) and [4..8).
+		EdgeElevSegDist: []uint16{
+			11119, 11119, 11119, 11119, // edge 0
+			11119, 11119, 11119, 11119, // edge 1
+		},
+		IsBorder: []bool{false, false},
+	}
+	g.Grid = graph.BuildSpatialIndex(g, 0.01)
+	return g
+}
+
+// TestRouteSameEdge_FullResolutionCoordsAndProfile verifies T0 C.4: when src
+// and dst project onto the same edge with intermediate geometry, both Coords
+// and ElevationProfile carry the full-resolution interior vertices, not just
+// the two projection endpoints.
+func TestRouteSameEdge_FullResolutionCoordsAndProfile(t *testing.T) {
+	g := makeFiveVertexEdgeGraph(t)
+	r := newTestRouter(g)
+	cfg := simpleCostConfig()
+
+	// src at fraction ≈0.2 (lat≈47.0008), dst at fraction ≈0.8 (lat≈47.0032).
+	srcVE, err := r.snapToEdge(47.0008, 11.0, cfg)
+	if err != nil {
+		t.Fatalf("snap src: %v", err)
+	}
+	dstVE, err := r.snapToEdge(47.0032, 11.0, cfg)
+	if err != nil {
+		t.Fatalf("snap dst: %v", err)
+	}
+	if srcVE.Proj.EdgeHandle != dstVE.Proj.EdgeHandle {
+		t.Skipf("projections did not land on the same edge: src=%d dst=%d",
+			srcVE.Proj.EdgeHandle, dstVE.Proj.EdgeHandle)
+	}
+
+	result := r.routeSameEdge(srcVE, dstVE, cfg)
+	if result == nil {
+		t.Fatal("routeSameEdge returned nil")
+	}
+	if result.ElevationProfile == nil {
+		t.Fatal("ElevationProfile must not be nil")
+	}
+	prof := *result.ElevationProfile
+
+	if len(result.Coordinates) != len(prof) {
+		t.Fatalf("len(Coordinates)=%d vs len(ElevationProfile)=%d — must match (T0 C.4 invariant)",
+			len(result.Coordinates), len(prof))
+	}
+	if len(result.Coordinates) <= 2 {
+		t.Errorf("expected >2 coords for full-resolution slice, got %d", len(result.Coordinates))
+	}
+	if prof[0].DistM != 0 {
+		t.Errorf("prof[0].DistM: want 0, got %.4f", prof[0].DistM)
+	}
+	if math.Abs(prof[len(prof)-1].DistM-result.DistanceM) > 0.5 {
+		t.Errorf("prof[last].DistM=%.4f != result.DistanceM=%.4f", prof[len(prof)-1].DistM, result.DistanceM)
+	}
+	// Same-edge before addApproach: TotalDistanceM initialised to DistanceM.
+	if math.Abs(result.TotalDistanceM-result.DistanceM) > 0.5 {
+		t.Errorf("TotalDistanceM=%.4f != DistanceM=%.4f (same-edge, no approach yet)", result.TotalDistanceM, result.DistanceM)
+	}
+	// Monotonic ascent — 10m gain per ~111m segment, full slice ≈ 6m gain.
+	if result.AscentM <= 0 {
+		t.Errorf("expected positive ascent on monotonic-up edge, got %.2f", result.AscentM)
+	}
+	if result.DescentM > 0.5 {
+		t.Errorf("expected ~0 descent on monotonic-up edge, got %.2f", result.DescentM)
+	}
+}
+
+// TestRouteSameEdge_ReversedDirection_ProfileAscends verifies that when the
+// traveler walks B→A on a same-edge route, the returned ElevationProfile has
+// strictly ascending DistM (i.e. distances run from 0 at the source to total
+// at the destination — no negative or out-of-order values).
+func TestRouteSameEdge_ReversedDirection_ProfileAscends(t *testing.T) {
+	g := makeFiveVertexEdgeGraph(t)
+	r := newTestRouter(g)
+	cfg := simpleCostConfig()
+
+	// src high (closer to NodeB at fraction ≈0.8), dst low (≈0.2).
+	srcVE, err := r.snapToEdge(47.0032, 11.0, cfg)
+	if err != nil {
+		t.Fatalf("snap src: %v", err)
+	}
+	dstVE, err := r.snapToEdge(47.0008, 11.0, cfg)
+	if err != nil {
+		t.Fatalf("snap dst: %v", err)
+	}
+	if srcVE.Proj.EdgeHandle != dstVE.Proj.EdgeHandle {
+		t.Skip("projections did not land on the same edge")
+	}
+	if srcVE.Proj.FractionAB <= dstVE.Proj.FractionAB {
+		t.Skipf("src fraction %.3f not > dst fraction %.3f — not the reversed case",
+			srcVE.Proj.FractionAB, dstVE.Proj.FractionAB)
+	}
+
+	result := r.routeSameEdge(srcVE, dstVE, cfg)
+	if result == nil {
+		t.Fatal("routeSameEdge returned nil")
+	}
+	prof := *result.ElevationProfile
+	if len(prof) < 2 {
+		t.Fatalf("reversed slice: want >=2 profile points, got %d", len(prof))
+	}
+	for i := 1; i < len(prof); i++ {
+		if prof[i].DistM < prof[i-1].DistM {
+			t.Errorf("prof[%d].DistM=%.3f < prof[%d].DistM=%.3f — must ascend",
+				i, prof[i].DistM, i-1, prof[i-1].DistM)
+		}
+	}
+	if prof[0].DistM != 0 {
+		t.Errorf("prof[0].DistM: want 0, got %.4f", prof[0].DistM)
+	}
+	// Reversed = traveling downhill (src ele > dst ele).
+	if result.DescentM <= 0 {
+		t.Errorf("reversed (downhill) route: DescentM should be > 0, got %.2f", result.DescentM)
+	}
+	if result.AscentM > 0.5 {
+		t.Errorf("reversed (downhill) route: AscentM should be ~0, got %.2f", result.AscentM)
+	}
+	// And: first coord matches the src projection direction (high-end vertex).
+	first := result.Coordinates[0]
+	last := result.Coordinates[len(result.Coordinates)-1]
+	if first.Lat <= last.Lat {
+		t.Errorf("reversed: first coord lat %.6f should be > last %.6f (traveler heads south)",
+			first.Lat, last.Lat)
 	}
 }

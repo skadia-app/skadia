@@ -5,12 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/dem"
+	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -132,6 +136,10 @@ func (h *Handler) QueryElevation(w http.ResponseWriter, r *http.Request) {
 //	    ...
 //	  ]
 //	}
+// atVerticesMaxCoords is the maximum number of vertices accepted in
+// at_vertices mode. Requests exceeding this limit return 400 polyline_too_long.
+const atVerticesMaxCoords = 50_000
+
 func (h *Handler) ElevationProfile(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -139,8 +147,9 @@ func (h *Handler) ElevationProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Geometry  json.RawMessage `json:"geometry"`
-		NumPoints int             `json:"num_points"`
+		Geometry   json.RawMessage `json:"geometry"`
+		NumPoints  int             `json:"num_points"`
+		AtVertices bool            `json:"at_vertices"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
@@ -151,6 +160,19 @@ func (h *Handler) ElevationProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// at_vertices mode: sample elevation at each vertex of the geometry.
+	if req.AtVertices {
+		if req.NumPoints != 0 {
+			slog.Debug("elevation profile: num_points ignored in at_vertices mode",
+				"user_id", userID,
+				"num_points", req.NumPoints,
+			)
+		}
+		h.elevationProfileAtVertices(w, r, userID, req.Geometry)
+		return
+	}
+
+	// Legacy resample mode: delegate to PostGIS dem.get_elevation_profile().
 	profile, err := h.DB.GetElevationProfile(r.Context(), string(req.Geometry), req.NumPoints)
 	if err != nil {
 		slog.Error("elevation profile failed", "error", err, "user_id", userID)
@@ -161,6 +183,111 @@ func (h *Handler) ElevationProfile(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"profile": profile,
 	})
+}
+
+// elevationProfileAtVertices handles the at_vertices=true path: each GeoJSON
+// vertex is looked up in the DEM service and returned as a profile point.
+func (h *Handler) elevationProfileAtVertices(w http.ResponseWriter, r *http.Request, userID string, geometryJSON json.RawMessage) {
+	coords, err := extractLineStringCoords(geometryJSON)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+
+	if len(coords) > atVerticesMaxCoords {
+		httputil.WriteError(w, http.StatusBadRequest, "polyline_too_long",
+			fmt.Sprintf("at_vertices mode supports at most %d vertices", atVerticesMaxCoords),
+			r.URL.Path)
+		return
+	}
+
+	if h.DEMSvc == nil {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "elevation service not configured", r.URL.Path)
+		return
+	}
+
+	// Build int32×1e7 encoded lat/lon slices for batch lookup.
+	lats := make([]int32, len(coords))
+	lons := make([]int32, len(coords))
+	for i, c := range coords {
+		// GeoJSON coordinates are [lng, lat].
+		lons[i] = int32(math.Round(c[0] * 1e7))
+		lats[i] = int32(math.Round(c[1] * 1e7))
+	}
+
+	eles, err := h.DEMSvc.ElevationBatch(lats, lons)
+	if err != nil {
+		slog.Error("elevation profile at_vertices: batch lookup failed", "error", err, "user_id", userID)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "elevation lookup failed", r.URL.Path)
+		return
+	}
+
+	profile := buildPerVertexProfile(coords, eles)
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"profile": profile,
+	})
+}
+
+// buildPerVertexProfile constructs a []database.ElevationPoint from the raw
+// coordinate and decimeter-scale elevation slices. Fraction is cumulative
+// distance / total distance (0.0 at first vertex, 1.0 at last).
+// Elevation is in meters; nil when eles[i] == dem.NoData.
+func buildPerVertexProfile(coords [][]float64, eles []int32) []database.ElevationPoint {
+	if len(coords) == 0 {
+		return nil
+	}
+
+	// Compute cumulative distances in meters.
+	cumDist := make([]float64, len(coords))
+	for i := 1; i < len(coords); i++ {
+		// GeoJSON coords are [lng, lat]; DistanceHaversine(lat1, lng1, lat2, lng2).
+		cumDist[i] = cumDist[i-1] + geo.DistanceHaversine(coords[i-1][1], coords[i-1][0], coords[i][1], coords[i][0])
+	}
+	totalDist := cumDist[len(cumDist)-1]
+
+	profile := make([]database.ElevationPoint, len(coords))
+	for i, c := range coords {
+		var fraction float64
+		if totalDist > 0 {
+			fraction = cumDist[i] / totalDist
+		}
+
+		var elevM *float64
+		if eles[i] != dem.NoData {
+			// DEM returns decimeters; convert to meters.
+			v := float64(eles[i]) / 10.0
+			elevM = &v
+		}
+
+		profile[i] = database.ElevationPoint{
+			Fraction:  fraction,
+			Elevation: elevM,
+			// GeoJSON coords are [lng, lat].
+			Lat: c[1],
+			Lng: c[0],
+		}
+	}
+	return profile
+}
+
+// extractLineStringCoords parses a GeoJSON geometry and returns its
+// coordinates as a [][]float64 slice. Only LineString is supported.
+func extractLineStringCoords(geometryJSON json.RawMessage) ([][]float64, error) {
+	var geom struct {
+		Type        string          `json:"type"`
+		Coordinates json.RawMessage `json:"coordinates"`
+	}
+	if err := json.Unmarshal(geometryJSON, &geom); err != nil {
+		return nil, fmt.Errorf("invalid geometry JSON: %w", err)
+	}
+	if geom.Type != "LineString" {
+		return nil, fmt.Errorf("at_vertices mode requires a LineString geometry, got %q", geom.Type)
+	}
+	var coords [][]float64
+	if err := json.Unmarshal(geom.Coordinates, &coords); err != nil {
+		return nil, fmt.Errorf("invalid LineString coordinates: %w", err)
+	}
+	return coords, nil
 }
 
 // ImportDEM startet einen Background-Job der nach einem manuellen raster2pgsql-Import

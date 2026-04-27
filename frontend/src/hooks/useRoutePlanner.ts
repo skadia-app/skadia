@@ -24,12 +24,12 @@ import {
   type ElevationPoint,
   getProfileDefaults as fetchProfileDefaults,
 } from '@/api/routes'
+import { getElevationAtVerticesChunked } from '@/api/elevation-chunked'
+import { needsMigration, migrateRouteCached } from './migrateRoute'
 import type { ProfileConfig } from '@/lib/routingProfiles'
 import { getProfileDefaults, cacheServerDefaults } from '@/lib/routingProfiles'
 import { useToast } from '@/lib/toast'
 import { catmullRom, polylineDistanceM } from '@/lib/catmull-rom'
-import { haversineM } from '@/lib/geoUtils'
-import { showLazyFillNoticeOncePerSession } from '@/lib/strings/route-planner'
 
 // ─── Exported types ──────────────────────────────────────────────────────────
 
@@ -92,6 +92,10 @@ interface RoutePlannerState {
   // Monoton steigender Counter für Stale-Check parallel laufender loadRoute-Calls.
   lazyFillToken: number
   lazyFillPendingSave: boolean
+  // Per-segment fill tokens for offroad DEM fetches (Phase D.2).
+  // Key = `from_waypoint:to_waypoint`, value = monotonically increasing counter.
+  // Allocated inside setState updater (sequential guarantee, no race).
+  fillTokens: Map<string, number>
   // Bug B (2026-04-24): Engine-switch must not recompute when a saved route
   // was loaded and the target engine has no pending profile/setting change.
   // - lastRenderedEngine: engine whose computation produced the current
@@ -118,6 +122,7 @@ const INITIAL_STATE: RoutePlannerState = {
   lazyFillInProgress: false,
   lazyFillToken: 0,
   lazyFillPendingSave: false,
+  fillTokens: new Map(),
   lastRenderedEngine: null,
   dirtyEngines: { badrouter: false, brouter: false },
 }
@@ -174,6 +179,8 @@ function buildSegmentFromFeature(
   const props = feature?.properties ?? {}
   // BadRouter uses distance_m/ascent_m/descent_m, BRouter uses track-length/filtered ascend/descend
   const distance = Number(props['distance_m'] ?? props['track-length']) || 0
+  // total_distance_m is approach-inclusive (set by BadRouter addApproach); absent on BRouter/offroad.
+  const totalDistanceM = props['total_distance_m'] != null ? Number(props['total_distance_m']) : undefined
   const gain = Number(props['ascent_m'] ?? props['filtered ascend']) || 0
   const loss = Number(props['descent_m'] ?? props['filtered descend']) || 0
 
@@ -191,11 +198,14 @@ function buildSegmentFromFeature(
   if (Array.isArray(rawProfile) && rawProfile.length > 0) {
     const filtered = rawProfile
       .filter(
-        (pt): pt is { dist_m: number; ele_m: number } =>
+        // ele_m may be null (DEM coverage gap — Spec §6 Class A). Pass null through
+        // so the chart can render an honest gap rather than interpolating fake heights.
+        (pt): pt is { dist_m: number; ele_m: number | null } =>
           pt != null &&
           typeof pt === 'object' &&
           typeof (pt as { dist_m?: unknown }).dist_m === 'number' &&
-          typeof (pt as { ele_m?: unknown }).ele_m === 'number',
+          ((pt as { ele_m?: unknown }).ele_m === null ||
+            typeof (pt as { ele_m?: unknown }).ele_m === 'number'),
       )
       .map(pt => ({ dist_m: pt.dist_m, ele_m: pt.ele_m }))
     if (filtered.length > 0) elevationProfile = filtered
@@ -209,6 +219,7 @@ function buildSegmentFromFeature(
     control_points: isFallback ? [from.latlng, to.latlng] : [],
     smooth: true,
     distance_m: distance,
+    total_distance_m: totalDistanceM,
     elevation_gain: gain,
     elevation_loss: loss,
     approach_from: approachFrom,
@@ -507,55 +518,28 @@ export function deserializeRouteStats(
   }
 }
 
-/**
- * cumulativeHaversineMeters: O(n) kumulative Haversine über lon/lat-GeoJSON-Coords.
- *
- * Helper-Anker (verifiziert 2026-04-24): bestehender `haversineM(lat, lng, lat, lng)`
- * in `frontend/src/lib/geoUtils.ts:4` — Argument-Reihenfolge ist (lat, lng),
- * GeoJSON-[lon, lat] muss explizit übersetzt werden.
- *
- * Achsen-Anmerkung (Spec §7.4): Diese kumulative Distanz ist `geometry-inklusiv`
- * und kann am Anfang/Ende um die Approach-Längen vom späteren _calculateSegment-
- * Profile abweichen. Akzeptabel für Phase 1 (Lazy-Fill = best effort für Alt-Routen).
- */
-function cumulativeHaversineMeters(coords: number[][]): number {
-  let total = 0
-  for (let i = 1; i < coords.length; i++) {
-    const [lon1, lat1] = coords[i - 1]
-    const [lon2, lat2] = coords[i]
-    total += haversineM(lat1, lon1, lat2, lon2)
-  }
-  return total
-}
+// ─── Offroad DEM fill helper ──────────────────────────────────────────────────
 
 /**
- * buildProfileFromCoordZ: Last-resort elevation source from segment geometry's
- * inline-Z (coord[2]) when the DEM endpoint returns no usable samples.
+ * Pure async helper: samples DEM elevation at every vertex of an offroad
+ * segment's geometry and returns the segment with elevation_profile populated.
  *
- * Use case: routes outside DEM coverage (e.g. Hessen on a Lightweight setup)
- * where /elevation/profile returns elevation=null for every sample, but the
- * segments still carry valid 3D coordinates from the original routing pass.
+ * Returns the segment unchanged when:
+ * - mode !== 'offroad' (no-op for routed segments)
+ * - geometry is missing (segment not yet built)
  *
- * Distance axis is built via cumulativeHaversineMeters along the same coord
- * stream used for the DEM call (segment-order geometry — caller must already
- * have sorted by waypoint order). Returns [] if fewer than 2 valid Z-values
- * are available — caller should treat that as "no profile".
+ * The addToast callback is forwarded to getElevationAtVerticesChunked so the
+ * DEM-coverage warning (Spec §6 Class B) fires at most once per session.
+ * Pass null to suppress (e.g. tests without a toast provider).
  */
-function buildProfileFromCoordZ(coords: number[][]): RouteElevationPoint[] {
-  const out: RouteElevationPoint[] = []
-  let cum = 0
-  for (let i = 0; i < coords.length; i++) {
-    if (i > 0) {
-      const [lon1, lat1] = coords[i - 1]
-      const [lon2, lat2] = coords[i]
-      cum += haversineM(lat1, lon1, lat2, lon2)
-    }
-    const c = coords[i]
-    if (c.length >= 3 && typeof c[2] === 'number' && Number.isFinite(c[2])) {
-      out.push({ dist_m: cum, ele_m: c[2] })
-    }
-  }
-  return out.length >= 2 ? out : []
+async function fillOffroadSegmentProfile(
+  seg: RouteSegment,
+  addToast: Parameters<typeof getElevationAtVerticesChunked>[1],
+): Promise<RouteSegment> {
+  if (seg.mode !== 'offroad' || !seg.geometry) return seg
+  const profile = await getElevationAtVerticesChunked(seg.geometry, addToast)
+  // ele_m may be null (DEM coverage gap — Phase A.0 nullable); pass through as-is.
+  return { ...seg, elevation_profile: profile }
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -571,6 +555,24 @@ export function useRoutePlanner() {
   // Used by the effectiveProfile-sync useEffect to reject regressions where
   // a shorter dem-fallback would overwrite a longer segments-based profile.
   const _prevSourceRef = useRef<'segments' | 'dem-fallback' | 'none'>('none')
+
+  // Ref to fillOffroadAndApply so _calculateSegment (stable [] deps) can call it
+  // without needing it as a dep (avoids recreating the calculate callback on
+  // every addToast identity change).
+  const _fillOffroadRef = useRef<((seg: RouteSegment) => Promise<void>) | null>(null)
+
+  // Per-segment fill-token counters. Allocated synchronously (ref, not state)
+  // so that token assignment never writes to outer variables inside a setState
+  // updater — which React StrictMode prohibits (updaters may run twice).
+  // The allocated value is then mirrored into state so the race-guard in the
+  // completion updater can compare against s.fillTokens without an extra ref read.
+  const _fillTokenCountersRef = useRef<Map<string, number>>(new Map())
+
+  // Always-current state snapshot for callbacks that need synchronous reads
+  // (updateControlPoint / insertControlPoint / removeControlPoint) without
+  // relying on React's batching timing for the setState-updater-capture pattern.
+  const _stateRef = useRef(state)
+  _stateRef.current = state
 
   // ── Scale-Pin + Hover state (SAC / MTB / Via Ferrata) ────────────────────────
   // scalePin: persistente Auswahl (Click auf Badge, bleibt bis erneuter Click
@@ -795,6 +797,14 @@ export function useRoutePlanner() {
           dirtyEngines: { ...s.dirtyEngines, [engine]: false },
         }
       })
+
+      // Phase D.2 — Trigger 1: kick off DEM fill for fallback (offroad) segments.
+      // The segment geometry was just stored in state; fill runs concurrently.
+      if (isFallback && segment.geometry) {
+        void Promise.resolve().then(() => {
+          _fillOffroadRef.current?.(segment)
+        })
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Routenberechnung fehlgeschlagen'
@@ -806,6 +816,51 @@ export function useRoutePlanner() {
     }
   // setState from useState is stable
   }, [])
+
+  // ── Offroad DEM fill (Phase D.2) ─────────────────────────────────────────────
+  //
+  // Per-segment token counter: fillTokens Map<segKey, counter> prevents stale
+  // in-flight results from landing when the same segment was re-edited.
+  //
+  // Token allocation is done via _fillTokenCountersRef (synchronous, outside
+  // setState) so that no side-effect writes to an outer variable inside a pure
+  // setState updater. The allocated value is then mirrored into state so that
+  // the race-guard in the completion updater can read s.fillTokens normally.
+
+  const fillOffroadAndApply = useCallback(async (seg: RouteSegment) => {
+    const segKey = `${seg.from_waypoint}:${seg.to_waypoint}`
+
+    // Allocate token from the ref — synchronous, StrictMode-safe.
+    const allocatedToken = (_fillTokenCountersRef.current.get(segKey) ?? 0) + 1
+    _fillTokenCountersRef.current.set(segKey, allocatedToken)
+
+    // Mirror into state so the completion updater can use s.fillTokens for the
+    // race-guard check (pure updater — no outer-variable writes).
+    setState(s => {
+      const fillTokens = new Map(s.fillTokens)
+      fillTokens.set(segKey, allocatedToken)
+      return { ...s, fillTokens }
+    })
+
+    const filled = await fillOffroadSegmentProfile(seg, addToast)
+
+    setState(s => {
+      // Race-Guard: discard if a newer fill for the same segment was started.
+      if (s.fillTokens.get(segKey) !== allocatedToken) return s
+      // Segment-Identity-Check: segment may have been replaced (e.g. user removed
+      // and re-added a waypoint while the fetch was in-flight).
+      const idx = s.segments.findIndex(
+        x => x.from_waypoint === seg.from_waypoint && x.to_waypoint === seg.to_waypoint,
+      )
+      if (idx === -1) return s
+      const segments = [...s.segments]
+      segments[idx] = filled
+      return { ...s, segments }
+    })
+  }, [addToast])
+
+  // Keep the ref in sync so _calculateSegment can call it without a dep.
+  _fillOffroadRef.current = fillOffroadAndApply
 
   // ── Waypoint management ─────────────────────────────────────────────────────
 
@@ -1009,53 +1064,81 @@ export function useRoutePlanner() {
   // ── Control point CRUD ──────────────────────────────────────────────────────
 
   const updateControlPoint = useCallback((key: SegmentKey, cpIndex: number, latlng: [number, number]) => {
-    setState(s => {
-      const segments = [...s.segments]
-      const idx = segments.findIndex(
-        seg => seg.from_waypoint === key.from && seg.to_waypoint === key.to,
+    // Read current state synchronously from ref to avoid relying on React's batching
+    // timing for the setState-updater-capture pattern (which is unreliable in React 19
+    // when multiple setState calls are batched in the same tick).
+    const s = _stateRef.current
+    const idx = s.segments.findIndex(
+      seg => seg.from_waypoint === key.from && seg.to_waypoint === key.to,
+    )
+    if (idx < 0) return
+    const seg = { ...s.segments[idx] }
+    const cps = [...(seg.control_points ?? [])]
+    if (cpIndex < 0 || cpIndex >= cps.length) return
+    cps[cpIndex] = latlng
+    seg.control_points = cps
+    const updatedSeg = rebuildOffroadGeometry(seg)
+    setState(prev => {
+      // Re-validate inside updater: the segment must still exist at the same position.
+      const i = prev.segments.findIndex(
+        sg => sg.from_waypoint === key.from && sg.to_waypoint === key.to,
       )
-      if (idx < 0) return s
-      const seg = { ...segments[idx] }
-      const cps = [...(seg.control_points ?? [])]
-      if (cpIndex < 0 || cpIndex >= cps.length) return s
-      cps[cpIndex] = latlng
-      seg.control_points = cps
-      segments[idx] = rebuildOffroadGeometry(seg)
-      return { ...s, segments }
+      if (i < 0) return prev
+      const segments = [...prev.segments]
+      segments[i] = updatedSeg
+      return { ...prev, segments }
     })
+    // Phase D.2 — Trigger 2: DEM fill after control point drag (geometry changed).
+    void Promise.resolve().then(() => { _fillOffroadRef.current?.(updatedSeg) })
   }, [])
 
   const insertControlPoint = useCallback((key: SegmentKey, afterCpIndex: number, latlng: [number, number]) => {
-    setState(s => {
-      const segments = [...s.segments]
-      const idx = segments.findIndex(
-        seg => seg.from_waypoint === key.from && seg.to_waypoint === key.to,
+    const s = _stateRef.current
+    const idx = s.segments.findIndex(
+      seg => seg.from_waypoint === key.from && seg.to_waypoint === key.to,
+    )
+    if (idx < 0) return
+    const seg = { ...s.segments[idx] }
+    const cps = [...(seg.control_points ?? [])]
+    cps.splice(afterCpIndex + 1, 0, latlng)
+    seg.control_points = cps
+    const updatedSeg = rebuildOffroadGeometry(seg)
+    setState(prev => {
+      const i = prev.segments.findIndex(
+        sg => sg.from_waypoint === key.from && sg.to_waypoint === key.to,
       )
-      if (idx < 0) return s
-      const seg = { ...segments[idx] }
-      const cps = [...(seg.control_points ?? [])]
-      cps.splice(afterCpIndex + 1, 0, latlng)
-      seg.control_points = cps
-      segments[idx] = rebuildOffroadGeometry(seg)
-      return { ...s, segments }
+      if (i < 0) return prev
+      const segments = [...prev.segments]
+      segments[i] = updatedSeg
+      return { ...prev, segments }
     })
+    // Phase D.2 — Trigger 2: DEM fill after control point insert.
+    void Promise.resolve().then(() => { _fillOffroadRef.current?.(updatedSeg) })
   }, [])
 
   const removeControlPoint = useCallback((key: SegmentKey, cpIndex: number) => {
-    setState(s => {
-      const segments = [...s.segments]
-      const idx = segments.findIndex(
-        seg => seg.from_waypoint === key.from && seg.to_waypoint === key.to,
+    const s = _stateRef.current
+    const idx = s.segments.findIndex(
+      seg => seg.from_waypoint === key.from && seg.to_waypoint === key.to,
+    )
+    if (idx < 0) return
+    const seg = { ...s.segments[idx] }
+    const cps = [...(seg.control_points ?? [])]
+    if (cpIndex < 0 || cpIndex >= cps.length) return
+    cps.splice(cpIndex, 1)
+    seg.control_points = cps
+    const updatedSeg = rebuildOffroadGeometry(seg)
+    setState(prev => {
+      const i = prev.segments.findIndex(
+        sg => sg.from_waypoint === key.from && sg.to_waypoint === key.to,
       )
-      if (idx < 0) return s
-      const seg = { ...segments[idx] }
-      const cps = [...(seg.control_points ?? [])]
-      if (cpIndex < 0 || cpIndex >= cps.length) return s
-      cps.splice(cpIndex, 1)
-      seg.control_points = cps
-      segments[idx] = rebuildOffroadGeometry(seg)
-      return { ...s, segments }
+      if (i < 0) return prev
+      const segments = [...prev.segments]
+      segments[i] = updatedSeg
+      return { ...prev, segments }
     })
+    // Phase D.2 — Trigger 2: DEM fill after control point removal.
+    void Promise.resolve().then(() => { _fillOffroadRef.current?.(updatedSeg) })
   }, [])
 
   // ── Profile ─────────────────────────────────────────────────────────────────
@@ -1195,21 +1278,21 @@ export function useRoutePlanner() {
         })
     }
 
-    // ── Lazy-Fill (Spec Rev 2.3 §7.4 / F3 / §R7) ──────────────────────────
-    // Only DEM-sampling — never recalculateAll.
-    const needsLazyFill =
-      (route.elevation_profile == null || route.elevation_profile.length === 0)
-      && (route.segments?.length ?? 0) > 0
-
-    if (!needsLazyFill) return
+    // ── Pre-T0 Migration (Phase E / Spec §5.3-5.5) ────────────────────────────
+    // Only migrate when the route needs it — T0 steady-state routes are
+    // served with route_schema_version=1 and all segments having profiles,
+    // so needsMigration returns false and we skip this entire path.
+    // Note: segments + lazyFillInProgress=false are already set by the setState
+    // above, so the no-migration path is a plain return.
+    if (!needsMigration(route)) return
 
     // Snapshot the segments-array reference BEFORE the await.
     // Any user mutation (moveWaypoint/add/delete → _calculateSegment replaces
     // the segments array) will break the === check in the post-await callback.
     const segmentsSnapshot = route.segments
 
-    // Token-counter prevents a concurrent loadRoute(R2) from being overwritten
-    // by an in-flight loadRoute(R1) lazy-fill result.
+    // Token-counter prevents a concurrent loadRoute(R2) from overwriting an
+    // in-flight loadRoute(R1) migration result.
     let expectedToken = 0
     setState(s => {
       const newToken = (s.lazyFillToken ?? 0) + 1
@@ -1218,113 +1301,40 @@ export function useRoutePlanner() {
     })
 
     void (async () => {
+      let migratedSegments: RouteSegment[]
       try {
-        // Build combined geometry from segments (sorted by waypoint order
-        // for safety — mirrors the pattern at line ~1255).
-        const wpOrder = new Map(route.waypoints.map((wp, i) => [wp.id, i]))
-        // Junction-dedup: for segment index > 0, skip the first coord (it's the
-        // last coord of the previous segment). Mirrors buildCombinedProfileFromSegments.
-        const sortedSegments = [...segmentsSnapshot].sort(
-          (a, b) =>
-            (wpOrder.get(a.from_waypoint) ?? Infinity) -
-            (wpOrder.get(b.from_waypoint) ?? Infinity),
-        )
-        const combinedCoordinates = sortedSegments.flatMap(
-          (seg, i) => {
-            const coords = (seg.geometry?.coordinates ?? []) as number[][]
-            return i === 0 ? coords : coords.slice(1)
-          },
-        )
-
-        if (combinedCoordinates.length < 2) {
-          setState(s => {
-            if (s.lazyFillToken !== expectedToken || s.segments !== segmentsSnapshot) return s
-            return { ...s, lazyFillInProgress: false }
-          })
-          return
-        }
-
-        const combinedGeometry: GeoJSON.LineString = {
-          type: 'LineString',
-          coordinates: combinedCoordinates,
-        }
-
-        // getElevationProfile is NOT a routing call — it samples DEM heights
-        // along the persisted geometry. No route drift possible.
-        const { profile } = await getElevationProfile(combinedGeometry, 200)
-
-        if (!profile || profile.length === 0) {
-          // No DEM available (Lightweight system): silent graceful degradation.
-          setState(s => {
-            if (s.lazyFillToken !== expectedToken || s.segments !== segmentsSnapshot) return s
-            return { ...s, lazyFillInProgress: false }
-          })
-          return
-        }
-
-        let applied = false
-        // Spec §7.4 + §R7: stale-check via reference-identity + token counter.
-        setState(s => {
-          // 1. User triggered a segment mutation during the call: discard.
-          if (s.segments !== segmentsSnapshot) {
-            return { ...s, lazyFillInProgress: false }
-          }
-          // 2. A newer loadRoute incremented the token: discard.
-          if (s.lazyFillToken !== expectedToken) {
-            return { ...s, lazyFillInProgress: false }
-          }
-          const totalDistM = cumulativeHaversineMeters(combinedCoordinates)
-          // Bug #6 fix: detect partial DEM coverage. legacyToRouteProfile only
-          // filters out null samples — when more than half the samples are null
-          // the remaining profile has a non-uniform dist_m axis with visible
-          // gaps. In that case, fall back to the coord[2]-derived profile which
-          // is uniform (from the original routing pass). The 50% threshold is
-          // intentional: below it we accept the partial DEM data as "good enough"
-          // because the gaps are small and real (the area is outside DEM coverage).
-          const nullCount = profile.filter(pt => pt.elevation === null).length
-          const nullRatio = profile.length > 0 ? nullCount / profile.length : 1
-          const converted = nullRatio <= 0.5
-            ? legacyToRouteProfile(profile, totalDistM)
-            : []
-          // DEM-fallback: when `legacyToRouteProfile` would return empty —
-          // either all DEM samples are null (region outside coverage, Bug A
-          // fix 2026-04-24) or more than half are null (sparse profile with
-          // non-uniform dist_m axis, Bug #6 — gated above by the
-          // `nullRatio <= 0.5` ternary) — fall back to inline-Z (coord[2])
-          // from segment geometry, which still carries valid heights from the
-          // original routing pass. If even inline-Z is empty/missing, keep
-          // effectiveProfile null and skip the PendingSave flag.
-          let final = converted
-          if (final.length === 0) {
-            final = buildProfileFromCoordZ(combinedCoordinates)
-          }
-          if (final.length === 0) {
-            return { ...s, lazyFillInProgress: false }
-          }
-          applied = true
-          // Bug B (2026-04-25): lazy-fill produced a full DEM profile (200+
-          // samples) — treat as 'segments'-grade so subsequent edits cannot
-          // overwrite it with a shorter dem-fallback candidate.
-          _prevSourceRef.current = 'segments'
-          return {
-            ...s,
-            effectiveProfile: final,
-            lazyFillInProgress: false,
-            lazyFillPendingSave: true,
-          }
-        })
-
-        if (applied) {
-          showLazyFillNoticeOncePerSession(addToast)
-        }
+        migratedSegments = await migrateRouteCached(route)
       } catch {
-        // Endpoint unavailable (Selfhoster ohne PostGIS-DEM, 500 etc.):
-        // silent graceful degradation. No toast, no state crash.
+        // DEM endpoint unavailable or migration error: silent graceful degradation.
+        // Toast is shown so the user knows the profile may be incomplete.
+        addToast({
+          type: 'error',
+          title: 'Höhenprofil-Migration fehlgeschlagen',
+          message: 'Höhenprofil bleibt unvollständig — bitte Seite neu laden.',
+          duration: 0,
+        })
         setState(s => {
           if (s.lazyFillToken !== expectedToken || s.segments !== segmentsSnapshot) return s
           return { ...s, lazyFillInProgress: false }
         })
+        return
       }
+
+      setState(s => {
+        // Race-guard: user triggered a segment mutation or a newer loadRoute
+        // incremented the token while migration was in-flight → discard.
+        if (s.lazyFillToken !== expectedToken || s.segments !== segmentsSnapshot) {
+          return { ...s, lazyFillInProgress: false }
+        }
+        // Migration is strictly read-only (Spec §5.4): do NOT set
+        // lazyFillPendingSave=true. The next explicit user save will persist
+        // the filled profiles and set route_schema_version=1 server-side.
+        return {
+          ...s,
+          segments: migratedSegments,
+          lazyFillInProgress: false,
+        }
+      })
     })()
   }, [addToast])
 
@@ -1383,11 +1393,14 @@ export function useRoutePlanner() {
     if (Array.isArray(rawSegProfile) && rawSegProfile.length > 0) {
       const filtered = rawSegProfile
         .filter(
-          (pt): pt is { dist_m: number; ele_m: number } =>
+          // ele_m may be null (DEM coverage gap — Spec §6 Class A). Pass null through
+          // so the chart can render an honest gap rather than interpolating fake heights.
+          (pt): pt is { dist_m: number; ele_m: number | null } =>
             pt != null &&
             typeof pt === 'object' &&
             typeof (pt as { dist_m?: unknown }).dist_m === 'number' &&
-            typeof (pt as { ele_m?: unknown }).ele_m === 'number',
+            ((pt as { ele_m?: unknown }).ele_m === null ||
+              typeof (pt as { ele_m?: unknown }).ele_m === 'number'),
         )
         .map(pt => ({ dist_m: pt.dist_m, ele_m: pt.ele_m }))
       if (filtered.length > 0) segElevationProfile = filtered
@@ -1741,7 +1754,7 @@ export function useRoutePlanner() {
       combinedCoordinates[0]?.toString(),
       combinedCoordinates[combinedCoordinates.length - 1]?.toString(),
     ],
-    queryFn: () => getElevationProfile(combinedGeometry!, 200),
+    queryFn: () => getElevationProfile(combinedGeometry!, { numPoints: 200 }),
     enabled: needsBRouterFallback,
     staleTime: 60 * 1000,
   })
@@ -1835,7 +1848,9 @@ export function useRoutePlanner() {
   // ── Totals ──────────────────────────────────────────────────────────────────
 
   const totals = {
-    distance_m: state.segments.reduce((acc, seg) => acc + seg.distance_m, 0),
+    // Use approach-inclusive total_distance_m when available (BadRouter); fall back to
+    // network-only distance_m for BRouter and offroad segments (Spec §5.5 / Finding #17).
+    distance_m: state.segments.reduce((acc, seg) => acc + (seg.total_distance_m ?? seg.distance_m), 0),
     elevation_gain: state.segments.reduce(
       (acc, seg) => acc + seg.elevation_gain,
       0,

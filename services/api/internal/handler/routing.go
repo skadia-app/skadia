@@ -17,6 +17,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
@@ -355,11 +356,7 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 	const tileCacheBytes = 4_000_000_000 // 4 GB — consistent with startup default
 
 	shutdown.Go(jobID, func(ctx context.Context) {
-		hgtDirs := []string{
-			filepath.Join(h.Config.DEMDataDir, "sonny-05"),
-			filepath.Join(h.Config.DEMDataDir, "sonny-1"),
-			filepath.Join(h.Config.DEMDataDir, "glo30"),
-		}
+		hgtDirs := dem.HGTDirsForConfig(h.Config.DEMDataDir)
 		workers := 2
 		var tilesBuilt atomic.Int64
 		var countedTiles sync.Map // tileID → true, prevents double-counting

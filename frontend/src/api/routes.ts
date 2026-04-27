@@ -23,7 +23,8 @@ export interface RouteSegment {
   geometry?: GeoJSON.LineString   // BRouter or offroad polyline
   control_points: [number, number][] // Offroad: shape points
   smooth: boolean                 // Catmull-Rom spline on/off
-  distance_m: number
+  distance_m: number              // network-only (routed edges, without approach)
+  total_distance_m?: number       // approach-inclusive (= ElevationProfile[last].DistM); absent for BRouter/offroad
   elevation_gain: number          // DEM-based
   elevation_loss: number
   elevation_estimated?: boolean   // true for offroad segments (no DEM lookup)
@@ -58,6 +59,10 @@ export interface PlannedRoute {
   elevation_profile?: RouteElevationPoint[] | null  // NEW
   enrichment?: Record<string, unknown> | null       // NEW (opaque JSONB-passthrough)
   routing_engine?: 'badrouter' | 'brouter' | null   // NEW (Migration 000332)
+  // T0-Migration gate (Spec §5.8 / Phase E). 0 = pre-T0 route (segments may
+  // lack elevation_profile). 1 = T0-formatted (all segments have profiles).
+  // Absent from old server responses — treat as 0 via `?? 0`.
+  route_schema_version?: number
   photos: RoutePhoto[]
   tags: Tag[]
   created_at: string
@@ -98,17 +103,17 @@ export interface ElevationPoint {
 // NEW — Route-Response-Profile, distinct vom /elevation/profile-Endpoint-Type
 export interface RouteElevationPoint {
   dist_m: number
-  ele_m: number
+  ele_m: number | null  // null for NoData / coverage gap (Spec §6 Class A)
 }
 
-// Legacy → Route-Profile Converter (für BRouter-Save-Pfad bei Fallback)
+// Legacy → Route-Profile Converter (for BRouter save-path fallback).
+// null elevation is preserved as-is — do NOT substitute 0 or any sentinel
+// (buildProfile handles nulls by skipping those points).
 export function legacyToRouteProfile(
   points: ElevationPoint[],
   totalDistM: number,
 ): RouteElevationPoint[] {
-  return points
-    .filter((pt): pt is ElevationPoint & { elevation: number } => pt.elevation !== null)
-    .map(pt => ({ dist_m: pt.fraction * totalDistM, ele_m: pt.elevation }))
+  return points.map(pt => ({ dist_m: pt.fraction * totalDistM, ele_m: pt.elevation }))
 }
 
 export interface IsochronePolygon {
@@ -270,9 +275,12 @@ export async function queryElevation(
 
 export async function getElevationProfile(
   geometry: GeoJSON.LineString,
-  numPoints: number = 100,
+  opts: { numPoints?: number; atVertices?: boolean } = {},
 ): Promise<{ profile: ElevationPoint[] }> {
-  return apiClient('/elevation/profile', { method: 'POST', body: { geometry, num_points: numPoints } })
+  const body: Record<string, unknown> = { geometry }
+  if (opts.atVertices) body.at_vertices = true
+  else body.num_points = opts.numPoints ?? 200
+  return apiClient('/elevation/profile', { method: 'POST', body })
 }
 
 // === POI Search ===
