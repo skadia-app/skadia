@@ -13,7 +13,7 @@ import { useRoutePlanner, mergeSegmentStatsForState, buildCombinedProfileFromSeg
 import type { RouteStats } from '../useRoutePlanner'
 import type { RouteSegment, PlannedRoute, RouteWaypoint, ElevationPoint } from '@/api/routes'
 import { makeFakeRouteStats, makeFakeSuggestion } from '@/test-utils/routeFixtures'
-import { __resetMigrationCacheForTesting } from '../migrateRoute'
+import { clearMigrationCache } from '../migrateRoute'
 
 // Shared mock for getElevationAtVerticesChunked — used in D.2 token tests
 const getElevationAtVerticesChunkedMock = vi.hoisted(() => vi.fn())
@@ -629,7 +629,7 @@ describe('useRoutePlanner lazy-fill (DEM-only, Spec Rev 2.3 §7.5)', () => {
     addToastMock.mockClear()
     sessionStorage.removeItem('skadia.lazy_fill_notice_shown')
     // Reset migration session cache so each test starts clean.
-    __resetMigrationCacheForTesting()
+    clearMigrationCache()
     // Reset getElevationAtVerticesChunked mock to a safe default (returns empty array).
     getElevationAtVerticesChunkedMock.mockResolvedValue([])
 
@@ -1011,7 +1011,7 @@ describe('useRoutePlanner lazy-fill token-counter (Spec §7.5, Critic #7)', () =
     addToastMock.mockClear()
     sessionStorage.removeItem('skadia.lazy_fill_notice_shown')
     computeInternalRouteMock.mockReset()
-    __resetMigrationCacheForTesting()
+    clearMigrationCache()
     getElevationAtVerticesChunkedMock.mockResolvedValue([])
 
     const { getProfileDefaults, cacheServerDefaults } = await import('@/lib/routingProfiles')
