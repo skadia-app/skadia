@@ -56,6 +56,11 @@ func (h *Handler) CreateUserMapLayer(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
 		return
 	}
+	if m.DefaultOpacity < 0 || m.DefaultOpacity > 100 {
+		httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+			mapLayerErrBody("invalid_opacity", "default_opacity must be between 0 and 100"))
+		return
+	}
 	if m.Attribution != nil {
 		s := model.SanitizeAttribution(*m.Attribution)
 		m.Attribution = &s
@@ -123,6 +128,15 @@ func (h *Handler) PatchUserMapLayer(w http.ResponseWriter, r *http.Request) {
 	}
 	if v, ok := patch["attribution"].(string); ok {
 		patch["attribution"] = model.SanitizeAttribution(v)
+	}
+	// Validate default_opacity range before reaching the DB CHECK constraint
+	// (which would return 500 instead of a meaningful 422).
+	if v, ok := patch["default_opacity"].(float64); ok {
+		if v < 0 || v > 100 {
+			httputil.WriteJSON(w, http.StatusUnprocessableEntity,
+				mapLayerErrBody("invalid_opacity", "default_opacity must be between 0 and 100"))
+			return
+		}
 	}
 
 	patchErr := h.DB.UpdateUserMapLayer(r.Context(), uid, id, patch)
