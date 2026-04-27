@@ -18,7 +18,7 @@ import RouteComparisonPanel, { SUGGESTION_COLORS } from '@/components/route-plan
 import { getRoute } from '@/api/routes'
 import type { RouteSuggestion } from '@/api/routes'
 import { useRoutePlanner } from '@/hooks/useRoutePlanner'
-import { buildProfileToCoordMap, hoverPointAtFraction } from '@/hooks/profileToCoordMap'
+import { bboxForProfileDistRange, buildProfileToCoordMap, hoverPointAtFraction } from '@/hooks/profileToCoordMap'
 import { getTagTextColor, getTagBadgeStyle } from '@/lib/tagUtils'
 import { fmtDateCompact } from '@/lib/format'
 import { useRouteEditor } from '@/components/route-planner/useRouteEditor'
@@ -542,6 +542,23 @@ export default function MapPage() {
     )
     routePlannerMapRef.current?.setHoverPoint(point)
   }, [planner.totals.distance_m, profileCoordMap])
+
+  const handleProfileBrushZoom = useCallback((startDistM: number, endDistM: number) => {
+    if (!profileCoordMap) return
+    const bbox = bboxForProfileDistRange(
+      startDistM,
+      endDistM,
+      profileCoordMap.profile,
+      profileCoordMap.map,
+      profileCoordMap.coords,
+    )
+    if (!bbox) return
+    routePlannerMapRef.current?.fitBoundsToBBox(bbox, { padding: 48, animate: true, maxZoom: 15 })
+  }, [profileCoordMap])
+
+  const handleProfileBrushReset = useCallback(() => {
+    routePlannerMapRef.current?.fitBoundsToFullRoute()
+  }, [])
 
   // Style version counter for re-adding layers after style changes
   const [styleVersion, setStyleVersion] = useState(0)
@@ -3514,6 +3531,8 @@ export default function MapPage() {
                   onScaleHover={planner.setScaleHover}
                   onSummitHover={setSummitHovered}
                   onHoverFraction={handleProfileHover}
+                  onBrushZoom={handleProfileBrushZoom}
+                  onBrushReset={handleProfileBrushReset}
                   summitPinned={summitPinned}
                   onToggleSummitPin={toggleSummitPin}
                   isCalculating={planner.isCalculating}

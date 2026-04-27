@@ -137,3 +137,42 @@ export function hoverPointAtFraction(
   const [lng, lat] = coord
   return { lat, lng }
 }
+
+export function bboxForProfileDistRange(
+  startDistM: number,
+  endDistM: number,
+  profile: RouteElevationPoint[],
+  profileToCoordMap: ProfileToCoordMap,
+  coords: [number, number][],
+): [number, number, number, number] | null {
+  if (profile.length === 0 || coords.length === 0) return null
+  const startProfileIdx = profileIdxAtDist(Math.min(startDistM, endDistM), profile)
+  const endProfileIdx = profileIdxAtDist(Math.max(startDistM, endDistM), profile)
+  if (startProfileIdx < 0 || endProfileIdx < 0) return null
+
+  const startCoordIdx = profileToCoordMap[startProfileIdx]
+  const endCoordIdx = profileToCoordMap[endProfileIdx]
+  if (startCoordIdx == null || endCoordIdx == null) return null
+
+  const from = Math.max(0, Math.min(startCoordIdx, endCoordIdx))
+  const to = Math.min(coords.length - 1, Math.max(startCoordIdx, endCoordIdx))
+  let minLng = Infinity
+  let minLat = Infinity
+  let maxLng = -Infinity
+  let maxLat = -Infinity
+
+  for (let idx = from; idx <= to; idx++) {
+    const coord = coords[idx]
+    if (!coord) continue
+    const [lng, lat] = coord
+    minLng = Math.min(minLng, lng)
+    minLat = Math.min(minLat, lat)
+    maxLng = Math.max(maxLng, lng)
+    maxLat = Math.max(maxLat, lat)
+  }
+
+  if (!Number.isFinite(minLng) || !Number.isFinite(minLat) || !Number.isFinite(maxLng) || !Number.isFinite(maxLat)) {
+    return null
+  }
+  return [minLng, minLat, maxLng, maxLat]
+}
