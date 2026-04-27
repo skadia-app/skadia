@@ -96,3 +96,87 @@ export function buildProfileToCoordMap(
   if (profile.length === 0) return null
   return { profile, map, coords }
 }
+
+export function profileIdxAtDist(distM: number, profile: RouteElevationPoint[]): number {
+  if (profile.length === 0) return -1
+  if (distM <= profile[0].dist_m) return 0
+  const lastIdx = profile.length - 1
+  if (distM >= profile[lastIdx].dist_m) return lastIdx
+
+  let lo = 0
+  let hi = lastIdx
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2)
+    if (profile[mid].dist_m < distM) {
+      lo = mid + 1
+    } else {
+      hi = mid
+    }
+  }
+
+  const nextIdx = lo
+  const prevIdx = lo - 1
+  const prevDelta = Math.abs(distM - profile[prevIdx].dist_m)
+  const nextDelta = Math.abs(profile[nextIdx].dist_m - distM)
+  return prevDelta <= nextDelta ? prevIdx : nextIdx
+}
+
+export function hoverPointAtFraction(
+  fraction: number,
+  totalDistanceM: number,
+  profile: RouteElevationPoint[],
+  profileToCoordMap: ProfileToCoordMap,
+  coords: [number, number][],
+): { lat: number; lng: number } | null {
+  if (totalDistanceM <= 0 || profile.length === 0) return null
+  const profileIdx = profileIdxAtDist(fraction * totalDistanceM, profile)
+  if (profileIdx < 0) return null
+  const coordIdx = profileToCoordMap[profileIdx]
+  const coord = coords[coordIdx]
+  if (!coord) return null
+  const [lng, lat] = coord
+  return { lat, lng }
+}
+
+export function bboxForProfileDistRange(
+  startDistM: number,
+  endDistM: number,
+  profile: RouteElevationPoint[],
+  profileToCoordMap: ProfileToCoordMap,
+  coords: [number, number][],
+): [number, number, number, number] | null {
+  if (profile.length === 0 || coords.length === 0) return null
+  const startProfileIdx = profileIdxAtDist(Math.min(startDistM, endDistM), profile)
+  const endProfileIdx = profileIdxAtDist(Math.max(startDistM, endDistM), profile)
+  if (startProfileIdx < 0 || endProfileIdx < 0) return null
+
+  const startCoordIdx = profileToCoordMap[startProfileIdx]
+  const endCoordIdx = profileToCoordMap[endProfileIdx]
+  if (startCoordIdx == null || endCoordIdx == null) return null
+  // Both dist endpoints snapped to the same coord → degenerate single-point bbox.
+  // A single [lon,lat,lon,lat] bbox would cause fitBounds to zoom to maxZoom=15
+  // on a single point. Return null so the caller skips the fitBounds call.
+  if (startCoordIdx === endCoordIdx) return null
+
+  const from = Math.max(0, Math.min(startCoordIdx, endCoordIdx))
+  const to = Math.min(coords.length - 1, Math.max(startCoordIdx, endCoordIdx))
+  let minLng = Infinity
+  let minLat = Infinity
+  let maxLng = -Infinity
+  let maxLat = -Infinity
+
+  for (let idx = from; idx <= to; idx++) {
+    const coord = coords[idx]
+    if (!coord) continue
+    const [lng, lat] = coord
+    minLng = Math.min(minLng, lng)
+    minLat = Math.min(minLat, lat)
+    maxLng = Math.max(maxLng, lng)
+    maxLat = Math.max(maxLat, lat)
+  }
+
+  if (!Number.isFinite(minLng) || !Number.isFinite(minLat) || !Number.isFinite(maxLng) || !Number.isFinite(maxLat)) {
+    return null
+  }
+  return [minLng, minLat, maxLng, maxLat]
+}

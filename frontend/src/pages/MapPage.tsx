@@ -1,13 +1,13 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useLocation } from 'react-router-dom'
-import maplibregl, { type RequestParameters } from 'maplibre-gl'
-import { getToken } from '@/lib/auth'
+import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import MapFilters from '@/components/MapFilters'
 import CustomMapsPanel from '@/components/CustomMapsPanel'
 import IndoorAssignPanel from '@/components/IndoorAssignPanel'
 import ColorPicker from '@/components/ColorPicker'
+import { RoutePlannerMap, type RoutePlannerMapHandle } from '@/components/route-planner/RoutePlannerMap'
 import RoutePlannerPanel from '@/components/route-planner/RoutePlannerPanel'
 import RouteSuggestionDialog from '@/components/route-planner/RouteSuggestionDialog'
 import RouteSaveDialog from '@/components/route-planner/RouteSaveDialog'
@@ -18,6 +18,7 @@ import RouteComparisonPanel, { SUGGESTION_COLORS } from '@/components/route-plan
 import { getRoute } from '@/api/routes'
 import type { RouteSuggestion } from '@/api/routes'
 import { useRoutePlanner } from '@/hooks/useRoutePlanner'
+import { bboxForProfileDistRange, buildProfileToCoordMap, hoverPointAtFraction } from '@/hooks/profileToCoordMap'
 import { getTagTextColor, getTagBadgeStyle } from '@/lib/tagUtils'
 import { fmtDateCompact } from '@/lib/format'
 import { useRouteEditor } from '@/components/route-planner/useRouteEditor'
@@ -291,9 +292,9 @@ function buildTileUrl(
 }
 
 export default function MapPage() {
-  const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRelativeRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  const routePlannerMapRef = useRef<RoutePlannerMapHandle>(null)
   const navigate = useNavigate()
   const location = useLocation()
   const { theme: uiTheme, setTheme: setUiTheme } = useTheme()
@@ -438,6 +439,7 @@ export default function MapPage() {
 
   const planner = useRoutePlanner()
   const { addToast } = useToast()
+  const preT0HoverToastRouteRef = useRef<string | null>(null)
   const [layerMenuOpen, setLayerMenuOpen] = useState(false)
 
   const topButtonsRef = useRef<HTMLDivElement>(null)
@@ -500,6 +502,90 @@ export default function MapPage() {
     planner.clear()
   }, [planner])
 
+  const plannerCombinedCoords = useMemo<[number, number][]>(() => {
+    const out: [number, number][] = []
+    const wpOrder = new Map(planner.waypoints.map((wp, idx) => [wp.id, idx]))
+    const sortedSegments = [...planner.segments].sort(
+      (a, b) =>
+        (wpOrder.get(a.from_waypoint) ?? Infinity) -
+        (wpOrder.get(b.from_waypoint) ?? Infinity),
+    )
+    for (let segIdx = 0; segIdx < sortedSegments.length; segIdx++) {
+      const coords = sortedSegments[segIdx].geometry?.coordinates ?? []
+      const start = segIdx === 0 ? 0 : 1
+      for (let coordIdx = start; coordIdx < coords.length; coordIdx++) {
+        const coord = coords[coordIdx]
+        if (typeof coord[0] === 'number' && typeof coord[1] === 'number') {
+          out.push([coord[0], coord[1]])
+        }
+      }
+    }
+    return out
+  }, [planner.segments, planner.waypoints])
+
+  const profileCoordMap = useMemo(
+    () => buildProfileToCoordMap(planner.segments, planner.waypoints),
+    [planner.segments, planner.waypoints],
+  )
+
+  const showPreT0HoverToast = useCallback(() => {
+    const routeKey = planner.editingRouteId ?? 'unsaved'
+    if (preT0HoverToastRouteRef.current === routeKey) return
+    preT0HoverToastRouteRef.current = routeKey
+    addToast({
+      type: 'info',
+      title: 'Altes Höhenprofil',
+      message: 'Diese Route ist im alten Profil-Format gespeichert.',
+      duration: 0,
+      action: {
+        label: 'Re-Migrieren',
+        onClick: () => {
+          void planner.forceMigrateAndSave?.()
+        },
+      },
+    })
+  }, [addToast, planner])
+
+  const handleProfileHover = useCallback((fraction: number | null) => {
+    if (fraction === null) {
+      routePlannerMapRef.current?.setHoverPoint(null)
+      return
+    }
+    if (!profileCoordMap) {
+      routePlannerMapRef.current?.setHoverPoint(null)
+      if (planner.routeSchemaVersion === 0) showPreT0HoverToast()
+      return
+    }
+    const point = hoverPointAtFraction(
+      fraction,
+      planner.totals.distance_m,
+      profileCoordMap.profile,
+      profileCoordMap.map,
+      profileCoordMap.coords,
+    )
+    routePlannerMapRef.current?.setHoverPoint(point)
+  }, [planner.routeSchemaVersion, planner.totals.distance_m, profileCoordMap, showPreT0HoverToast])
+
+  const handleProfileBrushZoom = useCallback((startDistM: number, endDistM: number) => {
+    if (!profileCoordMap) {
+      if (planner.routeSchemaVersion === 0) showPreT0HoverToast()
+      return
+    }
+    const bbox = bboxForProfileDistRange(
+      startDistM,
+      endDistM,
+      profileCoordMap.profile,
+      profileCoordMap.map,
+      profileCoordMap.coords,
+    )
+    if (!bbox) return
+    routePlannerMapRef.current?.fitBoundsToBBox(bbox, { padding: 48, animate: true, maxZoom: 15 })
+  }, [planner.routeSchemaVersion, profileCoordMap, showPreT0HoverToast])
+
+  const handleProfileBrushReset = useCallback(() => {
+    routePlannerMapRef.current?.fitBoundsToFullRoute()
+  }, [])
+
   // Style version counter for re-adding layers after style changes
   const [styleVersion, setStyleVersion] = useState(0)
 
@@ -512,26 +598,11 @@ export default function MapPage() {
   useEffect(() => {
     if (!planner.editingRouteId) return
     if (planner.editingRouteId === lastFittedRouteIdRef.current) return
-    const map = mapRef.current
-    if (!map) return
-    const allCoords: [number, number][] = []
-    for (const seg of planner.segments) {
-      const coords = seg.geometry?.coordinates
-      if (!coords) continue
-      for (const c of coords) {
-        if (typeof c[0] === 'number' && typeof c[1] === 'number') {
-          allCoords.push([c[0], c[1]])
-        }
-      }
-    }
-    if (allCoords.length === 0) return
-    const bounds = new maplibregl.LngLatBounds(allCoords[0], allCoords[0])
-    for (const c of allCoords) bounds.extend(c)
-    const sw = bounds.getSouthWest()
-    const ne = bounds.getNorthEast()
-    map.fitBounds(bounds, { padding: 80, maxZoom: pickMaxZoomForBounds(sw.lat, sw.lng, ne.lat, ne.lng) })
+    if (!routePlannerMapRef.current) return
+    if (plannerCombinedCoords.length === 0) return
+    routePlannerMapRef.current.fitBoundsToFullRoute()
     lastFittedRouteIdRef.current = planner.editingRouteId
-  }, [planner.editingRouteId, planner.segments, styleVersion])
+  }, [planner.editingRouteId, plannerCombinedCoords.length, styleVersion])
 
   // ── Route Suggestion map layers ──────────────────────────────────────────
   const SUGGESTION_OFFSETS: [number, number][] = useMemo(() => [[0, 0], [-3, 0], [3, 0]], [])
@@ -1308,6 +1379,7 @@ export default function MapPage() {
   const viewModeRef = useRef(viewMode)
   const teleportRef = useRef(teleportThresholdM)
   const samplingRef = useRef(samplingIntervalM)
+  const prevBaseStyleRef = useRef<BaseStyle>(savedViewport?.baseStyle ?? loadDefaultBaseStyle())
   // Kamera-Zustand vor setStyle() sichern → persistenter style.load-Handler stellt ihn wieder her
   const pendingCameraRestoreRef = useRef<{ center: maplibregl.LngLat; zoom: number } | null>(null)
   const electricTagIdRef = useRef<string | undefined>(electricTag?.id)
@@ -1325,91 +1397,37 @@ export default function MapPage() {
   useEffect(() => { teleportRef.current = teleportThresholdM }, [teleportThresholdM])
   useEffect(() => { samplingRef.current = samplingIntervalM }, [samplingIntervalM])
 
-  // ── Einmalige Karteninitialisierung ─────────────────────────────────────
-  useEffect(() => {
-    if (!mapContainerRef.current) return
+  const initialMapStyle = useMemo(
+    () => selectedBaseLayer
+      ? (buildLayerStyle(selectedBaseLayer, (caps ?? {}) as import('@/lib/mapStyles').Capabilities) as import('maplibre-gl').StyleSpecification | string)
+      : ({ version: 8, sources: {}, layers: [] } as import('maplibre-gl').StyleSpecification),
+    // Initial style is consumed only by RoutePlannerMap's mount effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
 
-    const map = new maplibregl.Map({
-      container: mapContainerRef.current,
-      // Use DB-driven style when the catalog is already cached (common case after
-      // first load). If baseLayers is still empty (cold start, catalog in flight),
-      // initialize with a minimal placeholder; the catalog-load effect below will
-      // call setStyle() once the first layer arrives.
-      style: selectedBaseLayer
-        ? (buildLayerStyle(selectedBaseLayer, (caps ?? {}) as import('@/lib/mapStyles').Capabilities) as import('maplibre-gl').StyleSpecification | string)
-        : ({ version: 8, sources: {}, layers: [] } as import('maplibre-gl').StyleSpecification),
-      center: savedViewport ? savedViewport.center : [10.45, 51.16],
-      zoom: savedViewport ? savedViewport.zoom : 6,
-      attributionControl: { compact: false },
-      transformRequest: (url: string): RequestParameters => {
-        // Attach JWT Bearer token to tile requests routed through the API proxy.
-        if (url.includes('/api/v1/tiles/')) {
-          const token = getToken()
-          if (token) {
-            return { url, headers: { Authorization: `Bearer ${token}` } }
-          }
-        }
-        return { url }
-      },
-    })
-
-    map.addControl(new maplibregl.NavigationControl(), 'top-left')
-
-    // Persistenter Handler: feuert bei JEDEM setStyle(), also initial und bei
-    // Kartenstil-Wechsel. removeOverlayLayers() wird zuerst aufgerufen, damit
-    // kein "Source already exists"-Fehler entsteht falls der Handler mehrfach
-    // feuert (z. B. React StrictMode double-invoke).
-    map.on('style.load', () => {
-      // Kameraposition nach Stilwechsel atomar wiederherstellen (verhindert Race Condition
-      // mit map.once('style.load') das bei synchronem setStyle() zu spät registriert wird)
-      if (pendingCameraRestoreRef.current) {
-        map.jumpTo(pendingCameraRestoreRef.current)
-        pendingCameraRestoreRef.current = null
-      }
-      map.resize()
-      // Nur aufräumen — Layer werden ausschließlich vom useEffect (styleVersion-Dep)
-      // aufgebaut. Verhindert doppeltes addSource→removeSource→addSource, was bei
-      // Client-Side Navigation zu gecancelten Tile-Requests und Lücken führte.
-      removeOverlayLayers(map)
-      removeTerraIncognitaLayers(map)
-      setStyleVersion(v => v + 1)
-    })
-
-    // Save viewport position on move/zoom (debounced)
-    let viewportSaveTimer: ReturnType<typeof setTimeout> | null = null
-    function scheduleViewportSave() {
-      if (viewportSaveTimer) clearTimeout(viewportSaveTimer)
-      viewportSaveTimer = setTimeout(() => {
-        const c = map.getCenter()
-        saveViewport({
-          center: [c.lng, c.lat],
-          zoom: map.getZoom(),
-          viewMode: viewModeRef.current,
-          baseStyle: prevBaseStyleRef.current,
-        })
-      }, 500)
+  const handleMapStyleLoad = useCallback((map: maplibregl.Map) => {
+    // Kameraposition nach Stilwechsel atomar wiederherstellen (verhindert Race Condition
+    // mit map.once('style.load') das bei synchronem setStyle() zu spät registriert wird)
+    if (pendingCameraRestoreRef.current) {
+      map.jumpTo(pendingCameraRestoreRef.current)
+      pendingCameraRestoreRef.current = null
     }
-    map.on('moveend', scheduleViewportSave)
-    map.on('zoomend', scheduleViewportSave)
+    map.resize()
+    // Nur aufräumen — Layer werden ausschließlich vom useEffect (styleVersion-Dep)
+    // aufgebaut. Verhindert doppeltes addSource→removeSource→addSource, was bei
+    // Client-Side Navigation zu gecancelten Tile-Requests und Lücken führte.
+    removeOverlayLayers(map)
+    removeTerraIncognitaLayers(map)
+    setStyleVersion(v => v + 1)
+  }, [])
 
-    // Tile-Lade-Indikator: sourcedataloading nur für 'heatmap'-Source (Tracks+Heatmap+TI-Overlay),
-    // idle feuert wenn alle Tiles geladen sind.
-    map.on('sourcedataloading', (e) => {
-      if (e.sourceId === 'heatmap') setIsMapTilesLoading(true)
-    })
-    map.on('idle', () => setIsMapTilesLoading(false))
-
-    const ro = new ResizeObserver(() => map.resize())
-    ro.observe(mapContainerRef.current)
-
-    mapRef.current = map
-
-    return () => {
-      ro.disconnect()
-      map.remove()
-      mapRef.current = null
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const getViewportSnapshot = useCallback(() => ({
+    center: savedViewport ? savedViewport.center : [10.45, 51.16] as [number, number],
+    zoom: savedViewport ? savedViewport.zoom : 6,
+    viewMode: viewModeRef.current,
+    baseStyle: prevBaseStyleRef.current,
+  }), [savedViewport])
 
   useEffect(() => {
     let rafId = 0
@@ -1463,7 +1481,6 @@ export default function MapPage() {
   // prevBaseStyleRef verhindert den redundanten setStyle()-Aufruf beim ersten
   // Render (baseStyle='osm' == Initialstil der Map-Instanz). Ohne diesen Schutz
   // würde MapLibre "Style is not done loading.. Rebuilding from scratch" werfen.
-  const prevBaseStyleRef = useRef<BaseStyle>(savedViewport?.baseStyle ?? loadDefaultBaseStyle())
   useEffect(() => {
     const map = mapRef.current
     if (!map || !selectedBaseLayer || prevBaseStyleRef.current === baseStyle) return
@@ -2731,9 +2748,18 @@ export default function MapPage() {
 
         {/* ── Kartenbereich ─────────────────────────────────────────────── */}
         <div ref={mapRelativeRef} className="relative flex-1 min-h-0 overflow-hidden">
-        <div
-          ref={mapContainerRef}
+        <RoutePlannerMap
+          ref={routePlannerMapRef}
           className="w-full h-full"
+          initialStyle={initialMapStyle}
+          initialCenter={savedViewport ? savedViewport.center : [10.45, 51.16]}
+          initialZoom={savedViewport ? savedViewport.zoom : 6}
+          onMapReady={(map) => { mapRef.current = map }}
+          onMapDispose={() => { mapRef.current = null }}
+          onStyleLoad={handleMapStyleLoad}
+          onTilesLoadingChange={setIsMapTilesLoading}
+          fullRouteCoords={plannerCombinedCoords}
+          getViewportSnapshot={getViewportSnapshot}
         />
 
         {/* Scale-Legende: erscheint bei Hover ODER Click auf einen Scale-Badge
@@ -3530,6 +3556,9 @@ export default function MapPage() {
                   onTogglePin={planner.togglePin}
                   onScaleHover={planner.setScaleHover}
                   onSummitHover={setSummitHovered}
+                  onHoverFraction={handleProfileHover}
+                  onBrushZoom={handleProfileBrushZoom}
+                  onBrushReset={handleProfileBrushReset}
                   summitPinned={summitPinned}
                   onToggleSummitPin={toggleSummitPin}
                   isCalculating={planner.isCalculating}

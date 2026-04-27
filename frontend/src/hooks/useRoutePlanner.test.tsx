@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ToastProvider } from '@/lib/toast'
 import { useRoutePlanner } from './useRoutePlanner'
 import { makeFakeSuggestion } from '@/test-utils/routeFixtures'
+import type { PlannedRoute } from '@/api/routes'
+import type { ProfileConfig } from '@/lib/routingProfiles'
 
 // addToastMock must be hoisted so vi.mock factory can reference it
 // (vi.mock calls are hoisted above imports by Vitest).
@@ -19,6 +21,22 @@ vi.mock('@/api/routes', async () => {
       profile: 'hiking',
       uphill_cost: 7,
     }),
+    updateRoute: vi.fn(async (id: string, payload: Partial<PlannedRoute>) => ({
+      id,
+      name: 'Gespeicherte Route',
+      profile: payload.profile ?? 'hiking',
+      sport_type: payload.sport_type ?? 'hiking',
+      waypoints: payload.waypoints ?? [],
+      segments: payload.segments ?? [],
+      elevation_profile: payload.elevation_profile ?? null,
+      time_override: false,
+      auto_tag: false,
+      route_schema_version: payload.route_schema_version ?? 1,
+      photos: [],
+      tags: [],
+      created_at: '2026-04-27T00:00:00Z',
+      updated_at: '2026-04-27T00:00:00Z',
+    })),
   }
 })
 
@@ -255,7 +273,7 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
 
   it('loadSuggestion setzt scalePin auf null zurück (I3-Invariant)', async () => {
     const { getProfileDefaults } = await import('@/lib/routingProfiles')
-    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } satisfies ProfileConfig)
 
     const { result } = renderHook(() => useRoutePlanner(), { wrapper })
     await waitFor(() => { expect(result.current.profile.status).toBe('ready') })
@@ -353,5 +371,63 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
     })
     // resetScalePin() wird synchron im else-Zweig aufgerufen — sofort prüfbar
     expect(result.current.scalePin).toBeNull()
+  })
+
+  it('forceMigrateAndSave saves a loaded pre-T0 route with schema version 1', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+    const { updateRoute } = await import('@/api/routes')
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => {
+      expect(result.current.profile.status).toBe('ready')
+    })
+
+    const route: PlannedRoute = {
+      id: 'route-pre-t0',
+      name: 'Alte Route',
+      profile: 'hiking',
+      sport_type: 'hiking',
+      waypoints: [
+        { id: 'a', latlng: [47, 11] as [number, number], type: 'start' as const },
+        { id: 'b', latlng: [47.1, 11.1] as [number, number], type: 'end' as const },
+      ],
+      segments: [{
+        from_waypoint: 'a',
+        to_waypoint: 'b',
+        mode: 'routed' as const,
+        geometry: { type: 'LineString' as const, coordinates: [[11, 47], [11.1, 47.1]] },
+        control_points: [],
+        smooth: true,
+        distance_m: 100,
+        elevation_gain: 10,
+        elevation_loss: 0,
+        elevation_profile: [{ dist_m: 0, ele_m: 100 }, { dist_m: 100, ele_m: 110 }],
+      }],
+      elevation_profile: [{ dist_m: 0, ele_m: 100 }, { dist_m: 100, ele_m: 110 }],
+      time_override: false,
+      auto_tag: false,
+      route_schema_version: 0,
+      photos: [],
+      tags: [],
+      created_at: '2026-04-27T00:00:00Z',
+      updated_at: '2026-04-27T00:00:00Z',
+    }
+
+    act(() => {
+      result.current.loadRoute(route)
+    })
+    expect(result.current.routeSchemaVersion).toBe(0)
+
+    await act(async () => {
+      await result.current.forceMigrateAndSave()
+    })
+
+    expect(updateRoute).toHaveBeenCalledWith('route-pre-t0', expect.objectContaining({
+      route_schema_version: 1,
+    }))
+    await waitFor(() => {
+      expect(result.current.routeSchemaVersion).toBe(1)
+    })
   })
 })
