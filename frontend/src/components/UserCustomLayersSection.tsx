@@ -7,6 +7,7 @@ import { useSettingsLimits } from '@/hooks/useSettingsLimits'
 import { type UserMapLayer } from '@/api/mapLayers'
 import { ModalShell } from '@/components/ui/ModalShell'
 import ConfirmModal from '@/components/ConfirmModal'
+import { ApiError } from '@/api/client'
 
 // ── i18n-ready labels ─────────────────────────────────────────────────────────
 
@@ -33,9 +34,11 @@ const LABELS = {
   fieldDefaultOpacity: 'Standard-Deckkraft (%)',
   privacyTitle: 'Hinweise zum Datenschutz',
   privacyLine1:
-    'Der Tile-Anbieter sieht deine IP-Adresse und besuchte Kartenregionen.',
+    'Kacheln werden direkt von deinem Browser beim eingetragenen Tile-Server geladen. Dieser sieht dabei deine IP-Adresse und die Koordinaten der besuchten Kartenausschnitte.',
   privacyLine2:
-    'Hinweis: Der Server prüft URL-IPs, aber DNS-Auflösung passiert im Browser — ein bösartig konfigurierter Hostname kann theoretisch auf interne Adressen zeigen. Trage nur Server ein, denen du vertraust.',
+    'Der Server prüft die URL nur syntaktisch — DNS wird erst im Browser aufgelöst. Ein Anbieter, der den Hostnamen kontrolliert, kann den Namen nachträglich auf eine Adresse in deinem lokalen Netz zeigen lassen; dein Browser würde dann versuchen, von dort zu laden.',
+  privacyLine3:
+    'Trage daher nur Server ein, denen du vertraust.',
   deleteConfirmTitle: 'Layer löschen?',
   deleteConfirmMsg: (name: string) => `Soll "${name}" dauerhaft gelöscht werden?`,
   deleteConfirmLabel: 'Löschen',
@@ -97,7 +100,10 @@ function formToBody(f: LayerFormState): Partial<UserMapLayer> {
 
 // ── Error classification ──────────────────────────────────────────────────────
 
-interface ApiErrorBody {
+// Server error-body shape produced by `mapLayerErrBody` and the limit_reached
+// handler in services/api/internal/handler/user_map_layers.go: the discriminator
+// lives in the `error` field, not `error_code`.
+interface MapLayerErrorBody {
   error?: string
   limit?: number
   message?: string
@@ -108,6 +114,32 @@ function classifyError(err: unknown): {
   retryAfter?: string
   limit?: number
 } {
+  // Preferred path: ApiError carries structured `status` + parsed `json` body.
+  if (err instanceof ApiError) {
+    const body = (err.json ?? {}) as MapLayerErrorBody
+    const code = typeof body.error === 'string' ? body.error : ''
+    if (err.status === 422 && code === 'private_address_blocked') {
+      return { kind: 'private_ip' }
+    }
+    if (err.status === 409 || code === 'duplicate_name') {
+      return { kind: 'duplicate' }
+    }
+    if (err.status === 422 && code === 'limit_reached') {
+      return {
+        kind: 'limit_reached',
+        limit: typeof body.limit === 'number' ? body.limit : undefined,
+      }
+    }
+    if (err.status === 429) {
+      // Retry-After header isn't currently exposed on ApiError; fall back to
+      // a sane default. If/when the client surfaces headers, plumb it here.
+      return { kind: 'rate_limit', retryAfter: '60' }
+    }
+    return { kind: 'generic' }
+  }
+  // Fallback for non-ApiError throws (network errors, legacy call sites that
+  // wrap with plain Error). Keep the substring matchers so we degrade
+  // gracefully rather than swallowing the signal.
   const msg = err instanceof Error ? err.message : String(err)
   if (msg.includes('422') && msg.includes('private_address_blocked')) {
     return { kind: 'private_ip' }
@@ -116,16 +148,9 @@ function classifyError(err: unknown): {
     return { kind: 'duplicate' }
   }
   if (msg.includes('422') && msg.includes('limit_reached')) {
-    // Extract limit from JSON if embedded
-    try {
-      const json = JSON.parse(msg.replace(/^[^{]*/, '')) as ApiErrorBody
-      return { kind: 'limit_reached', limit: json.limit }
-    } catch {
-      return { kind: 'limit_reached' }
-    }
+    return { kind: 'limit_reached' }
   }
   if (msg.includes('429') || msg.includes('rate limit')) {
-    // Try to extract Retry-After
     const m = msg.match(/Retry-After[:\s]+(\d+)/i)
     return { kind: 'rate_limit', retryAfter: m ? m[1] : '60' }
   }
@@ -222,6 +247,7 @@ function LayerModal({ layer, usedCount, maxCount, onClose }: LayerModalProps) {
           <p className="text-xs font-semibold text-amber-800 dark:text-amber-400">{LABELS.privacyTitle}</p>
           <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">{LABELS.privacyLine1}</p>
           <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">{LABELS.privacyLine2}</p>
+          <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">{LABELS.privacyLine3}</p>
         </div>
 
         {/* Name */}
