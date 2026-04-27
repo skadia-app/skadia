@@ -193,10 +193,16 @@ export async function migrateRoute(route: PlannedRoute): Promise<RouteSegment[]>
 
   if (segsNeedingFill.length === 0) return route.segments
 
-  // Top-level profile context for Stage 2 (single-segment-route legacy path).
-  const topLevel = (route.elevation_profile ?? null) as
-    | Array<{ fraction: number; elevation: number | null }>
-    | null
+  // Top-level profile context for Stage 2 (single-segment routes only).
+  // The top-level elevation_profile of a route spans 0..totalDistM of the full
+  // route. For multi-segment routes there is no per-segment slice of it —
+  // applying it wholesale to each gap-segment would give every segment the
+  // same full-route profile curve. Stage 2 is therefore only valid for
+  // single-segment routes where distance attribution is unambiguous.
+  const isSingleSegment = route.segments.length === 1
+  const topLevel = isSingleSegment
+    ? ((route.elevation_profile ?? null) as Array<{ fraction: number; elevation: number | null }> | null)
+    : null
   const totalDistM = route.segments.reduce((acc, s) => acc + (s.distance_m ?? 0), 0)
 
   // Stage 1+2: try local sources first. Collect remaining (no-profile) for DEM.
