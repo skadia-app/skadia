@@ -14,7 +14,7 @@ const LABELS = {
   groupVector: 'Vektorkacheln',
   groupCoverage: 'Abdeckungs-Layer',
   colEnabled: 'Aktiv',
-  colDefaultNew: 'Neuen Usern aktiv',
+  colDefaultNew: 'Standard für neue Nutzer',
   colOpacity: 'Standard-Deckkraft (%)',
   colLabel: 'Label-Überschreibung',
   placeholderLabel: '(Standard-Label)',
@@ -81,7 +81,7 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, visibility, onPatch
   }
 
   return (
-    <li className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center px-3 py-2.5 rounded-lg border border-neutral-200 dark:border-neutral-700">
+    <li className="grid grid-cols-[1fr_4rem_4rem_10rem] gap-3 items-center px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700">
       {/* Key / label */}
       <div className="min-w-0">
         <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">
@@ -91,75 +91,67 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, visibility, onPatch
       </div>
 
       {/* Enabled toggle */}
-      <label className="flex flex-col items-center gap-1 cursor-pointer" title={LABELS.colEnabled}>
-        <span className="text-xs text-neutral-500">{LABELS.colEnabled}</span>
+      <div className="flex justify-center">
         <input
           type="checkbox"
           checked={enabled}
           onChange={e => handleEnabled(e.target.checked)}
-          className="h-4 w-4 rounded accent-accent-DEFAULT"
-          aria-label={`${layerKey} ${LABELS.colEnabled}`}
+          className="h-4 w-4 rounded accent-accent-DEFAULT cursor-pointer"
+          aria-label={`${defaultLabel} — ${LABELS.colEnabled}`}
         />
-      </label>
+      </div>
 
       {/* Default for new users toggle */}
-      <label className="flex flex-col items-center gap-1 cursor-pointer" title={LABELS.colDefaultNew}>
-        <span className="text-xs text-neutral-500 text-center w-16">{LABELS.colDefaultNew}</span>
+      <div className="flex justify-center">
         <input
           type="checkbox"
           checked={defaultEnabled}
           onChange={e => handleDefaultEnabled(e.target.checked)}
-          className="h-4 w-4 rounded accent-accent-DEFAULT"
-          aria-label={`${layerKey} ${LABELS.colDefaultNew}`}
+          className="h-4 w-4 rounded accent-accent-DEFAULT cursor-pointer"
+          aria-label={`${defaultLabel} — ${LABELS.colDefaultNew}`}
         />
-      </label>
+      </div>
 
-      {/* Coverage-only: opacity slider + label override */}
-      {isCoverage && (
-        <div className="flex flex-col items-start gap-1 w-40">
-          <label className="text-xs text-neutral-500" htmlFor={`opacity-${layerKey}`}>
-            {LABELS.colOpacity}: {opacity}%
-          </label>
-          <input
-            id={`opacity-${layerKey}`}
-            type="range"
-            min={0}
-            max={100}
-            value={opacity}
-            onChange={e => handleOpacity(Number(e.target.value))}
-            className="w-full accent-accent-DEFAULT"
-            aria-label={`${layerKey} ${LABELS.colOpacity}`}
-          />
-          <input
-            type="text"
-            value={label}
-            maxLength={LABELS.labelMaxLength}
-            placeholder={LABELS.placeholderLabel}
-            onChange={e => handleLabel(e.target.value)}
-            className="w-full rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
-            aria-label={`${layerKey} ${LABELS.colLabel}`}
-          />
-        </div>
-      )}
+      {/* Last column: opacity (coverage) + label override (always) */}
+      <div className="flex flex-col gap-1">
+        {isCoverage && (
+          <div className="flex items-center gap-2">
+            <input
+              id={`opacity-${layerKey}`}
+              type="range"
+              min={0}
+              max={100}
+              value={opacity}
+              onChange={e => handleOpacity(Number(e.target.value))}
+              className="flex-1 accent-accent-DEFAULT"
+              aria-label={`${defaultLabel} — ${LABELS.colOpacity}`}
+            />
+            <span className="tabular-nums text-xs text-neutral-500 w-10 text-right">{opacity}%</span>
+          </div>
+        )}
+        <input
+          type="text"
+          value={label}
+          maxLength={LABELS.labelMaxLength}
+          placeholder={LABELS.placeholderLabel}
+          onChange={e => handleLabel(e.target.value)}
+          className="w-full rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
+          aria-label={`${defaultLabel} — ${LABELS.colLabel}`}
+        />
+      </div>
+    </li>
+  )
+}
 
-      {/* Non-coverage: label override only (no opacity) */}
-      {!isCoverage && (
-        <div className="flex flex-col items-start gap-1 w-40">
-          <label className="text-xs text-neutral-500" htmlFor={`label-${layerKey}`}>
-            {LABELS.colLabel}
-          </label>
-          <input
-            id={`label-${layerKey}`}
-            type="text"
-            value={label}
-            maxLength={LABELS.labelMaxLength}
-            placeholder={LABELS.placeholderLabel}
-            onChange={e => handleLabel(e.target.value)}
-            className="w-full rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
-            aria-label={`${layerKey} ${LABELS.colLabel}`}
-          />
-        </div>
-      )}
+// ── Group header (column titles, rendered once per group) ────────────────────
+
+function GroupHeader({ isCoverage }: { isCoverage: boolean }) {
+  return (
+    <li className="grid grid-cols-[1fr_4rem_4rem_10rem] gap-3 items-end px-3 pb-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+      <span></span>
+      <span className="text-center">{LABELS.colEnabled}</span>
+      <span className="text-center leading-tight">{LABELS.colDefaultNew}</span>
+      <span>{isCoverage ? `${LABELS.colOpacity} / ${LABELS.colLabel}` : LABELS.colLabel}</span>
     </li>
   )
 }
@@ -235,6 +227,7 @@ export function SystemLayerVisibilityAdminSection() {
       </div>
 
       <LayerGroup title={LABELS.groupVector}>
+        <GroupHeader isCoverage={false} />
         {vectorKeys.map(descriptor => (
           <VisibilityRow
             key={descriptor.key}
@@ -248,6 +241,7 @@ export function SystemLayerVisibilityAdminSection() {
       </LayerGroup>
 
       <LayerGroup title={LABELS.groupCoverage}>
+        <GroupHeader isCoverage={true} />
         {coverageKeys.map(descriptor => (
           <VisibilityRow
             key={descriptor.key}
