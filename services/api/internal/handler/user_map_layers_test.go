@@ -219,6 +219,55 @@ func TestCreateUserMapLayer_XSSInAttribution_IsSanitized(t *testing.T) {
 	}
 }
 
+// TestPatchUserMapLayer_OpacityFractional verifies finding #7 on the user path.
+func TestPatchUserMapLayer_OpacityFractional(t *testing.T) {
+	pool := fusionTestPool(t)
+	uid := insertTestUser(t, pool)
+	h := newUserMapLayerHandler(t)
+	h.DB = &database.DB{Pool: pool}
+	id := insertTestUserMapLayer(t, h, uid, "OpacityFrac")
+
+	body := map[string]any{"default_opacity": 33.5}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPatch, "/map-layers/user/"+strconv.FormatInt(id, 10), bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, uid))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", strconv.FormatInt(id, 10))
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rr := httptest.NewRecorder()
+	h.PatchUserMapLayer(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for fractional opacity, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestBulkSortUserMapLayers_EmptyBody verifies finding #19 on the user path.
+func TestBulkSortUserMapLayers_EmptyBody(t *testing.T) {
+	pool := fusionTestPool(t)
+	uid := insertTestUser(t, pool)
+	h := newUserMapLayerHandler(t)
+	h.DB = &database.DB{Pool: pool}
+
+	body := []map[string]any{}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/map-layers/user/sort", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, uid))
+	rr := httptest.NewRecorder()
+	h.BulkSortUserMapLayers(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for empty bulk-sort, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(rr.Body.Bytes(), &resp)
+	if resp["error"] != "items_required" {
+		t.Errorf("expected error=items_required, got %q", resp["error"])
+	}
+}
+
 func TestDeleteUserMapLayer_UserIsolation(t *testing.T) {
 	pool := fusionTestPool(t)
 	uidA := insertTestUser(t, pool)
