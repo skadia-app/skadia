@@ -1,9 +1,9 @@
 // User-managed custom tile-URL layers section in Settings → Karte tab.
 import { useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { useToast } from '@/lib/toast'
 import { useUserMapLayers, useUserMapLayersMutations } from '@/hooks/useUserMapLayers'
-import { getAdminSettings } from '@/api/adminSettings'
+import { useSettingsLimits } from '@/hooks/useSettingsLimits'
 import { type UserMapLayer } from '@/api/mapLayers'
 import { ModalShell } from '@/components/ui/ModalShell'
 import ConfirmModal from '@/components/ConfirmModal'
@@ -49,7 +49,6 @@ const LABELS = {
   toast429RateLimit: (retryAfter: string) => `Zu viele Anfragen, Retry-After: ${retryAfter}s`,
   limitReachedHint: 'Limit erreicht — vorhandene Layer löschen, um Platz zu schaffen.',
   loading: 'Lade Layer…',
-  defaultLimit: 50,
 }
 
 // ── Form state ────────────────────────────────────────────────────────────────
@@ -345,14 +344,9 @@ export function UserCustomLayersSection() {
   const mutations = useUserMapLayersMutations()
   const { data: userLayers = [], isLoading } = useUserMapLayers()
 
-  // Read per-user limit from admin settings (library.user_map_layer_limit)
-  const { data: adminSettings } = useQuery({
-    queryKey: ['admin-settings'],
-    queryFn: getAdminSettings,
-    staleTime: 5 * 60_000,
-  })
-  const limitField = adminSettings?.library?.user_map_layer_limit
-  const maxCount = limitField?.value ? parseInt(limitField.value, 10) : LABELS.defaultLimit
+  // Read per-user limit from public settings/limits endpoint (not admin-gated).
+  const { limits } = useSettingsLimits()
+  const maxCount = limits.user_map_layer_limit
   const usedCount = userLayers.length
 
   const [showModal, setShowModal] = useState(false)

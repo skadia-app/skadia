@@ -1201,6 +1201,8 @@ func main() {
 			r.Get("/me", h.GetMe)
 			r.Patch("/me", h.UpdateMe)
 
+			r.Get("/settings/limits", h.GetSettingsLimits)
+
 			r.Get("/settings/profile", h.GetProfile)
 			r.Patch("/settings/profile", h.PatchProfile)
 
