@@ -22,6 +22,7 @@ import {
   statsForestLabel,
   statsProtectedLabel,
 } from '@/lib/strings/suggest-routes'
+import { HIGHWAY_LABELS, SURFACE_GROUPS } from '@/lib/surfaceConstants'
 
 echarts.use([
   LineChart,
@@ -182,6 +183,56 @@ function formatGrade(grade: number): string {
   return `${sign}${grade.toFixed(1)} %`
 }
 
+interface DistRangeWaySurface {
+  startDistM: number
+  endDistM: number
+  highway: string
+  surface: string
+}
+
+/** Flatten all segments' sub_segments into global-dist-based ranges so the
+ *  tooltip can binary-search highway+surface at the hovered position. */
+function buildSubSegmentRanges(segments: RouteSegment[]): DistRangeWaySurface[] {
+  const out: DistRangeWaySurface[] = []
+  let offset = 0
+  for (const seg of segments) {
+    const subs = seg.sub_segments
+    if (subs && subs.length > 0) {
+      for (const sub of subs) {
+        const from = sub.from_dist_m ?? 0
+        const to = sub.to_dist_m ?? seg.distance_m
+        out.push({
+          startDistM: offset + from,
+          endDistM: offset + to,
+          highway: sub.highway,
+          surface: sub.surface,
+        })
+      }
+    } else if (seg.mode === 'offroad') {
+      out.push({
+        startDistM: offset,
+        endDistM: offset + seg.distance_m,
+        highway: 'offroad',
+        surface: 'offroad',
+      })
+    }
+    offset += seg.distance_m
+  }
+  return out
+}
+
+function lookupWaySurface(
+  ranges: DistRangeWaySurface[],
+  distM: number,
+): { highway: string; surface: string } | null {
+  for (const r of ranges) {
+    if (distM >= r.startDistM && distM <= r.endDistM) {
+      return { highway: r.highway, surface: r.surface }
+    }
+  }
+  return null
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 function RouteProfileChart({
@@ -205,6 +256,11 @@ function RouteProfileChart({
   const livePoints = useMemo(
     () => profile !== null ? buildProfile(profile, segments) : [],
     [profile, segments],
+  )
+
+  const subSegmentRanges = useMemo(
+    () => buildSubSegmentRanges(segments),
+    [segments],
   )
 
   // Snapshot of the last "good" frame (≥2 points, not during a recompute).
@@ -240,10 +296,6 @@ function RouteProfileChart({
       max: Math.ceil(hi + pad),
     }
   }, [points])
-
-  // Brush is opt-in: user must click the "Bereich auswählen" button to activate.
-  // This avoids the brush cursor interfering with normal hover/scroll interactions.
-  const [brushActive, setBrushActive] = useState(false)
 
   const containerRef = useECharts(
     () => {
@@ -292,16 +344,18 @@ function RouteProfileChart({
             const pt = points[idx]
             if (!pt) return ''
 
-            const modeLabel = pt.isOffroad
-              ? '<span style="color:#a78bfa">Offroad</span>'
-              : '<span style="color:#6b7280">Straße/Weg</span>'
+            const ws = lookupWaySurface(subSegmentRanges, pt.distanceKm * 1000)
+            const wayLabel = ws ? (HIGHWAY_LABELS[ws.highway] ?? ws.highway) : null
+            const surfaceLabel = ws ? (SURFACE_GROUPS[ws.surface] ?? ws.surface) : null
 
             return `
               <div style="font-size:11px;line-height:1.7">
-                <div style="color:#9ca3af;margin-bottom:2px">${pt.distanceKm.toFixed(2)} km</div>
+                <div style="margin-bottom:2px"><span style="color:#9ca3af">Distanz:</span> <strong style="color:#f9fafb">${pt.distanceKm.toFixed(2)} km</strong></div>
                 <div><span style="color:#9ca3af">Höhe:</span> <strong style="color:#f9fafb">${pt.elevation !== null ? `${Math.round(pt.elevation)} m` : '—'}</strong></div>
                 <div><span style="color:#9ca3af">Steigung:</span> <strong style="color:${gradeColor(pt.grade)}">${formatGrade(pt.grade)}</strong></div>
-                <div>${modeLabel}</div>
+                ${wayLabel ? `<div><span style="color:#9ca3af">Wegart:</span> <strong style="color:#f9fafb">${wayLabel}</strong></div>` : ''}
+                ${surfaceLabel ? `<div><span style="color:#9ca3af">Oberfläche:</span> <strong style="color:#f9fafb">${surfaceLabel}</strong></div>` : ''}
+                ${!ws && pt.isOffroad ? '<div><span style="color:#a78bfa">Offroad</span></div>' : ''}
               </div>
             `
           },
@@ -350,7 +404,11 @@ function RouteProfileChart({
           brushStyle: { borderWidth: 1, color: 'rgba(249,115,22,0.12)', borderColor: '#f97316' },
         } : undefined,
         dataZoom: onBrushZoom ? [
-          { type: 'inside', xAxisIndex: 0, filterMode: 'none', zoomOnMouseWheel: false, moveOnMouseMove: true, moveOnMouseWheel: false },
+          // inside-dataZoom is only used as the receiver for the brush-end
+          // dispatchAction({type:'dataZoom'}). Do NOT let it intercept mouse
+          // events — moveOnMouseMove:true would put a grab cursor on the
+          // canvas and swallow drags before the brush component sees them.
+          { type: 'inside', xAxisIndex: 0, filterMode: 'none', zoomOnMouseWheel: false, moveOnMouseMove: false, moveOnMouseWheel: false },
         ] : undefined,
         series: [
           {
@@ -440,17 +498,25 @@ function RouteProfileChart({
 
           chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: (loKm / xMaxKm) * 100, end: (hiKm / xMaxKm) * 100 })
           chart.dispatchAction({ type: 'brush', command: 'clear', areas: [] })
+          // Re-arm brush so the user can immediately draw the next selection.
           chart.dispatchAction({
             type: 'takeGlobalCursor',
             key: 'brush',
-            brushOption: { brushType: false },
+            brushOption: { brushType: 'lineX', brushMode: 'single' },
           })
           setIsBrushZoomed(true)
-          setBrushActive(false)
           onBrushZoom(loKm * 1000, hiKm * 1000)
         }
 
-        // Do NOT activate brush cursor here — brush is opt-in via the UI button.
+        // Brush is the default cursor — user can immediately drag a range.
+        // Without this, the inside-dataZoom takes over and the cursor becomes
+        // a grab-hand. Keeping brush always-on means the chart cursor is the
+        // crosshair selection cursor at all times.
+        chart.dispatchAction({
+          type: 'takeGlobalCursor',
+          key: 'brush',
+          brushOption: { brushType: 'lineX', brushMode: 'single' },
+        })
         chart.on('brushEnd', handleBrushEnd)
         cleanups.push(() => chart.off('brushEnd', handleBrushEnd))
       }
@@ -466,40 +532,15 @@ function RouteProfileChart({
     const chart = chartInstanceRef.current
     if (chart) {
       chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: 0, end: 100 })
-      // Deactivate brush cursor on reset — user must re-activate deliberately.
-      chart.dispatchAction({
-        type: 'takeGlobalCursor',
-        key: 'brush',
-        brushOption: { brushType: false },
-      })
-    }
-    setIsBrushZoomed(false)
-    setBrushActive(false)
-    onBrushReset?.()
-  }
-
-  const handleActivateBrush = () => {
-    const chart = chartInstanceRef.current
-    if (chart) {
+      // Re-arm brush after reset so the next drag immediately selects again.
       chart.dispatchAction({
         type: 'takeGlobalCursor',
         key: 'brush',
         brushOption: { brushType: 'lineX', brushMode: 'single' },
       })
     }
-    setBrushActive(true)
-  }
-
-  const handleDeactivateBrush = () => {
-    const chart = chartInstanceRef.current
-    if (chart) {
-      chart.dispatchAction({
-        type: 'takeGlobalCursor',
-        key: 'brush',
-        brushOption: { brushType: false },
-      })
-    }
-    setBrushActive(false)
+    setIsBrushZoomed(false)
+    onBrushReset?.()
   }
 
   // ── Scale aggregation (LF-#6: ONE parsedCoords memo shared by SAC + MTB) ──
@@ -668,21 +709,6 @@ function RouteProfileChart({
               className="text-[10px] text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100 underline underline-offset-2 cursor-pointer"
             >
               Zoom zurück
-            </button>
-          )}
-          {onBrushZoom && !isBrushZoomed && (
-            <button
-              type="button"
-              onClick={brushActive ? handleDeactivateBrush : handleActivateBrush}
-              className={[
-                'text-[10px] underline underline-offset-2 cursor-pointer',
-                brushActive
-                  ? 'text-orange-500 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300'
-                  : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100',
-              ].join(' ')}
-              title={brushActive ? 'Bereichsauswahl deaktivieren' : 'Bereich auf Karte zoomen'}
-            >
-              {brushActive ? 'Auswahl aktiv' : 'Bereich auswählen'}
             </button>
           )}
           {legendItems.map(item => (
