@@ -67,6 +67,10 @@ type PlannedRoute struct {
 	// NULL for legacy routes — frontend falls back to current state.routingEngine on load.
 	// Migration 000332.
 	RoutingEngine *string `json:"routing_engine,omitempty"` // 'badrouter' | 'brouter' | nil
+	// RouteSchemaVersion distinguishes Pre-T0 (0) from T0 (1) elevation-profile layouts.
+	// 0 = approach-exclusive profile (legacy). 1 = approach-inclusive, full profile incl. VE-Tail/Approach/Spline.
+	// Default 0 (DB DEFAULT). Set to 1 by all user-triggered save paths. Migration 000999.
+	RouteSchemaVersion int16 `json:"route_schema_version"`
 }
 
 // RouteImportData is the input struct for importing routes from external sources.
