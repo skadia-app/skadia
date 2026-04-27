@@ -109,3 +109,72 @@ func TestPatchSystemLayerVisibility_UnknownField_Returns400(t *testing.T) {
 		t.Errorf("expected 400, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
+
+// patchOpacity issues a PATCH /admin/system-layer-visibility/waters with the
+// given default_opacity value and returns the recorder.
+func patchOpacity(t *testing.T, h *Handler, value any) *httptest.ResponseRecorder {
+	t.Helper()
+	b, _ := json.Marshal(map[string]any{"default_opacity": value})
+	req := httptest.NewRequest(http.MethodPatch, "/admin/system-layer-visibility/waters", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("key", "waters")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rr := httptest.NewRecorder()
+	h.PatchSystemLayerVisibility(rr, req)
+	return rr
+}
+
+func TestPatchSystemLayerVisibility_OpacityOutOfRange_Negative(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := &Handler{DB: &database.DB{Pool: pool}}
+
+	rr := patchOpacity(t, h, -5)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte("invalid_opacity")) {
+		t.Errorf("expected invalid_opacity error code, got %s", rr.Body.String())
+	}
+}
+
+func TestPatchSystemLayerVisibility_OpacityOutOfRange_TooLarge(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := &Handler{DB: &database.DB{Pool: pool}}
+
+	rr := patchOpacity(t, h, 150)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte("invalid_opacity")) {
+		t.Errorf("expected invalid_opacity error code, got %s", rr.Body.String())
+	}
+}
+
+func TestPatchSystemLayerVisibility_OpacityBoundary_Zero(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := &Handler{DB: &database.DB{Pool: pool}}
+
+	rr := patchOpacity(t, h, 0)
+	if rr.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d: %s", rr.Code, rr.Body.String())
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), //nolint:errcheck
+			`UPDATE system_layer_visibility SET default_opacity = NULL WHERE layer_key = 'waters'`)
+	})
+}
+
+func TestPatchSystemLayerVisibility_OpacityBoundary_Hundred(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := &Handler{DB: &database.DB{Pool: pool}}
+
+	rr := patchOpacity(t, h, 100)
+	if rr.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d: %s", rr.Code, rr.Body.String())
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), //nolint:errcheck
+			`UPDATE system_layer_visibility SET default_opacity = NULL WHERE layer_key = 'waters'`)
+	})
+}
