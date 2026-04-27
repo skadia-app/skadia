@@ -70,6 +70,12 @@ func (h *healthState) driftSnapshot() map[string][]string {
 // Multi-user safety: a single Service instance is shared across all
 // concurrent HTTP requests. The per-cell sync.Once ensures that even
 // 100k+ simultaneous lookups on the same cell cause exactly one mmap-open.
+//
+// Close-race safety: closeMu is a RWMutex that protects the mmap lifecycle.
+// All lookup methods (ElevationAt, ElevationBatch) hold a read-lock for
+// the duration of their grid access so that Close — which acquires the
+// write-lock before dropping mmap'd grids — cannot free memory that an
+// in-flight lookup still holds a pointer to.
 type Service struct {
 	hgtDirs []string
 	opener  openerFn // production: openGridFor; tests: custom fake
@@ -77,6 +83,11 @@ type Service struct {
 	mu      sync.Mutex
 	cells   map[string]*cellEntry // keyed by cellNameFor(lat,lon)
 	corrupt []string              // cell names that failed to open
+
+	// closeMu serialises Close (write-lock) against concurrent lookups (read-lock).
+	// Separate from mu to avoid deadlock: gridFor takes mu; lookup callers must
+	// not hold closeMu while calling gridFor.
+	closeMu sync.RWMutex
 
 	health    healthState
 	closed    atomic.Bool
@@ -114,6 +125,11 @@ func NewServiceWithOpenerForTest(hgtDirs []string, opener func([]string, string)
 // Returns NoData when the cell has no coverage or when the grid returned
 // NoData (void that could not be interpolated).
 func (s *Service) ElevationAt(lat, lon float64) (int32, error) {
+	// Hold a read-lock for the full duration of the lookup so that a concurrent
+	// Close cannot free the mmap'd grid while we still hold a pointer to it.
+	s.closeMu.RLock()
+	defer s.closeMu.RUnlock()
+
 	if s.closed.Load() {
 		return NoData, fmt.Errorf("dem: service is closed")
 	}
@@ -131,6 +147,11 @@ func (s *Service) ElevationAt(lat, lon float64) (int32, error) {
 // coordinates. NoData is returned for any coordinate without coverage.
 // The returned slice has the same length as lats/lons.
 func (s *Service) ElevationBatch(lats, lons []int32) ([]int32, error) {
+	// Hold a read-lock for the full duration of the batch so that a concurrent
+	// Close cannot free mmap'd grids while we still hold pointers to them.
+	s.closeMu.RLock()
+	defer s.closeMu.RUnlock()
+
 	if s.closed.Load() {
 		return nil, fmt.Errorf("dem: service is closed")
 	}
@@ -176,8 +197,19 @@ func (s *Service) Health() Health {
 // times or concurrently. After Close, ElevationAt/ElevationBatch return errors.
 func (s *Service) Close() {
 	s.closeOnce.Do(func() {
-		// Mark closed first so new callers fast-return before we take the lock.
+		// Mark closed so that new callers that haven't yet acquired closeMu.RLock
+		// fast-return with an error. Callers that are already inside the RLock
+		// section will complete normally (they hold a safe grid reference) and
+		// then release their read-lock before we acquire the write-lock below.
 		s.closed.Store(true)
+
+		// Acquire the write-lock to wait for all in-flight ElevationAt /
+		// ElevationBatch calls to finish before we drop the mmap'd grids.
+		// This prevents use-after-free when a lookup goroutine passed the
+		// closed.Load() check but hasn't finished accessing the grid yet.
+		s.closeMu.Lock()
+		defer s.closeMu.Unlock()
+
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		// Only grids whose once.Do has already completed will have a non-nil

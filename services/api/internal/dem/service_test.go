@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // TestService_LazyOpen_ConcurrentSameCell verifies that exactly one mmap-open
@@ -158,4 +159,51 @@ func TestService_CloseIdempotent(t *testing.T) {
 	svc := NewService(nil)
 	svc.Close()
 	svc.Close() // must not panic
+}
+
+// TestService_Close_NoSegfaultUnderConcurrentLookup verifies that calling Close
+// while 50 goroutines are executing ElevationBatch in a tight loop does not
+// cause a segfault or panic. This exercises the closeMu RWMutex path:
+// Close holds the write-lock, so it waits for all in-flight readers to finish
+// before freeing mmap'd memory.
+//
+// Run with -race to detect data races in addition to segfaults.
+func TestService_Close_NoSegfaultUnderConcurrentLookup(t *testing.T) {
+	dir := t.TempDir()
+	createTestHGT(t, dir, "N47E008.hgt", func(r, c int) int16 { return 500 })
+
+	svc := NewService([]string{dir})
+
+	latsE7 := []int32{int32(math.Round(47.5 * 1e7))}
+	lonsE7 := []int32{int32(math.Round(8.5 * 1e7))}
+
+	const goroutines = 50
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				// ElevationBatch returns an error once closed — that is fine.
+				// What must not happen: panic or segfault.
+				_, _ = svc.ElevationBatch(latsE7, lonsE7)
+			}
+		}()
+	}
+
+	// Let goroutines warm up, then close the service.
+	time.Sleep(100 * time.Millisecond)
+	svc.Close()
+
+	// Signal goroutines to stop and wait for them to exit cleanly.
+	close(stop)
+	wg.Wait()
+	// If we reach here without panic, the test passes.
 }
