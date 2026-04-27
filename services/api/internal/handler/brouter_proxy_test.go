@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"math"
 	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/dem"
 )
 
 // assertInDelta is the local stdlib-only float-equal helper (testify is in
@@ -152,7 +154,7 @@ func TestInjectElevationProfileFromInlineZ_RealBrouterShape(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	injectElevationProfileFromInlineZ(gj)
+	injectElevationProfileFromInlineZ(gj, nil)
 
 	feat := gj["features"].([]any)[0].(map[string]any)
 	props := feat["properties"].(map[string]any)
@@ -187,7 +189,7 @@ func TestInjectElevationProfileFromInlineZ_PlainWrapperNoZ_NullProfile(t *testin
 	if err := json.Unmarshal([]byte(raw), &gj); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	injectElevationProfileFromInlineZ(gj)
+	injectElevationProfileFromInlineZ(gj, nil)
 	feat := gj["features"].([]any)[0].(map[string]any)
 	props := feat["properties"].(map[string]any)
 	val, has := props["elevation_profile"]
@@ -208,7 +210,7 @@ func TestInjectElevationProfileFromInlineZ_AlternativesMultiFeature(t *testing.T
 	if err := json.Unmarshal([]byte(raw), &gj); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	injectElevationProfileFromInlineZ(gj)
+	injectElevationProfileFromInlineZ(gj, nil)
 	for i, f := range gj["features"].([]any) {
 		props := f.(map[string]any)["properties"].(map[string]any)
 		profileRaw, has := props["elevation_profile"]
@@ -223,7 +225,7 @@ func TestInjectElevationProfileFromInlineZ_AlternativesMultiFeature(t *testing.T
 
 func TestInjectElevationProfileFromInlineZ_NoFeaturesKey_NoOp(t *testing.T) {
 	gj := map[string]any{"type": "FeatureCollection"}
-	injectElevationProfileFromInlineZ(gj) // must not panic
+	injectElevationProfileFromInlineZ(gj, nil) // must not panic
 	if _, has := gj["features"]; has {
 		t.Errorf("features key must remain absent")
 	}
@@ -237,7 +239,7 @@ func TestInjectElevationProfileFromInlineZ_FeatureWithoutProperties(t *testing.T
 	if err := json.Unmarshal([]byte(raw), &gj); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	injectElevationProfileFromInlineZ(gj)
+	injectElevationProfileFromInlineZ(gj, nil)
 	feat := gj["features"].([]any)[0].(map[string]any)
 	props, ok := feat["properties"].(map[string]any)
 	if !ok {
@@ -256,7 +258,7 @@ func TestInjectElevationProfileFromInlineZ_PropertiesIsNull_Defensive(t *testing
 	if err := json.Unmarshal([]byte(raw), &gj); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	injectElevationProfileFromInlineZ(gj)
+	injectElevationProfileFromInlineZ(gj, nil)
 	feat := gj["features"].([]any)[0].(map[string]any)
 	props, ok := feat["properties"].(map[string]any)
 	if !ok {
@@ -275,7 +277,7 @@ func TestInjectElevationProfileFromInlineZ_PropertiesIsArray_Defensive(t *testin
 	if err := json.Unmarshal([]byte(raw), &gj); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	injectElevationProfileFromInlineZ(gj)
+	injectElevationProfileFromInlineZ(gj, nil)
 	feat := gj["features"].([]any)[0].(map[string]any)
 	propsArr, isArr := feat["properties"].([]any)
 	if !isArr {
@@ -294,7 +296,7 @@ func TestInjectElevationProfileFromInlineZ_PropertiesIsString_Defensive(t *testi
 	if err := json.Unmarshal([]byte(raw), &gj); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	injectElevationProfileFromInlineZ(gj)
+	injectElevationProfileFromInlineZ(gj, nil)
 	feat := gj["features"].([]any)[0].(map[string]any)
 	if feat["properties"] != "unexpected-string" {
 		t.Errorf("string properties must be preserved, got %v", feat["properties"])
@@ -303,7 +305,7 @@ func TestInjectElevationProfileFromInlineZ_PropertiesIsString_Defensive(t *testi
 
 func TestInjectElevationProfileFromInlineZ_NonFeatureCollection_NoOp(t *testing.T) {
 	gj := map[string]any{"error": "no route possible"}
-	injectElevationProfileFromInlineZ(gj)
+	injectElevationProfileFromInlineZ(gj, nil)
 	if gj["error"] != "no route possible" {
 		t.Errorf("error key must remain unchanged, got %v", gj["error"])
 	}
@@ -346,7 +348,7 @@ func TestExtractCoordinates_MalformedCoords_PreservesDistanceConsistency(t *test
 	}
 
 	// Invariant 1: geometry.coordinates is unchanged after inject.
-	injectElevationProfileFromInlineZ(gj)
+	injectElevationProfileFromInlineZ(gj, nil)
 
 	feat := gj["features"].([]any)[0].(map[string]any)
 	geom := feat["geometry"].(map[string]any)
@@ -381,6 +383,146 @@ func TestExtractCoordinates_MalformedCoords_PreservesDistanceConsistency(t *test
 	wantDist := haversineM(coords[0].Lat, coords[0].Lon, coords[1].Lat, coords[1].Lon)
 	assertInDelta(t, wantDist, profile[1]["dist_m"].(float64), 1.0,
 		"profile[1].dist_m must equal Haversine(coord0, coord1) — no drift")
+}
+
+// ---- DEM fallback (fillMissingElevFromDEM / injectElevationProfileFromInlineZ with DEMSvc) ----
+
+// stubBrouterDEM implements dem.Servicer for BRouter proxy tests. It returns
+// a per-position slice of decimeter values supplied at construction time.
+// A position entry of dem.NoData signals absent coverage.
+type stubBrouterDEM struct {
+	// values is indexed by call order (i.e. the order of missing coords passed
+	// in a single ElevationBatch call). Panic on out-of-bounds is intentional —
+	// it catches bugs in how many coords are requested.
+	values []int32
+	err    error
+}
+
+func (s *stubBrouterDEM) ElevationBatch(lats, lons []int32) ([]int32, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.values[:len(lats)], nil
+}
+
+func (s *stubBrouterDEM) Health() dem.Health { return dem.Health{} }
+func (s *stubBrouterDEM) Close()             {}
+
+// TestBRouterProxy_MissingInlineZ_FallbackToService verifies that when BRouter
+// sends a 2D-only response (no inline-Z), dem.Service fills the full profile.
+func TestBRouterProxy_MissingInlineZ_FallbackToService(t *testing.T) {
+	raw := `{"type":"FeatureCollection","features":[{
+	  "type":"Feature","properties":{"name":"test"},
+	  "geometry":{"type":"LineString","coordinates":[[11.404,47.270],[11.405,47.271],[11.406,47.272]]}
+	}]}`
+	var gj map[string]any
+	if err := json.Unmarshal([]byte(raw), &gj); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// DEM returns 5810, 5900, 6000 decimeters → 581.0, 590.0, 600.0 m
+	svc := &stubBrouterDEM{values: []int32{5810, 5900, 6000}}
+	injectElevationProfileFromInlineZ(gj, svc)
+
+	feat := gj["features"].([]any)[0].(map[string]any)
+	props := feat["properties"].(map[string]any)
+	profileRaw := props["elevation_profile"]
+	if profileRaw == nil {
+		t.Fatal("elevation_profile must not be nil after DEM fallback")
+	}
+	profile := profileRaw.([]map[string]any)
+	if len(profile) != 3 {
+		t.Fatalf("want 3 profile points, got %d", len(profile))
+	}
+	assertInDelta(t, 581.0, profile[0]["ele_m"].(float64), 0.01, "profile[0].ele_m")
+	assertInDelta(t, 590.0, profile[1]["ele_m"].(float64), 0.01, "profile[1].ele_m")
+	assertInDelta(t, 600.0, profile[2]["ele_m"].(float64), 0.01, "profile[2].ele_m")
+}
+
+// TestBRouterProxy_PartialInlineZ_OnlyMissingFilled verifies that only coords
+// lacking plausible inline-Z are replaced by DEM; coords with valid Z are kept.
+func TestBRouterProxy_PartialInlineZ_OnlyMissingFilled(t *testing.T) {
+	// coord[1] has Z=0 (implausible per isPlausibleSrtmEle) → DEM fills it.
+	// coord[0] and coord[2] have valid inline-Z and must not be changed.
+	raw := `{"type":"FeatureCollection","features":[{
+	  "type":"Feature","properties":{},
+	  "geometry":{"type":"LineString","coordinates":[[11.404,47.270,581],[11.405,47.271,0],[11.406,47.272,600]]}
+	}]}`
+	var gj map[string]any
+	if err := json.Unmarshal([]byte(raw), &gj); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// DEM is consulted only for the single missing coord[1] → 5900 dm = 590.0 m.
+	svc := &stubBrouterDEM{values: []int32{5900}}
+	injectElevationProfileFromInlineZ(gj, svc)
+
+	feat := gj["features"].([]any)[0].(map[string]any)
+	props := feat["properties"].(map[string]any)
+	profile := props["elevation_profile"].([]map[string]any)
+	if len(profile) != 3 {
+		t.Fatalf("want 3 profile points (gap filled), got %d", len(profile))
+	}
+	assertInDelta(t, 581.0, profile[0]["ele_m"].(float64), 0.01, "profile[0].ele_m — inline-Z unchanged")
+	assertInDelta(t, 590.0, profile[1]["ele_m"].(float64), 0.01, "profile[1].ele_m — from DEM")
+	assertInDelta(t, 600.0, profile[2]["ele_m"].(float64), 0.01, "profile[2].ele_m — inline-Z unchanged")
+}
+
+// TestBRouterProxy_NilDEMSvc_FallbackSkipped verifies that nil DEMSvc causes
+// no crash and leaves the profile as built from inline-Z (or nil if no Z).
+func TestBRouterProxy_NilDEMSvc_FallbackSkipped(t *testing.T) {
+	// 2D-only BRouter response → no inline-Z.
+	raw := `{"type":"FeatureCollection","features":[{
+	  "type":"Feature","properties":{},
+	  "geometry":{"type":"LineString","coordinates":[[11.404,47.270],[11.405,47.271]]}
+	}]}`
+	var gj map[string]any
+	if err := json.Unmarshal([]byte(raw), &gj); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Must not panic and profile must stay nil (no inline-Z, no DEM service).
+	injectElevationProfileFromInlineZ(gj, nil)
+
+	feat := gj["features"].([]any)[0].(map[string]any)
+	props := feat["properties"].(map[string]any)
+	val := props["elevation_profile"]
+	if val != nil {
+		t.Errorf("nil DEMSvc → elevation_profile must remain nil, got %v", val)
+	}
+}
+
+// TestBRouterProxy_DEMNoData_NullEleM verifies that DEM NoData responses
+// cause the corresponding coord to be absent from the profile (EleOK=false
+// → buildProfileFromInlineZ omits the point).
+func TestBRouterProxy_DEMNoData_NullEleM(t *testing.T) {
+	// All three coords lack inline-Z; DEM returns NoData for coord[1].
+	raw := `{"type":"FeatureCollection","features":[{
+	  "type":"Feature","properties":{},
+	  "geometry":{"type":"LineString","coordinates":[[11.404,47.270],[11.405,47.271],[11.406,47.272]]}
+	}]}`
+	var gj map[string]any
+	if err := json.Unmarshal([]byte(raw), &gj); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// coord[1] → NoData; coord[0] and coord[2] get real values.
+	svc := &stubBrouterDEM{values: []int32{5810, dem.NoData, 6000}}
+	injectElevationProfileFromInlineZ(gj, svc)
+
+	feat := gj["features"].([]any)[0].(map[string]any)
+	props := feat["properties"].(map[string]any)
+	profileRaw := props["elevation_profile"]
+	if profileRaw == nil {
+		t.Fatal("elevation_profile must not be nil (two coords have DEM data)")
+	}
+	profile := profileRaw.([]map[string]any)
+	// coord[1] is omitted due to NoData — only coord[0] and coord[2] remain.
+	if len(profile) != 2 {
+		t.Fatalf("want 2 profile points (NoData coord omitted), got %d", len(profile))
+	}
+	assertInDelta(t, 581.0, profile[0]["ele_m"].(float64), 0.01, "profile[0].ele_m")
+	assertInDelta(t, 600.0, profile[1]["ele_m"].(float64), 0.01, "profile[1].ele_m")
 }
 
 // haversineM computes the Haversine distance in metres between two lat/lon points.
