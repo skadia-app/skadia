@@ -4,6 +4,7 @@ import AdminStorageDashboard from '@/components/AdminStorageDashboard'
 import { AdminLibrarySettingsTab } from '@/components/AdminLibrarySettingsTab'
 import AdminUsersPage from '@/pages/admin/AdminUsersPage'
 import AdminSystemTab from '@/pages/settings/AdminSystemTab'
+import AdminMapTilesSubTab from '@/pages/settings/AdminMapTilesSubTab'
 import { LIB_LABELS } from '@/lib/libraryLabels'
 
 const SUB_TABS = [
@@ -11,11 +12,12 @@ const SUB_TABS = [
   { id: 'storage' as const, label: 'Speicher' },
   { id: 'system' as const, label: 'System' },
   { id: 'library' as const, label: LIB_LABELS.adminTabTitle },
+  { id: 'maps' as const, label: 'Karten & Tiles' },
 ] as const
 
 type SubTab = (typeof SUB_TABS)[number]['id']
 
-const VALID_SUBS = new Set<SubTab>(['users', 'storage', 'system', 'library'])
+const VALID_SUBS = new Set<SubTab>(['users', 'storage', 'system', 'library', 'maps'])
 
 export default function AdminSettingsTab() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -53,6 +55,7 @@ export default function AdminSettingsTab() {
       {activeSubTab === 'storage' && <AdminStorageDashboard />}
       {activeSubTab === 'system' && <AdminSystemTab />}
       {activeSubTab === 'library' && <AdminLibrarySettingsTab />}
+      {activeSubTab === 'maps' && <AdminMapTilesSubTab />}
     </div>
   )
 }
