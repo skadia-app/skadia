@@ -439,6 +439,7 @@ export default function MapPage() {
 
   const planner = useRoutePlanner()
   const { addToast } = useToast()
+  const preT0HoverToastRouteRef = useRef<string | null>(null)
   const [layerMenuOpen, setLayerMenuOpen] = useState(false)
 
   const topButtonsRef = useRef<HTMLDivElement>(null)
@@ -527,9 +528,32 @@ export default function MapPage() {
     [planner.segments, planner.waypoints],
   )
 
+  const showPreT0HoverToast = useCallback(() => {
+    const routeKey = planner.editingRouteId ?? 'unsaved'
+    if (preT0HoverToastRouteRef.current === routeKey) return
+    preT0HoverToastRouteRef.current = routeKey
+    addToast({
+      type: 'info',
+      title: 'Altes Höhenprofil',
+      message: 'Diese Route ist im alten Profil-Format gespeichert.',
+      duration: 0,
+      action: {
+        label: 'Re-Migrieren',
+        onClick: () => {
+          void planner.forceMigrateAndSave?.()
+        },
+      },
+    })
+  }, [addToast, planner])
+
   const handleProfileHover = useCallback((fraction: number | null) => {
     if (fraction === null) {
       routePlannerMapRef.current?.setHoverPoint(null)
+      return
+    }
+    if (planner.routeSchemaVersion === 0) {
+      routePlannerMapRef.current?.setHoverPoint(null)
+      showPreT0HoverToast()
       return
     }
     if (!profileCoordMap) return
@@ -541,9 +565,13 @@ export default function MapPage() {
       profileCoordMap.coords,
     )
     routePlannerMapRef.current?.setHoverPoint(point)
-  }, [planner.totals.distance_m, profileCoordMap])
+  }, [planner.routeSchemaVersion, planner.totals.distance_m, profileCoordMap, showPreT0HoverToast])
 
   const handleProfileBrushZoom = useCallback((startDistM: number, endDistM: number) => {
+    if (planner.routeSchemaVersion === 0) {
+      showPreT0HoverToast()
+      return
+    }
     if (!profileCoordMap) return
     const bbox = bboxForProfileDistRange(
       startDistM,
@@ -554,7 +582,7 @@ export default function MapPage() {
     )
     if (!bbox) return
     routePlannerMapRef.current?.fitBoundsToBBox(bbox, { padding: 48, animate: true, maxZoom: 15 })
-  }, [profileCoordMap])
+  }, [planner.routeSchemaVersion, profileCoordMap, showPreT0HoverToast])
 
   const handleProfileBrushReset = useCallback(() => {
     routePlannerMapRef.current?.fitBoundsToFullRoute()
