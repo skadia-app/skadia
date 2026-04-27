@@ -1396,6 +1396,22 @@ function HeatmapSettingsSection() {
   // Dynamic base styles from server — replaces the old parallel hardcoded list.
   const { base: baseLayers } = useMapLayers()
 
+  // If the stored default refers to a layer that no longer exists (e.g. admin
+  // disabled it), fall back to the first available layer and persist that so
+  // the next reload doesn't trigger React's "value not in options" warning.
+  // While baseLayers is still loading (length === 0), keep the stored value.
+  useEffect(() => {
+    if (baseLayers.length === 0) return
+    if (!defaultBaseStyle) return
+    if (baseLayers.some(l => l.key === defaultBaseStyle)) return
+    const fallback = baseLayers[0].key
+    setDefaultBaseStyle(fallback)
+    try {
+      const stored = JSON.parse(localStorage.getItem('skadia-map-defaults') || '{}') as Record<string, unknown>
+      localStorage.setItem('skadia-map-defaults', JSON.stringify({ ...stored, defaultBaseStyle: fallback }))
+    } catch { /* ignore */ }
+  }, [baseLayers, defaultBaseStyle])
+
   const { data: heatmapSettings } = useQuery({
     queryKey: ['heatmap-settings'],
     queryFn: getHeatmapSettings,
