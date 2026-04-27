@@ -1,19 +1,18 @@
 // Admin sub-tab bundling all map/tiles admin sections.
-// Sections in order:
-//   1. MapLayersAdminSection            — system layer CRUD
-//   2. SystemLayerVisibilityAdminSection — 14 overlay key toggles
-//   3. Routing-Dienste                  — capability badges
-//   4. DEM-Höhendaten                   — DEM settings
-//   5. Offline-Karte (Tile-Server)      — local vector-tile server status + sources
-//   6. Offline-Karte (Protomaps)        — PMTiles-based offline basemap
-//   7. OSM-Geodaten                     — stats, regions, scheduler, import assistant
+// Sections in order (grouped by data flow — raw geodata first, derived layers next):
+//   1. MapLayersAdminSection             — system layer CRUD
+//   2. SystemLayerVisibilityAdminSection — overlay-key toggles
+//   3. Routing-Dienste                   — capability badges
+//   4. OSM-Geodaten                      — stats, regions, scheduler, primary-action row
+//   5. Höhendaten (DEM)                  — coverage + bottom-anchored download action
+//   6. Offline-Karte                     — combined Tile-Server + PMTiles card
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { MapLayersAdminSection } from '@/components/admin/MapLayersAdminSection'
 import { SystemLayerVisibilityAdminSection } from '@/components/admin/SystemLayerVisibilityAdminSection'
 import { DEMSettings } from '@/components/DEMSettings'
 import { OfflineMapSettings } from '@/components/OfflineMapSettings'
-import { OSMRegionManager } from '@/components/OSMRegionManager'
+import { OSMRegionManager, type OSMRegionManagerBatchUpdateProps } from '@/components/OSMRegionManager'
 import OSMImportModal from '@/components/OSMImportModal'
 import { useCapabilities } from '@/hooks/useCapabilities'
 import { useToast } from '@/lib/toast'
@@ -123,6 +122,11 @@ export default function AdminMapTilesSubTab() {
 
   const [showImportModal, setShowImportModal] = useState(false)
 
+  // OSMRegionManager pushes its "Alle Regionen aktualisieren" state up via useEffect
+  // so we can render the button in the bottom action row alongside the other
+  // OSM primary actions.
+  const [batchUpdateProps, setBatchUpdateProps] = useState<OSMRegionManagerBatchUpdateProps | null>(null)
+
   const [schedInterval, setSchedInterval] = useState<string>('manual')
   const [schedWeekday, setSchedWeekday] = useState<number>(1)
   const [schedDay, setSchedDay] = useState<number>(1)
@@ -219,78 +223,7 @@ export default function AdminMapTilesSubTab() {
         )}
       </section>
 
-      {/* 4. DEM height data */}
-      <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-3">
-        <div>
-          <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-            DEM-Höhendaten
-          </h3>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-            Digitales Höhenmodell für Höhenkorrektur und Routing.
-          </p>
-        </div>
-        <CapBadge status={caps?.dem_correction ? 'active' : 'inactive'} label="DEM aktiv" />
-        <DEMSettings />
-      </section>
-
-      {/* 5. Local vector-tile server */}
-      <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-3">
-        <div>
-          <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-            Offline-Karte (Tile-Server)
-          </h3>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-            Lokaler Vektorkachel-Server, serviert Kacheln direkt aus PostGIS.
-          </p>
-        </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <CapBadge status={tileBadgeStatus} label={tileBadgeLabel} />
-          <span className="text-xs text-neutral-400 dark:text-neutral-500 font-mono break-all">{styleUrl}</span>
-          {tileStatus !== 'loading' && (
-            <button
-              onClick={() => setTileCheckKey(k => k + 1)}
-              className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 underline underline-offset-2 cursor-pointer"
-            >
-              Erneut prüfen
-            </button>
-          )}
-        </div>
-        <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-          URL via{' '}
-          <code className="px-1 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 font-mono text-xs">VITE_MARTIN_URL</code>{' '}
-          (Standard: <code className="px-1 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 font-mono text-xs">/api/v1/tiles</code>).
-        </p>
-        {tileStatus === 'ok' && tileSources.length > 0 && (
-          <div>
-            <p className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">
-              Tile-Quellen ({tileSources.length})
-            </p>
-            <ul className="space-y-1">
-              {tileSources.map(src => (
-                <li key={src} className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
-                  <code className="font-mono">{src}</code>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </section>
-
-      {/* 6. Protomaps PMTiles offline basemap */}
-      <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-3">
-        <div>
-          <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-            Offline-Karte (Protomaps)
-          </h3>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-            PMTiles-Datei als Offline-Basemap.
-          </p>
-        </div>
-        <OfflineMapSettings />
-      </section>
-
-      {/* 7. OSM region manager + import assistant */}
+      {/* 4. OSM region manager + import assistant */}
       <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-4">
         <div>
           <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
@@ -357,7 +290,7 @@ export default function AdminMapTilesSubTab() {
           </div>
         )}
 
-        <OSMRegionManager hasOsmData={hasOsmData} />
+        <OSMRegionManager hasOsmData={hasOsmData} onBatchUpdateState={setBatchUpdateProps} />
 
         {/* OSM update scheduler — only meaningful with at least one imported region */}
         {hasImportedRegions && (
@@ -457,8 +390,8 @@ export default function AdminMapTilesSubTab() {
           </div>
         )}
 
-        {/* Action buttons: Import-Assistent (full width) + Lift-Segmente */}
-        <div className="space-y-2 pt-2">
+        {/* Bottom-anchored primary-action row — all OSM data-modifying actions live here */}
+        <div className="space-y-2 pt-3 border-t border-neutral-200 dark:border-neutral-700">
           <button
             type="button"
             onClick={() => setShowImportModal(true)}
@@ -466,6 +399,16 @@ export default function AdminMapTilesSubTab() {
           >
             Import-Assistent
           </button>
+          {batchUpdateProps?.visible && (
+            <button
+              type="button"
+              onClick={batchUpdateProps.onClick}
+              disabled={batchUpdateProps.disabled}
+              className="w-full px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            >
+              {batchUpdateProps.label}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => importLiftsMut.mutate()}
@@ -480,6 +423,89 @@ export default function AdminMapTilesSubTab() {
             {importLiftsMut.data.imported} Lift-Segmente importiert.
           </p>
         )}
+      </section>
+
+      {/* 5. DEM height data — narrative content first, primary action anchored at bottom of DEMSettings */}
+      <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+              Höhendaten (DEM)
+            </h3>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+              Digitales Höhenmodell für Höhenkorrektur und Routing.
+            </p>
+          </div>
+          <CapBadge status={caps?.dem_correction ? 'active' : 'inactive'} label="DEM aktiv" />
+        </div>
+        <DEMSettings />
+      </section>
+
+      {/* 6. Offline-Karte — combined card: tile-server status + PMTiles basemap as two sub-blocks */}
+      <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-5">
+        <div>
+          <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+            Offline-Karte
+          </h3>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+            Quellen für Vektorkacheln und Offline-Basemap.
+          </p>
+        </div>
+
+        {/* Sub-block A: local vector-tile server (status fetched from style.json) */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <h4 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+              Vektorkachel-Server
+            </h4>
+            <div className="flex items-center gap-3 flex-wrap">
+              <CapBadge status={tileBadgeStatus} label={tileBadgeLabel} />
+              {tileStatus !== 'loading' && (
+                <button
+                  onClick={() => setTileCheckKey(k => k + 1)}
+                  className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 underline underline-offset-2 cursor-pointer"
+                >
+                  Erneut prüfen
+                </button>
+              )}
+            </div>
+          </div>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+            Lokaler Vektorkachel-Server, serviert Kacheln direkt aus PostGIS. URL via{' '}
+            <code className="px-1 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 font-mono text-xs">VITE_MARTIN_URL</code>{' '}
+            (Standard:{' '}
+            <code className="px-1 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 font-mono text-xs">/api/v1/tiles</code>).
+          </p>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500 font-mono break-all">{styleUrl}</p>
+          {tileStatus === 'ok' && tileSources.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">
+                Tile-Quellen ({tileSources.length})
+              </p>
+              <ul className="space-y-1">
+                {tileSources.map(src => (
+                  <li key={src} className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                    <code className="font-mono">{src}</code>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        {/* Sub-block B: PMTiles offline basemap */}
+        <div className="space-y-3 pt-4 border-t border-neutral-200 dark:border-neutral-700">
+          <div>
+            <h4 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+              Offline-Basemap (PMTiles)
+            </h4>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+              PMTiles-Datei als Offline-Basemap für die Kartenansicht.
+            </p>
+          </div>
+          <OfflineMapSettings />
+        </div>
       </section>
 
       {showImportModal && <OSMImportModal onClose={() => setShowImportModal(false)} />}

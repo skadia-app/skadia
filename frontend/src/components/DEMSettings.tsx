@@ -32,24 +32,22 @@ export function DEMSettings() {
   const hgtPresent = regions.reduce((s, r) => s + r.tiles_present, 0)
   const allComplete = regions.every(r => r.complete)
 
+  const downloadDisabled = !!activeDEMJob || demDownloadMut.isPending
+  const downloadLabel = activeDEMJob
+    ? 'Download läuft…'
+    : allComplete
+      ? 'DEM-Kacheln aktualisieren'
+      : 'DEM-Kacheln herunterladen'
+
   return (
     <div className="space-y-3">
       {/* Per-region DEM coverage */}
       {hasImportedRegions ? (
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-neutral-700 dark:text-neutral-300">
-              <span className="font-medium">{hgtPresent.toLocaleString()}</span> HGT-Kacheln
-              <span className="text-neutral-400 ml-1">(GLO-30, 30m)</span>
-            </p>
-            <button
-              onClick={() => demDownloadMut.mutate()}
-              disabled={!!activeDEMJob || demDownloadMut.isPending}
-              className="cursor-pointer text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
-            >
-              {activeDEMJob ? 'Download läuft…' : allComplete ? 'DEM-Kacheln aktualisieren' : 'DEM-Kacheln herunterladen'}
-            </button>
-          </div>
+          <p className="text-sm text-neutral-700 dark:text-neutral-300">
+            <span className="font-medium">{hgtPresent.toLocaleString()}</span> HGT-Kacheln
+            <span className="text-neutral-400 ml-1">(GLO-30, 30m)</span>
+          </p>
           <div className="flex flex-wrap gap-2">
             {regions.map(r => {
               // tiles_needed = -1 means no manifest yet (unknown completeness)
@@ -120,6 +118,19 @@ export function DEMSettings() {
             </table>
           </div>
         </details>
+      )}
+
+      {/* Primary action — anchored at the bottom so it doesn't hover above narrative content */}
+      {hasImportedRegions && (
+        <div className="pt-1">
+          <button
+            onClick={() => demDownloadMut.mutate()}
+            disabled={downloadDisabled}
+            className="cursor-pointer w-full text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90"
+          >
+            {downloadLabel}
+          </button>
+        </div>
       )}
 
       <details className="text-xs">
