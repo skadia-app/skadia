@@ -377,26 +377,34 @@ function RouteProfileChart({
       const cleanups: Array<() => void> = []
 
       if (onHoverFraction) {
-        const handleMove = (params: { dataIndex?: number }) => {
-          if (params.dataIndex == null || !points[params.dataIndex]) {
+        // Use zrender's continuous mousemove (fires across the whole chart
+        // area, not just on series points) and map pixel-x to data-x via
+        // convertFromPixel. chart.on('mousemove') only fires when the cursor
+        // is directly over a series data point, which makes hover tracking
+        // unreliable on thin elevation lines.
+        const xMaxKm = effectiveTotalM / 1000
+        const handleMove = (e: { offsetX: number; offsetY: number }) => {
+          const km = chart.convertFromPixel({ xAxisIndex: 0 }, e.offsetX) as number | undefined
+          if (typeof km !== 'number' || !Number.isFinite(km) || xMaxKm <= 0) {
             onHoverFraction(null)
             return
           }
-          const pt = points[params.dataIndex]
-          const fraction = effectiveTotalM > 0 ? pt.distanceKm / (effectiveTotalM / 1000) : 0
+          const fraction = Math.max(0, Math.min(1, km / xMaxKm))
           onHoverFraction(fraction)
         }
-
         const handleOut = () => onHoverFraction(null)
 
+        const zr = chart.getZr()
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        chart.on('mousemove', handleMove as any)
-        chart.on('mouseout', handleOut)
+        zr.on('mousemove', handleMove as any)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        zr.on('globalout', handleOut as any)
 
         cleanups.push(() => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          chart.off('mousemove', handleMove as any)
-          chart.off('mouseout', handleOut)
+          zr.off('mousemove', handleMove as any)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          zr.off('globalout', handleOut as any)
         })
       }
 
