@@ -662,12 +662,29 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 		totalDist += geo.DistanceHaversine(coords[i-1].Lat, coords[i-1].Lon, coords[i].Lat, coords[i].Lon)
 	}
 
+	// Phase C.2: build VE-tail profiles from the high-resolution EdgeElevProf
+	// via SliceEdgeElevProf and prepend/append them to the network profile.
+	// This replaces the previous behaviour where applyProfileToCoords ran only
+	// on the network slice and the VE-tail coords kept their (linearly
+	// interpolated) elevations from extractPartialEdgeGeometry. The combined
+	// profile is now DEM-accurate end-to-end and applyProfileToCoords runs
+	// across the full coord slice.
+	var srcTailProfile, dstTailProfile []ElevationPoint
+	if srcVE != nil && srcVeLen > 0 {
+		srcTailProfile = buildVeTailProfile(reader, srcVE, chain[0].nodeID, true)
+	}
+	if dstVE != nil && dstVeLen > 0 {
+		dstTailProfile = buildVeTailProfile(reader, dstVE, bestDstNode, false)
+	}
+
+	combined := concatProfilesWithJunctionDedup(srcTailProfile, profile, dstTailProfile)
+
 	// Spec Rev 2.3 §6.5: nil vs empty — degenerate-only routes (all edges DEM-less)
 	// produce an empty profile slice. Store nil so JSON output is `null` and
 	// mergeLegs/frontend code can distinguish "not computed" from "computed+empty".
 	var elevProfile *[]ElevationPoint
-	if len(profile) > 0 {
-		elevProfile = &profile
+	if len(combined) > 0 {
+		elevProfile = &combined
 	}
 
 	// Spec Rev 2.3 §6.5 / F1: overwrite coord[2] (Ele) from the profile so that
@@ -675,13 +692,12 @@ func retrackUnified(reader GraphReader, state *SparseRouterState,
 	// MUST run after all coord mutations (srcVE prepend, dstVE append) to avoid
 	// subsequent writes re-introducing the spike.
 	//
-	// Critic #5 fix: apply the profile only to the network-coord slice, NOT the
-	// VE prepend/append tails. The profile is approach-exclusive (Spec §5.5) and
-	// covers coords[srcVeLen : len(coords)-dstVeLen]. VE coords outside this range
-	// keep their DEM-interpolated elevations from extractPartialEdgeGeometry.
+	// Phase C.2: profile now spans the full route (srcVE-tail + network + dstVE-tail),
+	// so applyProfileToCoords runs across the entire coord slice — VE-tail coords
+	// get DEM-accurate elevations from EdgeElevProf instead of the linear
+	// NodeA↔NodeB interpolation done in extractPartialEdgeGeometry.
 	if elevProfile != nil {
-		networkEnd := len(coords) - dstVeLen
-		applyProfileToCoords(coords[srcVeLen:networkEnd], *elevProfile)
+		applyProfileToCoords(coords, *elevProfile)
 	}
 
 	return &RouteResult{
