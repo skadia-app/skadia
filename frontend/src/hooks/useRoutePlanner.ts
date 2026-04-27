@@ -24,6 +24,7 @@ import {
   type ElevationPoint,
   getProfileDefaults as fetchProfileDefaults,
 } from '@/api/routes'
+import { getElevationAtVerticesChunked } from '@/api/elevation-chunked'
 import type { ProfileConfig } from '@/lib/routingProfiles'
 import { getProfileDefaults, cacheServerDefaults } from '@/lib/routingProfiles'
 import { useToast } from '@/lib/toast'
@@ -92,6 +93,10 @@ interface RoutePlannerState {
   // Monoton steigender Counter für Stale-Check parallel laufender loadRoute-Calls.
   lazyFillToken: number
   lazyFillPendingSave: boolean
+  // Per-segment fill tokens for offroad DEM fetches (Phase D.2).
+  // Key = `from_waypoint:to_waypoint`, value = monotonically increasing counter.
+  // Allocated inside setState updater (sequential guarantee, no race).
+  fillTokens: Map<string, number>
   // Bug B (2026-04-24): Engine-switch must not recompute when a saved route
   // was loaded and the target engine has no pending profile/setting change.
   // - lastRenderedEngine: engine whose computation produced the current
@@ -118,6 +123,7 @@ const INITIAL_STATE: RoutePlannerState = {
   lazyFillInProgress: false,
   lazyFillToken: 0,
   lazyFillPendingSave: false,
+  fillTokens: new Map(),
   lastRenderedEngine: null,
   dirtyEngines: { badrouter: false, brouter: false },
 }
@@ -558,6 +564,30 @@ function buildProfileFromCoordZ(coords: number[][]): RouteElevationPoint[] {
   return out.length >= 2 ? out : []
 }
 
+// ─── Offroad DEM fill helper ──────────────────────────────────────────────────
+
+/**
+ * Pure async helper: samples DEM elevation at every vertex of an offroad
+ * segment's geometry and returns the segment with elevation_profile populated.
+ *
+ * Returns the segment unchanged when:
+ * - mode !== 'offroad' (no-op for routed segments)
+ * - geometry is missing (segment not yet built)
+ *
+ * The addToast callback is forwarded to getElevationAtVerticesChunked so the
+ * DEM-coverage warning (Spec §6 Class B) fires at most once per session.
+ * Pass null to suppress (e.g. tests without a toast provider).
+ */
+async function fillOffroadSegmentProfile(
+  seg: RouteSegment,
+  addToast: Parameters<typeof getElevationAtVerticesChunked>[1],
+): Promise<RouteSegment> {
+  if (seg.mode !== 'offroad' || !seg.geometry) return seg
+  const profile = await getElevationAtVerticesChunked(seg.geometry, addToast)
+  // ele_m may be null (DEM coverage gap — Phase A.0 nullable); pass through as-is.
+  return { ...seg, elevation_profile: profile }
+}
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useRoutePlanner() {
@@ -571,6 +601,17 @@ export function useRoutePlanner() {
   // Used by the effectiveProfile-sync useEffect to reject regressions where
   // a shorter dem-fallback would overwrite a longer segments-based profile.
   const _prevSourceRef = useRef<'segments' | 'dem-fallback' | 'none'>('none')
+
+  // Ref to fillOffroadAndApply so _calculateSegment (stable [] deps) can call it
+  // without needing it as a dep (avoids recreating the calculate callback on
+  // every addToast identity change).
+  const _fillOffroadRef = useRef<((seg: RouteSegment) => Promise<void>) | null>(null)
+
+  // Always-current state snapshot for callbacks that need synchronous reads
+  // (updateControlPoint / insertControlPoint / removeControlPoint) without
+  // relying on React's batching timing for the setState-updater-capture pattern.
+  const _stateRef = useRef(state)
+  _stateRef.current = state
 
   // ── Scale-Pin + Hover state (SAC / MTB / Via Ferrata) ────────────────────────
   // scalePin: persistente Auswahl (Click auf Badge, bleibt bis erneuter Click
@@ -795,6 +836,14 @@ export function useRoutePlanner() {
           dirtyEngines: { ...s.dirtyEngines, [engine]: false },
         }
       })
+
+      // Phase D.2 — Trigger 1: kick off DEM fill for fallback (offroad) segments.
+      // The segment geometry was just stored in state; fill runs concurrently.
+      if (isFallback && segment.geometry) {
+        void Promise.resolve().then(() => {
+          _fillOffroadRef.current?.(segment)
+        })
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Routenberechnung fehlgeschlagen'
@@ -806,6 +855,47 @@ export function useRoutePlanner() {
     }
   // setState from useState is stable
   }, [])
+
+  // ── Offroad DEM fill (Phase D.2) ─────────────────────────────────────────────
+  //
+  // Per-segment token counter: fillTokens Map<segKey, counter> prevents stale
+  // in-flight results from landing when the same segment was re-edited.
+  //
+  // Token allocation happens INSIDE the setState updater — React executes updaters
+  // sequentially within the same tick, so two concurrent calls for the same segment
+  // see different counter values without any external lock or ref.
+
+  const fillOffroadAndApply = useCallback(async (seg: RouteSegment) => {
+    const segKey = `${seg.from_waypoint}:${seg.to_waypoint}`
+    let allocatedToken = 0
+
+    // Allocate token inside setState updater (sequential, race-free).
+    setState(s => {
+      allocatedToken = (s.fillTokens.get(segKey) ?? 0) + 1
+      const fillTokens = new Map(s.fillTokens)
+      fillTokens.set(segKey, allocatedToken)
+      return { ...s, fillTokens }
+    })
+
+    const filled = await fillOffroadSegmentProfile(seg, addToast)
+
+    setState(s => {
+      // Race-Guard: discard if a newer fill for the same segment was started.
+      if (s.fillTokens.get(segKey) !== allocatedToken) return s
+      // Segment-Identity-Check: segment may have been replaced (e.g. user removed
+      // and re-added a waypoint while the fetch was in-flight).
+      const idx = s.segments.findIndex(
+        x => x.from_waypoint === seg.from_waypoint && x.to_waypoint === seg.to_waypoint,
+      )
+      if (idx === -1) return s
+      const segments = [...s.segments]
+      segments[idx] = filled
+      return { ...s, segments }
+    })
+  }, [addToast])
+
+  // Keep the ref in sync so _calculateSegment can call it without a dep.
+  _fillOffroadRef.current = fillOffroadAndApply
 
   // ── Waypoint management ─────────────────────────────────────────────────────
 
@@ -1009,53 +1099,81 @@ export function useRoutePlanner() {
   // ── Control point CRUD ──────────────────────────────────────────────────────
 
   const updateControlPoint = useCallback((key: SegmentKey, cpIndex: number, latlng: [number, number]) => {
-    setState(s => {
-      const segments = [...s.segments]
-      const idx = segments.findIndex(
-        seg => seg.from_waypoint === key.from && seg.to_waypoint === key.to,
+    // Read current state synchronously from ref to avoid relying on React's batching
+    // timing for the setState-updater-capture pattern (which is unreliable in React 19
+    // when multiple setState calls are batched in the same tick).
+    const s = _stateRef.current
+    const idx = s.segments.findIndex(
+      seg => seg.from_waypoint === key.from && seg.to_waypoint === key.to,
+    )
+    if (idx < 0) return
+    const seg = { ...s.segments[idx] }
+    const cps = [...(seg.control_points ?? [])]
+    if (cpIndex < 0 || cpIndex >= cps.length) return
+    cps[cpIndex] = latlng
+    seg.control_points = cps
+    const updatedSeg = rebuildOffroadGeometry(seg)
+    setState(prev => {
+      // Re-validate inside updater: the segment must still exist at the same position.
+      const i = prev.segments.findIndex(
+        sg => sg.from_waypoint === key.from && sg.to_waypoint === key.to,
       )
-      if (idx < 0) return s
-      const seg = { ...segments[idx] }
-      const cps = [...(seg.control_points ?? [])]
-      if (cpIndex < 0 || cpIndex >= cps.length) return s
-      cps[cpIndex] = latlng
-      seg.control_points = cps
-      segments[idx] = rebuildOffroadGeometry(seg)
-      return { ...s, segments }
+      if (i < 0) return prev
+      const segments = [...prev.segments]
+      segments[i] = updatedSeg
+      return { ...prev, segments }
     })
+    // Phase D.2 — Trigger 2: DEM fill after control point drag (geometry changed).
+    void Promise.resolve().then(() => { _fillOffroadRef.current?.(updatedSeg) })
   }, [])
 
   const insertControlPoint = useCallback((key: SegmentKey, afterCpIndex: number, latlng: [number, number]) => {
-    setState(s => {
-      const segments = [...s.segments]
-      const idx = segments.findIndex(
-        seg => seg.from_waypoint === key.from && seg.to_waypoint === key.to,
+    const s = _stateRef.current
+    const idx = s.segments.findIndex(
+      seg => seg.from_waypoint === key.from && seg.to_waypoint === key.to,
+    )
+    if (idx < 0) return
+    const seg = { ...s.segments[idx] }
+    const cps = [...(seg.control_points ?? [])]
+    cps.splice(afterCpIndex + 1, 0, latlng)
+    seg.control_points = cps
+    const updatedSeg = rebuildOffroadGeometry(seg)
+    setState(prev => {
+      const i = prev.segments.findIndex(
+        sg => sg.from_waypoint === key.from && sg.to_waypoint === key.to,
       )
-      if (idx < 0) return s
-      const seg = { ...segments[idx] }
-      const cps = [...(seg.control_points ?? [])]
-      cps.splice(afterCpIndex + 1, 0, latlng)
-      seg.control_points = cps
-      segments[idx] = rebuildOffroadGeometry(seg)
-      return { ...s, segments }
+      if (i < 0) return prev
+      const segments = [...prev.segments]
+      segments[i] = updatedSeg
+      return { ...prev, segments }
     })
+    // Phase D.2 — Trigger 2: DEM fill after control point insert.
+    void Promise.resolve().then(() => { _fillOffroadRef.current?.(updatedSeg) })
   }, [])
 
   const removeControlPoint = useCallback((key: SegmentKey, cpIndex: number) => {
-    setState(s => {
-      const segments = [...s.segments]
-      const idx = segments.findIndex(
-        seg => seg.from_waypoint === key.from && seg.to_waypoint === key.to,
+    const s = _stateRef.current
+    const idx = s.segments.findIndex(
+      seg => seg.from_waypoint === key.from && seg.to_waypoint === key.to,
+    )
+    if (idx < 0) return
+    const seg = { ...s.segments[idx] }
+    const cps = [...(seg.control_points ?? [])]
+    if (cpIndex < 0 || cpIndex >= cps.length) return
+    cps.splice(cpIndex, 1)
+    seg.control_points = cps
+    const updatedSeg = rebuildOffroadGeometry(seg)
+    setState(prev => {
+      const i = prev.segments.findIndex(
+        sg => sg.from_waypoint === key.from && sg.to_waypoint === key.to,
       )
-      if (idx < 0) return s
-      const seg = { ...segments[idx] }
-      const cps = [...(seg.control_points ?? [])]
-      if (cpIndex < 0 || cpIndex >= cps.length) return s
-      cps.splice(cpIndex, 1)
-      seg.control_points = cps
-      segments[idx] = rebuildOffroadGeometry(seg)
-      return { ...s, segments }
+      if (i < 0) return prev
+      const segments = [...prev.segments]
+      segments[i] = updatedSeg
+      return { ...prev, segments }
     })
+    // Phase D.2 — Trigger 2: DEM fill after control point removal.
+    void Promise.resolve().then(() => { _fillOffroadRef.current?.(updatedSeg) })
   }, [])
 
   // ── Profile ─────────────────────────────────────────────────────────────────
@@ -1200,6 +1318,11 @@ export function useRoutePlanner() {
     const needsLazyFill =
       (route.elevation_profile == null || route.elevation_profile.length === 0)
       && (route.segments?.length ?? 0) > 0
+
+    // Phase E: integrate migrateRoute call here — fill offroad segments that
+    // have no elevation_profile yet (pre-T0 routes loaded from DB). Will call
+    // fillOffroadAndApply for each offroad segment with missing profile.
+    // TODO(Phase E): uncomment and implement migrateRoute(route, fillOffroadAndApply)
 
     if (!needsLazyFill) return
 
