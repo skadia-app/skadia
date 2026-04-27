@@ -58,6 +58,10 @@ export interface PlannedRoute {
   elevation_profile?: RouteElevationPoint[] | null  // NEW
   enrichment?: Record<string, unknown> | null       // NEW (opaque JSONB-passthrough)
   routing_engine?: 'badrouter' | 'brouter' | null   // NEW (Migration 000332)
+  // T0-Migration gate (Spec §5.8 / Phase E). 0 = pre-T0 route (segments may
+  // lack elevation_profile). 1 = T0-formatted (all segments have profiles).
+  // Absent from old server responses — treat as 0 via `?? 0`.
+  route_schema_version?: number
   photos: RoutePhoto[]
   tags: Tag[]
   created_at: string
