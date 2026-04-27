@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchSummitCollection } from '@/api/summits'
 import type { ElevClass } from '@/components/summit/summitConstants'
+import { useCurrentUserId } from '@/providers/UserProvider'
 
 interface UseSummitCollectionOptions {
   countryFilter: string
@@ -10,8 +11,11 @@ interface UseSummitCollectionOptions {
 }
 
 export function useSummitCollection({ countryFilter, elevClass, yearFilter }: UseSummitCollectionOptions) {
+  // user_id in the query key — visited summits are user-private; prevents
+  // cross-user cache hits if logout clear() ever fails.
+  const userId = useCurrentUserId()
   const { data: allSummits, isLoading: isLoadingAll } = useQuery({
-    queryKey: ['summit-collection-all'],
+    queryKey: ['summit-collection-all', userId],
     queryFn: () => fetchSummitCollection(),
     staleTime: 5 * 60 * 1000,
   })
@@ -19,7 +23,7 @@ export function useSummitCollection({ countryFilter, elevClass, yearFilter }: Us
   const isFiltered = !!(countryFilter || elevClass.min != null || elevClass.max != null || yearFilter)
 
   const { data: filteredData, isLoading: isLoadingFiltered } = useQuery({
-    queryKey: ['summit-collection', countryFilter, elevClass.label, yearFilter],
+    queryKey: ['summit-collection', userId, countryFilter, elevClass.label, yearFilter],
     queryFn: () => fetchSummitCollection({
       country: countryFilter || undefined,
       min_elevation: elevClass.min ?? undefined,

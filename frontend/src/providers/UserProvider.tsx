@@ -56,3 +56,17 @@ export function useUser() {
   if (!ctx) throw new Error('useUser must be used within UserProvider')
   return ctx
 }
+
+/**
+ * Returns the current user's id, or `'anon'` when no UserProvider is mounted
+ * (tests, public pages). Stable accessor for React-Query keys that need to
+ * be user-scoped as defense-in-depth against cross-user cache leakage.
+ *
+ * The value is included in query-key tuples (e.g. `['user-map-layers', userId]`)
+ * so cache reads from a stale user-id never collide with the new user's data,
+ * even if `queryClient.clear()` somehow doesn't run on logout.
+ */
+export function useCurrentUserId(): string {
+  const ctx = useContext(UserContext)
+  return ctx?.user?.user_id ?? 'anon'
+}
