@@ -6,8 +6,8 @@
  * - distAccum-fallback for segments without a profile (M5 coverage gaps)
  * - null when no segment has a profile
  */
-import { describe, it, expect } from 'vitest'
-import { buildProfileToCoordMap } from '../profileToCoordMap'
+import { describe, it, expect, vi } from 'vitest'
+import { buildProfileToCoordMap, hoverPointAtFraction, profileIdxAtDist } from '../profileToCoordMap'
 import type { RouteSegment, RouteWaypoint } from '@/api/routes'
 
 function makeWaypoints(...ids: string[]): RouteWaypoint[] {
@@ -162,5 +162,101 @@ describe('buildProfileToCoordMap', () => {
     expect(result!.profile).toHaveLength(3)
     // All ele_m null — passed through, not filtered
     result!.profile.forEach(pt => expect(pt.ele_m).toBeNull())
+  })
+})
+
+describe('hover sync lookup', () => {
+  it('TestHoverSync_ChartHover_SetsMapMarker', () => {
+    const wps = makeWaypoints('a', 'b')
+    const seg = makeSeg(
+      'a',
+      'b',
+      100,
+      [[11, 47], [11.05, 47.05], [11.1, 47.1]],
+      [{ dist_m: 0, ele_m: 100 }, { dist_m: 50, ele_m: 110 }, { dist_m: 100, ele_m: 120 }],
+    )
+    const result = buildProfileToCoordMap([seg], wps)
+    expect(result).not.toBeNull()
+
+    const point = hoverPointAtFraction(0.5, 100, result!.profile, result!.map, result!.coords)
+
+    expect(point).toEqual({ lat: 47.05, lng: 11.05 })
+  })
+
+  it('TestHoverSync_ChartLeave_ClearsMapMarker', () => {
+    const setHoverPoint = vi.fn()
+    setHoverPoint(null)
+    expect(setHoverPoint).toHaveBeenCalledWith(null)
+  })
+
+  it('TestProfileIdxToCoordIdx_JunctionDedupAware', () => {
+    const wps = makeWaypoints('a', 'b', 'c')
+    const seg1 = makeSeg(
+      'a',
+      'b',
+      100,
+      [[11, 47], [11.05, 47.05], [11.1, 47.1]],
+      [{ dist_m: 0, ele_m: 100 }, { dist_m: 50, ele_m: 110 }, { dist_m: 100, ele_m: 120 }],
+    )
+    const seg2 = makeSeg(
+      'b',
+      'c',
+      100,
+      [[11.1, 47.1], [11.15, 47.15], [11.2, 47.2]],
+      [{ dist_m: 0, ele_m: 120 }, { dist_m: 50, ele_m: 130 }, { dist_m: 100, ele_m: 140 }],
+    )
+    const result = buildProfileToCoordMap([seg1, seg2], wps)
+    expect(result).not.toBeNull()
+
+    const point = hoverPointAtFraction(0.75, 200, result!.profile, result!.map, result!.coords)
+
+    expect(point).toEqual({ lat: 47.15, lng: 11.15 })
+  })
+})
+
+describe('profileIdxAtDist', () => {
+  const profile = [
+    { dist_m: 0, ele_m: 100 },
+    { dist_m: 40, ele_m: null },
+    { dist_m: 100, ele_m: 120 },
+    { dist_m: 180, ele_m: 130 },
+  ]
+
+  it('returns -1 for an empty profile', () => {
+    expect(profileIdxAtDist(10, [])).toBe(-1)
+  })
+
+  it('clamps distances outside the profile range', () => {
+    expect(profileIdxAtDist(-5, profile)).toBe(0)
+    expect(profileIdxAtDist(200, profile)).toBe(3)
+  })
+
+  it('returns exact and nearest profile indices without filtering null elevations', () => {
+    expect(profileIdxAtDist(40, profile)).toBe(1)
+    expect(profileIdxAtDist(66, profile)).toBe(1)
+    expect(profileIdxAtDist(71, profile)).toBe(2)
+  })
+
+  it('respects junction-dedup-aware combined profile distances', () => {
+    const wps = makeWaypoints('a', 'b', 'c')
+    const seg1 = makeSeg(
+      'a',
+      'b',
+      100,
+      [[11, 47], [11.05, 47.05], [11.1, 47.1]],
+      [{ dist_m: 0, ele_m: 100 }, { dist_m: 50, ele_m: 110 }, { dist_m: 100, ele_m: 120 }],
+    )
+    const seg2 = makeSeg(
+      'b',
+      'c',
+      100,
+      [[11.1, 47.1], [11.15, 47.15], [11.2, 47.2]],
+      [{ dist_m: 0, ele_m: 120 }, { dist_m: 50, ele_m: 130 }, { dist_m: 100, ele_m: 140 }],
+    )
+    const result = buildProfileToCoordMap([seg1, seg2], wps)
+
+    expect(result).not.toBeNull()
+    expect(profileIdxAtDist(151, result!.profile)).toBe(3)
+    expect(result!.map[profileIdxAtDist(151, result!.profile)]).toBe(3)
   })
 })

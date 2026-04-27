@@ -96,3 +96,44 @@ export function buildProfileToCoordMap(
   if (profile.length === 0) return null
   return { profile, map, coords }
 }
+
+export function profileIdxAtDist(distM: number, profile: RouteElevationPoint[]): number {
+  if (profile.length === 0) return -1
+  if (distM <= profile[0].dist_m) return 0
+  const lastIdx = profile.length - 1
+  if (distM >= profile[lastIdx].dist_m) return lastIdx
+
+  let lo = 0
+  let hi = lastIdx
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2)
+    if (profile[mid].dist_m < distM) {
+      lo = mid + 1
+    } else {
+      hi = mid
+    }
+  }
+
+  const nextIdx = lo
+  const prevIdx = lo - 1
+  const prevDelta = Math.abs(distM - profile[prevIdx].dist_m)
+  const nextDelta = Math.abs(profile[nextIdx].dist_m - distM)
+  return prevDelta <= nextDelta ? prevIdx : nextIdx
+}
+
+export function hoverPointAtFraction(
+  fraction: number,
+  totalDistanceM: number,
+  profile: RouteElevationPoint[],
+  profileToCoordMap: ProfileToCoordMap,
+  coords: [number, number][],
+): { lat: number; lng: number } | null {
+  if (totalDistanceM <= 0 || profile.length === 0) return null
+  const profileIdx = profileIdxAtDist(fraction * totalDistanceM, profile)
+  if (profileIdx < 0) return null
+  const coordIdx = profileToCoordMap[profileIdx]
+  const coord = coords[coordIdx]
+  if (!coord) return null
+  const [lng, lat] = coord
+  return { lat, lng }
+}

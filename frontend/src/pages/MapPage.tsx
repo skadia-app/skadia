@@ -18,6 +18,7 @@ import RouteComparisonPanel, { SUGGESTION_COLORS } from '@/components/route-plan
 import { getRoute } from '@/api/routes'
 import type { RouteSuggestion } from '@/api/routes'
 import { useRoutePlanner } from '@/hooks/useRoutePlanner'
+import { buildProfileToCoordMap, hoverPointAtFraction } from '@/hooks/profileToCoordMap'
 import { getTagTextColor, getTagBadgeStyle } from '@/lib/tagUtils'
 import { fmtDateCompact } from '@/lib/format'
 import { useRouteEditor } from '@/components/route-planner/useRouteEditor'
@@ -520,6 +521,27 @@ export default function MapPage() {
     }
     return out
   }, [planner.segments, planner.waypoints])
+
+  const profileCoordMap = useMemo(
+    () => buildProfileToCoordMap(planner.segments, planner.waypoints),
+    [planner.segments, planner.waypoints],
+  )
+
+  const handleProfileHover = useCallback((fraction: number | null) => {
+    if (fraction === null) {
+      routePlannerMapRef.current?.setHoverPoint(null)
+      return
+    }
+    if (!profileCoordMap) return
+    const point = hoverPointAtFraction(
+      fraction,
+      planner.totals.distance_m,
+      profileCoordMap.profile,
+      profileCoordMap.map,
+      profileCoordMap.coords,
+    )
+    routePlannerMapRef.current?.setHoverPoint(point)
+  }, [planner.totals.distance_m, profileCoordMap])
 
   // Style version counter for re-adding layers after style changes
   const [styleVersion, setStyleVersion] = useState(0)
@@ -3491,6 +3513,7 @@ export default function MapPage() {
                   onTogglePin={planner.togglePin}
                   onScaleHover={planner.setScaleHover}
                   onSummitHover={setSummitHovered}
+                  onHoverFraction={handleProfileHover}
                   summitPinned={summitPinned}
                   onToggleSummitPin={toggleSummitPin}
                   isCalculating={planner.isCalculating}
