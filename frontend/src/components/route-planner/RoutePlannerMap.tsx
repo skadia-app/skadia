@@ -79,7 +79,17 @@ function RoutePlannerMap({
         .setLngLat([point.lng, point.lat])
         .addTo(map)
     },
-    fitBoundsToBBox() {},
+    fitBoundsToBBox(bbox, opts) {
+      const map = mapRef.current
+      if (!map) return
+      const [minLng, minLat, maxLng, maxLat] = bbox
+      const bounds = new maplibregl.LngLatBounds([minLng, minLat], [maxLng, maxLat])
+      map.fitBounds(bounds, {
+        padding: opts?.padding ?? 48,
+        animate: opts?.animate,
+        maxZoom: opts?.maxZoom,
+      })
+    },
     fitBoundsToFullRoute() {
       const map = mapRef.current
       const bounds = fullRouteBoundsRef.current
