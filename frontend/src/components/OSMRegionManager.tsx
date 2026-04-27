@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trash2, Database, XCircle, ChevronDown, RefreshCw, AlertTriangle, Sparkles, Layers, Route, Grid3x3, ArrowDownToLine } from 'lucide-react'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   fetchOSMRegionStatus,
   fetchOSMDiskUsage,
@@ -24,7 +24,37 @@ import OSMImportModal from '@/components/OSMImportModal'
 import RegionSelector from '@/components/RegionSelector'
 import PipelinePanel from '@/components/PipelinePanel'
 
-export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
+export interface OSMRegionManagerBatchUpdateProps {
+  /** Trigger batch-update; opens the rebuild-tiles confirmation dialog. */
+  onClick: () => void
+  /** True while a batch update / single update / OSM import is running or the mutation is pending. */
+  disabled: boolean
+  /** Localized label, switches to "Batch-Update läuft…" while a batch update is active. */
+  label: string
+  /** True only when the button should be visible at all (≥1 imported region with replication_url). */
+  visible: boolean
+}
+
+export function OSMRegionManager({
+  hasOsmData,
+  renderBatchUpdateButton,
+  onBatchUpdateState,
+}: {
+  hasOsmData?: boolean
+  /**
+   * Optional render-prop that lets the parent place the "Alle Regionen aktualisieren"
+   * button outside the imported-regions table (e.g. in a bottom action row).
+   * When supplied, OSMRegionManager hides its own inline button.
+   */
+  renderBatchUpdateButton?: (props: OSMRegionManagerBatchUpdateProps) => React.ReactNode
+  /**
+   * Optional callback that pushes the latest batch-update button state to the parent
+   * via useEffect. Use this when the parent renders the button on its own — it lets
+   * OSMRegionManager hide its inline button without forcing the parent to opt into
+   * the render-prop pattern.
+   */
+  onBatchUpdateState?: (props: OSMRegionManagerBatchUpdateProps) => void
+}) {
   const qc = useQueryClient()
   const { addToast } = useToast()
   const { openModal } = useModal()
@@ -134,6 +164,44 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
   const regions = regionData?.regions ?? []
   const importedRegions = regions.filter(r => r.status === 'imported')
 
+  // Batch-update entry point — shared between the inline button and the
+  // optional `renderBatchUpdateButton` slot rendered by the parent.
+  function triggerBatchUpdate() {
+    openModal({
+      title: 'Routing-Tiles neu bauen?',
+      message: 'Sollen nach dem Update auch Routing-Tiles neu gebaut werden?',
+      buttons: [
+        { label: 'Nein', variant: 'default', onClick: () => batchUpdateMut.mutate(false) },
+        { label: 'Ja, Tiles bauen', variant: 'default', onClick: () => batchUpdateMut.mutate(true) },
+      ],
+    })
+  }
+  const batchUpdateVisible =
+    importedRegions.length > 0 && importedRegions.some(r => r.replication_url)
+  const batchUpdateDisabled =
+    !!activeOsmJob || !!activeOsmUpdate || !!activeBatchUpdate || batchUpdateMut.isPending
+  const batchUpdateLabel = activeBatchUpdate ? 'Batch-Update läuft…' : 'Alle Regionen aktualisieren'
+
+  // Push the latest batch-update state up so the parent can render the button
+  // wherever it visually belongs (e.g. a bottom action row).
+  useEffect(() => {
+    if (!onBatchUpdateState) return
+    onBatchUpdateState({
+      onClick: triggerBatchUpdate,
+      disabled: batchUpdateDisabled,
+      label: batchUpdateLabel,
+      visible: batchUpdateVisible,
+    })
+    // triggerBatchUpdate is stable enough for our purposes (depends on openModal +
+    // batchUpdateMut which keep stable identities). Including it would re-fire on
+    // every render; we deliberately omit it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchUpdateDisabled, batchUpdateLabel, batchUpdateVisible, onBatchUpdateState])
+
+  // When either escape hatch is supplied, suppress the inline button so the parent
+  // owns placement. Render-prop wins when both are supplied.
+  const inlineBatchUpdateHidden = !!renderBatchUpdateButton || !!onBatchUpdateState
+
   return (
     <>
     {updateTarget && (
@@ -209,32 +277,25 @@ export function OSMRegionManager({ hasOsmData }: { hasOsmData?: boolean }) {
         </p>
       ) : (
         <div className="overflow-x-auto">
-          {importedRegions.length > 0 && importedRegions.some(r => r.replication_url) && (
+          {batchUpdateVisible && !inlineBatchUpdateHidden && (
             <div className="flex justify-end mb-3">
               <button
-                onClick={() => {
-                  openModal({
-                    title: 'Routing-Tiles neu bauen?',
-                    message: 'Sollen nach dem Update auch Routing-Tiles neu gebaut werden?',
-                    buttons: [
-                      {
-                        label: 'Nein',
-                        variant: 'default',
-                        onClick: () => batchUpdateMut.mutate(false),
-                      },
-                      {
-                        label: 'Ja, Tiles bauen',
-                        variant: 'default',
-                        onClick: () => batchUpdateMut.mutate(true),
-                      },
-                    ],
-                  })
-                }}
-                disabled={!!activeOsmJob || !!activeOsmUpdate || !!activeBatchUpdate || batchUpdateMut.isPending}
+                onClick={triggerBatchUpdate}
+                disabled={batchUpdateDisabled}
                 className="cursor-pointer text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90"
               >
-                {activeBatchUpdate ? 'Batch-Update läuft…' : 'Alle Regionen aktualisieren'}
+                {batchUpdateLabel}
               </button>
+            </div>
+          )}
+          {batchUpdateVisible && renderBatchUpdateButton && (
+            <div className="flex justify-end mb-3">
+              {renderBatchUpdateButton({
+                onClick: triggerBatchUpdate,
+                disabled: batchUpdateDisabled,
+                label: batchUpdateLabel,
+                visible: batchUpdateVisible,
+              })}
             </div>
           )}
           <table className="w-full text-sm">
