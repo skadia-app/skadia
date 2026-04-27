@@ -80,7 +80,7 @@ function layerToForm(l: UserMapLayer): LayerFormState {
     attribution: l.attribution ?? '',
     min_zoom: l.min_zoom != null ? String(l.min_zoom) : '',
     max_zoom: l.max_zoom != null ? String(l.max_zoom) : '',
-    default_opacity_pct: String(Math.round((l.default_opacity ?? 1) * 100)),
+    default_opacity_pct: String(l.default_opacity ?? 100),
   }
 }
 
@@ -91,7 +91,7 @@ function formToBody(f: LayerFormState): Partial<UserMapLayer> {
     attribution: f.attribution || undefined,
     min_zoom: f.min_zoom !== '' ? Number(f.min_zoom) : undefined,
     max_zoom: f.max_zoom !== '' ? Number(f.max_zoom) : undefined,
-    default_opacity: Number(f.default_opacity_pct) / 100,
+    default_opacity: Number(f.default_opacity_pct),
   }
 }
 

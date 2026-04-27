@@ -62,9 +62,9 @@ export async function fetchMapLayers(): Promise<{
   return apiClient('/map-layers')
 }
 
-// Public (no auth): GET /api/v1/system-layers/keys — full path bypasses API_BASE prefix
+// Public (no auth): GET /api/v1/system-layers/keys
 export async function fetchSystemLayerKeys(): Promise<SystemLayerDescriptor[]> {
-  return apiClient('/api/v1/system-layers/keys')
+  return apiClient('/system-layers/keys')
 }
 
 // Admin CRUD — routes under /api/v1/admin/map-layers
